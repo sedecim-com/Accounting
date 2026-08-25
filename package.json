@@ -17,7 +17,8 @@
     "graphql:codegen": "graphql-codegen",
     "test:watch": "vitest --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit"
+    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
+    "reclass:iva-ppd": "tsx scripts/reclasificar-iva-ppd.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
