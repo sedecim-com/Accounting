@@ -61,7 +61,7 @@ export async function generateW2(
   const e = empResult.rows[0];
 
   const entResult = await query<{ tax_id: string; name: string; address_line1: string | null; city: string | null; state_province: string | null; postal_code: string | null }>(
-    `SELECT tax_id, name, address_line1, city, state_province, postal_code FROM entities WHERE id = $1`,
+    `SELECT tax_id, name, address_line1, city, state_province, postal_code FROM legal_entities WHERE id = $1`,
     [e.entity_id]
   );
   const ent = entResult.rows[0];

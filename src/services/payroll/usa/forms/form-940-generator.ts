@@ -57,7 +57,7 @@ export async function generateForm940(
   const r = result.rows[0];
 
   const entResult = await query<{ tax_id: string; name: string }>(
-    `SELECT tax_id, name FROM entities WHERE id = $1`,
+    `SELECT tax_id, name FROM legal_entities WHERE id = $1`,
     [entityId]
   );
   const ent = entResult.rows[0] || { tax_id: '', name: '' };

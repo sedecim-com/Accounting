@@ -46,8 +46,8 @@ export interface BenefitDeductionResult {
 export async function createBenefitPlan(input: BenefitPlanInput): Promise<string> {
   const id = uuidv4();
   await query(
-    `INSERT INTO benefits_plans (id, tenant_id, entity_id, plan_type, plan_name,
-       is_pre_tax, employer_match_formula, annual_limit)
+    `INSERT INTO benefits_plans (id, tenant_id, entity_id, plan_type, name,
+       is_pre_tax, employer_match_formula, contribution_limit_annual)
      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
     [id, input.tenant_id, input.entity_id, input.plan_type, input.plan_name,
      input.is_pre_tax, JSON.stringify(input.employer_match_formula || null), input.annual_limit || null]
@@ -59,13 +59,14 @@ export async function electBenefit(input: EmployeeElectionInput): Promise<string
   const id = uuidv4();
   await query(
     `INSERT INTO employee_benefit_elections
-       (id, employee_id, benefit_plan_id, election_type, election_value, effective_date, status)
-     VALUES ($1, $2, $3, $4, $5, $6, 'active')
+       (id, employee_id, benefit_plan_id, employee_contribution_type,
+        employee_contribution_value, effective_date, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, true)
      ON CONFLICT (employee_id, benefit_plan_id)
-     DO UPDATE SET election_type = EXCLUDED.election_type,
-                   election_value = EXCLUDED.election_value,
+     DO UPDATE SET employee_contribution_type = EXCLUDED.employee_contribution_type,
+                   employee_contribution_value = EXCLUDED.employee_contribution_value,
                    effective_date = EXCLUDED.effective_date,
-                   status = 'active'`,
+                   is_active = true`,
     [id, input.employee_id, input.benefit_plan_id, input.election_type, input.election_value, input.effective_date]
   );
   return id;
@@ -91,11 +92,16 @@ export async function calculateBenefitsForPaycheck(
     employer_match_formula: Record<string, unknown> | null;
     annual_limit: string | null;
   }>(
-    `SELECT ebe.id AS election_id, ebe.benefit_plan_id, ebe.election_type, ebe.election_value,
-            bp.plan_type, bp.is_pre_tax, bp.employer_match_formula, bp.annual_limit
+    // Las columnas reales son employee_contribution_* , contribution_limit_annual
+    // e is_active; se les pone alias para no propagar el cambio al cálculo.
+    `SELECT ebe.id AS election_id, ebe.benefit_plan_id,
+            ebe.employee_contribution_type AS election_type,
+            ebe.employee_contribution_value AS election_value,
+            bp.plan_type, bp.is_pre_tax, bp.employer_match_formula,
+            bp.contribution_limit_annual AS annual_limit
      FROM employee_benefit_elections ebe
      JOIN benefits_plans bp ON bp.id = ebe.benefit_plan_id
-     WHERE ebe.employee_id = $1 AND ebe.status = 'active'`,
+     WHERE ebe.employee_id = $1 AND ebe.is_active = true`,
     [employeeId]
   );
 

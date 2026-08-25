@@ -46,11 +46,13 @@ export async function submitW2sToSsa(
   const wageFileId = `WFID${Date.now().toString().slice(-10)}`;
 
   await query(
-    `INSERT INTO tax_form_filings (tenant_id, entity_id, form_type, tax_year, status, provider, submission_id, submitted_at, data)
+    // confirmation_number y filed_at son las columnas reales; 'submitted' no
+    // está en el CHECK de status (draft|ready|filed|accepted|rejected|amended).
+    `INSERT INTO tax_form_filings (tenant_id, entity_id, form_type, tax_year, status, provider, confirmation_number, filed_at, data)
      VALUES ($1, $2, 'w2_efw2_bundle', $3, $4, 'ssa_bso', $5, NOW(), $6::jsonb)`,
     [
       tenantId, entityId, taxYear,
-      errors.length > 0 ? 'rejected' : 'submitted',
+      errors.length > 0 ? 'rejected' : 'filed',
       wageFileId,
       JSON.stringify({ record_count, errors, submitter }),
     ]

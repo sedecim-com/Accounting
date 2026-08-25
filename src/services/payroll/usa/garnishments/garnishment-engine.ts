@@ -60,11 +60,22 @@ export async function calculateGarnishments(input: GarnishmentInput): Promise<Ga
     arrears_over_12_weeks: boolean | null;
     exempt_amount: string | null;
   }>(
-    `SELECT id, type, amount_per_period, percentage, priority,
-            supports_second_family, arrears_over_12_weeks, exempt_amount
+    // El esquema modela el importe como (amount_type, amount_value) y guarda
+    // los detalles específicos del embargo estadounidense en `metadata`: los
+    // topes de la CCPA (segunda familia, atrasos > 12 semanas, exención) no
+    // son atributos universales de un embargo. Se les da alias para no
+    // propagar el cambio al cálculo, que es lo delicado de este módulo.
+    `SELECT id,
+            garnishment_type AS type,
+            CASE WHEN amount_type = 'fixed' THEN amount_value END AS amount_per_period,
+            CASE WHEN amount_type = 'percentage' THEN amount_value END AS percentage,
+            priority,
+            (metadata ->> 'supports_second_family')::boolean AS supports_second_family,
+            (metadata ->> 'arrears_over_12_weeks')::boolean  AS arrears_over_12_weeks,
+            (metadata ->> 'exempt_amount')                    AS exempt_amount
      FROM garnishments
-     WHERE employee_id = $1 AND status = 'active'
-     ORDER BY priority ASC, created_at ASC`,
+     WHERE employee_id = $1 AND is_active = true
+     ORDER BY priority ASC, start_date ASC`,
     [input.employee_id]
   );
 

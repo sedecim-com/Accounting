@@ -59,7 +59,7 @@ export async function generateIdseBatch(
   movements: ImssMovement[]
 ): Promise<{ content: string; record_count: number; batch_id: string }> {
   const entResult = await query<{ imss_registro_patronal: string | null }>(
-    `SELECT imss_registro_patronal FROM entities WHERE id = $1`,
+    `SELECT imss_registro_patronal FROM legal_entities WHERE id = $1`,
     [entityId]
   );
   const rp = entResult.rows[0]?.imss_registro_patronal || '';

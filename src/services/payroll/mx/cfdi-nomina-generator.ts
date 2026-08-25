@@ -62,7 +62,7 @@ export async function generateAndStampCfdiNomina(
      JOIN pay_runs pr ON pr.id = p.pay_run_id
      JOIN pay_periods pp ON pp.id = pr.pay_period_id
      JOIN employees e ON e.id = p.employee_id
-     JOIN entities ent ON ent.id = e.entity_id
+     JOIN legal_entities ent ON ent.id = e.entity_id
      WHERE p.id = $1`,
     [paycheckId]
   );

@@ -34,7 +34,7 @@ export async function generateW3(
   taxYear: number
 ): Promise<W3Data> {
   const entResult = await query<{ tax_id: string; name: string; address_line1: string | null; city: string | null; state_province: string | null; postal_code: string | null }>(
-    `SELECT tax_id, name, address_line1, city, state_province, postal_code FROM entities WHERE id = $1`,
+    `SELECT tax_id, name, address_line1, city, state_province, postal_code FROM legal_entities WHERE id = $1`,
     [entityId]
   );
   const ent = entResult.rows[0];
@@ -128,7 +128,7 @@ export async function generateEfw2File(
 
   // RE — Employer
   const ent = await query<{ tax_id: string; name: string; address_line1: string | null; city: string | null; state_province: string | null; postal_code: string | null }>(
-    `SELECT tax_id, name, address_line1, city, state_province, postal_code FROM entities WHERE id = $1`,
+    `SELECT tax_id, name, address_line1, city, state_province, postal_code FROM legal_entities WHERE id = $1`,
     [entityId]
   );
   const e = ent.rows[0];
