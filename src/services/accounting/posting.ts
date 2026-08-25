@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { registrarAuditoria } from '../audit/audit-log.js';
 import type pg from 'pg';
 import { query, withTransaction, currentTenant } from '../../database/connection.js';
 import { validateJournalEntry } from './validation.js';
@@ -156,6 +157,19 @@ export async function createJournalEntry(
     const entry = entryResult.rows[0];
     const entryLines = linesResult.rows;
 
+    // El rastro se escribe en ESTA transacción, no aparte: si el asiento
+    // no llega a confirmarse, su registro de auditoría tampoco.
+    const tenantId = await tenantParaAuditoria(client, entityId);
+    await registrarAuditoria(client, {
+      tenantId,
+      userId: createdBy,
+      action: 'create',
+      entityType: 'journal_entries',
+      entityId: entryId,
+      newValues: resumenAsiento(entry, entryLines),
+      reason: options?.isReversal ? `Reversión de ${options?.reference ?? 'un asiento'}` : null,
+    });
+
     // Auto-post if configured (inline within same transaction)
     if (options?.autoPost) {
       // Validate
@@ -172,6 +186,18 @@ export async function createJournalEntry(
         `UPDATE journal_entries SET status = 'posted', posted_date = $1, posted_by = $2 WHERE id = $3`,
         [now, createdBy, entryId]
       );
+
+      // Crear y contabilizar son dos hechos distintos aunque ocurran en el
+      // mismo instante: el libro los distingue y el rastro también.
+      await registrarAuditoria(client, {
+        tenantId,
+        userId: createdBy,
+        action: 'post',
+        entityType: 'journal_entries',
+        entityId: entryId,
+        oldValues: { status: 'draft' },
+        newValues: { status: 'posted', posted_by: createdBy },
+      });
 
       for (const line of entryLines) {
         await client.query(
@@ -194,19 +220,8 @@ export async function createJournalEntry(
 
       // Attestation launches AFTER commit (see below) — the orchestrator
       // reads the entry back from the DB, so launching pre-commit races.
-      // The context already knows the tenant; the lookup remains only for
-      // paths that don't set it yet (and under RLS it would return empty without it).
-      let tenantId = currentTenant();
-      if (!tenantId) {
-        const tenantLookup = await client.query<{ tenant_id: string }>(
-          'SELECT tenant_id FROM legal_entities WHERE id = $1',
-          [entityId]
-        );
-        tenantId = tenantLookup.rows[0]?.tenant_id;
-      }
-      if (tenantId) {
-        attest.info = { tenantId, entityId, entryId };
-      }
+      // El inquilino ya se resolvió arriba para la auditoría.
+      attest.info = { tenantId, entityId, entryId };
 
       return { ...finalEntry.rows[0], lines: entryLines };
     }
@@ -273,6 +288,16 @@ export async function postJournalEntry(
       [now, userId, entryId]
     );
 
+    await registrarAuditoria(client, {
+      tenantId: await tenantParaAuditoria(client, entry.entity_id),
+      userId,
+      action: 'post',
+      entityType: 'journal_entries',
+      entityId: entryId,
+      oldValues: { status: entry.status },
+      newValues: { status: 'posted', posted_by: userId },
+    });
+
     // Update account balances
     for (const line of linesResult.rows) {
       await client.query(
@@ -295,6 +320,46 @@ export async function postJournalEntry(
 
     return { ...updatedEntry.rows[0], lines: linesResult.rows };
   });
+}
+
+/**
+ * El inquilino del asiento, o un error. Un movimiento del libro mayor sin
+ * rastro no debe existir: si no se puede determinar a quién pertenece, no
+ * se escribe. En la práctica siempre resuelve —la clave foránea garantiza
+ * que la entidad existe— y el error señala un fallo de contexto, no un
+ * dato faltante.
+ */
+async function tenantParaAuditoria(client: pg.PoolClient, entityId: string): Promise<string> {
+  const tenantId = await resolveTenantId(client, entityId);
+  if (!tenantId) {
+    throw new AccountingError(
+      'TENANT_NO_RESUELTO',
+      `No se pudo determinar el inquilino de la entidad ${entityId}: el asiento no se escribe sin rastro de auditoría.`
+    );
+  }
+  return tenantId;
+}
+
+/** Resumen del asiento para el rastro: un renglón de auditoría es un
+ *  extracto, no una copia de la tabla. */
+function resumenAsiento(
+  entry: JournalEntry,
+  lines: JournalEntryLine[]
+): Record<string, unknown> {
+  const suma = (campo: 'debit_amount' | 'credit_amount'): string =>
+    lines.reduce((acc, l) => acc + Number(l[campo] ?? 0), 0).toFixed(2);
+  return {
+    entry_number: entry.entry_number,
+    entry_type: entry.entry_type,
+    entry_date: entry.entry_date,
+    description: entry.description,
+    fiscal_period_id: entry.fiscal_period_id,
+    source_type: entry.source_type ?? null,
+    source_id: entry.source_id ?? null,
+    line_count: lines.length,
+    total_debit: suma('debit_amount'),
+    total_credit: suma('credit_amount'),
+  };
 }
 
 /** currentTenant() when set; otherwise a lookup (same pattern as createJournalEntry). */
@@ -375,6 +440,20 @@ async function reverseWithinTransaction(
     reversal.id,
     entry.id,
   ]);
+
+  // El asiento original NO se anula (NIF B-1: se corrige por reversión, no
+  // por edición): sigue contabilizado. Lo que cambia es que ya tiene
+  // espejo, y eso es lo que registra el rastro.
+  await registrarAuditoria(client, {
+    tenantId: await tenantParaAuditoria(client, entry.entity_id),
+    userId,
+    action: 'update',
+    entityType: 'journal_entries',
+    entityId: entry.id,
+    oldValues: { reversed_by_entry_id: null },
+    newValues: { reversed_by_entry_id: reversal.id, reversal_entry_number: reversal.entry_number },
+    reason: description,
+  });
 
   return reversal;
 }
@@ -481,6 +560,22 @@ export async function voidJournalEntryInTx(
     'SELECT * FROM journal_entries WHERE id = $1',
     [entryId]
   );
+
+  await registrarAuditoria(client, {
+    tenantId: await tenantParaAuditoria(client, entry.entity_id),
+    userId,
+    action: 'void',
+    entityType: 'journal_entries',
+    entityId: entryId,
+    oldValues: { status: entry.status },
+    // Un asiento contabilizado sigue 'posted' y se anula por reversión: el
+    // rastro dice cuál de los dos caminos se tomó.
+    newValues: reversal
+      ? { status: updatedEntry.rows[0].status, reversed_by_entry_id: reversal.id }
+      : { status: 'void' },
+    reason,
+  });
+
   return { entry: updatedEntry.rows[0], reversal };
 }
 

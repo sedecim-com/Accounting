@@ -131,3 +131,70 @@ describe('numeración concurrente', () => {
     expect(folios.size).toBe(5);
   });
 });
+
+/**
+ * EL RASTRO, CONTRA POSTGRES DE VERDAD.
+ *
+ * En unitarias se comprueba que el motor emite el INSERT; aquí que la
+ * tabla lo acepta —el CHECK de audit_log.action tiene un vocabulario
+ * cerrado— y que el rastro es atómico con el hecho que describe.
+ */
+describe('rastro de auditoría del libro mayor', () => {
+  async function rastroDe(entryId: string) {
+    const r = await query<{ action: string; user_id: string; reason: string | null; new_values: Record<string, unknown> }>(
+      `SELECT action, user_id, reason, new_values FROM audit_log
+        WHERE entity_type = 'journal_entries' AND entity_id = $1
+        ORDER BY timestamp, action`,
+      [entryId]
+    );
+    return r.rows;
+  }
+
+  it('un asiento creado y posteado deja «create» y «post»', async () => {
+    const asiento = await asientoPosteado('321.00');
+    const r = await rastroDe(asiento.id);
+    expect(r.map((x) => x.action).sort()).toEqual(['create', 'post']);
+    expect(r.every((x) => x.user_id === f.userId)).toBe(true);
+    const alta = r.find((x) => x.action === 'create')!;
+    expect(alta.new_values).toMatchObject({ total_debit: '321.00', line_count: 2 });
+  });
+
+  it('una reversión deja rastro en el espejo y en el original', async () => {
+    const original = await asientoPosteado('55.00');
+    const espejo = await reverseJournalEntry(original.id, f.userId, { reason: 'cuenta equivocada' });
+
+    const delOriginal = await rastroDe(original.id);
+    const marca = delOriginal.find((x) => x.action === 'update');
+    expect(marca, 'el original debe registrar que ya tiene espejo').toBeDefined();
+    expect(marca!.reason).toMatch(/cuenta equivocada/);
+    expect(marca!.new_values).toMatchObject({ reversed_by_entry_id: espejo.id });
+
+    // NIF B-1: el original sigue contabilizado, no se anula.
+    expect(delOriginal.some((x) => x.action === 'void')).toBe(false);
+    expect((await rastroDe(espejo.id)).map((x) => x.action).sort()).toEqual(['create', 'post']);
+  });
+
+  it('si el asiento no se confirma, tampoco su rastro', async () => {
+    const antes = await query<{ n: string }>(`SELECT count(*) AS n FROM audit_log`);
+
+    // Hace falta un fallo POSTERIOR a la escritura del rastro, o la prueba
+    // no probaría nada: un asiento desbalanceado con autoPost pasa por
+    // INSERT del encabezado, de las líneas y del renglón «create», y
+    // revienta después, al validar. Si la auditoría se escribiera con
+    // query() —conexión aparte, transacción aparte— ese renglón habría
+    // sobrevivido al ROLLBACK y este conteo subiría.
+    await expect(
+      createJournalEntry(
+        f.entityId, fechaEnPeriodo(), JournalEntryType.STANDARD, 'Desbalanceado a propósito',
+        [
+          { account_id: f.roles.banco, debit_amount: '10.00', credit_amount: null, description: 'cargo' },
+          { account_id: f.roles.cxc, debit_amount: null, credit_amount: '5.00', description: 'abono corto' },
+        ],
+        f.userId, { autoPost: true }
+      )
+    ).rejects.toThrow();
+
+    const despues = await query<{ n: string }>(`SELECT count(*) AS n FROM audit_log`);
+    expect(Number(despues.rows[0].n)).toBe(Number(antes.rows[0].n));
+  });
+});

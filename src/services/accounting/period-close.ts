@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { query, withTransaction, currentTenant } from '../../database/connection.js';
+import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync } from './posting.js';
 import { AccountingError } from '../../utils/errors.js';
 import type { FiscalPeriod, JournalEntryType } from '../../types/index.js';
@@ -131,27 +132,52 @@ export async function softClosePeriod(
     );
   }
 
-  const result = await query<FiscalPeriod>(
-    `UPDATE fiscal_periods
-     SET status = 'soft_close', soft_close_date = NOW(), closed_by = $1,
-         close_checklist = $2
-     WHERE id = $3 AND entity_id = $4 AND status = 'open'
-     RETURNING *`,
-    [userId, JSON.stringify(status.checklist), periodId, entityId]
-  );
+  // Cierre y rastro en la MISMA transacción. Antes eran dos query()
+  // independientes: si el renglón de auditoría fallaba, el periodo quedaba
+  // cerrado sin constancia de quién lo cerró.
+  return withTransaction(async (client) => {
+    const result = await client.query<FiscalPeriod>(
+      `UPDATE fiscal_periods
+       SET status = 'soft_close', soft_close_date = NOW(), closed_by = $1,
+           close_checklist = $2
+       WHERE id = $3 AND entity_id = $4 AND status = 'open'
+       RETURNING *`,
+      [userId, JSON.stringify(status.checklist), periodId, entityId]
+    );
 
-  if (result.rows.length === 0) {
-    throw new AccountingError('PERIOD_NOT_OPEN', 'Period is not in open status');
+    if (result.rows.length === 0) {
+      throw new AccountingError('PERIOD_NOT_OPEN', 'Period is not in open status');
+    }
+
+    await registrarAuditoria(client, {
+      tenantId: await inquilinoDe(client, entityId),
+      userId,
+      action: 'close',
+      entityType: 'fiscal_period',
+      entityId: periodId,
+      newValues: { status: 'soft_close' },
+    });
+
+    return result.rows[0];
+  });
+}
+
+/** El inquilino del contexto, o el de la entidad. */
+async function inquilinoDe(client: pg.PoolClient, entityId: string): Promise<string> {
+  const delContexto = currentTenant();
+  if (delContexto) return delContexto;
+  const r = await client.query<{ tenant_id: string }>(
+    'SELECT tenant_id FROM legal_entities WHERE id = $1',
+    [entityId]
+  );
+  const tenantId = r.rows[0]?.tenant_id;
+  if (!tenantId) {
+    throw new AccountingError(
+      'TENANT_NO_RESUELTO',
+      `No se pudo determinar el inquilino de la entidad ${entityId}: el cierre no se registra sin rastro.`
+    );
   }
-
-  // Log audit
-  await query(
-    `INSERT INTO audit_log (id, user_id, tenant_id, action, entity_type, entity_id, new_values)
-     VALUES (uuid_generate_v4(), $1, COALESCE($5::uuid, (SELECT tenant_id FROM legal_entities WHERE id = $2)), 'close', 'fiscal_period', $3, $4)`,
-    [userId, entityId, periodId, JSON.stringify({ status: 'soft_close' }), currentTenant() ?? null]
-  );
-
-  return result.rows[0];
+  return tenantId;
 }
 
 export async function hardClosePeriod(

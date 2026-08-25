@@ -58,6 +58,7 @@ function reglasAlta(opts: { periodo?: boolean; siguienteFolio?: string } = {}) {
     { cuando: /INSERT INTO account_balances/, responde: {} },
     { cuando: /SELECT \* FROM journal_entries WHERE id/, responde: { rows: [posted] } },
     { cuando: /SELECT tenant_id FROM legal_entities/, responde: { rows: [{ tenant_id: 'tenant-1' }] } },
+    { cuando: /INSERT INTO audit_log/, responde: {} },
   ]);
 }
 

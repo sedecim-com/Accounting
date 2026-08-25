@@ -28,6 +28,10 @@ vi.mock('../../src/services/blockchain/orchestrator.js', () => ({
 
 import { postJournalEntry, reverseJournalEntry, voidJournalEntry, voidJournalEntryInTx, drainAttestations } from '../../src/services/accounting/posting.js';
 
+/** El motor escribe el rastro de auditoría en TODA ruta de escritura del
+ *  libro; el arnés es estricto y lo desconocería. Ver src/services/audit. */
+const AUDITORIA: ReglaConsulta = { cuando: /INSERT INTO audit_log/, responde: {} };
+
 const LINEAS_BD = [
   lineaFalsa({ line_number: 1, account_id: ID.cuentaA, debit_amount: '1000.0000' }),
   lineaFalsa({ line_number: 2, account_id: ID.cuentaB, credit_amount: '1000.0000' }),
@@ -36,6 +40,7 @@ const LINEAS_BD = [
 /** El asiento que devuelve el SELECT ... FOR UPDATE. */
 function reglas(entry: JournalEntry, extra: ReglaConsulta[] = []) {
   return clienteFalso([
+      AUDITORIA,
     { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [entry] } },
     { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
     { cuando: /UPDATE journal_entries SET status = 'posted'|UPDATE journal_entries SET status = 'posted', posted_date/, responde: {} },
@@ -73,6 +78,7 @@ describe('postJournalEntry · candados', () => {
 
   it('rechaza ENTRY_NOT_FOUND si no existe', async () => {
     arnes.actual = clienteFalso([
+      AUDITORIA,
       { cuando: /FOR UPDATE/, responde: { rows: [] } },
     ]);
     await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/not found/i);
@@ -97,6 +103,7 @@ describe('reverseJournalEntry · NIF B-1', () => {
   /** El espejo lo crea createJournalEntry, que corre sobre el MISMO cliente. */
   function reglasReversa(original: JournalEntry) {
     return clienteFalso([
+      AUDITORIA,
       { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [original] } },
       { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
       { cuando: /FROM fiscal_periods/, responde: { rows: [{ id: ID.periodo }] } },
@@ -164,6 +171,7 @@ describe('reverseJournalEntry · NIF B-1', () => {
 describe('voidJournalEntry · el estado void es solo para borradores', () => {
   it('un borrador pasa a void y NO genera espejo', async () => {
     const cf = (arnes.actual = clienteFalso([
+      AUDITORIA,
       { cuando: /FOR UPDATE/, responde: { rows: [asientoFalso({ status: 'draft' } as Partial<JournalEntry>)] } },
       { cuando: /UPDATE journal_entries SET status = 'void'/, responde: {} },
       {
@@ -179,6 +187,7 @@ describe('voidJournalEntry · el estado void es solo para borradores', () => {
   it('un posteado NO cambia de estado: se le enlaza un espejo', async () => {
     const posted = asientoFalso({ status: 'posted' } as Partial<JournalEntry>);
     const cf = (arnes.actual = clienteFalso([
+      AUDITORIA,
       { cuando: /FOR UPDATE/, responde: { rows: [posted] } },
       { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
       { cuando: /FROM fiscal_periods/, responde: { rows: [{ id: ID.periodo }] } },
@@ -203,6 +212,7 @@ describe('voidJournalEntry · el estado void es solo para borradores', () => {
 
   it('rechaza anular dos veces', async () => {
     arnes.actual = clienteFalso([
+      AUDITORIA,
       { cuando: /FOR UPDATE/, responde: { rows: [asientoFalso({ status: 'void' } as Partial<JournalEntry>)] } },
     ]);
     await expect(voidJournalEntry(ID.asiento, ID.usuario, 'otra vez')).rejects.toThrow(/already voided/i);
@@ -211,6 +221,7 @@ describe('voidJournalEntry · el estado void es solo para borradores', () => {
   it('voidJournalEntryInTx corre sobre el cliente del llamador y devuelve el espejo', async () => {
     const posted = asientoFalso({ status: 'posted' } as Partial<JournalEntry>);
     const cf = (arnes.actual = clienteFalso([
+      AUDITORIA,
       { cuando: /FOR UPDATE/, responde: { rows: [posted] } },
       { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
       { cuando: /FROM fiscal_periods/, responde: { rows: [{ id: ID.periodo }] } },
