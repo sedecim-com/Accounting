@@ -10,11 +10,14 @@
     "start": "node dist/index.js",
     "migrate": "tsx src/database/migrate.ts",
     "seed": "tsx src/database/seed.ts",
-    "test": "vitest",
-    "test:coverage": "vitest --coverage",
+    "test": "vitest run --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
-    "graphql:codegen": "graphql-codegen"
+    "graphql:codegen": "graphql-codegen",
+    "test:watch": "vitest --config vitest.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
@@ -59,7 +62,8 @@
     "eslint": "^8.56.0",
     "tsx": "^4.7.0",
     "typescript": "^5.3.0",
-    "vitest": "^1.2.0"
+    "vitest": "^1.2.0",
+    "@vitest/coverage-v8": "^1.2.0"
   },
   "engines": {
     "node": ">=20.0.0"

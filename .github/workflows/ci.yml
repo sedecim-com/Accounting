@@ -1,0 +1,67 @@
+# ARCHIVO ÚNICO DE CI.
+# Los paquetes del plan de cierre AÑADEN jobs aquí; ninguno vuelve a crear
+# este archivo. Si un paquete necesita una comprobación nueva, agrega un job
+# con nombre propio y decláralo en su especificación.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  typecheck:
+    name: Tipos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run typecheck:tests
+
+  unit:
+    name: Pruebas unitarias
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  integration:
+    name: Integración contra Postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mnemosine_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_test
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run migrate
+      - run: npm run test:integration

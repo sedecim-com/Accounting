@@ -10,6 +10,36 @@ import { config } from '../config/index.js';
 // deliberately NOT imported — that one carries the tenant context and the DDL-less role.
 const pool = new pg.Pool({ connectionString: config.database.migrationUrl, max: 1 });
 
+/**
+ * Cuatro números quedaron duplicados antes de que existiera esta guarda y ya
+ * están aplicados en bases desplegadas: renumerarlos rompería instalaciones,
+ * así que se documentan y se toleran. Cualquier duplicado NUEVO es un error.
+ * Reparto de rangos para el plan de cierre en docs/migraciones.md.
+ */
+const DUPLICADOS_HISTORICOS = new Set(['012', '014', '015', '018']);
+
+export function assertNumeracionUnica(files: string[]): void {
+  const porNumero = new Map<string, string[]>();
+  for (const f of files) {
+    const n = f.slice(0, 3);
+    if (!/^\d{3}$/.test(n)) {
+      throw new Error(`Migración sin prefijo numérico de tres dígitos: ${f}`);
+    }
+    porNumero.set(n, [...(porNumero.get(n) ?? []), f]);
+  }
+  const choques = [...porNumero.entries()]
+    .filter(([n, fs]) => fs.length > 1 && !DUPLICADOS_HISTORICOS.has(n))
+    .map(([n, fs]) => `  ${n}: ${fs.join(', ')}`);
+  if (choques.length > 0) {
+    const libre = String(
+      Math.max(...[...porNumero.keys()].map(Number)) + 1
+    ).padStart(3, '0');
+    throw new Error(
+      `Números de migración duplicados (el siguiente libre es ${libre}):\n${choques.join('\n')}`
+    );
+  }
+}
+
 async function runMigrations() {
   const client = await pool.connect();
   try {
@@ -26,6 +56,8 @@ async function runMigrations() {
     const files = fs.readdirSync(migrationsDir)
       .filter((f) => f.endsWith('.sql'))
       .sort();
+
+    assertNumeracionUnica(files);
 
     for (const file of files) {
       const existing = await client.query(
