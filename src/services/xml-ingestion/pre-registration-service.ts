@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../database/connection.js';
 import { createJournalEntry } from '../accounting/posting.js';
+import { planearAsiento, planContabilizable, type PlanDeAsiento } from './cfdi-posting-plan.js';
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto } from './cfdi-parser.js';
 import { SATValidationService } from './sat-validation.js';
@@ -467,14 +468,177 @@ export class PreRegistrationService {
 
       return result;
     } catch (error) {
+      // Un CFDI que necesita una decisión no es un error del sistema: es un
+      // documento que espera a una persona. Se distingue para que no se
+      // pierda entre fallos reales y para que la razón quede legible.
+      const requiereDecision =
+        (error as { code?: string }).code === 'CFDI_REQUIERE_DECISION';
+
       await query(
         `UPDATE pre_registrations SET
-          status = 'error', error_message = $2, error_details = $3::jsonb
+          status = $4, validation_status = $5,
+          error_message = $2, error_details = $3::jsonb
          WHERE id = $1`,
-        [preReg.id, (error as Error).message, JSON.stringify({ stack: (error as Error).stack })]
+        [
+          preReg.id,
+          (error as Error).message,
+          JSON.stringify(
+            requiereDecision ? { motivo: (error as Error).message } : { stack: (error as Error).stack }
+          ),
+          requiereDecision ? 'draft' : 'error',
+          requiereDecision ? 'needs_review' : 'invalid',
+        ]
       );
       throw error;
     }
+  }
+
+  /**
+   * Las líneas del asiento de una factura recibida.
+   *
+   * Cuando hay CFDI, manda el clasificador: él decide el caso, si el IVA va
+   * a acreditable o a pendiente de acreditar, y contra qué cuenta de
+   * control. El desglose por renglón —reglas del inquilino y sugerencias—
+   * sigue decidiendo a qué cuenta de gasto va cada concepto.
+   *
+   * Sin CFDI (alta manual, importación) no hay nada que clasificar y se
+   * conserva el armado directo, que asume pago en una exhibición porque es
+   * lo único que se puede asumir cuando no hay método de pago declarado.
+   */
+  private async lineasDelAsiento(
+    preReg: Record<string, unknown>,
+    lines: LineWithSuggestion[],
+    billNumber: string
+  ): Promise<Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }>> {
+    const plan = await this.planDeAsiento(preReg, lines, billNumber);
+
+    if (!plan) return this.lineasSinCfdi(preReg, lines, billNumber);
+
+    const { ok, motivo } = planContabilizable(plan);
+    if (!ok) {
+      // No se contabiliza a medias: el pre-registro queda marcado para
+      // revisión con la razón y las decisiones que faltan (ver el catch de
+      // processToAccounting).
+      throw new AccountingError('CFDI_REQUIERE_DECISION', motivo);
+    }
+
+    // Los avisos del clasificador —IVA de moneda extranjera, partidas
+    // exentas, un desglose que no cuadró— se guardan con el documento. Un
+    // aviso que no queda en ninguna parte no es un aviso.
+    if (plan.avisos.length > 0) {
+      await query(
+        `UPDATE pre_registrations
+            SET validation_status = 'warnings', validation_warnings = $2::jsonb
+          WHERE id = $1`,
+        [preReg.id, JSON.stringify(plan.avisos)]
+      );
+    }
+
+    return plan.lineas.map((l) => ({
+      account_id: l.account_id,
+      debit_amount: l.debit_amount,
+      credit_amount: l.credit_amount,
+      description: l.description,
+    }));
+  }
+
+  /** null cuando el pre-registro no viene de un CFDI. */
+  private async planDeAsiento(
+    preReg: Record<string, unknown>,
+    lines: LineWithSuggestion[],
+    billNumber: string
+  ): Promise<PlanDeAsiento | null> {
+    if (!preReg.xml_document_id) return null;
+
+    const doc = await query<{ xml_content: string; sat_validation_status: string | null }>(
+      `SELECT xml_content, sat_validation_status FROM xml_documents WHERE id = $1`,
+      [preReg.xml_document_id]
+    );
+    if (doc.rows.length === 0 || !doc.rows[0].xml_content) return null;
+
+    const entidad = await query<{ tax_id: string }>(
+      `SELECT tax_id FROM legal_entities WHERE id = $1`,
+      [preReg.entity_id]
+    );
+    if (entidad.rows.length === 0) {
+      throw new AccountingError('ENTITY_NOT_FOUND', `Entity ${String(preReg.entity_id)} not found`);
+    }
+
+    const periodo = await query<{ id: string }>(
+      `SELECT id FROM fiscal_periods
+        WHERE entity_id = $1 AND start_date <= $2 AND end_date >= $2
+          AND status NOT IN ('hard_close', 'locked')
+        LIMIT 1`,
+      [preReg.entity_id, preReg.document_date]
+    );
+
+    return planearAsiento({
+      entityId: preReg.entity_id as string,
+      entityRfc: entidad.rows[0].tax_id,
+      xml: doc.rows[0].xml_content,
+      referencia: billNumber,
+      renglones: lines.map((l) => ({
+        line_number: l.line_number,
+        descripcion: l.descripcion,
+        importe: l.importe,
+        account_id: l.account_id ?? null,
+        suggested_account_id: l.suggested_account_id,
+        cost_center_id: l.cost_center_id,
+      })),
+      cuentaGastoPorDefecto: (preReg.default_account_id as string) ?? null,
+      // El proveedor ya quedó resuelto o creado antes de llegar aquí.
+      vendorExists: true,
+      periodOpen: periodo.rows.length > 0,
+      satStatus: mapearEstadoSat(doc.rows[0].sat_validation_status),
+    });
+  }
+
+  /** Armado directo para documentos sin CFDI. */
+  private async lineasSinCfdi(
+    preReg: Record<string, unknown>,
+    lines: LineWithSuggestion[],
+    billNumber: string
+  ): Promise<Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }>> {
+    const cuentas = await query<{ id: string; code: string }>(
+      `SELECT id, code FROM accounts WHERE entity_id = $1 AND code = ANY($2::text[])`,
+      [preReg.entity_id, ['2110', '1130']]
+    );
+    const porCodigo = new Map(cuentas.rows.map((c) => [c.code, c.id]));
+    const cxp = porCodigo.get('2110');
+    if (!cxp) {
+      throw new AccountingError('AP_ACCOUNT_MISSING', 'Accounts Payable control account (2110) not found');
+    }
+
+    const jeLines: Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }> = [
+      {
+        account_id: cxp,
+        debit_amount: null,
+        credit_amount: new Decimal(preReg.total_amount as string).toFixed(4),
+        description: `Bill ${billNumber}`,
+      },
+    ];
+
+    for (const line of lines) {
+      const accountId = line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
+      jeLines.push({
+        account_id: accountId,
+        debit_amount: new Decimal(line.importe).toFixed(4),
+        credit_amount: null,
+        description: line.descripcion,
+      });
+    }
+
+    const totalTax = new Decimal(preReg.tax_amount as string);
+    const iva = porCodigo.get('1130');
+    if (totalTax.greaterThan(0) && iva) {
+      jeLines.push({
+        account_id: iva,
+        debit_amount: totalTax.toFixed(4),
+        credit_amount: null,
+        description: `IVA Acreditable - Bill ${billNumber}`,
+      });
+    }
+    return jeLines;
   }
 
   private async createBillFromPreReg(
@@ -559,57 +723,12 @@ export class PreRegistrationService {
       );
     }
 
-    // Find AP control account and IVA acreditable
-    const apAccount = await query<{ id: string }>(
-      `SELECT id FROM accounts WHERE entity_id = $1 AND code = '2110' LIMIT 1`,
-      [preReg.entity_id]
-    );
-    const ivaAccount = await query<{ id: string }>(
-      `SELECT id FROM accounts WHERE entity_id = $1 AND code = '1130' LIMIT 1`,
-      [preReg.entity_id]
-    );
-
-    if (apAccount.rows.length === 0) {
-      throw new AccountingError('AP_ACCOUNT_MISSING', 'Accounts Payable control account (2110) not found');
-    }
-
-    // Build JE lines
-    const jeLines: Array<{
-      account_id: string;
-      debit_amount: string | null;
-      credit_amount: string | null;
-      description: string;
-    }> = [];
-
-    // CR: AP
-    jeLines.push({
-      account_id: apAccount.rows[0].id,
-      debit_amount: null,
-      credit_amount: new Decimal(preReg.total_amount as string).toFixed(4),
-      description: `Bill ${billNumber}`,
-    });
-
-    // DR: Expense per line
-    for (const line of lines) {
-      const accountId = line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
-      jeLines.push({
-        account_id: accountId,
-        debit_amount: new Decimal(line.importe).toFixed(4),
-        credit_amount: null,
-        description: line.descripcion,
-      });
-    }
-
-    // DR: IVA Acreditable
-    const totalTax = new Decimal(preReg.tax_amount as string);
-    if (totalTax.greaterThan(0) && ivaAccount.rows.length > 0) {
-      jeLines.push({
-        account_id: ivaAccount.rows[0].id,
-        debit_amount: totalTax.toFixed(4),
-        credit_amount: null,
-        description: `IVA Acreditable - Bill ${billNumber}`,
-      });
-    }
+    // ── El asiento lo gobierna el clasificador fiscal.
+    // Antes se armaba aquí a mano y TODO el IVA iba a la 1130 «IVA
+    // Acreditable», sin mirar el método de pago. Bajo PPD el IVA no es
+    // acreditable hasta que se paga la factura y llega el REP: cada
+    // factura a crédito adelantaba un acreditamiento inexistente.
+    const jeLines = await this.lineasDelAsiento(preReg, lines, billNumber);
 
     const journalEntry = await createJournalEntry(
       preReg.entity_id as string,
@@ -684,5 +803,17 @@ export class PreRegistrationService {
     );
 
     return results;
+  }
+}
+
+/** El vocabulario de xml_documents.sat_validation_status al del clasificador. */
+function mapearEstadoSat(
+  estado: string | null
+): 'vigente' | 'cancelado' | 'no_encontrado' | 'sin_validar' {
+  switch (estado) {
+    case 'valid': return 'vigente';
+    case 'cancelled': return 'cancelado';
+    case 'not_found': return 'no_encontrado';
+    default: return 'sin_validar';
   }
 }

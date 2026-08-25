@@ -150,10 +150,14 @@ export function escanearArchivo(archivo: string): {
   const selects: RefColumnas[] = [];
 
   for (const { sql: crudo, offset } of literalesSql(texto)) {
-    // La prosa dentro de un literal SQL no es SQL: 'did not arise from a
-    // question' haría creer que existe una tabla «a». Se sustituye por
-    // espacios para conservar los desplazamientos.
-    const sql = crudo.replace(/'[^']*'/g, (m) => ' '.repeat(m.length));
+    // Dos clases de prosa dentro de un literal SQL que no son SQL, ambas
+    // sustituidas por espacios para conservar los desplazamientos:
+    //  · comentarios SQL (`-- removed real money FROM the statement` hacía
+    //    creer que existe una tabla «the»);
+    //  · cadenas ('did not arise from a question' → tabla «a»).
+    const sql = crudo
+      .replace(/--[^\n]*/g, (m) => ' '.repeat(m.length))
+      .replace(/'[^']*'/g, (m) => ' '.repeat(m.length));
     const locales = nombresLocales(sql);
 
     const reTabla =
