@@ -44,6 +44,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
   if (checks[0].level !== 'fail') {
     checks.push(await checkMigrations(deps));
     checks.push(await checkEntities());
+    checks.push(await checkAccountRoles());
     checks.push(checkConnectionTransport());
     checks.push(await checkTenantIsolation());
     checks.push(await checkPendingWork());
@@ -118,6 +119,45 @@ export async function checkEntities(): Promise<CheckResult> {
   return { name: 'Legal entities', level: 'ok', detail: `${n} active` };
 }
 
+
+/**
+ * Los account_roles traducen semántica contable («cxc», «iva_acreditable») a
+ * un código de cuenta. Sin ellos, la primera factura de una entidad falla con
+ * MISSING_ROLE_ACCOUNT y no hay forma de saberlo hasta que ocurre. Este
+ * chequeo lo dice antes.
+ */
+export async function checkAccountRoles(): Promise<CheckResult> {
+  const r = await query<{ entidad: string; nombre: string; mapeados: string; total: string }>(
+    `SELECT e.id AS entidad, e.name AS nombre,
+            count(ar.role)::text AS mapeados,
+            (SELECT count(*)::text FROM account_roles WHERE entity_id = e.id AND qualifier IS NULL) AS total
+     FROM legal_entities e
+     LEFT JOIN account_roles ar ON ar.entity_id = e.id AND ar.qualifier IS NULL
+     WHERE e.is_active = true
+     GROUP BY e.id, e.name`
+  );
+  if (r.rows.length === 0) {
+    return { name: 'Account roles', level: 'ok', detail: 'no active entities to check' };
+  }
+  const sinSembrar = r.rows.filter((x) => parseInt(x.mapeados, 10) === 0);
+  if (sinSembrar.length > 0) {
+    return {
+      name: 'Account roles',
+      level: 'fail',
+      detail: `${sinSembrar.length} entity(ies) without account roles: ${sinSembrar
+        .map((x) => x.nombre)
+        .slice(0, 3)
+        .join(', ')} — invoices and bills cannot post`,
+      fix: 'mnemosine init --section identity',
+    };
+  }
+  const total = r.rows.reduce((n, x) => n + parseInt(x.mapeados, 10), 0);
+  return {
+    name: 'Account roles',
+    level: 'ok',
+    detail: `${total} role(s) mapped across ${r.rows.length} entity(ies)`,
+  };
+}
 
 /**
  * The connection's transport: TLS mode and, if configured, the SSH tunnel.

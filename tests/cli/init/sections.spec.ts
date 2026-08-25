@@ -3,6 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
+// La sección siembra catálogo y account_roles al crear la entidad: se mockea
+// el servicio para que estas pruebas sigan siendo sobre la identidad, y se
+// asevera aparte que la llamada ocurre.
+const { sembrarContabilidad } = vi.hoisted(() => ({ sembrarContabilidad: vi.fn() }));
+vi.mock('../../../src/services/accounting/entity-accounting.js', () => ({
+  ensureEntityAccounting: (...a: unknown[]) => sembrarContabilidad(...a),
+}));
+
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
   withTransaction: vi.fn(),
@@ -47,6 +55,11 @@ function makeCtx(answers: {
 }
 
 beforeEach(() => {
+    sembrarContabilidad.mockReset();
+    sembrarContabilidad.mockResolvedValue({
+      cuentasBaseCreadas: [], accountsCreated: [], rolesMapped: 31,
+      unmapped: [], estrategiaAplicada: 'auto', teniaCatalogo: false,
+    });
   mockQuery.mockReset();
   mockTx.mockReset();
   mockEnterTenant.mockReset();
@@ -155,6 +168,27 @@ describe('S1 · Identity', () => {
     const period = checks.find((c) => c.name === 'Fiscal year');
     expect(period?.level).toBe('fail');
     expect(period?.detail).toMatch(/no journal entry can be posted/);
+  });
+
+  it('seeds chart of accounts and account roles when creating an entity', async () => {
+    mockQuery.mockImplementation((sql?: unknown) => {
+      const q = typeof sql === 'string' ? sql : '';
+      if (q.includes('SELECT id, name, tax_id, tenant_id')) return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [{ n: '12' }] });
+    });
+    // createEntity corre dentro de withTransaction: se le da un cliente que
+    // devuelve los ids recién creados, que es lo único que la sección usa.
+    const conexion = await import('../../../src/database/connection.js');
+    (conexion.withTransaction as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async (fn: (c: unknown) => unknown) =>
+        fn({ query: vi.fn().mockResolvedValue({ rows: [{ id: 'ent-nueva' }] }) })
+    );
+    const s = new IdentidadSection({ cwd: tmp });
+    await s.configure(makeCtx({ flags: { entity: 'Nueva SA', country: 'MX', rfc: 'XAXX010101000' } }));
+    // Sin esta llamada la entidad no puede postear ni una factura:
+    // postInvoiceEntry resuelve sus cuentas por account_roles.
+    expect(sembrarContabilidad).toHaveBeenCalled();
+    expect(sembrarContabilidad.mock.calls[0][3]).toMatchObject({ estrategia: 'auto' });
   });
 
   it('with existing entities it pins the tenant in .env (RLS from startup)', async () => {

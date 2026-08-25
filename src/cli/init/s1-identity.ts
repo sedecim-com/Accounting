@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { query, withTransaction, enterTenant } from '../../database/connection.js';
 import { checkEntities } from '../../ai/doctor-service.js';
+import { ensureEntityAccounting } from '../../services/accounting/entity-accounting.js';
 import type { CheckResult } from '../../ai/doctor-service.js';
 import { upsertEnvVar } from './s0-infra.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
@@ -72,6 +73,7 @@ export class IdentidadSection implements SetupSection {
         // Pin the tenant of the first one so RLS stays active.
         this.persistTenant(existing.rows[0].tenant_id, ctx);
         await this.ensureFiscalYear(existing.rows[0].id, ctx);
+        await this.ensureContabilidad(existing.rows[0].id, existing.rows[0].tenant_id, ctx);
         return;
       }
     }
@@ -97,6 +99,7 @@ export class IdentidadSection implements SetupSection {
     this.persistTenant(created.tenantId, ctx);
     ctx.print(`  ✔ Entity "${name}" created (${taxId}, ${country}, ${currency})`);
     await this.ensureFiscalYear(created.entityId, ctx);
+    await this.ensureContabilidad(created.entityId, created.tenantId, ctx);
   }
 
   /** Pins the tenant in .env and in the process: RLS scopes from startup. */
@@ -148,6 +151,42 @@ export class IdentidadSection implements SetupSection {
       );
       return { tenantId, entityId: ent.rows[0].id };
     });
+  }
+
+  /**
+   * Chart of accounts + account_roles. Without this an entity cannot post a
+   * single invoice: postInvoiceEntry and friends resolve their accounts
+   * through account_roles, and nothing used to populate that table — the
+   * error message even claimed `mnemosine init` did.
+   *
+   * 'auto': a brand-new entity gets the full base chart; one that arrived
+   * through onboarding keeps its own and only gets its roles mapped.
+   */
+  private async ensureContabilidad(
+    entityId: string,
+    tenantId: string,
+    ctx: SectionContext
+  ): Promise<void> {
+    // El asistente no tiene usuario en sesión: las secciones posteriores son
+    // las que crean usuarios. Se atribuye a la propia entidad, igual que hace
+    // el resto del alta, y queda trazado en created_by.
+    const r = await ensureEntityAccounting(entityId, tenantId, entityId, { estrategia: 'auto' });
+    if (r.cuentasBaseCreadas.length > 0) {
+      ctx.print(`  ✔ Chart of accounts seeded (${r.cuentasBaseCreadas.length} accounts)`);
+    } else if (r.teniaCatalogo) {
+      ctx.print('  ✔ Chart of accounts already present — kept as is');
+    }
+    if (r.accountsCreated.length > 0) {
+      ctx.print(`  ✔ Control accounts added (${r.accountsCreated.length})`);
+    }
+    if (r.rolesMapped > 0) {
+      ctx.print(`  ✔ Account roles mapped (${r.rolesMapped})`);
+    }
+    if (r.unmapped.length > 0) {
+      ctx.print(`  ⚠ ${r.unmapped.length} role(s) without an account in this chart:`);
+      for (const u of r.unmapped.slice(0, 6)) ctx.print(`      ${u.role} → expected code ${u.code}`);
+      ctx.print('      Map them with: mnemosine doctor');
+    }
   }
 
   /** Current fiscal year with 12 monthly periods: without this nothing posts. */

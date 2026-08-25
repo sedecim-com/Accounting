@@ -48,7 +48,9 @@ function requireRole(map: Map<string, string>, role: string): string {
   if (!id) {
     throw new AccountingError(
       'MISSING_ROLE_ACCOUNT',
-      `No account is mapped to role "${role}" for this entity — seed the account roles first (mnemosine init runs seedAccountRoles)`
+      `No hay cuenta mapeada al rol "${role}" en esta entidad. ` +
+        `Siembra la contabilidad con: mnemosine init --section identity ` +
+        `(o revisa qué falta con: mnemosine doctor)`
     );
   }
   return id;

@@ -9,7 +9,9 @@ vi.mock('../../src/database/connection.js', () => ({
   currentTenant: vi.fn(),
 }));
 
-import { runDoctor } from '../../src/ai/doctor-service.js';
+import { runDoctor,
+  checkAccountRoles,
+} from '../../src/ai/doctor-service.js';
 import { query } from '../../src/database/connection.js';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
@@ -209,5 +211,34 @@ describe('runDoctor — aggregated severity', () => {
     for (const c of r.checks.filter((x) => x.level !== 'ok')) {
       expect(c.fix, `"${c.name}" does not say how to fix it`).toBeTruthy();
     }
+  });
+});
+
+describe('checkAccountRoles', () => {
+  it('falla y da el comando cuando una entidad no tiene roles sembrados', async () => {
+    mockQuery.mockResolvedValue({
+      rows: [
+        { entidad: 'e1', nombre: 'Nueva SA', mapeados: '0', total: '0' },
+        { entidad: 'e2', nombre: 'Otra SA', mapeados: '31', total: '31' },
+      ],
+    });
+    const r = await checkAccountRoles();
+    expect(r.level).toBe('fail');
+    expect(r.detail).toContain('Nueva SA');
+    expect(r.fix).toBe('mnemosine init --section identity');
+  });
+
+  it('reporta el total mapeado cuando todas están sembradas', async () => {
+    mockQuery.mockResolvedValue({
+      rows: [{ entidad: 'e1', nombre: 'Demo', mapeados: '31', total: '31' }],
+    });
+    const r = await checkAccountRoles();
+    expect(r.level).toBe('ok');
+    expect(r.detail).toContain('31');
+  });
+
+  it('no se queja si no hay entidades activas', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+    expect((await checkAccountRoles()).level).toBe('ok');
   });
 });

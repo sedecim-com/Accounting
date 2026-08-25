@@ -1,3 +1,4 @@
+import type pg from 'pg';
 import { query, withTransaction } from '../../database/connection.js';
 import type { AccountRole } from './cfdi-taxonomy.js';
 
@@ -170,9 +171,12 @@ export interface SeedResult {
 export async function seedAccountRoles(
   entityId: string,
   tenantId: string,
-  createdBy: string
+  createdBy: string,
+  /** Corre dentro de la transacción del llamador en vez de abrir una propia:
+   *  el alta de entidad siembra catálogo y roles en un solo acto. */
+  options?: { client?: pg.PoolClient }
 ): Promise<SeedResult> {
-  return withTransaction(async (client) => {
+  const run = async (client: pg.PoolClient): Promise<SeedResult> => {
     const existing = await client.query<{ code: string; id: string }>(
       'SELECT code, id FROM accounts WHERE entity_id = $1',
       [entityId]
@@ -218,5 +222,7 @@ export async function seedAccountRoles(
     }
 
     return { accountsCreated, rolesMapped, unmapped };
-  });
+  };
+
+  return options?.client ? run(options.client) : withTransaction(run);
 }
