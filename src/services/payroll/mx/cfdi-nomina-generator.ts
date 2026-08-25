@@ -1,5 +1,6 @@
 import { query } from '../../../database/connection.js';
 import { pacRouter } from '../../integrations/mexico/pac/pac-router.js';
+import { estadoParaPersistir } from '../../integrations/mexico/pac/simulacion.js';
 
 // ============================================================
 // CFDI 4.0 PAYROLL — voucher type N (Comprobante Tipo N) + Nomina 1.2 complement
@@ -137,11 +138,14 @@ ${deduccionesXml}
     userId: context.userId,
   });
 
-  // Persist
+  // Un folio simulado no se guarda como timbrado: ver el cerrojo en
+  // services/integrations/mexico/pac/simulacion.ts.
+  const { cfdi_status } = estadoParaPersistir(stamp);
+
   await query(
-    `UPDATE paychecks SET cfdi_uuid = $1, cfdi_status = 'stamped', cfdi_provider = $2, cfdi_stamped_at = NOW()
-     WHERE id = $3`,
-    [stamp.uuid, stamp.provider_used, paycheckId]
+    `UPDATE paychecks SET cfdi_uuid = $1, cfdi_status = $2, cfdi_provider = $3, cfdi_stamped_at = NOW()
+     WHERE id = $4`,
+    [stamp.uuid, cfdi_status, stamp.provider_used, paycheckId]
   );
 
   return {

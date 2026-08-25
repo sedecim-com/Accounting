@@ -50,6 +50,14 @@ export interface IPacAdapter extends IIntegrationAdapter {
   readonly category: 'pac';
   readonly regions: readonly ['MX'];
 
+  /**
+   * true cuando el adaptador FABRICA el timbre en vez de pedirlo a un PAC.
+   * Lo consume el cerrojo de src/services/integrations/mexico/pac/simulacion.ts,
+   * que impide guardar un folio inventado como si lo hubiera emitido el SAT.
+   * Un adaptador real lo pone en false y solo entonces puede timbrar.
+   */
+  readonly simulado: boolean;
+
   /** Stamp a CFDI XML and return the stamped version with UUID */
   stamp(xml: string, ctx: AdapterContext): Promise<{
     uuid: string;

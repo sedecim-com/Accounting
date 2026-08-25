@@ -4,6 +4,7 @@ import { integrationRegistry } from '../../base/registry.js';
 import type { IPacAdapter, AdapterContext } from '../../base/adapter.interface.js';
 import { AccountingError } from '../../../../utils/errors.js';
 import { cfdiStampOutcomes } from '../../../../api/rest/middleware/metrics.js';
+import { assertPuedeTimbrar } from './simulacion.js';
 import { finkokAdapter } from './finkok-adapter.js';
 import { swSapienAdapter } from './sw-sapien-adapter.js';
 import { edicomAdapter } from './edicom-adapter.js';
@@ -132,6 +133,9 @@ export class PacRouter {
     no_certificado_sat: string;
     sello_sat: string;
     provider_used: string;
+    /** true si el folio lo fabricó un adaptador simulado (solo fuera de
+     *  producción y con CFDI_PERMITIR_SIMULACION=true). */
+    simulado: boolean;
   }> {
     const prefs = await this.getPreferences(ctx.tenantId);
     const candidates = [prefs.pac_primary, prefs.pac_secondary, prefs.pac_tertiary]
@@ -144,13 +148,19 @@ export class PacRouter {
       const adapter = PAC_ADAPTERS[providerId];
       if (!adapter) continue;
 
+      // Cerrojo antisimulación: se comprueba ANTES de pedir el timbre, para
+      // que un adaptador que fabrica folios no llegue siquiera a producirlo.
+      // No entra al failover: si el proveedor es simulado, el problema es de
+      // configuración y probar con el siguiente lo esconde.
+      assertPuedeTimbrar(providerId, adapter.simulado);
+
       try {
         const result = await circuitBreaker.execute(ctx.tenantId, providerId, () =>
           adapter.stamp(xml, ctx)
         );
         // Success on the primary → 'success'; success after at least one failure → 'fallback'
         cfdiStampOutcomes.inc({ provider: providerId, outcome: i === 0 ? 'success' : 'fallback' });
-        return { ...result, provider_used: providerId };
+        return { ...result, provider_used: providerId, simulado: adapter.simulado };
       } catch (error) {
         if (error instanceof CircuitBreakerOpenError) {
           errors.push({ provider: providerId, error: 'circuit_open' });

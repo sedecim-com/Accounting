@@ -19,6 +19,11 @@ export class EdicomAdapter implements IPacAdapter {
   readonly providerId = 'edicom';
   readonly displayName = 'Edicom';
   readonly regions = ['MX'] as const;
+
+  // Fabrica el UUID y el sello con crypto.randomBytes: no habla con 
+  // Edicom. Mientras siga así, el cerrojo impide que su folio se guarde
+  // como timbrado real.
+  readonly simulado = true;
   readonly category = 'pac' as const;
 
   async configure(config: EdicomCredentials, ctx: AdapterContext): Promise<void> {

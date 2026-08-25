@@ -20,6 +20,11 @@ export class FinkokAdapter implements IPacAdapter {
   readonly providerId = 'finkok';
   readonly displayName = 'Finkok';
   readonly regions = ['MX'] as const;
+
+  // Fabrica el UUID y el sello con crypto.randomBytes: no habla con 
+  // Finkok. Mientras siga así, el cerrojo impide que su folio se guarde
+  // como timbrado real.
+  readonly simulado = true;
   readonly category = 'pac' as const;
 
   async configure(config: FinkokCredentials, ctx: AdapterContext): Promise<void> {

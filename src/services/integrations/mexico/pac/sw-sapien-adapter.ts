@@ -20,6 +20,11 @@ export class SWSapienAdapter implements IPacAdapter {
   readonly providerId = 'sw_sapien';
   readonly displayName = 'SW Sapien';
   readonly regions = ['MX'] as const;
+
+  // Fabrica el UUID y el sello con crypto.randomBytes: no habla con 
+  // SW sapien. Mientras siga así, el cerrojo impide que su folio se guarde
+  // como timbrado real.
+  readonly simulado = true;
   readonly category = 'pac' as const;
 
   async configure(config: SWSapienCredentials, ctx: AdapterContext): Promise<void> {
