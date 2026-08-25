@@ -8,6 +8,7 @@ import { config } from './config/index.js';
 import { query, closeDatabase, initDatabase } from './database/connection.js';
 import { authenticate, requireEntityAccess } from './api/rest/middleware/auth.js';
 import { auditLogMiddleware } from './api/rest/middleware/audit.js';
+import { tenantContext } from './api/rest/middleware/tenant-context.js';
 import { errorHandler } from './api/rest/middleware/error-handler.js';
 import { rateLimiter } from './api/rest/middleware/rate-limiter.js';
 import { metricsMiddleware, metricsHandler } from './api/rest/middleware/metrics.js';
@@ -37,11 +38,48 @@ import aiRouter from './api/rest/routes/ai.js';
 import './services/integrations/index.js'; // Register all adapters
 import './services/payroll/tax-engine/register-all.js'; // Register all tax calculators
 
+/**
+ * El middleware de contexto acota cada petición al inquilino del token, pero
+ * quien hace cumplir esa frontera es RLS, y RLS es INERTE para un rol
+ * superusuario o con BYPASSRLS. Arrancar así no es un fallo —es lo normal en
+ * desarrollo— pero tiene que verse en el arranque y no descubrirse después:
+ * en ese estado un error de programación que olvide filtrar por inquilino
+ * devuelve las filas de todos en vez de ninguna.
+ *
+ * `mnemosine doctor` lo reporta también (checkTenantIsolation).
+ */
+async function advertirSiElRolIgnoraRls(): Promise<void> {
+  try {
+    const r = await query<{ rol: string; ignora: boolean }>(
+      `SELECT current_user AS rol,
+              COALESCE(rolsuper OR rolbypassrls, false) AS ignora
+         FROM pg_roles WHERE rolname = current_user`
+    );
+    const fila = r.rows[0];
+    if (!fila) return;
+    if (fila.ignora) {
+      logger.warn('db_role_bypasses_rls', {
+        role: fila.rol,
+        detail:
+          'El rol de conexión ignora row level security: el aislamiento entre ' +
+          'inquilinos depende solo del código. Conectar como mnemosine_app ' +
+          '(scripts/provision-roles.sql).',
+      });
+    } else {
+      logger.info('db_role_subject_to_rls', { role: fila.rol });
+    }
+  } catch (error) {
+    logger.warn('db_role_check_failed', { error: (error as Error).message });
+  }
+}
+
 async function bootstrap() {
   // Túnel y TLS resueltos antes de la primera consulta.
   const { tunneled, warning } = await initDatabase();
   if (tunneled) logger.info('db_tunnel_open');
   if (warning) logger.warn('db_tls_warning', { warning });
+
+  await advertirSiElRolIgnoraRls();
 
   const app = express();
 
@@ -114,6 +152,10 @@ async function bootstrap() {
 
   // Auth + rate limiting middleware for all API routes
   app.use(apiPrefix, authenticate);
+  // Right after authenticate, and before anything that touches the
+  // database: it opens the tenant context that the RLS policies read.
+  // Mounted here, once, so no router can forget it.
+  app.use(apiPrefix, tenantContext);
   app.use(apiPrefix, enrichLogContextMiddleware);
   app.use(apiPrefix, rateLimiter);
   app.use(apiPrefix, auditLogMiddleware);
