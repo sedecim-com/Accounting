@@ -65,3 +65,34 @@ jobs:
       - run: npm ci
       - run: npm run migrate
       - run: npm run test:integration
+        env:
+          TEST_ADMIN_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
+  aislamiento:
+    name: Aislamiento por inquilino
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mnemosine_iso
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_iso
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_iso
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run migrate
+      - run: bash scripts/verify-isolation.sh
