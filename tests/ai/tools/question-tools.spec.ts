@@ -13,6 +13,22 @@ import {
   searchPrecedents,
 } from '../../../src/ai/question-service.js';
 import type { AgentContext } from '../../../src/ai/context.js';
+import type { BetaTool, BetaToolResultContentBlockParam } from '@anthropic-ai/sdk/resources/beta';
+
+/**
+ * The concrete shape `betaZodTool` produces: a plain `BetaTool` plus `run`.
+ * The builders return a union over many different input schemas and a tool is
+ * looked up here by a runtime name string, which TypeScript cannot map back to
+ * a single union member — so `run` on the raw union demands the intersection of
+ * every tool's schema at once.
+ */
+type ToolHandle<Input> = BetaTool & {
+  run: (input: Input) => Promise<string | BetaToolResultContentBlockParam[]>;
+};
+
+/** Mirrors the zod inputSchema of each tool in `buildQuestionTools`. */
+type AskUserInput = { question: string; context?: string; options?: string[]; topic?: string };
+type SearchPrecedentsInput = { search: string };
 
 const mockCreate = createQuestion as unknown as ReturnType<typeof vi.fn>;
 const mockRecord = recordAnsweredQuestion as unknown as ReturnType<typeof vi.fn>;
@@ -46,7 +62,7 @@ describe('ask_user (interactive)', () => {
     mockRecord.mockResolvedValueOnce('prec-1');
     const askUser = vi.fn().mockResolvedValueOnce('5205 Honorarios');
     const tool = buildQuestionTools(CTX, { model: 'claude-opus-5', askUser })
-      .find((t) => t.name === 'ask_user')!;
+      .find((t) => t.name === 'ask_user')! as ToolHandle<AskUserInput>;
 
     const parsed = JSON.parse((await tool.run(INPUT)) as string);
     expect(parsed.answered).toBe(true);
@@ -68,7 +84,7 @@ describe('ask_user (interactive)', () => {
     mockCreate.mockResolvedValueOnce('q-1');
     const askUser = vi.fn().mockResolvedValueOnce(null);
     const tool = buildQuestionTools(CTX, { model: 'claude-opus-5', askUser })
-      .find((t) => t.name === 'ask_user')!;
+      .find((t) => t.name === 'ask_user')! as ToolHandle<AskUserInput>;
 
     const parsed = JSON.parse((await tool.run(INPUT)) as string);
     expect(parsed.answered).toBe(false);
@@ -82,7 +98,7 @@ describe('ask_user (non-interactive)', () => {
   it('persists a pending question and tells the model not to invent data', async () => {
     mockCreate.mockResolvedValueOnce('q-2');
     const tool = buildQuestionTools(CTX, { model: 'claude-opus-5' })
-      .find((t) => t.name === 'ask_user')!;
+      .find((t) => t.name === 'ask_user')! as ToolHandle<AskUserInput>;
 
     const parsed = JSON.parse((await tool.run(INPUT)) as string);
     expect(parsed.answered).toBe(false);
@@ -103,7 +119,7 @@ describe('search_precedents', () => {
       },
     ]);
     const tool = buildQuestionTools(CTX, { model: 'claude-opus-5' })
-      .find((t) => t.name === 'search_precedents')!;
+      .find((t) => t.name === 'search_precedents')! as ToolHandle<SearchPrecedentsInput>;
     const parsed = JSON.parse((await tool.run({ search: 'honorarios' })) as string);
     expect(parsed.count).toBe(1);
     expect(parsed.precedents[0].answer).toBe('5205');
@@ -112,7 +128,7 @@ describe('search_precedents', () => {
   it('reports emptiness plainly', async () => {
     mockSearch.mockResolvedValueOnce([]);
     const tool = buildQuestionTools(CTX, { model: 'claude-opus-5' })
-      .find((t) => t.name === 'search_precedents')!;
+      .find((t) => t.name === 'search_precedents')! as ToolHandle<SearchPrecedentsInput>;
     expect(await tool.run({ search: 'nada' })).toMatch(/No precedents/);
   });
 });

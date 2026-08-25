@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { DOC_TOPICS } from '../../src/ai/tools/docs-tools.js';
 import { regenerateIndice } from '../../scripts/build-niif-indice.js';
 
-const DOCS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'ai', 'docs');
+// __dirname instead of import.meta.url: the test project compiles as CommonJS,
+// where import.meta is a syntax error. Same directory either way, and it is what
+// src/ai/tools/docs-tools.ts already uses to find this very folder.
+const DOCS = path.join(__dirname, '..', '..', 'src', 'ai', 'docs');
 
 interface RegistryEntry {
   code: string;

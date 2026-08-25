@@ -7,6 +7,18 @@ vi.mock('../../../src/database/connection.js', () => ({
 import { buildTools, MAX_TOOL_RESULT_CHARS } from '../../../src/ai/tools/index.js';
 import { query } from '../../../src/database/connection.js';
 import type { AgentContext } from '../../../src/ai/context.js';
+import type { BetaTool, BetaToolResultContentBlockParam } from '@anthropic-ai/sdk/resources/beta';
+
+/**
+ * The concrete shape `betaZodTool` produces: a plain `BetaTool` plus `run`.
+ * The builders return a union over many different input schemas and a tool is
+ * looked up here by a runtime name string, which TypeScript cannot map back to
+ * a single union member — so `run` on the raw union demands the intersection of
+ * every tool's schema at once.
+ */
+type ToolHandle<Input = Record<string, unknown>> = BetaTool & {
+  run: (input: Input) => Promise<string | BetaToolResultContentBlockParam[]>;
+};
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
 
@@ -20,10 +32,10 @@ const CTX: AgentContext = {
   taxId: 'AME010101AAA',
 };
 
-function getTool(name: string) {
+function getTool(name: string): ToolHandle {
   const tool = buildTools(CTX, { model: 'claude-opus-5' }).find((t) => t.name === name);
   if (!tool) throw new Error(`tool ${name} not found`);
-  return tool;
+  return tool as ToolHandle;
 }
 
 describe('buildTools', () => {
@@ -53,7 +65,7 @@ describe('buildTools', () => {
     const tool = buildTools(CTX, {
       model: 'claude-opus-5',
       observe: (name, input) => seen.push([name, input]),
-    }).find((t) => t.name === 'search_accounts')!;
+    }).find((t) => t.name === 'search_accounts')! as ToolHandle;
     await tool.run({ search: 'banco' });
     expect(seen).toEqual([['search_accounts', { search: 'banco' }]]);
   });

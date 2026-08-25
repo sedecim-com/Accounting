@@ -8,9 +8,9 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// __dirname nativo en lugar de import.meta: el proyecto compila a CommonJS
+// (tsconfig NodeNext sin "type": "module" en package.json), donde import.meta
+// es un error de sintaxis. Este módulo lo importa tests/ai/niif-registry.spec.ts.
 const DOCS = path.join(__dirname, '..', 'src', 'ai', 'docs');
 
 interface RegistryEntry {
@@ -94,7 +94,7 @@ export function regenerateIndice(): { content: string; changed: boolean } {
 }
 
 // Run as script (tsx): regenerate in place.
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+if (process.argv[1] && __filename === path.resolve(process.argv[1])) {
   const { content, changed } = regenerateIndice();
   if (changed) {
     fs.writeFileSync(path.join(DOCS, 'niif-indice.md'), content);

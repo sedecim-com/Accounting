@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { Command } from 'commander';
 
 vi.mock('../../../src/database/connection.js', () => ({
@@ -42,7 +43,7 @@ const identity = (s: string) => s;
 const palette = { dim: identity, bold: identity, cyan: identity, yellow: identity };
 
 let logs: string[];
-let logSpy: ReturnType<typeof vi.spyOn>;
+let logSpy: MockInstance<Parameters<typeof console.log>, ReturnType<typeof console.log>>;
 let shutdownCodes: number[];
 
 function makeProgram(): Command {

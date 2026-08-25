@@ -180,6 +180,87 @@ describe('accountPermissionRule — origen manual vs automatizado', () => {
   });
 });
 
+describe('lineAmountRule — una sola columna por línea', () => {
+  it('rechaza una línea con cargo Y abono a la vez', async () => {
+    mockRuleQueries();
+    const result = await validateJournalEntry(ENTRY, [
+      line({ line_number: 1, account_id: 'acc-1', debit_amount: '100.00', credit_amount: '100.00' }),
+      line({ line_number: 2, account_id: 'acc-2', credit_amount: '100.00' }),
+    ]);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((e) => e.includes('exactly one'))).toBe(true);
+  });
+
+  it('rechaza una línea sin cargo NI abono', async () => {
+    mockRuleQueries();
+    const result = await validateJournalEntry(ENTRY, [
+      line({ line_number: 1, account_id: 'acc-1' }),
+      line({ line_number: 2, account_id: 'acc-2', credit_amount: '100.00' }),
+    ]);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((e) => e.includes('exactly one'))).toBe(true);
+  });
+
+  it('rechaza importes negativos: el signo lo da la columna, no el número', async () => {
+    mockRuleQueries();
+    const result = await validateJournalEntry(ENTRY, [
+      line({ line_number: 1, account_id: 'acc-1', debit_amount: '-100.00' }),
+      line({ line_number: 2, account_id: 'acc-2', credit_amount: '-100.00' }),
+    ]);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((e) => /positive/i.test(e))).toBe(true);
+  });
+
+  it('acepta la forma correcta: exactamente una columna, positiva', async () => {
+    mockRuleQueries();
+    const result = await validateJournalEntry(ENTRY, [
+      line({ line_number: 1, account_id: 'acc-1', debit_amount: '100.00' }),
+      line({ line_number: 2, account_id: 'acc-2', credit_amount: '100.00' }),
+    ]);
+    expect(result.errors.filter((e) => e.includes('exactly one'))).toHaveLength(0);
+  });
+});
+
+describe('periodStatusRule — estado del periodo fiscal', () => {
+  const balanceado = [
+    line({ line_number: 1, account_id: 'acc-1', debit_amount: '100.00' }),
+    line({ line_number: 2, account_id: 'acc-2', credit_amount: '100.00' }),
+  ];
+
+  it('BLOQUEA si el periodo está en cierre duro', async () => {
+    mockRuleQueries({ periodStatus: 'hard_close' });
+    const result = await validateJournalEntry(ENTRY, balanceado);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((e) => /hard_close|closed/i.test(e))).toBe(true);
+  });
+
+  it('BLOQUEA si el periodo está bloqueado', async () => {
+    mockRuleQueries({ periodStatus: 'locked' });
+    const result = await validateJournalEntry(ENTRY, balanceado);
+    expect(result.isValid).toBe(false);
+  });
+
+  it('solo ADVIERTE en cierre suave — hoy no bloquea, aunque la CLI lo anuncie', async () => {
+    mockRuleQueries({ periodStatus: 'soft_close' });
+    const result = await validateJournalEntry(ENTRY, balanceado);
+    expect(result.isValid).toBe(true);
+    expect(result.warnings.some((w) => /soft/i.test(w))).toBe(true);
+  });
+
+  it('advierte al postear a un periodo futuro, citando devengación', async () => {
+    mockRuleQueries({ periodStatus: 'future' });
+    const result = await validateJournalEntry(ENTRY, balanceado);
+    expect(result.isValid).toBe(true);
+    expect(result.warnings.some((w) => w.includes('NIF A-2'))).toBe(true);
+  });
+
+  it('no dice nada cuando el periodo está abierto', async () => {
+    mockRuleQueries({ periodStatus: 'open' });
+    const result = await validateJournalEntry(ENTRY, balanceado);
+    expect(result.warnings.filter((w) => /period/i.test(w))).toHaveLength(0);
+  });
+});
+
 describe('citas NIF en reglas existentes', () => {
   it('contra-natural posting cites NIF A-5 and B-1', async () => {
     mockRuleQueries({

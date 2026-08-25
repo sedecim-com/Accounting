@@ -7,6 +7,21 @@ vi.mock('../../../src/database/connection.js', () => ({
 import { buildSessionSearchTools, parseSince } from '../../../src/ai/tools/session-search-tools.js';
 import { query } from '../../../src/database/connection.js';
 import type { AgentContext } from '../../../src/ai/context.js';
+import type { BetaTool, BetaToolResultContentBlockParam } from '@anthropic-ai/sdk/resources/beta';
+
+/**
+ * The concrete shape `betaZodTool` produces: a plain `BetaTool` plus `run`.
+ * The builders return a union over many different input schemas and a tool is
+ * looked up here by a runtime name string, which TypeScript cannot map back to
+ * a single union member — so `run` on the raw union demands the intersection of
+ * every tool's schema at once.
+ */
+type ToolHandle<Input> = BetaTool & {
+  run: (input: Input) => Promise<string | BetaToolResultContentBlockParam[]>;
+};
+
+/** Mirrors the zod inputSchema of `session_search`. */
+type SessionSearchInput = { query: string; limit?: number; since?: string };
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
 
@@ -28,10 +43,10 @@ function row(over: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function getTool() {
+function getTool(): ToolHandle<SessionSearchInput> {
   const tools = buildSessionSearchTools(CTX, { model: 'm' });
   expect(tools).toHaveLength(1);
-  return tools[0];
+  return tools[0] as ToolHandle<SessionSearchInput>;
 }
 
 beforeEach(() => {

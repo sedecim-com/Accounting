@@ -85,5 +85,8 @@ export function buildSkillsTools(_ctx: AgentContext, deps: ToolDeps) {
     },
   });
 
-  return [skillsListTool, skillViewTool];
+  // as const: sin la tupla, TS ensancha a un array de la UNIÓN de ambas
+  // herramientas y cualquier consumidor que desestructure pierde el tipado
+  // por herramienta (run() pasa a exigir la intersección de los dos esquemas).
+  return [skillsListTool, skillViewTool] as const;
 }

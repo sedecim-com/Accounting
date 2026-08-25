@@ -83,7 +83,9 @@ describe('api_key_cmd (credential helper)', () => {
       })
     );
 
-  afterEach(() => delete process.env.SUB_TOKEN);
+  afterEach(() => {
+    delete process.env.SUB_TOKEN;
+  });
 
   it('runs the command when the env var is absent', () => {
     writeProfile({ api_key_cmd: "printf 'oauth-token-123\n'" });

@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { applyBrackets, periodsPerYear } from '../../../src/services/payroll/tax-engine/tax-tables.js';
+import { applyBrackets, periodsPerYear, type TaxBracket } from '../../../src/services/payroll/tax-engine/tax-tables.js';
 import { cappedTaxableWages } from '../../../src/services/payroll/tax-engine/ytd-service.js';
 
 describe('applyBrackets — progressive tax math', () => {
   // Sample 2026 IRS Pub 15-T single brackets (annual, simplified)
-  const brackets = [
-    { bracket_low: 0,        bracket_high: 11600,  rate: 0.10, base_tax: 0 },
-    { bracket_low: 11600,    bracket_high: 47150,  rate: 0.12, base_tax: 1160 },
-    { bracket_low: 47150,    bracket_high: 100525, rate: 0.22, base_tax: 5426 },
-    { bracket_low: 100525,   bracket_high: 191950, rate: 0.24, base_tax: 17168.50 },
-    { bracket_low: 191950,   bracket_high: null,   rate: 0.32, base_tax: 39110.50 },
+  const brackets: TaxBracket[] = [
+    { bracket_order: 1, bracket_low: 0,        bracket_high: 11600,  rate: 0.10, base_tax: 0,        data: {} },
+    { bracket_order: 2, bracket_low: 11600,    bracket_high: 47150,  rate: 0.12, base_tax: 1160,     data: {} },
+    { bracket_order: 3, bracket_low: 47150,    bracket_high: 100525, rate: 0.22, base_tax: 5426,     data: {} },
+    { bracket_order: 4, bracket_low: 100525,   bracket_high: 191950, rate: 0.24, base_tax: 17168.50, data: {} },
+    { bracket_order: 5, bracket_low: 191950,   bracket_high: null,   rate: 0.32, base_tax: 39110.50, data: {} },
   ];
 
   it('returns 0 for non-positive wages', () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 // The pool is built at module import time, so pg has to be intercepted.
 const poolQuery = vi.fn();
@@ -15,9 +15,21 @@ vi.mock('pg', () => {
   return { default: { Pool } };
 });
 
-const { query, withTransaction, withTenant, currentTenant } = await import(
-  '../../src/database/connection.js'
-);
+// The import stays dynamic because the mock factory above closes over these
+// vi.fn()s: a static import would run it while they are still in the TDZ. It
+// lives in beforeAll because the test project compiles as CommonJS, where
+// top-level await is not allowed.
+type ConnectionModule = typeof import('../../src/database/connection.js');
+let query: ConnectionModule['query'];
+let withTransaction: ConnectionModule['withTransaction'];
+let withTenant: ConnectionModule['withTenant'];
+let currentTenant: ConnectionModule['currentTenant'];
+
+beforeAll(async () => {
+  ({ query, withTransaction, withTenant, currentTenant } = await import(
+    '../../src/database/connection.js'
+  ));
+});
 
 const TENANT = 'tttttttt-tttt-tttt-tttt-tttttttttttt';
 

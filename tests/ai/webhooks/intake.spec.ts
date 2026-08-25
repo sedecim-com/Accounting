@@ -233,7 +233,9 @@ describe('recordDelivery', () => {
         .mockResolvedValueOnce({ rows: [deliveryRow({ status: 'received', drafts_created: 0 })], rowCount: 1 });
       await recordDelivery(tokenRow(), { documentKey: 'tx-777' });
       expect(warn).toHaveBeenCalledTimes(1);
-      const [event, meta] = warn.mock.calls[0];
+      // winston's `warn` is overloaded and TS resolves the spy to its 1-arg
+      // `(infoObject: object)` form, so read the recorded call as an arg list.
+      const [event, meta]: unknown[] = warn.mock.calls[0];
       expect(event).toBe('webhook_delivery_duplicate_suppressed');
       expect(meta).toMatchObject({
         token_id: 'tok-1',

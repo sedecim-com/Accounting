@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(), enterTenant: vi.fn(), currentTenant: vi.fn(),
 }));
 
-import { runDueJobs, buildJobPrompt } from '../../../src/ai/jobs/runner.js';
+import { runDueJobs, buildJobPrompt, type RunnerDeps } from '../../../src/ai/jobs/runner.js';
 import type { JobRow } from '../../../src/ai/jobs/job-store.js';
 import type { GateResult } from '../../../src/ai/jobs/wake-gate.js';
 import type { AgentContext } from '../../../src/ai/context.js';
@@ -32,12 +32,32 @@ const NO_WORK: GateResult = {
   counts: { unbalanced_entries: 0, overdue_open_periods: 0 }, sampleIds: [],
 };
 
-function makeDeps(overrides: Partial<Record<'claim' | 'gate' | 'record' | 'runAgentTurn', ReturnType<typeof vi.fn>>> = {}) {
+// The runner's injectable seams, taken from RunnerDeps itself: every mock is
+// typed with the REAL signature the runner calls, so a drifting store/gate
+// signature breaks this file instead of silently passing.
+type ClaimFn = NonNullable<RunnerDeps['claim']>;
+type GateFn = NonNullable<RunnerDeps['gate']>;
+type RecordFn = NonNullable<RunnerDeps['record']>;
+type RunAgentTurnFn = RunnerDeps['runAgentTurn'];
+
+type MockOf<F extends (...args: never[]) => unknown> = Mock<Parameters<F>, ReturnType<F>>;
+const mockFn = <F extends (...args: never[]) => unknown>(): MockOf<F> =>
+  vi.fn<Parameters<F>, ReturnType<F>>();
+
+interface MockedDeps {
+  claim: MockOf<ClaimFn>;
+  gate: MockOf<GateFn>;
+  record: MockOf<RecordFn>;
+  runAgentTurn: MockOf<RunAgentTurnFn>;
+}
+
+function makeDeps(overrides: Partial<MockedDeps> = {}): MockedDeps {
   return {
-    claim: overrides.claim ?? vi.fn().mockResolvedValue([JOB]),
-    gate: overrides.gate ?? vi.fn().mockResolvedValue(WORK),
-    record: overrides.record ?? vi.fn().mockResolvedValue({ runId: 'run-1', autoDisabled: false }),
-    runAgentTurn: overrides.runAgentTurn ?? vi.fn().mockResolvedValue(undefined),
+    claim: overrides.claim ?? mockFn<ClaimFn>().mockResolvedValue([JOB]),
+    gate: overrides.gate ?? mockFn<GateFn>().mockResolvedValue(WORK),
+    record: overrides.record
+      ?? mockFn<RecordFn>().mockResolvedValue({ runId: 'run-1', autoDisabled: false }),
+    runAgentTurn: overrides.runAgentTurn ?? mockFn<RunAgentTurnFn>().mockResolvedValue(undefined),
   };
 }
 
@@ -57,7 +77,7 @@ describe('buildJobPrompt', () => {
 
 describe('runDueJobs', () => {
   it('no work → records skipped_no_work and NEVER invokes the agent', async () => {
-    const deps = makeDeps({ gate: vi.fn().mockResolvedValue(NO_WORK) });
+    const deps = makeDeps({ gate: mockFn<GateFn>().mockResolvedValue(NO_WORK) });
     const outcomes = await runDueJobs(CTX, deps);
 
     expect(deps.runAgentTurn).not.toHaveBeenCalled();
@@ -70,7 +90,7 @@ describe('runDueJobs', () => {
   });
 
   it('work → wakes the agent with the gate-seeded prompt and counts captured drafts', async () => {
-    const runAgentTurn = vi.fn().mockImplementation(async ({ capture }) => {
+    const runAgentTurn = mockFn<RunAgentTurnFn>().mockImplementation(async ({ capture }) => {
       capture.drafts.push(
         { draftId: 'd-1', confidence: 0.9, totalDebits: '100.00', totalCredits: '100.00' },
         { draftId: 'd-2', confidence: 0.8, totalDebits: '50.00', totalCredits: '50.00' },
@@ -94,8 +114,8 @@ describe('runDueJobs', () => {
 
   it('agent failure → records error (backoff counter in the store) and surfaces auto-disable', async () => {
     const deps = makeDeps({
-      runAgentTurn: vi.fn().mockRejectedValue(new Error('provider down')),
-      record: vi.fn().mockResolvedValue({ runId: 'run-1', autoDisabled: true }),
+      runAgentTurn: mockFn<RunAgentTurnFn>().mockRejectedValue(new Error('provider down')),
+      record: mockFn<RecordFn>().mockResolvedValue({ runId: 'run-1', autoDisabled: true }),
     });
     const outcomes = await runDueJobs(CTX, deps);
 
@@ -109,7 +129,7 @@ describe('runDueJobs', () => {
   });
 
   it('wake-gate failure → records error without ever invoking the agent', async () => {
-    const deps = makeDeps({ gate: vi.fn().mockRejectedValue(new Error('relation missing')) });
+    const deps = makeDeps({ gate: mockFn<GateFn>().mockRejectedValue(new Error('relation missing')) });
     const outcomes = await runDueJobs(CTX, deps);
 
     expect(deps.runAgentTurn).not.toHaveBeenCalled();
@@ -121,10 +141,10 @@ describe('runDueJobs', () => {
   });
 
   it('one failing job does not stop the rest of the tick', async () => {
-    const job2 = { ...JOB, id: 'job-2', name: 'ar-chase', kind: 'ar_reminders' as const };
+    const job2: JobRow = { ...JOB, id: 'job-2', name: 'ar-chase', kind: 'ar_reminders' };
     const deps = makeDeps({
-      claim: vi.fn().mockResolvedValue([JOB, job2]),
-      runAgentTurn: vi.fn()
+      claim: mockFn<ClaimFn>().mockResolvedValue([JOB, job2]),
+      runAgentTurn: mockFn<RunAgentTurnFn>()
         .mockRejectedValueOnce(new Error('boom'))
         .mockResolvedValueOnce(undefined),
     });
@@ -133,11 +153,11 @@ describe('runDueJobs', () => {
   });
 
   it('a recordRun failure does not abort the tick: remaining jobs still run and record', async () => {
-    const job2 = { ...JOB, id: 'job-2', name: 'ar-chase', kind: 'ar_reminders' as const };
-    const record = vi.fn()
+    const job2: JobRow = { ...JOB, id: 'job-2', name: 'ar-chase', kind: 'ar_reminders' };
+    const record = mockFn<RecordFn>()
       .mockRejectedValueOnce(new Error('ai_job_runs insert failed'))
       .mockResolvedValueOnce({ runId: 'run-2', autoDisabled: false });
-    const deps = makeDeps({ claim: vi.fn().mockResolvedValue([JOB, job2]), record });
+    const deps = makeDeps({ claim: mockFn<ClaimFn>().mockResolvedValue([JOB, job2]), record });
     const outcomes = await runDueJobs(CTX, deps);
 
     expect(outcomes).toHaveLength(2);
@@ -152,13 +172,15 @@ describe('runDueJobs', () => {
   });
 
   it('a recordRun failure on the error path still lets the next job run', async () => {
-    const job2 = { ...JOB, id: 'job-2', name: 'ar-chase', kind: 'ar_reminders' as const };
-    const record = vi.fn()
+    const job2: JobRow = { ...JOB, id: 'job-2', name: 'ar-chase', kind: 'ar_reminders' };
+    const record = mockFn<RecordFn>()
       .mockRejectedValueOnce(new Error('db down'))
       .mockResolvedValueOnce({ runId: 'run-2', autoDisabled: false });
     const deps = makeDeps({
-      claim: vi.fn().mockResolvedValue([JOB, job2]),
-      runAgentTurn: vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(undefined),
+      claim: mockFn<ClaimFn>().mockResolvedValue([JOB, job2]),
+      runAgentTurn: mockFn<RunAgentTurnFn>()
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce(undefined),
       record,
     });
     const outcomes = await runDueJobs(CTX, deps);
@@ -169,7 +191,7 @@ describe('runDueJobs', () => {
   });
 
   it('no due jobs → no gate, no agent, no records', async () => {
-    const deps = makeDeps({ claim: vi.fn().mockResolvedValue([]) });
+    const deps = makeDeps({ claim: mockFn<ClaimFn>().mockResolvedValue([]) });
     const outcomes = await runDueJobs(CTX, deps);
     expect(outcomes).toEqual([]);
     expect(deps.gate).not.toHaveBeenCalled();

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { Command } from 'commander';
 
 // The drafts review action pulls its data through these modules; mock them so
@@ -56,7 +57,7 @@ const PENDING = [
 ];
 
 let origIsTTY: boolean | undefined;
-let logSpy: ReturnType<typeof vi.spyOn>;
+let logSpy: MockInstance<Parameters<Console['log']>, ReturnType<Console['log']>>;
 
 beforeEach(() => {
   vi.clearAllMocks();

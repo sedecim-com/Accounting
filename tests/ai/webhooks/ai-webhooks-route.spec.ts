@@ -101,6 +101,19 @@ function post(path: string, body: string, headers: Record<string, string> = {}):
   });
 }
 
+/** The JSON body this router returns, on both the success and the error path. */
+interface WebhookResponseBody {
+  status?: string;
+  deliveryId?: string;
+  error?: string;
+  meta?: { request_id?: string; timestamp?: string; version?: string };
+}
+
+/** fetch's `.json()` is `unknown`; the router's JSON shape is known right here. */
+async function readBody(res: Response): Promise<WebhookResponseBody> {
+  return (await res.json()) as WebhookResponseBody;
+}
+
 const AUTH = { authorization: `Bearer ${RAW_TOKEN}` };
 
 describe('POST /v1/ai/webhooks/:tokenName', () => {
@@ -146,7 +159,7 @@ describe('POST /v1/ai/webhooks/:tokenName', () => {
       AUTH
     );
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await readBody(res);
     expect(body.status).toBe('processed');
     expect(body.deliveryId).toBe('del-1');
     // Tenant scoping: everything after auth ran inside withTenant(tenant-a).
@@ -167,7 +180,7 @@ describe('POST /v1/ai/webhooks/:tokenName', () => {
       AUTH
     );
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await readBody(res);
     expect(body.status).toBe('duplicate');
     expect(body.deliveryId).toBe('del-1');
     expect(runReaderTurn).not.toHaveBeenCalled();
@@ -222,7 +235,7 @@ describe('POST /v1/ai/webhooks/:tokenName', () => {
         body: JSON.stringify({ transaction_id: 'tx-777', amount: 100 }),
       });
       expect(res.status).toBe(200);
-      expect((await res.json()).status).toBe('processed');
+      expect((await readBody(res)).status).toBe('processed');
     } finally {
       await new Promise<void>((resolve, reject) =>
         srv.close((err) => (err ? reject(err) : resolve()))
@@ -335,7 +348,7 @@ describe('POST /v1/ai/webhooks/:tokenName', () => {
         body: JSON.stringify({ transaction_id: 'tx-777' }),
       });
       expect(res.status).toBe(200);
-      expect((await res.json()).status).toBe('received');
+      expect((await readBody(res)).status).toBe('received');
       expect(runReaderTurn).not.toHaveBeenCalled();
     } finally {
       await new Promise<void>((resolve, reject) =>

@@ -11,6 +11,18 @@ vi.mock('../../../src/services/integrations/accounting/registry.js', () => ({
 import { buildExternalTools } from '../../../src/ai/tools/external-tools.js';
 import { getExternalAdapter } from '../../../src/services/integrations/accounting/registry.js';
 import type { AgentContext } from '../../../src/ai/context.js';
+import type { BetaTool, BetaToolResultContentBlockParam } from '@anthropic-ai/sdk/resources/beta';
+
+/**
+ * The concrete shape `betaZodTool` produces: a plain `BetaTool` plus `run`.
+ * The builders return a union over many different input schemas and a tool is
+ * looked up here by a runtime name string, which TypeScript cannot map back to
+ * a single union member — so `run` on the raw union demands the intersection of
+ * every tool's schema at once.
+ */
+type ToolHandle<Input = Record<string, unknown>> = BetaTool & {
+  run: (input: Input) => Promise<string | BetaToolResultContentBlockParam[]>;
+};
 
 const mockGetAdapter = getExternalAdapter as unknown as ReturnType<typeof vi.fn>;
 
@@ -24,10 +36,10 @@ const CTX: AgentContext = {
   taxId: 'AME010101AAA',
 };
 
-function getTool(name: string) {
+function getTool(name: string): ToolHandle {
   const tool = buildExternalTools(CTX, { model: 'claude-opus-5' }).find((t) => t.name === name);
   if (!tool) throw new Error(`tool ${name} not found`);
-  return tool;
+  return tool as ToolHandle;
 }
 
 const PULL_INPUT = {

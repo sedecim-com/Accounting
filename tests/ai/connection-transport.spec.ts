@@ -17,7 +17,9 @@ async function checkWith(env: Record<string, string>) {
 const LOCAL = 'postgresql://u:p@localhost:5432/db';
 const REMOTO = 'postgresql://u:p@db.ejemplo.mx:5432/x';
 
-beforeEach(() => vi.resetModules());
+beforeEach(() => {
+  vi.resetModules();
+});
 
 describe('checkConnectionTransport', () => {
   it('local sin TLS está bien y no alarma', async () => {

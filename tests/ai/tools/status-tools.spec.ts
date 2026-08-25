@@ -7,6 +7,18 @@ vi.mock('../../../src/database/connection.js', () => ({
 import { getEntityStatus, buildStatusTools } from '../../../src/ai/tools/status-tools.js';
 import { query } from '../../../src/database/connection.js';
 import type { AgentContext } from '../../../src/ai/context.js';
+import type { BetaTool, BetaToolResultContentBlockParam } from '@anthropic-ai/sdk/resources/beta';
+
+/**
+ * The concrete shape `betaZodTool` produces: a plain `BetaTool` plus `run`.
+ * The builders return a union over many different input schemas and a tool is
+ * looked up here by a runtime name string, which TypeScript cannot map back to
+ * a single union member — so `run` on the raw union demands the intersection of
+ * every tool's schema at once.
+ */
+type ToolHandle<Input = Record<string, never>> = BetaTool & {
+  run: (input: Input) => Promise<string | BetaToolResultContentBlockParam[]>;
+};
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
 
@@ -30,7 +42,9 @@ beforeEach(() => {
   mockQuery.mockReset();
   delete process.env.CONTALINK_API_KEY;
 });
-afterEach(() => delete process.env.CONTALINK_API_KEY);
+afterEach(() => {
+  delete process.env.CONTALINK_API_KEY;
+});
 
 describe('getEntityStatus — lifecycle stages (first unmet requirement wins)', () => {
   it('no_catalog: zero accounts, and the next step names init AND onboard', async () => {
@@ -152,7 +166,7 @@ describe('get_entity_status tool', () => {
   });
 
   it('its description pins ONE ordering: playbooks doc, then this tool, then answer', () => {
-    const tool = buildStatusTools(CTX, { model: 'm' })[0];
+    const tool = buildStatusTools(CTX, { model: 'm' })[0] as ToolHandle;
     expect(tool.description).toMatch(/read the "playbooks" doc/);
     expect(tool.description).toMatch(/then call this tool BEFORE answering/);
     expect(tool.description).toMatch(/instead of asking/);
