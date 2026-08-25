@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:claude.ai)",
+      "Bash(unzip -l files.zip)",
+      "Bash(unzip -o files.zip -d outputs/)",
+      "Bash(npm install:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(curl -s http://localhost:3000/health)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://localhost:3000/v1/accounts)",
+      "Bash(npm run:*)",
+      "Bash(npx tsx -e ':*)",
+      "Bash(curl -s -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxIiwidGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxIiwiZW1haWwiOiJhZG1pbkB0ZXN0LmNvbSIsInJvbGVzIjpbIm93bmVyIl0sInBlcm1pc3Npb25zIjpbIioiXSwiZW50aXRpZXMiOlsiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxIl0sInNlc3Npb25faWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJpYXQiOjE3NzYxMzQyMDcsImV4cCI6MTc3NjEzNzgwN30.JEHQAYoqLzRrmVHg84aLxDPcjMj-UM1MZgDewI4uv5I' 'http://localhost:3000/v1/accounts?entity_id=00000000-0000-0000-0000-000000000001')",
+      "Bash(wc -l /Users/victor/Proyects/Accounting/src/api/rest/routes/*.ts)",
+      "Bash(grep -o \"CREATE TABLE [a-z_]*\" /Users/victor/Proyects/Accounting/src/database/migrations/*.sql)",
+      "Bash(grep -n \"router\\\\.\\\\\\(get\\\\|post\\\\|put\\\\|patch\\\\|delete\\\\\\)\" /Users/victor/Proyects/Accounting/src/api/rest/routes/*.ts)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(f'  {v[\\\\\"vendor_number\\\\\"]} - {v[\\\\\"company_name\\\\\"]}'\\) for v in d['data']]\")",
+      "Bash(find /Users/victor/Proyects/Accounting/src -name \"*.ts\" -exec cat {} +)",
+      "Bash(find /Users/victor/Proyects/Accounting/src -name \"*.sql\" -exec cat {} +)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Read(//Users/victor/Proyects/Accounting/src/services/**)",
+      "Read(//Users/victor/Proyects/Accounting/src/**)"
+    ]
+  }
+}

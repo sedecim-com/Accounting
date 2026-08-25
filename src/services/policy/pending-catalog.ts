@@ -1,0 +1,271 @@
+// ============================================================
+// POLICY DECISION CATALOG
+// Everything the system can NOT decide on its own because it
+// depends on the firm's judgment, company policy, or business
+// information. Each one declares the default used while it is
+// undefined, so the system never stops waiting for a definition.
+// ============================================================
+
+export interface PolicyOption {
+  value: string;
+  label: string;
+}
+
+export interface PolicySpec {
+  key: string;
+  category: 'contable' | 'fiscal' | 'seguridad' | 'operativa' | 'comercial';
+  question: string;
+  /** What changes in the system depending on the answer. */
+  impact: string;
+  options: PolicyOption[];
+  /** Value in use while undefined. */
+  defaultValue: string;
+  defaultRationale: string;
+  /** 1 = decide first. */
+  priority: number;
+
+  // ── Onboarding: the wizard explains before asking ──
+  /**
+   * Why the system needs the datum, from the user's point of view: what
+   * it cannot decide on its own and why. Written for an accountant, not
+   * for an operator.
+   */
+  whyAsking?: string;
+  /** Exactly what the system will do with the answer. */
+  whatIDo?: string;
+  /** What happens if they skip it (beyond "the default is used"). */
+  ifSkipped?: string;
+}
+
+export const POLICY_CATALOG: PolicySpec[] = [
+  // ── Accounting ──
+  {
+    key: 'umbral_capitalizacion_mxn',
+    category: 'contable',
+    question: 'From what amount is an item capitalized as a fixed asset instead of expensed?',
+    impact:
+      'Determines when the system asks "expense or fixed asset" when loading a CFDI. A low threshold ' +
+      'interrupts often; a high one capitalizes less than it should. Also affects future depreciation.',
+    options: [
+      { value: '5000', label: '$5,000 — conservative, capitalizes almost all equipment' },
+      { value: '20000', label: '$20,000 — common in Mexican SMEs' },
+      { value: '50000', label: '$50,000 — only significant investments' },
+    ],
+    defaultValue: '20000',
+    defaultRationale: 'Most common threshold in Mexican practice. Not a legal rule: it is internal policy.',
+    whyAsking:
+      "When an equipment invoice arrives I must decide whether it is this month's expense or an asset that depreciates over years. That line is your company's policy, not a SAT rule — the law sets depreciation rates, not the threshold for capitalizing.",
+    whatIDo:
+      'Above that amount I stop and ask you case by case instead of deciding alone. Below it, I book it as an expense without interrupting you.',
+    ifSkipped:
+      'I keep asking at $20,000, which may interrupt you more (or less) than you want.',
+    priority: 10,
+  },
+  {
+    key: 'politica_restaurantes',
+    category: 'fiscal',
+    question: 'Restaurant meals (8.5% deductible): how are they recorded?',
+    impact:
+      'Defines whether the system splits each meal into two lines (deductible / non-deductible) or sends ' +
+      'everything to non-deductible with the adjustment made in the return. Affects the tax-book reconciliation.',
+    options: [
+      { value: 'split_85', label: 'Split 8.5% deductible / 91.5% non-deductible in the entry' },
+      { value: 'no_deducible', label: 'All to non-deductible; adjust in the return' },
+    ],
+    defaultValue: 'split_85',
+    defaultRationale: 'Keeps the books aligned with the actual deduction without extra work at close.',
+    whyAsking:
+      'The income tax law lets you deduct only 8.5% of restaurant meals. The other 91.5% is a real expense but not deductible, and mixing them makes the tax reconciliation harder at year-end.',
+    whatIDo:
+      'I split each restaurant invoice into two lines — deductible and non-deductible — or send it whole to non-deductible, whichever you choose.',
+    ifSkipped:
+      'I split 8.5/91.5, which keeps the books aligned but adds a line to each meal.',
+    priority: 20,
+  },
+  {
+    key: 'tratamiento_ieps',
+    category: 'fiscal',
+    question: 'Is the company an IEPS taxpayer that passes it on?',
+    impact:
+      'If it is not, the IEPS passed on to it becomes part of the cost. If it is, it is creditable. ' +
+      'Determines the account for every purchase with IEPS (fuel, beverages, tobacco).',
+    options: [
+      { value: 'costo', label: 'Not a taxpayer: IEPS is part of the cost' },
+      { value: 'acreditable', label: 'Is a taxpayer: IEPS is creditable' },
+    ],
+    defaultValue: 'costo',
+    defaultRationale: 'Most companies are not IEPS taxpayers (LIEPS art. 4).',
+    whyAsking:
+      'IEPS is only creditable if your company is a taxpayer of that tax and passes it on. For everyone else it is part of the cost of the goods. I cannot tell which case you are from the invoice.',
+    whatIDo:
+      'It decides the account for every purchase carrying IEPS: fuel, beverages, tobacco.',
+    ifSkipped:
+      'I treat it as cost, which is right for most companies but understates your creditable tax if you are an IEPS taxpayer.',
+    priority: 30,
+  },
+  {
+    key: 'lleva_inventarios',
+    category: 'contable',
+    question: 'Does the company keep perpetual inventories?',
+    impact:
+      'If it does, merchandise purchases go to inventory and cost is recognized on sale. ' +
+      'If not, they go straight to cost. Changes the entry for every purchase of merchandise or raw materials.',
+    options: [
+      { value: 'perpetuos', label: 'Yes: purchases to inventory, cost on sale' },
+      { value: 'directo', label: 'No: purchases straight to cost of sales' },
+    ],
+    defaultValue: 'directo',
+    defaultRationale: 'Asked case by case while undefined; the default avoids inventing inventories.',
+    whyAsking:
+      "If you keep perpetual inventories, a merchandise purchase goes to inventory and the cost is recognized when you sell. If you don't, it goes straight to cost of sales. The invoice looks identical either way.",
+    whatIDo:
+      'It changes the entry for every purchase of merchandise or raw materials.',
+    ifSkipped:
+      'I ask you case by case on each merchandise purchase, which is safe but repetitive.',
+    priority: 25,
+  },
+  {
+    key: 'cfdi_periodo_cerrado',
+    category: 'contable',
+    question: 'A CFDI from an already-closed period: in which period is it recorded?',
+    impact:
+      'Defines whether the system proposes the current open period or flags the document to reopen the ' +
+      'original period. Affects the comparability of the financial statements.',
+    options: [
+      { value: 'periodo_actual', label: 'Record in the current open period' },
+      { value: 'preguntar', label: 'Ask case by case' },
+      { value: 'reabrir', label: 'Reopen the original period (requires authorization)' },
+    ],
+    defaultValue: 'preguntar',
+    defaultRationale: 'With no policy defined, each case is escalated instead of assumed.',
+    whyAsking:
+      'A December invoice that arrives in February has no obvious home: booking it in the closed period breaks comparability, booking it today distorts the current month. Firms handle this differently.',
+    whatIDo:
+      'It decides whether I propose the current open period, flag the document to reopen the original one, or ask you each time.',
+    ifSkipped:
+      'I ask you each time, which is the safest default but the most interruptive.',
+    priority: 40,
+  },
+
+  // ── Security ──
+  {
+    key: 'efirma_max_accesos_diarios',
+    category: 'seguridad',
+    question: 'How many e.firma decryptions per day are normal?',
+    impact:
+      'This is the limit that triggers denial and the anomalous-access signal. Too high = the signal loses ' +
+      'value; too low = it interrupts legitimate sync. It should come from the real download cadence.',
+    options: [
+      { value: '4', label: '4 — sync every 6 hours' },
+      { value: '24', label: '24 — one per hour' },
+      { value: '96', label: '96 — every 15 minutes' },
+    ],
+    defaultValue: '24',
+    defaultRationale: 'One per hour: generous for any reasonable cadence, but it bounds abuse.',
+    whyAsking:
+      'Your e.firma is decrypted every time I authenticate with the SAT. A limit turns an abnormal access pattern into a visible signal — but only if it reflects your real sync cadence.',
+    whatIDo:
+      'Above that number of decryptions in 24 hours I deny access and log it as an anomaly.',
+    ifSkipped:
+      'I allow 24 per day (one per hour), which is generous: an abuse would have to be large before the signal fires.',
+    priority: 15,
+  },
+  {
+    key: 'efirma_accion_anomalia',
+    category: 'seguridad',
+    question: 'When an anomalous e.firma access pattern is detected, block or only alert?',
+    impact:
+      'Blocking protects but can take down a client sync on a false positive. ' +
+      'Alerting does not interrupt but requires someone watching. Defines whether you need on-call coverage.',
+    options: [
+      { value: 'bloquear', label: 'Block the credential and notify' },
+      { value: 'alertar', label: 'Only alert and let it continue' },
+      { value: 'bloquear_fuera_horario', label: 'Block only outside the defined time window' },
+    ],
+    defaultValue: 'alertar',
+    defaultRationale:
+      'The daily limit already denies the excess; blocking the whole credential without someone on call ' +
+      'to handle it would leave the client without service until somebody notices.',
+    whyAsking:
+      'When the access pattern looks wrong I can block the credential or just alert. Blocking protects but a false positive takes down your sync; alerting never interrupts but needs someone watching.',
+    whatIDo:
+      'It decides what happens the moment an anomaly is detected.',
+    ifSkipped:
+      'I only alert. If nobody is watching the alerts, an abnormal access could continue unnoticed.',
+    priority: 18,
+  },
+
+  // ── Operations ──
+  {
+    key: 'ingest_auto_post',
+    category: 'operativa',
+    question: 'Is auto-posting enabled for CFDI ingestion?',
+    impact:
+      'With auto-post off, everything stays in draft for review. On, the system posts without ' +
+      'intervention when the confidence, amount, and known-vendor thresholds are met.',
+    options: [
+      { value: 'off', label: 'Off: everything goes to human review' },
+      { value: 'on', label: 'On with the configured thresholds' },
+    ],
+    defaultValue: 'off',
+    defaultRationale:
+      'Better to measure for several weeks how often it would get it right before letting it move money on its own.',
+    whyAsking:
+      'I can classify an invoice and post it without asking, or always leave it as a draft for you to approve. Turning it on saves work; leaving it off means nothing reaches your books unreviewed.',
+    whatIDo:
+      'With it off, every AI-classified invoice waits for your approval in `mnemosine review`. With it on, invoices meeting the confidence, amount and known-vendor thresholds post on their own.',
+    ifSkipped:
+      'It stays off: everything goes through your review, which is the safe way to start.',
+    priority: 12,
+  },
+  {
+    key: 'ingest_auto_post_max_monto',
+    category: 'operativa',
+    question: 'What is the maximum amount the AI can post without human review?',
+    impact: 'Hard cap for auto-posting. Above this amount it always goes through review.',
+    options: [
+      { value: '5000', label: '$5,000 — minor expenses only' },
+      { value: '10000', label: '$10,000' },
+      { value: '50000', label: '$50,000' },
+    ],
+    defaultValue: '10000',
+    defaultRationale: 'Bounds the exposure while a track record is built.',
+    whyAsking:
+      'Even with auto-posting on, there is an amount above which you probably want to look yourself before it touches the books.',
+    whatIDo:
+      'It is a hard cap: above that amount an invoice always goes to review, no matter how confident the classification is.',
+    ifSkipped:
+      'The cap stays at $10,000.',
+    priority: 13,
+  },
+
+  // ── Business ──
+  {
+    key: 'pac_ofrece_descarga',
+    category: 'comercial',
+    question: 'Does your PAC offer download of received CFDIs, and does it require your e.firma?',
+    impact:
+      'If the PAC downloads without asking for the e.firma, those clients need no custody and your ' +
+      'exposure drops. If it requires it, the PAC route only transfers the risk to a regulated third ' +
+      'party. Determines whether PacDownloadProvider is worth implementing.',
+    options: [
+      { value: 'si_sin_efirma', label: 'Offers it and does NOT ask for the e.firma (ideal)' },
+      { value: 'si_con_efirma', label: 'Offers it but asks for the client e.firma' },
+      { value: 'no', label: 'Does not offer the service' },
+    ],
+    defaultValue: 'no',
+    defaultRationale:
+      'Until confirmed, direct SAT download with a custodied e.firma is assumed.',
+    whyAsking:
+      "If your PAC can download your received CFDIs, I don't need to hold your e.firma for that client — which is a real reduction in risk. Whether it can, and whether it demands the e.firma itself, is commercial information only you can confirm.",
+    whatIDo:
+      'It decides whether I download directly from the SAT (needing your custodied e.firma) or through your PAC.',
+    ifSkipped:
+      'I assume direct SAT download, so the e.firma stays under custody even if your PAC could have avoided it.',
+    priority: 35,
+  },
+];
+
+export function getPolicySpec(key: string): PolicySpec | undefined {
+  return POLICY_CATALOG.find((p) => p.key === key);
+}

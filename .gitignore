@@ -1,0 +1,36 @@
+# Dependencias y compilación
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Configuración con secretos — NUNCA versionar
+.env
+.env.local
+.env.*.local
+mnemosine.config.json
+
+# Material criptográfico real. Los certificados de tests/fixtures/certs son
+# sintéticos (autofirmados, RFC AAA010101AAA) y los necesitan las pruebas:
+# se exceptúan explícitamente más abajo.
+*.key
+*.pem
+*.p12
+*.pfx
+!tests/fixtures/certs/*.key
+
+# Bóveda local de desarrollo (material cifrado de e.firma/CSD)
+.mnemosine/
+vault-local/
+
+# Salidas de herramientas
+coverage/
+.nyc_output/
+*.log
+npm-debug.log*
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

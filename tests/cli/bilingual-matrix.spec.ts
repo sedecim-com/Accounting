@@ -1,0 +1,154 @@
+import { describe, it, expect, beforeAll } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+
+// ============================================================
+// BILINGUAL MATRIX — pins the language policy:
+//   1. Every canonical command/subcommand name is ENGLISH.
+//   2. The Spanish surface is COMPLETE: every command whose
+//      English name differs in Spanish has a working alias.
+//   3. Help text is English (no leftovers from the translation).
+// Runs the real CLI (--help never touches the database).
+// ============================================================
+
+const CLI = path.join(process.cwd(), 'src/cli/mnemosine.ts');
+
+function help(...args: string[]): string {
+  return execFileSync('npx', ['tsx', CLI, ...args, '--help'], {
+    encoding: 'utf-8',
+    timeout: 30_000,
+    env: { ...process.env, NO_COLOR: '1' },
+  });
+}
+
+/** canonical → Spanish alias ('' = same word in both languages). */
+const TOP_LEVEL: Record<string, string> = {
+  entities: 'entidades',
+  providers: 'proveedores',
+  ask: 'pregunta',
+  chat: '',
+  sessions: 'sesiones',
+  drafts: 'borradores',
+  review: 'revisar',
+  ingest: 'ingesta',
+  lang: 'idioma',
+  onboard: 'alta',
+  outbox: 'envios',
+  questions: 'dudas',
+  sat: '',
+  pending: 'pendientes',
+  login: 'entrar',
+  logout: 'salir',
+  whoami: 'quien',
+  doctor: '',
+  memory: 'memoria',
+  'prompt-size': 'tamano-prompt',
+  init: 'configurar',
+  close: 'cierre',
+  compact: 'compactar',
+  approvals: 'aprobaciones',
+  usage: 'uso',
+  status: 'estado',
+  jobs: 'tareas',
+  skills: 'habilidades',
+  webhooks: 'ganchos',
+};
+
+const SUBCOMMANDS: Record<string, Record<string, string>> = {
+  memory: { teach: 'enseña', correct: 'corrige', retire: 'retira', restore: 'restaura' },
+  pending: { define: 'definir', dismiss: 'descartar', reopen: 'reabrir' },
+};
+
+const SAT_CRED: Record<string, string> = {
+  add: 'agregar', status: 'estado', audit: 'auditoria', revoke: 'revocar',
+};
+
+// Leftovers the translation audit actually found — the realistic regressions.
+const SPANISH_LEFTOVERS = [
+  /Solo muestra/, /No interactivo/, /conversa con/, /salud del sistema/,
+  /Nombre de la entidad/, /Proveedor de IA/, /\(opcional\)/, /Quedan cosas/,
+  /Listo\. Prueba/, /túnel/,
+];
+
+let topHelp = '';
+let memoryHelp = '';
+let pendingHelp = '';
+let satCredHelp = '';
+
+beforeAll(() => {
+  topHelp = help();
+  memoryHelp = help('memory');
+  pendingHelp = help('pending');
+  satCredHelp = help('sat', 'cred');
+}, 120_000);
+
+describe('canonical English names', () => {
+  it('every top-level command in the help is a known English canonical', () => {
+    // Rows look like "  drafts|borradores [options]  Description…"
+    const names = [...topHelp.matchAll(/^ {2}([a-z][a-z0-9-]*)(?:\|| )/gm)]
+      .map((m) => m[1])
+      .filter((n) => n !== 'help');
+    for (const name of names) {
+      expect(Object.keys(TOP_LEVEL), `"${name}" is not in the canonical matrix`).toContain(name);
+    }
+  });
+
+  it('no Spanish word survives as a canonical (aliases are the Spanish surface)', () => {
+    const spanishNames = Object.values(TOP_LEVEL).filter(Boolean);
+    for (const alias of spanishNames) {
+      // The alias must appear AFTER a pipe, never as the row's first name.
+      expect(topHelp).not.toMatch(new RegExp(`^ {2}${alias}[| ]`, 'm'));
+    }
+  });
+});
+
+describe('Spanish surface is complete', () => {
+  it('every top-level command shows its Spanish alias in the help', () => {
+    for (const [canonical, alias] of Object.entries(TOP_LEVEL)) {
+      if (!alias) continue;
+      expect(topHelp, `${canonical} is missing its alias ${alias}`)
+        .toMatch(new RegExp(`^ {2}${canonical}\\|${alias}`, 'm'));
+    }
+  });
+
+  it('memory subcommands are bilingual', () => {
+    for (const [canonical, alias] of Object.entries(SUBCOMMANDS.memory)) {
+      expect(memoryHelp).toMatch(new RegExp(`${canonical}\\|${alias}`));
+    }
+  });
+
+  it('pending subcommands are bilingual', () => {
+    for (const [canonical, alias] of Object.entries(SUBCOMMANDS.pending)) {
+      expect(pendingHelp).toMatch(new RegExp(`${canonical}\\|${alias}`));
+    }
+  });
+
+  it('sat cred subcommands are bilingual', () => {
+    for (const [canonical, alias] of Object.entries(SAT_CRED)) {
+      expect(satCredHelp).toMatch(new RegExp(`${canonical}\\|${alias}`));
+    }
+  });
+
+  it('a Spanish alias resolves to the canonical command (deep path)', () => {
+    const out = execFileSync('npx', ['tsx', CLI, 'memoria', 'corrige', '--help'], {
+      encoding: 'utf-8', timeout: 30_000, env: { ...process.env, NO_COLOR: '1' },
+    });
+    expect(out).toMatch(/Usage: mnemosine memory correct\|corrige/);
+  });
+});
+
+describe('help text is English', () => {
+  it('no translation leftovers in any help screen', () => {
+    for (const screen of [topHelp, memoryHelp, pendingHelp, satCredHelp]) {
+      for (const leftover of SPANISH_LEFTOVERS) {
+        expect(screen).not.toMatch(leftover);
+      }
+    }
+  });
+
+  it('flags use English names (the audit found --buscar/--todos/--nota/--tema)', () => {
+    for (const screen of [topHelp, memoryHelp, pendingHelp, satCredHelp]) {
+      expect(screen).not.toMatch(/--buscar|--todos|--nota|--tema\b|--min-confianza|--max-monto/);
+    }
+  });
+});

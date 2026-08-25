@@ -1,0 +1,1233 @@
+{
+ "name": "IFRS Accounting Standards — registro de vigencias para mnemosine",
+ "scope": "NIIF/NIC, interpretaciones CINIIF/SIC y NIIF para PyMEs del IASB (IFRS ACCOUNTING Standards). Las normas de sostenibilidad del ISSB (IFRS S1/S2) quedan FUERA de alcance: son revelación de sostenibilidad, no registro contable.",
+ "verified_at": "2026-08-24",
+ "verification": "Investigación con 9 agentes + 3 verificadores adversariales (completitud, vigencias, diferencias vs NIF). 69 fichas: 67 vigencias confirmadas contra ifrs.org/iasplus; 2 corregidas; 1 norma faltante agregada (IFRS 20); 8 afirmaciones NIF↔IFRS corregidas.",
+ "sources_of_truth": [
+  "https://www.ifrs.org/issued-standards/list-of-standards/",
+  "https://www.ifrs.org/projects/work-plan/",
+  "https://www.iasplus.com/en/standards",
+  "https://www.cinif.org.mx (convergencia NIF)"
+ ],
+ "update_playbook": "Ver sección \"Cómo mantener actualizado este corpus\" en niif-indice.md",
+ "standards": [
+  {
+   "code": "Marco Conceptual / Conceptual Framework",
+   "title_es": "Marco Conceptual para la Información Financiera (2018)",
+   "title_en": "Conceptual Framework for Financial Reporting (2018)",
+   "status": "vigente",
+   "effective": "Emitido en marzo de 2018; el IASB lo aplica desde su emisión y los preparadores lo usan como referencia obligada de la jerarquía de NIC 8 para periodos iniciados a partir del 1-ene-2020. Sin cambios posteriores; no es una norma y ninguna NIIF queda subordinada a él.",
+   "topic": "niif-marco-presentacion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/conceptual-framework/",
+    "https://www.ifrs.org/projects/completed-projects/2018/conceptual-framework/",
+    "https://www.iasplus.com/en-ca/projects/ifrs/completed-projects-2/cf-iasb"
+   ]
+  },
+  {
+   "code": "NIC 1 / IAS 1",
+   "title_es": "Presentación de Estados Financieros",
+   "title_en": "Presentation of Financial Statements",
+   "status": "sustituida_pendiente",
+   "effective": "Vigente (revisión 2007, efectiva desde 1-ene-2009) y sigue rigiendo la presentación hasta los periodos anuales iniciados antes del 1-ene-2027; la NIIF 18 la sustituye para periodos anuales (y sus intermedios) que inicien en o después del 1-ene-2027, con adopción anticipada de NIIF 18 permitida.",
+   "topic": "niif-marco-presentacion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ey.com/en_gl/insights/ifrs/ias-1-amendments-are-effective-from-1-january-2024",
+    "https://kpmg.com/xx/en/our-insights/ifrg/2024/classifying-liabilities-current-non-current-amendments-ias1.html",
+    "https://viewpoint.pwc.com/dt/gx/en/pwc/in_briefs/in_briefs_INT/in_briefs_INT/amendments-to-ias.html",
+    "https://viewpoint.pwc.com/dt/gx/en/pwc/manual_of_accounting/ifrs/ifrs_INT/ifrs_INT/18-presentation-and-disclosure-in-financial-statements-ifrs-18.html"
+   ],
+   "replaced_by": "NIIF 18 / IFRS 18",
+   "amendments": [
+    "Clasificación de pasivos como circulantes o no circulantes y Pasivos no circulantes con covenants (enmiendas emitidas en 2020 y octubre 2022, aplicadas en conjunto) — vigentes desde el 1-ene-2024, retrospectivas.",
+    "Sustitución completa por NIIF 18 (emitida 9-abr-2024) — surte efecto para periodos iniciados el 1-ene-2027 o después; los requisitos de NIC 1 no recogidos en NIIF 18 migran a NIC 8, NIIF 7 y NIC 34."
+   ]
+  },
+  {
+   "code": "NIIF 18 / IFRS 18",
+   "title_es": "Presentación e Información a Revelar en los Estados Financieros",
+   "title_en": "Presentation and Disclosure in Financial Statements",
+   "status": "futura",
+   "effective": "Periodos anuales que inicien el 1-ene-2027 o después, incluidos los estados intermedios de ese primer ejercicio; adopción anticipada permitida (revelando el hecho). Aplicación retrospectiva: el comparativo 2026 se reformula bajo NIIF 18 y se concilia contra lo presentado bajo NIC 1.",
+   "topic": "niif-marco-presentacion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-18-presentation-and-disclosure-in-financial-statements/",
+    "https://viewpoint.pwc.com/gx/en/IFRS_18_Presentation.html",
+    "https://assets.kpmg.com/content/dam/kpmgsites/xx/pdf/ifrg/2024/isg-first-impressions-presentation-and-disclosure-ifrs-18.pdf",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/applying-ifrs-a-closer-look-at-ifrs-18-updated-april-2026",
+    "https://kpmg.com/us/en/articles/2026/ifrs-18-changes-statement-cash-flows.html"
+   ],
+   "replaces": "NIC 1 / IAS 1",
+   "amendments": [
+    "Emisión original: 9-abr-2024, vigente 1-ene-2027 (sin diferimientos a agosto 2026; reguladores como ESMA ya emitieron expectativas de implementación 2026)."
+   ]
+  },
+  {
+   "code": "NIIF 19 / IFRS 19",
+   "title_es": "Subsidiarias sin Obligación Pública de Rendir Cuentas: Información a Revelar",
+   "title_en": "Subsidiaries without Public Accountability: Disclosures",
+   "status": "futura",
+   "effective": "Periodos anuales que inicien el 1-ene-2027 o después, con adopción anticipada permitida desde su emisión (mayo 2024); las enmiendas de agosto 2025 entran en vigor junto con la norma, de modo que al 1-ene-2027 ya incorpora las reducciones para normas emitidas hasta esa fecha (incluida NIIF 18).",
+   "topic": "niif-marco-presentacion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-19-subsidiaries-without-public-accountability-disclosures/",
+    "https://www.ifrs.org/news-and-events/news/2025/08/iasb-issues-amendments-ifrs-19-to-complete-catch-up-work/",
+    "https://www.iasplus.com/en/standards/ifrs/ifrs-19"
+   ],
+   "amendments": [
+    "Enmiendas a NIIF 19 (emitidas el 21-ago-2025): reducen revelaciones derivadas de normas y enmiendas emitidas entre feb-2021 y may-2024 — NIIF 18; Acuerdos de Financiamiento de Proveedores (NIC 7/NIIF 7); Pilar Dos (NIC 12); Falta de Intercambiabilidad (NIC 21); Clasificación y Medición de Instrumentos Financieros (NIIF 9/NIIF 7) — vigentes el 1-ene-2027 junto con la norma."
+   ]
+  },
+  {
+   "code": "NIC 7 / IAS 7",
+   "title_es": "Estado de Flujos de Efectivo",
+   "title_en": "Statement of Cash Flows",
+   "status": "vigente",
+   "effective": "Vigente desde el 1-ene-1994 (revisión 1992); enmiendas recientes en vigor: financiamiento de proveedores desde 1-ene-2024 y Mejoras Anuales Vol. 11 desde 1-ene-2026; enmiendas consecuenciales de NIIF 18 pendientes para 1-ene-2027.",
+   "topic": "niif-marco-presentacion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/news-and-events/news/2023/05/iasb-increases-transparency-of-companies-supplier-finance/",
+    "https://www.ifrs.org/news-and-events/news/2024/07/iasb-issues-annual-improvements-ifrs-accounting-standards/",
+    "https://kpmg.com/us/en/articles/2026/ifrs-18-changes-statement-cash-flows.html",
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-7-statement-of-cash-flows/"
+   ],
+   "amendments": [
+    "Acuerdos de Financiamiento de Proveedores (enmiendas a NIC 7 y NIIF 7, emitidas mayo 2023) — vigentes desde el 1-ene-2024.",
+    "Mejoras Anuales a las NIIF Volumen 11 (julio 2024): sustituye en el párrafo 37 el término 'método de costo' por 'al costo' — vigente desde el 1-ene-2026.",
+    "Enmiendas consecuenciales de NIIF 18 (abril 2024): punto de partida único del método indirecto (utilidad de operación) y eliminación de opciones de clasificación de intereses y dividendos — vigentes el 1-ene-2027."
+   ]
+  },
+  {
+   "code": "NIC 8 / IAS 8",
+   "title_es": "Políticas Contables, Cambios en las Estimaciones Contables y Errores",
+   "title_en": "Accounting Policies, Changes in Accounting Estimates and Errors",
+   "status": "vigente",
+   "effective": "Vigente desde el 1-ene-2005 (revisión 2003); a partir del 1-ene-2027 la NIIF 18 la renombra 'Base de Preparación de los Estados Financieros' y le traslada de NIC 1 los requisitos de presentación razonable, cumplimiento con NIIF, negocio en marcha, base de devengo y revelación de políticas.",
+   "topic": "niif-marco-presentacion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-8-basis-of-preparation-of-financial-statements/",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/applying-ifrs-a-closer-look-at-ifrs-18-updated-april-2026",
+    "https://www.bdo.co.uk/en-gb/insights/audit-and-assurance/ifrs-us-gaap-and-international-gaap/ifrs-18-presentation-and-disclosure-in-financial-statements"
+   ],
+   "amendments": [
+    "Enmiendas consecuenciales de NIIF 18 (abril 2024): renombramiento a 'Base de Preparación de los Estados Financieros' y traslado desde NIC 1 de presentación razonable, cumplimiento con NIIF, negocio en marcha, devengo y revelación de políticas contables — vigentes el 1-ene-2027."
+   ]
+  },
+  {
+   "code": "NIC 10 / IAS 10",
+   "title_es": "Hechos Ocurridos Después del Periodo sobre el que se Informa",
+   "title_en": "Events after the Reporting Period",
+   "status": "vigente",
+   "effective": "Vigente desde el 1-ene-2005 (revisión 2003); sin enmiendas emitidas con vigencia 2024-2028 identificadas.",
+   "topic": "niif-marco-presentacion",
+   "confidence": "medium",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/",
+    "https://www.ifrs.org/news-and-events/updates/iasb/2026/iasb-update-july-2026/"
+   ]
+  },
+  {
+   "code": "NIC 34 / IAS 34",
+   "title_es": "Información Financiera Intermedia",
+   "title_en": "Interim Financial Reporting",
+   "status": "vigente",
+   "effective": "Vigente desde el 1-ene-1999; enmiendas consecuenciales de NIIF 18 (subtotales y MPM en intermedios) vigentes para los intermedios de periodos anuales iniciados el 1-ene-2027 o después.",
+   "topic": "niif-marco-presentacion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-34-interim-financial-reporting/",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/applying-ifrs-a-closer-look-at-ifrs-18-updated-april-2026"
+   ],
+   "amendments": [
+    "Enmiendas consecuenciales de NIIF 18 (abril 2024): revelación de MPM en intermedios condensados y presentación de los encabezados y subtotales de NIIF 18 en el primer año de aplicación — vigentes para intermedios de ejercicios iniciados el 1-ene-2027 o después."
+   ]
+  },
+  {
+   "code": "NIIF 8 / IFRS 8",
+   "title_es": "Segmentos de Operación",
+   "title_en": "Operating Segments",
+   "status": "vigente",
+   "effective": "Vigente desde el 1-ene-2009; sin enmiendas de fondo con vigencia 2024-2028 salvo ajustes consecuenciales menores de NIIF 18 (vigentes 2027); decisión de agenda del Comité de Interpretaciones de julio 2024 sobre el párrafo 23.",
+   "topic": "niif-marco-presentacion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-8-operating-segments/",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/applying-ifrs-a-closer-look-at-ifrs-18-updated-april-2026"
+   ],
+   "amendments": [
+    "Enmiendas consecuenciales menores de NIIF 18 (abril 2024, alineación terminológica con los nuevos subtotales) — vigentes el 1-ene-2027."
+   ]
+  },
+  {
+   "code": "NIC 24 / IAS 24",
+   "title_es": "Información a Revelar sobre Partes Relacionadas",
+   "title_en": "Related Party Disclosures",
+   "status": "vigente",
+   "effective": "Vigente desde el 1-ene-2011 (revisión 2009); sin enmiendas emitidas con vigencia 2024-2028 identificadas.",
+   "topic": "niif-marco-presentacion",
+   "confidence": "medium",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/",
+    "https://www.ifrs.org/news-and-events/updates/iasb/2026/iasb-update-july-2026/"
+   ]
+  },
+  {
+   "code": "NIC 33 / IAS 33",
+   "title_es": "Ganancias por Acción",
+   "title_en": "Earnings per Share",
+   "status": "vigente",
+   "effective": "Vigente desde el 1-ene-2005 (revisión 2003); enmiendas consecuenciales de NIIF 18 sobre cifras por acción adicionales vigentes el 1-ene-2027.",
+   "topic": "niif-marco-presentacion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-33-earnings-per-share/",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/applying-ifrs-a-closer-look-at-ifrs-18-updated-april-2026",
+    "https://www.rsmuk.com/insights/bridging-the-gaap/ifrs-18-understanding-management-defined-performance-measures"
+   ],
+   "amendments": [
+    "Enmiendas consecuenciales de NIIF 18 (abril 2024): las cifras por acción adicionales quedan restringidas a numeradores que sean totales/subtotales de NIIF 18 o MPM, con revelaciones ampliadas — vigentes el 1-ene-2027."
+   ]
+  },
+  {
+   "code": "NIC 2 / IAS 2",
+   "title_es": "Inventarios",
+   "title_en": "Inventories",
+   "status": "vigente",
+   "effective": "Versión revisada de 2003, vigente desde el 1 de enero de 2005; sin enmiendas de fondo con vigencia 2024-2028 (solo retoques de terminología por NIIF 18, vigentes 1-ene-2027).",
+   "topic": "niif-activos",
+   "confidence": "high",
+   "sources": [
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://www.ifrs.org/news-and-events/news/2024/07/iasb-issues-annual-improvements-ifrs-accounting-standards/",
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/updated_ifrs_accounting_standards.html"
+   ],
+   "amendments": [
+    "Ninguna enmienda de reconocimiento o medición emitida con vigencia 2024-2028; únicamente modificaciones consecuenciales menores de terminología por NIIF 18 (emitida abril 2024), vigentes el 1 de enero de 2027."
+   ]
+  },
+  {
+   "code": "NIC 16 / IAS 16",
+   "title_es": "Propiedades, Planta y Equipo",
+   "title_en": "Property, Plant and Equipment",
+   "status": "vigente",
+   "effective": "Versión revisada de 2003, vigente desde el 1 de enero de 2005; última enmienda de fondo (productos obtenidos antes del uso previsto) vigente desde 2022. Sin enmiendas 2024-2028 salvo terminología por NIIF 18 (1-ene-2027).",
+   "topic": "niif-activos",
+   "confidence": "high",
+   "sources": [
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/updated_ifrs_accounting_standards.html",
+    "https://www.ifrs.org/issued-standards/list-of-standards/"
+   ],
+   "amendments": [
+    "Ninguna enmienda de reconocimiento o medición emitida con vigencia 2024-2028; solo modificaciones consecuenciales de terminología y referencias por NIIF 18 (emitida abril 2024), vigentes el 1 de enero de 2027."
+   ]
+  },
+  {
+   "code": "NIC 23 / IAS 23",
+   "title_es": "Costos por Préstamos",
+   "title_en": "Borrowing Costs",
+   "status": "vigente",
+   "effective": "Versión revisada de 2007 (capitalización obligatoria), vigente desde el 1 de enero de 2009; última aclaración por Mejoras Anuales 2015-2017 vigente desde 2019. Sin enmiendas 2024-2028.",
+   "topic": "niif-activos",
+   "confidence": "medium",
+   "sources": [
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/updated_ifrs_accounting_standards.html"
+   ],
+   "amendments": [
+    "Ninguna enmienda emitida con vigencia 2024-2028; solo terminología consecuencial por NIIF 18 (abril 2024), vigente 1 de enero de 2027."
+   ]
+  },
+  {
+   "code": "NIC 36 / IAS 36",
+   "title_es": "Deterioro del Valor de los Activos",
+   "title_en": "Impairment of Assets",
+   "status": "vigente",
+   "effective": "Versión revisada de marzo de 2004 (con enmiendas menores posteriores, últimas de revelación vigentes 2014), aplicable desde ejercicios iniciados el 31 de marzo de 2004. Sin enmiendas emitidas 2024-2028; las propuestas del ED de marzo 2024 (proyecto Business Combinations—Disclosures, Goodwill and Impairment) seguían en redeliberación en agosto de 2026, sin emisión ni fecha de vigencia.",
+   "topic": "niif-activos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/projects/work-plan/goodwill-and-impairment/",
+    "https://www.iasplus.com/en/meeting-types/iasb/2026/may/bcdgi",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/iasb-proposes-amendments-to-ifrs-3-and-ias-36",
+    "https://grupocpcon.com/es-mx/nic-36-deterioro-del-valor-de-los-activos-nif-c-15/"
+   ],
+   "amendments": [
+    "Ninguna enmienda emitida con vigencia 2024-2028. Pendiente relevante: el ED 'Business Combinations—Disclosures, Goodwill and Impairment' (marzo 2024) propone conservar el modelo de solo-deterioro (sin amortización de goodwill), simplificar el cálculo del valor en uso (permitir tasas después de impuestos y eliminar la restricción de reestructuraciones/mejoras futuras) y nuevas revelaciones; en agosto de 2026 seguía en redeliberación, sin norma final ni vigencia definida.",
+    "Modificaciones consecuenciales de terminología por NIIF 18 (abril 2024), vigentes el 1 de enero de 2027."
+   ]
+  },
+  {
+   "code": "NIC 38 / IAS 38",
+   "title_es": "Activos Intangibles",
+   "title_en": "Intangible Assets",
+   "status": "vigente",
+   "effective": "Versión revisada de marzo de 2004, vigente desde ejercicios iniciados el 31 de marzo de 2004 (enmienda de métodos de amortización vigente 2016). Sin enmiendas 2024-2028; el IASB tiene en curso una revisión integral de la norma (proyecto Intangible Assets), en etapa de proyecto en fase de investigación (siguiente hito: decidir la dirección del proyecto) — sin efecto normativo aún.",
+   "topic": "niif-activos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/news-and-events/updates/iasb/2026/iasb-update-july-2026/",
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-38-intangible-assets/",
+    "https://www.icaew.com/technical/corporate-reporting/ifrs/ifrs-accounting-standards-tracker/ias-38-intangible-assets",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html"
+   ],
+   "amendments": [
+    "Modificaciones consecuenciales de terminología por NIIF 18 (abril 2024), vigentes el 1 de enero de 2027."
+   ]
+  },
+  {
+   "code": "NIC 40 / IAS 40",
+   "title_es": "Propiedades de Inversión",
+   "title_en": "Investment Property",
+   "status": "vigente",
+   "effective": "Versión revisada de 2003, vigente desde el 1 de enero de 2005; enmienda de transferencias (cambio de uso) vigente desde el 1 de enero de 2018. Sin enmiendas 2024-2028 salvo terminología por NIIF 18 (1-ene-2027).",
+   "topic": "niif-activos",
+   "confidence": "medium",
+   "sources": [
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://cpcongroup.mx/insights/nic-40-nif-c-17-propiedades-de-inversion",
+    "https://vlex.com.mx/vid/nif-c-17-propiedades-857891386"
+   ],
+   "amendments": [
+    "Ninguna enmienda emitida con vigencia 2024-2028; solo terminología consecuencial por NIIF 18 (abril 2024), vigente 1 de enero de 2027."
+   ]
+  },
+  {
+   "code": "NIC 41 / IAS 41",
+   "title_es": "Agricultura",
+   "title_en": "Agriculture",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2003; las plantas productoras pasaron a NIC 16 desde 2016 y la última mejora (impuestos en la medición a valor razonable) rige desde 2022. Sin enmiendas 2024-2028.",
+   "topic": "niif-activos",
+   "confidence": "high",
+   "sources": [
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://cpcongroup.mx/insights/nic-41-nif-e-1-actividades-agropecuarias",
+    "https://www.grupocpcon.com/es-mx/nif-e-1-actividades-agropecuarias/"
+   ],
+   "amendments": [
+    "Ninguna enmienda emitida con vigencia 2024-2028; solo terminología consecuencial por NIIF 18 (abril 2024), vigente 1 de enero de 2027."
+   ]
+  },
+  {
+   "code": "NIIF 5 / IFRS 5",
+   "title_es": "Activos No Corrientes Mantenidos para la Venta y Operaciones Discontinuadas",
+   "title_en": "Non-current Assets Held for Sale and Discontinued Operations",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2005. Sin enmiendas 2024-2028 salvo terminología por NIIF 18 (1-ene-2027).",
+   "topic": "niif-activos",
+   "confidence": "high",
+   "sources": [
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://vlex.com.mx/vid/nif-b-11-disposicion-857891137",
+    "https://rmp.mx/Boletin/2018/Octubre/doc/NIF-B-11.pdf"
+   ],
+   "amendments": [
+    "Ninguna enmienda emitida con vigencia 2024-2028; solo terminología consecuencial por NIIF 18 (abril 2024), vigente 1 de enero de 2027."
+   ]
+  },
+  {
+   "code": "NIIF 6 / IFRS 6",
+   "title_es": "Exploración y Evaluación de Recursos Minerales",
+   "title_en": "Exploration for and Evaluation of Mineral Resources",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2006; norma deliberadamente transitoria que permanece sin cambios — el proyecto de investigación del IASB sobre actividades extractivas concluyó sin emprender su reemplazo. Sin enmiendas 2024-2028.",
+   "topic": "niif-activos",
+   "confidence": "medium",
+   "sources": [
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/updated_ifrs_accounting_standards.html",
+    "https://www.ifrs.org/issued-standards/list-of-standards/"
+   ],
+   "amendments": [
+    "Ninguna enmienda emitida con vigencia 2024-2028; solo terminología consecuencial por NIIF 18 (abril 2024), vigente 1 de enero de 2027. El IASB decidió no desarrollar por ahora una norma que la sustituya (proyecto de actividades extractivas concluido sin normativa nueva)."
+   ]
+  },
+  {
+   "code": "NIC 32 / IAS 32",
+   "title_es": "Instrumentos Financieros: Presentación",
+   "title_en": "Financial Instruments: Presentation",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2005 (versión revisada 2003); enmiendas de compensación vigentes desde el 1 de enero de 2014. A agosto 2026 sigue plenamente vigente; el proyecto FICE que la modificará está aún en redeliberación (sin enmienda final emitida).",
+   "topic": "niif-instrumentos-financieros",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/projects/work-plan/financial-instruments-with-characteristics-of-equity/",
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-32-financial-instruments-presentation/",
+    "https://www.ifrs.org/news-and-events/updates/iasb/2026/iasb-update-february-2026/",
+    "https://www.icaew.com/technical/corporate-reporting/ifrs/ifrs-accounting-standards-tracker/ias-32-financial-instruments-presentation"
+   ],
+   "amendments": [
+    "Sin enmiendas emitidas con vigencia 2024-2028 propias de la norma. El proyecto FICE (Financial Instruments with Characteristics of Equity, ED de noviembre 2023 que propone modificar IAS 32, IFRS 7 e IFRS 18) seguía en redeliberación en el IASB a abril de 2026; la enmienda final aún no se emite y, de emitirse en 2026-2027, su vigencia previsible caería hacia 2028-2029.",
+    "Enmiendas consecuenciales por IFRS 18 (Presentación e Información a Revelar en los Estados Financieros): referencias de IAS 1 sustituidas por IFRS 18, vigentes el 1 de enero de 2027 (sin cambio de fondo en la clasificación)."
+   ]
+  },
+  {
+   "code": "NIIF 7 / IFRS 7",
+   "title_es": "Instrumentos Financieros: Información a Revelar",
+   "title_en": "Financial Instruments: Disclosures",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2007. A agosto 2026 aplica ya con las enmiendas 2024 vigentes desde el 1 de enero de 2026 (clasificación y medición, electricidad dependiente de la naturaleza, Mejoras Anuales Vol. 11).",
+   "topic": "niif-instrumentos-financieros",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/news-and-events/news/2024/05/iasb-issues-amendments-cmfi-ifrs7-ifrs9/",
+    "https://www.ifrs.org/news-and-events/news/2024/12/iasb-updates-accounting-standards-nature-dependent-electricity-contracts/",
+    "https://www.endorsement-board.uk/projects/annual-improvements-to-ifrs-accounting-standards-volume-11-endorsement/",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/nature-dependent-electricity-ifrs-9-and-ifrs-7-amendments",
+    "https://viewpoint.pwc.com/dt/gx/en/iasb-amendments/amd/iasb-amendments/effective-01-jan-2026/amendments-to-ifrs-9.html"
+   ],
+   "amendments": [
+    "Enmiendas a la Clasificación y Medición de Instrumentos Financieros (enmiendas a IFRS 9 e IFRS 7, emitidas el 30 de mayo de 2024): nuevas revelaciones sobre inversiones de capital en ORI y características contractuales contingentes (incluidas ESG); vigentes el 1 de enero de 2026, adopción anticipada permitida.",
+    "Contratos que Referencian Electricidad Dependiente de la Naturaleza (enmiendas a IFRS 9 e IFRS 7, emitidas el 18 de diciembre de 2024): revelaciones sobre PPAs; vigentes el 1 de enero de 2026.",
+    "Mejoras Anuales a las Normas NIIF — Volumen 11 (emitidas el 18 de julio de 2024): corrige en IFRS 7 la referencia obsoleta sobre ganancia/pérdida en la baja (remite a los párrafos 72-73 de IFRS 13) y ajusta la guía de implementación sobre diferencias de 'día 1' y revelaciones de riesgo de crédito; vigentes el 1 de enero de 2026.",
+    "Enmiendas consecuenciales por IFRS 18, vigentes el 1 de enero de 2027; el proyecto FICE también modificará IFRS 7 cuando se finalice (aún en redeliberación a 2026)."
+   ]
+  },
+  {
+   "code": "NIIF 9 / IFRS 9",
+   "title_es": "Instrumentos Financieros",
+   "title_en": "Financial Instruments",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2018 (sustituyó a NIC 39 salvo la opción de macrocoberturas de valor razonable). A agosto 2026 aplica con tres paquetes de enmiendas 2024 ya vigentes desde el 1 de enero de 2026: clasificación y medición (mayo 2024), Mejoras Anuales Vol. 11 (julio 2024) y electricidad dependiente de la naturaleza (diciembre 2024).",
+   "topic": "niif-instrumentos-financieros",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/news-and-events/news/2024/05/iasb-issues-amendments-cmfi-ifrs7-ifrs9/",
+    "https://www.ifrs.org/news-and-events/news/2024/12/iasb-updates-accounting-standards-nature-dependent-electricity-contracts/",
+    "https://www.ifrs.org/projects/completed-projects/2024/ai-lessee-derecognition-of-lease-liabilities/",
+    "https://viewpoint.pwc.com/dt/gx/en/iasb-amendments/amd/iasb-amendments/effective-01-jan-2026/amendments-to-ifrs-9.html",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/amendments-to-classification-and-measurement-of-financial-instruments",
+    "https://www.bdo.global/en-gb/news/ifrs-news/iasb-issues-contracts-referencing-nature-dependent-electricity-amendments-to-ifrs-9-and-ifrs-7"
+   ],
+   "replaces": "NIC 39 / IAS 39 Instrumentos Financieros: Reconocimiento y Medición (permanece solo la opción de aplicar sus requisitos de macrocobertura de valor razonable de tasa de interés)",
+   "amendments": [
+    "Enmiendas a la Clasificación y Medición de Instrumentos Financieros (IFRS 9 e IFRS 7, emitidas el 30 de mayo de 2024): baja de pasivos liquidados por sistemas electrónicos de pago (fecha de liquidación + opción de baja anticipada), clarificación de SPPI para características contingentes incluidas las ligadas a ESG, activos sin recurso e instrumentos ligados contractualmente, y nuevas revelaciones; vigentes para periodos anuales iniciados el 1 de enero de 2026, con adopción anticipada permitida (separable la parte de clasificación de activos).",
+    "Mejoras Anuales a las Normas NIIF — Volumen 11 (emitidas el 18 de julio de 2024): en IFRS 9, aclaración de la baja de pasivos por arrendamiento del arrendatario (remisión al párrafo 3.3.3, ganancia o pérdida a resultados) y ajuste de la redacción sobre 'precio de transacción' para alinear con NIIF 15; vigentes el 1 de enero de 2026.",
+    "Contratos que Referencian Electricidad Dependiente de la Naturaleza (IFRS 9 e IFRS 7, emitidas el 18 de diciembre de 2024): ajuste de la excepción de 'uso propio' y habilitación de estos PPAs como instrumentos/partidas en coberturas de flujo de efectivo; vigentes el 1 de enero de 2026, con adopción anticipada permitida.",
+    "Enmiendas consecuenciales por IFRS 18, vigentes el 1 de enero de 2027 (referencias de presentación; sin cambio en reconocimiento y medición)."
+   ]
+  },
+  {
+   "code": "NIIF 13 / IFRS 13",
+   "title_es": "Medición del Valor Razonable",
+   "title_en": "Fair Value Measurement",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2013. A agosto 2026 no tiene enmiendas propias con vigencia 2024-2028; el IASB no mantiene ningún proyecto activo de modificación de la norma (la revisión posterior a la implementación concluyó en 2018 sin cambios), solo ajustes consecuenciales menores por IFRS 18/IFRS 19 con vigencia 2027.",
+   "topic": "niif-instrumentos-financieros",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-13-fair-value-measurement/",
+    "https://www.iasplus.com/en/standards/ifrs/ifrs13",
+    "https://www.icaew.com/technical/corporate-reporting/ifrs/ifrs-accounting-standards-tracker/ifrs-13-fair-value-measurement"
+   ],
+   "amendments": [
+    "Sin enmiendas propias emitidas con vigencia 2024-2028: no hay proyecto activo sobre IFRS 13 en el plan de trabajo del IASB (la PIR concluyó en 2018 y el Comité de Interpretaciones ha resuelto consultas recientes mediante decisiones de agenda, sin normativa nueva).",
+    "Enmiendas consecuenciales por IFRS 18 (vigencia 1 de enero de 2027) e IFRS 19 (revelaciones reducidas para subsidiarias elegibles, vigencia 1 de enero de 2027): ajustes de referencias y de alcance de revelaciones, sin cambio en la mecánica de medición."
+   ]
+  },
+  {
+   "code": "NIIF 15 / IFRS 15",
+   "title_es": "Ingresos de Actividades Ordinarias Procedentes de Contratos con Clientes",
+   "title_en": "Revenue from Contracts with Customers",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2018 (verificado en ifrs.org). Sin enmiendas propias pendientes; las enmiendas consecuentes de la NIIF 18 entran en vigor el 1 de enero de 2027.",
+   "topic": "niif-ingresos-arrendamientos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-15-revenue-from-contracts-with-customers/",
+    "https://www.iasplus.com/en/news/2024/09/pir-ifrs-15",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://www.efrag.org/en/projects/ifrs-15-postimplementation-review/concluded"
+   ],
+   "replaces": "NIC 11 / IAS 11, NIC 18 / IAS 18, CINIIF 13, CINIIF 15, CINIIF 18 y SIC-31",
+   "amendments": [
+    "Sin enmiendas nuevas emitidas 2024-2028 propias de la norma: la revisión post-implementación (PIR) de la NIIF 15 concluyó el 30 de septiembre de 2024 con la conclusión de que la norma funciona según lo previsto; solo el tema de contraprestación pagadera al cliente se remitió a la próxima consulta de agenda (verificado en iasplus.com y ifrs.org).",
+    "Enmiendas consecuentes de la NIIF 18 'Presentación e Información a Revelar en los Estados Financieros' (emitida abril 2024): ajustes menores de referencias de presentación, vigentes el 1 de enero de 2027 (verificado en ifrs.org y KPMG)."
+   ]
+  },
+  {
+   "code": "NIIF 16 / IFRS 16",
+   "title_es": "Arrendamientos",
+   "title_en": "Leases",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2019 (verificado en ifrs.org). Enmienda 'Pasivo por Arrendamiento en una Venta con Arrendamiento en Vía de Regreso' vigente desde el 1 de enero de 2024; enmiendas consecuentes de la NIIF 18 vigentes el 1 de enero de 2027.",
+   "topic": "niif-ingresos-arrendamientos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-16-leases/",
+    "https://www.ifrs.org/projects/work-plan/post-implementation-review-of-ifrs-16-leases/",
+    "https://viewpoint.pwc.com/dt/gx/en/pwc/in_depths/in_depths_INT/in_depths_INT/lease-liability--joined.html",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://www.iasplus.com/en/meeting-types/iasb/2026/february/pir-ifrs-16"
+   ],
+   "replaces": "NIC 17 / IAS 17, CINIIF 4 / IFRIC 4, SIC-15 y SIC-27",
+   "amendments": [
+    "Pasivo por Arrendamiento en una Venta con Arrendamiento en Vía de Regreso (emitida septiembre 2022): vigente para periodos iniciados a partir del 1 de enero de 2024, aplicación retrospectiva a las operaciones de venta y arrendamiento en vía de regreso celebradas desde la adopción inicial de la NIIF 16 (verificado en ifrs.org y viewpoint.pwc.com).",
+    "Enmiendas consecuentes de la NIIF 18 (emitida abril 2024): referencias de presentación, vigentes el 1 de enero de 2027 (verificado en ifrs.org).",
+    "Sin enmienda emitida pero relevante: revisión post-implementación (PIR) de la NIIF 16 en curso — solicitud de información publicada el 17 de junio de 2025 (comentarios hasta el 15 de octubre de 2025); en 2026 el IASB delibera la retroalimentación y decidió tentativamente explorar mayores revelaciones de los componentes del flujo de efectivo por arrendamientos dentro de su proyecto de estado de flujos de efectivo (verificado en ifrs.org e iasplus.com).",
+    "Proyecto activo relacionado: 'Venta con arrendamiento en vía de regreso de un activo en una entidad de un solo activo (NIIF 10 y NIIF 16)' en el plan de trabajo del IASB, sin enmienda emitida a la fecha (verificado en ifrs.org)."
+   ]
+  },
+  {
+   "code": "NIC 20 / IAS 20",
+   "title_es": "Contabilización de las Subvenciones del Gobierno e Información a Revelar sobre Ayudas Gubernamentales",
+   "title_en": "Accounting for Government Grants and Disclosure of Government Assistance",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 1984 (emitida por el IASC en 1983 y adoptada por el IASB en 2001); sin proyecto activo de reemplazo en el plan de trabajo del IASB a agosto de 2026. Las enmiendas consecuentes de la NIIF 18 entran en vigor el 1 de enero de 2027 (verificado en ifrs.org).",
+   "topic": "niif-ingresos-arrendamientos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-20-accounting-for-government-grants-and-disclosure-of-government-assistance/",
+    "https://www.iasplus.com/en/standards/ias/ias20",
+    "https://www.icaew.com/technical/corporate-reporting/ifrs/ifrs-accounting-standards-tracker/ias-20-accounting-for-government-grants-and-disclosure-of-government-assistance",
+    "https://www.bdo.com/insights/assurance/bdos-us-gaap-and-ifrs-comparison-series-government-grants"
+   ],
+   "amendments": [
+    "Sin enmiendas propias emitidas 2024-2028; sin proyecto activo del IASB sobre la norma en el plan de trabajo a agosto de 2026 (verificado en ifrs.org e iasplus.com).",
+    "Enmiendas consecuentes de la NIIF 18 (emitida abril 2024): referencias de presentación en resultados, vigentes el 1 de enero de 2027 (verificado en ifrs.org).",
+    "Contexto comparativo (no NIIF): el FASB emitió el ASU 2025-10 alineando US GAAP con el enfoque de IAS 20 para subvenciones a empresas, señal de que el modelo de IAS 20 sigue siendo la referencia internacional (verificado en dart.deloitte.com/BDO)."
+   ]
+  },
+  {
+   "code": "NIC 37 / IAS 37",
+   "title_es": "Provisiones, Pasivos Contingentes y Activos Contingentes",
+   "title_en": "Provisions, Contingent Liabilities and Contingent Assets",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de julio de 1999 (emitida en 1998); última enmienda sustantiva 'Contratos Onerosos—Costo de Cumplir un Contrato' vigente desde el 1 de enero de 2022. A agosto 2026 no se han emitido enmiendas nuevas; el proyecto Provisions—Targeted Improvements sigue en redeliberación (ver amendments).",
+   "topic": "niif-pasivos-empleados-impuestos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-37-provisions-contingent-liabilities-and-contingent-assets/",
+    "https://www.ifrs.org/projects/work-plan/provisions/",
+    "https://www.iasplus.com/en/projects/narrow-scope/provisions",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/iasb-proposes-amendments-to-requirements-for-non-financial-liabilities-ias-37"
+   ],
+   "amendments": [
+    "Ninguna enmienda emitida con vigencia 2024-2028 a la fecha de verificación (agosto 2026).",
+    "Proyecto en curso 'Provisions—Targeted Improvements': Exposure Draft IASB/ED/2024/8 publicado el 12-nov-2024 (comentarios hasta 12-mar-2025); propone alinear el criterio de 'obligación presente' con el Marco Conceptual, especificar que la tasa de descuento NO incluya el riesgo de crédito propio y precisar los costos a incluir en la medición. Redeliberaciones en 2026 (reuniones del IASB de 24-feb-2026 y 22-jun-2026, esta última sobre el plan de terminación); las enmiendas finales aún no se emiten ni tienen fecha de vigencia."
+   ]
+  },
+  {
+   "code": "NIC 19 / IAS 19",
+   "title_es": "Beneficios a los Empleados",
+   "title_en": "Employee Benefits",
+   "status": "vigente",
+   "effective": "Versión revisada 2011 vigente desde el 1 de enero de 2013; última enmienda sustantiva (Modificación, Reducción o Liquidación del Plan, feb-2018) vigente desde 2019. Enmiendas consecuenciales de IFRS 18 (abril 2024) vigentes para ejercicios iniciados el 1 de enero de 2027.",
+   "topic": "niif-pasivos-empleados-impuestos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-19-employee-benefits/",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://www.icaew.com/technical/corporate-reporting/ifrs/ifrs-accounting-standards-tracker/ifrs-18-presentation-and-disclosure-in-financial-statements"
+   ],
+   "amendments": [
+    "IFRS 18 (emitida abril 2024) — enmiendas consecuenciales de presentación a IAS 19, vigentes desde el 1 de enero de 2027 (aplicación retrospectiva; adopción anticipada permitida).",
+    "No existe ningún otro proyecto activo del IASB para modificar IAS 19 a agosto 2026; no hay enmiendas propias emitidas en 2024-2028."
+   ]
+  },
+  {
+   "code": "NIIF 2 / IFRS 2",
+   "title_es": "Pagos Basados en Acciones",
+   "title_en": "Share-based Payment",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2005; última enmienda sustantiva 'Clasificación y Medición de Transacciones con Pagos Basados en Acciones' (junio 2016) vigente desde el 1 de enero de 2018. A agosto 2026 no hay enmiendas 2024-2028 ni proyectos activos del IASB sobre esta norma.",
+   "topic": "niif-pasivos-empleados-impuestos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-2-share-based-payment/",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html"
+   ],
+   "amendments": [
+    "Ninguna enmienda emitida con vigencia 2024-2028 a la fecha de verificación (agosto 2026); IFRS 2 tampoco aparece en la lista de enmiendas consecuenciales relevantes de IFRS 18.",
+    "Última enmienda sustantiva: junio 2016 (vigente 2018) — SARs con condiciones de devengo, liquidación neta por retenciones fiscales y reclasificación de efectivo a patrimonio."
+   ]
+  },
+  {
+   "code": "NIC 12 / IAS 12",
+   "title_es": "Impuesto a las Ganancias",
+   "title_en": "Income Taxes",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 1998 (versión 1996). Enmienda 'Impuesto Diferido relativo a Activos y Pasivos que surgen de una Transacción Única' (mayo 2021) vigente desde el 1 de enero de 2023; enmienda 'Reforma Fiscal Internacional—Reglas Modelo del Pilar Dos' (mayo 2023): excepción de reconocimiento con vigencia inmediata desde su emisión y revelaciones desde ejercicios iniciados el 1 de enero de 2023, sin fecha de terminación fijada (verificado agosto 2026). Enmiendas consecuenciales de IFRS 18 vigentes desde el 1 de enero de 2027.",
+   "topic": "niif-pasivos-empleados-impuestos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-12-income-taxes/",
+    "https://www.ifrs.org/news-and-events/news/2023/04/iasb-confirms-temporary-relief-from-deferred-tax-accounting-following-oecd-pillar-two-tax-reform/",
+    "https://viewpoint.pwc.com/dt/gx/en/pwc/in_depths/in_depths_INT/in_depths_INT/global-implementation-of-pillar-two-impact-on-deferred-taxes-and-financial-statement-disclosures.html",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/amendments-to-ias-12-international-tax-reform-pillar-two-model-rules",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html"
+   ],
+   "amendments": [
+    "Mayo 2021 — 'Deferred Tax related to Assets and Liabilities arising from a Single Transaction': restringe la excepción por reconocimiento inicial; vigente desde el 1 de enero de 2023.",
+    "Mayo 2023 — 'International Tax Reform—Pillar Two Model Rules': excepción temporal obligatoria al reconocimiento de diferidos por impuestos GloBE, vigente de inmediato; revelaciones para ejercicios iniciados el 1-ene-2023; sin fecha de expiración fijada por el IASB a agosto 2026.",
+    "Abril 2024 — IFRS 18: enmiendas consecuenciales de presentación a IAS 12 (y a CINIIF 23), vigentes desde el 1 de enero de 2027.",
+    "Sin otras enmiendas emitidas 2024-2028 ni proyecto activo de reemplazo a agosto 2026."
+   ]
+  },
+  {
+   "code": "NIC 26 / IAS 26",
+   "title_es": "Contabilización e Información Financiera sobre Planes de Beneficio por Retiro",
+   "title_en": "Accounting and Reporting by Retirement Benefit Plans",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 1988 (emitida en enero de 1987; reformateada en 1994); sin cambios sustantivos desde entonces — solo enmiendas consecuenciales menores (la más reciente: Revelación de Políticas Contables, febrero 2021, vigente 2023). Sin proyectos del IASB para modificarla o derogarla a agosto 2026.",
+   "topic": "niif-pasivos-empleados-impuestos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-26-accounting-and-reporting-by-retirement-benefit-plans/",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html"
+   ],
+   "amendments": [
+    "Ninguna enmienda sustantiva emitida en 2024-2028 ni en décadas anteriores; solo consecuenciales menores (última: 'Disclosure of Accounting Policies', feb-2021, vigente 2023).",
+    "IAS 26 no figura en las enmiendas consecuenciales relevantes de IFRS 18; permanece en vigor sin proyecto de revisión en el plan de trabajo del IASB (verificado agosto 2026)."
+   ]
+  },
+  {
+   "code": "NIIF 3 / IFRS 3",
+   "title_es": "Combinaciones de Negocios",
+   "title_en": "Business Combinations",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de julio de 2009 (versión revisada 2008). Últimas enmiendas en vigor: Definición de un Negocio (periodos desde 1-ene-2020) y Referencia al Marco Conceptual (desde 1-ene-2022). Sin enmiendas nuevas con vigencia 2024-2028 a agosto 2026.",
+   "topic": "niif-grupos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/projects/work-plan/goodwill-and-impairment/",
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-3-business-combinations/",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/iasb-proposes-amendments-to-ifrs-3-and-ias-36",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html"
+   ],
+   "amendments": [
+    "Ninguna enmienda a IFRS 3 emitida con vigencia 2024-2028 a agosto 2026.",
+    "Proyecto en curso 'Business Combinations—Disclosures, Goodwill and Impairment': Exposure Draft de marzo 2024 propone nuevas revelaciones sobre el desempeño de adquisiciones (objetivos y metas de sinergias) y cambios a la prueba de deterioro de NIC 36; el IASB redelibera desde febrero 2025 y a mayo 2026 continuaba, con decisión sobre el rumbo del proyecto esperada en el segundo semestre de 2026. Se mantiene el modelo de no amortización del goodwill.",
+    "Enmiendas consecuenciales menores por IFRS 18 (vigente 1-ene-2027), de presentación y referencias cruzadas."
+   ]
+  },
+  {
+   "code": "NIIF 10 / IFRS 10",
+   "title_es": "Estados Financieros Consolidados",
+   "title_en": "Consolidated Financial Statements",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2013. Enmienda de Mejoras Anuales Volumen 11 (párrafo B74, agente de facto) emitida el 18-jul-2024, vigente para periodos iniciados el 1-ene-2026 o después, con adopción anticipada permitida.",
+   "topic": "niif-grupos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/projects/completed-projects/2024/annual-improvements-to-ifrs-accounting-standards-determination-of-a-de-facto-agent-amendments-to-ifrs-10/",
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-10-consolidated-financial-statements/",
+    "https://www.ifrs.org/projects/completed-projects/2015/sale-or-contribution-of-assets-between-investor-and-associate-or-joint-venture/",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html"
+   ],
+   "replaces": "Sustituyó la parte de consolidación de NIC 27 y la SIC-12 (entidades de propósito especial).",
+   "amendments": [
+    "Mejoras Anuales a las Normas NIIF — Volumen 11 (emitidas 18-jul-2024): aclaración del párrafo B74 sobre la determinación de un 'agente de facto', eliminando la inconsistencia con B73; vigente para periodos anuales iniciados el 1-ene-2026 o después, con aplicación anticipada permitida.",
+    "Enmienda 'Venta o aportación de activos entre un inversionista y su asociada o negocio conjunto' (IFRS 10 y IAS 28, sep-2014): su fecha de vigencia sigue diferida indefinidamente desde dic-2015; el Exposure Draft de método de participación (sep-2024) propone retirarla y resolver el conflicto dentro de IAS 28.",
+    "Enmiendas consecuenciales menores por IFRS 18 (vigente 1-ene-2027)."
+   ]
+  },
+  {
+   "code": "NIIF 11 / IFRS 11",
+   "title_es": "Acuerdos Conjuntos",
+   "title_en": "Joint Arrangements",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2013. Última enmienda sustantiva: contabilización de adquisiciones de participaciones en operaciones conjuntas que constituyen un negocio (vigente 1-ene-2016). Sin enmiendas con vigencia 2024-2028 a agosto 2026.",
+   "topic": "niif-grupos",
+   "confidence": "high",
+   "sources": [
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://viewpoint.pwc.com/gx/en/pwc/yearend_accounting/December_2025.html"
+   ],
+   "replaces": "Sustituyó a NIC 31 (Participaciones en Negocios Conjuntos) y a la SIC-13; eliminó la consolidación proporcional para negocios conjuntos.",
+   "amendments": [
+    "Ninguna enmienda emitida con vigencia 2024-2028 a agosto 2026; solo enmiendas consecuenciales menores por IFRS 18 (vigente 1-ene-2027)."
+   ]
+  },
+  {
+   "code": "NIIF 12 / IFRS 12",
+   "title_es": "Información a Revelar sobre Participaciones en Otras Entidades",
+   "title_en": "Disclosure of Interests in Other Entities",
+   "status": "vigente",
+   "effective": "Vigente desde el 1 de enero de 2013. Sin enmiendas propias con vigencia 2024-2028 a agosto 2026; desde el 1-ene-2027 las subsidiarias elegibles podrán aplicar revelaciones reducidas vía IFRS 19.",
+   "topic": "niif-grupos",
+   "confidence": "high",
+   "sources": [
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://www.ifrs.org/projects/work-plan/equity-method/",
+    "https://www.iasplus.com/en/news/2024/09/ias-28"
+   ],
+   "amendments": [
+    "Ninguna enmienda propia con vigencia 2024-2028 a agosto 2026.",
+    "El Exposure Draft 'Equity Method of Accounting — IAS 28 (revised 202x)' (19-sep-2024) propone añadir revelaciones a NIIF 12 (p.ej. sobre ganancias o pérdidas en transacciones con asociadas y negocios conjuntos); en redeliberación durante 2026, sin enmiendas finales emitidas.",
+    "IFRS 19 'Subsidiarias sin Obligación Pública de Rendir Cuentas' (emitida may-2024, vigente 1-ene-2027): permite a subsidiarias elegibles aplicar revelaciones reducidas respecto de NIIF 12 en sus estados propios cuando la controladora consolida bajo NIIF.",
+    "Enmiendas consecuenciales por IFRS 18 (vigente 1-ene-2027)."
+   ]
+  },
+  {
+   "code": "NIC 27 / IAS 27",
+   "title_es": "Estados Financieros Separados",
+   "title_en": "Separate Financial Statements",
+   "status": "vigente",
+   "effective": "Versión 2011 vigente desde el 1 de enero de 2013 (la parte de consolidación pasó a IFRS 10); enmienda que reinstaló el método de participación como opción vigente desde el 1-ene-2016. Sin enmiendas con vigencia 2024-2028 a agosto 2026.",
+   "topic": "niif-grupos",
+   "confidence": "high",
+   "sources": [
+    "https://www.icaew.com/technical/corporate-reporting/ifrs/ifrs-accounting-standards-tracker/ias-27-separate-financial-statements",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html",
+    "https://www.iasplus.com/en/news/2024/09/ias-28"
+   ],
+   "amendments": [
+    "Ninguna enmienda con vigencia 2024-2028 a agosto 2026.",
+    "El Exposure Draft de método de participación (sep-2024) propone revelaciones adicionales en NIC 27 para inversiones contabilizadas por método de participación en estados separados; en redeliberación durante 2026, sin finalizar.",
+    "Enmiendas consecuenciales por IFRS 18 (vigente 1-ene-2027)."
+   ]
+  },
+  {
+   "code": "NIC 28 / IAS 28",
+   "title_es": "Inversiones en Asociadas y Negocios Conjuntos",
+   "title_en": "Investments in Associates and Joint Ventures",
+   "status": "vigente",
+   "effective": "Versión 2011 vigente desde el 1 de enero de 2013. Sin enmiendas con vigencia 2024-2028 a agosto 2026, pero con revisión integral en curso: el Exposure Draft 'Equity Method of Accounting — IAS 28 (revised 202x)' (19-sep-2024, comentarios cerrados el 20-ene-2025) seguía en redeliberación por el IASB a julio de 2026, con las enmiendas finales como siguiente hito sin fecha anunciada; la enmienda 2014 con IFRS 10 (venta o aportación de activos) sigue diferida indefinidamente y se propone su retiro.",
+   "topic": "niif-grupos",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/projects/work-plan/equity-method/",
+    "https://www.ifrs.org/projects/work-plan/equity-method/ed-cl-equity-method/",
+    "https://www.iasplus.com/en/news/2024/09/ias-28",
+    "https://www.ifrs.org/projects/completed-projects/2015/sale-or-contribution-of-assets-between-investor-and-associate-or-joint-venture/",
+    "https://www.ifrs.org/news-and-events/updates/iasb/2026/iasb-update-july-2026/"
+   ],
+   "amendments": [
+    "Ninguna enmienda emitida con vigencia 2024-2028 a agosto 2026.",
+    "Exposure Draft 'Equity Method of Accounting — IAS 28 (revised 202x)' (19-sep-2024): revisión amplia que respondería preguntas de aplicación (medición del costo en adquisiciones por etapas, reconocimiento pleno de ganancias en transacciones con asociadas, compras y ventas parciales, revelaciones nuevas en NIIF 12 y NIC 27) y retiraría la enmienda 2014; el IASB continuaba redeliberando en febrero, marzo, mayo, junio y julio de 2026; siguiente hito: enmiendas finales, sin fecha publicada.",
+    "'Venta o aportación de activos entre un inversionista y su asociada o negocio conjunto' (enmiendas a IFRS 10 y IAS 28, sep-2014): vigencia diferida indefinidamente desde dic-2015; aplicación anticipada permitida; propuesta de retiro dentro del proyecto de método de participación.",
+    "Enmiendas consecuenciales por IFRS 18 (vigente 1-ene-2027).",
+    "Amendments to the Fair Value Option for Investments in Associates and Joint Ventures (emitida 26-jun-2026, vigente con la NIIF 18 el 1-ene-2027) [agregada por verificación]"
+   ]
+  },
+  {
+   "code": "NIC 21 / IAS 21",
+   "title_es": "Efectos de las Variaciones en las Tasas de Cambio de la Moneda Extranjera",
+   "title_en": "The Effects of Changes in Foreign Exchange Rates",
+   "status": "vigente",
+   "effective": "Vigente desde 2005 (versión revisada 2003). Enmienda Falta de Intercambiabilidad vigente desde el 1-ene-2025. Enmienda Conversión a una Moneda de Presentación Hiperinflacionaria vigente desde el 1-ene-2027 (adopción anticipada permitida).",
+   "topic": "niif-moneda-seguros-adopcion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/content/dam/ifrs/publications/pdf-standards/english/2024/issued/part-a/ias-21-the-effects-of-changes-in-foreign-exchange-rates.pdf",
+    "https://viewpoint.pwc.com/dt/gx/en/iasb-amendments/amd/iasb-amendments/effective-01-jan-2025/lack-of-exchangeability.html",
+    "https://www.ifrs.org/news-and-events/news/2025/11/iasb-to-issue-amendments-to-ias-21/",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/amendments-to-ias-21-lack-of-exchangeability",
+    "https://www.efrag.org/en/projects/lack-of-exchangeability-amendments-to-ias-21/concluded"
+   ],
+   "amendments": [
+    "Falta de Intercambiabilidad (Lack of Exchangeability): emitida agosto 2023, vigente para periodos anuales iniciados a partir del 1-ene-2025, adopción anticipada permitida; modifica párrafos 8 y 26 y agrega 8A-8B, 19A, 57A-57B y Apéndice A.",
+    "Conversión a una Moneda de Presentación Hiperinflacionaria (Translation to a Hyperinflationary Presentation Currency): emitida el 13-nov-2025, vigente 1-ene-2027, adopción anticipada permitida; exige TC de cierre al convertir desde una funcional no hiperinflacionaria hacia una presentación hiperinflacionaria.",
+    "Enmiendas consecuenciales por NIIF 18 (presentación) vigentes 1-ene-2027."
+   ]
+  },
+  {
+   "code": "NIC 29 / IAS 29",
+   "title_es": "Información Financiera en Economías Hiperinflacionarias",
+   "title_en": "Financial Reporting in Hyperinflationary Economies",
+   "status": "vigente",
+   "effective": "Vigente desde 1990; sin enmiendas directas con vigencia 2024-2028 (la enmienda de nov-2025 a IAS 21 modifica la práctica de conversión relacionada, vigente 1-ene-2027).",
+   "topic": "niif-moneda-seguros-adopcion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-29-financial-reporting-in-hyperinflationary-economies/",
+    "https://www.rcgt.com/en/insights/expert-advice/ifrs--pays-hyperinflationnistes--mise-a-jour-pour-les-periodes-se-terminant-le-30-juin-2026/",
+    "https://kpmg.com/xx/en/our-insights/ifrg/2024/frut-hyperinflation-reporting-ifrs-ias29.html",
+    "https://www.ifrs.org/news-and-events/news/2025/11/iasb-to-issue-amendments-to-ias-21/"
+   ],
+   "amendments": [
+    "Sin enmiendas directas a IAS 29 con vigencia 2024-2028. Relacionada: la enmienda a IAS 21 'Conversión a una Moneda de Presentación Hiperinflacionaria' (emitida 13-nov-2025, vigente 1-ene-2027) regula la conversión desde funcional no hiperinflacionaria hacia presentación hiperinflacionaria."
+   ]
+  },
+  {
+   "code": "NIIF 17 / IFRS 17",
+   "title_es": "Contratos de Seguro",
+   "title_en": "Insurance Contracts",
+   "status": "vigente",
+   "effective": "Vigente para periodos anuales iniciados a partir del 1-ene-2023 (sustituyó a NIIF 4 / IFRS 4). Enmiendas consecuenciales de NIIF 18 vigentes 1-ene-2027.",
+   "topic": "niif-moneda-seguros-adopcion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-17-insurance-contracts/",
+    "https://www.iasplus.com/en/standards/ifrs/ifrs-17",
+    "https://www.icaew.com/technical/corporate-reporting/ifrs/ifrs-accounting-standards-tracker/ifrs-17-insurance-contracts",
+    "https://www.ey.com/en_az/newsroom/2026/07/introduction-of-ifrs-18-presentation-and-disclosure-in-financial-statements"
+   ],
+   "replaces": "NIIF 4 / IFRS 4 Contratos de Seguro",
+   "amendments": [
+    "Enmiendas de junio 2020 (diferimiento a 2023, alivios y ajustes) y de diciembre 2021 (información comparativa en aplicación inicial conjunta con NIIF 9): ya integradas a la versión vigente desde 2023.",
+    "Enmiendas consecuenciales de NIIF 18 Presentación y Revelación en Estados Financieros (emitida abril 2024): vigentes 1-ene-2027 (afectan presentación de subtotales y categorías del estado de resultados).",
+    "NIIF 19 Subsidiarias sin Obligación Pública de Rendir Cuentas (mayo 2024, vigente 1-ene-2027): permite revelaciones reducidas a subsidiarias elegibles, incluyendo las de NIIF 17.",
+    "Sin enmiendas sustantivas nuevas al modelo de medición emitidas 2024-2026; la revisión postimplementación (PIR) está en etapas iniciales sin cambios normativos a la fecha."
+   ]
+  },
+  {
+   "code": "NIIF 1 / IFRS 1",
+   "title_es": "Adopción por Primera Vez de las Normas Internacionales de Información Financiera",
+   "title_en": "First-time Adoption of International Financial Reporting Standards",
+   "status": "vigente",
+   "effective": "Vigente (versión reestructurada 2008). Enmienda de Mejoras Anuales Volumen 11 vigente 1-ene-2026; enmiendas consecuenciales de NIIF 18/NIIF 19 vigentes 1-ene-2027.",
+   "topic": "niif-moneda-seguros-adopcion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/news-and-events/news/2024/07/iasb-issues-annual-improvements-ifrs-accounting-standards/",
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-1-first-time-adoption-of-ifrs/",
+    "https://viewpoint.pwc.com/dt/gx/en/iasb-amendments/amd/iasb-amendments/effective-01-jan-2026/annual-improvements.html",
+    "https://www.endorsement-board.uk/projects/annual-improvements-to-ifrs-accounting-standards-volume-11-endorsement/"
+   ],
+   "amendments": [
+    "Mejoras Anuales a las NIIF — Volumen 11 (emitidas 18-jul-2024, vigentes 1-ene-2026, adopción anticipada permitida): alinea la redacción de los párrafos B5-B6 de NIIF 1 sobre contabilidad de coberturas del adoptante por primera vez con los criterios de calificación del párrafo 6.4.1 de NIIF 9.",
+    "Enmiendas consecuenciales de NIIF 18 (abril 2024) y NIIF 19 (mayo 2024): vigentes 1-ene-2027."
+   ]
+  },
+  {
+   "code": "NIIF 14 / IFRS 14",
+   "title_es": "Cuentas de Diferimientos de Actividades Reguladas",
+   "title_en": "Regulatory Deferral Accounts",
+   "status": "sustituida_pendiente",
+   "effective": "Vigente desde el 1-ene-2016 como norma provisional. Será sustituida por NIIF 20 / IFRS 20 Activos Regulatorios y Pasivos Regulatorios (emitida en mayo 2026), vigente para periodos anuales iniciados a partir del 1-ene-2029, con adopción anticipada permitida.",
+   "topic": "niif-moneda-seguros-adopcion",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/projects/work-plan/rate-regulated-activities/",
+    "https://www.iasplus.com/en-gb/news/2026/05/rra",
+    "https://www.iasplus.com/en/projects/major/rate-regulated-activities",
+    "https://kpmg.com/us/en/articles/2025/q4-2025-new-ifrs-accounting-standards-amendments-are-you-ready.html"
+   ],
+   "replaced_by": "NIIF 20 / IFRS 20",
+   "amendments": [
+    "Sustitución: NIIF 20 / IFRS 20 Activos Regulatorios y Pasivos Regulatorios, emitida en mayo 2026, deroga IFRS 14 al entrar en vigor el 1-ene-2029 (adopción anticipada permitida). Proyecto concluido del work plan del IASB (Rate-regulated Activities)."
+   ]
+  },
+  {
+   "code": "CINIIF 1 / IFRIC 1",
+   "title_es": "Cambios en pasivos existentes por desmantelamiento, restauración y similares",
+   "title_en": "Changes in Existing Decommissioning, Restoration and Similar Liabilities",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de septiembre de 2004; vigente a agosto 2026 sin enmiendas sustantivas 2024-2028",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric1",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 2 / IFRIC 2",
+   "title_es": "Aportaciones de socios de entidades cooperativas e instrumentos similares",
+   "title_en": "Members' Shares in Co-operative Entities and Similar Instruments",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2005; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric2",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 5 / IFRIC 5",
+   "title_es": "Derechos por la participación en fondos para el desmantelamiento, la restauración y la rehabilitación medioambiental",
+   "title_en": "Rights to Interests arising from Decommissioning, Restoration and Environmental Rehabilitation Funds",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2006; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric5",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 6 / IFRIC 6",
+   "title_es": "Pasivos surgidos de la participación en un mercado específico — residuos de aparatos eléctricos y electrónicos",
+   "title_en": "Liabilities arising from Participating in a Specific Market — Waste Electrical and Electronic Equipment",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de diciembre de 2005; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric6",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 7 / IFRIC 7",
+   "title_es": "Aplicación del enfoque de reexpresión bajo la NIC 29 (economías hiperinflacionarias)",
+   "title_en": "Applying the Restatement Approach under IAS 29 Financial Reporting in Hyperinflationary Economies",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de marzo de 2006; vigente a agosto 2026 (la enmienda a NIC 21 sobre conversión a una moneda de presentación hiperinflacionaria, vigente 1-ene-2027, afecta la norma relacionada, no esta interpretación)",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric7",
+    "https://kpmg.com/us/en/articles/2026/q2-2026-new-ifrs-accounting-standards-amendments-are-you-ready.html"
+   ]
+  },
+  {
+   "code": "CINIIF 10 / IFRIC 10",
+   "title_es": "Información financiera intermedia y deterioro del valor",
+   "title_en": "Interim Financial Reporting and Impairment",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de noviembre de 2006; vigente a agosto 2026 (tras IFRS 9 su alcance quedó acotado al crédito mercantil)",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric10",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 12 / IFRIC 12",
+   "title_es": "Acuerdos de concesión de servicios",
+   "title_en": "Service Concession Arrangements",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2008; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric12",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 14 / IFRIC 14",
+   "title_es": "NIC 19 — El límite de un activo por beneficios definidos, obligaciones de financiamiento mínimo y su interacción",
+   "title_en": "IAS 19 — The Limit on a Defined Benefit Asset, Minimum Funding Requirements and their Interaction",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2008; vigente a agosto 2026 (el proyecto del IASB para enmendarla fue abandonado años atrás; sin enmiendas 2024-2028)",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric14",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 16 / IFRIC 16",
+   "title_es": "Coberturas de una inversión neta en un negocio en el extranjero",
+   "title_en": "Hedges of a Net Investment in a Foreign Operation",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de octubre de 2008; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric16",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 17 / IFRIC 17",
+   "title_es": "Distribuciones de activos no monetarios a los propietarios",
+   "title_en": "Distributions of Non-cash Assets to Owners",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de julio de 2009; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric17",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 19 / IFRIC 19",
+   "title_es": "Extinción de pasivos financieros con instrumentos de capital",
+   "title_en": "Extinguishing Financial Liabilities with Equity Instruments",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de julio de 2010; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "medium",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric19",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 20 / IFRIC 20",
+   "title_es": "Costos de desmonte (descapote) en la fase de producción de una mina a cielo abierto",
+   "title_en": "Stripping Costs in the Production Phase of a Surface Mine",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2013; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric20",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 21 / IFRIC 21",
+   "title_es": "Gravámenes",
+   "title_en": "Levies",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2014; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric21",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 22 / IFRIC 22",
+   "title_es": "Transacciones en moneda extranjera y contraprestaciones anticipadas",
+   "title_en": "Foreign Currency Transactions and Advance Consideration",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2018; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric22",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "CINIIF 23 / IFRIC 23",
+   "title_es": "Incertidumbre frente a los tratamientos del impuesto a las ganancias",
+   "title_en": "Uncertainty over Income Tax Treatments",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2019; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/ifric/ifric23",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "SIC 7 / SIC-7",
+   "title_es": "Introducción del euro",
+   "title_en": "Introduction of the Euro",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de junio de 1998; vigente a agosto 2026 (cobra relevancia cada vez que un país entra a la eurozona, como Bulgaria a partir del 1 de enero de 2026)",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/sic/sic7",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "SIC 10 / SIC-10",
+   "title_es": "Asistencia gubernamental — sin relación específica con actividades de operación",
+   "title_en": "Government Assistance — No Specific Relation to Operating Activities",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de agosto de 1998; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/sic/sic10",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "SIC 25 / SIC-25",
+   "title_es": "Impuestos a las ganancias — cambios en la situación fiscal de la entidad o de sus accionistas",
+   "title_en": "Income Taxes — Changes in the Tax Status of an Entity or its Shareholders",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 15 de julio de 2000; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/sic/sic25",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "SIC 29 / SIC-29",
+   "title_es": "Acuerdos de concesión de servicios: información a revelar",
+   "title_en": "Service Concession Arrangements: Disclosures",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 1 de enero de 2002 (emitida en diciembre de 2001); vigente a agosto 2026 como complemento de revelación de IFRIC 12",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/sic/sic29",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "SIC 32 / SIC-32",
+   "title_es": "Activos intangibles — costos de sitios web",
+   "title_en": "Intangible Assets — Web Site Costs",
+   "status": "vigente",
+   "effective": "Periodos anuales iniciados a partir del 25 de marzo de 2002; vigente a agosto 2026",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://viewpoint.pwc.com/gx/en/pwc/iasbv2/ifric-sic.html",
+    "https://www.iasplus.com/en/standards/sic/sic32",
+    "https://en.wikipedia.org/wiki/List_of_International_Financial_Reporting_Standards"
+   ]
+  },
+  {
+   "code": "AD: Criptoactivos (Holdings of Cryptocurrencies — IAS 2 / IAS 38)",
+   "title_es": "Decisión de agenda: tenencias de criptomonedas",
+   "title_en": "Agenda Decision: Holdings of Cryptocurrencies (June 2019)",
+   "status": "vigente",
+   "effective": "Publicada en junio de 2019 (las decisiones de agenda no tienen fecha de vigencia formal: explican requerimientos existentes y se espera su aplicación con oportunidad razonable)",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2019/holdings-of-cryptocurrencies-june-2019.pdf",
+    "https://www.ifrs.org/news-and-events/updates/ifric/2019/ifric-update-june-2019/"
+   ]
+  },
+  {
+   "code": "AD: SaaS y costos de configuración en la nube (IAS 38)",
+   "title_es": "Decisión de agenda: costos de configuración o personalización en un acuerdo de cómputo en la nube",
+   "title_en": "Agenda Decision: Configuration or Customisation Costs in a Cloud Computing Arrangement (March/April 2021)",
+   "status": "vigente",
+   "effective": "Finalizada en marzo de 2021 (el IASB no objetó en abril de 2021); complementa la decisión de 2019 que concluyó que el derecho de acceso a software del proveedor es un servicio",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/projects/completed-projects/2021/configuration-or-customisation-costs-in-a-cloud-computing-arrangement-ias-38/",
+    "https://www.ifrs.org/news-and-events/updates/ifric/2021/ifric-update-march-2021/"
+   ]
+  },
+  {
+   "code": "AD: Depósitos a la vista con restricciones de uso (IAS 7)",
+   "title_es": "Decisión de agenda: depósitos a la vista con restricciones de uso pactadas con un tercero",
+   "title_en": "Agenda Decision: Demand Deposits with Restrictions on Use arising from a Contract with a Third Party (March/April 2022)",
+   "status": "vigente",
+   "effective": "Finalizada en marzo de 2022 (el IASB no objetó en abril de 2022)",
+   "topic": "niif-interpretaciones",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/projects/completed-projects/2022/demand-deposits-with-restrictions-on-use-ias-7/",
+    "https://www.ifrs.org/content/dam/ifrs/supporting-implementation/agenda-decisions/2022/demand-deposits-with-restrictions-on-use-arising-from-a-contract-with-a-third-party-apr-2022.pdf"
+   ]
+  },
+  {
+   "code": "NIIF para las PyMEs (3a ed.)",
+   "title_es": "Norma de Contabilidad NIIF para las PyMEs, Tercera Edición",
+   "title_en": "IFRS for SMEs Accounting Standard, Third Edition",
+   "status": "futura",
+   "effective": "Emitida por el IASB el 27 de febrero de 2025; obligatoria para periodos anuales que inicien a partir del 1 de enero de 2027, con aplicación anticipada permitida. Hasta la adopción sigue aplicándose la 2a edición (2015). Transición retrospectiva conforme a la Sección 10, con alivios específicos (p. ej., en ingresos puede aplicarse solo a contratos abiertos a la fecha de transición).",
+   "topic": "niif-pymes-convergencia",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/news-and-events/news/2025/02/iasb-to-issue-third-edition-ifrs-for-smes-accounting-standard/",
+    "https://www.ifrs.org/issued-standards/ifrs-for-smes/",
+    "https://www.ifrs.org/supporting-implementation/2025-ifrs-for-smes-supporting-materials/",
+    "https://viewpoint.pwc.com/dt/gx/en/pwc/in_briefs/in_briefs_INT/in_briefs_INT/iasb-issues.html",
+    "https://www.ey.com/en_gl/technical/ifrs-technical-resources/iasb-issues-third-edition-of-ifrs-for-smes-accounting-standard",
+    "https://www.icaew.com/insights/viewpoints-on-the-news/2025/feb-2025/iasb-publishes-third-edition-of-ifrs-for-smes-accounting-standard"
+   ],
+   "replaces": "NIIF para las PyMEs, 2a edición (2015) y sus enmiendas posteriores (incluida la de impuesto mínimo global Pilar 2 de 2023, que la 3a edición absorbe)",
+   "amendments": [
+    "27-feb-2025: emisión de la 3a edición completa (vigente 1-ene-2027, anticipable), producto de la segunda revisión integral; texto único que sustituye a la edición 2015 con todas sus enmiendas.",
+    "Al corte de agosto de 2026 no se han emitido enmiendas posteriores a la 3a edición; el IASB publicó 35 módulos educativos de apoyo (2025) y prevé revisiones integrales periódicas."
+   ]
+  },
+  {
+   "code": "MAPA NIF-IFRS",
+   "title_es": "Mapa de convergencia y equivalencias NIF mexicanas ↔ IFRS",
+   "title_en": "Mexican FRS (NIF) to IFRS convergence map",
+   "status": "vigente",
+   "effective": "Fotografía del cuerpo normativo a agosto de 2026: NIF vigentes del CINIF (libro 2026) contra IFRS emitidas con vigencias 2024-2028 (IAS 21 enmendada vig. 2025; enmiendas IFRS 9/7 vig. 2026; IFRS 18 e IFRS 19 vig. 2027; nuevas NIF B-1 y B-3 vig. 2028).",
+   "topic": "niif-pymes-convergencia",
+   "confidence": "medium",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ifrs-18-presentation-and-disclosure-in-financial-statements/",
+    "https://www.revista.imef.org.mx/articulo/normas-de-informacion-financiera-ifrs-18-nif-b-1-y-b-3-el-cambio-que-viene/",
+    "https://www.perezgongora.com/blog/nueva-nif-b-3-estado-de-resultado-integral",
+    "https://www.veritas.org.mx/Economia-y-finanzas/Contabilidad/Estado-de-resultado-integral-convergencia-entre-la-NIF-B-3-y-la-IFRS-18",
+    "https://www.veritas.org.mx/Normatividad/Cumplimiento/aplicacion-de-la-nif-b-10-en-entornos-inflacionarios",
+    "https://www.grupocpcon.com/es-mx/nic-36-deterioro-del-valor-de-los-activos-nif-c-15/",
+    "https://www.roedl.com/en/insights/ifrs-update-2025-overview-of-the-new-and-amended-standards/",
+    "https://www.ifrs.org/news-and-events/news/2025/08/iasb-issues-amendments-ifrs-19-to-complete-catch-up-work/",
+    "https://www.cinif.org.mx/"
+   ],
+   "amendments": [
+    "IFRS lado internacional 2024-2028: IAS 21 'Falta de intercambiabilidad' (vig. 1-ene-2025); enmiendas a IFRS 9/IFRS 7 sobre clasificación y medición y sobre contratos de electricidad dependiente de la naturaleza, y Mejoras Anuales Vol. 11 (vig. 1-ene-2026); IFRS 18 'Presentación e información a revelar en los estados financieros' sustituye a IAS 1 (vig. 1-ene-2027); IFRS 19 'Subsidiarias sin obligación pública de rendir cuentas' (vig. 1-ene-2027, enmendada en ago-2025 para actualizar alivios de revelación).",
+    "NIF lado mexicano: nuevas NIF B-1 'Bases para la preparación de los estados financieros' y NIF B-3 'Estado de resultado integral' emitidas en diciembre de 2025 tras auscultación jul-oct 2025, vigentes el 1-ene-2028 con aplicación anticipada desde 2027, convergentes con IFRS 18 (eliminan el RIF); Mejoras a las NIF 2025 y 2026 (vigencias 1-ene-2025 y 1-ene-2026, anticipables)."
+   ]
+  },
+  {
+   "code": "SUPLETORIEDAD",
+   "title_es": "Supletoriedad de las IFRS en el marco NIF (NIF A-1, capítulo 90)",
+   "title_en": "Suppletory application of IFRS under Mexican FRS (NIF A-1, chapter 90)",
+   "status": "vigente",
+   "effective": "NIF A-1 'Marco Conceptual' integrada, vigente desde el 1 de enero de 2023; su capítulo 90 recoge y actualiza la antigua NIF A-8 'Supletoriedad' (vigente desde 2006).",
+   "topic": "niif-pymes-convergencia",
+   "confidence": "high",
+   "sources": [
+    "https://ccpudg.org.mx/wp-content/uploads/053-Boletin-Comision-NIA-y-NIF-CCPUDG-NIF-A-1-SU-NUEVO-MARCO-CONCEPTUAL.pdf",
+    "https://caficon.com/wp-content/NIF-A-8.pdf",
+    "https://vlex.com.mx/vid/nif-c-22-criptomonedas-1072470461",
+    "https://cpcongroup.mx/insights/nif-e-1-actividades-agropecuarias",
+    "https://www.cinif.org.mx/"
+   ],
+   "amendments": [
+    "1-ene-2023: la reestructura de NIF A-1 'Marco Conceptual' integró la antigua NIF A-8 como capítulo 90 sin cambiar la esencia del mecanismo.",
+    "Efecto indirecto 2024-2028: cada NIF nueva reduce el espacio supletorio (C-22 criptomonedas desde 2021, E-1 agro desde 2020, nuevas B-1/B-3 desde 2028); las IFRS supletorias deben tomarse en su versión vigente (p. ej., IAS 21 enmendada 2025, IFRS 18 desde 2027)."
+   ]
+  },
+  {
+   "code": "NIIF 20 / IFRS 20",
+   "title_es": "Activos Regulatorios y Pasivos Regulatorios",
+   "title_en": "Regulatory Assets and Regulatory Liabilities",
+   "status": "futura",
+   "effective": "Emitida por el IASB el 27 de mayo de 2026; obligatoria para periodos anuales que inicien el 1 de enero de 2029, con adopción anticipada permitida. Sustituirá a la NIIF 14 desde su vigencia.",
+   "topic": "niif-moneda-seguros-adopcion",
+   "confidence": "medium",
+   "sources": [
+    "https://www.ifrs.org/news-and-events/news/2026/05/"
+   ],
+   "replaces": "NIIF 14 / IFRS 14"
+  },
+  {
+   "code": "IFRS Practice Statement 1",
+   "title_es": "Comentarios de la Administración (revisado jun-2025)",
+   "title_en": "Management Commentary",
+   "status": "vigente",
+   "effective": "Versión revisada emitida el 23-jun-2025; guía NO obligatoria (no es norma)",
+   "topic": "niif-indice",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/"
+   ]
+  },
+  {
+   "code": "IFRS Practice Statement 2",
+   "title_es": "Realización de Juicios sobre Materialidad",
+   "title_en": "Making Materiality Judgements",
+   "status": "vigente",
+   "effective": "Guía NO obligatoria (no es norma)",
+   "topic": "niif-indice",
+   "confidence": "high",
+   "sources": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/"
+   ]
+  }
+ ]
+}

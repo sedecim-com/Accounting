@@ -1,0 +1,471 @@
+[
+ {
+  "facet": "memory-sessions",
+  "practices": [
+   {
+    "practice": "Transcripts de sesión durables en base de datos (sessions + messages), separados de la memoria curada",
+    "hermes": "Todas las sesiones CLI y de mensajería se guardan en SQLite (~/.hermes/state.db, modo WAL) con tres tablas: sessions (id, source, user_id, model, title, timestamps, token counts), messages (role, content, tool_calls, tool_name, token_count) y messages_fts (FTS5). Escrituras atómicas con manejo de contención; índice único sobre títulos; mantenimiento no destructivo via 'hermes sessions optimize' (merge de segmentos FTS5 + VACUUM) y auto-prune opt-in.",
+    "openclaw": "Filas de sesión en SQLite (~/.openclaw/agents/<agentId>/agent/openclaw-agent.sqlite) más transcripts archivados como JSONL en ~/.openclaw/agents/<agentId>/sessions/. Subsistema session.maintenance: prune a 30 días, archivo a 7, cap maxEntries=500, con sesiones pinned/archivadas protegidas de evicción.",
+    "mnemosine_fit": "Encaje directo y de alto valor: mnemosine ya tiene Postgres multi-tenant con RLS, pero la historia vive solo en el proceso. Crear tablas sessions/messages (tenant_id + RLS, role, content, tool_calls JSONB, token_count) convierte cada conversación en evidencia auditable — crítico en contabilidad — y habilita resume, búsqueda y trazabilidad de por qué el agente propuso cada draft. El transcript completo nunca se borra; solo cambia lo que ve el modelo (patrón OpenClaw).",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Resume de sesiones: --continue con breadcrumbs por terminal, resume por nombre y por id",
+    "hermes": "hermes -c reanuda la sesión CLI más reciente consultando SQLite; es terminal-aware: cada sesión deja un breadcrumb en ~/.hermes/terminal-sessions/ keyed por tty/pane de tmux, de modo que dos panes continúan cada uno su propia conversación (expiran a 30 días, fallback a la más reciente global). También hermes -c \"mi proyecto\" (por título) y hermes --resume <session_id> (ids YYYYMMDD_HHMMSS_<hex>).",
+    "openclaw": "El resume es implícito por routing: cada mensaje entrante se enruta a una sesión por clave de origen; sin reset automático por defecto las sesiones conservan el mismo sessionId entre reinicios, con resets opcionales diario/por-idle/manual (/new, /reset) basados en lastInteractionAt (heartbeats y cron no mantienen viva la sesión).",
+    "mnemosine_fit": "Con las tablas de sesión en Postgres, agregar 'mnemosine --continue' y '--resume <id>' es barato y muy útil para el flujo contable (retomar una revisión de CFDI a medio camino). El breadcrumb por terminal es un detalle S de gran ergonomía para un CLI. Las políticas de reset por-idle/diario de OpenClaw son relevantes si mnemosine llega a correr como servicio; por ahora basta resume explícito, que además preserva la revisión humana pendiente en drafts/outbox.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Compactación de contexto segura: split que no rompe pares tool_call/tool_result, cola reciente intacta y transcript completo en disco",
+    "hermes": "context_compressor.py resume los turnos intermedios cuando el contexto excede umbrales, preservando siempre los primeros 3 y últimos 20 turnos; el summarizer es una llamada LLM separada apuntable a cualquier proveedor; trigger opcional por tiempo (idle_compact_after_seconds) además del de tamaño.",
+    "openclaw": "Auto-compactación en tres vías: umbral proactivo cerca del límite, recuperación tras error de context-overflow (compacta y reintenta), y /compact manual con guía opcional. Mantiene los tool calls emparejados con su toolResult al elegir el punto de corte, conserva una cola reciente (keepRecentTokens, default 20,000) sin modificar, y 'la historia completa queda en disco; la compactación solo cambia lo que el modelo ve en el siguiente turno'. Modelo alternativo para resumir (compaction.model), modo safeguard con auditoría e identifierPolicy strict (no inventar/perder identificadores).",
+    "mnemosine_fit": "Prioridad alta: mnemosine con 20 tools de lectura genera historias largas rápido. Adoptar el patrón OpenClaw completo: transcript íntegro en Postgres (auditabilidad intacta), resumen solo en la vista del modelo, corte que respeta pares tool_use/tool_result (obligatorio con la API de Anthropic), keepRecentTokens configurable, y identifierPolicy strict es especialmente valioso — en contabilidad perder o alucinar UUIDs de CFDI, RFCs o folios en el resumen sería grave. La recuperación automática tras overflow evita sesiones muertas.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Memory flush antes de compactar: turno silencioso que persiste hechos importantes antes de resumir",
+    "hermes": "No tiene un flush explícito pre-compresión; su mitigación es el snapshot congelado de memoria más la búsqueda FTS sobre sesiones pasadas.",
+    "openclaw": "Antes de compactar, OpenClaw ejecuta 'un turno silencioso que recuerda al agente guardar contexto importante en los archivos de memoria', evitando pérdida de contexto durante la compactación; puede asignarse un modelo dedicado via compaction.memoryFlush.model.",
+    "mnemosine_fit": "Encaje excelente con la memoria de precedentes en Postgres: antes de compactar, un turno interno que invite al agente a registrar precedentes/decisiones aún no persistidos (vía su tool de escritura staged, sujeta a revisión humana como todo write). Convierte la compactación de un riesgo de pérdida en un punto de captura de conocimiento. Adaptación clave para mnemosine: el flush propone precedentes al staging, no escribe directo, preservando el human-in-the-loop.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Memoria curada acotada inyectada como snapshot congelado al inicio de sesión (compatible con prompt caching)",
+    "hermes": "MEMORY.md (límite 2,200 chars, ~800 tokens) y USER.md (1,375 chars, ~500 tokens) en ~/.hermes/memories/, 'inyectados en el system prompt como snapshot congelado al inicio de sesión y nunca cambian mid-session'; cambios escritos durante la sesión persisten a disco pero solo se ven en la siguiente sesión. Prompt en tiers ordenados stable → context → volatile con cache breakpoints de Anthropic para prefix caching.",
+    "openclaw": "USER.md (directivas imperativas con fecha observada y metadata activo/superseded) y MEMORY.md ('capa compacta y curada de hechos durables y decisiones vigentes') cargados al bootstrap con presupuestos separados; si MEMORY.md excede el presupuesto, el archivo en disco queda intacto pero la copia inyectada se trunca.",
+    "mnemosine_fit": "Mnemosine ya construye system prompt por sesión con caching; adoptar (a) una capa de 'memoria de tenant' curada y con presupuesto de tokens (tabla en Postgres, no archivo) inyectada al inicio, y (b) la disciplina de snapshot congelado + orden stable→volatile, que es precisamente lo que maximiza hits de prompt cache. Los presupuestos duros por sección evitan que la memoria degrade el prompt. El metadata activo/superseded de OpenClaw encaja con precedentes contables que cambian por reforma fiscal.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Recall histórico bajo demanda: tool de búsqueda full-text sobre sesiones pasadas en vez de inflar el contexto",
+    "hermes": "Tool session_search sobre FTS5 con cuatro patrones: discovery por query (top-N con excerpt resaltado), scroll (session_id + around_message_id devuelve ±ventana centrada en el ancla), read (sesión completa/acotada) y browse (recientes); filtros sort/detail/role_filter. 'Las búsquedas devuelven mensajes reales de la DB — sin resumen LLM, sin truncado'. Separa memoria activa acotada de recall histórico ilimitado.",
+    "openclaw": "memory_search híbrido: 'similitud vectorial (significado semántico) combinada con matching por keyword (términos exactos como IDs y símbolos de código)', con múltiples proveedores de embeddings; las daily notes se indexan pero no se inyectan en cada bootstrap.",
+    "mnemosine_fit": "Complemento natural del tool de precedentes: un read-tool session_search sobre las nuevas tablas de mensajes usando tsvector/FTS de Postgres (RLS lo hace multi-tenant gratis), con el patrón scroll-alrededor-del-ancla de Hermes para citar exactamente qué se dijo en una sesión pasada. La nota de OpenClaw sobre keyword-exacto importa aquí: RFCs, UUIDs de CFDI y folios se buscan mejor por keyword que por embeddings, así que FTS primero; pgvector híbrido puede venir después.",
+    "effort": "M",
+    "priority": "media"
+   },
+   {
+    "practice": "Consolidación de memoria en background con capa de trabajo (daily notes) y registro revisable por humanos",
+    "hermes": "La memoria almacena entradas curadas crudas sin resumen automático; la consolidación es manual cuando se acerca al límite de capacidad.",
+    "openclaw": "Capa de trabajo: daily notes (memory/YYYY-MM-DD.md) con observaciones y resúmenes de sesión, indexadas pero no inyectadas; un proceso de 'dreaming' promueve items calificados de las daily notes a MEMORY.md, 'merges duplicates and supersedes stale entries', y escribe un resumen en DREAMS.md 'para revisión humana'.",
+    "mnemosine_fit": "Adaptar con cuidado: la promoción automática de observaciones a precedentes contables sin revisión debilitaría la auditabilidad, así que el 'dreaming' debe producir propuestas de precedente en el staging/outbox existente (el analogo de DREAMS.md ya existe: la cola de revisión humana). Como job periódico que deduplica y marca precedentes obsoletos proponiendo cambios, es valioso pero no urgente; sin la adaptación al flujo staged sería prioridad baja.",
+    "effort": "L",
+    "priority": "baja"
+   },
+   {
+    "practice": "Lineage de sesiones a través de compresiones (sesión de continuación con parent_session_id)",
+    "hermes": "Cuando comprime (manual /compress o automático), 'Hermes crea una nueva sesión de continuación' con parent_session_id y títulos numerados ('mi proyecto' → 'mi proyecto #2'); al reanudar por nombre toma automáticamente la más reciente del linaje. Advertencia: sus issues públicos (#17344) muestran que resume+compresión mal hecho hace que el modelo re-ejecute la tarea original — el linaje explícito es la mitigación.",
+    "openclaw": "Enfoque opuesto: los resúmenes compactados se integran en el mismo transcript de sesión ('no separate checkpoint files'), y la sesión conserva su sessionId.",
+    "mnemosine_fit": "Para un agente contable el linaje explícito es preferible al modelo in-place: cada compresión queda registrada como evento (parent_session_id en la tabla sessions), de modo que un auditor puede reconstruir qué contexto real fue reemplazado por qué resumen y cuándo. Es una columna y un poco de lógica encima de la práctica #1; el issue de Hermes es un aviso de qué probar (que el resumen de continuación deje claro el estado, no el objetivo inicial).",
+    "effort": "S",
+    "priority": "media"
+   }
+  ],
+  "sources": [
+   "https://hermes-agent.nousresearch.com/docs/",
+   "https://hermes-agent.nousresearch.com/docs/user-guide/features/memory",
+   "https://hermes-agent.nousresearch.com/docs/developer-guide/architecture",
+   "https://hermes-agent.nousresearch.com/docs/user-guide/sessions",
+   "https://github.com/NousResearch/hermes-agent/issues/17344",
+   "https://docs.openclaw.ai/",
+   "https://docs.openclaw.ai/concepts/architecture",
+   "https://docs.openclaw.ai/concepts/session",
+   "https://docs.openclaw.ai/concepts/memory",
+   "https://docs.openclaw.ai/concepts/compaction"
+  ]
+ },
+ {
+  "facet": "extensibility",
+  "practices": [
+   {
+    "practice": "Skills como SKILL.md con frontmatter YAML y divulgación progresiva (lista → skill completo → archivo de referencia)",
+    "hermes": "Cada skill vive en ~/.hermes/skills/<categoría>/<skill>/SKILL.md con frontmatter (name, description, version, platforms, tags, requires_toolsets, config) más carpetas references/, templates/, scripts/. Carga en 3 niveles: skills_list() devuelve solo {name, description, category} (~3k tokens), skill_view(name) carga el contenido completo, skill_view(name, path) carga un archivo de referencia específico. Directorios externos vía skills.external_dirs con precedencia local.",
+    "openclaw": "Mismo formato AgentSkills (SKILL.md + frontmatter YAML, name/description mínimos, {baseDir} para referenciar el directorio). Los skills elegibles se compilan en el system prompt como un bloque XML compacto (~24 tokens + longitudes de campos por skill), con truncado inteligente si excede skills.limits.maxSkillsPromptChars: preserva identidades (name/location/version) y recorta descripciones.",
+    "mnemosine_fit": "Encaja directo: skills de despacho (cierre de mes, conciliación SAT vs pólizas, checklist DIOT) como SKILL.md en ~/.mnemosine/skills/ y <workspace>/.mnemosine/skills/. El bloque compacto en el system prompt de OpenClaw convive bien con el prompt caching de mnemosine (el índice de skills es estable por sesión); la divulgación progresiva de Hermes se implementa con 2 tools nuevos (skills_list/skill_view) sobre los 20 read tools existentes. Es la respuesta natural a 'workflows específicos del despacho' sin tocar código.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Gating declarativo de skills: requisitos de entorno, binarios y config antes de mostrarlos al modelo",
+    "hermes": "Frontmatter metadata.hermes.requires_toolsets/requires_tools controla visibilidad condicional; fallback_for_tools muestra un skill solo cuando el tool no está disponible; required_environment_variables declara setup seguro; platforms restringe por SO.",
+    "openclaw": "Bloque metadata.openclaw con requires.bins (cada binario debe existir en PATH), requires.anyBins, requires.env, requires.config (rutas de openclaw.json que deben ser truthy) y filtro os. 'A skill with no metadata.openclaw block is always eligible unless explicitly disabled'. Allowlists por agente: agents.entries.<agent>.skills es el conjunto FINAL, no se mezcla con defaults.",
+    "mnemosine_fit": "Muy útil en multi-tenant: gatear skills por capacidades del tenant (requires.config → tenant tiene ingest CFDI activo, tiene e.firma cargada, régimen fiscal X) para que un despacho solo vea los workflows que aplican. El allowlist final por agente/tenant mapea a RLS mental: el modelo nunca ve el skill que no le toca, así que no hay que confiar en que 'no lo use'.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Escrituras de skills en staging con aprobación humana (write_approval / propose)",
+    "hermes": "Con skills.write_approval: true toda escritura de skill (create/patch/edit del tool skill_manage) queda staged en ~/.hermes/pending/skills/, sobrevive reinicios y se revisa con /skills pending, /skills diff <id>, /skills approve|reject — 'the same familiar approve/deny flow as dangerous commands'.",
+    "openclaw": "Modos de autonomía off/propose/auto para captura de aprendizajes; en propose cada propuesta requiere aprobación manual; el Workshop re-escanea con el scanner de seguridad justo antes del write ('a critical finding quarantines the proposal') y guarda metadata de rollback (contenido previo del skill) para revertir.",
+    "mnemosine_fit": "Es exactamente el patrón drafts/outbox que mnemosine ya usa para escrituras contables — extenderlo a los skills es coherente: el agente propone un nuevo 'precedente procedimental' (p.ej. cómo clasificar cierto proveedor), va a una tabla skill_drafts en Postgres, el contador aprueba con diff, y queda auditado quién aprobó qué versión. Nunca modo 'auto' en contabilidad.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Auto-aprendizaje: el agente destila procedimientos reutilizables de sesiones reales (/learn, Experience Review)",
+    "hermes": "El comando /learn genera skills desde cualquier fuente ('point it at anything you can describe'); para fuentes grandes crea knowledge-base skills con SKILL.md ligero + referencias destiladas en references/ cargadas bajo demanda.",
+    "openclaw": "Dos vías: reparación inmediata (patch dirigido vía Skill Workshop en el mismo turno al detectar error en un skill) y Experience Review (tras ≥10 iteraciones, un revisor aislado en background analiza la conversación buscando 'a reusable recovery technique or a stable procedure', sesgado hacia capturas pequeñas y bien evidenciadas). Todo pasa por el mismo pipeline propose→scan→apply con rollback.",
+    "mnemosine_fit": "Complementa la memoria de precedentes de mnemosine: hoy guarda precedentes de clasificación; esto añade precedentes de PROCEDIMIENTO (cómo el contador resolvió un caso raro de CFDI, pasos de una aclaración SAT). Un revisor en background que propone skills tras sesiones largas encaja con el flujo de revisión adversarial ya existente. Siempre en modo propose (ver práctica anterior).",
+    "effort": "L",
+    "priority": "media"
+   },
+   {
+    "practice": "MCP como vía de extensión con namespacing, filtrado include/exclude y sanitización de resultados",
+    "hermes": "mcp_servers en config.yaml (stdio con command/args/env, o HTTP con url/headers + OAuth/PKCE y mTLS). Tools se registran con prefijo mcp_<server>_<tool>; filtrado tools.include/exclude con globs ('include wins'); solo pasa env explícito + baseline seguro a subprocesos stdio; strip de caracteres Unicode TAG invisibles (U+E0000–U+E007F) de los resultados para mitigar prompt injection; tools.resources/prompts desactivables por servidor.",
+    "openclaw": "No documenta MCP directamente; su vía equivalente son plugins con tools tipados. La política de tools filtra ANTES de la llamada al modelo: 'if policy removes a tool, the model receives no schema for it that turn' (capas: config global, per-agent, canal, provider, sandbox, plugin).",
+    "mnemosine_fit": "MCP daría a mnemosine integración con bancos/ERPs sin tocar el core, pero cada tool MCP externo es superficie no auditada. Adoptar las salvaguardas concretas: allowlist explícito por tool (nunca todo el servidor), prefijo de namespace, env filtrado, y sanitización de Unicode invisible en TODO resultado de tool externo (los XML de CFDI y descripciones de facturas son vectores de injection reales). El filtrado pre-modelo de OpenClaw es la política correcta: tool no permitido = schema nunca enviado.",
+    "effort": "L",
+    "priority": "media"
+   },
+   {
+    "practice": "Tools de plugin con schemas tipados y validación de salida (TypeBox), manifest que declara contratos",
+    "hermes": "Tools organizados en toolsets activables por plataforma/sesión (hermes chat --toolsets \"web,terminal\"); registro central donde también entran los tools MCP.",
+    "openclaw": "Plugins declaran en openclaw.plugin.json sus contratos ('contracts': {'tools': ['my_tool']}) y activación; cada tool define parameters Y outputSchema con TypeBox (Type.Object({...}, {additionalProperties: false})); tools opcionales requieren allowlist explícito del usuario antes de cargarse; superficies host-trusted (middleware de resultados) deben declararse en el manifest — la discovery está gateada por manifest para no cargar runtimes eagerly.",
+    "mnemosine_fit": "Mnemosine ya tiene 20 tools tipados; lo adoptable es (1) outputSchema con additionalProperties:false también en las SALIDAS (hoy típico validar solo inputs con zod) — en contabilidad un tool que devuelve un campo inesperado es un bug de datos, y (2) un manifest declarativo de qué tools existen por tenant/plan, evaluado antes de armar el system prompt, de modo que el conjunto de schemas enviado sea estable y cacheable por sesión.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Escaneo de seguridad y modelo de confianza para skills de terceros (instalación gateada)",
+    "hermes": "Skills instalados desde hubs (official, skills-sh, well-known /.well-known/skills/index.json, github, ClawHub) pasan un scanner que busca exfiltración de datos, prompt injection, comandos destructivos y supply-chain; --force solo salta hallazgos no peligrosos. Skills de proyecto (.hermes/skills/ en el repo) requieren trust explícito: 'run hermes skills trust to enable them', y se escanean antes de entrar al índice.",
+    "openclaw": "'Treat third-party skills as untrusted code. Read them before enabling.' openclaw skills verify valida el trust envelope; contención de paths contra ataques de symlink; política de instalación del operador ('a trusted local policy command before skill installs continue'); ClawHub como registro con curación.",
+    "mnemosine_fit": "Si mnemosine permite skills por despacho, un skill malicioso puede instruir al modelo a filtrar datos fiscales entre tenants. Adaptación mínima: skills solo desde el repo del despacho o creados vía el flujo staged — sin marketplace en v1; escaneo básico (URLs externas, instrucciones de envío de datos) + trust explícito por tenant antes de indexar. La postura de 'skill = código no confiable' es obligatoria en un agente contable.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Bundles de skills invocables como comando único para workflows compuestos",
+    "hermes": "Bundles en YAML (name, description, lista de skills, instruction extra); al invocar /backend-dev cargan todos los skills listados simultáneamente con una instrucción de orquestación.",
+    "openclaw": "Equivalente parcial: user-invocable expone cada skill como slash command; command-dispatch: tool enruta el comando directo a un tool registrado saltándose el modelo (con command-arg-mode: raw para argumentos crudos).",
+    "mnemosine_fit": "El cierre de mes de un despacho es exactamente un bundle: /cierre-mes carga skills de conciliación bancaria + validación CFDI + provisiones + checklist de revisión con una instrucción de orden. El command-dispatch de OpenClaw también sugiere que comandos deterministas de mnemosine (doctor, estado de outbox) no deberían pasar por el modelo — enrutar directo al código.",
+    "effort": "S",
+    "priority": "media"
+   }
+  ],
+  "sources": [
+   "https://hermes-agent.nousresearch.com/docs/",
+   "https://hermes-agent.nousresearch.com/docs/user-guide/features/skills",
+   "https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp",
+   "https://hermes-agent.nousresearch.com/docs/user-guide/features/tools",
+   "https://docs.openclaw.ai/",
+   "https://docs.openclaw.ai/tools",
+   "https://docs.openclaw.ai/tools/skills",
+   "https://docs.openclaw.ai/tools/self-learning",
+   "https://docs.openclaw.ai/plugins/building-plugins"
+  ]
+ },
+ {
+  "facet": "safety-hitl",
+  "practices": [
+   {
+    "practice": "Política de aprobación por herramienta con grados de concesión (once / session / always) y allowlist persistente",
+    "hermes": "approvals.mode con tres modos (smart: un LLM clasifica riesgo y escala lo incierto; manual: siempre pregunta; off), timeout configurable (300s, fail-closed). El prompt CLI ofrece [o]nce/[s]ession/[a]lways/[d]eny; 'always' persiste en command_allowlist de config.yaml. En gateway/chat se aprueba respondiendo 'yes/no'.",
+    "openclaw": "tools.exec.mode: deny | allowlist | ask | auto | full. 'auto' ejecuta matches deterministas y pasa los misses por un revisor LLM antes del fallback humano. Allowlist por agente en SQLite con pattern (glob del binario) + argPattern (regex de argumentos), id estable y lastUsedAt. La política efectiva es siempre la MÁS estricta entre config y aprobaciones locales — las aprobaciones solo pueden endurecer, nunca relajar.",
+    "mnemosine_fit": "El modelo drafts/outbox de mnemosine es binario (todo pasa por revisión humana). Adoptar una política por herramienta de escritura: cada tool de write declara deny|ask|auto, y las aprobaciones humanas del outbox pueden graduarse (solo esta vez / esta sesión / siempre para este patrón, p.ej. 'pólizas de nómina recurrentes de este tenant < $X'). Las reglas 'always' viven en Postgres por tenant (respetando RLS) con id, patrón y lastUsedAt para auditoría. Regla clave a copiar: la política efectiva solo puede endurecerse, nunca relajarse por config.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Vinculación de la aprobación al contenido exacto + detección de drift (re-denegar si cambia tras aprobar)",
+    "hermes": "No lo tiene como mecanismo explícito; su equivalente es que 'always' guarda el comando literal aprobado.",
+    "openclaw": "Cada aprobación se vincula a argv exacto, cwd, ruta del ejecutable pineada, env y (best-effort) el operando de archivo concreto: 'si ese archivo cambia después de la aprobación y antes de la ejecución, la ejecución se deniega en vez de ejecutar contenido derivado'. Evita bypasses por heredoc cuando se allowlistea un intérprete.",
+    "mnemosine_fit": "Directamente aplicable y barato: al aprobar un draft del outbox, guardar un hash canónico del contenido (asientos, montos, UUID de CFDI). Al ejecutar, recomputar y comparar; si difiere, invalidar la aprobación y devolver el draft a revisión. Cierra la ventana TOCTOU entre revisión humana y ejecución — esencial en contabilidad, donde la aprobación debe referirse a cifras exactas.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Blocklist inquebrantable ('always-on floor') que ningún modo ni flag puede desactivar",
+    "hermes": "Bloqueo hardline de comandos catastróficos (rm -rf /, fork bombs, mkfs, dd a disco, curl|sh como root) que aplica incluso con --yolo o approvals.mode: off; 'no existe override'. Además deny-rules de usuario (approvals.deny con globs fnmatch) evaluadas ANTES de consultar yolo, y bloqueo de escritura a ~/.ssh, ~/.aws, .env, sudoers.",
+    "openclaw": "Postura default-deny equivalente: baseline endurecido que deniega grupos completos de tools (group:runtime, group:fs, sessions_spawn) y sandbox rw/ro/none.",
+    "mnemosine_fit": "Codificar en mnemosine un piso no configurable: nunca escribir en periodos cerrados, nunca borrar asientos (solo reversar), nunca emitir/cancelar CFDI sin item de outbox aprobado, montos por encima de umbral siempre requieren humano. Implementado en la capa de tools (código, no prompt ni config), de modo que ninguna regla 'always' del punto 1 pueda saltárselo. Es la contraparte exacta del principio de Hermes: las conveniencias de auto-aprobación jamás alcanzan la clase destructiva.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Redacción de secretos siempre activa en logs y transcripts, con valores centinela",
+    "hermes": "Redacción en errores de tools MCP: PATs de GitHub (ghp_), claves sk-, bearer tokens, token=/password=/secret=. A subprocesos MCP solo pasan env vars 'seguras' (PATH, HOME...); todo lo demás se stripea salvo config explícita.",
+    "openclaw": "logging.redactPatterns (regex) aplica a consola, file logs, OTLP, transcripts persistidos y payloads del Control UI; 'siempre activa, no desactivable por config'. Los valores de secretos resueltos se registran para redacción por valor exacto (defensa en profundidad). Además centinelas: el provider recibe oc-sent-v2.<ciphertext> en logs/SDK/errores y el valor real solo se desenvuelve justo antes del egress de red; auditoría con 'openclaw secrets audit --check' que detecta plaintext residual en config y DB.",
+    "mnemosine_fit": "Mnemosine persiste transcripts/precedentes en Postgres: aplicar un paso de redacción obligatorio (no opcional) antes de persistir — API keys de proveedores, contraseñas de CSD/FIEL, cadenas de conexión. Añadir al comando doctor un chequeo estilo 'secrets audit' que detecte plaintext en config y en filas de la DB. El patrón centinela es overkill para un CLI, pero la redacción por patrón + por valor exacto es adoptable tal cual.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Defensa anti prompt-injection para contenido externo: wrapping de contenido no confiable + escaneo en la ingesta",
+    "hermes": "Escaneo de archivos de contexto (AGENTS.md, .cursorrules) buscando 'ignora instrucciones previas', comentarios HTML ocultos, intentos de leer .env, exfiltración vía curl y Unicode invisible; el archivo se bloquea y no se carga. Tirith pre-exec detecta homógrafos y pipe-to-interpreter. SSRF protection siempre activa (RFC1918, metadata endpoints).",
+    "openclaw": "Envuelve contenido externo con marcadores <<<EXTERNAL_UNTRUSTED_CONTENT>>>, sanitiza tokens especiales para LLMs self-hosted, y trata la elección de modelo como defensa primaria; los allowlists de DM y el sandboxing reducen superficie y radio de daño.",
+    "mnemosine_fit": "El pipeline de ingesta CFDI procesa XML emitido por terceros: descripciones de conceptos, nombres de emisor y addenda son texto controlado por el atacante que llega al contexto del LLM. Adoptar (a) wrapping explícito de todo campo proveniente de CFDI/correo con delimitadores de contenido no confiable y una instrucción en el system prompt cacheado de que jamás es una orden, y (b) un scanner en la ingesta que marque patrones de inyección/Unicode invisible antes de indexar en memoria de precedentes — un precedente envenenado se reutiliza en sesiones futuras, así que hay que filtrarlo en la entrada.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Emparejamiento de propietario (pairing codes) y default-deny de remitentes para canales remotos",
+    "hermes": "Orden de chequeo de autorización de 6 pasos que termina en deny por defecto (sin allowlists configurados, todos denegados). DM pairing: usuario desconocido recibe código de 8 chars (alfabeto sin 0/O/1/I), TTL 1h, rate limit 1/10min, máx 3 pendientes, lockout tras 5 fallos, archivos chmod 0600; el owner aprueba con 'hermes pairing approve <platform> <code>'.",
+    "openclaw": "dmPolicy con 4 modos (pairing por defecto, allowlist, open con opt-in '*', disabled); 'remitentes desconocidos reciben un código de pairing; el bot los ignora hasta ser aprobados'. Auth del gateway por token/password; loopback auto-aprueba dispositivo pero exige credencial; conexiones remotas requieren pairing explícito. Modelo de amenaza explícito: un usuario/trust boundary por gateway.",
+    "mnemosine_fit": "Hoy mnemosine es CLI local y multi-tenant vía RLS, así que no aplica de inmediato. Pero si se añade un canal remoto (WhatsApp/Telegram para que el contador consulte o apruebe outbox desde el móvil), adoptar el patrón completo de Hermes: default-deny, pairing code con TTL y rate limit, y revocación por comando. Documentar desde ya el trust boundary por tenant como hace OpenClaw.",
+    "effort": "M",
+    "priority": "baja"
+   },
+   {
+    "practice": "Auditoría de seguridad automatizada dentro del comando doctor (con --fix acotado)",
+    "hermes": "hermes doctor muestra advisories de supply-chain (paquetes comprometidos, verificación SHA-256 de binarios instalados) con ack persistente (security.acked_advisories); checklist de producción documentado (allowlists explícitos, chmod 600 de secretos, no-root, auditar command_allowlist).",
+    "openclaw": "openclaw security audit revisa 40+ categorías (bind, políticas de tools, permisos de archivos, carga de plugins, exposición de red) y --fix aplica remediaciones acotadas (endurecer permisos, allowlists de grupo). openclaw secrets audit --check detecta plaintext residual.",
+    "mnemosine_fit": "Mnemosine ya tiene doctor: extenderlo con una sección de seguridad — verificar que RLS esté habilitado y FORZADO en cada tabla tenant-scoped (un FORCE ROW LEVEL SECURITY faltante es el fallo multi-tenant clásico), permisos 0600 de archivos de config con API keys, ausencia de secretos en plaintext, y revisión de reglas de auto-aprobación acumuladas con su lastUsedAt para podar las obsoletas. Un --fix acotado para permisos de archivos es seguro de automatizar.",
+    "effort": "S",
+    "priority": "media"
+   },
+   {
+    "practice": "Minería del historial de aprobaciones para sugerir reglas (nunca proponiendo clases destructivas)",
+    "hermes": "hermes approvals suggest analiza el historial de aprobaciones y propone entradas de allowlist (dry-run por defecto; --apply 1,3 para aplicar selectivamente). Salvaguarda: 'clases destructivas (borrados recursivos, sudo, escrituras a disco, edición de credenciales) nunca se proponen'.",
+    "openclaw": "Equivalente parcial: metadata lastUsedAt/lastResolvedPath en cada entrada de allowlist permite auditar qué reglas se usan realmente; el modo 'auto' usa un revisor LLM como capa intermedia antes de escalar al humano.",
+    "mnemosine_fit": "Encaja perfecto con el outbox: minar el historial de revisiones humanas (qué drafts se aprueban siempre sin ediciones, por tenant y tipo de póliza) y SUGERIR reglas de auto-aprobación que el humano confirma explícitamente — el humano sigue en el loop pero deja de revisar lo trivialmente repetitivo. Copiar la salvaguarda de Hermes: cancelaciones de CFDI, ajustes a periodos y montos altos jamás se proponen para auto-aprobación. Reduce fatiga de revisión sin debilitar auditabilidad porque cada regla nace de un acto humano registrado.",
+    "effort": "M",
+    "priority": "media"
+   }
+  ],
+  "sources": [
+   "https://hermes-agent.nousresearch.com/docs/user-guide/security",
+   "https://hermes-agent.nousresearch.com/docs/",
+   "https://docs.openclaw.ai/gateway/security",
+   "https://docs.openclaw.ai/tools/exec-approvals",
+   "https://docs.openclaw.ai/gateway/secrets",
+   "https://docs.openclaw.ai/logging (via web search snippet: redactPatterns, always-on redaction, exact-value masking)",
+   "https://docs.openclaw.ai/"
+  ]
+ },
+ {
+  "facet": "config-ux",
+  "practices": [
+   {
+    "practice": "Secretos separados del config con auto-ruteo y SecretRef",
+    "hermes": "Split estricto: config.yaml (no-secretos) vs ~/.hermes/.env (secretos, auto-redactados en logs). `hermes config set OPENROUTER_API_KEY sk-...` detecta que es una API key y la rutea automáticamente a .env en vez de config.yaml. Sustitución ${VAR_NAME} en config.yaml con warning si la var no existe (queda verbatim, no crashea).",
+    "openclaw": "openclaw.json (JSON5) admite objetos SecretRef en campos sensibles: {source: 'env'|'file'|'exec'|'store', id: 'OPENAI_API_KEY'} — el config nunca contiene el valor, solo la referencia. Capas de .env: proceso > .env del cwd > ~/.openclaw/.env. Escritura de config con secretos redactados ('***') se rechaza para no corromper el last-known-good.",
+    "mnemosine_fit": "Directo para providers/config.ts: nunca persistir API keys ni el DSN de Postgres en el archivo de config; guardar SecretRef ({source:'env', id:'ANTHROPIC_API_KEY'}) y que `mnemosine config set` rutee secretos a .env automáticamente. Crítico en un agente contable: el config puede terminar en un repo o en un reporte de soporte, y con SecretRef es compartible sin fuga. El patrón `exec` permite integrar un vault sin cambiar el schema.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Onboard que verifica inferencia real antes de persistir",
+    "hermes": "`hermes setup` con secciones (model/terminal/gateway/tools/agent), `--quick` (solo lo faltante), `--non-interactive`, `--portal` (OAuth en un paso). `hermes model` es el wizard completo de provider, distinto del slash /model que solo cambia entre providers ya configurados.",
+    "openclaw": "`openclaw onboard` (guiado): 1) detecta candidatos de IA (models configurados, env vars con keys, CLIs locales, Ollama/LM Studio), 2) ejecuta una completion REAL contra el primer candidato y prueba los siguientes si falla, 3) persiste SOLO la ruta modelo+credencial verificada, sin tocar el resto del config. Re-ejecutar onboard en un sistema configurado actúa como verify/repair, no como reset. Modo QuickStart con defaults seguros vs manual completo.",
+    "mnemosine_fit": "La mejora más barata y de mayor impacto para `mnemosine onboard`: antes de escribir el config, hacer una completion real contra el provider (y un SELECT con RLS activo contra Postgres para el tenant) y persistir solo lo verificado. Onboard idempotente = re-ejecutarlo repara en vez de resetear, lo cual evita que un despacho contable pierda su configuración por correr el wizard dos veces. Separar 'wizard completo de provider' de 'cambiar entre providers ya configurados' como hace Hermes.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Validación estricta de schema + doctor --fix + cuarentena de escrituras rechazadas",
+    "hermes": "`hermes doctor --fix` repara config y dependencias. `hermes config check` detecta opciones faltantes tras un update; `hermes config migrate` las agrega interactivamente.",
+    "openclaw": "El Gateway RECHAZA arrancar si el config tiene keys desconocidas, tipos malformados o valores inválidos (solo $schema root se tolera); en ese estado solo funcionan doctor/logs/health/status. `openclaw doctor --fix` aplica reparaciones. Clobber protection: bloquea escrituras que parecen accidentales (perder el bloque meta, archivo que encoge >50%); las escrituras rechazadas se guardan como <path>.rejected.<timestamp> para inspección; el backup last-known-good se retiene pero solo --fix lo promueve.",
+    "mnemosine_fit": "Para un agente contable, fail-closed en config es lo correcto: si config.ts no valida contra el schema (zod), el agente no debe arrancar en modo degradado con defaults silenciosos — un default equivocado de tenant o provider es un riesgo de auditoría. Adoptar: validación zod estricta (unknown keys = error), doctor como único comando que funciona con config roto, y guardar el config rechazado con timestamp en vez de sobrescribirlo. El last-known-good que solo se promueve explícitamente preserva el rastro auditable.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Doctor/status por capas: probe vivo con errores categorizados, reporte compartible redactado y prompt-size",
+    "hermes": "`hermes status` (--all = formato compartible redactado, --deep = checks largos), `hermes dump` (resumen plano de versión/env/modelo/presencia de keys/servicios, pensado para soporte), `hermes prompt-size` (offline: desglose del presupuesto fijo de prompt — índice de skills, memoria, schemas de tools), `hermes logs` filtrables, `hermes debug share` (sube logs a un paste con expiración).",
+    "openclaw": "`openclaw status --usage` muestra cuota/uso del provider; `openclaw models status` muestra candidatos de auth por provider, baseUrl+modo api, y expiración de OAuth (warning 24h antes). El Control UI tiene 'Test connection': probe vivo que devuelve latencia o un error CATEGORIZADO (auth / rate-limit / billing / timeout / response).",
+    "mnemosine_fit": "Nuestro doctor propuesto valida estático; falta la capa dinámica: (1) probe vivo por provider con error categorizado — 'billing' vs 'auth' vs 'timeout' cambia qué hace el operador; (2) `mnemosine status --all` redactado para pegar en un ticket sin exponer RFCs ni keys; (3) un `prompt-size` es directamente relevante al system prompt por sesión con prompt caching: mostrar el desglose de tokens fijos (20 tool schemas, precedentes, prompt) y cuánto es cacheable. Checks extra para mnemosine: RLS activo por tenant, migraciones de Postgres al día, outbox sin drafts huérfanos.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Cadenas de failover con retry consciente de clase de error y allowlist de modelos",
+    "hermes": "config.yaml: model primario + fallback_providers ordenados (provider+model+base_url+api_key). Falla al fallback tras agent.api_max_retries (default 3) errores TRANSITORIOS (rate limit, 5xx, connection drop); errores terminales (auth, invalid request) fallan de inmediato sin retry. api_max_retries: 0 = failover inmediato. Timeouts por provider y por modelo (request_timeout_seconds, stale_timeout_seconds; stale detection auto-off en endpoints locales).",
+    "openclaw": "agents.defaults.model.{primary,fallbacks} + `openclaw models fallbacks list|add|remove|clear`. Rotación de API keys DENTRO del provider solo en respuestas rate-limit (429/quota/resource exhausted) antes de avanzar al siguiente fallback; fallas no-rate-limit no rotan. agents.defaults.modelPolicy.allow: allowlist de refs exactos y wildcards provider/* que restringe qué modelos se pueden seleccionar.",
+    "mnemosine_fit": "Adaptar, no copiar: en contabilidad un failover silencioso a otro modelo cambia el juicio que produce un draft. Adoptar (a) la taxonomía transitorio-vs-terminal para retries en la capa multi-proveedor (hoy probablemente retry genérico), (b) modelPolicy.allow para que solo modelos aprobados puedan generar drafts, (c) fallback SOLO con registro: cada draft del outbox debe llevar provider+model que lo produjo, y un failover debe quedar en el log de la sesión para el revisor humano. Failover automático sin ese sello de procedencia sería prioridad baja; con él, es robustez operativa legítima.",
+    "effort": "M",
+    "priority": "media"
+   },
+   {
+    "practice": "config check/migrate versionado con backups pre-update y migraciones dirigidas",
+    "hermes": "Versión de config trackeada internamente; auto-migración al arrancar de keys legacy (pre_update_backup: true → 'full'). `hermes config check` lista opciones faltantes tras actualizar; `hermes config migrate` las agrega interactivamente. `hermes migrate <provider>` (ej. xai) es una migración DIRIGIDA para modelos retirados: diagnostica, muestra el rewrite, `--apply` con backup automático. updates.pre_update_backup: quick|full|off con backup_keep: 5.",
+    "openclaw": "`openclaw update` con modo `wizard` (guiado) y `repair`. Config RPC con config.get (snapshot+hash) y config.patch con baseHash — compare-and-swap que evita pisar ediciones concurrentes.",
+    "mnemosine_fit": "Nuestra propuesta de doctor/init no contempla el ciclo de vida: cuando mnemosine agregue keys de config o un modelo se retire, el usuario no debe editar a mano. Adoptar: campo version en config, `mnemosine config check` (diff contra el schema actual) y migraciones con backup automático del archivo previo — el backup fechado es en sí un rastro auditable de quién cambió qué configuración y cuándo. El patrón hash/CAS de OpenClaw es útil si algún día el config se edita también desde otra superficie.",
+    "effort": "M",
+    "priority": "media"
+   },
+   {
+    "practice": "Perfiles aislados por agente/tenant con herencia defaults→overrides",
+    "hermes": "`hermes --profile work` usa ~/.hermes/profiles/work/ con config, .env, memoria, skills y sesiones completamente aislados. `hermes profile export` empaqueta un agente entero para compartir.",
+    "openclaw": "Regla de dos cubetas: agents.defaults (comportamiento base) y agents.entries[agent-id] que sobreescribe solo donde el schema lo permite; los agentes no especificados heredan defaults. $include para partir el config en archivos (deep-merge en orden, confinado al directorio del config).",
+    "mnemosine_fit": "Mapea al multi-tenant: hoy el tenant vive en RLS pero el config es global. El patrón defaults→entries permite overrides por despacho/empresa (modelo preferido, umbrales de revisión, idioma de drafts) sin duplicar todo el config, y con el schema decidiendo QUÉ es sobreescribible por tenant (el DSN y las políticas de staging de writes NO deberían serlo). El aislamiento total estilo Hermes es excesivo para mnemosine porque el aislamiento real ya lo da Postgres+RLS; la herencia ligera de OpenClaw encaja mejor.",
+    "effort": "M",
+    "priority": "media"
+   },
+   {
+    "practice": "Sustitución ${VAR} en config con fallo suave y import opcional del shell",
+    "hermes": "${VAR_NAME} y ${env:VAR_NAME} en config.yaml, múltiples refs por valor ('${HOST}:${PORT}'); var indefinida queda verbatim con warning logueado, no crashea.",
+    "openclaw": "${VAR_NAME} solo mayúsculas, escape $${VAR}, missing = warning y sin resolver. env.shellEnv {enabled, timeoutMs}: corre el login shell para importar keys faltantes (útil para keys que vienen de un secret manager en el shell profile). env.vars inline sobreescribe archivos .env.",
+    "mnemosine_fit": "Complemento pequeño del SecretRef: permite que el mismo config funcione en la laptop del contador y en CI sin editarlo. El fallo suave (warning, no crash) es correcto para valores opcionales, pero para mnemosine los refs de secretos requeridos (API key, DSN) deben ser fail-closed vía la validación del punto 3 — warning suave solo para lo opcional. shellEnv es prescindible (baja) — complejidad de seguridad extra ejecutando el shell.",
+    "effort": "S",
+    "priority": "baja"
+   }
+  ],
+  "sources": [
+   "https://hermes-agent.nousresearch.com/docs/",
+   "https://hermes-agent.nousresearch.com/docs/user-guide/configuration",
+   "https://hermes-agent.nousresearch.com/docs/reference/cli-commands",
+   "https://docs.openclaw.ai/",
+   "https://docs.openclaw.ai/gateway/configuration",
+   "https://docs.openclaw.ai/start/wizard",
+   "https://docs.openclaw.ai/providers",
+   "https://docs.openclaw.ai/help/troubleshooting",
+   "https://docs.openclaw.ai/concepts/model-providers",
+   "https://docs.openclaw.ai/concepts/models",
+   "https://docs.openclaw.ai/cli"
+  ]
+ },
+ {
+  "facet": "channels-ops",
+  "practices": [
+   {
+    "practice": "Cron/scheduling como tareas de agente de primera clase, persistidas y con backoff",
+    "hermes": "Herramienta unica `cronjob` (create/list/pause/resume/run/edit/remove) expuesta al propio agente, asi el usuario agenda en lenguaje natural. Jobs en ~/.hermes/cron/jobs.json (escritura atomica), ejecuciones en executions.db con estados claimed→running→completed/failed; el gateway hace tick cada 60s y ejecuta cada job en una sesion AIAgent aislada, con skills adjuntas inyectadas antes del prompt. Output guardado en cron/output/{job_id}/{ts}.md y entregado a cualquier plataforma con header/footer que marca 'esto vino de una tarea programada'. Valida claves de proveedor y credenciales de entrega ANTES de ejecutar para no quemar tokens.",
+    "openclaw": "Scheduler dentro del Gateway con jobs en SQLite: tipos at/every/cron/on-exit/stream; estilos de sesion main (evento al hilo principal), isolated (turno fresco), current y custom (contexto persistente entre corridas, p.ej. standup diario). Entrega announce/webhook/none con guardas SSRF. Backoff en fallos consecutivos (30s→60m), ruta de alerta de fallo tras 2 fallos, auto-deshabilitado tras 10.",
+    "mnemosine_fit": "Encaja directo con el flujo drafts/outbox: jobs nocturnos (verificacion de cierre, conciliacion CFDI vs polizas, recordatorio de facturas por cobrar) que corren en sesion aislada y depositan su resultado como draft revisable por humano en Postgres, nunca ejecucion directa. Copiar: persistencia de jobs + log de ejecuciones (tabla Postgres con RLS por tenant = pista de auditoria gratis), validacion pre-vuelo de credenciales, backoff y auto-disable, y el header/footer que identifica salida automatizada.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Gate pre-agente barato: script decide si despierta al LLM (wakeAgent)",
+    "hermes": "En jobs modo no_agent, un script Python corre antes del turno y emite JSON en su ultima linea de stdout: {\"wakeAgent\": false} salta la llamada al LLM por completo; {\"wakeAgent\": true, \"context\": {...}} pasa datos estructurados al prompt. Diseñado para polling frecuente que solo a veces necesita razonamiento.",
+    "openclaw": "Equivalente parcial: payloads command/script corren deterministicamente sin iniciar turno conversacional; el tipo de schedule 'stream' dispara por lineas de salida de un comando observado.",
+    "mnemosine_fit": "Ajuste casi perfecto para el pipeline CFDI: un poll SQL/SAT cada N minutos que solo despierta al agente cuando hay XMLs nuevos o descuadres, inyectando los datos ya parseados como contexto. Reduce costo de tokens a ~0 en ciclos vacios y mantiene deterministico (auditable) el paso de deteccion. Es un patron de ~100 lineas sobre lo que ya existe.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Webhooks entrantes con token dedicado, mapeos declarativos y agente lector restringido",
+    "hermes": "El gateway incluye adaptadores 'webhook' y 'api_server' como plataformas mas; gateway/hooks.py da hooks de ciclo de vida (logging, alertas, webhooks) y plugin hooks para interceptar herramientas/guardrails.",
+    "openclaw": "Mecanismo completo: hooks.enabled + token dedicado (Bearer o x-openclaw-token, query-string rechazado), path dedicado. POST /hooks/wake encola evento de sistema; POST /hooks/agent corre turno aislado (200 encolado, 409 conflicto de sesion, 503 timeout de admision); POST /hooks/<name> mapea payloads arbitrarios via hooks.mappings a un agentId + sessionKey template + messageTemplate. Ejemplo Gmail PubSub: rutea al agente 'mail_reader' con workspaceAccess none, sin shell/fs, template 'Summarize this email as untrusted data', deliver:false. sessionKey del request opt-in con allowlist de prefijos; hooks.allowedAgentIds limita que agentes son invocables.",
+    "mnemosine_fit": "Es EL patron para intake automatizado en mnemosine: webhook de notificacion bancaria o buzon SAT → agente/perfil restringido a solo las herramientas de lectura + crear draft, con el contenido marcado como dato no confiable (prompt-injection defense), y session key derivada del id del documento (idempotencia). El modelo de token dedicado + allowlist de agentes + guardas SSRF preserva la auditabilidad. Requiere añadir un pequeño servidor HTTP y perfiles de herramientas por origen.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Cola por sesion: un run activo por session key + politica steer/followup/collect",
+    "hermes": "Aislamiento por perfil (HERMES_HOME, config, memoria, PID de gateway propios; varios perfiles concurrentes) y token locks en gateway/status.py; subagentes con limite de 3 concurrentes por defecto.",
+    "openclaw": "Cola FIFO por lanes: cada sesion se encola en lane session:<key> garantizando UN solo run activo por sesion; luego el run entra a un lane global con cap de concurrencia (main = min(16, max(8, CPUs))). Mensajes que llegan durante un run: steer (se inyectan entre tool calls antes del siguiente LLM call), followup (turno posterior) o collect (coalescer tras ventana de silencio).",
+    "mnemosine_fit": "Mapea a 'una sola conversacion activa por tenant/cliente': serializa escrituras a drafts del mismo tenant evitando drafts duplicados o carreras contra RLS, mientras tenants distintos corren en paralelo. La politica 'collect' es ideal para intake por chat (el cliente manda 5 fotos de facturas seguidas → un solo turno). Implementable como cola en Postgres (SELECT ... FOR UPDATE SKIP LOCKED) coherente con el stack actual.",
+    "effort": "M",
+    "priority": "media"
+   },
+   {
+    "practice": "Gateway daemon supervisado: launchd/systemd, un puerto multiplexado, auth obligatoria",
+    "hermes": "Proceso largo con 25+ adaptadores de plataforma (GatewayRunner en gateway/run.py); flujo por mensaje: autorizar usuario → resolver session key → instanciar AIAgent con historial (SQLite SessionStore) → run_conversation → responder por el adaptador. Corre en local, Docker, SSH o serverless (Daytona, Modal).",
+    "openclaw": "Proceso unico always-on supervisado: LaunchAgent en macOS (ai.openclaw.gateway), unidades systemd en Linux; hot-reload de config cuando es seguro, restart si no. Un solo puerto (18789) multiplexa WebSocket RPC, HTTP, rutas de plugins y UI; bind loopback por defecto; auth obligatoria (shared-secret o trusted-proxy), incluso a traves de tuneles SSH. Diagnostico via 'openclaw doctor --fix' (migra definiciones viejas).",
+    "mnemosine_fit": "mnemosine hoy es CLI por sesion; cron/webhooks/canales exigen un daemon. Adoptar el patron minimo: comando 'mnemosine gateway' que el comando doctor sabe instalar como launchd/systemd unit, loopback-only por defecto, token obligatorio, hot-reload de config. Extiende el 'doctor' existente con checks del daemon (patron doctor --fix de OpenClaw). Es la pieza habilitadora de las practicas 1-4, pero es la mas cara y no aporta valor sola.",
+    "effort": "L",
+    "priority": "media"
+   },
+   {
+    "practice": "Intake por canal de mensajeria (WhatsApp/Telegram) con pairing y allowlists",
+    "hermes": "20+ plataformas via gateway unificado; Bot Mode: multiples bots especialistas en un grupo con @menciones; aislamiento de sesion por plataforma con tracking de linaje entre compresiones.",
+    "openclaw": "30+ canales como plugins; Telegram = setup mas rapido (solo bot token), WhatsApp via QR pairing (mas estado en disco). 'DM pairing and allowlists are enforced for safety'; sesiones aisladas por agente/workspace/remitente; texto universal, media/reacciones varian por canal; proteccion de loops entre bots.",
+    "mnemosine_fit": "Caso de negocio claro para despacho contable: el cliente manda foto/XML de factura por WhatsApp → sesion aislada por remitente → allowlist de numeros mapeada a tenant (refuerza RLS) → pipeline CFDI produce draft para revision del contador; respuestas del agente limitadas a confirmaciones y preguntas (la herramienta HITL existente). Empezar por Telegram (token simple, buen manejo de documentos) antes que WhatsApp (pairing fragil, riesgo de baneo). El allowlist-por-tenant es innegociable: sin el, este canal debilita la auditoria.",
+    "effort": "L",
+    "priority": "media"
+   },
+   {
+    "practice": "Exponer el agente como API OpenAI-compatible con session keys estables por canal",
+    "hermes": "API server con bearer token (API_SERVER_KEY): POST /v1/chat/completions (stateless + SSE con evento custom hermes.tool.progress), /v1/responses (estado server-side via previous_response_id), Runs API con conversaciones nombradas y polling de eventos. Header X-Hermes-Session-Key = identificador estable por canal para memoria de largo plazo, separado del session id transcripcional. Multi-tenant via perfiles: puerto+key+config por perfil, y cada perfil se anuncia como model id distinto.",
+    "openclaw": "El Gateway expone GET /v1/models (variantes por agente), POST /v1/chat/completions, /v1/responses y /v1/embeddings en el mismo puerto y frontera de auth.",
+    "mnemosine_fit": "Prioridad baja para un despacho: mnemosine es consumidor de LLMs, no proveedor, y exponer chat/completions generico invita a saltarse el flujo de revision. Lo que SI vale la pena copiar es el detalle de diseño: separar 'session key estable por canal/tenant' (para memoria de precedentes) del 'session id de transcripcion', y anunciar un model-id por tenant/perfil si algun dia un frontend (Open WebUI interno del despacho) se conecta. Adoptar solo si aparece esa necesidad concreta.",
+    "effort": "M",
+    "priority": "baja"
+   }
+  ],
+  "sources": [
+   "https://docs.openclaw.ai/",
+   "https://docs.openclaw.ai/gateway",
+   "https://docs.openclaw.ai/automation/cron-jobs",
+   "https://docs.openclaw.ai/automation/cron-jobs#webhooks",
+   "https://docs.openclaw.ai/automation/hooks",
+   "https://docs.openclaw.ai/channels",
+   "https://github.com/openclaw/openclaw/blob/main/docs/concepts/queue.md",
+   "https://hermes-agent.nousresearch.com/docs/",
+   "https://hermes-agent.nousresearch.com/docs/developer-guide/architecture",
+   "https://hermes-agent.nousresearch.com/docs/user-guide/features/overview",
+   "https://hermes-agent.nousresearch.com/docs/user-guide/features/cron",
+   "https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server"
+  ]
+ },
+ {
+  "facet": "observability-cost",
+  "practices": [
+   {
+    "practice": "Ledger de tokens/costo por sesión y proveedor, con comandos de consulta (/status, /usage, insights)",
+    "hermes": "`hermes insights` agrega uso de tokens, costos y actividad por periodo (default 30 días) con filtro por fuente; el modo one-shot `-z --usage-file` escribe JSON máquina-legible con costo estimado USD, tokens input/output/cache-read/cache-write/reasoning, conteo de llamadas API, modelo/proveedor, session ID y flags de completitud.",
+    "openclaw": "`/status` muestra tarjeta con modelo de sesión, uso de contexto, tokens del último turno y costo estimado; `/usage tokens|full|cost|off` añade footers por respuesta y resumen local de costo desde los logs de sesión. El costo se deriva de una tabla local de precios (USD por 1M tokens: input/output/cacheRead/cacheWrite) y normaliza los nombres de campos de uso entre proveedores (p.ej. aliases de OpenAI).",
+    "mnemosine_fit": "Encaja directo: mnemosine ya emite métricas Prometheus pero el CLI no muestra nada. Persistir una fila de usage por turno (tenant_id, session_id, provider, model, tokens por tipo, costo calculado con tabla de precios local en config) en Postgres — mismo patrón que el precedent memory — y exponer `mnemosine usage` + un footer opcional por turno. La normalización de campos entre Anthropic nativo y OpenAI-compatible es exactamente el problema que ya tiene la capa multi-proveedor. Además da trazabilidad de costo por tenant, valioso en multi-tenant contable.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Cadena de fallback multi-proveedor con clasificación tipada de errores, cooldowns escalonados y re-probe automático del primario",
+    "hermes": "`fallback_providers` es una lista ordenada (provider+model) que se intenta cuando el primario falla por rate-limit o conectividad; `agent.api_max_retries` (default 3) controla reintentos por proveedor antes de saltar; con múltiples API keys del mismo proveedor, `credential_pool_strategies` rota (round_robin, least_used, fill_first, random). Cadenas de fallback independientes por tarea auxiliar.",
+    "openclaw": "Failover solo para categorías tipadas: auth inválida, 429/concurrencia/quota, overload del proveedor, timeouts de transporte y billing — explícitamente NO para overflow de contexto, aborts ni safety refusals (esos van a compaction/retry). Cooldowns escalonados 30s→1m→5m por perfil; rotación de auth-profiles dentro del proveedor antes de pasar al siguiente modelo; el estado auto-fallback (`modelOverrideSource: \"auto\"`) re-prueba periódicamente el primario y se limpia al recuperarse. Clave de auditoría: la selección explícita del usuario vía /model es estricta — falla visiblemente en vez de caer al fallback.",
+    "mnemosine_fit": "La capa multi-proveedor de mnemosine ya existe; falta la política. Adoptar: (1) clasificador tipado de errores (429/5xx/auth/billing sí; overflow/refusal no), (2) cadena ordenada en config con cooldown por proveedor, (3) re-probe del primario. Adaptación crítica para auditabilidad: registrar en cada draft/outbox QUÉ modelo lo produjo (el failover silencioso a un modelo más débil en medio de una revisión contable debe quedar en el registro), y hacer estricta la selección explícita de modelo como OpenClaw — si el contador pidió el modelo fuerte, fallar visible, no degradar en silencio.",
+    "effort": "M",
+    "priority": "alta"
+   },
+   {
+    "practice": "Ruteo de modelo barato para tareas auxiliares, fuerte para el trabajo principal",
+    "hermes": "Slots `auxiliary` por tarea (vision, web extraction, compression, title generation) con default \"auto\" (=modelo principal) y override por tarea con provider/model/base_url, reasoning_effort propio (p.ej. compression: low, vision: none) y cadena de fallback propia. Patrón universal de 3 llaves: provider, model, base_url.",
+    "openclaw": "`agents.defaults.utilityModel` (modelo de bajo costo para títulos y tareas internas, con default al small-model del proveedor), `imageModel`/`pdfModel` con cascada de fallback, y `compaction.model` para delegar la summarización a un modelo barato. `modelPolicy.allow` restringe con wildcards qué modelos son elegibles.",
+    "mnemosine_fit": "Mnemosine tiene candidatos naturales: generación de títulos de sesión, resúmenes de precedentes, extracción/normalización en el pipeline CFDI, compresión de contexto. Adoptar el patrón de slots con default \"auto\": cero fricción hoy, y bajar costo por tarea cuando convenga. Adaptación: la clasificación contable de CFDIs NO debe ir al modelo barato sin pasar por el flujo de revisión humana existente — el ruteo barato es para tareas cuya salida no toca los drafts. Un `modelPolicy.allow` por tenant también encaja con RLS/multi-tenant.",
+    "effort": "M",
+    "priority": "media"
+   },
+   {
+    "practice": "Gestión de contexto en dos niveles: pruning sin-LLM de resultados de tools + compaction con umbral, preservando identificadores",
+    "hermes": "Compression con `threshold: 0.50` del contexto, `target_ratio`, `protect_last_n: 20` mensajes; y ANTES de eso, proactive pruning sin LLM: al superar 48K tokens de historia recorta tool-results grandes (>8K chars) solo si reclama ≥4K tokens. Límites de entrada: `file_read_max_chars` y `tool_output.max_bytes/max_lines` para que un solo read no inunde el contexto. Modelo de compresión delegable a uno barato.",
+    "openclaw": "Auto-compaction al acercarse al límite o ante error de overflow; mantiene pares tool-call/tool-result juntos al elegir el corte; `/compact` manual con guía opcional y `keepRecentTokens` (default 20K); `identifierPolicy: \"strict\"` preserva identificadores opacos en los resúmenes; puede hacer flush a memoria antes de compactar; distingue compaction (resumen, persistido en transcript) de pruning (recorte de tool-results, solo en memoria).",
+    "mnemosine_fit": "Con 20 read tools contra Postgres, los resultados grandes son el riesgo real. Orden de adopción para un agente contable: (1) caps de tamaño en tool-results (S, inmediato), (2) pruning proactivo sin LLM — no inventa nada, no compromete auditoría, (3) compaction con LLM al final y con `identifierPolicy: strict` obligatorio (UUIDs de CFDI, folios fiscales, RFCs no pueden perderse en un resumen) y transcript completo persistido aparte del contexto vivo. La summarización lossy de hechos contables es donde más cuidado: el resumen jamás es fuente de verdad para un draft. Ojo con la interacción con prompt caching: compactar in-place invalida caché — Hermes lo maneja con capas estables/volátiles.",
+    "effort": "L",
+    "priority": "alta"
+   },
+   {
+    "practice": "Comando offline de presupuesto de prompt (prompt-size) que desglosa el costo fijo por componente y capa de caché",
+    "hermes": "`hermes prompt-size` reporta el presupuesto fijo de una sesión fresca desglosado por componente (índice de skills, memoria, perfil, schemas de tools), corre 100% offline sin llamadas API, y muestra la composición por capas (stable/context/volatile) usada para optimizar prompt caching; el caching adjunta breakpoints cache-control al system prompt + skills con TTL configurable (5m/1h en Anthropic).",
+    "openclaw": "Documenta explícitamente qué cuenta contra el contexto (system prompt, historia, tool calls/results, attachments, resúmenes de compaction) y recomienda mantener descripciones de skills concisas como palanca de costo, pero no tiene comando offline equivalente.",
+    "mnemosine_fit": "Encaje casi perfecto: mnemosine ya construye un system prompt por sesión con prompt caching y tiene 20 schemas de tools + precedent memory + perfil de tenant como componentes. Un `mnemosine prompt-size` (offline, tokenizer local o conteo aproximado) que desglose tokens por componente y marque qué cae en la capa cacheada haría visible el costo fijo por sesión y detectaría regresiones (un schema de tool que engordó, precedentes que crecieron). Barato de construir sobre lo que ya existe.",
+    "effort": "S",
+    "priority": "alta"
+   },
+   {
+    "practice": "Suite de diagnóstico: logs consultables por sesión/nivel, export redactado para soporte, y validación de config",
+    "hermes": "`hermes logs [nombre] -f` con filtro por nivel, session ID, ventana de tiempo y componente; auto-redacción de API keys en logs (~/.hermes/logs/); `hermes dump` emite resumen redactado del setup (versión, OS, perfil, modelo, estado de keys, toolsets) para bug reports; `hermes debug share` sube logs recientes a storage y devuelve URL compartible; `hermes doctor --fix` repara config automáticamente.",
+    "openclaw": "`openclaw logs --follow`, `openclaw doctor --deep`, `openclaw config validate`; `gateway diagnostics export` exporta evidencia operacional excluyendo deliberadamente texto de mensajes, credenciales, tokens y session IDs crudos; conserva hasta 32 backups timestamped de configs rechazadas (.rejected/.clobbered) y el hot-reload ignora ediciones inválidas manteniendo la config runtime vigente; salidas --json máquina-legibles en probe/status.",
+    "mnemosine_fit": "Mnemosine ya tiene `doctor`; las extensiones de bajo costo son: `mnemosine logs` con filtro por session/tenant/nivel, `config validate` como subcomando (y como paso de doctor), y un `diagnostics export` redactado — en contexto contable multi-tenant la redacción es obligatoria (nada de datos de facturas ni RFCs en un bundle de soporte). El patrón de backups de config rechazada + hot-reload que nunca aplica config inválida es directamente aplicable al config por tenant. Salida --json en doctor/status para scriptear onboarding.",
+    "effort": "S",
+    "priority": "media"
+   },
+   {
+    "practice": "Presupuestos de ejecución para corridas no atendidas: tope de wall-clock, turnos y aviso de cierre",
+    "hermes": "`agent.run_budget_seconds` pone techo duro a tareas one-shot (override CLI `--run-budget`); al 80% del presupuesto el modelo recibe un aviso de wrap-up para cerrar ordenadamente; llamadas colgadas se capan a max(60s, 50% del restante); `agent.max_turns` limita iteraciones. No hay spend cap en USD nativo — el control es por tiempo/turnos/retries.",
+    "openclaw": "No expone spend cap monetario; el control equivalente es indirecto: fallbacks estrictos por job cron (`fallbacks: []`), utilityModel barato, y visibilidad de costo vía /usage. Los cron jobs pueden fijar modelo por payload.",
+    "mnemosine_fit": "Relevante para el pipeline de ingest CFDI corriendo en batch: un lote malformado no debe quemar tokens indefinidamente. Adoptar run_budget (segundos + máximo de turnos + opcionalmente tope de tokens por job, que ninguno de los dos harnesses tiene pero mnemosine puede derivar de su ledger de uso) con el aviso de wrap-up al 80% para que el agente deje el trabajo en estado consistente (drafts guardados, no a medias). Como los writes ya son staged con revisión humana, el riesgo de un corte abrupto es bajo — el presupuesto es puro control de costo. Un spend cap en USD por tenant/mes sobre el ledger de la práctica 1 sería ir más allá de ambos harnesses, coherente con multi-tenant.",
+    "effort": "S",
+    "priority": "media"
+   }
+  ],
+  "sources": [
+   "https://hermes-agent.nousresearch.com/docs/",
+   "https://hermes-agent.nousresearch.com/docs/reference/cli-commands",
+   "https://hermes-agent.nousresearch.com/docs/user-guide/configuration",
+   "https://docs.openclaw.ai/",
+   "https://docs.openclaw.ai/providers",
+   "https://docs.openclaw.ai/concepts/models",
+   "https://docs.openclaw.ai/concepts/model-failover",
+   "https://docs.openclaw.ai/reference/token-use",
+   "https://docs.openclaw.ai/concepts/compaction",
+   "https://docs.openclaw.ai/gateway/troubleshooting"
+  ]
+ }
+]
