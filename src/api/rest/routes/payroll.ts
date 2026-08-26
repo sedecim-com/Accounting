@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { NotFoundError, ValidationError } from '../../../utils/errors.js';
+import { NotFoundError, NotImplementedError, ValidationError } from '../../../utils/errors.js';
 import {
   createEmployee,
   getEmployee,
@@ -35,9 +35,7 @@ import {
   listBenefitPlans,
   listEmployeeElections,
 } from '../../../services/payroll/usa/benefits/benefits-service.js';
-import { generateIdseBatch, submitIdseBatch } from '../../../services/payroll/integrations/imss-idse-adapter.js';
-import { submitFormToIrs, getSubmissionStatus } from '../../../services/payroll/integrations/irs-efile-adapter.js';
-import { submitW2sToSsa } from '../../../services/payroll/integrations/ssa-bso-adapter.js';
+import { generateIdseBatch } from '../../../services/payroll/integrations/imss-idse-adapter.js';
 import { generateNachaFile } from '../../../services/payroll/usa/nacha-generator.js';
 
 const router = Router();
@@ -354,41 +352,67 @@ router.post(
 );
 
 // ---------- MX IMSS IDSE ----------
-router.post('/imss-idse/batch', requirePermission('payroll:approve'), requireEntityAccess, async (req: Request, res: Response) => {
+// Wrapped in asyncHandler, unlike its neighbours: this is the endpoint the
+// four 501s above tell the caller to use instead, and it now refuses a
+// malformed SBC with a ValidationError. Left as a bare `async` handler, that
+// throw would be an unforwarded rejection under Express 4 — the request would
+// hang instead of answering 422, which is a worse answer than the one we
+// withdrew. The rest of this file has the same latent bug; see the note in
+// the lane report.
+router.post('/imss-idse/batch', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, movements } = req.body;
   if (!Array.isArray(movements)) throw new ValidationError('movements[] required');
   const result = await generateIdseBatch(req.tenantId!, entity_id || req.entityId!, movements);
   res.json({ data: result, meta: meta(req) });
-});
+}));
 
-router.post('/imss-idse/submit', requirePermission('payroll:approve'), async (req: Request, res: Response) => {
-  const { batch_content, credentials } = req.body;
-  if (!batch_content || !credentials) throw new ValidationError('batch_content, credentials required');
-  const result = await submitIdseBatch(batch_content, credentials);
-  res.json({ data: result, meta: meta(req) });
-});
+// ============================================================
+// WITHDRAWN TRANSMISSION ENDPOINTS
+//
+// These four answered 200 with a folio, a submission id and a
+// status of 'accepted' or 'pending' while transmitting nothing to
+// anyone. mnemosine holds no IMSS FIEL, no IRS MeF transmitter
+// credentials and no SSA BSO account; there was no socket, no
+// signature and no acknowledgement behind any of them.
+//
+// They now answer 501 and name the file to produce and the portal
+// that accepts it. They are NOT deleted: a 404 would read as a
+// wrong URL and invite a retry, and the whole hazard here was a
+// caller who believed they had filed.
+// ============================================================
 
-// ---------- IRS e-file (941/940) ----------
-router.post('/irs-efile/:filing_id', requirePermission('payroll:approve'), async (req: Request, res: Response) => {
-  const { credentials } = req.body;
-  if (!credentials) throw new ValidationError('credentials required');
-  const result = await submitFormToIrs(req.params.filing_id, credentials);
-  res.json({ data: result, meta: meta(req) });
-});
+router.post('/imss-idse/submit', requirePermission('payroll:approve'), asyncHandler(async () => {
+  throw new NotImplementedError(
+    'mnemosine does not transmit to IMSS. Generate the batch with POST /v1/payroll/imss-idse/batch, ' +
+      'then upload the .txt yourself at idse.imss.gob.mx with the patron FIEL, and record the IMSS ' +
+      'acuse on the filing. Nothing was sent by this call.'
+  );
+}));
 
-router.get('/irs-efile/status/:submission_id', requirePermission('payroll:read'), async (req: Request, res: Response) => {
-  const { credentials } = req.body;
-  const result = await getSubmissionStatus(req.params.submission_id, credentials);
-  res.json({ data: result, meta: meta(req) });
-});
+// ---------- IRS e-file (941/940) — WITHDRAWN ----------
+router.post('/irs-efile/:filing_id', requirePermission('payroll:approve'), asyncHandler(async () => {
+  throw new NotImplementedError(
+    'mnemosine does not transmit to the IRS. Produce the form with POST /v1/payroll/form-941 or ' +
+      'POST /v1/payroll/form-940 and file it yourself — through an authorized e-file provider, or by ' +
+      'mail — then record the confirmation number on the filing. Nothing was sent by this call.'
+  );
+}));
 
-// ---------- SSA BSO (W-2 EFW2 bundle) ----------
-router.post('/ssa-bso/submit', requirePermission('payroll:approve'), requireEntityAccess, async (req: Request, res: Response) => {
-  const { entity_id, tax_year, credentials, submitter } = req.body;
-  if (!tax_year || !credentials || !submitter) throw new ValidationError('tax_year, credentials, submitter required');
-  const result = await submitW2sToSsa(req.tenantId!, entity_id || req.entityId!, tax_year, credentials, submitter);
-  res.json({ data: result, meta: meta(req) });
-});
+router.get('/irs-efile/status/:submission_id', requirePermission('payroll:read'), asyncHandler(async () => {
+  throw new NotImplementedError(
+    'mnemosine has no submission to ask the IRS about: it never transmitted one. Acknowledgements come ' +
+      'from whoever filed on your behalf; record the result on the filing yourself.'
+  );
+}));
+
+// ---------- SSA BSO (W-2 EFW2 bundle) — WITHDRAWN ----------
+router.post('/ssa-bso/submit', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async () => {
+  throw new NotImplementedError(
+    'mnemosine does not upload to the SSA. Produce the EFW2 file with POST /v1/payroll/efw2, run it ' +
+      'through AccuWage, upload it yourself at the SSA Business Services Online portal, and record the ' +
+      'WFID it returns on the filing. Nothing was uploaded by this call.'
+  );
+}));
 
 // ---------- Employee self-service ----------
 router.get('/me/paychecks', async (req: Request, res: Response) => {

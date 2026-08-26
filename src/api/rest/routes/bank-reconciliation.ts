@@ -5,7 +5,7 @@ import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
 import { requirePermission } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { NotFoundError } from '../../../utils/errors.js';
+import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
 import { autoMatchUnreconciled } from '../../../services/banking/matching.js';
 import type { BankTransaction, ReconciliationSession } from '../../../types/index.js';
 
@@ -232,6 +232,11 @@ router.get('/reconciliations/:id', requirePermission('journal_entries:read'), as
     [session.rows[0].bank_account_id, session.rows[0].start_date, session.rows[0].end_date]
   );
 
+  // CAUTION for whoever renders this: `variance`, `ending_balance_per_books`,
+  // `outstanding_checks` and `deposits_in_transit` come straight off the row
+  // and are still their DEFAULT 0 — nothing in mnemosine computes them. A
+  // zero here means "not calculated", not "agrees with the bank". The honest
+  // numbers on this response are matched_count and unmatched_count.
   res.json({
     data: {
       ...session.rows[0],
@@ -253,20 +258,44 @@ router.post('/:account_id/auto-match', requirePermission('journal_entries:create
   });
 }));
 
-// POST /v1/reconciliations/:id/complete
-router.post('/reconciliations/:id/complete', requirePermission('journal_entries:create'), asyncHandler(async (req: Request, res: Response) => {
-  const result = await query<ReconciliationSession>(
-    `UPDATE reconciliation_sessions SET status = 'balanced', completed_at = NOW(), completed_by = $1
-     WHERE id = $2 AND status = 'in_progress' RETURNING *`,
-    [req.user!.user_id, req.params.id]
+// POST /v1/reconciliations/:id/complete — WITHDRAWN
+//
+// This was the most dangerous endpoint in the file, and the danger was
+// entirely in who read its output.
+//
+// The whole implementation was one UPDATE setting status = 'balanced'.
+// It never computed ending_balance_per_books, never compared it to
+// ending_balance_per_bank, never looked at whether a single transaction
+// in the period was still unmatched, and never posted the entries a
+// reconciliation exists to find — bank fees, interest earned, NSF
+// returns, the FX difference on a foreign-currency account. Those
+// columns (ending_balance_per_books, variance, outstanding_checks,
+// deposits_in_transit, bank_charges, bank_interest) kept their DEFAULT
+// 0 and the session reported variance 0 — a zero that means "nobody
+// subtracted anything", displayed as "the account agrees".
+//
+// Then period-close.ts:44-61 reads status IN ('balanced','approved',
+// 'posted') as the evidence that the account is reconciled, and ticks
+// "Bank reconciliations complete" on the close checklist. So one
+// unconditional UPDATE turned into a signed statement that the cash
+// balance had been verified against the bank. That is the difference
+// between an unfinished feature and a false attestation.
+//
+// Everything else in this file is real and stays: importing statements,
+// suggesting matches, matching, auto-matching. What does not exist is
+// the arithmetic that turns a pile of matches into a reconciliation,
+// and the posting of the adjustments it uncovers. Until that exists, a
+// session cannot reach 'balanced' from here — and the close checklist
+// will keep saying the account is not reconciled, which is true.
+router.post('/reconciliations/:id/complete', requirePermission('journal_entries:create'), asyncHandler(async () => {
+  throw new NotImplementedError(
+    'mnemosine cannot complete a bank reconciliation: it does not compute the book balance, the ' +
+      'variance, outstanding checks or deposits in transit, and it does not post the bank fees, ' +
+      'interest and returns a reconciliation uncovers. Marking the session "balanced" would have ' +
+      'told the period-close checklist that this account was verified against the bank when nothing ' +
+      'had been verified. Reconcile the account outside mnemosine, post the adjustments you find as ' +
+      'journal entries, and leave the period-close warning standing until you have.'
   );
-
-  if (result.rows.length === 0) throw new NotFoundError('Reconciliation Session', req.params.id);
-
-  res.json({
-    data: result.rows[0],
-    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
-  });
 }));
 
 export default router;

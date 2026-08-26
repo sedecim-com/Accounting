@@ -180,8 +180,26 @@ async function bootstrap() {
   app.use(`${apiPrefix}/ai`, aiRouter);
 
   // ============================================================
-  // GraphQL API
+  // GraphQL API — DISABLED BY DEFAULT
+  //
+  // This is a second door into the same engine, and it is measurably the
+  // less safe one:
+  //   · it is mounted at /graphql, OUTSIDE the /v1 prefix, so it bypasses
+  //     the audit and rate-limiting middleware every REST route carries;
+  //   · `createJournalEntry` and `postJournalEntry` reach the posting engine
+  //     with `authenticate` only — there is no permission check anywhere in
+  //     the resolvers, so any authenticated principal can post to any ledger
+  //     the tenant context lets it see, leaving no audit row;
+  //   · nothing in this repository consumes it. There is no web, ui, client
+  //     or frontend directory; the only importer is this file.
+  //
+  // It is gated rather than deleted because this repository has no version
+  // control, and 891 lines are not recoverable once removed. Set
+  // GRAPHQL_ENABLED=true to bring it back exactly as it was — and if it is
+  // ever brought back for real, the mutations need permission checks and the
+  // mount needs to move inside the audited prefix first.
   // ============================================================
+  const graphqlEnabled = process.env.GRAPHQL_ENABLED === 'true';
   type GraphqlContext = {
     user: import('./types/index.js').JwtPayload | undefined;
     tenantId: string | undefined;
@@ -194,17 +212,23 @@ async function bootstrap() {
 
   await apolloServer.start();
 
-  app.use(
-    '/graphql',
-    authenticate,
-    expressMiddleware(apolloServer, {
-      context: async ({ req }) => ({
-        user: req.user,
-        tenantId: req.tenantId,
-        entityId: req.entityId,
-      }),
-    })
-  );
+  if (graphqlEnabled) {
+    app.use(
+      '/graphql',
+      authenticate,
+      expressMiddleware(apolloServer, {
+        context: async ({ req }) => ({
+          user: req.user,
+          tenantId: req.tenantId,
+          entityId: req.entityId,
+        }),
+      })
+    );
+    logger.warn(
+      'GraphQL is mounted at /graphql. It sits outside the audited /v1 prefix and its ' +
+        'ledger mutations carry no permission check — do not expose it publicly.'
+    );
+  }
 
   // ============================================================
   // Error Handler (must be last)
@@ -221,7 +245,7 @@ async function bootstrap() {
 ║         Accounting Core API Server               ║
 ║══════════════════════════════════════════════════║
 ║  REST API:    http://localhost:${config.port}/v1          ║
-║  GraphQL:     http://localhost:${config.port}/graphql     ║
+${graphqlEnabled ? `║  GraphQL:     http://localhost:${config.port}/graphql     ║` : '║  GraphQL:     disabled (GRAPHQL_ENABLED=true to mount)   ║'}
 ║  Health:      http://localhost:${config.port}/health      ║
 ║  Live:        http://localhost:${config.port}/live        ║
 ║  Ready:       http://localhost:${config.port}/ready       ║

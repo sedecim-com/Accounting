@@ -1,4 +1,6 @@
+import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
+import { ValidationError } from '../../../utils/errors.js';
 
 // ============================================================
 // IMSS IDSE Adapter — affiliation movements (movimientos afiliatorios)
@@ -35,7 +37,8 @@ export interface ImssMovement {
   employee_id: string;
   movement_type: ImssMovementType;
   effective_date: string;         // YYYY-MM-DD
-  new_sbc?: number;                // For mod_salario
+  /** For mod_salario. Decimal STRING — an SBC is money and never a JS number. */
+  new_sbc?: string;
   baja_reason?: BajaReason;        // For baja
 }
 
@@ -78,8 +81,38 @@ export async function generateIdseBatch(
     if (empResult.rows.length === 0) continue;
     const e = empResult.rows[0];
 
-    const sbcForMov = mov.movement_type === 'mod_salario' && mov.new_sbc ? mov.new_sbc : parseFloat(e.sbc || '0');
-    const sbcCents = Math.round(sbcForMov * 100);
+    // The SBC is money: it stays a decimal string from the column to the
+    // seven cents digits of the record. Through a JS float, a peso ending in
+    // .005 lands on the wrong centavo and the cuota derived from it is wrong
+    // for as long as the movement stands.
+    //
+    // An SBC that is not an amount is REFUSED, not padded. `new_sbc` arrives
+    // straight off req.body, so "5,000.50" or "$5000.50" reach here; the old
+    // float path turned those into NaN and wrote `0000NaN` into the record,
+    // answering 200 with a record_count that counted a batch IMSS rejects.
+    // Decimal throws on the same input, and a raw DecimalError escaping this
+    // function is a 500 at best — so the check is explicit and names the
+    // movement it came from.
+    const rawSbc: unknown =
+      mov.movement_type === 'mod_salario' && mov.new_sbc ? mov.new_sbc : e.sbc || '0';
+    let sbcForMov: Decimal;
+    try {
+      sbcForMov = new Decimal(rawSbc as Decimal.Value);
+    } catch {
+      throw new ValidationError(
+        `SBC "${String(rawSbc)}" for employee ${mov.employee_id} is not an amount. Send a plain ` +
+          'decimal string — no thousands separator, no currency symbol.',
+        'new_sbc'
+      );
+    }
+    if (!sbcForMov.isFinite() || sbcForMov.isNegative()) {
+      throw new ValidationError(
+        `SBC "${String(rawSbc)}" for employee ${mov.employee_id} is not a usable amount: an IDSE ` +
+          'record carries centavos as seven digits and cannot express this.',
+        'new_sbc'
+      );
+    }
+    const sbcCents = sbcForMov.times(100).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0);
 
     // IDSE fixed-width record (simplified layout)
     const line =
@@ -90,7 +123,7 @@ export async function generateIdseBatch(
       pad(e.last_name, 27) +                                    // 54-80
       pad(e.second_last_name || '', 27) +                       // 81-107
       pad(e.first_name, 27) +                                   // 108-134
-      pad(sbcCents.toString(), 7, true, '0') +                  // 135-141 SBC cents
+      pad(sbcCents, 7, true, '0') +                             // 135-141 SBC cents
       pad(MOVEMENT_CODES[mov.movement_type], 2) +               // 142-143 Movement type
       pad(ddmmyyyy(mov.effective_date), 8) +                    // 144-151 DDMMYYYY
       pad(mov.baja_reason || '', 1) +                            // 152 Termination reason (motivo baja)
@@ -115,23 +148,12 @@ export async function generateIdseBatch(
   return { content, record_count: records.length, batch_id: batchId };
 }
 
-/**
- * Submit IDSE batch. In production this calls the IMSS IDSE web service with
- * the patron's digital certificate (.cer/.key). Stub returns a tracking folio.
- */
-export async function submitIdseBatch(
-  batchContent: string,
-  credentials: { cer_base64: string; key_base64: string; password: string }
-): Promise<{ folio: string; status: 'accepted' | 'rejected'; errors?: string[] }> {
-  // Real impl: POST SOAP envelope to https://idse.imss.gob.mx/... with WS-Security
-  // signed with the patron's FIEL/sello certificate.
-  if (!credentials.cer_base64 || !credentials.key_base64) {
-    throw new Error('IMSS IDSE credentials required (.cer + .key)');
-  }
-  const recordCount = batchContent.split('\n').filter((l) => l.trim()).length;
-  return {
-    folio: `IDSE${Date.now().toString().slice(-10)}`,
-    status: 'accepted',
-    errors: recordCount === 0 ? ['Empty batch'] : undefined,
-  };
-}
+// submitIdseBatch was REMOVED. It fabricated a folio from Date.now() and
+// returned status 'accepted' without opening a socket: no WS-Security
+// envelope, no FIEL, no IMSS acuse. A caller who saw 'accepted' believed
+// the alta or baja had been filed, and an unfiled baja keeps accruing
+// cuotas on a worker who left.
+//
+// The batch this module generates is a real file. Upload it yourself at
+// idse.imss.gob.mx and keep the acuse IMSS returns — that acuse, not
+// anything mnemosine can produce, is the proof the movement was filed.

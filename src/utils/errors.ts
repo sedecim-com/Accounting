@@ -46,6 +46,26 @@ export class ForbiddenError extends AppError {
   }
 }
 
+/**
+ * 501 — the act this endpoint names is one mnemosine does NOT perform.
+ *
+ * Reserved for a capability that was REMOVED rather than left half-built.
+ * The distinction matters: a 404 says "wrong URL", a 422 says "fix your
+ * request and retry", and both invite the caller to keep trying. A 501
+ * says the act will never happen here, and the message must therefore
+ * name the channel where it DOES happen — the IRS portal, the SSA BSO
+ * upload, the bank's own payment run.
+ *
+ * Never use this for work that is merely pending. An endpoint that
+ * answers 501 is a promise the system has publicly withdrawn.
+ */
+export class NotImplementedError extends AppError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(501, 'NOT_IMPLEMENTED', message, undefined, details);
+    this.name = 'NotImplementedError';
+  }
+}
+
 export class AccountingError extends AppError {
   constructor(code: string, message: string, details?: Record<string, unknown>) {
     super(422, code, message, undefined, details);
