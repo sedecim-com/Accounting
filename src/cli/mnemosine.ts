@@ -46,6 +46,15 @@ import { registerStatusCommand } from './status-command.js';
 import { registerJobsCommand } from './jobs-command.js';
 import { registerSkillsCommand } from './skills-command.js';
 import { registerWebhooksCommand } from './webhooks-command.js';
+import { registerEntityCommand } from './entity-command.js';
+import { registerAccountCommand } from './account-command.js';
+import { registerEntryCommand } from './entry-command.js';
+import { registerPeriodCommand, registerYearCommand } from './period-command.js';
+import { registerVendorCommand } from './vendor-command.js';
+import { registerBillCommand } from './bill-command.js';
+import { registerCustomerCommand } from './customer-command.js';
+import { registerInvoiceCommand } from './invoice-command.js';
+import { registerReportCommand } from './report-command.js';
 import { recordUsage } from '../ai/usage-ledger.js';
 import type { TurnUsage } from '../ai/providers/types.js';
 import type { RunAgentTurn } from '../ai/jobs/runner.js';
@@ -473,9 +482,14 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
 program
   .command('entities')
   .alias('entidades')
-  .description('Lists the active legal entities')
+  .description('Lists the active legal entities (deprecated: use `mnemosine entity list`)')
   .action(async () => {
     try {
+      // R9 deprecation protocol: the old name keeps working and says so on
+      // stderr, so stdout stays byte-clean for anything already piping this.
+      stderr.write(
+        c.dim('`mnemosine entities` is now `mnemosine entity list`; the old name still works.\n')
+      );
       const entities = await listEntities();
       if (entities.length === 0) {
         console.log(
@@ -1589,6 +1603,16 @@ registerMemoryCommand(program, { palette: c, shutdown, reportError });
 registerPromptSizeCommand(program, { palette: c, shutdown, reportError });
 registerCompactCommand(program, { palette: c, shutdown, reportError });
 registerApprovalsCommand(program, { palette: c, shutdown, reportError });
+registerEntityCommand(program, { palette: c, shutdown, reportError });
+registerAccountCommand(program, { palette: c, shutdown, reportError });
+registerEntryCommand(program, { palette: c, shutdown, reportError });
+registerPeriodCommand(program, { palette: c, shutdown, reportError });
+registerYearCommand(program, { palette: c, shutdown, reportError });
+registerVendorCommand(program, { palette: c, shutdown, reportError });
+registerBillCommand(program, { palette: c, shutdown, reportError });
+registerCustomerCommand(program, { palette: c, shutdown, reportError });
+registerInvoiceCommand(program, { palette: c, shutdown, reportError });
+registerReportCommand(program, { palette: c, shutdown, reportError });
 registerUsageCommand(program, { palette: c, shutdown, reportError });
 registerStatusCommand(program, { palette: c, shutdown, reportError });
 registerJobsCommand(program, { palette: c, shutdown, reportError, makeRunAgentTurn });

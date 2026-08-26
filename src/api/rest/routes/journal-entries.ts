@@ -9,6 +9,9 @@ import {
   postJournalEntry,
   voidJournalEntry,
   reverseJournalEntry,
+  listJournalEntries,
+  getJournalEntryById,
+  listEntryLines,
 } from '../../../services/accounting/index.js';
 import type { JournalEntry, JournalEntryLine, PaginationMeta } from '../../../types/index.js';
 import { JournalEntryType } from '../../../types/index.js';
@@ -84,47 +87,21 @@ router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, 
   const perPage = Math.min(100, Math.max(1, parseInt(per_page as string, 10)));
   const offset = (pageNum - 1) * perPage;
 
-  let whereClause = 'WHERE entity_id = $1';
-  const params: unknown[] = [entityId];
-  let paramIndex = 2;
-
-  if (fiscal_period_id) {
-    whereClause += ` AND fiscal_period_id = $${paramIndex++}`;
-    params.push(fiscal_period_id);
-  }
-  if (status) {
-    whereClause += ` AND status = $${paramIndex++}`;
-    params.push(status);
-  }
-  if (entry_type) {
-    whereClause += ` AND entry_type = $${paramIndex++}`;
-    params.push(entry_type);
-  }
-  if (start_date) {
-    whereClause += ` AND entry_date >= $${paramIndex++}`;
-    params.push(start_date);
-  }
-  if (end_date) {
-    whereClause += ` AND entry_date <= $${paramIndex++}`;
-    params.push(end_date);
-  }
-  if (source_type) {
-    whereClause += ` AND source_type = $${paramIndex++}`;
-    params.push(source_type);
-  }
-
-  const countResult = await query<{ count: string }>(
-    `SELECT COUNT(*) as count FROM journal_entries ${whereClause}`,
-    params
-  );
-  const totalCount = parseInt(countResult.rows[0].count, 10);
-
-  const result = await query<JournalEntry>(
-    `SELECT * FROM journal_entries ${whereClause}
-     ORDER BY entry_date DESC, created_at DESC
-     LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
-    [...params, perPage, offset]
-  );
+  // Filtering, counting and ordering moved verbatim into the domain service
+  // so the CLI and the agent search the ledger the same way this route does.
+  // `entityId` keeps the route's original nullability: without an entity in
+  // scope the WHERE matched nothing, and it still does.
+  const { rows, total: totalCount } = await listJournalEntries(entityId as string, {
+    fiscalPeriodId: fiscal_period_id as string | undefined,
+    status: status as string | undefined,
+    entryType: entry_type as string | undefined,
+    startDate: start_date as string | undefined,
+    endDate: end_date as string | undefined,
+    sourceType: source_type as string | undefined,
+    limit: perPage,
+    offset,
+  });
+  const result = { rows };
 
   const pagination: PaginationMeta = {
     page: pageNum,
@@ -150,28 +127,17 @@ router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, 
 router.get('/:id', requirePermission('journal_entries:read'), async (req: Request, res: Response) => {
   const { include_lines = 'true' } = req.query;
 
-  const entryResult = await query<JournalEntry>(
-    'SELECT * FROM journal_entries WHERE id = $1',
-    [req.params.id]
-  );
+  const found = await getJournalEntryById(req.params.id);
 
-  if (entryResult.rows.length === 0) {
+  if (!found) {
     throw new NotFoundError('Journal Entry', req.params.id);
   }
 
-  const entry = entryResult.rows[0] as JournalEntry & { lines?: JournalEntryLine[] };
+  const entry = found as JournalEntry & { lines?: JournalEntryLine[] };
   assertEntityAccess(req.user!, entry.entity_id);
 
   if (include_lines === 'true') {
-    const linesResult = await query<JournalEntryLine & { account_code: string; account_name: string }>(
-      `SELECT jel.*, a.code as account_code, a.name as account_name
-       FROM journal_entry_lines jel
-       JOIN accounts a ON a.id = jel.account_id
-       WHERE jel.journal_entry_id = $1
-       ORDER BY jel.line_number`,
-      [req.params.id]
-    );
-    entry.lines = linesResult.rows;
+    entry.lines = await listEntryLines(req.params.id);
   }
 
   res.json({

@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
@@ -8,8 +7,8 @@ import {
   getPeriodCloseStatus,
   softClosePeriod,
   hardClosePeriod,
+  listFiscalPeriods,
 } from '../../../services/accounting/index.js';
-import type { FiscalPeriod } from '../../../types/index.js';
 
 const router = Router();
 
@@ -22,20 +21,15 @@ router.get('/', requirePermission('accounts:read'), requireEntityAccess, async (
   const { entity_id, fiscal_year_id, status } = req.query;
   const entityId = entity_id as string || req.entityId;
 
-  let where = 'WHERE entity_id = $1';
-  const params: unknown[] = [entityId];
-  let idx = 2;
-
-  if (fiscal_year_id) { where += ` AND fiscal_year_id = $${idx++}`; params.push(fiscal_year_id); }
-  if (status) { where += ` AND status = $${idx++}`; params.push(status); }
-
-  const result = await query<FiscalPeriod>(
-    `SELECT * FROM fiscal_periods ${where} ORDER BY start_date`,
-    params
-  );
+  // The filtering moved into the fiscal-calendar service; the response is
+  // still the table's own columns, in start_date order.
+  const rows = await listFiscalPeriods(entityId as string, {
+    fiscalYearId: fiscal_year_id as string | undefined,
+    status: status as string | undefined,
+  });
 
   res.json({
-    data: result.rows,
+    data: rows,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
 });

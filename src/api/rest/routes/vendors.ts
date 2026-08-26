@@ -1,13 +1,28 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
-import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { NotFoundError, ValidationError } from '../../../utils/errors.js';
-import { encrypt } from '../../../utils/encryption.js';
-import { generateEntryNumber } from '../../../utils/sequence.js';
-import type { Vendor } from '../../../types/index.js';
+import { NotFoundError } from '../../../utils/errors.js';
+import {
+  listVendors,
+  getVendorById,
+  createVendor,
+  updateVendor,
+  VENDOR_UPDATABLE_FIELDS,
+} from '../../../services/ap/vendor-service.js';
+import type { PaginationMeta } from '../../../types/index.js';
+
+// ============================================================
+// /v1/vendors — HTTP surface over the vendor master service.
+// The rules live in services/ap/vendor-service.ts so the CLI and
+// the agent reach the same behaviour; this file is only request
+// parsing, permissions and response shape.
+//
+// `includeBankSecrets: true` on every call is not a preference:
+// this surface has always returned the encrypted bank blobs in
+// `SELECT *`, and the extraction is not the place to change what
+// an existing client receives. The CLI never asks for them.
+// ============================================================
 
 const router = Router();
 
@@ -40,102 +55,67 @@ const updateVendorSchema = z.object({
   notes: z.string().optional(),
 }).refine((o) => Object.keys(o).length > 0, { message: 'At least one field must be provided' });
 
+const meta = (req: Request) => ({
+  request_id: req.headers['x-request-id'],
+  timestamp: new Date().toISOString(),
+  version: 'v1',
+});
+
 // GET /v1/vendors
-router.get('/', requirePermission('bills:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/', requirePermission('bills:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, is_active, search, page = '1', per_page = '50' } = req.query;
-  const entityId = entity_id as string || req.entityId;
+  const entityId = (entity_id as string) || req.entityId!;
   const pageNum = Math.max(1, parseInt(page as string, 10));
   const perPage = Math.min(100, parseInt(per_page as string, 10));
 
-  let where = 'WHERE entity_id = $1';
-  const params: unknown[] = [entityId];
-  let idx = 2;
-
-  if (is_active !== undefined) { where += ` AND is_active = $${idx++}`; params.push(is_active === 'true'); }
-  if (search) { where += ` AND (company_name ILIKE $${idx} OR vendor_number ILIKE $${idx})`; params.push(`%${search}%`); idx++; }
-
-  const countResult = await query<{ count: string }>(`SELECT COUNT(*) as count FROM vendors ${where}`, params);
-  const result = await query<Vendor>(
-    `SELECT * FROM vendors ${where} ORDER BY company_name LIMIT $${idx++} OFFSET $${idx}`,
-    [...params, perPage, (pageNum - 1) * perPage]
-  );
-
-  res.json({
-    data: result.rows,
-    pagination: { page: pageNum, per_page: perPage, total_pages: Math.ceil(parseInt(countResult.rows[0].count, 10) / perPage), total_count: parseInt(countResult.rows[0].count, 10), next_cursor: null, prev_cursor: null },
-    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
+  const { rows, total } = await listVendors(entityId, {
+    isActive: is_active === undefined ? undefined : is_active === 'true',
+    search: search as string | undefined,
+    limit: perPage,
+    offset: (pageNum - 1) * perPage,
+    includeBankSecrets: true,
   });
-});
+
+  const pagination: PaginationMeta = {
+    page: pageNum,
+    per_page: perPage,
+    total_pages: Math.ceil(total / perPage),
+    total_count: total,
+    next_cursor: null,
+    prev_cursor: null,
+  };
+
+  res.json({ data: rows, pagination, meta: meta(req) });
+}));
 
 // POST /v1/vendors
 router.post('/', requirePermission('bills:create'), requireEntityAccess, validateBody(createVendorSchema), asyncHandler(async (req: Request, res: Response) => {
-  const { entity_id, company_name, contact_name, tax_id, tax_id_type, email, phone, payment_terms, default_expense_account_id, currency_code, bank_account_number, bank_routing_number, clabe, bank_name, is_1099_vendor } = req.body;
-
-  const countResult = await query<{ count: string }>('SELECT COUNT(*) as count FROM vendors WHERE entity_id = $1', [entity_id]);
-  const vendorNumber = generateEntryNumber('V', parseInt(countResult.rows[0].count, 10));
-
-  const result = await query<Vendor>(
-    `INSERT INTO vendors (
-      id, entity_id, vendor_number, company_name, contact_name, tax_id, tax_id_type,
-      is_1099_vendor, email, phone, payment_terms, default_expense_account_id,
-      currency_code, bank_account_number_encrypted, bank_routing_number_encrypted,
-      clabe_encrypted, bank_name, created_by
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
-    [
-      uuidv4(), entity_id, vendorNumber, company_name, contact_name || null,
-      tax_id || null, tax_id_type || null, is_1099_vendor || false,
-      email || null, phone || null, payment_terms || 'Net 30',
-      default_expense_account_id || null, currency_code || 'USD',
-      bank_account_number ? encrypt(bank_account_number) : null,
-      bank_routing_number ? encrypt(bank_routing_number) : null,
-      clabe ? encrypt(clabe) : null, bank_name || null,
-      req.user!.user_id,
-    ]
+  const vendor = await createVendor(
+    { ...req.body, created_by: req.user!.user_id },
+    { includeBankSecrets: true }
   );
-
-  res.status(201).json({
-    data: result.rows[0],
-    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
-  });
+  res.status(201).json({ data: vendor, meta: meta(req) });
 }));
 
 // GET /v1/vendors/:id
-router.get('/:id', requirePermission('bills:read'), async (req: Request, res: Response) => {
-  const result = await query<Vendor>('SELECT * FROM vendors WHERE id = $1', [req.params.id]);
-  if (result.rows.length === 0) throw new NotFoundError('Vendor', req.params.id);
-
-  res.json({
-    data: result.rows[0],
-    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
-  });
-});
+router.get('/:id', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {
+  const vendor = await getVendorById(req.params.id, { includeBankSecrets: true });
+  if (!vendor) throw new NotFoundError('Vendor', req.params.id);
+  res.json({ data: vendor, meta: meta(req) });
+}));
 
 // PATCH /v1/vendors/:id
 router.patch('/:id', requirePermission('bills:create'), validateBody(updateVendorSchema), asyncHandler(async (req: Request, res: Response) => {
-  const fields = ['company_name', 'contact_name', 'email', 'phone', 'payment_terms', 'is_active', 'notes'];
-  const updates: string[] = [];
-  const params: unknown[] = [];
-  let idx = 1;
-
-  for (const f of fields) {
-    if (req.body[f] !== undefined) { updates.push(`${f} = $${idx++}`); params.push(req.body[f]); }
-  }
-
-  if (updates.length === 0) throw new ValidationError('No valid fields to update');
-
-  updates.push(`updated_at = NOW()`);
-  params.push(req.params.id);
-
-  const result = await query<Vendor>(
-    `UPDATE vendors SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
-    params
+  const patch = Object.fromEntries(
+    VENDOR_UPDATABLE_FIELDS.filter((f) => req.body[f] !== undefined).map((f) => [f, req.body[f]])
   );
-  if (result.rows.length === 0) throw new NotFoundError('Vendor', req.params.id);
-
-  res.json({
-    data: result.rows[0],
-    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
-  });
+  const vendor = await updateVendor(
+    req.params.id,
+    patch,
+    { userId: req.user!.user_id, tenantId: req.tenantId },
+    { includeBankSecrets: true }
+  );
+  res.json({ data: vendor, meta: meta(req) });
 }));
 
 export default router;
