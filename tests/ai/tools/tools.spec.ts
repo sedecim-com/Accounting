@@ -299,6 +299,10 @@ describe('get_general_ledger', () => {
     expect(parsed.period_credits).toBe('40.00');
     const [sql, params] = mockQuery.mock.calls[0];
     expect(sql).toMatch(/je\.status = 'posted'/);
-    expect(params).toEqual([CTX.entityId, '1101']);
+    // The 100-movement cap is now a BOUND parameter (101 = one row past the
+    // cap, which is how truncation is detected) rather than a literal in the
+    // SQL: the query moved to services/reporting/report-service.ts, shared
+    // with /v1/reports/general-ledger and `mnemosine report general-ledger`.
+    expect(params).toEqual([CTX.entityId, '1101', 101, 0]);
   });
 });
