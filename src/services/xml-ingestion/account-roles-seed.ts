@@ -29,6 +29,19 @@ interface AccountSpec {
 export const REQUIRED_ACCOUNTS: AccountSpec[] = [
   // ── Assets ──
   {
+    // Lives in BASE_CHART_MX too, and it is listed HERE as well on purpose.
+    // The base chart is only built when an entity has no accounts at all
+    // (the 'auto' strategy), so a client onboarded with its own chart used to
+    // end up with 1135 mapped and 1130 missing — which made every PUE bill
+    // and every PPD release throw MISSING_ROLE_ACCOUNT. In Mexico the four
+    // IVA accounts are not optional, so all four are seeded unconditionally.
+    code: '1130', name: 'IVA Acreditable', account_type: 'asset',
+    normal_balance: 'debit', fs_category: 'current_assets',
+    description:
+      'IVA efectivamente pagado y por tanto acreditable en el mes. Es el destino del ' +
+      '1135 cuando llega el REP.',
+  },
+  {
     code: '1135', name: 'IVA Pendiente de Acreditar', account_type: 'asset',
     normal_balance: 'debit', fs_category: 'current_assets',
     description:
@@ -61,6 +74,16 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     description: 'Solo para contribuyentes de IEPS; si no lo es, el IEPS es parte del costo.',
   },
   // ── Liabilities ──
+  {
+    // Same reason as 1130: seeded here as well as in the base chart, so an
+    // onboarded chart cannot be left with the pending account but not the
+    // due one.
+    code: '2120', name: 'IVA Trasladado', account_type: 'liability',
+    normal_balance: 'credit', fs_category: 'current_liabilities',
+    description:
+      'IVA efectivamente cobrado y por tanto causado en el mes. Es el destino del ' +
+      '2125 cuando se cobra la factura.',
+  },
   {
     code: '2125', name: 'IVA Trasladado No Cobrado', account_type: 'liability',
     normal_balance: 'credit', fs_category: 'current_liabilities',

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { query } from '../database/connection.js';
+import { REQUIRED_BUCKETS } from '../services/payroll/common/payroll-account-mapping-seed.js';
 import { config } from '../config/index.js';
 import { isLocalHost, defaultSslMode } from '../database/ssl.js';
 import { DB_PROVIDERS } from '../database/providers.js';
@@ -45,6 +46,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(await checkMigrations(deps));
     checks.push(await checkEntities());
     checks.push(await checkAccountRoles());
+    checks.push(...(await checkLookupTables()));
     checks.push(checkConnectionTransport());
     checks.push(await checkTenantIsolation());
     checks.push(await checkPendingWork());
@@ -151,12 +153,178 @@ export async function checkAccountRoles(): Promise<CheckResult> {
       fix: 'mnemosine init --section identity',
     };
   }
+  // Some roles mapped is not the same as the right ones mapped. The four IVA
+  // roles are load-bearing in Mexico: without all four, a PUE document, a PPD
+  // document or the release on payment throws MISSING_ROLE_ACCOUNT — and which
+  // of the three breaks depends on how the entity's chart was created, so the
+  // failure surfaces at the worst possible moment instead of at setup.
+  const ivaFaltante = await query<{ nombre: string; faltantes: string }>(
+    `SELECT e.name AS nombre,
+            (SELECT string_agg(rol, ', ') FROM unnest($1::text[]) AS rol
+              WHERE NOT EXISTS (
+                SELECT 1 FROM account_roles ar
+                 WHERE ar.entity_id = e.id AND ar.role = rol AND ar.qualifier IS NULL)) AS faltantes
+     FROM legal_entities e
+     WHERE e.is_active = true AND e.incorporation_country = 'MX'`,
+    [IVA_ROLES]
+  );
+  const incompletas = ivaFaltante.rows.filter((x) => x.faltantes);
+  if (incompletas.length > 0) {
+    return {
+      name: 'Account roles',
+      level: 'fail',
+      detail:
+        `${incompletas.length} Mexican entity(ies) missing IVA roles: ` +
+        incompletas.map((x) => `${x.nombre} → ${x.faltantes}`).slice(0, 3).join('; ') +
+        ' — cash-basis IVA cannot post without all four',
+      fix: 'mnemosine init --section identity  (re-seeds the roles idempotently)',
+    };
+  }
+
   const total = r.rows.reduce((n, x) => n + parseInt(x.mapeados, 10), 0);
   return {
     name: 'Account roles',
     level: 'ok',
     detail: `${total} role(s) mapped across ${r.rows.length} entity(ies)`,
   };
+}
+
+/**
+ * Mexico credits IVA on payment, so a document needs both the "pending" and
+ * the "due" account of its side. All four, or the ledger cannot express the
+ * treatment the law requires.
+ */
+export const IVA_ROLES = [
+  'iva_acreditable', 'iva_pendiente_acreditar',
+  'iva_trasladado', 'iva_trasladado_no_cobrado',
+] as const;
+
+/**
+ * Lookup tables that have a READER and, until recently, no writer anywhere in
+ * the repository. Their failure mode is the worst kind: the capability looks
+ * present, and the first real use dies deep inside a posting routine with a
+ * message about arithmetic or a missing key rather than about configuration.
+ *
+ * Each entry states what breaks, so the check reports the consequence and not
+ * just an empty table. Adding another such table is one row here.
+ *
+ * `appliesWhen` keeps the check honest: an entity with no employees is not
+ * misconfigured for lacking a payroll mapping, and reporting it as broken
+ * would train people to ignore doctor.
+ */
+interface LookupTableSpec {
+  table: string;
+  label: string;
+  /** Nothing to configure unless this returns rows for the entity. */
+  appliesWhen?: { table: string; where?: string };
+  /**
+   * Keys that must be present, not merely SOME rows. A partially mapped
+   * table is the harder failure to see: it looks configured and dies on the
+   * one operation that needs the missing key.
+   */
+  requiredKeys?: { column: string; values: readonly string[] };
+  level: CheckLevel;
+  breaks: string;
+  fix: string;
+}
+
+export const LOOKUP_TABLES: LookupTableSpec[] = [
+  {
+    table: 'payroll_account_mapping',
+    label: 'Payroll GL mapping',
+    appliesWhen: { table: 'employees', where: "status = 'active'" },
+    requiredKeys: { column: 'bucket', values: REQUIRED_BUCKETS },
+    level: 'fail',
+    breaks: 'a pay run cannot post — postPayRunToGL throws on the first bucket it cannot resolve',
+    fix: 'seedPayrollAccountMapping(entityId, tenantId, country, userId)',
+  },
+  {
+    table: 'sat_code_mappings',
+    label: 'SAT product-code mapping',
+    appliesWhen: { table: 'xml_documents' },
+    level: 'warn',
+    breaks:
+      'every received CFDI falls through to the historical-pattern guess, so account inference ' +
+      'is worse than it needs to be (it still works — this is quality, not a blocker)',
+    fix: 'map the ClaveProdServ codes this client actually receives',
+  },
+];
+
+export async function checkLookupTables(): Promise<CheckResult[]> {
+  const results: CheckResult[] = [];
+
+  for (const spec of LOOKUP_TABLES) {
+    const applies = spec.appliesWhen;
+    const rows = await query<{ nombre: string; n: string }>(
+      `SELECT e.name AS nombre,
+              (SELECT count(*)::text FROM ${spec.table} t WHERE t.entity_id = e.id) AS n
+       FROM legal_entities e
+       WHERE e.is_active = true
+         ${applies ? `AND EXISTS (SELECT 1 FROM ${applies.table} a WHERE a.entity_id = e.id${applies.where ? ` AND a.${applies.where}` : ''})` : ''}`
+    );
+
+    if (rows.rows.length === 0) {
+      results.push({
+        name: spec.label,
+        level: 'ok',
+        detail: 'no entity uses this capability yet',
+      });
+      continue;
+    }
+
+    // A table with rows but missing a required key is the harder case to
+    // see, so it is checked first and reported by NAME: "no rows" sends
+    // someone to seed, "cash_payroll is unmapped" sends them to the one
+    // decision they actually have to make.
+    if (spec.requiredKeys) {
+      const missing = await query<{ nombre: string; faltantes: string }>(
+        `SELECT e.name AS nombre,
+                (SELECT string_agg(k, ', ') FROM unnest($1::text[]) AS k
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM ${spec.table} t
+                     WHERE t.entity_id = e.id AND t.${spec.requiredKeys.column} = k)) AS faltantes
+         FROM legal_entities e
+         WHERE e.is_active = true
+           ${applies ? `AND EXISTS (SELECT 1 FROM ${applies.table} a WHERE a.entity_id = e.id${applies.where ? ` AND a.${applies.where}` : ''})` : ''}`,
+        [[...spec.requiredKeys.values]]
+      );
+      const incomplete = missing.rows.filter((r) => r.faltantes);
+      if (incomplete.length > 0) {
+        results.push({
+          name: spec.label,
+          level: spec.level,
+          detail:
+            `${incomplete.length} entity(ies) missing required ${spec.requiredKeys.column}(s): ` +
+            incomplete.map((r) => `${r.nombre} → ${r.faltantes}`).slice(0, 3).join('; ') +
+            ` — ${spec.breaks}`,
+          fix: spec.fix,
+        });
+        continue;
+      }
+    }
+
+    const empty = rows.rows.filter((r) => parseInt(r.n, 10) === 0);
+    if (empty.length > 0) {
+      results.push({
+        name: spec.label,
+        level: spec.level,
+        detail:
+          `${empty.length} of ${rows.rows.length} entity(ies) have no ${spec.table} rows ` +
+          `(${empty.map((r) => r.nombre).slice(0, 3).join(', ')}) — ${spec.breaks}`,
+        fix: spec.fix,
+      });
+      continue;
+    }
+
+    const total = rows.rows.reduce((n, r) => n + parseInt(r.n, 10), 0);
+    results.push({
+      name: spec.label,
+      level: 'ok',
+      detail: `${total} row(s) across ${rows.rows.length} entity(ies)`,
+    });
+  }
+
+  return results;
 }
 
 /**

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { query, withTransaction, enterTenant } from '../../database/connection.js';
 import { checkEntities } from '../../ai/doctor-service.js';
 import { ensureEntityAccounting } from '../../services/accounting/entity-accounting.js';
+import { ensureFiscalYear } from '../../services/accounting/fiscal-calendar-service.js';
 import type { CheckResult } from '../../ai/doctor-service.js';
 import { upsertEnvVar } from './s0-infra.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
@@ -189,47 +190,28 @@ export class IdentidadSection implements SetupSection {
     }
   }
 
-  /** Current fiscal year with 12 monthly periods: without this nothing posts. */
+  /**
+   * Current fiscal year with 12 monthly periods: without this nothing posts.
+   * The calendar itself now lives in services/accounting/fiscal-calendar-service.ts,
+   * so `mnemosine year create` builds exactly the same one for any other year
+   * instead of the wizard being the only way to get a calendar.
+   */
   private async ensureFiscalYear(entityId: string, ctx: SectionContext): Promise<void> {
     const year = new Date().getFullYear();
-    const existing = await query<{ n: string }>(
-      `SELECT count(*)::text n FROM fiscal_periods fp
-       JOIN fiscal_years fy ON fy.id = fp.fiscal_year_id
-       WHERE fp.entity_id = $1 AND fy.year_number = $2`,
-      [entityId, year]
-    );
-    if (parseInt(existing.rows[0].n, 10) > 0) {
-      ctx.print(`  ✔ Fiscal year ${year} already has periods`);
-      return;
-    }
-
-    await withTransaction(async (client) => {
-      const fy = await client.query<{ id: string }>(
-        `INSERT INTO fiscal_years (entity_id, year_number, start_date, end_date, is_calendar_year, status)
-         VALUES ($1, $2, $3, $4, true, 'open') RETURNING id`,
-        [entityId, year, `${year}-01-01`, `${year}-12-31`]
+    const result = await ensureFiscalYear(entityId, year);
+    if (result.created) {
+      ctx.print(`  ✔ Fiscal year ${year} created with 12 monthly periods`);
+    } else if (result.periods === 0) {
+      // The year row exists but carries no periods, so nothing can be posted.
+      // ensureFiscalYear will not fill it in (the INSERT would collide on
+      // UNIQUE(entity_id, year_number)); saying "already has periods" here
+      // would tick a checkbox for a calendar that does not exist.
+      ctx.print(
+        `  ! Fiscal year ${year} exists but has no periods — nothing can be posted. ` +
+          `Delete the empty fiscal_years row and re-run, or build another year with \`mnemosine year create\`.`
       );
-      const now = new Date();
-      for (let m = 1; m <= 12; m++) {
-        const start = new Date(Date.UTC(year, m - 1, 1));
-        const end = new Date(Date.UTC(year, m, 0));
-        // The current month and past ones stay open; future ones, 'future'.
-        const status = end < now ? 'open' : m - 1 === now.getMonth() ? 'open' : 'future';
-        await client.query(
-          `INSERT INTO fiscal_periods (
-             entity_id, fiscal_year_id, period_number, period_name,
-             start_date, end_date, period_type, status
-           ) VALUES ($1,$2,$3,$4,$5,$6,'regular',$7)`,
-          [
-            entityId, fy.rows[0].id, m,
-            // Period names are stored, not translated at render time; the CLI UI is
-            // English, so they are minted in English to avoid "enero 2026" inside it.
-            start.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' }) + ` ${year}`,
-            start.toISOString().split('T')[0], end.toISOString().split('T')[0], status,
-          ]
-        );
-      }
-    });
-    ctx.print(`  ✔ Fiscal year ${year} created with 12 monthly periods`);
+    } else {
+      ctx.print(`  ✔ Fiscal year ${year} already has ${result.periods} periods`);
+    }
   }
 }
