@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
-import { requirePermission } from '../middleware/auth.js';
+import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
 import { autoMatchUnreconciled } from '../../../services/banking/matching.js';
@@ -260,7 +260,7 @@ router.get('/reconciliations/:id', requirePermission('journal_entries:read'), as
 // reconciliation_matches. Y el efecto no se queda en el banco —period-close.ts
 // lee el estado de conciliación como evidencia de cierre—, así que era una
 // escritura contable en los libros de otro.
-router.post('/:account_id/auto-match', requirePermission('journal_entries:create'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:account_id/auto-match', requirePermission('journal_entries:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const result = await autoMatchUnreconciled(req.params.account_id, {
     scope: entityScope(req.tenantId!, req.entityId!),
   });

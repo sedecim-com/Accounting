@@ -274,7 +274,7 @@ router.get('/pre-registrations/stats', requirePermission('bills:read'), requireE
 // NOTA: quedan 61 manejadores `async` sin envolver en src/api/rest/routes/.
 // Los que lanzan NotFoundError sobre un id inexistente son una negación de
 // servicio de una petición. Está fuera del alcance de TEN-2 y anotado.
-router.get('/pre-registrations/:id', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/pre-registrations/:id', requirePermission('bills:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const result = await query(
     `SELECT pr.*, xd.cfdi_uuid, xd.emisor_rfc, xd.emisor_nombre, xd.cfdi_fecha,
             xd.sat_validation_status, xd.sat_estado,
@@ -294,7 +294,7 @@ router.get('/pre-registrations/:id', requirePermission('bills:read'), asyncHandl
 }));
 
 // PATCH /v1/pre-registrations/:id
-router.patch('/pre-registrations/:id', requirePermission('bills:create'), validateBody(updatePreRegSchema), asyncHandler(async (req: Request, res: Response) => {
+router.patch('/pre-registrations/:id', requirePermission('bills:create'), requireEntityAccess, validateBody(updatePreRegSchema), asyncHandler(async (req: Request, res: Response) => {
   const { vendor_id, lines, due_date, notes, tags, default_account_id } = req.body;
 
   const updates: string[] = [];
@@ -355,7 +355,7 @@ router.post('/pre-registrations/:id/process', requirePermission('bills:create'),
 }));
 
 // POST /v1/pre-registrations/:id/reject
-router.post('/pre-registrations/:id/reject', requirePermission('bills:void'), validateBody(rejectPreRegSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/pre-registrations/:id/reject', requirePermission('bills:void'), requireEntityAccess, validateBody(rejectPreRegSchema), asyncHandler(async (req: Request, res: Response) => {
   const { reason, notes } = req.body;
 
   const result = await query(
@@ -372,7 +372,7 @@ router.post('/pre-registrations/:id/reject', requirePermission('bills:void'), va
 }));
 
 // POST /v1/pre-registrations/:id/approve
-router.post('/pre-registrations/:id/approve', requirePermission('bills:approve'), validateBody(approvePreRegSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/pre-registrations/:id/approve', requirePermission('bills:approve'), requireEntityAccess, validateBody(approvePreRegSchema), asyncHandler(async (req: Request, res: Response) => {
   const { notes } = req.body;
 
   const result = await query(
@@ -392,7 +392,7 @@ router.post('/pre-registrations/:id/approve', requirePermission('bills:approve')
 }));
 
 // POST /v1/pre-registrations/bulk
-router.post('/pre-registrations/bulk', requirePermission('bills:create'), validateBody(bulkPreRegSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/pre-registrations/bulk', requirePermission('bills:create'), requireEntityAccess, validateBody(bulkPreRegSchema), asyncHandler(async (req: Request, res: Response) => {
   const { action, ids, params = {} } = req.body;
 
   const results: Array<{ id: string; status: string; error?: string }> = [];

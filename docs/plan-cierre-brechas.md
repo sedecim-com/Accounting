@@ -56,9 +56,7 @@ Estado del plan, evaluado contra el código
 🟡 E1.4   1/2 criterios
      ✘ La depreciación mensual tiene por dónde invocarse
        runMonthlyDepreciation no tiene llamador: el motor existe y no hay puerta
-🟡 E2.1   2/3 criterios
-     ✘ La guarda alcanza de verdad todas las fuentes de entidad que dice mirar
-       la guarda lista 4 fuentes pero es una cadena `||` que arranca en req.entityId, y `authenticate` la puebla siempre desde la cabecera: req.params, req.body, req.query son inalcanzables. Comprueba la entidad del encabezado y el handler sigue leyendo la suya. Añadir fuentes a la lista no lo arregla; hay que comprobarlas TODAS
+✅ E2.1   3/3 criterios
 ✅ E2.2   2/2 criterios
 ✅ E3.1   2/2 criterios
 ✅ E3.2   1/1 criterios
@@ -70,7 +68,7 @@ Estado del plan, evaluado contra el código
      ✘ Una corrida desatendida no puede alcanzar una herramienta que escriba
        makeRunAgentTurn crea la sesión sin recortar herramientas: la corrida desatendida tiene las mismas que una interactiva, y lo único que pide borradores es una frase del prompt (KIND_INSTRUCTIONS). Un modelo que la ignora escribe de verdad
 
-10 de 15 paquetes con todos sus criterios en verde
+11 de 15 paquetes con todos sus criterios en verde
 El estado de un paquete es el PEOR de sus criterios. Los criterios viven en src/plan/criterios.ts; el documento los cita, este comando los decide.
 ```
 

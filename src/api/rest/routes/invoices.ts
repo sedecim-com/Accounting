@@ -135,7 +135,7 @@ router.post('/', requirePermission('invoices:create'), requireEntityAccess, vali
 // here, atomically with the delivery fields. `issueInvoice` owns both halves
 // now — `markSent` is what separates delivering from merely issuing, and the
 // CLI's `invoice issue` passes it as false.
-router.post('/:id/send', requirePermission('invoices:send'), validateBody(sendInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/send', requirePermission('invoices:send'), requireEntityAccess, validateBody(sendInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
   const { to } = req.body;
 
   const { attest } = await issueInvoice(req.params.id, req.user!.user_id, {
@@ -199,7 +199,7 @@ router.post('/:id/payments', requirePermission('invoices:create'), requireEntity
 // same transaction as the status change. The stamped-CFDI and applied-cash
 // guards the service states are opted out of here on purpose: this endpoint
 // has never enforced them and its contract is unchanged.
-router.post('/:id/void', requirePermission('invoices:void'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/void', requirePermission('invoices:void'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { invoice, attest } = await voidInvoice(req.params.id, req.user!.user_id, {
     entityId: req.entityId!,
     allowStamped: true,

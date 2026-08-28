@@ -358,7 +358,7 @@ router.post('/bitcoin/anchor-now', requirePermission('settings:manage'), asyncHa
 // ============================================================
 
 // GET /v1/admin/blockchain/attestations
-router.get('/attestations', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/attestations', requirePermission('settings:manage'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, status, source_type, page = '1', per_page = '50' } = req.query;
   const pageNum = Math.max(1, parseInt(page as string, 10));
   const perPage = Math.min(100, parseInt(per_page as string, 10));

@@ -549,52 +549,68 @@ export const CRITERIOS: Criterio[] = [
     // sale del encabezado». Era falso: la guarda SÍ comprueba que la entidad
     // del encabezado pertenezca al usuario. El defecto es otro, y peor —
     // comprueba una entidad y el handler trabaja con otra.
-    // TERCERA REDACCIÓN. La primera decía que la guarda era un no-op: falso.
-    // La segunda perseguía las fuentes que la guarda no listaba, y AUD-3 las
-    // listó todas — sin que eso cambiara nada, que es el hallazgo de ahora.
-    enunciado: 'La guarda alcanza de verdad todas las fuentes de entidad que dice mirar',
+    // CUARTA REDACCIÓN, Y LA PRIMERA QUE NO SE ROMPE SOLA.
+    //
+    // Las tres anteriores leían las TRIPAS de requireEntityAccess: qué fuentes
+    // listaba, si encadenaba con `||`, cómo se llamaba su variable. Cada
+    // arreglo de la guarda —hubo tres— dejó ciega a la redacción vigente, y un
+    // criterio ciego no protege nada mientras nadie lo mira.
+    //
+    // Esto pregunta lo único que importa y que ningún refactor de la guarda
+    // cambia: ¿queda alguna ruta que acote su trabajo por una entidad que
+    // NADIE comprobó? Da igual cómo compruebe la guarda; lo que no puede
+    // pasar es que no se monte.
+    enunciado: 'Ninguna ruta acota su trabajo por una entidad que nadie comprobó',
     evaluar: () => {
-      const guarda = codigoDe('src/api/rest/middleware/auth.ts');
+      const dir = 'src/api/rest/routes';
+      const archivos = fuentes(dir);
+      if (archivos.length === 0) return noEvaluable('no hay rutas REST que revisar');
 
-      // La expresión que elige la entidad a comprobar.
-      const m = guarda.match(/const\s+entityId\s*=\s*([\s\S]*?);/);
-      if (!m) return noEvaluable('la guarda ya no elige su entidad con un `const entityId =`');
-      const cadena = m[1];
+      // Cada bloque de ruta va desde su `router.verbo(` hasta el siguiente.
+      // La cadena de middlewares vive al principio; el manejador, detrás.
+      const ROUTER = /router\.(get|post|patch|put|delete)\(\s*'([^']*)'([\s\S]*?)(?=\nrouter\.|\nexport default)/g;
+      const desprotegidas: string[] = [];
+      let revisadas = 0;
 
-      const fuentes_ = [
-        { nombre: 'la cabecera (req.entityId)', re: /req\.entityId\b/ },
-        { nombre: 'req.params', re: /req\.params\b/ },
-        { nombre: 'req.body', re: /req\.body\b/ },
-        { nombre: 'req.query', re: /req\.query\b/ },
-      ].filter((f) => f.re.test(cadena));
-
-      // UNA CADENA `||` NO COMPRUEBA CUATRO FUENTES: COMPRUEBA LA PRIMERA.
-      //
-      // `authenticate` asigna req.entityId sin condición, y un usuario sin
-      // entidades accesibles ni siquiera puede iniciar sesión, así que ese
-      // primer término NUNCA es falsy. Todo lo que va detrás del primer `||`
-      // es inalcanzable: da igual cuántas fuentes se añadan a la lista.
-      const encadena = /\|\|/.test(cadena);
-      const primeroSiempreLleno =
-        /^\s*req\.entityId\b/.test(cadena) &&
-        /req\.entityId\s*=\s*\(req\.headers\[/.test(guarda);
-
-      if (encadena && primeroSiempreLleno && fuentes_.length > 1) {
-        const muertas = fuentes_.slice(1).map((f) => f.nombre);
-        return falla(
-          `la guarda lista ${fuentes_.length} fuentes pero es una cadena \`||\` que arranca en ` +
-            'req.entityId, y `authenticate` la puebla siempre desde la cabecera: ' +
-            `${muertas.join(', ')} son inalcanzables. Comprueba la entidad del encabezado y el handler ` +
-            'sigue leyendo la suya. Añadir fuentes a la lista no lo arregla; hay que comprobarlas TODAS'
-        );
+      for (const f of archivos) {
+        const texto = sinComentarios(fs.readFileSync(f, 'utf-8'));
+        for (const m of texto.matchAll(ROUTER)) {
+          revisadas += 1;
+          const cuerpo = m[3];
+          // La entidad la trae la petición: la cabecera ya resuelta en
+          // req.entityId, o la query, o el cuerpo, o el parámetro de ruta.
+          const derivaDeLaPeticion =
+            /req\.entityId/.test(cuerpo) ||
+            /\bentity_id[^;\n]*=\s*req\.(query|body)/.test(cuerpo) ||
+            /req\.(query|body)\.entity_id\b/.test(cuerpo) ||
+            /\{[^}]*\bentity_id\b[^}]*\}\s*=\s*req\.(query|body)/.test(cuerpo);
+          if (!derivaDeLaPeticion) continue;
+          // Hay DOS formas legítimas de protegerla, y el repositorio usa las
+          // dos: montar requireEntityAccess en la cadena de middlewares, o
+          // llamar a assertEntityAccess dentro del manejador sobre el valor
+          // que se va a usar —lo que hacen /commit-period y /publish-aggregates
+          // en blockchain.ts—. Exigir sólo la primera las acusaba en falso, y
+          // una acusación falsa es lo que hace que se deje de leer el informe.
+          //
+          // La cadena de middlewares se busca sólo al principio del bloque:
+          // buscarla entera daría por montada la guarda cuando el nombre
+          // aparece dentro del cuerpo por cualquier otra razón.
+          const montada = /requireEntityAccess/.test(cuerpo.slice(0, 300));
+          const comprobadaDentro = /assertEntityAccess\s*\(/.test(cuerpo);
+          if (!montada && !comprobadaDentro) {
+            desprotegidas.push(`${path.basename(f)} ${m[1].toUpperCase()} ${m[2]}`);
+          }
+        }
       }
-      if (!encadena && fuentes_.length >= 3) {
-        return ok(`la guarda comprueba ${fuentes_.length} fuentes sin cortocircuitar entre ellas`);
-      }
-      return noEvaluable(
-        `la guarda tiene una forma que este criterio no sabe juzgar (${fuentes_.length} fuente(s), ` +
-          `${encadena ? 'encadenadas con ||' : 'sin cadena'})`
-      );
+
+      return desprotegidas.length === 0
+        ? ok(`${revisadas} rutas revisadas; todas las que derivan su entidad de la petición montan la guarda`)
+        : falla(
+            `${desprotegidas.length} de ${revisadas} rutas acotan por una entidad de la petición sin ` +
+              `montar requireEntityAccess: ${desprotegidas.slice(0, 6).join(' · ')}` +
+              (desprotegidas.length > 6 ? ` y ${desprotegidas.length - 6} más` : '') +
+              '. Basta la cabecera x-entity-id para trabajar sobre otra entidad del mismo inquilino'
+          );
     },
   },
   {

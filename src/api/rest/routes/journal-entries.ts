@@ -147,7 +147,7 @@ router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, 
 // Con `requireByIdInScope` las dos cosas se van a la vez: el filtro entra en
 // el SQL, los dos casos salen por el mismo 404, y `asyncHandler` lleva el
 // error al pipeline en vez de al suelo.
-router.get('/:id', requirePermission('journal_entries:read'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id', requirePermission('journal_entries:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { include_lines = 'true' } = req.query;
 
   const entry = await requireByIdInScope<JournalEntry>(

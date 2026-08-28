@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../../../config/index.js';
-import { UnauthorizedError, ForbiddenError } from '../../../utils/errors.js';
+import { UnauthorizedError, ForbiddenError, ValidationError } from '../../../utils/errors.js';
 import { isAsymmetric, verifyIdpToken } from '../../../auth/oidc.js';
 import { resolveIdentity, NoAccessError } from '../../../auth/provisioning.js';
 import type { JwtPayload } from '../../../types/index.js';
@@ -179,14 +179,57 @@ export function requireEntityAccess(req: Request, _res: Response, next: NextFunc
   // manejador —cada ruta lee la suya— así que la única regla correcta es
   // que TODAS tienen que ser suyas. Una petición que menciona una entidad
   // ajena se rechaza aunque el manejador fuera a ignorarla.
-  const candidatos = [
-    req.entityId,
-    req.params.entity_id,
-    (req.body as { entity_id?: string } | undefined)?.entity_id,
-    typeof req.query.entity_id === 'string' ? req.query.entity_id : undefined,
-  ].filter((v): v is string => typeof v === 'string' && v.length > 0);
+  //
+  // Se distingue lo que la petición NOMBRA de lo que se puso por omisión.
+  // `authenticate` deja `req.entityId = cabecera || payload.entities[0]`, así
+  // que ese campo no dice si el cliente pidió algo: mezclarlo con lo nombrado
+  // haría que un `?entity_id=B` legítimo, sin cabecera, chocara contra la
+  // entidad que el token trae de relleno.
+  const nombradas: Array<{ fuente: string; valor: string }> = [];
+  const anota = (fuente: string, v: unknown): void => {
+    if (typeof v === 'string' && v.length > 0) nombradas.push({ fuente, valor: v });
+  };
+  anota('la cabecera x-entity-id', req.headers?.['x-entity-id']);
+  anota('la ruta (:entity_id)', req.params.entity_id);
+  anota('el cuerpo', (req.body as { entity_id?: string } | undefined)?.entity_id);
+  const enQuery = req.query.entity_id;
+  for (const v of Array.isArray(enQuery) ? enQuery : [enQuery]) anota('la cadena de consulta (?entity_id=)', v);
 
-  for (const entityId of new Set(candidatos)) {
+  const distintas = [...new Set(nombradas.map((n) => n.valor))];
+
+  // DOS ENTIDADES DISTINTAS EN UNA PETICIÓN SE RECHAZAN, AUNQUE LAS DOS SEAN
+  // SUYAS.
+  //
+  // Comprobar que ambas pertenecen al usuario cierra el hueco de acceso y deja
+  // otro abierto, que en un sistema contable es el que importa: cada ruta lee
+  // la fuente que le da la gana —unas la cabecera, otras `?entity_id=`— y el
+  // contexto de la bitácora se arma SIEMPRE con `req.entityId`
+  // (middleware/correlation.ts). Con cabecera A y query B, el trabajo ocurre
+  // sobre B y todo lo registrado dice A. No es una fuga: es una atribución
+  // falsa, y no se puede reparar después porque el rastro ya se escribió así.
+  //
+  // Aquí no hay forma de saber cuál de las dos iba a usar el manejador. La
+  // única respuesta correcta es no adivinar.
+  if (distintas.length > 1) {
+    throw new ValidationError(
+      'La petición nombra ' +
+        `${distintas.length} entidades distintas (` +
+        nombradas.map((n) => `${n.fuente}: ${n.valor}`).join('; ') +
+        '). Cada ruta usa la fuente que le corresponde y la bitácora registra la de la cabecera, ' +
+        'así que con dos no se puede saber sobre cuál se trabajó. Manda una sola.',
+      'entity_id'
+    );
+  }
+
+  // Una sola entidad nombrada MANDA sobre la de relleno, y con ella se
+  // registra la petición. Sin esto, `?entity_id=B` sin cabecera se trabaja
+  // sobre B y se registra sobre la primera entidad del token — la misma
+  // atribución falsa que el rechazo de arriba evita en el otro caso.
+  if (distintas.length === 1) {
+    req.entityId = distintas[0];
+  }
+
+  for (const entityId of new Set([...distintas, req.entityId].filter((v): v is string => !!v))) {
     assertEntityAccess(req.user, entityId);
   }
   next();
