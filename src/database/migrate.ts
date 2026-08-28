@@ -99,4 +99,20 @@ async function runMigrations() {
   }
 }
 
-runMigrations();
+// ============================================================
+// MIGRAR SÓLO CUANDO SE INVOCA, NO CUANDO SE IMPORTA
+//
+// `runMigrations()` estaba aquí suelta, y este archivo exporta además
+// assertNumeracionUnica, que una prueba unitaria importa. El import ejecutaba
+// las migraciones: en CI —donde el job unitario NO tiene Postgres a propósito—
+// eso reventaba con ECONNREFUSED y ponía el job en rojo con las 2007 pruebas
+// en verde, porque vitest falla ante un error no manejado aunque no falle
+// ninguna aserción. En la máquina de quien desarrolla no se veía: había un
+// Postgres escuchando, así que `npm test` migraba su base sin decírselo.
+//
+// Es el mismo cerrojo que ya lleva mnemosine.ts: bajo CJS (tsx / node dist)
+// require.main identifica al archivo que se invocó.
+// ============================================================
+if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
+  runMigrations();
+}
