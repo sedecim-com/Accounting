@@ -80,7 +80,15 @@ $mig$;
 DO $grants$
 DECLARE r record; n int := 0;
 DECLARE
-  append_only text[] := ARRAY['audit_log'];
+  -- Las bitácoras de sólo agregar. La lista es corta a propósito y no se
+  -- deriva por heurística de nombre: hay una docena de tablas que PARECEN
+  -- bitácora —policy_decisions, webhook_deliveries, ai_external_ops,
+  -- blockchain_attestations, integration_events— y reciben UPDATE del
+  -- código o son máquinas de estado. Meterlas aquí las rompería.
+  -- El criterio para entrar es tener el disparador que rechaza UPDATE y
+  -- DELETE (migraciones 033 y 035); esta lista es su reflejo, y
+  -- src/plan/criterios.ts falla si las dos dejan de coincidir.
+  append_only text[] := ARRAY['audit_log', 'fiscal_credential_access_log'];
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnemosine_app') THEN
     RETURN;
@@ -99,10 +107,12 @@ BEGIN
     ELSIF r.relname = ANY (append_only) THEN
       -- Estas tablas son de sólo agregar, y este bloque corre DESPUÉS de
       -- todas las migraciones: sin la excepción, el GRANT general deshacía
-      -- en la misma corrida el REVOKE de la migración 033 y dejaba la
-      -- bitácora modificable otra vez. El disparador seguía deteniéndolo,
-      -- pero la primera capa —la barata, la que Postgres aplica antes de
-      -- ejecutar nada— quedaba muerta sin que nada lo dijera.
+      -- en la misma corrida el REVOKE de las migraciones 033 y 035 y
+      -- dejaba la bitácora modificable otra vez. El disparador seguía
+      -- deteniéndolo, pero la primera capa —la barata, la que Postgres
+      -- aplica antes de ejecutar nada— quedaba muerta sin que nada lo
+      -- dijera. fiscal_credential_access_log vivió así desde la 014, que
+      -- sólo revocó FROM PUBLIC y por tanto nunca tocó a mnemosine_app.
       EXECUTE format('REVOKE ALL ON public.%I FROM mnemosine_app', r.relname);
       EXECUTE format('GRANT SELECT, INSERT ON public.%I TO mnemosine_app', r.relname);
     ELSE

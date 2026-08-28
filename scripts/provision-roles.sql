@@ -48,6 +48,32 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA public TO mnemos
 GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA public TO mnemosine_app;
 GRANT EXECUTE                        ON ALL FUNCTIONS IN SCHEMA public TO mnemosine_app;
 
+-- Menos las bitácoras de sólo agregar. El GRANT de arriba dice ALL TABLES
+-- y lo dice en serio: reprovisionar sobre una base ya migrada le devolvía
+-- a la app UPDATE y DELETE sobre audit_log y sobre la bitácora que prueba
+-- quién descifró la e.firma, deshaciendo en silencio lo que las
+-- migraciones 033 y 035 habían revocado. El disparador seguía deteniendo
+-- el acto, pero la barrera barata quedaba muerta sin que nada lo dijera.
+--
+-- Va guardado por la existencia de cada tabla porque este guion también
+-- se corre sobre un clúster recién creado, antes de la primera migración.
+-- La lista se declara con la misma forma que en src/database/rls-policies.sql
+-- a propósito: son dos sitios que tienen que decir lo mismo, y el criterio
+-- E0.3 de src/plan/criterios.ts las lee a las dos con el mismo patrón y falla
+-- si divergen o si nombran una tabla sin disparador que la respalde.
+DO $append_only$
+DECLARE
+  append_only text[] := ARRAY['audit_log', 'fiscal_credential_access_log'];
+  t text;
+BEGIN
+  FOREACH t IN ARRAY append_only LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON public.%I FROM mnemosine_app', t);
+    END IF;
+  END LOOP;
+END
+$append_only$;
+
 -- ── 3. Privilegios por defecto ──
 -- Sin esto, cada tabla que cree una migración futura sería invisible
 -- para la app hasta que alguien recordara concederla a mano.

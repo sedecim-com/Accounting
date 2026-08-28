@@ -426,6 +426,152 @@ export const CRITERIOS: Criterio[] = [
         : falla('ninguna migración protege audit_log: el rastro es borrable');
     },
   },
+  {
+    paquete: 'E0.3',
+    enunciado:
+      'Toda bitácora de sólo agregar lleva disparador, y la lista de privilegios la refleja',
+    evaluar: () => {
+      // Este criterio existe porque el anterior no bastaba, y la forma en que
+      // no bastaba es instructiva: `/audit_log/ && /REVOKE/` da verde con un
+      // archivo que sólo REVOCA. La migración 014 hacía exactamente eso sobre
+      // fiscal_credential_access_log —y sólo FROM PUBLIC, que no toca el GRANT
+      // explícito a mnemosine_app—, así que un criterio calcado habría
+      // declarado protegida una bitácora que cualquiera podía reescribir.
+      //
+      // Aquí se exige la capa que aguanta: el disparador. Y se cruzan las TRES
+      // listas que hoy tienen que decir lo mismo y que nadie comparaba:
+      //   · las tablas con disparador, leídas de las migraciones;
+      //   · el array `append_only` de rls-policies.sql, que corre DESPUÉS de
+      //     todas las migraciones y devuelve la escritura a lo que no esté;
+      //   · el mismo array en scripts/provision-roles.sql, cuyo GRANT sobre
+      //     ALL TABLES la devuelve otra vez en cada reprovisionado.
+      // Una tabla con disparador que falte de cualquiera de los dos arrays
+      // pierde la capa barata en silencio; un nombre en un array sin
+      // disparador es una protección que sólo existe en la lista.
+      //
+      // El SQL se lee SIN comentarios. `codigoDe` no sirve aquí: su
+      // `sinComentarios` quita `/* */` y `//` —los de TypeScript— y deja
+      // pasar `--`, que es el de SQL. Con la versión anterior, comentar la
+      // tabla dentro del array bastaba para que este criterio siguiera en
+      // verde mientras Postgres la dejaba fuera. Se comprobó ejecutándolo.
+      const sinComentariosSql = (t: string): string =>
+        t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
+
+      const dir = 'src/database/migrations';
+      const sql = sinComentariosSql(
+        fs
+          .readdirSync(rutaDe(dir))
+          .map((m) => fs.readFileSync(rutaDe(dir, m), 'utf-8'))
+          .join('\n')
+      );
+
+      // Se aceptan las formas equivalentes que Postgres acepta: `CREATE OR
+      // REPLACE TRIGGER`, el nombre de tabla entrecomillado, y los eventos en
+      // cualquier orden. Exigir la secuencia literal `UPDATE OR DELETE` ponía
+      // en rojo código correcto escrito `DELETE OR UPDATE`, que es el modo en
+      // que un criterio deja de creerse y se desactiva.
+      const eventos = new Map<string, Set<string>>();
+      const funcionDe = new Map<string, Set<string>>();
+      const RE_TRIGGER =
+        /CREATE\s+(?:OR\s+REPLACE\s+)?TRIGGER\s+"?\w+"?\s+BEFORE\s+([A-Za-z\s]+?)\s+ON\s+(?:public\.)?"?(\w+)"?([\s\S]*?);/gi;
+      for (const m of sql.matchAll(RE_TRIGGER)) {
+        const tabla = m[2];
+        const evs = m[1].toUpperCase().split(/\s+OR\s+/).map((e) => e.trim());
+        const set = eventos.get(tabla) ?? new Set<string>();
+        for (const e of evs) set.add(e);
+        eventos.set(tabla, set);
+        const fn = /EXECUTE\s+(?:FUNCTION|PROCEDURE)\s+(?:public\.)?"?(\w+)"?/i.exec(m[3]);
+        if (fn) {
+          const fns = funcionDe.get(tabla) ?? new Set<string>();
+          fns.add(fn[1]);
+          funcionDe.set(tabla, fns);
+        }
+      }
+
+      // «Hay disparador» y «el disparador rechaza» son cosas distintas: uno
+      // cuyo cuerpo hiciera `RETURN NEW` satisfaría lo primero y no protegería
+      // nada. Se exige que la función que cuelga del disparador levante
+      // excepción.
+      const rechaza = (fn: string): boolean => {
+        const i = new RegExp(
+          `CREATE\\s+(?:OR\\s+REPLACE\\s+)?FUNCTION\\s+(?:public\\.)?"?${fn}"?`,
+          'i'
+        ).exec(sql);
+        return i !== null && /RAISE\s+EXCEPTION/i.test(sql.slice(i.index, i.index + 2000));
+      };
+
+      const protegidas = new Set<string>();
+      const parciales: string[] = [];
+      for (const [tabla, evs] of eventos) {
+        const completa =
+          evs.has('UPDATE') && evs.has('DELETE') && evs.has('TRUNCATE');
+        const fns = [...(funcionDe.get(tabla) ?? [])];
+        const muerden = fns.length > 0 && fns.every(rechaza);
+        if (completa && muerden) {
+          protegidas.add(tabla);
+        } else if (evs.has('UPDATE') || evs.has('DELETE')) {
+          // Sólo se reporta lo que PARECE una bitácora cerrada y no lo está.
+          // Un disparador BEFORE UPDATE cualquiera —hay varios de
+          // `updated_at`— no entra aquí porque su función no levanta excepción.
+          if (muerden) {
+            parciales.push(
+              `${tabla}: rechaza ${[...evs].sort().join('/')} pero le falta ` +
+                `${['UPDATE', 'DELETE', 'TRUNCATE'].filter((e) => !evs.has(e)).join(' y ')}` +
+                (evs.has('TRUNCATE') ? '' : ' — un TRUNCATE no dispara triggers de fila')
+            );
+          }
+        }
+      }
+      if (parciales.length > 0) return falla(parciales.join('; '));
+      if (protegidas.size === 0) {
+        return falla('ninguna tabla lleva disparador de sólo-agregar que rechace');
+      }
+
+      const arrayDe = (rel: string): Set<string> | null => {
+        const txt = sinComentariosSql(fs.readFileSync(rutaDe(rel), 'utf-8'));
+        const m = /append_only\s+text\[\]\s*:=\s*ARRAY\[([^\]]*)\]/.exec(txt);
+        if (!m) return null;
+        return new Set([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]));
+      };
+
+      const fuentes: Array<{ rel: string; porque: string }> = [
+        {
+          rel: 'src/database/rls-policies.sql',
+          porque: 'corre después de migrar y su GRANT general les devuelve la escritura',
+        },
+        {
+          rel: 'scripts/provision-roles.sql',
+          porque: 'su GRANT sobre ALL TABLES se la devuelve en cada reprovisionado',
+        },
+      ];
+
+      const problemas: string[] = [];
+      for (const f of fuentes) {
+        const lista = arrayDe(f.rel);
+        if (!lista) {
+          problemas.push(`${f.rel}: no se encontró el array append_only — ${f.porque}`);
+          continue;
+        }
+        const faltan = [...protegidas].filter((t) => !lista.has(t));
+        const sobran = [...lista].filter((t) => !protegidas.has(t));
+        if (faltan.length > 0) {
+          problemas.push(`${f.rel}: falta ${faltan.join(', ')} — ${f.porque}`);
+        }
+        if (sobran.length > 0) {
+          problemas.push(
+            `${f.rel}: nombra ${sobran.join(', ')} sin disparador que lo respalde ` +
+              '(el dueño del esquema ignora los privilegios de tabla)'
+          );
+        }
+      }
+      if (problemas.length > 0) return falla(problemas.join('; '));
+
+      return ok(
+        `${protegidas.size} bitácoras con disparador que rechaza y las dos listas de ` +
+          `privilegios al día: ${[...protegidas].sort().join(', ')}`
+      );
+    },
+  },
 
   // ---- E1.1 · Roles de cuenta ----
   {
