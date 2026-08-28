@@ -6,6 +6,9 @@ dist/
 # Configuración con secretos — NUNCA versionar
 .env
 .env.local
+# Respaldos de .env: los valores de hoy son los de desarrollo, pero el
+# siguiente respaldo puede llevar credenciales reales.
+.env.backup-*
 .env.*.local
 mnemosine.config.json
 
