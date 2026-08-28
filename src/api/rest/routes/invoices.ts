@@ -151,7 +151,11 @@ router.post('/:id/send', requirePermission('invoices:send'), validateBody(sendIn
 }));
 
 // POST /v1/invoices/:id/payments
-router.post('/:id/payments', requirePermission('invoices:create'), validateBody(recordPaymentSchema.extend({
+router.post('/:id/payments', requirePermission('invoices:create'), requireEntityAccess, validateBody(recordPaymentSchema.extend({
+  // payment_amount y payment_method se habían caído del esquema al extraer
+  // el servicio, y el manejador los seguía leyendo: llegaban sin validar.
+  payment_amount: numericLike,
+  payment_method: z.string(),
   bank_account_id: z.string().uuid().optional(),
   reference_number: z.string().optional(),
 }).partial({ amount: true, reference: true })), asyncHandler(async (req: Request, res: Response) => {

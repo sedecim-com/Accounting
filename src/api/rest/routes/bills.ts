@@ -161,7 +161,10 @@ router.post('/:id/schedule-payment', requirePermission('bills:create'), asyncHan
 }));
 
 // POST /v1/payments/vendors
-router.post('/payments', requirePermission('bills:create'), validateBody(vendorPaymentSchema), asyncHandler(async (req: Request, res: Response) => {
+// requireEntityAccess: el entity_id viene del CUERPO y nadie comprobaba
+// que fuera una entidad del usuario. Con el UUID de una entidad hermana
+// se fabricaba un pago a proveedor en sus libros.
+router.post('/payments', requirePermission('bills:create'), requireEntityAccess, validateBody(vendorPaymentSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, vendor_id, payment_amount, payment_method, payment_date, bank_account_id, applications, memo } = req.body;
 
   // Una sola implementación, compartida con `mnemosine bill pay` y con el

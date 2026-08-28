@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../database/connection.js';
 import { createJournalEntry } from './posting.js';
 import { reopenClosedPeriod, restorePeriodStatus } from './fiscal-calendar-service.js';
@@ -27,6 +28,9 @@ export const ORIGEN_RECLASIFICACION = 'iva_reclass';
 
 export interface HallazgoIvaPpd {
   entity_id: string;
+  /** Saldo pendiente del documento: sólo esa parte del IVA se reclasifica. */
+  saldo_documento: string;
+  total_documento: string;
   entity_name: string;
   entry_id: string;
   entry_number: string;
@@ -70,6 +74,8 @@ SELECT
   fp.period_name,
   fp.status AS period_status,
   jel.debit_amount AS importe,
+  b.amount_due::text   AS saldo_documento,
+  b.total_amount::text AS total_documento,
   acr.id   AS cuenta_acreditable_id,
   acr.code AS cuenta_acreditable_code,
   pen.id   AS cuenta_pendiente_id,
@@ -86,6 +92,10 @@ JOIN pre_registrations pr ON pr.bill_id = b.id
 JOIN xml_documents xd    ON xd.id = pr.xml_document_id
 LEFT JOIN iva_pendiente pen ON pen.entity_id = le.id
 WHERE le.tenant_id = $1
+  -- El IVA sobre base de flujo es LIVA, no GAAP: una entidad no mexicana
+  -- no tiene IVA acreditable que aparcar. El resto del mecanismo ya la
+  -- excluye (ar-ap-posting), y el censo no lo hacía.
+  AND (le.incorporation_country = 'MX' OR le.accounting_standard = 'mx_nif')
   AND je.status = 'posted'
   AND jel.debit_amount > 0
   AND xd.metodo_pago = 'PPD'
@@ -158,9 +168,32 @@ export async function reclasificarIvaPpd(
       continue;
     }
 
+    // SÓLO SE RECLASIFICA LA PARTE NO PAGADA.
+    //
+    // Éste era el defecto más caro del guion. Para un gasto PPD que ya se
+    // pagó, su IVA YA es acreditable —LIVA art. 5 fracc. III: se acredita
+    // cuando se paga— y está correctamente en la 1130. Moverlo a la 1135 lo
+    // dejaba varado para siempre: el pago que lo liberaría ya ocurrió, y
+    // nada reevalúa un pago contabilizado. El backfill destruía crédito
+    // legítimo en vez de repararlo.
+    const proporcion = new Decimal(h.saldo_documento).dividedBy(h.total_documento);
+    const aReclasificar = new Decimal(h.importe).times(proporcion).toDecimalPlaces(2);
+
+    if (aReclasificar.lessThanOrEqualTo(0)) {
+      omitir(
+        h,
+        `${h.bill_number ?? h.entry_number} ya está pagado: su IVA es acreditable y se queda donde está`
+      );
+      continue;
+    }
+
+    const parcial = aReclasificar.lessThan(h.importe);
     const motivo =
       `Reclasificación de IVA: el CFDI ${h.cfdi_uuid} es PPD y su IVA no era acreditable ` +
-      `al recibir la factura (se acredita con el REP).`;
+      `al recibir la factura (se acredita con el REP).` +
+      (parcial
+        ? ` Sólo la parte no pagada: ${aReclasificar.toFixed(2)} de ${Number(h.importe).toFixed(2)}.`
+        : '');
     let estadoPrevio: string | null = null;
 
     try {
@@ -178,14 +211,14 @@ export async function reclasificarIvaPpd(
           [
             {
               account_id: h.cuenta_pendiente_id as string,
-              debit_amount: Number(h.importe).toFixed(4),
+              debit_amount: aReclasificar.toFixed(4),
               credit_amount: null,
               description: `IVA pendiente de acreditar — CFDI ${h.cfdi_uuid}`,
             },
             {
               account_id: h.cuenta_acreditable_id,
               debit_amount: null,
-              credit_amount: Number(h.importe).toFixed(4),
+              credit_amount: aReclasificar.toFixed(4),
               description: `Sale de IVA acreditable — ${h.bill_number ?? h.entry_number}`,
             },
           ],
@@ -200,7 +233,7 @@ export async function reclasificarIvaPpd(
         );
       });
       reclasificados += 1;
-      montoReclasificado += Number(h.importe);
+      montoReclasificado += aReclasificar.toNumber();
     } catch (e) {
       fallos.push(`${h.entry_number}: ${(e as Error).message}`);
     } finally {

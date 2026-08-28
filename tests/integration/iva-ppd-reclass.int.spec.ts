@@ -378,3 +378,70 @@ describe('el pago acredita el IVA que el backfill había aparcado', () => {
     expect(await saldoDe(cuentaAcreditable, periodo)).toBeCloseTo(trasPagoCompleto, 2);
   });
 });
+
+/**
+ * EL DEFECTO MÁS CARO QUE ENCONTRÓ LA AUDITORÍA DE ESTE GUION.
+ *
+ * El censo sólo excluía «ya reclasificado» y nadie miraba si el gasto estaba
+ * PAGADO. Para un gasto PPD ya pagado su IVA YA es acreditable —LIVA art. 5
+ * fracc. III: se acredita cuando se paga— y está correctamente en la 1130.
+ * Moverlo a la 1135 lo dejaba varado para siempre, porque el pago que lo
+ * liberaría ya ocurrió y nada reevalúa un pago contabilizado.
+ *
+ * Es decir: el backfill DESTRUÍA crédito legítimo en vez de repararlo.
+ */
+describe('lo ya pagado no se reclasifica', () => {
+  /** Marca el gasto como pagado, como estaría si se hubiera liquidado antes. */
+  async function marcarPagado(billId: string, importe: string): Promise<void> {
+    await query(
+      `UPDATE bills SET amount_paid = $2, amount_due = 0, status = 'paid' WHERE id = $1`,
+      [billId, importe]
+    );
+  }
+
+  it('un gasto PPD ya liquidado se omite, y el censo dice por qué', async () => {
+    await query(`UPDATE fiscal_periods SET status = 'open' WHERE id = $1`, [periodo]);
+    const gasto = await facturaPpdMalAcreditada('2000.00', '320.00');
+    await marcarPagado(gasto.billId, '2320.00');
+
+    const hallazgos = (await censarIvaPpd(f.tenantId, f.entityId))
+      .filter((h) => h.entry_id === gasto.entryId);
+    expect(hallazgos, 'sigue apareciendo en el censo, pero omitido al aplicar').toHaveLength(1);
+
+    const acreditableAntes = await saldoDe(cuentaAcreditable, periodo);
+    const r = await reclasificarIvaPpd(hallazgos, f.userId);
+
+    expect(r.reclasificados).toBe(0);
+    expect([...r.motivosOmision.values()][0]).toMatch(/ya está pagado/);
+    expect(
+      await saldoDe(cuentaAcreditable, periodo),
+      'el IVA acreditable no puede perderse: ya se pagó'
+    ).toBeCloseTo(acreditableAntes, 2);
+  });
+
+  it('de un gasto a medio pagar sólo se mueve la parte pendiente', async () => {
+    const gasto = await facturaPpdMalAcreditada('1000.00', '160.00');
+    // Pagado 25%: 290 de 1160. Sólo el 75% del IVA sigue sin acreditarse.
+    await query(
+      `UPDATE bills SET amount_paid = 290, amount_due = 870, status = 'partially_paid' WHERE id = $1`,
+      [gasto.billId]
+    );
+
+    const hallazgos = (await censarIvaPpd(f.tenantId, f.entityId))
+      .filter((h) => h.entry_id === gasto.entryId);
+    const r = await reclasificarIvaPpd(hallazgos, f.userId);
+
+    expect(r.reclasificados).toBe(1);
+    // 160 × (870 / 1160) = 120
+    expect(r.montoReclasificado).toBeCloseTo(120, 2);
+
+    const linea = await query<{ debit_amount: string }>(
+      `SELECT jel.debit_amount FROM journal_entry_lines jel
+         JOIN journal_entries je ON je.id = jel.journal_entry_id
+        WHERE je.source_type = 'iva_reclass' AND je.source_id = $1
+          AND jel.account_id = $2`,
+      [gasto.entryId, cuentaPendiente]
+    );
+    expect(Number(linea.rows[0].debit_amount)).toBeCloseTo(120, 2);
+  });
+});

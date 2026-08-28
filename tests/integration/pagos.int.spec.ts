@@ -276,3 +276,116 @@ describe('la frontera de entidad', () => {
     expect(despues.rows[0].n).toBe(antes.rows[0].n);
   });
 });
+
+/**
+ * LO QUE LA AUDITORÍA ENCONTRÓ Y AQUÍ QUEDA FIJADO.
+ *
+ * Cinco defectos del servicio de pagos, todos con escenario reproducible y
+ * ninguno atrapado por la suite anterior.
+ */
+describe('defectos de dinero que la auditoría destapó', () => {
+  it('el mismo documento dos veces en un pago se rechaza', async () => {
+    // Ambas aplicaciones validaban contra el saldo ORIGINAL —el bucle que
+    // valida corre entero antes del que escribe— y los dos UPDATE se
+    // acumulaban: amount_due quedaba en negativo, el gasto en 'paid', y el
+    // asiento cargaba el doble a la cuenta de control de proveedores.
+    const gasto = await gastoAprobado(f, '1000.00', '160.00');
+    await expect(
+      recordVendorPayment(
+        {
+          entityId: f.entityId, paymentAmount: '2320.00', paymentDate: fechaEnPeriodo(),
+          paymentMethod: 'spei',
+          applications: [
+            { documentId: gasto.billId, amountApplied: '1160.00' },
+            { documentId: gasto.billId, amountApplied: '1160.00' },
+          ],
+        },
+        f.userId
+      )
+    ).rejects.toThrow(/aparece dos veces/);
+
+    const bd = await query<{ amount_due: string; status: string }>(
+      `SELECT amount_due, status FROM bills WHERE id = $1`, [gasto.billId]
+    );
+    expect(Number(bd.rows[0].amount_due), 'el saldo no puede quedar negativo').toBeGreaterThan(0);
+  });
+
+  it('aplicar MENOS de lo pagado se rechaza: el resto quedaría en el aire', async () => {
+    // El asiento carga el importe completo del pago contra la cuenta de
+    // control mientras el auxiliar sólo baja lo aplicado.
+    const gasto = await gastoAprobado(f, '1000.00', '160.00');
+    await expect(
+      recordVendorPayment(
+        {
+          entityId: f.entityId, paymentAmount: '1160.00', paymentDate: fechaEnPeriodo(),
+          paymentMethod: 'spei',
+          applications: [{ documentId: gasto.billId, amountApplied: '500.00' }],
+        },
+        f.userId
+      )
+    ).rejects.toThrow(/Tienen que coincidir/);
+  });
+
+  it('un gasto en otra moneda no se paga con un importe crudo', async () => {
+    const gasto = await gastoAprobado(f, '1000.00', '160.00');
+    await query(`UPDATE bills SET currency_code = 'USD' WHERE id = $1`, [gasto.billId]);
+    await expect(
+      recordVendorPayment(
+        {
+          entityId: f.entityId, paymentAmount: '1160.00', paymentDate: fechaEnPeriodo(),
+          paymentMethod: 'spei', currencyCode: 'MXN',
+          applications: [{ documentId: gasto.billId, amountApplied: '1160.00' }],
+        },
+        f.userId
+      )
+    ).rejects.toThrow(/está en USD y el pago en MXN/);
+  });
+
+  it('un descuento por pronto pago se rechaza en voz alta, no se traga', async () => {
+    // Se insertaba en payment_applications y no participaba en nada más: ni
+    // reducía el saldo ni entraba en el asiento, así que el proveedor quedaba
+    // debiendo el descuento para siempre.
+    const gasto = await gastoAprobado(f, '1000.00', '160.00');
+    await expect(
+      recordVendorPayment(
+        {
+          entityId: f.entityId, paymentAmount: '1100.00', paymentDate: fechaEnPeriodo(),
+          paymentMethod: 'spei',
+          applications: [{ documentId: gasto.billId, amountApplied: '1100.00', discountAmount: '60.00' }],
+        },
+        f.userId
+      )
+    ).rejects.toThrow(/descuento por pronto pago todavía no se puede registrar/);
+  });
+
+  it('un gasto en borrador no se paga: su pasivo no está en el mayor', async () => {
+    // La guarda vivía SÓLO en el comando de la terminal; por REST se pagaba
+    // un borrador y se posteaba el asiento contra un pasivo inexistente.
+    const gasto = await gastoAprobado(f, '400.00', '64.00');
+    await query(`UPDATE bills SET status = 'draft' WHERE id = $1`, [gasto.billId]);
+    await expect(
+      recordVendorPayment(
+        {
+          entityId: f.entityId, paymentAmount: '464.00', paymentDate: fechaEnPeriodo(),
+          paymentMethod: 'spei',
+          applications: [{ documentId: gasto.billId, amountApplied: '464.00' }],
+        },
+        f.userId
+      )
+    ).rejects.toThrow(/su pasivo tiene que estar en el mayor primero/);
+  });
+
+  it('el pago se atribuye al proveedor del gasto, no a otro', async () => {
+    const gasto = await gastoAprobado(f, '100.00', '16.00');
+    await expect(
+      recordVendorPayment(
+        {
+          entityId: f.entityId, counterpartyId: uuidv4(),
+          paymentAmount: '116.00', paymentDate: fechaEnPeriodo(), paymentMethod: 'spei',
+          applications: [{ documentId: gasto.billId, amountApplied: '116.00' }],
+        },
+        f.userId
+      )
+    ).rejects.toThrow(/auxiliar equivocado/);
+  });
+});
