@@ -107,20 +107,29 @@ export function requireEntityAccess(req: Request, _res: Response, next: NextFunc
     throw new UnauthorizedError();
   }
 
-  // req.query también: es uno de los cinco vectores del perímetro. Las
-  // rutas de listado reciben ?entity_id= y el middleware no lo miraba, así
-  // que la única defensa era que `authenticate` deja req.entityId puesto
-  // desde la cabecera — un valor distinto del que la ruta va a usar.
-  const entityId =
-    req.entityId ||
-    req.params.entity_id ||
-    (req.body as { entity_id?: string } | undefined)?.entity_id ||
-    (typeof req.query.entity_id === 'string' ? req.query.entity_id : undefined);
-  if (!entityId) {
-    return next();
-  }
+  // SE VALIDAN TODOS LOS QUE LA PETICIÓN TRAE, NO EL PRIMERO.
+  //
+  // Esto era una cadena de `||`, y por eso no servía: `authenticate` asigna
+  // SIEMPRE `req.entityId = x-entity-id || payload.entities[0]`, y un
+  // usuario sin entidades accesibles ni siquiera puede iniciar sesión. El
+  // primer término nunca es falsy, así que la cadena jamás llegaba a los
+  // otros tres: la guarda comprobaba la cabecera mientras el manejador leía
+  // su `?entity_id=`. Tres de las cuatro fuentes eran inalcanzables.
+  //
+  // Con varias fuentes no hay forma de saber aquí cuál va a usar el
+  // manejador —cada ruta lee la suya— así que la única regla correcta es
+  // que TODAS tienen que ser suyas. Una petición que menciona una entidad
+  // ajena se rechaza aunque el manejador fuera a ignorarla.
+  const candidatos = [
+    req.entityId,
+    req.params.entity_id,
+    (req.body as { entity_id?: string } | undefined)?.entity_id,
+    typeof req.query.entity_id === 'string' ? req.query.entity_id : undefined,
+  ].filter((v): v is string => typeof v === 'string' && v.length > 0);
 
-  assertEntityAccess(req.user, entityId);
+  for (const entityId of new Set(candidatos)) {
+    assertEntityAccess(req.user, entityId);
+  }
   next();
 }
 

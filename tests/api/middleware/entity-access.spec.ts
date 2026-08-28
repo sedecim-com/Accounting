@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assertEntityAccess, ROLES } from '../../../src/api/rest/middleware/auth.js';
+import { assertEntityAccess, requireEntityAccess, ROLES } from '../../../src/api/rest/middleware/auth.js';
 import { ForbiddenError } from '../../../src/utils/errors.js';
 
 /**
@@ -58,5 +58,60 @@ describe('assertEntityAccess', () => {
   it('el rol owner sigue siendo comodín de PERMISOS: es el eje que sí abre', () => {
     // La corrección no toca la autorización por verbo, sólo la pertenencia.
     expect(ROLES.owner).toEqual(['*']);
+  });
+});
+
+/**
+ * LA GUARDA MIRA TODAS LAS FUENTES, NO LA PRIMERA.
+ *
+ * Era una cadena de `||`, y por eso no servía: `authenticate` asigna SIEMPRE
+ * `req.entityId = x-entity-id || payload.entities[0]`, así que el primer
+ * término nunca es falsy y la cadena jamás llegaba a los otros tres. La
+ * guarda comprobaba la cabecera mientras el manejador leía su `?entity_id=`.
+ *
+ * El primer intento de arreglo fue AÑADIR `req.query` AL FINAL de la misma
+ * cadena — inerte por la misma razón. Estas pruebas existen porque un
+ * arreglo que no cambia nada pasa desapercibido con demasiada facilidad.
+ */
+describe('requireEntityAccess mira todas las fuentes', () => {
+  const usuario = { entities: [MIA], permissions: ['invoices:read'] };
+  const peticion = (extra: Record<string, unknown>) =>
+    ({ user: usuario, entityId: MIA, params: {}, body: {}, query: {}, ...extra }) as never;
+
+  it('deja pasar cuando todas las fuentes son suyas', () => {
+    const next = () => undefined;
+    expect(() =>
+      requireEntityAccess(peticion({ query: { entity_id: MIA } }), {} as never, next as never)
+    ).not.toThrow();
+  });
+
+  it('rechaza una entidad ajena en la QUERY, aunque la cabecera sea suya', () => {
+    // Éste es el vector: req.entityId (de la cabecera) es válido, y el
+    // manejador de una ruta de listado va a usar ?entity_id=.
+    expect(() =>
+      requireEntityAccess(peticion({ query: { entity_id: AJENA } }), {} as never, (() => undefined) as never)
+    ).toThrow(ForbiddenError);
+  });
+
+  it('rechaza una entidad ajena en el CUERPO', () => {
+    expect(() =>
+      requireEntityAccess(peticion({ body: { entity_id: AJENA } }), {} as never, (() => undefined) as never)
+    ).toThrow(ForbiddenError);
+  });
+
+  it('rechaza una entidad ajena en los PARÁMETROS de ruta', () => {
+    expect(() =>
+      requireEntityAccess(peticion({ params: { entity_id: AJENA } }), {} as never, (() => undefined) as never)
+    ).toThrow(ForbiddenError);
+  });
+
+  it('sin ninguna entidad en la petición, no bloquea', () => {
+    let llamado = false;
+    requireEntityAccess(
+      { user: usuario, params: {}, body: {}, query: {} } as never,
+      {} as never,
+      (() => { llamado = true; }) as never
+    );
+    expect(llamado).toBe(true);
   });
 });
