@@ -549,65 +549,51 @@ export const CRITERIOS: Criterio[] = [
     // sale del encabezado». Era falso: la guarda SÍ comprueba que la entidad
     // del encabezado pertenezca al usuario. El defecto es otro, y peor —
     // comprueba una entidad y el handler trabaja con otra.
-    enunciado: 'La entidad que comprueba la guarda es la que usa el handler',
+    // TERCERA REDACCIÓN. La primera decía que la guarda era un no-op: falso.
+    // La segunda perseguía las fuentes que la guarda no listaba, y AUD-3 las
+    // listó todas — sin que eso cambiara nada, que es el hallazgo de ahora.
+    enunciado: 'La guarda alcanza de verdad todas las fuentes de entidad que dice mirar',
     evaluar: () => {
       const guarda = codigoDe('src/api/rest/middleware/auth.ts');
-      const fuentesQueMira = /req\.entityId\s*\|\|\s*req\.params[^;]*\|\|\s*req\.body/.test(guarda);
-      const miraQuery = /requireEntityAccess[\s\S]{0,600}req\.query/.test(guarda);
-      if (!fuentesQueMira) {
-        return noEvaluable('la guarda ya no tiene la forma que este criterio sabe leer');
-      }
-      if (miraQuery) return ok('la guarda cubre también la cadena de consulta');
 
-      // LAS TRES FUENTES DE LA GUARDA SON UNA SOLA.
-      //
-      // `authenticate` SIEMPRE puebla req.entityId con el encabezado
-      // x-entity-id (auth.ts), y un usuario sin entidades accesibles ni
-      // siquiera puede iniciar sesión. Así que en
-      // `req.entityId || req.params.entity_id || req.body?.entity_id`
-      // el primer término nunca es falsy y los otros dos son código muerto:
-      // la guarda comprueba EL ENCABEZADO y nada más.
-      //
-      // De ahí que un handler que derive su entidad de cualquier otro sitio
-      // trabaje sobre una entidad que nadie miró. Basta un encabezado con una
-      // entidad propia —que la guarda aprueba— y un ?entity_id= o un
-      // entity_id en el cuerpo con una ajena del MISMO inquilino, que es
-      // justo el cruce que RLS no puede ver.
-      //
-      // Se persiguen las dos fuentes por separado porque no pesan igual: la
-      // query aparece en listados y reportes (lectura), y el cuerpo aparece en
-      // el cierre suave y el cierre duro de un periodo fiscal (ESCRITURA).
-      const rutas = 'src/api/rest/routes';
-      // \b antes de entity_id en las tres alternativas, y no es cosmética:
-      // sin él, `const { matched_entity_id, monto } = req.body` de
-      // bank-reconciliation.ts se contaba como una entidad derivada del cuerpo.
-      // Una acusación falsa en este criterio vale por diez ciertas, porque es
-      // la que hace que se deje de leer.
-      const deriva = (texto: string, fuente: 'query' | 'body'): boolean =>
-        new RegExp(
-          `\\bentity_id[^;\n]*=\\s*req\\.${fuente}|req\\.${fuente}\\.entity_id\\b|` +
-            `\\{[^}]*\\bentity_id\\b[^}]*\\}\\s*=\\s*req\\.${fuente}`
-        ).test(texto);
+      // La expresión que elige la entidad a comprobar.
+      const m = guarda.match(/const\s+entityId\s*=\s*([\s\S]*?);/);
+      if (!m) return noEvaluable('la guarda ya no elige su entidad con un `const entityId =`');
+      const cadena = m[1];
 
-      const analizadas = fuentes(rutas).map((f) => ({
-        nombre: path.basename(f),
-        texto: sinComentarios(fs.readFileSync(f, 'utf-8')),
-      }));
-      const porQuery = analizadas.filter((a) => deriva(a.texto, 'query')).map((a) => a.nombre);
-      const porCuerpo = analizadas.filter((a) => deriva(a.texto, 'body')).map((a) => a.nombre);
+      const fuentes_ = [
+        { nombre: 'la cabecera (req.entityId)', re: /req\.entityId\b/ },
+        { nombre: 'req.params', re: /req\.params\b/ },
+        { nombre: 'req.body', re: /req\.body\b/ },
+        { nombre: 'req.query', re: /req\.query\b/ },
+      ].filter((f) => f.re.test(cadena));
 
-      if (porQuery.length === 0 && porCuerpo.length === 0) {
-        return ok('ningún handler deriva su entidad de una fuente que la guarda no mira');
+      // UNA CADENA `||` NO COMPRUEBA CUATRO FUENTES: COMPRUEBA LA PRIMERA.
+      //
+      // `authenticate` asigna req.entityId sin condición, y un usuario sin
+      // entidades accesibles ni siquiera puede iniciar sesión, así que ese
+      // primer término NUNCA es falsy. Todo lo que va detrás del primer `||`
+      // es inalcanzable: da igual cuántas fuentes se añadan a la lista.
+      const encadena = /\|\|/.test(cadena);
+      const primeroSiempreLleno =
+        /^\s*req\.entityId\b/.test(cadena) &&
+        /req\.entityId\s*=\s*\(req\.headers\[/.test(guarda);
+
+      if (encadena && primeroSiempreLleno && fuentes_.length > 1) {
+        const muertas = fuentes_.slice(1).map((f) => f.nombre);
+        return falla(
+          `la guarda lista ${fuentes_.length} fuentes pero es una cadena \`||\` que arranca en ` +
+            'req.entityId, y `authenticate` la puebla siempre desde la cabecera: ' +
+            `${muertas.join(', ')} son inalcanzables. Comprueba la entidad del encabezado y el handler ` +
+            'sigue leyendo la suya. Añadir fuentes a la lista no lo arregla; hay que comprobarlas TODAS'
+        );
       }
-      const partes: string[] = [];
-      if (porQuery.length) partes.push(`${porQuery.length} por ?entity_id= (${porQuery.join(', ')})`);
-      if (porCuerpo.length) {
-        partes.push(`${porCuerpo.length} por entity_id del cuerpo (${porCuerpo.join(', ')}), donde hay ESCRITURAS`);
+      if (!encadena && fuentes_.length >= 3) {
+        return ok(`la guarda comprueba ${fuentes_.length} fuentes sin cortocircuitar entre ellas`);
       }
-      return falla(
-        `la guarda sólo comprueba el encabezado —sus ramas de params y cuerpo son código muerto— y ` +
-          `los handlers derivan su entidad de otro sitio: ${partes.join('; ')}. ` +
-          'Una entidad ajena del mismo inquilino no la revisa nadie, y RLS no ve ese cruce'
+      return noEvaluable(
+        `la guarda tiene una forma que este criterio no sabe juzgar (${fuentes_.length} fuente(s), ` +
+          `${encadena ? 'encadenadas con ||' : 'sin cadena'})`
       );
     },
   },
@@ -629,27 +615,27 @@ export const CRITERIOS: Criterio[] = [
     // No pregunta si existe src/auth/roles.ts. Que exista un archivo no le da
     // permisos a nadie; lo que importa es si el rol que el CLI reparte
     // significa algo del otro lado.
-    enunciado: 'Un rol que el CLI reparte significa lo mismo en la API',
+    // Antes comparaba dos catálogos y nombraba los roles que sólo existían en
+    // uno (contador, revisor). AUD-3 los unificó en src/auth/roles.ts, así que
+    // la pregunta ya no es si coinciden: es si vuelve a haber dos.
+    enunciado: 'Los permisos de un rol se declaran en un solo sitio',
     evaluar: () => {
-      const nombres = (rel: string): string[] => {
-        const texto = codigoDe(rel);
-        const i = texto.indexOf('export const ROLES');
-        if (i < 0) return [];
-        const abre = texto.indexOf('{', i);
-        const bloque = texto.slice(abre, texto.indexOf('\n};', abre));
-        return [...bloque.matchAll(/^ {2}([a-z_]+):/gm)].map((m) => m[1]);
-      };
-      const cli = nombres('src/cli/init/s2-users.ts');
-      const api = nombres('src/api/rest/middleware/auth.ts');
-      if (cli.length === 0 || api.length === 0) {
-        return noEvaluable('no se pudo leer alguno de los dos catálogos de roles');
+      // Un catálogo es un mapa de roles cuyos valores traen `permissions`.
+      // Derivarlo de otro —lo que hace hoy middleware/auth.ts— no cuenta:
+      // eso es un consumidor con otra forma, no una segunda verdad.
+      const declaran = fuentes('src')
+        .map((f) => ({ rel: path.relative(rutaDe(), f), texto: sinComentarios(fs.readFileSync(f, 'utf-8')) }))
+        .filter(({ texto }) => /^\s*[a-z_]+:\s*\{[\s\S]{0,400}?permissions:\s*\[/m.test(texto))
+        .map(({ rel }) => rel);
+
+      if (declaran.length === 0) {
+        return noEvaluable('ningún archivo declara permisos por rol con la forma que este criterio lee');
       }
-      const desconocidos = cli.filter((r) => !api.includes(r));
-      return desconocidos.length === 0
-        ? ok(`los ${cli.length} roles del CLI existen en la API`)
+      return declaran.length === 1
+        ? ok(`un solo catálogo: ${declaran[0]}`)
         : falla(
-            `el CLI reparte roles que la API no conoce (${desconocidos.join(', ')}): ` +
-              `un usuario creado con ellos llega a HTTP sin los permisos que se le prometieron`
+            `${declaran.length} catálogos declaran los permisos de un rol por su cuenta ` +
+              `(${declaran.join(', ')}): un usuario creado por uno llega al otro con permisos distintos`
           );
     },
   },
