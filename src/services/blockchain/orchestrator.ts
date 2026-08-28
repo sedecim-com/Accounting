@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../database/connection.js';
+import { requireByIdInScope, tenantScope } from '../../database/scope.js';
 import { cryptoService } from './crypto-service.js';
 import { chainAdapterFactory, ChainId, ChainTransactionResult } from './chain-adapters.js';
 import { zkVerifyClient } from './zkverify-client.js';
@@ -203,6 +204,32 @@ export class BlockchainOrchestrator {
   }
 
   /**
+   * LA PAREJA (tenantId, entityId) SE ESCRIBE EN LA FILA; HAY QUE PROBARLA.
+   *
+   * Las dos rutas que llegan aquí toman `tenant_id` del token y `entity_id`
+   * del CUERPO de la petición, y nadie comprobaba que la segunda colgara del
+   * primero. El resultado se INSERTA tal cual en period_commitments y en
+   * published_aggregates: filas con el inquilino del atacante y la entidad de
+   * la víctima. Y published_aggregates se sirve después SIN AUTENTICAR en
+   * `GET /public/v1/entities/:entityId/aggregates`, que filtra sólo por
+   * entity_id — así que la escritura era el vehículo y la lectura pública el
+   * destino. Exfiltración de cifras contables por escritura.
+   *
+   * Hay un segundo efecto, más silencioso: publishAggregates busca los
+   * umbrales de privacidad con `WHERE tenant_id = $1 AND entity_id = $2`. Con
+   * la pareja cruzada no encuentra fila y cae a los valores por omisión
+   * (agregación mínima 5, redondeo a 1000). O sea que los umbrales que la
+   * víctima hubiera endurecido no se aplicaban: se publicaba con los de fábrica.
+   *
+   * La comprobación va aquí, en el servicio, y no sólo en la ruta: `entityId`
+   * y `tenantId` entran por parámetro desde cualquier llamador presente o
+   * futuro, y la fila se escribe aquí.
+   */
+  private async exigirEntidadDelInquilino(tenantId: string, entityId: string): Promise<void> {
+    await requireByIdInScope('legal_entities', entityId, tenantScope(tenantId), { columns: 'id' });
+  }
+
+  /**
    * Commit a fiscal period by building a Merkle tree of all posted entries
    */
   async commitPeriod(params: {
@@ -210,6 +237,8 @@ export class BlockchainOrchestrator {
     entityId: string;
     periodId: string;
   }): Promise<{ commitmentId: string; merkleRoot: string; entryCount: number }> {
+    await this.exigirEntidadDelInquilino(params.tenantId, params.entityId);
+
     // Fetch all posted journal entries in period
     const entries = await query<{ id: string; entry_hash: string | null }>(
       `SELECT id, entry_hash FROM journal_entries
@@ -256,10 +285,13 @@ export class BlockchainOrchestrator {
        merkleRoot, entries.rows.length, treeDepth, balanceCommitment]
     );
 
-    // Link to fiscal period
+    // Link to fiscal period. Acotado por entidad aunque hoy sea inalcanzable
+    // de otra forma —un periodo de otra entidad no tiene asientos de ésta, y
+    // arriba se habría lanzado ya—: la escritura no debería depender de que
+    // ese razonamiento siga siendo cierto.
     await query(
-      `UPDATE fiscal_periods SET period_commitment_id = $1 WHERE id = $2`,
-      [commitmentId, params.periodId]
+      `UPDATE fiscal_periods SET period_commitment_id = $1 WHERE id = $2 AND entity_id = $3`,
+      [commitmentId, params.periodId, params.entityId]
     );
 
     // Attest the period commitment itself to zkVerify + chains
@@ -298,6 +330,8 @@ export class BlockchainOrchestrator {
     entityId: string;
     periodId: string;
   }): Promise<{ published: number }> {
+    await this.exigirEntidadDelInquilino(params.tenantId, params.entityId);
+
     // Aggregate by account type (simple dimension)
     const aggregates = await query<{ account_type: string; total: string; count: string }>(
       `SELECT a.account_type,

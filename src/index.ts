@@ -201,7 +201,12 @@ async function bootstrap() {
   // This is a second door into the same engine, and it is measurably the
   // less safe one:
   //   · it is mounted at /graphql, OUTSIDE the /v1 prefix, so it bypasses
-  //     the audit and rate-limiting middleware every REST route carries;
+  //     the audit and rate-limiting middleware every REST route carries —
+  //     y hasta TEN-2 también se saltaba `tenantContext`, que es el que abre
+  //     el contexto que leen las políticas de RLS. Sin él la consulta viaja
+  //     directa al pool SIN inquilino: con el rol mnemosine_app habría
+  //     devuelto cero filas y con un rol dueño o superusuario —que ignora
+  //     RLS— las de TODOS los inquilinos. Ya va montado;
   //   · `createJournalEntry` and `postJournalEntry` reach the posting engine
   //     with `authenticate` only — there is no permission check anywhere in
   //     the resolvers, so any authenticated principal can post to any ledger
@@ -232,6 +237,10 @@ async function bootstrap() {
     app.use(
       '/graphql',
       authenticate,
+      // Igual que en /v1: justo después de authenticate y antes de nada que
+      // toque la base. Que esta puerta esté fuera del prefijo auditado no es
+      // razón para que además corra sin inquilino.
+      tenantContext,
       expressMiddleware(apolloServer, {
         context: async ({ req }) => ({
           user: req.user,

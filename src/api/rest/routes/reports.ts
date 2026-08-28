@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
 import {
   getTrialBalance,
@@ -36,7 +37,7 @@ const meta = (req: Request) => ({
 });
 
 // GET /v1/reports/trial-balance
-router.get('/trial-balance', requirePermission('reports:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/trial-balance', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, fiscal_period_id, as_of_date, account_level = '5' } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -56,10 +57,10 @@ router.get('/trial-balance', requirePermission('reports:read'), requireEntityAcc
     },
     meta: meta(req),
   });
-});
+}));
 
 // GET /v1/reports/balance-sheet
-router.get('/balance-sheet', requirePermission('reports:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/balance-sheet', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, as_of_date } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -78,10 +79,10 @@ router.get('/balance-sheet', requirePermission('reports:read'), requireEntityAcc
     },
     meta: meta(req),
   });
-});
+}));
 
 // GET /v1/reports/income-statement
-router.get('/income-statement', requirePermission('reports:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/income-statement', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, start_date, end_date } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -102,7 +103,7 @@ router.get('/income-statement', requirePermission('reports:read'), requireEntity
     },
     meta: meta(req),
   });
-});
+}));
 
 /** The key set this endpoint has always published, held stable by hand. */
 const publishedInvoice = (r: AgedReceivableRow) => ({
@@ -130,7 +131,7 @@ const publishedBill = (r: AgedPayableRow) => ({
 });
 
 // GET /v1/reports/aged-receivables
-router.get('/aged-receivables', requirePermission('reports:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/aged-receivables', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, as_of_date } = req.query;
   const entityId = entity_id as string || req.entityId;
   const asOf = as_of_date as string || new Date().toISOString().split('T')[0];
@@ -143,10 +144,10 @@ router.get('/aged-receivables', requirePermission('reports:read'), requireEntity
     data: { entity_id: entityId, as_of_date: asOf, invoices: report.rows.map(publishedInvoice) },
     meta: meta(req),
   });
-});
+}));
 
 // GET /v1/reports/aged-payables
-router.get('/aged-payables', requirePermission('reports:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/aged-payables', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, as_of_date } = req.query;
   const entityId = entity_id as string || req.entityId;
   const asOf = as_of_date as string || new Date().toISOString().split('T')[0];
@@ -157,7 +158,7 @@ router.get('/aged-payables', requirePermission('reports:read'), requireEntityAcc
     data: { entity_id: entityId, as_of_date: asOf, bills: report.rows.map(publishedBill) },
     meta: meta(req),
   });
-});
+}));
 
 // GET /v1/reports/cash-flow
 //
@@ -168,7 +169,7 @@ router.get('/aged-payables', requirePermission('reports:read'), requireEntityAcc
 // are detected by `name ILIKE '%receivable%'`. A statement of cash flows
 // that only pretends to have a method does not belong in a shared service
 // until it has one.
-router.get('/cash-flow', requirePermission('reports:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/cash-flow', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, start_date, end_date, method = 'indirect' } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -273,10 +274,10 @@ router.get('/cash-flow', requirePermission('reports:read'), requireEntityAccess,
     },
     meta: meta(req),
   });
-});
+}));
 
 // GET /v1/reports/general-ledger
-router.get('/general-ledger', requirePermission('reports:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/general-ledger', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, account_id, start_date, end_date, page = '1', per_page = '100' } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -304,6 +305,6 @@ router.get('/general-ledger', requirePermission('reports:read'), requireEntityAc
     },
     meta: meta(req),
   });
-});
+}));
 
 export default router;

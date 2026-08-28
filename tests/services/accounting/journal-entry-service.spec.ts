@@ -15,19 +15,17 @@ import {
   validateDraftShape,
   parseEntryDocument,
   parseLineFlag,
-  assertEntryBelongsTo,
 } from '../../../src/services/accounting/journal-entry-service.js';
 import { query } from '../../../src/database/connection.js';
 import { createJournalEntry } from '../../../src/services/accounting/posting.js';
 import { validateJournalEntry } from '../../../src/services/accounting/validation.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
 const mockCreate = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
 const mockValidate = validateJournalEntry as unknown as ReturnType<typeof vi.fn>;
 
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-const OTHER = 'ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee';
 const USER = 'user-1';
 
 beforeEach(() => {
@@ -357,19 +355,10 @@ describe('documents a person or an agent hands us', () => {
   });
 });
 
-describe('assertEntryBelongsTo — the guard the id-taking engine cannot do itself', () => {
-  it('accepts an entry of this entity', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ entity_id: ENTITY }] });
-    await expect(assertEntryBelongsTo(ENTITY, 'e1')).resolves.toBeUndefined();
-  });
-
-  it('refuses an entry of another entity', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ entity_id: OTHER }] });
-    await expect(assertEntryBelongsTo(ENTITY, 'e1')).rejects.toThrow(ConflictError);
-  });
-
-  it('reports a missing entry as NotFound', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [] });
-    await expect(assertEntryBelongsTo(ENTITY, 'e1')).rejects.toThrow(NotFoundError);
-  });
-});
+// Aquí vivían las tres pruebas de assertEntryBelongsTo. Se van con ella: la
+// función no tenía llamadores en producción, leía sin acotar y distinguía «no
+// existe» de «es de otro», que es el oráculo que TEN-1 cierra. Lo que la
+// sustituye —requireByIdInScope— se prueba contra Postgres real en
+// tests/integration/frontera-entidad.int.spec.ts, no con un query() simulado:
+// una frontera que vive DENTRO del SQL no se puede demostrar con un doble que
+// devuelve lo que se le diga.

@@ -11,6 +11,49 @@ import type {
 
 const BALANCE_TOLERANCE = new Decimal('0.01');
 
+// ============================================================
+// LAS CUENTAS DE LAS LÍNEAS SE RESOLVÍAN GLOBALMENTE.
+//
+// Tres de las siete reglas leen las cuentas de las líneas, y las tres lo
+// hacían con `WHERE id IN (...)` sin más. El account_id llega crudo del cuerpo
+// de la petición (`POST /v1/journal-entries`, y también de GraphQL y de la
+// terminal), y nadie comprobaba jamás que la cuenta perteneciera a la entidad
+// del asiento.
+//
+// Lo que eso permitía: un asiento de MI entidad con una línea contra una
+// cuenta de la TUYA. Las tres reglas encontraban la cuenta ajena y la
+// validaban contra SUS banderas —is_active, is_header, allow_manual_entries—,
+// así que el asiento pasaba la validación y posteaba. A partir de ahí el
+// disparador de saldos mueve account_balances de una cuenta que no es de la
+// entidad del asiento: la balanza de comprobación de la víctima se desplaza
+// por un asiento que no aparece en su mayor. Es la clase de descuadre que un
+// contador tarda semanas en explicar, porque el asiento que lo causa no está
+// en sus libros.
+//
+// No es un `WHERE id = $1` sino un `WHERE id IN (...)`, que es justo por lo
+// que no lo alcanza `findByIdInScope`: la frontera aquí es un filtro de
+// conjunto, y va en el mismo SQL que ya se hacía —ni una consulta más—.
+//
+// El alcance sale de `entry.entity_id`, que las cuatro llamadas a
+// validateJournalEntry ya traen puesto (posting.ts:176 y :274,
+// journal-entry-service.ts:385 y :449). Por eso la firma pública no cambia y
+// no hay llamador que actualizar.
+// ============================================================
+
+/** Las cuentas de las líneas, ACOTADAS a la entidad del asiento. */
+async function cuentasDeLaEntidad<T extends { id: string }>(
+  columnas: string,
+  accountIds: string[],
+  entityId: string
+): Promise<Map<string, T>> {
+  const placeholders = accountIds.map((_, i) => `$${i + 2}`).join(',');
+  const result = await query<T>(
+    `SELECT ${columnas} FROM accounts WHERE entity_id = $1 AND id IN (${placeholders})`,
+    [entityId, ...accountIds]
+  );
+  return new Map(result.rows.map((a) => [a.id, a]));
+}
+
 // Rule 1: Debits must equal credits — EXACTLY.
 // NIF A-2 (postulado de dualidad económica): every transaction affects at
 // least two elements and the equation must hold. The DB CHECK on posting
@@ -77,22 +120,22 @@ const lineAmountRule: ValidationRule = {
 // Rule 3: Normal balance validation
 const accountTypeRule: ValidationRule = {
   name: 'accountType',
-  async validate(_entry, lines): Promise<ValidationResult> {
+  async validate(entry, lines): Promise<ValidationResult> {
     const warnings: string[] = [];
 
     const accountIds = lines.map((l) => l.account_id);
     if (accountIds.length === 0) return { isValid: true, errors: [], warnings: [] };
 
-    const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(',');
-    const result = await query<Account>(
-      `SELECT id, account_type, normal_balance FROM accounts WHERE id IN (${placeholders})`,
-      accountIds
+    const accountMap = await cuentasDeLaEntidad<Account>(
+      'id, account_type, normal_balance',
+      accountIds,
+      entry.entity_id
     );
-
-    const accountMap = new Map(result.rows.map((a) => [a.id, a]));
 
     for (const line of lines) {
       const account = accountMap.get(line.account_id);
+      // Una cuenta ajena no está en el mapa. Aquí no se dice nada: esta regla
+      // sólo emite advertencias, y quien RECHAZA la línea es accountPermission.
       if (!account) continue;
 
       const isDebit = line.debit_amount !== null;
@@ -165,18 +208,25 @@ const accountPermissionRule: ValidationRule = {
     const accountIds = lines.map((l) => l.account_id);
     if (accountIds.length === 0) return { isValid: true, errors: [], warnings: [] };
 
-    const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(',');
-    const result = await query<Account>(
-      `SELECT id, code, name, allow_manual_entries, is_header, is_active
-       FROM accounts WHERE id IN (${placeholders})`,
-      accountIds
+    const accountMap = await cuentasDeLaEntidad<Account>(
+      'id, code, name, allow_manual_entries, is_header, is_active',
+      accountIds,
+      entry.entity_id
     );
-
-    const accountMap = new Map(result.rows.map((a) => [a.id, a]));
 
     for (const line of lines) {
       const account = accountMap.get(line.account_id);
       if (!account) {
+        // ÉSTE es el punto donde la frontera muerde. Una cuenta de otra
+        // entidad sale del mapa igual que una inexistente, y cae en un error
+        // que ya existía: no hubo que inventar una rama nueva, y por tanto
+        // tampoco una por la que el programa pueda delatarse.
+        //
+        // TODO(decisión pendiente): ¿se queda «not found» a secas, o una
+        // cuenta ajena merece un mensaje propio? Ver la conversación: es el
+        // mismo pulso 404-vs-403 de scope.ts, pero aquí el que lo lee suele
+        // ser un contable de un grupo con varias entidades que pegó el UUID
+        // de la cuenta equivocada, no un atacante.
         errors.push(`Line ${line.line_number}: Account ${line.account_id} not found`);
         continue;
       }
@@ -251,12 +301,11 @@ const nifSubstanceRule: ValidationRule = {
     const accountIds = lines.map((l) => l.account_id);
     if (accountIds.length === 0) return { isValid: true, errors: [], warnings: [] };
 
-    const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(',');
-    const result = await query<Account>(
-      `SELECT id, code, account_type FROM accounts WHERE id IN (${placeholders})`,
-      accountIds
+    const byId = await cuentasDeLaEntidad<Account>(
+      'id, code, account_type',
+      accountIds,
+      entry.entity_id
     );
-    const byId = new Map(result.rows.map((a) => [a.id, a]));
     const description = `${entry.description ?? ''}`.toLowerCase();
 
     for (const line of lines) {

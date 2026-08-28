@@ -7,6 +7,7 @@ import { requirePermission } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
 import { autoMatchUnreconciled } from '../../../services/banking/matching.js';
+import { entityScope } from '../../../database/scope.js';
 import type { BankTransaction, ReconciliationSession } from '../../../types/index.js';
 import { MATCHED_ENTITY_TYPES } from '../../../database/enums.js';
 
@@ -89,7 +90,7 @@ router.post('/:account_id/import', requirePermission('journal_entries:create'), 
 }));
 
 // GET /v1/bank-accounts/:account_id/transactions/unmatched
-router.get('/:account_id/transactions/unmatched', requirePermission('journal_entries:read'), async (req: Request, res: Response) => {
+router.get('/:account_id/transactions/unmatched', requirePermission('journal_entries:read'), asyncHandler(async (req: Request, res: Response) => {
   const result = await query<BankTransaction>(
     `SELECT * FROM bank_transactions
      WHERE bank_account_id = $1 AND is_matched = false
@@ -101,10 +102,10 @@ router.get('/:account_id/transactions/unmatched', requirePermission('journal_ent
     data: result.rows,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /v1/bank-transactions/:id/match-suggestions
-router.get('/transactions/:id/suggestions', requirePermission('journal_entries:read'), async (req: Request, res: Response) => {
+router.get('/transactions/:id/suggestions', requirePermission('journal_entries:read'), asyncHandler(async (req: Request, res: Response) => {
   const txResult = await query<BankTransaction>(
     'SELECT * FROM bank_transactions WHERE id = $1',
     [req.params.id]
@@ -154,7 +155,7 @@ router.get('/transactions/:id/suggestions', requirePermission('journal_entries:r
     data: suggestions,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /v1/bank-transactions/:id/match
 router.post('/transactions/:id/match', requirePermission('journal_entries:create'), validateBody(matchTransactionSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -212,7 +213,7 @@ router.post('/:account_id/reconciliations', requirePermission('journal_entries:c
 }));
 
 // GET /v1/reconciliations/:id
-router.get('/reconciliations/:id', requirePermission('journal_entries:read'), async (req: Request, res: Response) => {
+router.get('/reconciliations/:id', requirePermission('journal_entries:read'), asyncHandler(async (req: Request, res: Response) => {
   const session = await query<ReconciliationSession>(
     'SELECT * FROM reconciliation_sessions WHERE id = $1',
     [req.params.id]
@@ -249,11 +250,20 @@ router.get('/reconciliations/:id', requirePermission('journal_entries:read'), as
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /v1/bank-accounts/:account_id/auto-match (ML matching)
+//
+// El account_id llegaba crudo al motor, y esta ruta no lleva
+// requireEntityAccess. Con el UUID de una cuenta ajena se conciliaba su
+// extracto entero: is_matched = true sobre SUS movimientos y filas nuevas en
+// reconciliation_matches. Y el efecto no se queda en el banco —period-close.ts
+// lee el estado de conciliación como evidencia de cierre—, así que era una
+// escritura contable en los libros de otro.
 router.post('/:account_id/auto-match', requirePermission('journal_entries:create'), asyncHandler(async (req: Request, res: Response) => {
-  const result = await autoMatchUnreconciled(req.params.account_id);
+  const result = await autoMatchUnreconciled(req.params.account_id, {
+    scope: entityScope(req.tenantId!, req.entityId!),
+  });
 
   res.json({
     data: result,

@@ -17,7 +17,7 @@ const closePeriodSchema = z.object({
 });
 
 // GET /v1/fiscal-periods
-router.get('/', requirePermission('accounts:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/', requirePermission('accounts:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, fiscal_year_id, status } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -32,10 +32,10 @@ router.get('/', requirePermission('accounts:read'), requireEntityAccess, async (
     data: rows,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /v1/fiscal-periods/:id/close-status
-router.get('/:id/close-status', requirePermission('periods:close'), async (req: Request, res: Response) => {
+router.get('/:id/close-status', requirePermission('periods:close'), asyncHandler(async (req: Request, res: Response) => {
   const entityId = req.query.entity_id as string || req.entityId;
   if (!entityId) throw new NotFoundError('Entity');
 
@@ -45,7 +45,7 @@ router.get('/:id/close-status', requirePermission('periods:close'), async (req: 
     data: status,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /v1/fiscal-periods/:id/soft-close
 router.post('/:id/soft-close', requirePermission('periods:close'), validateBody(closePeriodSchema), asyncHandler(async (req: Request, res: Response) => {

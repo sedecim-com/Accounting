@@ -44,7 +44,63 @@ async function authenticateAsync(req: Request, _res: Response): Promise<void> {
 
   req.user = payload;
   req.tenantId = payload.tenant_id;
-  req.entityId = (req.headers['x-entity-id'] as string) || payload.entities[0];
+  req.entityId = resolverEntidadActiva(payload, req.headers['x-entity-id']);
+}
+
+/**
+ * LA CABECERA ELIGE ENTRE LAS ENTIDADES DEL TOKEN; NO LAS AMPLÍA.
+ *
+ * Esto era `(req.headers['x-entity-id'] as string) || payload.entities[0]`, sin
+ * contrastar la cabecera contra nada. Y `req.entityId` es el alcance con el que
+ * trabaja media API: `entityId: req.entityId!` en invoices, `entity_id ||
+ * req.entityId` en bills, customers, vendors, journal-entries y fiscal-periods.
+ *
+ * Lo que eso significaba: el alcance de la petición lo escribía el cliente. El
+ * primer tramo de TEN-1 acotó `issueInvoice`/`voidInvoice` con `entityId`
+ * obligatorio, y las dos rutas que los llaman —POST /v1/invoices/:id/send y
+ * /:id/void— no llevan `requireEntityAccess`. Así que el filtro `AND entity_id
+ * = $2` que se añadió al SQL recibía el valor de la cabecera: bastaba mandar
+ * `x-entity-id: <entidad ajena>` para que el SELECT ... FOR UPDATE acotado
+ * encontrara la factura ajena y la anulara, contraasentando su ingreso en el
+ * mayor de la víctima. El arreglo era correcto y sorteable a la vez.
+ *
+ * `requireEntityAccess` no lo tapaba ni donde está montado: mira el PRIMERO de
+ * (req.entityId, params.entity_id, body.entity_id), y req.entityId siempre
+ * tiene valor — de modo que en una ruta cuyo id de entidad viaja en el cuerpo
+ * valida la cabecera y nunca el cuerpo.
+ *
+ * Se arregla AQUÍ, en authenticate, y no en un middleware que cada ruta deba
+ * recordar montar: es el mismo criterio que puso la frontera en la capa de
+ * datos. Un valor que sale de authenticate ya es de fiar, o no sale.
+ *
+ * 403 y no 404: no hay lectura de base ni oráculo de existencia. La cabecera se
+ * contrasta contra una lista que el propio llamador ya tiene en su token, así
+ * que la respuesta no le dice nada que no supiera.
+ */
+function resolverEntidadActiva(
+  payload: JwtPayload,
+  cabecera: string | string[] | undefined
+): string | undefined {
+  // Sin cabecera: la entidad por omisión del token. Es la que ya se usaba.
+  if (cabecera === undefined) return payload.entities[0];
+
+  // Repetida (`x-entity-id: a, x-entity-id: b`) Express la entrega como array.
+  // No se elige una: una petición actúa sobre UNA entidad, y adivinar cuál
+  // quiso decir el cliente es exactamente la clase de decisión que no debe
+  // tomar la capa de autenticación.
+  if (Array.isArray(cabecera)) {
+    throw new ForbiddenError('x-entity-id viene repetida: la petición actúa sobre una sola entidad');
+  }
+
+  const pedida = cabecera.trim();
+  if (pedida === '') return payload.entities[0];
+
+  if (!payload.entities.includes(pedida)) {
+    // El mensaje no distingue entre «esa entidad no existe» y «existe y no es
+    // tuya»: no hace falta, porque no se ha leído nada para saberlo.
+    throw new ForbiddenError('Access denied to this entity');
+  }
+  return pedida;
 }
 
 function verifyLocal(token: string): JwtPayload {
@@ -109,12 +165,15 @@ export function requireEntityAccess(req: Request, _res: Response, next: NextFunc
 
   // SE VALIDAN TODOS LOS QUE LA PETICIÓN TRAE, NO EL PRIMERO.
   //
-  // Esto era una cadena de `||`, y por eso no servía: `authenticate` asigna
-  // SIEMPRE `req.entityId = x-entity-id || payload.entities[0]`, y un
-  // usuario sin entidades accesibles ni siquiera puede iniciar sesión. El
-  // primer término nunca es falsy, así que la cadena jamás llegaba a los
-  // otros tres: la guarda comprobaba la cabecera mientras el manejador leía
-  // su `?entity_id=`. Tres de las cuatro fuentes eran inalcanzables.
+  // Esto era una cadena de `||`, y por eso no servía: `authenticate` puebla
+  // SIEMPRE `req.entityId`, y un usuario sin entidades accesibles ni
+  // siquiera puede iniciar sesión. El primer término nunca es falsy, así que
+  // la cadena jamás llegaba a los otros tres: la guarda comprobaba una
+  // fuente mientras el manejador leía su `?entity_id=`. Tres de las cuatro
+  // eran inalcanzables.
+  //
+  // La cabecera ya la valida `resolverEntidadActiva` en el origen; esto es
+  // la otra mitad, para las fuentes que no pasan por ahí.
   //
   // Con varias fuentes no hay forma de saber aquí cuál va a usar el
   // manejador —cada ruta lee la suya— así que la única regla correcta es

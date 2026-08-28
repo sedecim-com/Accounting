@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
-import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
+import { requirePermission, requireEntityAccess, assertEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
 import { blockchainOrchestrator } from '../../../services/blockchain/orchestrator.js';
@@ -78,7 +78,7 @@ const commitPeriodSchema = z.object({
 // ============================================================
 
 // GET /v1/admin/blockchain/config
-router.get('/config', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/config', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const result = await query(
     'SELECT * FROM blockchain_config WHERE tenant_id = $1',
     [req.user!.tenant_id]
@@ -88,7 +88,7 @@ router.get('/config', requirePermission('settings:manage'), async (req: Request,
     data: result.rows[0] || null,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // PUT /v1/admin/blockchain/config
 router.put('/config', requirePermission('settings:manage'), validateBody(blockchainConfigSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -178,19 +178,19 @@ router.post('/config/validate', requirePermission('settings:manage'), validateBo
 }));
 
 // GET /v1/admin/blockchain/chains
-router.get('/chains', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/chains', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   res.json({
     data: Object.values(CHAIN_CONFIGS),
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // ============================================================
 // DISCLOSURE CONFIG
 // ============================================================
 
 // GET /v1/admin/disclosure-config
-router.get('/disclosure-config', requirePermission('settings:manage'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/disclosure-config', requirePermission('settings:manage'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -203,7 +203,7 @@ router.get('/disclosure-config', requirePermission('settings:manage'), requireEn
     data: result.rows[0] || null,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // PUT /v1/admin/disclosure-config
 router.put('/disclosure-config', requirePermission('settings:manage'), requireEntityAccess, validateBody(disclosureConfigSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -250,7 +250,7 @@ router.put('/disclosure-config', requirePermission('settings:manage'), requireEn
 // ============================================================
 
 // GET /v1/admin/bitcoin/config
-router.get('/bitcoin/config', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/bitcoin/config', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const result = await query(
     'SELECT * FROM bitcoin_anchor_config WHERE tenant_id = $1',
     [req.user!.tenant_id]
@@ -260,7 +260,7 @@ router.get('/bitcoin/config', requirePermission('settings:manage'), async (req: 
     data: result.rows[0] || null,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // PUT /v1/admin/bitcoin/config
 router.put('/bitcoin/config', requirePermission('settings:manage'), validateBody(bitcoinConfigSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -358,7 +358,7 @@ router.post('/bitcoin/anchor-now', requirePermission('settings:manage'), asyncHa
 // ============================================================
 
 // GET /v1/admin/blockchain/attestations
-router.get('/attestations', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/attestations', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, status, source_type, page = '1', per_page = '50' } = req.query;
   const pageNum = Math.max(1, parseInt(page as string, 10));
   const perPage = Math.min(100, parseInt(per_page as string, 10));
@@ -395,11 +395,18 @@ router.get('/attestations', requirePermission('settings:manage'), async (req: Re
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /v1/admin/blockchain/commit-period
+//
+// `requireEntityAccess` NO sirve aquí, y conviene decir por qué: mira el
+// PRIMERO de (req.entityId, params.entity_id, body.entity_id), y req.entityId
+// siempre tiene valor — así que en una ruta cuyo id de entidad viaja en el
+// cuerpo validaría la cabecera y nunca el cuerpo. La pertenencia del
+// entity_id del cuerpo se comprueba explícitamente.
 router.post('/commit-period', requirePermission('periods:close'), validateBody(commitPeriodSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, period_id } = req.body;
+  assertEntityAccess(req.user!, entity_id);
 
   const result = await blockchainOrchestrator.commitPeriod({
     tenantId: req.user!.tenant_id, entityId: entity_id, periodId: period_id,
@@ -412,8 +419,13 @@ router.post('/commit-period', requirePermission('periods:close'), validateBody(c
 }));
 
 // POST /v1/admin/blockchain/publish-aggregates
+//
+// Lo que esta ruta publica se sirve DESPUÉS SIN AUTENTICAR en
+// GET /public/v1/entities/:entityId/aggregates, que filtra sólo por entity_id.
+// Escribir aquí con la entidad de otro era publicar sus cifras al mundo.
 router.post('/publish-aggregates', requirePermission('periods:close'), validateBody(commitPeriodSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, period_id } = req.body;
+  assertEntityAccess(req.user!, entity_id);
 
   const result = await blockchainOrchestrator.publishAggregates({
     tenantId: req.user!.tenant_id, entityId: entity_id, periodId: period_id,
@@ -430,7 +442,7 @@ router.post('/publish-aggregates', requirePermission('periods:close'), validateB
 // ============================================================
 
 // GET /v1/admin/bitcoin/anchors
-router.get('/bitcoin/anchors', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/bitcoin/anchors', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const result = await query(
     `SELECT id, anchor_type, merkle_root, entry_count,
             bitcoin_txid, bitcoin_block_height, confirmations,
@@ -444,6 +456,6 @@ router.get('/bitcoin/anchors', requirePermission('settings:manage'), async (req:
     data: result.rows,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 export default router;
