@@ -139,6 +139,7 @@ router.post('/:id/send', requirePermission('invoices:send'), validateBody(sendIn
   const { to } = req.body;
 
   const { attest } = await issueInvoice(req.params.id, req.user!.user_id, {
+    entityId: req.entityId!,
     markSent: true,
     sentTo: to,
   });
@@ -196,6 +197,7 @@ router.post('/:id/payments', requirePermission('invoices:create'), validateBody(
 // has never enforced them and its contract is unchanged.
 router.post('/:id/void', requirePermission('invoices:void'), asyncHandler(async (req: Request, res: Response) => {
   const { invoice, attest } = await voidInvoice(req.params.id, req.user!.user_id, {
+    entityId: req.entityId!,
     allowStamped: true,
     allowApplied: true,
   });

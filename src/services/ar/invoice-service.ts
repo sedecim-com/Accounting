@@ -381,6 +381,15 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
 
 export interface IssueInvoiceOptions {
   /**
+   * La entidad del llamador. OBLIGATORIA, y por eso está en el tipo: la
+   * pertenencia se comprueba DENTRO del SQL, no después. Antes esta función
+   * recibía sólo el id y `POST /v1/invoices/:id/...` se lo pasaba crudo, así
+   * que conocer un UUID bastaba para emitir o anular la factura de otra
+   * entidad —y contraasentar su ingreso en el mayor ajeno—. Con el campo en
+   * el tipo, un llamador sin alcance no compila.
+   */
+  entityId: string;
+  /**
    * Also stamp the delivery fields (sent_at, sent_to). Only a caller that
    * actually delivered the document may pass this: `invoice issue` does not.
    */
@@ -439,7 +448,7 @@ class DryRunRollback extends Error {
 export async function issueInvoice(
   invoiceId: string,
   userId: string,
-  opts: IssueInvoiceOptions = {}
+  opts: IssueInvoiceOptions
 ): Promise<IssueInvoiceResult> {
   try {
     return await withTransaction(async (client) => {
@@ -459,9 +468,12 @@ async function issueInvoiceInTx(
   userId: string,
   opts: IssueInvoiceOptions
 ): Promise<IssueInvoiceResult> {
-  const found = await client.query<Invoice>('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [
-    invoiceId,
-  ]);
+  // El filtro y el candado, en la MISMA sentencia: cero filas significa a la
+  // vez «no existe» y «no es de tu entidad», y no hay rama que los distinga.
+  const found = await client.query<Invoice>(
+    'SELECT * FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE',
+    [invoiceId, opts.entityId]
+  );
   if (found.rows.length === 0) throw new NotFoundError('Invoice', invoiceId);
   const invoice = found.rows[0];
 
@@ -477,12 +489,12 @@ async function issueInvoiceInTx(
 
   if (opts.markSent) {
     await client.query(
-      `UPDATE invoices SET status = 'sent', sent_at = NOW(), sent_to = $1 WHERE id = $2`,
-      [opts.sentTo || '', invoiceId]
+      `UPDATE invoices SET status = 'sent', sent_at = NOW(), sent_to = $1 WHERE id = $2 AND entity_id = $3`,
+      [opts.sentTo || '', invoiceId, opts.entityId]
     );
   } else {
     // Issuing does not deliver: sent_at and sent_to stay as they are.
-    await client.query(`UPDATE invoices SET status = 'sent' WHERE id = $1`, [invoiceId]);
+    await client.query(`UPDATE invoices SET status = 'sent' WHERE id = $1 AND entity_id = $2`, [invoiceId, opts.entityId]);
   }
 
   const lines = await client.query<InvoiceLine>(
@@ -517,6 +529,15 @@ async function issueInvoiceInTx(
 }
 
 export interface VoidInvoiceOptions {
+  /**
+   * La entidad del llamador. OBLIGATORIA, y por eso está en el tipo: la
+   * pertenencia se comprueba DENTRO del SQL, no después. Antes esta función
+   * recibía sólo el id y `POST /v1/invoices/:id/...` se lo pasaba crudo, así
+   * que conocer un UUID bastaba para emitir o anular la factura de otra
+   * entidad —y contraasentar su ingreso en el mayor ajeno—. Con el campo en
+   * el tipo, un llamador sin alcance no compila.
+   */
+  entityId: string;
   /**
    * Allow voiding an invoice that carries a CFDI UUID. Locally voiding a
    * stamped document does not cancel it before the SAT, so the default is
@@ -553,7 +574,7 @@ class VoidDryRunRollback extends Error {
 export async function voidInvoice(
   invoiceId: string,
   userId: string,
-  opts: VoidInvoiceOptions = {}
+  opts: VoidInvoiceOptions
 ): Promise<VoidInvoiceResult> {
   // The guard reads before the transaction opens, so a payment applied in the
   // same instant could still slip past it. That window is the same one the
@@ -586,8 +607,9 @@ export async function voidInvoice(
   try {
     return await withTransaction(async (client) => {
       const updated = await client.query<Invoice>(
-        `UPDATE invoices SET status = 'void' WHERE id = $1 AND status NOT IN ('paid', 'void') RETURNING *`,
-        [invoiceId]
+        `UPDATE invoices SET status = 'void'
+          WHERE id = $1 AND entity_id = $2 AND status NOT IN ('paid', 'void') RETURNING *`,
+        [invoiceId, opts.entityId]
       );
       if (updated.rows.length === 0) throw new NotFoundError('Invoice', invoiceId);
       const voided = updated.rows[0];

@@ -125,7 +125,19 @@ export function assertEntityAccess(
   user: { entities: string[]; permissions: string[] },
   entityId: string
 ): void {
-  if (!user.entities.includes(entityId) && !user.permissions.includes('*')) {
+  // UN COMODÍN DE PERMISOS AUTORIZA VERBOS, NO FILAS.
+  //
+  // Antes esto era `... && !user.permissions.includes('*')`, y el rol owner
+  // es exactamente ['*'] (ROLES.owner, abajo). O sea: para cualquier owner
+  // esta función era un no-op y aceptaba el id de CUALQUIER entidad, de
+  // cualquier inquilino. Lo único que quedaba en medio era RLS, que es
+  // inerte con un rol de conexión que la ignora.
+  //
+  // Permiso y pertenencia son dos ejes distintos: `journal_entries:post`
+  // dice QUÉ puedes hacer, accessible_entities dice SOBRE QUÉ. Quitar el
+  // comodín no deja a nadie fuera: un usuario sin entidades accesibles ni
+  // siquiera puede iniciar sesión (auth/provisioning.ts).
+  if (!user.entities.includes(entityId)) {
     throw new ForbiddenError('Access denied to this entity');
   }
 }

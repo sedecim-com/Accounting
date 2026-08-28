@@ -267,7 +267,7 @@ describe('issueInvoice — issuing is not sending', () => {
 
   it('does not touch the delivery fields when it is only issuing', async () => {
     arrangeIssue({ id: 'je-1', entry_number: 'JE-2026-00006' });
-    await issueInvoice(INVOICE, USER);
+    await issueInvoice(INVOICE, USER, { entityId: ENTITY });
     const update = client.query.mock.calls.find((c) => String(c[0]).includes('UPDATE invoices SET status'))!;
     expect(String(update[0])).toMatch(/SET status = 'sent'/);
     expect(String(update[0])).not.toMatch(/sent_at|sent_to/);
@@ -275,7 +275,7 @@ describe('issueInvoice — issuing is not sending', () => {
 
   it('stamps the delivery fields for the caller that really delivered', async () => {
     arrangeIssue({ id: 'je-1', entry_number: 'JE-1' });
-    await issueInvoice(INVOICE, USER, { markSent: true, sentTo: 'ap@acme.com' });
+    await issueInvoice(INVOICE, USER, { entityId: ENTITY, markSent: true, sentTo: 'ap@acme.com' });
     const update = client.query.mock.calls.find((c) => String(c[0]).includes('UPDATE invoices SET status'))!;
     expect(String(update[0])).toMatch(/sent_at = NOW\(\), sent_to = \$1/);
     expect(update[1][0]).toBe('ap@acme.com');
@@ -283,7 +283,7 @@ describe('issueInvoice — issuing is not sending', () => {
 
   it('posts through the single AR path and hands back what to attest', async () => {
     arrangeIssue({ id: 'je-1', entry_number: 'JE-1' });
-    const result = await issueInvoice(INVOICE, USER);
+    const result = await issueInvoice(INVOICE, USER, { entityId: ENTITY });
     expect(mockPost).toHaveBeenCalledOnce();
     expect(result.attest).toEqual({ entityId: ENTITY, entryId: 'je-1' });
     expect(result.entryLines).toHaveLength(1);
@@ -296,7 +296,7 @@ describe('issueInvoice — issuing is not sending', () => {
       return { rows: [{ ...invoiceRow, journal_entry_id: 'je-old' }] };
     });
     mockPost.mockResolvedValue(null); // idempotent: it refuses to post again
-    const result = await issueInvoice(INVOICE, USER);
+    const result = await issueInvoice(INVOICE, USER, { entityId: ENTITY });
     expect(result.alreadyPosted).toBe(true);
     expect(result.entry).toBeNull();
     expect(result.attest).toBeNull();
@@ -304,7 +304,7 @@ describe('issueInvoice — issuing is not sending', () => {
 
   it('refuses a void invoice when the caller asked for the guard', async () => {
     client.query.mockResolvedValue({ rows: [{ ...invoiceRow, status: 'void' }] });
-    await expect(issueInvoice(INVOICE, USER, { enforceStatusGuard: true })).rejects.toThrow(ValidationError);
+    await expect(issueInvoice(INVOICE, USER, { entityId: ENTITY, enforceStatusGuard: true })).rejects.toThrow(ValidationError);
     expect(mockPost).not.toHaveBeenCalled();
   });
 
@@ -317,17 +317,17 @@ describe('issueInvoice — issuing is not sending', () => {
       if (t.includes('journal_entry_lines')) return { rows: [] };
       return { rows: [invoiceRow] };
     });
-    await expect(issueInvoice(INVOICE, USER, { markSent: true })).resolves.toBeDefined();
+    await expect(issueInvoice(INVOICE, USER, { entityId: ENTITY, markSent: true })).resolves.toBeDefined();
   });
 
   it('throws NotFound when the invoice is gone', async () => {
     client.query.mockResolvedValue({ rows: [] });
-    await expect(issueInvoice(INVOICE, USER)).rejects.toThrow(NotFoundError);
+    await expect(issueInvoice(INVOICE, USER, { entityId: ENTITY })).rejects.toThrow(NotFoundError);
   });
 
   it('computes the whole effect and returns it, for --dry-run', async () => {
     arrangeIssue({ id: 'je-1', entry_number: 'JE-2026-00006' });
-    const result = await issueInvoice(INVOICE, USER, { dryRun: true });
+    const result = await issueInvoice(INVOICE, USER, { entityId: ENTITY, dryRun: true });
     // The work really happened — the transaction is what gets thrown away.
     expect(mockPost).toHaveBeenCalledOnce();
     expect(result.dryRun).toBe(true);
@@ -340,7 +340,7 @@ describe('issueInvoice — issuing is not sending', () => {
       return { rows: [] };
     });
     mockPost.mockRejectedValue(new Error('No hay cuenta mapeada al rol "cxc"'));
-    await expect(issueInvoice(INVOICE, USER, { dryRun: true })).rejects.toThrow(/cxc/);
+    await expect(issueInvoice(INVOICE, USER, { entityId: ENTITY, dryRun: true })).rejects.toThrow(/cxc/);
   });
 });
 
@@ -354,7 +354,7 @@ describe('voidInvoice', () => {
     mockQuery.mockResolvedValueOnce({
       rows: [{ cfdi_uuid: 'UUID-1', cfdi_status: 'stamped', applied: '0' }],
     });
-    await expect(voidInvoice(INVOICE, USER)).rejects.toThrow(
+    await expect(voidInvoice(INVOICE, USER, { entityId: ENTITY })).rejects.toThrow(
       expect.objectContaining({ name: 'ConflictError', message: expect.stringContaining('SAT') })
     );
     expect(client.query).not.toHaveBeenCalled();
@@ -364,7 +364,7 @@ describe('voidInvoice', () => {
     mockQuery.mockResolvedValueOnce({
       rows: [{ cfdi_uuid: null, cfdi_status: null, applied: '500.0000' }],
     });
-    await expect(voidInvoice(INVOICE, USER)).rejects.toThrow(
+    await expect(voidInvoice(INVOICE, USER, { entityId: ENTITY })).rejects.toThrow(
       expect.objectContaining({ name: 'ConflictError', message: expect.stringContaining('500.0000') })
     );
   });
@@ -372,14 +372,14 @@ describe('voidInvoice', () => {
   it('skips the guard entirely for the HTTP surface, which never had one', async () => {
     client.query.mockResolvedValue({ rows: [voided] });
     mockVoidJe.mockResolvedValue({ entry: {}, reversal: { id: 'rev-1' } });
-    await voidInvoice(INVOICE, USER, { allowStamped: true, allowApplied: true });
+    await voidInvoice(INVOICE, USER, { entityId: ENTITY, allowStamped: true, allowApplied: true });
     expect(mockQuery).not.toHaveBeenCalled(); // no pre-flight read at all
   });
 
   it('annuls the ledger entry with a linked reversal, in the same transaction', async () => {
     client.query.mockResolvedValue({ rows: [voided] });
     mockVoidJe.mockResolvedValue({ entry: {}, reversal: { id: 'rev-1' } });
-    const result = await voidInvoice(INVOICE, USER, { allowStamped: true, allowApplied: true });
+    const result = await voidInvoice(INVOICE, USER, { entityId: ENTITY, allowStamped: true, allowApplied: true });
     expect(mockVoidJe).toHaveBeenCalledWith(client, 'je-1', USER, 'Invoice INV-2026-00002 voided');
     expect(result.reversalEntryId).toBe('rev-1');
     expect(result.attest).toEqual({ entityId: ENTITY, entryId: 'rev-1' });
@@ -388,7 +388,7 @@ describe('voidInvoice', () => {
   it('carries the reason into the reversal when one was given', async () => {
     client.query.mockResolvedValue({ rows: [voided] });
     mockVoidJe.mockResolvedValue({ entry: {}, reversal: { id: 'rev-1' } });
-    await voidInvoice(INVOICE, USER, { allowStamped: true, allowApplied: true, reason: 'billed twice' });
+    await voidInvoice(INVOICE, USER, { entityId: ENTITY, allowStamped: true, allowApplied: true, reason: 'billed twice' });
     expect(mockVoidJe).toHaveBeenCalledWith(
       client, 'je-1', USER, 'Invoice INV-2026-00002 voided: billed twice'
     );
@@ -397,14 +397,14 @@ describe('voidInvoice', () => {
   it('keeps the historical guard in SQL: a paid or void invoice is not found', async () => {
     client.query.mockResolvedValue({ rows: [] });
     await expect(
-      voidInvoice(INVOICE, USER, { allowStamped: true, allowApplied: true })
+      voidInvoice(INVOICE, USER, { entityId: ENTITY, allowStamped: true, allowApplied: true })
     ).rejects.toThrow(NotFoundError);
     expect(txSql(0)).toMatch(/status NOT IN \('paid', 'void'\)/);
   });
 
   it('does nothing to the ledger for an invoice that never reached it', async () => {
     client.query.mockResolvedValue({ rows: [{ ...voided, journal_entry_id: null }] });
-    const result = await voidInvoice(INVOICE, USER, { allowStamped: true, allowApplied: true });
+    const result = await voidInvoice(INVOICE, USER, { entityId: ENTITY, allowStamped: true, allowApplied: true });
     expect(mockVoidJe).not.toHaveBeenCalled();
     expect(result.reversalEntryId).toBeNull();
   });
@@ -413,7 +413,7 @@ describe('voidInvoice', () => {
     client.query.mockResolvedValue({ rows: [voided] });
     mockVoidJe.mockResolvedValue({ entry: {}, reversal: { id: 'rev-1' } });
     const result = await voidInvoice(INVOICE, USER, {
-      allowStamped: true, allowApplied: true, dryRun: true,
+      entityId: ENTITY, allowStamped: true, allowApplied: true, dryRun: true,
     });
     expect(result.dryRun).toBe(true);
     expect(result.reversalEntryId).toBe('rev-1');
@@ -421,7 +421,7 @@ describe('voidInvoice', () => {
 
   it('throws NotFound when the guard cannot find the invoice at all', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await expect(voidInvoice(INVOICE, USER)).rejects.toThrow(NotFoundError);
+    await expect(voidInvoice(INVOICE, USER, { entityId: ENTITY })).rejects.toThrow(NotFoundError);
   });
 });
 

@@ -562,6 +562,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       }
 
       const result = await issueInvoice(target.id, reviewer.userId, {
+        entityId: ctx.entityId,
         markSent: false,
         enforceStatusGuard: true,
         dryRun,
@@ -652,7 +653,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         );
       }
 
-      const result = await voidInvoice(target.id, reviewer.userId, { reason, dryRun });
+      const result = await voidInvoice(target.id, reviewer.userId, { entityId: ctx.entityId, reason, dryRun });
       if (result.attest && !dryRun) {
         attestEntryAsync(ctx.tenantId, result.attest.entityId, result.attest.entryId);
       }
