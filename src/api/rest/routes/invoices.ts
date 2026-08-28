@@ -5,7 +5,7 @@ import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { NotFoundError, ValidationError } from '../../../utils/errors.js';
+import { NotFoundError, ValidationError, NotImplementedError } from '../../../utils/errors.js';
 import { postCustomerPaymentEntry, attestEntryAsync } from '../../../services/accounting/index.js';
 import {
   listInvoices,
@@ -327,13 +327,22 @@ router.post('/:id/cfdi/cancel', requirePermission('invoices:void'), asyncHandler
     throw new ValidationError('replacement_uuid is required for reason 01');
   }
 
-  // TODO: Send cancellation request to PAC provider
-  await query(
-    `UPDATE invoices SET
-      cfdi_status = 'cancelled',
-      memo = COALESCE(memo, '') || $1
-     WHERE id = $2`,
-    [`\nCFDI Cancelled: reason=${cancellation_reason}, replacement=${replacement_uuid || 'N/A'}`, req.params.id]
+  // Cancelar ante el SAT es irreversible y este endpoint NUNCA lo hizo: marcaba
+  // la factura como cancelada en la base y devolvía 200. El resultado es la
+  // peor forma del defecto que el cerrojo antisimulación existe para impedir —
+  // el mayor cree cancelado un CFDI que el SAT sigue considerando vigente, y
+  // nadie se entera hasta que llega el requerimiento.
+  //
+  // Se retira en vez de completarse porque cancelar de verdad son cuatro cosas
+  // que no existen todavía: llamar al PAC por pac-router (que ya tiene la
+  // guarda), esperar el acuse, archivarlo por bytes, y encadenar la reversa del
+  // asiento contable. Media cancelación es peor que ninguna.
+  throw new NotImplementedError(
+    'mnemosine todavía no cancela CFDI ante el SAT. Cancela en el portal de tu PAC ' +
+      'o en el del SAT, y después reversa el asiento con `mnemosine entry reverse ' +
+      '<numero> --reason "CFDI cancelado, acuse <folio>"`. Cuando exista, la ' +
+      'cancelación irá por pac-router con acuse archivado y reversa encadenada.',
+    { invoice_id: req.params.id, cancellation_reason, replacement_uuid: replacement_uuid ?? null }
   );
 
   res.json({

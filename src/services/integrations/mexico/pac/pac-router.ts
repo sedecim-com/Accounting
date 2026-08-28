@@ -198,6 +198,12 @@ export class PacRouter {
       throw new AccountingError('PAC_NOT_FOUND', `Unknown PAC provider: ${pacProvider}`);
     }
 
+    // El mismo cerrojo que `stamp`, por la misma razón y con más motivo: una
+    // cancelación simulada deja una factura que el mayor cree cancelada y el
+    // SAT sigue considerando vigente. Cancelar es irreversible ante el SAT,
+    // así que un acuse fabricado es peor que un timbre fabricado.
+    assertPuedeTimbrar(pacProvider, adapter.simulado);
+
     return circuitBreaker.execute(ctx.tenantId, pacProvider, () => adapter.cancel(params, ctx));
   }
 
