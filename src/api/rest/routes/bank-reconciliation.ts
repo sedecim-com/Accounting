@@ -8,6 +8,7 @@ import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
 import { autoMatchUnreconciled } from '../../../services/banking/matching.js';
 import type { BankTransaction, ReconciliationSession } from '../../../types/index.js';
+import { MATCHED_ENTITY_TYPES } from '../../../database/enums.js';
 
 const router = Router();
 
@@ -31,7 +32,9 @@ const importTransactionsSchema = z.object({
 });
 
 const matchTransactionSchema = z.object({
-  matched_entity_type: z.enum(['invoice', 'bill', 'journal_entry', 'payment']),
+  // Pedía 'journal_entry' y 'payment', que no existen, y no dejaba escribir
+  // 'journal_entry_line' —el caso más común— ni los dos tipos de pago.
+  matched_entity_type: z.enum(MATCHED_ENTITY_TYPES),
   matched_entity_id: z.string().uuid(),
   matched_amount: z.union([z.string(), z.number()]).optional(),
 });

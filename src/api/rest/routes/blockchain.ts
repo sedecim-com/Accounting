@@ -7,6 +7,7 @@ import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
 import { blockchainOrchestrator } from '../../../services/blockchain/orchestrator.js';
 import { CHAIN_CONFIGS, ChainId } from '../../../services/blockchain/chain-adapters.js';
+import { REDUNDANCY_MODES, VERIFICATION_LAYERS, MESSAGING_PROTOCOLS } from '../../../database/enums.js';
 
 const router = Router();
 
@@ -19,10 +20,12 @@ const blockchainConfigSchema = z.object({
   primary_chain: z.string().optional(),
   primary_chain_contract_address: z.string().optional(),
   secondary_chains: z.array(secondaryChainSchema).optional(),
-  redundancy_mode: z.enum(['none', 'mirror', 'verify_only']).optional(),
+  // Los tres vocabularios de blockchain_config estaban separados de sus
+  // CHECK: de los nueve valores en juego coincidía UNO.
+  redundancy_mode: z.enum(REDUNDANCY_MODES).optional(),
   required_confirmations: z.number().int().min(1).max(100).optional(),
-  verification_layer: z.enum(['zkverify', 'none']).optional(),
-  messaging_protocol: z.enum(['layerzero', 'ccip', 'wormhole', 'none']).optional(),
+  verification_layer: z.enum(VERIFICATION_LAYERS).optional(),
+  messaging_protocol: z.enum(MESSAGING_PROTOCOLS).optional(),
   max_gas_price_gwei: z.union([z.string(), z.number()]).optional(),
   max_tx_cost_usd: z.union([z.string(), z.number()]).optional(),
   is_active: z.boolean().optional(),

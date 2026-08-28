@@ -37,6 +37,7 @@ import {
 } from '../../../services/payroll/usa/benefits/benefits-service.js';
 import { generateIdseBatch } from '../../../services/payroll/integrations/imss-idse-adapter.js';
 import { generateNachaFile } from '../../../services/payroll/usa/nacha-generator.js';
+import { PAY_RUN_TYPES } from '../../../database/enums.js';
 
 const router = Router();
 
@@ -79,7 +80,11 @@ const compensationChangeSchema = z.object({
 
 const createPayRunSchema = z.object({
   pay_period_id: z.string().uuid(),
-  run_type: z.enum(['regular', 'off_cycle', 'bonus', 'correction', 'finiquito']).default('regular'),
+  // El vocabulario sale de src/database/enums.ts, no de una copia a mano.
+  // Aceptaba 'finiquito', que el CHECK no tiene: la petición pasaba la
+  // validación y Postgres lanzaba 23514, o sea un 500 en vez de un 422.
+  // El valor canónico de un finiquito es 'final'.
+  run_type: z.enum(PAY_RUN_TYPES).default('regular'),
   notes: z.string().optional(),
 }).passthrough();
 
