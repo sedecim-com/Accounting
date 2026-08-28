@@ -134,8 +134,24 @@ async function bootstrap() {
     res.json({ status: 'healthy', version: '1.0.0', timestamp: new Date().toISOString() });
   });
 
-  // PUBLIC verification endpoints (no auth)
-  app.use('/public/v1', publicVerificationRouter);
+  // PUBLIC verification endpoints (no auth) — APAGADOS POR OMISIÓN.
+  //
+  // Este router sirve, sin credenciales, atestaciones cuyo anclaje los
+  // adaptadores de cadena FABRICAN: no hay transacción en ninguna red. Su
+  // propósito es que un tercero se las crea, así que publicarlo por defecto
+  // es la peor variante del acto que CLI-5 retiró. Se enciende cuando el
+  // anclaje sea real, con PUBLIC_VERIFICATION_ENABLED=true.
+  //
+  // Encendido, cada endpoint se niega igualmente a servir una fila
+  // simulada: la bandera decide si el router existe, no si miente.
+  if (process.env.PUBLIC_VERIFICATION_ENABLED === 'true') {
+    app.use('/public/v1', publicVerificationRouter);
+    logger.warn('public_verification_enabled', {
+      detail:
+        'La verificación pública está encendida. Sólo servirá atestaciones no simuladas; ' +
+        'hoy todas lo son, porque ningún adaptador de cadena ancla de verdad.',
+    });
+  }
 
   // Inbound AI webhooks: authenticated by their own dedicated tokens
   // (Bearer, hashed at rest), NOT by JWT — mounted before `authenticate` so

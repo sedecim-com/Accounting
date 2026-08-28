@@ -10,6 +10,36 @@ import { cryptoService } from '../../../services/blockchain/crypto-service.js';
 
 const router = Router();
 
+// ============================================================
+// UNA PRUEBA FABRICADA ES PEOR QUE NINGUNA.
+//
+// Los adaptadores de cadena no anclan nada: `simulateBlockNumber()`,
+// `simulateGasCost()` y un `confirmations: 12` fijo fabrican la atestación
+// entera. Este router sirve esas filas SIN AUTENTICACIÓN, y su propósito es
+// que un tercero —el auditor del cliente— se las crea.
+//
+// Es la misma clase que retiró CLI-5, en su peor variante: un timbre
+// inventado engaña a quien lo emitió; una atestación inventada engaña a
+// quien vino a comprobarla. Así que mientras el anclaje sea simulado, este
+// router no sirve nada y lo dice.
+//
+// No es un 404. Un 404 diría «no existe», y existe: lo que no existe es la
+// prueba. La distinción importa porque el auditor tiene que saber que la
+// contabilidad está ahí y que lo que falta es el anclaje.
+// ============================================================
+function rechazarSimulada(res: Response, que: string): void {
+  res.status(501).json({
+    errors: [{
+      code: 'ATTESTATION_SIMULATED',
+      message:
+        `${que} existe, pero su anclaje es SIMULADO: ningún hash se escribió en ninguna cadena, ` +
+        `así que no hay nada que un tercero pueda comprobar. Este endpoint se niega a presentarlo ` +
+        `como prueba. Volverá a responder cuando exista un adaptador de cadena real.`,
+    }],
+    meta: { timestamp: new Date().toISOString(), version: 'v1' },
+  });
+}
+
 // Rate limiter stub - 100 req/min per IP (already covered by global rate-limiter)
 
 // ============================================================
@@ -35,10 +65,11 @@ router.get('/verify/:entryHash', async (req: Request, res: Response) => {
     chain_attestations: unknown;
     status: string;
     created_at: Date;
+    is_simulated: boolean;
   }>(
     `SELECT id, tenant_id, entity_id, entry_hash,
             zkverify_attestation_id, zkverify_merkle_root, zkverify_confirmed_at,
-            chain_attestations, status, created_at
+            chain_attestations, status, created_at, is_simulated
      FROM blockchain_attestations WHERE entry_hash = $1 LIMIT 1`,
     [entryHash]
   );
@@ -52,6 +83,10 @@ router.get('/verify/:entryHash', async (req: Request, res: Response) => {
   }
 
   const a = attestation.rows[0];
+  if (a.is_simulated) {
+    rechazarSimulada(res, 'La atestación de ese asiento');
+    return;
+  }
   const chains = Array.isArray(a.chain_attestations) ? a.chain_attestations : [];
 
   // Check Bitcoin anchor
