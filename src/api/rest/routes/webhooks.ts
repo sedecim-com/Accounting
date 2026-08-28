@@ -38,14 +38,14 @@ router.post('/', requirePermission('settings:manage'), validateBody(createWebhoo
 }));
 
 // GET /v1/webhooks
-router.get('/', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const webhooks = await listWebhooks(req.user!.tenant_id);
 
   res.json({
     data: webhooks,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // DELETE /v1/webhooks/:id
 router.delete('/:id', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
@@ -64,7 +64,7 @@ router.post('/:id/test', requirePermission('settings:manage'), asyncHandler(asyn
 }));
 
 // GET /v1/webhooks/:id/deliveries
-router.get('/:id/deliveries', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/:id/deliveries', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const { status, limit } = req.query;
   const deliveries = await getDeliveries(
     req.params.id,
@@ -75,7 +75,7 @@ router.get('/:id/deliveries', requirePermission('settings:manage'), async (req: 
     data: deliveries,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /v1/webhook-deliveries/:id/retry
 router.post('/deliveries/:id/retry', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {

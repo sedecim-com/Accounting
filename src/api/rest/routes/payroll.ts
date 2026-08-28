@@ -101,7 +101,7 @@ const createBenefitPlanSchema = z.object({
 }).passthrough();
 
 // ---------- Employees ----------
-router.get('/employees', requirePermission('payroll:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/employees', requirePermission('payroll:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const entityId = (req.query.entity_id as string) || req.entityId!;
   const rows = await listEmployees(req.tenantId!, {
     entity_id: entityId,
@@ -109,12 +109,12 @@ router.get('/employees', requirePermission('payroll:read'), requireEntityAccess,
     country: req.query.country as string | undefined,
   });
   res.json({ data: rows, meta: meta(req) });
-});
+}));
 
-router.get('/employees/:id', requirePermission('payroll:read'), async (req: Request, res: Response) => {
+router.get('/employees/:id', requirePermission('payroll:read'), asyncHandler(async (req: Request, res: Response) => {
   const emp = await getEmployee(req.params.id);
   res.json({ data: emp, meta: meta(req) });
-});
+}));
 
 router.post(
   '/employees',
@@ -149,30 +149,30 @@ router.post(
   })
 );
 
-router.post('/employees/:id/terminate', requirePermission('payroll:update'), async (req: Request, res: Response) => {
+router.post('/employees/:id/terminate', requirePermission('payroll:update'), asyncHandler(async (req: Request, res: Response) => {
   const { termination_date, termination_reason } = req.body;
   if (!termination_date) throw new ValidationError('termination_date required');
   await terminateEmployee(req.params.id, termination_date, termination_reason || '');
   res.json({ data: { ok: true }, meta: meta(req) });
-});
+}));
 
 // ---------- Pay schedules & periods ----------
-router.post('/pay-schedules', requirePermission('payroll:create'), requireEntityAccess, async (req: Request, res: Response) => {
+router.post('/pay-schedules', requirePermission('payroll:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const id = await createPaySchedule({
     ...req.body,
     tenant_id: req.tenantId!,
     entity_id: req.body.entity_id || req.entityId!,
   });
   res.status(201).json({ data: { id }, meta: meta(req) });
-});
+}));
 
-router.post('/pay-schedules/:id/generate-periods', requirePermission('payroll:create'), async (req: Request, res: Response) => {
+router.post('/pay-schedules/:id/generate-periods', requirePermission('payroll:create'), asyncHandler(async (req: Request, res: Response) => {
   const { count = 24 } = req.body;
   const ids = await generatePayPeriods(req.params.id, count);
   res.json({ data: { period_ids: ids }, meta: meta(req) });
-});
+}));
 
-router.get('/pay-periods', requirePermission('payroll:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/pay-periods', requirePermission('payroll:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const entityId = (req.query.entity_id as string) || req.entityId!;
   const result = await query(
     `SELECT pp.* FROM pay_periods pp
@@ -182,7 +182,7 @@ router.get('/pay-periods', requirePermission('payroll:read'), requireEntityAcces
     [entityId]
   );
   res.json({ data: result.rows, meta: meta(req) });
-});
+}));
 
 // ---------- Pay runs ----------
 router.post(
@@ -240,86 +240,86 @@ router.post(
   })
 );
 
-router.get('/pay-runs/:id', requirePermission('payroll:read'), async (req: Request, res: Response) => {
+router.get('/pay-runs/:id', requirePermission('payroll:read'), asyncHandler(async (req: Request, res: Response) => {
   const run = await query(`SELECT * FROM pay_runs WHERE id = $1`, [req.params.id]);
   if (run.rows.length === 0) throw new NotFoundError('PayRun', req.params.id);
   const paychecks = await query(`SELECT * FROM paychecks WHERE pay_run_id = $1`, [req.params.id]);
   res.json({ data: { ...run.rows[0], paychecks: paychecks.rows }, meta: meta(req) });
-});
+}));
 
 // ---------- MX CFDI payroll (Nomina complement) ----------
-router.post('/paychecks/:id/cfdi-nomina', requirePermission('payroll:approve'), async (req: Request, res: Response) => {
+router.post('/paychecks/:id/cfdi-nomina', requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
   const result = await generateAndStampCfdiNomina(req.params.id, { tenantId: req.tenantId!, userId: req.user!.user_id });
   res.json({ data: result, meta: meta(req) });
-});
+}));
 
 // ---------- MX SUA ----------
-router.post('/sua', requirePermission('payroll:approve'), requireEntityAccess, async (req: Request, res: Response) => {
+router.post('/sua', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, year, month } = req.body;
   if (!year || !month) throw new ValidationError('year, month required');
   const result = await generateSuaFile(req.tenantId!, entity_id || req.entityId!, year, month);
   res.json({ data: result, meta: meta(req) });
-});
+}));
 
 // ---------- MX Finiquito (severance settlement) ----------
-router.post('/finiquito', requirePermission('payroll:create'), async (req: Request, res: Response) => {
+router.post('/finiquito', requirePermission('payroll:create'), asyncHandler(async (req: Request, res: Response) => {
   const result = await calculateFiniquito(req.body);
   res.json({ data: result, meta: meta(req) });
-});
+}));
 
 // ---------- USA W-2 ----------
-router.post('/w2', requirePermission('payroll:approve'), async (req: Request, res: Response) => {
+router.post('/w2', requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
   const { employee_id, tax_year } = req.body;
   if (!employee_id || !tax_year) throw new ValidationError('employee_id, tax_year required');
   const result = await generateW2(employee_id, tax_year);
   res.json({ data: result, meta: meta(req) });
-});
+}));
 
 // ---------- USA Form 941 ----------
-router.post('/form-941', requirePermission('payroll:approve'), requireEntityAccess, async (req: Request, res: Response) => {
+router.post('/form-941', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, tax_year, quarter } = req.body;
   if (!tax_year || !quarter) throw new ValidationError('tax_year, quarter required');
   const result = await generateForm941(req.tenantId!, entity_id || req.entityId!, tax_year, quarter);
   res.json({ data: result, meta: meta(req) });
-});
+}));
 
 // ---------- USA Form 940 ----------
-router.post('/form-940', requirePermission('payroll:approve'), requireEntityAccess, async (req: Request, res: Response) => {
+router.post('/form-940', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, tax_year } = req.body;
   if (!tax_year) throw new ValidationError('tax_year required');
   const result = await generateForm940(req.tenantId!, entity_id || req.entityId!, tax_year);
   res.json({ data: result, meta: meta(req) });
-});
+}));
 
 // ---------- USA NACHA ----------
-router.post('/nacha', requirePermission('payroll:approve'), async (req: Request, res: Response) => {
+router.post('/nacha', requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
   const { pay_run_id, company_info } = req.body;
   if (!pay_run_id || !company_info) throw new ValidationError('pay_run_id, company_info required');
   const result = await generateNachaFile(pay_run_id, company_info);
   res.json({ data: result, meta: meta(req) });
-});
+}));
 
 // ---------- USA W-3 / EFW2 ----------
-router.post('/w3', requirePermission('payroll:approve'), requireEntityAccess, async (req: Request, res: Response) => {
+router.post('/w3', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, tax_year } = req.body;
   if (!tax_year) throw new ValidationError('tax_year required');
   const result = await generateW3(req.tenantId!, entity_id || req.entityId!, tax_year);
   res.json({ data: result, meta: meta(req) });
-});
+}));
 
-router.post('/efw2', requirePermission('payroll:approve'), requireEntityAccess, async (req: Request, res: Response) => {
+router.post('/efw2', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, tax_year, submitter } = req.body;
   if (!tax_year || !submitter) throw new ValidationError('tax_year, submitter required');
   const result = await generateEfw2File(req.tenantId!, entity_id || req.entityId!, tax_year, submitter);
   res.json({ data: result, meta: meta(req) });
-});
+}));
 
 // ---------- Benefits ----------
-router.get('/benefit-plans', requirePermission('payroll:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/benefit-plans', requirePermission('payroll:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const entityId = (req.query.entity_id as string) || req.entityId!;
   const rows = await listBenefitPlans(entityId);
   res.json({ data: rows, meta: meta(req) });
-});
+}));
 
 router.post(
   '/benefit-plans',
@@ -336,10 +336,10 @@ router.post(
   })
 );
 
-router.get('/employees/:id/benefit-elections', requirePermission('payroll:read'), async (req: Request, res: Response) => {
+router.get('/employees/:id/benefit-elections', requirePermission('payroll:read'), asyncHandler(async (req: Request, res: Response) => {
   const rows = await listEmployeeElections(req.params.id);
   res.json({ data: rows, meta: meta(req) });
-});
+}));
 
 router.post(
   '/employees/:id/benefit-elections',
@@ -415,7 +415,7 @@ router.post('/ssa-bso/submit', requirePermission('payroll:approve'), requireEnti
 }));
 
 // ---------- Employee self-service ----------
-router.get('/me/paychecks', async (req: Request, res: Response) => {
+router.get('/me/paychecks', asyncHandler(async (req: Request, res: Response) => {
   // Map user → employee via email (simple MVP)
   const userResult = await query<{ email: string }>(`SELECT email FROM users WHERE id = $1`, [req.user!.user_id]);
   if (userResult.rows.length === 0) throw new NotFoundError('User', req.user!.user_id);
@@ -433,9 +433,9 @@ router.get('/me/paychecks', async (req: Request, res: Response) => {
     [empResult.rows[0].id]
   );
   res.json({ data: paychecks.rows, meta: meta(req) });
-});
+}));
 
-router.get('/me/w2/:tax_year', async (req: Request, res: Response) => {
+router.get('/me/w2/:tax_year', asyncHandler(async (req: Request, res: Response) => {
   const userResult = await query<{ email: string }>(`SELECT email FROM users WHERE id = $1`, [req.user!.user_id]);
   if (userResult.rows.length === 0) throw new NotFoundError('User', req.user!.user_id);
   const empResult = await query<{ id: string }>(
@@ -450,19 +450,19 @@ router.get('/me/w2/:tax_year', async (req: Request, res: Response) => {
   );
   if (w2.rows.length === 0) throw new NotFoundError('W-2', req.params.tax_year);
   res.json({ data: w2.rows[0], meta: meta(req) });
-});
+}));
 
 // ---------- Paychecks & filings ----------
-router.get('/paychecks/:id', requirePermission('payroll:read'), async (req: Request, res: Response) => {
+router.get('/paychecks/:id', requirePermission('payroll:read'), asyncHandler(async (req: Request, res: Response) => {
   const pc = await query(`SELECT * FROM paychecks WHERE id = $1`, [req.params.id]);
   if (pc.rows.length === 0) throw new NotFoundError('Paycheck', req.params.id);
   const earnings = await query(`SELECT * FROM paycheck_earnings WHERE paycheck_id = $1`, [req.params.id]);
   const deductions = await query(`SELECT * FROM paycheck_deductions WHERE paycheck_id = $1`, [req.params.id]);
   const taxes = await query(`SELECT * FROM paycheck_taxes WHERE paycheck_id = $1`, [req.params.id]);
   res.json({ data: { ...pc.rows[0], earnings: earnings.rows, deductions: deductions.rows, taxes: taxes.rows }, meta: meta(req) });
-});
+}));
 
-router.get('/tax-filings', requirePermission('payroll:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/tax-filings', requirePermission('payroll:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const entityId = (req.query.entity_id as string) || req.entityId!;
   const result = await query(
     `SELECT id, form_type, tax_year, period, status, filed_at, created_at
@@ -470,6 +470,6 @@ router.get('/tax-filings', requirePermission('payroll:read'), requireEntityAcces
     [entityId]
   );
   res.json({ data: result.rows, meta: meta(req) });
-});
+}));
 
 export default router;

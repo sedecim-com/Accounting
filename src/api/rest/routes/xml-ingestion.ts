@@ -160,7 +160,7 @@ router.post('/upload', requirePermission('bills:create'), requireEntityAccess, v
 // ============================================================
 
 // GET /v1/pre-registrations
-router.get('/pre-registrations', requirePermission('bills:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/pre-registrations', requirePermission('bills:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const {
     entity_id, status, processing_mode, validation_status,
     requires_approval, vendor_id, date_from, date_to, search,
@@ -215,10 +215,10 @@ router.get('/pre-registrations', requirePermission('bills:read'), requireEntityA
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /v1/pre-registrations/stats
-router.get('/pre-registrations/stats', requirePermission('bills:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/pre-registrations/stats', requirePermission('bills:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, date_from, date_to } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -261,7 +261,7 @@ router.get('/pre-registrations/stats', requirePermission('bills:read'), requireE
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /v1/pre-registrations/:id
 //
@@ -458,7 +458,7 @@ router.post('/pre-registrations/bulk', requirePermission('bills:create'), valida
 // ============================================================
 
 // GET /v1/processing-rules
-router.get('/processing-rules', requirePermission('settings:manage'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/processing-rules', requirePermission('settings:manage'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, rule_type, is_active } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -478,7 +478,7 @@ router.get('/processing-rules', requirePermission('settings:manage'), requireEnt
     data: result.rows,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /v1/processing-rules
 router.post('/processing-rules', requirePermission('settings:manage'), requireEntityAccess, validateBody(createProcessingRuleSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -548,7 +548,7 @@ router.delete('/processing-rules/:id', requirePermission('settings:manage'), asy
 // ============================================================
 
 // GET /v1/processing-batches
-router.get('/processing-batches', requirePermission('bills:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/processing-batches', requirePermission('bills:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, status, scheduled_date } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -568,7 +568,7 @@ router.get('/processing-batches', requirePermission('bills:read'), requireEntity
     data: result.rows,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /v1/processing-batches
 router.post('/processing-batches', requirePermission('bills:create'), requireEntityAccess, validateBody(createBatchSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -619,7 +619,7 @@ router.post('/processing-batches/:id/execute', requirePermission('bills:create')
 }));
 
 // GET /v1/processing-batches/:id/progress
-router.get('/processing-batches/:id/progress', requirePermission('bills:read'), async (req: Request, res: Response) => {
+router.get('/processing-batches/:id/progress', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {
   const result = await query<Record<string, unknown>>(
     'SELECT * FROM processing_batches WHERE id = $1',
     [req.params.id]
@@ -641,7 +641,7 @@ router.get('/processing-batches/:id/progress', requirePermission('bills:read'), 
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /v1/processing-batches/:id/cancel
 router.post('/processing-batches/:id/cancel', requirePermission('bills:create'), asyncHandler(async (req: Request, res: Response) => {
@@ -662,7 +662,7 @@ router.post('/processing-batches/:id/cancel', requirePermission('bills:create'),
 // ============================================================
 
 // GET /v1/xml-documents
-router.get('/xml-documents', requirePermission('bills:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/xml-documents', requirePermission('bills:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, status, emisor_rfc, date_from, date_to, page = '1', per_page = '50' } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -692,10 +692,10 @@ router.get('/xml-documents', requirePermission('bills:read'), requireEntityAcces
     data: result.rows,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /v1/xml-documents/:id
-router.get('/xml-documents/:id', requirePermission('bills:read'), async (req: Request, res: Response) => {
+router.get('/xml-documents/:id', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {
   const doc = await query('SELECT * FROM xml_documents WHERE id = $1', [req.params.id]);
   if (doc.rows.length === 0) throw new NotFoundError('XML Document', req.params.id);
 
@@ -708,6 +708,6 @@ router.get('/xml-documents/:id', requirePermission('bills:read'), async (req: Re
     data: { ...doc.rows[0], lines: lines.rows },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 export default router;

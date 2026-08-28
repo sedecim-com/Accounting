@@ -73,7 +73,7 @@ const reverseJeSchema = z.object({
 });
 
 // GET /v1/journal-entries
-router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const {
     entity_id,
     fiscal_period_id,
@@ -125,7 +125,7 @@ router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, 
       version: 'v1',
     },
   });
-});
+}));
 
 // GET /v1/journal-entries/:id
 //

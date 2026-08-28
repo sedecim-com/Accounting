@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../../../database/connection.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { bitcoinAnchorService } from '../../../services/blockchain/bitcoin-anchor.js';
 import { cryptoService } from '../../../services/blockchain/crypto-service.js';
@@ -17,7 +18,7 @@ const router = Router();
 // ============================================================
 
 // GET /public/v1/verify/:entryHash
-router.get('/verify/:entryHash', async (req: Request, res: Response) => {
+router.get('/verify/:entryHash', asyncHandler(async (req: Request, res: Response) => {
   const entryHash = req.params.entryHash;
 
   if (!/^0x[a-fA-F0-9]{64}$/.test(entryHash)) {
@@ -108,10 +109,10 @@ console.log(hash === '${entryHash}');
     },
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /public/v1/entities/:entityId
-router.get('/entities/:entityId', async (req: Request, res: Response) => {
+router.get('/entities/:entityId', asyncHandler(async (req: Request, res: Response) => {
   const entityId = req.params.entityId;
 
   const entity = await query<{
@@ -146,10 +147,10 @@ router.get('/entities/:entityId', async (req: Request, res: Response) => {
     },
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /public/v1/entities/:entityId/periods/:periodId
-router.get('/entities/:entityId/periods/:periodId', async (req: Request, res: Response) => {
+router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Request, res: Response) => {
   const { entityId, periodId } = req.params;
 
   const commitment = await query<{
@@ -206,10 +207,10 @@ router.get('/entities/:entityId/periods/:periodId', async (req: Request, res: Re
     },
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /public/v1/entities/:entityId/aggregates
-router.get('/entities/:entityId/aggregates', async (req: Request, res: Response) => {
+router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, res: Response) => {
   const { entityId } = req.params;
   const { dimension, value, from_period, to_period } = req.query;
 
@@ -232,10 +233,10 @@ router.get('/entities/:entityId/aggregates', async (req: Request, res: Response)
     data: result.rows,
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /public/v1/bitcoin/verify/:txid
-router.get('/bitcoin/verify/:txid', async (req: Request, res: Response) => {
+router.get('/bitcoin/verify/:txid', asyncHandler(async (req: Request, res: Response) => {
   const txid = req.params.txid;
 
   if (!/^[a-fA-F0-9]{64}$/.test(txid)) {
@@ -284,10 +285,10 @@ router.get('/bitcoin/verify/:txid', async (req: Request, res: Response) => {
     },
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /public/v1/bitcoin/proof/:entryHash
-router.get('/bitcoin/proof/:entryHash', async (req: Request, res: Response) => {
+router.get('/bitcoin/proof/:entryHash', asyncHandler(async (req: Request, res: Response) => {
   const entryHash = req.params.entryHash;
 
   if (!/^0x[a-fA-F0-9]{64}$/.test(entryHash)) {
@@ -301,11 +302,11 @@ router.get('/bitcoin/proof/:entryHash', async (req: Request, res: Response) => {
     data: proof,
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /public/v1/verify/merkle-proof
 // Verify a user-submitted Merkle proof against our root
-router.post('/verify/merkle-proof', async (req: Request, res: Response) => {
+router.post('/verify/merkle-proof', asyncHandler(async (req: Request, res: Response) => {
   const { leaf, proof, root } = req.body;
 
   if (!leaf || !proof || !root) {
@@ -318,6 +319,6 @@ router.post('/verify/merkle-proof', async (req: Request, res: Response) => {
     data: { valid, leaf, root },
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 export default router;
