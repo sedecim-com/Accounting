@@ -58,11 +58,20 @@ const createInvoiceSchema = z.object({
   po_number: z.string().optional(),
 });
 
+// `to` is the whole of this endpoint's interest in email: it is stored on
+// invoices.sent_to as the declared recipient. Nothing is transmitted -- see the
+// note on POST /:id/send -- so cc, subject and message are deliberately absent.
+// They used to be validated and then dropped on the floor, which is a promise
+// of delivery the route has never been able to keep. z.object() strips unknown
+// keys rather than rejecting them, so a client still sending them gets a 200,
+// not a 422.
+// cc / subject / message se retiraron: se validaban y se tiraban. No hay
+// transporte de correo en el árbol (sendgrid-adapter.ts fabrica un messageId
+// sin abrir conexión), así que cablearlos habría reportado una entrega que no
+// ocurre. z.object() descarta claves desconocidas: un cliente que siga
+// mandándolos recibe 200, no 422.
 const sendInvoiceSchema = z.object({
   to: z.string().email().optional(),
-  cc: z.union([z.string(), z.array(z.string())]).optional(),
-  subject: z.string().optional(),
-  message: z.string().optional(),
 });
 
 const recordPaymentSchema = z.object({
@@ -74,6 +83,9 @@ const recordPaymentSchema = z.object({
   notes: z.string().optional(),
 }).passthrough();
 
+// Required, not optional: a void with no stated reason is the audit-trail gap.
+// Enforcing it is an observable API change -- a body-less POST that used to
+// succeed now gets 422 VALIDATION_ERROR from validateBody.
 const voidInvoiceSchema = z.object({
   reason: z.string().min(1),
 });
@@ -211,11 +223,15 @@ router.post('/:id/payments', requirePermission('invoices:create'), requireEntity
 // same transaction as the status change. The stamped-CFDI and applied-cash
 // guards the service states are opted out of here on purpose: this endpoint
 // has never enforced them and its contract is unchanged.
-router.post('/:id/void', requirePermission('invoices:void'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+// El motivo es OBLIGATORIO: voidInvoiceSchema estaba definido y sin cablear,
+// así que anular no dejaba ninguna razón. Cambio observable: un POST sin
+// cuerpo, que antes pasaba, ahora es 422 VALIDATION_ERROR.
+router.post('/:id/void', requirePermission('invoices:void'), requireEntityAccess, validateBody(voidInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
   const { invoice, attest } = await voidInvoice(req.params.id, req.user!.user_id, {
     entityId: req.entityId!,
     allowStamped: true,
     allowApplied: true,
+    reason: req.body.reason,
   });
   if (attest && req.tenantId) attestEntryAsync(req.tenantId, attest.entityId, attest.entryId);
 
