@@ -26,11 +26,11 @@ const RAIZ = path.join(__dirname, '..', '..');
 /** Un Postgres que con toda seguridad no existe: el puerto 1 es privilegiado y nadie escucha. */
 const MUERTO = 'postgresql://nadie:nada@127.0.0.1:1/inexistente';
 
-function importarEnProcesoAparte(): { salida: string; codigo: number } {
+function importarEnProcesoAparte(modulo = './src/database/migrate.ts'): { salida: string; codigo: number } {
   try {
     const salida = execFileSync(
       'npx',
-      ['tsx', '-e', "require('./src/database/migrate.ts'); console.log('IMPORTADO');"],
+      ['tsx', '-e', `require('${modulo}'); console.log('IMPORTADO');`],
       {
         cwd: RAIZ,
         encoding: 'utf-8',
@@ -58,5 +58,17 @@ describe('importar src/database/migrate.ts', () => {
     // de la máquina de quien desarrolla— el primer aviso sería esta salida.
     const { salida } = importarEnProcesoAparte();
     expect(salida).not.toMatch(/Running migrations|Applying isolation|migrations complete/i);
+  }, 60_000);
+});
+
+describe('importar src/database/seed.ts', () => {
+  // Mismo cerrojo, puesto ANTES de que muerda. seed.ts no exporta nada todavía,
+  // así que hoy nadie lo importa; el día que alguien saque un ayudante de ahí,
+  // esta prueba es lo único que impide que `npm test` siembre una base real.
+  it('tampoco conecta al importarse', () => {
+    const { salida, codigo } = importarEnProcesoAparte('./src/database/seed.ts');
+    expect(salida).toContain('IMPORTADO');
+    expect(salida).not.toContain('ECONNREFUSED');
+    expect(codigo).toBe(0);
   }, 60_000);
 });

@@ -136,6 +136,20 @@ describe('main — la compuerta de CI', () => {
     expect(await main(['E0', '--exigir=E1.3'])).toBe(1);
   });
 
+  it('un paquete exigido que NO EXISTE rompe, en vez de pasar en silencio', async () => {
+    // El trinquete se podía vaciar sin ponerse rojo: bastaba borrar o
+    // renombrar un paquete en criterios.ts para reabrir lo cerrado, porque
+    // --exigir ignoraba los ids desconocidos. El instrumento vive en el mismo
+    // commit que el cambio que juzga, y nada lo protegía de eso.
+    callar();
+    expect(await main(['--exigir=E9.9'])).toBe(1);
+  });
+
+  it('lo detecta aunque venga mezclado con paquetes que sí existen y están verdes', async () => {
+    callar();
+    expect(await main(['--exigir=E0.0,E9.9'])).toBe(1);
+  });
+
   it('avisa cuando el filtro no coincide con nada, en vez de imprimir vacío', async () => {
     callar();
     expect(await main(['E9'])).toBe(1);

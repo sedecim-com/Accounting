@@ -199,7 +199,16 @@ Generate JWT token with:
   await closeDatabase();
 }
 
-seed().catch((err) => {
-  console.error('Seed failed:', err);
-  process.exit(1);
-});
+// La misma guarda que migrate.ts, y por la misma razón antes de que muerda:
+// hoy nadie importa este archivo, así que la invocación suelta no rompe nada.
+// El día que alguien exporte un ayudante desde aquí —exactamente lo que pasó
+// con assertNumeracionUnica en migrate.ts— `npm test` empezaría a SEMBRAR la
+// base de quien desarrolle, en silencio si su Postgres responde, y a reventar
+// en CI donde no hay ninguno. Ponerla ahora cuesta tres líneas; ponerla después
+// cuesta encontrar por qué la base de alguien tiene datos que no puso.
+if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
+  seed().catch((err) => {
+    console.error('Seed failed:', err);
+    process.exit(1);
+  });
+}

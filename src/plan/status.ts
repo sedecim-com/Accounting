@@ -171,6 +171,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   if (exigir.length === 0) return 0;
 
+  // UN PAQUETE QUE NO EXISTE NO ESTÁ CERRADO: NO SE SABE.
+  //
+  // `--exigir=E9.9` salía con 0 y en silencio, así que el trinquete se podía
+  // vaciar sin ponerse rojo: bastaba borrar o renombrar un paquete en
+  // criterios.ts para reabrir lo cerrado sin que la CI se enterara. El
+  // instrumento vive en el mismo commit que el cambio que juzga, y ésa es
+  // justo la regresión de la que nada lo protegía.
+  const inexistentes = exigir.filter((id) => !todos.some((p) => p.id === id));
+  if (inexistentes.length > 0) {
+    process.stderr.write(
+      `\nSe exigen paquetes que no existen: ${inexistentes.join(', ')}. ` +
+        `Hay: ${todos.map((p) => p.id).join(', ')}.\n` +
+        'Si se renombró o se borró un paquete, actualiza la lista de --exigir en el mismo commit.\n'
+    );
+    return 1;
+  }
+
   // Contra TODOS los paquetes, no contra los que el filtro dejó a la vista:
   // `plan:status E0 --exigir=E1.3` no debe pasar por no haber mirado E1.3.
   const abiertos = abiertosDe(todos);
