@@ -38,11 +38,16 @@ export async function generateForm940(
     `SELECT
        COALESCE(SUM(p.gross_earnings), 0) AS total_pay,
        COALESCE(SUM(p.taxable_wages_futa), 0) AS taxable_futa,
-       COALESCE(SUM(p.futa_employer), 0) AS futa_tax,
-       COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM pp.pay_date) = 1 THEN p.futa_employer ELSE 0 END), 0) AS q1,
-       COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM pp.pay_date) = 2 THEN p.futa_employer ELSE 0 END), 0) AS q2,
-       COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM pp.pay_date) = 3 THEN p.futa_employer ELSE 0 END), 0) AS q3,
-       COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM pp.pay_date) = 4 THEN p.futa_employer ELSE 0 END), 0) AS q4,
+       -- paychecks.futa, no futa_employer: FUTA es un impuesto SOLO patronal,
+       -- así que no lleva sufijo como fica_ss_employer, que sí tiene mitad del
+       -- trabajador. La columna inexistente hacía reventar la forma 940 en la
+       -- primera invocación, y el contrato de esquema no lo veía porque su
+       -- alcance excluye consultas con alias (aquí paychecks es "p").
+       COALESCE(SUM(p.futa), 0) AS futa_tax,
+       COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM pp.pay_date) = 1 THEN p.futa ELSE 0 END), 0) AS q1,
+       COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM pp.pay_date) = 2 THEN p.futa ELSE 0 END), 0) AS q2,
+       COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM pp.pay_date) = 3 THEN p.futa ELSE 0 END), 0) AS q3,
+       COALESCE(SUM(CASE WHEN EXTRACT(QUARTER FROM pp.pay_date) = 4 THEN p.futa ELSE 0 END), 0) AS q4,
        COALESCE((SELECT SUM(amount) FROM employer_tax_liabilities
                  WHERE tenant_id = $1 AND entity_id = $2 AND tax_type = 'futa'
                    AND period_start >= $3 AND period_end <= $4 AND deposited_at IS NOT NULL), 0) AS deposits
