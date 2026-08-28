@@ -5,7 +5,7 @@ import { withTransaction } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
-import { nextEntityNumber } from '../../../utils/sequence.js';
+import { recordVendorPayment } from '../../../services/payments/payment-service.js';
 import {
   postVendorPaymentEntry,
   attestEntryAsync,
@@ -25,10 +25,12 @@ import type { PaginationMeta } from '../../../types/index.js';
 // behaviour; this file is request parsing, permissions and
 // response shape.
 //
-// Payments (POST /payments) are NOT extracted: the catalog marks
-// `payment create` as a 🟡 row of its own (it inserts every
-// payment as 'completed', which makes four of the CHECK's states
-// unreachable), and rewriting it belongs with that command.
+// Payments (POST /payments) now go through services/payments/
+// payment-service.ts too, shared with `mnemosine bill pay`. The state
+// question the catalog flagged — every payment written as 'completed',
+// leaving four of the CHECK's states unreachable — is answered there and
+// on purpose: recording a payment means the money already left the bank,
+// and the other four belong to a scheduler that does not exist.
 // ============================================================
 
 const router = Router();
@@ -162,58 +164,39 @@ router.post('/:id/schedule-payment', requirePermission('bills:create'), asyncHan
 router.post('/payments', requirePermission('bills:create'), validateBody(vendorPaymentSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, vendor_id, payment_amount, payment_method, payment_date, bank_account_id, applications, memo } = req.body;
 
-  const jeInfo = await withTransaction(async (client) => {
-    const paymentNumber = await nextEntityNumber(client, entity_id, 'vendor_payment', 'VPMT');
-    const paymentId = uuidv4();
+  // Una sola implementación, compartida con `mnemosine bill pay` y con el
+  // agente. Antes vivía aquí dentro y la terminal no podía alcanzarla, lo
+  // que importaba porque el pago es lo que LIBERA el IVA aparcado de un
+  // CFDI a crédito: quien operaba por terminal nunca lo acreditaba.
+  const result = await recordVendorPayment(
+    {
+      entityId: entity_id,
+      counterpartyId: vendor_id,
+      paymentAmount: String(payment_amount),
+      paymentDate: payment_date,
+      paymentMethod: payment_method,
+      bankAccountId: bank_account_id || null,
+      memo: memo || null,
+      applications: (applications ?? []).map((a: { bill_id: string; amount_applied: string | number; discount_amount?: string | number }) => ({
+        documentId: a.bill_id,
+        amountApplied: String(a.amount_applied),
+        discountAmount: a.discount_amount !== undefined ? String(a.discount_amount) : undefined,
+      })),
+    },
+    req.user!.user_id
+  );
 
-    await client.query(
-      `INSERT INTO vendor_payments (
-        id, entity_id, payment_number, vendor_id, payment_amount,
-        payment_method, bank_account_id, payment_date, status, memo, created_by
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'completed',$9,$10)`,
-      [paymentId, entity_id, paymentNumber, vendor_id, payment_amount, payment_method, bank_account_id || null, payment_date, memo || null, req.user!.user_id]
-    );
-
-    if (applications) {
-      for (const app of applications) {
-        await client.query(
-          `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied, discount_amount)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [uuidv4(), paymentId, app.bill_id, app.amount_applied, app.discount_amount || 0]
-        );
-
-        // Update bill
-        await client.query(
-          `UPDATE bills SET
-            amount_paid = amount_paid + $1,
-            amount_due = amount_due - $1,
-            status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-            last_payment_date = $2
-           WHERE id = $3`,
-          [app.amount_applied, payment_date, app.bill_id]
-        );
-      }
-    }
-
-    const entry = await postVendorPaymentEntry(
-      client,
-      {
-        id: paymentId,
-        entity_id,
-        payment_number: paymentNumber,
-        payment_amount: String(payment_amount),
-        payment_date,
-        bank_account_id: bank_account_id || null,
-        journal_entry_id: null,
-      },
-      req.user!.user_id
-    );
-    return entry ? { entityId: entity_id as string, entryId: entry.id } : null;
-  });
-  if (jeInfo && req.tenantId) attestEntryAsync(req.tenantId, jeInfo.entityId, jeInfo.entryId);
+  if (result.attestation && req.tenantId) {
+    attestEntryAsync(req.tenantId, result.attestation.entityId, result.attestation.entryId);
+  }
 
   res.status(201).json({
-    data: { recorded: true },
+    data: {
+      recorded: true,
+      payment_number: result.paymentNumber,
+      journal_entry_id: result.journalEntry?.id ?? null,
+      applied: result.documentos,
+    },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
 }));

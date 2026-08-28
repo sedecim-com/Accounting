@@ -32,6 +32,10 @@ const TOP_LEVEL: Record<string, string> = {
   bill: 'factura-proveedor',
   customer: 'cliente',
   invoice: 'factura',
+  // El dinero que sale y el que entra. Los nombres los fija
+  // docs/cli-command-catalog.md: 'payment create' y 'receipt record'.
+  payment: 'pago',
+  receipt: 'cobro',
   report: 'reporte',
   entities: 'entidades', // deprecated alias of `entity list`; kept working per R9
 

@@ -6,7 +6,8 @@ import { query, withTransaction } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, ValidationError, NotImplementedError } from '../../../utils/errors.js';
-import { postCustomerPaymentEntry, attestEntryAsync } from '../../../services/accounting/index.js';
+import { attestEntryAsync } from '../../../services/accounting/index.js';
+import { recordCustomerPayment } from '../../../services/payments/payment-service.js';
 import {
   listInvoices,
   getInvoiceById,
@@ -150,85 +151,40 @@ router.post('/:id/send', requirePermission('invoices:send'), validateBody(sendIn
 
 // POST /v1/invoices/:id/payments
 router.post('/:id/payments', requirePermission('invoices:create'), validateBody(recordPaymentSchema.extend({
-  payment_amount: numericLike,
-  payment_method: z.string(),
+  bank_account_id: z.string().uuid().optional(),
   reference_number: z.string().optional(),
 }).partial({ amount: true, reference: true })), asyncHandler(async (req: Request, res: Response) => {
   const { payment_date, payment_amount, payment_method, reference_number, bank_account_id } = req.body;
 
-  const invoiceResult = await query<Invoice>(
-    'SELECT * FROM invoices WHERE id = $1',
-    [req.params.id]
+  // Una sola implementación, compartida con `mnemosine invoice collect`.
+  // El servicio lee la factura ACOTADA POR ENTIDAD: antes esta ruta hacía
+  // `SELECT * FROM invoices WHERE id = $1` sin filtro, así que conocer un
+  // UUID bastaba para aplicar un cobro —y su asiento— a la factura de otra
+  // entidad.
+  const result = await recordCustomerPayment(
+    {
+      entityId: req.entityId!,
+      paymentAmount: String(payment_amount),
+      paymentDate: payment_date,
+      paymentMethod: payment_method,
+      referenceNumber: reference_number || null,
+      bankAccountId: bank_account_id || null,
+      applications: [{ documentId: req.params.id, amountApplied: String(payment_amount) }],
+    },
+    req.user!.user_id
   );
 
-  if (invoiceResult.rows.length === 0) {
-    throw new NotFoundError('Invoice', req.params.id);
+  if (result.attestation && req.tenantId) {
+    attestEntryAsync(req.tenantId, result.attestation.entityId, result.attestation.entryId);
   }
-
-  const invoice = invoiceResult.rows[0];
-  const paymentAmt = new Decimal(payment_amount);
-  const amountDue = new Decimal(invoice.amount_due);
-
-  if (paymentAmt.greaterThan(amountDue)) {
-    throw new ValidationError('Payment amount exceeds amount due');
-  }
-
-  const jeInfo = await withTransaction(async (client) => {
-    const paymentNumber = await nextEntityNumber(client, invoice.entity_id, 'customer_payment', 'PMT');
-    const paymentId = uuidv4();
-
-    await client.query(
-      `INSERT INTO customer_payments (
-        id, entity_id, payment_number, customer_id,
-        payment_amount, currency_code, payment_method,
-        reference_number, bank_account_id, payment_date,
-        status, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'completed', $11)`,
-      [
-        paymentId, invoice.entity_id, paymentNumber, invoice.customer_id,
-        paymentAmt.toFixed(4), invoice.currency_code, payment_method,
-        reference_number || null, bank_account_id || null, payment_date,
-        req.user!.user_id,
-      ]
-    );
-
-    await client.query(
-      `INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_applied)
-       VALUES ($1, $2, $3, $4)`,
-      [uuidv4(), paymentId, req.params.id, paymentAmt.toFixed(4)]
-    );
-
-    const newAmountPaid = new Decimal(invoice.amount_paid).plus(paymentAmt);
-    const newAmountDue = amountDue.minus(paymentAmt);
-    const newStatus = newAmountDue.lessThanOrEqualTo(0) ? 'paid' : 'partially_paid';
-
-    await client.query(
-      `UPDATE invoices SET
-        amount_paid = $1, amount_due = $2, status = $3,
-        last_payment_date = $4
-       WHERE id = $5`,
-      [newAmountPaid.toFixed(4), newAmountDue.toFixed(4), newStatus, payment_date, req.params.id]
-    );
-
-    const entry = await postCustomerPaymentEntry(
-      client,
-      {
-        id: paymentId,
-        entity_id: invoice.entity_id,
-        payment_number: paymentNumber,
-        payment_amount: paymentAmt.toFixed(4),
-        payment_date,
-        bank_account_id: bank_account_id || null,
-        journal_entry_id: null,
-      },
-      req.user!.user_id
-    );
-    return entry ? { entityId: invoice.entity_id, entryId: entry.id } : null;
-  });
-  if (jeInfo && req.tenantId) attestEntryAsync(req.tenantId, jeInfo.entityId, jeInfo.entryId);
 
   res.status(201).json({
-    data: { recorded: true },
+    data: {
+      recorded: true,
+      payment_number: result.paymentNumber,
+      journal_entry_id: result.journalEntry?.id ?? null,
+      applied: result.documentos,
+    },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
 }));
