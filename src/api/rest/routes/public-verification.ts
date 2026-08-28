@@ -5,6 +5,7 @@ import { preAuthRateLimiter } from '../middleware/rate-limiter.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { bitcoinAnchorService } from '../../../services/blockchain/bitcoin-anchor.js';
 import { cryptoService } from '../../../services/blockchain/crypto-service.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 // PUBLIC verification endpoints — NO authentication required
 // These expose cryptographic proofs so third parties can verify
@@ -272,7 +273,10 @@ router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Req
 // GET /public/v1/entities/:entityId/aggregates
 router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, res: Response) => {
   const { entityId } = req.params;
-  const { dimension, value, from_period, to_period } = req.query;
+  // NOTE: callers may also pass from_period/to_period. No period filter is
+  // applied to published_aggregates.period_id yet, so a narrowed request
+  // still returns the most recent 100 rows across ALL periods.
+  const { dimension, value } = req.query;
 
   let where = 'WHERE entity_id = $1';
   const params: unknown[] = [entityId];

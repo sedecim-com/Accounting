@@ -72,7 +72,7 @@ function makeCtx(answers: {
       text.length ? text.shift()! : (fallback ?? null),
     askSecret: async () => null,
     confirm: async (_p: string, d = true) => (confirms.length ? confirms.shift()! : d),
-  } as never;
+  };
 }
 
 function countsRow(entries: number, xmls: number, onboardingDrafts: number) {
@@ -322,7 +322,7 @@ describe('runInitWizard contract', () => {
     logSpy.mockRestore();
     vi.restoreAllMocks();
     if (ttyDescriptor) Object.defineProperty(process.stdin, 'isTTY', ttyDescriptor);
-    else setStdinTty(false as never);
+    else setStdinTty(false);
   });
 
   it('rescue + healthy + accounting data: offers chat with the books-check seed', async () => {

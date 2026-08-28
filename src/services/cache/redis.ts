@@ -23,7 +23,7 @@ export function getRedis(): Redis {
       redis = null;
     });
   }
-  return redis!;
+  return redis;
 }
 
 const TTL = {
@@ -90,7 +90,7 @@ export async function setCachedExchangeRate(
 // Layer 3: Report Results Cache
 // ============================================================
 
-export async function getCachedReport(key: string): Promise<unknown | null> {
+export async function getCachedReport(key: string): Promise<unknown> {
   try {
     const r = getRedis();
     if (!r) return null;
@@ -107,7 +107,9 @@ export async function setCachedReport(key: string, data: unknown): Promise<void>
   } catch { /* ignore */ }
 }
 
-export async function invalidateReportCache(entityId: string, periodId?: string): Promise<void> {
+// Every period for the entity is dropped, so the periodId narrowing is not
+// used: over-invalidating a report cache is safe, under-invalidating is not.
+export async function invalidateReportCache(entityId: string, _periodId?: string): Promise<void> {
   try {
     const r = getRedis();
     if (!r) return;

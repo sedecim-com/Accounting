@@ -59,7 +59,7 @@ function makeCtx(answers: {
       text.length ? text.shift()! : (fallback ?? null),
     askSecret: async () => (secrets.length ? secrets.shift()! : null),
     confirm: async (_p: string, d = true) => (confirms.length ? confirms.shift()! : d),
-  } as never;
+  };
 }
 
 beforeEach(() => {

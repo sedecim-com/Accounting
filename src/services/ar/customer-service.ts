@@ -315,7 +315,7 @@ export async function listCustomerOpenInvoices(
      ORDER BY i.due_date ASC`,
     [customerId, asOf ?? today(), statusesFor(reconstruct)]
   );
-  return result.rows as Record<string, unknown>[];
+  return result.rows;
 }
 
 export async function listCustomerRecentPayments(
@@ -330,7 +330,7 @@ export async function listCustomerRecentPayments(
      LIMIT $2`,
     [customerId, limit]
   );
-  return result.rows as Record<string, unknown>[];
+  return result.rows;
 }
 
 /**
@@ -501,7 +501,7 @@ export async function updateCustomer(
       entityType: 'customers',
       entityId: id,
       oldValues: pick(before, Object.keys(patch)),
-      newValues: patch as Record<string, unknown>,
+      newValues: patch,
       reason: audit.reason ?? null,
     });
     return r;

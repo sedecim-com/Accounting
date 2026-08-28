@@ -419,7 +419,7 @@ export function checkConnectionTransport(): CheckResult {
   const url = config.database.url;
   const local = isLocalHost(url);
   const tunneled = Boolean(config.database.tunnel);
-  const mode = (config.database.sslMode || defaultSslMode(url)) as string;
+  const mode = (config.database.sslMode || defaultSslMode(url));
 
   const parts: string[] = [];
   if (config.database.provider) {

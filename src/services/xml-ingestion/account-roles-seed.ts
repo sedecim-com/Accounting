@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import { query, withTransaction } from '../../database/connection.js';
+import { withTransaction } from '../../database/connection.js';
 import type { AccountRole } from './cfdi-taxonomy.js';
 
 // ============================================================

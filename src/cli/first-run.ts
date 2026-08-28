@@ -52,16 +52,8 @@ function withTimeout<T>(run: () => Promise<T>, timeoutMs: number): Promise<T> {
     // Promise.resolve().then(run) also converts a synchronous throw into a rejection.
     Promise.resolve()
       .then(run)
-      .then(
-        (value) => {
-          clearTimeout(timer);
-          resolve(value);
-        },
-        (err) => {
-          clearTimeout(timer);
-          reject(err);
-        }
-      );
+      .finally(() => clearTimeout(timer))
+      .then(resolve, reject);
   });
 }
 

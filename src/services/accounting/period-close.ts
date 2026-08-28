@@ -3,6 +3,7 @@ import { query, withTransaction, currentTenant } from '../../database/connection
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync } from './posting.js';
 import { AccountingError } from '../../utils/errors.js';
+import { FiscalPeriodStatus } from '../../types/index.js';
 import type { FiscalPeriod, JournalEntryType } from '../../types/index.js';
 
 interface PeriodCloseChecklist {
@@ -224,7 +225,7 @@ export async function hardClosePeriod(
 
     const period = periodResult.rows[0];
 
-    if (period.status !== 'soft_close') {
+    if (period.status !== FiscalPeriodStatus.SOFT_CLOSE) {
       throw new AccountingError(
         'PERIOD_NOT_SOFT_CLOSED',
         'Period must be in soft_close status before hard close'

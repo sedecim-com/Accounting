@@ -437,7 +437,7 @@ const CTX: AgentContext = {
   country: 'MX',
   accountingStandard: 'mx_nif',
   taxId: 'AME010101AAA',
-} as AgentContext;
+};
 
 const PROFILE: ResolvedProfile = {
   name: 'hermes',
@@ -480,7 +480,7 @@ describe('OpenAiCompatSession compaction', () => {
     await session.runTurn(`u1 classify this invoice ${long}`);
     await session.runTurn(`u2 thanks ${mid}`);
 
-    const result = await session.compact!();
+    const result = await session.compact();
     expect(result).not.toBeNull();
     expect(result!.droppedMessages).toBe(2);
     // Backstop: the mocked summary dropped the identifiers — they must survive.
@@ -528,12 +528,12 @@ describe('OpenAiCompatSession compaction', () => {
     });
     await session.runTurn(`u1 ${long}`);
     await session.runTurn(`u2 ${mid}`);
-    expect(await session.compact!()).not.toBeNull();
+    expect(await session.compact()).not.toBeNull();
 
     // Second /compact: marker is in the kept tail → no flush turn, and the
     // remaining window is too small to compact again.
     const callsBefore = create.mock.calls.length;
-    const again = await session.compact!();
+    const again = await session.compact();
     expect(again).toBeNull();
     expect(create.mock.calls.length).toBe(callsBefore);
   });
@@ -557,10 +557,10 @@ describe('OpenAiCompatSession compaction', () => {
     });
     await session.runTurn(`u1 ${long}`);
     await session.runTurn(`u2 ${mid}`);
-    expect(await session.compact!()).not.toBeNull();
+    expect(await session.compact()).not.toBeNull();
     await session.runTurn(`u3 ${long}`);
     await session.runTurn(`u4 ${mid}`);
-    expect(await session.compact!()).not.toBeNull();
+    expect(await session.compact()).not.toBeNull();
 
     // Both compaction cycles ran their own flush turn.
     const flushCalls = create.mock.calls.filter((c) => {
@@ -588,7 +588,7 @@ describe('OpenAiCompatSession compaction', () => {
     const callsBefore = create.mock.calls.length;
     // Assistant activity exists, but the compaction would drop nothing:
     // burning a flush round-trip for a no-op is not allowed.
-    expect(await session.compact!()).toBeNull();
+    expect(await session.compact()).toBeNull();
     expect(create.mock.calls.length).toBe(callsBefore);
   });
 
@@ -673,7 +673,7 @@ describe('compact-command helpers', () => {
       tool_calls: toolCalls,
       token_count: null,
       created_at: new Date('2026-08-24T00:00:00Z'),
-    }) as MessageRow;
+    });
 
   it('projects transcript rows and never splits assistant→tool sequences', () => {
     const rows = [

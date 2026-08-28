@@ -200,7 +200,7 @@ describe('withCredential — errors', () => {
   });
 
   it('logs the error if the vault fails to decrypt', async () => {
-    setVaultForTesting(fakeVault({ get: vi.fn().mockRejectedValue(new Error('KMS down')) } as never));
+    setVaultForTesting(fakeVault({ get: vi.fn().mockRejectedValue(new Error('KMS down')) }));
     queueHappyPath();
     await expect(
       withCredential('entity-1', 'tenant-a', OPTS, async () => null)

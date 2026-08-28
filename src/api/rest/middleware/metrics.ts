@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import client from 'prom-client';
+import { asyncHandler } from './async-handler.js';
 
 // Default Node/process metrics (event loop lag, GC, heap, fd, …)
 client.collectDefaultMetrics({ prefix: 'accounting_' });
@@ -68,7 +69,7 @@ export const metricsMiddleware: RequestHandler = (req: Request, res: Response, n
  * BEFORE auth middleware so a scraper without a JWT can still poll it (or
  * gated by IP allowlist at the LB).
  */
-export const metricsHandler: RequestHandler = async (_req, res) => {
+export const metricsHandler: RequestHandler = asyncHandler(async (_req, res) => {
   res.set('Content-Type', client.register.contentType);
   res.end(await client.register.metrics());
-};
+});
