@@ -537,10 +537,19 @@ export async function ivaStillParked(
         AND je.status = 'posted'
         AND ar.role = $2
         AND je.source_type = ANY($4::text[])
-        AND (je.source_id = $3 OR je.id IN (
-              SELECT journal_entry_id FROM journal_entry_lines l2
-               JOIN journal_entries j2 ON j2.id = l2.journal_entry_id
-              WHERE j2.source_id = $3 AND j2.entity_id = $1))`,
+        -- Dos saltos, y hacen falta los dos. El asiento del documento apunta
+        -- al documento; el de RECLASIFICACIÓN que escribe el backfill apunta
+        -- al ASIENTO, no al documento (iva-ppd-reclass.ts: sourceId = entry_id),
+        -- así que sólo se alcanza saltando una vez más.
+        --
+        -- La versión anterior buscaba el segundo salto por journal_entry_lines
+        -- y era un NO-OP: je.id IN (SELECT journal_entry_id ... WHERE
+        -- j2.source_id = $3) equivale a je.source_id = $3, el término que ya
+        -- la precede. Con ella, un gasto corregido por el backfill daba tope
+        -- cero y su pago no acreditaba nada: el IVA quedaba varado en 1135.
+        AND (je.source_id = $3 OR je.source_id IN (
+              SELECT j2.id FROM journal_entries j2
+               WHERE j2.source_id = $3 AND j2.entity_id = $1))`,
     [entityId, from, documentId, sourceTypes]
   );
   const parked = new Decimal(rows[0]?.parked ?? '0');
