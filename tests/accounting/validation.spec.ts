@@ -292,3 +292,48 @@ describe('citas NIF en reglas existentes', () => {
     expect(err).toMatch(/NIF B-15/);
   });
 });
+
+describe('currencyRule — exactitud de la conversión', () => {
+  // El bloque que comprueba la conversión sólo se ejecuta cuando la línea trae
+  // AMBOS: tipo de cambio y un importe en moneda extranjera. La prueba de
+  // arriba cubre la línea SIN tipo de cambio, así que este camino —el que de
+  // verdad hace la aritmética— se quedaba sin ejercitar.
+  it('rechaza el importe convertido que no cuadra con el tipo de cambio', async () => {
+    mockRuleQueries();
+    // 54.05 USD × 18.50 = 999.9250, pero la línea dice 1000.00: 0.075 de
+    // diferencia, por encima de la tolerancia de 0.01. Sin esta guarda el
+    // asiento entra al mayor con un importe que no es el que declara.
+    const result = await validateJournalEntry(ENTRY, [
+      line({ line_number: 1, account_id: 'acc-1', debit_amount: '1000.00', currency_code: 'USD', exchange_rate: '18.50', foreign_debit: '54.05' } as Partial<JournalEntryLine>),
+      line({ line_number: 2, account_id: 'acc-2', credit_amount: '1000.00' }),
+    ]);
+    const err = result.errors.find((e) => e.includes('Currency conversion mismatch'));
+    expect(err).toBeDefined();
+    expect(err).toMatch(/Expected 999\.9250, got 1000\.0000/);
+  });
+
+  it('acepta la conversión exacta, para que la regla acote y no apague', async () => {
+    // 54.00 × 18.50 = 999.00 clavado. Sin este caso la prueba de arriba
+    // pasaría igual con una regla que se quejara SIEMPRE.
+    mockRuleQueries();
+    const result = await validateJournalEntry(ENTRY, [
+      line({ line_number: 1, account_id: 'acc-1', debit_amount: '999.00', currency_code: 'USD', exchange_rate: '18.50', foreign_debit: '54.00' } as Partial<JournalEntryLine>),
+      line({ line_number: 2, account_id: 'acc-2', credit_amount: '999.00' }),
+    ]);
+    expect(result.errors.filter((e) => e.includes('Currency conversion mismatch'))).toHaveLength(0);
+  });
+});
+
+describe('validateJournalEntry — la guarda de las dos líneas', () => {
+  it('un asiento de una sola línea se rechaza antes de tocar la base', async () => {
+    // NIF A-2: la partida doble necesita al menos dos líneas. El corte ocurre
+    // ANTES de ejecutar las reglas, así que no hace falta preparar el doble de
+    // `query`: si alguien lo moviera después, esta prueba fallaría por intentar
+    // consultar una base que aquí no existe.
+    const result = await validateJournalEntry(ENTRY, [
+      line({ line_number: 1, account_id: 'acc-1', debit_amount: '100.00' }),
+    ]);
+    expect(result.isValid).toBe(false);
+    expect(result.errors).toContain('Journal entry must have at least 2 lines');
+  });
+});
