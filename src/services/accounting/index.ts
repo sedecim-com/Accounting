@@ -50,7 +50,6 @@ export {
   checkDraftDocument,
   parseEntryDocument,
   parseLineFlag,
-  assertEntryBelongsTo,
   ENTRY_TYPES,
   ENTRY_STATUSES,
   MANUAL_ENTRY_TYPES,

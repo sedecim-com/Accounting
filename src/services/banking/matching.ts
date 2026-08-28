@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
+import { findByIdInScope, requireByIdInScope, type Scope } from '../../database/scope.js';
 import type { BankTransaction } from '../../types/index.js';
 
 // ============================================================
@@ -259,17 +260,34 @@ const MATCH_RULES: MatchRule[] = [
 // CANDIDATE COLLECTION
 // ============================================================
 
-async function getCandidates(bankAccountId: string, tx: BankTransaction): Promise<Matchable[]> {
+async function getCandidates(
+  bankAccountId: string,
+  tx: BankTransaction,
+  scope: Scope
+): Promise<Matchable[]> {
   const txAmount = new Decimal(tx.amount).abs();
   const amountLow = txAmount.times(0.90).toFixed(4);
   const amountHigh = txAmount.times(1.10).toFixed(4);
 
-  const entityResult = await query<{ entity_id: string }>(
-    'SELECT entity_id FROM bank_accounts WHERE id = $1',
-    [bankAccountId]
+  // LA CUENTA BANCARIA ES LA FRONTERA de todo este archivo.
+  //
+  // Ni bank_transactions ni reconciliation_matches tienen entity_id: cuelgan
+  // de bank_account_id (migración 003). Así que el único punto donde se puede
+  // acotar es aquí, y de aquí sale el entityId con el que se buscan los
+  // candidatos. Antes esta lectura era `WHERE id = $1` a secas, de modo que
+  // con el UUID de una cuenta ajena la función devolvía candidatos de la
+  // víctima: SUS facturas, SUS gastos y SUS líneas de asiento.
+  //
+  // Cero filas significa a la vez «no existe» y «no es tuya», y las dos
+  // devuelven la misma lista vacía.
+  const cuenta = await findByIdInScope<{ entity_id: string }>(
+    'bank_accounts',
+    bankAccountId,
+    scope,
+    { columns: 'entity_id' }
   );
-  if (entityResult.rows.length === 0) return [];
-  const entityId = entityResult.rows[0].entity_id;
+  if (!cuenta) return [];
+  const entityId = cuenta.entity_id;
 
   const candidates: Matchable[] = [];
 
@@ -318,9 +336,10 @@ async function getCandidates(bankAccountId: string, tx: BankTransaction): Promis
 
 export async function findBestMatch(
   bankAccountId: string,
-  transaction: BankTransaction
+  transaction: BankTransaction,
+  scope: Scope
 ): Promise<MatchResult | null> {
-  const candidates = await getCandidates(bankAccountId, transaction);
+  const candidates = await getCandidates(bankAccountId, transaction, scope);
   if (candidates.length === 0) return null;
 
   for (const rule of MATCH_RULES) {
@@ -331,9 +350,26 @@ export async function findBestMatch(
   return null;
 }
 
+export interface AutoMatchOptions {
+  /**
+   * El alcance del llamador. OBLIGATORIO, y por eso está en el tipo: el único
+   * llamador —POST /v1/bank-accounts/:account_id/auto-match— pasaba
+   * `req.params.account_id` crudo y su ruta no lleva `requireEntityAccess`.
+   * Con el campo en el tipo, un llamador sin alcance no compila.
+   */
+  scope: Scope;
+}
+
 export async function autoMatchUnreconciled(
-  bankAccountId: string
+  bankAccountId: string,
+  opts: AutoMatchOptions
 ): Promise<{ matched: number; unmatched: number; results: Array<{ transaction_id: string; match: MatchResult | null }> }> {
+  // Se exige la cuenta ANTES de tocar nada. getCandidates ya no cruzaría la
+  // frontera —devolvería lista vacía—, pero eso daría un 200 con «0 conciliadas»
+  // sobre una cuenta ajena, que sigue siendo un oráculo: distingue «no existe»
+  // de «existe y está toda conciliada». Aquí las dos dan 404.
+  await requireByIdInScope('bank_accounts', bankAccountId, opts.scope, { columns: 'id' });
+
   const unmatched = await query<BankTransaction>(
     `SELECT * FROM bank_transactions WHERE bank_account_id = $1 AND is_matched = false ORDER BY transaction_date`,
     [bankAccountId]
@@ -343,14 +379,18 @@ export async function autoMatchUnreconciled(
   const results: Array<{ transaction_id: string; match: MatchResult | null }> = [];
 
   for (const tx of unmatched.rows) {
-    const result = await findBestMatch(bankAccountId, tx);
+    const result = await findBestMatch(bankAccountId, tx, opts.scope);
     results.push({ transaction_id: tx.id, match: result });
 
     if (result && result.confidence >= 0.85) {
-      // Auto-match high confidence
+      // Auto-match high confidence. El UPDATE lleva bank_account_id además del
+      // id de la fila: la pertenencia de la cuenta ya está probada, así que
+      // atarlo a ella deja la escritura acotada por construcción y no por que
+      // el SELECT de arriba haya filtrado bien.
       await query(
-        `UPDATE bank_transactions SET is_matched = true, matched_at = NOW(), confidence_score = $1 WHERE id = $2`,
-        [result.confidence, tx.id]
+        `UPDATE bank_transactions SET is_matched = true, matched_at = NOW(), confidence_score = $1
+          WHERE id = $2 AND bank_account_id = $3`,
+        [result.confidence, tx.id, bankAccountId]
       );
 
       await query(

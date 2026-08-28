@@ -7,6 +7,7 @@ import { requirePermission } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
 import { autoMatchUnreconciled } from '../../../services/banking/matching.js';
+import { entityScope } from '../../../database/scope.js';
 import type { BankTransaction, ReconciliationSession } from '../../../types/index.js';
 
 const router = Router();
@@ -249,8 +250,17 @@ router.get('/reconciliations/:id', requirePermission('journal_entries:read'), as
 });
 
 // POST /v1/bank-accounts/:account_id/auto-match (ML matching)
+//
+// El account_id llegaba crudo al motor, y esta ruta no lleva
+// requireEntityAccess. Con el UUID de una cuenta ajena se conciliaba su
+// extracto entero: is_matched = true sobre SUS movimientos y filas nuevas en
+// reconciliation_matches. Y el efecto no se queda en el banco —period-close.ts
+// lee el estado de conciliación como evidencia de cierre—, así que era una
+// escritura contable en los libros de otro.
 router.post('/:account_id/auto-match', requirePermission('journal_entries:create'), asyncHandler(async (req: Request, res: Response) => {
-  const result = await autoMatchUnreconciled(req.params.account_id);
+  const result = await autoMatchUnreconciled(req.params.account_id, {
+    scope: entityScope(req.tenantId!, req.entityId!),
+  });
 
   res.json({
     data: result,

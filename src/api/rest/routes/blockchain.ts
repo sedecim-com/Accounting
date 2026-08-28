@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
-import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
+import { requirePermission, requireEntityAccess, assertEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
 import { blockchainOrchestrator } from '../../../services/blockchain/orchestrator.js';
@@ -395,8 +395,15 @@ router.get('/attestations', requirePermission('settings:manage'), async (req: Re
 });
 
 // POST /v1/admin/blockchain/commit-period
+//
+// `requireEntityAccess` NO sirve aquí, y conviene decir por qué: mira el
+// PRIMERO de (req.entityId, params.entity_id, body.entity_id), y req.entityId
+// siempre tiene valor — así que en una ruta cuyo id de entidad viaja en el
+// cuerpo validaría la cabecera y nunca el cuerpo. La pertenencia del
+// entity_id del cuerpo se comprueba explícitamente.
 router.post('/commit-period', requirePermission('periods:close'), validateBody(commitPeriodSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, period_id } = req.body;
+  assertEntityAccess(req.user!, entity_id);
 
   const result = await blockchainOrchestrator.commitPeriod({
     tenantId: req.user!.tenant_id, entityId: entity_id, periodId: period_id,
@@ -409,8 +416,13 @@ router.post('/commit-period', requirePermission('periods:close'), validateBody(c
 }));
 
 // POST /v1/admin/blockchain/publish-aggregates
+//
+// Lo que esta ruta publica se sirve DESPUÉS SIN AUTENTICAR en
+// GET /public/v1/entities/:entityId/aggregates, que filtra sólo por entity_id.
+// Escribir aquí con la entidad de otro era publicar sus cifras al mundo.
 router.post('/publish-aggregates', requirePermission('periods:close'), validateBody(commitPeriodSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, period_id } = req.body;
+  assertEntityAccess(req.user!, entity_id);
 
   const result = await blockchainOrchestrator.publishAggregates({
     tenantId: req.user!.tenant_id, entityId: entity_id, periodId: period_id,

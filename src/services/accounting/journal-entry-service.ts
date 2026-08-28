@@ -1,5 +1,5 @@
 import { query } from '../../database/connection.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
+import { NotFoundError, ValidationError } from '../../utils/errors.js';
 import { createJournalEntry } from './posting.js';
 import { validateJournalEntry } from './validation.js';
 import { resolveAccount } from './account-service.js';
@@ -540,19 +540,19 @@ export function parseLineFlag(spec: string): DraftLineInput {
   };
 }
 
-/**
- * Guard for callers that must not act on an entry from another entity.
- * `postJournalEntry`, `reverseJournalEntry` and `voidJournalEntry` all take a
- * bare id: the REST route checks membership before calling them, and so must
- * every other caller.
- */
-export async function assertEntryBelongsTo(entityId: string, entryId: string): Promise<void> {
-  const result = await query<{ entity_id: string }>(
-    'SELECT entity_id FROM journal_entries WHERE id = $1',
-    [entryId]
-  );
-  if (result.rows.length === 0) throw new NotFoundError('Journal Entry', entryId);
-  if (result.rows[0].entity_id !== entityId) {
-    throw new ConflictError(`Journal entry ${entryId} belongs to another entity.`);
-  }
-}
+// assertEntryBelongsTo VIVIÓ AQUÍ Y SE BORRA.
+//
+// Se escribió exactamente para esto y nunca tuvo un solo llamador en
+// producción: sólo la exportaba services/accounting/index.ts y sólo la
+// ejercitaban sus propias pruebas. Una frontera que nadie invoca no es una
+// frontera, es documentación de una intención.
+//
+// Y su forma era la equivocada, la misma que database/scope.ts existe para
+// sustituir: leía `WHERE id = $1` SIN ACOTAR y comparaba después, dejando
+// ventana entre la comprobación y la escritura; y ramificaba —NotFoundError si
+// no existía, ConflictError si era de otro—, con lo que la respuesta delataba
+// la existencia de asientos ajenos aunque no dejara tocarlos. Justo el oráculo
+// que el 404-siempre viene a cerrar.
+//
+// Quien la necesitaba ahora usa `requireByIdInScope('journal_entries', ...)`,
+// que filtra dentro del SQL y no distingue los dos casos.

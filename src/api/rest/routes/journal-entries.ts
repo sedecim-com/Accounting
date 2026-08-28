@@ -1,16 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { query } from '../../../database/connection.js';
-import { requirePermission, requireEntityAccess, assertEntityAccess } from '../middleware/auth.js';
+import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { NotFoundError } from '../../../utils/errors.js';
+import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 import {
   createJournalEntry,
   postJournalEntry,
   voidJournalEntry,
   reverseJournalEntry,
   listJournalEntries,
-  getJournalEntryById,
   listEntryLines,
 } from '../../../services/accounting/index.js';
 import type { JournalEntry, JournalEntryLine, PaginationMeta } from '../../../types/index.js';
@@ -18,14 +16,20 @@ import { JournalEntryType } from '../../../types/index.js';
 
 const router = Router();
 
-/** Fetches the entry's entity and enforces the caller's membership. */
+/**
+ * Exige que el asiento sea de la entidad de la petición, o 404.
+ *
+ * Era la misma forma que se acaba de borrar en el servicio
+ * (`assertEntryBelongsTo`): leer `WHERE id = $1` sin acotar y comparar
+ * después. La usan `/:id/post`, `/:id/void` y `/:id/reverse` —las tres
+ * escrituras que mueven el mayor por UUID—, y en las tres dejaba ventana entre
+ * la comprobación y la escritura, y contestaba 403 sobre un asiento ajeno
+ * existente frente a 404 sobre uno inventado.
+ */
 async function assertEntryAccess(req: Request, entryId: string): Promise<void> {
-  const result = await query<{ entity_id: string }>(
-    'SELECT entity_id FROM journal_entries WHERE id = $1',
-    [entryId]
-  );
-  if (result.rows.length === 0) throw new NotFoundError('Journal Entry', entryId);
-  assertEntityAccess(req.user!, result.rows[0].entity_id);
+  await requireByIdInScope('journal_entries', entryId, entityScope(req.tenantId!, req.entityId!), {
+    columns: 'id',
+  });
 }
 
 // ─── Schemas ───
@@ -124,17 +128,33 @@ router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, 
 });
 
 // GET /v1/journal-entries/:id
-router.get('/:id', requirePermission('journal_entries:read'), async (req: Request, res: Response) => {
+//
+// DOS DEFECTOS QUE SE TAPABAN EL UNO AL OTRO.
+//
+// El manejador es `async` y NO iba envuelto en `asyncHandler`. Express 4 no
+// captura la promesa rechazada de un manejador asíncrono: no llega al
+// errorHandler, no hay respuesta, y la petición queda colgada hasta que el
+// unhandledRejection de Node —que desde la v15 aborta por omisión— tumba el
+// proceso. O sea que el ForbiddenError de la línea siguiente no devolvía 403:
+// mataba el servidor. Pedir en bucle asientos ajenos era una negación de
+// servicio de una línea, y la disparaba precisamente el control de seguridad.
+//
+// Y ese control era la forma equivocada: leer sin acotar y comparar después.
+// Aun capturado, respondía 403 —«existe, y no es tuyo»— cuando el asiento era
+// de otra entidad, y 404 cuando no existía. Eso convierte la ruta en oráculo
+// de existencia sobre el mayor ajeno.
+//
+// Con `requireByIdInScope` las dos cosas se van a la vez: el filtro entra en
+// el SQL, los dos casos salen por el mismo 404, y `asyncHandler` lleva el
+// error al pipeline en vez de al suelo.
+router.get('/:id', requirePermission('journal_entries:read'), asyncHandler(async (req: Request, res: Response) => {
   const { include_lines = 'true' } = req.query;
 
-  const found = await getJournalEntryById(req.params.id);
-
-  if (!found) {
-    throw new NotFoundError('Journal Entry', req.params.id);
-  }
-
-  const entry = found as JournalEntry & { lines?: JournalEntryLine[] };
-  assertEntityAccess(req.user!, entry.entity_id);
+  const entry = await requireByIdInScope<JournalEntry>(
+    'journal_entries',
+    req.params.id,
+    entityScope(req.tenantId!, req.entityId!)
+  ) as JournalEntry & { lines?: JournalEntryLine[] };
 
   if (include_lines === 'true') {
     entry.lines = await listEntryLines(req.params.id);
@@ -148,7 +168,7 @@ router.get('/:id', requirePermission('journal_entries:read'), async (req: Reques
       version: 'v1',
     },
   });
-});
+}));
 
 // POST /v1/journal-entries
 router.post(

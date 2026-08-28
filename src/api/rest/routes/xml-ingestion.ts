@@ -6,9 +6,33 @@ import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../../utils/errors.js';
 import { PreRegistrationService, DuplicateError } from '../../../services/xml-ingestion/pre-registration-service.js';
+import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 
 const router = Router();
 const service = new PreRegistrationService();
+
+// ============================================================
+// LOS PRE-REGISTROS SE DIRECCIONAN POR UUID Y NADIE LOS ACOTABA.
+//
+// Las seis rutas `/pre-registrations/:id` (y la de lote) tomaban el id de la
+// URL y lo pasaban al SQL a secas. Ninguna lleva `requireEntityAccess`, y no
+// serviría de nada si la llevara: ese middleware mira `req.entityId`, no el
+// parámetro de ruta.
+//
+// La peor era `/:id/process`: carga la fila entera sin acotar y se la entrega
+// a `processToAccounting`, que POSTEA AL MAYOR. Con el UUID de un pre-registro
+// ajeno se contabilizaba el gasto de otra entidad en sus propios libros —el
+// documento trae su entity_id, así que el asiento nace bien formado y va a
+// parar al mayor de la víctima—.
+//
+// Las otras cinco no postean, pero mutan: aprobar, rechazar, reasignar
+// proveedor o cuenta contable, cambiar las líneas. Cerrar sólo `/process` y
+// dejar `/reject` abierta no cierra el camino, así que van las seis.
+//
+// `req.entityId` es de fiar desde que `authenticate` contrasta la cabecera
+// x-entity-id contra las entidades del token.
+// ============================================================
+const alcance = (req: Request) => entityScope(req.tenantId!, req.entityId!);
 
 // ─── Schemas ───
 const uploadXmlSchema = z.object({
@@ -240,7 +264,17 @@ router.get('/pre-registrations/stats', requirePermission('bills:read'), requireE
 });
 
 // GET /v1/pre-registrations/:id
-router.get('/pre-registrations/:id', requirePermission('bills:read'), async (req: Request, res: Response) => {
+//
+// Va envuelto en asyncHandler, y no es cosmético: Express 4 no captura la
+// promesa rechazada de un manejador asíncrono. Sin envolver, el 404 que ahora
+// devuelve un id ajeno no llegaría al errorHandler — dejaría la petición
+// colgada y el unhandledRejection de Node abortaría el proceso. Acotar sin
+// envolver habría cambiado una fuga de datos por una caída del servidor.
+//
+// NOTA: quedan 61 manejadores `async` sin envolver en src/api/rest/routes/.
+// Los que lanzan NotFoundError sobre un id inexistente son una negación de
+// servicio de una petición. Está fuera del alcance de TEN-2 y anotado.
+router.get('/pre-registrations/:id', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {
   const result = await query(
     `SELECT pr.*, xd.cfdi_uuid, xd.emisor_rfc, xd.emisor_nombre, xd.cfdi_fecha,
             xd.sat_validation_status, xd.sat_estado,
@@ -248,8 +282,8 @@ router.get('/pre-registrations/:id', requirePermission('bills:read'), async (req
      FROM pre_registrations pr
      LEFT JOIN xml_documents xd ON xd.id = pr.xml_document_id
      LEFT JOIN vendors v ON v.id = pr.vendor_id
-     WHERE pr.id = $1`,
-    [req.params.id]
+     WHERE pr.id = $1 AND pr.entity_id = $2`,
+    [req.params.id, req.entityId]
   );
   if (result.rows.length === 0) throw new NotFoundError('Pre-Registration', req.params.id);
 
@@ -257,7 +291,7 @@ router.get('/pre-registrations/:id', requirePermission('bills:read'), async (req
     data: result.rows[0],
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // PATCH /v1/pre-registrations/:id
 router.patch('/pre-registrations/:id', requirePermission('bills:create'), validateBody(updatePreRegSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -277,10 +311,11 @@ router.patch('/pre-registrations/:id', requirePermission('bills:create'), valida
   if (updates.length === 0) throw new ValidationError('No valid fields to update');
 
   updates.push(`updated_at = NOW()`);
-  params.push(req.params.id);
+  params.push(req.params.id, req.entityId);
 
   const result = await query(
-    `UPDATE pre_registrations SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+    `UPDATE pre_registrations SET ${updates.join(', ')}
+      WHERE id = $${idx} AND entity_id = $${idx + 1} RETURNING *`,
     params
   );
   if (result.rows.length === 0) throw new NotFoundError('Pre-Registration', req.params.id);
@@ -293,14 +328,17 @@ router.patch('/pre-registrations/:id', requirePermission('bills:create'), valida
 
 // POST /v1/pre-registrations/:id/process
 router.post('/pre-registrations/:id/process', requirePermission('bills:create'), asyncHandler(async (req: Request, res: Response) => {
-  const preReg = await query<Record<string, unknown>>(
-    'SELECT * FROM pre_registrations WHERE id = $1',
-    [req.params.id]
+  // El filtro va DENTRO del SQL. Cero filas significa a la vez «no existe» y
+  // «no es de tu entidad»: la respuesta es 404 en los dos casos y no hay rama
+  // donde el programa pueda distinguirlos.
+  const preReg = await requireByIdInScope<Record<string, unknown>>(
+    'pre_registrations',
+    req.params.id,
+    alcance(req)
   );
-  if (preReg.rows.length === 0) throw new NotFoundError('Pre-Registration', req.params.id);
-  if (preReg.rows[0].status === 'completed') throw new ConflictError('Pre-registration already processed');
+  if (preReg.status === 'completed') throw new ConflictError('Pre-registration already processed');
 
-  const result = await service.processToAccounting(preReg.rows[0], req.user!.user_id);
+  const result = await service.processToAccounting(preReg, req.user!.user_id);
 
   res.json({
     data: {
@@ -321,8 +359,9 @@ router.post('/pre-registrations/:id/reject', requirePermission('bills:void'), va
   const { reason, notes } = req.body;
 
   const result = await query(
-    `UPDATE pre_registrations SET status = 'rejected', notes = COALESCE(notes,'') || $1 WHERE id = $2 RETURNING *`,
-    [`\nRejected: ${reason}${notes ? ' - ' + notes : ''}`, req.params.id]
+    `UPDATE pre_registrations SET status = 'rejected', notes = COALESCE(notes,'') || $1
+      WHERE id = $2 AND entity_id = $3 RETURNING *`,
+    [`\nRejected: ${reason}${notes ? ' - ' + notes : ''}`, req.params.id, req.entityId]
   );
   if (result.rows.length === 0) throw new NotFoundError('Pre-Registration', req.params.id);
 
@@ -340,9 +379,9 @@ router.post('/pre-registrations/:id/approve', requirePermission('bills:approve')
     `UPDATE pre_registrations SET
       approval_status = 'approved', approved_by = $1, approved_at = NOW(),
       approval_notes = $2
-     WHERE id = $3 AND requires_approval = true AND approval_status = 'pending'
+     WHERE id = $3 AND entity_id = $4 AND requires_approval = true AND approval_status = 'pending'
      RETURNING *`,
-    [req.user!.user_id, notes || null, req.params.id]
+    [req.user!.user_id, notes || null, req.params.id, req.entityId]
   );
   if (result.rows.length === 0) throw new NotFoundError('Pre-Registration pending approval', req.params.id);
 
@@ -362,31 +401,41 @@ router.post('/pre-registrations/bulk', requirePermission('bills:create'), valida
     try {
       switch (action) {
         case 'process': {
-          const preReg = await query('SELECT * FROM pre_registrations WHERE id = $1', [id]);
-          if (preReg.rows.length > 0) {
-            await service.processToAccounting(preReg.rows[0] as Record<string, unknown>, req.user!.user_id);
-          }
+          // Antes: si la fila no aparecía se reportaba `success` igual. Un id
+          // ajeno y un id inexistente daban la misma respuesta satisfactoria
+          // que uno propio contabilizado, así que el lote mentía en las dos
+          // direcciones. Ahora requireByIdInScope lanza y el catch de abajo lo
+          // registra como error de ESE id, sin detener el resto.
+          const preReg = await requireByIdInScope<Record<string, unknown>>(
+            'pre_registrations',
+            id,
+            alcance(req)
+          );
+          await service.processToAccounting(preReg, req.user!.user_id);
           results.push({ id, status: 'success' });
           break;
         }
         case 'approve':
           await query(
-            `UPDATE pre_registrations SET approval_status = 'approved', approved_by = $1, approved_at = NOW() WHERE id = $2`,
-            [req.user!.user_id, id]
+            `UPDATE pre_registrations SET approval_status = 'approved', approved_by = $1, approved_at = NOW()
+              WHERE id = $2 AND entity_id = $3`,
+            [req.user!.user_id, id, req.entityId]
           );
           results.push({ id, status: 'success' });
           break;
         case 'reject':
           await query(
-            `UPDATE pre_registrations SET status = 'rejected', notes = COALESCE(notes,'') || $1 WHERE id = $2`,
-            [`\nBulk reject: ${params.reason || 'No reason'}`, id]
+            `UPDATE pre_registrations SET status = 'rejected', notes = COALESCE(notes,'') || $1
+              WHERE id = $2 AND entity_id = $3`,
+            [`\nBulk reject: ${params.reason || 'No reason'}`, id, req.entityId]
           );
           results.push({ id, status: 'success' });
           break;
         case 'set_batch':
           await query(
-            `UPDATE pre_registrations SET scheduled_batch_id = $1, processing_mode = 'batch' WHERE id = $2`,
-            [params.batch_id, id]
+            `UPDATE pre_registrations SET scheduled_batch_id = $1, processing_mode = 'batch'
+              WHERE id = $2 AND entity_id = $3`,
+            [params.batch_id, id, req.entityId]
           );
           results.push({ id, status: 'success' });
           break;
