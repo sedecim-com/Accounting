@@ -4,7 +4,12 @@ dist/
 *.tsbuildinfo
 
 # Configuración con secretos — NUNCA versionar
-.env
+# Cualquier variante de .env, sólo con .env.example como excepción. El
+# patrón era una lista —.env, .env.local, .env.backup-*— y una lista sólo
+# cubre lo que alguien se acordó de escribir: `.env.old` o `.env.copia` no
+# entraban. Con remoto configurado, un descuido ahí ya no es local.
+.env*
+!.env.example
 .env.local
 # Respaldos de .env: los valores de hoy son los de desarrollo, pero el
 # siguiente respaldo puede llevar credenciales reales.

@@ -292,3 +292,52 @@ describe('citas NIF en reglas existentes', () => {
     expect(err).toMatch(/NIF B-15/);
   });
 });
+
+/**
+ * LAS DOS RAMAS QUE EL TRINQUETE DE COBERTURA SEÑALABA.
+ *
+ * No se añaden para subir un número: son las dos únicas del validador que
+ * nadie ejercía, y las dos rechazan un asiento que llegaría al mayor. El
+ * trinquete de vitest.config.ts las delataba y la CI llevaba en rojo por
+ * ellas — un umbral que nadie satisface deja de mirarse, así que o se
+ * cubren o se baja, y bajarlo aquí sería renunciar a las dos.
+ */
+describe('las ramas que faltaban por ejercer', () => {
+  it('un asiento de una sola línea se rechaza antes de mirar nada más', async () => {
+    // Ni siquiera llega a consultar la base: una partida sola no es un
+    // asiento, es media.
+    const r = await validateJournalEntry(ENTRY, [line({ line_number: 1, debit_amount: '100.00' })]);
+    expect(r.isValid).toBe(false);
+    expect(r.errors).toContain('Journal entry must have at least 2 lines');
+    expect(mockQuery, 'no debe gastarse un viaje a la base').not.toHaveBeenCalled();
+  });
+
+  it('una línea en moneda extranjera cuya conversión no cuadra se rechaza', async () => {
+    // 100 USD × 17.50 son 1 750, no 1 000. Sin esta comprobación el asiento
+    // cuadra en pesos consigo mismo y miente sobre el importe en divisa: la
+    // diferencia reaparece al pagar, como una pérdida cambiaria inventada.
+    mockRuleQueries();
+    const r = await validateJournalEntry(ENTRY, [
+      line({
+        line_number: 1, account_id: 'acc-1', debit_amount: '1000.0000',
+        currency_code: 'USD', exchange_rate: '17.5000', foreign_debit: '100.0000',
+      }),
+      line({ line_number: 2, account_id: 'acc-2', credit_amount: '1000.0000' }),
+    ]);
+    expect(r.isValid).toBe(false);
+    expect(r.errors.join(' ')).toMatch(/Currency conversion mismatch/);
+    expect(r.errors.join(' '), 'debe decir cuánto esperaba y cuánto encontró').toMatch(/1750\.0000.*1000\.0000/);
+  });
+
+  it('cuando la conversión sí cuadra, no se queja', async () => {
+    mockRuleQueries();
+    const r = await validateJournalEntry(ENTRY, [
+      line({
+        line_number: 1, account_id: 'acc-1', debit_amount: '1750.0000',
+        currency_code: 'USD', exchange_rate: '17.5000', foreign_debit: '100.0000',
+      }),
+      line({ line_number: 2, account_id: 'acc-2', credit_amount: '1750.0000' }),
+    ]);
+    expect(r.errors.join(' ')).not.toMatch(/Currency conversion mismatch/);
+  });
+});
