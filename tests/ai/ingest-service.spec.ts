@@ -316,8 +316,41 @@ describe('buildCfdiPrompt', () => {
     expect(prompt).toMatch(/Servicio de limpieza/);
     expect(prompt).toMatch(/account suggested by matching: 6130/);
     expect(prompt).toMatch(/Registered vendor/);
-    expect(prompt).toMatch(/IVA acreditable/);
+    expect(prompt).toMatch(/IVA Acreditable/);
     expect(prompt).toMatch(/ask_user/);
+  });
+
+  /**
+   * El prompt es la TERCERA puerta por la que entra el IVA de un CFDI, y
+   * enseñaba la regla contraria a la ley: «debit to creditable VAT (IVA
+   * acreditable) + credit to vendors (PPD)» — es decir, acreditar el IVA de
+   * una factura a crédito que nadie ha pagado, que es justo lo que prohíbe el
+   * artículo 5 fracción III de la LIVA. Las otras dos puertas ya aplican base
+   * de flujo; ésta le decía al modelo lo opuesto.
+   */
+  it('enseña el IVA sobre base de flujo, no la regla que lo acredita al recibir', () => {
+    const prompt = buildCfdiPrompt(makeUpload({}, { vendor_id: 'vend-1' }) as never);
+
+    expect(prompt, 'debe nombrar la base de flujo y su fundamento').toMatch(/cash basis/i);
+    expect(prompt).toMatch(/LIVA art\. 5-III/);
+
+    // PPD manda a la cuenta de pendientes, y lo dice con el código.
+    expect(prompt).toMatch(/PPD[\s\S]*IVA Pendiente de Acreditar/);
+    expect(prompt).toMatch(/1135/);
+
+    // Y prohíbe explícitamente lo que antes recomendaba.
+    expect(prompt).toMatch(/Do NOT debit IVA Acreditable/);
+
+    // La instrucción vieja, literal, no puede volver.
+    expect(
+      prompt,
+      'la instrucción vieja acreditaba el IVA de un PPD sin pagar'
+    ).not.toMatch(/debit to creditable VAT \(IVA acreditable\) \+ credit to vendors \(PPD\)/);
+  });
+
+  it('sin método declarado le dice al modelo que asuma PPD', () => {
+    const prompt = buildCfdiPrompt(makeUpload({}, { vendor_id: 'vend-1' }) as never);
+    expect(prompt).toMatch(/No Method declared[\s\S]*treat it as PPD/);
   });
 
   it('flags an unregistered vendor and tolerates malformed lines', () => {

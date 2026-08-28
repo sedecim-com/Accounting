@@ -408,8 +408,17 @@ ${conceptos || '  (no lines)'}
 
 Instructions:
 1. Search precedents (search_precedents) and prior journal entries for the issuer (search_journal_entries).
-2. Verify the accounts in the chart of accounts (search_accounts). The typical entry for an expense with VAT:
-   debit to expense for the subtotal + debit to creditable VAT (IVA acreditable) + credit to vendors (PPD) or banks (PUE).
+2. Verify the accounts in the chart of accounts (search_accounts). VAT IS ON A CASH BASIS
+   (LIVA art. 5-III): input VAT is creditable only once the invoice has been PAID, so the
+   Method above decides which VAT account the entry hits.
+   - PUE (paid in one go): debit expense for the subtotal + debit "IVA Acreditable" (1130)
+     + credit banks.
+   - PPD (on credit): debit expense for the subtotal + debit "IVA Pendiente de Acreditar"
+     (1135) + credit vendors. Do NOT debit IVA Acreditable: nothing has been paid yet, and
+     crediting VAT that was never paid is the finding the SAT actually writes up. The
+     payment entry is what later moves it from 1135 to 1130.
+   - No Method declared: treat it as PPD. It is the assumption that cannot overstate the
+     credit, and it self-corrects when the payment is recorded.
 3. Create the draft with reference "${referenceSerieFolio} · ${d.cfdi_uuid}".
 4. Report an honest confidence; if a question BLOCKS the classification, use ask_user (it will be
    logged) and do NOT create the draft.`;

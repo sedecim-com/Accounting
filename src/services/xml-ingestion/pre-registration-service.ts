@@ -1,8 +1,16 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
-import { query, withTransaction } from '../../database/connection.js';
+import pg from 'pg';
+import { query, withTransaction, getClient } from '../../database/connection.js';
 import { createJournalEntry } from '../accounting/posting.js';
 import { planearAsiento, planContabilizable, type PlanDeAsiento } from './cfdi-posting-plan.js';
+import {
+  decideMetodoPago,
+  entityUsesCashBasisIva,
+  ivaRoleFor,
+  ivaTreatmentNote,
+} from '../accounting/iva-cash-basis.js';
+import type { AccountRole } from './cfdi-taxonomy.js';
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto } from './cfdi-parser.js';
 import { SATValidationService } from './sat-validation.js';
@@ -599,46 +607,81 @@ export class PreRegistrationService {
     lines: LineWithSuggestion[],
     billNumber: string
   ): Promise<Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }>> {
-    const cuentas = await query<{ id: string; code: string }>(
-      `SELECT id, code FROM accounts WHERE entity_id = $1 AND code = ANY($2::text[])`,
-      [preReg.entity_id, ['2110', '1130']]
-    );
-    const porCodigo = new Map(cuentas.rows.map((c) => [c.code, c.id]));
-    const cxp = porCodigo.get('2110');
-    if (!cxp) {
-      throw new AccountingError('AP_ACCOUNT_MISSING', 'Accounts Payable control account (2110) not found');
-    }
-
-    const jeLines: Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }> = [
-      {
-        account_id: cxp,
-        debit_amount: null,
-        credit_amount: new Decimal(preReg.total_amount as string).toFixed(4),
-        description: `Bill ${billNumber}`,
-      },
-    ];
-
-    for (const line of lines) {
-      const accountId = line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
-      jeLines.push({
-        account_id: accountId,
-        debit_amount: new Decimal(line.importe).toFixed(4),
-        credit_amount: null,
-        description: line.descripcion,
+    const entityId = preReg.entity_id as string;
+    const cliente = await getClient();
+    try {
+      // Sin CFDI no hay MetodoPago declarado, pero eso no autoriza a inventar
+      // un tratamiento propio: el mismo gasto no puede caer en una cuenta u
+      // otra según por qué puerta entró. Antes esta función resolvía por los
+      // códigos literales '2110' y '1130' y mandaba TODO el IVA a acreditable
+      // sin mirar el método, contradiciendo a AR/AP y a la ingesta con CFDI.
+      //
+      // Ahora usa la MISMA decisión (decideMetodoPago, con su supuesto
+      // conservador) y el MISMO mapa de roles (ivaRoleFor, que se lo pregunta
+      // a la taxonomía CFDI). Una entidad no mexicana no se toca: su impuesto
+      // no es IVA acreditable y sigue posteando donde siempre.
+      const flujo = await entityUsesCashBasisIva(cliente, entityId);
+      const decision = decideMetodoPago('received', {
+        terms: null,
+        memo: (preReg.notes as string) ?? null,
       });
-    }
+      const rolIva: AccountRole = flujo
+        ? ivaRoleFor('received', decision.metodo)
+        : 'iva_acreditable';
 
-    const totalTax = new Decimal(preReg.tax_amount as string);
-    const iva = porCodigo.get('1130');
-    if (totalTax.greaterThan(0) && iva) {
-      jeLines.push({
-        account_id: iva,
-        debit_amount: totalTax.toFixed(4),
-        credit_amount: null,
-        description: `IVA Acreditable - Bill ${billNumber}`,
-      });
+      const cuentas = await cuentasPorRol(cliente, entityId, ['cxp', rolIva]);
+      const cxp = cuentas.get('cxp');
+      if (!cxp) {
+        throw new AccountingError(
+          'AP_ACCOUNT_MISSING',
+          `La entidad no tiene cuenta para el rol "cxp" (proveedores). ` +
+            `Siembra la contabilidad con: mnemosine init --section identity`
+        );
+      }
+
+      const jeLines: Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }> = [
+        {
+          account_id: cxp,
+          debit_amount: null,
+          credit_amount: new Decimal(preReg.total_amount as string).toFixed(4),
+          description: `Bill ${billNumber}`,
+        },
+      ];
+
+      for (const line of lines) {
+        const accountId = line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
+        jeLines.push({
+          account_id: accountId,
+          debit_amount: new Decimal(line.importe).toFixed(4),
+          credit_amount: null,
+          description: line.descripcion,
+        });
+      }
+
+      const totalTax = new Decimal(preReg.tax_amount as string);
+      if (totalTax.greaterThan(0)) {
+        const cuentaIva = cuentas.get(rolIva);
+        if (!cuentaIva) {
+          // Antes se descartaba la línea en silencio con un `&& iva`, y el
+          // asiento salía descuadrado lejos del origen.
+          throw new AccountingError(
+            'MISSING_ROLE_ACCOUNT',
+            `La entidad no tiene cuenta para el rol "${rolIva}". ` +
+              `Siembra la contabilidad con: mnemosine init --section identity`
+          );
+        }
+        jeLines.push({
+          account_id: cuentaIva,
+          debit_amount: totalTax.toFixed(4),
+          credit_amount: null,
+          // El supuesto queda escrito en el renglón, no sólo en este archivo.
+          description: `${ivaTreatmentNote('received', decision)} — Bill ${billNumber}`,
+        });
+      }
+      return jeLines;
+    } finally {
+      cliente.release();
     }
-    return jeLines;
   }
 
   private async createBillFromPreReg(
@@ -816,4 +859,49 @@ function mapearEstadoSat(
     case 'not_found': return 'no_encontrado';
     default: return 'sin_validar';
   }
+}
+
+/**
+ * Rol contable → id de cuenta, dentro de la entidad.
+ *
+ * El rol manda. El código heredado queda de red para las entidades sembradas
+ * antes de que existiera la capa semántica, que todavía no han pasado por el
+ * relleno de account_roles (E1.1).
+ */
+const CODIGO_HEREDADO: Partial<Record<AccountRole, string>> = {
+  cxp: '2110',
+  iva_acreditable: '1130',
+  iva_pendiente_acreditar: '1135',
+};
+
+async function cuentasPorRol(
+  cliente: pg.PoolClient,
+  entityId: string,
+  roles: AccountRole[]
+): Promise<Map<string, string>> {
+  const porRol = new Map<string, string>();
+
+  const r = await cliente.query<{ role: string; account_id: string }>(
+    `SELECT role, account_id FROM account_roles
+      WHERE entity_id = $1 AND qualifier IS NULL AND role = ANY($2::text[])`,
+    [entityId, roles]
+  );
+  for (const fila of r.rows) porRol.set(fila.role, fila.account_id);
+
+  const faltan = roles.filter((rol) => !porRol.has(rol));
+  if (faltan.length === 0) return porRol;
+
+  const codigos = faltan.map((rol) => CODIGO_HEREDADO[rol]).filter((c): c is string => !!c);
+  if (codigos.length === 0) return porRol;
+
+  const c = await cliente.query<{ id: string; code: string }>(
+    `SELECT id, code FROM accounts WHERE entity_id = $1 AND code = ANY($2::text[])`,
+    [entityId, codigos]
+  );
+  const porCodigo = new Map(c.rows.map((x) => [x.code, x.id]));
+  for (const rol of faltan) {
+    const id = porCodigo.get(CODIGO_HEREDADO[rol] as string);
+    if (id) porRol.set(rol, id);
+  }
+  return porRol;
 }
