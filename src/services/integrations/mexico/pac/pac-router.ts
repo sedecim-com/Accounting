@@ -6,6 +6,7 @@ import { AccountingError } from '../../../../utils/errors.js';
 import { cfdiStampOutcomes } from '../../../../api/rest/middleware/metrics.js';
 import { assertPuedeTimbrar } from './simulacion.js';
 import { finkokAdapter } from './finkok-adapter.js';
+import { sovosReachcoreAdapter } from './sovos-reachcore-adapter.js';
 import { swSapienAdapter } from './sw-sapien-adapter.js';
 import { edicomAdapter } from './edicom-adapter.js';
 
@@ -22,6 +23,7 @@ integrationRegistry.register(swSapienAdapter);
 integrationRegistry.register(edicomAdapter);
 
 const PAC_ADAPTERS: Record<string, IPacAdapter> = {
+  sovos_reachcore: sovosReachcoreAdapter,
   finkok: finkokAdapter,
   sw_sapien: swSapienAdapter,
   edicom: edicomAdapter,
