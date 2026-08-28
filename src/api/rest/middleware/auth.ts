@@ -107,7 +107,15 @@ export function requireEntityAccess(req: Request, _res: Response, next: NextFunc
     throw new UnauthorizedError();
   }
 
-  const entityId = req.entityId || req.params.entity_id || req.body?.entity_id;
+  // req.query también: es uno de los cinco vectores del perímetro. Las
+  // rutas de listado reciben ?entity_id= y el middleware no lo miraba, así
+  // que la única defensa era que `authenticate` deja req.entityId puesto
+  // desde la cabecera — un valor distinto del que la ruta va a usar.
+  const entityId =
+    req.entityId ||
+    req.params.entity_id ||
+    (req.body as { entity_id?: string } | undefined)?.entity_id ||
+    (typeof req.query.entity_id === 'string' ? req.query.entity_id : undefined);
   if (!entityId) {
     return next();
   }

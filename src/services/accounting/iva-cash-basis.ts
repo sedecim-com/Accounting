@@ -553,6 +553,27 @@ export async function ivaStillParked(
     [entityId, from, documentId, sourceTypes]
   );
   const parked = new Decimal(rows[0]?.parked ?? '0');
+
+  // Un tope de cero puede significar dos cosas MUY distintas: que el
+  // documento no aparcó nada —correcto, y frecuente— o que la entidad no
+  // tiene sembrada la capa semántica y esta consulta, que resuelve la cuenta
+  // POR ROL, no encuentra ninguna. El backfill del histórico sí acepta el
+  // código heredado, así que en una entidad sin roles el IVA se APARCA y no
+  // se LIBERA nunca, en silencio. Se distinguen los dos casos.
+  if (parked.isZero()) {
+    const { rows: r } = await client.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM account_roles WHERE entity_id = $1`,
+      [entityId]
+    );
+    if (r[0]?.n === '0') {
+      throw new AccountingError(
+        'MISSING_ROLE_ACCOUNT',
+        `La entidad ${entityId} no tiene sembrada la capa semántica, así que no se puede saber ` +
+          `cuánto IVA tiene aparcado: el pago liberaría cero y el impuesto se quedaría ahí. ` +
+          `Siémbrala con: npm run backfill:account-roles -- --tenant <uuid> --aplicar`
+      );
+    }
+  }
   return Decimal.max(parked, new Decimal(0)).toFixed(SCALE);
 }
 

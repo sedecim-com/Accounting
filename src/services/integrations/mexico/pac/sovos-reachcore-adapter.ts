@@ -250,11 +250,28 @@ export class SovosReachcoreAdapter implements IPacAdapter {
     const doc = parser.parse(r.body) as Record<string, unknown>;
     const cuerpo = buscar(doc, 'TimbrarComprobanteResult') ?? buscar(doc, 'TimbrarComprobanteResponse');
 
-    const error = buscar(doc, 'Error');
-    if (error && typeof error === 'object') {
+    // Un <Error> puede llegar como objeto, como TEXTO suelto, o venir dentro
+    // de un s:Fault —que no tiene la clave 'Error' en absoluto—. Antes sólo
+    // se miraba el caso objeto: los otros dos caían al camino de éxito y
+    // terminaban en «respuesta ilegible», perdiendo el mensaje del PAC, que
+    // es exactamente lo que dice qué hay que corregir del comprobante.
+    const error = buscar(doc, 'Error') ?? buscar(doc, 'Fault');
+    if (error !== undefined && error !== null && typeof error !== 'object') {
+      throw new AccountingError(
+        'PAC_ERROR',
+        `Sovos rechazó el comprobante: ${String(error)}`
+      );
+    }
+    // Un DataContract serializa los miembros nulos como <Error i:nil="true"/>,
+    // que el parser entrega como objeto vacío con ese atributo: no es un error.
+    const esNulo =
+      error !== null && typeof error === 'object' &&
+      (error as Record<string, unknown>)['@_nil'] === 'true';
+
+    if (error && typeof error === 'object' && !esNulo) {
       const e = error as Record<string, unknown>;
-      const codigo = String(interno(e, 'Code') ?? '');
-      const mensaje = String(e.Message ?? 'error sin mensaje');
+      const codigo = String(interno(e, 'Code') ?? interno(e, 'faultcode') ?? '');
+      const mensaje = String(e.Message ?? e.faultstring ?? 'error sin mensaje');
 
       if (codigo === ERR_API_KEY || r.status === 401) {
         throw new AccountingError('PAC_AUTH', `Sovos rechazó la ApiKey (${codigo}): ${mensaje}`);

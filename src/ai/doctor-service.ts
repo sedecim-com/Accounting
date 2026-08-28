@@ -51,6 +51,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(checkOrphanedCapability(deps));
     checks.push(checkConnectionTransport());
     checks.push(await checkTenantIsolation());
+    checks.push(await checkReopenedPeriods());
     checks.push(await checkPendingWork());
     checks.push(await checkCredentials(deps.now ?? new Date()));
   }
@@ -626,5 +627,50 @@ export function checkOrphanedCapability(deps: DoctorDeps = {}): CheckResult {
         : '') +
       ` — of ${scanned.tables} tables and ${scanned.exports} exports`,
     fix: 'give each one a door (a writer, a command, a caller) or delete it: unreachable code still gets maintained',
+  };
+}
+
+/**
+ * PERIODOS REABIERTOS QUE NADIE VOLVIÓ A CERRAR.
+ *
+ * `reopenClosedPeriod` y `restorePeriodStatus` son dos transacciones
+ * independientes, y tienen que serlo: entre ellas ocurre el trabajo que
+ * motivó la reapertura, con sus propias transacciones. Si el proceso muere
+ * en medio —o el `finally` que restaura falla— el periodo se queda ABIERTO
+ * de forma permanente, y nadie se entera: un periodo abierto no molesta a
+ * nada hasta que alguien postea en él y descuadra un cierre ya presentado.
+ *
+ * No se puede evitar con una transacción, así que se detecta: la bitácora
+ * guarda la reapertura con su motivo, y un cierre posterior sobre el mismo
+ * periodo la salda. Una reapertura sin cierre que la siga es el rastro.
+ */
+export async function checkReopenedPeriods(): Promise<CheckResult> {
+  const r = await query<{ period_name: string; entity: string; reason: string; cuando: Date }>(
+    `SELECT fp.period_name, le.name AS entity, a.reason, a.timestamp AS cuando
+       FROM audit_log a
+       JOIN fiscal_periods fp ON fp.id = a.entity_id
+       JOIN legal_entities le ON le.id = fp.entity_id
+      WHERE a.entity_type = 'fiscal_period' AND a.action = 'reopen'
+        AND fp.status = 'open'
+        AND NOT EXISTS (
+          SELECT 1 FROM audit_log c
+           WHERE c.entity_type = 'fiscal_period' AND c.entity_id = a.entity_id
+             AND c.action = 'close' AND c.timestamp > a.timestamp
+        )
+      ORDER BY a.timestamp`
+  );
+
+  if (r.rows.length === 0) {
+    return { name: 'Reopened periods', level: 'ok', detail: 'none left open' };
+  }
+  const primero = r.rows[0];
+  return {
+    name: 'Reopened periods',
+    level: 'warn',
+    detail:
+      `${r.rows.length} period(s) reopened and never closed again — the first is ` +
+      `${primero.period_name} of ${primero.entity}. A period left open accepts postings that ` +
+      `would unbalance a close already filed.`,
+    fix: 'mnemosine period close <period> --entity <entity>',
   };
 }
