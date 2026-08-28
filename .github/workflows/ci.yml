@@ -36,6 +36,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # Trinquete por archivo sobre el motor contable: no exige trabajo nuevo,
+      # impide la regresión. Los umbrales viven en vitest.config.ts.
+      - run: npx vitest run --coverage
 
   integration:
     name: Integración contra Postgres
@@ -85,8 +88,15 @@ jobs:
         ports:
           - 5432:5432
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_iso
+      # La APLICACIÓN conecta como mnemosine_app, que es el punto entero de
+      # este job: corriendo como superusuario la RLS no filtra nada y una
+      # política ausente jamás se detectaría. Es el único requisito que los
+      # dos planes levantaron por separado y que ninguno había cerrado.
+      DATABASE_URL: postgresql://mnemosine_app:ci_app_pw@localhost:5432/mnemosine_iso
+      # Las migraciones sí necesitan al dueño del esquema.
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_iso
+      SUPERUSER_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_iso
+      MNEMOSINE_APP_PASSWORD: ci_app_pw
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -94,5 +104,20 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      # Los roles son objetos de nivel clúster, así que no están en la cadena
+      # de migraciones: sin este paso el bucle de GRANT de rls-policies.sql no
+      # encuentra a quién otorgar y sale sin hacer nada.
+      - name: Aprovisionar roles de base
+        run: |
+          psql "$SUPERUSER_URL" \
+            -v app_pw="$MNEMOSINE_APP_PASSWORD" \
+            -v owner_pw=ci_owner_pw \
+            -f scripts/provision-roles.sql
       - run: npm run migrate
+      # verify-isolation.sh necesita un tenant con entidad para comparar
+      # contra el que él mismo crea; sin siembra su primera comprobación
+      # compara contra vacío y no prueba nada.
+      - run: npm run seed
+        env:
+          DATABASE_URL: ${{ env.MIGRATION_DATABASE_URL }}
       - run: bash scripts/verify-isolation.sh

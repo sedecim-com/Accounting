@@ -162,3 +162,67 @@ BEGIN
   RAISE NOTICE 'child RLS applied to % tables', applied;
 END
 $child$;
+
+-- ============================================================
+-- DUEÑO DE LAS VISTAS MATERIALIZADAS
+--
+-- Una vista corre con los permisos de SU DUEÑO, no de quien la consulta. Las
+-- migraciones las crea el rol que las aplica —en CI, un superusuario— así que
+-- una consulta de la aplicación contra mv_trial_balance leía a través de la
+-- RLS de TODOS los inquilinos. verify-isolation.sh ya comprobaba esto y era
+-- su única comprobación en rojo.
+--
+-- Reasignarlas a mnemosine_owner las devuelve al régimen normal: el dueño está
+-- sujeto a las políticas como cualquier otro.
+--
+-- Silencioso cuando el rol no existe (entorno de desarrollo sin roles
+-- aprovisionados) y cuando quien ejecuta no puede reasignar: es una mejora de
+-- postura, no un requisito para que las migraciones corran.
+-- ============================================================
+DO $vistas$
+DECLARE
+  v RECORD;
+  reasignadas INT := 0;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnemosine_owner') THEN
+    RAISE NOTICE 'mnemosine_owner no existe: no se reasignan vistas materializadas';
+    RETURN;
+  END IF;
+
+  -- Para que la vista siga funcionando tras el cambio de dueño, ese dueño
+  -- necesita poder leer las tablas base: una vista corre con SUS permisos, y
+  -- reasignarla a un rol sin acceso la rompe entera con «permission denied for
+  -- table accounts». Por eso el GRANT va ANTES del ALTER.
+  --
+  -- Esto no debilita nada: mnemosine_owner se crea NOBYPASSRLS, así que una
+  -- vista suya queda SUJETA a las políticas — que es justo la propiedad que
+  -- faltaba cuando la vista pertenecía a un superusuario.
+  BEGIN
+    EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA public TO mnemosine_owner';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'sin privilegio para otorgar lectura a mnemosine_owner; no se reasignan vistas';
+    RETURN;
+  END;
+
+  FOR v IN
+    SELECT c.relname
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind IN ('v', 'm')
+      AND pg_get_userbyid(c.relowner) <> 'mnemosine_owner'
+  LOOP
+    BEGIN
+      EXECUTE format('ALTER %s public.%I OWNER TO mnemosine_owner',
+                     CASE WHEN (SELECT relkind FROM pg_class WHERE relname = v.relname
+                                  AND relnamespace = 'public'::regnamespace) = 'm'
+                          THEN 'MATERIALIZED VIEW' ELSE 'VIEW' END,
+                     v.relname);
+      reasignadas := reasignadas + 1;
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE 'sin privilegio para reasignar la vista %; queda con su dueño actual', v.relname;
+    END;
+  END LOOP;
+  RAISE NOTICE 'vistas reasignadas a mnemosine_owner: %', reasignadas;
+END
+$vistas$;
