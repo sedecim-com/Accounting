@@ -19,6 +19,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
     "plan:status": "tsx src/plan/status.ts",
+    "catalogo:estado": "tsx scripts/catalogo-estado.ts",
     "reclass:iva-ppd": "tsx scripts/reclasificar-iva-ppd.ts",
     "backfill:account-roles": "tsx scripts/rellenar-roles-de-cuenta.ts"
   },
