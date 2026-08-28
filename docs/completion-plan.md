@@ -4,42 +4,48 @@
 > con clientes reales. Derivado de siete análisis del código, dos revisiones adversariales
 > y mediciones sobre la base de datos real.
 
-## El hecho que reordena todo
+## Cómo leer este documento
 
-Antes de decidir qué construir, hay que mirar lo que el sistema imprime hoy. Este es el balance
-general de Demo Corp MX, generado con el comando que ya funciona:
+**Esta es la carta de alcance**, no el backlog. Responde qué significa «terminado», qué se
+construye, qué no se construye nunca, y en qué orden. El backlog de ejecución —paquetes, tareas
+dimensionadas, criterios de cierre— vive en [plan-cierre-brechas.md](plan-cierre-brechas.md) y está
+subordinado a este documento: cuando los dos discrepen sobre si algo debe construirse, manda éste;
+cuando discrepen sobre cómo, manda aquél.
 
-| Renglón | Importe |
-|---|---|
-| Total Assets | **−261.12** |
-| Total Liabilities and Equity | **16,008.00** |
-| Total Equity | **0.00** |
+> **Regla dura de esta carta: enuncia decisiones y compuertas, nunca conteos.**
+>
+> La versión anterior abría con un balance descuadrado por 16 269.12 pesos. Ese hecho fue cierto
+> durante meses y dejó de serlo **74 segundos antes** de que el documento se commiteara: el commit
+> que lo arregló entró primero. Todas sus demás cifras —número de pruebas, líneas de código, el
+> reparto del catálogo— caducaron igual de rápido.
+>
+> El razonamiento sobrevivió; los números nunca lo hacen. Así que aquí no hay ninguno. Donde hace
+> falta una cifra, se cita el artefacto que la genera.
 
-El balance está descuadrado por **16 269.12 pesos**. No existe renglón de resultado del ejercicio
-(`report-service.ts:469-496` no lo calcula), y el reporte imprime los dos totales **sin compararlos
-nunca**. Un estado financiero que no cuadra y no lo nota no es un estado financiero.
+## Lo que la evidencia enseñó, y sigue siendo cierto
 
-No está solo:
+El balance ya cuadra y falla ruidosamente si no; el resultado del ejercicio vive en el capital. Pero
+lo que hizo falta para llegar ahí es lo que gobierna el resto del trabajo:
 
-- El **cierre anual devuelve `[]` en silencio** con cualquier catálogo que no sea el sembrado por
-  el sistema: `period-close.ts:302-311` resuelve las cuentas 3900 y 3200 exigiendo
-  `is_system_account = true`, y la estrategia `auto` de onboarding deja intacto el catálogo
-  importado del cliente a propósito. Es decir: falla exactamente en el caso para el que se diseñó.
-- El **IVA se reconoce sobre lo devengado** (`ar-ap-posting.ts:87-92`) cuando en México se acredita
-  sobre lo cobrado. El motor correcto ya está escrito y probado en `cfdi-taxonomy.ts` — y **no lo
-  llama nadie**. El propio código lo admite en `bill-service.ts:478-482`: *"la declaración mensual
-  construida con estos asientos no va a cuadrar"*.
-- **`payroll_account_mapping` y `sat_code_mappings` tienen lectores que lanzan excepción y ningún
-  INSERT en todo el repositorio.** La familia de Nómina (167 comandos del catálogo) está montada
-  sobre una tabla que nada puebla.
-- La **creación de entidades es un método privado del asistente `init`** (`s1-identity.ts:115`). No
-  hay comando ni endpoint. Y elige el tenant con `ORDER BY created_at ASC LIMIT 1` — en una
-  instalación con dos despachos, toda entidad nueva cae silenciosamente en el tenant del primero.
+**La lógica de negocio vive dentro de los handlers de Express.** Implementar una capacidad nunca es
+conectar un CLI: es extraer el servicio, refactorizar la ruta preservando su contrato HTTP, y recién
+entonces construir el comando. Ésa es la razón de que un tercio del catálogo esté marcado como
+«parcial» en vez de «existe».
 
-**Consecuencia para el plan: agregarle 300 comandos a esto produce 300 respuestas equivocadas más
-rápido.** El orden no es discutible: primero que los números sean ciertos, después la superficie.
+**Un ✅ falso es el peor defecto posible en un plan**, porque hace que un comando imposible parezca
+trabajo de una hora. Por eso cada fila del catálogo se verificó abriendo el archivo que dice
+implementarla, y por eso los estados de los paquetes deben generarse desde el código y no
+escribirse a mano. Ambos documentos se desincronizaron exactamente por esto.
 
----
+**El código que triunfa en falso es más peligroso que el que falla.** Quien llama a una función
+llamada «enviar al IRS» y recibe estado `pending` cree que presentó. Quien cancela un CFDI y recibe
+200 cree que lo canceló. Retirar ese código es la única clase de trabajo que quita un peligro activo
+en vez de agregar capacidad, y por eso nadie la agenda.
+
+**Un criterio de cierre que nombra identificadores en vez de comportamiento no sirve.** El cerrojo
+antisimulación del timbrado se construyó bien, se documentó mejor que su especificación, y falla el
+100% de sus criterios escritos porque su autor eligió nombres en español. Un criterio debe ser una
+aserción ejecutable sobre lo observable.
 
 ## Qué significa "terminado"
 
@@ -97,14 +103,19 @@ Los niveles 0 y 1 son el producto. Los otros dos son opciones.
 depende del siguiente:
 
 ```
-CI verde + migración de identidad de entidad
-  → alta de entidad como servicio, con un principal autenticado
-    → una sola frontera de tenant/entidad, verificada como NO superusuario
-      → un solo almacén de saldos + un solo modo de posteo
-        → calendario fiscal + tipo de cambio + esquema de N impuestos por renglón
-          → IVA sobre flujo, usando la taxonomía CFDI que ya existe
-            → custodia de CSD → cadena original → sello → PAC → REP → cancelación → Anexo 24
+CI verde + migración de identidad de entidad        ▓▓▓▓░  migración ✓ · CI NUNCA HA CORRIDO
+  → alta de entidad como servicio + principal autenticado   ▓▓▓▓░  servicio ✓ · principal ✗
+    → una frontera de tenant/entidad, como NO superusuario  ▓▓░░░  middleware ✓ · 105 endpoints sin guarda
+      → un solo almacén de saldos + un solo modo de posteo  ░░░░░  sin empezar
+        → calendario + tipo de cambio + N impuestos/renglón ░░░░░  sin empezar
+          → IVA sobre flujo por la taxonomía CFDI           ▓▓▓▓▓  ✓
+            → CSD → cadena original → sello → PAC → …       ░░░░░  fuera de v1
 ```
+
+El eslabón que sigue es el tercero, y su primera mitad ya está: el contexto de inquilino se monta
+una sola vez para todo `/v1`, así que ningún router puede olvidarlo. Lo que falta es la mitad que
+decide si el perímetro existe de verdad — que `requireEntityAccess` verifique la entidad que usa el
+*handler* y no la del encabezado, y que la aplicación corra como un rol que la RLS pueda filtrar.
 
 Todo lo demás corre **alrededor** de esta cadena. Nada corre **a través** de ella.
 
@@ -372,15 +383,30 @@ en su lugar. Una frontera no declarada se re-litiga en cada sesión y en cada ll
 | Agregación de feeds bancarios | Importación de estados de cuenta |
 | Pronóstico a 13 semanas, marco COSO, muestreo de auditoría, almacenes y BOM | Fuera |
 
-Sobre la nómina de EUA vale la pena ser explícito, porque es el desacuerdo más grande entre los
-analistas: correr nómina estadounidense conforme significa poseer las tasas de 51 jurisdicciones
-para siempre, las reducciones de crédito FUTA que se publican cada noviembre, y la responsabilidad
-cuando salga mal. Eso es el negocio de una compañía de nómina. La evidencia de que aquí nunca fue
-una capacidad real está en el código: seis consultas contra una tabla que no existe, seis columnas de
-embargo que nunca se escribieron, `calculateGarnishments` llamado incondicionalmente —así que
-`calculatePaycheck` lanza excepción para **todo** empleado estadounidense— y dos adaptadores que
-"envían" sin enviar nada. México es distinto y se queda dentro: ahí el CFDI de nómina **es** un
-documento contable y lo hace el despacho.
+Sobre la nómina de EUA vale la pena ser explícito, porque la política se sostiene pero **la
+evidencia que la sustentaba ya no**. La versión anterior daba cuatro hechos del código; tres fueron
+reparados por el otro flujo de trabajo y **el cuarto nunca fue cierto**:
+
+| Lo que se afirmó | Estado real |
+|---|---|
+| Seis consultas contra una tabla `entities` que no existe | **Reparado.** No queda ninguna referencia |
+| Seis columnas de embargo que nunca se escribieron | **Reparado.** El motor de embargos se reescribió sobre las columnas reales |
+| `calculateGarnishments` se llama incondicionalmente, así que toda nómina de EUA lanza excepción | **Nunca fue cierto.** La llamada está dentro de `if (emp.country_code === 'US')` desde el commit inicial |
+| Dos adaptadores que «envían» sin enviar nada | **Retirado**, junto con sus tres rutas |
+
+La política no cambia, pero ahora descansa donde debe: **no en que el código esté roto, sino en que
+el negocio es de otro**. Correr nómina estadounidense conforme significa poseer las tasas de 51
+jurisdicciones para siempre, las reducciones de crédito FUTA que se publican cada noviembre, y la
+responsabilidad cuando salga mal. Eso es una compañía de nómina, no un despacho contable mexicano.
+
+La frontera que el código ya dibujó es mejor que la que declaraba cualquiera de los dos planes: los
+**transmisores** están retirados y los **generadores** siguen vivos. Ésa es exactamente la línea
+correcta —preparar y entregar, nunca transmitir— y hay que escribirla así en lugar de «nómina de
+EUA fuera», que contradecía al propio plan cuando su carril de EUA decía «941/940/W-2 como preparar
+y entregar».
+
+México es distinto y se queda dentro: ahí el CFDI de nómina **es** un documento contable y lo hace
+el despacho.
 
 ---
 
@@ -411,29 +437,23 @@ momento en que se empiece a construir.**
 
 ---
 
-## Calibración: lo que costó lo que ya está hecho
+## Calibración
 
-Medido sobre la primera ola, no estimado:
+Aquí no van conteos: caducan. Van las dos proporciones que se sostuvieron a través de dos olas de
+trabajo y que sirven para dimensionar la tercera.
 
-| Medida | Valor |
-|---|---|
-| Comandos entregados y verificados | 52 |
-| Servicios extraídos | 8 |
-| Código de producción nuevo | 10 381 líneas (kernel 1 086, comandos 4 678, servicios 4 617) |
-| Pruebas | 10 325 líneas, 44 archivos — ratio prueba:código **1.1 : 1** |
-| Líneas por comando | ~90 |
-| Líneas por servicio extraído | ~577 |
-| **Tokens de subagente por comando** | **~52 000** |
-| Hallazgos de los verificadores | 31, de los cuales 2 bloqueantes reales |
+| Proporción | Valor | Para qué sirve |
+|---|---|---|
+| Prueba : código | ≈ 1.1 : 1 | Un paquete que estima solo el código estima la mitad del trabajo |
+| Coste por comando entregado **y verificado** | ≈ 50 k tokens de subagente | Solo vale para comandos cuyo motor ya existe; los que exigen construir el motor son de otra magnitud |
 
-Ese costo por comando vale **solo** para comandos cuyo motor ya existe. Los 1 008 ❌ exigen construir
-el motor primero, y ahí el multiplicador es de otra magnitud.
+El estado real —comandos, pruebas, líneas, reparto del catálogo— se genera, no se escribe. Mientras
+`npm run plan:status` no exista, la fuente es `npx vitest run`, `npm run test:integration` y
+`mnemosine doctor`, y cualquier cifra en un documento es una fotografía vencida.
 
-Contra eso, la aritmética del alcance: dimensionar el catálogo completo da del orden de 780
-semanas-sesión. Dimensionar **Nivel 0 + Nivel 1** —un libro que cierra— da entre 90 y 110. Las 670
-semanas de diferencia compran funcionalidad que este cliente no va a usar.
-
----
+La aritmética de alcance que sí importa no es de comandos sino de decisión: dimensionar el catálogo
+completo da del orden de 780 semanas-sesión; dimensionar **un libro que cierra** da entre 90 y 110.
+La diferencia compra funcionalidad que este cliente no va a usar.
 
 ## Riesgos, y la señal temprana de cada uno
 
@@ -448,18 +468,36 @@ semanas de diferencia compran funcionalidad que este cliente no va a usar.
 
 ---
 
-## Lo primero que yo haría mañana
+## Dónde estamos, y qué sigue
 
-En orden, y ninguno depende de decisiones de producto:
+La lista «lo primero que haría mañana» de la versión anterior está hecha, salvo media pieza:
 
-1. **Arreglar el balance.** Agregar el resultado del ejercicio y, sobre todo, hacer que el reporte
-   **compare sus dos totales y falle si difieren**. Hoy imprime −261.12 contra 16 008.00 sin
-   inmutarse. Es medio día y elimina la peor señal falsa del sistema.
-2. **Borrar el código que miente** — los seis puntos de la Fase 0. Es una sesión, es trabajo
-   negativo, y es lo único del plan que retira un peligro activo en vez de agregar capacidad.
-3. **Sembrar `payroll_account_mapping` y `sat_code_mappings`**, y agregarle a `doctor` una
-   verificación por cada tabla de catálogo que tenga lector y no tenga escritor.
-4. **Enrutar AR/AP por la taxonomía CFDI** para que el IVA sea sobre flujo. Es cablear código que ya
-   existe y está probado, y tiene que estar **antes** del primer mes de un cliente.
-5. **Coordinar con la otra sesión**, que ya escribió el test de contrato de esquema y la migración
-   032 y está trabajando la misma Fase 0.
+| | |
+|---|---|
+| Arreglar el balance | ✅ cuadra y sale con código 4 si no |
+| Borrar el código que miente | ✅ seis endpoints retirados, tres archivos borrados — **más `/cfdi/cancel`, que se escapó en la primera pasada y se retiró después** |
+| Sembrar las tablas de catálogo huérfanas | 🟡 `payroll_account_mapping` sembrado con chequeo en `doctor`; **`sat_code_mappings` sigue sin un solo escritor** |
+| Enrutar AR/AP por la taxonomía CFDI | ✅ el IVA se reconoce al cobrar |
+| Coordinar con la otra sesión | ✅ dos flujos, cero colisiones, y una división de labores escrita |
+
+**La propuesta del siguiente sprint vive en [sprint-01.md](sprint-01.md)** y se ordena por daño
+retirado ÷ costo, no por importancia declarada.
+
+## La lección que este documento aprendió de sí mismo
+
+Los dos planes se desincronizaron por la misma razón: ambos **reflejan a mano el estado del
+repositorio en prosa**. Uno se fechó y quedó vencido en un día; el otro no se fechó y quedó vencido
+en 74 segundos.
+
+La cura no es revisarlos más seguido. Es que el estado se **genere**:
+
+- Los criterios de cierre del backlog ya están escritos como comprobaciones ejecutables —greps,
+  conteos SQL, comandos con su código de salida. Nadie los ha corrido nunca como conjunto.
+- `npm run plan:status` debe evaluarlos y decir ✅/🟡/⬜ nombrando la comprobación que falla.
+- Un criterio puede nombrar un archivo solo cuando el plan está prescribiendo **dónde va el
+  código**. En cualquier otro caso debe ser una aserción sobre comportamiento observable, o pasa lo
+  que pasó con el cerrojo antisimulación: trabajo correcto que falla el 100% de sus criterios
+  porque su autor eligió otros nombres.
+
+Hasta que eso exista, cualquier ✅ en cualquiera de los dos documentos es una afirmación, no un
+hecho — y esta carta prefiere decir eso a fingir precisión.
