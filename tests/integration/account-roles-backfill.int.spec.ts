@@ -10,6 +10,7 @@ import {
 import { postBillEntry } from '../../src/services/accounting/ar-ap-posting.js';
 import { withTransaction } from '../../src/database/connection.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
+import { ensureFiscalYear } from '../../src/services/accounting/fiscal-calendar-service.js';
 
 /**
  * EL RELLENO QUE HACE FALTA PARA QUE UNA BASE DESPLEGADA SIGA FUNCIONANDO.
@@ -95,12 +96,69 @@ describe('lo que el relleno arregla', () => {
     expect(r.fallos).toEqual([]);
     expect(r.sembradas).toBe(1);
     expect(r.cuentasCreadas, 'la entidad no tenía ni catálogo').toBeGreaterThan(0);
-    expect(r.rolesMapeados).toBeGreaterThan(10);
 
-    const roles = await query<{ n: string }>(
-      `SELECT count(*) AS n FROM account_roles WHERE entity_id = $1`, [entidadDesnuda]
+    // NO basta con contar roles. La primera versión sólo exigía «más de 10» y
+    // 17 lo satisfacía — pero eran los 17 de REQUIRED_ACCOUNTS, ninguno de
+    // ellos cxc, cxp, banco, ingreso ni gasto. La entidad quedaba con roles y
+    // seguía sin poder contabilizar.
+    const roles = await query<{ role: string }>(
+      `SELECT role FROM account_roles WHERE entity_id = $1`, [entidadDesnuda]
     );
-    expect(Number(roles.rows[0].n)).toBeGreaterThan(10);
+    const mapeados = new Set(roles.rows.map((x) => x.role));
+    for (const imprescindible of ['cxc', 'cxp', 'banco', 'ingreso', 'gasto', 'iva_acreditable', 'iva_pendiente_acreditar', 'iva_trasladado']) {
+      expect(mapeados, `sin el rol "${imprescindible}" no se puede postear nada`).toContain(imprescindible);
+    }
+  });
+
+  it('DESPUÉS del relleno, la misma entidad SÍ contabiliza un gasto', async () => {
+    // Es la afirmación que da sentido al paquete, y la que faltaba: la
+    // versión anterior de esta suite contaba roles y daba por hecho el resto.
+    const vendorId = uuidv4();
+    await query(
+      `INSERT INTO vendors (id, entity_id, vendor_number, company_name, tax_id, tax_id_type, currency_code, created_by)
+       VALUES ($1,$2,'V-HER','Proveedor heredado','HHH010101HH1','rfc','MXN',$3)`,
+      [vendorId, entidadDesnuda, f.userId]
+    );
+    // El ejercicio fiscal de la entidad heredada, que tampoco tenía. Se usa
+    // el servicio real en vez de SQL a mano: si su forma cambia, esta prueba
+    // se entera en lugar de fabricar filas que ya no valen.
+    await ensureFiscalYear(entidadDesnuda, 2026);
+
+    const cuentaGasto = await query<{ id: string }>(
+      `SELECT id FROM accounts WHERE entity_id = $1 AND code = '6100'`, [entidadDesnuda]
+    );
+    const billId = uuidv4();
+    const asiento = await withTransaction((client) =>
+      postBillEntry(
+        client,
+        {
+          id: billId, entity_id: entidadDesnuda, bill_number: 'BILL-HER',
+          vendor_id: vendorId, bill_date: fechaEnPeriodo(),
+          subtotal: '1000.00', tax_amount: '160.00', total_amount: '1160.00',
+          currency_code: 'MXN',
+        } as never,
+        [{
+          id: uuidv4(), bill_id: billId, line_number: 1,
+          account_id: cuentaGasto.rows[0].id, description: 'Servicio',
+          quantity: '1', unit_price: '1000.00', line_amount: '1000.00',
+          tax_amount: '160.00', total_amount: '1160.00',
+        } as never],
+        f.userId
+      )
+    );
+    expect(asiento, 'el gasto tiene que llegar al mayor').not.toBeNull();
+
+    // Y el IVA cae donde debe: sin MetodoPago se asume PPD, así que va a
+    // pendiente de acreditar. Es la prueba de que los roles sirven de verdad
+    // y no sólo de que existen.
+    const lineas = await query<{ code: string; debit: string }>(
+      `SELECT a.code, jel.debit_amount::text AS debit
+         FROM journal_entry_lines jel JOIN accounts a ON a.id = jel.account_id
+        WHERE jel.journal_entry_id = $1 AND a.code IN ('1130','1135')`,
+      [asiento!.id]
+    );
+    expect(lineas.rows).toHaveLength(1);
+    expect(lineas.rows[0].code).toBe('1135');
   });
 
   it('después del relleno, la misma entidad ya no sale en el censo', async () => {
