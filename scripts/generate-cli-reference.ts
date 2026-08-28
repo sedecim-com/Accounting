@@ -10,7 +10,6 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Command } from 'commander';
 import { program } from '../src/cli/mnemosine.js';
 
@@ -41,7 +40,7 @@ function section(cmd: Command, chain: string[], depth: number, out: string[]): v
   out.push(`${heading(depth)} \`${fullName}\`${alias}`, '');
   out.push('```', cmd.helpInformation().trimEnd(), '```', '');
   for (const sub of cmd.commands) {
-    section(sub as Command, [...chain, cmd.name()], depth + 1, out);
+    section(sub, [...chain, cmd.name()], depth + 1, out);
   }
 }
 
@@ -49,11 +48,13 @@ const out: string[] = [HEADER];
 out.push('## `mnemosine` (root)', '');
 out.push('```', program.helpInformation().trimEnd(), '```', '');
 for (const cmd of program.commands) {
-  section(cmd as Command, ['mnemosine'], 2, out);
+  section(cmd, ['mnemosine'], 2, out);
 }
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const target = path.join(here, '..', 'src', 'ai', 'docs', 'cli-reference.md');
+// __dirname nativo en lugar de import.meta, igual que build-niif-indice.ts:
+// el proyecto compila a CommonJS (tsconfig NodeNext sin "type": "module"),
+// donde import.meta es un error de compilación (TS1470).
+const target = path.join(__dirname, '..', 'src', 'ai', 'docs', 'cli-reference.md');
 fs.writeFileSync(target, out.join('\n') + '\n');
 
 const commandCount = (out.join('\n').match(/^#{2,6} `/gm) ?? []).length - 1;

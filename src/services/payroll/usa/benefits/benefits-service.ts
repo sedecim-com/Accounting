@@ -157,7 +157,7 @@ export async function listBenefitPlans(entityId: string): Promise<Record<string,
     `SELECT * FROM benefits_plans WHERE entity_id = $1 ORDER BY plan_type, name`,
     [entityId]
   );
-  return result.rows as Record<string, unknown>[];
+  return result.rows;
 }
 
 export async function listEmployeeElections(employeeId: string): Promise<Record<string, unknown>[]> {
@@ -171,7 +171,7 @@ export async function listEmployeeElections(employeeId: string): Promise<Record<
      WHERE ebe.employee_id = $1 AND ebe.is_active`,
     [employeeId]
   );
-  return result.rows as Record<string, unknown>[];
+  return result.rows;
 }
 
 export function validateContribution(planType: BenefitPlanType, amount: number, ytd: number, year: number): void {

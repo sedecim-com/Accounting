@@ -491,7 +491,7 @@ const NO_DB_COMMANDS = new Set(['lang', 'idioma']);
 // machine the chat action routes to the first-run rescue, which needs the
 // process alive to diagnose and offer the wizard. Every other command keeps
 // today's fail-fast behavior.
-let chatDbInitError: unknown = null;
+let chatDbInitError: Error | null = null;
 
 program.hook('preAction', async (thisCommand, actionCommand) => {
   bootstrapTenant(thisCommand.opts().tenant as string | undefined);
@@ -504,7 +504,7 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
     if (warning) stderr.write(ce.dim(`  ⚠ ${warning}\n`));
   } catch (err) {
     if (actionCommand.name() !== 'chat') throw err;
-    chatDbInitError = err;
+    chatDbInitError = err instanceof Error ? err : new Error(String(err));
   }
 });
 

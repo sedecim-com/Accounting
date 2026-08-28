@@ -43,6 +43,21 @@ jobs:
       - run: npm run typecheck
       - run: npm run typecheck:tests
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # eslint.config.mjs: los errores rompen la CI; las advertencias que
+      # entran por tipos de terceros están topadas con --max-warnings, así
+      # que el trabajo también falla si su número sube.
+      - run: npm run lint
+
   unit:
     name: Pruebas unitarias
     runs-on: ubuntu-latest

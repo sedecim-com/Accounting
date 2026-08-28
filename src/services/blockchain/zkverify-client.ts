@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import { config } from '../../config/index.js';
 
 // ============================================================
 // zkVerify CLIENT
@@ -72,7 +71,7 @@ export class ZkVerifyClient {
   /**
    * Check the status of a submitted attestation
    */
-  async getAttestationStatus(attestationId: string): Promise<{
+  async getAttestationStatus(_attestationId: string): Promise<{
     status: 'pending' | 'verified' | 'failed';
     merkleRoot?: string;
     error?: string;

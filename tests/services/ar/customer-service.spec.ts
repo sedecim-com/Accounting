@@ -58,7 +58,7 @@ import {
   CUSTOMER_UPDATABLE_FIELDS,
 } from '../../../src/services/ar/customer-service.js';
 import { query } from '../../../src/database/connection.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
 const SCOPE = { kind: 'entity', tenantId: 't-1', entityId: 'e-1' } as const;

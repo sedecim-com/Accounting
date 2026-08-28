@@ -16,12 +16,15 @@ import { JournalEntryType, type JournalEntry } from '../../src/types/index.js';
  * confirmado aparte sobrevive a un ROLLBACK del hecho que dice describir.
  */
 
-const { arnes, validateJournalEntry, attest, inquilino } = vi.hoisted(() => ({
-  arnes: { actual: null } as { actual: ClienteFalso | null },
-  validateJournalEntry: vi.fn(),
-  attest: vi.fn(),
-  inquilino: { actual: 'tenant-1' as string | undefined },
-}));
+const { arnes, validateJournalEntry, attest, inquilino } = vi.hoisted(() => {
+  // Annotated rather than asserted: these holders start at one type and are
+  // reassigned to another per test, and no-unnecessary-type-assertion reads a
+  // widening `as` here as redundant (it is not — without it the initial value
+  // fixes the type and every later assignment fails to compile).
+  const arnes: { actual: ClienteFalso | null } = { actual: null };
+  const inquilino: { actual: string | undefined } = { actual: 'tenant-1' };
+  return { arnes, validateJournalEntry: vi.fn(), attest: vi.fn(), inquilino };
+});
 
 vi.mock('../../src/database/connection.js', () => ({
   withTransaction: vi.fn(async (fn: (c: unknown) => unknown) => fn(arnes.actual!.client)),

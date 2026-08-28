@@ -245,7 +245,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
     .action(async (opts: { entity?: string; limit: number }) => {
       try {
         const ctx = await resolveEntity(opts.entity);
-        const log = (await getAccessLog(ctx.entityId, ctx.tenantId, opts.limit)) as Array<Record<string, unknown>>;
+        const log = (await getAccessLog(ctx.entityId, ctx.tenantId, opts.limit));
         if (log.length === 0) {
           console.log('No accesses recorded.');
         } else {

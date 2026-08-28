@@ -1,5 +1,5 @@
 import { query } from '../../database/connection.js';
-import { POLICY_CATALOG, getPolicySpec, type PolicySpec } from './pending-catalog.js';
+import { POLICY_CATALOG, getPolicySpec } from './pending-catalog.js';
 
 // ============================================================
 // POLICY SERVICE

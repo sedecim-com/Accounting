@@ -87,7 +87,7 @@ export function makeSectionContext(
 
   const askText = async (prompt: string, fallback?: string): Promise<string | null> => {
     if (nonInteractive) return fallback ?? null;
-    const raw = await rl!.question(prompt).catch(() => null);
+    const raw = await rl.question(prompt).catch(() => null);
     if (raw === null) return fallback ?? null;
     const t = raw.trim();
     return t === '' ? (fallback ?? null) : t;

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { clienteFalso } from '../helpers/fake-pg.js';
 import { ID } from '../helpers/entidades.js';
 import { nextEntityNumber, formatDocumentNumber, generateEntryNumber } from '../../src/utils/sequence.js';
