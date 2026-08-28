@@ -6,6 +6,7 @@ import { config } from '../config/index.js';
 import { isLocalHost, defaultSslMode } from '../database/ssl.js';
 import { DB_PROVIDERS } from '../database/providers.js';
 import { listProfiles } from './providers/config.js';
+import { scanOrphans, type Orphan } from './orphan-scan.js';
 
 // ============================================================
 // DOCTOR — health diagnostics
@@ -47,6 +48,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(await checkEntities());
     checks.push(await checkAccountRoles());
     checks.push(...(await checkLookupTables()));
+    checks.push(checkOrphanedCapability(deps));
     checks.push(checkConnectionTransport());
     checks.push(await checkTenantIsolation());
     checks.push(await checkPendingWork());
@@ -554,4 +556,75 @@ export function checkEncryptionKey(): CheckResult {
     };
   }
   return { name: 'Encryption key', level: 'ok', detail: 'own 256-bit key' };
+}
+
+
+// ============================================================
+// CAPACIDAD HUÉRFANA
+//
+// `checkLookupTables` pregunta a la BASE si dos tablas concretas tienen filas.
+// Esto pregunta al CÓDIGO si una capacidad tiene por dónde alcanzarse, y lo
+// hace para las 96 tablas y las ~585 funciones exportadas en vez de para una
+// lista escrita a mano. Es la misma enfermedad que dejó payroll_account_mapping
+// con lector y sin escritor hasta la primera nómina.
+//
+// NUNCA es 'fail', y la razón está en este mismo archivo: `appliesWhen` existe
+// porque reportar como roto lo que no lo está «enseña a la gente a ignorar
+// doctor». Un huérfano no impide operar hoy — impide que algo funcione el día
+// que alguien lo intente. 'fail' pondría en rojo, y en código de salida 1, una
+// instalación que trabaja perfectamente.
+// ============================================================
+
+/**
+ * El nivel que merece un huérfano.
+ *
+ * Hoy son todos iguales y no deberían serlo: `sat_code_mappings` ya está
+ * declarado 'warn' arriba («esto es calidad, no un bloqueo»), mientras que
+ * `paycheck_taxes` lo lee una ruta HTTP que devolverá totales de impuestos en
+ * cero sin decir que están vacíos. El día que esta función distinga, doctor
+ * dejará de dar una sola cifra y empezará a dar una prioridad.
+ */
+export function levelForOrphan(_o: Orphan): CheckLevel {
+  return 'warn';
+}
+
+export function checkOrphanedCapability(deps: DoctorDeps = {}): CheckResult {
+  const raiz = deps.cwd ?? process.cwd();
+  // Una instalación empaquetada corre desde dist/ y no lleva las fuentes.
+  // Decirlo es más honesto que un ✅ que no comprobó nada.
+  if (!fs.existsSync(path.join(raiz, 'src'))) {
+    return {
+      name: 'Orphaned capability',
+      level: 'ok',
+      detail: 'no source tree here: this check reads the repository, not the install',
+    };
+  }
+
+  const { orphans, scanned } = scanOrphans(raiz);
+  if (orphans.length === 0) {
+    return {
+      name: 'Orphaned capability',
+      level: 'ok',
+      detail: `${scanned.tables} tables and ${scanned.exports} exports, all reachable`,
+    };
+  }
+
+  const tablas = orphans.filter((o) => o.kind === 'tabla');
+  const funciones = orphans.filter((o) => o.kind === 'funcion');
+  const peor: CheckLevel = orphans.some((o) => levelForOrphan(o) === 'fail') ? 'fail' : 'warn';
+
+  return {
+    name: 'Orphaned capability',
+    level: peor,
+    detail:
+      `${tablas.length} table(s) read by nobody's writer` +
+      (tablas.length ? ` (${tablas.map((o) => o.name).join(', ')})` : '') +
+      `; ${funciones.length} exported function(s) nothing references` +
+      (funciones.length
+        ? ` (${funciones.slice(0, 5).map((o) => o.name).join(', ')}` +
+          (funciones.length > 5 ? `, +${funciones.length - 5} more)` : ')')
+        : '') +
+      ` — of ${scanned.tables} tables and ${scanned.exports} exports`,
+    fix: 'give each one a door (a writer, a command, a caller) or delete it: unreachable code still gets maintained',
+  };
 }

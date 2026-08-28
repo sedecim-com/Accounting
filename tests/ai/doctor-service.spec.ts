@@ -12,6 +12,8 @@ vi.mock('../../src/database/connection.js', () => ({
 import { runDoctor,
   checkAccountRoles,
   checkLookupTables,
+  checkOrphanedCapability,
+  levelForOrphan,
   LOOKUP_TABLES,
 } from '../../src/ai/doctor-service.js';
 import { query } from '../../src/database/connection.js';
@@ -334,5 +336,33 @@ describe('checkLookupTables', () => {
       expect(spec.breaks.length).toBeGreaterThan(20);
       expect(spec.fix.length).toBeGreaterThan(5);
     }
+  });
+});
+
+describe('checkOrphanedCapability', () => {
+  it('says so when there is no source tree instead of passing on nothing', () => {
+    // A packaged install runs from dist/. A green tick that checked nothing is
+    // the failure mode this whole check exists to remove.
+    const r = checkOrphanedCapability({ cwd: tmpDir });
+    expect(r.level).toBe('ok');
+    expect(r.detail).toMatch(/source/i);
+  });
+
+  it('reports the repository it is run from, with its denominators', () => {
+    const r = checkOrphanedCapability({ cwd: process.cwd() });
+    expect(r.name).toBe('Orphaned capability');
+    expect(r.detail).toMatch(/of \d+ tables and \d+ exports/);
+  });
+
+  it('never fails the run: doctor exits 1 on fail, and an orphan blocks nobody today', () => {
+    // The same principle as appliesWhen above: reporting a working install as
+    // broken teaches people to ignore doctor.
+    expect(checkOrphanedCapability({ cwd: process.cwd() }).level).not.toBe('fail');
+    expect(levelForOrphan({ kind: 'tabla', name: 'x', where: 'y', consequence: 'z' })).toBe('warn');
+  });
+
+  it('offers a fix that names the two ways out', () => {
+    const r = checkOrphanedCapability({ cwd: process.cwd() });
+    expect(r.fix).toMatch(/delete/i);
   });
 });

@@ -40,6 +40,27 @@ jobs:
       # impide la regresión. Los umbrales viven en vitest.config.ts.
       - run: npx vitest run --coverage
 
+  plan:
+    name: Estado del plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # TRINQUETE, NO INFORME.
+      #
+      # La salida completa se imprime siempre —un paquete abierto es
+      # información, no un fallo—, pero --exigir convierte en rojo el
+      # RETROCESO de los que ya están cerrados. Sin eso el comando sería otra
+      # tabla que nadie mira, que es justo lo que vino a reemplazar.
+      #
+      # Esta lista sólo crece. Cuando un paquete cierre, se añade aquí en el
+      # mismo commit que lo cierra.
+      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.3,E1.1,E1.2,E3.1,E3.2,E4.1
+
   integration:
     name: Integración contra Postgres
     runs-on: ubuntu-latest
