@@ -251,6 +251,27 @@ export const LOOKUP_TABLES: LookupTableSpec[] = [
       'is worse than it needs to be (it still works — this is quality, not a blocker)',
     fix: 'map the ClaveProdServ codes this client actually receives',
   },
+  {
+    // GRADUADA DESDE LA COMPROBACIÓN ESTÁTICA.
+    //
+    // El escáner de capacidad huérfana la encontró con dos lectores y ningún
+    // escritor en todo el repositorio, y ahí no podía pasar de 'warn': lee
+    // sólo el código, y desde el código es imposible saber si ESTA instalación
+    // lleva nómina en Estados Unidos. Aquí sí se puede preguntar, y por eso
+    // aquí sí puede ser 'fail'.
+    //
+    // La diferencia con las otras huérfanas es el destinatario: las formas 940
+    // y 941 se PRESENTAN. Una tabla vacía no rompe nada visible — hace que la
+    // forma declare cero impuesto patronal, que es un dato falso ante el IRS.
+    table: 'employer_tax_liabilities',
+    label: 'Employer tax liabilities (USA)',
+    appliesWhen: { table: 'employees', where: "country_code = 'US' AND status = 'active'" },
+    level: 'fail',
+    breaks:
+      'forms 940 and 941 SUM this table, so with no rows they report ZERO employer tax — ' +
+      'a filed return with a false figure, not a missing feature',
+    fix: 'the pay run must write the employer side of each tax as it posts; until it does, do not file 940/941',
+  },
 ];
 
 export async function checkLookupTables(): Promise<CheckResult[]> {
@@ -577,16 +598,31 @@ export function checkEncryptionKey(): CheckResult {
 // ============================================================
 
 /**
- * El nivel que merece un huérfano.
+ * A qué se parece el daño de un huérfano. No es su gravedad —eso depende de si
+ * ESTA instalación usa la capacidad, y el escáner lee código, no la base— sino
+ * la FORMA en que falla, que sí se puede saber leyendo.
  *
- * Hoy son todos iguales y no deberían serlo: `sat_code_mappings` ya está
- * declarado 'warn' arriba («esto es calidad, no un bloqueo»), mientras que
- * `paycheck_taxes` lo lee una ruta HTTP que devolverá totales de impuestos en
- * cero sin decir que están vacíos. El día que esta función distinga, doctor
- * dejará de dar una sola cifra y empezará a dar una prioridad.
+ *  · `numero-falso`: alguien reporta una cifra que sale de una tabla vacía y
+ *    no dice que está vacía. Es el único que puede meter un dato malo en algo
+ *    que se entrega.
+ *  · `sin-puerta`: la capacidad existe y no hay por dónde invocarla. No miente;
+ *    no puede.
+ *  · `peso-muerto`: código que nadie alcanza y cuya ausencia no cambiaría nada.
+ *
+ * Se ordena el informe por esto, no por tipo de objeto: un revisor necesita
+ * leer primero los dos que pueden falsear una cifra, no las diez funciones de
+ * caché que nadie llama.
  */
-export function levelForOrphan(_o: Orphan): CheckLevel {
-  return 'warn';
+export type ClaseDeHuerfano = 'numero-falso' | 'sin-puerta' | 'peso-muerto';
+
+/** Tablas huérfanas cuyo lector alimenta una cifra que alguien lee como buena. */
+const ALIMENTAN_UNA_CIFRA = new Set(['paycheck_taxes']);
+
+export function claseDe(o: Orphan): ClaseDeHuerfano {
+  if (o.kind === 'tabla') {
+    return ALIMENTAN_UNA_CIFRA.has(o.name) ? 'numero-falso' : 'sin-puerta';
+  }
+  return 'peso-muerto';
 }
 
 export function checkOrphanedCapability(deps: DoctorDeps = {}): CheckResult {
@@ -610,22 +646,45 @@ export function checkOrphanedCapability(deps: DoctorDeps = {}): CheckResult {
     };
   }
 
-  const tablas = orphans.filter((o) => o.kind === 'tabla');
-  const funciones = orphans.filter((o) => o.kind === 'funcion');
-  const peor: CheckLevel = orphans.some((o) => levelForOrphan(o) === 'fail') ? 'fail' : 'warn';
+  // Lo que ya vigila checkLookupTables no se repite aquí. Esa comprobación
+  // sabe si la instalación usa la capacidad y puede llegar a 'fail'; decirlo
+  // dos veces con dos niveles distintos sólo enseña a leer el más suave.
+  const yaVigiladas = new Set(LOOKUP_TABLES.map((t) => t.table));
+  const propios = orphans.filter((o) => !(o.kind === 'tabla' && yaVigiladas.has(o.name)));
+  if (propios.length === 0) {
+    return {
+      name: 'Orphaned capability',
+      level: 'ok',
+      detail: `${scanned.tables} tables and ${scanned.exports} exports, all reachable or already watched`,
+    };
+  }
+
+  const porClase = (c: ClaseDeHuerfano): Orphan[] => propios.filter((o) => claseDe(o) === c);
+  const cifras = porClase('numero-falso');
+  const sinPuerta = porClase('sin-puerta');
+  const muerto = porClase('peso-muerto');
+
+  const partes: string[] = [];
+  // Primero lo que puede falsear una cifra, y por su nombre.
+  if (cifras.length) {
+    partes.push(`${cifras.length} feeding a figure nobody flags as empty (${cifras.map((o) => o.name).join(', ')})`);
+  }
+  if (sinPuerta.length) {
+    partes.push(`${sinPuerta.length} capability(ies) with no way in (${sinPuerta.map((o) => o.name).slice(0, 4).join(', ')})`);
+  }
+  // El peso muerto se CUENTA, no se enumera: dieciocho nombres detrás de los
+  // dos que importan es lo que hace que se deje de leer el renglón.
+  if (muerto.length) partes.push(`${muerto.length} unreferenced export(s)`);
 
   return {
     name: 'Orphaned capability',
-    level: peor,
-    detail:
-      `${tablas.length} table(s) read by nobody's writer` +
-      (tablas.length ? ` (${tablas.map((o) => o.name).join(', ')})` : '') +
-      `; ${funciones.length} exported function(s) nothing references` +
-      (funciones.length
-        ? ` (${funciones.slice(0, 5).map((o) => o.name).join(', ')}` +
-          (funciones.length > 5 ? `, +${funciones.length - 5} more)` : ')')
-        : '') +
-      ` — of ${scanned.tables} tables and ${scanned.exports} exports`,
+    // Nunca 'fail', y no es una simplificación pendiente: es estructural. La
+    // gravedad de un huérfano depende de si esta instalación usa la capacidad,
+    // y esto lee `src/`, no la base. Lo que merece 'fail' se gradúa a
+    // LOOKUP_TABLES, donde `appliesWhen` puede preguntarlo — así llegó ahí
+    // employer_tax_liabilities.
+    level: 'warn',
+    detail: `${partes.join('; ')} — of ${scanned.tables} tables and ${scanned.exports} exports`,
     fix: 'give each one a door (a writer, a command, a caller) or delete it: unreachable code still gets maintained',
   };
 }

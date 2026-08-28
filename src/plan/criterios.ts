@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -172,13 +173,33 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
-    enunciado: 'Ningún respaldo de .env queda versionado',
+    // Esto exigía la línea literal `^\.env$` y la cadena `.env.backup`. Se
+    // puso en rojo el día que alguien SUSTITUYÓ esa lista por `.env*` con
+    // `!.env.example` — un patrón estrictamente más fuerte, que además cubre
+    // el `.env.old` que la lista no cubría. El criterio afirmaba la forma del
+    // arreglo en vez de la propiedad, y castigó una mejora.
+    //
+    // Ahora se le pregunta a git, que es la autoridad: no importa cómo esté
+    // escrito el .gitignore mientras la respuesta sea la correcta.
+    enunciado: 'Ninguna variante de .env se puede versionar, salvo el ejemplo',
     evaluar: () => {
-      const gi = fs.readFileSync(rutaDe('.gitignore'), 'utf-8');
-      const cubre = /^\.env$/m.test(gi) && /\.env\.backup/.test(gi);
-      return cubre
-        ? ok('.env y .env.backup-* ignorados')
-        : falla('.gitignore no cubre los respaldos de .env');
+      const ignorado = (archivo: string): boolean => {
+        const r = spawnSync('git', ['check-ignore', '-q', '--no-index', archivo], { cwd: rutaDe() });
+        if (r.error || r.status === null || r.status > 1) return false;
+        return r.status === 0;
+      };
+      const deben = ['.env', '.env.local', '.env.backup-2026-08-27', '.env.old', '.env.copia', '.env.produccion'];
+      const sueltos = deben.filter((f) => !ignorado(f));
+      if (sueltos.length > 0) {
+        return falla(
+          `git versionaría ${sueltos.join(', ')}: un secreto real entra al historial en el primer \`git add -A\``
+        );
+      }
+      // La excepción tiene que seguir siendo excepción: sin .env.example nadie
+      // sabe qué variables hacen falta, y el arreglo obvio es aflojar el patrón.
+      return ignorado('.env.example')
+        ? falla('.env.example también está ignorado: sin plantilla, el siguiente arreglo será aflojar el patrón')
+        : ok(`${deben.length} variantes de .env ignoradas y .env.example versionable`);
     },
   },
   {

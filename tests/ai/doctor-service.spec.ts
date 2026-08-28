@@ -13,7 +13,7 @@ import { runDoctor,
   checkAccountRoles,
   checkLookupTables,
   checkOrphanedCapability,
-  levelForOrphan,
+  claseDe,
   LOOKUP_TABLES,
 } from '../../src/ai/doctor-service.js';
 import { query } from '../../src/database/connection.js';
@@ -354,15 +354,62 @@ describe('checkOrphanedCapability', () => {
     expect(r.detail).toMatch(/of \d+ tables and \d+ exports/);
   });
 
-  it('never fails the run: doctor exits 1 on fail, and an orphan blocks nobody today', () => {
-    // The same principle as appliesWhen above: reporting a working install as
-    // broken teaches people to ignore doctor.
+  it('never fails the run, and that is structural rather than pending', () => {
+    // La gravedad de un huérfano depende de si ESTA instalación usa la
+    // capacidad, y esto lee src/, no la base. Lo que merece 'fail' se gradúa a
+    // LOOKUP_TABLES, donde appliesWhen sí puede preguntarlo.
     expect(checkOrphanedCapability({ cwd: process.cwd() }).level).not.toBe('fail');
-    expect(levelForOrphan({ kind: 'tabla', name: 'x', where: 'y', consequence: 'z' })).toBe('warn');
+  });
+
+  it('ordena por consecuencia: primero lo que puede falsear una cifra', () => {
+    const detalle = checkOrphanedCapability({ cwd: process.cwd() }).detail;
+    const cifra = detalle.indexOf('figure');
+    const muerto = detalle.indexOf('unreferenced');
+    expect(cifra).toBeGreaterThanOrEqual(0);
+    expect(muerto).toBeGreaterThan(cifra);
+  });
+
+  it('cuenta el peso muerto en vez de enumerarlo', () => {
+    // Dieciocho nombres detrás de los dos que importan es lo que hace que se
+    // deje de leer el renglón.
+    const detalle = checkOrphanedCapability({ cwd: process.cwd() }).detail;
+    expect(detalle).not.toContain('getCachedAccounts');
+    expect(detalle).toMatch(/\d+ unreferenced export\(s\)/);
+  });
+
+  it('no repite lo que checkLookupTables ya vigila con nivel propio', () => {
+    // employer_tax_liabilities se graduó allí: decirlo dos veces con dos
+    // niveles distintos enseña a leer el más suave.
+    const detalle = checkOrphanedCapability({ cwd: process.cwd() }).detail;
+    for (const spec of LOOKUP_TABLES) expect(detalle).not.toContain(spec.table);
+  });
+
+  it('clasifica por la FORMA del daño, no por el tipo de objeto', () => {
+    expect(claseDe({ kind: 'tabla', name: 'paycheck_taxes', where: 'x', consequence: 'y' })).toBe('numero-falso');
+    expect(claseDe({ kind: 'tabla', name: 'garnishments', where: 'x', consequence: 'y' })).toBe('sin-puerta');
+    expect(claseDe({ kind: 'funcion', name: 'getCachedAccounts', where: 'x', consequence: 'y' })).toBe('peso-muerto');
   });
 
   it('offers a fix that names the two ways out', () => {
     const r = checkOrphanedCapability({ cwd: process.cwd() });
     expect(r.fix).toMatch(/delete/i);
+  });
+});
+
+describe('employer_tax_liabilities, graduada a LOOKUP_TABLES', () => {
+  it('está gated en que la entidad tenga empleados en EE.UU.', () => {
+    // Sin appliesWhen pondría en rojo a todo despacho mexicano, que es
+    // exactamente lo que enseña a ignorar doctor.
+    const spec = LOOKUP_TABLES.find((t) => t.table === 'employer_tax_liabilities')!;
+    expect(spec.appliesWhen?.table).toBe('employees');
+    expect(spec.appliesWhen?.where).toContain("country_code = 'US'");
+  });
+
+  it('es la única que llega a fail junto al mapeo de nómina, y dice por qué', () => {
+    const spec = LOOKUP_TABLES.find((t) => t.table === 'employer_tax_liabilities')!;
+    expect(spec.level).toBe('fail');
+    // Lo que la distingue de las demás huérfanas: la forma se PRESENTA.
+    expect(spec.breaks).toMatch(/940|941/);
+    expect(spec.breaks).toMatch(/ZERO|zero/);
   });
 });
