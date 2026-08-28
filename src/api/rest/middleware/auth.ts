@@ -5,6 +5,7 @@ import { UnauthorizedError, ForbiddenError } from '../../../utils/errors.js';
 import { isAsymmetric, verifyIdpToken } from '../../../auth/oidc.js';
 import { resolveIdentity, NoAccessError } from '../../../auth/provisioning.js';
 import type { JwtPayload } from '../../../types/index.js';
+import { ROLES as CATALOGO_DE_ROLES } from '../../../auth/roles.js';
 
 // Extend Express Request
 declare global {
@@ -142,46 +143,14 @@ export function assertEntityAccess(
   }
 }
 
-// RBAC role definitions
-export const ROLES: Record<string, string[]> = {
-  owner: ['*'],
-  admin: [
-    'accounts:read', 'accounts:create', 'accounts:update', 'accounts:delete',
-    'journal_entries:read', 'journal_entries:create', 'journal_entries:post', 'journal_entries:void',
-    'invoices:read', 'invoices:create', 'invoices:send', 'invoices:void',
-    'bills:read', 'bills:create', 'bills:approve', 'bills:void',
-    'reports:read', 'reports:export',
-    'users:manage', 'settings:manage',
-  ],
-  controller: [
-    'accounts:read', 'accounts:create',
-    'journal_entries:read', 'journal_entries:create', 'journal_entries:post', 'journal_entries:void',
-    'periods:close', 'periods:reopen',
-    'reports:read', 'reports:export',
-  ],
-  accountant: [
-    'accounts:read',
-    'journal_entries:read', 'journal_entries:create',
-    'invoices:read', 'invoices:create', 'invoices:send',
-    'bills:read', 'bills:create',
-    'reports:read',
-  ],
-  viewer: [
-    'accounts:read',
-    'journal_entries:read',
-    'invoices:read',
-    'bills:read',
-    'reports:read',
-  ],
-  auditor: [
-    'accounts:read',
-    'journal_entries:read',
-    'invoices:read',
-    'bills:read',
-    'reports:read', 'reports:export',
-    'audit_log:read',
-  ],
-};
+// El catálogo vive en src/auth/roles.ts, que es el único. Aquí había una de
+// las dos copias que existían, con nombres de rol distintos de los del
+// asistente de alta.
+export const ROLES: Record<string, readonly string[]> = Object.freeze(
+  Object.fromEntries(
+    Object.entries(CATALOGO_DE_ROLES).map(([nombre, spec]) => [nombre, spec.permissions])
+  )
+);
 
 // Segregation of Duties rules
 interface SoDRule {
