@@ -99,4 +99,18 @@ async function runMigrations() {
   }
 }
 
-runMigrations();
+// Importar este módulo NO debe migrar nada. `assertNumeracionUnica` se prueba
+// desde tests/database/migration-numbering.spec.ts, y el simple import
+// disparaba esta llamada: abría un pool contra Postgres como efecto colateral.
+// En la suite UNITARIA —que corre a propósito sin base— eso terminaba en un
+// unhandledRejection (ECONNREFUSED) que hacía salir a vitest con código 1
+// aunque las 1966 pruebas hubieran pasado. En local no se veía porque hay un
+// Postgres escuchando, así que la promesa resolvía y las migraciones corrían
+// de matute durante las pruebas unitarias.
+//
+// La migración sólo debe correr cuando este fichero se EJECUTA: `npm run
+// migrate` y el global-setup de integración, que lo lanza como subproceso con
+// `npx tsx src/database/migrate.ts`.
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
+  runMigrations();
+}
