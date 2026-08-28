@@ -91,6 +91,31 @@ una línea de shell. **Nadie los ha corrido nunca como conjunto.**
 
 **Pregunta de cierre:** ¿`npm run plan:status` corre en CI y su salida contradice a alguien?
 
+### Cerrado · `CLI-7`
+
+Sí a las dos cosas. El job `Estado del plan` corre en cada push, y `--exigir` convierte en rojo el
+retroceso de los ocho paquetes cerrados; la lista sólo crece, y se amplía en el mismo commit que
+cierra un paquete. La salida contradijo a la tabla que sustituye —que daba E1.2 por pendiente con su
+arreglo ya en el historial— y contradijo cuatro veces a los criterios recién escritos:
+
+- El escáner se acusó a sí mismo en su estreno: el criterio que persigue «un TODO junto a un acto
+  externo» encontró el literal de su propia expresión regular. `src/plan` quedó fuera del barrido,
+  con el precio dicho en voz alta: el instrumento de medida no se mide.
+- Un comentario contaba como conducta. Produjo un verde falso —dos políticas «consumidas» por una
+  frase en prosa— y un rojo falso contra el endpoint de conciliación, cuyo comentario narra el
+  código que CLI-5 ya borró. Hoy todo criterio de comportamiento lee el archivo sin comentarios.
+- «`requireEntityAccess` es un no-op» resultó **falso**, y el hallazgo real es peor. Ver S4.
+- Tres criterios afirmaban identificadores. El peor —«existe `src/auth/roles.ts`»— no podía detectar
+  nada; hoy compara los dos catálogos y nombra los roles que el CLI reparte y la API desconoce.
+
+`doctor` gana `Orphaned capability`, que generaliza `checkLookupTables` a las 96 tablas y las 587
+funciones exportadas: **4 tablas con lector y ningún escritor** en todo el repositorio
+(`employer_tax_liabilities`, `garnishments`, `paycheck_taxes`, `sat_code_mappings`) y **28 funciones
+exportadas que nada referencia** —la capa de caché entera, el motor de inventarios,
+`generateSequenceNumber`, y `allDeclarations`, el registro de riesgo del kernel que S3 predijo.
+Nunca es `fail`: doctor sale con 1 ante un `fail`, y poner en rojo una instalación que trabaja
+enseña a la gente a ignorar doctor —el mismo principio que ya justificaba `appliesWhen`.
+
 ---
 
 ## S4 · Cerrar el perímetro · **cuatro días**
@@ -100,9 +125,15 @@ monta una vez para todo `/v1`, así que ningún router puede olvidarlo.
 
 Lo que falta es lo que decide si el perímetro existe:
 
-- **`requireEntityAccess` verifica la entidad que usa el *handler*, no la del encabezado.** Hoy el
-  encabezado siempre puebla la entidad de la petición, así que 46 endpoints llevan una guarda que no
-  guarda y 105 no llevan ninguna.
+- **La entidad que comprueba la guarda no es la que usa el *handler*.** Corregido en S3: la
+  afirmación anterior —«la guarda no guarda porque el encabezado siempre puebla la entidad»— era
+  falsa. `requireEntityAccess` **sí** comprueba que la entidad del encabezado pertenezca al usuario
+  (`assertEntityAccess`, `middleware/auth.ts`). El defecto es otro y es peor: la guarda mira
+  `req.entityId`, `req.params` y `req.body`, y **no mira `req.query`**, mientras que once archivos
+  de rutas sacan de ahí la entidad con la que trabajan. Un usuario manda su propia entidad en el
+  encabezado y una ajena del mismo inquilino en `?entity_id=`: la guarda aprueba la primera y el
+  handler lee la segunda. RLS no lo ve, porque el inquilino es el mismo. La prueba de la batería que
+  lo demuestra ya está redactada como criterio ejecutable.
 - **`runInTenant` no existe.** El backlog lo llama «la mitigación más barata del mayor riesgo de
   reproceso del plan» y su fuga sigue viva: dos rutas se montan antes de la autenticación.
 - **La batería del perímetro**: un test rojo por cada vector —entidad por query string, recurso de
