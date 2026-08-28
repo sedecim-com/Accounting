@@ -46,9 +46,7 @@ Estado del plan, evaluado contra el código
 
 ✅ E0.0   4/4 criterios
 ✅ E0.1   3/3 criterios
-🟠 E0.2   2/3 criterios
-     ? Los vocabularios Zod no divergen del CHECK de Postgres
-       exige comparar cada enum Zod contra su CHECK; el escáner todavía no extrae vocabularios. Divergencias conocidas: pay_runs.run_type, reconciliation_matches.match_type y tres de blockchain
+✅ E0.2   3/3 criterios
 ✅ E0.3   2/2 criterios
 ✅ E1.1   2/2 criterios
 ✅ E1.2   2/2 criterios
@@ -60,7 +58,7 @@ Estado del plan, evaluado contra el código
        runMonthlyDepreciation no tiene llamador: el motor existe y no hay puerta
 🟡 E2.1   2/3 criterios
      ✘ La entidad que comprueba la guarda es la que usa el handler
-       la guarda no lee req.query y 11 archivo(s) de rutas sí (accounts.ts, bills.ts, blockchain.ts, customers.ts, fiscal-periods.ts, invoices.ts, journal-entries.ts, payroll.ts, reports.ts, vendors.ts, xml-ingestion.ts): ?entity_id= de otra entidad del mismo inquilino no lo revisa nadie
+       la guarda sólo comprueba el encabezado —sus ramas de params y cuerpo son código muerto— y los handlers derivan su entidad de otro sitio: 11 por ?entity_id= (accounts.ts, bills.ts, blockchain.ts, customers.ts, fiscal-periods.ts, invoices.ts, journal-entries.ts, payroll.ts, reports.ts, vendors.ts, xml-ingestion.ts); 6 por entity_id del cuerpo (bills.ts, blockchain.ts, fiscal-periods.ts, journal-entries.ts, payroll.ts, xml-ingestion.ts), donde hay ESCRITURAS. Una entidad ajena del mismo inquilino no la revisa nadie, y RLS no ve ese cruce
 🟡 E2.2   1/2 criterios
      ✘ Un rol que el CLI reparte significa lo mismo en la API
        el CLI reparte roles que la API no conoce (contador, revisor): un usuario creado con ellos llega a HTTP sin los permisos que se le prometieron
@@ -74,7 +72,7 @@ Estado del plan, evaluado contra el código
      ✘ Una corrida desatendida no puede alcanzar una herramienta que escriba
        makeRunAgentTurn crea la sesión sin recortar herramientas: la corrida desatendida tiene las mismas que una interactiva, y lo único que pide borradores es una frase del prompt (KIND_INSTRUCTIONS). Un modelo que la ignora escribe de verdad
 
-8 de 15 paquetes con todos sus criterios en verde · 1 criterio(s) no evaluable(s)
+9 de 15 paquetes con todos sus criterios en verde
 El estado de un paquete es el PEOR de sus criterios. Los criterios viven en src/plan/criterios.ts; el documento los cita, este comando los decide.
 ```
 

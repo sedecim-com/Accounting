@@ -267,12 +267,115 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.2',
-    enunciado: 'Los vocabularios Zod no divergen del CHECK de Postgres',
-    evaluar: () =>
-      noEvaluable(
-        'exige comparar cada enum Zod contra su CHECK; el escáner todavía no extrae vocabularios. ' +
-          'Divergencias conocidas: pay_runs.run_type, reconciliation_matches.match_type y tres de blockchain'
-      ),
+    // Nació como el único criterio NO EVALUABLE de los quince paquetes, y su
+    // detalle nombraba cinco «divergencias conocidas» — una de ellas mal, era
+    // matched_entity_type y no match_type. E0.2-j las cerró todas y creó lo
+    // que faltaba para poder medir: un censo que dice a QUÉ COLUMNA pertenece
+    // cada vocabulario. Sin ese dato la comparación es imposible; con él es
+    // aritmética.
+    //
+    // No nombra ningún archivo: persigue la FORMA del censo, no su ubicación.
+    // Si alguien lo mueve o lo parte en dos, el criterio lo sigue.
+    enunciado: 'Ningún vocabulario del código admite un valor que el CHECK rechaza ni esconde uno que admite',
+    evaluar: () => {
+      const literales = (s: string): string[] =>
+        [...s.matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1].replace(/''/g, "'"));
+
+      // Los CHECK, leídos de las migraciones EN ORDEN: la base contra la que
+      // corre la suite de integración se construye ejecutándolas así, y dos
+      // columnas se redefinen más tarde (journal_entries.entry_type, en 023 y
+      // 025). Gana la última, igual que en Postgres.
+      const dir = 'src/database/migrations';
+      const enElEsquema = new Map<string, string[]>();
+      for (const f of fs.readdirSync(rutaDe(dir)).filter((n) => n.endsWith('.sql')).sort()) {
+        const sql = fs.readFileSync(rutaDe(dir, f), 'utf-8').replace(/--[^\n]*/g, '');
+        const anota = (tabla: string, columna: string, lista: string): void => {
+          const valores = literales(lista);
+          if (valores.length) enElEsquema.set(`${tabla.replace(/^public\./i, '')}.${columna}`, valores);
+        };
+        for (const t of sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w.]+)\s*\(([\s\S]*?)\n\);/gi)) {
+          for (const c of t[2].matchAll(/CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi)) anota(t[1], c[1], c[2]);
+        }
+        // `[^;]*?` y no `[\s\S]*?`: con el segundo, un ALTER sin CHECK se
+        // engancha al CHECK de otra tabla más abajo del archivo y le atribuye
+        // un vocabulario ajeno. Costó tres atribuciones falsas descubrirlo.
+        for (const a of sql.matchAll(
+          /ALTER\s+TABLE\s+(?:ONLY\s+)?([\w.]+)[^;]*?ADD\s+CONSTRAINT[^;]*?CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi
+        )) {
+          anota(a[1], a[2], a[3]);
+        }
+      }
+      if (enElEsquema.size < 20) {
+        return noEvaluable(
+          `sólo se leyeron ${enElEsquema.size} CHECK de vocabulario en las migraciones: ` +
+            'ya no tienen la forma que este criterio sabe leer'
+        );
+      }
+
+      // El censo: una terna (tabla, columna, CONSTANTE). Es el único dato que
+      // hace comparable un vocabulario, porque `status` tiene CHECK en 37
+      // tablas distintas y adivinar por el nombre de la columna produce más de
+      // cien falsos positivos.
+      const TERNA = /'([a-z_]+)'\s*,\s*'([a-z_]+)'\s*,\s*([A-Z][A-Z0-9_]*)\s*\)/;
+      const declarado = new Map<string, string[]>();
+      const sinCensar: string[] = [];
+      for (const archivo of dondeAparece(TERNA, ['src'], true)) {
+        const codigo = codigoDe(archivo);
+        const constantes = new Map<string, string[]>();
+        for (const c of codigo.matchAll(/const\s+([A-Z][A-Z0-9_]*)\s*=\s*\[([^\]]*)\]\s*as\s+const/g)) {
+          constantes.set(c[1], literales(c[2]));
+        }
+        const censadas = new Set<string>();
+        for (const t of codigo.matchAll(new RegExp(TERNA, 'g'))) {
+          const clave = `${t[1]}.${t[2]}`;
+          if (!enElEsquema.has(clave)) continue;
+          censadas.add(t[3]);
+          declarado.set(clave, constantes.get(t[3]) ?? []);
+        }
+        // Declarar la constante y no censarla la deja fuera de vigilancia sin
+        // que nada lo note: es la forma silenciosa de volver al problema.
+        if (censadas.size > 0) {
+          for (const nombre of constantes.keys()) {
+            if (!censadas.has(nombre)) sinCensar.push(`${archivo}:${nombre}`);
+          }
+        }
+      }
+      if (declarado.size === 0) {
+        return falla(
+          'ninguna parte del código dice a qué columna pertenece un vocabulario: ' +
+            'cada validador guarda su copia a mano y nada la compara con el CHECK'
+        );
+      }
+
+      // Los dos sentidos, porque fallan distinto: de más es un 500 en la cara
+      // del usuario, de menos es una capacidad que existe y nadie alcanza.
+      const problemas: string[] = [];
+      for (const [clave, valores] of declarado) {
+        const reales = enElEsquema.get(clave)!;
+        const sobran = valores.filter((x) => !reales.includes(x));
+        const faltan = reales.filter((x) => !valores.includes(x));
+        if (sobran.length) {
+          problemas.push(
+            `${clave} acepta ${sobran.join(', ')} que el CHECK rechaza: Postgres lanza 23514 y el usuario ve un 500`
+          );
+        }
+        if (faltan.length) {
+          problemas.push(
+            `${clave} esconde ${faltan.join(', ')} que el CHECK admite: esa capacidad existe en la base y es inalcanzable`
+          );
+        }
+      }
+      if (problemas.length) return falla(problemas.slice(0, 4).join(' · '));
+      if (sinCensar.length) {
+        return falla(
+          `vocabulario declarado sin decir de qué columna es, así que nada lo compara: ${sinCensar.join(', ')}`
+        );
+      }
+      return ok(
+        `${declarado.size} vocabularios coinciden exactamente con su CHECK, ` +
+          `de ${enElEsquema.size} leídos de las migraciones`
+      );
+    },
   },
 
   // ---- E0.3 · Bitácora de auditoría ----
@@ -456,22 +559,56 @@ export const CRITERIOS: Criterio[] = [
       }
       if (miraQuery) return ok('la guarda cubre también la cadena de consulta');
 
-      // La guarda mira encabezado, params y cuerpo. No mira la query. Cualquier
-      // handler que saque su entidad de la query trabaja sobre una entidad que
-      // NADIE comprobó: basta un encabezado con una entidad propia y un
-      // ?entity_id= con una ajena del mismo inquilino, que RLS deja pasar.
+      // LAS TRES FUENTES DE LA GUARDA SON UNA SOLA.
+      //
+      // `authenticate` SIEMPRE puebla req.entityId con el encabezado
+      // x-entity-id (auth.ts), y un usuario sin entidades accesibles ni
+      // siquiera puede iniciar sesión. Así que en
+      // `req.entityId || req.params.entity_id || req.body?.entity_id`
+      // el primer término nunca es falsy y los otros dos son código muerto:
+      // la guarda comprueba EL ENCABEZADO y nada más.
+      //
+      // De ahí que un handler que derive su entidad de cualquier otro sitio
+      // trabaje sobre una entidad que nadie miró. Basta un encabezado con una
+      // entidad propia —que la guarda aprueba— y un ?entity_id= o un
+      // entity_id en el cuerpo con una ajena del MISMO inquilino, que es
+      // justo el cruce que RLS no puede ver.
+      //
+      // Se persiguen las dos fuentes por separado porque no pesan igual: la
+      // query aparece en listados y reportes (lectura), y el cuerpo aparece en
+      // el cierre suave y el cierre duro de un periodo fiscal (ESCRITURA).
       const rutas = 'src/api/rest/routes';
-      const culpables = fuentes(rutas)
-        .map((f) => ({ f, texto: sinComentarios(fs.readFileSync(f, 'utf-8')) }))
-        .filter(({ texto }) => /entity_id[^;\n]*=\s*req\.query|req\.query\.entity_id|\{[^}]*\bentity_id\b[^}]*\}\s*=\s*req\.query/.test(texto))
-        .map(({ f }) => path.basename(f));
+      // \b antes de entity_id en las tres alternativas, y no es cosmética:
+      // sin él, `const { matched_entity_id, monto } = req.body` de
+      // bank-reconciliation.ts se contaba como una entidad derivada del cuerpo.
+      // Una acusación falsa en este criterio vale por diez ciertas, porque es
+      // la que hace que se deje de leer.
+      const deriva = (texto: string, fuente: 'query' | 'body'): boolean =>
+        new RegExp(
+          `\\bentity_id[^;\n]*=\\s*req\\.${fuente}|req\\.${fuente}\\.entity_id\\b|` +
+            `\\{[^}]*\\bentity_id\\b[^}]*\\}\\s*=\\s*req\\.${fuente}`
+        ).test(texto);
 
-      return culpables.length === 0
-        ? ok('ningún handler saca su entidad de la cadena de consulta')
-        : falla(
-            `la guarda no lee req.query y ${culpables.length} archivo(s) de rutas sí ` +
-              `(${culpables.join(', ')}): ?entity_id= de otra entidad del mismo inquilino no lo revisa nadie`
-          );
+      const analizadas = fuentes(rutas).map((f) => ({
+        nombre: path.basename(f),
+        texto: sinComentarios(fs.readFileSync(f, 'utf-8')),
+      }));
+      const porQuery = analizadas.filter((a) => deriva(a.texto, 'query')).map((a) => a.nombre);
+      const porCuerpo = analizadas.filter((a) => deriva(a.texto, 'body')).map((a) => a.nombre);
+
+      if (porQuery.length === 0 && porCuerpo.length === 0) {
+        return ok('ningún handler deriva su entidad de una fuente que la guarda no mira');
+      }
+      const partes: string[] = [];
+      if (porQuery.length) partes.push(`${porQuery.length} por ?entity_id= (${porQuery.join(', ')})`);
+      if (porCuerpo.length) {
+        partes.push(`${porCuerpo.length} por entity_id del cuerpo (${porCuerpo.join(', ')}), donde hay ESCRITURAS`);
+      }
+      return falla(
+        `la guarda sólo comprueba el encabezado —sus ramas de params y cuerpo son código muerto— y ` +
+          `los handlers derivan su entidad de otro sitio: ${partes.join('; ')}. ` +
+          'Una entidad ajena del mismo inquilino no la revisa nadie, y RLS no ve ese cruce'
+      );
     },
   },
   {
