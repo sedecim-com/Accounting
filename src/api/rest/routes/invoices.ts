@@ -75,7 +75,7 @@ const recordPaymentSchema = z.object({
 }).passthrough();
 
 const voidInvoiceSchema = z.object({
-  reason: z.string().min(1),
+  reason: z.string().min(1, 'Reason is required for voiding'),
 });
 
 const meta = (req: Request) => ({
@@ -211,11 +211,18 @@ router.post('/:id/payments', requirePermission('invoices:create'), requireEntity
 // same transaction as the status change. The stamped-CFDI and applied-cash
 // guards the service states are opted out of here on purpose: this endpoint
 // has never enforced them and its contract is unchanged.
-router.post('/:id/void', requirePermission('invoices:void'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+//
+// The reason IS required, and is not cosmetic: voidInvoice persists it in the
+// reversal's description, in the original entry's notes and in the audit
+// record, so it is the only account of WHY revenue was annulled. Same rule as
+// POST /v1/journal-entries/:id/void.
+router.post('/:id/void', requirePermission('invoices:void'), requireEntityAccess, validateBody(voidInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { reason } = req.body as { reason: string };
   const { invoice, attest } = await voidInvoice(req.params.id, req.user!.user_id, {
     entityId: req.entityId!,
     allowStamped: true,
     allowApplied: true,
+    reason,
   });
   if (attest && req.tenantId) attestEntryAsync(req.tenantId, attest.entityId, attest.entryId);
 
