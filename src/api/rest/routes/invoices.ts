@@ -58,11 +58,12 @@ const createInvoiceSchema = z.object({
   po_number: z.string().optional(),
 });
 
+// No email is dispatched here (see the send handler): `to` is recorded on the
+// invoice as sent_to and nothing more. cc/subject/message were accepted and
+// dropped on the floor — there is no mail service and no column to hold them —
+// so the schema no longer claims to take them. They come back with the mailer.
 const sendInvoiceSchema = z.object({
   to: z.string().email().optional(),
-  cc: z.union([z.string(), z.array(z.string())]).optional(),
-  subject: z.string().optional(),
-  message: z.string().optional(),
 });
 
 const recordPaymentSchema = z.object({
