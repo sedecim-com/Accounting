@@ -23,6 +23,9 @@ import { JournalEntryType } from '../../types/index.js';
 // excluye lo ya reclasificado. Correrlo dos veces no duplica nada.
 // ============================================================
 
+/** Otra corrida se adelantó: no es un fallo, es la idempotencia funcionando. */
+class YaReclasificado extends Error {}
+
 /** Marca que une la reclasificación con el asiento que corrige. */
 export const ORIGEN_RECLASIFICACION = 'iva_reclass';
 
@@ -203,6 +206,20 @@ export async function reclasificarIvaPpd(
       }
 
       await withTransaction(async (client) => {
+        // La exclusión del censo se evaluó en una lectura ANTERIOR y
+        // separada: entre aquélla y esto cabe otra corrida. Se vuelve a
+        // comprobar aquí, dentro de la transacción que escribe, que es lo
+        // único que hace cierta la promesa de idempotencia de la cabecera.
+        const yaHecha = await client.query(
+          `SELECT 1 FROM journal_entries
+            WHERE source_type = $1 AND source_id = $2 AND status = 'posted'
+            LIMIT 1`,
+          [ORIGEN_RECLASIFICACION, h.entry_id]
+        );
+        if (yaHecha.rowCount && yaHecha.rowCount > 0) {
+          throw new YaReclasificado();
+        }
+
         await createJournalEntry(
           h.entity_id,
           new Date(h.entry_date),
@@ -235,7 +252,11 @@ export async function reclasificarIvaPpd(
       reclasificados += 1;
       montoReclasificado += aReclasificar.toNumber();
     } catch (e) {
-      fallos.push(`${h.entry_number}: ${(e as Error).message}`);
+      if (e instanceof YaReclasificado) {
+        omitir(h, `${h.entry_number} lo reclasificó otra corrida mientras ésta trabajaba`);
+      } else {
+        fallos.push(`${h.entry_number}: ${(e as Error).message}`);
+      }
     } finally {
       if (estadoPrevio) {
         await restorePeriodStatus(

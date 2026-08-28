@@ -164,6 +164,20 @@ export class PacRouter {
         cfdiStampOutcomes.inc({ provider: providerId, outcome: i === 0 ? 'success' : 'fallback' });
         return { ...result, provider_used: providerId, simulado: adapter.simulado };
       } catch (error) {
+        // NO SE HACE FAILOVER DE UN «YA TIMBRADO».
+        //
+        // Un PAC que responde «el hash de esta cadena original ya fue
+        // timbrado» está diciendo que el comprobante EXISTE ante el SAT. Si
+        // ante eso se prueba con el siguiente proveedor, ese sí lo timbra: el
+        // mismo documento acaba con DOS folios fiscales, y el segundo no se
+        // puede cancelar sin que el primero quede huérfano. El failover
+        // existe para un PAC caído, no para uno que contesta que el trabajo
+        // ya está hecho — y esa respuesta es idéntica en todos los
+        // proveedores, no una peculiaridad de uno.
+        if ((error as { code?: string }).code === 'PAC_YA_TIMBRADO') {
+          cfdiStampOutcomes.inc({ provider: providerId, outcome: 'already_stamped' });
+          throw error;
+        }
         if (error instanceof CircuitBreakerOpenError) {
           errors.push({ provider: providerId, error: 'circuit_open' });
           cfdiStampOutcomes.inc({ provider: providerId, outcome: 'circuit_open' });

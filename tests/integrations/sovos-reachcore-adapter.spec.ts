@@ -281,3 +281,18 @@ describe('identidad ante el SAT', () => {
     expect(info.autorizacionSat).toBe('55267');
   });
 });
+
+describe('un «ya timbrado» no puede hacer failover', () => {
+  it('el error 311 lleva el código que el router debe tratar aparte', async () => {
+    // Si el router probara con el siguiente PAC, ese sí timbraría: el mismo
+    // documento acabaría con DOS folios fiscales ante el SAT, y el segundo
+    // no se puede cancelar sin dejar huérfano al primero.
+    const { t } = transporteFalso({ status: 200, body: conError('311', 'ya timbrado') });
+    try {
+      await new SovosReachcoreAdapter(t).stamp(CFDI, CTX);
+      throw new Error('debió lanzar');
+    } catch (e) {
+      expect((e as { code?: string }).code).toBe('PAC_YA_TIMBRADO');
+    }
+  });
+});

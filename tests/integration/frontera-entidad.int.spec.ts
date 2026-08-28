@@ -169,7 +169,7 @@ describe('el contexto de inquilino del servidor no se reemplaza', () => {
     // efectivo lo elegía quien mandaba la cabecera.
     await expect(
       withTenant(a.tenantId, () => resolveEntity(b.entityId))
-    ).rejects.toThrow(/otro inquilino/);
+    ).rejects.toThrow(/pertenece al inquilino/);
   });
 
   it('con el contexto correcto resuelve como siempre', async () => {

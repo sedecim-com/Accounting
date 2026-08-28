@@ -79,6 +79,8 @@ $mig$;
 -- ============================================================
 DO $grants$
 DECLARE r record; n int := 0;
+DECLARE
+  append_only text[] := ARRAY['audit_log'];
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnemosine_app') THEN
     RETURN;
@@ -94,6 +96,15 @@ BEGIN
   LOOP
     IF r.relkind = 'S' THEN
       EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO mnemosine_app', r.relname);
+    ELSIF r.relname = ANY (append_only) THEN
+      -- Estas tablas son de sólo agregar, y este bloque corre DESPUÉS de
+      -- todas las migraciones: sin la excepción, el GRANT general deshacía
+      -- en la misma corrida el REVOKE de la migración 033 y dejaba la
+      -- bitácora modificable otra vez. El disparador seguía deteniéndolo,
+      -- pero la primera capa —la barata, la que Postgres aplica antes de
+      -- ejecutar nada— quedaba muerta sin que nada lo dijera.
+      EXECUTE format('REVOKE ALL ON public.%I FROM mnemosine_app', r.relname);
+      EXECUTE format('GRANT SELECT, INSERT ON public.%I TO mnemosine_app', r.relname);
     ELSE
       EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO mnemosine_app', r.relname);
     END IF;

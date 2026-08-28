@@ -52,7 +52,9 @@ function toContext(row: EntityRow): AgentContext {
     enterTenant(row.tenant_id);
   } else if (abierto !== row.tenant_id) {
     throw new Error(
-      `La entidad ${row.id} pertenece a otro inquilino que el del contexto activo.`
+      `La entidad ${row.name} pertenece al inquilino ${row.tenant_id} y el contexto activo es ` +
+        `${abierto}. Si lo fijaste con --tenant o MNEMOSINE_TENANT, corrígelo o quítalo; ` +
+        `en el servidor, el inquilino lo fija el token y no la cabecera x-entity-id.`
     );
   }
   return {
