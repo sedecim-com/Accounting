@@ -6,7 +6,15 @@ import os from 'node:os';
 // La sección siembra catálogo y account_roles al crear la entidad: se mockea
 // el servicio para que estas pruebas sigan siendo sobre la identidad, y se
 // asevera aparte que la llamada ocurre.
-const { sembrarContabilidad } = vi.hoisted(() => ({ sembrarContabilidad: vi.fn() }));
+const { sembrarContabilidad, altaDeEntidad } = vi.hoisted(() => ({
+  sembrarContabilidad: vi.fn(),
+  altaDeEntidad: vi.fn(),
+}));
+// El asistente ya no hace el alta a mano: delega en el servicio de entidad,
+// que es quien se niega a adivinar el inquilino cuando hay varios.
+vi.mock('../../../src/services/entity/entity-service.js', () => ({
+  createEntity: (...a: unknown[]) => altaDeEntidad(...a),
+}));
 vi.mock('../../../src/services/accounting/entity-accounting.js', () => ({
   ensureEntityAccounting: (...a: unknown[]) => sembrarContabilidad(...a),
 }));
@@ -55,6 +63,8 @@ function makeCtx(answers: {
 }
 
 beforeEach(() => {
+    altaDeEntidad.mockReset();
+    altaDeEntidad.mockResolvedValue({ tenantId: 'tenant-nuevo', entityId: 'ent-nueva' });
     sembrarContabilidad.mockReset();
     sembrarContabilidad.mockResolvedValue({
       cuentasBaseCreadas: [], accountsCreated: [], rolesMapped: 31,
@@ -176,19 +186,34 @@ describe('S1 · Identity', () => {
       if (q.includes('SELECT id, name, tax_id, tenant_id')) return Promise.resolve({ rows: [] });
       return Promise.resolve({ rows: [{ n: '12' }] });
     });
-    // createEntity corre dentro de withTransaction: se le da un cliente que
-    // devuelve los ids recién creados, que es lo único que la sección usa.
-    const conexion = await import('../../../src/database/connection.js');
-    (conexion.withTransaction as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      async (fn: (c: unknown) => unknown) =>
-        fn({ query: vi.fn().mockResolvedValue({ rows: [{ id: 'ent-nueva' }] }) })
-    );
     const s = new IdentidadSection({ cwd: tmp });
     await s.configure(makeCtx({ flags: { entity: 'Nueva SA', country: 'MX', rfc: 'XAXX010101000' } }));
     // Sin esta llamada la entidad no puede postear ni una factura:
     // postInvoiceEntry resuelve sus cuentas por account_roles.
+    // El alta va por el servicio, no por SQL propio del asistente.
+    expect(altaDeEntidad).toHaveBeenCalled();
+    expect(altaDeEntidad.mock.calls[0][0]).toMatchObject({
+      name: 'Nueva SA', country: 'MX', taxId: 'XAXX010101000',
+    });
+    // Sin esta llamada la entidad no puede postear ni una factura:
+    // postInvoiceEntry resuelve sus cuentas por account_roles.
     expect(sembrarContabilidad).toHaveBeenCalled();
     expect(sembrarContabilidad.mock.calls[0][3]).toMatchObject({ estrategia: 'auto' });
+  });
+
+  it('no elige inquilino por su cuenta: le pasa al servicio el fijado', async () => {
+    // El camino viejo hacía `SELECT id FROM tenants ORDER BY created_at ASC
+    // LIMIT 1`: en una instalación con varios despachos metía la empresa
+    // nueva en los libros del MÁS VIEJO, sin decir nada.
+    process.env.MNEMOSINE_TENANT = 'tenant-del-usuario';
+    mockQuery.mockImplementation((sql?: unknown) => {
+      const q = typeof sql === 'string' ? sql : '';
+      if (q.includes('SELECT id, name, tax_id, tenant_id')) return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [{ n: '12' }] });
+    });
+    const s = new IdentidadSection({ cwd: tmp });
+    await s.configure(makeCtx({ flags: { entity: 'Otra SA', country: 'MX', rfc: 'XAXX010101000' } }));
+    expect(altaDeEntidad.mock.calls[0][0]).toMatchObject({ tenantId: 'tenant-del-usuario' });
   });
 
   it('with existing entities it pins the tenant in .env (RLS from startup)', async () => {
