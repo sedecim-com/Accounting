@@ -145,9 +145,21 @@ router.post('/:id/send', requirePermission('invoices:send'), requireEntityAccess
   });
   if (attest && req.tenantId) attestEntryAsync(req.tenantId, attest.entityId, attest.entryId);
 
-  // TODO: Integrate with email service
-
-  res.json({ data: { sent: true, sent_to: to }, meta: meta(req) });
+  // Este endpoint MARCA, no envía: no hay integración de correo, y responder
+  // `sent: true` con un TODO encima era reportar el éxito de un acto que no
+  // ocurre — la clase exacta que CLI-5 purgó, en una variante que el criterio
+  // de honestidad no veía porque su regex no reconocía «email service». La
+  // marca es registro legítimo (el usuario envió la factura por su propio
+  // correo); la respuesta ahora dice eso y nada más.
+  res.json({
+    data: {
+      marked_sent: true,
+      sent_to: to,
+      transmitted: false,
+      note: 'La factura queda registrada como enviada; el sistema no transmite correo. El envío es del usuario.',
+    },
+    meta: meta(req),
+  });
 }));
 
 // POST /v1/invoices/:id/payments

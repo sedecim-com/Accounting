@@ -711,6 +711,29 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E1.2',
+    enunciado: 'El cerebro fiscal deja el rastro que prometió',
+    evaluar: () => {
+      // ROJO HONESTO NUEVO. E1.2 figura cerrado porque sus criterios miden la
+      // decisión (PUE/PPD, las cuentas puente) — y esa parte es real. Pero la
+      // salida prometida «queda rastro en cfdi_classifications» no ocurrió
+      // jamás: la tabla existe desde la migración 015 y tiene CERO menciones
+      // en src. Una clasificación que no se persiste no se puede auditar ni
+      // reprocesar, y la fila del catálogo que la exige no se puede construir
+      // encima de nada. F02 decide: escribirla o retirar la tabla — y este
+      // criterio cambia con esa decisión, no antes.
+      const escritor = dondeAparece(/INSERT\s+INTO\s+cfdi_classifications\b/i, ['src'], true);
+      return escritor.length > 0
+        ? ok(`el rastro se escribe desde ${escritor.join(', ')}`)
+        : falla(
+            'cfdi_classifications: creada en la migración 015, prometida como rastro del ' +
+              'clasificador, y con cero menciones en src — la clasificación no se persiste'
+          );
+    },
+  },
+
+
   // ---- E1.3 · Políticas con consumidor ----
   {
     paquete: 'E1.3',
@@ -746,8 +769,20 @@ export const CRITERIOS: Criterio[] = [
         );
       }
 
+      // Y «leída» significa DENTRO de una llamada a un lector, no que la
+      // cadena aparezca en alguna parte. El falso verde que esto corrige:
+      // `cfdi_periodo_cerrado` contaba como consumida porque su nombre
+      // aparece como etiqueta `topic` de una decisión del clasificador — que
+      // además nunca aplica—, no porque nadie llame a getPolicy con ella. Una
+      // coincidencia de cadena no es un consumidor, igual que un re-export de
+      // barril no es un puente.
       const huerfanas = claves.filter(
-        (k) => dondeAparece(new RegExp(`['\`"]${k}['\`"]`), ['src'], true).filter(ajeno).length === 0
+        (k) =>
+          dondeAparece(
+            new RegExp(`getPolicy(Number)?\\s*\\([\\s\\S]{0,120}?['\`"]${k}['\`"]`),
+            ['src'],
+            true
+          ).filter(ajeno).length === 0
       );
       return huerfanas.length === 0
         ? ok(`${claves.length} políticas, todas leídas por algún consumidor`)
@@ -773,8 +808,12 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E1.4',
     enunciado: 'Ninguna función reporta éxito de un acto externo que no realiza',
     evaluar: () => {
+      // «email service» no estaba en la lista y por eso el TODO de
+      // POST /invoices/:id/send —que respondía sent:true sin transmitir
+      // nada— pasó este criterio durante meses. La lección es la de siempre:
+      // un detector de clases enumeradas sólo ve las clases que enumeró.
       const sospechosos = dondeAparece(
-        /TODO:[^\n]*(PAC|SAT|IRS|SSA|enviar|send)/i
+        /TODO:[^\n]*(PAC|SAT|IRS|SSA|IMSS|enviar|send|email|correo|transmit|integrate)/i
       );
       return sospechosos.length === 0
         ? ok('sin TODO sobre un acto externo en el camino de escritura')
@@ -982,6 +1021,32 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E4.1',
+    enunciado: 'La nómina escribe los impuestos que sus formularios reportan',
+    evaluar: () => {
+      // ROJO HONESTO NUEVO. Los dos criterios anteriores de E4.1 miden la
+      // conciliación y la siembra del mapeo — y con ellos en verde el paquete
+      // entero figuraba cerrado mientras su salida no ocurre: paycheck_taxes,
+      // employer_tax_liabilities y garnishments se LEEN (los formularios
+      // 941/940, el posteo al mayor, el motor de embargos) y ningún camino
+      // las escribe. El resultado es un número falso con aspecto de número:
+      // los formularios reportan ceros y los embargos se descuentan de una
+      // tabla que nadie puede poblar. `doctor` ya lo clasifica así; el
+      // tablero tiene que decirlo también, porque es el que ordena sprints.
+      const tablas = ['paycheck_taxes', 'employer_tax_liabilities', 'garnishments'];
+      const sinEscritor = tablas.filter(
+        (t) => dondeAparece(new RegExp(`INSERT\\s+INTO\\s+${t}\\b`, 'i'), ['src'], true).length === 0
+      );
+      return sinEscritor.length === 0
+        ? ok('las tres tablas de la salida de nómina tienen escritor')
+        : falla(
+            `${sinEscritor.join(', ')}: se leen y nadie las escribe — los 941/940 reportan ` +
+              'ceros y los embargos salen de una tabla que ningún camino puebla'
+          );
+    },
+  },
+
   // ---- E4.2 · Trabajos y reportes ----
   {
     paquete: 'E4.2',
@@ -1080,12 +1145,27 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E5.1',
     enunciado: 'Las herramientas del agente se derivan del registro de riesgo del CLI',
     evaluar: () => {
-      const cons = consumidoresDe('allDeclarations', 'risk.ts');
+      // FALSO VERDE CORREGIDO. La versión anterior contaba cualquier mención
+      // de `allDeclarations` fuera de risk.ts como «consumidor», y eso
+      // incluía el re-export del barril (kernel/index.ts) — un archivo que no
+      // consume nada, sólo reexporta. El tablero decía «el puente existe»
+      // mientras las herramientas del agente seguían escritas a mano. Un
+      // criterio cuyo verde puede producirlo un `export {...} from` no mide
+      // un puente: mide que el símbolo exista, que ya lo mide el compilador.
+      //
+      // Consumidor de verdad = un archivo FUERA del núcleo del CLI que nombre
+      // el símbolo. El puente será real cuando src/ai derive su superficie de
+      // herramientas del registro; hasta entonces, rojo honesto.
+      const cons = consumidoresDe('allDeclarations', 'risk.ts').filter(
+        (f) => !f.startsWith('src/cli/kernel/')
+      );
       return cons.length > 0
         ? ok(`el puente existe: ${cons.join(', ')}`)
         : falla(
-            'allDeclarations no tiene consumidor: las 24 herramientas del agente están escritas a mano ' +
-              'y no comparten nada con el registro de riesgo, así que «el agente comparte la superficie» es una aspiración'
+            'allDeclarations no tiene consumidor fuera del núcleo (el re-export del barril no ' +
+              'consume nada): las herramientas del agente están escritas a mano y la sesión ' +
+              'desatendida ni siquiera admite recorte — el puente es una aspiración, y este ' +
+              'rojo es su registro'
           );
     },
   },

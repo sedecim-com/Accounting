@@ -57,9 +57,17 @@ jobs:
       # RETROCESO de los que ya están cerrados. Sin eso el comando sería otra
       # tabla que nadie mira, que es justo lo que vino a reemplazar.
       #
-      # Esta lista sólo crece. Cuando un paquete cierre, se añade aquí en el
-      # mismo commit que lo cierra.
-      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E2.1,E2.2,E3.1,E3.2,E4.1
+      # Esta lista sólo crece... salvo cuando un paquete se REABRE con causa.
+      # E1.2 y E4.1 salieron en el mismo commit que les añadió criterios de
+      # SALIDA que estaban en falso verde: E1.2 prometía rastro en
+      # cfdi_classifications y la tabla tiene cero menciones en src; E4.1 lee
+      # paycheck_taxes / employer_tax_liabilities / garnishments y ningún
+      # camino las escribe (941/940 en ceros). Quitarlos de aquí ES el acto
+      # honesto que el trinquete exige hacer a la vista: la reapertura viaja
+      # en el diff, con su porqué, y vuelven a la lista cuando su salida
+      # exista de verdad. Cuando un paquete cierre, se añade en el mismo
+      # commit que lo cierra.
+      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E2.1,E2.2,E3.1,E3.2
       # El catálogo de comandos publica cuánto de su superficie existe ya. Ese
       # número estaba escrito a mano y duró 42 commits: decía «~30 comandos»
       # con 106 que el binario ejecuta. Ahora se genera, y esto falla ante tres
