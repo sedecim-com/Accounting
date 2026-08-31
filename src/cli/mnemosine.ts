@@ -2,6 +2,7 @@
 import * as readline from 'node:readline/promises';
 import { stdin, stdout, stderr } from 'node:process';
 import { Command, InvalidArgumentError } from 'commander';
+import { declararPendientes } from './kernel/riesgos-retrofit.js';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { closeDatabase, currentTenant, initDatabase, query } from '../database/connection.js';
@@ -1622,6 +1623,13 @@ registerSkillsCommand(program, { palette: c, shutdown, reportError });
 registerWebhooksCommand(program, { palette: c, shutdown, reportError });
 registerInitCommand(program, { palette: c, shutdown, reportError });
 registerCloseCommand(program, { palette: c, shutdown, reportError });
+
+// Las declaraciones de riesgo que faltaban, sobre el árbol ya completo.
+//
+// Va aquí y no antes porque necesita el programa entero montado: 49 de las 106
+// hojas no declaraban nada, y a lo que no declara no se le aplica ninguna
+// compuerta. Respeta lo que ya declaró junto a su comando.
+declararPendientes(program);
 
 // Exported for scripts/generate-cli-reference.ts, which walks the command
 // tree to emit the agent-facing CLI reference without spawning the binary.

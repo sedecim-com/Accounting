@@ -1010,6 +1010,43 @@ export const CRITERIOS: Criterio[] = [
   // ---- E5.1 · Madurez del agente ----
   {
     paquete: 'E5.1',
+    enunciado: 'Toda hoja del CLI declara su riesgo, así que hay algo sobre lo que aplicar la compuerta',
+    evaluar: async () => {
+      // Se mide sobre el PROGRAMA EMBARCADO, no sobre un árbol de juguete.
+      // 49 de 106 hojas no declaraban nada —entre ellas las que postean al
+      // mayor y la que ejecuta contra el sistema del cliente— y por eso la
+      // regla R11 del auditor devolvía cero violaciones: no tenía sobre qué
+      // correr. Un verde por no tener nada que mirar es el defecto que este
+      // sprint persigue, y aquí estaba en el instrumento mismo.
+      const { program } = await import('../cli/mnemosine.js');
+      const { riskOf } = await import('../cli/kernel/risk.js');
+      const { hojasDe } = await import('../cli/kernel/riesgos-retrofit.js');
+
+      const hojas = hojasDe(program);
+      if (hojas.length < 80) {
+        return noEvaluable(`sólo se leyeron ${hojas.length} hojas: el árbol no se montó entero`);
+      }
+      const sin = hojas.filter((h) => !riskOf(h.cmd)).map((h) => h.ruta);
+      if (sin.length > 0) {
+        return falla(
+          `${sin.length} de ${hojas.length} hojas sin declarar (${sin.slice(0, 4).join(', ')}` +
+            `${sin.length > 4 ? ', …' : ''}): a lo que no declara no se le aplica ninguna compuerta`
+        );
+      }
+      // Y la garantía que sostiene el diseño del asistente.
+      const agenteEnGrave = hojas.filter((h) => {
+        const r = riskOf(h.cmd)!;
+        return r.agentAllowed && (r.risk === 'irreversible' || r.risk === 'externo');
+      });
+      return agenteEnGrave.length === 0
+        ? ok(`las ${hojas.length} hojas declaran, y ninguna grave es invocable por el agente`)
+        : falla(
+            `${agenteEnGrave.map((h) => h.ruta).join(', ')}: el agente puede invocar algo irreversible o externo`
+          );
+    },
+  },
+  {
+    paquete: 'E5.1',
     enunciado: 'Las herramientas del agente se derivan del registro de riesgo del CLI',
     evaluar: () => {
       const cons = consumidoresDe('allDeclarations', 'risk.ts');

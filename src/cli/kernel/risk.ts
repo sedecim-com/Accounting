@@ -118,16 +118,30 @@ export function declareRisk(cmd: Command, decl: RiskDeclaration): Command {
     requiresIdempotencyKey: risk === 'irreversible' || risk === 'externo',
   };
 
+  // La inyección es IDEMPOTENTE: un comando que ya definió su propia
+  // `--dry-run` —`onboard` la tiene desde antes de que existiera el núcleo—
+  // no debe chocar al declararse. Sin esta guarda, retrofitar las
+  // declaraciones que faltaban rompía el arranque en el primer comando que ya
+  // llevara la bandera, y el fallo aparecía como un error de Commander sin
+  // relación aparente con la declaración.
+  const yaTiene = (largo: string): boolean =>
+    cmd.options.some((o) => o.long === largo);
+  const anadir = (flags: string, desc: string): void => {
+    const largo = flags.split(/[ ,]/).find((t) => t.startsWith('--'));
+    if (largo && yaTiene(largo)) return;
+    cmd.option(flags, desc);
+  };
+
   if (resolved.requiresDryRun) {
-    cmd.option('--dry-run', 'compute and show the full effect; write nothing and call nothing external');
-    cmd.option('-y, --yes', 'skip the confirmation prompt');
-    cmd.option('--idempotency-key <key>', 'client dedupe key; defaults to a hash of the payload');
+    anadir('--dry-run', 'compute and show the full effect; write nothing and call nothing external');
+    anadir('-y, --yes', 'skip the confirmation prompt');
+    anadir('--idempotency-key <key>', 'client dedupe key; defaults to a hash of the payload');
   }
   if (resolved.requiresLiveGate) {
-    cmd.option('--live', 'perform the real external effect (default is the sandbox endpoint)');
+    anadir('--live', 'perform the real external effect (default is the sandbox endpoint)');
   }
   if (REASON_VERBS.has(lastToken(cmd))) {
-    cmd.option('--reason <text>', 'justification recorded in the audit trail (required)');
+    anadir('--reason <text>', 'justification recorded in the audit trail (required)');
   }
 
   REGISTRY.set(cmd, resolved);
@@ -158,6 +172,29 @@ export function gateMutation(
   opts: Record<string, unknown>
 ): { dryRun: boolean; live: boolean; reason?: string } {
   const resolved = riskOf(cmd);
+
+  // FALLA CERRADO.
+  //
+  // Antes la única comprobación de esta función iba guardada por
+  // `if (resolved && …)`, así que una hoja sin declaración no exigía nada:
+  // atravesaba la compuerta entera sin que nada la mirase. Como además 49 de
+  // las 106 hojas no declaraban, la compuerta era un no-op para casi la mitad
+  // del binario — y peor, la costura de pruebas `resetDeclarations()` vaciaba
+  // el registro, de modo que dentro de una suite TODO el binario quedaba sin
+  // compuerta y las pruebas pasaban en ese estado.
+  //
+  // Un comando que llama a `gateMutation` está diciendo que muta. Si no
+  // declaró su riesgo, lo correcto no es dejarlo pasar sino romper: el fallo
+  // aparece en el primer uso, no en la primera auditoría.
+  if (!resolved) {
+    throw new CliError(
+      `"${cmd.name()}" pide una compuerta de mutación sin haber declarado su riesgo. ` +
+        'Toda hoja que muta declara con `declareRisk` junto a su registro; sin declaración ' +
+        'no hay confirmación, ni marcha seca, ni rastro de auditoría que decir.',
+      ExitCode.USAGE
+    );
+  }
+
   const dryRun = opts.dryRun === true;
   const live = opts.live === true;
   const reason = typeof opts.reason === 'string' ? opts.reason : undefined;
@@ -168,7 +205,7 @@ export function gateMutation(
       ExitCode.USAGE
     );
   }
-  if (resolved && REASON_VERBS.has(lastToken(cmd)) && !reason && !dryRun) {
+  if (REASON_VERBS.has(lastToken(cmd)) && !reason && !dryRun) {
     throw new CliError(
       `"${cmd.name()}" undoes or overrides something, so it requires --reason "<why>".`,
       ExitCode.USAGE
