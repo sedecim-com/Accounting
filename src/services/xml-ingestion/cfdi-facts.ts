@@ -27,6 +27,35 @@ export interface DoctoRelacionado {
   numParcialidad?: number;
   monedaDR?: string;
   equivalenciaDR?: number;
+  /**
+   * IVA trasladado de ESTA parcialidad, del nodo ImpuestosDR/TrasladosDR.
+   *
+   * Es el dato del propio SAT y gana sobre cualquier prorrateo nuestro: dice
+   * exactamente cuánto impuesto ampara este pago. `undefined` cuando el
+   * complemento no lo trae —ObjetoImpDR '01', o un emisor que lo omite—, y
+   * entonces sí hay que prorratear contra la factura original.
+   */
+  ivaTrasladadoDR?: number;
+  /** '01' no objeto de impuesto, '02' sí objeto. */
+  objetoImpDR?: string;
+}
+
+/**
+ * Un nodo `Pago` del complemento: el hecho de que el dinero se movió.
+ *
+ * El sistema leía sólo los DoctoRelacionado —el reparto— y no el pago en sí,
+ * que es lo que dice CUÁNDO se movió, CUÁNTO y POR QUÉ MEDIO. Sin `fechaPago`
+ * el asiento no se puede fechar en el mes en que el IVA se causa o se
+ * acredita, que es justo lo que decide en qué declaración entra.
+ */
+export interface PagoREP {
+  fechaPago?: string;
+  formaDePagoP?: string;
+  monedaP?: string;
+  tipoCambioP?: number;
+  monto: number;
+  numOperacion?: string;
+  docsRelacionados: DoctoRelacionado[];
 }
 
 export interface CfdiFacts {
@@ -246,18 +275,31 @@ function extractImpuestosLocales(cfdi: CFDIParsed): { trasladados: number; reten
 
 /** DoctoRelacionado from the Pagos complement: which invoice and how much was applied. */
 function extractPagos(cfdi: CFDIParsed): DoctoRelacionado[] {
+  return extractPagosCompletos(cfdi).flatMap((p) => p.docsRelacionados);
+}
+
+/**
+ * El complemento de Pagos entero: los nodos `Pago` con sus DoctoRelacionado.
+ *
+ * `extractPagos` se queda con el reparto aplanado porque es lo que consume la
+ * taxonomía, pero para ligar un REP contra un pago ya registrado hace falta el
+ * nodo Pago: su fecha, su importe y su forma de pago son el hecho económico —
+ * los DoctoRelacionado sólo dicen cómo se reparte.
+ */
+export function extractPagosCompletos(cfdi: CFDIParsed): PagoREP[] {
   const c = cfdi.complementos.find((x) => x.type === 'Pagos');
   if (!c) return [];
   const data = c.data as Record<string, unknown>;
   const pagoNode = data.Pago ?? data.pago;
   const pagos = Array.isArray(pagoNode) ? pagoNode : pagoNode ? [pagoNode] : [];
 
-  const out: DoctoRelacionado[] = [];
+  const out: PagoREP[] = [];
   for (const p of pagos as Array<Record<string, unknown>>) {
     const drNode = p.DoctoRelacionado ?? p.doctoRelacionado;
     const drs = Array.isArray(drNode) ? drNode : drNode ? [drNode] : [];
+    const docs: DoctoRelacionado[] = [];
     for (const dr of drs as Array<Record<string, unknown>>) {
-      out.push({
+      docs.push({
         uuid: String(dr['@_IdDocumento'] ?? dr.IdDocumento ?? ''),
         impSaldoAnt: num(dr['@_ImpSaldoAnt'] ?? dr.ImpSaldoAnt),
         impPagado: num(dr['@_ImpPagado'] ?? dr.ImpPagado),
@@ -265,10 +307,53 @@ function extractPagos(cfdi: CFDIParsed): DoctoRelacionado[] {
         numParcialidad: num(dr['@_NumParcialidad'] ?? dr.NumParcialidad) || undefined,
         monedaDR: (dr['@_MonedaDR'] ?? dr.MonedaDR) as string | undefined,
         equivalenciaDR: num(dr['@_EquivalenciaDR'] ?? dr.EquivalenciaDR) || undefined,
+        objetoImpDR: objetoImpClave(dr['@_ObjetoImpDR'] ?? dr.ObjetoImpDR) || undefined,
+        ivaTrasladadoDR: ivaDeLaParcialidad(dr),
       });
     }
+    out.push({
+      fechaPago: (p['@_FechaPago'] ?? p.FechaPago) as string | undefined,
+      // `parseAttributeValue` convierte "03" en el número 3, y los códigos
+      // del SAT llevan el cero: `clave` los devuelve a su forma del catálogo.
+      // Comparar contra '03' sin esto falla en silencio, que es como se
+      // descubrió — con una prueba de este mismo archivo.
+      formaDePagoP: clave(p['@_FormaDePagoP'] ?? p.FormaDePagoP, 2) || undefined,
+      monedaP: (p['@_MonedaP'] ?? p.MonedaP) as string | undefined,
+      tipoCambioP: num(p['@_TipoCambioP'] ?? p.TipoCambioP) || undefined,
+      monto: num(p['@_Monto'] ?? p.Monto),
+      numOperacion: (p['@_NumOperacion'] ?? p.NumOperacion) as string | undefined,
+      docsRelacionados: docs,
+    });
   }
   return out;
+}
+
+/**
+ * El IVA trasladado de una parcialidad, de ImpuestosDR/TrasladosDR/TrasladoDR.
+ *
+ * Sólo IVA (impuesto 002) y sólo traslados: las retenciones de IVA e ISR son
+ * otro asiento y no se compensan aquí. Devuelve `undefined` —no cero— cuando
+ * el nodo no viene, porque cero y «no dijo» llevan a decisiones distintas:
+ * cero significa que esa parcialidad no ampara impuesto, y «no dijo» obliga a
+ * prorratear contra la factura original.
+ */
+function ivaDeLaParcialidad(dr: Record<string, unknown>): number | undefined {
+  const imp = (dr.ImpuestosDR ?? dr['@_ImpuestosDR']) as Record<string, unknown> | undefined;
+  if (!imp) return undefined;
+  const trasNode = imp.TrasladosDR ?? imp.trasladosDR;
+  if (!trasNode) return undefined;
+  const cont = trasNode as Record<string, unknown>;
+  const uno = cont.TrasladoDR ?? cont.trasladoDR;
+  const lista = Array.isArray(uno) ? uno : uno ? [uno] : [];
+  let total = 0;
+  let vio = false;
+  for (const t of lista as Array<Record<string, unknown>>) {
+    // 002 es IVA. Llega como el número 2 por la coerción del parser.
+    if (impuestoClave(t['@_ImpuestoDR'] ?? t.ImpuestoDR) !== '002') continue;
+    total += num(t['@_ImporteDR'] ?? t.ImporteDR);
+    vio = true;
+  }
+  return vio ? total : undefined;
 }
 
 /**
