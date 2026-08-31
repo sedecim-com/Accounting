@@ -55,6 +55,8 @@ Del motor que cada comando necesita, **163** filas lo declaran completo, **447**
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **380** filas, de las que **82** ya se teclean.
 
+**El objetivo comprometible son 1382 filas** (S0.5): las **244** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola. Los 5 solapamientos entre familias siguen SIN enumerar: ese medio corte espera a S0.7.
+
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
 | `entry` | 35 | 8 |

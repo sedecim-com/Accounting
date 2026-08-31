@@ -228,6 +228,14 @@ export interface Estado {
   porEstado: { ok: number; parcial: number; falta: number };
   /** Fase 1 es «sin esto no se lleva contabilidad desde el CLI». */
   fase1: { total: number; invocables: number };
+  /**
+   * El recorte de S0.5: fase 3 cuyo motor no existe (❌). «Best-in-class
+   * sobre motores que no existen» no es deuda, es aspiración — se declara
+   * fuera del objetivo y queda como respaldo, sin borrar la fila. El corte
+   * es MECÁNICO (fase y símbolo), así que se recalcula solo: una fila de
+   * fase 3 que gane motor vuelve a contarse por sí misma.
+   */
+  recorte: { fase3SinMotor: number; objetivo: number };
   porFamilia: Array<{ familia: string; total: number; implementadas: number }>;
   citas: { total: number; sinArchivo: Cita[]; fueraDeRango: Cita[] };
   superficie: { familias: number; comandos: number };
@@ -279,6 +287,10 @@ export function medir(md: string): Estado {
     implementadas,
     porEstado: { ok: cuenta('✅'), parcial: cuenta('🟡'), falta: cuenta('❌') },
     fase1: { total: deFase1.length, invocables: deFase1.filter((f) => f.viva).length },
+    recorte: (() => {
+      const fase3SinMotor = completas.filter((f) => f.fase === '3' && f.estado === '❌').length;
+      return { fase3SinMotor, objetivo: filas.length - fase3SinMotor };
+    })(),
     porFamilia: [...agrupado.entries()]
       .map(([familia, g]) => ({ familia, ...g }))
       .filter((g) => g.implementadas > 0 || g.total >= 20)
@@ -316,6 +328,15 @@ export function render(e: Estado): string {
   l.push(
     `**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son ` +
       `**${e.fase1.total}** filas, de las que **${e.fase1.invocables}** ya se teclean.`
+  );
+  l.push('');
+  l.push(
+    `**El objetivo comprometible son ${e.recorte.objetivo} filas** (S0.5): las ` +
+      `**${e.recorte.fase3SinMotor}** de fase 3 cuyo motor no existe quedan declaradas fuera ` +
+      '— analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se ' +
+      'conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane ' +
+      'motor vuelve a contarse sola. Los 5 solapamientos entre familias siguen SIN enumerar: ese ' +
+      'medio corte espera a S0.7.'
   );
   l.push('');
   l.push('| Familia | En el catálogo | Ya invocables |');

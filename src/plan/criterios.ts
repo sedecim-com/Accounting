@@ -234,6 +234,58 @@ export const CRITERIOS: Criterio[] = [
   // ---- E0.1 · Red de pruebas ----
   {
     paquete: 'E0.2',
+    enunciado: 'Toda tabla muerta está enterrada o reclamada con nombre y dueño',
+    evaluar: () => {
+      // El censo de AUD-6 encontró siete tablas sin un solo escritor NI
+      // lector, y S0.4 demostró el riesgo: capacidad muerta que sobrevive es
+      // la que alguien cablea sin contexto. La 038 enterró seis; lo que se
+      // conserva muerto tiene que estar RECLAMADO — una promesa con dueño
+      // (el flujo que lo va a poblar) — o este criterio lo acusa. Y una
+      // entrada reclamada cuya tabla gane escritor sobra: se reporta para
+      // borrarla, como la línea base del auditor.
+      const RECLAMADAS: Record<string, string> = {
+        asset_categories: 'F06/DEP-2: el alta de activo la necesita (fixed_assets.category_id NOT NULL)',
+        cfdi_classifications: 'F02: el rastro del clasificador — el criterio en rojo de E1.2 mide su escritor',
+        inventory_items: 'familia inventario: el esquema es el diseñado; el motor es neto nuevo (S0.4)',
+        inventory_layers: 'familia inventario: capas de costeo',
+        inventory_layer_consumption: 'familia inventario: consumo de capas',
+        scheduled_payments: 'F04: la programación de pagos retirada con 501 escribe aquí cuando exista',
+      };
+      const dirMigraciones = 'src/database/migrations';
+      const sql = fs
+        .readdirSync(rutaDe(dirMigraciones))
+        .map((m) => fs.readFileSync(rutaDe(dirMigraciones, m), 'utf-8'))
+        .join('\n');
+      const creadas = new Set(
+        [...sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?(\w+)/gi)].map((m) => m[1])
+      );
+      const enterradas = new Set(
+        [...sql.matchAll(/DROP\s+TABLE\s+IF\s+EXISTS\s+(?:public\.)?(\w+)/gi)].map((m) => m[1])
+      );
+      const problemas: string[] = [];
+      for (const t of creadas) {
+        if (enterradas.has(t)) continue;
+        // «Muerta» = ni una mención en el código. Un lector sin escritor es
+        // otra clase de defecto (lo mide el criterio de la salida de nómina).
+        const mencionada = dondeAparece(new RegExp(`\\b${t}\\b`), ['src'], true).length > 0;
+        const sembrada = new RegExp(`INSERT\\s+INTO\\s+(?:public\\.)?${t}\\b`, 'i').test(sql);
+        if (mencionada || sembrada) {
+          if (RECLAMADAS[t]) {
+            problemas.push(`${t}: reclamada pero ya tiene uso — borra su entrada de RECLAMADAS`);
+          }
+          continue;
+        }
+        if (!RECLAMADAS[t]) {
+          problemas.push(`${t}: muerta sin reclamo — entiérrala en una migración o reclámala con dueño`);
+        }
+      }
+      return problemas.length === 0
+        ? ok(`${Object.keys(RECLAMADAS).length} tablas reclamadas con dueño; el resto o vive o está enterrado`)
+        : falla(problemas.join('; '));
+    },
+  },
+  {
+    paquete: 'E0.2',
     enunciado: 'Ejecutar una migración y registrarla son un solo acto',
     evaluar: () => {
       // migrate.ts corría el .sql y lo anotaba en public.migrations en DOS
