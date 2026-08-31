@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
-import { query, withTransaction } from '../../database/connection.js';
-import { createJournalEntry } from './posting.js';
+import { query, withTransaction, currentTenant } from '../../database/connection.js';
+import { createJournalEntry, attestEntryAsync } from './posting.js';
 import { reopenClosedPeriod, restorePeriodStatus } from './fiscal-calendar-service.js';
 import { JournalEntryType } from '../../types/index.js';
 
@@ -149,6 +149,11 @@ export async function reclasificarIvaPpd(
   const omitidos: HallazgoIvaPpd[] = [];
   const motivosOmision = new Map<string, string>();
   const fallos: string[] = [];
+  // Los asientos creados, para atestarlos DESPUÉS de sus transacciones.
+  // Se acumulan en vez de dispararse dentro del bucle porque el orquestador
+  // vuelve a leer el asiento de la base: lanzarlo antes del commit es una
+  // carrera contra el propio commit.
+  const aAtestar: Array<{ entityId: string; entryId: string }> = [];
   let reclasificados = 0;
   let montoReclasificado = 0;
 
@@ -220,7 +225,7 @@ export async function reclasificarIvaPpd(
           throw new YaReclasificado();
         }
 
-        await createJournalEntry(
+        const asiento = await createJournalEntry(
           h.entity_id,
           new Date(h.entry_date),
           JournalEntryType.CORRECTION,
@@ -248,6 +253,14 @@ export async function reclasificarIvaPpd(
             reference: h.entry_number,
           }
         );
+        // Quien pasa `client` se queda con la transacción Y con la
+        // atestación posterior al commit: así lo dice el contrato de
+        // createJournalEntry (posting.ts). Este módulo no cumplía esa
+        // segunda mitad, de modo que cada reclasificación dejaba un asiento
+        // posteado sin `entry_hash`. Antes eso sólo lo excluía del sello en
+        // silencio; desde ATE-1 vuelve INSELLABLE el periodo entero, así que
+        // el incumplimiento del contrato dejó de ser gratis.
+        aAtestar.push({ entityId: h.entity_id, entryId: asiento.id });
       });
       reclasificados += 1;
       montoReclasificado += aReclasificar.toNumber();
@@ -267,6 +280,11 @@ export async function reclasificarIvaPpd(
         );
       }
     }
+  }
+
+  const inquilino = currentTenant();
+  if (inquilino) {
+    for (const a of aAtestar) attestEntryAsync(inquilino, a.entityId, a.entryId);
   }
 
   return { reclasificados, omitidos, motivosOmision, fallos, montoReclasificado };

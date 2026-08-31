@@ -269,6 +269,39 @@ describe('commitPeriod se niega a sellar un periodo incompleto', () => {
     }
   });
 
+  it('un sello ya emitido se sigue pudiendo LEER aunque el periodo tenga una laguna', async () => {
+    // La primera versión de ATE-1 puso la negativa por asientos sin atestar
+    // ENCIMA de la lectura del sello existente, y así un periodo ya sellado
+    // dejaba de poder devolver su sello en cuanto entraba un posteado sin
+    // hash: reventaba antes de mirar la fila. Como POST /commit-period es el
+    // único camino autenticado a period_commitments —no hay GET—, el sello
+    // quedaba ilegible para siempre. Negarse a EMITIR uno incompleto es el
+    // punto del elemento; negarse a LEER uno ya emitido es perder información.
+    const semilla = await asientoDesdeBorrador('Sello que luego tendrá laguna', 12);
+    await drainAttestations(5000);
+    const p = await query<{ id: string }>(
+      `SELECT fiscal_period_id AS id FROM journal_entries WHERE id = $1`, [semilla]
+    );
+    const emitido = await blockchainOrchestrator.commitPeriod({
+      tenantId: f.tenantId, entityId: f.entityId, periodId: p.rows[0].id,
+    });
+
+    // Ahora la laguna: otro asiento en el mismo periodo, sin hash.
+    const huerfano = await asientoDesdeBorrador('Sin atestar, tras el sello', 12);
+    await drainAttestations(5000);
+    const previo = await quitarHash(huerfano);
+    try {
+      const leido = await blockchainOrchestrator.commitPeriod({
+        tenantId: f.tenantId, entityId: f.entityId, periodId: p.rows[0].id,
+      });
+      expect(leido.commitmentId).toBe(emitido.commitmentId);
+      expect(leido.merkleRoot).toBe(emitido.merkleRoot);
+      expect(leido.entryCount).toBe(emitido.entryCount);
+    } finally {
+      await devolverHash(huerfano, previo);
+    }
+  });
+
   it('resellar devuelve lo ALMACENADO, no lo que se podría firmar ahora', async () => {
     // La rama de idempotencia devolvía el commitmentId de la fila junto al
     // merkleRoot recalculado en esa llamada. Si el periodo había recibido

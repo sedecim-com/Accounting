@@ -55,6 +55,18 @@ beforeAll(async () => {
      JSON.stringify([{ chainId: 'arbitrum-one', txHash: '0xfabricado', blockNumber: 1, explorerUrl: 'https://x/tx/0xfabricado' }])]
   );
 
+  // Y una NO simulada. Sin ella el fixture tendría una sola fila y toda
+  // simulada, de modo que «1 de 1» pasaría cualquier patrón de proporción:
+  // la prueba no distinguiría un contador correcto de uno que dijera siempre
+  // «todas». Con dos filas y una sola simulada, el texto exacto es «1 de 2».
+  await query(
+    `INSERT INTO blockchain_attestations (
+       id, tenant_id, entity_id, source_type, source_id, entry_hash, commitment,
+       status, is_simulated
+     ) VALUES ($1,$2,$3,'journal_entry',$4,$5,'x','confirmed',false)`,
+    [uuidv4(), f.tenantId, f.entityId, uuidv4(), `0x${'e'.repeat(64)}`]
+  );
+
   periodoSimulado = await periodoLibre();
   await query(
     `INSERT INTO period_commitments (
@@ -116,11 +128,30 @@ describe('la ruta de administración nombra lo que sirve', () => {
     }
   });
 
-  it('avisa, y el aviso dice cuántas de cuántas', async () => {
+  it('avisa, y la proporción es la de verdad', async () => {
     const r = await pedir(s, 'GET', `/v1/admin/blockchain/attestations?entity_id=${f.entityId}`);
-    expect(String(r.body.aviso)).toMatch(/SIMULADAS/);
-    expect(String(r.body.aviso), 'el aviso tiene que dar la proporción').toMatch(/\d+ de \d+/);
-    expect(String(r.body.aviso)).toMatch(/no corresponden a ninguna transacción/i);
+    const aviso = String(r.body.aviso);
+    expect(aviso).toMatch(/SIMULADAS/);
+    // El texto EXACTO, no un patrón: el fixture tiene dos atestaciones y sólo
+    // una simulada. Un contador que dijera «todas» pasaría `/\d+ de \d+/`.
+    expect(aviso, 'la proporción tiene que contar, no aproximar').toContain('1 de 2');
+    expect(aviso).toMatch(/no corresponden a ninguna transacción/i);
+  });
+
+  it('sin nada simulado no hay aviso: no se alarma de balde', async () => {
+    // Es la otra mitad del contrato. Se filtra por un source_type que sólo
+    // tiene la fila real, para no depender de crear otra entidad.
+    const r = await pedir(
+      s, 'GET',
+      `/v1/admin/blockchain/attestations?entity_id=${f.entityId}&status=confirmed&source_type=journal_entry`
+    );
+    const filas = r.body.data as Array<{ is_simulated: boolean }>;
+    const hayFabricadas = filas.some((x) => x.is_simulated);
+    if (hayFabricadas) {
+      expect(String(r.body.aviso)).toMatch(/SIMULADAS/);
+    } else {
+      expect(r.body.aviso, 'sin filas fabricadas el aviso sobra').toBeUndefined();
+    }
   });
 });
 

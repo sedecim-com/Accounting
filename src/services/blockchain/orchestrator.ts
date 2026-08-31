@@ -265,6 +265,39 @@ export class BlockchainOrchestrator {
   }): Promise<{ commitmentId: string; merkleRoot: string; entryCount: number }> {
     await this.exigirEntidadDelInquilino(params.tenantId, params.entityId);
 
+    // LEER un sello existente va PRIMERO, antes de cualquier comprobación.
+    //
+    // La primera versión de ATE-1 puso la negativa por asientos sin atestar
+    // por encima de esto, y así un periodo YA sellado dejaba de poder
+    // devolver su sello en cuanto entraba un solo posteado sin hash: la
+    // llamada reventaba antes de mirar si la fila existía. Como
+    // `POST /commit-period` es el único camino autenticado a
+    // `period_commitments` —no hay GET—, el sello quedaba ilegible para
+    // siempre. Negarse a EMITIR un sello incompleto es el punto del
+    // elemento; negarse a LEER uno ya emitido es perder información.
+    //
+    // Y devuelve lo guardado, no lo recalculado. Antes daba el commitmentId
+    // de la fila junto al merkleRoot
+    // y el entryCount de ESTA llamada. Si el periodo había recibido asientos
+    // desde el primer sello, el llamador recibía una raíz que no está en
+    // ninguna parte: ni comprometida, ni anclada, ni igual a la que sirve el
+    // endpoint público. Un sello vale por lo que se firmó, no por lo que se
+    // podría firmar ahora.
+    const existing = await query<{ id: string; merkle_root: string; entry_count: number }>(
+      `SELECT id, merkle_root, entry_count FROM period_commitments
+        WHERE tenant_id = $1 AND entity_id = $2 AND period_id = $3`,
+      [params.tenantId, params.entityId, params.periodId]
+    );
+
+    if (existing.rows.length > 0) {
+      return {
+        commitmentId: existing.rows[0].id,
+        merkleRoot: existing.rows[0].merkle_root,
+        entryCount: existing.rows[0].entry_count,
+      };
+    }
+
+
     // TODOS los asientos posteados del periodo, con hash o sin él.
     //
     // Antes esta consulta llevaba `AND entry_hash IS NOT NULL` y el sello se
@@ -317,28 +350,6 @@ export class BlockchainOrchestrator {
     const balanceCommitment = cryptoService.sha256Hex(`balance:${params.periodId}:${merkleRoot}`);
 
     const commitmentId = uuidv4();
-
-    // Si ya está sellado se devuelve lo ALMACENADO, no lo recién calculado.
-    //
-    // Antes esta rama devolvía el commitmentId de la fila junto al merkleRoot
-    // y el entryCount de ESTA llamada. Si el periodo había recibido asientos
-    // desde el primer sello, el llamador recibía una raíz que no está en
-    // ninguna parte: ni comprometida, ni anclada, ni igual a la que sirve el
-    // endpoint público. Un sello vale por lo que se firmó, no por lo que se
-    // podría firmar ahora.
-    const existing = await query<{ id: string; merkle_root: string; entry_count: number }>(
-      `SELECT id, merkle_root, entry_count FROM period_commitments
-        WHERE tenant_id = $1 AND entity_id = $2 AND period_id = $3`,
-      [params.tenantId, params.entityId, params.periodId]
-    );
-
-    if (existing.rows.length > 0) {
-      return {
-        commitmentId: existing.rows[0].id,
-        merkleRoot: existing.rows[0].merkle_root,
-        entryCount: existing.rows[0].entry_count,
-      };
-    }
 
     const config = await this.getConfig(params.tenantId);
 

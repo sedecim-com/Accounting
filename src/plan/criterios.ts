@@ -263,6 +263,90 @@ export const CRITERIOS: Criterio[] = [
         : falla('el setup no crea ni destruye una base propia');
     },
   },
+  {
+    paquete: 'E0.1',
+    enunciado: 'Ningún sello de periodo declara menos asientos de los que su periodo cerrado tiene',
+    necesita: 'base-de-datos',
+    evaluar: async () => {
+      // POR QUÉ ESTE CRITERIO ES LA MITAD DE LO QUE FUE.
+      //
+      // La primera versión afirmaba además que «todo asiento posteado está en
+      // la cadena donde el anclaje está activo». Eso no se puede medir sin un
+      // inquilino anclado, así que sobre la base recién creada de CI salía NO
+      // EVALUABLE — y `estadoDe` trata un criterio inevaluable como impedimento
+      // para dar por cerrado el paquete, con razón: quien depende de E0.1 no
+      // distingue «está mal» de «nadie sabe si está bien». El trinquete puso la
+      // CI en rojo y tenía razón; lo que no encajaba era el criterio.
+      //
+      // Se parte, y aquí queda la mitad decidible sin datos previos: un sello
+      // que declara menos de lo que su periodo cerrado tiene posteado es falso
+      // con datos o sin ellos, y cuando no hay sellos no hay nada que
+      // contradiga la afirmación. La otra mitad vive donde se puede medir de
+      // verdad —tests/integration/sello-periodo.int.spec.ts, que siembra el
+      // anclaje y comprueba que postear un borrador entra en la cadena y que
+      // `commitPeriod` se niega ante una laguna—.
+      //
+      // Este criterio es, entonces, un detector de regresión sobre datos
+      // reales, no la prueba del paquete. Por eso su detalle SIEMPRE dice
+      // cuántos sellos llegó a inspeccionar: un verde que no diga eso sería
+      // verde por no mirar, que es justo lo que el sprint persigue.
+      const { query } = await import('../database/connection.js');
+
+      let alcance = 'todos los inquilinos';
+      try {
+        const rol = await query<{ ve: boolean; rol: string }>(
+          `SELECT current_user AS rol,
+                  COALESCE(rolsuper OR rolbypassrls, false) AS ve
+             FROM pg_roles WHERE rolname = current_user`
+        );
+        if (rol.rows[0] && !rol.rows[0].ve) {
+          // Las tablas llevan RLS forzado: sin contexto de inquilino este rol
+          // ve cero filas. No es motivo para declararse inevaluable —no hay
+          // nada que contradiga la afirmación— pero sí para decirlo.
+          alcance = `lo visible para "${rol.rows[0].rol}", que está sujeto a RLS`;
+        }
+      } catch {
+        /* si pg_roles no se deja leer, lo dirá el catch de abajo */
+      }
+
+      let sellos;
+      try {
+        sellos = await query<{ period_id: string; declarados: number; posteados: string }>(
+          // Sólo periodos CERRADOS. En uno abierto, un sello que cubre menos
+          // no es una mentira sino una foto con fecha: se selló, y después
+          // entraron asientos. El endpoint público sirve `committedAt` al
+          // lado de la cifra, así que esa diferencia es legible.
+          `SELECT pc.period_id,
+                  pc.entry_count AS declarados,
+                  (SELECT count(*) FROM journal_entries je
+                    WHERE je.fiscal_period_id = pc.period_id
+                      AND je.entity_id = pc.entity_id
+                      AND je.status = 'posted')::text AS posteados
+             FROM period_commitments pc
+             JOIN fiscal_periods fp ON fp.id = pc.period_id
+            WHERE fp.status IN ('soft_close', 'hard_close', 'locked')`
+        );
+      } catch (e) {
+        const porque = (e as Error).message.slice(0, 60) || 'sin detalle';
+        return noEvaluable(`no hay base de datos accesible para medirlo (${porque})`);
+      }
+
+      const mienten = sellos.rows.filter((x) => x.declarados !== Number(x.posteados));
+      if (mienten.length > 0) {
+        const m = mienten[0];
+        return falla(
+          `${mienten.length} sello(s) declaran menos asientos de los que su periodo tiene ` +
+            `posteados — p. ej. el periodo ${m.period_id.slice(0, 8)} sella ${m.declarados} ` +
+            `de ${m.posteados}. Esa cifra se publica como la cuenta del periodo.`
+        );
+      }
+      return ok(
+        sellos.rows.length === 0
+          ? `sin sellos de periodos cerrados que revisar en ${alcance}`
+          : `${sellos.rows.length} sello(s) de periodos cerrados coinciden con su periodo (${alcance})`
+      );
+    },
+  },
 
   // ---- E0.2 · Contrato código ↔ esquema ----
   {
