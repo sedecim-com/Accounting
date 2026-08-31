@@ -19,18 +19,22 @@ así que se toleran de forma explícita:
 | 015 | `015_account_roles.sql`, `015_identities.sql` |
 | 018 | `018_ai_sessions.sql`, `018_fix_account_roles_unique.sql` |
 
-## Reparto de rangos del plan de cierre
+## El reparto de rangos, retirado
 
-Catorce paquetes de trabajo van a crear migraciones. Para que no choquen, cada
-etapa tiene su rango reservado. Última migración existente: **030**.
+Aquí vivía una tabla que reservaba los números 031–053 por etapa del plan de
+cierre («Última migración existente: **030**»). **Murió sin que nadie la
+tocara**: las migraciones 031–037 las quemó el trabajo correctivo —auditorías,
+bitácoras, la ligadura del REP, el etiquetado— y ninguna pertenecía a los
+paquetes que los rangos reservaban. Una reserva que nadie consulta no
+coordina: desinforma, porque promete un orden que el historial ya contradice.
 
-| Etapa | Rango | Paquetes |
-|---|---|---|
-| E0 · Cimientos | 031–034 | E0.0, E0.1, E0.2, E0.3 |
-| E1 · Contabilidad | 035–039 | E1.1, E1.2, E1.3, E1.4 |
-| E2 · Perímetro | 040–042 | E2.1, E2.2 |
-| E3 · Fiscal | 043–046 | E3.1, E3.2 |
-| E4 · Ciclos | 047–050 | E4.1, E4.2 |
-| E5 · Agente | 051–053 | E5.1 |
+La regla vigente es la simple:
 
-Si un rango se agota, se toma del siguiente libre por encima de 053 y se anota aquí.
+- **Secuencial estricto.** El siguiente número es `max + 1` sobre lo que hay
+  en `src/database/migrations/`. Hoy: **038**.
+- **La guarda decide, no este documento.** `assertNumeracionUnica` falla ante
+  cualquier duplicado nuevo; los cuatro históricos de arriba son los únicos
+  tolerados.
+- **Dos sesiones que colisionen** en el mismo número lo descubren en el
+  primer `npm run migrate` o en CI — que es más pronto y más fuerte que una
+  tabla de reservas que había que recordar leer.

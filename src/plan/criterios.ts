@@ -233,6 +233,32 @@ export const CRITERIOS: Criterio[] = [
 
   // ---- E0.1 · Red de pruebas ----
   {
+    paquete: 'E0.2',
+    enunciado: 'Ejecutar una migración y registrarla son un solo acto',
+    evaluar: () => {
+      // migrate.ts corría el .sql y lo anotaba en public.migrations en DOS
+      // transacciones implícitas: un fallo entre ambas dejaba la migración
+      // aplicada y sin registrar, y la corrida siguiente la re-ejecutaba —
+      // incluidos sus rellenos de datos. Prescriptivo sobre el instrumento,
+      // que es el caso en que un criterio puede nombrar el archivo.
+      const s = codigoDe('src/database/migrate.ts');
+      const transaccional =
+        /BEGIN/.test(s) && /ROLLBACK/.test(s) && /INSERT INTO public\.migrations/.test(s);
+      if (!transaccional) {
+        return falla('migrate.ts no envuelve ejecutar+registrar en una transacción: un fallo entre ambas re-ejecuta la migración en la siguiente corrida');
+      }
+      // Y el endurecimiento de RLS corre aunque una migración falle: vivía
+      // dentro del try y un fallo a mitad dejaba las tablas ya creadas sin
+      // política — la fuga silenciosa que el propio bloque dice impedir.
+      const finallyIdx = s.indexOf('finally');
+      const rlsIdx = s.indexOf('rls-policies.sql');
+      return finallyIdx >= 0 && rlsIdx > finallyIdx
+        ? ok('transaccional, y el endurecimiento corre pase lo que pase')
+        : falla('rls-policies.sql no corre en el finally: un fallo a mitad deja tablas sin política');
+    },
+  },
+
+  {
     paquete: 'E0.1',
     enunciado: 'Los proyectos unitario y de integración están separados',
     evaluar: () =>

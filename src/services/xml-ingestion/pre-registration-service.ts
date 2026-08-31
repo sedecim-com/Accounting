@@ -895,16 +895,23 @@ export class PreRegistrationService {
 
     // Create bill
     await query(
+      // El UUID fiscal viaja con el gasto desde su nacimiento (migración
+      // 037). Antes sólo existía por el rodeo pre_registrations→xml_documents,
+      // que muere con el pre-registro; la columna directa es la que hacen
+      // baratos el DIOT, el amarre y la ligadura del REP.
       `INSERT INTO bills (
         id, entity_id, bill_number, vendor_id, vendor_invoice_number,
         subtotal, tax_amount, total_amount, amount_due,
-        currency_code, exchange_rate, bill_date, due_date, status, created_by
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'posted',$14)`,
+        currency_code, exchange_rate, bill_date, due_date, status, created_by,
+        cfdi_uuid
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'posted',$14,
+        (SELECT cfdi_uuid FROM xml_documents WHERE id = $15))`,
       [
         billId, preReg.entity_id, billNumber, vendorId, preReg.external_reference,
         preReg.subtotal, preReg.tax_amount, preReg.total_amount, preReg.total_amount,
         preReg.currency_code, preReg.exchange_rate,
         preReg.document_date, preReg.due_date, userId,
+        preReg.xml_document_id ?? null,
       ]
     );
 
