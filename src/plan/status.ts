@@ -99,6 +99,41 @@ export interface Salida {
 export const abiertosDe = (paquetes: Paquete[]): string[] =>
   paquetes.filter((p) => p.estado !== 'resuelto').map((p) => p.id);
 
+/**
+ * Un criterio que DECLARÓ necesitar algo del entorno y no pudo evaluarse.
+ *
+ * `Criterio.necesita` existía en el tipo desde el principio y el runner no lo
+ * miraba nunca. La consecuencia salió cara: alguien escribió un criterio
+ * correcto —el sello de un periodo, que sólo se puede comprobar contra
+ * Postgres—, declaró `necesita: 'base-de-datos'`, y el job de CI que evalúa el
+ * plan no tiene base. El criterio se reportó no evaluable, el paquete cayó a
+ * 🟠, el trinquete lo leyó como retroceso y la CI se puso roja. Para
+ * desatascarla hubo que BORRAR el criterio bueno.
+ *
+ * Un campo declarado que nadie honra es peor que un campo ausente: promete una
+ * semántica y entrega otra.
+ */
+export const bloqueadoPorEntorno = (e: Evaluacion): boolean =>
+  e.criterio.necesita !== undefined && e.resultado.estado === 'no-evaluable';
+
+/**
+ * Lo que el trinquete puede EXIGIR: paquetes abiertos por algo que este entorno
+ * sí podía medir.
+ *
+ * Un criterio bloqueado por una precondición ausente no es una regresión del
+ * código — es un instrumento que aquí no existe. Contarlo hace que el mismo
+ * commit pase en una portátil con Postgres y falle en CI sin él, y una compuerta
+ * que depende de dónde corre no es una compuerta. Se sigue MOSTRANDO en la
+ * salida, con su causa: se ignora para exigir, nunca para informar.
+ */
+export const exigiblesAbiertos = (paquetes: Paquete[]): string[] =>
+  paquetes
+    .filter((p) => {
+      const noVerdes = p.evaluaciones.filter((e) => e.resultado.estado !== 'ok');
+      return noVerdes.length > 0 && !noVerdes.every(bloqueadoPorEntorno);
+    })
+    .map((p) => p.id);
+
 export function formatear(paquetes: Paquete[], stream: NodeJS.WriteStream): Salida {
   const p = palette(stream);
   const lineas: string[] = [];
@@ -119,7 +154,10 @@ export function formatear(paquetes: Paquete[], stream: NodeJS.WriteStream): Sali
       if (resultado.estado === 'ok') continue;
       const icono = resultado.estado === 'falla' ? p.red('✘') : p.dim('?');
       lineas.push(`     ${icono} ${criterio.enunciado}`);
-      lineas.push(`       ${p.dim(resultado.detalle)}`);
+      const nota = bloqueadoPorEntorno({ criterio, resultado })
+        ? `  (necesita ${criterio.necesita}: no cuenta para --exigir aquí)`
+        : '';
+      lineas.push(`       ${p.dim(resultado.detalle + nota)}`);
     }
   }
 
@@ -190,7 +228,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   // Contra TODOS los paquetes, no contra los que el filtro dejó a la vista:
   // `plan:status E0 --exigir=E1.3` no debe pasar por no haber mirado E1.3.
-  const abiertos = abiertosDe(todos);
+  const abiertos = exigiblesAbiertos(todos);
   const incumplidos = exigir.filter((id) => abiertos.includes(id));
   if (incumplidos.length > 0) {
     process.stderr.write(

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   abiertosDe,
+  bloqueadoPorEntorno,
+  exigiblesAbiertos,
   estadoDe,
   evaluar,
   formatear,
@@ -162,5 +164,80 @@ describe('abiertosDe', () => {
     expect(
       abiertosDe([p('A', 'resuelto'), p('B', 'parcial'), p('C', 'no-demostrado'), p('D', 'sin-evaluar')])
     ).toEqual(['B', 'C', 'D']);
+  });
+});
+
+/**
+ * `Criterio.necesita` vivió en el tipo sin que el runner lo mirara nunca, y la
+ * factura llegó entera: alguien escribió un criterio correcto —el sello de un
+ * periodo, que sólo se comprueba contra Postgres—, declaró
+ * `necesita: 'base-de-datos'`, y el job de CI que evalúa el plan no tiene base.
+ * El criterio salió no evaluable, el paquete cayó a 🟠, el trinquete lo leyó
+ * como retroceso y la CI se puso roja. Para desatascarla hubo que BORRAR el
+ * criterio bueno.
+ *
+ * Un campo declarado que nadie honra promete una semántica y entrega otra.
+ */
+describe('criterios que declaran necesitar algo del entorno', () => {
+  const paquete = (evaluaciones: Evaluacion[]): Paquete => ({
+    id: 'E0.1',
+    estado: estadoDe(evaluaciones),
+    evaluaciones,
+  });
+  const conNecesidad = (resultado: ReturnType<typeof ok>): Evaluacion => ({
+    criterio: {
+      paquete: 'E0.1',
+      enunciado: 'el sello de un periodo abarca el periodo entero',
+      necesita: 'base-de-datos',
+      evaluar: () => resultado,
+    },
+    resultado,
+  });
+  const simple = (resultado: ReturnType<typeof ok>): Evaluacion => ({
+    criterio: { paquete: 'E0.1', enunciado: 'algo que se mide leyendo el código', evaluar: () => resultado },
+    resultado,
+  });
+
+  it('no cuenta para --exigir cuando su precondición falta', () => {
+    // Es el caso literal que rompió la CI: tres verdes y uno sin base de datos.
+    const p = paquete([simple(ok('a')), simple(ok('b')), simple(ok('c')), conNecesidad(noEvaluable('ECONNREFUSED'))]);
+    expect(exigiblesAbiertos([p])).toEqual([]);
+  });
+
+  it('pero SIGUE abierto para informar: se ignora al exigir, nunca al contar', () => {
+    const p = paquete([simple(ok('a')), conNecesidad(noEvaluable('ECONNREFUSED'))]);
+    expect(p.estado).toBe('no-demostrado');
+    expect(abiertosDe([p])).toEqual(['E0.1']);
+  });
+
+  it('un hueco SIN declarar sigue rompiendo el trinquete', () => {
+    // La excepción es para lo que el entorno no puede medir, no para lo que
+    // nadie supo escribir. Si valiera para los dos, bastaría no evaluar nada.
+    const p = paquete([simple(ok('a')), simple(noEvaluable('no supe cómo medirlo'))]);
+    expect(exigiblesAbiertos([p])).toEqual(['E0.1']);
+  });
+
+  it('un rojo de verdad rompe el trinquete aunque lo acompañe uno bloqueado', () => {
+    const p = paquete([simple(falla('esto sí está roto')), conNecesidad(noEvaluable('ECONNREFUSED'))]);
+    expect(exigiblesAbiertos([p])).toEqual(['E0.1']);
+  });
+
+  it('si la precondición SÍ está, el criterio se juzga como cualquier otro', () => {
+    // Con Postgres delante devuelve falla, no no-evaluable, y entonces cuenta.
+    const p = paquete([conNecesidad(falla('el sello cubre medio periodo'))]);
+    expect(exigiblesAbiertos([p])).toEqual(['E0.1']);
+  });
+
+  it('bloqueadoPorEntorno exige LAS DOS cosas: la declaración y el no-evaluable', () => {
+    expect(bloqueadoPorEntorno(conNecesidad(noEvaluable('x')))).toBe(true);
+    expect(bloqueadoPorEntorno(conNecesidad(ok('x')))).toBe(false);
+    expect(bloqueadoPorEntorno(simple(noEvaluable('x')))).toBe(false);
+  });
+
+  it('la salida dice por qué no cuenta, para que no parezca un verde regalado', () => {
+    const plano = { isTTY: false } as NodeJS.WriteStream;
+    const texto = formatear([paquete([conNecesidad(noEvaluable('ECONNREFUSED'))])], plano).lineas.join('\n');
+    expect(texto).toContain('necesita base-de-datos');
+    expect(texto).toContain('no cuenta para --exigir');
   });
 });
