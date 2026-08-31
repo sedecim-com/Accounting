@@ -198,14 +198,24 @@ router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Req
     chain_commitments: unknown;
     status: string;
     committed_at: Date | null;
+    is_simulated: boolean;
   }>(
     `SELECT id, merkle_root, entry_count, tree_depth, balance_commitment,
-            zkverify_attestation_id, chain_commitments, status, committed_at
+            zkverify_attestation_id, chain_commitments, status, committed_at,
+            is_simulated
      FROM period_commitments WHERE entity_id = $1 AND period_id = $2`,
     [entityId, periodId]
   );
 
   if (commitment.rows.length === 0) throw new NotFoundError('Period commitment');
+
+  // E1.4 puso este cerrojo en /verify/:entryHash y no aquí, que es donde vive
+  // la carga útil de la prueba: el sello del periodo y su `entryCount`. Un
+  // compromiso simulado se servía sin autenticar, sin marca y sin rechazo.
+  if (commitment.rows[0].is_simulated) {
+    rechazarSimulada(res, 'El compromiso de ese periodo');
+    return;
+  }
 
   // Get published aggregates
   const aggregates = await query<{
@@ -256,10 +266,14 @@ router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, r
   if (dimension) { where += ` AND dimension_type = $${idx++}`; params.push(dimension); }
   if (value) { where += ` AND dimension_value = $${idx++}`; params.push(value); }
 
+  // Los agregados simulados no se sirven: se filtran en el propio SQL, no
+  // después, para que la cifra de este endpoint nunca dependa de que alguien
+  // se acuerde de filtrar en JavaScript. Un listado vacío es la respuesta
+  // correcta mientras el anclaje sea fabricado.
   const result = await query(
     `SELECT dimension_type, dimension_value, public_amount, transaction_count,
             period_id, published_at, aggregate_commitment
-     FROM published_aggregates ${where}
+     FROM published_aggregates ${where} AND is_simulated = false
      ORDER BY published_at DESC LIMIT 100`,
     params
   );

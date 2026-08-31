@@ -6,6 +6,7 @@ export {
   voidJournalEntryInTx,
   reverseJournalEntry,
   attestEntryAsync,
+  drainAttestations,
 } from './posting.js';
 export {
   postInvoiceEntry,

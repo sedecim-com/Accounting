@@ -97,6 +97,56 @@ describe('postJournalEntry · candados', () => {
     await postJournalEntry(ID.asiento, ID.usuario);
     expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(2);
   });
+
+  /**
+   * EL AGUJERO EN LA CADENA DE INTEGRIDAD.
+   *
+   * `attestEntryAsync` se disparaba al crear con autoPost, al revertir y al
+   * anular — nunca aquí. Y postear un borrador es el camino normal: lo usan
+   * `entry post`, REST, GraphQL y el posteo de nómina, que crea sin autoPost
+   * y postea aparte. Todo asiento nacido borrador quedaba sin `entry_hash` y,
+   * por tanto, fuera del sello del periodo.
+   */
+  it('postear un borrador lo mete en la cadena de atestación', async () => {
+    arnes.actual = reglas(asientoFalso());
+    await postJournalEntry(ID.asiento, ID.usuario);
+    await drainAttestations(200);
+    expect(attest, 'un asiento posteado desde borrador nunca entraba a la cadena').toHaveBeenCalledTimes(1);
+    expect(attest).toHaveBeenCalledWith(
+      expect.objectContaining({ journalEntryId: ID.asiento, entityId: ID.entidad })
+    );
+  });
+
+  it('atesta DESPUÉS del commit, no dentro de la transacción', async () => {
+    // El orquestador vuelve a leer el asiento de la base; dispararlo dentro de
+    // la transacción es una carrera contra su propio commit. Se comprueba por
+    // el orden observable: cuando se llama al espía, el trabajo de la
+    // transacción ya está hecho.
+    const cf = (arnes.actual = reglas(asientoFalso()));
+    let consultasAlAtestar = -1;
+    attest.mockImplementation(() => {
+      consultasAlAtestar = cf.coincidencias(/INSERT INTO account_balances/).length;
+      return Promise.resolve(undefined);
+    });
+    await postJournalEntry(ID.asiento, ID.usuario);
+    await drainAttestations(200);
+    expect(consultasAlAtestar, 'se atestó antes de terminar los saldos').toBe(2);
+  });
+
+  it('si la validación falla no se atesta nada', async () => {
+    validateJournalEntry.mockResolvedValue({ isValid: false, errors: ['desbalanceado'], warnings: [] });
+    arnes.actual = reglas(asientoFalso());
+    await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/Validation failed/);
+    await drainAttestations(200);
+    expect(attest).not.toHaveBeenCalled();
+  });
+
+  it('un asiento ya posteado no se vuelve a atestar', async () => {
+    arnes.actual = reglas(asientoFalso({ status: 'posted' } as Partial<JournalEntry>));
+    await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/already posted/i);
+    await drainAttestations(200);
+    expect(attest).not.toHaveBeenCalled();
+  });
 });
 
 describe('reverseJournalEntry · NIF B-1', () => {

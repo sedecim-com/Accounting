@@ -245,7 +245,23 @@ export async function postJournalEntry(
   entryId: string,
   userId: string
 ): Promise<JournalEntry> {
-  return withTransaction(async (client) => {
+  // EL AGUJERO QUE ESTA FUNCIÓN TENÍA EN LA CADENA DE INTEGRIDAD.
+  //
+  // `attestEntryAsync` se disparaba al crear con autoPost, al revertir y al
+  // anular — nunca al postear un borrador. Y postear un borrador es el camino
+  // normal: lo usa `entry post`, las dos superficies HTTP y el posteo de
+  // nómina, que crea sin autoPost y postea aparte. Todo asiento nacido
+  // borrador quedaba fuera de la cadena, sin `entry_hash`, y por tanto fuera
+  // del sello del periodo, que sólo abarcaba lo que tuviera hash.
+  //
+  // Mismo molde que las otras tres: titular fuera, relleno dentro de la
+  // transacción, disparo DESPUÉS del commit — el orquestador vuelve a leer el
+  // asiento de la base, así que dispararlo antes es una carrera.
+  const attest: { info: { tenantId: string; entityId: string; entryId: string } | null } = {
+    info: null,
+  };
+
+  const result = await withTransaction(async (client) => {
     const entryResult = await client.query<JournalEntry>(
       'SELECT * FROM journal_entries WHERE id = $1 FOR UPDATE',
       [entryId]
@@ -288,8 +304,13 @@ export async function postJournalEntry(
       [now, userId, entryId]
     );
 
+    // Se resuelve una sola vez y sirve para las dos cosas. Es la variante
+    // ESTRICTA —lanza si no resuelve—, así que no hace falta condicionar el
+    // titular como hacen reverse y void, que usan la blanda.
+    const tenantId = await tenantParaAuditoria(client, entry.entity_id);
+
     await registrarAuditoria(client, {
-      tenantId: await tenantParaAuditoria(client, entry.entity_id),
+      tenantId,
       userId,
       action: 'post',
       entityType: 'journal_entries',
@@ -318,8 +339,19 @@ export async function postJournalEntry(
       [entryId]
     );
 
+    attest.info = { tenantId, entityId: entry.entity_id, entryId };
+
     return { ...updatedEntry.rows[0], lines: linesResult.rows };
   });
+
+  // Sin guardas: las cuatro salidas alternativas de arriba son excepciones y
+  // abortan la transacción, así que llegar aquí significa que el asiento
+  // quedó posteado. Y como ALREADY_POSTED lanza, este camino no puede atestar
+  // dos veces el mismo asiento.
+  if (attest.info) {
+    attestEntryAsync(attest.info.tenantId, attest.info.entityId, attest.info.entryId);
+  }
+  return result;
 }
 
 /**

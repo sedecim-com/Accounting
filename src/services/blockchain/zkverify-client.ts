@@ -33,6 +33,17 @@ export class ZkVerifyClient {
    * Submit a ZK proof to zkVerify for universal verification.
    * Returns an attestation ID that can be referenced on any chain.
    */
+  /**
+   * Si esta capa FABRICA la verificación en vez de someterla a zkVerify.
+   *
+   * Hoy sí: `verifyProof` inventa el attestationId con bytes aleatorios y el
+   * merkleRoot con un sha256 local, y la rama de producción está vacía —lleva
+   * un comentario donde iría la llamada real—. El orquestador la lee junto a
+   * la de los adaptadores de cadena: basta un eslabón simulado para que la
+   * atestación entera lo sea.
+   */
+  readonly simulado = true;
+
   async verifyProof(req: ZkVerifyRequest): Promise<ZkVerifyResult> {
     // In production: POST to zkVerify RPC with proof + public inputs
     // Response includes attestation_id and merkle_root

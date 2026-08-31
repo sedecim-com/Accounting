@@ -6,6 +6,7 @@ import { ApolloServer } from '@apollo/server';
 import { expressMiddleware } from '@apollo/server/express4';
 import { config } from './config/index.js';
 import { query, closeDatabase, initDatabase } from './database/connection.js';
+import { drainAttestations } from './services/accounting/posting.js';
 import { authenticate, requireEntityAccess } from './api/rest/middleware/auth.js';
 import { auditLogMiddleware } from './api/rest/middleware/audit.js';
 import { tenantContext } from './api/rest/middleware/tenant-context.js';
@@ -297,6 +298,16 @@ ${graphqlEnabled ? `║  GraphQL:     http://localhost:${config.port}/graphql   
         server.close((err) => (err ? reject(err) : resolve()))
       );
       await apolloServer.stop();
+      // Las atestaciones en vuelo, antes de cerrar el pool.
+      //
+      // `attestEntryAsync` es dispara-y-olvida: la promesa vive fuera de la
+      // petición. El CLI ya drenaba al apagarse (mnemosine.ts); aquí no, así
+      // que `closeDatabase()` mataba por debajo la atestación de un asiento
+      // recién posteado y el `.catch` la degradaba a un warn. El asiento
+      // quedaba posteado y sin hash — y, desde ATE-1, un periodo con un solo
+      // asiento así ya no se puede sellar, que es como debe ser: mejor que se
+      // note.
+      await drainAttestations(5000).catch(() => undefined);
       await closeDatabase();
       logger.info('shutdown_complete');
       process.exit(0);

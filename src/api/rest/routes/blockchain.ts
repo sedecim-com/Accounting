@@ -376,17 +376,33 @@ router.get('/attestations', requirePermission('settings:manage'), requireEntityA
     params
   );
 
+  // `is_simulated` va en el SELECT y sale en la respuesta.
+  //
+  // E1.4 tapó esto en /public/v1 —que rechaza con 501 lo simulado— y dejó
+  // fuera esta ruta, que es autenticada pero la ve el administrador y el
+  // auditor del propio inquilino. Servía status 'confirmed' junto a un
+  // chain_attestations con txHash, blockNumber y explorerUrl fabricados por
+  // `generateTxHash`, sin una palabra que dijera que nada de eso se escribió
+  // en ninguna cadena. Aquí no se rechaza —el administrador tiene derecho a
+  // ver el estado real de su instalación— pero se nombra.
   const result = await query(
     `SELECT id, tenant_id, entity_id, source_type, source_id,
             entry_hash, zkverify_attestation_id, zkverify_merkle_root,
-            chain_attestations, status, created_at
+            chain_attestations, status, created_at, is_simulated
      FROM blockchain_attestations ${where}
      ORDER BY created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
     [...params, perPage, (pageNum - 1) * perPage]
   );
 
+  const simuladas = result.rows.filter((r) => (r as { is_simulated: boolean }).is_simulated).length;
+
   res.json({
     data: result.rows,
+    aviso: simuladas > 0
+      ? `${simuladas} de ${result.rows.length} atestaciones de esta página son SIMULADAS: su ` +
+        'txHash, su número de bloque y su enlace al explorador están fabricados y no ' +
+        'corresponden a ninguna transacción. No sirven como prueba ante un tercero.'
+      : undefined,
     pagination: {
       page: pageNum, per_page: perPage,
       total_pages: Math.ceil(parseInt(countResult.rows[0].count, 10) / perPage),
