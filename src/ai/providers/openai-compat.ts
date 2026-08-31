@@ -60,6 +60,8 @@ export interface OpenAiCompatSessionOptions {
   compaction?: CompactionConfig;
   /** Grounding backstop (see grounding.ts); enabled by default. */
   grounding?: GroundingOptions;
+  /** Lista blanca de herramientas (tools/superficie.ts); sin ella, todas. */
+  herramientas?: readonly string[];
 }
 
 export class OpenAiCompatSession implements LlmSession {
@@ -97,13 +99,17 @@ export class OpenAiCompatSession implements LlmSession {
         'nor accounting queries) — ignore the protocol and any rules that ask you to call them. Do not cite ' +
         'figures, endpoints or flows as if they were real; make that clear when applicable.';
     } else {
-      this.tools = buildTools(ctx, {
-        model: profile.model,
-        observe: callbacks.onToolUse,
-        userRequestRef: this.userRequestRef,
-        askUser: callbacks.askUser,
-        onDraftCreated: callbacks.onDraftCreated,
-      }) as unknown as RunnableToolLike[];
+      this.tools = buildTools(
+        ctx,
+        {
+          model: profile.model,
+          observe: callbacks.onToolUse,
+          userRequestRef: this.userRequestRef,
+          askUser: callbacks.askUser,
+          onDraftCreated: callbacks.onDraftCreated,
+        },
+        options.herramientas
+      ) as unknown as RunnableToolLike[];
       this.toolSpecs = this.tools.map((t) => ({
         type: 'function' as const,
         function: {

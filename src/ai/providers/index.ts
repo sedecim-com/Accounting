@@ -47,6 +47,13 @@ export interface CreateLlmSessionOptions {
    * and its extra model call would feed auto-post style hooks.
    */
   grounding?: GroundingOptions;
+  /**
+   * Lista blanca de herramientas por nombre (tools/superficie.ts). La
+   * corrida DESATENDIDA la pasa siempre: sin ella, la sesión recibe la
+   * superficie completa, que es lo correcto en la interactiva y una
+   * propiedad por accidente en la desatendida.
+   */
+  herramientas?: readonly string[];
 }
 
 export async function createLlmSession(
@@ -63,6 +70,7 @@ export async function createLlmSession(
     return new MnemosineAgent(client, ctx, systemBlocks, callbacks, profile.model, profile.name, {
       compaction,
       grounding: opts.grounding,
+      herramientas: opts.herramientas,
     });
   }
 
@@ -77,6 +85,7 @@ export async function createLlmSession(
   return new OpenAiCompatSession(client, profile, ctx, systemText, callbacks, {
     compaction,
     grounding: opts.grounding,
+    herramientas: opts.herramientas,
   });
 }
 

@@ -46,6 +46,8 @@ export interface AgentOptions {
   compaction?: CompactionConfig;
   /** Grounding backstop (see grounding.ts); enabled by default. */
   grounding?: GroundingOptions;
+  /** Lista blanca de herramientas (tools/superficie.ts); sin ella, todas. */
+  herramientas?: readonly string[];
 }
 
 /** max_tokens of the tool-less summarization call during compaction. */
@@ -71,13 +73,17 @@ export class MnemosineAgent implements LlmSession {
   ) {
     this.label = `${providerName} · ${model}`;
     this.grounding = new GroundingGuard(options.grounding);
-    this.tools = buildTools(ctx, {
-      model,
-      observe: callbacks.onToolUse,
-      userRequestRef: this.userRequestRef,
-      askUser: callbacks.askUser,
-      onDraftCreated: callbacks.onDraftCreated,
-    });
+    this.tools = buildTools(
+      ctx,
+      {
+        model,
+        observe: callbacks.onToolUse,
+        userRequestRef: this.userRequestRef,
+        askUser: callbacks.askUser,
+        onDraftCreated: callbacks.onDraftCreated,
+      },
+      options.herramientas
+    );
   }
 
   /**

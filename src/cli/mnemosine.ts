@@ -18,7 +18,7 @@ import {
   listProfiles,
   type LlmSession,
 } from '../ai/providers/index.js';
-import { resolveIngestThresholds, resolveLanguage, setLanguage } from '../ai/providers/config.js';
+import { resolveLanguage, setLanguage } from '../ai/providers/config.js';
 import {
   createSession,
   latestSession,
@@ -30,6 +30,8 @@ import {
   type SessionRow,
 } from '../ai/session-store.js';
 import { ingestCfdiFiles, type DraftCapture } from '../ai/ingest-service.js';
+import { SUPERFICIE_DESATENDIDA } from '../ai/tools/superficie.js';
+import { resolverUmbralesConPanel } from '../ai/ingest-thresholds.js';
 import { registerSatCommands } from './sat-commands.js';
 import { registerPendingCommands, renderAll } from './pending-command.js';
 import { registerDoctorCommand } from './doctor-command.js';
@@ -257,6 +259,12 @@ const makeRunAgentTurn = (ctx: AgentContext): RunAgentTurn =>
       // Unattended run: no human watches a grounding corrective turn, and
       // its extra model call would feed the draft-capture hooks.
       grounding: { enabled: false },
+      // Y con su superficie NOMBRADA: sin esto la sesión desatendida recibía
+      // todas las herramientas por omisión — hoy inofensivo (ninguna puede
+      // postear), pero una herramienta futura habría entrado a lo desatendido
+      // sin que nadie lo decidiera. Ahora nace excluida hasta que alguien la
+      // añada a tools/superficie.ts, que es una línea en un diff.
+      herramientas: SUPERFICIE_DESATENDIDA,
       onFailover: (from, errorType, to) => {
         stderr.write(ce.dim(`  ⚠ provider ${from} failed (${errorType}); trying ${to}\n`));
       },
@@ -1097,12 +1105,19 @@ program
     autoPost?: boolean; minConfidence?: number; maxAmount?: number;
   }) => {
     try {
-      const thresholds = resolveIngestThresholds({
-        autoPost: opts.autoPost,
-        minConfidence: opts.minConfidence,
-        maxAmount: opts.maxAmount,
-      });
       const ctx = await resolveEntity(opts.entity);
+      // El panel entra en la precedencia (bandera > archivo > política >
+      // omisión): antes las dos claves de auto-posteo del panel no las leía
+      // nadie y el json local gobernaba solo, sin bitácora — el despacho las
+      // contestaba y no cambiaba nada.
+      const thresholds = await resolverUmbralesConPanel(
+        {
+          autoPost: opts.autoPost,
+          minConfidence: opts.minConfidence,
+          maxAmount: opts.maxAmount,
+        },
+        ctx
+      );
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
       // No interactive channel: the AI's questions land in `mnemosine questions`.

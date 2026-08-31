@@ -251,9 +251,16 @@ export async function ingestCfdiFiles(opts: {
     }
 
     try {
+      // La nota que queda en review_notes dice QUIÉN decidió el umbral. Un
+      // asiento que llegó al mayor sin humano tiene que poder explicarse
+      // meses después: «lo encendió la política del despacho» y «lo encendió
+      // un json local» son responsabilidades distintas.
+      const fuente = thresholds.fuentes
+        ? `; umbral por ${thresholds.fuentes.autoPost}`
+        : '';
       const posted = await approve(
         ctx, draft.draftId, reviewer,
-        `auto-post by threshold (confidence ${draft.confidence.toFixed(2)}, amount ${total})`
+        `auto-post by threshold (confidence ${draft.confidence.toFixed(2)}, amount ${total}${fuente})`
       );
       return { file: name, status: 'auto_post', draftId: draft.draftId, entryNumber: posted.entryNumber };
     } catch (err) {

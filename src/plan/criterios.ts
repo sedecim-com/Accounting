@@ -1189,10 +1189,37 @@ export const CRITERIOS: Criterio[] = [
         ? ok(`el puente existe: ${cons.join(', ')}`)
         : falla(
             'allDeclarations no tiene consumidor fuera del núcleo (el re-export del barril no ' +
-              'consume nada): las herramientas del agente están escritas a mano y la sesión ' +
-              'desatendida ni siquiera admite recorte — el puente es una aspiración, y este ' +
-              'rojo es su registro'
+              'consume nada): las herramientas del agente siguen escritas a mano en vez de ' +
+              'derivarse del registro de riesgo. La sesión desatendida ya corre con superficie ' +
+              'nombrada (S0.3), pero esa lista también es a mano — el puente que las derive es ' +
+              'una aspiración, y este rojo es su registro'
           );
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'La corrida desatendida corre con una superficie nombrada, no con «todas»',
+    evaluar: () => {
+      // La sesión desatendida recibía todas las herramientas porque la
+      // fábrica ni siquiera admitía recorte. Hoy pasa una lista EXPLÍCITA
+      // (tools/superficie.ts) y buildTools lanza ante nombres que no existen:
+      // una herramienta nueva nace excluida de lo desatendido hasta que
+      // alguien la añada a la lista, y un renombre rompe en el arranque en
+      // vez de encoger la superficie en silencio.
+      if (!existe('src/ai/tools/superficie.ts')) {
+        return falla('no existe la superficie nombrada: la desatendida vuelve a recibir todo por omisión');
+      }
+      const cli = codigoDe('src/cli/mnemosine.ts');
+      if (!/herramientas:\s*SUPERFICIE_DESATENDIDA/.test(cli)) {
+        return falla(
+          'makeRunAgentTurn no pasa SUPERFICIE_DESATENDIDA: la sesión desatendida recibe la ' +
+            'superficie completa por omisión, y una herramienta futura entraría sin que nadie lo decida'
+        );
+      }
+      const fabrica = codigoDe('src/ai/tools/index.ts');
+      return /permitidas/.test(fabrica) && /throw new Error/.test(fabrica)
+        ? ok('la desatendida corre con lista explícita, y un nombre fantasma rompe en el arranque')
+        : falla('buildTools no valida la lista: un nombre renombrado filtraría en silencio');
     },
   },
   {
