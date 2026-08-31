@@ -175,18 +175,77 @@ export function hojasDe(cmd: Command, prefijo: string[] = []): Array<{ ruta: str
  * No pisa nada: una hoja que ya declaró junto a su registro se respeta. Se
  * llama una vez, al final del ensamblado del programa.
  */
-export function declararPendientes(program: Command): { aplicadas: number; sinTabla: string[] } {
+/**
+ * Los comandos que declaró ESTA tabla, por identidad de objeto.
+ *
+ * Sin esto, una segunda llamada no puede distinguir «esta ruta declara junto
+ * a su registro» —la fila de la tabla sobra— de «esta ruta la declaré yo en
+ * la llamada anterior» —la fila es la declaración vigente—. El primer censo
+ * ingenuo reportaba las 49 como sombreadas al segundo paso, que es cómo se
+ * descubrió la diferencia.
+ */
+const declaradasPorTabla = new WeakSet<Command>();
+
+export function declararPendientes(program: Command): {
+  aplicadas: number;
+  sinTabla: string[];
+  /** Rutas de la tabla que el comando ya declaraba junto a su registro. */
+  sombreadas: string[];
+} {
   let aplicadas = 0;
   const sinTabla: string[] = [];
+  const sombreadas: string[] = [];
+  const rutasVistas = new Set<string>();
   for (const { ruta, cmd } of hojasDe(program)) {
-    if (riskOf(cmd)) continue;
+    rutasVistas.add(ruta);
+    if (riskOf(cmd)) {
+      // Si además está en la tabla Y no fue esta tabla quien lo declaró, la
+      // entrada es letra muerta: el comando migró a declarar junto a su
+      // registro —el destino deseado— y su fila ya no describe nada. Se
+      // reporta para que la prueba obligue a borrarla, igual que la línea
+      // base del auditor obliga a borrar la violación arreglada.
+      if (RIESGOS_RETROFIT[ruta] && !declaradasPorTabla.has(cmd)) sombreadas.push(ruta);
+      continue;
+    }
     const decl = RIESGOS_RETROFIT[ruta];
     if (!decl) {
       sinTabla.push(ruta);
       continue;
     }
     declareRisk(cmd, decl);
+    declaradasPorTabla.add(cmd);
     aplicadas += 1;
+
+    // LAS BANDERAS QUE LA DECLARACIÓN INYECTA NO LAS HONRA (todavía) EL
+    // MANEJADOR. `declareRisk` añade --dry-run/--live a las clases graves, y
+    // los 57 comandos que declaran junto a su registro las consumen vía
+    // gateMutation — pero estos 49 retrofitados no: su manejador se escribió
+    // antes de que declararan. Una `--dry-run` aceptada que ESCRIBE de todos
+    // modos es peor que no ofrecerla: promete «write nothing» y ejecuta.
+    //
+    // Hasta que cada manejador se cablee (CLI-F2), usarlas explícitamente
+    // FALLA EN VOZ ALTA en vez de fingir. El que teclea --dry-run recibe la
+    // verdad — «este comando aún no la honra» — y no una escritura real
+    // disfrazada de simulacro.
+    const resolved = riskOf(cmd)!;
+    if (resolved.requiresDryRun || resolved.requiresLiveGate) {
+      cmd.hook('preAction', (_this, action) => {
+        const o = action.opts() as { dryRun?: boolean; live?: boolean };
+        const pedidas = [o.dryRun ? '--dry-run' : null, o.live ? '--live' : null].filter(Boolean);
+        if (pedidas.length > 0) {
+          throw new Error(
+            `"${ruta}" acepta ${pedidas.join(' y ')} pero su manejador todavía no las honra: ` +
+              'ejecutaría de verdad mientras la bandera promete lo contrario. Se rechaza en vez ' +
+              'de fingir. (La bandera existe porque la clase de riesgo la exige; el cableado del ' +
+              'manejador es trabajo de CLI-F2.)'
+          );
+        }
+      });
+    }
   }
-  return { aplicadas, sinTabla };
+  // Y las entradas de la tabla para rutas que el binario ya no tiene.
+  for (const ruta of Object.keys(RIESGOS_RETROFIT)) {
+    if (!rutasVistas.has(ruta)) sombreadas.push(ruta);
+  }
+  return { aplicadas, sinTabla, sombreadas };
 }

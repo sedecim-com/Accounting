@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Command } from 'commander';
 import { program } from '../../../src/cli/mnemosine.js';
 import { riskOf, declareRisk, gateMutation } from '../../../src/cli/kernel/risk.js';
-import { hojasDe, RIESGOS_RETROFIT } from '../../../src/cli/kernel/riesgos-retrofit.js';
+import { hojasDe, RIESGOS_RETROFIT, declararPendientes } from '../../../src/cli/kernel/riesgos-retrofit.js';
 
 /**
  * TODA HOJA QUE MUTA DECLARA SU RIESGO.
@@ -75,6 +75,21 @@ describe('cobertura de declaraciones', () => {
         expect(largas, `${h.ruta} es externo y no tiene --live`).toContain('--live');
       }
     }
+  });
+
+  it('la tabla de retrofit no acumula entradas sombreadas', () => {
+    // Una fila de la tabla cuya ruta ya declara junto a su registro —el
+    // destino deseado de cada comando— es letra muerta: no describe nada y
+    // con el tiempo la tabla dejaría de ser el inventario que es. Migrar un
+    // comando obliga a borrar su fila, igual que la línea base del auditor
+    // obliga a borrar la violación arreglada. (Llamar de nuevo es inocuo:
+    // todas las hojas ya declaran, así que sólo censa.)
+    const { sombreadas, aplicadas } = declararPendientes(program);
+    expect(aplicadas, 'el programa ya estaba declarado').toBe(0);
+    expect(
+      sombreadas,
+      'estas rutas ya declaran junto a su registro (o ya no existen): borra su fila de RIESGOS_RETROFIT'
+    ).toEqual([]);
   });
 
   it('la tabla de retrofit no acumula entradas muertas', () => {

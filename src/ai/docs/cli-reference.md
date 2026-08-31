@@ -218,6 +218,10 @@ Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -u, --user <email>       Reviewer email (default: first active user of the
                            tenant)
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
   -h, --help               display help for command
 ```
 
@@ -244,6 +248,10 @@ Options:
                            turned on
   --min-confidence <n>     Minimum confidence for auto-post (0-1)
   --max-amount <n>         Maximum auto-postable amount
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
   -h, --help               display help for command
 ```
 
@@ -284,6 +292,8 @@ Options:
   --post                    Post the opening balance immediately (default: stays
                             as a draft for mnemosine review)
   --dry-run                 Only show the plan, without executing anything
+  -y, --yes                 skip the confirmation prompt
+  --idempotency-key <key>   client dedupe key; defaults to a hash of the payload
   -h, --help                display help for command
 ```
 
@@ -299,6 +309,12 @@ Options:
   -u, --user <email>       Who executes (default: sole active user of the
                            tenant)
   -l, --list               Only list, without executing
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
   -h, --help               display help for command
 ```
 
@@ -366,6 +382,12 @@ Options:
   -u, --user <email>       Who grants the consent
   --no-unattended          Forbid use without an operator present
   --max-diario <n>         Access limit per 24 h
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
   -h, --help               display help for command
 ```
 
@@ -404,6 +426,11 @@ Revokes the credential and deletes the material from the vault (irreversible)
 Options:
   -e, --entity <idOrName>  Legal entity
   -u, --user <email>       Who revokes
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
 
@@ -467,6 +494,7 @@ Reopens an already resolved definition (the policy changed)
 
 Options:
   -e, --entity <idOrName>  Legal entity
+  --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
 
@@ -702,6 +730,7 @@ Revoke an active approval policy
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -t, --tenant <id>        Tenant
+  --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
 
@@ -2677,6 +2706,12 @@ Tick entry point: claim and run every due job (call this from cron/launchd)
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -t, --tenant <id>        Tenant
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
   -h, --help               display help for command
 ```
 
@@ -2879,6 +2914,10 @@ Options:
   --check                  Only check readiness, never close
   --hard                   Hard close (irreversible) instead of soft close
   --json                   JSON output for scripts
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
   -h, --help               display help for command
 ```
 

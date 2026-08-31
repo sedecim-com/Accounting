@@ -185,50 +185,56 @@ export function auditProgram(program: Command): Violation[] {
  * añadir un verbo obliga a regenerarla por una razón que no es la suya.
  */
 export function claveDeViolacion(v: Violation): string {
-  return `${v.command}|${v.rule}|${v.detail.replace(/\d+/g, '#').slice(0, 40)}`;
+  // Sin truncado. La primera versión cortaba a 40 caracteres y el corte caía
+  // JUSTO antes del valor en los detalles de forma corta («--note should use
+  // no short form, found » mide 39), así que cualquier forma corta nueva de
+  // la misma bandera colapsaba con la heredada y pasaba la puerta como deuda
+  // vieja. El truncado no protegía nada: la estabilidad ante conteos ya la da
+  // el reemplazo de dígitos.
+  return `${v.command}|${v.rule}|${v.detail.replace(/\d+/g, '#')}`;
 }
 
 export const LINEA_BASE: readonly string[] = [
-  'entities|R1 objectless allowlist|"entities" is a top-level command with n',
-  'providers|R1 objectless allowlist|"providers" is a top-level command with ',
-  'sessions|R1 objectless allowlist|"sessions" is a top-level command with n',
-  'drafts|R1 objectless allowlist|"drafts" is a top-level command with no ',
+  'entities|R1 objectless allowlist|"entities" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
+  'providers|R1 objectless allowlist|"providers" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
+  'sessions|R1 objectless allowlist|"sessions" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
+  'drafts|R1 objectless allowlist|"drafts" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'onboard|R6 banned spelling|--from is banned',
-  'outbox|R1 objectless allowlist|"outbox" is a top-level command with no ',
-  'questions|R1 objectless allowlist|"questions" is a top-level command with ',
-  'sat cred audit|R3 closed verb list|"audit" is not a verb in the registry. U',
-  'pending define|R3 closed verb list|"define" is not a verb in the registry. ',
-  'pending define|R6 short flag|--note should use no short form, found -',
-  'pending dismiss|R6 short flag|--note should use no short form, found -',
+  'outbox|R1 objectless allowlist|"outbox" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
+  'questions|R1 objectless allowlist|"questions" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
+  'sat cred audit|R3 closed verb list|"audit" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
+  'pending define|R3 closed verb list|"define" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
+  'pending define|R6 short flag|--note should use no short form, found -n',
+  'pending dismiss|R6 short flag|--note should use no short form, found -n',
   'memory|R6 short flag|--all should use -a, found none',
-  'memory teach|R3 closed verb list|"teach" is not a verb in the registry. U',
-  'memory retire|R3 closed verb list|"retire" is not a verb in the registry. ',
-  'prompt-size|R1 objectless allowlist|"prompt-size" is a top-level command wit',
-  'compact|R1 objectless allowlist|"compact" is a top-level command with no',
+  'memory teach|R3 closed verb list|"teach" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
+  'memory retire|R3 closed verb list|"retire" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
+  'prompt-size|R1 objectless allowlist|"prompt-size" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
+  'compact|R1 objectless allowlist|"compact" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'approvals list|R6 short flag|--all should use -a, found none',
   'approvals list|list contract|missing --limit',
   'approvals list|list contract|missing --format',
   'approvals grant|R6 short flag|--provider should use -p, found none',
-  'account deactivate|R3 closed verb list|"deactivate" is not a verb in the regist',
-  'usage|R1 objectless allowlist|"usage" is a top-level command with no o',
+  'account deactivate|R3 closed verb list|"deactivate" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
+  'usage|R1 objectless allowlist|"usage" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'status|R6 short flag|--all should use -a, found none',
   'jobs list|list contract|missing --limit',
   'jobs list|list contract|missing --format',
   'jobs create|R6 short flag|--user should use -u, found none',
-  'jobs run-due|R3 closed verb list|"run-due" is not a verb in the registry.',
+  'jobs run-due|R3 closed verb list|"run-due" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
   'jobs history|R6 short flag|--limit should use -n, found none',
   'skills list|list contract|missing --limit',
   'skills list|list contract|missing --format',
-  'skills drafts|R3 closed verb list|"drafts" is not a verb in the registry. ',
-  'skills view|R3 closed verb list|"view" is not a verb in the registry. Us',
+  'skills drafts|R3 closed verb list|"drafts" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
+  'skills view|R3 closed verb list|"view" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
   'webhooks list|list contract|missing --limit',
   'webhooks list|list contract|missing --format',
-  'webhooks deliveries|R3 closed verb list|"deliveries" is not a verb in the regist',
+  'webhooks deliveries|R3 closed verb list|"deliveries" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
   'init|R6 short flag|--status should use -s, found none',
   'init|R6 short flag|--entity should use -e, found none',
   'init|R6 short flag|--provider should use -p, found none',
   'init|R6 short flag|--model should use -m, found none',
-  'close|R6 short flag|--period should use no short form, found',
+  'close|R6 short flag|--period should use no short form, found -p',
 ];
 
 export interface ResultadoAuditoria {

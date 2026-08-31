@@ -1114,7 +1114,14 @@ export const CRITERIOS: Criterio[] = [
       const archivos = fuentes(dir);
       if (archivos.length === 0) return noEvaluable('no existe la superficie de herramientas');
 
-      // Los caminos que sí mueven el mayor o salen del sistema.
+      // Tres cercas, porque la auditoría demostró que una sola se salta.
+      //
+      // 1. NOMBRES prohibidos, por identificador y no por llamada: la
+      //    primera versión exigía `nombre(` y un `import { x as y }` la
+      //    evadía. Una herramienta no tiene razón legítima ni para NOMBRAR
+      //    estos símbolos. La lista incluye las puertas de dinero creadas en
+      //    este mismo sprint — la versión anterior vigilaba las viejas y era
+      //    ciega a ligarPagoREP y procesarREP, recién nacidas.
       const PROHIBIDOS = [
         'postJournalEntry',
         'createJournalEntry',
@@ -1122,19 +1129,34 @@ export const CRITERIOS: Criterio[] = [
         'recordCustomerPayment',
         'issueInvoice',
         'approveBill',
+        'approveDraft',
         'hardClosePeriod',
         'commitPeriod',
         'executeExternalOp',
+        'ligarPagoREP',
+        'procesarREP',
+        'processToAccounting',
+        'createBankTransaction',
       ];
+      // 2. MÓDULOS prohibidos: llamar a un servicio que a su vez postea es la
+      //    evasión transitiva. Los módulos de dinero no se importan desde las
+      //    herramientas, con ningún nombre.
+      const MODULOS_PROHIBIDOS =
+        /from\s+'[^']*(accounting\/posting|payments\/payment-service|xml-ingestion\/rep-linkage|accounting\/period-close|xml-ingestion\/pre-registration-service)/;
       const culpables: string[] = [];
       for (const f of archivos) {
         const codigo = sinComentarios(fs.readFileSync(f, 'utf-8'));
         const rel = path.relative(rutaDe(), f);
         for (const nombre of PROHIBIDOS) {
-          if (new RegExp(`\\b${nombre}\\s*\\(`).test(codigo)) culpables.push(`${rel} → ${nombre}`);
+          if (new RegExp(`\\b${nombre}\\b`).test(codigo)) culpables.push(`${rel} → ${nombre}`);
         }
-        // Y SQL de escritura directo, que se saltaría cualquier servicio.
-        if (/INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM/i.test(codigo)) {
+        if (MODULOS_PROHIBIDOS.test(codigo)) {
+          culpables.push(`${rel} → importa un módulo de dinero`);
+        }
+        // 3. SQL de escritura directo, con el UPDATE multilínea incluido: el
+        //    regex viejo exigía `UPDATE x SET` en una línea y una plantilla
+        //    con salto de línea pasaba.
+        if (/INSERT\s+INTO|UPDATE[\s\S]{0,80}?\bSET\b|DELETE\s+FROM|TRUNCATE\s|MERGE\s+INTO/i.test(codigo)) {
           culpables.push(`${rel} → SQL de escritura directo`);
         }
       }

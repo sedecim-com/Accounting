@@ -1,6 +1,4 @@
 import fs from 'node:fs';
-import { program } from '../cli/mnemosine.js';
-import { auditarContraLineaBase } from '../cli/kernel/audit.js';
 import path from 'node:path';
 import { query } from '../database/connection.js';
 import { REQUIRED_BUCKETS } from '../services/payroll/common/payroll-account-mapping-seed.js';
@@ -52,7 +50,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(...(await checkLookupTables()));
     checks.push(checkOrphanedCapability(deps));
     checks.push(checkConnectionTransport());
-    checks.push(checkConsistenciaCli());
+    checks.push(await checkConsistenciaCli());
     checks.push(await checkTenantIsolation());
     checks.push(await checkReopenedPeriods());
     checks.push(await checkPendingWork());
@@ -371,7 +369,15 @@ export async function checkLookupTables(): Promise<CheckResult[]> {
  * esta comprobación vigila es que no aparezcan NUEVAS: una superficie que se
  * degrada un comando por semana es como se llegó a las 40.
  */
-export function checkConsistenciaCli(): CheckResult {
+export async function checkConsistenciaCli(): Promise<CheckResult> {
+  // Importación PEREZOSA, y no es estilo: doctor-service lo importa el propio
+  // CLI (mnemosine → doctor-command → doctor-service), así que un import
+  // estático de mnemosine aquí cierra un ciclo de módulos que hoy resuelve
+  // por suerte del orden de carga — y arrastraría los SDKs y el readline del
+  // CLI a cualquier otro importador de doctor-service. Al diferirlo, el ciclo
+  // sólo existe en tiempo de llamada, cuando mnemosine ya terminó de cargar.
+  const { program } = await import('../cli/mnemosine.js');
+  const { auditarContraLineaBase } = await import('../cli/kernel/audit.js');
   const { nuevas, obsoletas, heredadas } = auditarContraLineaBase(program);
 
   if (nuevas.length > 0) {
