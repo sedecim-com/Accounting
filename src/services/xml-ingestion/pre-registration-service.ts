@@ -13,7 +13,23 @@ import {
 import type { AccountRole } from './cfdi-taxonomy.js';
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto } from './cfdi-parser.js';
+import { extractPagosCompletos } from './cfdi-facts.js';
+import { ligarPagoREP, type ResultadoREP } from './rep-linkage.js';
 import { SATValidationService } from './sat-validation.js';
+
+/**
+ * Tipo de comprobante del SAT → el vocabulario de `pre_registrations`.
+ *
+ * 'I' es ingreso —para quien lo recibe, un gasto— y 'P' es el recibo
+ * electrónico de pago. Lo demás sigue cayendo en 'credit_note' por descarte,
+ * como antes; lo que cambia es que el REP deje de hacerlo, porque no es una
+ * nota de crédito y tratarlo como tal lo mataba con UNSUPPORTED_TYPE.
+ */
+function tipoDocumentoDe(tipo: string | undefined): string {
+  if (tipo === 'I') return 'bill';
+  if (tipo === 'P') return 'payment';
+  return 'credit_note';
+}
 import { RulesEngine, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
 
@@ -168,7 +184,7 @@ export class PreRegistrationService {
         const result = await this.processToAccounting(updated as Record<string, unknown>, uploadedBy);
         autoProcessed = true;
         bill = result.bill;
-        journalEntry = result.journalEntry;
+        journalEntry = result.journalEntry ?? undefined;
       } catch (err) {
         console.error('Auto-processing failed:', err);
       }
@@ -199,7 +215,12 @@ export class PreRegistrationService {
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
       [
         preRegId, entityId, xmlDocument.id, 'xml_cfdi',
-        parsed.tipoDeComprobante === 'I' ? 'bill' : 'credit_note',
+        // Un CFDI tipo P es un RECIBO DE PAGO, no una nota de crédito. Caía en
+        // 'credit_note' por descarte y moría en processToAccounting con
+        // UNSUPPORTED_TYPE: el pre-registro quedaba en 'error' y el
+        // comprobante que sostiene el acreditamiento del IVA no llegaba a
+        // ninguna parte. El vocabulario de la columna ya admitía 'payment'.
+        tipoDocumentoDe(parsed.tipoDeComprobante),
         vendorMatch.vendor?.id || null,
         vendorMatch.confidence, vendorMatch.method,
         vendorMatch.isNew, vendorMatch.suggestedData ? JSON.stringify(vendorMatch.suggestedData) : null,
@@ -441,15 +462,29 @@ export class PreRegistrationService {
   async processToAccounting(
     preReg: Record<string, unknown>,
     userId: string
-  ): Promise<{ bill?: Record<string, unknown>; journalEntry: Record<string, unknown> }> {
+  ): Promise<{
+    bill?: Record<string, unknown>;
+    journalEntry?: Record<string, unknown> | null;
+    paymentId?: string;
+  }> {
     await query(`UPDATE pre_registrations SET status = 'processing' WHERE id = $1`, [preReg.id]);
 
     try {
-      let result: { bill?: Record<string, unknown>; journalEntry: Record<string, unknown> };
+      // Un REP no genera póliza propia: o casa con un pago ya registrado —cuyo
+      // asiento ya existe— o crea el pago, y entonces la póliza es la de ese
+      // pago. Por eso el asiento es opcional aquí.
+      let result: {
+        bill?: Record<string, unknown>;
+        journalEntry?: Record<string, unknown> | null;
+        paymentId?: string;
+      };
 
       switch (preReg.document_type) {
         case 'bill':
           result = await this.createBillFromPreReg(preReg, userId);
+          break;
+        case 'payment':
+          result = await this.procesarREP(preReg, userId);
           break;
         default:
           throw new AccountingError('UNSUPPORTED_TYPE', `Unsupported document type: ${preReg.document_type}`);
@@ -464,10 +499,10 @@ export class PreRegistrationService {
          WHERE id = $1`,
         [
           preReg.id,
-          result.bill ? 'bill' : 'journal_entry',
-          result.bill?.id || result.journalEntry.id,
+          result.bill ? 'bill' : result.paymentId ? 'payment' : 'journal_entry',
+          result.bill?.id ?? result.paymentId ?? result.journalEntry?.id ?? null,
           result.bill?.id || null,
-          result.journalEntry.id,
+          result.journalEntry?.id ?? null,
           userId,
         ]
       );
@@ -682,6 +717,109 @@ export class PreRegistrationService {
     } finally {
       cliente.release();
     }
+  }
+
+  /**
+   * UN REP INGERIDO NO CONTABILIZA: LIGA.
+   *
+   * Todo lo demás que pasa por aquí crea una póliza. Éste no, y es
+   * deliberado. Un recibo electrónico de pago documenta un movimiento de
+   * banco que o bien ya se registró —y entonces su póliza existe— o bien hay
+   * que registrar por la puerta de pagos, que es la que sabe aplicar el pago
+   * a los documentos y, con eso, liberar el IVA aparcado.
+   *
+   * Postear aquí el efectivo, como especificaba el plan anterior, abona el
+   * banco por segunda vez cuando el pago también se capturó a mano; y si
+   * además se escriben las líneas de IVA, el impuesto se traspasa dos veces
+   * sin que nada proteste, porque el tope de lo aparcado recorta el exceso en
+   * silencio y la póliza acaba cuadrando. Un número equivocado que cuadra no
+   * lo encuentra nadie.
+   *
+   * Un comprobante puede traer varios nodos `Pago`: son varios movimientos de
+   * banco y se resuelven uno por uno. Si alguno queda para revisión, el
+   * comprobante entero espera a una persona — se lanza la misma señal que usa
+   * un CFDI que necesita una decisión, así que el pre-registro cae en
+   * `needs_review` con el motivo legible en vez de en `error`.
+   */
+  private async procesarREP(
+    preReg: Record<string, unknown>,
+    userId: string
+  ): Promise<{ journalEntry?: Record<string, unknown> | null; paymentId?: string }> {
+    const doc = await query<{
+      xml_content: string;
+      cfdi_uuid: string;
+      emisor_rfc: string;
+      cfdi_fecha: Date;
+    }>(
+      `SELECT xml_content, cfdi_uuid, emisor_rfc, cfdi_fecha
+         FROM xml_documents WHERE id = $1`,
+      [preReg.xml_document_id]
+    );
+    if (doc.rows.length === 0 || !doc.rows[0].xml_content) {
+      throw new AccountingError('REP_SIN_XML', 'No se conserva el XML del comprobante de pago.');
+    }
+
+    const entidad = await query<{ tax_id: string; functional_currency: string; tenant_id: string }>(
+      `SELECT tax_id, functional_currency, tenant_id FROM legal_entities WHERE id = $1`,
+      [preReg.entity_id]
+    );
+    if (entidad.rows.length === 0) {
+      throw new AccountingError('ENTITY_NOT_FOUND', 'La entidad del pre-registro no existe.');
+    }
+    const { tax_id: rfc, functional_currency: moneda, tenant_id: tenantId } = entidad.rows[0];
+
+    const pagos = extractPagosCompletos(new CFDIParser().parse(doc.rows[0].xml_content));
+    if (pagos.length === 0) {
+      throw new AccountingError(
+        'REP_SIN_PAGOS',
+        'El comprobante es de tipo P pero no trae complemento de pagos: no hay nada que ligar.'
+      );
+    }
+
+    // Emisor o receptor. Del lado emitido el REP lo expedimos nosotros y
+    // documenta un cobro; del recibido lo expide el proveedor y documenta un
+    // pago nuestro. Son dos subledgers distintos.
+    const direction = doc.rows[0].emisor_rfc === rfc ? 'emitido' : 'recibido';
+
+    const resultados: ResultadoREP[] = [];
+    for (const [indice, pago] of pagos.entries()) {
+      resultados.push(
+        await ligarPagoREP({
+          tenantId,
+          entityId: preReg.entity_id as string,
+          userId,
+          cfdiUuid: doc.rows[0].cfdi_uuid,
+          direction,
+          indice,
+          pago,
+          fechaCfdi: new Date(doc.rows[0].cfdi_fecha),
+          monedaFuncional: moneda,
+        })
+      );
+    }
+
+    const paraRevision = resultados.filter((r) => r.accion === 'revision');
+    if (paraRevision.length > 0) {
+      throw new AccountingError(
+        'CFDI_REQUIERE_DECISION',
+        paraRevision.map((r) => r.motivo).join(' · ')
+      );
+    }
+
+    const conPago = resultados.find((r) => r.paymentId);
+    const asiento = conPago?.paymentId
+      ? (
+          await query(
+            `SELECT je.* FROM journal_entries je
+              WHERE je.source_type IN ('vendor_payment','customer_payment')
+                AND je.source_id = $1
+              ORDER BY je.created_at DESC LIMIT 1`,
+            [conPago.paymentId]
+          )
+        ).rows[0] ?? null
+      : null;
+
+    return { journalEntry: asiento, paymentId: conPago?.paymentId };
   }
 
   private async createBillFromPreReg(

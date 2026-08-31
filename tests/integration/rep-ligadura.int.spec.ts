@@ -7,6 +7,7 @@ import { approveBill } from '../../src/services/ap/bill-service.js';
 import { recordVendorPayment } from '../../src/services/payments/payment-service.js';
 import { ligarPagoREP } from '../../src/services/xml-ingestion/rep-linkage.js';
 import { seedPolicies, resolvePolicy } from '../../src/services/policy/policy-service.js';
+import { PreRegistrationService } from '../../src/services/xml-ingestion/pre-registration-service.js';
 import type { PagoREP } from '../../src/services/xml-ingestion/cfdi-facts.js';
 
 /**
@@ -392,5 +393,112 @@ describe('las decisiones son del usuario, no del código', () => {
       r.accion,
       'cincuenta pesos de diferencia no son redondeo: es otro pago'
     ).not.toBe('casado');
+  });
+});
+
+/**
+ * EL CAMINO COMPLETO: DE UN XML A UN PAGO LIGADO.
+ *
+ * Lo anterior prueba el motor. Esto prueba que el motor esté ENCHUFADO, que
+ * es distinto: un CFDI tipo P recibía `document_type='credit_note'` —por
+ * descarte, porque no es 'I'— y moría con UNSUPPORTED_TYPE antes de llegar a
+ * ninguna parte. El pre-registro quedaba en 'error' y el comprobante que
+ * sostiene el acreditamiento del IVA no se contabilizaba nunca.
+ */
+describe('la ingesta reconoce un REP y lo procesa', () => {
+  function xmlDeREP(g: Gasto, repUuid: string): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+  xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+  Version="4.0" TipoDeComprobante="P" Moneda="XXX" Total="0" SubTotal="0"
+  Fecha="${fechaEnPeriodo().toISOString().slice(0, 19)}" LugarExpedicion="64000" Exportacion="01">
+  <cfdi:Emisor Rfc="CCC030303CC3" Nombre="Proveedor REP" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="XAXX010101000" Nombre="Cliente" UsoCFDI="CP01"
+    DomicilioFiscalReceptor="64000" RegimenFiscalReceptor="601"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT"
+      Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <pago20:Pagos Version="2.0">
+      <pago20:Pago FechaPago="${fechaEnPeriodo().toISOString().slice(0, 19)}"
+        FormaDePagoP="03" MonedaP="MXN" Monto="${g.total}" NumOperacion="OP-9">
+        <pago20:DoctoRelacionado IdDocumento="${g.cfdiUuid}" MonedaDR="MXN" NumParcialidad="1"
+          ImpSaldoAnt="${g.total}" ImpPagado="${g.total}" ImpSaldoInsoluto="0" ObjetoImpDR="02">
+          <pago20:ImpuestosDR><pago20:TrasladosDR>
+            <pago20:TrasladoDR BaseDR="${(Number(g.total) - g.iva).toFixed(2)}" ImpuestoDR="002"
+              TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="${g.iva.toFixed(2)}"/>
+          </pago20:TrasladosDR></pago20:ImpuestosDR>
+        </pago20:DoctoRelacionado>
+      </pago20:Pago>
+    </pago20:Pagos>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="${repUuid}"
+      FechaTimbrado="${fechaEnPeriodo().toISOString().slice(0, 19)}" SelloCFD="x" NoCertificadoSAT="1" SelloSAT="y"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`;
+  }
+
+  it('el pre-registro nace como «payment», no como nota de crédito', async () => {
+    const g = await gastoAprobado('1200.00', '192.00');
+    const svc = new PreRegistrationService();
+    const r = await svc.processXMLUpload(
+      f.entityId, xmlDeREP(g, uuidv4()), 'manual_upload', f.userId
+    );
+    expect(
+      (r.preRegistration as { document_type: string }).document_type,
+      'un REP no es una nota de crédito, y tratarlo como tal lo mataba'
+    ).toBe('payment');
+  });
+
+  it('procesarlo crea el pago y libera el IVA, sin póliza propia del REP', async () => {
+    const g = await gastoAprobado('1200.00', '192.00');
+    const pendienteAntes = await saldoDe(cuentaPendiente, g.periodo);
+    const acreditableAntes = await saldoDe(cuentaAcreditable, g.periodo);
+
+    const svc = new PreRegistrationService();
+    const subida = await svc.processXMLUpload(
+      f.entityId, xmlDeREP(g, uuidv4()), 'manual_upload', f.userId
+    );
+    const res = await svc.processToAccounting(
+      subida.preRegistration as Record<string, unknown>, f.userId
+    );
+
+    expect(res.paymentId, 'el REP debía resolverse en un pago').toBeTruthy();
+    expect(await saldoDe(cuentaPendiente, g.periodo)).toBeCloseTo(pendienteAntes - 192, 2);
+    expect(await saldoDe(cuentaAcreditable, g.periodo)).toBeCloseTo(acreditableAntes + 192, 2);
+    expect(await pagosDe(g.billId)).toBe(1);
+
+    // El pre-registro apunta al pago, no a una póliza inventada.
+    const pr = await query<{ status: string; result_type: string; result_id: string }>(
+      `SELECT status, result_type, result_id FROM pre_registrations WHERE id = $1`,
+      [(subida.preRegistration as { id: string }).id]
+    );
+    expect(pr.rows[0].status).toBe('completed');
+    expect(pr.rows[0].result_type).toBe('payment');
+    expect(pr.rows[0].result_id).toBe(res.paymentId);
+  });
+
+  it('lo que necesita decisión queda en revisión, no en error', async () => {
+    // Un REP que relaciona un documento que el sistema no tiene: espera a la
+    // factura. Antes, cualquier tropiezo dejaba el pre-registro en 'error',
+    // que es donde van los fallos del sistema — no los documentos que esperan
+    // a una persona.
+    const g = await gastoAprobado('400.00', '64.00');
+    const ajeno: Gasto = { ...g, cfdiUuid: uuidv4() };
+    const svc = new PreRegistrationService();
+    const subida = await svc.processXMLUpload(
+      f.entityId, xmlDeREP(ajeno, uuidv4()), 'manual_upload', f.userId
+    );
+    await expect(
+      svc.processToAccounting(subida.preRegistration as Record<string, unknown>, f.userId)
+    ).rejects.toThrow();
+
+    const pr = await query<{ status: string; validation_status: string; error_message: string }>(
+      `SELECT status, validation_status, error_message FROM pre_registrations WHERE id = $1`,
+      [(subida.preRegistration as { id: string }).id]
+    );
+    expect(pr.rows[0].status, 'esperar una factura no es un fallo del sistema').toBe('draft');
+    expect(pr.rows[0].validation_status).toBe('needs_review');
+    expect(pr.rows[0].error_message).toMatch(/no tiene/i);
   });
 });

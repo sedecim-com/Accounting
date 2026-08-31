@@ -345,9 +345,12 @@ router.post('/pre-registrations/:id/process', requirePermission('bills:create'),
       pre_registration_id: req.params.id,
       status: 'completed',
       result: {
-        type: result.bill ? 'bill' : 'journal_entry',
+        // Un REP no genera póliza propia: casa con un pago existente o crea
+        // uno, y la póliza es la de ese pago.
+        type: result.bill ? 'bill' : result.paymentId ? 'payment' : 'journal_entry',
         bill_id: result.bill?.id,
-        journal_entry_id: result.journalEntry.id,
+        payment_id: result.paymentId,
+        journal_entry_id: result.journalEntry?.id ?? null,
       },
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
