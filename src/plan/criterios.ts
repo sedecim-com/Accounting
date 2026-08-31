@@ -263,6 +263,87 @@ export const CRITERIOS: Criterio[] = [
         : falla('el setup no crea ni destruye una base propia');
     },
   },
+  {
+    paquete: 'E0.1',
+    enunciado: 'El sello de un periodo abarca el periodo entero, o no existe',
+    necesita: 'base-de-datos',
+    evaluar: async () => {
+      // Un criterio de DATOS, no de identificadores: pregunta a la base si
+      // algún sello dice cubrir menos asientos de los que el periodo tiene
+      // posteados. Es la forma exacta de la mentira que ATE-1 quitó —
+      // `commitPeriod` filtraba por `entry_hash IS NOT NULL` y guardaba esa
+      // cuenta recortada como `entry_count`, que se publica sin autenticar
+      // como la cuenta del periodo.
+      //
+      // El runner todavía no honra `necesita`, así que la falta de base se
+      // trata aquí: sin ella el criterio se declara no evaluable en vez de
+      // reventar `plan:status`.
+      const { query } = await import('../database/connection.js');
+
+      let sellos;
+      try {
+        // Sólo periodos CERRADOS. En uno abierto, un sello que cubre menos de
+        // lo que hoy hay no es una mentira sino una foto con fecha: se selló,
+        // y después entraron asientos. El endpoint público sirve `committedAt`
+        // junto a la cifra, así que esa diferencia es legible. La mentira que
+        // este criterio persigue es la otra: un periodo que ya no admite
+        // asientos y cuyo sello declara menos de los que tiene.
+        sellos = await query<{ period_id: string; declarados: number; posteados: string }>(
+          `SELECT pc.period_id,
+                  pc.entry_count AS declarados,
+                  (SELECT count(*) FROM journal_entries je
+                    WHERE je.fiscal_period_id = pc.period_id
+                      AND je.entity_id = pc.entity_id
+                      AND je.status = 'posted')::text AS posteados
+             FROM period_commitments pc
+             JOIN fiscal_periods fp ON fp.id = pc.period_id
+            WHERE fp.status IN ('soft_close', 'hard_close', 'locked')`
+        );
+      } catch (e) {
+        const porque = (e as Error).message.slice(0, 60) || (e as { code?: string }).code || 'sin detalle';
+        return noEvaluable(`no hay base de datos accesible para medirlo (${porque})`);
+      }
+
+      const mienten = sellos.rows.filter((s) => s.declarados !== Number(s.posteados));
+      if (mienten.length > 0) {
+        const m = mienten[0];
+        return falla(
+          `${mienten.length} sello(s) declaran menos asientos de los que su periodo tiene ` +
+            `posteados — p. ej. el periodo ${m.period_id.slice(0, 8)} sella ${m.declarados} ` +
+            `de ${m.posteados}. Esa cifra se publica como la cuenta del periodo.`
+        );
+      }
+
+      // La otra mitad: donde el anclaje está activo, todo asiento posteado
+      // tiene que estar en la cadena. Sin inquilinos activos no hay nada que
+      // medir, y decirlo es más útil que un verde vacío.
+      const activos = await query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM blockchain_config WHERE is_active = true`
+      );
+      if (activos.rows[0].n === '0') {
+        return sellos.rows.length > 0
+          ? ok(`${sellos.rows.length} sello(s) coinciden con su periodo`)
+          : noEvaluable(
+              'ningún inquilino tiene anclaje activo y no hay sellos: sin configuración no se ' +
+                'escribe un solo hash, así que la cadena no se puede medir sobre esta base'
+            );
+      }
+
+      const huerfanos = await query<{ n: string }>(
+        `SELECT count(*)::text AS n
+           FROM journal_entries je
+           JOIN legal_entities le ON le.id = je.entity_id
+           JOIN blockchain_config bc ON bc.tenant_id = le.tenant_id AND bc.is_active = true
+          WHERE je.status = 'posted' AND je.entry_hash IS NULL`
+      );
+      return huerfanos.rows[0].n === '0'
+        ? ok(`cadena completa y ${sellos.rows.length} sello(s) coinciden con su periodo`)
+        : falla(
+            `${huerfanos.rows[0].n} asientos posteados sin entry_hash en inquilinos con anclaje ` +
+              'activo: quedan fuera de la cadena y de todo sello'
+          );
+    },
+  },
 
   // ---- E0.2 · Contrato código ↔ esquema ----
   {

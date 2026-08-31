@@ -42,3 +42,9 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Andamiaje de depuración: configuraciones de vitest de un solo uso y sus
+# ganchos (p. ej. el que CONSERVA la base efímera de integración en vez de
+# destruirla). Son de sesión, nunca del repositorio — misma razón por la que
+# S2 dejó de versionar los respaldos de .env.
+.tmp-*
