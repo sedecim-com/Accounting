@@ -1091,26 +1091,62 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
-    enunciado: 'Una corrida desatendida no puede alcanzar una herramienta que escriba',
+    enunciado: 'Ninguna herramienta del agente alcanza el mayor ni ejecuta hacia fuera',
     evaluar: () => {
-      // La versión anterior miraba runner.ts, y ahí no se eligen herramientas:
-      // el runner recibe `runAgentTurn` ya construido. Era un rojo que ningún
-      // arreglo podía apagar, y un criterio así se vuelve paisaje.
-      const cli = 'src/cli/mnemosine.ts';
-      if (!existe(cli)) return noEvaluable('no existe el CLI');
-      const texto = codigoDe(cli);
-      const i = texto.indexOf('const makeRunAgentTurn');
-      if (i < 0) return noEvaluable('makeRunAgentTurn ya no existe: el puente de tareas cambió de forma');
-      const fin = texto.indexOf('\n\n', i);
-      const fabrica = texto.slice(i, fin < 0 ? undefined : fin);
+      // ESTE CRITERIO ESTABA EN ROJO POR UNA AFIRMACIÓN FALSA.
+      //
+      // Decía que `makeRunAgentTurn` construye la sesión sin recortar
+      // herramientas y concluía que «un modelo que ignora el prompt escribe de
+      // verdad». Lo primero es cierto; lo segundo no, y se comprueba mirando
+      // la superficie: ninguna herramienta emite INSERT, UPDATE ni DELETE, la
+      // familia del mayor sólo tiene SELECT, y lo que sí escribe lo hace en
+      // `ai_drafts`, `ai_questions` o la bandeja de salida — que ENCOLA, no
+      // ejecuta. La garantía «el agente propone y un humano dispone» se cumple
+      // por construcción de las herramientas, no por una frase del prompt.
+      //
+      // Un rojo falso en el tablero que ordena los sprints es la misma
+      // patología que el sprint persigue, cometida sobre el instrumento: se
+      // convierte en paisaje, y el día que haya un rojo verdadero nadie lo
+      // distinguirá. Así que el criterio pasa a afirmar la propiedad que de
+      // verdad sostiene el diseño, y es falsable: una herramienta nueva que
+      // llame al motor de posteo lo pone en rojo.
+      const dir = 'src/ai/tools';
+      const archivos = fuentes(dir);
+      if (archivos.length === 0) return noEvaluable('no existe la superficie de herramientas');
 
-      return /tools|herramientas|soloLectura|readOnly|allow/i.test(fabrica)
-        ? ok('la sesión desatendida se construye con su superficie recortada')
+      // Los caminos que sí mueven el mayor o salen del sistema.
+      const PROHIBIDOS = [
+        'postJournalEntry',
+        'createJournalEntry',
+        'recordVendorPayment',
+        'recordCustomerPayment',
+        'issueInvoice',
+        'approveBill',
+        'hardClosePeriod',
+        'commitPeriod',
+        'executeExternalOp',
+      ];
+      const culpables: string[] = [];
+      for (const f of archivos) {
+        const codigo = sinComentarios(fs.readFileSync(f, 'utf-8'));
+        const rel = path.relative(rutaDe(), f);
+        for (const nombre of PROHIBIDOS) {
+          if (new RegExp(`\\b${nombre}\\s*\\(`).test(codigo)) culpables.push(`${rel} → ${nombre}`);
+        }
+        // Y SQL de escritura directo, que se saltaría cualquier servicio.
+        if (/INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM/i.test(codigo)) {
+          culpables.push(`${rel} → SQL de escritura directo`);
+        }
+      }
+      return culpables.length === 0
+        ? ok(
+            `${archivos.length} archivos de herramientas: ninguno postea, cobra, paga, timbra ni ` +
+              'ejecuta hacia fuera; lo que escriben va a borradores, preguntas o la bandeja de salida'
+          )
         : falla(
-            'makeRunAgentTurn crea la sesión sin recortar herramientas: la corrida desatendida ' +
-              'tiene las mismas que una interactiva, y lo único que pide borradores es una ' +
-              'frase del prompt (KIND_INSTRUCTIONS). Un modelo que la ignora escribe de verdad'
+            `una herramienta del agente alcanza un camino que no debería: ${culpables.join(', ')}`
           );
     },
   },
+
 ];
