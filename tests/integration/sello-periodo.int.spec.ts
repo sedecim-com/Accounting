@@ -51,10 +51,10 @@ afterAll(async () => {
 });
 
 /** Un asiento cuadrado, creado como BORRADOR y posteado aparte. */
-async function asientoDesdeBorrador(descripcion: string): Promise<string> {
+async function asientoDesdeBorrador(descripcion: string, mes = 8): Promise<string> {
   const entry = await createJournalEntry(
     f.entityId,
-    fechaEnPeriodo(),
+    fechaEnPeriodo(mes),
     JournalEntryType.STANDARD,
     descripcion,
     [
@@ -65,6 +65,37 @@ async function asientoDesdeBorrador(descripcion: string): Promise<string> {
   );
   await postJournalEntry(entry.id, f.userId);
   return entry.id;
+}
+
+/**
+ * Quitar y devolver el hash REAL de un asiento.
+ *
+ * Las pruebas que simulan «una atestación que no llegó» tienen que dejar la
+ * base como estaba: la suite corre en un solo hilo sobre una base compartida,
+ * así que un hash inventado que sobrevive convierte un fallo en siete y hace
+ * ilegible cuál fue el primero.
+ */
+async function quitarHash(id: string): Promise<string | null> {
+  const r = await query<{ entry_hash: string | null }>(
+    `UPDATE journal_entries SET entry_hash = NULL WHERE id = $1 RETURNING
+       (SELECT entry_hash FROM journal_entries WHERE id = $1) AS entry_hash`,
+    [id]
+  );
+  return r.rows[0]?.entry_hash ?? null;
+}
+
+async function devolverHash(id: string, hash: string | null): Promise<void> {
+  await query(`UPDATE journal_entries SET entry_hash = $2 WHERE id = $1`, [id, hash]);
+}
+
+/** Ejecuta y devuelve el error, exigiendo que lo haya. */
+async function capturar(fn: () => Promise<unknown>): Promise<Error> {
+  try {
+    await fn();
+  } catch (e) {
+    return e as Error;
+  }
+  throw new Error('se esperaba un rechazo y no lo hubo');
 }
 
 describe('postear un borrador entra en la cadena', () => {
@@ -121,56 +152,54 @@ describe('commitPeriod se niega a sellar un periodo incompleto', () => {
     // no depender del orden.
     const id = await asientoDesdeBorrador('Se le quita el hash');
     await drainAttestations(5000);
-    await query(`UPDATE journal_entries SET entry_hash = NULL WHERE id = $1`, [id]);
+    // El hash REAL, para devolverlo tal cual: restaurar una cadena inventada
+    // deja la base mintiendo para las pruebas siguientes.
+    const previo = await quitarHash(id);
+    try {
+      const periodo = await query<{ id: string }>(
+        `SELECT fiscal_period_id AS id FROM journal_entries WHERE id = $1`, [id]
+      );
 
-    const periodo = await query<{ id: string }>(
-      `SELECT fiscal_period_id AS id FROM journal_entries WHERE id = $1`, [id]
-    );
+      await expect(
+        blockchainOrchestrator.commitPeriod({
+          tenantId: f.tenantId,
+          entityId: f.entityId,
+          periodId: periodo.rows[0].id,
+        })
+      ).rejects.toThrow(/sin atestar/);
 
-    await expect(
-      blockchainOrchestrator.commitPeriod({
-        tenantId: f.tenantId,
-        entityId: f.entityId,
-        periodId: periodo.rows[0].id,
-      })
-    ).rejects.toThrow(/sin atestar/);
-
-    // Y no dejó rastro: negarse significa no sellar, no sellar a medias.
-    const c = await query<{ n: string }>(
-      `SELECT count(*) AS n FROM period_commitments WHERE entity_id = $1 AND period_id = $2`,
-      [f.entityId, periodo.rows[0].id]
-    );
-    expect(c.rows[0].n).toBe('0');
-
-    // Se restaura para la prueba siguiente.
-    await query(
-      `UPDATE journal_entries SET entry_hash = $2 WHERE id = $1`,
-      [id, 'a'.repeat(64)]
-    );
+      // Y no dejó rastro: negarse significa no sellar, no sellar a medias.
+      const c = await query<{ n: string }>(
+        `SELECT count(*) AS n FROM period_commitments WHERE entity_id = $1 AND period_id = $2`,
+        [f.entityId, periodo.rows[0].id]
+      );
+      expect(c.rows[0].n).toBe('0');
+    } finally {
+      await devolverHash(id, previo);
+    }
   });
 
   it('el mensaje nombra el total y la laguna, para poder actuar', async () => {
     const id = await asientoDesdeBorrador('Otro sin hash');
     await drainAttestations(5000);
-    await query(`UPDATE journal_entries SET entry_hash = NULL WHERE id = $1`, [id]);
-    const periodo = await query<{ id: string }>(
-      `SELECT fiscal_period_id AS id FROM journal_entries WHERE id = $1`, [id]
-    );
-
+    const previo = await quitarHash(id);
     try {
-      await blockchainOrchestrator.commitPeriod({
-        tenantId: f.tenantId, entityId: f.entityId, periodId: periodo.rows[0].id,
-      });
-      throw new Error('debió negarse');
-    } catch (e) {
-      const m = (e as Error).message;
+      const periodo = await query<{ id: string }>(
+        `SELECT fiscal_period_id AS id FROM journal_entries WHERE id = $1`, [id]
+      );
+      const e = await capturar(() =>
+        blockchainOrchestrator.commitPeriod({
+          tenantId: f.tenantId, entityId: f.entityId, periodId: periodo.rows[0].id,
+        })
+      );
+      const m = e.message;
       expect(m, 'sin las dos cifras no se sabe si falta uno o noventa').toMatch(/\d+ asientos posteados/);
       expect(m).toMatch(/1 sin atestar/);
       // Y nombra la causa más común, que no es un fallo de los asientos.
       expect(m).toMatch(/configuración de anclaje/);
+    } finally {
+      await devolverHash(id, previo);
     }
-
-    await query(`UPDATE journal_entries SET entry_hash = $2 WHERE id = $1`, [id, 'b'.repeat(64)]);
   });
 
   it('con todos atestados sí sella, y la cuenta es la del periodo entero', async () => {
@@ -208,17 +237,24 @@ describe('commitPeriod se niega a sellar un periodo incompleto', () => {
     // true no distingue el código escribiendo de la tabla rellenando.
     await query(`ALTER TABLE period_commitments ALTER COLUMN is_simulated SET DEFAULT false`);
     try {
-      const id = await asientoDesdeBorrador('Sello con default invertido');
+      // Un periodo PROPIO. `fechaEnPeriodo()` es constante, así que sin el
+      // mes explícito todos los asientos del archivo caen en el mismo periodo
+      // —el que el caso anterior ya selló— y este caso salía por un `return`
+      // silencioso sin ejecutar una sola aserción. Un salto callado en una
+      // prueba es un verde que no midió nada.
+      const id = await asientoDesdeBorrador('Sello con default invertido', 10);
       await drainAttestations(5000);
       const p = await query<{ id: string }>(
         `SELECT fiscal_period_id AS id FROM journal_entries WHERE id = $1`, [id]
       );
-      // Un periodo que aún no tiene sello: se busca uno sin fila.
       const yaSellado = await query<{ n: string }>(
         `SELECT count(*) AS n FROM period_commitments WHERE entity_id = $1 AND period_id = $2`,
         [f.entityId, p.rows[0].id]
       );
-      if (yaSellado.rows[0].n !== '0') return; // el periodo del fixture ya se selló arriba
+      expect(
+        yaSellado.rows[0].n,
+        'el periodo elegido ya estaba sellado: este caso no puede medir nada'
+      ).toBe('0');
 
       await blockchainOrchestrator.commitPeriod({
         tenantId: f.tenantId, entityId: f.entityId, periodId: p.rows[0].id,
@@ -238,15 +274,29 @@ describe('commitPeriod se niega a sellar un periodo incompleto', () => {
     // merkleRoot recalculado en esa llamada. Si el periodo había recibido
     // asientos, el llamador recibía una raíz que no está en ninguna parte: ni
     // comprometida, ni anclada, ni igual a la que sirve el endpoint público.
+    // El caso se fabrica su propia precondición en un periodo propio, en vez
+    // de heredar el sello del caso anterior: dependía del orden de los
+    // `describe` y, corrido en aislamiento con `-t`, reventaba con un
+    // TypeError en vez de decir qué le faltaba.
+    const semilla = await asientoDesdeBorrador('Sello para la idempotencia', 11);
+    await drainAttestations(5000);
+    const suyo = await query<{ id: string }>(
+      `SELECT fiscal_period_id AS id FROM journal_entries WHERE id = $1`, [semilla]
+    );
+    await blockchainOrchestrator.commitPeriod({
+      tenantId: f.tenantId, entityId: f.entityId, periodId: suyo.rows[0].id,
+    });
+
     const periodo = await query<{ period_id: string; merkle_root: string; entry_count: number }>(
       `SELECT period_id, merkle_root, entry_count FROM period_commitments
-        WHERE entity_id = $1 ORDER BY committed_at DESC LIMIT 1`,
-      [f.entityId]
+        WHERE entity_id = $1 AND period_id = $2`,
+      [f.entityId, suyo.rows[0].id]
     );
+    expect(periodo.rows, 'el caso debió dejar su propio sello').toHaveLength(1);
     const guardado = periodo.rows[0];
 
     // Un asiento más en el mismo periodo: la raíz de "ahora" ya no es la sellada.
-    await asientoDesdeBorrador('Posterior al sello');
+    await asientoDesdeBorrador('Posterior al sello', 11);
     await drainAttestations(5000);
 
     const otra = await blockchainOrchestrator.commitPeriod({
@@ -258,21 +308,25 @@ describe('commitPeriod se niega a sellar un periodo incompleto', () => {
 });
 
 /**
- * EL CRITERIO QUE VIGILA ESTO, VIGILADO.
+ * EL CRITERIO DEL PLAN, VIGILADO.
  *
  * `npm run plan:status` decide si el paquete está cerrado, así que un criterio
- * que no distingue el estado bueno del malo es peor que no tenerlo: da por
- * terminado lo que no lo está. Aquí se le planta la mentira exacta que existe
- * para detectar —un sello que declara menos asientos de los que su periodo
- * tiene posteados— y se exige que la vea.
+ * que no distingue el estado bueno del malo da por terminado lo que no lo está.
  *
- * La base de desarrollo está vacía, así que este es el único sitio del
- * repositorio donde el criterio se puede medir contra datos de verdad.
+ * El criterio cubre SÓLO la mitad decidible sin datos previos: que ningún
+ * sello declare menos asientos de los que su periodo CERRADO tiene posteados.
+ * La otra mitad —que todo posteado entre en la cadena— no se puede medir sin
+ * un inquilino anclado, y sobre la base recién creada de CI salía «no
+ * evaluable», lo que reabría E0.1 con razón. Esa mitad se demuestra arriba, en
+ * este mismo archivo, que sí siembra el anclaje.
+ *
+ * La base de desarrollo está vacía y corre bajo un rol sujeto a RLS, así que
+ * éste es el único sitio del repositorio donde el criterio se mide de verdad.
  */
 describe('el criterio del plan detecta un sello que declara de menos', () => {
-  const criterio = CRITERIOS.find((c) => /sello de un periodo abarca el periodo entero/i.test(c.enunciado))!;
+  const criterio = CRITERIOS.find((c) => /Ningún sello de periodo declara menos/i.test(c.enunciado))!;
 
-  it('existe y está declarado como dependiente de la base', () => {
+  it('existe y se declara dependiente de la base', () => {
     expect(criterio, 'si se renombra el enunciado, esta prueba deja de vigilar nada').toBeDefined();
     expect(criterio.necesita).toBe('base-de-datos');
   });
@@ -282,13 +336,22 @@ describe('el criterio del plan detecta un sello que declara de menos', () => {
     expect(r.estado, `dijo: ${r.detalle}`).not.toBe('falla');
   });
 
+  it('su detalle dice cuántos sellos llegó a inspeccionar', async () => {
+    // Un verde que no diga qué miró es verde por no mirar — y aquí importa
+    // más que en otros criterios, porque las tablas llevan RLS forzado: bajo
+    // el rol de la aplicación y sin contexto de inquilino, la consulta ve
+    // cero filas y podría dar verde sin haber examinado nada.
+    const r = await criterio.evaluar();
+    expect(r.detalle).toMatch(/sello|revisar/i);
+  });
+
   it('con un sello que declara de menos, falla y dice cuál', async () => {
     const p = await query<{ period_id: string; entry_count: number }>(
       `SELECT period_id, entry_count FROM period_commitments
         WHERE entity_id = $1 ORDER BY committed_at DESC LIMIT 1`,
       [f.entityId]
     );
-    if (p.rows.length === 0) throw new Error('la suite debió dejar al menos un sello');
+    expect(p.rows, 'la suite debió dejar al menos un sello').toHaveLength(1);
     const original = p.rows[0].entry_count;
 
     // El criterio sólo mira periodos CERRADOS: en uno abierto, un sello que
@@ -318,18 +381,29 @@ describe('el criterio del plan detecta un sello que declara de menos', () => {
     }
   });
 
-  it('con un asiento posteado fuera de la cadena, también falla', async () => {
-    // La otra mitad del enunciado: el inquilino tiene anclaje activo, así que
-    // un posteado sin hash es un hueco, no una configuración ausente.
-    const id = await asientoDesdeBorrador('Se le quita el hash para el criterio');
-    await drainAttestations(5000);
-    await query(`UPDATE journal_entries SET entry_hash = NULL WHERE id = $1`, [id]);
+  it('un periodo ABIERTO con sello viejo no se acusa: es una foto con fecha', async () => {
+    // La otra cara. Si el criterio no distinguiera, cualquier sello emitido
+    // antes de que el periodo recibiera más asientos saldría como mentira, y
+    // un criterio que grita por lo normal se desactiva a la semana.
+    const p = await query<{ period_id: string; entry_count: number }>(
+      `SELECT period_id, entry_count FROM period_commitments
+        WHERE entity_id = $1 ORDER BY committed_at DESC LIMIT 1`,
+      [f.entityId]
+    );
+    const original = p.rows[0].entry_count;
+    await query(`UPDATE fiscal_periods SET status = 'open' WHERE id = $1`, [p.rows[0].period_id]);
+    await query(
+      `UPDATE period_commitments SET entry_count = $2 WHERE entity_id = $1 AND period_id = $3`,
+      [f.entityId, Math.max(original - 1, 0), p.rows[0].period_id]
+    );
     try {
       const r = await criterio.evaluar();
-      expect(r.estado).toBe('falla');
-      expect(r.detalle).toMatch(/sin entry_hash/);
+      expect(r.estado, `acusó a un periodo abierto: ${r.detalle}`).not.toBe('falla');
     } finally {
-      await query(`UPDATE journal_entries SET entry_hash = $2 WHERE id = $1`, [id, 'd'.repeat(64)]);
+      await query(
+        `UPDATE period_commitments SET entry_count = $2 WHERE entity_id = $1 AND period_id = $3`,
+        [f.entityId, original, p.rows[0].period_id]
+      );
     }
   });
 });
