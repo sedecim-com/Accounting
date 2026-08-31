@@ -204,6 +204,17 @@ export async function classifyParsed(
         `in the functional currency and an exchange difference may arise upon payment.`
     );
   }
+  // Capitalizar sin depreciar sobrevalúa el activo y deja sin tomar una
+  // deducción, mes a mes. Mientras el motor de depreciación no tenga puerta,
+  // el aviso viaja con el documento para que la falta sea visible en la
+  // revisión y no se descubra al cierre del ejercicio.
+  if (lines.some((l) => l.role === 'activo_fijo')) {
+    warnings.push(
+      'Capitalized as a fixed asset: the amount is booked to the fixed-asset account, but the ' +
+        'system does NOT register the asset nor compute its monthly depreciation. That deduction ' +
+        'has to be recorded by hand until the depreciation engine has a way in.'
+    );
+  }
   if (facts.importeExento > 0) {
     warnings.push(
       `Includes ${facts.importeExento.toFixed(2)} of EXEMPT items: that amount generates no ` +
