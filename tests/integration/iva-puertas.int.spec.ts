@@ -111,12 +111,25 @@ async function ivaDelAsiento(entryId: string): Promise<{ code: string; debit: st
   return r.rows[0];
 }
 
+/**
+ * El id del asiento que el servicio dice haber posteado.
+ *
+ * `processToAccounting` declara `journalEntry?`, así que TypeScript exige
+ * comprobarlo. Se afirma en vez de silenciarlo con `!`: si algún día el
+ * servicio deja de postear, estas pruebas deben fallar diciendo ESO y no
+ * reventar leyendo `id` de undefined tres líneas más abajo.
+ */
+function asientoDe(r: { journalEntry?: Record<string, unknown> | null }): string {
+  expect(r.journalEntry, 'el servicio no posteó ningún asiento').toBeTruthy();
+  return (r.journalEntry as Record<string, unknown>).id as string;
+}
+
 describe('puerta 2 · alta sin CFDI', () => {
   it('sin método declarado, el IVA NO se acredita: va a pendiente (1135)', async () => {
     const preReg = await preRegistroSinCfdi();
     const r = await servicio.processToAccounting(preReg, f.userId);
 
-    const iva = await ivaDelAsiento(r.journalEntry.id as string);
+    const iva = await ivaDelAsiento(asientoDe(r));
     // Éste es el defecto que se corrige: antes caía en 1130 siempre.
     expect(iva.code, 'un gasto sin método declarado se trata como PPD').toBe('1135');
     expect(Number(iva.debit)).toBeCloseTo(160, 2);
@@ -131,7 +144,7 @@ describe('puerta 2 · alta sin CFDI', () => {
          FROM journal_entry_lines jel
          JOIN accounts a ON a.id = jel.account_id
         WHERE jel.journal_entry_id = $1 AND a.code = '1135'`,
-      [r.journalEntry.id]
+      [asientoDe(r)]
     );
     expect(linea.rows[0].description).toMatch(/not yet creditable/i);
     expect(linea.rows[0].description, 'debe decir que el método se asumió').toMatch(/assumed/i);
@@ -143,7 +156,7 @@ describe('puerta 2 · alta sin CFDI', () => {
     const preReg = await preRegistroSinCfdi('2000.00', '320.00', 'Pago en una sola exhibición (PUE)');
     const r = await servicio.processToAccounting(preReg, f.userId);
 
-    const iva = await ivaDelAsiento(r.journalEntry.id as string);
+    const iva = await ivaDelAsiento(asientoDe(r));
     expect(iva.code).toBe('1130');
     expect(Number(iva.debit)).toBeCloseTo(320, 2);
   });

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { Command } from 'commander';
 import { program } from '../../../src/cli/mnemosine.js';
 import {
   auditProgram,
@@ -84,8 +85,13 @@ describe('doctor consume la auditoría', () => {
       expect(r.level, 'una violación nueva tiene que romper').toBe('fail');
       expect(r.detail).toMatch(/nuevas/);
     } finally {
-      const i = program.commands.findIndex((c) => c.name() === 'desmadejar');
-      if (i >= 0) program.commands.splice(i, 1);
+      // commander tipa `commands` como readonly y no publica ningún «quitar
+      // comando», pero el array de verdad sí es mutable. El molde es sobre el
+      // TIPO, no sobre el hecho: sin esto la prueba deja el verbo inventado
+      // dentro del programa compartido y contamina a las que vengan después.
+      const cmds = program.commands as unknown as Command[];
+      const i = cmds.findIndex((c) => c.name() === 'desmadejar');
+      if (i >= 0) cmds.splice(i, 1);
     }
   });
 });

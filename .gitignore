@@ -48,3 +48,6 @@ Thumbs.db
 # destruirla). Son de sesión, nunca del repositorio — misma razón por la que
 # S2 dejó de versionar los respaldos de .env.
 .tmp-*
+
+# Artefacto generado: se reconstruye con `npx tsx scripts/artefacto-catalogo.ts`
+artefacto-catalogo.html

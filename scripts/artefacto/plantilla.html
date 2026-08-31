@@ -1,0 +1,394 @@
+<title>Doce sprints o sesenta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;600;700&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+:root{
+  --papel:#F2F4EF; --banda:#E7EBE2; --alto:#FBFCF9;
+  --tinta:#16211C; --tinta-2:#4C5C53; --tinta-3:#7C8B81;
+  --raya:#C3CFC4; --raya-fina:#DDE4DA;
+  --sello:#0B5D51; --sello-suave:#DCEAE4;
+  --rojo:#8C2F27; --rojo-suave:#F2E2DF;
+  --ambar:#A87C2A; --ambar-suave:#F3E9D6;
+  --sombra:0 1px 0 var(--raya-fina), 0 12px 28px -22px rgba(22,33,28,.5);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --papel:#0E1512; --banda:#141D19; --alto:#18221D;
+  --tinta:#E6EDE7; --tinta-2:#A3B2A8; --tinta-3:#77877D;
+  --raya:#2A3832; --raya-fina:#1E2A25;
+  --sello:#5FBFA9; --sello-suave:#123028;
+  --rojo:#E08B80; --rojo-suave:#2E1A18;
+  --ambar:#D6A75B; --ambar-suave:#2B2316;
+  --sombra:0 1px 0 var(--raya-fina), 0 12px 28px -22px rgba(0,0,0,.8);
+}}
+:root[data-theme="dark"]{
+  --papel:#0E1512; --banda:#141D19; --alto:#18221D;
+  --tinta:#E6EDE7; --tinta-2:#A3B2A8; --tinta-3:#77877D;
+  --raya:#2A3832; --raya-fina:#1E2A25;
+  --sello:#5FBFA9; --sello-suave:#123028;
+  --rojo:#E08B80; --rojo-suave:#2E1A18;
+  --ambar:#D6A75B; --ambar-suave:#2B2316;
+  --sombra:0 1px 0 var(--raya-fina), 0 12px 28px -22px rgba(0,0,0,.8);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--papel); color:var(--tinta);
+  font-family:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.env{max-width:1180px;margin:0 auto;padding:0 28px}
+.medida{max-width:66ch}
+h1,h2,h3{font-family:Bitter,Georgia,serif;text-wrap:balance;margin:0}
+h1{font-size:clamp(2.4rem,6vw,4.1rem);font-weight:700;line-height:1.02;letter-spacing:-.022em}
+h2{font-size:clamp(1.5rem,3vw,2rem);font-weight:600;line-height:1.15;letter-spacing:-.012em}
+h3{font-size:1.075rem;font-weight:600;line-height:1.3}
+p{margin:0}
+b,strong{font-weight:600}
+code,.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+code{font-size:.875em;background:var(--banda);border:1px solid var(--raya-fina);border-radius:3px;padding:.08em .34em}
+a{color:var(--sello)}
+.cifra{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+/* ── el rayado del papel columnar: el motivo estructural ───────── */
+.rayado{border-top:1px solid var(--raya);border-bottom:1px solid var(--raya);background:var(--banda)}
+.ojal{
+  font-family:"JetBrains Mono",monospace;font-size:.68rem;font-weight:500;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--tinta-3);
+}
+
+/* ── portada ───────────────────────────────────────────────────── */
+header{padding:clamp(56px,9vw,104px) 0 clamp(40px,6vw,64px)}
+.veredicto{
+  font-family:Bitter,Georgia,serif;font-size:clamp(1.15rem,2.4vw,1.5rem);
+  line-height:1.42;color:var(--tinta-2);max-width:44ch;margin-top:26px;
+}
+.veredicto em{font-style:normal;color:var(--tinta);border-bottom:2px solid var(--sello);padding-bottom:1px}
+
+/* ── la banda de la aritmética ─────────────────────────────────── */
+.aritmetica{padding:clamp(40px,6vw,64px) 0;margin-top:8px}
+.ecuacion{display:flex;flex-wrap:wrap;gap:clamp(20px,4vw,52px);align-items:flex-end;margin-top:30px}
+.term{display:flex;flex-direction:column;gap:5px}
+.term .n{font-family:Bitter,serif;font-size:clamp(2rem,5vw,3.1rem);font-weight:700;line-height:1;letter-spacing:-.02em}
+.term .u{font-size:.83rem;color:var(--tinta-2);max-width:20ch;line-height:1.35}
+.op{font-family:Bitter,serif;font-size:clamp(1.4rem,3vw,2.1rem);color:var(--tinta-3);padding-bottom:.5rem}
+
+/* la escala: el momento fuerte, una sola vez */
+.escala{margin-top:44px;display:flex;flex-direction:column;gap:13px}
+.barra{display:grid;grid-template-columns:clamp(120px,17vw,190px) 1fr;gap:16px;align-items:center}
+.barra .et{font-size:.83rem;color:var(--tinta-2);text-align:right;line-height:1.3}
+.barra .tr{height:26px;position:relative;background:var(--alto);border:1px solid var(--raya-fina);border-radius:2px;overflow:hidden}
+.barra .fl{height:100%;display:flex;align-items:center;padding:0 11px;white-space:nowrap}
+.fl.hoy{width:15.1%;background:var(--sello);color:var(--papel)}
+.fl.total{width:100%;background:repeating-linear-gradient(135deg,var(--rojo) 0 9px,color-mix(in srgb,var(--rojo) 78%,#000) 9px 18px);color:#fff}
+.fl .v{font-family:"JetBrains Mono",monospace;font-size:.76rem;font-weight:700;font-variant-numeric:tabular-nums}
+.pie-escala{font-size:.86rem;color:var(--tinta-2);margin-top:6px}
+
+/* ── secciones ─────────────────────────────────────────────────── */
+section{padding:clamp(44px,6.5vw,76px) 0}
+.enc{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;flex-wrap:wrap}
+.enc .ojal{padding-top:3px}
+.intro{color:var(--tinta-2);margin-top:14px;font-size:1.03rem}
+
+/* tabla de datos */
+.tabla{width:100%;border-collapse:collapse;margin-top:26px;font-size:.93rem}
+.tabla th{
+  text-align:left;font-family:"JetBrains Mono",monospace;font-size:.66rem;font-weight:500;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--tinta-3);
+  padding:0 12px 9px;border-bottom:1px solid var(--raya);
+}
+.tabla td{padding:11px 12px;border-bottom:1px solid var(--raya-fina);vertical-align:top}
+.tabla tr:last-child td{border-bottom:none}
+.tabla .num{text-align:right;font-variant-numeric:tabular-nums;font-family:"JetBrains Mono",monospace;font-size:.9rem}
+.tabla tfoot td{border-top:2px solid var(--raya);border-bottom:none;font-weight:600;padding-top:12px}
+.envoltura{overflow-x:auto}
+
+/* trabajos de S0 */
+.trabajos{display:flex;flex-direction:column;gap:2px;margin-top:30px}
+.trabajo{
+  display:grid;grid-template-columns:auto 1fr;gap:20px;
+  padding:26px 24px;background:var(--alto);border:1px solid var(--raya-fina);
+}
+.trabajo:first-child{border-radius:5px 5px 0 0}
+.trabajo:last-child{border-radius:0 0 5px 5px}
+.trabajo .cod{font-family:"JetBrains Mono",monospace;font-size:.82rem;font-weight:700;color:var(--sello);padding-top:2px}
+.trabajo p{color:var(--tinta-2);font-size:.96rem;margin-top:9px}
+.trabajo p b{color:var(--tinta)}
+.marca{
+  display:inline-block;font-family:"JetBrains Mono",monospace;font-size:.62rem;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:2px;margin-left:10px;
+  vertical-align:2px;background:var(--rojo-suave);color:var(--rojo);border:1px solid color-mix(in srgb,var(--rojo) 30%,transparent);
+}
+
+/* secuencia de sprints: numerada porque ES una secuencia */
+.sec{display:flex;flex-direction:column;margin-top:30px;border-top:1px solid var(--raya)}
+.paso{display:grid;grid-template-columns:44px 1fr auto;gap:20px;padding:19px 4px;border-bottom:1px solid var(--raya-fina);align-items:baseline}
+.paso .i{font-family:"JetBrains Mono",monospace;font-size:.95rem;font-weight:700;color:var(--tinta-3);font-variant-numeric:tabular-nums}
+.paso .fl2{font-size:.87rem;color:var(--tinta-2);margin-top:4px}
+.paso .n2{font-family:"JetBrains Mono",monospace;font-size:.95rem;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.paso.cola{background:var(--banda)}
+
+/* catálogo */
+.mandos{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin:22px 0 4px}
+.mandos input{
+  font:inherit;font-size:.9rem;padding:8px 12px;min-width:230px;flex:1;
+  background:var(--alto);color:var(--tinta);border:1px solid var(--raya);border-radius:3px;
+}
+.mandos input::placeholder{color:var(--tinta-3)}
+.chip{
+  font-family:"JetBrains Mono",monospace;font-size:.72rem;font-weight:500;letter-spacing:.04em;
+  padding:7px 11px;background:var(--alto);color:var(--tinta-2);
+  border:1px solid var(--raya);border-radius:3px;cursor:pointer;
+}
+.chip[aria-pressed="true"]{background:var(--sello);border-color:var(--sello);color:var(--papel)}
+.chip:focus-visible,input:focus-visible{outline:2px solid var(--sello);outline-offset:2px}
+.cuenta{font-size:.84rem;color:var(--tinta-2);margin:14px 0 0;font-variant-numeric:tabular-nums}
+.lista{margin-top:14px;border-top:1px solid var(--raya)}
+.fila{display:grid;grid-template-columns:22px minmax(210px,1.1fr) 2fr auto;gap:14px;padding:11px 4px;border-bottom:1px solid var(--raya-fina);align-items:baseline}
+.fila .st{font-size:.82rem;line-height:1.5}
+.fila .cmd{font-family:"JetBrains Mono",monospace;font-size:.83rem;font-weight:500;overflow-wrap:anywhere}
+.fila .es{color:var(--tinta-3);font-size:.76rem;display:block;margin-top:2px}
+.fila .q{color:var(--tinta-2);font-size:.86rem}
+.fila .tags{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.tag{font-family:"JetBrains Mono",monospace;font-size:.63rem;font-weight:600;letter-spacing:.05em;padding:2px 6px;border-radius:2px;border:1px solid var(--raya)}
+.tag.viva{background:var(--sello-suave);color:var(--sello);border-color:color-mix(in srgb,var(--sello) 34%,transparent)}
+.tag.f1{background:var(--ambar-suave);color:var(--ambar);border-color:color-mix(in srgb,var(--ambar) 34%,transparent)}
+.mas{margin-top:20px}
+.mas button{font:inherit;font-size:.88rem;padding:10px 20px;background:var(--alto);color:var(--tinta);border:1px solid var(--raya);border-radius:3px;cursor:pointer}
+.mas button:hover{border-color:var(--sello);color:var(--sello)}
+
+footer{padding:52px 0 76px;color:var(--tinta-3);font-size:.85rem}
+footer p+p{margin-top:8px}
+
+@media (max-width:720px){
+  .fila{grid-template-columns:20px 1fr;gap:8px}
+  .fila .q{grid-column:2}
+  .fila .tags{grid-column:2}
+  .paso{grid-template-columns:32px 1fr;row-gap:6px}
+  .paso .n2{grid-column:2}
+  .trabajo{grid-template-columns:1fr;gap:8px}
+  .barra{grid-template-columns:1fr;gap:6px}
+  .barra .et{text-align:left}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<header>
+  <div class="env">
+    <p class="ojal">Plan del catálogo de comandos · mnemosine</p>
+    <h1>Doce sprints<br>o sesenta</h1>
+    <p class="veredicto">El catálogo pide 1&nbsp;623 comandos. Cerrarlos todos son <em>seis veces el código que hoy existe</em>. Este plan compromete los 377 que permiten llevar los libros, y deja el resto como respaldo.</p>
+  </div>
+</header>
+
+<div class="rayado aritmetica">
+  <div class="env">
+    <p class="ojal">La aritmética, antes que nada</p>
+    <div class="ecuacion">
+      <div class="term"><span class="n cifra">390</span><span class="u">líneas por fila cerrada, medidas sobre las 50 que esta rama cerró</span></div>
+      <div class="op">×</div>
+      <div class="term"><span class="n cifra">1&nbsp;543</span><span class="u">filas que faltan</span></div>
+      <div class="op">=</div>
+      <div class="term"><span class="n cifra" style="color:var(--rojo)">602&nbsp;000</span><span class="u">líneas por escribir</span></div>
+    </div>
+
+    <div class="escala">
+      <div class="barra">
+        <span class="et">Todo el TypeScript<br>que hoy existe</span>
+        <div class="tr"><div class="fl hoy"><span class="v">91 000</span></div></div>
+      </div>
+      <div class="barra">
+        <span class="et">Lo que pide el catálogo<br>tal como está escrito</span>
+        <div class="tr"><div class="fl total"><span class="v">602 000</span></div></div>
+      </div>
+    </div>
+    <p class="pie-escala medida">No es una estimación: es lo que costaron las 50 filas cerradas —15&nbsp;772 líneas de entrega, 1&nbsp;780 del núcleo del CLI y 1&nbsp;946 de cola correctiva, un 12,3&nbsp;% de defectos hallados después de entregar.</p>
+  </div>
+</div>
+
+<section>
+  <div class="env">
+    <div class="enc"><h2>El hito que sí significa algo</h2><span class="ojal">Fase 1</span></div>
+    <p class="intro medida">«Sin esto no se puede llevar una contabilidad completa desde el CLI». Son 377 filas y 72 ya se teclean.</p>
+    <div class="envoltura">
+      <table class="tabla">
+        <thead><tr><th>Estado del motor</th><th class="num">Filas</th><th class="num">Coste unitario</th><th>Por qué cuesta eso</th></tr></thead>
+        <tbody>
+          <tr><td>✅ existe</td><td class="num">55</td><td class="num">~250</td><td>El servicio ya está; se paga la capa CLI y sus pruebas</td></tr>
+          <tr><td>🟡 a medias</td><td class="num">150</td><td class="num">~390</td><td>Hay motor y le falta algo nombrado</td></tr>
+          <tr><td>❌ no existe</td><td class="num">100</td><td class="num">~520</td><td>No hay manejador del que extraer: el servicio es neto nuevo</td></tr>
+        </tbody>
+        <tfoot><tr><td>Pendiente</td><td class="num">305</td><td class="num">~124 000</td><td>≈ 12 entregas del tamaño de la mayor que este repositorio ha producido</td></tr></tfoot>
+      </table>
+    </div>
+  </div>
+</section>
+
+<div class="rayado">
+  <div class="env"><section style="padding-top:clamp(44px,6.5vw,68px);padding-bottom:clamp(44px,6.5vw,68px)">
+    <div class="enc"><h2>Antes de escribir un comando nuevo</h2><span class="ojal">S0</span></div>
+    <p class="intro medida">Cinco trabajos que no entregan ni un comando y sin los cuales los doce sprints siguientes no se pueden ni medir ni hacer con seguridad.</p>
+    <div class="trabajos">
+      <div class="trabajo">
+        <span class="cod">S0.1</span>
+        <div>
+          <h3>El avance no se puede medir hoy, en las dos direcciones</h3>
+          <p><b>69 de los 136 comandos vivos no tienen fila</b> en el catálogo. La familia <code>report</code> es el caso entero: 2&nbsp;741 líneas invertidas, 8 comandos entregados, <b>cero filas cerradas</b>, porque el catálogo deletrea eso como <code>statement show</code> y lo construido se llama <code>report balance-sheet show</code>. Y al revés: la portada dice 153/462/1&nbsp;008 y las filas dicen 160/447/1&nbsp;016.</p>
+        </div>
+      </div>
+      <div class="trabajo">
+        <span class="cod">S0.2</span>
+        <div>
+          <h3>La migración que caduca<span class="marca">expira</span></h3>
+          <p>Una sola migración de <b>etiquetado sobre tablas ya pobladas</b> —dimensiones, UUID del CFDI, contraparte intercompañía, agrupador, naturaleza del gasto—. Es la única cuyo coste crece con el tiempo: etiquetar cien asientos es trivial, cien mil es un proyecto. <b>Cada mes que se postea sin ella la encarece.</b> De paso, <code>docs/migraciones.md</code> dice que el siguiente número libre es 031; es el 037.</p>
+        </div>
+      </div>
+      <div class="trabajo">
+        <span class="cod">S0.3</span>
+        <div>
+          <h3>La fuga que condiciona a las 902</h3>
+          <p>De las tres fugas de la frontera de la IA, dos desbloquean <b>diez filas entre las dos</b>. La tercera no desbloquea ninguna y condiciona <b>las 902 que el catálogo marca como invocables por el agente</b>: la sesión desatendida recibe la superficie completa de herramientas y lo único que le pide producir sólo borradores es una frase del prompt. Su criterio mira <b>uno</b> de los <b>tres</b> sitios que construyen esa sesión — arreglar el criterio antes que la fuga, o el arreglo pasa el medidor sin cerrar nada.</p>
+        </div>
+      </div>
+      <div class="trabajo">
+        <span class="cod">S0.4</span>
+        <div>
+          <h3>Código sin llamadores que duplicaría ingresos</h3>
+          <p><code>recordInventorySale</code> no tiene un solo llamador y postea directo DR&nbsp;CxC / CR&nbsp;Ingresos / DR&nbsp;Costo / CR&nbsp;Inventario con <code>autoPost: true</code>. Si alguien la cableara hoy, duplicaría el ingreso de toda venta ya facturada. Dos documentos se contradicen sobre qué hacer con ella; <b>borrarla</b>, y dejar el costo de ventas para cuando exista la ruta de facturación por ítem.</p>
+        </div>
+      </div>
+      <div class="trabajo">
+        <span class="cod">S0.5</span>
+        <div>
+          <h3>Recortar el alcance con un criterio, no con el gusto</h3>
+          <p>Dos cortes mecánicos y verificables: <b>244 filas de fase 3 sin backend</b> —analítica y consolidación sobre motores que no existen— y <b>5 solapamientos</b>, familias distintas que resuelven lo mismo con otro sustantivo. El objetivo baja de 1&nbsp;623 a ~1&nbsp;374 sin tocar una sola fila de fase 1.</p>
+        </div>
+      </div>
+    </div>
+  </section></div>
+</div>
+
+<section>
+  <div class="env">
+    <div class="enc"><h2>Lo que no se recorta</h2></div>
+    <p class="intro medida"><b>La cola larga no es relleno.</b> 190 familias de menos de diez comandos concentran el 41,5&nbsp;% del catálogo, y dentro hay <b>197 filas de fase 1</b> que nadie puede saltarse. 43 familias tienen un solo comando.</p>
+    <p class="intro medida">Es el riesgo estructural de este plan: no es trabajo concentrado que se ataque en bloque, son 190 cosas pequeñas. Un plan ordenado por familias grandes deja ese 41,5&nbsp;% como «el resto» y no lo cierra nunca.</p>
+  </div>
+</section>
+
+<div class="rayado">
+  <div class="env"><section style="padding-top:clamp(44px,6.5vw,68px);padding-bottom:clamp(44px,6.5vw,68px)">
+    <div class="enc"><h2>Los sprints se ordenan por flujo</h2><span class="ojal">Fase 1 · 12 sprints</span></div>
+    <p class="intro medida">Terminar media familia <code>bank</code> —120 comandos— no le entrega nada a nadie. «Recibo un CFDI, lo contabilizo, lo pago y concilio el pago» cruza cinco familias y es algo que alguien usa el lunes. Cada sprint cierra un flujo ejecutable de punta a punta.</p>
+    <div class="sec">
+      <div class="paso"><span class="i">01</span><div><b>Catálogo y asiento manual</b><div class="fl2">Dar de alta cuentas, asentar, revisar el mayor · account, entry, ledger</div></div><span class="n2">~20</span></div>
+      <div class="paso"><span class="i">02</span><div><b>Ingesta fiscal MX</b><div class="fl2">Recibir el CFDI, clasificarlo, contabilizarlo · cfdi, sat, rep</div></div><span class="n2">~38</span></div>
+      <div class="paso"><span class="i">03</span><div><b>Cobrar</b><div class="fl2">Facturar, nota de crédito, registrar el cobro · customer, invoice, credit-note, receipt, ar</div></div><span class="n2">~21</span></div>
+      <div class="paso"><span class="i">04</span><div><b>Pagar</b><div class="fl2">Factura de proveedor, programación, pago · vendor, bill, ap, payment</div></div><span class="n2">~15</span></div>
+      <div class="paso"><span class="i">05</span><div><b>Banco</b><div class="fl2">Importar el estado de cuenta, conciliar, postear la diferencia · bank, reconciliation</div></div><span class="n2">~38</span></div>
+      <div class="paso"><span class="i">06</span><div><b>Cerrar el mes</b><div class="fl2">Checklist, ajustes, cierre suave y duro · closing, period, batch</div></div><span class="n2">~20</span></div>
+      <div class="paso"><span class="i">07</span><div><b>Contabilidad electrónica</b><div class="fl2">Pólizas y balanza al SAT · e-accounting</div></div><span class="n2">~10</span></div>
+      <div class="paso"><span class="i">08</span><div><b>Nómina</b><div class="fl2">Corrida, recibos, timbrado · pay-run, payslip, employee</div></div><span class="n2">~10</span></div>
+      <div class="paso cola"><span class="i">09<br>12</span><div><b>La cola larga de fase 1</b><div class="fl2">190 familias pequeñas, atacadas por flujo igual que las demás. Es la mitad del trabajo y la parte que ningún plan anterior nombró.</div></div><span class="n2">~197</span></div>
+    </div>
+  </section></div>
+</div>
+
+<section>
+  <div class="env">
+    <div class="enc"><h2>Cómo se mide</h2></div>
+    <p class="intro medida">Este plan no lleva tabla de estado. Se pregunta:</p>
+    <p class="intro"><code>npm run catalogo:estado</code> &nbsp; <code>npm run plan:status</code></p>
+    <p class="intro medida">Los cuatro paquetes abiertos del plan de cierre no son deuda residual: <b>son las compuertas de las familias más grandes de este catálogo</b>. E4.2 —cuatro copias del SQL de saldos— bloquea <code>report</code>; E5.1 bloquea toda la superficie del agente. Cada sprint añade sus criterios y entra en el trinquete de CI en el mismo commit que lo cierra.</p>
+  </div>
+</section>
+
+<div class="rayado">
+  <div class="env"><section style="padding-top:clamp(44px,6.5vw,68px);padding-bottom:clamp(40px,6vw,60px)">
+    <div class="enc"><h2>El catálogo entero</h2><span class="ojal">1 623 filas · generadas, no copiadas</span></div>
+    <p class="intro medida">Dos preguntas distintas que el artefacto anterior confundía: <b>el símbolo dice si existe el motor</b>; <b>la etiqueta <span class="tag viva">viva</span> dice si se puede teclear hoy</b>. Un ✅ que nadie puede invocar y un ❌ que ya responde son estados opuestos.</p>
+
+    <div class="mandos">
+      <input id="q" type="search" placeholder="Buscar comando, familia o descripción…" aria-label="Buscar en el catálogo">
+      <button class="chip" data-f="f1" aria-pressed="false" type="button">sólo fase 1</button>
+      <button class="chip" data-f="viva" aria-pressed="false" type="button">ya invocable</button>
+      <button class="chip" data-f="pend" aria-pressed="false" type="button">pendiente</button>
+      <button class="chip" data-f="ok" aria-pressed="false" type="button">✅ motor</button>
+      <button class="chip" data-f="med" aria-pressed="false" type="button">🟡 a medias</button>
+      <button class="chip" data-f="no" aria-pressed="false" type="button">❌ sin motor</button>
+    </div>
+    <p class="cuenta" id="cuenta" role="status"></p>
+    <div class="lista" id="lista"></div>
+    <div class="mas"><button id="mas" type="button">Ver más</button></div>
+  </section></div>
+</div>
+
+<footer>
+  <div class="env medida">
+    <p>Las cifras salen de <code>scripts/catalogo-estado.ts</code> sobre el árbol de comandos del binario. El coste por fila se midió sobre el historial de git, no se estimó.</p>
+    <p>La alternativa —comprometerse con las 1&nbsp;543 filas— son unos sesenta sprints y seis veces el código actual. Ningún dato de esta medición la sostiene.</p>
+  </div>
+</footer>
+
+<script>
+const DATOS = __DATOS__;
+const lista = document.getElementById('lista');
+const cuenta = document.getElementById('cuenta');
+const q = document.getElementById('q');
+const btnMas = document.getElementById('mas');
+const filtros = new Set();
+let tope = 60;
+
+const PRUEBAS = {
+  f1: r => r.f === '1',
+  viva: r => r.v === 1,
+  pend: r => r.v === 0,
+  ok: r => r.s === '✅',
+  med: r => r.s === '🟡',
+  no: r => r.s === '❌',
+};
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// Separador de miles explícito: `toLocaleString('es')` depende de los locales
+// que traiga el navegador y en varios devuelve «1623» sin separar. Un número de
+// cuatro cifras sin agrupar en una página que va de contar es un descuido que
+// se ve.
+const mil = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F');
+
+function vigentes(){
+  const t = q.value.trim().toLowerCase();
+  return DATOS.filter(r => {
+    for (const f of filtros) if (!PRUEBAS[f](r)) return false;
+    if (!t) return true;
+    return (r.c + ' ' + r.e + ' ' + r.q + ' ' + r.m).toLowerCase().includes(t);
+  });
+}
+
+function pintar(){
+  const rs = vigentes();
+  const vivas = rs.filter(r => r.v === 1).length;
+  const f1 = rs.filter(r => r.f === '1').length;
+  cuenta.textContent = `${mil(rs.length)} filas · ${mil(vivas)} ya invocables · ${mil(f1)} de fase 1`;
+  lista.innerHTML = rs.slice(0, tope).map(r => `
+    <div class="fila">
+      <span class="st" title="${r.s === '✅' ? 'el motor existe' : r.s === '🟡' ? 'el motor existe a medias' : 'el motor no existe'}">${r.s}</span>
+      <span class="cmd">mnemosine ${esc(r.c)}${r.e ? `<span class="es">${esc(r.e)}</span>` : ''}</span>
+      <span class="q">${esc(r.q)}</span>
+      <span class="tags">${r.v ? '<span class="tag viva">viva</span>' : ''}${r.f === '1' ? '<span class="tag f1">fase 1</span>' : ''}<span class="tag">${esc(r.r)}</span><span class="tag" title="${r.a === '✓' ? 'la IA puede invocarlo' : 'exige un humano'}">IA ${esc(r.a)}</span></span>
+    </div>`).join('');
+  btnMas.style.display = rs.length > tope ? '' : 'none';
+  btnMas.textContent = `Ver más (${mil(rs.length - tope)} restantes)`;
+}
+
+q.addEventListener('input', () => { tope = 60; pintar(); });
+btnMas.addEventListener('click', () => { tope += 120; pintar(); });
+document.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => {
+  const f = b.dataset.f;
+  if (filtros.has(f)) { filtros.delete(f); b.setAttribute('aria-pressed', 'false'); }
+  else { filtros.add(f); b.setAttribute('aria-pressed', 'true'); }
+  tope = 60; pintar();
+}));
+pintar();
+</script>
