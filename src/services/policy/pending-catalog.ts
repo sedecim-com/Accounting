@@ -147,6 +147,137 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 40,
   },
 
+  // ── Payment receipts (REP) ──
+  //
+  // A REP —CFDI type P, the payment-receipt complement— is the document that
+  // proves a PPD invoice was actually paid. Under LIVA art. 5 fracc. III the
+  // input VAT is creditable only once paid, so the REP is what moves VAT from
+  // "pending" to "creditable". Every decision below changes which month a
+  // peso of tax lands in, so none of them can be hard-coded: they are the
+  // firm's criteria, not the system's.
+  {
+    key: 'rep_pago_no_registrado',
+    category: 'contable',
+    question: 'A payment receipt (REP) arrives and no matching payment is on file: what happens?',
+    impact:
+      'Decides whether ingesting a REP can move money on its own. Creating the payment is what releases ' +
+      'the parked VAT, because the release hangs off the payment applications — but it also means the ' +
+      'system moves the bank without a human having recorded it.',
+    options: [
+      { value: 'crear_pago', label: 'Create the payment and apply it to each related document' },
+      { value: 'revision', label: 'Register the receipt and leave the link for a person to confirm' },
+    ],
+    defaultValue: 'crear_pago',
+    defaultRationale:
+      'The REP is documentary proof that the money already moved: it carries the payment date and method. ' +
+      'Creating the payment routes it through the single door that also releases the VAT. ' +
+      'A third option — posting the cash directly, with no payment record — is deliberately NOT offered: ' +
+      'it is what double-credits the bank when the payment was also captured by hand, and it leaves the ' +
+      'VAT parked forever. There is no legacy behaviour to stay compatible with, because this door never ' +
+      'worked: a type-P CFDI died with UNSUPPORTED_TYPE before reaching any posting.',
+    whyAsking:
+      'When your supplier sends the receipt for an invoice you paid, I can either take it as the record of that payment, or wait until someone confirms it. Firms that capture bank movements daily want to confirm; firms that book straight from CFDIs want me to take it.',
+    whatIDo:
+      'With "crear_pago" I record the payment and apply it to the invoices the receipt names, which is what lets me credit the VAT that was waiting. With "revision" I file the receipt and ask you.',
+    ifSkipped:
+      'I create the payment. If you also capture payments by hand, tell me — otherwise we could end up with the same payment twice.',
+    priority: 20,
+  },
+  {
+    key: 'rep_tolerancia_importe',
+    category: 'contable',
+    question: 'How much difference between the receipt and the recorded payment still counts as rounding?',
+    impact:
+      'Above this, the receipt is NOT matched to the payment and goes to review. Matching a payment that ' +
+      'is not the same one credits VAT for an amount different from what was actually paid.',
+    options: [
+      { value: '0.01', label: 'One cent — only true rounding' },
+      { value: '1.00', label: 'One peso' },
+      { value: '0', label: 'Exact match or nothing' },
+    ],
+    defaultValue: '0.01',
+    defaultRationale:
+      'The comparison runs per related document, not receipt-against-payment, and the VAT proration ' +
+      'already settles its remainder on the last instalment. A difference larger than a cent is not ' +
+      'rounding: it is another instalment, another exchange rate, or a different payment.',
+    whyAsking:
+      'Receipts and your own records rarely differ, but when they do it matters whether it is a cent of rounding or a different payment altogether.',
+    whatIDo: 'Within the tolerance I match them. Outside it I leave the receipt for you to look at.',
+    ifSkipped: 'I allow one cent.',
+    priority: 45,
+  },
+  {
+    key: 'rep_documento_desconocido',
+    category: 'fiscal',
+    question: 'The receipt names an invoice the system does not have: what happens to that VAT?',
+    impact:
+      'Without the original invoice there is no base to prorate the VAT of that instalment. Decides ' +
+      'whether the tax waits, is skipped with a warning, or is asked about.',
+    options: [
+      { value: 'esperar', label: 'Wait: record the pending link and transfer no VAT for that document' },
+      { value: 'postear_sin_iva', label: 'Match the cash and leave the VAT untransferred, with a warning' },
+      { value: 'preguntar', label: 'Ask for the VAT amount' },
+    ],
+    defaultValue: 'esperar',
+    defaultRationale:
+      'SAT bulk downloads arrive out of order, so a receipt reaching us before its invoice is normal, not ' +
+      'exceptional. The VAT is not lost: it stays parked, which is exactly where LIVA art. 5 fracc. III ' +
+      'wants it until a document supports it. This governs only receipts that do NOT carry ImpuestosDR; ' +
+      'when the complement states the tax, that figure is the SAT\'s own and always wins.',
+    whyAsking:
+      'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
+    whatIDo: 'By default I wait, and the link resolves itself the day the invoice is ingested.',
+    ifSkipped: 'I wait. Nothing is lost — the tax stays where it was.',
+    priority: 45,
+  },
+  {
+    key: 'rep_ventana_dias',
+    category: 'operativa',
+    question: 'How many days apart can the receipt date and the recorded payment be and still be the same event?',
+    impact:
+      'A window that is too narrow produces false negatives, and a false negative ends in a duplicated ' +
+      'payment — which is the exact harm the matching exists to prevent.',
+    options: [
+      { value: '0', label: 'Same day exactly' },
+      { value: '3', label: 'Three calendar days' },
+      { value: '15', label: 'Fifteen days, for monthly capture' },
+    ],
+    defaultValue: '3',
+    defaultRationale:
+      'The date is a matching heuristic, not a tax fact: what the SAT checks are the amounts and the ' +
+      'chain of instalments. Payments captured by hand usually carry the statement date rather than the ' +
+      'value date, and three days covers that gap without spanning two instalments of the same document.',
+    whyAsking:
+      'Your records and the receipt rarely carry the exact same date. How far apart can they be before I stop assuming they are the same payment?',
+    whatIDo: 'Within the window I consider them the same event and link them instead of creating a second payment.',
+    ifSkipped: 'I allow three days.',
+    priority: 50,
+  },
+  {
+    key: 'rep_moneda_extranjera',
+    category: 'contable',
+    question: 'A receipt in a currency other than the functional one: what do we do with the exchange difference?',
+    impact:
+      'Decides whether foreign-currency receipts are matched at all. The system does not compute exchange ' +
+      'differences today, so anything other than stopping would post an invented figure.',
+    options: [
+      { value: 'no_casar', label: 'Do not match: leave it for review with a multi-currency warning' },
+      { value: 'tc_documento', label: "Match at the document's rate and recognise no difference" },
+    ],
+    defaultValue: 'no_casar',
+    defaultRationale:
+      'It is the only one that is currently true: nothing posts to the exchange gain/loss accounts, and ' +
+      'the payment service requires payment and document to share a currency. The problem is also double, ' +
+      'not single: NIF B-15 wants the fluctuation in the period it occurs, while for VAT the creditable ' +
+      'amount is the one actually paid converted at the DOF rate of the payment date — two different ' +
+      'rates the system does not yet tell apart. Stopping and saying so is honest.',
+    whyAsking:
+      'A payment in dollars against an invoice in pesos creates an exchange difference that has to land somewhere. I cannot compute it correctly yet, so I would rather stop than invent it.',
+    whatIDo: 'I leave the receipt unmatched and tell you, instead of guessing a rate.',
+    ifSkipped: 'I do not match foreign-currency receipts, and I say so each time.',
+    priority: 55,
+  },
+
   // ── Security ──
   {
     key: 'efirma_max_accesos_diarios',

@@ -57,6 +57,14 @@ export interface EntradaPago {
   /** Moneda del pago. Si se omite, se toma la del documento y se exige que
    *  todos coincidan. */
   currencyCode?: string;
+  /**
+   * UUID del CFDI tipo P (REP) que documenta este pago, cuando el pago nace
+   * de ingerir ese comprobante. Con el índice del nodo `Pago`, forma la
+   * llave que impide contabilizar dos veces el mismo movimiento: el índice
+   * único parcial de la migración 036 lo rechaza en la base, no en el código.
+   */
+  cfdiUuid?: string | null;
+  cfdiPagoIndice?: number | null;
 }
 
 interface DocumentoAplicado {
@@ -235,11 +243,13 @@ export async function recordVendorPayment(
     await client.query(
       `INSERT INTO vendor_payments (
          id, entity_id, payment_number, vendor_id, payment_amount,
-         payment_method, bank_account_id, payment_date, status, memo, created_by
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+         payment_method, bank_account_id, payment_date, status, memo, created_by,
+         cfdi_uuid, cfdi_pago_indice
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [paymentId, entrada.entityId, paymentNumber, vendorId, entrada.paymentAmount,
        entrada.paymentMethod, entrada.bankAccountId ?? null, entrada.paymentDate,
-       ESTADO, entrada.memo ?? null, userId]
+       ESTADO, entrada.memo ?? null, userId,
+       entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null]
     );
 
     for (const app of entrada.applications) {
@@ -361,11 +371,12 @@ export async function recordCustomerPayment(
       `INSERT INTO customer_payments (
          id, entity_id, payment_number, customer_id, payment_amount, currency_code,
          payment_method, reference_number, bank_account_id, payment_date,
-         status, created_by
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+         status, created_by, cfdi_uuid, cfdi_pago_indice
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [paymentId, entrada.entityId, paymentNumber, customerId, entrada.paymentAmount,
        monedaDe(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
-       entrada.bankAccountId ?? null, entrada.paymentDate, ESTADO, userId]
+       entrada.bankAccountId ?? null, entrada.paymentDate, ESTADO, userId,
+       entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null]
     );
 
     for (const app of entrada.applications) {
