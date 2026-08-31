@@ -141,6 +141,36 @@ export async function ingestCfdiFiles(opts: {
       return { file: name, status: 'rules', detail: 'Processed by firm rules' };
     }
 
+    // Un CFDI tipo P no se clasifica: SE LIGA. Antes caía en la capa del
+    // modelo, que le redactaba una póliza plana de efectivo — el diseño que
+    // IVA-5 retiró porque duplica el abono al banco cuando el pago ya se
+    // capturó, y deja el IVA aparcado si no. El camino determinista
+    // (procesarREP vía processToAccounting) casa el comprobante con su pago o
+    // lo crea por la puerta de pagos, gobernado por las políticas del
+    // despacho; el modelo no tiene nada que decidir aquí.
+    if (upload.preRegistration.document_type === 'payment') {
+      try {
+        const r = await defaultService.processToAccounting(
+          upload.preRegistration as Record<string, unknown>,
+          reviewer.userId
+        );
+        return {
+          file: name,
+          status: 'rules',
+          detail: r.paymentId
+            ? `Payment receipt linked deterministically (payment ${r.paymentId})`
+            : 'Payment receipt processed deterministically',
+        };
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        return {
+          file: name,
+          status: code === 'CFDI_REQUIERE_DECISION' ? 'blocked' : 'error',
+          detail: (err as Error).message,
+        };
+      }
+    }
+
     // Layer 2: the AI classifies and creates the draft
     capture.drafts = [];
     session.reset();

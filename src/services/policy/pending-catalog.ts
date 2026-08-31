@@ -188,8 +188,10 @@ export const POLICY_CATALOG: PolicySpec[] = [
     category: 'contable',
     question: 'How much difference between the receipt and the recorded payment still counts as rounding?',
     impact:
-      'Above this, the receipt is NOT matched to the payment and goes to review. Matching a payment that ' +
-      'is not the same one credits VAT for an amount different from what was actually paid.',
+      'Used twice: to decide whether a hand-captured payment is the same event as the receipt, and to ' +
+      'compare the VAT the receipt declares (ImpuestosDR) against the proration over the invoice. ' +
+      'Beyond it, the receipt goes to review: matching a payment that is not the same one credits VAT ' +
+      'for an amount different from what was actually paid.',
     options: [
       { value: '0.01', label: 'One cent — only true rounding' },
       { value: '1.00', label: 'One peso' },
@@ -222,8 +224,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
     defaultRationale:
       'SAT bulk downloads arrive out of order, so a receipt reaching us before its invoice is normal, not ' +
       'exceptional. The VAT is not lost: it stays parked, which is exactly where LIVA art. 5 fracc. III ' +
-      'wants it until a document supports it. This governs only receipts that do NOT carry ImpuestosDR; ' +
-      'when the complement states the tax, that figure is the SAT\'s own and always wins.',
+      'wants it until a document supports it. When the receipt DOES carry ImpuestosDR, that figure is ' +
+      'checked against the proration over the original invoice: if they diverge beyond the tolerance, ' +
+      'the receipt goes to review instead of releasing either figure silently.',
     whyAsking:
       'Receipts often arrive before the invoice they refer to. I can hold the tax until the invoice shows up, or move on without it.',
     whatIDo: 'By default I wait, and the link resolves itself the day the invoice is ingested.',

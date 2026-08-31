@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../utils/errors.js';
+import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../../utils/errors.js';
 import { PreRegistrationService, DuplicateError } from '../../../services/xml-ingestion/pre-registration-service.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 
@@ -337,6 +337,29 @@ router.post('/pre-registrations/:id/process', requirePermission('bills:create'),
     alcance(req)
   );
   if (preReg.status === 'completed') throw new ConflictError('Pre-registration already processed');
+
+  // Un pre-registro de PAGO registra cobros o pagos, no gastos: el permiso de
+  // la ruta (`bills:create`) cubre el REP recibido —pagar a un proveedor exige
+  // ese mismo permiso en POST /bills/payments— pero un REP EMITIDO registra
+  // cobros de clientes, que en el resto de la superficie exigen
+  // `invoices:create`. Antes del cableado esta rama no existía; al abrirse,
+  // un usuario con permiso sólo de gastos habría podido registrar cobranzas.
+  if (preReg.document_type === 'payment' && !req.user!.permissions.includes('*')) {
+    const d = await query<{ emisor_rfc: string; tax_id: string }>(
+      `SELECT x.emisor_rfc, le.tax_id
+         FROM xml_documents x
+         JOIN legal_entities le ON le.id = $2
+        WHERE x.id = $1`,
+      [preReg.xml_document_id, preReg.entity_id]
+    );
+    const emitido = d.rows[0] && d.rows[0].emisor_rfc === d.rows[0].tax_id;
+    if (emitido && !req.user!.permissions.includes('invoices:create')) {
+      throw new ForbiddenError('Insufficient permissions', {
+        required: ['invoices:create'],
+        detail: 'Un comprobante de pago emitido registra cobros de clientes.',
+      });
+    }
+  }
 
   const result = await service.processToAccounting(preReg, req.user!.user_id);
 

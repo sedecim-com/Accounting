@@ -2870,6 +2870,18 @@ Superficie:
 
 ##### `E1.2-g` El REP cierra el ciclo: el asiento que cancela 1135 y 2125 · **M**
 
+> **SUSTITUIDO por IVA-5 (commits 4b3b79c y f2fd789).** Este diseño postea el
+> efectivo y las líneas de IVA en la póliza del REP y aplica el pago con un
+> `UPDATE bills SET amount_due`, sin tocar `payments` ni `payment_applications`.
+> Eso abona el banco dos veces cuando el pago también se capturó a mano, y
+> traspasa el IVA dos veces — con `ivaStillParked` topando el exceso en
+> silencio, de modo que la póliza cuadra y la declaración sale mal. La
+> implementación vigente es `src/services/xml-ingestion/rep-linkage.ts`: el REP
+> se liga al pago (o lo crea por la puerta de pagos), y la liberación del IVA
+> sale de las aplicaciones del pago, sin una línea de impuesto en la ingesta.
+> Lo que sigue se conserva como historia, no como especificación.
+
+
 Es la mitad que da sentido a las cuentas puente: sin esto el IVA entra en 1135 y no sale nunca.
 
 La taxonomía ya trae los casos 'pago_recibido' y 'pago_emitido' (cfdi-taxonomy.ts:307 y 323) con dos líneas: DR cxp / CR banco (recibido) y DR banco / CR cxc (emitido), por A.pagado = suma de docsRelacionados[].impPagado. Falta el traspaso del IVA. Se implementa en el orquestador, NO tocando la taxonomía, con una función nueva en cfdi-classification-service.ts:

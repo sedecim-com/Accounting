@@ -161,6 +161,14 @@ const ligar = (g: Gasto, pago: PagoREP, repUuid = uuidv4(), indice = 0) =>
     monedaFuncional: 'MXN',
   });
 
+async function fijarPoliticaGlobal(key: string, value: string): Promise<void> {
+  await seedPolicies({ tenantId: f.tenantId });
+  await resolvePolicy({ tenantId: f.tenantId }, key, value, f.userId, 'prueba');
+}
+async function borrarPoliticaGlobal(key: string): Promise<void> {
+  await query(`DELETE FROM policy_decisions WHERE tenant_id=$1 AND key=$2`, [f.tenantId, key]);
+}
+
 async function pagosDe(billId: string): Promise<number> {
   const r = await query<{ n: string }>(
     `SELECT count(*) AS n FROM payment_applications WHERE bill_id = $1`,
@@ -500,5 +508,187 @@ describe('la ingesta reconoce un REP y lo procesa', () => {
     expect(pr.rows[0].status, 'esperar una factura no es un fallo del sistema').toBe('draft');
     expect(pr.rows[0].validation_status).toBe('needs_review');
     expect(pr.rows[0].error_message).toMatch(/no tiene/i);
+  });
+});
+
+/**
+ * LO QUE LA AUDITORÍA ADVERSARIA DESTAPÓ, FIJADO.
+ *
+ * Tres altos de dinero en un módulo con diez pruebas en verde: la rama del
+ * lado emitido consultaba una columna que no existe (cero cobertura AR), la
+ * búsqueda de candidato usaba un importe distinto del de creación (el
+ * duplicado exacto que el módulo dice impedir), y el casado no cotejaba las
+ * aplicaciones (dos pagos iguales se cruzaban). Cada caso de aquí abajo
+ * reprodujo primero el defecto contra Postgres.
+ */
+describe('el lado EMITIDO: cobros de clientes', () => {
+  async function facturaTimbrada(subtotal = '1000.00', iva = '160.00') {
+    const total = (Number(subtotal) + Number(iva)).toFixed(2);
+    const invoiceId = uuidv4();
+    const customerId = uuidv4();
+    const cfdiUuid = uuidv4();
+    const marca = uuidv4().slice(0, 8);
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, tax_id, tax_id_type, currency_code, created_by)
+       VALUES ($1,$2,$3,'Cliente REP','DDD040404DD4','rfc','MXN',$4)`,
+      [customerId, f.entityId, `C-${marca}`, f.userId]
+    );
+    await query(
+      `INSERT INTO invoices (
+         id, entity_id, invoice_number, customer_id, subtotal, tax_amount, total_amount,
+         amount_due, amount_paid, currency_code, invoice_date, due_date, status, cfdi_uuid, created_by
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,0,'MXN',$8,$8,'sent',$9,$10)`,
+      [invoiceId, f.entityId, `INV-${marca}`, customerId, subtotal, iva, total,
+       fechaEnPeriodo(), cfdiUuid, f.userId]
+    );
+    return { invoiceId, customerId, cfdiUuid, total, iva: Number(iva) };
+  }
+
+  it('un REP emitido crea el cobro — la rama que moría con una columna inexistente', async () => {
+    // La consulta decía `balance_due`; la tabla tiene `amount_due`. Todo REP
+    // emitido lanzaba 42703 y el pre-registro caía en 'error'. Nadie lo vio
+    // porque la suite sólo cubría gastos: una rama sin prueba no está «casi
+    // lista», está sin ejecutar.
+    const fac = await facturaTimbrada('2000.00', '320.00');
+    const r = await ligarPagoREP({
+      tenantId: f.tenantId,
+      entityId: f.entityId,
+      userId: f.userId,
+      cfdiUuid: uuidv4(),
+      direction: 'emitido',
+      indice: 0,
+      pago: {
+        fechaPago: fechaEnPeriodo().toISOString(),
+        formaDePagoP: '03', monedaP: 'MXN', monto: Number(fac.total),
+        docsRelacionados: [{
+          uuid: fac.cfdiUuid, impSaldoAnt: Number(fac.total),
+          impPagado: Number(fac.total), impSaldoInsoluto: 0, monedaDR: 'MXN',
+        }],
+      },
+      fechaCfdi: fechaEnPeriodo(),
+      monedaFuncional: 'MXN',
+    });
+    expect(r.accion, r.motivo).toBe('creado');
+    const alloc = await query<{ n: string }>(
+      `SELECT count(*) AS n FROM payment_allocations WHERE invoice_id = $1`,
+      [fac.invoiceId]
+    );
+    expect(Number(alloc.rows[0].n)).toBe(1);
+  });
+});
+
+describe('regresiones de la auditoría del casamiento', () => {
+  it('busca por lo que crearía, no por el Monto del nodo: sin duplicado con un DR ajeno', async () => {
+    // Reproducido antes del arreglo: REP con Monto 11,600 y dos DR (uno del
+    // sistema por 5,800 y uno ajeno por 5,800), política postear_sin_iva, y
+    // un pago capturado de 5,800. La búsqueda iba por 11,600 → no casaba →
+    // se creaba el segundo pago: banco abonado dos veces, IVA liberado dos
+    // veces, y la póliza cuadrando.
+    const g = await gastoAprobado('10000.00', '1600.00');
+    await recordVendorPayment(
+      {
+        entityId: f.entityId, paymentAmount: '5800.00', paymentDate: fechaEnPeriodo(),
+        paymentMethod: 'spei',
+        applications: [{ documentId: g.billId, amountApplied: '5800.00' }],
+      },
+      f.userId
+    );
+    await fijarPoliticaGlobal('rep_documento_desconocido', 'postear_sin_iva');
+    try {
+      const pago = pagoDe(g);
+      pago.monto = 11600;
+      pago.docsRelacionados = [
+        { uuid: g.cfdiUuid, impSaldoAnt: 11600, impPagado: 5800, impSaldoInsoluto: 5800, monedaDR: 'MXN' },
+        { uuid: uuidv4(), impSaldoAnt: 5800, impPagado: 5800, impSaldoInsoluto: 0, monedaDR: 'MXN' },
+      ];
+      const r = await ligar(g, pago);
+      expect(r.accion, 'debía encontrar el pago de 5,800 ya capturado').toBe('casado');
+      expect(await pagosDe(g.billId), 'un solo pago aplicado, no dos').toBe(1);
+    } finally {
+      await borrarPoliticaGlobal('rep_documento_desconocido');
+    }
+  });
+
+  it('el candidato tiene que estar aplicado a LOS documentos del REP, no sólo parecerse', async () => {
+    // Dos gastos iguales del mismo proveedor, un solo pago capturado (el de
+    // B). El REP de A casaba con el pago de B por tercero+importe+fecha, y A
+    // se quedaba sin pago y con su IVA aparcado mientras B lucía un
+    // comprobante que no era suyo.
+    const a = await gastoAprobado('3000.00', '480.00');
+    const b = await gastoAprobado('3000.00', '480.00');
+    // mismo proveedor para los dos gastos
+    await query(`UPDATE bills SET vendor_id = (SELECT vendor_id FROM bills WHERE id = $1) WHERE id = $2`,
+      [a.billId, b.billId]);
+    await recordVendorPayment(
+      {
+        entityId: f.entityId, paymentAmount: b.total, paymentDate: fechaEnPeriodo(),
+        paymentMethod: 'spei',
+        applications: [{ documentId: b.billId, amountApplied: b.total }],
+      },
+      f.userId
+    );
+    const r = await ligar(a, pagoDe(a));
+    expect(
+      r.accion,
+      'el pago existente está aplicado a B: casarlo con el REP de A cruza los comprobantes'
+    ).not.toBe('casado');
+  });
+
+  it('fuera de la ventana de días no es el mismo hecho', async () => {
+    // Toda la suite vivía en el mismo día, así que la ventana jamás se había
+    // ejercitado en la dirección que rechaza.
+    const g = await gastoAprobado('700.00', '112.00');
+    const lejos = new Date(fechaEnPeriodo());
+    lejos.setDate(lejos.getDate() - 10);
+    await recordVendorPayment(
+      {
+        entityId: f.entityId, paymentAmount: g.total, paymentDate: lejos,
+        paymentMethod: 'spei',
+        applications: [{ documentId: g.billId, amountApplied: g.total }],
+      },
+      f.userId
+    );
+    const r = await ligar(g, pagoDe(g));
+    // No casa — y tampoco crea: el gasto ya quedó `paid` por aquel pago, así
+    // que la puerta de pagos rechaza aplicarle otro y el REP cae en revisión.
+    // Las dos cosas son correctas: un comprobante para un documento ya
+    // saldado por un pago que no coincide en fecha ES un caso para una
+    // persona, no para el importador.
+    expect(r.accion, 'diez días con ventana de tres no son el mismo pago').not.toBe('casado');
+    const lejano = await query<{ cfdi_uuid: string | null }>(
+      `SELECT vp.cfdi_uuid FROM vendor_payments vp
+         JOIN payment_applications pa ON pa.payment_id = vp.id
+        WHERE pa.bill_id = $1`,
+      [g.billId]
+    );
+    expect(lejano.rows[0].cfdi_uuid, 'el pago lejano no debe quedar marcado').toBeNull();
+  });
+
+  it('el IVA que el REP declara se coteja: divergencia va a revisión', async () => {
+    // El complemento traía ImpuestosDR y se descartaba mientras el catálogo
+    // prometía que «la cifra del SAT siempre gana». Ahora se coteja contra el
+    // prorrateo del documento; si contradice, nadie libera nada en silencio.
+    const g = await gastoAprobado('1000.00', '160.00');
+    const pago = pagoDe(g);
+    pago.docsRelacionados[0].ivaTrasladadoDR = 90; // el prorrateo da 160
+    const r = await ligar(g, pago);
+    expect(r.accion).toBe('revision');
+    expect(r.motivo).toMatch(/90\.00/);
+    expect(r.motivo).toMatch(/160\.00/);
+  });
+
+  it('el pago creado desde REP conserva su referencia y su moneda', async () => {
+    // El INSERT de proveedores omitía reference_number y currency_code — y la
+    // columna de moneda tiene DEFAULT 'USD', así que todo pago en pesos
+    // quedaba registrado como dólares.
+    const g = await gastoAprobado('500.00', '80.00');
+    const r = await ligar(g, pagoDe(g));
+    expect(r.accion).toBe('creado');
+    const p = await query<{ reference_number: string; currency_code: string }>(
+      `SELECT reference_number, currency_code FROM vendor_payments WHERE id = $1`,
+      [r.paymentId]
+    );
+    expect(p.rows[0].currency_code, 'MXN registrado como USD').toBe('MXN');
+    expect(p.rows[0].reference_number).toBe('OP-REP');
   });
 });

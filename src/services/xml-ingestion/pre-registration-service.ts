@@ -749,9 +749,10 @@ export class PreRegistrationService {
       xml_content: string;
       cfdi_uuid: string;
       emisor_rfc: string;
+      receptor_rfc: string;
       cfdi_fecha: Date;
     }>(
-      `SELECT xml_content, cfdi_uuid, emisor_rfc, cfdi_fecha
+      `SELECT xml_content, cfdi_uuid, emisor_rfc, receptor_rfc, cfdi_fecha
          FROM xml_documents WHERE id = $1`,
       [preReg.xml_document_id]
     );
@@ -779,6 +780,17 @@ export class PreRegistrationService {
     // Emisor o receptor. Del lado emitido el REP lo expedimos nosotros y
     // documenta un cobro; del recibido lo expide el proveedor y documenta un
     // pago nuestro. Son dos subledgers distintos.
+    // Emisor, receptor… o ninguno. La primera versión decidía por descarte
+    // —«si no lo emitimos, lo recibimos»— y un comprobante AJENO (de otro RFC
+    // a otro RFC, algo común en un buzón compartido o una descarga masiva
+    // equivocada) se habría procesado como pago nuestro a un proveedor.
+    if (doc.rows[0].emisor_rfc !== rfc && doc.rows[0].receptor_rfc !== rfc) {
+      throw new AccountingError(
+        'CFDI_REQUIERE_DECISION',
+        `El comprobante es de ${doc.rows[0].emisor_rfc} para ${doc.rows[0].receptor_rfc} y la ` +
+          `entidad es ${rfc}: no es parte de la operación. Revisa si se subió a la entidad equivocada.`
+      );
+    }
     const direction = doc.rows[0].emisor_rfc === rfc ? 'emitido' : 'recibido';
 
     const resultados: ResultadoREP[] = [];
@@ -800,9 +812,25 @@ export class PreRegistrationService {
 
     const paraRevision = resultados.filter((r) => r.accion === 'revision');
     if (paraRevision.length > 0) {
+      // Los nodos anteriores pueden haber creado o casado pagos YA: cada
+      // ligadura es su propia transacción y no se puede des-postear un pago
+      // legítimo porque otro nodo necesite una decisión. Lo que sí se puede
+      // —y es obligatorio— es que el estado lo DIGA: un needs_review que
+      // calla que la mitad del dinero ya se movió haría que el revisor
+      // reprocesara desde cero, y sólo la idempotencia lo salvaría de
+      // duplicar. El motivo enumera lo hecho y lo pendiente.
+      const hechos = resultados
+        .map((r, i) => ({ r, i }))
+        .filter((x) => x.r.accion !== 'revision');
+      const prefijo =
+        hechos.length > 0
+          ? `OJO: ${hechos.length} de ${resultados.length} nodos de pago YA quedaron resueltos ` +
+            `(${hechos.map((x) => `nodo ${x.i}: ${x.r.accion}${x.r.paymentId ? ` → ${x.r.paymentId}` : ''}`).join('; ')}). ` +
+            'Reprocesar es seguro: la idempotencia los salta. Pendiente: '
+          : '';
       throw new AccountingError(
         'CFDI_REQUIERE_DECISION',
-        paraRevision.map((r) => r.motivo).join(' · ')
+        prefijo + paraRevision.map((r) => r.motivo).join(' · ')
       );
     }
 

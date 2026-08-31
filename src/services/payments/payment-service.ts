@@ -241,13 +241,19 @@ export async function recordVendorPayment(
     const paymentId = uuidv4();
 
     await client.query(
+      // reference_number y currency_code faltaban del INSERT. Lo primero
+      // perdía el NumOperacion del REP —la referencia bancaria que permite
+      // conciliar—; lo segundo es peor: la columna tiene DEFAULT 'USD', así
+      // que todo pago a proveedor en pesos quedaba registrado como dólares.
+      // El lado AR siempre los escribió; éste no, y nadie lo leía.
       `INSERT INTO vendor_payments (
-         id, entity_id, payment_number, vendor_id, payment_amount,
-         payment_method, bank_account_id, payment_date, status, memo, created_by,
+         id, entity_id, payment_number, vendor_id, payment_amount, currency_code,
+         payment_method, reference_number, bank_account_id, payment_date, status, memo, created_by,
          cfdi_uuid, cfdi_pago_indice
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       [paymentId, entrada.entityId, paymentNumber, vendorId, entrada.paymentAmount,
-       entrada.paymentMethod, entrada.bankAccountId ?? null, entrada.paymentDate,
+       monedaDe(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
+       entrada.bankAccountId ?? null, entrada.paymentDate,
        ESTADO, entrada.memo ?? null, userId,
        entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null]
     );

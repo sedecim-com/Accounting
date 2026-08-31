@@ -49,8 +49,11 @@ interface DocumentoResuelto {
   documentId: string;
   counterpartyId: string;
   currencyCode: string;
-  saldo: string;
+  /** IVA y total del documento original, para validar el IVA que el REP declara. */
+  taxAmount: string;
+  totalAmount: string;
   impPagado: number;
+  ivaTrasladadoDR?: number;
 }
 
 /** Fecha del pago según el REP; si el complemento no la trae, la del CFDI. */
@@ -157,7 +160,7 @@ export async function ligarPagoREP(opts: {
       desconocidos.push(dr.uuid);
       continue;
     }
-    resueltos.push({ ...doc, uuid: dr.uuid, impPagado: dr.impPagado });
+    resueltos.push({ ...doc, uuid: dr.uuid, impPagado: dr.impPagado, ivaTrasladadoDR: dr.ivaTrasladadoDR });
   }
 
   if (desconocidos.length > 0) {
@@ -169,8 +172,8 @@ export async function ligarPagoREP(opts: {
           `El comprobante relaciona ${desconocidos.length} documento(s) que el sistema no tiene ` +
           `(${desconocidos[0]}${desconocidos.length > 1 ? ', …' : ''}). Sin la factura original no ` +
           'hay base contra la cual repartir el IVA de esa parcialidad, así que el impuesto se ' +
-          'queda aparcado —que es donde la ley lo quiere hasta que haya documento que lo ampare— ' +
-          'y la ligadura se resolverá sola cuando esa factura se ingiera.',
+          'queda aparcado —que es donde la ley lo quiere hasta que haya documento que lo ampare—. ' +
+          'Cuando esa factura se ingiera, reprocesa este comprobante: nada lo reintenta solo.',
         avisos,
       };
     }
@@ -199,15 +202,54 @@ export async function ligarPagoREP(opts: {
   }
 
   const fecha = fechaDelPago(opts.pago, opts.fechaCfdi);
-  const importe = new Decimal(
-    opts.pago.monto || resueltos.reduce((s, r) => s.plus(r.impPagado), new Decimal(0)).toNumber()
-  );
-
-  // ── ¿Ya hay un pago capturado para este mismo hecho? ──
   const tolerancia = new Decimal(
     (await getPolicy(ctx, 'rep_tolerancia_importe')).value || '0.01'
   );
   const ventana = Number((await getPolicy(ctx, 'rep_ventana_dias')).value || '3');
+
+  // ── El IVA que el REP declara se COTEJA contra el del documento ──
+  //
+  // `ImpuestosDR` es la cifra del SAT para esta parcialidad. La liberación
+  // del impuesto sale del prorrateo sobre el documento (ivaToReclassify), así
+  // que si las dos cifras divergen más que la tolerancia, casar o crear
+  // liberaría un importe distinto del que el comprobante ampara — y eso es
+  // exactamente lo que LIVA art. 5 fracc. III no permite. Se detiene aquí,
+  // con las dos cifras nombradas, en vez de elegir una en silencio.
+  for (const r of resueltos) {
+    if (r.ivaTrasladadoDR === undefined) continue;
+    const total = new Decimal(r.totalAmount);
+    if (total.isZero()) continue;
+    const prorrateado = new Decimal(r.taxAmount)
+      .times(new Decimal(r.impPagado).dividedBy(total))
+      .toDecimalPlaces(2);
+    const declarado = new Decimal(r.ivaTrasladadoDR);
+    if (prorrateado.minus(declarado).abs().greaterThan(tolerancia)) {
+      return {
+        accion: 'revision',
+        motivo:
+          `El comprobante declara ${declarado.toFixed(2)} de IVA para el documento ${r.uuid} ` +
+          `y el prorrateo sobre la factura da ${prorrateado.toFixed(2)}. Liberar cualquiera de ` +
+          'las dos cifras contradiría a la otra: puede ser otra parcialidad, un documento ' +
+          'corregido, o un error del emisor. Se revisa a mano.',
+        avisos,
+      };
+    }
+  }
+
+  // El importe con el que se busca es EL MISMO con el que se crearía: la suma
+  // de lo aplicado a documentos resueltos. La primera versión buscaba por el
+  // `Monto` del nodo y creaba por la suma resuelta; cuando divergían —un DR
+  // ignorado por política, una comisión del emisor— el pago capturado a mano
+  // no se encontraba y se creaba el duplicado que este módulo existe para
+  // impedir. Verificado con reproducción: banco abonado dos veces e IVA
+  // liberado dos veces, con la póliza cuadrando.
+  const importe = resueltos.reduce((s, r) => s.plus(r.impPagado), new Decimal(0));
+  if (opts.pago.monto && !new Decimal(opts.pago.monto).minus(importe).abs().lessThanOrEqualTo(tolerancia)) {
+    avisos.push(
+      `El Monto del nodo de pago (${new Decimal(opts.pago.monto).toFixed(2)}) no coincide con la ` +
+        `suma de sus parcialidades resueltas (${importe.toFixed(2)}); se opera por la suma resuelta.`
+    );
+  }
 
   const candidato = await buscarPagoExistente({
     tabla,
@@ -218,6 +260,7 @@ export async function ligarPagoREP(opts: {
     tolerancia,
     fecha,
     ventana,
+    documentIds: resueltos.map((r) => r.documentId),
   });
 
   if (candidato) {
@@ -326,19 +369,35 @@ async function resolverDocumento(
   lado: 'ap' | 'ar'
 ): Promise<Omit<DocumentoResuelto, 'uuid' | 'impPagado'> | null> {
   if (lado === 'ar') {
-    const r = await query<{ id: string; customer_id: string; currency_code: string; saldo: string }>(
-      `SELECT id, customer_id, currency_code, balance_due::text AS saldo
+    // La primera versión consultaba `balance_due`, columna que no existe —la
+    // tabla se creó con `amount_due`— así que TODO REP emitido moría con un
+    // 42703 de Postgres y el pre-registro caía en 'error'. Nadie lo vio
+    // porque la suite sólo cubría el lado de proveedores: una rama sin
+    // prueba no está «casi lista», está sin ejecutar.
+    const r = await query<{
+      id: string; customer_id: string; currency_code: string;
+      tax_amount: string; total_amount: string;
+    }>(
+      `SELECT id, customer_id, currency_code,
+              tax_amount::text AS tax_amount, total_amount::text AS total_amount
          FROM invoices WHERE entity_id = $1 AND cfdi_uuid = $2
         ORDER BY created_at LIMIT 1`,
       [entityId, uuid]
     );
     const row = r.rows[0];
     return row
-      ? { documentId: row.id, counterpartyId: row.customer_id, currencyCode: row.currency_code, saldo: row.saldo }
+      ? {
+          documentId: row.id, counterpartyId: row.customer_id, currencyCode: row.currency_code,
+          taxAmount: row.tax_amount, totalAmount: row.total_amount,
+        }
       : null;
   }
-  const r = await query<{ id: string; vendor_id: string; currency_code: string; saldo: string }>(
-    `SELECT b.id, b.vendor_id, b.currency_code, b.amount_due::text AS saldo
+  const r = await query<{
+    id: string; vendor_id: string; currency_code: string;
+    tax_amount: string; total_amount: string;
+  }>(
+    `SELECT b.id, b.vendor_id, b.currency_code,
+            b.tax_amount::text AS tax_amount, b.total_amount::text AS total_amount
        FROM pre_registrations p
        JOIN xml_documents x ON x.id = p.xml_document_id
        JOIN bills b ON b.id = p.bill_id
@@ -348,7 +407,10 @@ async function resolverDocumento(
   );
   const row = r.rows[0];
   return row
-    ? { documentId: row.id, counterpartyId: row.vendor_id, currencyCode: row.currency_code, saldo: row.saldo }
+    ? {
+        documentId: row.id, counterpartyId: row.vendor_id, currencyCode: row.currency_code,
+        taxAmount: row.tax_amount, totalAmount: row.total_amount,
+      }
     : null;
 }
 
@@ -370,18 +432,30 @@ async function buscarPagoExistente(p: {
   tolerancia: Decimal;
   fecha: Date;
   ventana: number;
+  /** Los documentos que el REP relaciona, ya resueltos a ids del sistema. */
+  documentIds: string[];
 }): Promise<{ id: string; numero: string } | null> {
   const col = p.lado === 'ap' ? 'vendor_id' : 'customer_id';
+  // El candidato tiene que estar APLICADO a alguno de los documentos que el
+  // REP relaciona. Tercero, importe y fecha no bastan: dos pagos iguales al
+  // mismo proveedor en la misma semana —una renta quincenal, una iguala— se
+  // cruzarían, y el gasto equivocado quedaría «con comprobante» mientras el
+  // del REP se queda sin pago y con su IVA aparcado. La aplicación es lo que
+  // dice de qué hecho económico es el dinero.
+  const apps = p.lado === 'ap'
+    ? `SELECT 1 FROM payment_applications pa WHERE pa.payment_id = t.id AND pa.bill_id = ANY($7::uuid[])`
+    : `SELECT 1 FROM payment_allocations pa WHERE pa.payment_id = t.id AND pa.invoice_id = ANY($7::uuid[])`;
   const r = await query<{ id: string; numero: string }>(
-    `SELECT id, payment_number AS numero
-       FROM ${p.tabla}
-      WHERE entity_id = $1
-        AND ${col} = $2
-        AND cfdi_uuid IS NULL
-        AND status = 'completed'
-        AND ABS(payment_amount - $3::numeric) <= $4::numeric
-        AND payment_date BETWEEN $5::date - $6::int AND $5::date + $6::int
-      ORDER BY ABS(payment_date - $5::date), payment_number
+    `SELECT t.id, t.payment_number AS numero
+       FROM ${p.tabla} t
+      WHERE t.entity_id = $1
+        AND t.${col} = $2
+        AND t.cfdi_uuid IS NULL
+        AND t.status = 'completed'
+        AND ABS(t.payment_amount - $3::numeric) <= $4::numeric
+        AND t.payment_date BETWEEN $5::date - $6::int AND $5::date + $6::int
+        AND EXISTS (${apps})
+      ORDER BY ABS(t.payment_date - $5::date), t.payment_number
       LIMIT 1`,
     [
       p.entityId,
@@ -390,6 +464,7 @@ async function buscarPagoExistente(p: {
       p.tolerancia.toFixed(2),
       p.fecha,
       p.ventana,
+      p.documentIds,
     ]
   );
   return r.rows[0] ?? null;
