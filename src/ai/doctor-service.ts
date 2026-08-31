@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { program } from '../cli/mnemosine.js';
+import { auditarContraLineaBase } from '../cli/kernel/audit.js';
 import path from 'node:path';
 import { query } from '../database/connection.js';
 import { REQUIRED_BUCKETS } from '../services/payroll/common/payroll-account-mapping-seed.js';
@@ -50,6 +52,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(...(await checkLookupTables()));
     checks.push(checkOrphanedCapability(deps));
     checks.push(checkConnectionTransport());
+    checks.push(checkConsistenciaCli());
     checks.push(await checkTenantIsolation());
     checks.push(await checkReopenedPeriods());
     checks.push(await checkPendingWork());
@@ -356,6 +359,55 @@ export async function checkLookupTables(): Promise<CheckResult[]> {
  * `require` is the trap here — it encrypts and verifies nothing, so it reads
  * as protected while leaving a man-in-the-middle wide open.
  */
+/**
+ * LA AUDITORÍA DE CONSISTENCIA, SOBRE EL BINARIO QUE SE EMBARCA.
+ *
+ * `auditProgram` existía y nadie la corría contra el programa real: vivía en
+ * un fichero de pruebas y cada prueba se construía un árbol de juguete. La
+ * primera vez que se ejecutó contra el `program` de verdad dio 40
+ * violaciones, ninguna de las cuales había visto nadie.
+ *
+ * Esas 40 están congeladas en una línea base que sólo puede encoger. Lo que
+ * esta comprobación vigila es que no aparezcan NUEVAS: una superficie que se
+ * degrada un comando por semana es como se llegó a las 40.
+ */
+export function checkConsistenciaCli(): CheckResult {
+  const { nuevas, obsoletas, heredadas } = auditarContraLineaBase(program);
+
+  if (nuevas.length > 0) {
+    const m = nuevas
+      .slice(0, 3)
+      .map((v) => `${v.command}: ${v.detail}`)
+      .join(' · ');
+    return {
+      name: 'CLI consistency',
+      level: 'fail',
+      detail: `${nuevas.length} violación(es) nuevas — ${m}${nuevas.length > 3 ? ' …' : ''}`,
+      fix:
+        'La superficie del CLI se mantiene coherente porque cada verbo sale de una lista cerrada y cada ' +
+        'bandera del diccionario único. Corrige el comando, o —si el cambio es deliberado— amplía el ' +
+        'vocabulario en src/cli/kernel/vocabulary.ts. La línea base de src/cli/kernel/audit.ts NO se amplía.',
+    };
+  }
+
+  const sobrantes = obsoletas.length > 0
+    ? ` · ${obsoletas.length} entrada(s) de la línea base ya no se violan: bórralas`
+    : '';
+  return {
+    name: 'CLI consistency',
+    level: heredadas > 0 ? 'warn' : 'ok',
+    detail:
+      heredadas > 0
+        ? `sin violaciones nuevas; quedan ${heredadas} heredadas en la línea base${sobrantes}`
+        : `la superficie cumple todas las reglas${sobrantes}`,
+    fix:
+      heredadas > 0
+        ? 'Las heredadas son deuda conocida y congelada: nueve son decisiones de nombre, tres exigen ' +
+          'retirar una forma corta ya publicada, y ocho piden que cuatro listados se puedan paginar.'
+        : undefined,
+  };
+}
+
 export function checkConnectionTransport(): CheckResult {
   const url = config.database.url;
   const local = isLocalHost(url);

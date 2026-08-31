@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Command } from 'commander';
-import { auditProgram } from './kernel/consistency.spec.js';
+import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { registerVendorCommand } from '../../src/cli/vendor-command.js';
 import { registerBillCommand, parseLineSpec } from '../../src/cli/bill-command.js';
 import { riskOf, declareRisk } from '../../src/cli/kernel/risk.js';
@@ -25,10 +25,16 @@ const deps = {
 let program: Command;
 let violations: ReturnType<typeof auditProgram>;
 /**
- * Risk is snapshotted at registration time on purpose. The registry is a
- * module-level map that any suite may reset — and importing `auditProgram`
- * from the consistency spec pulls that suite in with it — so the honest thing
- * to assert on is what THIS program declared when it was built.
+ * Risk is snapshotted at registration time on purpose: the registry is a
+ * module-level map that any suite may reset, so the honest thing to assert on
+ * is what THIS program declared when it was built.
+ *
+ * Este comentario decía además que importar `auditProgram` desde el spec de
+ * consistencia arrastraba aquella suite. Ya no: la función vive en
+ * `src/cli/kernel/audit.ts`. Ese arrastre no era sólo ruido — la suite
+ * arrastrada llama a `resetDeclarations()`, que vacía el registro para el
+ * resto del proceso, y sus 20 pruebas corrían cinco veces, una por cada
+ * archivo que la importaba.
  */
 const risks = new Map<string, ReturnType<typeof riskOf>>();
 

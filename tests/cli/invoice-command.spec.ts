@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { parseInvoiceLine, dueDateFromTerms, registerInvoiceCommand } from '../../src/cli/invoice-command.js';
 import { inferTaxIdType, registerCustomerCommand } from '../../src/cli/customer-command.js';
 import { resetDeclarations, riskOf } from '../../src/cli/kernel/risk.js';
-import { auditProgram } from './kernel/consistency.spec.js';
+import { auditProgram } from '../../src/cli/kernel/audit.js';
 
 // ============================================================
 // The AR families against the kernel's own rules: the audit that

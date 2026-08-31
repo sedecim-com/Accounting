@@ -1,149 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { Command } from 'commander';
-import { VERBS, isVerb, OBJECTLESS_COMMANDS, LEGACY_PLURALS } from '../../../src/cli/kernel/vocabulary.js';
-import { FLAG_DICTIONARY, BANNED_FLAGS, withReadFlags, withContext, withOutput, withSelection } from '../../../src/cli/kernel/flags.js';
-import { declareRisk, riskOf, resetDeclarations } from '../../../src/cli/kernel/risk.js';
+import { VERBS, isVerb } from '../../../src/cli/kernel/vocabulary.js';
+import { FLAG_DICTIONARY, withReadFlags, withContext, withOutput, withSelection } from '../../../src/cli/kernel/flags.js';
+import { declareRisk, resetDeclarations, riskOf } from '../../../src/cli/kernel/risk.js';
+import { auditProgram } from '../../../src/cli/kernel/audit.js';
 
 // ============================================================
-// THE CONSISTENCY TEST (rulebook R12)
+// LAS REGLAS DE `auditProgram`, UNA POR UNA.
 //
-// This is the only thing that will keep 1,700 commands coherent
-// while many sessions edit them. It walks a Commander program and
-// asserts the rules that make the surface learnable:
-//   - every verb comes from the closed list
-//   - every flag comes from the single dictionary
-//   - no banned spelling reappears
-//   - nouns are singular, depth stays ≤ 3
-//   - a mutating command carries the safety flags its risk requires
-//   - a list command can be paged and formatted
+// La función vive en src/cli/kernel/audit.ts, no aquí. Vivía aquí, y eso
+// hacía que el binario que se embarca no pasara nunca por ella — y que
+// importarla desde otra prueba arrastrara esta suite, cuyos
+// `resetDeclarations()` vacían el registro de riesgo para el resto del
+// proceso, dejando el programa real con cero declaraciones.
 //
-// It is exported as `auditProgram` so the real CLI can be audited
-// by the suite that builds it, and so `mnemosine doctor` can run
-// the same check against the shipped program.
+// Lo que se prueba aquí es que cada regla DETECTE lo suyo. Que el programa
+// embarcado las cumpla lo comprueba auditoria-programa.spec.ts, contra el
+// `program` real.
 // ============================================================
-
-export interface Violation {
-  command: string;
-  rule: string;
-  detail: string;
-}
-
-const SHORT_FLAG_RE = /^-([a-zA-Z])\b/;
-
-function pathOf(cmd: Command): string {
-  const parts: string[] = [];
-  for (let c: Command | null = cmd; c && c.parent; c = c.parent) parts.unshift(c.name());
-  return parts.join(' ');
-}
-
-export function auditProgram(program: Command): Violation[] {
-  const violations: Violation[] = [];
-  const shortFlags = new Map<string, string>();
-
-  const visit = (cmd: Command) => {
-    const children = cmd.commands ?? [];
-    const full = pathOf(cmd);
-    if (full) {
-      const tokens = full.split(' ');
-
-      // R1: depth
-      if (tokens.length > 3) {
-        violations.push({ command: full, rule: 'R1 depth', detail: `${tokens.length} tokens; max is 3` });
-      }
-
-      // R3/R4: leaf commands end in a verb from the closed list.
-      const isLeaf = children.length === 0;
-      const last = tokens[tokens.length - 1];
-      if (isLeaf && tokens.length > 1 && !isVerb(last)) {
-        violations.push({
-          command: full,
-          rule: 'R3 closed verb list',
-          detail: `"${last}" is not a verb in the registry. Use one of the ${Object.keys(VERBS).length} canonical verbs, or add it to vocabulary.ts deliberately.`,
-        });
-      }
-      if (isLeaf && tokens.length === 1 && !OBJECTLESS_COMMANDS.includes(last)) {
-        violations.push({
-          command: full,
-          rule: 'R1 objectless allowlist',
-          detail: `"${last}" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.`,
-        });
-      }
-
-      // R2: nouns are singular.
-      const noun = tokens[0];
-      if (noun.endsWith('s') && !isVerb(noun) && !LEGACY_PLURALS.includes(noun) && !OBJECTLESS_COMMANDS.includes(noun)) {
-        violations.push({ command: full, rule: 'R2 singular nouns', detail: `"${noun}" looks plural` });
-      }
-
-      // R6: flags come from the dictionary; banned spellings never reappear.
-      for (const opt of cmd.options) {
-        const long = opt.long ?? '';
-        const negated = long.startsWith('--no-') ? long : null;
-        if ((BANNED_FLAGS as readonly string[]).includes(long)) {
-          violations.push({ command: full, rule: 'R6 banned spelling', detail: `${long} is banned` });
-          continue;
-        }
-        // Command-specific value flags are allowed; the dictionary governs
-        // the shared vocabulary, so only flags whose CONCEPT it defines are
-        // checked for spelling and short-form drift.
-        if (long && Object.prototype.hasOwnProperty.call(FLAG_DICTIONARY, long)) {
-          const expectedShort = FLAG_DICTIONARY[long];
-          if ((opt.short ?? null) !== expectedShort) {
-            violations.push({
-              command: full,
-              rule: 'R6 short flag',
-              detail: `${long} should use ${expectedShort ?? 'no short form'}, found ${opt.short ?? 'none'}`,
-            });
-          }
-        }
-        if (opt.short && !negated) {
-          const letter = SHORT_FLAG_RE.exec(opt.short)?.[1];
-          if (letter === 'f') {
-            violations.push({ command: full, rule: 'R6 -f is reserved', detail: `${long} claims -f` });
-          }
-          const key = `${full}|${opt.short}`;
-          if (shortFlags.has(key)) {
-            violations.push({ command: full, rule: 'R6 short flag collision', detail: opt.short });
-          }
-          shortFlags.set(key, long);
-        }
-      }
-
-      const longs = new Set(cmd.options.map((o) => o.long));
-
-      // R11: a declared mutation carries the flags its risk class requires.
-      const risk = riskOf(cmd);
-      if (risk?.requiresDryRun) {
-        for (const required of ['--dry-run', '--yes', '--idempotency-key']) {
-          if (!longs.has(required)) {
-            violations.push({
-              command: full,
-              rule: 'R11 risk flags',
-              detail: `risk "${risk.risk}" requires ${required}`,
-            });
-          }
-        }
-      }
-      if (risk?.requiresLiveGate && !longs.has('--live')) {
-        violations.push({ command: full, rule: 'R11 live gate', detail: 'external effects require --live' });
-      }
-
-      // Every list command must be pageable and formattable, or it will
-      // silently truncate someone's financial statement one day.
-      if (isLeaf && last === 'list') {
-        for (const required of ['--limit', '--format']) {
-          if (!longs.has(required)) {
-            violations.push({ command: full, rule: 'list contract', detail: `missing ${required}` });
-          }
-        }
-      }
-    }
-    for (const child of children) visit(child);
-  };
-
-  visit(program);
-  return violations;
-}
 
 /**
  * Builds a multi-token command the way Commander actually models one:

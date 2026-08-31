@@ -34,7 +34,7 @@ vi.mock('../../src/services/reporting/materialized-view-service.js', () => ({
 }));
 
 import { registerReportCommand, bucketOf } from '../../src/cli/report-command.js';
-import { auditProgram } from './kernel/consistency.spec.js';
+import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, resetDeclarations } from '../../src/cli/kernel/risk.js';
 import { palette } from '../../src/cli/palette.js';
 import * as reportService from '../../src/services/reporting/report-service.js';

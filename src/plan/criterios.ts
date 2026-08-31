@@ -1010,6 +1010,37 @@ export const CRITERIOS: Criterio[] = [
   // ---- E5.1 · Madurez del agente ----
   {
     paquete: 'E5.1',
+    enunciado: 'La auditoría de consistencia corre contra el binario que se embarca, y su deuda no crece',
+    evaluar: async () => {
+      // `auditProgram` existía desde el principio y el programa real nunca
+      // pasó por ella: vivía en un `.spec.ts` y cada prueba se construía un
+      // árbol de juguete. Peor, importarla desde el spec arrastraba su suite,
+      // cuyos `resetDeclarations()` vacían el registro de riesgo — así que
+      // cualquier prueba que la importara auditaba un programa con cero
+      // declaraciones y pasaba en el vacío.
+      const { program } = await import('../cli/mnemosine.js');
+      const { auditarContraLineaBase, LINEA_BASE } = await import('../cli/kernel/audit.js');
+
+      const { nuevas, obsoletas, heredadas } = auditarContraLineaBase(program);
+      if (nuevas.length > 0) {
+        return falla(
+          `${nuevas.length} violación(es) que no están en la línea base — p. ej. ` +
+            `${nuevas[0].command}: ${nuevas[0].detail}`
+        );
+      }
+      if (obsoletas.length > 0) {
+        return falla(
+          `${obsoletas.length} entrada(s) de la línea base ya no se violan y siguen ahí: una lista ` +
+            'que no encoge deja de ser deuda registrada y se vuelve un permiso permanente'
+        );
+      }
+      return ok(
+        `sin violaciones nuevas; ${heredadas} de ${LINEA_BASE.length} heredadas siguen vivas`
+      );
+    },
+  },
+  {
+    paquete: 'E5.1',
     enunciado: 'Toda hoja del CLI declara su riesgo, así que hay algo sobre lo que aplicar la compuerta',
     evaluar: async () => {
       // Se mide sobre el PROGRAMA EMBARCADO, no sobre un árbol de juguete.

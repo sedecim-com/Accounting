@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Command } from 'commander';
-import { auditProgram } from './kernel/consistency.spec.js';
+import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, resetDeclarations } from '../../src/cli/kernel/risk.js';
 import { VERBS } from '../../src/cli/kernel/vocabulary.js';
 import { registerEntryCommand } from '../../src/cli/entry-command.js';
