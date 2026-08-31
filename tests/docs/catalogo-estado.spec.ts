@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
+  celdasDe,
   citasDe,
+  filasCompletas,
   comandosVivos,
   filasDelCatalogo,
   medir,
@@ -127,5 +129,66 @@ describe('render', () => {
     // Publicarlo como si fuera verificación sería el error que este bloque
     // viene a quitar, no a repetir.
     expect(bloque).toContain('no prueba que siga apuntando a lo mismo');
+  });
+});
+
+describe('celdasDe — partir por las tuberías REALES', () => {
+  it('no parte por una tubería dentro de comillas invertidas', () => {
+    // `--status <active|dormant>` es UNA celda. Partir a lo bruto rompía 133
+    // de las 1623 filas, y una fila rota desaparece del recuento sin ruido.
+    const c = celdasDe('| `mnemosine account list` | Lista | `--status <active|dormant>` | ✅ x | lectura | ✓ | 1 |');
+    // Las tuberías de los extremos producen una celda vacía a cada lado: las
+    // SIETE columnas son lo de en medio, y de ahí el .slice(1) de filasCompletas.
+    expect(c.slice(1, -1)).toHaveLength(7);
+    expect(c[3]).toBe('`--status <active|dormant>`');
+  });
+
+  it('no parte por una tubería escapada', () => {
+    const c = celdasDe('| a | b \\| c | d |');
+    expect(c.slice(1, 3)).toEqual(['a', 'b \\| c']);
+  });
+
+  it('recorta los espacios de cada celda', () => {
+    expect(celdasDe('|   a   |  b |')[1]).toBe('a');
+  });
+});
+
+describe('filasCompletas — los datos que consume el artefacto navegable', () => {
+  const fila =
+    '| `mnemosine entry post <id>` · `poliza aplicar` | Aplica el asiento | `--force` | ' +
+    '🟡 src/index.ts:1 falta algo | escritura | ✗ | 2 |';
+
+  it('separa el alias en español del comando inglés', () => {
+    const [f] = filasCompletas(fila);
+    expect(f.invocacion).toBe('entry post <id>');
+    expect(f.es).toBe('poliza aplicar');
+  });
+
+  it('saca el estado del PRIMER carácter de la celda Backend, no de un buscar-y-encontrar', () => {
+    // Un ✅ mencionado en mitad de la prosa de la celda no debe cambiar el estado.
+    const [f] = filasCompletas('| `mnemosine x` | a | b | ❌ no existe, aunque ✅ el motor vecino sí | lectura | ✓ | 3 |');
+    expect(f.estado).toBe('❌');
+  });
+
+  it('conserva riesgo, IA y fase, que son lo que ordena el plan', () => {
+    const [f] = filasCompletas(fila);
+    expect(f.riesgo).toBe('escritura');
+    expect(f.ia).toBe('✗');
+    expect(f.fase).toBe('2');
+  });
+
+  it('marca `viva` contra el árbol de comandos, no contra la columna Backend', () => {
+    // Son dos preguntas distintas: «existe el motor» y «se puede teclear».
+    // El artefacto anterior sólo sabía la primera.
+    const [vive] = filasCompletas('| `mnemosine doctor` · `revisar` | a | b | ❌ nada | lectura | ✓ | 1 |');
+    expect(vive.estado).toBe('❌');
+    expect(vive.viva).toBe(true);
+  });
+
+  it('sobre el catálogo real recupera las 1623 filas, sin perder ninguna', () => {
+    const md = require('node:fs').readFileSync('docs/cli-command-catalog.md', 'utf-8');
+    const filas = filasCompletas(md);
+    expect(filas).toHaveLength(1623);
+    expect(filas.every((f) => '✅🟡❌'.includes(f.estado))).toBe(true);
   });
 });

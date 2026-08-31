@@ -77,6 +77,83 @@ export function filasDelCatalogo(md: string): Fila[] {
   });
 }
 
+/**
+ * Una fila del catálogo con TODAS sus columnas, para quien necesita los datos y
+ * no sólo el recuento — el artefacto navegable, por ejemplo.
+ *
+ * Existe porque ese artefacto llevaba los 1623 comandos COPIADOS A MANO dentro
+ * de su HTML: 20 citas a un archivo ya borrado, 1622 filas en vez de 1623, y
+ * ninguna noción de qué comandos se pueden teclear hoy. Un tercer espejo del
+ * repositorio, desfasado como los dos anteriores.
+ */
+export interface FilaCompleta extends Fila {
+  /** El alias en español, tras ` · ` en la primera celda. */
+  es: string;
+  queHace: string;
+  flags: string;
+  backend: string;
+  /** ✅ | 🟡 | ❌ | ? — el primer carácter de la celda Backend. */
+  estado: string;
+  riesgo: string;
+  ia: string;
+  fase: string;
+  /** ¿El binario responde hoy a esta ruta de comando? */
+  viva: boolean;
+}
+
+/**
+ * Parte una fila de tabla markdown por sus `|` REALES.
+ *
+ * Un `split('|')` a secas rompe 133 de las 1623 filas: las celdas llevan tuberías
+ * dentro de comillas invertidas (`--status <active|dormant>`) y escapadas (`\|`).
+ */
+export function celdasDe(linea: string): string[] {
+  const celdas: string[] = [];
+  let buf = '';
+  let enTick = false;
+  for (let i = 0; i < linea.length; i++) {
+    const ch = linea[i];
+    if (ch === '`') enTick = !enTick;
+    if (ch === '|' && !enTick && linea[i - 1] !== '\\') {
+      celdas.push(buf);
+      buf = '';
+    } else {
+      buf += ch;
+    }
+  }
+  celdas.push(buf);
+  return celdas.map((c) => c.trim());
+}
+
+export function filasCompletas(md: string): FilaCompleta[] {
+  const vivos = comandosVivos();
+  const out: FilaCompleta[] = [];
+  for (const linea of md.split('\n')) {
+    if (!/^\|\s*`mnemosine\b/.test(linea)) continue;
+    const c = celdasDe(linea).slice(1);
+    if (c.length < 7) continue;
+    const inv = (linea.match(/`mnemosine\b([^`]*)`/) ?? [])[1]?.trim() ?? '';
+    const ruta = rutaDe(inv);
+    const backend = c[3] ?? '';
+    const primero = [...backend][0] ?? '?';
+    out.push({
+      invocacion: inv,
+      ruta,
+      familia: ruta.split(' ')[0] || '(raíz)',
+      es: (c[0].split('·')[1] ?? '').replace(/`/g, '').trim(),
+      queHace: c[1] ?? '',
+      flags: c[2] ?? '',
+      backend,
+      estado: '✅🟡❌'.includes(primero) ? primero : '?',
+      riesgo: c[4] ?? '',
+      ia: c[5] ?? '',
+      fase: (c[6] ?? '').replace(/[^0-9]/g, ''),
+      viva: ruta === '' || vivos.has(ruta),
+    });
+  }
+  return out;
+}
+
 export interface Cita {
   archivo: string;
   linea: number;
@@ -216,6 +293,11 @@ function main(argv: string[]): number {
     return 1;
   }
   const actual = md.slice(i, j + FIN.length);
+
+  if (argv.includes('--json')) {
+    process.stdout.write(JSON.stringify(filasCompletas(md)));
+    return 0;
+  }
 
   if (argv.includes('--check')) {
     if (actual === bloque) {
