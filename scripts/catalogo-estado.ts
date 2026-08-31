@@ -27,21 +27,71 @@ import { program } from '../src/cli/mnemosine.js';
 
 const RAIZ = path.resolve(__dirname, '..');
 const DOC = path.join(RAIZ, 'docs', 'cli-command-catalog.md');
+const SUELO = path.join(RAIZ, 'docs', 'catalogo-minimos.json');
 const INICIO = '<!-- ESTADO-GENERADO:INICIO -->';
 const FIN = '<!-- ESTADO-GENERADO:FIN -->';
 
-/** Toda ruta de comando que el binario responde hoy: 'account', 'account list', … */
-export function comandosVivos(): Set<string> {
-  const vivos = new Set<string>();
+/**
+ * El árbol del binario, separando lo que EJECUTA de lo que sólo agrupa.
+ *
+ * `mnemosine report` no es un comando: es un menú que imprime su ayuda. De los
+ * 136 nodos del árbol, 30 son de esos. Contarlos como comandos inflaba la cifra
+ * de portada y —peor— hacía que 30 menús aparecieran como «comandos vivos sin
+ * fila en el catálogo», convirtiendo 39 desajustes reales de nombre en 69.
+ */
+export function arbolVivo(): { hojas: Set<string>; grupos: Set<string> } {
+  const hojas = new Set<string>();
+  const grupos = new Set<string>();
   const andar = (cmd: { commands: readonly unknown[] }, prefijo: string): void => {
     for (const c of cmd.commands as Array<{ name(): string; commands: readonly unknown[] }>) {
       const nombre = prefijo ? `${prefijo} ${c.name()}` : c.name();
-      vivos.add(nombre);
+      (c.commands.length > 0 ? grupos : hojas).add(nombre);
       andar(c, nombre);
     }
   };
   andar(program as unknown as { commands: readonly unknown[] }, '');
-  return vivos;
+  return { hojas, grupos };
+}
+
+/**
+ * Toda ruta que el binario responde: hojas y menús.
+ *
+ * Sigue incluyendo los menús a propósito, porque el catálogo tiene filas para
+ * algunos de ellos (`mnemosine sat cred`, por ejemplo, es un grupo con fila
+ * propia) y marcarlas como no invocables sería falso.
+ */
+export function comandosVivos(): Set<string> {
+  const { hojas, grupos } = arbolVivo();
+  return new Set([...hojas, ...grupos]);
+}
+
+/**
+ * Familias que el catálogo NO pretende cubrir, y por qué.
+ *
+ * Su introducción las enumera como la superficie que ya existía —«casi todos de
+ * plomería del agente»— y su alcance es la capacidad CONTABLE. Sin esta lista,
+ * sus 29 hojas aparecen como «comandos vivos sin fila» y se leen como deuda de
+ * catalogación. No lo son: están fuera por diseño, y decirlo es lo que hace
+ * creíble el número que sí queda.
+ */
+export const FUERA_DEL_CATALOGO = new Set([
+  'jobs', 'webhooks', 'approvals', 'pending', 'skills', 'memory', 'drafts',
+  'outbox', 'questions', 'sessions', 'usage', 'providers', 'entities',
+  'prompt-size', 'chat', 'ask', 'review', 'ingest', 'onboard', 'doctor',
+  'status', 'login', 'logout', 'whoami', 'lang', 'compact', 'init', 'close',
+]);
+
+/**
+ * Hojas que el binario ejecuta y el catálogo no nombra, excluyendo la plomería.
+ *
+ * Es el desajuste que impide medir el avance: mientras exista, un sprint puede
+ * entregar ocho comandos y cerrar cero filas. Le pasó a `report`.
+ */
+export function sinFila(md: string): string[] {
+  const rutas = new Set(filasDelCatalogo(md).map((f) => f.ruta));
+  return [...arbolVivo().hojas]
+    .filter((r) => !rutas.has(r) && !FUERA_DEL_CATALOGO.has(r.split(' ')[0]))
+    .sort();
 }
 
 export interface Fila {
@@ -174,9 +224,15 @@ export function citasDe(md: string): Cita[] {
 export interface Estado {
   filas: number;
   implementadas: number;
+  /** Cuántas filas declara cada símbolo de la columna Backend. */
+  porEstado: { ok: number; parcial: number; falta: number };
+  /** Fase 1 es «sin esto no se lleva contabilidad desde el CLI». */
+  fase1: { total: number; invocables: number };
   porFamilia: Array<{ familia: string; total: number; implementadas: number }>;
   citas: { total: number; sinArchivo: Cita[]; fueraDeRango: Cita[] };
   superficie: { familias: number; comandos: number };
+  /** Hojas vivas que el catálogo no nombra, sin contar la plomería. */
+  sinFila: string[];
 }
 
 export function medir(md: string): Estado {
@@ -212,15 +268,24 @@ export function medir(md: string): Estado {
     else if (n !== undefined && c.linea > n) fueraDeRango.push(c);
   }
 
+  // El conteo del motor sale de las FILAS, no de la prosa de portada: la tabla
+  // escrita a mano decía 153/462/1008 donde las filas dicen 160/447/1016.
+  const completas = filasCompletas(md);
+  const cuenta = (s: string): number => completas.filter((f) => f.estado === s).length;
+  const deFase1 = completas.filter((f) => f.fase === '1');
+
   return {
     filas: filas.length,
     implementadas,
+    porEstado: { ok: cuenta('✅'), parcial: cuenta('🟡'), falta: cuenta('❌') },
+    fase1: { total: deFase1.length, invocables: deFase1.filter((f) => f.viva).length },
     porFamilia: [...agrupado.entries()]
       .map(([familia, g]) => ({ familia, ...g }))
       .filter((g) => g.implementadas > 0 || g.total >= 20)
       .sort((a, b) => b.implementadas - a.implementadas || b.total - a.total),
     citas: { total: citas.length, sinArchivo, fueraDeRango },
-    superficie: { familias: program.commands.length, comandos: comandosVivos().size },
+    superficie: { familias: program.commands.length, comandos: arbolVivo().hojas.size },
+    sinFila: sinFila(md),
   };
 }
 
@@ -238,9 +303,19 @@ export function render(e: Estado): string {
   l.push('### Cuánto de este catálogo existe ya');
   l.push('');
   l.push(
-    `El binario responde hoy **${e.superficie.comandos} comandos** en ` +
+    `El binario ejecuta hoy **${e.superficie.comandos} comandos** repartidos en ` +
       `**${e.superficie.familias} familias** de primer nivel. De las **${e.filas}** filas del ` +
       `catálogo, **${e.implementadas}** (${pct(e.implementadas, e.filas)} %) ya se pueden invocar.`
+  );
+  l.push('');
+  l.push(
+    `Del motor que cada comando necesita, **${e.porEstado.ok}** filas lo declaran completo, ` +
+      `**${e.porEstado.parcial}** a medias y **${e.porEstado.falta}** inexistente.`
+  );
+  l.push('');
+  l.push(
+    `**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son ` +
+      `**${e.fase1.total}** filas, de las que **${e.fase1.invocables}** ya se teclean.`
   );
   l.push('');
   l.push('| Familia | En el catálogo | Ya invocables |');
@@ -249,6 +324,16 @@ export function render(e: Estado): string {
     l.push(`| \`${f.familia}\` | ${f.total} | ${f.implementadas === 0 ? '—' : f.implementadas} |`);
   }
   l.push('');
+
+  if (e.sinFila.length > 0) {
+    l.push(
+      `**${e.sinFila.length} comandos que el binario ejecuta no tienen fila** ` +
+        `(${e.sinFila.slice(0, 4).join(', ')}${e.sinFila.length > 4 ? ', …' : ''}). ` +
+        'Mientras existan, un sprint puede entregar comandos y cerrar cero filas — ' +
+        'le pasó a `report`, con 2 741 líneas invertidas.'
+    );
+    l.push('');
+  }
 
   const rotas = e.citas.sinArchivo.length + e.citas.fueraDeRango.length;
   l.push(
@@ -300,6 +385,48 @@ function main(argv: string[]): number {
   }
 
   if (argv.includes('--check')) {
+    // EL TRINQUETE, ANTES QUE EL FORMATO.
+    //
+    // Que el bloque esté regenerado no impide un retroceso: quien borre un
+    // comando y regenere pasa el check con un número más bajo. El suelo vive
+    // aparte, en docs/catalogo-minimos.json, y sólo sube en el commit que gana
+    // el terreno — la misma disciplina que la lista --exigir de plan:status.
+    if (fs.existsSync(SUELO)) {
+      const suelo = JSON.parse(fs.readFileSync(SUELO, 'utf-8')) as Record<string, number>;
+      const medido = medir(md);
+      const caidas: string[] = [];
+      const comparar = (clave: string, hoy: number): void => {
+        const min = suelo[clave];
+        if (typeof min === 'number' && hoy < min) caidas.push(`${clave}: ${hoy} < ${min}`);
+      };
+      comparar('invocables', medido.implementadas);
+      comparar('fase1Invocables', medido.fase1.invocables);
+      if (caidas.length > 0) {
+        process.stderr.write(
+          `El catálogo RETROCEDIÓ respecto a su suelo: ${caidas.join(' · ')}.\n` +
+            'Si el terreno se cedió a propósito, baja el suelo en docs/catalogo-minimos.json\n' +
+            'en este mismo commit y di por qué en el mensaje.\n'
+        );
+        return 1;
+      }
+    }
+
+    // Y que no vuelvan a separarse los nombres. Reconciliarlos hizo saltar los
+    // invocables de 80 a 90 sin escribir una línea de producto: eran diez
+    // comandos ya entregados que el medidor no veía. Volver a divergir es
+    // volver a no poder medir.
+    const sueltos = sinFila(md);
+    if (sueltos.length > 0) {
+      process.stderr.write(
+        `${sueltos.length} comando(s) que el binario ejecuta no tienen fila en el catálogo:\n` +
+          sueltos.map((x) => `  ${x}`).join('\n') +
+          '\n\nDale fila a cada uno, renombra el comando para que case con la que ya existe,\n' +
+          'o —si es plomería y no capacidad contable— añade su familia a FUERA_DEL_CATALOGO\n' +
+          'en scripts/catalogo-estado.ts, diciendo por qué.\n'
+      );
+      return 1;
+    }
+
     if (actual === bloque) {
       process.stdout.write('El estado del catálogo está al día.\n');
       return 0;

@@ -185,10 +185,16 @@ describe('filasCompletas — los datos que consume el artefacto navegable', () =
     expect(vive.viva).toBe(true);
   });
 
-  it('sobre el catálogo real recupera las 1623 filas, sin perder ninguna', () => {
-    const md = require('node:fs').readFileSync('docs/cli-command-catalog.md', 'utf-8');
-    const filas = filasCompletas(md);
-    expect(filas).toHaveLength(1623);
-    expect(filas.every((f) => '✅🟡❌'.includes(f.estado))).toBe(true);
+  it('sobre el catálogo real no pierde ni una fila', () => {
+    // Esta prueba fijaba el número 1623 y se puso en rojo el día que S0.1 añadió
+    // tres filas: un literal que castiga el avance, que es justo lo que estos
+    // scripts existen para quitar. Lo que hay que afirmar es la PROPIEDAD —que
+    // el parser no descarta filas en silencio— y ésa se comprueba contando el
+    // archivo, no recordando un número.
+    const md: string = require('node:fs').readFileSync('docs/cli-command-catalog.md', 'utf-8');
+    const enBruto = md.split('\n').filter((l: string) => /^\|\s*`mnemosine\b/.test(l)).length;
+    expect(enBruto).toBeGreaterThan(1000);
+    expect(filasCompletas(md)).toHaveLength(enBruto);
+    expect(filasCompletas(md).every((f) => '✅🟡❌'.includes(f.estado))).toBe(true);
   });
 });
