@@ -77,7 +77,14 @@ const approvePreRegSchema = z.object({
 
 const bulkPreRegSchema = z.object({
   action: z.enum(['process', 'approve', 'reject', 'set_batch']),
-  ids: z.array(z.string().uuid()).min(1),
+  // EL MISMO TOPE DURO, por la misma razón y con más motivo. El manejador
+  // recorre `ids` con al menos un viaje a la base por elemento, y con
+  // action:'process' cada vuelta POSTEA AL MAYOR. Sin tope, una sola petición
+  // —que gasta 1 de las 1000 del bucket horario del inquilino— ata un worker y
+  // el pool de conexiones durante cientos de miles de operaciones en serie: el
+  // freno por petición no ve esa amplificación. `xml_contents` ya se acotó aquí
+  // arriba por esto mismo; que este quedara sin acotar era el descuido.
+  ids: z.array(z.string().uuid()).min(1).max(MAX_XML_POR_LOTE),
   params: z.record(z.unknown()).optional(),
 });
 
