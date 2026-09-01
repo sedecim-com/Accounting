@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { registrarAuditoria } from '../audit/audit-log.js';
+import { getPolicy } from '../policy/policy-service.js';
 import type pg from 'pg';
 import { query, withTransaction, currentTenant } from '../../database/connection.js';
 import { validateJournalEntry } from './validation.js';
@@ -109,7 +110,7 @@ export async function createJournalEntry(
     // Generate entry number (atomic per-entity counter; the row lock it
     // takes lives until this transaction commits, so concurrent posts can
     // never draw the same number — COUNT(*) here used to collide).
-    const entryNumber = await nextEntityNumber(client, entityId, 'journal_entry', 'JE');
+    const entryNumber = await nextEntityNumber(client, entityId, 'journal_entry', 'JE', entryDate);
 
     // Create journal entry
     const entryId = uuidv4();
@@ -298,6 +299,39 @@ export async function postJournalEntry(
       );
     }
 
+    // Se resuelve una sola vez y sirve para tres cosas: la política de
+    // segregación, la auditoría y la atestación. Es la variante ESTRICTA
+    // —lanza si no resuelve—, así que no hace falta condicionar el titular
+    // como hacen reverse y void, que usan la blanda.
+    const tenantId = await tenantParaAuditoria(client, entry.entity_id);
+
+    // F01 · MAKER-CHECKER HUMANO (decisión §5, resuelta como panel).
+    //
+    // Solo pólizas MANUALES (source_type nulo): en los flujos del sistema —
+    // nómina, aprobación de borradores de IA, reversas — creador=posteador es
+    // intencional y el maker real queda trazado por source_type/source_id.
+    // Cerrado al declarar, abierto al escribir: solo el literal 'exigir'
+    // bloquea y solo 'alertar' anota; un valor desconocido cae al lado que no
+    // congela la operación (off), igual que ingest_auto_post con 'on'.
+    let notaSoD: string | null = null;
+    if (!entry.source_type && entry.created_by === userId) {
+      const politica = await getPolicy(
+        { tenantId, entityId: entry.entity_id },
+        'segregacion_de_funciones'
+      );
+      if (politica.value === 'exigir') {
+        throw new AccountingError(
+          'SOD_QUIEN_CREA_NO_POSTEA',
+          `${entry.entry_number}: la política de segregación de funciones exige que quien postea ` +
+            'no sea quien creó el borrador. Que otro usuario corra entry post, o ajusta la ' +
+            'política segregacion_de_funciones en mnemosine pending.'
+        );
+      }
+      if (politica.value === 'alertar') {
+        notaSoD = 'SoD: quien postea es quien creó el borrador (política en alertar)';
+      }
+    }
+
     // Candado compartido sobre el periodo (R1): la validación de arriba lee
     // el estado FUERA de esta transacción, así que un cierre concurrente
     // podía colarse entre la lectura y el UPDATE. El FOR SHARE se cruza con
@@ -314,11 +348,6 @@ export async function postJournalEntry(
       [now, userId, entryId]
     );
 
-    // Se resuelve una sola vez y sirve para las dos cosas. Es la variante
-    // ESTRICTA —lanza si no resuelve—, así que no hace falta condicionar el
-    // titular como hacen reverse y void, que usan la blanda.
-    const tenantId = await tenantParaAuditoria(client, entry.entity_id);
-
     await registrarAuditoria(client, {
       tenantId,
       userId,
@@ -327,6 +356,7 @@ export async function postJournalEntry(
       entityId: entryId,
       oldValues: { status: entry.status },
       newValues: { status: 'posted', posted_by: userId },
+      reason: notaSoD,
     });
 
     // Update account balances

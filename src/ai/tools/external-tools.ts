@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { envolverDatosDeTerceros } from '../untrusted.js';
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import type { AgentContext } from '../context.js';
 import type { ToolDeps } from './observer.js';
@@ -46,7 +47,9 @@ export function buildExternalTools(ctx: AgentContext, deps: ToolDeps) {
         // mid-object by the generic truncation marker). The trial_balance
         // resource has NO pagination or account filters, so when rows are
         // omitted the guidance points to the tools that DO cover the rest.
-        const MAX_TRIAL_BALANCE_CHARS = 30_000;
+        // A3: el presupuesto descuenta la envoltura UNTRUSTED — si no, un
+        // resultado al ras del tope quedaría truncado a media envoltura.
+        const MAX_TRIAL_BALANCE_CHARS = 30_000 - envolverDatosDeTerceros('').length;
         const kept: typeof rows = [];
         let serializedLength = 0;
         for (const row of rows) {
@@ -56,7 +59,7 @@ export function buildExternalTools(ctx: AgentContext, deps: ToolDeps) {
           serializedLength += rowLength;
         }
         const omitted = rows.length - kept.length;
-        return JSON.stringify({
+        return envolverDatosDeTerceros({
           provider: input.provider,
           count: rows.length,
           shown: kept.length,
@@ -82,7 +85,7 @@ export function buildExternalTools(ctx: AgentContext, deps: ToolDeps) {
         rfc: input.rfc, transaction_type: input.transaction_type, document_type: input.document_type,
         start_date: input.start_date, end_date: input.end_date, page: input.page,
       });
-      return JSON.stringify({ provider: input.provider, page: input.page ?? 0, documents: list });
+      return envolverDatosDeTerceros({ provider: input.provider, page: input.page ?? 0, documents: list });
     },
   });
 
@@ -101,7 +104,7 @@ export function buildExternalTools(ctx: AgentContext, deps: ToolDeps) {
     run: async (input) => {
       deps.observe?.('external_diff_trial_balance', input);
       const diff = await diffTrialBalance(ctx, input.provider, input.start_date, input.end_date);
-      return JSON.stringify(diff);
+      return envolverDatosDeTerceros(diff);
     },
   });
 
@@ -150,7 +153,7 @@ export function buildExternalTools(ctx: AgentContext, deps: ToolDeps) {
       deps.observe?.('list_external_ops', input);
       const rows = await listExternalOps(ctx, input.status);
       if (rows.length === 0) return 'No external operations' + (input.status ? ` with status ${input.status}` : '') + '.';
-      return JSON.stringify({
+      return envolverDatosDeTerceros({
         count: rows.length,
         ops: rows.map((o) => ({
           id: o.id, provider: o.provider, operation: o.operation, status: o.status,

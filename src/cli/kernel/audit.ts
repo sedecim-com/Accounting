@@ -216,7 +216,6 @@ export const LINEA_BASE: readonly string[] = [
   'approvals list|list contract|missing --limit',
   'approvals list|list contract|missing --format',
   'approvals grant|R6 short flag|--provider should use -p, found none',
-  'account deactivate|R3 closed verb list|"deactivate" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
   'usage|R1 objectless allowlist|"usage" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'status|R6 short flag|--all should use -a, found none',
   'jobs list|list contract|missing --limit',

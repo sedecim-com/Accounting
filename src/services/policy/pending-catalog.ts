@@ -339,6 +339,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'intervention when the confidence, amount, and known-vendor thresholds are met.',
     options: [
       { value: 'off', label: 'Off: everything goes to human review' },
+      { value: 'shadow', label: 'Shadow: run every gate, record the verdict, post NOTHING — builds the track record' },
       { value: 'on', label: 'On with the configured thresholds' },
     ],
     defaultValue: 'off',
@@ -374,29 +375,89 @@ export const POLICY_CATALOG: PolicySpec[] = [
   },
 
   // ── Business ──
+    // pac_ofrece_descarga se RETIRÓ en F02: la descarga masiva está bloqueada
+  // por E3.2 y no existe camino de código cuya conducta la respuesta pueda
+  // cambiar — una pregunta sin efecto posible viola E1.3 («contestar una
+  // política cambia el comportamiento de alguien») y entrena al despacho a
+  // ignorar el panel. Vuelve CON el flujo de descarga, como su primera clave.
   {
-    key: 'pac_ofrece_descarga',
-    category: 'comercial',
-    question: 'Does your PAC offer download of received CFDIs, and does it require your e.firma?',
+    // F02 · REP-2: qué hace el CIERRE con un pago a proveedor sin REP. El
+    // IVA de ese pago sigue aparcado en 1135 y no es acreditable; cerrar el
+    // mes con eso pendiente es una decisión del despacho, no del sistema.
+    key: 'rep_faltante_recibido',
+    category: 'fiscal',
+    question: 'At close, a supplier payment still has no REP (its VAT is parked). Block the close or just warn?',
     impact:
-      'If the PAC downloads without asking for the e.firma, those clients need no custody and your ' +
-      'exposure drops. If it requires it, the PAC route only transfers the risk to a regulated third ' +
-      'party. Determines whether PacDownloadProvider is worth implementing.',
+      'With "bloquear", the soft close refuses while any period payment lacks its REP; with "avisar" it ' +
+      'closes and the checklist records the parked VAT.',
     options: [
-      { value: 'si_sin_efirma', label: 'Offers it and does NOT ask for the e.firma (ideal)' },
-      { value: 'si_con_efirma', label: 'Offers it but asks for the client e.firma' },
-      { value: 'no', label: 'Does not offer the service' },
+      { value: 'avisar', label: 'Warn: close proceeds, the parked VAT stays visible in the checklist' },
+      { value: 'bloquear', label: 'Block: no close until every payment has its REP' },
     ],
-    defaultValue: 'no',
+    defaultValue: 'avisar',
     defaultRationale:
-      'Until confirmed, direct SAT download with a custodied e.firma is assumed.',
+      'A supplier who is late with their REP should not freeze your whole close; the parked VAT is ' +
+      'visible either way and rep missing list names the culprits.',
     whyAsking:
-      "If your PAC can download your received CFDIs, I don't need to hold your e.firma for that client — which is a real reduction in risk. Whether it can, and whether it demands the e.firma itself, is commercial information only you can confirm.",
+      'The REP is what makes PPD VAT creditable. Some firms refuse to close a month with parked VAT; others close and chase the supplier.',
     whatIDo:
-      'It decides whether I download directly from the SAT (needing your custodied e.firma) or through your PAC.',
+      'It decides whether getPeriodCloseStatus counts missing supplier REPs as a blocking issue or a warning.',
+    ifSkipped: 'It warns: the close proceeds and the checklist shows the pending REPs.',
+    priority: 22,
+  },
+  {
+    // F02 · REP-2: el espejo del anterior, pero con OBLIGACIÓN PROPIA — el
+    // REP de un cobro nuestro lo debemos EMITIR nosotros, con plazo del SAT.
+    key: 'rep_faltante_emitido',
+    category: 'fiscal',
+    question: 'At close, a customer collection has no REP issued by us. Block the close or just warn?',
+    impact:
+      'The REP for a collected PPD invoice is OUR filing obligation, with a SAT deadline. "bloquear" ' +
+      'refuses the close while any collection lacks its REP; "avisar" closes and records it.',
+    options: [
+      { value: 'bloquear', label: 'Block: our own REP obligation must be met before closing' },
+      { value: 'avisar', label: 'Warn: close proceeds, the obligation stays on the checklist' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'Warning keeps the close usable from day one; switch to bloquear when REP issuance (rep stamp) ' +
+      'exists in the system and the obligation can be met from here.',
+    whyAsking:
+      'Unlike the supplier case, this REP is ours to issue and the SAT deadline is ours to miss. Whether that blocks your close is firm policy.',
+    whatIDo:
+      'It decides whether getPeriodCloseStatus counts our unissued REPs as a blocking issue or a warning.',
+    ifSkipped: 'It warns: the close proceeds and the checklist shows the obligation.',
+    priority: 21,
+  },
+  {
+    // F01 · maker-checker humano (segregación de funciones). La decisión §5
+    // del plan maestro: no se difiere tácitamente ni se decide en código —
+    // vive aquí, con default que no rompe al despacho unipersonal. Aplica
+    // SOLO a pólizas manuales (source_type nulo): en los flujos del sistema
+    // (nómina, aprobación de borradores de IA, reversas) creador=posteador
+    // es intencional y el maker real queda trazado por source_type/source_id.
+    key: 'segregacion_de_funciones',
+    category: 'seguridad',
+    question: 'May the person who drafted a manual journal entry also post it?',
+    impact:
+      'Four-eyes control on the manual path: with "exigir", entry post rejects the drafter posting ' +
+      'their own entry; with "alertar" it posts but the audit row says so; off means no check.',
+    options: [
+      { value: 'off', label: 'Off: anyone may post what they drafted (single-person firm)' },
+      { value: 'alertar', label: 'Warn: post succeeds, the audit trail records the coincidence' },
+      { value: 'exigir', label: 'Enforce: the poster must be a different user than the drafter' },
+    ],
+    defaultValue: 'off',
+    defaultRationale:
+      'A one-person firm cannot separate duties; enforcing by default would freeze every posting. ' +
+      'Turn it on when there are at least two users.',
+    whyAsking:
+      'Separation of duties is the classic control against a single person inventing and applying an entry. Whether your firm can afford it depends on how many hands it has.',
+    whatIDo:
+      'With "exigir", `entry post` refuses when the poster created the draft (system flows are exempt: they are traced by source). With "alertar", it posts and leaves the fact in the audit log.',
     ifSkipped:
-      'I assume direct SAT download, so the e.firma stays under custody even if your PAC could have avoided it.',
-    priority: 35,
+      'It stays off: no separation check, which is the only workable default for a single-user tenant.',
+    priority: 30,
   },
 ];
 
