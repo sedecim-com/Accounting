@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -20,8 +20,8 @@ import {
 import { query, withTransaction } from '../../../src/database/connection.js';
 import type { AgentContext } from '../../../src/ai/context.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
-const mockWithTransaction = withTransaction as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
+const mockWithTransaction = withTransaction as unknown as Mock;
 
 const CTX: AgentContext = {
   entityId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
@@ -57,7 +57,7 @@ function draftRow(overrides: Partial<SkillDraftRow> = {}): SkillDraftRow {
 }
 
 /** Wires withTransaction to a fake client whose queries come from `responses`. */
-function mockTransaction(responses: Array<{ rows?: unknown[]; rowCount?: number }>): ReturnType<typeof vi.fn> {
+function mockTransaction(responses: Array<{ rows?: unknown[]; rowCount?: number }>): Mock {
   const clientQuery = vi.fn();
   for (const r of responses) {
     clientQuery.mockResolvedValueOnce({ rows: r.rows ?? [], rowCount: r.rowCount ?? 0 });

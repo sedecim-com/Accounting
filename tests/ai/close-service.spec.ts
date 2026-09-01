@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(), enterTenant: vi.fn(), currentTenant: vi.fn(),
@@ -15,8 +15,8 @@ import { query } from '../../src/database/connection.js';
 import { getPeriodCloseStatus } from '../../src/services/accounting/period-close.js';
 import type { AgentContext } from '../../src/ai/context.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
-const mockStatus = getPeriodCloseStatus as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
+const mockStatus = getPeriodCloseStatus as unknown as Mock;
 
 const CTX: AgentContext = {
   entityId: 'entity-1', entityName: 'Acme', tenantId: 'tenant-a',

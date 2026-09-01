@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 // F02 · E1.3: el techo y la reacción salen del panel. El arnés fija el
 // panel en «no estorbes»: techo enorme (manda el de la credencial) y
@@ -24,7 +24,7 @@ import { serializeMaterial } from '../../src/services/fiscal-credentials/certifi
 import { query } from '../../src/database/connection.js';
 import { setVaultForTesting, type SecretVault } from '../../src/services/vault/index.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 
 const ROW = {
   id: 'cred-1',
@@ -50,7 +50,7 @@ const MATERIAL = {
   password: 'clave123',
 };
 
-function fakeVault(overrides: Partial<SecretVault> = {}): SecretVault & { get: ReturnType<typeof vi.fn> } {
+function fakeVault(overrides: Partial<SecretVault> = {}): SecretVault & { get: Mock } {
   const get = vi.fn().mockResolvedValue(serializeMaterial(MATERIAL));
   return {
     backend: 'local-dev',

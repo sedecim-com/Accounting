@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   // R1: tenantDe usa el contexto cuando existe; el arnés lo da fijo.
@@ -28,9 +28,9 @@ import { query, withTransaction } from '../../../src/database/connection.js';
 import { postBillEntry } from '../../../src/services/accounting/ar-ap-posting.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
-const mockTx = withTransaction as unknown as ReturnType<typeof vi.fn>;
-const mockPost = postBillEntry as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
+const mockTx = withTransaction as unknown as Mock;
+const mockPost = postBillEntry as unknown as Mock;
 
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const USER = 'user-1';

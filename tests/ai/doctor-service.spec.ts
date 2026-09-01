@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -18,7 +18,7 @@ import { runDoctor,
 } from '../../src/ai/doctor-service.js';
 import { query } from '../../src/database/connection.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 
 /** Answers by mentioned table; defensive with missing args. */
 function mockDb(over: Partial<Record<string, unknown[]>> = {}) {

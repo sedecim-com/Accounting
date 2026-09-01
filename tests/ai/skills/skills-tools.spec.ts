@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 // Mock only the discovery/serve functions; keep the real neutralization helpers
 // (neutralizeSkillField / fenceUntrustedSkillContent) so the tools' fencing is
@@ -39,9 +39,9 @@ async function text(result: ReturnType<SkillViewTool['run']>): Promise<string> {
   return out;
 }
 
-const mockVisible = visibleSkills as unknown as ReturnType<typeof vi.fn>;
-const mockView = viewSkill as unknown as ReturnType<typeof vi.fn>;
-const mockRef = readSkillReference as unknown as ReturnType<typeof vi.fn>;
+const mockVisible = visibleSkills as unknown as Mock;
+const mockView = viewSkill as unknown as Mock;
+const mockRef = readSkillReference as unknown as Mock;
 
 const CTX = { entityId: 'e', tenantId: 't' } as AgentContext;
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { clienteFalso, type ClienteFalso } from '../helpers/fake-pg.js';
 import { asientoFalso, lineaFalsa, ID } from '../helpers/entidades.js';
 import type { JournalEntry } from '../../src/types/index.js';
@@ -170,7 +170,7 @@ describe('createJournalEntry · transacción del llamador', () => {
   it('con options.client corre sobre ese cliente y no abre transacción propia', async () => {
     const cf = (arnes.actual = reglasAlta());
     const conexion = await import('../../src/database/connection.js');
-    (conexion.withTransaction as unknown as ReturnType<typeof vi.fn>).mockClear();
+    (conexion.withTransaction as unknown as Mock).mockClear();
 
     await createJournalEntry(
       ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', LINEAS, ID.usuario,
@@ -188,6 +188,22 @@ describe('createJournalEntry · transacción del llamador', () => {
     );
     await drainAttestations(500);
     expect(attest).toHaveBeenCalledTimes(1);
+  });
+
+  it('si la atestación falla el alta NO se rompe: el fallo se registra y se descarta', async () => {
+    arnes.actual = reglasAlta();
+    attest.mockRejectedValueOnce(new Error('cadena caída'));
+    const avisos = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    // El alta ya está comprometida cuando arranca la atestación: si el sello
+    // en cadena revienta, el asiento sigue en pie y el rechazo no queda suelto.
+    await expect(createJournalEntry(
+      ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', LINEAS, ID.usuario, { autoPost: true }
+    )).resolves.toBeDefined();
+    await expect(drainAttestations(500)).resolves.toBeUndefined();
+
+    expect(avisos).toHaveBeenCalledWith('Blockchain attestation skipped:', 'cadena caída');
+    avisos.mockRestore();
   });
 
   it('con cliente del llamador la atestación NO se dispara: es del llamador', async () => {

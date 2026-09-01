@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/ai/context.js', () => ({
   resolveEntity: vi.fn(),
@@ -21,11 +21,11 @@ import {
 import { previewFor } from '../../../src/services/policy/policy-preview.js';
 import { POLICY_CATALOG } from '../../../src/services/policy/pending-catalog.js';
 
-const mockResolveEntity = resolveEntity as unknown as ReturnType<typeof vi.fn>;
-const mockListPending = listPending as unknown as ReturnType<typeof vi.fn>;
-const mockListPolicies = listPolicies as unknown as ReturnType<typeof vi.fn>;
-const mockResolve = resolvePolicy as unknown as ReturnType<typeof vi.fn>;
-const mockPreview = previewFor as unknown as ReturnType<typeof vi.fn>;
+const mockResolveEntity = resolveEntity as unknown as Mock;
+const mockListPending = listPending as unknown as Mock;
+const mockListPolicies = listPolicies as unknown as Mock;
+const mockResolve = resolvePolicy as unknown as Mock;
+const mockPreview = previewFor as unknown as Mock;
 
 const ENTITY = {
   entityId: 'e1', entityName: 'Acme MX', tenantId: 't1',
@@ -67,7 +67,7 @@ function harness(answers: string[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockResolveEntity.mockResolvedValue(ENTITY);
-  (seedPolicies as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ inserted: 0 });
+  (seedPolicies as unknown as Mock).mockResolvedValue({ inserted: 0 });
   mockPreview.mockResolvedValue([]);
   mockListPending.mockResolvedValue([]);
   mockListPolicies.mockResolvedValue([]);

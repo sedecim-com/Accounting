@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 const client = { query: vi.fn() };
 
@@ -34,9 +34,9 @@ import { voidJournalEntryInTx } from '../../../src/services/accounting/posting.j
 import { OPEN_INVOICE_STATUSES } from '../../../src/services/ar/customer-service.js';
 import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
-const mockPost = postInvoiceEntry as unknown as ReturnType<typeof vi.fn>;
-const mockVoidJe = voidJournalEntryInTx as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
+const mockPost = postInvoiceEntry as unknown as Mock;
+const mockVoidJe = voidJournalEntryInTx as unknown as Mock;
 
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const INVOICE = '11111111-2222-3333-4444-555555555555';

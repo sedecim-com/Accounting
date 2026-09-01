@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -20,7 +20,7 @@ type ToolHandle<Input = Record<string, never>> = BetaTool & {
   run: (input: Input) => Promise<string | BetaToolResultContentBlockParam[]>;
 };
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 
 const CTX: AgentContext = {
   entityId: 'entity-1', entityName: 'Nueva Empresa SA', tenantId: 'tenant-a',

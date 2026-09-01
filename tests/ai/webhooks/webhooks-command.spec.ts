@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { Command } from 'commander';
 
@@ -35,15 +35,15 @@ import {
   disableWebhookToken,
 } from '../../../src/ai/webhooks/intake.js';
 
-const mockIssue = issueWebhookToken as unknown as ReturnType<typeof vi.fn>;
-const mockList = listWebhookTokens as unknown as ReturnType<typeof vi.fn>;
-const mockDisable = disableWebhookToken as unknown as ReturnType<typeof vi.fn>;
+const mockIssue = issueWebhookToken as unknown as Mock;
+const mockList = listWebhookTokens as unknown as Mock;
+const mockDisable = disableWebhookToken as unknown as Mock;
 
 const identity = (s: string) => s;
 const palette = { dim: identity, bold: identity, cyan: identity, yellow: identity };
 
 let logs: string[];
-let logSpy: MockInstance<Parameters<typeof console.log>, ReturnType<typeof console.log>>;
+let logSpy: MockInstance<typeof console.log>;
 let shutdownCodes: number[];
 
 function makeProgram(): Command {

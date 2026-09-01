@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(), enterTenant: vi.fn(), currentTenant: vi.fn(), withTransaction: vi.fn(),
@@ -11,8 +11,8 @@ import {
 import { query, withTransaction } from '../../src/database/connection.js';
 import type { AgentContext } from '../../src/ai/context.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
-const mockTx = withTransaction as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
+const mockTx = withTransaction as unknown as Mock;
 // Transaction-bound client handed to recordTurn's callback by the mocked
 // withTransaction: every statement of the turn must go through it, not
 // through the pool-level query().

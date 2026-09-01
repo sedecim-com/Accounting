@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, type Mock } from 'vitest';
 import crypto from 'node:crypto';
 import express from 'express';
 import type { Server } from 'node:http';
@@ -21,7 +21,7 @@ import { createAiWebhooksRouter } from '../../../src/api/rest/routes/ai-webhooks
 import { query } from '../../../src/database/connection.js';
 import type { WebhookTokenRow } from '../../../src/ai/webhooks/intake.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 
 const RAW_TOKEN = 'raw-webhook-secret';
 const sha256 = (s: string) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');

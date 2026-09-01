@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import { ContalinkAdapter } from '../../../src/services/integrations/accounting/contalink-adapter.js';
 
 function fakeFetch(payload: unknown, ok = true, status = 200) {
@@ -10,7 +10,7 @@ describe('ContalinkAdapter', () => {
     const f = fakeFetch({ status: 1, trial_balance: { items: [] } });
     const a = new ContalinkAdapter('mi-key', 'https://api.ejemplo/prod', f);
     await a.getTrialBalance('2026-08-01', '2026-08-31');
-    const [url, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = (f as unknown as Mock).mock.calls[0];
     expect(url).toBe('https://api.ejemplo/prod/accounting/trial-balance/?start_date=2026-08-01&end_date=2026-08-31&period=O');
     expect(init.headers.Authorization).toBe('mi-key');
   });
@@ -44,7 +44,7 @@ describe('ContalinkAdapter', () => {
       record_date: '2026-08-24', description: 'Ajuste',
       records: [{ account_code: '601-01', debit: 100, credit: 0 }],
     });
-    const [url, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = (f as unknown as Mock).mock.calls[0];
     expect(url).toBe('https://x/accounting/manual-accounting-policy/');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({

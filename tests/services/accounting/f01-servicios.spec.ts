@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -19,7 +19,7 @@ import {
 } from '../../../src/services/accounting/entry-import-service.js';
 import { query } from '../../../src/database/connection.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 
 beforeEach(() => {
   mockQuery.mockReset();
