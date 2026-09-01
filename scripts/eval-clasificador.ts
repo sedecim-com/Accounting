@@ -216,7 +216,16 @@ async function main(): Promise<void> {
       }
     }
     fs.mkdirSync(path.dirname(BITACORA), { recursive: true });
-    fs.appendFileSync(BITACORA, JSON.stringify(registro) + '\n');
+    // La bitácora pasa por el mismo filtro que la salida por pantalla.
+    //
+    // Hoy `registro` sólo copia el nombre y el modelo del perfil, así que no
+    // hay clave que ocultar — pero eso es INCIDENTAL: depende de que nadie
+    // añada un campo más adelante, y el perfil del que se copia sí lleva la
+    // credencial (línea 142, que la mete en SECRETOS). El análisis estático lo
+    // marcó por ese camino, y tenía razón sobre la forma aunque hoy no salga
+    // ningún secreto: un archivo que se relee y se imprime no puede depender
+    // de la disciplina de quien edite el objeto.
+    fs.appendFileSync(BITACORA, sinSecretos(JSON.stringify(registro)) + '\n');
 
     if (anterior) {
       console.log(`\nContra la corrida anterior (${anterior.fecha}):`);
