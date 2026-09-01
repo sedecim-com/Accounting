@@ -34,11 +34,24 @@ const service = new PreRegistrationService();
 // ============================================================
 const alcance = (req: Request) => entityScope(req.tenantId!, req.entityId!);
 
+/** Cuántos XML admite un solo POST. Ver el porqué en xml_contents. */
+const MAX_XML_POR_LOTE = 100;
+
 // ─── Schemas ───
 const uploadXmlSchema = z.object({
   entity_id: z.string().uuid().optional(),
   xml_content: z.string().min(1).optional(),
-  xml_contents: z.array(z.string().min(1)).optional(),
+  // TOPE DURO AL LOTE.
+  //
+  // El manejador itera este arreglo llamando a processXMLUpload por elemento:
+  // cada vuelta parsea un XML y golpea la base. Sin tope, un cliente
+  // autenticado ata un worker el tiempo que quiera con un solo POST —hasta los
+  // 10 MB que admite el parser de JSON—. Es la `js/loop-bound-injection` que
+  // CodeQL señala: iterar sobre un .length que viene del usuario.
+  //
+  // 100 es el lote grande razonable de un despacho; más que eso es un trabajo
+  // por lotes, no una petición HTTP, y para eso está `mnemosine ingest`.
+  xml_contents: z.array(z.string().min(1)).max(MAX_XML_POR_LOTE).optional(),
   source: z.string().optional(),
 }).refine((o) => !!(o.xml_content || (o.xml_contents && o.xml_contents.length > 0)), {
   message: 'xml_content or xml_contents array is required',

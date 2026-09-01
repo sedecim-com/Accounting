@@ -189,9 +189,16 @@ export async function checkRateLimit(
   key: string, windowMs: number, maxRequests: number
 ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
   const r = getRedis();
-  // Sin Redis CONFIGURADO no hay límite: decisión del operador, visible en
-  // su configuración. (En producción, configurarlo es lo esperado.)
-  if (!r) return { allowed: true, remaining: maxRequests, resetAt: 0 };
+  // Cinturón, no la única sujeción: hoy `getRedis()` no devuelve null nunca
+  // —construye el cliente y lo devuelve, y sólo lo anula después, dentro del
+  // .catch() asíncrono de connect()—, así que esta rama es inalcanzable en la
+  // práctica. Lo era también cuando devolvía allowed:true, de modo que la
+  // «barra libre» que parecía haber aquí tampoco ocurría.
+  //
+  // Se deja delegando al contador local, no devolviendo true, porque si algún
+  // día getRedis() sí devuelve null lo correcto es contar, no abrir. Quien
+  // recorre el camino de verdad cuando Redis no responde es el catch de abajo.
+  if (!r) return limiteEnMemoria(key, windowMs, maxRequests);
   try {
     const now = Date.now();
     const windowKey = `ratelimit:${key}:${Math.floor(now / windowMs)}`;
