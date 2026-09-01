@@ -25,6 +25,8 @@ function help(...args: string[]): string {
 const TOP_LEVEL: Record<string, string> = {
   // A2: la familia de métricas del agente.
   ai: 'ia',
+  // F01: el mayor como sustantivo de primera clase.
+  ledger: 'mayor',
   entity: 'entidad',
   account: 'cuenta',
   entry: 'poliza',
@@ -77,7 +79,13 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   memory: { teach: 'enseña', correct: 'corrige', retire: 'retira', restore: 'restaura' },
   pending: { define: 'definir', dismiss: 'descartar', reopen: 'reabrir' },
   entity: { list: 'listar', show: 'ver', use: 'usar', create: 'crear', archive: 'archivar', unset: 'limpiar' },
-  account: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', deactivate: 'desactivar', restore: 'restaurar' },
+  // F01: deactivate se retiró a archive (R9; los nombres viejos quedan como
+  // alias) y la familia ganó set/balance/role/map.
+  account: {
+    list: 'listar', show: 'ver', create: 'crear', edit: 'editar',
+    archive: 'archivar', restore: 'restaurar', set: 'fijar',
+    balance: 'saldo', role: 'rol', map: 'mapeo',
+  },
   entry: { list: 'listar', show: 'ver', create: 'crear', check: 'verificar', post: 'contabilizar', reverse: 'reversar', void: 'anular' },
   period: { list: 'listar', show: 'ver', open: 'abrir' },
   year: { list: 'listar', show: 'ver', create: 'crear' },

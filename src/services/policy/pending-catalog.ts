@@ -398,6 +398,36 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'I assume direct SAT download, so the e.firma stays under custody even if your PAC could have avoided it.',
     priority: 35,
   },
+  {
+    // F01 · maker-checker humano (segregación de funciones). La decisión §5
+    // del plan maestro: no se difiere tácitamente ni se decide en código —
+    // vive aquí, con default que no rompe al despacho unipersonal. Aplica
+    // SOLO a pólizas manuales (source_type nulo): en los flujos del sistema
+    // (nómina, aprobación de borradores de IA, reversas) creador=posteador
+    // es intencional y el maker real queda trazado por source_type/source_id.
+    key: 'segregacion_de_funciones',
+    category: 'seguridad',
+    question: 'May the person who drafted a manual journal entry also post it?',
+    impact:
+      'Four-eyes control on the manual path: with "exigir", entry post rejects the drafter posting ' +
+      'their own entry; with "alertar" it posts but the audit row says so; off means no check.',
+    options: [
+      { value: 'off', label: 'Off: anyone may post what they drafted (single-person firm)' },
+      { value: 'alertar', label: 'Warn: post succeeds, the audit trail records the coincidence' },
+      { value: 'exigir', label: 'Enforce: the poster must be a different user than the drafter' },
+    ],
+    defaultValue: 'off',
+    defaultRationale:
+      'A one-person firm cannot separate duties; enforcing by default would freeze every posting. ' +
+      'Turn it on when there are at least two users.',
+    whyAsking:
+      'Separation of duties is the classic control against a single person inventing and applying an entry. Whether your firm can afford it depends on how many hands it has.',
+    whatIDo:
+      'With "exigir", `entry post` refuses when the poster created the draft (system flows are exempt: they are traced by source). With "alertar", it posts and leaves the fact in the audit log.',
+    ifSkipped:
+      'It stays off: no separation check, which is the only workable default for a single-user tenant.',
+    priority: 30,
+  },
 ];
 
 export function getPolicySpec(key: string): PolicySpec | undefined {

@@ -655,6 +655,46 @@ export const CRITERIOS: Criterio[] = [
   },
 
   {
+    paquete: 'E0.1',
+    enunciado: 'El maker-checker vive en el panel y muerde solo la póliza manual',
+    evaluar: () => {
+      // F01: la decisión §5 no se difirió tácitamente ni se decidió en
+      // código — es política del panel (segregacion_de_funciones) con
+      // default off, y su lector está DENTRO del motor de posteo: con
+      // 'exigir', quien creó el borrador MANUAL no lo postea. Las pólizas
+      // del sistema (source_type no nulo: nómina, ai_draft, reversas)
+      // quedan exentas por construcción — ahí creador=posteador es
+      // intencional y exigir separación produciría falsos positivos.
+      const panel = codigoDe('src/services/policy/pending-catalog.ts');
+      if (!/key: 'segregacion_de_funciones'/.test(panel) || !/'exigir'/.test(panel)) {
+        return falla('la clave segregacion_de_funciones salió del panel: la decisión §5 vuelve a estar diferida tácitamente');
+      }
+      const p = codigoDe('src/services/accounting/posting.ts');
+      const iPost = p.indexOf('export async function postJournalEntry');
+      const tramo = iPost >= 0 ? p.slice(iPost, p.indexOf('export', iPost + 10)) : '';
+      if (!/!entry\.source_type && entry\.created_by === userId/.test(tramo)) {
+        return falla('la compuerta perdió su forma (manual + coincidencia): o muerde a nómina/reversas o dejó de morder');
+      }
+      if (!/politica\.value === 'exigir'/.test(tramo) || !/SOD_QUIEN_CREA_NO_POSTEA/.test(tramo)) {
+        return falla('el lector dejó de comparar contra el literal exigir o perdió su código de dominio');
+      }
+      if (!/'SOD_QUIEN_CREA_NO_POSTEA'/.test(codigoDe('src/cli/entry-command.ts'))) {
+        return falla('el rechazo SoD dejó de salir como BLOQUEADO (5): se leería como entrada inválida');
+      }
+      // El huérfano pagado: checkSoDViolations con LLAMADA real en doctor
+      // (composición de permisos), y el check enchufado a runDoctor.
+      // El push, no el nombre: la FIRMA de checkPermisosEnConflicto() también
+      // casa `nombre()` — cuarta aparición del regex que muerde el símbolo
+      // equivocado en esta serie de sprints.
+      const doctor = codigoDe('src/ai/doctor-service.ts');
+      return /checkSoDViolations\(permisos\)/.test(doctor) &&
+        /checks\.push\(await checkPermisosEnConflicto\(\)\)/.test(doctor)
+        ? ok('panel + lector en el motor (solo manual), salida bloqueada, y la composición de permisos vigilada en doctor')
+        : falla('checkSoDViolations volvió a quedarse sin consumidor o el check salió de runDoctor');
+    },
+  },
+
+  {
     paquete: 'E0.2',
     enunciado: 'La capacidad huérfana conocida sólo encoge',
     evaluar: () => {
@@ -675,8 +715,7 @@ export const CRITERIOS: Criterio[] = [
       const HUERFANOS_CONGELADOS: Record<string, string> = {
         earlyPaymentDiscount: 'bill-service.ts',
         calculateBenefitsForPaycheck: 'benefits-service.ts',
-        checkSoDViolations: 'auth.ts',
-        autoApproveDraftByPolicy: 'draft-service.ts',
+              autoApproveDraftByPolicy: 'draft-service.ts',
       };
       const conConsumidor = Object.entries(HUERFANOS_CONGELADOS)
         .filter(([simbolo, archivo]) => consumidoresDe(simbolo, archivo).length > 0)
