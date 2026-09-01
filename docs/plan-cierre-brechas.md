@@ -8241,3 +8241,127 @@ Asuntos reales que ninguno de los paquetes cubre. No están planificados: decidi
 - **Remediaciones destructivas sobre datos ya escritos, concentradas en tres tareas: E1.2-h (reversas del histórico de CFDI PPD mal acreditados), E1.4-a (purga de secretos ya persistidos) y E3.2-i (corrección de facturas canceladas por el emisor). Si alguna se ejecuta mal, corrompe el mayor de una entidad viva y —hoy— sin rastro de quién lo hizo ni forma de revertirlo.** — Ninguna remediación se ejecuta antes de que E0.3 esté cerrada: la bitácora append-only es precondición, no complemento. Toda remediación se entrega con modo dry-run que produce el reporte del universo afectado, se ejecuta primero contra una copia de la base, exige respaldo verificado, y corrige exclusivamente por reversa —nunca por UPDATE— para que el error sea a su vez reversible.
 - **Riesgo de despliegue del perímetro (E2.1): encender withTenant y cambiar al rol mnemosine_app puede dejar sin datos a los diecisiete routers a la vez si una política RLS está incompleta, y existe una ventana de migración a medias en la que la aplicación ya usa el rol restringido pero las políticas aún no están aplicadas.** — E2.1-j (orden de despliegue) se escribe y se ensaya ANTES de E2.1-b, no después. Desplegar en dos fases: primero crear rol y políticas y verificar con verify-isolation.sh ampliado a tablas hijas y vistas materializadas; sólo después cambiar la cadena de conexión de la aplicación, con arranque fail-closed y capacidad de volver al rol anterior sin migración inversa.
 - **Escala del plan frente a su percepción: ≈85 semanas-persona en total, de las cuales ≈19 (más del 20%) son la etapa E0, que no entrega ninguna funcionalidad visible. Es el punto donde históricamente se recorta, y recortarlo deja al resto del plan sin forma de demostrar nada.** — Comprometer E0 como entregable con criterio de salida objetivo y medible (CI en verde, contrato fallando ante divergencias, cero duplicados de numeración) y comunicarlo así desde el inicio. Si hay que comprimir, el orden de recorte es E0.1-k primero (integración de cierre y concurrencia) y nunca E0.2-k ni E0.1-a/-h, que son los que sostienen todo lo demás.
+
+---
+---
+
+# ESTADO DE ESTE PLAN · 2026-09-01
+
+> Esta sección se añade al final a propósito: **el documento de arriba no se
+> edita**. Es el registro de lo que se creía en su momento, y buena parte de lo
+> que decía era cierto entonces y falso ahora. Lo que sigue dice cuánto de él
+> sobrevive, quién heredó cada cosa, y qué nunca se dispuso.
+>
+> El estado **no se lee aquí**: se pregunta con `npm run plan:status` y
+> `npm run catalogo:estado`. Este apéndice sólo reparte propiedad.
+
+## Qué es hoy este documento
+
+Las secciones **prospectivas** de este plan las sustituyó el Plan Maestro. Lo que
+sigue vivo y sólo vive aquí son dos cosas:
+
+1. **El inventario de las 147 tareas** (`E0.0-a` … `E5.1-k`), que es el censo más
+   completo que se ha hecho de la deuda de este sistema.
+2. **Los 24 cabos** de «Asuntos reales que ninguno de los paquetes cubre»
+   (líneas 8204-8232), que hasta hoy nadie había dispuesto.
+
+## La re-medición de las 147
+
+Auditoría integral II, `HEAD 689458a`, informe
+[cierre-cobertura](auditorias/2026-09-01-integral-ii/cierre-cobertura.md):
+
+| Disposición | Auditoría I (2026-08-31) | Hoy | Δ |
+|---|---:|---:|---:|
+| HECHA | 83 | **97** | +14 |
+| ABSORBIDA por una fase del Plan Maestro | 34 | **28** | −6 |
+| PENDIENTE, con rojo en el tablero | 18 | **15** | −3 |
+| PENDIENTE†, sin dueño | 4 | **4** | 0 |
+| CAÍDA→RESCATADA, aún abierta | 8 | **3** | −5 |
+| **Total** | 147 | **147** | — |
+
+Catorce partidas cambiaron de estado y **todas resistieron la verificación**: no
+hay ninguna que la prosa de un commit dé por hecha y el código desmienta.
+
+## La clase peligrosa: absorbida por una fase que corrió y no la entregó
+
+Una partida marcada ABSORBIDA se da por muerta cuando su fase se cierra. Si la
+fase corre y no la entrega, la deuda desaparece del inventario sin haberse
+pagado. La auditoría buscó exactamente eso y encontró tres:
+
+- **`E1.2-i` · La documentación del agente.** Absorbida por F02; F02 corrió y el
+  único `.md` que tocó fue el auto-generado. Los **trece** manuales que el agente
+  lee siguen en la línea base de agosto — y dos de ellos no están
+  desactualizados, están **equivocados**: `mexico-cfdi.md:5` le enseña el
+  tratamiento de IVA que `iva-ppd-reclass.ts` existe para reparar, y
+  `accounting.md:5` promete una anulación con auto-posteo que R1 y F01 hicieron
+  imposible y que además violaría la regla «el agente propone, el humano
+  dispone». Es la partida más peligrosa del inventario: su consumidor no es un
+  humano que pueda dudar.
+- **`E4.2-g` · Revalidación periódica del estatus CFDI.** F02 entregó el barrido
+  y su puerta manual; **la periodicidad no existe** y su dueño real (el worker de
+  la familia `job`) está en F09–F12.
+- **`E3.2-i` · Corrección de facturas canceladas por el emisor.** F02 construyó
+  el detector y no la respuesta: se sabe que un CFDI contabilizado fue cancelado,
+  se escribe en la base, y no se hace nada. Después de F02 el riesgo **subió de
+  categoría**: un dato de incumplimiento conocido y no atendido es peor que uno
+  ignorado.
+
+## Los 24 cabos, dispuestos por fin — partidas 148 a 171
+
+«147/147» fue un conteo completo de **lo numerado** y un conteo incompleto **del
+documento**. Los 24 cabos de la línea 8204 nunca entraron al inventario. Su
+disposición, re-medida hoy:
+
+| | |
+|---|---:|
+| **HECHA** por efecto colateral, sin que nadie los planificara | **6** |
+| **MUTÓ** — dejó de reventar, la capacidad sigue ausente | **1** |
+| **ABSORBIDA** — DIOT, que sí tiene dueño en F07 | **1** |
+| **PENDIENTE, sin dueño** | **16** |
+
+Los seis que cerraron solos: la serie del folio por fecha del documento (R3), la
+reconciliación de `account_balances` (R1), la superficie CLI de `entry reverse` y
+`entry void` (F01), el CSP fuera de producción y el CORS explícito, el consumidor
+real de `tratamiento_ieps` (F02), y el `FOR UPDATE` en la ruta de pago de
+facturas.
+
+El que mutó: el parser de constancias de retenciones. Ya no revienta —F02 lo
+rechaza con explicación— pero la capacidad sigue ausente. Rojo honesto, no cierre.
+
+**Los dieciséis restantes no tienen fase.** Esa es la deuda que este apéndice
+saca a la luz: hasta hoy no figuraban en ningún inventario, así que ningún
+tablero podía ponerse rojo por ellos.
+
+## Qué pasó con los «Riesgos del plan» de la última sección
+
+El documento cierra con nueve riesgos escritos cuando el proyecto **no estaba
+bajo control de versiones**. Su suerte:
+
+- **«No está en git»** — resuelto. Hay repositorio, ramas, CI y revisión.
+- **«Colisión masiva de numeración de migraciones»** — resuelto:
+  `assertNumeracionUnica` en `src/database/migrate.ts` rechaza duplicados, y la
+  cadena va por la 047 sin colisiones.
+- **«Trabajo que se invalida por orden (E2.1 primero)»** — se cumplió el consejo:
+  el perímetro llegó en R2, antes de las fases de flujo.
+- **«Remediaciones destructivas»** — el consejo era «ninguna antes de que la
+  bitácora append-only esté cerrada, y **exige respaldo verificado**». La
+  bitácora se cerró; **el respaldo nunca se construyó**, y la auditoría II lo
+  eleva a bloqueo de fase 1: hoy no hay una sola línea de respaldo o
+  restauración en el árbol.
+- **«Dependencia externa del PAC»** — sigue viva pero es **más pequeña de lo que
+  se creía**: el único adaptador no simulado del repositorio ya está escrito y
+  es inalcanzable por una línea que falta en el registro.
+- **«Escala del plan: ≈19 semanas-persona de E0 que no entregan funcionalidad
+  visible»** — el riesgo se materializó y se manejó bien: S0 se ejecutó entero.
+  La re-medición del coste lo confirma desde otro ángulo: hoy **el 49 % de cada
+  fila entregada es garantía**, no entrega.
+
+## Una advertencia sobre este apéndice
+
+La auditoría II encontró que la compuerta que debía impedir exactamente este tipo
+de deriva —`FLUJOS_CERRADOS` en `src/plan/criterios.ts`, que exige registro de
+auditoría antes de declarar cerrado un flujo— **está vacía**, con su único
+renglón comentado. F01, F02 y A3–A4 se declararon hechos sin registro.
+
+Este apéndice existe porque una auditoría lo buscó a mano. Que no haga falta
+buscarlo a mano la próxima vez es trabajo del Plan Maestro v3.
