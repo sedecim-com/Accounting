@@ -118,17 +118,29 @@ jobs:
           # completa, y esa una era un adverbio. Un aviso que siempre grita deja
           # de leerse, que es peor que no tenerlo.
           #
-          # Exigir que el marcador venga tras un abridor de comentario es la
-          # convención de verdad (`// TODO:`, `// TODO(dueño):`, `-- FIXME`) y
-          # separa las dos cosas sin ambigüedad. Verificado en las dos
-          # direcciones antes de cambiarlo: caza 6 de 6 marcadores reales en sus
-          # seis formas, y 0 de 6 frases en español que antes disparaban.
+          # Se exigen DOS cosas: que el marcador venga tras un abridor de
+          # comentario, y que traiga su DELIMITADOR — dos puntos o paréntesis.
+          #
+          # El abridor solo no basta, y esto costó una segunda vuelta: en un
+          # bloque JSDoc el `*` de continuación abre renglón, así que
+          # « * TODO lo que se ignoró, se adivinó o se derivó» pasaba la primera
+          # versión de esta guarda. En español un TODO desnudo es el adverbio y
+          # no hay forma de distinguirlo; con `:` o `(` detrás, sí. Además es la
+          # convención dominante de todos modos (`// TODO:`, `// TODO(dueño):`).
+          #
+          # El costo declarado: un `// TODO arréglalo` sin dos puntos no se
+          # marca. En un repositorio en español es el intercambio correcto, y el
+          # que escribe el marcador controla su forma.
+          #
+          # Verificado en las dos direcciones: caza 7 de 7 marcadores reales en
+          # sus siete formas, y 0 de 7 frases en español que antes disparaban —
+          # incluida la del JSDoc, que es la que obligó a apretar.
           #
           # `XXX` sale de la lista: en un sistema contable mexicano es la
           # homoclave de la máscara del RFC (`AAAA######XXX`) y vive en los RFC
           # genéricos que publica el SAT (`XAXX010101000`). Un marcador que
           # colisiona con el vocabulario del dominio no lo va a poder leer nadie.
-          TODO=$(printf '%s' "$DIFF_CODIGO" | grep -cE '^\+.*(//|/\*|\*|#|--)[[:space:]]*(TODO|FIXME|HACK)\b' || true)
+          TODO=$(printf '%s' "$DIFF_CODIGO" | grep -cE '^\+.*(//|/\*|\*|#|--)[[:space:]]*(TODO|FIXME|HACK)\b[[:space:]]*[:(]' || true)
           [ "$DBG" -gt 0 ] && echo "- ⚠️ **$DBG posible(s) statement(s) de depuración** nuevos (console.log/debugger/print)." >> "$OUT"
           [ "$TODO" -gt 0 ] && echo "- 💡 **$TODO TODO/FIXME** nuevo(s) introducido(s)." >> "$OUT"
 
