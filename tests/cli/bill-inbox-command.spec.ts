@@ -164,7 +164,13 @@ describe('bill inbox', () => {
     expect(r.exitCode).toBe(0);
   });
 
-  it('run approve: single row, no --yes → does it prompt?', async () => {
+  it('run approve: una fila suelta no pregunta, y esa es la regla', async () => {
+    // `bill-command.ts:992` sólo pide confirmación cuando la acción es
+    // `process` —la que postea— o cuando el lote toca más de una fila.
+    // Aprobar UNA fila no contabiliza nada: marca el pre-registro como
+    // aprobado y ahí acaba. Se fija la regla en las dos direcciones para que
+    // nadie la relaje sin darse cuenta: aquí que NO pregunta, y en la prueba
+    // de `process` de arriba que sí exige el paso por la compuerta.
     const confirms: string[] = [];
     const d = { ...deps, confirm: (q: string) => { confirms.push(q); return Promise.resolve(true); } };
     sql.length = 0; exitCode = undefined; errs = [];
@@ -172,9 +178,12 @@ describe('bill inbox', () => {
     const program = new Command('mnemosine').exitOverride();
     registerBillCommand(program, d as never);
     await program.parseAsync(['node', 'mnemosine', 'bill', 'inbox', 'run', ID, '--action', 'approve']);
-    console.log('APPROVE confirms:', JSON.stringify(confirms), 'exit', exitCode);
+
+    expect(confirms, 'aprobar una fila no postea, así que no pasa por la compuerta').toEqual([]);
     const upd = sql.filter((s) => /UPDATE pre_registrations/.test(s.text));
-    console.log('APPROVE SQL:', upd.map((s) => s.text.replace(/\s+/g, ' ')));
+    expect(upd.length, 'y sí escribe la aprobación').toBeGreaterThan(0);
+    expect(upd.some((s) => /approval_status/.test(s.text))).toBe(true);
+    expect(exitCode).toBe(0);
   });
 
   it('un REP no se contabiliza por la familia `bill`: registraría cobros de clientes', async () => {
@@ -220,19 +229,36 @@ describe('bill inbox', () => {
       () => Promise.resolve({ bill: { bill_number: 'B' } })
     );
     const sel = r.sql.find((s) => /FROM pre_registrations pr/.test(s.text) && !/COUNT/.test(s.text));
-    console.log('QUERY SQL:', sel?.text.replace(/\s+/g, ' '), JSON.stringify(sel?.params));
+    // No basta con que las fechas aparezcan en los parámetros: tienen que
+    // llegar como PREDICADO. Un `--query` que se analiza y se tira deja al
+    // operador creyendo que acotó el lote cuando actuó sobre la bandeja
+    // entera, que es justo lo que `--bulk` sin `--query` se niega a hacer.
+    expect(sel, 'la consulta acotada tiene que existir').toBeDefined();
+    const texto = sel!.text.replace(/\s+/g, ' ');
+    expect(texto).toMatch(/pr\.entity_id = \$1/);
+    expect(texto, 'since viaja como predicado, no sólo como parámetro').toMatch(/pr\.document_date >= \$2/);
+    expect(texto, 'until también').toMatch(/pr\.document_date <= \$3/);
+    expect(sel!.params.slice(0, 3)).toEqual(['E1', '2026-07-01', '2026-07-31']);
   });
 
   it('run: failure that needs a human → exit 11', async () => {
     const err = Object.assign(new Error('falta autorizar'), { code: 'PROVEEDOR_NUEVO_SIN_AUTORIZAR', statusCode: 422 });
     const r = await run(['bill', 'inbox', 'run', ID, '--yes'], defaultResp([fila()]),
       () => Promise.reject(err));
-    console.log('NEEDS HUMAN exit', r.exitCode);
+    // 11 es NEEDS_HUMAN en el contrato de códigos de `kernel/exit.ts`: el
+    // trabajo no falló, espera a una persona. Un 1 genérico aquí haría que un
+    // cron no pudiera distinguir «hay que autorizar un proveedor» de «se cayó
+    // la base», que es la razón exacta por la que ese código existe.
+    expect(r.exitCode, 'un proveedor sin autorizar espera a un humano, no es un fallo').toBe(11);
   });
 
   it('run: --bulk without --query is refused', async () => {
     const r = await run(['bill', 'inbox', 'run', '--bulk', '--yes'], defaultResp([fila()]));
-    console.log('BULK NO QUERY exit', r.exitCode, (r.errs[0] as Error | undefined)?.message?.slice(0, 60));
+    expect(r.exitCode, 'error de uso, no fallo de ejecución').toBe(2);
+    expect(
+      (r.errs[0] as Error | undefined)?.message,
+      'y el mensaje dice el daño que evita, no sólo que se negó'
+    ).toMatch(/--bulk sin --query/);
   });
 
   it('run set-batch: batch resolved in entity', async () => {
@@ -241,7 +267,13 @@ describe('bill inbox', () => {
       defaultResp([fila()])
     );
     const b = r.sql.find((s) => /processing_batches/.test(s.text));
-    console.log('SET-BATCH batch SQL:', b?.text.replace(/\s+/g, ' '), JSON.stringify(b?.params), 'exit', r.exitCode);
+    // El número de lote lo elige el operador y es de su entidad. Resolverlo
+    // sin acotar dejaría mover un pre-registro al lote de OTRO cliente del
+    // despacho con sólo acertar el número.
+    expect(b, 'el lote se resuelve consultando, no confiando en el argumento').toBeDefined();
+    expect(b!.text.replace(/\s+/g, ' '), 'y la entidad va DENTRO del SQL').toMatch(/entity_id = \$1/);
+    expect(b!.params).toEqual(['E1', '7']);
+    expect(r.exitCode).toBe(0);
   });
 
   it('list --json trae el id COMPLETO, que es el que `run` acepta', async () => {
@@ -268,12 +300,35 @@ describe('bill inbox', () => {
   });
 
   it('list: --quiet emits full ids', async () => {
-    const r = await run(['bill', 'inbox', 'list', '--quiet'], defaultResp([fila()]));
-    console.log('QUIET exit', r.exitCode);
+    // Igual que la prueba de `--json` de arriba: se lee la SALIDA, no el
+    // código de salida. Comprobar que salió 0 no distingue «trae el id
+    // entero» de «trae los ocho caracteres de `ref`», y de esa diferencia
+    // depende que `bill inbox list -q | xargs -n1 mnemosine bill inbox run`
+    // funcione — que es la razón por la que `--quiet` existe.
+    const escrito: string[] = [];
+    const original = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((c: string | Uint8Array) => {
+      escrito.push(String(c));
+      return true;
+    }) as typeof process.stdout.write;
+    let r: Awaited<ReturnType<typeof run>>;
+    try {
+      r = await run(['bill', 'inbox', 'list', '--quiet'], defaultResp([fila()]));
+    } finally {
+      process.stdout.write = original;
+    }
+    const salida = escrito.join('');
+    expect(salida, 'el uuid entero, no el `ref` de ocho caracteres').toContain(ID);
+    expect(salida.trim().split('\n'), 'un id por renglón y nada más').toEqual([ID]);
+    expect(r!.exitCode).toBe(0);
   });
 
   it('run: id from another entity → 404', async () => {
     const r = await run(['bill', 'inbox', 'run', ID, '--yes'], defaultResp([]));
-    console.log('404 exit', r.exitCode, (r.errs[0] as Error | undefined)?.message?.slice(0, 80));
+    // 3 es NOT_FOUND. La frontera de entidad devuelve 404 SIEMPRE —nunca 403—
+    // porque un 403 confirmaría que el pre-registro existe, y en un despacho
+    // que lleva varios clientes ese es justo el dato que no se puede regalar.
+    expect(r.exitCode, 'cruzar de entidad no existe; no es «prohibido»').toBe(3);
+    expect((r.errs[0] as Error | undefined)?.message).toMatch(/no está en la bandeja/);
   });
 });
