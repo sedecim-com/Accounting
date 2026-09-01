@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { envolverDatosDeTerceros } from '../untrusted.js';
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { query } from '../../database/connection.js';
 import type { AgentContext } from '../context.js';
@@ -99,7 +100,7 @@ export function buildSearchTools(ctx: AgentContext, observe?: ToolObserver) {
       const truncated = result.rows.length > MAX_ROWS;
       const rows = result.rows.slice(0, MAX_ROWS);
       if (rows.length === 0) return 'No results.';
-      return JSON.stringify({ truncated, count: rows.length, customers: rows });
+      return envolverDatosDeTerceros({ truncated, count: rows.length, customers: rows });
     },
   });
 
@@ -138,7 +139,7 @@ export function buildSearchTools(ctx: AgentContext, observe?: ToolObserver) {
       const truncated = result.rows.length > MAX_ROWS;
       const rows = result.rows.slice(0, MAX_ROWS);
       if (rows.length === 0) return 'No results.';
-      return JSON.stringify({ truncated, count: rows.length, vendors: rows });
+      return envolverDatosDeTerceros({ truncated, count: rows.length, vendors: rows });
     },
   });
 

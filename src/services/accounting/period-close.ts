@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { query, withTransaction, currentTenant } from '../../database/connection.js';
+import { getPolicy } from '../policy/policy-service.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync } from './posting.js';
 import { AccountingError } from '../../utils/errors.js';
@@ -115,6 +116,70 @@ export async function getPeriodCloseStatus(
     details: tbDiff.greaterThan('0.01') ? `Out of balance by ${tbDiff.toFixed(4)}` : undefined,
   });
   if (tbDiff.greaterThan('0.01')) blocking_issues.push(`Trial balance out of balance by ${tbDiff.toFixed(4)}`);
+
+  // 6. F02 · REP-2: el checklist del IVA aparcado. Dos conteos que el cierre
+  // no miraba: los REP que llegaron y quedaron aparcados (needs_review), y
+  // los pagos del periodo sin REP — recibidos (el IVA sigue en 1135, no es
+  // acreditable) y emitidos (obligación fiscal PROPIA con plazo). Si cada
+  // uno bloquea o solo avisa lo deciden rep_faltante_recibido y
+  // rep_faltante_emitido: SOLO el literal 'bloquear' bloquea (cerrado al
+  // declarar); 'avisar' o un valor desconocido avisan — un valor raro del
+  // panel no puede congelar el cierre de un despacho.
+  const tenantRow = await q<{ tenant_id: string }>(
+    `SELECT tenant_id FROM legal_entities WHERE id = $1`,
+    [entityId]
+  );
+  const ctxPanel = { tenantId: tenantRow.rows[0]?.tenant_id, entityId };
+
+  const repAparcados = await q<{ count: string }>(
+    `SELECT COUNT(*) as count FROM pre_registrations
+      WHERE entity_id = $1 AND document_type = 'payment'
+        AND validation_status = 'needs_review'
+        AND status NOT IN ('completed', 'rejected', 'duplicate')`,
+    [entityId]
+  );
+  const aparcados = parseInt(repAparcados.rows[0].count, 10);
+  checklist.push({
+    item: 'Parked payment receipts (REP) resolved',
+    is_complete: aparcados === 0,
+    details: aparcados > 0 ? `${aparcados} REP(s) esperando decisión: rep reconcile los reintenta` : undefined,
+  });
+  if (aparcados > 0) warnings.push(`${aparcados} REP(s) aparcados en needs_review`);
+
+  const sinRep = await q<{ recibidos: string; emitidos: string }>(
+    `SELECT
+       (SELECT COUNT(*) FROM vendor_payments vp
+         WHERE vp.entity_id = $1 AND vp.cfdi_uuid IS NULL AND vp.status <> 'void'
+           AND vp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
+                                   AND (SELECT end_date FROM fiscal_periods WHERE id = $2))::text AS recibidos,
+       (SELECT COUNT(*) FROM customer_payments cp
+         WHERE cp.entity_id = $1 AND cp.cfdi_uuid IS NULL AND cp.status <> 'void'
+           AND cp.payment_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
+                                   AND (SELECT end_date FROM fiscal_periods WHERE id = $2))::text AS emitidos`,
+    [entityId, periodId]
+  );
+  const pagosSinRepRecibidos = parseInt(sinRep.rows[0].recibidos, 10);
+  const pagosSinRepEmitidos = parseInt(sinRep.rows[0].emitidos, 10);
+  checklist.push({
+    item: 'Payments in period have their REP',
+    is_complete: pagosSinRepRecibidos + pagosSinRepEmitidos === 0,
+    details:
+      pagosSinRepRecibidos + pagosSinRepEmitidos > 0
+        ? `${pagosSinRepRecibidos} pago(s) sin REP del proveedor, ${pagosSinRepEmitidos} cobro(s) sin REP emitido (rep missing list)`
+        : undefined,
+  });
+  if (pagosSinRepRecibidos > 0) {
+    const pol = await getPolicy(ctxPanel, 'rep_faltante_recibido');
+    (pol.value === 'bloquear' ? blocking_issues : warnings).push(
+      `${pagosSinRepRecibidos} pago(s) a proveedor sin REP: el IVA sigue aparcado en 1135`
+    );
+  }
+  if (pagosSinRepEmitidos > 0) {
+    const pol = await getPolicy(ctxPanel, 'rep_faltante_emitido');
+    (pol.value === 'bloquear' ? blocking_issues : warnings).push(
+      `${pagosSinRepEmitidos} cobro(s) sin REP emitido: obligación fiscal propia con plazo`
+    );
+  }
 
   return {
     can_close: blocking_issues.length === 0,

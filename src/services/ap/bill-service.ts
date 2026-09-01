@@ -341,7 +341,7 @@ export async function createBill(input: CreateBillInput): Promise<Bill> {
   const computed = computeBill(input.lines);
 
   return withTransaction(async (client) => {
-    const billNumber = await nextEntityNumber(client, input.entity_id, 'bill', 'BILL');
+    const billNumber = await nextEntityNumber(client, input.entity_id, 'bill', 'BILL', input.bill_date);
     const billId = uuidv4();
 
     await client.query(

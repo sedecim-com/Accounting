@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { envolverDatosDeTerceros } from '../untrusted.js';
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import Decimal from 'decimal.js';
 import type { AgentContext } from '../context.js';
@@ -185,7 +186,7 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         days_overdue: r.days_overdue,
       }));
       const totalDue = all.reduce((s, r) => s.plus(new Decimal(r.amount_due)), new Decimal(0));
-      return JSON.stringify({
+      return envolverDatosDeTerceros({
         as_of_date: asOf, currency: ctx.currency,
         total_due: totalDue.toFixed(AGENT_SCALE), count: invoices.length, invoices,
       });
@@ -215,7 +216,7 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         days_overdue: r.days_overdue,
       }));
       const totalDue = all.reduce((s, r) => s.plus(new Decimal(r.amount_due)), new Decimal(0));
-      return JSON.stringify({
+      return envolverDatosDeTerceros({
         as_of_date: asOf, currency: ctx.currency,
         total_due: totalDue.toFixed(AGENT_SCALE), count: bills.length, bills,
       });
@@ -259,7 +260,7 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
       const debits = rows.reduce((s, r) => s.plus(new Decimal(r.debit_amount ?? 0)), new Decimal(0));
       const credits = rows.reduce((s, r) => s.plus(new Decimal(r.credit_amount ?? 0)), new Decimal(0));
 
-      return JSON.stringify({
+      return envolverDatosDeTerceros({
         account_code: input.account_code, truncated, count: movements.length,
         period_debits: debits.toFixed(AGENT_SCALE), period_credits: credits.toFixed(AGENT_SCALE),
         movements,

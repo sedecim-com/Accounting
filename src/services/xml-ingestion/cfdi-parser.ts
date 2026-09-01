@@ -383,13 +383,18 @@ export class CFDIParser {
   }
 
   mapTipoComprobante(tipo: string): string {
+    // F02: 'R' se RETIRÓ del mapa. Una constancia de retenciones no es un
+    // CFDI: vive en otro namespace (retenciones:Retenciones, esquema
+    // retencionpago) y su raíz no es cfdi:Comprobante — parse() la rechaza
+    // tres candados antes de llegar aquí. Anunciar un tipo que no puede
+    // llegar era una promesa falsa del parser; soportar constancias es un
+    // parser PROPIO con sus pruebas, no una letra en este mapa.
     const mapping: Record<string, string> = {
       I: 'cfdi_ingreso',
       E: 'cfdi_egreso',
       T: 'cfdi_traslado',
       N: 'cfdi_nomina',
       P: 'cfdi_pago',
-      R: 'cfdi_retencion',
     };
     return mapping[tipo] || 'other';
   }

@@ -146,6 +146,17 @@ export const config = {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '3600000', 10),
     maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000', 10),
   },
+
+  // F02 · Consulta de estatus de CFDI ante el SAT. Servicio PÚBLICO y
+  // anónimo (no usa e.firma ni PAC, no pasa por withCredential): el bloqueo
+  // de E3.1/E3.2 no le aplica. statusMode 'off' apaga la consulta con un
+  // resultado que LO DICE — nunca un «Vigente» simulado.
+  sat: {
+    consultaUrl:
+      process.env.SAT_CONSULTA_URL ||
+      'https://consultaqr.facturaelectronica.sat.gob.mx/ConsultaCFDIService.svc',
+    statusMode: (process.env.SAT_STATUS_MODE || 'on') as 'on' | 'off',
+  },
 } as const;
 
 // ============================================================

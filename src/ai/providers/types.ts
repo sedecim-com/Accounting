@@ -32,6 +32,12 @@ export interface TurnUsage {
   outputTokens: number;
   cacheReadInputTokens?: number;
   cacheCreationInputTokens?: number;
+  /**
+   * A2: wall-clock de ESTA llamada al modelo, medido por el runner alrededor
+   * de la petición. Opcional porque llega de código, no del proveedor — un
+   * emisor viejo que no lo mida deja la columna NULL, nunca un cero falso.
+   */
+  durationMs?: number;
 }
 
 /**

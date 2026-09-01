@@ -102,6 +102,15 @@ Commands:
                                         here)
   report|reporte                        Financial statements, trial balance,
                                         general ledger and ageing
+  ledger|mayor                          The general ledger itself: integrity
+                                        checks, stale drafts, auxiliaries and
+                                        balances
+  cfdi                                  The CFDI mirror: list, inspect, SAT
+                                        status and the classifier trail
+  rep                                   Payment receipts (REP): what is missing
+                                        one, and the parked ones to retry
+  ai|ia                                 Métricas y calibración del agente
+                                        contable
   usage|uso [options]                   Token usage and estimated cost from the
                                         local ledger (no API calls)
   status|estado [options]               Health snapshot: config, live provider
@@ -1080,16 +1089,20 @@ Usage: mnemosine account|cuenta [options] [command]
 Chart of accounts: inspect, create and retire accounts
 
 Options:
-  -h, --help                              display help for command
+  -h, --help                             display help for command
 
 Commands:
-  list|listar [options] [search]          List accounts, filtered by type, state, parent or free text
-  show|ver [options] <code>               Show one account with its parent, flags and lifetime activity
-  create|crear [options] <code> <name>    Create an account
-  edit|editar [options] <code>            Change an account name, description, subtype or statement caption
-  deactivate|desactivar [options] <code>  Retire an account (never deletes it; postings keep their history)
-  restore|restaurar [options] <code>      Put a retired account back in service
-  help [command]                          display help for command
+  list|listar [options] [search]         List accounts, filtered by type, state, parent or free text
+  show|ver [options] <code>              Show one account with its parent, flags and lifetime activity
+  create|crear [options] <code> <name>   Create an account
+  edit|editar [options] <code>           Change an account name, description, subtype or statement caption
+  archive|archivar [options] <code>      Retire an account from active use (never deletes; requires zero balance unless --force)
+  set|fijar [options] <code> <pairs...>  Set the governance flags of an account (who may post to it, and how)
+  balance|saldo                          Balances of one account, decomposed by fiscal period
+  role|rol                               Semantic account roles (cxc, banco, iva_acreditable…) that automatic posting reads
+  map|mapeo                              Statutory mappings per account: SAT agrupador (Anexo 24), US tax line, IFRS
+  restore|restaurar [options] <code>     Put a retired account back in service
+  help [command]                         display help for command
 ```
 
 ### `mnemosine account list` (alias: listar)
@@ -1196,12 +1209,13 @@ Options:
   -h, --help               display help for command
 ```
 
-### `mnemosine account deactivate` (alias: desactivar)
+### `mnemosine account archive` (alias: archivar, deactivate, desactivar)
 
 ```
-Usage: mnemosine account deactivate|desactivar [options] <code>
+Usage: mnemosine account archive|archivar [options] <code>
 
-Retire an account (never deletes it; postings keep their history)
+Retire an account from active use (never deletes; requires zero balance unless
+--force)
 
 Arguments:
   code                     account code or id
@@ -1213,8 +1227,273 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --force                  override a blocking validation (closed period, lock
                            date, duplicate); requires --reason
-  --reason <text>          justification, required with --force
+  --dry-run                run the checks and report, without writing
+  --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
+```
+
+### `mnemosine account set` (alias: fijar)
+
+```
+Usage: mnemosine account set|fijar [options] <code> <pairs...>
+
+Set the governance flags of an account (who may post to it, and how)
+
+Arguments:
+  code                     account code or id
+  pairs                    key=value: allow-manual, header, control-account,
+                           require-subsidiary, currency
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --dry-run                validate and report, without writing
+  -h, --help               display help for command
+```
+
+### `mnemosine account balance` (alias: saldo)
+
+```
+Usage: mnemosine account balance|saldo [options] [command]
+
+Balances of one account, decomposed by fiscal period
+
+Options:
+  -h, --help                 display help for command
+
+Commands:
+  show|ver [options] <code>  Beginning, debits, credits and ending by period,
+                             with the period status
+  help [command]             display help for command
+```
+
+#### `mnemosine account balance show` (alias: ver)
+
+```
+Usage: mnemosine account balance show|ver [options] <code>
+
+Beginning, debits, credits and ending by period, with the period status
+
+Arguments:
+  code                                     account code or id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <name>                          only the periods whose name matches
+  --as-of <date>                           only the period containing this date (YYYY-MM-DD)
+  -h, --help                               display help for command
+```
+
+### `mnemosine account role` (alias: rol)
+
+```
+Usage: mnemosine account role|rol [options] [command]
+
+Semantic account roles (cxc, banco, iva_acreditable…) that automatic posting
+reads
+
+Options:
+  -h, --help                         display help for command
+
+Commands:
+  list|listar [options]              Each role and the account it points to,
+                                     default and qualified variants
+  set|fijar [options] <role> <code>  Repoint a role to another account, or
+                                     create a qualified variant
+  seed|sembrar [options]             Create the missing base accounts and map
+                                     every unmapped role (never overwrites a
+                                     manual choice)
+  help [command]                     display help for command
+```
+
+#### `mnemosine account role list` (alias: listar)
+
+```
+Usage: mnemosine account role list|listar [options]
+
+Each role and the account it points to, default and qualified variants
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --role <name>                            only this role
+  --qualifier <q>                          only this qualified variant
+  -h, --help                               display help for command
+```
+
+#### `mnemosine account role set` (alias: fijar)
+
+```
+Usage: mnemosine account role set|fijar [options] <role> <code>
+
+Repoint a role to another account, or create a qualified variant
+
+Arguments:
+  role                     one of: activo_fijo, anticipo_clientes,
+                           anticipo_proveedores, banco, cxc, cxp… (see role
+                           list)
+  code                     account code the role should point to
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --qualifier <q>          per-context variant (NULL = the default mapping)
+  --note <text>            why this role points here
+  --dry-run                validate and report, without writing
+  -h, --help               display help for command
+```
+
+#### `mnemosine account role seed` (alias: sembrar)
+
+```
+Usage: mnemosine account role seed|sembrar [options]
+
+Create the missing base accounts and map every unmapped role (never overwrites a
+manual choice)
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  -h, --help               display help for command
+```
+
+### `mnemosine account map` (alias: mapeo)
+
+```
+Usage: mnemosine account map|mapeo [options] [command]
+
+Statutory mappings per account: SAT agrupador (Anexo 24), US tax line, IFRS
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  set|fijar [options] <code>        Map the account to a statutory scheme value
+  list|listar [options]             Every active account with its statutory
+                                    mappings
+  import|importar [options] <file>  Bulk-load a statutory scheme from CSV — the
+                                    heaviest setup task of a Mexican firm
+  check|verificar [options]         Coverage gate before the Anexo 24 catalog
+                                    XML: which top accounts still lack a mapping
+  help [command]                    display help for command
+```
+
+#### `mnemosine account map set` (alias: fijar)
+
+```
+Usage: mnemosine account map set|fijar [options] <code>
+
+Map the account to a statutory scheme value
+
+Arguments:
+  code                     account code or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --scheme <name>          scheme: sat-agrupador, us-tax-line, ifrs
+  --value <v>              the code in that scheme; empty clears the mapping
+  --year <y>               catalog year (not supported yet: the versioned
+                           c_CodAgrup catalog does not exist)
+  --dry-run                validate and report, without writing
+  -h, --help               display help for command
+```
+
+#### `mnemosine account map list` (alias: listar)
+
+```
+Usage: mnemosine account map list|listar [options]
+
+Every active account with its statutory mappings
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --scheme <name>                          project only this scheme
+  -h, --help                               display help for command
+```
+
+#### `mnemosine account map import` (alias: importar)
+
+```
+Usage: mnemosine account map import|importar [options] <file>
+
+Bulk-load a statutory scheme from CSV — the heaviest setup task of a Mexican
+firm
+
+Arguments:
+  file                     CSV: code,valor (una cuenta por línea; separador coma
+                           o punto y coma)
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --scheme <name>          scheme: sat-agrupador, us-tax-line, ifrs
+  --dry-run                parse and resolve everything, write nothing
+  --idempotency-key <key>  replay-safe key: the same key with the same file
+                           returns the first result
+  -h, --help               display help for command
+```
+
+#### `mnemosine account map check` (alias: verificar)
+
+```
+Usage: mnemosine account map check|verificar [options]
+
+Coverage gate before the Anexo 24 catalog XML: which top accounts still lack a
+mapping
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --strict                                 treat warnings as blocking (exit 4)
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --check <names>                          named checks to run (available: coverage; empty lists them) (default: "coverage")
+  --scheme <name>                          scheme to verify (default: "sat-agrupador")
+  --level <n>                              deepest account level required to be mapped (default: "2")
+  -h, --help                               display help for command
 ```
 
 ### `mnemosine account restore` (alias: restaurar)
@@ -1243,24 +1522,22 @@ Usage: mnemosine entry|poliza [options] [command]
 Journal entries: draft, inspect, validate, post, reverse and void
 
 Options:
-  -h, --help                            display help for command
+  -h, --help                                display help for command
 
 Commands:
-  list|listar [options] [search]        Search journal entries by text, account,
-                                        date, amount, state, type or source
-  show|ver [options] <number>           Show one entry with its lines, totals,
-                                        period and linked reversal
-  create|crear [options]                Create a journal entry — ALWAYS a draft;
-                                        posting is a separate human step
-  check|verificar [options]             Run the seven NIF validation rules over
-                                        an entry or a document; writes nothing
-  post|contabilizar [options] <number>  Post ONE entry to the ledger: validates
-                                        the seven rules, then moves balances
-  reverse|reversar [options] <number>   Create the linked posted mirror of an
-                                        entry (NIF B-1: correct by reversal)
-  void|anular [options] <number>        Annul an entry: a draft is marked void,
-                                        a posted one gets its linked mirror
-  help [command]                        display help for command
+  list|listar [options] [search]            Search journal entries by text, account, date, amount, state, type or source
+  show|ver [options] <number>               Show one entry with its lines, totals, period and linked reversal
+  create|crear [options]                    Create a journal entry — ALWAYS a draft; posting is a separate human step
+  check|verificar [options]                 Run the seven NIF validation rules over an entry or a document; writes nothing
+  line|renglon                              Ledger lines: from an account balance down to the entries behind it
+  preview|previsualizar [options] <number>  The exact account_balances delta this entry would produce, without touching anything
+  edit|editar [options] <number>            Edit a DRAFT entry: description, reference, note, date or full line replacement
+  export|exportar [options]                 Entries WITH their lines, flat, for audit or migration — no page cap
+  import|importar [options] <file>          Stage a file of entries into a batch (returns a batch_id); NEVER touches the ledger
+  post|contabilizar [options] <number>      Post ONE entry to the ledger: validates the seven rules, then moves balances
+  reverse|reversar [options] <number>       Create the linked posted mirror of an entry (NIF B-1: correct by reversal)
+  void|anular [options] <number>            Annul an entry: a draft is marked void, a posted one gets its linked mirror
+  help [command]                            display help for command
 ```
 
 ### `mnemosine entry list` (alias: listar)
@@ -1369,6 +1646,151 @@ Options:
   --entry <number>                         an existing entry, by number or id
   --file <path>                            a JSON entry document that does not exist yet
   -h, --help                               display help for command
+```
+
+### `mnemosine entry line` (alias: renglon)
+
+```
+Usage: mnemosine entry line|renglon [options] [command]
+
+Ledger lines: from an account balance down to the entries behind it
+
+Options:
+  -h, --help                    display help for command
+
+Commands:
+  list|listar [options] <code>  Posted lines of one account, each with the entry
+                                it belongs to
+  help [command]                display help for command
+```
+
+#### `mnemosine entry line list` (alias: listar)
+
+```
+Usage: mnemosine entry line list|listar [options] <code>
+
+Posted lines of one account, each with the entry it belongs to
+
+Arguments:
+  code                                     account code
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine entry preview` (alias: previsualizar)
+
+```
+Usage: mnemosine entry preview|previsualizar [options] <number>
+
+The exact account_balances delta this entry would produce, without touching
+anything
+
+Arguments:
+  number                                   entry number or id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine entry edit` (alias: editar)
+
+```
+Usage: mnemosine entry edit|editar [options] <number>
+
+Edit a DRAFT entry: description, reference, note, date or full line replacement
+
+Arguments:
+  number                   entry number or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --description <text>     new description
+  --reference <text>       new external reference
+  --note <text>            new note
+  --date <date>            new entry date (YYYY-MM-DD)
+  --line <spec...>         replace ALL lines:
+                           <account>:<debit|credit>:<amount>[:description]
+  --file <path>            JSON document whose date/description/reference/lines
+                           replace the draft
+  -h, --help               display help for command
+```
+
+### `mnemosine entry export` (alias: exportar)
+
+```
+Usage: mnemosine entry export|exportar [options]
+
+Entries WITH their lines, flat, for audit or migration — no page cap
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine entry import` (alias: importar)
+
+```
+Usage: mnemosine entry import|importar [options] <file>
+
+Stage a file of entries into a batch (returns a batch_id); NEVER touches the
+ledger
+
+Arguments:
+  file                     file of journal entries to stage
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --layout <name>          file layout: csv, ndjson
+                           (contpaqi/aspel/iif/sat-polizas: aún sin parser)
+                           (default: "csv")
+  --dry-run                parse and report, stage nothing
+  --idempotency-key <key>  replay-safe key: the same key with the same file
+                           returns the first batch
+  -h, --help               display help for command
 ```
 
 ### `mnemosine entry post` (alias: contabilizar)
@@ -2683,6 +3105,449 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --view <name...>                         which views to rebuild (default: all of mv_trial_balance, mv_account_balance_summary)
   --no-concurrently                        rebuild with an exclusive lock; needed only for a never-populated view
+  -h, --help                               display help for command
+```
+
+## `mnemosine ledger` (alias: mayor)
+
+```
+Usage: mnemosine ledger|mayor [options] [command]
+
+The general ledger itself: integrity checks, stale drafts, auxiliaries and
+balances
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  check|verificar [options]   Named ledger checks; with no flag runs the
+                              blocking ones and exits 4 on findings
+  stale-draft|borrador-viejo  Draft journal entries that have sat unposted too
+                              long
+  auxiliary|auxiliar          Account auxiliary: beginning balance, movements,
+                              ending — the SAT XC shape
+  balance|saldo               One account balance decomposed by period, with the
+                              period status
+  help [command]              display help for command
+```
+
+### `mnemosine ledger check` (alias: verificar)
+
+```
+Usage: mnemosine ledger check|verificar [options]
+
+Named ledger checks; with no flag runs the blocking ones and exits 4 on findings
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --strict                                 treat warnings as blocking (exit 4)
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --check <names>                          checks to run, comma-separated (available: balance, audit-trail, continuity; empty lists them)
+  --account <code>                         scope the balance check to one account
+  --period <name>                          scope the balance check to one fiscal period
+  -h, --help                               display help for command
+```
+
+### `mnemosine ledger stale-draft` (alias: borrador-viejo)
+
+```
+Usage: mnemosine ledger stale-draft|borrador-viejo [options] [command]
+
+Draft journal entries that have sat unposted too long
+
+Options:
+  -h, --help             display help for command
+
+Commands:
+  list|listar [options]  Drafts older than N days — the number-one blocker of
+                         every close checklist
+  help [command]         display help for command
+```
+
+#### `mnemosine ledger stale-draft list` (alias: listar)
+
+```
+Usage: mnemosine ledger stale-draft list|listar [options]
+
+Drafts older than N days — the number-one blocker of every close checklist
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --days <n>                               minimum age in days (default: "30")
+  --period <name>                          only drafts dated into this fiscal period
+  -h, --help                               display help for command
+```
+
+### `mnemosine ledger auxiliary` (alias: auxiliar)
+
+```
+Usage: mnemosine ledger auxiliary|auxiliar [options] [command]
+
+Account auxiliary: beginning balance, movements, ending — the SAT XC shape
+
+Options:
+  -h, --help          display help for command
+
+Commands:
+  show|ver [options]  One account, one period: beginning → every movement →
+                      ending
+  help [command]      display help for command
+```
+
+#### `mnemosine ledger auxiliary show` (alias: ver)
+
+```
+Usage: mnemosine ledger auxiliary show|ver [options]
+
+One account, one period: beginning → every movement → ending
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --account <code>                         account code
+  --period <name>                          fiscal period name (or unambiguous fragment)
+  -h, --help                               display help for command
+```
+
+### `mnemosine ledger balance` (alias: saldo)
+
+```
+Usage: mnemosine ledger balance|saldo [options] [command]
+
+One account balance decomposed by period, with the period status
+
+Options:
+  -h, --help          display help for command
+
+Commands:
+  show|ver [options]  Beginning, debits, credits and ending per period for one
+                      account
+  help [command]      display help for command
+```
+
+#### `mnemosine ledger balance show` (alias: ver)
+
+```
+Usage: mnemosine ledger balance show|ver [options]
+
+Beginning, debits, credits and ending per period for one account
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --account <code>                         account code or id
+  --as-of <date>                           only the period containing this date (YYYY-MM-DD)
+  --period <name>                          only the periods whose name matches
+  --dim <name>                             per-dimension breakdown (not available: the dimension family does not exist yet)
+  -h, --help                               display help for command
+```
+
+## `mnemosine cfdi`
+
+```
+Usage: mnemosine cfdi [options] [command]
+
+The CFDI mirror: list, inspect, SAT status and the classifier trail
+
+Options:
+  -h, --help                         display help for command
+
+Commands:
+  list|listar [options]              The mirror, filtered by direction, type,
+                                     status and date
+  show|ver [options] <uuid>          One CFDI: header, lines, taxes and SAT
+                                     status; --format xml prints the exact bytes
+  status|estatus                     SAT status of the mirror (public
+                                     ConsultaCFDIService; no e.firma involved)
+  explain|explicar [options] <uuid>  WHY it was recorded the way it was: case,
+                                     facts and decisions the classifier left
+  help [command]                     display help for command
+```
+
+### `mnemosine cfdi list` (alias: listar)
+
+```
+Usage: mnemosine cfdi list|listar [options]
+
+The mirror, filtered by direction, type, status and date
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --direction <d>                          emitido, recibido o ajeno (derivada contra el RFC de la entidad)
+  --type <t>                               document_type (cfdi_ingreso, cfdi_egreso, cfdi_pago…)
+  -h, --help                               display help for command
+```
+
+### `mnemosine cfdi show` (alias: ver)
+
+```
+Usage: mnemosine cfdi show|ver [options] <uuid>
+
+One CFDI: header, lines, taxes and SAT status; --format xml prints the exact
+bytes
+
+Arguments:
+  uuid                                     CFDI UUID (timbre fiscal)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine cfdi status` (alias: estatus)
+
+```
+Usage: mnemosine cfdi status|estatus [options] [command]
+
+SAT status of the mirror (public ConsultaCFDIService; no e.firma involved)
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  show|ver [options] <uuid>   Estado, EsCancelable and EstatusCancelacion as the
+                              SAT last answered
+  sync|sincronizar [options]  Re-check the whole mirror against the SAT: stale
+                              or never-consulted first
+  help [command]              display help for command
+```
+
+#### `mnemosine cfdi status show` (alias: ver)
+
+```
+Usage: mnemosine cfdi status show|ver [options] <uuid>
+
+Estado, EsCancelable and EstatusCancelacion as the SAT last answered
+
+Arguments:
+  uuid                                     CFDI UUID
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --refresh                                consulta al SAT ahora y actualiza la caché sat_* del documento
+  -h, --help                               display help for command
+```
+
+#### `mnemosine cfdi status sync` (alias: sincronizar)
+
+```
+Usage: mnemosine cfdi status sync|sincronizar [options]
+
+Re-check the whole mirror against the SAT: stale or never-consulted first
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  -n, --limit <n>          maximum CFDIs to consult in this run (default: "100")
+  --stale-hours <h>        a consultation older than this is stale (default:
+                           "24")
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
+  -h, --help               display help for command
+```
+
+### `mnemosine cfdi explain` (alias: explicar)
+
+```
+Usage: mnemosine cfdi explain|explicar [options] <uuid>
+
+WHY it was recorded the way it was: case, facts and decisions the classifier
+left
+
+Arguments:
+  uuid                                     CFDI UUID
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+## `mnemosine rep`
+
+```
+Usage: mnemosine rep [options] [command]
+
+Payment receipts (REP): what is missing one, and the parked ones to retry
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  missing|faltante               Payments and collections whose REP has not
+                                 arrived or been issued
+  reconcile|conciliar [options]  Retry the parked REPs (needs_review): safe to
+                                 repeat, resolved nodes are skipped
+  help [command]                 display help for command
+```
+
+### `mnemosine rep missing` (alias: faltante)
+
+```
+Usage: mnemosine rep missing|faltante [options] [command]
+
+Payments and collections whose REP has not arrived or been issued
+
+Options:
+  -h, --help             display help for command
+
+Commands:
+  list|listar [options]  received: paid PPD bills without the supplier REP (VAT
+                         parked); issued: our collections without a REP
+  help [command]         display help for command
+```
+
+#### `mnemosine rep missing list` (alias: listar)
+
+```
+Usage: mnemosine rep missing list|listar [options]
+
+received: paid PPD bills without the supplier REP (VAT parked); issued: our
+collections without a REP
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --direction <d>                          received (default) or issued (default: "received")
+  --min-amount <n>                         only payments at or above this amount
+  -h, --help                               display help for command
+```
+
+### `mnemosine rep reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine rep reconcile|conciliar [options]
+
+Retry the parked REPs (needs_review): safe to repeat, resolved nodes are skipped
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  -n, --limit <n>          maximum parked REPs to retry (default: "50")
+  --dry-run                list what would be retried, retry nothing
+  -h, --help               display help for command
+```
+
+## `mnemosine ai` (alias: ia)
+
+```
+Usage: mnemosine ai|ia [options] [command]
+
+Métricas y calibración del agente contable
+
+Options:
+  -h, --help                    display help for command
+
+Commands:
+  stats|estadisticas [options]  Aprobación por bucket de confianza, delta
+                                confianza-vs-realidad, costo y eventos
+  help [command]                display help for command
+```
+
+### `mnemosine ai stats` (alias: estadisticas)
+
+```
+Usage: mnemosine ai stats|estadisticas [options]
+
+Aprobación por bucket de confianza, delta confianza-vs-realidad, costo y eventos
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
   -h, --help                               display help for command
 ```
 
