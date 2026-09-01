@@ -43,7 +43,7 @@
     "ioredis": "^5.3.0",
     "jose": "^6.2.10",
     "jsonwebtoken": "^9.0.2",
-    "kysely": "^0.27.0",
+    "kysely": "^0.28.17",
     "merkletreejs": "^0.6.0",
     "morgan": "^1.10.0",
     "node-forge": "^1.4.0",
