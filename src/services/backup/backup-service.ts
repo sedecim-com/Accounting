@@ -89,12 +89,47 @@ export const SUFIJO_MANIFIESTO = '.manifiesto.json';
  * migrador a propósito: son dos privilegios distintos y mezclarlos daría al
  * corredor de migraciones la capacidad de leerlo todo, que es justo lo que
  * NOBYPASSRLS le quita.
+ *
+ * DE AHÍ SALE EL ROL, NO LA BASE. Esa variable responde a «con qué privilegio
+ * se vuelca», nunca a «qué se vuelca»; lo que se vuelca es la base que sirve la
+ * aplicación. Tomar también su nombre de base era un defecto con la peor forma
+ * posible: apuntada a un rol de respaldo cuya URL nombra otra base —la suya por
+ * defecto, `postgres`, la que sea— el volcado salía de la base EQUIVOCADA con
+ * todas las señales de salud intactas: manifiesto escrito, sha256 correcto,
+ * migraciones contadas, `verify` restaurando sin un error. Un archivo que se
+ * comporta como respaldo y no lo es, que es justo la mentira que este módulo
+ * existe para no contar.
+ *
+ * El nombre sale de DATABASE_URL y sólo de ella, LEÍDA DEL ENTORNO. No de
+ * `config.database.url`, que nunca está vacía: cae a un literal que nombra
+ * `accounting_core` —el POSTGRES_DB de docker/docker-compose.yml, o sea una
+ * base que en una máquina de desarrollo EXISTE—, así que confiar en ella
+ * reintroduciría el mismo volcado sano y equivocado por la puerta de al lado,
+ * disparado ahora por una variable ausente en vez de por una presente. Y
+ * `.env.example` trae `DATABASE_URL=` vacía, que es exactamente ese caso.
+ *
+ * Y sin DATABASE_URL en el entorno NO se falla cerrado: se cae al nombre que la
+ * PROPIA credencial trae. Ahí no hay mentira que evitar —el operador nombró esa
+ * base explícitamente y es la que recibe—, y negarse rompería una instalación
+ * que hoy respalda bien. Lo que el defecto tenía de grave era volcar una base
+ * que NADIE nombró; sólo se rechaza cuando ninguna de las dos nombra ninguna.
  */
 function urlAdmin(): string {
-  const url =
+  const credencial =
     process.env.BACKUP_DATABASE_URL ?? config.database.migrationUrl ?? config.database.url;
-  if (!url) throw new ValidationError('No hay URL de base de datos configurada para respaldar.');
-  return url;
+  if (!credencial) {
+    throw new ValidationError('No hay URL de base de datos configurada para respaldar.');
+  }
+  // Del entorno, no de config: config.database.url cae a un literal.
+  const servida = process.env.DATABASE_URL;
+  const base = (servida ? nombreDeBase(servida) : '') || nombreDeBase(credencial);
+  if (!base) {
+    throw new ValidationError(
+      'Ninguna URL nombra una base que respaldar: DATABASE_URL dice QUÉ se vuelca y ' +
+        'BACKUP_DATABASE_URL con qué privilegio, y ninguna de las dos trae nombre de base.'
+    );
+  }
+  return urlConBase(credencial, base);
 }
 
 export interface Capacidad {
