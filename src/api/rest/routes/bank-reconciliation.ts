@@ -46,9 +46,63 @@ const createReconciliationSchema = z.object({
   ending_balance_per_bank: z.union([z.string(), z.number()]),
 });
 
+
+// ============================================================
+// LA CUENTA Y EL MOVIMIENTO, ACOTADOS POR LA ENTIDAD DE QUIEN LLAMA
+//
+// El arreglo de `auto-match` (más abajo) cerró UNA de las ocho rutas de este
+// archivo y no barrió las hermanas. Ejecutado contra Postgres con dos
+// entidades del mismo inquilino, el mismo ataque seguía funcionando por
+// cuatro de ellas: con el UUID de una cuenta ajena se le METÍAN movimientos
+// al extracto (`import` → 200, una fila nueva), se le LEÍA el extracto
+// (`unmatched` → 200 con sus movimientos), se COTEJABA su movimiento contra
+// una factura (`match` → 200, fila en reconciliation_matches) y se le ABRÍA
+// una sesión de conciliación (`reconciliations` → 201).
+//
+// La última es la peor: `period-close.ts` lee el estado de la sesión como
+// evidencia de que la cuenta fue verificada, así que abrir sesiones en los
+// libros de otro es escribir en SU cierre.
+//
+// Dos rutas de este archivo daban una falsa sensación de acotamiento con
+// `WHERE entity_id = (SELECT entity_id FROM bank_accounts WHERE id = $1)`.
+// Eso no acota nada: deduce la entidad DE LA CUENTA QUE PIDE EL ATACANTE, así
+// que siempre casa. La entidad tiene que venir del TOKEN, nunca del parámetro.
+//
+// 404 y no 403, como el resto del sistema: quien no es dueño no distingue una
+// cuenta ajena de una inexistente.
+//
+// Y ACOTAR NO BASTA SI LA ENTIDAD NO ESTÁ VALIDADA. La primera versión de este
+// arreglo filtraba por `req.entityId` sin montar `requireEntityAccess`, y el
+// criterio E2.1 lo cazó: `req.entityId` sale de la cabecera `x-entity-id`, así
+// que sin esa guarda el atacante nombra la entidad hermana y el filtro nuevo lo
+// obedece — se acota, pero a la entidad que él eligió. Por eso las siete rutas
+// montan la guarda: valida que TODA entidad que la petición nombre sea suya.
+// ============================================================
+
+async function cuentaDelLlamador(req: Request, accountId: string): Promise<{ id: string; entity_id: string }> {
+  const r = await query<{ id: string; entity_id: string }>(
+    'SELECT id, entity_id FROM bank_accounts WHERE id = $1 AND entity_id = $2',
+    [accountId, req.entityId]
+  );
+  if (r.rows.length === 0) throw new NotFoundError('Bank Account', accountId);
+  return r.rows[0];
+}
+
+async function movimientoDelLlamador(req: Request, txId: string): Promise<BankTransaction> {
+  const r = await query<BankTransaction>(
+    `SELECT bt.* FROM bank_transactions bt
+       JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+      WHERE bt.id = $1 AND ba.entity_id = $2`,
+    [txId, req.entityId]
+  );
+  if (r.rows.length === 0) throw new NotFoundError('Bank Transaction', txId);
+  return r.rows[0];
+}
+
 // POST /v1/bank-accounts/:account_id/import
-router.post('/:account_id/import', requirePermission('journal_entries:create'), validateBody(importTransactionsSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:account_id/import', requirePermission('journal_entries:create'), requireEntityAccess, validateBody(importTransactionsSchema), asyncHandler(async (req: Request, res: Response) => {
   const { transactions } = req.body;
+  await cuentaDelLlamador(req, req.params.account_id);
 
   let imported = 0;
   let skipped = 0;
@@ -90,7 +144,8 @@ router.post('/:account_id/import', requirePermission('journal_entries:create'), 
 }));
 
 // GET /v1/bank-accounts/:account_id/transactions/unmatched
-router.get('/:account_id/transactions/unmatched', requirePermission('journal_entries:read'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/:account_id/transactions/unmatched', requirePermission('journal_entries:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  await cuentaDelLlamador(req, req.params.account_id);
   const result = await query<BankTransaction>(
     `SELECT * FROM bank_transactions
      WHERE bank_account_id = $1 AND is_matched = false
@@ -105,15 +160,8 @@ router.get('/:account_id/transactions/unmatched', requirePermission('journal_ent
 }));
 
 // GET /v1/bank-transactions/:id/match-suggestions
-router.get('/transactions/:id/suggestions', requirePermission('journal_entries:read'), asyncHandler(async (req: Request, res: Response) => {
-  const txResult = await query<BankTransaction>(
-    'SELECT * FROM bank_transactions WHERE id = $1',
-    [req.params.id]
-  );
-
-  if (txResult.rows.length === 0) throw new NotFoundError('Bank Transaction', req.params.id);
-
-  const tx = txResult.rows[0];
+router.get('/transactions/:id/suggestions', requirePermission('journal_entries:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  const tx = await movimientoDelLlamador(req, req.params.id);
   const amount = new Decimal(tx.amount).abs();
   const tolerance = amount.times(0.01); // 1% tolerance
 
@@ -121,12 +169,12 @@ router.get('/transactions/:id/suggestions', requirePermission('journal_entries:r
   const invoiceMatches = await query(
     `SELECT 'invoice' as type, id, invoice_number as reference, total_amount as amount, invoice_date as date
      FROM invoices
-     WHERE entity_id = (SELECT entity_id FROM bank_accounts WHERE id = $1)
+     WHERE entity_id = $1
      AND ABS(total_amount - $2) <= $3
      AND status IN ('sent', 'partially_paid')
      ORDER BY ABS(total_amount - $2) ASC
      LIMIT 5`,
-    [tx.bank_account_id, amount.toFixed(4), tolerance.toFixed(4)]
+    [req.entityId, amount.toFixed(4), tolerance.toFixed(4)]
   );
 
   // Find matching bills
@@ -138,7 +186,7 @@ router.get('/transactions/:id/suggestions', requirePermission('journal_entries:r
      AND status IN ('approved', 'posted', 'partially_paid')
      ORDER BY ABS(total_amount - $2) ASC
      LIMIT 5`,
-    [tx.bank_account_id, amount.toFixed(4), tolerance.toFixed(4)]
+    [req.entityId, amount.toFixed(4), tolerance.toFixed(4)]
   );
 
   const suggestions = [...invoiceMatches.rows, ...billMatches.rows].map((match) => {
@@ -158,8 +206,9 @@ router.get('/transactions/:id/suggestions', requirePermission('journal_entries:r
 }));
 
 // POST /v1/bank-transactions/:id/match
-router.post('/transactions/:id/match', requirePermission('journal_entries:create'), validateBody(matchTransactionSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/transactions/:id/match', requirePermission('journal_entries:create'), requireEntityAccess, validateBody(matchTransactionSchema), asyncHandler(async (req: Request, res: Response) => {
   const { matched_entity_type, matched_entity_id, matched_amount } = req.body;
+  await movimientoDelLlamador(req, req.params.id);
 
   await withTransaction(async (client) => {
     await client.query(
@@ -183,14 +232,10 @@ router.post('/transactions/:id/match', requirePermission('journal_entries:create
 }));
 
 // POST /v1/bank-accounts/:account_id/reconciliations
-router.post('/:account_id/reconciliations', requirePermission('journal_entries:create'), validateBody(createReconciliationSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:account_id/reconciliations', requirePermission('journal_entries:create'), requireEntityAccess, validateBody(createReconciliationSchema), asyncHandler(async (req: Request, res: Response) => {
   const { start_date, end_date, ending_balance_per_bank } = req.body;
 
-  const bankAccount = await query<{ entity_id: string }>(
-    'SELECT entity_id FROM bank_accounts WHERE id = $1',
-    [req.params.account_id]
-  );
-  if (bankAccount.rows.length === 0) throw new NotFoundError('Bank Account', req.params.account_id);
+  const cuenta = await cuentaDelLlamador(req, req.params.account_id);
 
   const sessionId = uuidv4();
   await query(
@@ -198,7 +243,7 @@ router.post('/:account_id/reconciliations', requirePermission('journal_entries:c
       id, bank_account_id, entity_id, start_date, end_date,
       beginning_balance, ending_balance_per_bank
     ) VALUES ($1, $2, $3, $4, $5, 0, $6)`,
-    [sessionId, req.params.account_id, bankAccount.rows[0].entity_id, start_date, end_date, ending_balance_per_bank]
+    [sessionId, req.params.account_id, cuenta.entity_id, start_date, end_date, ending_balance_per_bank]
   );
 
   const session = await query<ReconciliationSession>(
@@ -213,10 +258,10 @@ router.post('/:account_id/reconciliations', requirePermission('journal_entries:c
 }));
 
 // GET /v1/reconciliations/:id
-router.get('/reconciliations/:id', requirePermission('journal_entries:read'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/reconciliations/:id', requirePermission('journal_entries:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const session = await query<ReconciliationSession>(
-    'SELECT * FROM reconciliation_sessions WHERE id = $1',
-    [req.params.id]
+    'SELECT * FROM reconciliation_sessions WHERE id = $1 AND entity_id = $2',
+    [req.params.id, req.entityId]
   );
   if (session.rows.length === 0) throw new NotFoundError('Reconciliation Session', req.params.id);
 

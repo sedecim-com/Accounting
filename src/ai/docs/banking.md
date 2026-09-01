@@ -1,6 +1,7 @@
 # Banking and reconciliation
 
 ## Flow
+0. EVERY route here is scoped to the caller's entity, and answers 404 — not 403 — for an account, transaction or session belonging to another one. Until recently only `auto-match` was: with a foreign account UUID you could inject movements into someone else's statement, read it, match against it, and open a reconciliation session on it. Never suggest working around a 404 here by "using the id directly".
 1. Import transactions: POST /v1/bank-accounts/:id/import (batch of transactions with a unique bank_transaction_id — automatic dedupe). Source: this API only. Plaid/Belvo are config keys and nullable columns; NO connector exists — never tell a user their bank can sync.
 2. Matching: each transaction is paired with a journal entry LINE, invoice, bill, or customer/vendor payment.
    - Suggestions: GET /bank-accounts/transactions/:id/suggestions (invoices and bills only, by amount ±1%, with a confidence score).
