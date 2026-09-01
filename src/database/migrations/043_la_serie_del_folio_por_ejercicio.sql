@@ -17,58 +17,82 @@
 -- continúa sin colisionar con nada emitido. GREATEST en el conflicto por si
 -- una corrida parcial anterior dejó un valor.
 --
+-- ENMENDADA (2026-08-31, mismo día que la colisión que provocó): la versión
+-- original hacía los INSERT...SELECT a pelo, como dueño del esquema, bajo
+-- FORCE ROW LEVEL SECURITY y sin GUC de inquilino — leyó CERO filas y
+-- sembró NADA, en silencio. El mismo tropiezo que la 025 (lo confesó la
+-- 026), con el mismo remedio que aquélla ya había consagrado: iterar
+-- tenants (excluida de RLS) fijando app.current_tenant por vuelta. La 046
+-- re-corre esta siembra para las bases que ejecutaron la versión muda; esta
+-- enmienda es para las que aún no llegan aquí.
+--
 -- Las llaves viejas sin año (journal_entry, invoice, …) se quedan como
 -- registro del esquema anterior: nadie las incrementa ya, y borrarlas
 -- destruiría la única constancia de cuántos folios repartió el modelo
 -- viejo. listEntitySequences las muestra tal cual.
 -- ============================================================
 
-INSERT INTO entity_sequences (entity_id, name, value)
-SELECT entity_id,
-       'journal_entry_' || substring(entry_number from 4 for 4),
-       max(split_part(entry_number, '-', 3)::bigint)
-  FROM journal_entries
- WHERE entry_number ~ '^JE-\d{4}-\d+$'
- GROUP BY entity_id, substring(entry_number from 4 for 4)
-ON CONFLICT (entity_id, name)
-DO UPDATE SET value = GREATEST(entity_sequences.value, EXCLUDED.value);
+-- El opt-in: migrate.ts corre la sesión con row_security=off, que convierte
+-- el filtrado silencioso en error 42501. Este bucle SÍ maneja RLS a
+-- propósito (GUC por inquilino), así que lo declara; SET LOCAL muere con la
+-- transacción de esta migración.
+SET LOCAL row_security = on;
+DO $seed$
+DECLARE t record;
+BEGIN
+  FOR t IN SELECT id FROM tenants LOOP
+    PERFORM set_config('app.current_tenant', t.id::text, true);
 
-INSERT INTO entity_sequences (entity_id, name, value)
-SELECT entity_id,
-       'invoice_' || substring(invoice_number from 5 for 4),
-       max(split_part(invoice_number, '-', 3)::bigint)
-  FROM invoices
- WHERE invoice_number ~ '^INV-\d{4}-\d+$'
- GROUP BY entity_id, substring(invoice_number from 5 for 4)
-ON CONFLICT (entity_id, name)
-DO UPDATE SET value = GREATEST(entity_sequences.value, EXCLUDED.value);
+    INSERT INTO entity_sequences (entity_id, name, value)
+    SELECT entity_id,
+           'journal_entry_' || substring(entry_number from 4 for 4),
+           max(split_part(entry_number, '-', 3)::bigint)
+      FROM journal_entries
+     WHERE entry_number ~ '^JE-\d{4}-\d+$'
+     GROUP BY entity_id, substring(entry_number from 4 for 4)
+    ON CONFLICT (entity_id, name)
+    DO UPDATE SET value = GREATEST(entity_sequences.value, EXCLUDED.value);
 
-INSERT INTO entity_sequences (entity_id, name, value)
-SELECT entity_id,
-       'bill_' || substring(bill_number from 6 for 4),
-       max(split_part(bill_number, '-', 3)::bigint)
-  FROM bills
- WHERE bill_number ~ '^BILL-\d{4}-\d+$'
- GROUP BY entity_id, substring(bill_number from 6 for 4)
-ON CONFLICT (entity_id, name)
-DO UPDATE SET value = GREATEST(entity_sequences.value, EXCLUDED.value);
+    INSERT INTO entity_sequences (entity_id, name, value)
+    SELECT entity_id,
+           'invoice_' || substring(invoice_number from 5 for 4),
+           max(split_part(invoice_number, '-', 3)::bigint)
+      FROM invoices
+     WHERE invoice_number ~ '^INV-\d{4}-\d+$'
+     GROUP BY entity_id, substring(invoice_number from 5 for 4)
+    ON CONFLICT (entity_id, name)
+    DO UPDATE SET value = GREATEST(entity_sequences.value, EXCLUDED.value);
 
-INSERT INTO entity_sequences (entity_id, name, value)
-SELECT entity_id,
-       'vendor_payment_' || substring(payment_number from 6 for 4),
-       max(split_part(payment_number, '-', 3)::bigint)
-  FROM vendor_payments
- WHERE payment_number ~ '^VPMT-\d{4}-\d+$'
- GROUP BY entity_id, substring(payment_number from 6 for 4)
-ON CONFLICT (entity_id, name)
-DO UPDATE SET value = GREATEST(entity_sequences.value, EXCLUDED.value);
+    INSERT INTO entity_sequences (entity_id, name, value)
+    SELECT entity_id,
+           'bill_' || substring(bill_number from 6 for 4),
+           max(split_part(bill_number, '-', 3)::bigint)
+      FROM bills
+     WHERE bill_number ~ '^BILL-\d{4}-\d+$'
+     GROUP BY entity_id, substring(bill_number from 6 for 4)
+    ON CONFLICT (entity_id, name)
+    DO UPDATE SET value = GREATEST(entity_sequences.value, EXCLUDED.value);
 
-INSERT INTO entity_sequences (entity_id, name, value)
-SELECT entity_id,
-       'customer_payment_' || substring(payment_number from 5 for 4),
-       max(split_part(payment_number, '-', 3)::bigint)
-  FROM customer_payments
- WHERE payment_number ~ '^PMT-\d{4}-\d+$'
- GROUP BY entity_id, substring(payment_number from 5 for 4)
-ON CONFLICT (entity_id, name)
-DO UPDATE SET value = GREATEST(entity_sequences.value, EXCLUDED.value);
+    INSERT INTO entity_sequences (entity_id, name, value)
+    SELECT entity_id,
+           'vendor_payment_' || substring(payment_number from 6 for 4),
+           max(split_part(payment_number, '-', 3)::bigint)
+      FROM vendor_payments
+     WHERE payment_number ~ '^VPMT-\d{4}-\d+$'
+     GROUP BY entity_id, substring(payment_number from 6 for 4)
+    ON CONFLICT (entity_id, name)
+    DO UPDATE SET value = GREATEST(entity_sequences.value, EXCLUDED.value);
+
+    INSERT INTO entity_sequences (entity_id, name, value)
+    SELECT entity_id,
+           'customer_payment_' || substring(payment_number from 5 for 4),
+           max(split_part(payment_number, '-', 3)::bigint)
+      FROM customer_payments
+     WHERE payment_number ~ '^PMT-\d{4}-\d+$'
+     GROUP BY entity_id, substring(payment_number from 5 for 4)
+    ON CONFLICT (entity_id, name)
+    DO UPDATE SET value = GREATEST(entity_sequences.value, EXCLUDED.value);
+  END LOOP;
+  PERFORM set_config('app.current_tenant', '', true);
+END
+$seed$;
