@@ -12,7 +12,7 @@ import { authenticate, requireEntityAccess } from './api/rest/middleware/auth.js
 import { auditLogMiddleware } from './api/rest/middleware/audit.js';
 import { tenantContext } from './api/rest/middleware/tenant-context.js';
 import { errorHandler } from './api/rest/middleware/error-handler.js';
-import { rateLimiter } from './api/rest/middleware/rate-limiter.js';
+import { rateLimiter, preAuthRateLimiter } from './api/rest/middleware/rate-limiter.js';
 import { metricsMiddleware, metricsHandler } from './api/rest/middleware/metrics.js';
 import { correlationIdMiddleware, enrichLogContextMiddleware } from './api/rest/middleware/correlation.js';
 import { logger } from './utils/logger.js';
@@ -55,7 +55,16 @@ async function bootstrap() {
   // ============================================================
   // Middleware
   // ============================================================
-  app.use(helmet({ contentSecurityPolicy: config.env === 'production' ? undefined : false }));
+  // CSP ENCENDIDO EN TODOS LOS ENTORNOS, con una sola excepción declarada.
+  //
+  // Estaba apagado fuera de producción —`js/insecure-helmet-configuration`— y
+  // la razón original era el playground de GraphQL, cuya landing page carga
+  // scripts de un CDN que CSP bloquea. Pero GraphQL ya viene APAGADO por
+  // omisión, así que la excepción sólo hace falta cuando alguien lo enciende
+  // a propósito en desarrollo. La API sirve JSON: encender CSP no le cuesta
+  // nada y quita una diferencia entre lo que se prueba y lo que se despliega.
+  const playgroundGraphql = process.env.GRAPHQL_ENABLED === 'true' && config.env !== 'production';
+  app.use(helmet({ contentSecurityPolicy: playgroundGraphql ? false : undefined }));
   // CORS explícito por entorno (S1): `cors()` a secas publica
   // Access-Control-Allow-Origin: * también en producción. La API la consumen
   // el CLI y agentes (sin navegador), así que producción sin ALLOWED_ORIGINS
@@ -123,7 +132,9 @@ async function bootstrap() {
   // Encendido, cada endpoint se niega igualmente a servir una fila
   // simulada: la bandera decide si el router existe, no si miente.
   if (process.env.PUBLIC_VERIFICATION_ENABLED === 'true') {
-    app.use('/public/v1', publicVerificationRouter);
+    // Sirve SIN credenciales: la IP es la única identidad disponible, y sin
+    // freno un tercero puede minar la superficie pública a placer.
+    app.use('/public/v1', preAuthRateLimiter, publicVerificationRouter);
     logger.warn('public_verification_enabled', {
       detail:
         'La verificación pública está encendida. Sólo servirá atestaciones no simuladas; ' +
@@ -134,10 +145,10 @@ async function bootstrap() {
   // Inbound AI webhooks: authenticated by their own dedicated tokens
   // (Bearer, hashed at rest), NOT by JWT — mounted before `authenticate` so
   // it must not require a JWT. It IS still rate limited: the limiter runs
-  // first (keyed per-IP here, since there is no JWT tenant) so the
+  // first (preAuthRateLimiter: keyed per-IP, since there is no JWT tenant) so the
   // unauthenticated token-guessing / flood surface is throttled instead of
   // being both unauthenticated AND unthrottled.
-  app.use('/v1/ai/webhooks', rateLimiter, aiWebhooksRouter);
+  app.use('/v1/ai/webhooks', preAuthRateLimiter, aiWebhooksRouter);
 
   // ============================================================
   // REST API Routes
@@ -145,6 +156,10 @@ async function bootstrap() {
   const apiPrefix = `/v1`;
 
   // Auth + rate limiting middleware for all API routes
+  // El escudo va ANTES de authenticate: verificar una firma JWT es trabajo de
+  // CPU, y sin esto salía gratis para quien no tiene credenciales — el
+  // limitador de abajo, que reparte por inquilino, no llegaba a correr.
+  app.use(apiPrefix, preAuthRateLimiter);
   app.use(apiPrefix, authenticate);
   // Right after authenticate, and before anything that touches the
   // database: it opens the tenant context that the RLS policies read.
@@ -214,6 +229,7 @@ async function bootstrap() {
   if (graphqlEnabled) {
     app.use(
       '/graphql',
+      preAuthRateLimiter,
       authenticate,
       // Igual que en /v1: justo después de authenticate y antes de nada que
       // toque la base. Que esta puerta esté fuera del prefijo auditado no es
