@@ -127,7 +127,20 @@ router.post('/upload', requirePermission('bills:create'), requireEntityAccess, v
   if (!entityId) throw new ValidationError('entity_id is required');
 
   // Support single or batch upload
-  const xmls: string[] = xml_contents || (xml_content ? [xml_content] : []);
+  const MAX_XML_UPLOAD_BATCH_SIZE = 1000;
+  let xmls: string[] = [];
+
+  if (xml_contents !== undefined) {
+    if (!Array.isArray(xml_contents)) {
+      throw new ValidationError('xml_contents must be an array of XML strings');
+    }
+    if (xml_contents.length > MAX_XML_UPLOAD_BATCH_SIZE) {
+      throw new ValidationError(`xml_contents exceeds maximum batch size of ${MAX_XML_UPLOAD_BATCH_SIZE}`);
+    }
+    xmls = xml_contents;
+  } else if (xml_content) {
+    xmls = [xml_content];
+  }
 
   const results: Array<Record<string, unknown>> = [];
   const errors: Array<Record<string, unknown>> = [];
