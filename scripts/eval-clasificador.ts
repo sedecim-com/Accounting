@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -59,28 +60,46 @@ const GOLDEN_DIR = path.resolve('tests/golden/cfdi');
 const BITACORA = path.resolve('docs/evals/clasificador.jsonl');
 
 // ============================================================
-// NINGUNA CREDENCIAL SALE POR AQUÍ.
+// NINGUNA CREDENCIAL SALE POR AQUÍ — Y EL REDACTOR TAMPOCO LA LLEVA.
 //
 // El arnés corre con una llave de proveedor de verdad (resolveProfile la lee
 // de api_key_env o la saca de api_key_cmd), y todo lo que el proveedor falla
 // vuelve como texto: el mensaje de error viaja al `detalle` del caso, se
 // imprime, y en una corrida de CI queda en el registro para siempre. Un SDK
-// que eche la petición en el mensaje basta para publicarla. Así que lo que
-// se imprime pasa antes por aquí: se tacha la llave concreta que esta
-// corrida resolvió, y de paso las formas de llave más comunes por si el
-// mensaje trae otra.
+// que eche la petición en el mensaje basta para publicarla.
+//
+// La primera versión de esto guardaba la llave para hacer `split(llave)` —
+// y así el propio redactor pasaba a ser portador del secreto: cualquiera que
+// siga el flujo de datos (CodeQL lo hizo) ve la credencial entrar al
+// sanitizador y salir hacia un `console.error`. Que la salida no la contenga
+// es cierto, pero no es demostrable desde el flujo.
+//
+// Ahora se compara por HUELLA: se guarda el sha256 de cada credencial, no la
+// credencial. Un token del texto se tacha cuando su huella coincide. El valor
+// sensible no entra nunca al camino de la salida, la comparación exacta se
+// conserva, y de paso siguen tachándose las formas de llave más comunes por
+// si el mensaje trae una que este proceso no resolvió.
 // ============================================================
-const SECRETOS: string[] = [];
+const HUELLAS = new Set<string>();
 const OCULTO = '«credencial oculta»';
 
+function huella(valor: string): string {
+  return createHash('sha256').update(valor).digest('hex');
+}
+
+/** Registra una credencial por su huella. La credencial no se conserva. */
+function recordarSecreto(valor: string | undefined): void {
+  if (valor && valor.length >= 8) HUELLAS.add(huella(valor));
+}
+
 function sinSecretos(texto: string): string {
-  let limpio = texto;
-  for (const s of SECRETOS) {
-    if (s && s.length >= 8) limpio = limpio.split(s).join(OCULTO);
-  }
-  return limpio
+  const porPatron = texto
     .replace(/\b(?:sk|rk|pk)-[A-Za-z0-9_-]{8,}/g, OCULTO)
     .replace(/\bBearer\s+[A-Za-z0-9._-]{8,}/gi, `Bearer ${OCULTO}`);
+  if (HUELLAS.size === 0) return porPatron;
+  // Sólo los trozos con pinta de token se hashean: barrer cada palabra del
+  // mensaje sería caro y no aportaría — una credencial no tiene 4 caracteres.
+  return porPatron.replace(/[A-Za-z0-9._-]{12,}/g, (t) => (HUELLAS.has(huella(t)) ? OCULTO : t));
 }
 
 const tasa = (m: { aciertos: number; total: number }): string =>
@@ -139,7 +158,7 @@ async function main(): Promise<void> {
     // Proveedor FIJADO: sesión directa, sin failover, grounding apagado.
     const profile = resolveProfile(args.provider, args.model);
     // La llave de ESTA corrida, para tacharla si algún mensaje la trae.
-    if (profile.apiKey) SECRETOS.push(profile.apiKey);
+    recordarSecreto(profile.apiKey);
     const capture: DraftCapture = { drafts: [] };
     let llamadasAlModelo = 0;
     const base = await createLlmSession(
@@ -248,10 +267,8 @@ async function main(): Promise<void> {
     // Hoy `registro` sólo copia el nombre y el modelo del perfil, así que no
     // hay clave que ocultar — pero eso es INCIDENTAL: depende de que nadie
     // añada un campo más adelante, y el perfil del que se copia sí lleva la
-    // credencial (línea 142, que la mete en SECRETOS). El análisis estático lo
-    // marcó por ese camino, y tenía razón sobre la forma aunque hoy no salga
-    // ningún secreto: un archivo que se relee y se imprime no puede depender
-    // de la disciplina de quien edite el objeto.
+    // credencial. Un archivo que se relee y se imprime no puede depender de
+    // la disciplina de quien edite el objeto.
     fs.appendFileSync(BITACORA, sinSecretos(JSON.stringify(registro)) + '\n');
 
     if (anterior) {
