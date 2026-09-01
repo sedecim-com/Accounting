@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { consultaPublica } from '../../../database/consulta-publica.js';
 import { asyncHandler } from '../middleware/async-handler.js';
+import { preAuthRateLimiter } from '../middleware/rate-limiter.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { bitcoinAnchorService } from '../../../services/blockchain/bitcoin-anchor.js';
 import { cryptoService } from '../../../services/blockchain/crypto-service.js';
@@ -10,6 +11,15 @@ import { cryptoService } from '../../../services/blockchain/crypto-service.js';
 // journal entry attestations without access to internal data.
 
 const router = Router();
+
+// EL FRENO VIVE AQUÍ, NO EN EL MONTAJE.
+//
+// Este router sirve sin credenciales y hace trabajo caro: /verify/merkle-proof
+// verifica criptográficamente lo que mande cualquiera. Ponerlo en el montaje
+// funcionaba, pero dejaba la protección a un archivo de distancia —invisible
+// para quien lee este router y para el análisis estático, que lo señalaba como
+// `js/missing-rate-limiting`—. Aquí viaja con el router a donde se monte.
+router.use(preAuthRateLimiter);
 
 // ============================================================
 // UNA PRUEBA FABRICADA ES PEOR QUE NINGUNA.

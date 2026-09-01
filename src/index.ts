@@ -132,9 +132,9 @@ async function bootstrap() {
   // Encendido, cada endpoint se niega igualmente a servir una fila
   // simulada: la bandera decide si el router existe, no si miente.
   if (process.env.PUBLIC_VERIFICATION_ENABLED === 'true') {
-    // Sirve SIN credenciales: la IP es la única identidad disponible, y sin
-    // freno un tercero puede minar la superficie pública a placer.
-    app.use('/public/v1', preAuthRateLimiter, publicVerificationRouter);
+    // El limitador por IP no va aquí: vive DENTRO del router, para que viaje
+    // con él y se vea desde el archivo que sirve sin credenciales.
+    app.use('/public/v1', publicVerificationRouter);
     logger.warn('public_verification_enabled', {
       detail:
         'La verificación pública está encendida. Sólo servirá atestaciones no simuladas; ' +
