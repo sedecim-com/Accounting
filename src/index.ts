@@ -3,7 +3,10 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { ApolloServer } from '@apollo/server';
-import { expressMiddleware } from '@apollo/server/express4';
+// Apollo Server 5 retiró el subpath `@apollo/server/express4`: la integración con
+// Express vive ahora en un paquete propio. Seguimos en Express 4, así que el
+// paquete es el de la versión 4, no el de la 5.
+import { expressMiddleware } from '@as-integrations/express4';
 import { config } from './config/index.js';
 import { query, closeDatabase, initDatabase } from './database/connection.js';
 import { verificarRolSujetoARls } from './database/rls-guard.js';
