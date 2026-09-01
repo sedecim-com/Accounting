@@ -49,7 +49,7 @@ export function arbolVivo(): { hojas: Set<string>; grupos: Set<string> } {
       andar(c, nombre);
     }
   };
-  andar(program as unknown as { commands: readonly unknown[] }, '');
+  andar(program, '');
   return { hojas, grupos };
 }
 

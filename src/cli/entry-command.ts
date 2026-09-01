@@ -1,6 +1,7 @@
 import * as readline from 'node:readline/promises';
 import { readFileSync } from 'node:fs';
 import type { Command } from 'commander';
+import { JournalEntryStatus } from '../types/index.js';
 import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import {
@@ -341,7 +342,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const ctx = await entityOf(opts);
       const detail = await getJournalEntryDetail(ctx.entityId, number);
       const header = {
-        ...summarize(detail as unknown as Record<string, unknown>),
+        ...summarize(detail),
         posted_date: detail.posted_date ? new Date(detail.posted_date).toISOString() : '',
         is_reversal: detail.is_reversal,
         reverses: detail.reverses_entry_number ?? '',
@@ -550,13 +551,13 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const target = await resolveJournalEntry(ctx.entityId, number);
       const { dryRun } = gateMutation(post, opts as Record<string, unknown>);
 
-      if (target.status === 'posted') {
+      if (target.status === JournalEntryStatus.POSTED) {
         throw blockedByState(
           `${target.entry_number} is already posted (${day(target.posted_date)}). ` +
             'Correct it with `entry reverse`, which leaves an audit trail.'
         );
       }
-      if (target.status === 'void') {
+      if (target.status === JournalEntryStatus.VOID) {
         throw blockedByState(`${target.entry_number} is void and can never be posted.`);
       }
 
@@ -618,7 +619,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const target = await resolveJournalEntry(ctx.entityId, number);
       const { dryRun, reason } = gateMutation(reverse, opts as Record<string, unknown>);
 
-      if (target.status !== 'posted') {
+      if (target.status !== JournalEntryStatus.POSTED) {
         throw blockedByState(
           `${target.entry_number} is '${target.status}' and never touched the ledger, so there is ` +
             'nothing to mirror. Use `entry void` on a draft.'
@@ -705,10 +706,10 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const target = await resolveJournalEntry(ctx.entityId, number);
       const { dryRun, reason } = gateMutation(voidCmd, opts as Record<string, unknown>);
 
-      if (target.status === 'void') {
+      if (target.status === JournalEntryStatus.VOID) {
         throw blockedByState(`${target.entry_number} is already void.`);
       }
-      const posted = target.status === 'posted';
+      const posted = target.status === JournalEntryStatus.POSTED;
       if (posted && target.reversed_by_entry_id) {
         throw blockedByState(
           `${target.entry_number} was already annulled by its reversal. A second one would double the correction.`

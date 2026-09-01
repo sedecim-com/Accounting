@@ -17,9 +17,19 @@ import path from 'node:path';
  *     UUID; volver a pedirlo es cómo se duplica un folio.
  */
 
-const { credenciales } = vi.hoisted(() => ({
+interface CredencialesDePrueba {
+  // Las pruebas de abajo le asignan `null` y una forma con `apiKeyEnv`, asi
+  // que el tipo tiene que ser el ancho. Va como interfaz y no como
+  // `... as Record<...> | null` en el literal porque el autofix de
+  // no-unnecessary-type-assertion borra la asercion y tumba el typecheck de
+  // tests; una anotacion sobre un `const` tampoco sirve, el estrechamiento
+  // por flujo la deshace. Sobre el tipo de retorno no hay nada que borrar.
+  actual: Record<string, unknown> | null;
+}
+
+const { credenciales } = vi.hoisted((): { credenciales: CredencialesDePrueba } => ({
   credenciales: {
-    actual: { apiKey: 'LLAVE-DE-PRUEBA', environment: 'uat' } as Record<string, unknown> | null,
+    actual: { apiKey: 'LLAVE-DE-PRUEBA', environment: 'uat' },
   },
 }));
 

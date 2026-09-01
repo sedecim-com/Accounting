@@ -336,7 +336,7 @@ describe('buildCfdiPrompt', () => {
    * de flujo; ésta le decía al modelo lo opuesto.
    */
   it('enseña el IVA sobre base de flujo, no la regla que lo acredita al recibir', () => {
-    const prompt = buildCfdiPrompt(makeUpload({}, { vendor_id: 'vend-1' }) as never);
+    const prompt = buildCfdiPrompt(makeUpload({}, { vendor_id: 'vend-1' }));
 
     expect(prompt, 'debe nombrar la base de flujo y su fundamento').toMatch(/cash basis/i);
     expect(prompt).toMatch(/LIVA art\. 5-III/);
@@ -356,7 +356,7 @@ describe('buildCfdiPrompt', () => {
   });
 
   it('sin método declarado le dice al modelo que asuma PPD', () => {
-    const prompt = buildCfdiPrompt(makeUpload({}, { vendor_id: 'vend-1' }) as never);
+    const prompt = buildCfdiPrompt(makeUpload({}, { vendor_id: 'vend-1' }));
     expect(prompt).toMatch(/No Method declared[\s\S]*treat it as PPD/);
   });
 

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { query, withTransaction, enterTenant } from '../../database/connection.js';
+import { query, enterTenant } from '../../database/connection.js';
 import { checkEntities } from '../../ai/doctor-service.js';
 import { ensureEntityAccounting } from '../../services/accounting/entity-accounting.js';
 import { createEntity as createEntityService } from '../../services/entity/entity-service.js';

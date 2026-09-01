@@ -96,7 +96,7 @@ const CREDIT_STATUSES = ['approved', 'on_hold', 'suspended'] as const;
 function summarize(row: Record<string, unknown>): Record<string, unknown> {
   return {
     customer_number: row.customer_number,
-    name: customerLabel(row as { company_name?: string | null }),
+    name: customerLabel(row),
     payment_terms: row.payment_terms,
     currency_code: row.currency_code,
     credit_status: row.credit_status,
@@ -262,7 +262,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       const p = deps.palette;
       const out = process.stdout;
       out.write(
-        `\n${p.bold(customerLabel(card as { company_name?: string | null }))} ` +
+        `\n${p.bold(customerLabel(card))} ` +
           `${p.dim(String(card.customer_number))}${card.is_active ? '' : p.yellow('  [archived]')}\n`
       );
       const fact = (label: string, value: unknown) => {

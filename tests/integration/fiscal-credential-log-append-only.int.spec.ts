@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { v4 as uuidv4 } from 'uuid';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
