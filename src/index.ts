@@ -8,7 +8,7 @@ import { config } from './config/index.js';
 import { query, closeDatabase, initDatabase } from './database/connection.js';
 import { verificarRolSujetoARls } from './database/rls-guard.js';
 import { drainAttestations } from './services/accounting/posting.js';
-import { authenticate, requireEntityAccess } from './api/rest/middleware/auth.js';
+import { authenticate } from './api/rest/middleware/auth.js';
 import { auditLogMiddleware } from './api/rest/middleware/audit.js';
 import { tenantContext } from './api/rest/middleware/tenant-context.js';
 import { errorHandler } from './api/rest/middleware/error-handler.js';

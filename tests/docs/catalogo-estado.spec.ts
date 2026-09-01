@@ -225,6 +225,9 @@ describe('filasCompletas — los datos que consume el artefacto navegable', () =
     // propia celda): S0.7 las sacó del conteo porque entraban como comandos
     // invocables de fase 1. La exclusión se cuenta AQUÍ, explícita, para que
     // una fila descartada por accidente siga rompiendo.
+    // Lectura sincrona deliberada dentro de la prueba: el catalogo se lee tal
+    // cual esta en disco, sin pasar por el modulo bajo prueba.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const md: string = require('node:fs').readFileSync('docs/cli-command-catalog.md', 'utf-8');
     const brutas = md.split('\n').filter((l: string) => /^\|\s*`mnemosine\b/.test(l));
     const contratos = brutas.filter((l: string) => /`mnemosine <noun>/.test(l)).length;

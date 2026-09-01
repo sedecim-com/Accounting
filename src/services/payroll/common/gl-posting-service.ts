@@ -18,16 +18,6 @@ async function resolveAccounts(entityId: string): Promise<Record<string, string>
   return map;
 }
 
-interface PayRunTotals {
-  total_gross: number;
-  total_pre_tax_deductions: number;
-  total_net_pay: number;
-  total_employee_taxes: number;
-  total_employer_taxes: number;
-  total_post_tax_deductions: number;
-  breakdown: Record<string, number>;
-}
-
 export async function postPayRunToGL(
   payRunId: string,
   userId: string

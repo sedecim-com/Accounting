@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
-import { query, withTransaction } from '../../database/connection.js';
+import { query } from '../../database/connection.js';
 import { cryptoService } from './crypto-service.js';
 
 // ============================================================

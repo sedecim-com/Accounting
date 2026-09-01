@@ -272,7 +272,7 @@ router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Req
 // GET /public/v1/entities/:entityId/aggregates
 router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, res: Response) => {
   const { entityId } = req.params;
-  const { dimension, value, from_period, to_period } = req.query;
+  const { dimension, value } = req.query;
 
   let where = 'WHERE entity_id = $1';
   const params: unknown[] = [entityId];

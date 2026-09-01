@@ -107,7 +107,7 @@ export async function setCachedReport(key: string, data: unknown): Promise<void>
   } catch { /* ignore */ }
 }
 
-export async function invalidateReportCache(entityId: string, periodId?: string): Promise<void> {
+export async function invalidateReportCache(entityId: string, _periodId?: string): Promise<void> {
   try {
     const r = getRedis();
     if (!r) return;

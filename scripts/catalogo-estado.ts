@@ -233,7 +233,7 @@ export interface Cita {
 export function citasDe(md: string): Cita[] {
   const vistas = new Set<string>();
   const out: Cita[] = [];
-  for (const m of md.matchAll(/((?:src|tests|scripts)\/[A-Za-z0-9_/.\-]+\.(?:ts|sql)):(\d+)/g)) {
+  for (const m of md.matchAll(/((?:src|tests|scripts)\/[A-Za-z0-9_/.-]+\.(?:ts|sql)):(\d+)/g)) {
     const clave = `${m[1]}:${m[2]}`;
     if (vistas.has(clave)) continue;
     vistas.add(clave);

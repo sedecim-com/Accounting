@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import type pg from 'pg';
-import { query, withTransaction, currentTenant } from '../../database/connection.js';
+import { withTransaction, currentTenant } from '../../database/connection.js';
 import { validateJournalEntry } from './validation.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ErrorCodes } from '../../utils/errors.js';

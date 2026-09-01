@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import pg from 'pg';
-import { query, withTransaction, getClient } from '../../database/connection.js';
+import { query, getClient } from '../../database/connection.js';
 import { createJournalEntry } from '../accounting/posting.js';
 import { planearAsiento, planContabilizable, type PlanDeAsiento } from './cfdi-posting-plan.js';
 import {

@@ -18,7 +18,6 @@ import {
   statePath,
 } from '../../../src/cli/kernel/entity-context.js';
 import { resolveEntity, listEntities } from '../../../src/ai/context.js';
-import { CliError } from '../../../src/cli/kernel/exit.js';
 
 const mockResolve = resolveEntity as unknown as ReturnType<typeof vi.fn>;
 const mockList = listEntities as unknown as ReturnType<typeof vi.fn>;

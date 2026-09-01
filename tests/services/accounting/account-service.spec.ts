@@ -12,7 +12,7 @@ import {
   UPDATABLE_FIELDS,
 } from '../../../src/services/accounting/account-service.js';
 import { query } from '../../../src/database/connection.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
