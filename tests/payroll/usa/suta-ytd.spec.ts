@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -7,7 +7,7 @@ vi.mock('../../../src/database/connection.js', () => ({
 import { getEmployeeSutaYtd } from '../../../src/services/payroll/tax-engine/ytd-service.js';
 import { query } from '../../../src/database/connection.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 
 describe('getEmployeeSutaYtd — per-state SUTA wage tracking', () => {
   beforeEach(() => mockQuery.mockReset());

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -19,8 +19,8 @@ import {
 } from '../../../src/cli/kernel/entity-context.js';
 import { resolveEntity, listEntities } from '../../../src/ai/context.js';
 
-const mockResolve = resolveEntity as unknown as ReturnType<typeof vi.fn>;
-const mockList = listEntities as unknown as ReturnType<typeof vi.fn>;
+const mockResolve = resolveEntity as unknown as Mock;
+const mockList = listEntities as unknown as Mock;
 
 const CTX = {
   entityId: 'e-1', entityName: 'Demo Corp MX', tenantId: 't-1',

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -24,7 +24,7 @@ import type { WebhookTokenRow, WebhookDeliveryRow } from '../../../src/ai/webhoo
 import type { AgentContext } from '../../../src/ai/context.js';
 import { query } from '../../../src/database/connection.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 
 const CTX: AgentContext = {
   entityId: 'entity-1', entityName: 'Acme', tenantId: 'tenant-a',
@@ -160,7 +160,9 @@ describe('buildWebhookPrompt', () => {
 
 describe('processDelivery', () => {
   it('wakes the reader once for a fresh delivery with the document-derived session key', async () => {
-    const runReaderTurn = vi.fn<Parameters<RunReaderTurn>, ReturnType<RunReaderTurn>>(
+    // El doble se tipa con el contrato del repositorio, no con su despiece: así
+    // encaja tal cual donde processDelivery espera un RunReaderTurn.
+    const runReaderTurn = vi.fn<RunReaderTurn>(
       async ({ capture }) => {
         capture.drafts.push({
           draftId: 'draft-1', confidence: 0.9, totalDebits: '100.00', totalCredits: '100.00',

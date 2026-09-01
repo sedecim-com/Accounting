@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { clienteFalso, type ClienteFalso, type ReglaConsulta } from '../helpers/fake-pg.js';
 import { asientoFalso, lineaFalsa, ID } from '../helpers/entidades.js';
 import type { JournalEntry } from '../../src/types/index.js';
@@ -44,7 +44,7 @@ vi.mock('../../src/services/policy/policy-service.js', () => ({
 import { postJournalEntry } from '../../src/services/accounting/posting.js';
 import { getPolicy } from '../../src/services/policy/policy-service.js';
 
-const mockGetPolicy = getPolicy as unknown as ReturnType<typeof vi.fn>;
+const mockGetPolicy = getPolicy as unknown as Mock;
 
 const LINEAS_BD = [
   lineaFalsa({ line_number: 1, account_id: ID.cuentaA, debit_amount: '1000.0000' }),

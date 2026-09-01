@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 // El camino con auditoría corre en transacción: el cambio y su rastro se
 // confirman juntos. withTransaction entrega el cliente del arnés.
@@ -60,7 +60,7 @@ import {
 import { query } from '../../../src/database/connection.js';
 import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 const SCOPE = { kind: 'entity', tenantId: 't-1', entityId: 'e-1' } as const;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const CUSTOMER = '11111111-2222-3333-4444-555555555555';

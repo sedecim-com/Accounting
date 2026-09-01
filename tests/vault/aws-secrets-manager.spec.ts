@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import { AwsSecretsManagerVault } from '../../src/services/vault/aws-secrets-manager.js';
 import { SecretContextMismatchError, SecretVaultError } from '../../src/services/vault/types.js';
 import type { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
@@ -8,7 +8,7 @@ const PREFIX = 'mnemosine/prod';
 const NAME = `${PREFIX}/fiscal/tenant-a/entity-1/efirma`;
 const ARN = `arn:aws:secretsmanager:us-east-1:123456789012:secret:${NAME}-AbCdEf`;
 
-function vaultWith(send: ReturnType<typeof vi.fn>) {
+function vaultWith(send: Mock) {
   return new AwsSecretsManagerVault({
     region: 'us-east-1',
     prefix: PREFIX,

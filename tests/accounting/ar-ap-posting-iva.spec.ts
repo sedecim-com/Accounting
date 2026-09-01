@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../src/utils/logger.js', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -18,8 +18,8 @@ import { createJournalEntry } from '../../src/services/accounting/posting.js';
 import { logger } from '../../src/utils/logger.js';
 import type { Invoice, InvoiceLine, Bill, BillLine } from '../../src/types/index.js';
 
-const mockCreate = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
-const mockWarn = logger.warn as unknown as ReturnType<typeof vi.fn>;
+const mockCreate = createJournalEntry as unknown as Mock;
+const mockWarn = logger.warn as unknown as Mock;
 
 const ENTITY = 'e0000000-0000-0000-0000-000000000001';
 const USER = 'u0000000-0000-0000-0000-000000000001';
@@ -43,6 +43,10 @@ interface FakeState {
    * the documents these tests post, and is set to '0' to model history.
    */
   parked?: Record<string, string>;
+  /** Roles que la entidad NO tiene mapeados: el motor debe plantarse. */
+  rolesFaltantes?: string[];
+  /** gl_account_id que devuelve bank_accounts para la cuenta vinculada. */
+  bankGl?: string | null;
 }
 
 let state: FakeState;
@@ -79,13 +83,18 @@ function fakeClient(): pg.PoolClient {
     }
     if (sql.includes('FROM account_roles')) {
       const roles = ((params ?? [])[1] ?? []) as string[];
-      return { rows: roles.map((role) => ({ role, account_id: `acct:${role}` })) };
+      const faltantes = state.rolesFaltantes ?? [];
+      return {
+        rows: roles
+          .filter((role) => !faltantes.includes(role))
+          .map((role) => ({ role, account_id: `acct:${role}` })),
+      };
     }
     if (sql.includes('FROM payment_allocations pa') || sql.includes('FROM payment_applications pa')) {
       return { rows: state.applied };
     }
     if (sql.includes('FROM bank_accounts')) {
-      return { rows: [] };
+      return { rows: state.bankGl === undefined ? [] : [{ gl_account_id: state.bankGl }] };
     }
     return { rows: [] };
   };
@@ -474,5 +483,63 @@ describe('a document posted before the cutover releases nothing', () => {
     await postVendorPaymentEntry(fakeClient(), payment({ payment_number: 'VPMT-PART', payment_amount: '1160.0000' }), USER);
 
     expect(lineFor('acct:iva_acreditable')).toMatchObject({ debit_amount: '60.0000' });
+  });
+});
+
+// ============================================================
+// DE DÓNDE SALE LA CUENTA DE BANCO
+// ============================================================
+
+describe('la cuenta de banco del cobro', () => {
+  it('la fija la cuenta bancaria vinculada, no el rol `banco`', async () => {
+    // Una entidad con varias cuentas de banco no puede mandarlas todas al
+    // mismo mayor: si el cobro trae cuenta bancaria, manda su gl_account_id.
+    state.bankGl = 'acct:bbva-mx';
+
+    await postCustomerPaymentEntry(fakeClient(), payment({ bank_account_id: 'bank-1' }), USER);
+
+    expect(lineFor('acct:bbva-mx')).toMatchObject({ debit_amount: '1160.0000', credit_amount: null });
+    expect(lineFor('acct:banco')).toBeUndefined();
+  });
+
+  it('cae al rol `banco` cuando la cuenta vinculada no tiene mayor propio', async () => {
+    state.bankGl = null;
+
+    await postCustomerPaymentEntry(fakeClient(), payment({ bank_account_id: 'bank-1' }), USER);
+
+    expect(lineFor('acct:banco')).toMatchObject({ debit_amount: '1160.0000', credit_amount: null });
+  });
+
+  it('sin rol `banco` mapeado se planta con MISSING_ROLE_ACCOUNT en vez de asentar contra nada', async () => {
+    state.rolesFaltantes = ['banco'];
+
+    await expect(postCustomerPaymentEntry(fakeClient(), payment(), USER))
+      .rejects.toMatchObject({ code: 'MISSING_ROLE_ACCOUNT' });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+// LAS DOS PUERTAS QUE TODO POSTEO CRUZA ANTES DE ASENTAR
+// ============================================================
+
+describe('idempotencia y monto cero', () => {
+  // Reposteos: el cobrador y el conciliador reprocesan documentos, y un
+  // documento con asiento ya emitido no puede generar el segundo.
+  it('un documento YA asentado no vuelve a asentarse', async () => {
+    await expect(postInvoiceEntry(fakeClient(), invoice({ journal_entry_id: 'je-9' } as Partial<Invoice>), invoiceLines(), USER)).resolves.toBeNull();
+    await expect(postBillEntry(fakeClient(), bill({ journal_entry_id: 'je-9' } as Partial<Bill>), billLines(), USER)).resolves.toBeNull();
+    await expect(postCustomerPaymentEntry(fakeClient(), payment({ journal_entry_id: 'je-9' }), USER)).resolves.toBeNull();
+    await expect(postVendorPaymentEntry(fakeClient(), payment({ journal_entry_id: 'je-9' }), USER)).resolves.toBeNull();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  // Un asiento de importe cero no dice nada y ensucia el mayor.
+  it('un documento de importe cero no produce asiento', async () => {
+    await expect(postInvoiceEntry(fakeClient(), invoice({ total_amount: '0.0000' }), invoiceLines(), USER)).resolves.toBeNull();
+    await expect(postBillEntry(fakeClient(), bill({ total_amount: '0.0000' }), billLines(), USER)).resolves.toBeNull();
+    await expect(postCustomerPaymentEntry(fakeClient(), payment({ payment_amount: '0.0000' }), USER)).resolves.toBeNull();
+    await expect(postVendorPaymentEntry(fakeClient(), payment({ payment_amount: '0.0000' }), USER)).resolves.toBeNull();
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });

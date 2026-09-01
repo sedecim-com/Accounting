@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -8,7 +8,7 @@ import { searchSessions, clampLimit, MAX_SNIPPET_CHARS } from '../../src/ai/sess
 import { query } from '../../src/database/connection.js';
 import type { AgentContext } from '../../src/ai/context.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 
 const CTX: AgentContext = {
   entityId: 'entity-1', entityName: 'Nueva Empresa SA', tenantId: 'tenant-a',
