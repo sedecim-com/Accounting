@@ -154,21 +154,24 @@ export async function calculateBenefitsForPaycheck(
 
 export async function listBenefitPlans(entityId: string): Promise<Record<string, unknown>[]> {
   const result = await query(
-    `SELECT * FROM benefits_plans WHERE entity_id = $1 ORDER BY plan_type, plan_name`,
+    `SELECT * FROM benefits_plans WHERE entity_id = $1 ORDER BY plan_type, name`,
     [entityId]
   );
-  return result.rows as Record<string, unknown>[];
+  return result.rows;
 }
 
 export async function listEmployeeElections(employeeId: string): Promise<Record<string, unknown>[]> {
   const result = await query(
-    `SELECT ebe.*, bp.plan_name, bp.plan_type, bp.is_pre_tax
+    // benefits_plans.name (no plan_name) y employee_benefit_elections.is_active
+    // (no status): dos columnas inventadas que el contrato de esquema no veía
+    // porque su alcance excluía las consultas con alias y JOIN.
+    `SELECT ebe.*, bp.name AS plan_name, bp.plan_type, bp.is_pre_tax
      FROM employee_benefit_elections ebe
      JOIN benefits_plans bp ON bp.id = ebe.benefit_plan_id
-     WHERE ebe.employee_id = $1 AND ebe.status = 'active'`,
+     WHERE ebe.employee_id = $1 AND ebe.is_active`,
     [employeeId]
   );
-  return result.rows as Record<string, unknown>[];
+  return result.rows;
 }
 
 export function validateContribution(planType: BenefitPlanType, amount: number, ytd: number, year: number): void {

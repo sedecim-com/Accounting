@@ -1,7 +1,9 @@
 import path from 'node:path';
-import { query, withTransaction, enterTenant } from '../../database/connection.js';
+import { query, enterTenant } from '../../database/connection.js';
 import { checkEntities } from '../../ai/doctor-service.js';
 import { ensureEntityAccounting } from '../../services/accounting/entity-accounting.js';
+import { createEntity as createEntityService } from '../../services/entity/entity-service.js';
+import { ensureFiscalYear } from '../../services/accounting/fiscal-calendar-service.js';
 import type { CheckResult } from '../../ai/doctor-service.js';
 import { upsertEnvVar } from './s0-infra.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
@@ -61,8 +63,16 @@ export class IdentidadSection implements SetupSection {
   }
 
   async configure(ctx: SectionContext): Promise<void> {
+    // Acotado al inquilino fijado, si lo hay. Sin el filtro, una instalación
+    // con varios despachos listaba las entidades de todos y adoptaba el
+    // inquilino de la PRIMERA POR NOMBRE, que no tiene por qué ser la del
+    // usuario que está corriendo el asistente.
+    const fijado = process.env.MNEMOSINE_TENANT || null;
     const existing = await query<{ id: string; name: string; tax_id: string; tenant_id: string }>(
-      `SELECT id, name, tax_id, tenant_id FROM legal_entities WHERE is_active ORDER BY name`
+      `SELECT id, name, tax_id, tenant_id FROM legal_entities
+        WHERE is_active AND ($1::uuid IS NULL OR tenant_id = $1::uuid)
+        ORDER BY name`,
+      [fijado]
     );
 
     if (existing.rows.length > 0) {
@@ -111,46 +121,34 @@ export class IdentidadSection implements SetupSection {
     ctx.print(`  ✔ Tenant pinned in .env (RLS isolation active)`);
   }
 
+  /**
+   * El alta delega en services/entity/entity-service.
+   *
+   * El asistente tenía su propio camino y con él dos defectos que el
+   * servicio no comete:
+   *
+   *  · Elegía el inquilino con `ORDER BY created_at ASC LIMIT 1`, o sea que
+   *    en una instalación con varios metía la empresa nueva en el MÁS VIEJO
+   *    —los libros de otro despacho— sin decir nada. El servicio se niega y
+   *    los lista para que alguien elija.
+   *  · Atribuía la creación a la propia entidad. El servicio resuelve un
+   *    usuario de sistema real, que es lo que `created_by` necesita para
+   *    significar algo.
+   */
   private async createEntity(input: {
     name: string; taxId: string; country: Country; currency: string;
     cat: typeof CATALOGS[Country];
   }): Promise<{ tenantId: string; entityId: string }> {
-    return withTransaction(async (client) => {
-      // Reuse the existing tenant if there is one already; creating a new one
-      // per entity would break the expected isolation (one company = one tenant).
-      const t = await client.query<{ id: string }>(
-        `SELECT id FROM public.tenants ORDER BY created_at ASC LIMIT 1`
-      );
-      let tenantId = t.rows[0]?.id;
-      if (!tenantId) {
-        const slug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
-        const nt = await client.query<{ id: string }>(
-          `INSERT INTO public.tenants (name, subdomain, schema_name, plan)
-           VALUES ($1, $2, 'public', 'professional') RETURNING id`,
-          [input.name, slug || 'principal']
-        );
-        tenantId = nt.rows[0].id;
-      }
-
-      const org = await client.query<{ id: string }>(
-        `INSERT INTO organizations (tenant_id, name, type)
-         VALUES ($1, $2, 'operating') RETURNING id`,
-        [tenantId, input.name]
-      );
-
-      const ent = await client.query<{ id: string }>(
-        `INSERT INTO legal_entities (
-           organization_id, tenant_id, name, entity_type, tax_id, tax_id_type,
-           incorporation_country, functional_currency, accounting_standard
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-        [
-          org.rows[0].id, tenantId, input.name, input.cat.entityType,
-          input.taxId.toUpperCase(), input.cat.taxIdType,
-          input.country, input.currency, input.cat.standard,
-        ]
-      );
-      return { tenantId, entityId: ent.rows[0].id };
+    const r = await createEntityService({
+      name: input.name,
+      taxId: input.taxId,
+      country: input.country,
+      currency: input.currency,
+      // Si el asistente ya fijó inquilino —o venía de .env— se respeta; si no,
+      // el servicio decide, y con varios exige elegir en vez de adivinar.
+      tenantId: process.env.MNEMOSINE_TENANT || undefined,
     });
+    return { tenantId: r.tenantId, entityId: r.entityId };
   }
 
   /**
@@ -189,47 +187,28 @@ export class IdentidadSection implements SetupSection {
     }
   }
 
-  /** Current fiscal year with 12 monthly periods: without this nothing posts. */
+  /**
+   * Current fiscal year with 12 monthly periods: without this nothing posts.
+   * The calendar itself now lives in services/accounting/fiscal-calendar-service.ts,
+   * so `mnemosine year create` builds exactly the same one for any other year
+   * instead of the wizard being the only way to get a calendar.
+   */
   private async ensureFiscalYear(entityId: string, ctx: SectionContext): Promise<void> {
     const year = new Date().getFullYear();
-    const existing = await query<{ n: string }>(
-      `SELECT count(*)::text n FROM fiscal_periods fp
-       JOIN fiscal_years fy ON fy.id = fp.fiscal_year_id
-       WHERE fp.entity_id = $1 AND fy.year_number = $2`,
-      [entityId, year]
-    );
-    if (parseInt(existing.rows[0].n, 10) > 0) {
-      ctx.print(`  ✔ Fiscal year ${year} already has periods`);
-      return;
-    }
-
-    await withTransaction(async (client) => {
-      const fy = await client.query<{ id: string }>(
-        `INSERT INTO fiscal_years (entity_id, year_number, start_date, end_date, is_calendar_year, status)
-         VALUES ($1, $2, $3, $4, true, 'open') RETURNING id`,
-        [entityId, year, `${year}-01-01`, `${year}-12-31`]
+    const result = await ensureFiscalYear(entityId, year);
+    if (result.created) {
+      ctx.print(`  ✔ Fiscal year ${year} created with 12 monthly periods`);
+    } else if (result.periods === 0) {
+      // The year row exists but carries no periods, so nothing can be posted.
+      // ensureFiscalYear will not fill it in (the INSERT would collide on
+      // UNIQUE(entity_id, year_number)); saying "already has periods" here
+      // would tick a checkbox for a calendar that does not exist.
+      ctx.print(
+        `  ! Fiscal year ${year} exists but has no periods — nothing can be posted. ` +
+          `Delete the empty fiscal_years row and re-run, or build another year with \`mnemosine year create\`.`
       );
-      const now = new Date();
-      for (let m = 1; m <= 12; m++) {
-        const start = new Date(Date.UTC(year, m - 1, 1));
-        const end = new Date(Date.UTC(year, m, 0));
-        // The current month and past ones stay open; future ones, 'future'.
-        const status = end < now ? 'open' : m - 1 === now.getMonth() ? 'open' : 'future';
-        await client.query(
-          `INSERT INTO fiscal_periods (
-             entity_id, fiscal_year_id, period_number, period_name,
-             start_date, end_date, period_type, status
-           ) VALUES ($1,$2,$3,$4,$5,$6,'regular',$7)`,
-          [
-            entityId, fy.rows[0].id, m,
-            // Period names are stored, not translated at render time; the CLI UI is
-            // English, so they are minted in English to avoid "enero 2026" inside it.
-            start.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' }) + ` ${year}`,
-            start.toISOString().split('T')[0], end.toISOString().split('T')[0], status,
-          ]
-        );
-      }
-    });
-    ctx.print(`  ✔ Fiscal year ${year} created with 12 monthly periods`);
+    } else {
+      ctx.print(`  ✔ Fiscal year ${year} already has ${result.periods} periods`);
+    }
   }
 }

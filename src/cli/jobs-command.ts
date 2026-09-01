@@ -5,6 +5,7 @@ import {
   JOB_KINDS, type JobKind, type JobRow, type JobRunRow,
 } from '../ai/jobs/job-store.js';
 import { runDueJobs, type RunAgentTurn } from '../ai/jobs/runner.js';
+import { declareRisk, gateMutation } from './kernel/risk.js';
 
 // ============================================================
 // mnemosine jobs — persisted scheduled agent tasks.
@@ -23,8 +24,11 @@ export interface JobsDeps {
    * Wired by the CLI entry point: builds a fresh one-shot LlmSession for
    * the entity (capturing created drafts into `capture`) and runs the
    * prompt as a single turn. Keeps this module free of provider imports.
+   * `opciones.externo` decides the unattended tool surface: with --live the
+   * full SUPERFICIE_DESATENDIDA travels; without it, the sandbox variant
+   * (same surface minus the reads against the client's external system).
    */
-  makeRunAgentTurn: (ctx: AgentContext) => RunAgentTurn;
+  makeRunAgentTurn: (ctx: AgentContext, opciones?: { externo?: boolean }) => RunAgentTurn;
 }
 
 interface CommonOpts {
@@ -161,11 +165,50 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
       }
     });
 
-  withCommon(jobs.command('run-due'))
-    .description('Tick entry point: claim and run every due job (call this from cron/launchd)')
-    .action(run(async (ctx) => {
+  const runDue = withCommon(jobs.command('run-due'))
+    .description('Tick entry point: claim and run every due job (call this from cron/launchd; --live enables the external reads)');
+  // Externo, declarado junto a su registro (S0.6): el único brazo de una
+  // corrida desatendida que sale del sistema son las lecturas contra el
+  // sistema del cliente con su credencial, y --live es su compuerta — sin la
+  // bandera los trabajos corren completos con la superficie sandbox. El
+  // kernel añade --dry-run, --yes, --idempotency-key y --live.
+  declareRisk(runDue, {
+    risk: 'externo',
+    agent: false,
+    writes: 'job_runs; y ejecuta el trabajo de cada job vencido — con --live, con lecturas al sistema externo del cliente',
+  });
+  runDue.action(run(async (ctx, opts: { dryRun?: boolean; live?: boolean; idempotencyKey?: string }) => {
+      const { dryRun, live } = gateMutation(runDue, opts);
+      if (opts.idempotencyKey) {
+        process.stderr.write(
+          '  --idempotency-key does not apply to the tick: each due job is claimed atomically, and ' +
+            'deduplicating ticks would silently skip legitimate runs.\n'
+        );
+      }
+      if (dryRun) {
+        // Puro censo: qué correría, sin reclamar ni despertar al modelo.
+        const ahora = new Date();
+        const vencidos = (await listJobs(ctx)).filter(
+          (j) => j.enabled && j.next_run_at && new Date(j.next_run_at) <= ahora
+        );
+        if (vencidos.length === 0) {
+          console.log('No jobs due.');
+          return;
+        }
+        for (const j of vencidos) {
+          console.log(`  would run: ${pad(j.name.slice(0, 24), 24)}  ${j.kind}  ${c.dim(`next_run ${fmtDate(j.next_run_at)}`)}`);
+        }
+        console.log(c.dim(`\n(dry-run: ${vencidos.length} job(s) due; nothing was claimed or run)`));
+        return;
+      }
+      if (!live) {
+        console.log(c.dim(
+          'sandbox: jobs run without the external reads (external_pull / external_diff_trial_balance). ' +
+            'A reconciliation cron needs the full surface: schedule `mnemosine jobs run-due --live`.'
+        ));
+      }
       const outcomes = await runDueJobs(ctx, {
-        runAgentTurn: deps.makeRunAgentTurn(ctx),
+        runAgentTurn: deps.makeRunAgentTurn(ctx, { externo: live }),
         onProgress: (m) => console.log(c.dim(m)),
       });
       if (outcomes.length === 0) {

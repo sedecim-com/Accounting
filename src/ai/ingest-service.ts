@@ -4,9 +4,18 @@ import {
   PreRegistrationService,
   DuplicateError,
 } from '../services/xml-ingestion/pre-registration-service.js';
+import { CFDIParser } from '../services/xml-ingestion/cfdi-parser.js';
+import { query } from '../database/connection.js';
 import { ValidationError } from '../utils/errors.js';
 import { floorMaxAutoAmount, FLOOR_MAX_AUTO_POST } from './floor.js';
-import { approveDraft, DraftValidationError, type Reviewer } from './draft-service.js';
+import {
+  approveDraft,
+  autoApproveDraftByPolicy,
+  DraftValidationError,
+  NoMatchingApprovalPolicyError,
+  type Reviewer,
+} from './draft-service.js';
+import { registrarVeredictoSombra } from './shadow-verdicts.js';
 import type { AgentContext } from './context.js';
 import type { LlmSession } from './providers/types.js';
 import type { IngestThresholds } from './providers/config.js';
@@ -44,6 +53,16 @@ export interface IngestFileResult {
   detail?: string;
   draftId?: string;
   entryNumber?: string;
+  /** A3: la política que autorizó cuando el umbral no bastó ('policy:<id>' en reviewed_by). */
+  policyId?: string;
+  /** A4 · sombra: lo que el auto-post HABRÍA hecho (true = habría posteado). */
+  sombra?: boolean;
+  /**
+   * A2: los campos de tercero que scanImportedText marcó, estructurados —
+   * antes solo viajaban concatenados en `detail` y el conteo de sospechas
+   * era imposible de persistir sin re-parsear texto de consola.
+   */
+  sospechas?: string[];
 }
 
 export interface IngestReport {
@@ -65,6 +84,8 @@ interface UploadOutcome {
 export interface IngestDeps {
   processUpload?: (entityId: string, xml: string, uploadedBy: string) => Promise<UploadOutcome>;
   approve?: typeof approveDraft;
+  /** A3: la vía secundaria de autorización (spec E1.3-c); inyectable solo para pruebas. */
+  autoApproveByPolicy?: typeof autoApproveDraftByPolicy;
   readFile?: (file: string) => string;
 }
 
@@ -125,10 +146,12 @@ export async function ingestCfdiFiles(opts: {
 
     // Third-party-controlled fields are scanned up front. A flagged file is
     // still processed (the prompt only ever sees SANITIZED, marker-wrapped
-    // text), but the suspicion is surfaced on the result for the human.
+    // text), but the suspicion is surfaced on the result for the human — and
+    // desde S1 también es COMPUERTA: un CFDI marcado jamás auto-postea.
     const suspicion = collectSuspicion(upload);
-    const result = await classify(upload, name);
+    const result = await classify(upload, name, suspicion);
     if (suspicion.length > 0) {
+      result.sospechas = suspicion;
       result.detail =
         (result.detail ? `${result.detail} · ` : '') +
         `suspicious third-party content in ${suspicion.join(', ')} — sanitized and wrapped as untrusted data`;
@@ -136,9 +159,43 @@ export async function ingestCfdiFiles(opts: {
     return result;
   }
 
-  async function classify(upload: UploadOutcome, name: string): Promise<IngestFileResult> {
+  async function classify(
+    upload: UploadOutcome,
+    name: string,
+    suspicion: string[] = []
+  ): Promise<IngestFileResult> {
     if (upload.autoProcessed) {
       return { file: name, status: 'rules', detail: 'Processed by firm rules' };
+    }
+
+    // Un CFDI tipo P no se clasifica: SE LIGA. Antes caía en la capa del
+    // modelo, que le redactaba una póliza plana de efectivo — el diseño que
+    // IVA-5 retiró porque duplica el abono al banco cuando el pago ya se
+    // capturó, y deja el IVA aparcado si no. El camino determinista
+    // (procesarREP vía processToAccounting) casa el comprobante con su pago o
+    // lo crea por la puerta de pagos, gobernado por las políticas del
+    // despacho; el modelo no tiene nada que decidir aquí.
+    if (upload.preRegistration.document_type === 'payment') {
+      try {
+        const r = await defaultService.processToAccounting(
+          upload.preRegistration,
+          reviewer.userId
+        );
+        return {
+          file: name,
+          status: 'rules',
+          detail: r.paymentId
+            ? `Payment receipt linked deterministically (payment ${r.paymentId})`
+            : 'Payment receipt processed deterministically',
+        };
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        return {
+          file: name,
+          status: code === 'CFDI_REQUIERE_DECISION' ? 'blocked' : 'error',
+          detail: (err as Error).message,
+        };
+      }
     }
 
     // Layer 2: the AI classifies and creates the draft
@@ -160,70 +217,98 @@ export async function ingestCfdiFiles(opts: {
           'The XML is already registered: after resolving the question, request the draft in the chat.',
       };
     }
-    const draft = drafts[drafts.length - 1];
 
-    // Layer 3: auto-post thresholds. Every gate that fails leaves the draft
-    // for human review with the explicit reason.
-    if (!thresholds.autoPost) {
+    // Layer 3 (A3/A4): las compuertas se evalúan con UN solo evaluador
+    // (evaluarAutoPost) que comparten el modo real y la sombra — así la
+    // sombra no puede derivar del camino que dice medir. Integridad
+    // primero (jamás saltable), discrecionales después; si una
+    // discrecional no basta, la POLÍTICA otorgada por un humano tiene su
+    // oportunidad (spec E1.3-c): todo posteo sin humano queda atribuido —
+    // al umbral con su fuente, o a policy:<id> con quien la otorgó.
+    const draft = drafts[drafts.length - 1];
+    const modoSombra = thresholds.sombra === true && !thresholds.autoPost;
+    if (!thresholds.autoPost && !modoSombra) {
       return { file: name, status: 'draft', draftId: draft.draftId, detail: 'auto-post disabled' };
     }
-    if (drafts.length > 1) {
-      // Ambiguous: the AI proposed multiple entries for one CFDI — never auto-post.
+
+    const veredicto = evaluarAutoPost({
+      monedaFuncional: ctx.currency,
+      upload,
+      drafts,
+      suspicion,
+      thresholds,
+    });
+
+    if (modoSombra) {
+      // A4: el veredicto se registra y NADA se postea. El registro no es
+      // inyectable; si falla, la ingesta sigue y el detail lo dice.
+      let notaRegistro = '';
+      try {
+        await registrarVeredictoSombra(ctx, {
+          draftId: draft.draftId,
+          wouldAutoPost: veredicto.procede,
+          motivo: veredicto.motivo,
+          thresholds: {
+            minConfidence: thresholds.minConfidence,
+            maxAmount: thresholds.maxAmount,
+            fuente: thresholds.fuentes?.autoPost ?? 'omision',
+          },
+        });
+      } catch (err) {
+        notaRegistro = ` · AVISO: el veredicto no quedó registrado (${(err as Error).message})`;
+      }
       return {
         file: name, status: 'draft', draftId: draft.draftId,
-        detail: `the AI created ${drafts.length} drafts for one CFDI; manual review`,
+        sombra: veredicto.procede,
+        detail: veredicto.procede
+          ? `sombra: HABRÍA auto-posteado${notaRegistro}`
+          : `sombra: no habría auto-posteado (${veredicto.motivo})${notaRegistro}`,
       };
     }
-    const total = Number(upload.xmlDocument.total ?? 0);
-    const currency = String(upload.xmlDocument.moneda ?? ctx.currency);
-    const draftTotal = Number(draft.totalDebits);
-    if (currency !== ctx.currency) {
-      // The cap is in the functional currency; we don't compare apples to dollars.
-      return {
-        file: name, status: 'draft', draftId: draft.draftId,
-        detail: `currency ${currency} ≠ functional currency ${ctx.currency}; manual review`,
-      };
-    }
-    if (!Number.isFinite(total) || !Number.isFinite(draftTotal) || Math.abs(draftTotal - total) > 0.01) {
-      // The proposed entry does not match the CFDI: the threshold must evaluate
-      // what WOULD BE POSTED, not what the invoice says.
-      return {
-        file: name, status: 'draft', draftId: draft.draftId,
-        detail: `the draft (${draft.totalDebits}) differs from the CFDI total (${total}); manual review`,
-      };
-    }
-    if (draft.confidence < thresholds.minConfidence) {
-      return {
-        file: name, status: 'draft', draftId: draft.draftId,
-        detail: `confidence ${draft.confidence.toFixed(2)} < ${thresholds.minConfidence}`,
-      };
-    }
-    // FLOOR: the configured cap is clamped by FLOOR_MAX_AUTO_POST — no
-    // thresholds file or override can auto-post above it (stricter wins).
-    const maxAmount = floorMaxAutoAmount(thresholds.maxAmount);
-    // Negated form so a non-finite total fails CLOSED (NaN comparisons are false).
-    if (!(total <= maxAmount)) {
-      const floored = maxAmount < thresholds.maxAmount;
-      return {
-        file: name, status: 'draft', draftId: draft.draftId,
-        detail: `amount ${total} > cap ${maxAmount}` +
-          (floored ? ` (configured cap ${thresholds.maxAmount} clamped by the floor ${FLOOR_MAX_AUTO_POST})` : ''),
-      };
-    }
-    const matchConfidence = Number(upload.preRegistration.vendor_match_confidence ?? 1);
-    if (!upload.preRegistration.vendor_id || matchConfidence < 0.9) {
-      return {
-        file: name, status: 'draft', draftId: draft.draftId,
-        detail: upload.preRegistration.vendor_id
-          ? `vendor match with low confidence (${matchConfidence})`
-          : 'new vendor (no match)',
-      };
+
+    if (!veredicto.procede) {
+      if (veredicto.integridad) {
+        // Integridad violada: ninguna política la salta. Va a revisión.
+        return { file: name, status: 'draft', draftId: draft.draftId, detail: veredicto.motivo };
+      }
+      // Vía de política (E1.3-c): configuredMaxAmount es OBLIGATORIO — es lo
+      // que impide que una política autorice por encima del tope del
+      // operador (matchApproval solo combina con Math.min). Sin sessionId:
+      // la ingesta no tiene sesión persistida, las políticas 'session' no
+      // casan por esta vía, y eso es correcto.
+      const autoByPolicy = opts.deps?.autoApproveByPolicy ?? autoApproveDraftByPolicy;
+      try {
+        const r = await autoByPolicy(ctx, draft.draftId, {
+          configuredMaxAmount: floorMaxAutoAmount(thresholds.maxAmount),
+        });
+        return {
+          file: name, status: 'auto_post', draftId: draft.draftId,
+          entryNumber: r.entryNumber, policyId: r.policyId,
+          detail: `auto-post por política ${r.policyId}; el umbral no bastaba: ${veredicto.motivo}`,
+        };
+      } catch (err) {
+        if (err instanceof NoMatchingApprovalPolicyError) {
+          return { file: name, status: 'draft', draftId: draft.draftId, detail: veredicto.motivo };
+        }
+        return {
+          file: name, status: 'draft', draftId: draft.draftId,
+          detail: `${veredicto.motivo} · la política casó pero falló al aplicarse: ${(err as Error).message}`,
+        };
+      }
     }
 
     try {
+      // La nota que queda en review_notes dice QUIÉN decidió el umbral. Un
+      // asiento que llegó al mayor sin humano tiene que poder explicarse
+      // meses después: «lo encendió la política del despacho» y «lo encendió
+      // un json local» son responsabilidades distintas.
+      const total = Number(upload.xmlDocument.total ?? 0);
+      const fuente = thresholds.fuentes
+        ? `; umbral por ${thresholds.fuentes.autoPost}`
+        : '';
       const posted = await approve(
         ctx, draft.draftId, reviewer,
-        `auto-post by threshold (confidence ${draft.confidence.toFixed(2)}, amount ${total})`
+        `auto-post by threshold (confidence ${draft.confidence.toFixed(2)}, amount ${total}${fuente})`
       );
       return { file: name, status: 'auto_post', draftId: draft.draftId, entryNumber: posted.entryNumber };
     } catch (err) {
@@ -237,6 +322,94 @@ export async function ingestCfdiFiles(opts: {
   }
 }
 
+// ============================================================
+// A3/A4 · EL EVALUADOR ÚNICO DEL AUTO-POST
+//
+// Una sola implementación para el modo real y la sombra: si la sombra
+// tuviera su propia copia de las compuertas, mediría un clasificador que
+// no existe. PURO (sin base, sin red): entra lo capturado, sale el
+// veredicto con su clase — `integridad` (jamás saltable por política:
+// sospecha de inyección, multi-draft, moneda, cuadre) o discrecional
+// (interruptor, confianza, monto contra el FLOOR, proveedor).
+// ============================================================
+
+export interface VeredictoAutoPost {
+  procede: boolean;
+  /** true = la compuerta violada es de INTEGRIDAD: la política no aplica. */
+  integridad: boolean;
+  motivo: string;
+}
+
+export function evaluarAutoPost(opts: {
+  monedaFuncional: string;
+  upload: UploadOutcome;
+  drafts: DraftCreatedInfo[];
+  suspicion: string[];
+  thresholds: IngestThresholds;
+}): VeredictoAutoPost {
+  const { upload, drafts, suspicion, thresholds } = opts;
+  const draft = drafts[drafts.length - 1];
+
+  // ── INTEGRIDAD: sin excepción, y ninguna política las salta.
+  if (suspicion.length > 0) {
+    // S1: quien quiere postear sin humano no puede a la vez traer texto
+    // que intenta darle órdenes al clasificador.
+    return {
+      procede: false, integridad: true,
+      motivo: 'suspicious third-party content: a flagged CFDI never auto-posts',
+    };
+  }
+  if (drafts.length > 1) {
+    return {
+      procede: false, integridad: true,
+      motivo: `the AI created ${drafts.length} drafts for one CFDI; manual review`,
+    };
+  }
+  const total = Number(upload.xmlDocument.total ?? 0);
+  const currency = String(upload.xmlDocument.moneda ?? opts.monedaFuncional);
+  const draftTotal = Number(draft.totalDebits);
+  if (currency !== opts.monedaFuncional) {
+    return {
+      procede: false, integridad: true,
+      motivo: `currency ${currency} ≠ functional currency ${opts.monedaFuncional}; manual review`,
+    };
+  }
+  if (!Number.isFinite(total) || !Number.isFinite(draftTotal) || Math.abs(draftTotal - total) > 0.01) {
+    return {
+      procede: false, integridad: true,
+      motivo: `the draft (${draft.totalDebits}) differs from the CFDI total (${total}); manual review`,
+    };
+  }
+
+  // ── DISCRECIONALES: si no bastan, la política otorgada puede autorizar.
+  if (draft.confidence < thresholds.minConfidence) {
+    return {
+      procede: false, integridad: false,
+      motivo: `confidence ${draft.confidence.toFixed(2)} < ${thresholds.minConfidence}`,
+    };
+  }
+  const maxAmount = floorMaxAutoAmount(thresholds.maxAmount);
+  // Forma negada: un total no finito falla CERRADO (comparar NaN da false).
+  if (!(total <= maxAmount)) {
+    const floored = maxAmount < thresholds.maxAmount;
+    return {
+      procede: false, integridad: false,
+      motivo: `amount ${total} > cap ${maxAmount}` +
+        (floored ? ` (configured cap ${thresholds.maxAmount} clamped by the floor ${FLOOR_MAX_AUTO_POST})` : ''),
+    };
+  }
+  const matchConfidence = Number(upload.preRegistration.vendor_match_confidence ?? 1);
+  if (!upload.preRegistration.vendor_id || matchConfidence < 0.9) {
+    return {
+      procede: false, integridad: false,
+      motivo: upload.preRegistration.vendor_id
+        ? `vendor match with low confidence (${matchConfidence})`
+        : 'new vendor (no match)',
+    };
+  }
+  return { procede: true, integridad: false, motivo: 'todas las compuertas pasaron' };
+}
+
 // Function boundary defeats TS's control-flow narrowing: runTurn mutates
 // capture.drafts through the tool callback, invisible to the checker.
 function readCapture(capture: DraftCapture): DraftCreatedInfo[] {
@@ -245,8 +418,10 @@ function readCapture(capture: DraftCapture): DraftCreatedInfo[] {
 
 // ─── Untrusted third-party content ───
 
-export const UNTRUSTED_OPEN = '<<<UNTRUSTED_CFDI_DATA>>>';
-export const UNTRUSTED_CLOSE = '<<<END_UNTRUSTED_CFDI_DATA>>>';
+// A3: los marcadores ahora viven en untrusted.ts (fuente única); se
+// re-exportan aquí porque webhooks y pruebas ya importan de este módulo.
+export { UNTRUSTED_OPEN, UNTRUSTED_CLOSE } from './untrusted.js';
+import { UNTRUSTED_OPEN, UNTRUSTED_CLOSE } from './untrusted.js';
 
 export interface ImportedTextScan {
   suspicious: boolean;
@@ -408,9 +583,101 @@ ${conceptos || '  (no lines)'}
 
 Instructions:
 1. Search precedents (search_precedents) and prior journal entries for the issuer (search_journal_entries).
-2. Verify the accounts in the chart of accounts (search_accounts). The typical entry for an expense with VAT:
-   debit to expense for the subtotal + debit to creditable VAT (IVA acreditable) + credit to vendors (PPD) or banks (PUE).
+2. Verify the accounts in the chart of accounts (search_accounts). VAT IS ON A CASH BASIS
+   (LIVA art. 5-III): input VAT is creditable only once the invoice has been PAID, so the
+   Method above decides which VAT account the entry hits.
+   - PUE (paid in one go): debit expense for the subtotal + debit "IVA Acreditable" (1130)
+     + credit banks.
+   - PPD (on credit): debit expense for the subtotal + debit "IVA Pendiente de Acreditar"
+     (1135) + credit vendors. Do NOT debit IVA Acreditable: nothing has been paid yet, and
+     crediting VAT that was never paid is the finding the SAT actually writes up. The
+     payment entry is what later moves it from 1135 to 1130.
+   - No Method declared: treat it as PPD. It is the assumption that cannot overstate the
+     credit, and it self-corrects when the payment is recorded.
 3. Create the draft with reference "${referenceSerieFolio} · ${d.cfdi_uuid}".
 4. Report an honest confidence; if a question BLOCKS the classification, use ask_user (it will be
    logged) and do NOT create the draft.`;
+}
+
+// ============================================================
+// LA MARCHA SECA DE LA INGESTA (S0.6).
+//
+// `ingest` es irreversible por su camino más grave (el auto-posteo), así que
+// el kernel le exige --dry-run — y una --dry-run que escribe es peor que no
+// ofrecerla. El pipeline real registra ANTES de decidir (processXMLUpload
+// escribe xml_documents en cuanto parsea), de modo que la vista previa no
+// puede reusarlo: reconstruye aquí la capa determinista que sí es pura o de
+// sólo lectura — parseo, validación, hash, dedupe y tipo de comprobante — y
+// DICE lo que no calculó: las reglas del despacho, la clasificación IA y el
+// plan de asiento se deciden en la corrida real. Honesta y parcial es mejor
+// que completa y mentirosa.
+// ============================================================
+
+export interface IngestPreviewRow {
+  file: string;
+  verdict: 'would_process' | 'duplicate' | 'invalid' | 'error';
+  tipo?: string;
+  uuid?: string;
+  total?: string;
+  route?: string;
+  detail?: string;
+}
+
+export async function previewCfdiFiles(opts: {
+  files: string[];
+  thresholds: IngestThresholds;
+  /** F02 · el espejo: el dedupe es por entidad (046) — sin entidad no hay veredicto de duplicado honesto. */
+  entityId: string;
+  readFile?: (file: string) => string;
+}): Promise<IngestPreviewRow[]> {
+  const readFile = opts.readFile ?? ((file: string) => fs.readFileSync(file, 'utf-8'));
+  const parser = new CFDIParser();
+  const rows: IngestPreviewRow[] = [];
+
+  for (const file of opts.files) {
+    const name = path.basename(file);
+    let xml: string;
+    try {
+      xml = readFile(file);
+    } catch (err) {
+      rows.push({ file: name, verdict: 'error', detail: `Could not read: ${(err as Error).message}` });
+      continue;
+    }
+    try {
+      const parsed = parser.parse(xml);
+      const validation = parser.validate(parsed);
+      if (!validation.valid) {
+        rows.push({ file: name, verdict: 'invalid', detail: validation.errors.join('; ') });
+        continue;
+      }
+      const hash = parser.calculateHash(xml);
+      const uuid = parsed.timbreFiscalDigital!.uuid;
+      const existing = await query<{ id: string }>(
+        `SELECT id FROM xml_documents
+          WHERE entity_id = $1 AND (cfdi_uuid = $2 OR xml_hash = $3) LIMIT 1`,
+        [opts.entityId, uuid, hash]
+      );
+      if (existing.rows.length > 0) {
+        rows.push({
+          file: name, verdict: 'duplicate', uuid,
+          detail: `CFDI already registered (${existing.rows[0].id})`,
+        });
+        continue;
+      }
+      const tipo = parsed.tipoDeComprobante;
+      const route =
+        tipo === 'P'
+          ? 'REP: would link to its payment deterministically (procesarREP)'
+          : opts.thresholds.autoPost
+            ? `firm rules → AI classification → draft, auto-posted only if every gate passes (conf ≥ ${opts.thresholds.minConfidence}, amount ≤ ${opts.thresholds.maxAmount})`
+            : 'firm rules → AI classification → draft for `mnemosine review`';
+      rows.push({
+        file: name, verdict: 'would_process', tipo, uuid,
+        total: `${parsed.total} ${parsed.moneda}`, route,
+      });
+    } catch (err) {
+      rows.push({ file: name, verdict: 'error', detail: (err as Error).message });
+    }
+  }
+  return rows;
 }

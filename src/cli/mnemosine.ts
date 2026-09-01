@@ -2,6 +2,7 @@
 import * as readline from 'node:readline/promises';
 import { stdin, stdout, stderr } from 'node:process';
 import { Command, InvalidArgumentError } from 'commander';
+import { declararPendientes } from './kernel/riesgos-retrofit.js';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { closeDatabase, currentTenant, initDatabase, query } from '../database/connection.js';
@@ -17,7 +18,7 @@ import {
   listProfiles,
   type LlmSession,
 } from '../ai/providers/index.js';
-import { resolveIngestThresholds, resolveLanguage, setLanguage } from '../ai/providers/config.js';
+import { resolveLanguage, setLanguage } from '../ai/providers/config.js';
 import {
   createSession,
   latestSession,
@@ -28,10 +29,30 @@ import {
   updateSessionProvider,
   type SessionRow,
 } from '../ai/session-store.js';
-import { ingestCfdiFiles, type DraftCapture } from '../ai/ingest-service.js';
+import { ingestCfdiFiles, previewCfdiFiles, type DraftCapture } from '../ai/ingest-service.js';
+import { SUPERFICIE_DESATENDIDA, SUPERFICIE_DESATENDIDA_SANDBOX } from '../ai/tools/superficie.js';
+import { resolverUmbralesConPanel } from '../ai/ingest-thresholds.js';
+import {
+  declareRisk,
+  gateMutation,
+  withContext,
+  withOutput,
+  withSelection,
+  globalsOf,
+  render,
+  abortedByUser,
+  usageError,
+  notFound,
+  exitCodeFor,
+} from './kernel/index.js';
+import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import { registerSatCommands } from './sat-commands.js';
 import { registerPendingCommands, renderAll } from './pending-command.js';
 import { registerDoctorCommand } from './doctor-command.js';
+import { registerAiCommand } from './ai-command.js';
+import { registerLedgerCommand } from './ledger-command.js';
+import { registerCfdiCommand } from './cfdi-command.js';
+import { registerRepCommand } from './rep-command.js';
 import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
 import { registerInitCommand, runInitWizard, type InitWizardResult } from './init-command.js';
@@ -46,7 +67,19 @@ import { registerStatusCommand } from './status-command.js';
 import { registerJobsCommand } from './jobs-command.js';
 import { registerSkillsCommand } from './skills-command.js';
 import { registerWebhooksCommand } from './webhooks-command.js';
-import { recordUsage } from '../ai/usage-ledger.js';
+import { registerEntityCommand } from './entity-command.js';
+import { registerAccountCommand } from './account-command.js';
+import { registerEntryCommand } from './entry-command.js';
+import { registerPeriodCommand, registerYearCommand } from './period-command.js';
+import { registerVendorCommand } from './vendor-command.js';
+import { registerBillCommand } from './bill-command.js';
+import { registerCustomerCommand } from './customer-command.js';
+import { registerInvoiceCommand } from './invoice-command.js';
+import { registerPaymentCommands } from './payment-command.js';
+import { registerReportCommand } from './report-command.js';
+import { recordUsage, estimateCostUsd, clampTokenCount } from '../ai/usage-ledger.js';
+import { registrarEventoEnSegundoPlano } from '../ai/agent-events.js';
+import { registrarCorridaIngesta } from '../ai/ingest-runs.js';
 import type { TurnUsage } from '../ai/providers/types.js';
 import type { RunAgentTurn } from '../ai/jobs/runner.js';
 import {
@@ -238,7 +271,7 @@ function makeCallbacks(askUser?: AskUserFn, onDraftCreated?: SessionCallbacks['o
  * One-shot agent turn for scheduled jobs: fresh session on the default
  * profile, drafts captured for the run log, usage recorded sessionless.
  */
-const makeRunAgentTurn = (ctx: AgentContext): RunAgentTurn =>
+const makeRunAgentTurn = (ctx: AgentContext, opciones?: { externo?: boolean }): RunAgentTurn =>
   async ({ prompt, capture }) => {
     const callbacks = makeCallbacks(undefined, (info) => capture.drafts.push(info));
     callbacks.onUsage = (usage) => recordUsageInBackground(ctx, null, usage);
@@ -246,8 +279,22 @@ const makeRunAgentTurn = (ctx: AgentContext): RunAgentTurn =>
       // Unattended run: no human watches a grounding corrective turn, and
       // its extra model call would feed the draft-capture hooks.
       grounding: { enabled: false },
+      // Y con su superficie NOMBRADA: sin esto la sesión desatendida recibía
+      // todas las herramientas por omisión — hoy inofensivo (ninguna puede
+      // postear), pero una herramienta futura habría entrado a lo desatendido
+      // sin que nadie lo decidiera. Ahora nace excluida hasta que alguien la
+      // añada a tools/superficie.ts, que es una línea en un diff.
+      //
+      // Y la compuerta --live del kernel decide el brazo externo: sin ella la
+      // corrida usa herramientas: SUPERFICIE_DESATENDIDA_SANDBOX (la misma
+      // superficie sin las dos lecturas contra el sistema del cliente con su
+      // credencial); con --live viaja SUPERFICIE_DESATENDIDA completa.
+      herramientas: opciones?.externo ? SUPERFICIE_DESATENDIDA : SUPERFICIE_DESATENDIDA_SANDBOX,
       onFailover: (from, errorType, to) => {
         stderr.write(ce.dim(`  ⚠ provider ${from} failed (${errorType}); trying ${to}\n`));
+        registrarEventoEnSegundoPlano(ctx, {
+          kind: 'failover', provider: from, detail: { categoria: errorType, siguiente: to },
+        });
       },
     });
     await session.runTurn(prompt);
@@ -266,8 +313,16 @@ async function buildSession(
   // session and surfaced here so the operator always knows who answered.
   const session = await createLlmSessionWithFailover(providerFlag, ctx, callbacks, {
     model: modelFlag,
+    // A2: nudge y failover dejan evento (ai_agent_events) — la salud del
+    // agente se mide, no se recuerda de leer stderr.
+    grounding: {
+      onNudge: () => registrarEventoEnSegundoPlano(ctx, { kind: 'nudge' }),
+    },
     onFailover: (from, errorType, to) => {
       stderr.write(ce.red(`  ⚠ provider ${from} failed (${errorType}); trying ${to}\n`));
+      registrarEventoEnSegundoPlano(ctx, {
+        kind: 'failover', provider: from, detail: { categoria: errorType, siguiente: to },
+      });
       onFailover?.(from, errorType, to);
     },
   });
@@ -453,7 +508,7 @@ const NO_DB_COMMANDS = new Set(['lang', 'idioma']);
 // machine the chat action routes to the first-run rescue, which needs the
 // process alive to diagnose and offer the wizard. Every other command keeps
 // today's fail-fast behavior.
-let chatDbInitError: unknown = null;
+let chatDbInitError: Error | null = null;
 
 program.hook('preAction', async (thisCommand, actionCommand) => {
   bootstrapTenant(thisCommand.opts().tenant as string | undefined);
@@ -466,16 +521,21 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
     if (warning) stderr.write(ce.dim(`  ⚠ ${warning}\n`));
   } catch (err) {
     if (actionCommand.name() !== 'chat') throw err;
-    chatDbInitError = err;
+    chatDbInitError = err instanceof Error ? err : new Error(String(err));
   }
 });
 
 program
   .command('entities')
   .alias('entidades')
-  .description('Lists the active legal entities')
+  .description('Lists the active legal entities (deprecated: use `mnemosine entity list`)')
   .action(async () => {
     try {
+      // R9 deprecation protocol: the old name keeps working and says so on
+      // stderr, so stdout stays byte-clean for anything already piping this.
+      stderr.write(
+        c.dim('`mnemosine entities` is now `mnemosine entity list`; the old name still works.\n')
+      );
       const entities = await listEntities();
       if (entities.length === 0) {
         console.log(
@@ -977,23 +1037,47 @@ program
     }
   });
 
-program
+const review = program
   .command('review')
   .alias('revisar')
   .description('Reviews pending drafts: approve (creates and posts the journal entry) or reject')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Reviewer email (default: first active user of the tenant)')
-  .action(async (opts: { entity?: string; user?: string }) => {
+  .option('-u, --user <email>', 'Reviewer email (default: first active user of the tenant)');
+// Aprobar POSTEA al mayor: irreversible, declarado junto a su registro (S0.6;
+// antes vivía en la tabla de retrofit). El kernel añade --dry-run, --yes e
+// --idempotency-key y le niega el comando al agente.
+declareRisk(review, {
+  risk: 'irreversible',
+  agent: false,
+  writes: 'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador',
+});
+review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idempotencyKey?: string }) => {
     let rl: readline.Interface | undefined;
     try {
       const ctx = await resolveEntity(opts.entity);
-      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const { dryRun } = gateMutation(review, opts);
       const pending = await listDrafts(ctx, 'pending_review');
 
       if (pending.length === 0) {
         console.log('No drafts pending review.');
         await shutdown(0);
       }
+
+      if (dryRun) {
+        // La marcha seca muestra la cola completa sin abrir el prompt: lo que
+        // se vería, sin poder aprobar nada.
+        pending.forEach((d, i) => renderDraft(d, i, pending.length));
+        console.log(c.dim(`\n(dry-run: ${pending.length} draft(s) pending; nothing was approved or rejected)`));
+        await shutdown(0);
+      }
+      if (opts.idempotencyKey) {
+        stderr.write(
+          '  --idempotency-key does not apply to the interactive queue: each approval is bound to the ' +
+            'exact reviewed content (hash) and a repeat is refused by the draft status.\n'
+        );
+      }
+
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
       console.log(
         c.bold('\nmnemosine review') +
@@ -1063,7 +1147,7 @@ program
     }
   });
 
-program
+const ingest = program
   .command('ingest')
   .alias('ingesta')
   .description('Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)')
@@ -1075,18 +1159,70 @@ program
   .option('--auto-post', 'Enables threshold-based auto-posting (default: everything stays as draft)')
   .option('--no-auto-post', 'Disables auto-posting even if the config has it turned on')
   .option('--min-confidence <n>', 'Minimum confidence for auto-post (0-1)', parseFloat)
-  .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat)
-  .action(async (files: string[], opts: {
+  .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat);
+// Irreversible por su camino más grave (el auto-posteo), declarado junto a su
+// registro (S0.6). El plan de cierre proponía partirlo por bandera, pero S0.3
+// lo dejó atrás: el auto-posteo ya no lo decide una bandera sino la
+// precedencia bandera > archivo del operador > política del panel > omisión —
+// partirlo rompería el gobierno del panel, y el apagado garantizado del
+// operador ya existe (`--no-auto-post`, la bandera gana). Lo que sí exige la
+// clase es --dry-run honesta, y aquí se honra en la capa determinista.
+declareRisk(ingest, {
+  risk: 'irreversible',
+  agent: false,
+  writes: 'xml_documents, pre_registrations, bills; y con auto-posteo, asientos POSTEADOS',
+});
+ingest.action(async (files: string[], opts: {
     entity?: string; provider?: string; model?: string; user?: string;
     autoPost?: boolean; minConfidence?: number; maxAmount?: number;
+    yes?: boolean; idempotencyKey?: string;
   }) => {
     try {
-      const thresholds = resolveIngestThresholds({
-        autoPost: opts.autoPost,
-        minConfidence: opts.minConfidence,
-        maxAmount: opts.maxAmount,
-      });
       const ctx = await resolveEntity(opts.entity);
+      // El panel entra en la precedencia (bandera > archivo > política >
+      // omisión): antes las dos claves de auto-posteo del panel no las leía
+      // nadie y el json local gobernaba solo, sin bitácora — el despacho las
+      // contestaba y no cambiaba nada.
+      const thresholds = await resolverUmbralesConPanel(
+        {
+          autoPost: opts.autoPost,
+          minConfidence: opts.minConfidence,
+          maxAmount: opts.maxAmount,
+        },
+        ctx
+      );
+      const { dryRun } = gateMutation(ingest, opts);
+
+      if (dryRun) {
+        // La capa determinista, sin escribir NADA y sin llamar a nadie: ni
+        // xml_documents, ni el validador del SAT, ni el modelo. Se dice lo
+        // que no se calculó: las reglas del despacho, la clasificación IA y
+        // el plan de asiento se deciden en la corrida real.
+        const preview = await previewCfdiFiles({ files, thresholds, entityId: ctx.entityId });
+        const icon: Record<string, string> = {
+          would_process: '·', duplicate: '↩', invalid: '✘', error: '✘',
+        };
+        console.log(c.bold('\nmnemosine ingest --dry-run') + c.dim(` · ${ctx.entityName} · ${files.length} file(s)`));
+        for (const r of preview) {
+          console.log(
+            `${icon[r.verdict] ?? '·'} ${r.file}  ${c.dim(
+              `${r.verdict}${r.tipo ? ` · tipo ${r.tipo}` : ''}${r.total ? ` · ${r.total}` : ''}` +
+                `${r.route ? ` · ${r.route}` : ''}${r.detail ? ` · ${r.detail}` : ''}`
+            )}`
+          );
+        }
+        console.log(c.dim(
+          '\n(dry-run: nothing was written and nothing external was called. Firm rules, AI ' +
+            'classification and the journal-entry plan are decided on the real run.)'
+        ));
+        const broken = preview.filter((r) => r.verdict === 'invalid' || r.verdict === 'error').length;
+        await shutdown(broken > 0 ? 1 : 0);
+      }
+      if (opts.idempotencyKey) {
+        stderr.write(
+          '  --idempotency-key does not apply to the batch: each CFDI deduplicates on its own UUID/hash.\n'
+        );
+      }
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
       // No interactive channel: the AI's questions land in `mnemosine questions`.
@@ -1094,6 +1230,29 @@ program
       const callbacks = makeCallbacks(undefined, (info) => {
         capture.drafts.push(info);
       });
+      // A2: la ingesta acumula su consumo para la fila de ai_ingest_runs —
+      // y de paso cierra un hueco: este camino no registraba NADA en
+      // ai_usage (el onUsage nunca se cableó aquí; ask/chat/jobs sí).
+      const consumo = { input: 0, output: 0, costo: 0, costoConocido: false };
+      callbacks.onUsage = (usage) => {
+        recordUsageInBackground(ctx, null, usage);
+        // Mismas pinzas que recordUsage: contadores hostiles o no-numéricos
+        // se fijan ANTES de estimar el costo, o un NaN envenena el total.
+        const fijado = {
+          ...usage,
+          inputTokens: clampTokenCount(usage.inputTokens),
+          outputTokens: clampTokenCount(usage.outputTokens),
+          cacheReadInputTokens: clampTokenCount(usage.cacheReadInputTokens ?? 0),
+          cacheCreationInputTokens: clampTokenCount(usage.cacheCreationInputTokens ?? 0),
+        };
+        consumo.input += fijado.inputTokens;
+        consumo.output += fijado.outputTokens;
+        const costo = estimateCostUsd(fijado);
+        if (costo !== null) {
+          consumo.costo += costo;
+          consumo.costoConocido = true;
+        }
+      };
       const profile = resolveProfile(opts.provider, opts.model);
       // Batch pipeline with auto-post thresholds: the grounding corrective
       // turn is harness-initiated and must never be able to add drafts to
@@ -1112,10 +1271,43 @@ program
           )
       );
 
+      const corridaInicio = Date.now();
       const report = await ingestCfdiFiles({
         ctx, reviewer, files, thresholds, session, capture,
         onProgress: (msg) => stderr.write(ce.dim(`\n── ${msg}\n`)),
       });
+
+      // A2: la corrida deja fila (counts, borradores, consumo) y cada CFDI
+      // sospechoso deja evento con sus campos marcados. El registro nunca
+      // tira la corrida: los resultados de ARRIBA ya son verdad aunque la
+      // anotación falle — se avisa y se sigue.
+      try {
+        const corridaId = await registrarCorridaIngesta(ctx, {
+          provider: profile.name,
+          model: profile.model,
+          filesTotal: files.length,
+          counts: report.counts,
+          sospechaCount: report.results.filter((r) => (r.sospechas?.length ?? 0) > 0).length,
+          draftsCreated: report.results.filter((r) => r.draftId).length,
+          inputTokens: consumo.input,
+          outputTokens: consumo.output,
+          estimatedCostUsd: consumo.costoConocido ? consumo.costo : null,
+          durationMs: Date.now() - corridaInicio,
+          autoPostEnabled: thresholds.autoPost,
+          createdBy: reviewer.email,
+        });
+        for (const r of report.results) {
+          if ((r.sospechas?.length ?? 0) > 0) {
+            registrarEventoEnSegundoPlano(ctx, {
+              kind: 'sospecha',
+              provider: profile.name,
+              detail: { archivo: r.file, campos: r.sospechas, corrida: corridaId },
+            });
+          }
+        }
+      } catch (err) {
+        stderr.write(ce.yellow(`  (aviso: la corrida no quedó registrada en ai_ingest_runs: ${(err as Error).message})\n`));
+      }
 
       const icon: Record<string, string> = {
         rules: '⚙', auto_post: '✔', draft: '📝', blocked: '❓',
@@ -1172,7 +1364,7 @@ program
     }
   });
 
-program
+const onboard = program
   .command('onboard')
   .alias('alta')
   .description('Imports a client\'s accounting from an external system (chart of accounts + opening balances)')
@@ -1183,16 +1375,26 @@ program
   .option('-u, --user <email>', 'Who runs it (default: sole active user of the tenant)')
   .option('--balance-account <code>', 'Balancing account if the remote trial balance does not sum to zero (e.g. 3200)')
   .option('--post', 'Post the opening balance immediately (default: stays as a draft for mnemosine review)')
-  .option('--dry-run', 'Only show the plan, without executing anything')
-  .action(async (opts: {
+  .option('--dry-run', 'Only show the plan, without executing anything');
+// Irreversible por su camino más grave (--post postea el asiento de apertura),
+// declarado junto a su registro (S0.6). Su --dry-run existía desde antes del
+// kernel y ya era honesta (sólo el plan); el kernel añade --yes e
+// --idempotency-key y le niega el comando al agente.
+declareRisk(onboard, {
+  risk: 'irreversible',
+  agent: false,
+  writes: 'accounts, saldos iniciales; y con --post, el asiento de apertura POSTEADO',
+});
+onboard.action(async (opts: {
     provider: string; cutoff: string; from?: string; entity?: string; user?: string;
-    balanceAccount?: string; post?: boolean; dryRun?: boolean;
+    balanceAccount?: string; post?: boolean; dryRun?: boolean; yes?: boolean; idempotencyKey?: string;
   }) => {
     let rl: readline.Interface | undefined;
     try {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(opts.cutoff)) throw new Error('--cutoff must be YYYY-MM-DD');
       const startDate = opts.from ?? `${opts.cutoff.slice(0, 4)}-01-01`;
       const ctx = await resolveEntity(opts.entity);
+      const { dryRun } = gateMutation(onboard, opts);
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
       console.log(c.bold('\nmnemosine onboard') + c.dim(` · ${ctx.entityName} ← ${opts.provider} · cutoff ${opts.cutoff}`));
@@ -1210,7 +1412,7 @@ program
         console.log(ce.dim(`⚠ The remote trial balance does not balance (difference ${plan.totals.imbalance}): --balance-account is required (suggested: 3200)`));
       }
 
-      if (opts.dryRun) {
+      if (dryRun) {
         console.log(c.dim('\n(dry-run: nothing was created)'));
         await shutdown(0);
       }
@@ -1219,21 +1421,50 @@ program
         await shutdown(0);
       }
 
-      // ─── Confirmation ───
-      rl = readline.createInterface({ input: stdin, output: stdout });
-      rl.on('SIGINT', () => { stdout.write(c.dim('\nInterrupted.\n')); rl?.close(); void shutdown(130); });
-      const confirm = await ask(rl, c.cyan(`\nCreate ${plan.accountsToCreate.length} account(s) and the opening balance${opts.post ? ' AND POST IT' : ' as a draft'}? [y/N] > `));
-      if (!confirm || !/^(y|yes|s|si|sí)$/i.test(confirm.trim())) {
-        console.log(c.dim('Cancelled.'));
-        rl.close();
-        await shutdown(0);
+      // ─── Confirmation (--yes skips it; without a terminal, refuse) ───
+      const pregunta = `Create ${plan.accountsToCreate.length} account(s) and the opening balance${opts.post ? ' AND POST IT' : ' as a draft'}?`;
+      if (!opts.yes) {
+        if (!stdin.isTTY) {
+          throw abortedByUser(
+            `${pregunta} — there is no terminal to ask on. Re-run with --yes once you are sure, ` +
+              'or with --dry-run to see the plan first.'
+          );
+        }
+        rl = readline.createInterface({ input: stdin, output: stdout });
+        rl.on('SIGINT', () => { stdout.write(c.dim('\nInterrupted.\n')); rl?.close(); void shutdown(130); });
+        const confirm = await ask(rl, c.cyan(`\n${pregunta} [y/N] > `));
+        if (!confirm || !/^(y|yes|s|si|sí)$/i.test(confirm.trim())) {
+          console.log(c.dim('Cancelled.'));
+          rl.close();
+          await shutdown(0);
+        }
       }
 
-      // ─── Execution ───
-      const result = await executeOnboarding(ctx, plan, reviewer, {
-        balanceAccountCode: opts.balanceAccount,
-        postNow: opts.post,
-      });
+      // ─── Execution (idempotency key stored on success since 039) ───
+      const acto = await conLlave(
+        { tenantId: ctx.tenantId, entityId: ctx.entityId },
+        {
+          scope: 'onboard',
+          clave: opts.idempotencyKey,
+          payloadHash: hashDeCarga(ctx.entityId, opts.provider, opts.cutoff, startDate, opts.post ? 'post' : 'draft'),
+        },
+        async () => {
+          const r = await executeOnboarding(ctx, plan, reviewer, {
+            balanceAccountCode: opts.balanceAccount,
+            postNow: opts.post,
+          });
+          return { accountsCreated: r.accountsCreated, entryNumber: r.entryNumber ?? null, draftId: r.draftId ?? null };
+        }
+      );
+      const result = acto.resultado;
+      if (acto.repetido) {
+        stderr.write(
+          `↩ Idempotency hit: key "${opts.idempotencyKey}" already ran this onboarding — ` +
+            `${result.accountsCreated} account(s), ${result.entryNumber ?? result.draftId}. Nothing was executed again.\n`
+        );
+        rl?.close();
+        await shutdown(0);
+      }
       console.log(`\n✔ ${result.accountsCreated} account(s) created.`);
       if (result.entryNumber) {
         console.log(`✔ Opening balance posted: ${c.bold(result.entryNumber)} (ref ${plan.reference})`);
@@ -1246,15 +1477,15 @@ program
           console.log(ce.dim(`⚠ Verification: ${diff.differences.length} difference(s), ${diff.only_remote.length} remote-only — inspect with external_diff_trial_balance in the chat.`));
         }
       } else {
-        console.log(`✔ Opening balance in draft ${c.dim(result.draftId)} — approve it with: mnemosine review`);
+        console.log(`✔ Opening balance in draft ${c.dim(result.draftId ?? '')} — approve it with: mnemosine review`);
       }
-      rl.close();
+      rl?.close();
       await shutdown(0);
     } catch (err) {
       rl?.close();
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1267,138 +1498,323 @@ function renderExternalOp(op: ExternalOpRow, index: number, total: number): void
   console.log(c.dim(`id: ${op.id}`));
 }
 
-program
+// ============================================================
+// outbox — partido en `outbox list` (lectura) y `outbox run` (externo), S0.6.
+// El comando de una sola hoja hacía cosas distintas según -l: listaba o
+// EJECUTABA contra el sistema del cliente con su credencial. Cada camino es
+// ahora su propia hoja con su propia declaración; el padre queda como shim de
+// deprecación que avisa y reenvía. La ejecución real exige --live (no existe
+// un sandbox de Contalink: el efecto externo es opt-in, como manda el kernel).
+// ============================================================
+
+const ESTADOS_OUTBOX = ['pending', 'executing', 'executed', 'failed', 'rejected'] as const;
+
+async function listarOutboxImpl(opts: {
+  entity?: string; status?: string[]; limit?: number; offset?: number; all?: boolean;
+  format?: string; json?: boolean; output?: string; fields?: string | boolean; quiet?: boolean;
+}): Promise<void> {
+  const ctx = await resolveEntity(opts.entity);
+  const pedidos = (opts.status?.length ? opts.status : ['pending']) as Array<ExternalOpRow['status']>;
+  for (const s of pedidos) {
+    if (!(ESTADOS_OUTBOX as readonly string[]).includes(s)) {
+      throw usageError(`Unknown --status "${s}". Use one of: ${ESTADOS_OUTBOX.join(', ')}.`);
+    }
+  }
+  const todas: ExternalOpRow[] = [];
+  for (const s of pedidos) todas.push(...(await listExternalOps(ctx, s)));
+  const inicio = opts.offset ?? 0;
+  const tope = opts.all ? undefined : opts.limit ?? 50;
+  const visibles = todas.slice(inicio, tope === undefined ? undefined : inicio + tope);
+  render(
+    visibles.map((op) => ({
+      id: op.id,
+      status: op.status,
+      provider: op.provider,
+      operation: op.operation,
+      created: op.created_at instanceof Date ? op.created_at.toISOString() : String(op.created_at),
+      reasoning: (op.ai_reasoning ?? '').slice(0, 60),
+    })),
+    { ...opts, total: todas.length, idField: 'id' }
+  );
+}
+
+async function correrOutboxImpl(
+  cmd: Command,
+  ids: string[],
+  opts: {
+    entity?: string; user?: string; yes?: boolean;
+    dryRun?: boolean; live?: boolean; idempotencyKey?: string;
+  }
+): Promise<void> {
+  let rl: readline.Interface | undefined;
+  try {
+    const ctx = await resolveEntity(opts.entity);
+    const { dryRun, live } = gateMutation(cmd, opts);
+    if (opts.idempotencyKey) {
+      stderr.write(
+        '  --idempotency-key does not apply here: each operation is claimed atomically and bound ' +
+          'to the exact reviewed content (hash); a repeat is refused by its status.\n'
+      );
+    }
+    const pending = await listExternalOps(ctx, 'pending');
+
+    // 'executing' rows older than 10 minutes are stranded: a previous run
+    // died between the atomic claim and the terminal status update, and
+    // the external write may or may not have landed. Surface them for
+    // manual resolution — they are otherwise invisible and unexecutable.
+    // reviewed_at is set by the claim UPDATE, so it is the staleness clock
+    // (ExternalOpRow does not carry it, hence the id-only staleness query).
+    const executing = await listExternalOps(ctx, 'executing');
+    let stale: ExternalOpRow[] = [];
+    if (executing.length > 0) {
+      const staleIds = await query<{ id: string }>(
+        `SELECT id FROM ai_external_ops
+         WHERE entity_id = $1 AND status = 'executing'
+           AND reviewed_at < NOW() - INTERVAL '10 minutes'`,
+        [ctx.entityId]
+      );
+      const idSet = new Set(staleIds.rows.map((r) => r.id));
+      stale = executing.filter((op) => idSet.has(op.id));
+    }
+    const warnStale = (op: ExternalOpRow): void => {
+      console.log(ce.red(
+        `WARNING: stuck in 'executing' — a previous run died mid-execution; ` +
+        `the external write may or may not have landed. Verify in ${op.provider} before resolving.`
+      ));
+    };
+
+    // Con ids explícitos NO se sale por cola vacía: un guion que pidió
+    // ejecutar estas operaciones debe oír «no están», no un 0 silencioso.
+    if (ids.length === 0 && pending.length === 0 && stale.length === 0) {
+      console.log('No pending external operations.');
+      await shutdown(0);
+    }
+
+    // ─── Scripted mode: explicit ids ───
+    if (ids.length > 0) {
+      const porId = new Map(pending.map((op) => [op.id, op]));
+      const faltan = ids.filter((id) => !porId.has(id));
+      if (faltan.length > 0) {
+        throw notFound(
+          `Not pending (or not found) in this entity's outbox: ${faltan.join(', ')}. ` +
+            'See the queue with: mnemosine outbox list'
+        );
+      }
+      const targets = ids.map((id) => porId.get(id)!);
+      if (dryRun) {
+        targets.forEach((op, i) => renderExternalOp(op, i, targets.length));
+        console.log(c.dim(`\n(dry-run: ${targets.length} operation(s) would execute; nothing was called)`));
+        await shutdown(0);
+      }
+      if (!live) {
+        throw usageError(
+          'outbox run executes against the client\'s REAL external system and no sandbox endpoint ' +
+            'exists: the real effect is opt-in. Re-run with --live (and --yes for scripts), or use ' +
+            '--dry-run to see what would execute.'
+        );
+      }
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      let executed = 0;
+      let failed = 0;
+      for (let i = 0; i < targets.length; i++) {
+        renderExternalOp(targets[i], i, targets.length);
+        if (!opts.yes) {
+          if (!stdin.isTTY) {
+            throw abortedByUser(
+              'Execute in the external system? — there is no terminal to ask on. Re-run with --yes once you are sure.'
+            );
+          }
+          rl = readline.createInterface({ input: stdin, output: stdout });
+          const raw = await ask(rl, c.cyan('\nExecute in the external system? [y/N] > '));
+          rl.close();
+          rl = undefined;
+          if (!raw || !/^(y|yes|s|si|sí)$/i.test(raw.trim())) {
+            console.log(c.dim('Skipped.'));
+            continue;
+          }
+        }
+        try {
+          const { result } = await executeExternalOp(
+            ctx, targets[i].id, reviewer.email,
+            canonicalOpHash(targets[i].provider, targets[i].operation, targets[i].payload)
+          );
+          executed++;
+          console.log(`✔ Executed. Response: ${c.dim(JSON.stringify(result).slice(0, 200))}`);
+        } catch (err) {
+          failed++;
+          reportError(err);
+          console.log(c.dim('The operation is left as-is (check outbox list --status failed); continuing.'));
+        }
+      }
+      console.log(c.dim(`\nDone: ${executed} executed, ${failed} failed.`));
+      await shutdown(failed > 0 ? 1 : 0);
+    }
+
+    // ─── Interactive queue ───
+    if (dryRun) {
+      pending.forEach((op, i) => renderExternalOp(op, i, pending.length));
+      stale.forEach((op, i) => {
+        renderExternalOp(op, i, stale.length);
+        warnStale(op);
+      });
+      console.log(c.dim('\n(dry-run: nothing was executed or changed)'));
+      await shutdown(0);
+    }
+
+    const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+    console.log(
+      c.bold('\nmnemosine outbox run') +
+        c.dim(` · ${ctx.entityName} · ${pending.length} pending · executes: ${reviewer.email}`)
+    );
+    console.log(ce.dim('WARNING: executing WRITES to the external system (Contalink, etc.).'));
+    if (!live) {
+      console.log(ce.dim(
+        'Without --live, [e]xecute is disabled (no sandbox endpoint exists; the real effect is ' +
+          'opt-in). You can still reject and skip; re-run with --live to execute.'
+      ));
+    }
+
+    rl = readline.createInterface({ input: stdin, output: stdout });
+    rl.on('SIGINT', () => {
+      stdout.write(c.dim('\nInterrupted.\n'));
+      rl?.close();
+      void shutdown(130);
+    });
+
+    // Resolve stranded operations first: the human checks the external
+    // system and tells us whether the interrupted write actually landed.
+    for (let i = 0; i < stale.length; i++) {
+      renderExternalOp(stale[i], i, stale.length);
+      warnStale(stale[i]);
+      const raw = await ask(rl, c.cyan(
+        '\n[f] mark failed (write may have landed)  [p] reset to pending (write did NOT land)  [s]kip > '
+      ));
+      if (raw === null) break;
+      const answer = raw.trim().toLowerCase();
+      try {
+        if (answer === 'f') {
+          await recoverExecutingOp(ctx, stale[i].id, reviewer.email, 'failed');
+          console.log('✘ Marked failed. Verify in the external system whether the write landed.');
+        } else if (answer === 'p') {
+          await recoverExecutingOp(ctx, stale[i].id, reviewer.email, 'pending');
+          console.log('↩ Returned to the pending queue (re-run outbox run to review it again).');
+        }
+        // 's' or anything else: skip
+      } catch (err) {
+        reportError(err);
+        console.log(c.dim('The operation is left as-is; the queue continues.'));
+      }
+    }
+
+    let executed = 0;
+    let rejected = 0;
+    for (let i = 0; i < pending.length; i++) {
+      renderExternalOp(pending[i], i, pending.length);
+      const raw = await ask(rl, c.cyan('\n[e]xecute in the external system  [r]eject  [s]kip  [q]uit > '));
+      if (raw === null) break;
+      const answer = raw.trim().toLowerCase();
+      if (answer === 'q') break;
+
+      try {
+        if (answer === 'e') {
+          if (!live) {
+            console.log(ce.dim('Not executed: re-run with --live to reach the real external system.'));
+            continue;
+          }
+          const { result } = await executeExternalOp(
+            ctx, pending[i].id, reviewer.email,
+            canonicalOpHash(pending[i].provider, pending[i].operation, pending[i].payload)
+          );
+          executed++;
+          console.log(`✔ Executed. Response: ${c.dim(JSON.stringify(result).slice(0, 200))}`);
+        } else if (answer === 'r') {
+          const decision = rejectionReasonFrom(await ask(rl, c.cyan('Rejection reason: ')));
+          // EOF at the reason prompt aborts: leave the op pending, stop cleanly.
+          if (decision.abort) break;
+          await rejectExternalOp(ctx, pending[i].id, reviewer.email, decision.reason);
+          rejected++;
+          console.log('✘ Rejected.');
+        }
+        // 's' or anything else: skip
+      } catch (err) {
+        reportError(err);
+        console.log(c.dim('The operation is left as-is (check list_external_ops/failed); the queue continues.'));
+      }
+    }
+
+    rl.close();
+    console.log(c.dim(`\nDone: ${executed} executed, ${rejected} rejected.`));
+    await shutdown(0);
+  } catch (err) {
+    rl?.close();
+    if (isInterrupt(err)) await shutdown(130);
+    reportError(err);
+    await shutdown(exitCodeFor(err));
+  }
+}
+
+const outbox = program
   .command('outbox')
-  .alias('envios')
-  .description('Reviews and executes the operations queued for external accounting systems')
+  .aliases(['envio', 'envios'])
+  .description('Operations queued for external accounting systems: list, review and execute')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)')
-  .option('-l, --list', 'Only list, without executing')
-  .action(async (opts: { entity?: string; user?: string; list?: boolean }) => {
-    let rl: readline.Interface | undefined;
+  .option('-l, --list', 'Only list, without executing (deprecated: use `outbox list`)');
+
+const outboxList = outbox
+  .command('list')
+  .alias('listar')
+  .description('List queued external operations (default: pending)');
+withOutput(withSelection(withContext(outboxList)));
+declareRisk(outboxList, { risk: 'lectura', agent: true });
+outboxList.action(async (_opts: unknown, cmdArg: Command) => {
+  // globalsOf: el padre también declara -e/-u, y Commander entrega la opción
+  // repetida al PADRE — leerla sólo del subcomando la perdería (flags.ts).
+  const opts = globalsOf<Parameters<typeof listarOutboxImpl>[0]>(cmdArg);
+  try {
+    await listarOutboxImpl(opts);
+    await shutdown(0);
+  } catch (err) {
+    reportError(err);
+    await shutdown(exitCodeFor(err));
+  }
+});
+
+const outboxRun = outbox
+  .command('run')
+  .alias('ejecutar')
+  .argument('[id...]', 'operation ids to execute; omit to review the whole queue interactively')
+  .description("Execute queued operations against the client's external system (the real effect requires --live)")
+  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
+  .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)');
+declareRisk(outboxRun, {
+  risk: 'externo',
+  agent: false,
+  writes: 'ai_external_ops; y EJECUTA cada operación contra el sistema contable del cliente con su credencial',
+});
+outboxRun.action((ids: string[], _opts: unknown, cmdArg: Command) =>
+  // globalsOf: -e/-u repetidas viven en el padre (ver outbox list).
+  correrOutboxImpl(outboxRun, ids, globalsOf<Parameters<typeof correrOutboxImpl>[2]>(cmdArg))
+);
+
+// Shim de deprecación: el atajo de una sola hoja sigue funcionando, avisa, y
+// reenvía a las hojas nuevas. Sin --live en el padre, la cola interactiva no
+// puede ejecutar nada — el acto grave vive sólo detrás de `outbox run --live`.
+outbox.action(async (opts: { entity?: string; user?: string; list?: boolean }) => {
+  stderr.write(ce.dim(
+    '  ⚠ deprecated: `mnemosine outbox` is split into `outbox list` and `outbox run` — this shortcut will go away.\n'
+  ));
+  if (opts.list) {
     try {
-      const ctx = await resolveEntity(opts.entity);
-      const pending = await listExternalOps(ctx, 'pending');
-
-      // 'executing' rows older than 10 minutes are stranded: a previous run
-      // died between the atomic claim and the terminal status update, and
-      // the external write may or may not have landed. Surface them for
-      // manual resolution — they are otherwise invisible and unexecutable.
-      // reviewed_at is set by the claim UPDATE, so it is the staleness clock
-      // (ExternalOpRow does not carry it, hence the id-only staleness query).
-      const executing = await listExternalOps(ctx, 'executing');
-      let stale: ExternalOpRow[] = [];
-      if (executing.length > 0) {
-        const staleIds = await query<{ id: string }>(
-          `SELECT id FROM ai_external_ops
-           WHERE entity_id = $1 AND status = 'executing'
-             AND reviewed_at < NOW() - INTERVAL '10 minutes'`,
-          [ctx.entityId]
-        );
-        const ids = new Set(staleIds.rows.map((r) => r.id));
-        stale = executing.filter((op) => ids.has(op.id));
-      }
-      const warnStale = (op: ExternalOpRow): void => {
-        console.log(ce.red(
-          `WARNING: stuck in 'executing' — a previous run died mid-execution; ` +
-          `the external write may or may not have landed. Verify in ${op.provider} before resolving.`
-        ));
-      };
-
-      if (pending.length === 0 && stale.length === 0) {
-        console.log('No pending external operations.');
-        await shutdown(0);
-      }
-      if (opts.list) {
-        pending.forEach((op, i) => renderExternalOp(op, i, pending.length));
-        stale.forEach((op, i) => {
-          renderExternalOp(op, i, stale.length);
-          warnStale(op);
-        });
-        await shutdown(0);
-      }
-
-      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      console.log(
-        c.bold('\nmnemosine outbox') +
-          c.dim(` · ${ctx.entityName} · ${pending.length} pending · executes: ${reviewer.email}`)
-      );
-      console.log(ce.dim('WARNING: executing WRITES to the external system (Contalink, etc.).'));
-
-      rl = readline.createInterface({ input: stdin, output: stdout });
-      rl.on('SIGINT', () => {
-        stdout.write(c.dim('\nInterrupted.\n'));
-        rl?.close();
-        void shutdown(130);
-      });
-
-      // Resolve stranded operations first: the human checks the external
-      // system and tells us whether the interrupted write actually landed.
-      for (let i = 0; i < stale.length; i++) {
-        renderExternalOp(stale[i], i, stale.length);
-        warnStale(stale[i]);
-        const raw = await ask(rl, c.cyan(
-          '\n[f] mark failed (write may have landed)  [p] reset to pending (write did NOT land)  [s]kip > '
-        ));
-        if (raw === null) break;
-        const answer = raw.trim().toLowerCase();
-        try {
-          if (answer === 'f') {
-            await recoverExecutingOp(ctx, stale[i].id, reviewer.email, 'failed');
-            console.log('✘ Marked failed. Verify in the external system whether the write landed.');
-          } else if (answer === 'p') {
-            await recoverExecutingOp(ctx, stale[i].id, reviewer.email, 'pending');
-            console.log('↩ Returned to the pending queue (re-run outbox to review it again).');
-          }
-          // 's' or anything else: skip
-        } catch (err) {
-          reportError(err);
-          console.log(c.dim('The operation is left as-is; the queue continues.'));
-        }
-      }
-
-      let executed = 0;
-      let rejected = 0;
-      for (let i = 0; i < pending.length; i++) {
-        renderExternalOp(pending[i], i, pending.length);
-        const raw = await ask(rl, c.cyan('\n[e]xecute in the external system  [r]eject  [s]kip  [q]uit > '));
-        if (raw === null) break;
-        const answer = raw.trim().toLowerCase();
-        if (answer === 'q') break;
-
-        try {
-          if (answer === 'e') {
-            const { result } = await executeExternalOp(
-              ctx, pending[i].id, reviewer.email,
-              canonicalOpHash(pending[i].provider, pending[i].operation, pending[i].payload)
-            );
-            executed++;
-            console.log(`✔ Executed. Response: ${c.dim(JSON.stringify(result).slice(0, 200))}`);
-          } else if (answer === 'r') {
-            const decision = rejectionReasonFrom(await ask(rl, c.cyan('Rejection reason: ')));
-            // EOF at the reason prompt aborts: leave the op pending, stop cleanly.
-            if (decision.abort) break;
-            await rejectExternalOp(ctx, pending[i].id, reviewer.email, decision.reason);
-            rejected++;
-            console.log('✘ Rejected.');
-          }
-          // 's' or anything else: skip
-        } catch (err) {
-          reportError(err);
-          console.log(c.dim('The operation is left as-is (check list_external_ops/failed); the queue continues.'));
-        }
-      }
-
-      rl.close();
-      console.log(c.dim(`\nDone: ${executed} executed, ${rejected} rejected.`));
+      await listarOutboxImpl(opts);
       await shutdown(0);
     } catch (err) {
-      rl?.close();
-      if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
-  });
+  }
+  await correrOutboxImpl(outboxRun, [], opts);
+});
 
 function renderQuestion(q: QuestionRow, index: number, total: number): void {
   console.log(c.bold(`\n─── Question ${index + 1}/${total} ───`) + c.dim(`  (${q.created_at.toISOString?.().split('T')[0] ?? q.created_at})`));
@@ -1408,83 +1824,195 @@ function renderQuestion(q: QuestionRow, index: number, total: number): void {
   console.log(c.dim(`id: ${q.id}`));
 }
 
-program
-  .command('questions')
-  .alias('dudas')
-  .description('Manages the agent\'s pending questions: answer (saved as a precedent) or dismiss')
+// ============================================================
+// question — partido en `question list` (lectura) y `question answer`
+// (escritura), S0.6. El comando de una sola hoja hacía cosas distintas según
+// -l; y el sustantivo pasa a singular como comete el catálogo (R2), con
+// `questions`/`dudas` vivos como aliases de compatibilidad.
+// ============================================================
+
+async function listarQuestionsImpl(opts: {
+  entity?: string; status?: string[]; limit?: number; offset?: number; all?: boolean;
+  format?: string; json?: boolean; output?: string; fields?: string | boolean; quiet?: boolean;
+}): Promise<void> {
+  const ctx = await resolveEntity(opts.entity);
+  const ESTADOS = ['pending', 'answered', 'dismissed'] as const;
+  const pedidos = (opts.status?.length ? opts.status : ['pending']) as Array<QuestionRow['status']>;
+  for (const s of pedidos) {
+    if (!(ESTADOS as readonly string[]).includes(s)) {
+      throw usageError(`Unknown --status "${s}". Use one of: ${ESTADOS.join(', ')}.`);
+    }
+  }
+  const todas: QuestionRow[] = [];
+  for (const s of pedidos) todas.push(...(await listQuestions(ctx, s)));
+  const inicio = opts.offset ?? 0;
+  const tope = opts.all ? undefined : opts.limit ?? 50;
+  const visibles = todas.slice(inicio, tope === undefined ? undefined : inicio + tope);
+  render(
+    visibles.map((q) => ({
+      id: q.id,
+      status: q.status,
+      created: q.created_at instanceof Date ? q.created_at.toISOString().split('T')[0] : String(q.created_at),
+      question: q.question.slice(0, 70),
+      options: q.options?.length ? String(q.options.length) : '',
+      topic: q.topic ?? '',
+    })),
+    { ...opts, total: todas.length, idField: 'id' }
+  );
+}
+
+async function colaDeQuestionsImpl(opts: { entity?: string; user?: string }): Promise<void> {
+  let rl: readline.Interface | undefined;
+  try {
+    const ctx = await resolveEntity(opts.entity);
+    const pending = await listQuestions(ctx, 'pending');
+
+    if (pending.length === 0) {
+      console.log('No pending questions.');
+      await shutdown(0);
+    }
+
+    const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+    console.log(
+      c.bold('\nmnemosine question answer') +
+        c.dim(` · ${ctx.entityName} · ${pending.length} pending · answers: ${reviewer.email}`)
+    );
+
+    rl = readline.createInterface({ input: stdin, output: stdout });
+    rl.on('SIGINT', () => {
+      stdout.write(c.dim('\nInterrupted.\n'));
+      rl?.close();
+      void shutdown(130);
+    });
+
+    let answered = 0;
+    let dismissed = 0;
+    for (let i = 0; i < pending.length; i++) {
+      const q = pending[i];
+      renderQuestion(q, i, pending.length);
+      const raw = await ask(rl, c.cyan('\n[answer / option number / s=skip / d=dismiss / q=quit] > '));
+      if (raw === null) break;
+      const line = raw.trim();
+      if (!line || line.toLowerCase() === 's') continue;
+      if (line.toLowerCase() === 'q') break;
+
+      try {
+        if (line.toLowerCase() === 'd') {
+          await dismissQuestion(ctx, q.id, reviewer.email);
+          dismissed++;
+          console.log(c.dim('Question dismissed.'));
+          continue;
+        }
+        const idx = Number(line);
+        const answer =
+          q.options && Number.isInteger(idx) && idx >= 1 && idx <= q.options.length
+            ? q.options[idx - 1]
+            : line;
+        await answerQuestion(ctx, q.id, answer, reviewer.email);
+        answered++;
+        console.log(`✔ Answered and saved as a precedent: ${c.bold(answer)}`);
+      } catch (err) {
+        // e.g. another session already resolved it — continue with the queue
+        reportError(err);
+      }
+    }
+
+    rl.close();
+    console.log(c.dim(`\nDone: ${answered} answered, ${dismissed} dismissed.`));
+    await shutdown(0);
+  } catch (err) {
+    rl?.close();
+    if (isInterrupt(err)) await shutdown(130);
+    reportError(err);
+    await shutdown(exitCodeFor(err));
+  }
+}
+
+const question = program
+  .command('question')
+  .aliases(['duda', 'questions', 'dudas'])
+  .description("The agent's pending questions: list, answer (saved as a precedent) or dismiss")
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)')
-  .option('-l, --list', 'Only list, without answering')
-  .action(async (opts: { entity?: string; user?: string; list?: boolean }) => {
-    let rl: readline.Interface | undefined;
+  .option('-l, --list', 'Only list, without answering (deprecated: use `question list`)');
+
+const questionList = question
+  .command('list')
+  .alias('listar')
+  .description("List the agent's questions (default: pending)");
+withOutput(withSelection(withContext(questionList)));
+declareRisk(questionList, { risk: 'lectura', agent: true });
+questionList.action(async (_opts: unknown, cmdArg: Command) => {
+  // globalsOf: -e/-u repetidas viven en el padre (ver outbox list).
+  const opts = globalsOf<Parameters<typeof listarQuestionsImpl>[0]>(cmdArg);
+  try {
+    await listarQuestionsImpl(opts);
+    await shutdown(0);
+  } catch (err) {
+    reportError(err);
+    await shutdown(exitCodeFor(err));
+  }
+});
+
+const questionAnswer = question
+  .command('answer')
+  .alias('responder')
+  .argument('[id]', 'question id; omit to answer the pending queue interactively')
+  .argument('[answer...]', 'the answer text, or the number of an option (requires <id>)')
+  .description('Answer a question (the answer is saved as a precedent), or work the pending queue')
+  .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
+  .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)');
+declareRisk(questionAnswer, {
+  risk: 'escritura',
+  agent: false,
+  writes: 'ai_questions y los precedentes que su respuesta siembra',
+});
+questionAnswer.action(async (id: string | undefined, answerParts: string[], _opts: unknown, cmdArg: Command) => {
+  // globalsOf: -e/-u repetidas viven en el padre (ver outbox list).
+  const opts = globalsOf<{ entity?: string; user?: string }>(cmdArg);
+  if (!id) return colaDeQuestionsImpl(opts);
+  try {
+    if (answerParts.length === 0) {
+      throw usageError('question answer <id> needs the answer: mnemosine question answer <id> "<text or option number>"');
+    }
+    const ctx = await resolveEntity(opts.entity);
+    const q = (await listQuestions(ctx, 'pending')).find((row) => row.id === id);
+    if (!q) {
+      throw notFound(`No pending question with id ${id}. See them with: mnemosine question list`);
+    }
+    const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+    const line = answerParts.join(' ').trim();
+    const idx = Number(line);
+    const answer =
+      q.options && Number.isInteger(idx) && idx >= 1 && idx <= q.options.length
+        ? q.options[idx - 1]
+        : line;
+    await answerQuestion(ctx, q.id, answer, reviewer.email);
+    console.log(`✔ Answered and saved as a precedent: ${c.bold(answer)}`);
+    await shutdown(0);
+  } catch (err) {
+    reportError(err);
+    await shutdown(exitCodeFor(err));
+  }
+});
+
+// Shim de deprecación: `mnemosine questions [-l]` sigue funcionando, avisa y
+// reenvía a las hojas nuevas.
+question.action(async (opts: { entity?: string; user?: string; list?: boolean }) => {
+  stderr.write(ce.dim(
+    '  ⚠ deprecated: `mnemosine questions` is split into `question list` and `question answer` — this shortcut will go away.\n'
+  ));
+  if (opts.list) {
     try {
-      const ctx = await resolveEntity(opts.entity);
-      const pending = await listQuestions(ctx, 'pending');
-
-      if (pending.length === 0) {
-        console.log('No pending questions.');
-        await shutdown(0);
-      }
-      if (opts.list) {
-        pending.forEach((q, i) => renderQuestion(q, i, pending.length));
-        await shutdown(0);
-      }
-
-      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      console.log(
-        c.bold('\nmnemosine questions') +
-          c.dim(` · ${ctx.entityName} · ${pending.length} pending · answers: ${reviewer.email}`)
-      );
-
-      rl = readline.createInterface({ input: stdin, output: stdout });
-      rl.on('SIGINT', () => {
-        stdout.write(c.dim('\nInterrupted.\n'));
-        rl?.close();
-        void shutdown(130);
-      });
-
-      let answered = 0;
-      let dismissed = 0;
-      for (let i = 0; i < pending.length; i++) {
-        const q = pending[i];
-        renderQuestion(q, i, pending.length);
-        const raw = await ask(rl, c.cyan('\n[answer / option number / s=skip / d=dismiss / q=quit] > '));
-        if (raw === null) break;
-        const line = raw.trim();
-        if (!line || line.toLowerCase() === 's') continue;
-        if (line.toLowerCase() === 'q') break;
-
-        try {
-          if (line.toLowerCase() === 'd') {
-            await dismissQuestion(ctx, q.id, reviewer.email);
-            dismissed++;
-            console.log(c.dim('Question dismissed.'));
-            continue;
-          }
-          const idx = Number(line);
-          const answer =
-            q.options && Number.isInteger(idx) && idx >= 1 && idx <= q.options.length
-              ? q.options[idx - 1]
-              : line;
-          await answerQuestion(ctx, q.id, answer, reviewer.email);
-          answered++;
-          console.log(`✔ Answered and saved as a precedent: ${c.bold(answer)}`);
-        } catch (err) {
-          // e.g. another session already resolved it — continue with the queue
-          reportError(err);
-        }
-      }
-
-      rl.close();
-      console.log(c.dim(`\nDone: ${answered} answered, ${dismissed} dismissed.`));
+      await listarQuestionsImpl(opts);
       await shutdown(0);
     } catch (err) {
-      rl?.close();
-      if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
-  });
+  }
+  await colaDeQuestionsImpl(opts);
+});
 
 registerSatCommands(program, {
   color: c,
@@ -1589,6 +2117,21 @@ registerMemoryCommand(program, { palette: c, shutdown, reportError });
 registerPromptSizeCommand(program, { palette: c, shutdown, reportError });
 registerCompactCommand(program, { palette: c, shutdown, reportError });
 registerApprovalsCommand(program, { palette: c, shutdown, reportError });
+registerEntityCommand(program, { palette: c, shutdown, reportError });
+registerPaymentCommands(program, { palette: c, shutdown, reportError });
+registerAccountCommand(program, { palette: c, shutdown, reportError });
+registerEntryCommand(program, { palette: c, shutdown, reportError });
+registerPeriodCommand(program, { palette: c, shutdown, reportError });
+registerYearCommand(program, { palette: c, shutdown, reportError });
+registerVendorCommand(program, { palette: c, shutdown, reportError });
+registerBillCommand(program, { palette: c, shutdown, reportError });
+registerCustomerCommand(program, { palette: c, shutdown, reportError });
+registerInvoiceCommand(program, { palette: c, shutdown, reportError });
+registerReportCommand(program, { palette: c, shutdown, reportError });
+registerLedgerCommand(program, { palette: c, shutdown, reportError });
+registerCfdiCommand(program, { palette: c, shutdown, reportError });
+registerRepCommand(program, { palette: c, shutdown, reportError });
+registerAiCommand(program, { palette: c, shutdown, reportError });
 registerUsageCommand(program, { palette: c, shutdown, reportError });
 registerStatusCommand(program, { palette: c, shutdown, reportError });
 registerJobsCommand(program, { palette: c, shutdown, reportError, makeRunAgentTurn });
@@ -1596,6 +2139,13 @@ registerSkillsCommand(program, { palette: c, shutdown, reportError });
 registerWebhooksCommand(program, { palette: c, shutdown, reportError });
 registerInitCommand(program, { palette: c, shutdown, reportError });
 registerCloseCommand(program, { palette: c, shutdown, reportError });
+
+// Las declaraciones de riesgo que faltaban, sobre el árbol ya completo.
+//
+// Va aquí y no antes porque necesita el programa entero montado: 49 de las 106
+// hojas no declaraban nada, y a lo que no declara no se le aplica ninguna
+// compuerta. Respeta lo que ya declaró junto a su comando.
+declararPendientes(program);
 
 // Exported for scripts/generate-cli-reference.ts, which walks the command
 // tree to emit the agent-facing CLI reference without spawning the binary.

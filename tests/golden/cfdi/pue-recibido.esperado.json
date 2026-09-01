@@ -1,0 +1,31 @@
+{
+  "caso": "pue-recibido",
+  "resultado": "draft",
+  "tratamiento": "PUE",
+  "sospecha": false,
+  "asiento": [
+    {
+      "cuenta": [
+        "6100"
+      ],
+      "lado": "cargo",
+      "monto": "3500.00"
+    },
+    {
+      "cuenta": [
+        "1130"
+      ],
+      "lado": "cargo",
+      "monto": "560.00"
+    },
+    {
+      "cuenta": [
+        "1110",
+        "1111"
+      ],
+      "lado": "abono",
+      "monto": "4060.00"
+    }
+  ],
+  "nota": "Gasto PUE simple: la regla del prompt (PUE -> IVA acreditable 1130 + abono a bancos) aplicada al caso mas comun."
+}

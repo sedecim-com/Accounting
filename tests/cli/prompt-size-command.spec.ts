@@ -125,7 +125,7 @@ describe('registerPromptSizeCommand', () => {
     const program = new Command();
     registerPromptSizeCommand(program, {
       palette: plain,
-      shutdown: vi.fn() as unknown as (code: number) => Promise<never>,
+      shutdown: vi.fn(),
       reportError: vi.fn(),
     });
     const cmd = program.commands.find((c) => c.name() === 'prompt-size');

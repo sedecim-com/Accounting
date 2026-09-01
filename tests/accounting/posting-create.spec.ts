@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { clienteFalso, type ClienteFalso } from '../helpers/fake-pg.js';
-import { asientoFalso, lineaFalsa, cuentaFalsa, ID } from '../helpers/entidades.js';
+import { asientoFalso, lineaFalsa, ID } from '../helpers/entidades.js';
 import type { JournalEntry } from '../../src/types/index.js';
 
 // El motor corre sobre el PoolClient que le entrega withTransaction: se
@@ -9,7 +9,7 @@ import type { JournalEntry } from '../../src/types/index.js';
 // sin esto haría falta un import dinámico (await de nivel superior), que bajo
 // CommonJS es un error de compilación aunque el runtime lo soporte.
 const { arnes, validateJournalEntry, attest } = vi.hoisted(() => ({
-  arnes: { actual: null } as { actual: ClienteFalso | null },
+  arnes: { actual: null as ClienteFalso | null },
   validateJournalEntry: vi.fn(),
   attest: vi.fn(),
 }));
@@ -100,9 +100,11 @@ describe('createJournalEntry · rama borrador', () => {
     expect(cf.coincidencias(/SELECT COUNT\(\*\) as count FROM journal_entries/)).toHaveLength(0);
     const seq = cf.coincidencias(/INSERT INTO entity_sequences/);
     expect(seq).toHaveLength(1);
-    expect(seq[0].params).toEqual([ID.entidad, 'journal_entry']);
+    // R3: la llave del contador y el año impreso salen de la FECHA DEL
+    // DOCUMENTO (2026-08-15 arriba), no del reloj de la corrida.
+    expect(seq[0].params).toEqual([ID.entidad, 'journal_entry_2026']);
     const cabecera = cf.coincidencias(/INSERT INTO journal_entries/)[0];
-    expect(cabecera.params[1]).toMatch(/^JE-\d{4}-00042$/);
+    expect(cabecera.params[1]).toBe('JE-2026-00042');
   });
 
   it('propaga is_reversal y reverses_entry_id al encabezado', async () => {

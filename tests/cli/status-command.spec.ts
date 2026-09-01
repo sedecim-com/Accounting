@@ -231,7 +231,7 @@ describe('buildStatusReport — api_key_cmd credential resolution', () => {
     });
     const r = await buildStatusReport({
       cwd: tmpDir,
-      env: {} as NodeJS.ProcessEnv,
+      env: {},
       probeOptions: { fetchImpl },
       resolveProfileFn,
     });
@@ -255,7 +255,7 @@ describe('buildStatusReport — api_key_cmd credential resolution', () => {
     });
     const r = await buildStatusReport({
       cwd: tmpDir,
-      env: {} as NodeJS.ProcessEnv,
+      env: {},
       probeOptions: { fetchImpl },
       resolveProfileFn,
     });

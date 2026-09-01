@@ -5,8 +5,26 @@
 name: CI
 
 on:
+  # `push:` sin filtro corría los cinco jobs en cada rama Y otra vez en el PR.
+  # En un repositorio público eso es el doble de bitácoras publicadas por el
+  # mismo trabajo: las de Actions son legibles por cualquiera.
   push:
+    branches: [main]
   pull_request:
+
+# Un push nuevo cancela la corrida anterior de la misma rama. Sin esto, empujar
+# tres veces seguidas deja tres corridas compitiendo por el mismo veredicto.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# El token de la corrida es de SOLO LECTURA, dicho aquí y no heredado.
+# Hoy lo es porque el ajuste del repositorio (default_workflow_permissions)
+# dice "read"; eso se cambia con un clic en una página de configuración, y el
+# día que cambie, cada job de un repositorio público le entregaría un token con
+# escritura al árbol de dependencias que `npm ci` ejecuta.
+permissions:
+  contents: read
 
 env:
   NODE_VERSION: '20'
@@ -16,8 +34,8 @@ jobs:
     name: Tipos
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -25,17 +43,78 @@ jobs:
       - run: npm run typecheck
       - run: npm run typecheck:tests
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # eslint.config.mjs: los errores rompen la CI; las advertencias que
+      # entran por tipos de terceros están topadas con --max-warnings, así
+      # que el trabajo también falla si su número sube.
+      - run: npm run lint
+
   unit:
     name: Pruebas unitarias
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
       - run: npm test
+      # Trinquete por archivo sobre el motor contable: no exige trabajo nuevo,
+      # impide la regresión. Los umbrales viven en vitest.config.ts.
+      - run: npx vitest run --coverage
+
+  plan:
+    name: Estado del plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # TRINQUETE, NO INFORME.
+      #
+      # La salida completa se imprime siempre —un paquete abierto es
+      # información, no un fallo—, pero --exigir convierte en rojo el
+      # RETROCESO de los que ya están cerrados. Sin eso el comando sería otra
+      # tabla que nadie mira, que es justo lo que vino a reemplazar.
+      #
+      # Esta lista sólo crece... salvo cuando un paquete se REABRE con causa.
+      # E1.2 y E4.1 salieron en el mismo commit que les añadió criterios de
+      # SALIDA que estaban en falso verde: E1.2 prometía rastro en
+      # cfdi_classifications y la tabla tiene cero menciones en src; E4.1 lee
+      # paycheck_taxes / employer_tax_liabilities / garnishments y ningún
+      # camino las escribe (941/940 en ceros). Quitarlos de aquí ES el acto
+      # honesto que el trinquete exige hacer a la vista: la reapertura viaja
+      # en el diff, con su porqué, y vuelven a la lista cuando su salida
+      # exista de verdad. Cuando un paquete cierre, se añade en el mismo
+      # commit que lo cierra.
+      #
+      # S1 (auditoría 2026-08-31): E3.2 sale por la MISMA causa que E1.2/E4.1
+      # — era un falso verde: su criterio pasaba porque una regex matcheaba
+      # dos cadenas de prosa en una pregunta de política, no código. La
+      # descarga masiva del SAT no existe (11 tareas de motor). Vuelve cuando
+      # el motor exista de verdad.
+      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1
+      # El catálogo de comandos publica cuánto de su superficie existe ya. Ese
+      # número estaba escrito a mano y duró 42 commits: decía «~30 comandos»
+      # con 106 que el binario ejecuta. Ahora se genera, y esto falla ante tres
+      # cosas: que el bloque esté sin regenerar, que los invocables caigan por
+      # debajo del suelo de docs/catalogo-minimos.json, y que vuelva a haber un
+      # comando vivo sin fila — el desajuste que hacía que `report` entregara
+      # ocho comandos y cerrara cero filas.
+      - run: npx tsx scripts/catalogo-estado.ts --check
 
   integration:
     name: Integración contra Postgres
@@ -57,8 +136,8 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_test
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -85,14 +164,36 @@ jobs:
         ports:
           - 5432:5432
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_iso
+      # La APLICACIÓN conecta como mnemosine_app, que es el punto entero de
+      # este job: corriendo como superusuario la RLS no filtra nada y una
+      # política ausente jamás se detectaría. Es el único requisito que los
+      # dos planes levantaron por separado y que ninguno había cerrado.
+      DATABASE_URL: postgresql://mnemosine_app:ci_app_pw@localhost:5432/mnemosine_iso
+      # Las migraciones sí necesitan al dueño del esquema.
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_iso
+      SUPERUSER_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_iso
+      MNEMOSINE_APP_PASSWORD: ci_app_pw
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      # Los roles son objetos de nivel clúster, así que no están en la cadena
+      # de migraciones: sin este paso el bucle de GRANT de rls-policies.sql no
+      # encuentra a quién otorgar y sale sin hacer nada.
+      - name: Aprovisionar roles de base
+        run: |
+          psql "$SUPERUSER_URL" \
+            -v app_pw="$MNEMOSINE_APP_PASSWORD" \
+            -v owner_pw=ci_owner_pw \
+            -f scripts/provision-roles.sql
       - run: npm run migrate
+      # verify-isolation.sh necesita un tenant con entidad para comparar
+      # contra el que él mismo crea; sin siembra su primera comprobación
+      # compara contra vacío y no prueba nada.
+      - run: npm run seed
+        env:
+          DATABASE_URL: ${{ env.MIGRATION_DATABASE_URL }}
       - run: bash scripts/verify-isolation.sh

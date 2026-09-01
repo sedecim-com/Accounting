@@ -43,7 +43,7 @@ export const logger = winston.createLogger({
             const reqTag = request_id ? ` [req=${String(request_id).slice(0, 8)}]` : '';
             const tenantTag = tenant_id ? ` [tenant=${String(tenant_id).slice(0, 8)}]` : '';
             const extra = Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : '';
-            return `${timestamp} ${level}${reqTag}${tenantTag} ${message}${stack ? '\n' + stack : ''}${extra}`;
+            return `${timestamp} ${level}${reqTag}${tenantTag} ${message}${typeof stack === 'string' ? '\n' + stack : ''}${extra}`;
           })
         )
   ),

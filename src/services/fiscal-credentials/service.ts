@@ -1,4 +1,6 @@
 import { query, withTransaction } from '../../database/connection.js';
+import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
+import { registrarAuditoria } from '../audit/audit-log.js';
 import { getVault, zeroize, type SecretContext } from '../vault/index.js';
 import {
   parseCertificate,
@@ -238,16 +240,42 @@ export async function withCredential<T>(
 
   // Daily rate limit: an anomalous access pattern is the primary
   // compromise signal when encryption at rest is done right.
+  //
+  // F02 · E1.3: el techo y la reacción salen del PANEL. El techo efectivo
+  // es el MÁS ESTRICTO entre la credencial y efirma_max_accesos_diarios
+  // (Math.min, la única dirección en que se combinan techos en esta casa).
+  // Al tocarlo, efirma_accion_anomalia decide. Solo el literal 'alertar'
+  // deja continuar, y el aviso queda como fila 'denied' informativa en la
+  // bitácora (el acceso real registrará su propio 'success' después).
+  // Cualquier otro valor —'bloquear', 'bloquear_fuera_horario' mientras la
+  // ventana horaria no exista, o un valor desconocido— NIEGA: el lado
+  // seguro de una credencial es el candado.
   const used = await query<{ n: string }>(
     `SELECT count(*)::text n FROM fiscal_credential_access_log
      WHERE credential_id = $1 AND outcome = 'success' AND accessed_at > NOW() - INTERVAL '24 hours'`,
     [row.id]
   );
-  if (parseInt(used.rows[0].n, 10) >= row.max_daily_access) {
-    return deny(
-      'rate_limit',
-      `The limit of ${row.max_daily_access} accesses in 24 h was reached for this credential.`
-    );
+  const ctxPanel = { tenantId: row.tenant_id, entityId: row.entity_id };
+  const techoPanel = await getPolicyNumber(ctxPanel, 'efirma_max_accesos_diarios');
+  const techo = Number.isFinite(techoPanel) && techoPanel > 0
+    ? Math.min(row.max_daily_access, techoPanel)
+    : row.max_daily_access;
+  if (parseInt(used.rows[0].n, 10) >= techo) {
+    const accion = await getPolicy(ctxPanel, 'efirma_accion_anomalia');
+    if (accion.value === 'alertar') {
+      await logAccess(row, opts, 'denied', {
+        deniedReason:
+          `anomaly_alert: límite diario alcanzado (${techo}); la política ` +
+          `efirma_accion_anomalia=alertar deja continuar y este registro es el aviso`,
+      });
+    } else {
+      return deny(
+        'rate_limit',
+        `The limit of ${techo} accesses in 24 h was reached for this credential` +
+          (techo < row.max_daily_access ? ' (techo del panel, más estricto que el de la credencial)' : '') +
+          '.'
+      );
+    }
   }
 
   const vault = getVault();
@@ -316,7 +344,8 @@ export async function getCredentialStatus(entityId: string, tenantId: string) {
 export async function revokeCredential(
   entityId: string,
   tenantId: string,
-  revokedBy: string
+  revokedBy: string,
+  auditoria?: { userId: string; reason?: string }
 ): Promise<void> {
   const found = await query<CredentialRow>(
     `SELECT ${CREDENTIAL_COLUMNS} FROM fiscal_credentials
@@ -330,10 +359,28 @@ export async function revokeCredential(
     ref: row.vault_ref,
     backend: row.vault_backend,
   });
-  await query(
-    `UPDATE fiscal_credentials SET status = 'revoked', updated_at = NOW() WHERE id = $1`,
-    [row.id]
-  );
+  await withTransaction(async (client) => {
+    await client.query(
+      `UPDATE fiscal_credentials SET status = 'revoked', updated_at = NOW() WHERE id = $1`,
+      [row.id]
+    );
+    // La razón del --reason aterriza aquí: sin este renglón, la bandera que
+    // el kernel exige a un verbo que deshace prometería un rastro que no
+    // existe. `action: 'update'` porque el vocabulario CHECK de audit_log no
+    // tiene 'revoke'; lo que pasó queda en new_values.
+    if (auditoria) {
+      await registrarAuditoria(client, {
+        tenantId,
+        userId: auditoria.userId,
+        action: 'update',
+        entityType: 'fiscal_credentials',
+        entityId: row.id,
+        oldValues: { status: 'active' },
+        newValues: { status: 'revoked', vault_material: 'destroyed' },
+        reason: auditoria.reason,
+      });
+    }
+  });
   await logAccess(row, { purpose: 'export', actor: revokedBy, unattended: false }, 'success');
 }
 

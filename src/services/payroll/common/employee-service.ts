@@ -122,7 +122,7 @@ export async function getEmployee(id: string): Promise<Record<string, unknown>> 
     [id]
   );
   if (result.rows.length === 0) throw new NotFoundError('Employee', id);
-  return result.rows[0] as Record<string, unknown>;
+  return result.rows[0];
 }
 
 export async function listEmployees(
@@ -143,7 +143,7 @@ export async function listEmployees(
      ORDER BY last_name, first_name`,
     params
   );
-  return result.rows as Record<string, unknown>[];
+  return result.rows;
 }
 
 export async function updateSalary(

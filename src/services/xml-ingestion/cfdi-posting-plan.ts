@@ -1,3 +1,4 @@
+import type { PolicyThresholds } from './cfdi-decisions.js';
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { classifyXml, type Classification, type ProposedLine } from './cfdi-classifier.js';
@@ -64,6 +65,13 @@ export interface PlanDeAsiento {
   /** Qué se hizo con la línea de gasto: 'abierta' | 'generica' | 'sin_gasto'. */
   desglose: 'abierta' | 'generica' | 'sin_gasto';
   avisos: string[];
+  /**
+   * F02 · cfdi_periodo_cerrado='periodo_actual': el periodo del documento
+   * está cerrado y la política del despacho manda registrar la PÓLIZA en el
+   * periodo abierto (la fecha fiscal del documento no cambia — solo la
+   * contable). Lo fija planDeAsiento; lo consume quien crea el asiento.
+   */
+  fechaContableHoy?: boolean;
 }
 
 export interface OpcionesPlan {
@@ -78,6 +86,13 @@ export interface OpcionesPlan {
   periodOpen?: boolean;
   satStatus?: 'vigente' | 'cancelado' | 'no_encontrado' | 'sin_validar';
   answers?: Record<string, string>;
+  /**
+   * F02 · E1.3: los umbrales resueltos del PANEL. Sin ellos rigen los
+   * DEFAULT_THRESHOLDS — que es exactamente lo que pasaba en producción
+   * desde que se diseñó la inyección y nadie la inyectaba: el despacho
+   * contestaba umbral_capitalizacion_mxn y no cambiaba nada.
+   */
+  thresholds?: PolicyThresholds;
 }
 
 /** Códigos de cuenta → id, dentro de la entidad. */
@@ -101,6 +116,7 @@ export async function planearAsiento(opts: OpcionesPlan): Promise<PlanDeAsiento>
     periodOpen: opts.periodOpen,
     satStatus: opts.satStatus,
     answers: opts.answers,
+    thresholds: opts.thresholds,
   });
 
   const avisos = [...clasificacion.warnings];

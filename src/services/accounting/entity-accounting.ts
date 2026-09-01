@@ -2,6 +2,10 @@ import type pg from 'pg';
 import { withTransaction } from '../../database/connection.js';
 import { ensureBaseChart } from './chart-seed.js';
 import { seedAccountRoles, type SeedResult } from '../xml-ingestion/account-roles-seed.js';
+import {
+  seedPayrollAccountMapping,
+  type PayrollSeedResult,
+} from '../payroll/common/payroll-account-mapping-seed.js';
 
 /**
  * Deja una entidad lista para contabilizar: catálogo de cuentas base y la
@@ -32,6 +36,8 @@ export interface ResultadoContabilidad extends SeedResult {
   estrategiaAplicada: EstrategiaCatalogo;
   /** true si la entidad ya tenía cuentas antes de esta pasada. */
   teniaCatalogo: boolean;
+  /** Cuentas y buckets de nómina sembrados en el mismo acto. */
+  nomina: PayrollSeedResult;
 }
 
 export async function ensureEntityAccounting(
@@ -60,7 +66,29 @@ export async function ensureEntityAccounting(
     // sobre un catálogo ajeno al menos mapea lo que sí exista y reporta el resto.
     const roles = await seedAccountRoles(entityId, tenantId, createdBy, { client });
 
-    return { ...roles, cuentasBaseCreadas, estrategiaAplicada: estrategia, teniaCatalogo };
+    // El mapeo de nómina se siembra en el mismo acto y por la misma razón: la
+    // tabla tenía lector y ningún escritor, así que la primera corrida de
+    // nómina de cualquier entidad moría con «Missing payroll_account_mapping».
+    // Va aquí, no en el asistente, para que TODA ruta de alta lo obtenga.
+    const { rows: pais } = await client.query<{ incorporation_country: string }>(
+      'SELECT incorporation_country FROM legal_entities WHERE id = $1',
+      [entityId]
+    );
+    const nomina = await seedPayrollAccountMapping(
+      entityId,
+      tenantId,
+      pais[0]?.incorporation_country ?? 'MX',
+      createdBy,
+      { client }
+    );
+
+    return {
+      ...roles,
+      cuentasBaseCreadas,
+      estrategiaAplicada: estrategia,
+      teniaCatalogo,
+      nomina,
+    };
   };
 
   return options.client ? run(options.client) : withTransaction(run);

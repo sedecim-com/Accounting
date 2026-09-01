@@ -11,6 +11,10 @@ vi.mock('../../src/database/connection.js', () => ({
 
 import { runDoctor,
   checkAccountRoles,
+  checkLookupTables,
+  checkOrphanedCapability,
+  claseDe,
+  LOOKUP_TABLES,
 } from '../../src/ai/doctor-service.js';
 import { query } from '../../src/database/connection.js';
 
@@ -240,5 +244,172 @@ describe('checkAccountRoles', () => {
   it('no se queja si no hay entidades activas', async () => {
     mockQuery.mockResolvedValue({ rows: [] });
     expect((await checkAccountRoles()).level).toBe('ok');
+  });
+});
+
+// ============================================================
+// Lookup tables with a reader and no writer are the worst failure mode in
+// the system: the capability looks present, and the first real use dies
+// deep inside a posting routine. doctor should say so BEFORE that happens
+// — but only for an entity that actually uses the capability, or people
+// learn to ignore it.
+// ============================================================
+
+describe('checkLookupTables', () => {
+  it('says nothing is wrong when no entity uses the capability', async () => {
+    mockQuery.mockResolvedValue({ rows: [] });
+    const results = await checkLookupTables();
+    expect(results).toHaveLength(LOOKUP_TABLES.length);
+    for (const r of results) {
+      expect(r.level).toBe('ok');
+      expect(r.detail).toMatch(/no entity uses this capability yet/);
+    }
+  });
+
+  it('fails when an entity that runs payroll has no GL mapping, and names the consequence', async () => {
+    mockQuery.mockImplementation(async (sql: string) => {
+      if (/payroll_account_mapping/.test(sql)) {
+        return { rows: [{ nombre: 'Cliente SA', n: '0' }] };
+      }
+      return { rows: [] };
+    });
+    const payroll = (await checkLookupTables()).find((r) => r.name === 'Payroll GL mapping')!;
+    expect(payroll.level).toBe('fail');
+    expect(payroll.detail).toMatch(/Cliente SA/);
+    expect(payroll.detail).toMatch(/a pay run cannot post/);
+    expect(payroll.fix).toMatch(/seedPayrollAccountMapping/);
+  });
+
+  it('only warns for the SAT code map, because inference degrades rather than breaks', async () => {
+    mockQuery.mockImplementation(async (sql: string) => {
+      if (/sat_code_mappings/.test(sql)) return { rows: [{ nombre: 'Demo Corp MX', n: '0' }] };
+      return { rows: [] };
+    });
+    const sat = (await checkLookupTables()).find((r) => r.name === 'SAT product-code mapping')!;
+    expect(sat.level).toBe('warn');
+    expect(sat.detail).toMatch(/still works/);
+  });
+
+  it('reports the row count when the tables are populated', async () => {
+    mockQuery.mockImplementation(async (sql: string) => {
+      if (/payroll_account_mapping/.test(sql)) return { rows: [{ nombre: 'Cliente SA', n: '8' }] };
+      return { rows: [] };
+    });
+    const payroll = (await checkLookupTables()).find((r) => r.name === 'Payroll GL mapping')!;
+    expect(payroll.level).toBe('ok');
+    expect(payroll.detail).toMatch(/8 row\(s\) across 1 entity/);
+  });
+
+  it('catches a PARTIALLY mapped table and names the missing bucket', async () => {
+    // The harder failure: rows exist, so a row-count check says "ok", and the
+    // pay run dies on the one bucket nobody mapped. This is what happens on an
+    // onboarded chart, where the bank account is the firm's own choice.
+    mockQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (/unnest/.test(sql) && /payroll_account_mapping/.test(sql)) {
+        void params;
+        return { rows: [{ nombre: 'Nueva Empresa SA', faltantes: 'cash_payroll' }] };
+      }
+      if (/payroll_account_mapping/.test(sql)) return { rows: [{ nombre: 'Nueva Empresa SA', n: '6' }] };
+      return { rows: [] };
+    });
+    const payroll = (await checkLookupTables()).find((r) => r.name === 'Payroll GL mapping')!;
+    expect(payroll.level).toBe('fail');
+    expect(payroll.detail).toMatch(/cash_payroll/);
+    expect(payroll.detail).toMatch(/Nueva Empresa SA/);
+  });
+
+  it('passes when every required bucket is mapped', async () => {
+    mockQuery.mockImplementation(async (sql: string) => {
+      if (/unnest/.test(sql)) return { rows: [{ nombre: 'Cliente SA', faltantes: null }] };
+      if (/payroll_account_mapping/.test(sql)) return { rows: [{ nombre: 'Cliente SA', n: '8' }] };
+      return { rows: [] };
+    });
+    const payroll = (await checkLookupTables()).find((r) => r.name === 'Payroll GL mapping')!;
+    expect(payroll.level).toBe('ok');
+  });
+
+  it('gates each table on the capability actually being in use', () => {
+    // Without appliesWhen, every entity without employees would be reported
+    // as broken payroll — noise that teaches people to skip doctor.
+    for (const spec of LOOKUP_TABLES) {
+      expect(spec.appliesWhen, `${spec.table} must state when it applies`).toBeDefined();
+      expect(spec.breaks.length).toBeGreaterThan(20);
+      expect(spec.fix.length).toBeGreaterThan(5);
+    }
+  });
+});
+
+describe('checkOrphanedCapability', () => {
+  it('says so when there is no source tree instead of passing on nothing', () => {
+    // A packaged install runs from dist/. A green tick that checked nothing is
+    // the failure mode this whole check exists to remove.
+    const r = checkOrphanedCapability({ cwd: tmpDir });
+    expect(r.level).toBe('ok');
+    expect(r.detail).toMatch(/source/i);
+  });
+
+  it('reports the repository it is run from, with its denominators', () => {
+    const r = checkOrphanedCapability({ cwd: process.cwd() });
+    expect(r.name).toBe('Orphaned capability');
+    expect(r.detail).toMatch(/of \d+ tables and \d+ exports/);
+  });
+
+  it('never fails the run, and that is structural rather than pending', () => {
+    // La gravedad de un huérfano depende de si ESTA instalación usa la
+    // capacidad, y esto lee src/, no la base. Lo que merece 'fail' se gradúa a
+    // LOOKUP_TABLES, donde appliesWhen sí puede preguntarlo.
+    expect(checkOrphanedCapability({ cwd: process.cwd() }).level).not.toBe('fail');
+  });
+
+  it('ordena por consecuencia: primero lo que puede falsear una cifra', () => {
+    const detalle = checkOrphanedCapability({ cwd: process.cwd() }).detail;
+    const cifra = detalle.indexOf('figure');
+    const muerto = detalle.indexOf('unreferenced');
+    expect(cifra).toBeGreaterThanOrEqual(0);
+    expect(muerto).toBeGreaterThan(cifra);
+  });
+
+  it('cuenta el peso muerto en vez de enumerarlo', () => {
+    // Dieciocho nombres detrás de los dos que importan es lo que hace que se
+    // deje de leer el renglón.
+    const detalle = checkOrphanedCapability({ cwd: process.cwd() }).detail;
+    expect(detalle).not.toContain('getCachedAccounts');
+    expect(detalle).toMatch(/\d+ unreferenced export\(s\)/);
+  });
+
+  it('no repite lo que checkLookupTables ya vigila con nivel propio', () => {
+    // employer_tax_liabilities se graduó allí: decirlo dos veces con dos
+    // niveles distintos enseña a leer el más suave.
+    const detalle = checkOrphanedCapability({ cwd: process.cwd() }).detail;
+    for (const spec of LOOKUP_TABLES) expect(detalle).not.toContain(spec.table);
+  });
+
+  it('clasifica por la FORMA del daño, no por el tipo de objeto', () => {
+    expect(claseDe({ kind: 'tabla', name: 'paycheck_taxes', where: 'x', consequence: 'y' })).toBe('numero-falso');
+    expect(claseDe({ kind: 'tabla', name: 'garnishments', where: 'x', consequence: 'y' })).toBe('sin-puerta');
+    expect(claseDe({ kind: 'funcion', name: 'getCachedAccounts', where: 'x', consequence: 'y' })).toBe('peso-muerto');
+  });
+
+  it('offers a fix that names the two ways out', () => {
+    const r = checkOrphanedCapability({ cwd: process.cwd() });
+    expect(r.fix).toMatch(/delete/i);
+  });
+});
+
+describe('employer_tax_liabilities, graduada a LOOKUP_TABLES', () => {
+  it('está gated en que la entidad tenga empleados en EE.UU.', () => {
+    // Sin appliesWhen pondría en rojo a todo despacho mexicano, que es
+    // exactamente lo que enseña a ignorar doctor.
+    const spec = LOOKUP_TABLES.find((t) => t.table === 'employer_tax_liabilities')!;
+    expect(spec.appliesWhen?.table).toBe('employees');
+    expect(spec.appliesWhen?.where).toContain("country_code = 'US'");
+  });
+
+  it('es la única que llega a fail junto al mapeo de nómina, y dice por qué', () => {
+    const spec = LOOKUP_TABLES.find((t) => t.table === 'employer_tax_liabilities')!;
+    expect(spec.level).toBe('fail');
+    // Lo que la distingue de las demás huérfanas: la forma se PRESENTA.
+    expect(spec.breaks).toMatch(/940|941/);
+    expect(spec.breaks).toMatch(/ZERO|zero/);
   });
 });

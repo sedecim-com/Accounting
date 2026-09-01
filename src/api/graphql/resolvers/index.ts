@@ -1,6 +1,7 @@
 import { query } from '../../../database/connection.js';
 import { assertEntityAccess } from '../../rest/middleware/auth.js';
-import { NotFoundError } from '../../../utils/errors.js';
+import { findByIdInScope, requireByIdInScope, entityScope } from '../../../database/scope.js';
+import { ForbiddenError } from '../../../utils/errors.js';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -18,21 +19,46 @@ interface CtxUser {
   permissions: string[];
 }
 
-/** Entity-membership check for mutations that address an entry by id. */
-async function assertEntryAccess(user: CtxUser, entryId: string): Promise<void> {
-  const result = await query<{ entity_id: string }>(
-    'SELECT entity_id FROM journal_entries WHERE id = $1',
-    [entryId]
-  );
-  if (result.rows.length === 0) throw new NotFoundError('Journal Entry', entryId);
-  assertEntityAccess(user, result.rows[0].entity_id);
+/**
+ * El contexto que arma src/index.ts. tenantId y entityId salen de
+ * `authenticate`, que ya contrasta la cabecera x-entity-id contra las
+ * entidades del token: por eso se pueden usar como alcance sin volver a
+ * comprobarlos.
+ */
+interface Ctx {
+  user: CtxUser;
+  tenantId?: string;
+  entityId?: string;
+}
+
+/**
+ * EL ALCANCE DE UNA PETICIÓN DE GRAPHQL.
+ *
+ * GraphQL es la segunda puerta al mismo motor, y era la peor guardada. Su
+ * único control de pertenencia sobre `postJournalEntry` y `voidJournalEntry`
+ * era leer `SELECT entity_id FROM journal_entries WHERE id = $1` sin acotar y
+ * comparar después. Ese patrón falla de las tres maneras que documenta
+ * database/scope.ts: deja ventana entre la comprobación y la escritura,
+ * depende de que cada resolutor se acuerde, y ramifica —404 si no existe, 403
+ * si es de otro—, con lo que la respuesta delata la existencia de asientos
+ * ajenos aunque no deje tocarlos.
+ *
+ * Un token sin inquilino o sin entidad no puede acotarse; no se sigue.
+ */
+function alcanceDe(ctx: Ctx) {
+  if (!ctx.tenantId || !ctx.entityId) {
+    throw new ForbiddenError(
+      'La petición no identifica inquilino y entidad: no puede acotarse y se rechaza.'
+    );
+  }
+  return entityScope(ctx.tenantId, ctx.entityId);
 }
 
 export const resolvers = {
   Query: {
-    async account(_: unknown, { id }: { id: string }) {
-      const result = await query<Account>('SELECT * FROM accounts WHERE id = $1', [id]);
-      return result.rows[0] || null;
+    async account(_: unknown, { id }: { id: string }, ctx: Ctx) {
+      // Cerrar la mutación y dejar la lectura suelta sería cerrar media puerta.
+      return findByIdInScope<Account>('accounts', id, alcanceDe(ctx));
     },
 
     async accounts(_: unknown, args: { entityId: string; accountType?: string; isActive?: boolean; search?: string; first?: number }) {
@@ -57,9 +83,8 @@ export const resolvers = {
       };
     },
 
-    async journalEntry(_: unknown, { id }: { id: string }) {
-      const result = await query<JournalEntry>('SELECT * FROM journal_entries WHERE id = $1', [id]);
-      return result.rows[0] || null;
+    async journalEntry(_: unknown, { id }: { id: string }, ctx: Ctx) {
+      return findByIdInScope<JournalEntry>('journal_entries', id, alcanceDe(ctx));
     },
 
     async journalEntries(_: unknown, args: Record<string, unknown>) {
@@ -139,7 +164,7 @@ export const resolvers = {
   },
 
   Mutation: {
-    async createJournalEntry(_: unknown, { input }: { input: Record<string, unknown> }, ctx: { user: CtxUser }) {
+    async createJournalEntry(_: unknown, { input }: { input: Record<string, unknown> }, ctx: Ctx) {
       assertEntityAccess(ctx.user, input.entityId as string);
       const lines = (input.lines as Array<Record<string, unknown>>).map((l) => ({
         account_id: l.accountId as string,
@@ -161,22 +186,24 @@ export const resolvers = {
       );
     },
 
-    async postJournalEntry(_: unknown, { id }: { id: string }, ctx: { user: CtxUser }) {
-      await assertEntryAccess(ctx.user, id);
+    async postJournalEntry(_: unknown, { id }: { id: string }, ctx: Ctx) {
+      // El filtro va dentro del SQL: cero filas significa a la vez «no existe»
+      // y «no es de tu entidad», y las dos salen por NotFoundError.
+      await requireByIdInScope('journal_entries', id, alcanceDe(ctx), { columns: 'id' });
       return postJournalEntry(id, ctx.user.user_id);
     },
 
-    async voidJournalEntry(_: unknown, { id, reason }: { id: string; reason: string }, ctx: { user: CtxUser }) {
-      await assertEntryAccess(ctx.user, id);
+    async voidJournalEntry(_: unknown, { id, reason }: { id: string; reason: string }, ctx: Ctx) {
+      await requireByIdInScope('journal_entries', id, alcanceDe(ctx), { columns: 'id' });
       return voidJournalEntry(id, ctx.user.user_id, reason);
     },
 
-    async softClosePeriod(_: unknown, args: { periodId: string; entityId: string }, ctx: { user: CtxUser }) {
+    async softClosePeriod(_: unknown, args: { periodId: string; entityId: string }, ctx: Ctx) {
       assertEntityAccess(ctx.user, args.entityId);
       return softClosePeriod(args.periodId, args.entityId, ctx.user.user_id);
     },
 
-    async hardClosePeriod(_: unknown, args: { periodId: string; entityId: string }, ctx: { user: CtxUser }) {
+    async hardClosePeriod(_: unknown, args: { periodId: string; entityId: string }, ctx: Ctx) {
       assertEntityAccess(ctx.user, args.entityId);
       return hardClosePeriod(args.periodId, args.entityId, ctx.user.user_id);
     },

@@ -4,6 +4,17 @@ import { createJournalEntry } from './posting.js';
 import { AccountingError } from '../../utils/errors.js';
 import { JournalEntryType } from '../../types/index.js';
 import type { JournalEntry, Invoice, InvoiceLine, Bill, BillLine } from '../../types/index.js';
+import {
+  entityUsesCashBasisIva,
+  resolveInvoiceMetodoPago,
+  resolveBillMetodoPago,
+  ivaReclassificationsFor,
+  ivaRoleFor,
+  reclassRoles,
+  describeMetodo,
+  ivaTreatmentNote,
+  type MetodoPagoDecision,
+} from './iva-cash-basis.js';
 
 // ============================================================
 // AR/AP → GL POSTING
@@ -15,10 +26,19 @@ import type { JournalEntry, Invoice, InvoiceLine, Bill, BillLine } from '../../t
 // The caller must fire attestEntryAsync AFTER commit.
 //
 // Accounts resolve through account_roles (seeded per entity):
-// cxc, cxp, banco, iva_trasladado, iva_acreditable. A per-line
-// account on the document always wins over the generic role.
-// Amounts post as stored on the document (functional currency);
-// the CFDI ingestion path owns PUE/PPD and multicurrency nuances.
+// cxc, cxp, banco and the IVA roles. A per-line account on the
+// document always wins over the generic role. Amounts post as
+// stored on the document (functional currency); multicurrency
+// nuances still belong to the CFDI ingestion path.
+//
+// IVA IS ON A CASH BASIS FOR MEXICAN ENTITIES. Which IVA role a
+// document's tax lands in is decided by the CFDI MetodoPago and
+// read off the taxonomy (see iva-cash-basis.ts): PUE posts to
+// iva_trasladado / iva_acreditable, PPD parks in
+// iva_trasladado_no_cobrado (2125) / iva_pendiente_acreditar
+// (1135) and is released by the payment that applies the document.
+// A non-Mexican entity is untouched by any of this and keeps
+// posting its tax exactly where it always did.
 // ============================================================
 
 async function roleAccounts(
@@ -56,7 +76,18 @@ function requireRole(map: Map<string, string>, role: string): string {
   return id;
 }
 
-/** DR cxc (total) · CR revenue per line · CR iva_trasladado. */
+/**
+ * Appends " · MetodoPago missing: X assumed" so the assumption is legible in
+ * the ledger itself, not only in a log line nobody reads at close.
+ */
+function withAssumptionNote(base: string, decision: MetodoPagoDecision | null): string {
+  return decision?.assumed ? `${base} · MetodoPago missing: ${decision.metodo} assumed` : base;
+}
+
+/**
+ * DR cxc (total) · CR revenue per line · CR the IVA role the MetodoPago
+ * selects: iva_trasladado for PUE, iva_trasladado_no_cobrado for PPD.
+ */
 export async function postInvoiceEntry(
   client: pg.PoolClient,
   invoice: Invoice,
@@ -66,7 +97,11 @@ export async function postInvoiceEntry(
   if (invoice.journal_entry_id) return null; // already posted (idempotent)
   if (!new Decimal(invoice.total_amount).greaterThan(0)) return null;
 
-  const roles = await roleAccounts(client, invoice.entity_id, ['cxc', 'iva_trasladado', 'ingreso']);
+  const cashBasis = await entityUsesCashBasisIva(client, invoice.entity_id);
+  const metodo = cashBasis ? await resolveInvoiceMetodoPago(client, invoice) : null;
+  const ivaRole = metodo ? ivaRoleFor('issued', metodo.metodo) : 'iva_trasladado';
+
+  const roles = await roleAccounts(client, invoice.entity_id, ['cxc', ivaRole, 'ingreso']);
 
   const jeLines: JeLine[] = [
     {
@@ -86,10 +121,12 @@ export async function postInvoiceEntry(
   ];
   if (new Decimal(invoice.tax_amount || '0').greaterThan(0)) {
     jeLines.push({
-      account_id: requireRole(roles, 'iva_trasladado'),
+      account_id: requireRole(roles, ivaRole),
       debit_amount: null,
       credit_amount: invoice.tax_amount,
-      description: `Tax - Invoice ${invoice.invoice_number}`,
+      description: metodo
+        ? `IVA ${describeMetodo(metodo)} - Invoice ${invoice.invoice_number} · ${ivaTreatmentNote('issued', metodo)}`
+        : `Tax - Invoice ${invoice.invoice_number}`,
     });
   }
 
@@ -97,7 +134,7 @@ export async function postInvoiceEntry(
     invoice.entity_id,
     new Date(invoice.invoice_date),
     JournalEntryType.AUTO_INVOICE,
-    `Invoice ${invoice.invoice_number}`,
+    withAssumptionNote(`Invoice ${invoice.invoice_number}`, metodo),
     jeLines,
     userId,
     { autoPost: true, client, sourceType: 'invoice', sourceId: invoice.id, reference: invoice.invoice_number }
@@ -107,7 +144,10 @@ export async function postInvoiceEntry(
   return entry;
 }
 
-/** CR cxp (total) · DR expense per line · DR iva_acreditable. */
+/**
+ * CR cxp (total) · DR expense per line · DR the IVA role the MetodoPago
+ * selects: iva_acreditable for PUE, iva_pendiente_acreditar for PPD.
+ */
 export async function postBillEntry(
   client: pg.PoolClient,
   bill: Bill,
@@ -117,7 +157,11 @@ export async function postBillEntry(
   if (bill.journal_entry_id) return null;
   if (!new Decimal(bill.total_amount).greaterThan(0)) return null;
 
-  const roles = await roleAccounts(client, bill.entity_id, ['cxp', 'iva_acreditable', 'gasto']);
+  const cashBasis = await entityUsesCashBasisIva(client, bill.entity_id);
+  const metodo = cashBasis ? await resolveBillMetodoPago(client, bill) : null;
+  const ivaRole = metodo ? ivaRoleFor('received', metodo.metodo) : 'iva_acreditable';
+
+  const roles = await roleAccounts(client, bill.entity_id, ['cxp', ivaRole, 'gasto']);
 
   const jeLines: JeLine[] = [
     {
@@ -137,10 +181,12 @@ export async function postBillEntry(
   ];
   if (new Decimal(bill.tax_amount || '0').greaterThan(0)) {
     jeLines.push({
-      account_id: requireRole(roles, 'iva_acreditable'),
+      account_id: requireRole(roles, ivaRole),
       debit_amount: bill.tax_amount,
       credit_amount: null,
-      description: `Creditable IVA - Bill ${bill.bill_number}`,
+      description: metodo
+        ? `IVA ${describeMetodo(metodo)} - Bill ${bill.bill_number} · ${ivaTreatmentNote('received', metodo)}`
+        : `Creditable IVA - Bill ${bill.bill_number}`,
     });
   }
 
@@ -148,7 +194,7 @@ export async function postBillEntry(
     bill.entity_id,
     new Date(bill.bill_date),
     JournalEntryType.AUTO_BILL,
-    `Bill ${bill.bill_number}`,
+    withAssumptionNote(`Bill ${bill.bill_number}`, metodo),
     jeLines,
     userId,
     { autoPost: true, client, sourceType: 'bill', sourceId: bill.id, reference: bill.bill_number }
@@ -185,7 +231,74 @@ interface PaymentRow {
   journal_entry_id: string | null;
 }
 
-/** DR bank · CR cxc. */
+/**
+ * The IVA a payment releases, as lines appended to the payment's OWN entry.
+ *
+ * A separate "reclassification entry" was the obvious alternative and is the
+ * wrong one: the cash movement and the tax it triggers are one event, and
+ * only one entry per payment survives a reversal intact — voiding the payment
+ * would otherwise unwind the cash and leave the IVA moved. The pair is
+ * self-balancing, so the payment entry still foots.
+ *
+ * Returns an empty array when the entity is not Mexican, when nothing was
+ * applied to a PPD document, or when the payment carries no allocations yet.
+ */
+async function ivaReclassLines(
+  client: pg.PoolClient,
+  side: 'issued' | 'received',
+  payment: PaymentRow
+): Promise<{ lines: JeLine[]; documents: string[] }> {
+  if (!(await entityUsesCashBasisIva(client, payment.entity_id))) {
+    return { lines: [], documents: [] };
+  }
+
+  const items = await ivaReclassificationsFor(client, side, payment.entity_id, payment.id);
+  if (items.length === 0) return { lines: [], documents: [] };
+
+  const { from, to } = reclassRoles(side);
+  const roles = await roleAccounts(client, payment.entity_id, [from, to]);
+  const label = side === 'issued' ? 'Invoice' : 'Bill';
+  const event = side === 'issued' ? 'collection' : 'payment';
+
+  // The two pending accounts sit on OPPOSITE sides of the balance sheet, so
+  // draining them takes opposite entries: 2125 "IVA Trasladado No Cobrado" is
+  // a liability, emptied by a DEBIT; 1135 "IVA Pendiente de Acreditar" is an
+  // asset, emptied by a CREDIT. Getting this backwards balances just as well
+  // and inverts both accounts, which is why it is spelled out here.
+  const pending = { role: from, id: requireRole(roles, from) };
+  const due = { role: to, id: requireRole(roles, to) };
+  const debited = side === 'issued' ? pending : due;
+  const credited = side === 'issued' ? due : pending;
+
+  const lines: JeLine[] = [];
+  for (const item of items) {
+    const tail = `${label} ${item.documentNumber}`;
+    const note = (r: { role: string }): string =>
+      r === pending
+        ? `IVA released from ${r.role} on ${event} - ${tail}`
+        : `IVA now in ${r.role} (PPD ${event}) - ${tail}`;
+    lines.push({
+      account_id: debited.id,
+      debit_amount: item.amount,
+      credit_amount: null,
+      description: note(debited),
+    });
+    lines.push({
+      account_id: credited.id,
+      debit_amount: null,
+      credit_amount: item.amount,
+      description: note(credited),
+    });
+  }
+  return { lines, documents: items.map((i) => i.documentNumber) };
+}
+
+/**
+ * DR bank · CR cxc, plus — for every PPD invoice this collection applies to —
+ * DR iva_trasladado_no_cobrado · CR iva_trasladado for the collected share.
+ * The IVA on a PPD sale is caused when the money arrives, and this is where
+ * it arrives.
+ */
 export async function postCustomerPaymentEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
@@ -196,15 +309,19 @@ export async function postCustomerPaymentEntry(
 
   const bankId = await bankGlAccount(client, payment.entity_id, payment.bank_account_id);
   const roles = await roleAccounts(client, payment.entity_id, ['cxc']);
+  const iva = await ivaReclassLines(client, 'issued', payment);
 
   const entry = await createJournalEntry(
     payment.entity_id,
     new Date(payment.payment_date),
     JournalEntryType.AUTO_PAYMENT,
-    `Customer payment ${payment.payment_number}`,
+    iva.documents.length
+      ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}`
+      : `Customer payment ${payment.payment_number}`,
     [
       { account_id: bankId, debit_amount: payment.payment_amount, credit_amount: null, description: `Payment received ${payment.payment_number}` },
       { account_id: requireRole(roles, 'cxc'), debit_amount: null, credit_amount: payment.payment_amount, description: `AR settlement ${payment.payment_number}` },
+      ...iva.lines,
     ],
     userId,
     { autoPost: true, client, sourceType: 'customer_payment', sourceId: payment.id, reference: payment.payment_number }
@@ -214,7 +331,12 @@ export async function postCustomerPaymentEntry(
   return entry;
 }
 
-/** DR cxp · CR bank. */
+/**
+ * DR cxp · CR bank, plus — for every PPD bill this payment applies to —
+ * DR iva_acreditable · CR iva_pendiente_acreditar for the paid share. Under
+ * LIVA art. 5 the input IVA becomes creditable here, not when the bill
+ * arrived.
+ */
 export async function postVendorPaymentEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
@@ -225,15 +347,19 @@ export async function postVendorPaymentEntry(
 
   const bankId = await bankGlAccount(client, payment.entity_id, payment.bank_account_id);
   const roles = await roleAccounts(client, payment.entity_id, ['cxp']);
+  const iva = await ivaReclassLines(client, 'received', payment);
 
   const entry = await createJournalEntry(
     payment.entity_id,
     new Date(payment.payment_date),
     JournalEntryType.AUTO_PAYMENT,
-    `Vendor payment ${payment.payment_number}`,
+    iva.documents.length
+      ? `Vendor payment ${payment.payment_number} · IVA creditable on payment: ${iva.documents.join(', ')}`
+      : `Vendor payment ${payment.payment_number}`,
     [
       { account_id: requireRole(roles, 'cxp'), debit_amount: payment.payment_amount, credit_amount: null, description: `AP settlement ${payment.payment_number}` },
       { account_id: bankId, debit_amount: null, credit_amount: payment.payment_amount, description: `Payment made ${payment.payment_number}` },
+      ...iva.lines,
     ],
     userId,
     { autoPost: true, client, sourceType: 'vendor_payment', sourceId: payment.id, reference: payment.payment_number }

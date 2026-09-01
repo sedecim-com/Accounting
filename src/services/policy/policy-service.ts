@@ -1,5 +1,8 @@
 import { query } from '../../database/connection.js';
-import { POLICY_CATALOG, getPolicySpec, type PolicySpec } from './pending-catalog.js';
+import { ValidationError } from '../../utils/errors.js';
+import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
+import { FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_VEREDICTOS } from '../../ai/floor.js';
+import { POLICY_CATALOG, getPolicySpec } from './pending-catalog.js';
 
 // ============================================================
 // POLICY SERVICE
@@ -101,11 +104,23 @@ export interface EffectivePolicy {
  */
 export async function getPolicy(ctx: PolicyContext, key: string): Promise<EffectivePolicy> {
   const r = await query<PolicyRow>(
+    // El alcance por entidad se ACOTA, no sólo se ordena.
+    //
+    // Antes era `WHERE tenant_id AND key ORDER BY entity_id IS NULL ASC`, y
+    // ese orden hace ganar a cualquier fila con entity_id no nulo — sea de la
+    // entidad que sea. Con dos entidades del mismo inquilino, una de ellas
+    // recibía la política de la otra. No se notaba porque hasta hoy todo se
+    // sembraba a nivel de inquilino (entity_id NULL) y ninguna política tenía
+    // lector; al aparecer el primero, el defecto deja de ser teórico.
+    //
+    // La fila de la entidad gana sobre la del inquilino, que es lo que el
+    // orden pretendía decir.
     `SELECT ${COLUMNS} FROM policy_decisions
      WHERE tenant_id = $1 AND key = $2
+       AND (entity_id IS NULL OR entity_id = $3::uuid)
      ORDER BY entity_id IS NULL ASC
      LIMIT 1`,
-    [ctx.tenantId, key]
+    [ctx.tenantId, key, ctx.entityId ?? null]
   );
   const row = r.rows[0];
   const spec = getPolicySpec(key);
@@ -147,6 +162,30 @@ export async function resolvePolicy(
   notes?: string
 ): Promise<void> {
   const spec = getPolicySpec(key);
+
+  // A4 · LA COMPUERTA DE LA EVIDENCIA: encender el auto-posteo exige el
+  // historial de sombra que el piso manda (días, acuerdo y veredictos
+  // decididos por un humano). Va AQUÍ y no en el CLI porque resolvePolicy
+  // tiene dos llamadores (pending define y el wizard de init): un guard solo
+  // en uno dejaría al otro como puerta trasera. reopen→resolve vuelve a
+  // pasar por aquí, así que el ciclo shadow→on también queda cubierto.
+  if (key === 'ingest_auto_post' && value === 'on') {
+    const c = await concordanciaSombra({ tenantId: ctx.tenantId, entityId: ctx.entityId ?? null });
+    const acuerdo = c.tasa_acuerdo === null ? 0 : Number(c.tasa_acuerdo);
+    if (
+      c.dias_con_veredictos < FLOOR_SOMBRA_DIAS ||
+      c.decididos < FLOOR_SOMBRA_VEREDICTOS ||
+      acuerdo < FLOOR_SOMBRA_ACUERDO
+    ) {
+      throw new ValidationError(
+        `Encender el auto-posteo exige evidencia de sombra: ${FLOOR_SOMBRA_DIAS} día(s) con veredictos ` +
+          `(hay ${c.dias_con_veredictos}), ${FLOOR_SOMBRA_VEREDICTOS} veredicto(s) decididos por un humano ` +
+          `(hay ${c.decididos}) y acuerdo ≥ ${FLOOR_SOMBRA_ACUERDO} (va ${c.tasa_acuerdo ?? '—'}). ` +
+          `Contesta 'shadow', deja que la sombra opine unos días, y vuelve: el encendido será una decisión con historial.`
+      );
+    }
+  }
+
   // A free-form value is accepted (catalogs don't cover everything), but a
   // note is added when it is not among the options so it doesn't go unnoticed.
   const known = spec?.options.some((o) => o.value === value) ?? true;

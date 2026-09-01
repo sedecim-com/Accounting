@@ -6,6 +6,7 @@ import {
   reclasificarIvaPpd,
   type HallazgoIvaPpd,
 } from '../src/services/accounting/iva-ppd-reclass.js';
+import { drainAttestations } from '../src/services/accounting/posting.js';
 
 // ============================================================
 // Envoltorio de línea de comandos sobre services/accounting/iva-ppd-reclass.
@@ -126,4 +127,10 @@ main()
     console.error(e);
     process.exitCode = 1;
   })
-  .finally(() => closeDatabase());
+  // Las atestaciones de los asientos de reclasificación son dispara-y-olvida:
+  // sin drenarlas, `closeDatabase()` las mata y cada corrida deja asientos
+  // posteados sin hash — y con ellos, periodos que ya no se pueden sellar.
+  .finally(async () => {
+    await drainAttestations(5000).catch(() => undefined);
+    await closeDatabase();
+  });

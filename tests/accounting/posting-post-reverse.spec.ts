@@ -7,7 +7,7 @@ import type { JournalEntry } from '../../src/types/index.js';
 // sin esto haría falta un import dinámico (await de nivel superior), que bajo
 // CommonJS es un error de compilación aunque el runtime lo soporte.
 const { arnes, validateJournalEntry, attest } = vi.hoisted(() => ({
-  arnes: { actual: null } as { actual: ClienteFalso | null },
+  arnes: { actual: null as ClienteFalso | null },
   validateJournalEntry: vi.fn(),
   attest: vi.fn(),
 }));
@@ -16,6 +16,15 @@ vi.mock('../../src/database/connection.js', () => ({
   withTransaction: vi.fn(async (fn: (c: unknown) => unknown) => fn(arnes.actual!.client)),
   query: vi.fn(),
   currentTenant: vi.fn(() => 'tenant-1'),
+}));
+
+// F01: el maker-checker lee la política del panel dentro de postJournalEntry;
+// el arnés la deja en 'off' (el default de la casa) para que estas pruebas
+// midan lo suyo. El propio maker-checker tiene sus pruebas aparte.
+vi.mock('../../src/services/policy/policy-service.js', () => ({
+  getPolicy: vi.fn(async (_ctx: unknown, key: string) => ({
+    key, value: 'off', defined: false, question: '', rationale: '',
+  })),
 }));
 
 vi.mock('../../src/services/accounting/validation.js', () => ({
@@ -41,6 +50,8 @@ const LINEAS_BD = [
 function reglas(entry: JournalEntry, extra: ReglaConsulta[] = []) {
   return clienteFalso([
       AUDITORIA,
+    // R1: el posteo toma el candado compartido del periodo dentro de su transacción.
+    { cuando: /SELECT status, period_name FROM fiscal_periods WHERE id = \$1 FOR SHARE/, responde: { rows: [{ status: 'open', period_name: 'Periodo de prueba' }] } },
     { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [entry] } },
     { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
     { cuando: /UPDATE journal_entries SET status = 'posted'|UPDATE journal_entries SET status = 'posted', posted_date/, responde: {} },
@@ -96,6 +107,56 @@ describe('postJournalEntry · candados', () => {
     const cf = (arnes.actual = reglas(asientoFalso()));
     await postJournalEntry(ID.asiento, ID.usuario);
     expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(2);
+  });
+
+  /**
+   * EL AGUJERO EN LA CADENA DE INTEGRIDAD.
+   *
+   * `attestEntryAsync` se disparaba al crear con autoPost, al revertir y al
+   * anular — nunca aquí. Y postear un borrador es el camino normal: lo usan
+   * `entry post`, REST, GraphQL y el posteo de nómina, que crea sin autoPost
+   * y postea aparte. Todo asiento nacido borrador quedaba sin `entry_hash` y,
+   * por tanto, fuera del sello del periodo.
+   */
+  it('postear un borrador lo mete en la cadena de atestación', async () => {
+    arnes.actual = reglas(asientoFalso());
+    await postJournalEntry(ID.asiento, ID.usuario);
+    await drainAttestations(200);
+    expect(attest, 'un asiento posteado desde borrador nunca entraba a la cadena').toHaveBeenCalledTimes(1);
+    expect(attest).toHaveBeenCalledWith(
+      expect.objectContaining({ journalEntryId: ID.asiento, entityId: ID.entidad })
+    );
+  });
+
+  it('atesta DESPUÉS del commit, no dentro de la transacción', async () => {
+    // El orquestador vuelve a leer el asiento de la base; dispararlo dentro de
+    // la transacción es una carrera contra su propio commit. Se comprueba por
+    // el orden observable: cuando se llama al espía, el trabajo de la
+    // transacción ya está hecho.
+    const cf = (arnes.actual = reglas(asientoFalso()));
+    let consultasAlAtestar = -1;
+    attest.mockImplementation(() => {
+      consultasAlAtestar = cf.coincidencias(/INSERT INTO account_balances/).length;
+      return Promise.resolve(undefined);
+    });
+    await postJournalEntry(ID.asiento, ID.usuario);
+    await drainAttestations(200);
+    expect(consultasAlAtestar, 'se atestó antes de terminar los saldos').toBe(2);
+  });
+
+  it('si la validación falla no se atesta nada', async () => {
+    validateJournalEntry.mockResolvedValue({ isValid: false, errors: ['desbalanceado'], warnings: [] });
+    arnes.actual = reglas(asientoFalso());
+    await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/Validation failed/);
+    await drainAttestations(200);
+    expect(attest).not.toHaveBeenCalled();
+  });
+
+  it('un asiento ya posteado no se vuelve a atestar', async () => {
+    arnes.actual = reglas(asientoFalso({ status: 'posted' } as Partial<JournalEntry>));
+    await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/already posted/i);
+    await drainAttestations(200);
+    expect(attest).not.toHaveBeenCalled();
   });
 });
 
@@ -241,5 +302,65 @@ describe('voidJournalEntry · el estado void es solo para borradores', () => {
     // La atestación es responsabilidad del llamador, no de esta función.
     await drainAttestations(200);
     expect(attest).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+// LAS GUARDAS QUE NADIE EJERCITABA.
+//
+// Son las tres rutas de error que la cobertura de posting.ts señalaba sin
+// tocar. No son ramas decorativas: la del periodo es una carrera —el cierre
+// pudo ganarle al posteo mientras el asiento estaba en vuelo— y las dos de
+// asiento inexistente son la última línea entre una reversa y un NULL.
+// ============================================================
+describe('las guardas de posting.ts', () => {
+  /** Igual que reglas(), pero con el candado del periodo bajo control. */
+  function reglasConPeriodo(periodo: { rows: Array<{ status: string; period_name: string }> }) {
+    return clienteFalso([
+      AUDITORIA,
+      { cuando: /SELECT status, period_name FROM fiscal_periods WHERE id = \$1 FOR SHARE/, responde: periodo },
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [asientoFalso()] } },
+      { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
+      { cuando: /UPDATE journal_entries/, responde: {} },
+      { cuando: /INSERT INTO account_balances/, responde: {} },
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1$/, responde: { rows: [asientoFalso()] } },
+    ]);
+  }
+
+  it('si el periodo desapareció entre la lectura y el candado, no postea', async () => {
+    const cf = (arnes.actual = reglasConPeriodo({ rows: [] }));
+    await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/Fiscal period not found/i);
+    expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(0);
+  });
+
+  it.each(['hard_close', 'locked'])(
+    'si el periodo cerró (%s) mientras el asiento estaba en vuelo, no postea y lo dice',
+    async (estado) => {
+      const cf = (arnes.actual = reglasConPeriodo({ rows: [{ status: estado, period_name: 'Agosto 2026' }] }));
+      // El mensaje nombra el periodo y el estado: quien lo lee sabe que perdió
+      // una carrera, no que su asiento estaba mal.
+      await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(
+        new RegExp(`Agosto 2026.*${estado}.*nothing was posted`, 'i')
+      );
+      expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(0);
+    }
+  );
+
+  it('reverseJournalEntry rechaza un asiento inexistente', async () => {
+    arnes.actual = clienteFalso([
+      AUDITORIA,
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [] } },
+    ]);
+    await expect(reverseJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/not found/i);
+  });
+
+  it('voidJournalEntryInTx rechaza un asiento inexistente', async () => {
+    const cf = (arnes.actual = clienteFalso([
+      AUDITORIA,
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [] } },
+    ]));
+    await expect(
+      voidJournalEntryInTx(cf.client as never, ID.asiento, ID.usuario, 'motivo')
+    ).rejects.toThrow(/not found/i);
   });
 });

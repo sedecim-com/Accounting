@@ -243,6 +243,27 @@ describe('identifier backstop', () => {
     expect(ensureIdentifiersSurvive(summary, source)).toBe(summary);
   });
 
+  it('los importes tienen backstop determinista (S1): el resumen que los tira los recupera', () => {
+    // El hueco confesado de E5.1-c: «monetary amounts are protected by
+    // instruction ONLY». En un agente contable el importe es la carga útil.
+    const source = 'factura por 19720.00 con IVA de $3,155.20 sobre subtotal 1,234.56';
+    expect(extractIdentifiers(source)).toEqual(['19720.00', '3,155.20', '1,234.56']);
+    const out = ensureIdentifiersSurvive('resumen sin números.', source);
+    expect(out).toContain('19720.00');
+    expect(out).toContain('3,155.20');
+    expect(out).toContain('1,234.56');
+  });
+
+  it('el regex de importes es deliberadamente conservador: tasas y números chicos no son dinero', () => {
+    // Dos decimales y ≥3 dígitos (o miles): un backstop que re-adjunta cada
+    // «16.00» de IVA engorda el resumen con ruido — la asimetría es a
+    // propósito y el modelo sigue instruido a conservarlos todos.
+    expect(extractIdentifiers('tasa 16.00 % y 0.08 de IEPS, versión 1.0.4')).toEqual([]);
+    expect(extractIdentifiers('monto 928.00 pagado')).toEqual(['928.00']);
+    // Dentro de otro número/token no se recorta un pedazo.
+    expect(extractIdentifiers('cadena 123456.789')).toEqual([]);
+  });
+
   it('matches RFCs with Ñ/& initial characters and lowercase (custom boundaries, not \\b)', () => {
     expect(extractIdentifiers('pago de ÑAB010101AB1 hoy')).toEqual(['ÑAB010101AB1']);
     expect(extractIdentifiers('proveedor &BC010101AB1.')).toEqual(['&BC010101AB1']);
@@ -416,7 +437,7 @@ const CTX: AgentContext = {
   country: 'MX',
   accountingStandard: 'mx_nif',
   taxId: 'AME010101AAA',
-} as AgentContext;
+};
 
 const PROFILE: ResolvedProfile = {
   name: 'hermes',
@@ -459,7 +480,7 @@ describe('OpenAiCompatSession compaction', () => {
     await session.runTurn(`u1 classify this invoice ${long}`);
     await session.runTurn(`u2 thanks ${mid}`);
 
-    const result = await session.compact!();
+    const result = await session.compact();
     expect(result).not.toBeNull();
     expect(result!.droppedMessages).toBe(2);
     // Backstop: the mocked summary dropped the identifiers — they must survive.
@@ -507,12 +528,12 @@ describe('OpenAiCompatSession compaction', () => {
     });
     await session.runTurn(`u1 ${long}`);
     await session.runTurn(`u2 ${mid}`);
-    expect(await session.compact!()).not.toBeNull();
+    expect(await session.compact()).not.toBeNull();
 
     // Second /compact: marker is in the kept tail → no flush turn, and the
     // remaining window is too small to compact again.
     const callsBefore = create.mock.calls.length;
-    const again = await session.compact!();
+    const again = await session.compact();
     expect(again).toBeNull();
     expect(create.mock.calls.length).toBe(callsBefore);
   });
@@ -536,10 +557,10 @@ describe('OpenAiCompatSession compaction', () => {
     });
     await session.runTurn(`u1 ${long}`);
     await session.runTurn(`u2 ${mid}`);
-    expect(await session.compact!()).not.toBeNull();
+    expect(await session.compact()).not.toBeNull();
     await session.runTurn(`u3 ${long}`);
     await session.runTurn(`u4 ${mid}`);
-    expect(await session.compact!()).not.toBeNull();
+    expect(await session.compact()).not.toBeNull();
 
     // Both compaction cycles ran their own flush turn.
     const flushCalls = create.mock.calls.filter((c) => {
@@ -567,7 +588,7 @@ describe('OpenAiCompatSession compaction', () => {
     const callsBefore = create.mock.calls.length;
     // Assistant activity exists, but the compaction would drop nothing:
     // burning a flush round-trip for a no-op is not allowed.
-    expect(await session.compact!()).toBeNull();
+    expect(await session.compact()).toBeNull();
     expect(create.mock.calls.length).toBe(callsBefore);
   });
 
@@ -631,6 +652,9 @@ describe('OpenAiCompatSession compaction', () => {
         outputTokens: 30,
         cacheReadInputTokens: 100,
         cacheCreationInputTokens: undefined,
+        // A2: el runner mide alrededor de la llamada; con el cliente mockeado
+        // el reloj casi no avanza, pero el campo VIAJA.
+        durationMs: expect.any(Number),
       },
     ]);
   });
@@ -652,7 +676,7 @@ describe('compact-command helpers', () => {
       tool_calls: toolCalls,
       token_count: null,
       created_at: new Date('2026-08-24T00:00:00Z'),
-    }) as MessageRow;
+    });
 
   it('projects transcript rows and never splits assistant→tool sequences', () => {
     const rows = [

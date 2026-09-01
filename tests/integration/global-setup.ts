@@ -42,6 +42,26 @@ export async function setup(): Promise<void> {
   const admin = new pg.Client({ connectionString: urlConBase(BASE_URL, 'postgres') });
   await admin.connect();
   await admin.query(`CREATE DATABASE ${nombre}`);
+  // R2: mnemosine_verifier es objeto de CLÚSTER (lo crea provision-roles.sql
+  // en producción); el clúster de CI nace sin aprovisionar, y sin el rol el
+  // bloque del verifier de rls-policies.sql se salta y el camino sancionado
+  // de /public/v1 quedaría sin probar. Crearlo aquí es idempotente.
+  await admin.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_verifier') THEN
+        CREATE ROLE mnemosine_verifier NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
+      END IF;
+      -- R3: el dueño de las vistas materializadas. El REFRESH corre la
+      -- consulta definitoria como el dueño de la vista; sin BYPASSRLS la
+      -- reconstruye filtrada por el inquilino casual de la sesión (o vacía).
+      -- NOLOGIN: nadie se conecta con él; solo existe para poseer las 'm'.
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_refresher') THEN
+        CREATE ROLE mnemosine_refresher NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB BYPASSRLS;
+      END IF;
+      IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_owner') THEN
+        GRANT mnemosine_refresher TO mnemosine_owner;
+      END IF;
+    END $$`);
   await admin.end();
 
   const urlEfimera = urlConBase(BASE_URL, nombre);

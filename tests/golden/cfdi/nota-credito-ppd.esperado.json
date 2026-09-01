@@ -1,0 +1,30 @@
+{
+  "caso": "nota-credito-ppd",
+  "resultado": "draft",
+  "tratamiento": null,
+  "sospecha": false,
+  "asiento": [
+    {
+      "cuenta": [
+        "2110"
+      ],
+      "lado": "cargo",
+      "monto": "2320.00"
+    },
+    {
+      "cuenta": [
+        "6100"
+      ],
+      "lado": "abono",
+      "monto": "2000.00"
+    },
+    {
+      "cuenta": [
+        "1135"
+      ],
+      "lado": "abono",
+      "monto": "320.00"
+    }
+  ],
+  "nota": "Egreso sobre una PPD previa: reversa parcial - baja el pasivo 2110, reversa gasto e IVA pendiente. El espejo del caso 2."
+}

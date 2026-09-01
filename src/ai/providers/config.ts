@@ -162,6 +162,20 @@ const ingestSchema = z
   .strict();
 
 /**
+ * A3 · E5.1-e: el presupuesto del agente. Sin sección budget no hay
+ * límites y no se consulta gasto alguno (opt-in). on_exceed decide si al
+ * cruzarlo se ADVIERTE o se CORTA; su omisión la resuelve la ruta: las
+ * DESATENDIDAS cortan por defecto («solo avisa» significa que no hay tope).
+ */
+const budgetSchema = z
+  .object({
+    daily_usd: z.number().positive().optional(),
+    monthly_usd: z.number().positive().optional(),
+    on_exceed: z.enum(['warn', 'block']).optional(),
+  })
+  .strict();
+
+/**
  * History-compaction settings. Auto-compaction is ON BY DEFAULT (see
  * resolveCompactionConfig): omitting the section compacts at ~150k
  * estimated tokens. `threshold_tokens: 0` disables auto-compaction
@@ -185,6 +199,7 @@ const configFileSchema = z
     default_provider: z.string().optional(),
     providers: z.record(profileSchema).optional(),
     ingest: ingestSchema.optional(),
+    budget: budgetSchema.optional(),
     compaction: compactionSchema.optional(),
   })
   .strict();
@@ -420,10 +435,28 @@ export function resolveFailoverChain(
 export interface IngestThresholds {
   /** Master switch: false = everything stays as a draft (safe default). */
   autoPost: boolean;
+  /**
+   * A4 · modo sombra: las compuertas corren completas y el veredicto se
+   * registra (ai_shadow_verdicts), pero nada postea. Solo lo enciende el
+   * PANEL (ingest_auto_post = 'shadow'); no hay bandera ni archivo — la
+   * sombra es una decisión del despacho, no un override de corrida.
+   */
+  sombra?: boolean;
   /** Minimum AI-reported confidence to auto-post. */
   minConfidence: number;
   /** Maximum amount (entity currency) eligible for auto-post. */
   maxAmount: number;
+  /**
+   * De dónde salió cada umbral, para el rastro: cuando algo se postea sin
+   * humano, la bitácora tiene que poder decir QUIÉN lo decidió — una bandera
+   * explícita, el archivo del operador, la política del despacho o la
+   * omisión del código. Lo rellena el resolutor con panel.
+   */
+  fuentes?: {
+    autoPost: 'bandera' | 'archivo' | 'politica' | 'omision';
+    minConfidence: 'bandera' | 'archivo' | 'omision';
+    maxAmount: 'bandera' | 'archivo' | 'politica' | 'omision';
+  };
 }
 
 const INGEST_DEFAULTS: IngestThresholds = {
@@ -431,6 +464,49 @@ const INGEST_DEFAULTS: IngestThresholds = {
   minConfidence: 0.95,
   maxAmount: 10000,
 };
+
+/**
+ * Valores CRUDOS del bloque ingest del archivo del operador, sin mezclar con
+ * omisiones. Existe para que el resolutor con panel (src/ai/ingest-thresholds)
+ * pueda insertar la capa de la política ENTRE el archivo y la omisión: la
+ * precedencia decidida es bandera > archivo del operador > política del
+ * despacho > omisión del código, y para eso hay que saber si el archivo
+ * TRAÍA valor, no sólo cuál quedó tras mezclar.
+ */
+/** A3: los valores CRUDOS de la sección budget del archivo del operador. */
+export function budgetFileValues(cwd = process.cwd()): {
+  dailyUsd?: number;
+  monthlyUsd?: number;
+  onExceed?: 'warn' | 'block';
+} {
+  const { config } = loadConfigFile(cwd);
+  const file = config.budget ?? {};
+  const num = (v: number | undefined): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+  return {
+    dailyUsd: num(file.daily_usd),
+    monthlyUsd: num(file.monthly_usd),
+    onExceed: file.on_exceed,
+  };
+}
+
+export function ingestFileValues(cwd = process.cwd()): {
+  autoPost?: boolean;
+  minConfidence?: number;
+  maxAmount?: number;
+} {
+  const { config } = loadConfigFile(cwd);
+  const file = config.ingest ?? {};
+  const num = (v: number | undefined): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+  return {
+    autoPost: typeof file.auto_post === 'boolean' ? file.auto_post : undefined,
+    minConfidence: num(file.auto_post_min_confidence),
+    maxAmount: num(file.auto_post_max_amount),
+  };
+}
+
+export const UMBRALES_INGESTA_OMISION: IngestThresholds = INGEST_DEFAULTS;
 
 /** Config file + CLI overrides. The default is conservative: no auto-post. */
 export function resolveIngestThresholds(
@@ -573,7 +649,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 function deepMerge(base: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...base };
   for (const [k, v] of Object.entries(patch)) {
-    out[k] = isPlainObject(v) && isPlainObject(out[k]) ? deepMerge(out[k] as Record<string, unknown>, v) : v;
+    out[k] = isPlainObject(v) && isPlainObject(out[k]) ? deepMerge(out[k], v) : v;
   }
   return out;
 }

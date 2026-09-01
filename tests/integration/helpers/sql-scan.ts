@@ -6,6 +6,8 @@ import path from 'node:path';
  *
  * Alcance deliberadamente acotado a lo que se puede afirmar con certeza sin
  * escribir un parser de SQL: nombres de tabla en FROM/JOIN/INSERT INTO/UPDATE,
+ * con una exclusión aprendida en R1: `IS DISTINCT FROM COALESCE(...)` no
+ * nombra una tabla `coalesce` — el lookbehind de DISTINCT lo descarta,
  * y las listas de columnas de INSERT INTO tabla (...). Ese subconjunto es
  * justo el que produjo las divergencias reales del sistema (una tabla
  * `entities` que no existe, columnas inventadas en garnishments, `slug` en
@@ -97,12 +99,25 @@ function nombresLocales(sql: string): Set<string> {
   }
   // `FROM tabla alias` / `JOIN tabla alias` (con o sin AS)
   for (const n of sql.matchAll(
-    /\b(?:FROM|JOIN|UPDATE)\s+(?:public\.)?[a-z_][a-z0-9_]*\s+(?:AS\s+)?([a-z_][a-z0-9_]*)/gi
+    /\b(?:(?<!DISTINCT\s)FROM|JOIN|UPDATE)\s+(?:public\.)?[a-z_][a-z0-9_]*\s+(?:AS\s+)?([a-z_][a-z0-9_]*)/gi
   )) {
     const alias = n[1].toLowerCase();
     if (!PALABRAS_SQL.has(alias)) locales.add(alias);
   }
   return locales;
+}
+
+/**
+ * Solo los CTE (`WITH x AS (...)`). `nombresLocales` mezcla CTEs con alias de
+ * tabla porque para descartar NOMBRES DE TABLA inventados da igual cuál sea;
+ * para resolver COLUMNAS calificadas no da igual: un alias es exactamente lo
+ * que hay que resolver, y un CTE es lo único que hay que descartar, porque su
+ * forma la define la consulta y no el esquema.
+ */
+function nombresCte(sql: string): Set<string> {
+  const ctes = new Set<string>();
+  for (const n of sql.matchAll(/([a-z_][a-z0-9_]*)\s+AS\s*\(/gi)) ctes.add(n[1].toLowerCase());
+  return ctes;
 }
 
 /** Palabras que siguen a una tabla sin ser alias. */
@@ -138,6 +153,65 @@ function selectsDeUnaTabla(sql: string): Array<{ tabla: string; columnas: string
   return out;
 }
 
+/**
+ * Columnas CALIFICADAS: `p.futa` cuando la consulta declara `FROM paychecks p`.
+ *
+ * Generaliza el caso anterior y es estrictamente más fuerte: el alias ata la
+ * columna a su tabla sin ambigüedad, así que funciona **aunque haya JOINs** —
+ * que es justo donde el extractor de una sola tabla se rinde.
+ *
+ * Es la comprobación que faltaba. `form-940-generator` consultaba
+ * `p.futa_employer` cinco veces contra `FROM paychecks p JOIN pay_periods pp`;
+ * la columna no existe (es `paychecks.futa`) y la forma 940 reventaba en su
+ * primera invocación, con el contrato de esquema en verde porque su alcance
+ * declarado excluía las consultas con alias.
+ *
+ * Se aceptan dos calificadores: un alias declarado en FROM/JOIN, y el propio
+ * nombre de la tabla. Se descarta `public.` (esquema, no tabla) y todo alias
+ * que en realidad sea un CTE, porque su forma la define la consulta y no el
+ * esquema.
+ */
+export function columnasCalificadas(
+  sql: string,
+  ctes: Set<string>
+): Array<{ tabla: string; columnas: string[]; idx: number }> {
+  // alias → tabla, y también tabla → tabla para las referencias sin alias.
+  const porAlias = new Map<string, string>();
+  const reFuente =
+    /\b(?:(?<!DISTINCT\s)FROM|JOIN|UPDATE)\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)(?:\s+(?:AS\s+)?([a-z_][a-z0-9_]*))?/gi;
+  let f: RegExpExecArray | null;
+  while ((f = reFuente.exec(sql))) {
+    const tabla = f[1].toLowerCase();
+    if (ctes.has(tabla)) continue;
+    porAlias.set(tabla, tabla);
+    const alias = f[2]?.toLowerCase();
+    if (alias && !PALABRAS_SQL.has(alias) && !ctes.has(alias)) porAlias.set(alias, tabla);
+  }
+  if (porAlias.size === 0) return [];
+
+  const porTabla = new Map<string, { columnas: Set<string>; idx: number }>();
+  const reCol = /\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b/gi;
+  let c: RegExpExecArray | null;
+  while ((c = reCol.exec(sql))) {
+    const calificador = c[1].toLowerCase();
+    if (calificador === 'public') continue;
+    const tabla = porAlias.get(calificador);
+    if (!tabla) continue;
+    const columna = c[2].toLowerCase();
+    // `t.*` no nombra columna, y una palabra reservada tras el punto no lo es.
+    if (columna === '*' || PALABRAS_SQL.has(columna)) continue;
+    const yaEsta = porTabla.get(tabla);
+    if (yaEsta) yaEsta.columnas.add(columna);
+    else porTabla.set(tabla, { columnas: new Set([columna]), idx: c.index });
+  }
+
+  return [...porTabla.entries()].map(([tabla, v]) => ({
+    tabla,
+    columnas: [...v.columnas],
+    idx: v.idx,
+  }));
+}
+
 export function escanearArchivo(archivo: string): {
   tablas: RefTabla[];
   inserts: RefColumnas[];
@@ -161,7 +235,7 @@ export function escanearArchivo(archivo: string): {
     const locales = nombresLocales(sql);
 
     const reTabla =
-      /\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE)\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)/gi;
+      /\b(?:(?<!DISTINCT\s)FROM|JOIN|INSERT\s+INTO|UPDATE)\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)/gi;
     let m: RegExpExecArray | null;
     while ((m = reTabla.exec(sql))) {
       const t = m[1].toLowerCase();
@@ -182,6 +256,17 @@ export function escanearArchivo(archivo: string): {
       // expresión y no se puede afirmar nada sobre ella: se descarta entera.
       if (columnas.length !== crudos.length) continue;
       inserts.push({ tabla, columnas, archivo, linea: lineaDe(original, offset + m.index) });
+    }
+
+    // Columnas calificadas por alias: cubren las consultas CON JOIN, que es
+    // donde el extractor de una sola tabla se rinde y donde vivía el
+    // `p.futa_employer` de la forma 940.
+    for (const cal of columnasCalificadas(sql, nombresCte(sql))) {
+      if (IGNORAR.has(cal.tabla) || cal.tabla.startsWith('pg_')) continue;
+      selects.push({
+        tabla: cal.tabla, columnas: cal.columnas, archivo,
+        linea: lineaDe(original, offset + cal.idx),
+      });
     }
 
     for (const sel of selectsDeUnaTabla(sql)) {

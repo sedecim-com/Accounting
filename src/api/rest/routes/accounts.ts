@@ -1,20 +1,31 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
-import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../utils/errors.js';
-import type { Account, PaginationMeta } from '../../../types/index.js';
+import { NotFoundError } from '../../../utils/errors.js';
+import {
+  listAccounts,
+  getAccountById,
+  createAccount,
+  updateAccount,
+  deactivateAccount,
+  ACCOUNT_TYPES,
+  NORMAL_BALANCES,
+  UPDATABLE_FIELDS,
+} from '../../../services/accounting/account-service.js';
+import type { PaginationMeta } from '../../../types/index.js';
+
+// ============================================================
+// /v1/accounts — HTTP surface over the chart-of-accounts service.
+// The rules live in services/accounting/account-service.ts so the
+// CLI and the agent reach the same behaviour; this file is only
+// request parsing, permissions and response shape.
+// ============================================================
 
 const router = Router();
 
-// ─── Schemas ───
-const accountTypeEnum = z.enum([
-  'asset', 'liability', 'equity', 'revenue', 'expense',
-  'contra_asset', 'contra_liability', 'contra_equity',
-]);
-const normalBalanceEnum = z.enum(['debit', 'credit']);
+const accountTypeEnum = z.enum(ACCOUNT_TYPES);
+const normalBalanceEnum = z.enum(NORMAL_BALANCES);
 
 const createAccountSchema = z.object({
   code: z.string().min(1).max(50),
@@ -32,242 +43,105 @@ const createAccountSchema = z.object({
   tags: z.array(z.string()).optional(),
 });
 
-const updateAccountSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  description: z.string().optional(),
-  is_active: z.boolean().optional(),
-  tags: z.array(z.string()).optional(),
-  fs_category: z.string().optional(),
-  account_subtype: z.string().optional(),
-}).refine((o) => Object.keys(o).length > 0, { message: 'At least one field must be provided' });
+const updateAccountSchema = z
+  .object({
+    name: z.string().min(1).max(255).optional(),
+    description: z.string().optional(),
+    is_active: z.boolean().optional(),
+    tags: z.array(z.string()).optional(),
+    fs_category: z.string().optional(),
+    account_subtype: z.string().optional(),
+  })
+  .refine((o) => Object.keys(o).length > 0, { message: 'At least one field must be provided' });
+
+const meta = (req: Request) => ({
+  request_id: req.headers['x-request-id'],
+  timestamp: new Date().toISOString(),
+  version: 'v1',
+});
 
 // GET /v1/accounts
-router.get('/', requirePermission('accounts:read'), requireEntityAccess, async (req: Request, res: Response) => {
-  const {
-    entity_id,
-    account_type,
-    is_active,
-    parent_id,
-    search,
-    page = '1',
-    per_page = '50',
-  } = req.query;
+router.get(
+  '/',
+  requirePermission('accounts:read'),
+  requireEntityAccess,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { entity_id, account_type, is_active, parent_id, search, page = '1', per_page = '50' } = req.query;
 
-  const entityId = entity_id as string || req.entityId;
-  const pageNum = Math.max(1, parseInt(page as string, 10));
-  const perPage = Math.min(100, Math.max(1, parseInt(per_page as string, 10)));
-  const offset = (pageNum - 1) * perPage;
+    const entityId = (entity_id as string) || req.entityId!;
+    const pageNum = Math.max(1, parseInt(page as string, 10));
+    const perPage = Math.min(100, Math.max(1, parseInt(per_page as string, 10)));
 
-  let whereClause = 'WHERE entity_id = $1';
-  const params: unknown[] = [entityId];
-  let paramIndex = 2;
+    const { rows, total } = await listAccounts(entityId, {
+      accountType: account_type as string | undefined,
+      isActive: is_active === undefined ? undefined : is_active === 'true',
+      parentId: parent_id as string | undefined,
+      search: search as string | undefined,
+      limit: perPage,
+      offset: (pageNum - 1) * perPage,
+    });
 
-  if (account_type) {
-    whereClause += ` AND account_type = $${paramIndex++}`;
-    params.push(account_type);
-  }
-  if (is_active !== undefined) {
-    whereClause += ` AND is_active = $${paramIndex++}`;
-    params.push(is_active === 'true');
-  }
-  if (parent_id) {
-    whereClause += ` AND parent_id = $${paramIndex++}`;
-    params.push(parent_id);
-  }
-  if (search) {
-    whereClause += ` AND (code ILIKE $${paramIndex} OR name ILIKE $${paramIndex})`;
-    params.push(`%${search}%`);
-    paramIndex++;
-  }
+    const pagination: PaginationMeta = {
+      page: pageNum,
+      per_page: perPage,
+      total_pages: Math.ceil(total / perPage),
+      total_count: total,
+      next_cursor: null,
+      prev_cursor: null,
+    };
 
-  const countResult = await query<{ count: string }>(
-    `SELECT COUNT(*) as count FROM accounts ${whereClause}`,
-    params
-  );
-  const totalCount = parseInt(countResult.rows[0].count, 10);
-
-  const result = await query<Account>(
-    `SELECT a.*,
-            (SELECT COUNT(*) FROM accounts c WHERE c.parent_id = a.id) as children_count
-     FROM accounts a ${whereClause}
-     ORDER BY a.code ASC
-     LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
-    [...params, perPage, offset]
-  );
-
-  const pagination: PaginationMeta = {
-    page: pageNum,
-    per_page: perPage,
-    total_pages: Math.ceil(totalCount / perPage),
-    total_count: totalCount,
-    next_cursor: null,
-    prev_cursor: null,
-  };
-
-  res.json({
-    data: result.rows,
-    pagination,
-    meta: {
-      request_id: req.headers['x-request-id'],
-      timestamp: new Date().toISOString(),
-      version: 'v1',
-    },
-  });
-});
+    res.json({ data: rows, pagination, meta: meta(req) });
+  })
+);
 
 // GET /v1/accounts/:id
-router.get('/:id', requirePermission('accounts:read'), async (req: Request, res: Response) => {
-  const { include_balance, include_hierarchy } = req.query;
-
-  let selectClause = 'SELECT a.*';
-  let joinClause = '';
-
-  if (include_hierarchy === 'true') {
-    selectClause += `, p.code as parent_code, p.name as parent_name`;
-    joinClause += ' LEFT JOIN accounts p ON p.id = a.parent_id';
-  }
-
-  const result = await query<Account>(
-    `${selectClause} FROM accounts a ${joinClause} WHERE a.id = $1`,
-    [req.params.id]
-  );
-
-  if (result.rows.length === 0) {
-    throw new NotFoundError('Account', req.params.id);
-  }
-
-  const account = result.rows[0] as unknown as Record<string, unknown>;
-
-  if (include_balance === 'true') {
-    // Lifetime activity, NOT SUM(ending_balance): carried-forward periods
-    // embed the prior ending in their beginning, so summing endings would
-    // double-count. Activity totals are carryforward-invariant.
-    const balanceResult = await query<{ balance: string }>(
-      `SELECT COALESCE(SUM(debit_total - credit_total), 0) as balance
-       FROM account_balances WHERE account_id = $1`,
-      [req.params.id]
-    );
-    account.current_balance = balanceResult.rows[0].balance;
-  }
-
-  res.json({
-    data: account,
-    meta: {
-      request_id: req.headers['x-request-id'],
-      timestamp: new Date().toISOString(),
-      version: 'v1',
-    },
-  });
-});
+router.get(
+  '/:id',
+  requirePermission('accounts:read'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const account = await getAccountById(req.params.id, {
+      includeBalance: req.query.include_balance === 'true',
+      includeHierarchy: req.query.include_hierarchy === 'true',
+    });
+    if (!account) throw new NotFoundError('Account', req.params.id);
+    res.json({ data: account, meta: meta(req) });
+  })
+);
 
 // POST /v1/accounts
-router.post('/', requirePermission('accounts:create'), requireEntityAccess, validateBody(createAccountSchema), asyncHandler(async (req: Request, res: Response) => {
-  const {
-    code, name, account_type, fs_category, parent_id,
-    entity_id, currency_code, normal_balance,
-    allow_manual_entries, description, account_subtype,
-    is_header, tags,
-  } = req.body;
-
-  // Check for duplicate
-  const existing = await query<{ id: string }>(
-    'SELECT id FROM accounts WHERE code = $1 AND entity_id = $2',
-    [code, entity_id]
-  );
-  if (existing.rows.length > 0) {
-    throw new ConflictError(`Account with code "${code}" already exists`);
-  }
-
-  const id = uuidv4();
-  const result = await query<Account>(
-    `INSERT INTO accounts (
-      id, code, name, account_type, account_subtype, fs_category,
-      parent_id, entity_id, currency_code, normal_balance,
-      allow_manual_entries, is_header, description, tags, created_by
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-    RETURNING *`,
-    [
-      id, code, name, account_type, account_subtype || null, fs_category || null,
-      parent_id || null, entity_id, currency_code || null, normal_balance,
-      allow_manual_entries ?? true, is_header ?? false,
-      description || null, tags ? JSON.stringify(tags) : '{}', req.user!.user_id,
-    ]
-  );
-
-  res.status(201).json({
-    data: result.rows[0],
-    meta: {
-      request_id: req.headers['x-request-id'],
-      timestamp: new Date().toISOString(),
-      version: 'v1',
-    },
-  });
-}));
+router.post(
+  '/',
+  requirePermission('accounts:create'),
+  requireEntityAccess,
+  validateBody(createAccountSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const account = await createAccount({ ...req.body, created_by: req.user!.user_id });
+    res.status(201).json({ data: account, meta: meta(req) });
+  })
+);
 
 // PATCH /v1/accounts/:id
-router.patch('/:id', requirePermission('accounts:update'), validateBody(updateAccountSchema), asyncHandler(async (req: Request, res: Response) => {
-  const updates: string[] = [];
-  const params: unknown[] = [];
-  let paramIndex = 1;
+router.patch(
+  '/:id',
+  requirePermission('accounts:update'),
+  validateBody(updateAccountSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const patch = Object.fromEntries(
+      UPDATABLE_FIELDS.filter((f) => req.body[f] !== undefined).map((f) => [f, req.body[f]])
+    );
+    const account = await updateAccount(req.params.id, patch, req.user!.user_id);
+    res.json({ data: account, meta: meta(req) });
+  })
+);
 
-  const allowedFields = ['name', 'description', 'is_active', 'tags', 'fs_category', 'account_subtype'];
-  for (const field of allowedFields) {
-    if (req.body[field] !== undefined) {
-      updates.push(`${field} = $${paramIndex++}`);
-      params.push(field === 'tags' ? JSON.stringify(req.body[field]) : req.body[field]);
-    }
-  }
-
-  if (updates.length === 0) {
-    throw new ValidationError('No valid fields to update');
-  }
-
-  updates.push(`updated_at = NOW()`);
-  updates.push(`updated_by = $${paramIndex++}`);
-  params.push(req.user!.user_id);
-  params.push(req.params.id);
-
-  const result = await query<Account>(
-    `UPDATE accounts SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-    params
-  );
-
-  if (result.rows.length === 0) {
-    throw new NotFoundError('Account', req.params.id);
-  }
-
-  res.json({
-    data: result.rows[0],
-    meta: {
-      request_id: req.headers['x-request-id'],
-      timestamp: new Date().toISOString(),
-      version: 'v1',
-    },
-  });
-}));
-
-// DELETE /v1/accounts/:id (soft delete)
-router.delete('/:id', requirePermission('accounts:delete'), asyncHandler(async (req: Request, res: Response) => {
-  // Check for transactions
-  const hasTransactions = await query<{ count: string }>(
-    'SELECT COUNT(*) as count FROM journal_entry_lines WHERE account_id = $1',
-    [req.params.id]
-  );
-
-  if (parseInt(hasTransactions.rows[0].count, 10) > 0) {
-    throw new ValidationError('Cannot delete account with existing transactions');
-  }
-
-  const result = await query(
-    `UPDATE accounts SET is_active = false, updated_at = NOW(), updated_by = $1 WHERE id = $2`,
-    [req.user!.user_id, req.params.id]
-  );
-
-  if (result.rowCount === 0) {
-    throw new NotFoundError('Account', req.params.id);
-  }
-
-  res.status(204).send();
-}));
+// DELETE /v1/accounts/:id — soft delete; refuses when the account has history.
+router.delete(
+  '/:id',
+  requirePermission('accounts:delete'),
+  asyncHandler(async (req: Request, res: Response) => {
+    await deactivateAccount(req.params.id, req.user!.user_id);
+    res.status(204).send();
+  })
+);
 
 export default router;

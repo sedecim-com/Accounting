@@ -7,6 +7,7 @@ import {
   ConflictError,
   AccountingError,
 } from '../../utils/errors.js';
+import { FiscalPeriodStatus } from '../../types/index.js';
 import type { FiscalPeriod, FiscalYear } from '../../types/index.js';
 
 // ============================================================
@@ -344,13 +345,13 @@ export async function openPeriod(
     if (current.rows.length === 0) throw new NotFoundError('Fiscal period', periodId);
 
     const period = current.rows[0];
-    if (period.status === 'open') {
+    if (period.status === FiscalPeriodStatus.OPEN) {
       throw new AccountingError(
         'PERIOD_ALREADY_OPEN',
         `${period.period_name} is already open.`
       );
     }
-    if (period.status !== 'future') {
+    if (period.status !== FiscalPeriodStatus.FUTURE) {
       throw new AccountingError(
         'PERIOD_NOT_FUTURE',
         `${period.period_name} is '${period.status}', not 'future'. ` +

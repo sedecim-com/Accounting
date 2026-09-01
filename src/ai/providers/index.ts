@@ -13,15 +13,17 @@ import {
   resolveFailoverChain,
   resolveProfile,
 } from './config.js';
+import { assertWithinBudget, BudgetGuard, type BudgetStatus } from '../budget.js';
+import { estimateCostUsd } from '../usage-ledger.js';
 import {
   CooldownRegistry,
   runWithFailover,
-  type NamedProfile,
   type ProviderErrorCategory,
 } from './failover.js';
 
 export { resolveProfile, listProfiles, BUILTIN_PROFILES, configFilePaths, resolveCompactionConfig, resolveFailoverChain } from './config.js';
 export { classifyProviderError, runWithFailover, CooldownRegistry } from './failover.js';
+export { redactDetail } from './probe.js';
 export type { LlmSession, ResolvedProfile, ProviderProfile, SessionCallbacks } from './types.js';
 
 // ============================================================
@@ -47,6 +49,17 @@ export interface CreateLlmSessionOptions {
    * and its extra model call would feed auto-post style hooks.
    */
   grounding?: GroundingOptions;
+  /**
+   * Lista blanca de herramientas por nombre (tools/superficie.ts). La
+   * corrida DESATENDIDA la pasa siempre: sin ella, la sesión recibe la
+   * superficie completa, que es lo correcto en la interactiva y una
+   * propiedad por accidente en la desatendida.
+   */
+  herramientas?: readonly string[];
+  /** A3 · presupuesto: directorio del mnemosine.config.json (default cwd). */
+  cwd?: string;
+  /** A3: aviso al 80% del presupuesto — el chat lo imprime; los jobs a stderr. */
+  onBudgetWarning?: (status: BudgetStatus) => void;
 }
 
 export async function createLlmSession(
@@ -55,29 +68,68 @@ export async function createLlmSession(
   callbacks: SessionCallbacks = {},
   opts: CreateLlmSessionOptions = {}
 ): Promise<LlmSession> {
+  // A3 · PRESUPUESTO (E5.1-e): el único punto donde nace toda sesión, así
+  // que jobs, ingesta, chat e init lo heredan sin código propio. Sin
+  // sección budget en el archivo, cero consultas (opt-in). La ruta
+  // DESATENDIDA se autoidentifica con grounding deshabilitado — ahí el
+  // default es BLOCK: «solo avisa» significa que no hay tope.
+  const unattended = opts.grounding?.enabled === false;
+  const { guard } = await assertWithinBudget(ctx, opts.cwd, { unattended });
+  if (guard.status.state === 'warn') opts.onBudgetWarning?.(guard.status);
+  const budgeted: SessionCallbacks = {
+    ...callbacks,
+    onUsage: (u) => {
+      guard.addSpend(estimateCostUsd(u) ?? 0);
+      callbacks.onUsage?.(u);
+    },
+  };
+
   const systemBlocks = await buildSystemBlocks(ctx);
   const compaction = opts.compaction ?? resolveCompactionConfig();
 
+  let session: LlmSession;
   if (profile.type === 'anthropic') {
     const client = profile.apiKey ? new Anthropic({ apiKey: profile.apiKey }) : new Anthropic();
-    return new MnemosineAgent(client, ctx, systemBlocks, callbacks, profile.model, profile.name, {
+    session = new MnemosineAgent(client, ctx, systemBlocks, budgeted, profile.model, profile.name, {
       compaction,
       grounding: opts.grounding,
+      herramientas: opts.herramientas,
+    });
+  } else {
+    const client = new OpenAI({
+      baseURL: profile.base_url,
+      // Local endpoints (Ollama, LM Studio) require no key, but the SDK
+      // demands a string — a placeholder is the standard practice.
+      apiKey: profile.apiKey ?? 'not-needed',
+      defaultHeaders: profile.headers,
+    });
+    const systemText = systemBlocks.map((b) => b.text).join('\n\n');
+    session = new OpenAiCompatSession(client, profile, ctx, systemText, budgeted, {
+      compaction,
+      grounding: opts.grounding,
+      herramientas: opts.herramientas,
     });
   }
+  return withBudgetGuard(session, guard);
+}
 
-  const client = new OpenAI({
-    baseURL: profile.base_url,
-    // Local endpoints (Ollama, LM Studio) require no key, but the SDK
-    // demands a string — a placeholder is the standard practice.
-    apiKey: profile.apiKey ?? 'not-needed',
-    defaultHeaders: profile.headers,
-  });
-  const systemText = systemBlocks.map((b) => b.text).join('\n\n');
-  return new OpenAiCompatSession(client, profile, ctx, systemText, callbacks, {
-    compaction,
-    grounding: opts.grounding,
-  });
+/** Decorador: check() al ENTRAR a cada turno — un cruce a mitad de sesión corta sin volver a la base. */
+function withBudgetGuard(session: LlmSession, guard: BudgetGuard): LlmSession {
+  return {
+    get label() {
+      return session.label;
+    },
+    async runTurn(userInput: string, signal?: AbortSignal): Promise<string> {
+      guard.check();
+      return session.runTurn(userInput, signal);
+    },
+    reset(): void {
+      session.reset();
+    },
+    async compact(signal?: AbortSignal): Promise<CompactionResult | null> {
+      return session.compact ? session.compact(signal) : null;
+    },
+  };
 }
 
 // ============================================================
@@ -131,6 +183,8 @@ export async function createLlmSessionWithFailover(
   const sessionOpts: CreateLlmSessionOptions = {
     compaction: opts.compaction,
     grounding: opts.grounding,
+    cwd: opts.cwd,
+    onBudgetWarning: opts.onBudgetWarning,
   };
 
   // No fallbacks configured → plain single-provider session, created eagerly
@@ -152,7 +206,7 @@ export async function createLlmSessionWithFailover(
 
   const firstTurn = async (userInput: string, signal?: AbortSignal): Promise<string> => {
     const { result } = await runWithFailover<{ session: LlmSession; text: string }>(
-      chain as NamedProfile[],
+      chain,
       async (candidate) => {
         // Setup (credential resolution + construction) and the first turn's
         // connection are ONE attempt: either can trip the walk.

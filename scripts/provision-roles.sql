@@ -30,6 +30,29 @@ BEGIN
     CREATE ROLE mnemosine_app LOGIN;
     RAISE NOTICE 'creado rol mnemosine_app';
   END IF;
+  -- R2: el rol de la verificación pública. SIN LOGIN: solo se asume con
+  -- SET LOCAL ROLE dentro de la transacción de una consulta pública
+  -- (src/database/consulta-publica.ts). Sus privilegios y políticas los
+  -- reconcilia rls-policies.sql tras cada migración.
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_verifier') THEN
+    CREATE ROLE mnemosine_verifier NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
+    RAISE NOTICE 'creado rol mnemosine_verifier';
+  END IF;
+  GRANT mnemosine_verifier TO mnemosine_app;
+  -- R3: el dueño de las vistas MATERIALIZADAS. Un REFRESH corre la consulta
+  -- definitoria como el dueño de la vista; si ese dueño está sujeto a la RLS
+  -- por inquilino, el refresco reconstruye la vista GLOBAL con los lentes del
+  -- inquilino que casualmente traiga la sesión — o vacía, si no trae ninguno.
+  -- BYPASSRLS aquí no abre ninguna lectura: el rol es NOLOGIN, nadie se
+  -- conecta con él, y una vista materializada no re-corre su consulta al
+  -- leerse (es una tabla-instantánea; su lectura se gobierna por GRANTs).
+  -- La membresía a mnemosine_owner es para que refresh_reporting_views()
+  -- (SECURITY DEFINER del operador) pase el chequeo de propiedad del REFRESH.
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_refresher') THEN
+    CREATE ROLE mnemosine_refresher NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB BYPASSRLS;
+    RAISE NOTICE 'creado rol mnemosine_refresher';
+  END IF;
+  GRANT mnemosine_refresher TO mnemosine_owner;
 END $$;
 
 -- NOBYPASSRLS es la línea que hace que las políticas signifiquen algo.
@@ -41,12 +64,42 @@ ALTER ROLE mnemosine_app
 -- ── 2. Privilegios sobre el esquema ──
 GRANT USAGE  ON SCHEMA public TO mnemosine_owner, mnemosine_app;
 GRANT CREATE ON SCHEMA public TO mnemosine_owner;
+-- El refresher necesita USAGE para correr la consulta del REFRESH y CREATE
+-- porque ALTER ... OWNER exige que el dueño ENTRANTE pueda crear el objeto
+-- en el esquema. No abre nada: es NOLOGIN y nadie puede conectarse con él.
+GRANT USAGE, CREATE ON SCHEMA public TO mnemosine_refresher;
 REVOKE CREATE ON SCHEMA public FROM mnemosine_app;
 
 -- La app hace DML y nada más: sin DDL, sin TRUNCATE, sin REFERENCES.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA public TO mnemosine_app;
 GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA public TO mnemosine_app;
 GRANT EXECUTE                        ON ALL FUNCTIONS IN SCHEMA public TO mnemosine_app;
+
+-- Menos las bitácoras de sólo agregar. El GRANT de arriba dice ALL TABLES
+-- y lo dice en serio: reprovisionar sobre una base ya migrada le devolvía
+-- a la app UPDATE y DELETE sobre audit_log y sobre la bitácora que prueba
+-- quién descifró la e.firma, deshaciendo en silencio lo que las
+-- migraciones 033 y 035 habían revocado. El disparador seguía deteniendo
+-- el acto, pero la barrera barata quedaba muerta sin que nada lo dijera.
+--
+-- Va guardado por la existencia de cada tabla porque este guion también
+-- se corre sobre un clúster recién creado, antes de la primera migración.
+-- La lista se declara con la misma forma que en src/database/rls-policies.sql
+-- a propósito: son dos sitios que tienen que decir lo mismo, y el criterio
+-- E0.3 de src/plan/criterios.ts las lee a las dos con el mismo patrón y falla
+-- si divergen o si nombran una tabla sin disparador que la respalde.
+DO $append_only$
+DECLARE
+  append_only text[] := ARRAY['audit_log', 'fiscal_credential_access_log'];
+  t text;
+BEGIN
+  FOREACH t IN ARRAY append_only LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON public.%I FROM mnemosine_app', t);
+    END IF;
+  END LOOP;
+END
+$append_only$;
 
 -- ── 3. Privilegios por defecto ──
 -- Sin esto, cada tabla que cree una migración futura sería invisible
@@ -67,24 +120,33 @@ DECLARE
   moved   int := 0;
   skipped int := 0;
 BEGIN
+  -- Las MATERIALIZADAS van a mnemosine_refresher, no al operador: el dueño
+  -- es quien corre la consulta definitoria en cada REFRESH, y bajo RLS
+  -- forzada un dueño sin BYPASSRLS reconstruye la vista global filtrada por
+  -- el inquilino de la sesión (o vacía). Todo lo demás sí al operador.
   FOR r IN
-    SELECT c.relname, c.relkind
+    SELECT c.relname, c.relkind,
+           CASE WHEN c.relkind = 'm' THEN 'mnemosine_refresher'
+                ELSE 'mnemosine_owner' END AS dueno
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public'
       AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
       AND NOT c.relispartition
-      AND c.relowner <> (SELECT oid FROM pg_roles WHERE rolname = 'mnemosine_owner')
+      AND c.relowner <> (SELECT oid FROM pg_roles
+                          WHERE rolname = CASE WHEN c.relkind = 'm'
+                                               THEN 'mnemosine_refresher'
+                                               ELSE 'mnemosine_owner' END)
     ORDER BY CASE c.relkind WHEN 'r' THEN 0 WHEN 'p' THEN 0 ELSE 1 END
   LOOP
     BEGIN
-      EXECUTE format('ALTER %s public.%I OWNER TO mnemosine_owner',
+      EXECUTE format('ALTER %s public.%I OWNER TO %I',
         CASE r.relkind
           WHEN 'S' THEN 'SEQUENCE'
           WHEN 'v' THEN 'VIEW'
           WHEN 'm' THEN 'MATERIALIZED VIEW'
           ELSE 'TABLE'
-        END, r.relname);
+        END, r.relname, r.dueno);
       moved := moved + 1;
     EXCEPTION WHEN others THEN
       -- Las secuencias de columnas serial/identity cambian de dueño junto
@@ -101,5 +163,5 @@ SELECT rolname,
        rolbypassrls AS ignora_rls,
        rolcanlogin AS puede_entrar
 FROM pg_roles
-WHERE rolname IN ('mnemosine_app', 'mnemosine_owner')
+WHERE rolname IN ('mnemosine_app', 'mnemosine_owner', 'mnemosine_refresher')
 ORDER BY rolname;

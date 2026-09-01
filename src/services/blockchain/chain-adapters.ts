@@ -79,6 +79,21 @@ export const CHAIN_CONFIGS: Record<ChainId, ChainConfig> = {
 abstract class BaseChainAdapter {
   constructor(protected config: ChainConfig) {}
 
+  /**
+   * Si este adaptador FABRICA el anclaje en vez de escribirlo en una cadena.
+   *
+   * Es obligatoria y no tiene valor por omisión a propósito: un adaptador
+   * nuevo tiene que declarar qué es, y el que la olvide no compila. Misma
+   * forma que en los adaptadores de PAC (`simulado` en pac/), donde el
+   * cerrojo antisimulación se apoya en esta propiedad.
+   *
+   * El orquestador la lee para escribir `is_simulated` en la atestación. Sin
+   * ella ese campo vivía del DEFAULT de la migración 034 —un valor que
+   * ningún código mantenía—, de modo que un adaptador real habría seguido
+   * marcando sus anclajes como simulados para siempre.
+   */
+  abstract readonly simulado: boolean;
+
   abstract submitAttestation(submission: AttestationSubmission): Promise<ChainTransactionResult>;
 
   abstract getTransactionStatus(txHash: string): Promise<{
@@ -121,6 +136,12 @@ abstract class BaseChainAdapter {
 // ============================================================
 
 class EvmChainAdapter extends BaseChainAdapter {
+  // Fabrica todo: el hash de transacción sale de sha256(entryHash + Date.now()
+  // + Math.random()), el número de bloque de una base fija más un aleatorio, y
+  // devuelve status 'confirmed' sin haber hablado con ninguna cadena. Mientras
+  // esto siga así, ninguna atestación es comprobable por un tercero.
+  readonly simulado = true;
+
   async submitAttestation(submission: AttestationSubmission): Promise<ChainTransactionResult> {
     // In production: build, sign, and broadcast tx via ethers.js
     // contract.submitAttestation(submission.entryHash, submission.commitment, submission.zkVerifyRoot)
@@ -143,7 +164,7 @@ class EvmChainAdapter extends BaseChainAdapter {
     };
   }
 
-  async getTransactionStatus(txHash: string): Promise<{
+  async getTransactionStatus(_txHash: string): Promise<{
     status: 'pending' | 'confirmed' | 'failed';
     blockNumber?: number;
     confirmations?: number;

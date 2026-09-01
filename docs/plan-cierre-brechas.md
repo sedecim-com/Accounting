@@ -8,33 +8,55 @@
 
 ## Estado de ejecución
 
-_Revisado contra el código el 2026-08-25. Cada marca se sostiene en una comprobación sobre el repositorio._
+**El estado ya no se escribe aquí. Se pregunta:**
 
-| Paquete | Estado | Evidencia / qué falta |
-|---|---|---|
-| `E0.0` Control de versiones, un solo archivo de CI y  | ✅ RESUELTO | git init con .env fuera del historial, .github/workflows/ci.yml único con 4 jobs, assertNumeracionUnica en migrate.ts con 4 pruebas, docs/migraciones.md con el reparto de rangos. |
-| `E0.1` Red de seguridad del motor contable: pruebas u | ✅ RESUELTO | tests/helpers/fake-pg.ts (lanza ante SQL no previsto), 26 unitarias de posting, 6 de sequence, las 2 reglas de validación que faltaban, y una suite de integración con base EFÍMERA: 23 pruebas en 3 archivos. scripts/e2e-*.ts retirados. typecheck de tests: 74 errores → 0. **Falta:** Quedan sin escribi |
-| `E0.2` Contrato entre el código y el esquema: test qu | ⬜ PENDIENTE | Verificado hoy: 7 consultas siguen contra la tabla `entities`, que no existe (es `legal_entities`), y no hay ningún test de contrato. **Falta:** Todo el paquete. |
-| `E0.3` Bitácora de auditoría independiente del transp | 🟡 PARCIAL | audit_log ya se emite desde cuatro servicios de dominio (fiscal-calendar-service, period-close, vendor-service, customer-service), trabajo de la sesión paralela. **Falta:** El motor de posteo sigue sin auditar: un asiento creado por la CLI o por el agente no deja rastro. Falta también proteger la ta |
-| `E1.1` account_roles: sembrar la capa semántica en el | ✅ RESUELTO | chart-seed.ts (38 cuentas idempotentes) + entity-accounting.ts (catálogo + roles en un acto, con estrategia configurable), cableado a `mnemosine init` en sus dos caminos y fijado por prueba. checkAccountRoles en doctor. El mensaje de MISSING_ROLE_ACCOUNT ya no miente. Probado de punta a punta: una e |
-| `E1.2` Un solo cerebro fiscal para el CFDI: el clasif | ⬜ PENDIENTE | Verificado hoy: classifyXml sigue con CERO llamadores. La ruta viva continúa acreditando el IVA de todo CFDI, incluidos los PPD. **Falta:** Todo el paquete. Es la brecha con costo en pesos: cada factura a crédito adelanta un IVA que aún no es acreditable. |
-| `E1.3` La capa de decisión que nadie lee: consumidore | ⬜ PENDIENTE | Verificado hoy: getPolicy sigue con cero llamadores. matchApproval tiene 7 referencias, pero todas viven dentro de autoApproveDraftByPolicy y autoExecuteOpByPolicy, que siguen sin llamador. **Falta:** Todo el paquete. |
-| `E1.4` E1.4 · Módulos sin puerta de entrada y atestac | ⬜ PENDIENTE | Verificado hoy: runMonthlyDepreciation y recordInventorySale siguen sin llamador, y /public/v1 sigue montado publicando atestaciones simuladas. **Falta:** Todo el paquete. |
-| `E2.1` Encender el perímetro multi-inquilino en la ap | ⬜ PENDIENTE | Verificado hoy: 2 de 17 routers abren contexto de inquilino. **Falta:** Todo el paquete. |
-| `E2.2` Un solo catálogo de autorización: roles, permi | ⬜ PENDIENTE | Verificado hoy: siguen los dos catálogos de roles separados (middleware/auth.ts y cli/init/s2-users.ts) y no existe src/auth/roles.ts. **Falta:** Todo el paquete. |
-| `E3.1` Timbrado fiscal real: cerrojo antisimulación,  | ⬜ PENDIENTE | Verificado hoy: los adaptadores PAC siguen fabricando el sello con crypto.randomBytes (4 usos). **Falta:** Todo el paquete. El cerrojo antisimulación (E3.1-a) se puede adelantar solo, sin esperar a integrar ningún PAC. |
-| `E3.2` Traer los CFDI del SAT y saber si siguen vivos | ⬜ PENDIENTE | Sin empezar. **Falta:** Todo el paquete. |
-| `E4.1` Cerrar el ciclo contable de banca y de nómina | ⬜ PENDIENTE | Sin empezar. **Falta:** Todo el paquete. |
-| `E4.2` Trabajos en segundo plano, semántica de saldos | 🟡 PARCIAL | Los reportes YA están unificados: el SQL vive en src/services/reporting/report-service.ts y lo consumen tanto las herramientas del agente como las rutas REST (trabajo de la sesión paralela). Cierra E4.2-c. **Falta:** Falta el runtime de trabajos en segundo plano y sacar el REFRESH de vistas del cami |
-| `E5.1` Madurar al agente y su gobierno documental: re | ⬜ PENDIENTE | Sin empezar. **Falta:** Todo el paquete. |
+```bash
+npm run plan:status
+```
 
-**Cerrados por el camino:** Superficie CLI del motor: ya existen `mnemosine entry reverse`, `entry void` y `period open`. · Los reportes ya no están duplicados: una sola capa de consulta compartida.
+Un paquete queda ✅ sólo cuando TODOS sus criterios se evalúan y pasan; 🟠 cuando
+ninguno falla pero alguno no se puede evaluar; 🟡 con verdes y rojos mezclados;
+⬜ sin un solo verde. El comando **nombra la comprobación que falla**, no un
+porcentaje. Para un paquete suelto: `npm run plan:status -- E2.1`.
+
+Los criterios viven en [`src/plan/criterios.ts`](../src/plan/criterios.ts) y son
+código: este documento los cita, el comando los decide. Cada uno afirma
+comportamiento observable, nunca la existencia de un archivo o de un nombre.
+
+### Por qué se borró la tabla que estaba aquí
+
+Era un espejo escrito a mano del repositorio, y como todo espejo escrito a mano
+se desincronizó de lo que reflejaba. En su última versión afirmaba que E1.2
+seguía pendiente y que «cada factura a crédito adelanta un IVA que aún no es
+acreditable» — el commit que lo arregló ya estaba en el historial. Afirmaba que
+E1.3 estaba pendiente porque `getPolicy` no tenía llamadores: cierto, y sigue
+siéndolo, pero nadie podía saber si seguía siéndolo sin volver a comprobarlo a
+mano. Una tabla que hay que verificar a mano para creerle no sirve de nada.
+
+Fue peor que inútil: el plan que la contenía nació con su hecho fundacional ya
+refutado, porque el balance se arregló setenta y cuatro segundos antes de que el
+documento se escribiera.
+
+### Instantánea
+
+No se copia. El estado vivo se pregunta:
+
+    npm run plan:status                  # el plan, criterio por criterio
+    npx tsx scripts/catalogo-estado.ts   # el catálogo CLI (reescribe su bloque generado en docs/cli-command-catalog.md)
+
+(Aquí vivía la salida copiada de `plan:status`. Se pudrió como todo espejo: dos renglones más
+abajo afirmaba resuelto lo que su propio texto mostraba a medias — S0.7 la retiró.)
 
 ## Antes de la primera tarea
 
-El repositorio **no está bajo control de versiones**: `git status` responde «not a git repository» y no existe `.git`. Tampoco hay `vitest.config.ts` —pese a 81 archivos de prueba— ni `.github/`. Ese es el paquete **E0.0** y va antes que todo.
+_Esta sección decía que el repositorio no estaba bajo control de versiones, que
+no había `vitest.config.ts` y que no existía `.github/`. Las tres cosas eran
+falsas cuando alguien las leyó por última vez, y una de ellas —la del control de
+versiones— llegó a usarse como argumento para no borrar código muerto. Las tres
+las comprueba hoy `npm run plan:status -- E0.0`._
 
-Al hacerlo: `.env` contiene las contraseñas reales de `mnemosine_app` y `mnemosine_owner`. Debe entrar en `.gitignore` **antes** del primer commit.
+`.env` contiene las contraseñas reales de `mnemosine_app` y `mnemosine_owner`, y
+por eso está en `.gitignore`. Que siga estándolo es uno de los criterios de E0.0.
 
 ## Secuencia
 
@@ -135,8 +157,7 @@ Al hacerlo: `.env` contiene las contraseñas reales de `mnemosine_app` y `mnemos
 
 ## E0 · Cimientos verificables
 
-### E0.0 · Control de versiones, un solo archivo de CI y reparto de números de migración  ·  ✅ RESUELTO
-
+### E0.0 · Control de versiones, un solo archivo de CI y reparto de números de migración
 **Objetivo.** Poner las 41 847 líneas bajo git antes de tocar nada, dejar un único flujo de CI al que los demás paquetes solo añaden jobs, y repartir de antemano los números de migración para que catorce paquetes no colisionen.
 
 **Por qué aquí.** Verificado a mano: `git status` responde «not a git repository» y no existe .git, ni vitest.config.ts, ni .github/. Ejecutar 144 tareas sobre un árbol sin historial significa que ningún cambio se puede revisar, revertir ni bisecar. Además el revisor encontró que nueve paquetes crean cada uno un archivo llamado 031_*.sql y que dos crean el mismo ci.yml: ambas colisiones se evitan decidiéndolo una vez, aquí.
@@ -214,8 +235,7 @@ Hoy hay 35 archivos y la última numerada es 030, con cuatro números duplicados
 - `ls src/database/migrations | cut -c1-3 | sort | uniq -d` solo devuelve los cuatro duplicados históricos documentados.
 
 
-### E0.1 · Red de seguridad del motor contable: pruebas unitarias, suite de integración reproducible y CI  ·  ✅ RESUELTO
-
+### E0.1 · Red de seguridad del motor contable: pruebas unitarias, suite de integración reproducible y CI
 **Objetivo.** Poner bajo prueba automatizada el único punto de escritura al libro mayor (posting.ts), el cierre de periodo (period-close.ts), la numeración atómica (sequence.ts) y las dos reglas de validación sin cobertura, y convertir los dos scripts E2E manuales —hoy atados a UUID de una base de desarrollo— en una suite de integración que cualquiera puede correr contra un Postgres vacío con `npm run test:e2e` y que una CI ejecuta en cada cambio.
 
 **Por qué aquí.** Todos los paquetes posteriores tocan este núcleo: sembrar account_roles, corregir la cuenta de utilidades acumuladas, auditar desde el motor, cablear el clasificador CFDI y cerrar el ciclo de conciliación cambian código que hoy no tiene una sola prueba propia. Verificado: ningún archivo de tests/ importa src/services/accounting/posting.ts, src/services/accounting/period-close.ts ni src/utils/sequence.ts (el único que menciona period-close, tests/ai/close-service.spec.ts, la mockea). Sin esta red, cada corrección posterior se hace a ciegas y la única evidencia sigue siendo dos scripts con UUID fijos que no corren con `npm test` y que ninguna CI ejecuta (no existe .github/ ni .git). Además no depende de nada: el fixture puede llamar a seedAccountRoles directamente sin esperar a que se cablee a `mnemosine init`.
@@ -813,7 +833,11 @@ Trabajo `integracion` (needs: unidad):
   6. TEST_ADMIN_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres, TEST_DB_OWNER=mnemosine_owner, TEST_MIGRATION_DATABASE_URL=postgresql://mnemosine_owner:<owner_pw>@localhost:5432/postgres y npm run test:e2e. Conectar como mnemosine_owner y no como superusuario es deliberado: un superusuario ignora RLS y la suite dejaría de ejercitar el perímetro (ver decisión).
 - Contraseñas de CI en el propio workflow como literales de usar y tirar (el clúster vive y muere con el trabajo); no usar secretos para esto.
 
-NO incluir `npm run lint` en la CI: eslint 8 está en devDependencies pero no existe ningún .eslintrc* ni eslint.config.* en el repositorio, así que `npm run lint` falla hoy por falta de configuración. Añadir la configuración de eslint no pertenece a este paquete; dejarlo anotado en el propio workflow con un comentario.
+~~NO incluir `npm run lint` en la CI: eslint 8 está en devDependencies pero no existe ningún .eslintrc* ni eslint.config.* en el repositorio, así que `npm run lint` falla hoy por falta de configuración. Añadir la configuración de eslint no pertenece a este paquete; dejarlo anotado en el propio workflow con un comentario.~~
+
+**SUPERADO (2026-08-27).** La brecha quedó cerrada: el repositorio tiene `eslint.config.mjs` (configuración plana de ESLint 9 con typescript-eslint y reglas con información de tipos) y el guion es `eslint src/ tests/ scripts/ --max-warnings 1067`. La CI sí invoca `npm run lint`, en un trabajo propio llamado `lint`. Las 1067 advertencias (436 en src, 631 en tests) son la falta de solidez que entra por tipos de terceros (`req.body: any` de Express, `parse(): any` de fast-xml-parser, filas `Record<string, unknown>`, y el cliente pg falso de tests/helpers); el tope las congela, de modo que la deuda no puede crecer en silencio, y baja conforme se tipe cada frontera.
+
+`scripts/` también quedó cubierto. Antes sólo se revisaba `build-niif-indice.ts`, y de rebote: `tests/ai/niif-registry.spec.ts` lo importa y eso lo mete en el programa de tsconfig.test.json. Por eso su autor topó con la restricción y dejó escrito que usa `__dirname` y no `import.meta` (el proyecto compila a CommonJS). Los otros dos guiones no los revisaba nadie, y justo por eso `generate-cli-reference.ts` se había desviado de esa convención y usaba `import.meta` (TS1470). Ahora `tsconfig.test.json` incluye `scripts/**/*`, el guion desviado usa `__dirname` como su hermano, y eslint le aplica las mismas reglas con información de tipos que a `src/`. Importa porque `scripts/reclasificar-iva-ppd.ts` reescribe IVA ya contabilizado: ahí `no-floating-promises` es exactamente la regla que se quiere apuntando.
 
 Disparadores: push a la rama principal y pull_request. Hasta que el proyecto esté bajo git con un remoto (hoy no lo está), el archivo queda inerte: ver la decisión correspondiente.
 
@@ -827,7 +851,7 @@ Disparadores: push a la rama principal y pull_request. Hasta que el proyecto est
 - El trabajo `unidad` pasa sin ningún servicio de base de datos declarado: ninguna prueba unitaria abre una conexión.
 - El trabajo `integracion` corre migrate + seed + provision-roles + verify-isolation.sh + test:e2e y termina verde sobre un Postgres recién levantado.
 - verify-isolation.sh imprime 'Aislamiento verificado.' y sale con código 0.
-- El workflow no invoca `npm run lint` y lleva el comentario que explica por qué.
+- ~~El workflow no invoca `npm run lint` y lleva el comentario que explica por qué.~~ SUPERADO: el workflow sí invoca `npm run lint` y el trabajo `lint` termina verde.
 - Introducir a propósito un fallo (por ejemplo quitar el candado ALREADY_REVERSED) hace fallar la CI.
 
 **Riesgo.** Riesgo principal: la CI no puede ejecutarse porque el proyecto no está bajo control de versiones. Segundo riesgo: verify-isolation.sh elige T1 con `SELECT tenant_id FROM legal_entities WHERE tenant_id <> $T2 LIMIT 1`; si el paso de seed se omitiera, T1 quedaría vacío y la comprobación de escritura cruzada fallaría por una razón equivocada. Por eso el orden de los pasos es parte de la especificación, no una sugerencia.
@@ -845,8 +869,7 @@ Disparadores: push a la rama principal y pull_request. Hasta que el proyecto est
 - Existe .github/workflows/ci.yml y su última ejecución está en verde (bloqueado hasta que el repositorio tenga remoto).
 
 
-### E0.2 · Contrato entre el código y el esquema: test que lo verifica, reparación de toda divergencia y numeración de migraciones a prueba de choques  ·  ⬜ PENDIENTE
-
+### E0.2 · Contrato entre el código y el esquema: test que lo verifica, reparación de toda divergencia y numeración de migraciones a prueba de choques
 **Objetivo.** Convertir en fallo de CI cualquier consulta SQL del código que referencie tablas, columnas, restricciones únicas o vocabularios de CHECK que el esquema real no tiene, y reparar las 25 divergencias verificadas hoy (nómina MX/US, banca, blockchain). De paso, fijar la numeración de migraciones para que no vuelvan a chocar dos archivos con el mismo número.
 
 **Por qué aquí.** Es la etapa 0 porque hoy ningún test ve el esquema: las 80 suites mockean `query`, así que 1155 pruebas verdes conviven con código que revienta en la primera consulta contra Postgres. Todo el subsistema de nómina (recibos US, timbrado de nómina MX, IDSE, SUA, 941/940/W-2/W-3, beneficios, embargos) es inejecutable hoy, y el paquete de nómina con E2E contra base real depende de que esta reparación exista primero. Además es barato: no toca el motor contable, no cambia ninguna regla de negocio y no depende de ningún otro paquete.
@@ -1536,8 +1559,7 @@ El paso 5 y el 6 se solapan a propósito: el runner da un reporte legible en el 
 - Prueba de veneno: introducir a propósito `SELECT columna_que_no_existe FROM accounts` en cualquier archivo de src/ hace fallar `npm run contract:sql` con un mensaje que trae archivo, línea y símbolo contenedor
 
 
-### E0.3 · Bitácora de auditoría independiente del transporte: emitir desde el motor, proteger la tabla  ·  🟡 PARCIAL
-
+### E0.3 · Bitácora de auditoría independiente del transporte: emitir desde el motor, proteger la tabla
 **Objetivo.** Que toda escritura consecuente al mayor y toda aprobación dejen una fila de audit_log emitida por el dominio dentro de la misma transacción que el hecho auditado —CLI, agente, REST y GraphQL por igual—, con actor, origen y motivo explícitos. Y que audit_log sea físicamente append-only, como pretende serlo fiscal_credential_access_log (que hoy no lo es).
 
 **Por qué aquí.** La CLI es la interfaz principal del producto y hoy no deja rastro alguno: audit_log solo se escribe desde src/api/rest/middleware/audit.ts (una fila por mutación HTTP exitosa) y desde softClosePeriod. Todo lo demás —posteo, reversa, anulación, hard close, aprobación de borradores y ejecución de operaciones externas— es invisible. Va en la etapa 0 porque es barato (el punto de emisión ya está centralizado: posting.ts es el único escritor del mayor), porque no depende de nada, y porque los paquetes posteriores que amplían superficie (reversar/anular por CLI, aprobaciones automáticas por política, descarga SAT desatendida) generan escrituras que nacerían sin rastro si se hacen antes. Además arregla dos defectos verificados que corrompen la trazabilidad existente: el middleware pisa el x-request-id que fijó correlationIdMiddleware, y src/database/rls-policies.sql vuelve a otorgar UPDATE/DELETE sobre fiscal_credential_access_log a mnemosine_app en cada migración, anulando el REVOKE de la migración 014.
@@ -2120,8 +2142,7 @@ Añadir a package.json: "e2e:audit": "tsx scripts/e2e-audit.ts" — hoy ningún 
 
 ## E1 · Que la contabilidad funcione sola
 
-### E1.1 · account_roles: sembrar la capa semántica en el alta de entidad y en `mnemosine init`  ·  ✅ RESUELTO
-
+### E1.1 · account_roles: sembrar la capa semántica en el alta de entidad y en `mnemosine init`
 **Objetivo.** Que toda entidad creada por `mnemosine init` (y toda entidad ya existente en bases desplegadas) tenga su catálogo de cuentas base y sus 31 filas de account_roles, de modo que postInvoiceEntry/postBillEntry/postCustomerPaymentEntry/postVendorPaymentEntry dejen de lanzar MISSING_ROLE_ACCOUNT sin intervención manual en SQL. El paquete no escribe nada al mayor: toca sólo `accounts` y `account_roles`.
 
 **Por qué aquí.** Es el hueco crítico #1 y la raíz de tres degradaciones de la auditoría (ar-ap-posting, posteo automático AR/AP, seedAccountRoles). Es prerequisito de E1.2 (cuenta de utilidades acumuladas por rol en period-close), del cableado del clasificador CFDI declarativo y del E2E reproducible de AR/AP. El código, la tabla (migración 015 + 018) y REQUIRED_ACCOUNTS ya existen: falta el llamador y el catálogo base.
@@ -2491,8 +2512,7 @@ Este script es la única evidencia repetible de que el paquete cierra: el resto 
 - `npm test` verde (incluidos los nuevos tests/accounting/chart-seed.spec.ts, account-roles-seed.spec.ts, entity-bootstrap.spec.ts, ar-ap-posting.spec.ts, tests/cli/init/s2b-accounting.spec.ts y tests/cli/accounts-command.spec.ts) y `npx tsc --noEmit` en código 0.
 
 
-### E1.2 · Un solo cerebro fiscal para el CFDI: el clasificador declarativo gobierna la ingesta  ·  ⬜ PENDIENTE
-
+### E1.2 · Un solo cerebro fiscal para el CFDI: el clasificador declarativo gobierna la ingesta
 **Objetivo.** Que toda escritura contable originada en un CFDI pase por la capa declarativa (cfdi-facts → cfdi-taxonomy → cfdi-decisions → cfdi-classifier), de modo que el IVA de un CFDI PPD se registre en las cuentas puente 1135 / 2125 y solo se acredite o se cause al llegar el REP. Que la ruta viva deje de decidir contabilidad, que quede rastro en cfdi_classifications, y que los CFDI ya ingeridos con IVA mal acreditado se corrijan por reversa.
 
 **Por qué aquí.** Es el error fiscal sistemático más caro del repositorio y ya está resuelto en código probado sin llamador: solo falta cablearlo. Va después de E1.1 porque el clasificador resuelve cuentas por account_roles y sin la siembra devolvería missingRoles para los 31 roles, y va antes del puente de políticas (E1.3), de la consulta real de estatus al SAT y del descargador masivo, porque los tres alimentan a este clasificador y no tienen dónde enchufarse mientras no exista el punto de entrada.
@@ -2827,6 +2847,18 @@ Superficie:
 
 ##### `E1.2-g` El REP cierra el ciclo: el asiento que cancela 1135 y 2125 · **M**
 
+> **SUSTITUIDO por IVA-5 (commits 4b3b79c y f2fd789).** Este diseño postea el
+> efectivo y las líneas de IVA en la póliza del REP y aplica el pago con un
+> `UPDATE bills SET amount_due`, sin tocar `payments` ni `payment_applications`.
+> Eso abona el banco dos veces cuando el pago también se capturó a mano, y
+> traspasa el IVA dos veces — con `ivaStillParked` topando el exceso en
+> silencio, de modo que la póliza cuadra y la declaración sale mal. La
+> implementación vigente es `src/services/xml-ingestion/rep-linkage.ts`: el REP
+> se liga al pago (o lo crea por la puerta de pagos), y la liberación del IVA
+> sale de las aplicaciones del pago, sin una línea de impuesto en la ingesta.
+> Lo que sigue se conserva como historia, no como especificación.
+
+
 Es la mitad que da sentido a las cuentas puente: sin esto el IVA entra en 1135 y no sale nunca.
 
 La taxonomía ya trae los casos 'pago_recibido' y 'pago_emitido' (cfdi-taxonomy.ts:307 y 323) con dos líneas: DR cxp / CR banco (recibido) y DR banco / CR cxc (emitido), por A.pagado = suma de docsRelacionados[].impPagado. Falta el traspaso del IVA. Se implementa en el orquestador, NO tocando la taxonomía, con una función nueva en cfdi-classification-service.ts:
@@ -2990,8 +3022,7 @@ El único test que ejerce el clasificador hoy es tests/xml-ingestion/cfdi-taxono
 - Con auto-post activado y un CFDI PPD de fixture, `mnemosine ingest` reporta el archivo como contabilizado y `session.runTurn` no se invoca para los CFDI cuyo veredicto no es 'ready'.
 
 
-### E1.3 · La capa de decisión que nadie lee: consumidores reales para las políticas y las aprobaciones  ·  ⬜ PENDIENTE
-
+### E1.3 · La capa de decisión que nadie lee: consumidores reales para las políticas y las aprobaciones
 **Objetivo.** Que responder una política o conceder una aprobación cambie el comportamiento observable del sistema, o que el usuario vea con claridad que todavía no lo cambia. Al cerrar, cada clave de POLICY_CATALOG tiene un consumidor declarado y verificado, matchApproval tiene dos llamadores vivos (ingesta y outbox), y las cuatro invocaciones de approveDraft pasan expectedHash.
 
 **Por qué aquí.** Es el paquete que convierte en producto lo que ya está construido y probado: ~350 líneas de motor de aprobaciones con 32 tests verdes y cero consumidores, y un servicio de políticas con catálogo, previsualización, asistente y CLI cuyos dos lectores (getPolicy/getPolicyNumber, /Users/victor/projects/Accounting/src/services/policy/policy-service.ts:102 y :132) no tienen un solo llamador — verificado con grep sobre src, scripts y tests. Va aquí y no después porque los dos consumidores que sí se pueden cablear hoy (la ingesta CFDI y el guardián de e.firma) no dependen de nada pendiente, y porque cada semana que `mnemosine approvals grant` y `mnemosine pending define` sigan aceptando decisiones inertes se acumulan usuarios que creen haber configurado el sistema. Va antes del cableado del clasificador CFDI porque el puente que aquí se construye es exactamente la pieza que ese paquete necesitará inyectar en classifyParsed.
@@ -3541,8 +3572,7 @@ Además, en cfdi-decisions.ts: dejar restaurantPolicy, iepsTreatment e inventory
 - `npm run migrate` aplica 031_credential_blocked_status.sql y reaplica rls-policies.sql sin error sobre una base con la 030.
 
 
-### E1.4 · E1.4 · Módulos sin puerta de entrada y atestaciones simuladas: decidir, cablear o retirar  ·  ⬜ PENDIENTE
-
+### E1.4 · E1.4 · Módulos sin puerta de entrada y atestaciones simuladas: decidir, cablear o retirar
 **Objetivo.** Cerrar el circuito de la depreciación (alta de datos maestros por CLI, corrida mensual correcta, enganche con el checklist de cierre) y eliminar toda superficie que aparente una capacidad inexistente: la capa blockchain deja de publicar datos simulados como reales y de persistir el valor en claro dentro de su propia "prueba"; inventarios y src/services/mexico/cfdi.ts quedan retirados de forma explícita en vez de seguir inflando el mapa de capacidades.
 
 **Por qué aquí.** El motor ya tiene su capa semántica sembrada (E1.1), así que la depreciación puede resolver cuentas por account_roles en vez de por códigos literales. El item 4 del checklist de cierre (period-close.ts:79-95) es hoy insatisfacible por construcción: cada cierre de mes arrastra un warning permanente que enseña al usuario a ignorar el checklist. Y la purga de datos simulados es prerrequisito de credibilidad: no tiene sentido invertir en el clasificador CFDI o en el perímetro multi-tenant mientras /public/v1 devuelve verified:true con txHash inventados.
@@ -3977,8 +4007,7 @@ La suite mockea `query`, así que ningún test unitario ve el esquema real: es e
 
 ## E2 · Encender el perímetro
 
-### E2.1 · Encender el perímetro multi-inquilino en la aplicación (REST, GraphQL y /public/v1)  ·  ⬜ PENDIENTE
-
+### E2.1 · Encender el perímetro multi-inquilino en la aplicación (REST, GraphQL y /public/v1)
 **Objetivo.** Que toda petición HTTP corra dentro de un contexto de inquilino (withTenant) contra el rol mnemosine_app, de modo que la RLS —hoy construida, forzada y aplicada tras cada migración, pero inerte para quince de los diecisiete routers y para todo GraphQL— pase de defensa pagada a defensa activa. En el mismo paso se cierra el atajo de ?entity_id= en la query string, se aplican permisos y validación de entidad en GraphQL, se poda del schema lo que no tiene resolver, y se deja una batería de pruebas que falla si alguien reabre cualquiera de los cinco vectores.
 
 **Por qué aquí.** La RLS ya está hecha y forzada (rls-policies.sql se reaplica tras cada migración: política tenant_isolation por catálogo más 19 políticas hijo por EXISTS) y los dos roles ya existen (scripts/provision-roles.sql, ambos NOBYPASSRLS). Lo único que falta es el llamador: un middleware. Verificado además que el .env de desarrollo YA apunta DATABASE_URL a mnemosine_app y MIGRATION_DATABASE_URL a mnemosine_owner — es decir, en ese entorno el servidor REST hoy no puede devolver una sola fila fuera de /v1/ai y /v1/ai/webhooks, que son los únicos dos routers que llaman withTenant. El perímetro no es una mejora futura: es lo que hace que el servidor vuelva a funcionar con el rol correcto. Va después de la comprobación por recurso en las rutas por :id porque la RLS aísla el INQUILINO y no la ENTIDAD: sin esa comprobación, encender RLS da una falsa sensación de cierre.
@@ -4571,8 +4600,7 @@ Escribir docs/despliegue-perimetro.md con el orden seguro, que es éste y no otr
 - `SELECT count(*) FROM pg_policies WHERE schemaname='public' AND policyname IN ('tenant_isolation','tenant_isolation_child')` cubre las 89 tablas con columna de alcance más las 19 hijas tras `npm run migrate`.
 
 
-### E2.2 · Un solo catálogo de autorización: roles, permisos que existen y segregación de funciones con efecto  ·  ⬜ PENDIENTE
-
+### E2.2 · Un solo catálogo de autorización: roles, permisos que existen y segregación de funciones con efecto
 **Objetivo.** Dejar un único catálogo de roles y permisos en src/auth/roles.ts, tipado, consumido por el middleware REST, por `mnemosine init`, por el doctor y por la documentación del agente, de modo que ningún permiso exigido por una ruta pueda quedar sin conceder y un error de dedo en un permiso rompa `tsc` en vez de producir un 403 en producción. Además: segregación de funciones invocada en puntos de entrada reales, y la rama HS256 resuelta (retirada por defecto, con arranque que falla si se configura mal).
 
 **Por qué aquí.** Es lo que hace que el perímetro HTTP signifique algo. Cerrar el bypass de entity_id y montar withTenant protegen el aislamiento por tenant y por entidad, pero no evitan que un `contador` legítimo reciba 403 en los 36 endpoints de /v1/payroll ni que nadie salvo `owner` pueda anular una factura o un bill. Va después de la batería de tests del perímetro (E2.1) porque este paquete cambia cómo se calculan los permisos efectivos y sin esos tests el cambio es a ciegas; y antes del paquete de GraphQL, que necesita el mismo catálogo para aplicar autorización en sus resolvers. No requiere ninguna migración de esquema, lo que lo hace barato de revertir.
@@ -4920,8 +4948,7 @@ El agente responde sobre roles y permisos desde /Users/victor/projects/Accountin
 
 ## E3 · Fiscal real
 
-### E3.1 · Timbrado fiscal real: cerrojo antisimulación, sellado con CSD propio, timbrado idempotente y cancelación encadenada al void  ·  ⬜ PENDIENTE
-
+### E3.1 · Timbrado fiscal real: cerrojo antisimulación, sellado con CSD propio, timbrado idempotente y cancelación encadenada al void
 **Objetivo.** Que ningún folio fiscal inventado pueda volver a escribirse en la base como si fuera real, y que a partir de ahí exista un camino verdadero: armar el CFDI 4.0 desde la factura, sellarlo con el CSD custodiado en la bóveda, timbrarlo contra un PAC real de forma idempotente, persistir el XML timbrado y encadenar la cancelación ante el SAT con la reversa contable, incluido el CFDI de nómina 1.2.
 
 **Por qué aquí.** Es el único hallazgo de la auditoría donde el sistema no está incompleto sino que miente activamente: `POST /v1/invoices/:id/cfdi/stamp` escribe hoy `cfdi_uuid` fabricado con `crypto.randomBytes` y `cfdi_status='stamped'` sin ningún gate por entorno (finkok-adapter.ts:74-102, sw-sapien-adapter.ts:64-92, edicom-adapter.ts:51-78; el único `environment === 'sandbox'` del directorio está en `healthCheck`, finkok-adapter.ts:44). Un dato falso marcado como fiscal es peor que una función ausente, y contamina la base de forma que después no se distingue. El cerrojo (tarea -a) es de horas y detiene el daño hoy; lo demás sólo puede construirse encima de él. Va después de la etapa de perímetro/esquema porque el timbrado escribe en facturas y nóminas cuyo aislamiento y cuyas consultas rotas se arreglan antes, y antes del descargador masivo del SAT porque comparte la custodia de credenciales que aquí se extiende al CSD.
@@ -5440,8 +5467,7 @@ Actualizar `src/ai/docs/cli-reference.md` y el README en lo que describa el timb
 - `mnemosine doctor` incluye los checks 'CFDI simulados' y 'CFDI vs libros', ambos en nivel ok sobre una base recién migrada y sembrada.
 
 
-### E3.2 · Traer los CFDI del SAT y saber si siguen vivos  ·  ⬜ PENDIENTE
-
+### E3.2 · Traer los CFDI del SAT y saber si siguen vivos
 **Objetivo.** Dar consumidor real a la custodia de la e.firma: descarga masiva de CFDI (SolicitaDescarga → VerificaSolicitud → Descargar) con token SOAP firmado con XML-DSig sobre withCredential, ingesta con import_source='sat_download', y consulta de estatus del CFDI ante el SAT que sustituye el "Vigente" simulado, alimenta satStatus del clasificador y detecta la factura ya contabilizada que el emisor canceló después, proponiendo la corrección por reversa.
 
 **Por qué aquí.** La bóveda, parseCertificate/verifyKeyPair, withCredential, el propósito 'sat_auth', el actor desatendido y privateKeyToPem ya están escritos y probados: falta exactamente el consumidor, y sin él el texto de consentimiento de src/services/fiscal-credentials/service.ts:26 ("Authenticate with the SAT to download your issued and received CFDIs") promete algo que el producto no puede cumplir. Del otro lado, cfdi-classifier.ts:150 ya activa la decisión cfdi_cancelado con satStatus='cancelado' y hoy nadie puede dárselo: SATValidationService.validate devuelve 'Vigente' inventado cuando PAC_ENVIRONMENT=sandbox (sat-validation.ts:34-43) y 'error' en cualquier otro caso. Va después del cableado del clasificador (E3.1) porque el dato de estatus sólo vale si alguien lo consume, y antes de cualquier trabajo de conciliación fiscal porque hoy el sistema sólo ve los CFDI que un humano le sube a mano.
@@ -6029,8 +6055,7 @@ Si una credencial tiene unattended_access = false, el ejecutor recibe Credential
 
 ## E4 · Cerrar los ciclos
 
-### E4.1 · Cerrar el ciclo contable de banca y de nómina  ·  ⬜ PENDIENTE
-
+### E4.1 · Cerrar el ciclo contable de banca y de nómina
 **Objetivo.** Que conciliar y correr nómina dejen huella contable comprobable: cada match queda ligado a una sesión y marca la línea del mayor como conciliada una sola vez, las comisiones e intereses del estado de cuenta llegan al libro por asiento posteado, 'balanced' pasa a ser una variancia calculada dentro de tolerancia, y una corrida de nómina persiste su desglose fiscal (paycheck_taxes), genera sus pasivos de entero (employer_tax_liabilities) y entrega en efectivo el subsidio al empleo que hoy se trunca.
 
 **Por qué aquí.** Va después de que account_roles se siembre desde `mnemosine init` (E1.1) porque los asientos de comisiones/intereses y el mapeo de nómina se resuelven por rol, no por código literal; y después del test de contrato SQL↔migraciones (E1.4) porque este paquete toca cinco consultas que hoy referencian columnas inexistentes (form-940 pide `p.futa_employer` cuando la columna es `futa`) y sin ese test la regresión vuelve. Va antes del runtime de trabajos en segundo plano: el barrido de vencimientos de employer_tax_liabilities y el auto-match programado necesitan que el efecto contable ya exista y sea idempotente, no al revés. Y no puede esperar más porque hoy `POST /reconciliations/:id/complete` estampa 'balanced' sin comprobar nada y `POST /pay-runs/:id/post-to-gl` puede postear dos veces la misma corrida.
@@ -6799,8 +6824,7 @@ Limpieza en un finally, en orden de FK: paycheck_taxes, paycheck_earnings, paych
 - Entidad nueva operativa de punta a punta: tras `mnemosine init` en un tenant limpio, account_roles tiene 33 filas, payroll_account_mapping tiene 8, y ni postPayRunToGL ni postStatementAdjustments lanzan MISSING_ROLE_ACCOUNT ni MISSING_PAYROLL_BUCKET.
 
 
-### E4.2 · Trabajos en segundo plano, semántica de saldos y unificación de reportes  ·  🟡 PARCIAL
-
+### E4.2 · Trabajos en segundo plano, semántica de saldos y unificación de reportes
 **Objetivo.** Dar al sistema un lugar donde ejecutar trabajo diferido (un runtime de tareas persistidas en Postgres, con reclamo atómico, historial, métricas y despliegue propio), sacar del camino crítico del posteo los dos REFRESH completos de vistas materializadas que hoy dispara cada asiento, y colapsar las cuatro copias divergentes del SQL de reportes en una sola capa de consulta con un test que impida que vuelvan a separarse. En el camino se documenta y se hace comprobable la semántica de account_balances (beginning_balance / ending_balance).
 
 **Por qué aquí.** El trigger de refresco es el único cuello de botella medible del motor: cada fila que pasa a 'posted' ejecuta DOS `REFRESH MATERIALIZED VIEW CONCURRENTLY` dentro de la transacción del posteo, sobre vistas que hacen `accounts CROSS JOIN fiscal_periods` de TODOS los tenants — y que, verificado, no tienen un solo lector en src/, scripts/ ni tests/. Es coste puro. Al mismo tiempo hay seis necesidades (reintento de webhooks salientes, drenaje de entregas entrantes, depreciación mensual, revalidación de CFDI, presupuesto de IA, y el propio refresco si se conserva) que ya tienen tabla, índice o función escrita y sólo les falta dónde correr. El paquete va después de la auditoría desde el motor (E4.1) porque la depreciación y la reversa por CFDI cancelado deben quedar auditadas, y antes del descargador masivo del SAT, que el propio atlas declara dependiente de este runtime. La unificación de reportes entra aquí y no antes porque el worker necesita leer saldos (presupuesto, invariantes) y sería la quinta copia del mismo SQL.
@@ -7546,8 +7570,7 @@ Además, un test de disciplina en tests/reporting/no-new-copies.spec.ts: recorre
 
 ## E5 · Madurez del agente
 
-### E5.1 · Madurar al agente y su gobierno documental: rehidratación, backstop de importes, failover portable, presupuesto, lazo de skills y sincronía documental  ·  ⬜ PENDIENTE
-
+### E5.1 · Madurar al agente y su gobierno documental: rehidratación, backstop de importes, failover portable, presupuesto, lazo de skills y sincronía documental
 **Objetivo.** Cerrar los seis circuitos abiertos del subsistema de IA: que reanudar una sesión devuelva contexto al modelo, que ningún importe se pierda en la compactación, que el failover funcione después del primer turno, que el gasto tenga tope y la tabla de precios tenga fecha auditada, que exista una entrada real que cree skill_drafts sobre una raíz de skills única, y que los corpus NIF y cli-reference queden bajo el mismo gobierno maquinable que ya tiene el corpus NIIF.
 
 **Por qué aquí.** Todas las piezas caras ya están escritas y probadas (compactView, el resumidor sin herramientas, planCompaction, el escáner de confianza, skill_drafts con diff LCS y aprobación con --accept-risk/--override-drift, ai_usage con costo estimado, el registro NIIF con generador y test de sincronía). Lo que falta en los seis casos es cableado y una primitiva pequeña, no arquitectura. Además, la compactación es la dependencia común: vuelve la historia portable (habilita el failover a mitad de sesión) y es la que rehidrata al reanudar, así que conviene tocarla una sola vez y con el backstop de importes ya dentro. Nada de este paquete escribe al mayor ni toca account_roles, así que corre en paralelo a los paquetes contables sin bloquearlos.
@@ -8222,3 +8245,127 @@ Asuntos reales que ninguno de los paquetes cubre. No están planificados: decidi
 - **Remediaciones destructivas sobre datos ya escritos, concentradas en tres tareas: E1.2-h (reversas del histórico de CFDI PPD mal acreditados), E1.4-a (purga de secretos ya persistidos) y E3.2-i (corrección de facturas canceladas por el emisor). Si alguna se ejecuta mal, corrompe el mayor de una entidad viva y —hoy— sin rastro de quién lo hizo ni forma de revertirlo.** — Ninguna remediación se ejecuta antes de que E0.3 esté cerrada: la bitácora append-only es precondición, no complemento. Toda remediación se entrega con modo dry-run que produce el reporte del universo afectado, se ejecuta primero contra una copia de la base, exige respaldo verificado, y corrige exclusivamente por reversa —nunca por UPDATE— para que el error sea a su vez reversible.
 - **Riesgo de despliegue del perímetro (E2.1): encender withTenant y cambiar al rol mnemosine_app puede dejar sin datos a los diecisiete routers a la vez si una política RLS está incompleta, y existe una ventana de migración a medias en la que la aplicación ya usa el rol restringido pero las políticas aún no están aplicadas.** — E2.1-j (orden de despliegue) se escribe y se ensaya ANTES de E2.1-b, no después. Desplegar en dos fases: primero crear rol y políticas y verificar con verify-isolation.sh ampliado a tablas hijas y vistas materializadas; sólo después cambiar la cadena de conexión de la aplicación, con arranque fail-closed y capacidad de volver al rol anterior sin migración inversa.
 - **Escala del plan frente a su percepción: ≈85 semanas-persona en total, de las cuales ≈19 (más del 20%) son la etapa E0, que no entrega ninguna funcionalidad visible. Es el punto donde históricamente se recorta, y recortarlo deja al resto del plan sin forma de demostrar nada.** — Comprometer E0 como entregable con criterio de salida objetivo y medible (CI en verde, contrato fallando ante divergencias, cero duplicados de numeración) y comunicarlo así desde el inicio. Si hay que comprimir, el orden de recorte es E0.1-k primero (integración de cierre y concurrencia) y nunca E0.2-k ni E0.1-a/-h, que son los que sostienen todo lo demás.
+
+---
+---
+
+# ESTADO DE ESTE PLAN · 2026-09-01
+
+> Esta sección se añade al final a propósito: **el documento de arriba no se
+> edita**. Es el registro de lo que se creía en su momento, y buena parte de lo
+> que decía era cierto entonces y falso ahora. Lo que sigue dice cuánto de él
+> sobrevive, quién heredó cada cosa, y qué nunca se dispuso.
+>
+> El estado **no se lee aquí**: se pregunta con `npm run plan:status` y
+> `npm run catalogo:estado`. Este apéndice sólo reparte propiedad.
+
+## Qué es hoy este documento
+
+Las secciones **prospectivas** de este plan las sustituyó el Plan Maestro. Lo que
+sigue vivo y sólo vive aquí son dos cosas:
+
+1. **El inventario de las 147 tareas** (`E0.0-a` … `E5.1-k`), que es el censo más
+   completo que se ha hecho de la deuda de este sistema.
+2. **Los 24 cabos** de «Asuntos reales que ninguno de los paquetes cubre»
+   (líneas 8204-8232), que hasta hoy nadie había dispuesto.
+
+## La re-medición de las 147
+
+Auditoría integral II, `HEAD 689458a`, informe
+[cierre-cobertura](auditorias/2026-09-01-integral-ii/cierre-cobertura.md):
+
+| Disposición | Auditoría I (2026-08-31) | Hoy | Δ |
+|---|---:|---:|---:|
+| HECHA | 83 | **97** | +14 |
+| ABSORBIDA por una fase del Plan Maestro | 34 | **28** | −6 |
+| PENDIENTE, con rojo en el tablero | 18 | **15** | −3 |
+| PENDIENTE†, sin dueño | 4 | **4** | 0 |
+| CAÍDA→RESCATADA, aún abierta | 8 | **3** | −5 |
+| **Total** | 147 | **147** | — |
+
+Catorce partidas cambiaron de estado y **todas resistieron la verificación**: no
+hay ninguna que la prosa de un commit dé por hecha y el código desmienta.
+
+## La clase peligrosa: absorbida por una fase que corrió y no la entregó
+
+Una partida marcada ABSORBIDA se da por muerta cuando su fase se cierra. Si la
+fase corre y no la entrega, la deuda desaparece del inventario sin haberse
+pagado. La auditoría buscó exactamente eso y encontró tres:
+
+- **`E1.2-i` · La documentación del agente.** Absorbida por F02; F02 corrió y el
+  único `.md` que tocó fue el auto-generado. Los **trece** manuales que el agente
+  lee siguen en la línea base de agosto — y dos de ellos no están
+  desactualizados, están **equivocados**: `mexico-cfdi.md:5` le enseña el
+  tratamiento de IVA que `iva-ppd-reclass.ts` existe para reparar, y
+  `accounting.md:5` promete una anulación con auto-posteo que R1 y F01 hicieron
+  imposible y que además violaría la regla «el agente propone, el humano
+  dispone». Es la partida más peligrosa del inventario: su consumidor no es un
+  humano que pueda dudar.
+- **`E4.2-g` · Revalidación periódica del estatus CFDI.** F02 entregó el barrido
+  y su puerta manual; **la periodicidad no existe** y su dueño real (el worker de
+  la familia `job`) está en F09–F12.
+- **`E3.2-i` · Corrección de facturas canceladas por el emisor.** F02 construyó
+  el detector y no la respuesta: se sabe que un CFDI contabilizado fue cancelado,
+  se escribe en la base, y no se hace nada. Después de F02 el riesgo **subió de
+  categoría**: un dato de incumplimiento conocido y no atendido es peor que uno
+  ignorado.
+
+## Los 24 cabos, dispuestos por fin — partidas 148 a 171
+
+«147/147» fue un conteo completo de **lo numerado** y un conteo incompleto **del
+documento**. Los 24 cabos de la línea 8204 nunca entraron al inventario. Su
+disposición, re-medida hoy:
+
+| | |
+|---|---:|
+| **HECHA** por efecto colateral, sin que nadie los planificara | **6** |
+| **MUTÓ** — dejó de reventar, la capacidad sigue ausente | **1** |
+| **ABSORBIDA** — DIOT, que sí tiene dueño en F07 | **1** |
+| **PENDIENTE, sin dueño** | **16** |
+
+Los seis que cerraron solos: la serie del folio por fecha del documento (R3), la
+reconciliación de `account_balances` (R1), la superficie CLI de `entry reverse` y
+`entry void` (F01), el CSP fuera de producción y el CORS explícito, el consumidor
+real de `tratamiento_ieps` (F02), y el `FOR UPDATE` en la ruta de pago de
+facturas.
+
+El que mutó: el parser de constancias de retenciones. Ya no revienta —F02 lo
+rechaza con explicación— pero la capacidad sigue ausente. Rojo honesto, no cierre.
+
+**Los dieciséis restantes no tienen fase.** Esa es la deuda que este apéndice
+saca a la luz: hasta hoy no figuraban en ningún inventario, así que ningún
+tablero podía ponerse rojo por ellos.
+
+## Qué pasó con los «Riesgos del plan» de la última sección
+
+El documento cierra con nueve riesgos escritos cuando el proyecto **no estaba
+bajo control de versiones**. Su suerte:
+
+- **«No está en git»** — resuelto. Hay repositorio, ramas, CI y revisión.
+- **«Colisión masiva de numeración de migraciones»** — resuelto:
+  `assertNumeracionUnica` en `src/database/migrate.ts` rechaza duplicados, y la
+  cadena va por la 047 sin colisiones.
+- **«Trabajo que se invalida por orden (E2.1 primero)»** — se cumplió el consejo:
+  el perímetro llegó en R2, antes de las fases de flujo.
+- **«Remediaciones destructivas»** — el consejo era «ninguna antes de que la
+  bitácora append-only esté cerrada, y **exige respaldo verificado**». La
+  bitácora se cerró; **el respaldo nunca se construyó**, y la auditoría II lo
+  eleva a bloqueo de fase 1: hoy no hay una sola línea de respaldo o
+  restauración en el árbol.
+- **«Dependencia externa del PAC»** — sigue viva pero es **más pequeña de lo que
+  se creía**: el único adaptador no simulado del repositorio ya está escrito y
+  es inalcanzable por una línea que falta en el registro.
+- **«Escala del plan: ≈19 semanas-persona de E0 que no entregan funcionalidad
+  visible»** — el riesgo se materializó y se manejó bien: S0 se ejecutó entero.
+  La re-medición del coste lo confirma desde otro ángulo: hoy **el 49 % de cada
+  fila entregada es garantía**, no entrega.
+
+## Una advertencia sobre este apéndice
+
+La auditoría II encontró que la compuerta que debía impedir exactamente este tipo
+de deriva —`FLUJOS_CERRADOS` en `src/plan/criterios.ts`, que exige registro de
+auditoría antes de declarar cerrado un flujo— **está vacía**, con su único
+renglón comentado. F01, F02 y A3–A4 se declararon hechos sin registro.
+
+Este apéndice existe porque una auditoría lo buscó a mano. Que no haga falta
+buscarlo a mano la próxima vez es trabajo del Plan Maestro v3.

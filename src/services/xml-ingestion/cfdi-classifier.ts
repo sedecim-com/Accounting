@@ -136,7 +136,8 @@ export async function classifyParsed(
   }
 
   // ── Decisions applicable given the facts + those from external context
-  const points: DecisionPoint[] = decisionsFor(facts, opts.thresholds ?? DEFAULT_THRESHOLDS).filter(
+  const effectiveThresholds = opts.thresholds ?? DEFAULT_THRESHOLDS;
+  const points: DecisionPoint[] = decisionsFor(facts, effectiveThresholds).filter(
     (d) => matched.decisions?.includes(d.id) ?? false
   );
   if (opts.vendorExists === false && facts.direction === 'recibido') {
@@ -163,7 +164,16 @@ export async function classifyParsed(
       severity: d.severity,
       question: d.question,
       context: d.context(facts),
-      options: d.options.map((o) => ({ value: o.value, label: o.label })),
+      // F02 · lleva_inventarios (E1.3): solo el literal 'perpetuos' habilita
+      // la opción de inventario — un despacho a costo directo no puede
+      // acabar con compras capitalizadas en 1140 por un click distraído.
+      options: d.options
+        .filter(
+          (o) =>
+            !(d.id === 'gasto_vs_activo' && o.value === 'inventario' &&
+              effectiveThresholds.inventoryPolicy !== 'perpetuos')
+        )
+        .map((o) => ({ value: o.value, label: o.label })),
       default: d.default,
       topic: d.topic(facts),
       basis: d.basis,
@@ -177,7 +187,7 @@ export async function classifyParsed(
   for (const t of matched.posting) {
     const amount = t.amount(facts);
     if (t.omitIfZero && Math.abs(amount) < 0.005) continue;
-    const role = (t.role === 'gasto' && roleOverride ? roleOverride : t.role) as AccountRole;
+    const role = (t.role === 'gasto' && roleOverride ? roleOverride : t.role);
     const acct = roleMap.get(role);
     if (!acct) missingRoles.push(role);
     lines.push({
@@ -202,6 +212,17 @@ export async function classifyParsed(
     warnings.push(
       `CFDI in ${facts.moneda} with exchange rate ${facts.tipoCambio}: amounts are recorded ` +
         `in the functional currency and an exchange difference may arise upon payment.`
+    );
+  }
+  // Capitalizar sin depreciar sobrevalúa el activo y deja sin tomar una
+  // deducción, mes a mes. Mientras el motor de depreciación no tenga puerta,
+  // el aviso viaja con el documento para que la falta sea visible en la
+  // revisión y no se descubra al cierre del ejercicio.
+  if (lines.some((l) => l.role === 'activo_fijo')) {
+    warnings.push(
+      'Capitalized as a fixed asset: the amount is booked to the fixed-asset account, but the ' +
+        'system does NOT register the asset nor compute its monthly depreciation. That deduction ' +
+        'has to be recorded by hand until the depreciation engine has a way in.'
     );
   }
   if (facts.importeExento > 0) {

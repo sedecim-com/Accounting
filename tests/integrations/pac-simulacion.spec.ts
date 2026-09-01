@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { configFalso } = vi.hoisted(() => ({
-  configFalso: { env: 'development' as string },
+  configFalso: { env: 'development' },
 }));
 
 vi.mock('../../src/config/index.js', () => ({ config: configFalso }));

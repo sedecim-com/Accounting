@@ -9,6 +9,39 @@ vi.mock('../../../src/database/connection.js', () => ({
   withTransaction: vi.fn(async (fn: (c: unknown) => unknown) => fn(clienteTx)),
 }));
 
+// R2: scope.ts se mockea PASANDO por el mismo mockQuery, para que las
+// secuencias mockResolvedValueOnce de cada prueba sigan alineadas (una
+// consulta por lectura, como antes). La frontera real la prueba la suite de
+// integración (perimetro-r2); aquí se prueba la lógica del servicio.
+vi.mock('../../../src/database/scope.js', async () => {
+  const { NotFoundError } = await vi.importActual<typeof import('../../../src/utils/errors.js')>(
+    '../../../src/utils/errors.js'
+  );
+  const { query } = await import('../../../src/database/connection.js');
+  const find = async (tabla: string, id: string) => {
+    const r = await (query as unknown as (s: string, p: unknown[]) => Promise<{ rows: unknown[] }>)(
+      `SELECT * FROM ${tabla} WHERE id = $1 AND entity_id = $2`,
+      [id, 'e-1']
+    );
+    return (r.rows[0] as Record<string, unknown> | undefined) ?? null;
+  };
+  return {
+    entityScope: (tenantId: string, entityId: string) => ({ kind: 'entity', tenantId, entityId }),
+    tenantScope: (tenantId: string) => ({ kind: 'tenant', tenantId }),
+    findByIdInScope: find,
+    requireByIdInScope: async (tabla: string, id: string) => {
+      const fila = await find(tabla, id);
+      if (!fila) throw new NotFoundError(tabla, id);
+      return fila;
+    },
+    condicionDeAlcance: async (_t: string, _s: unknown, i: number) => ({
+      sql: `entity_id = $${i}`,
+      valor: 'e-1',
+    }),
+  };
+});
+
+
 import {
   listCustomers,
   getCustomerById,
@@ -25,9 +58,10 @@ import {
   CUSTOMER_UPDATABLE_FIELDS,
 } from '../../../src/services/ar/customer-service.js';
 import { query } from '../../../src/database/connection.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const SCOPE = { kind: 'entity', tenantId: 't-1', entityId: 'e-1' } as const;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const CUSTOMER = '11111111-2222-3333-4444-555555555555';
 const USER = 'user-1';
@@ -248,25 +282,25 @@ describe('createCustomer', () => {
 describe('updateCustomer', () => {
   it('writes only whitelisted fields, in the historical order', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: CUSTOMER }] });
-    await updateCustomer(CUSTOMER, { email: 'a@b.com', phone: '555' });
+    await updateCustomer(CUSTOMER, SCOPE, { email: 'a@b.com', phone: '555' });
     expect(sql(0)).toMatch(/SET email = \$1, phone = \$2, updated_at = NOW\(\) WHERE id = \$3/);
   });
 
   it('refuses a patch with nothing in it', async () => {
-    await expect(updateCustomer(CUSTOMER, {})).rejects.toThrow(ValidationError);
+    await expect(updateCustomer(CUSTOMER, SCOPE, {})).rejects.toThrow(ValidationError);
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
   it('ignores fields outside the whitelist', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: CUSTOMER }] });
-    await updateCustomer(CUSTOMER, { email: 'a@b.com', tax_id: 'HACK' } as never);
+    await updateCustomer(CUSTOMER, SCOPE, { email: 'a@b.com', tax_id: 'HACK' } as never);
     expect(sql(0)).not.toMatch(/tax_id/);
     expect(CUSTOMER_UPDATABLE_FIELDS).not.toContain('tax_id' as never);
   });
 
   it('makes exactly one round trip when nobody asked for an audit row', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: CUSTOMER }] });
-    await updateCustomer(CUSTOMER, { phone: '555' });
+    await updateCustomer(CUSTOMER, SCOPE, { phone: '555' });
     expect(mockQuery.mock.calls).toHaveLength(1);
   });
 
@@ -274,7 +308,7 @@ describe('updateCustomer', () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: CUSTOMER, phone: null }] }); // read before
     clienteTx.query.mockResolvedValueOnce({ rows: [{ id: CUSTOMER, phone: '555' }] }); // update
     clienteTx.query.mockResolvedValueOnce({ rows: [] }); // audit insert
-    await updateCustomer(CUSTOMER, { phone: '555' }, {
+    await updateCustomer(CUSTOMER, SCOPE, { phone: '555' }, {
       audit: { userId: USER, tenantId: TENANT, reason: 'confirmed by the customer' },
     });
 
@@ -294,7 +328,7 @@ describe('updateCustomer', () => {
 
   it('throws NotFound when the row does not exist', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await expect(updateCustomer('gone', { phone: '5' })).rejects.toThrow(NotFoundError);
+    await expect(updateCustomer('gone', SCOPE, { phone: '5' })).rejects.toThrow(NotFoundError);
   });
 });
 
@@ -303,7 +337,7 @@ describe('archiveCustomer — archiving is not collecting', () => {
     mockQuery.mockResolvedValueOnce({
       rows: [{ open_balance: '11600.0000', overdue_balance: '0', open_documents: 1, oldest_due_date: null }],
     });
-    await expect(archiveCustomer(CUSTOMER)).rejects.toThrow(
+    await expect(archiveCustomer(CUSTOMER, SCOPE)).rejects.toThrow(
       expect.objectContaining({ name: 'ValidationError', message: expect.stringContaining('11600.0000') })
     );
     // Nothing was written.
@@ -315,7 +349,7 @@ describe('archiveCustomer — archiving is not collecting', () => {
       rows: [{ open_balance: '500.0000', overdue_balance: '0', open_documents: 2, oldest_due_date: null }],
     });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: CUSTOMER }] });
-    const result = await archiveCustomer(CUSTOMER, { allowWithBalance: true });
+    const result = await archiveCustomer(CUSTOMER, SCOPE, { allowWithBalance: true });
     expect(result.balance.open_documents).toBe(2);
     expect(sql(1)).toMatch(/SET is_active = \$1/);
     expect(params(1)[0]).toBe(false);
@@ -326,7 +360,7 @@ describe('archiveCustomer — archiving is not collecting', () => {
       rows: [{ open_balance: '0', overdue_balance: '0', open_documents: 0, oldest_due_date: null }],
     });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: CUSTOMER }] });
-    await archiveCustomer(CUSTOMER);
+    await archiveCustomer(CUSTOMER, SCOPE);
     expect(sql(1)).not.toMatch(/DELETE/i);
   });
 });
@@ -334,7 +368,7 @@ describe('archiveCustomer — archiving is not collecting', () => {
 describe('restoreCustomer', () => {
   it('flips the same flag back', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: CUSTOMER }] });
-    await restoreCustomer(CUSTOMER);
+    await restoreCustomer(CUSTOMER, SCOPE);
     expect(sql(0)).toMatch(/SET is_active = \$1/);
     expect(params(0)[0]).toBe(true);
   });
@@ -352,14 +386,15 @@ describe('customerLabel', () => {
 describe('getCustomerById', () => {
   it('returns null instead of throwing, so callers choose the error', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    expect(await getCustomerById(CUSTOMER)).toBeNull();
+    expect(await getCustomerById(CUSTOMER, SCOPE)).toBeNull();
   });
 
   it('reads the row alone unless the balance or the documents were asked for', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: CUSTOMER }] });
-    await getCustomerById(CUSTOMER);
+    await getCustomerById(CUSTOMER, SCOPE);
     expect(mockQuery.mock.calls).toHaveLength(1);
-    expect(sql(0)).toBe('SELECT * FROM customers WHERE id = $1');
+    // R2: la frontera viaja en el SQL — el mock de scope.ts la escribe igual.
+    expect(sql(0)).toBe('SELECT * FROM customers WHERE id = $1 AND entity_id = $2');
   });
 
   it('attaches the balance, the open documents and the recent payments on request', async () => {
@@ -367,7 +402,7 @@ describe('getCustomerById', () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ open_balance: '10', overdue_balance: '0', open_documents: 1 }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ invoice_number: 'INV-1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ payment_number: 'PMT-1' }] });
-    const card = await getCustomerById(CUSTOMER, { includeDocuments: true });
+    const card = await getCustomerById(CUSTOMER, SCOPE, { includeDocuments: true });
     expect(card?.open_balance).toBe('10');
     expect(card?.open_invoices).toHaveLength(1);
     expect(card?.recent_payments).toHaveLength(1);

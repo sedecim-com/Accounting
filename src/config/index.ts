@@ -2,6 +2,37 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// ============================================================
+// DEVELOPMENT DEFAULTS FOR SECRETS
+//
+// Named, so the production check below can recognise them by
+// identity instead of by a string literal repeated in two places
+// that drift apart.
+// ============================================================
+
+/** Signs and verifies every access token when JWT_SECRET is unset. */
+const DEV_JWT_SECRET = 'dev-secret-change-me';
+
+/** AES key when ENCRYPTION_KEY is unset: 32 bytes of zeros. */
+const DEV_ENCRYPTION_KEY = '0'.repeat(64);
+
+/**
+ * Every JWT secret this repository publishes, not just the one the code falls
+ * back to. docker/docker-compose.yml:15 hands the container
+ * 'dev-secret-change-in-production' — a different string, equally readable by
+ * anyone with a clone, and therefore equally able to forge a token for any
+ * tenant. A gate that only recognised the code default would let a compose
+ * file flipped to NODE_ENV=production start with a published secret and
+ * report itself checked.
+ *
+ * Add to this set, never subtract: a secret that has been in the repository
+ * is burned whether or not it is still the default.
+ */
+const PUBLISHED_JWT_SECRETS = new Set<string>([
+  DEV_JWT_SECRET,
+  'dev-secret-change-in-production',
+]);
+
 export const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
@@ -70,13 +101,16 @@ export const config = {
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'dev-secret-change-me',
+    // Development default. Refused in production by assertProductionSecrets()
+    // at the bottom of this file — see the note there.
+    secret: process.env.JWT_SECRET || DEV_JWT_SECRET,
     accessExpiration: process.env.JWT_ACCESS_EXPIRATION || '1h',
     refreshExpiration: process.env.JWT_REFRESH_EXPIRATION || '30d',
   },
 
   encryption: {
-    key: process.env.ENCRYPTION_KEY || '0'.repeat(64),
+    // Development default: a 32-byte key of zeros. Same treatment.
+    key: process.env.ENCRYPTION_KEY || DEV_ENCRYPTION_KEY,
   },
 
   aws: {
@@ -112,4 +146,89 @@ export const config = {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '3600000', 10),
     maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000', 10),
   },
+
+  // F02 · Consulta de estatus de CFDI ante el SAT. Servicio PÚBLICO y
+  // anónimo (no usa e.firma ni PAC, no pasa por withCredential): el bloqueo
+  // de E3.1/E3.2 no le aplica. statusMode 'off' apaga la consulta con un
+  // resultado que LO DICE — nunca un «Vigente» simulado.
+  sat: {
+    consultaUrl:
+      process.env.SAT_CONSULTA_URL ||
+      'https://consultaqr.facturaelectronica.sat.gob.mx/ConsultaCFDIService.svc',
+    statusMode: (process.env.SAT_STATUS_MODE || 'on') as 'on' | 'off',
+  },
 } as const;
+
+// ============================================================
+// PRODUCTION SECRET CHECK
+//
+// A development default that survives into production is not a
+// weak secret — it is a PUBLISHED one. 'dev-secret-change-me' is
+// in this repository, so anyone holding a copy can mint an access
+// token for any tenant and any role; and a 32-byte encryption key
+// of zeros means the vendor bank accounts, CLABEs and fiscal
+// credentials in the database are stored in something that looks
+// like ciphertext and is not.
+//
+// Both defaults are correct in development and in the test suite,
+// which is exactly why they are dangerous: nothing ever fails,
+// nothing ever warns, and the first signal is a breach. So the
+// process refuses to start under NODE_ENV=production while either
+// is still in place. Loud, at import time, before a single request
+// is served — the same posture the vault takes in
+// services/vault/index.ts.
+//
+// Deliberately NOT a warning. A warning in a log nobody reads is
+// how this class of defect reaches production in the first place.
+//
+// It fires on IMPORT, not on server start, so it also catches the
+// CLI and the migration runner — an operator running `mnemosine`
+// against production with no ENCRYPTION_KEY is writing the same
+// unprotected rows the API would.
+// ============================================================
+
+/**
+ * The complaints against a given (env, secret, key) triple. Pure and
+ * exported so the rule can be tested for every combination without
+ * reloading this module — the module reads real process.env exactly
+ * once, and a test that has to fake that is a test nobody trusts.
+ *
+ * Empty array means "nothing to say", which for a non-production env
+ * is always the answer: the defaults are the point in development.
+ */
+export function insecureProductionSecrets(
+  env: string,
+  jwtSecret: string,
+  encryptionKey: string
+): string[] {
+  if (env !== 'production') return [];
+
+  const problems: string[] = [];
+  if (PUBLISHED_JWT_SECRETS.has(jwtSecret)) {
+    problems.push(
+      'JWT_SECRET is a value committed to this repository — the code default, or the one ' +
+        'docker/docker-compose.yml passes the container. Anyone with the source can forge a token ' +
+        'for any tenant. Set it to a random value of at least 32 bytes.'
+    );
+  }
+  if (encryptionKey === DEV_ENCRYPTION_KEY) {
+    problems.push(
+      'ENCRYPTION_KEY is 32 bytes of zeros. Bank accounts, CLABEs and fiscal credentials would be ' +
+        'written to the database effectively in the clear. Set it to 64 hex characters ' +
+        '(`openssl rand -hex 32`). Changing it later makes existing ciphertext unreadable, so set ' +
+        'it before the first write.'
+    );
+  }
+  return problems;
+}
+
+const secretProblems = insecureProductionSecrets(
+  config.env,
+  config.jwt.secret,
+  config.encryption.key
+);
+if (secretProblems.length > 0) {
+  throw new Error(
+    `Refusing to start with NODE_ENV=production and development secrets:\n  - ${secretProblems.join('\n  - ')}`
+  );
+}

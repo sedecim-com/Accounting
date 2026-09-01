@@ -1,11 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
 import { registrarAuditoria } from '../audit/audit-log.js';
+import { getPolicy } from '../policy/policy-service.js';
 import type pg from 'pg';
-import { query, withTransaction, currentTenant } from '../../database/connection.js';
+import { withTransaction, currentTenant } from '../../database/connection.js';
 import { validateJournalEntry } from './validation.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ErrorCodes } from '../../utils/errors.js';
 import { blockchainOrchestrator } from '../blockchain/orchestrator.js';
+import { JournalEntryStatus } from '../../types/index.js';
 import type {
   JournalEntry,
   JournalEntryLine,
@@ -109,7 +111,7 @@ export async function createJournalEntry(
     // Generate entry number (atomic per-entity counter; the row lock it
     // takes lives until this transaction commits, so concurrent posts can
     // never draw the same number — COUNT(*) here used to collide).
-    const entryNumber = await nextEntityNumber(client, entityId, 'journal_entry', 'JE');
+    const entryNumber = await nextEntityNumber(client, entityId, 'journal_entry', 'JE', entryDate);
 
     // Create journal entry
     const entryId = uuidv4();
@@ -181,6 +183,9 @@ export async function createJournalEntry(
         );
       }
 
+      // Mismo candado que postJournalEntry (R1): el autoPost también postea.
+      await bloquearPeriodoParaPostear(client, entry.fiscal_period_id);
+
       const now = new Date();
       await client.query(
         `UPDATE journal_entries SET status = 'posted', posted_date = $1, posted_by = $2 WHERE id = $3`,
@@ -245,7 +250,23 @@ export async function postJournalEntry(
   entryId: string,
   userId: string
 ): Promise<JournalEntry> {
-  return withTransaction(async (client) => {
+  // EL AGUJERO QUE ESTA FUNCIÓN TENÍA EN LA CADENA DE INTEGRIDAD.
+  //
+  // `attestEntryAsync` se disparaba al crear con autoPost, al revertir y al
+  // anular — nunca al postear un borrador. Y postear un borrador es el camino
+  // normal: lo usa `entry post`, las dos superficies HTTP y el posteo de
+  // nómina, que crea sin autoPost y postea aparte. Todo asiento nacido
+  // borrador quedaba fuera de la cadena, sin `entry_hash`, y por tanto fuera
+  // del sello del periodo, que sólo abarcaba lo que tuviera hash.
+  //
+  // Mismo molde que las otras tres: titular fuera, relleno dentro de la
+  // transacción, disparo DESPUÉS del commit — el orquestador vuelve a leer el
+  // asiento de la base, así que dispararlo antes es una carrera.
+  const attest: { info: { tenantId: string; entityId: string; entryId: string } | null } = {
+    info: null,
+  };
+
+  const result = await withTransaction(async (client) => {
     const entryResult = await client.query<JournalEntry>(
       'SELECT * FROM journal_entries WHERE id = $1 FOR UPDATE',
       [entryId]
@@ -257,11 +278,11 @@ export async function postJournalEntry(
 
     const entry = entryResult.rows[0];
 
-    if (entry.status === 'posted') {
+    if (entry.status === JournalEntryStatus.POSTED) {
       throw new AccountingError('ALREADY_POSTED', 'Journal entry is already posted');
     }
 
-    if (entry.status === 'void') {
+    if (entry.status === JournalEntryStatus.VOID) {
       throw new AccountingError('ENTRY_VOID', 'Cannot post a voided entry');
     }
 
@@ -279,6 +300,46 @@ export async function postJournalEntry(
       );
     }
 
+    // Se resuelve una sola vez y sirve para tres cosas: la política de
+    // segregación, la auditoría y la atestación. Es la variante ESTRICTA
+    // —lanza si no resuelve—, así que no hace falta condicionar el titular
+    // como hacen reverse y void, que usan la blanda.
+    const tenantId = await tenantParaAuditoria(client, entry.entity_id);
+
+    // F01 · MAKER-CHECKER HUMANO (decisión §5, resuelta como panel).
+    //
+    // Solo pólizas MANUALES (source_type nulo): en los flujos del sistema —
+    // nómina, aprobación de borradores de IA, reversas — creador=posteador es
+    // intencional y el maker real queda trazado por source_type/source_id.
+    // Cerrado al declarar, abierto al escribir: solo el literal 'exigir'
+    // bloquea y solo 'alertar' anota; un valor desconocido cae al lado que no
+    // congela la operación (off), igual que ingest_auto_post con 'on'.
+    let notaSoD: string | null = null;
+    if (!entry.source_type && entry.created_by === userId) {
+      const politica = await getPolicy(
+        { tenantId, entityId: entry.entity_id },
+        'segregacion_de_funciones'
+      );
+      if (politica.value === 'exigir') {
+        throw new AccountingError(
+          'SOD_QUIEN_CREA_NO_POSTEA',
+          `${entry.entry_number}: la política de segregación de funciones exige que quien postea ` +
+            'no sea quien creó el borrador. Que otro usuario corra entry post, o ajusta la ' +
+            'política segregacion_de_funciones en mnemosine pending.'
+        );
+      }
+      if (politica.value === 'alertar') {
+        notaSoD = 'SoD: quien postea es quien creó el borrador (política en alertar)';
+      }
+    }
+
+    // Candado compartido sobre el periodo (R1): la validación de arriba lee
+    // el estado FUERA de esta transacción, así que un cierre concurrente
+    // podía colarse entre la lectura y el UPDATE. El FOR SHARE se cruza con
+    // el FOR UPDATE del cierre: o el posteo entra antes de que el cierre
+    // tome su foto del checklist, o espera a que el cierre decida.
+    await bloquearPeriodoParaPostear(client, entry.fiscal_period_id);
+
     // Post the entry
     const now = new Date();
     await client.query(
@@ -289,13 +350,14 @@ export async function postJournalEntry(
     );
 
     await registrarAuditoria(client, {
-      tenantId: await tenantParaAuditoria(client, entry.entity_id),
+      tenantId,
       userId,
       action: 'post',
       entityType: 'journal_entries',
       entityId: entryId,
       oldValues: { status: entry.status },
       newValues: { status: 'posted', posted_by: userId },
+      reason: notaSoD,
     });
 
     // Update account balances
@@ -318,8 +380,19 @@ export async function postJournalEntry(
       [entryId]
     );
 
+    attest.info = { tenantId, entityId: entry.entity_id, entryId };
+
     return { ...updatedEntry.rows[0], lines: linesResult.rows };
   });
+
+  // Sin guardas: las cuatro salidas alternativas de arriba son excepciones y
+  // abortan la transacción, así que llegar aquí significa que el asiento
+  // quedó posteado. Y como ALREADY_POSTED lanza, este camino no puede atestar
+  // dos veces el mismo asiento.
+  if (attest.info) {
+    attestEntryAsync(attest.info.tenantId, attest.info.entityId, attest.info.entryId);
+  }
+  return result;
 }
 
 /**
@@ -329,6 +402,39 @@ export async function postJournalEntry(
  * que la entidad existe— y el error señala un fallo de contexto, no un
  * dato faltante.
  */
+/**
+ * Candado compartido del periodo dentro de la transacción de posteo (R1).
+ *
+ * La regla 4 de validación lee el estado del periodo con una consulta de
+ * POOL, fuera de la transacción: entre esa lectura y el UPDATE que postea,
+ * un cierre concurrente podía confirmar — y el asiento aterrizaba en un
+ * periodo cuyo checklist ya se había fotografiado sin él. El FOR SHARE se
+ * cruza con el FOR UPDATE que el cierre toma sobre su fila: los posteos
+ * concurren entre sí (SHARE no bloquea SHARE) y el cierre serializa contra
+ * todos. La re-verificación usa la MISMA regla que la validación
+ * (hard_close/locked rechazan; future/soft_close son compuerta de política,
+ * no barrera) para no cambiar comportamiento, sólo cerrar la carrera.
+ */
+async function bloquearPeriodoParaPostear(
+  client: pg.PoolClient,
+  fiscalPeriodId: string
+): Promise<void> {
+  const r = await client.query<{ status: string; period_name: string }>(
+    'SELECT status, period_name FROM fiscal_periods WHERE id = $1 FOR SHARE',
+    [fiscalPeriodId]
+  );
+  const p = r.rows[0];
+  if (!p) {
+    throw new AccountingError('PERIOD_NOT_FOUND', 'Fiscal period not found while posting');
+  }
+  if (p.status === 'hard_close' || p.status === 'locked') {
+    throw new AccountingError(
+      'PERIOD_CLOSED',
+      `${p.period_name} is '${p.status}': it closed while this entry was in flight; nothing was posted`
+    );
+  }
+}
+
 async function tenantParaAuditoria(client: pg.PoolClient, entityId: string): Promise<string> {
   const tenantId = await resolveTenantId(client, entityId);
   if (!tenantId) {
@@ -393,7 +499,7 @@ async function reverseWithinTransaction(
   description: string,
   reversalDate: Date
 ): Promise<JournalEntry> {
-  if (entry.status !== 'posted') {
+  if (entry.status !== JournalEntryStatus.POSTED) {
     throw new AccountingError(
       'ENTRY_NOT_POSTED',
       `Only posted entries can be reversed; ${entry.entry_number} is '${entry.status}' and never touched the ledger — reject or void it instead`
@@ -531,12 +637,12 @@ export async function voidJournalEntryInTx(
 
   const entry = entryResult.rows[0];
 
-  if (entry.status === 'void') {
+  if (entry.status === JournalEntryStatus.VOID) {
     throw new AccountingError('ALREADY_VOID', 'Journal entry is already voided');
   }
 
   let reversal: JournalEntry | null = null;
-  if (entry.status === 'posted') {
+  if (entry.status === JournalEntryStatus.POSTED) {
     // reverseWithinTransaction rejects a second void via ALREADY_REVERSED.
     reversal = await reverseWithinTransaction(
       client,

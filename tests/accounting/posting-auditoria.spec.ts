@@ -16,17 +16,29 @@ import { JournalEntryType, type JournalEntry } from '../../src/types/index.js';
  * confirmado aparte sobrevive a un ROLLBACK del hecho que dice describir.
  */
 
-const { arnes, validateJournalEntry, attest, inquilino } = vi.hoisted(() => ({
-  arnes: { actual: null } as { actual: ClienteFalso | null },
-  validateJournalEntry: vi.fn(),
-  attest: vi.fn(),
-  inquilino: { actual: 'tenant-1' as string | undefined },
-}));
+const { arnes, validateJournalEntry, attest, inquilino } = vi.hoisted(() => {
+  // Annotated rather than asserted: these holders start at one type and are
+  // reassigned to another per test, and no-unnecessary-type-assertion reads a
+  // widening `as` here as redundant (it is not — without it the initial value
+  // fixes the type and every later assignment fails to compile).
+  const arnes: { actual: ClienteFalso | null } = { actual: null };
+  const inquilino: { actual: string | undefined } = { actual: 'tenant-1' };
+  return { arnes, validateJournalEntry: vi.fn(), attest: vi.fn(), inquilino };
+});
 
 vi.mock('../../src/database/connection.js', () => ({
   withTransaction: vi.fn(async (fn: (c: unknown) => unknown) => fn(arnes.actual!.client)),
   query: vi.fn(),
   currentTenant: vi.fn(() => inquilino.actual),
+}));
+
+// F01: el maker-checker lee la política del panel dentro de postJournalEntry;
+// el arnés la deja en 'off' (el default de la casa) para que estas pruebas
+// midan lo suyo. El propio maker-checker tiene sus pruebas aparte.
+vi.mock('../../src/services/policy/policy-service.js', () => ({
+  getPolicy: vi.fn(async (_ctx: unknown, key: string) => ({
+    key, value: 'off', defined: false, question: '', rationale: '',
+  })),
 }));
 
 vi.mock('../../src/services/accounting/validation.js', () => ({
@@ -186,6 +198,8 @@ describe('contabilización, reversión y anulación', () => {
     return clienteFalso([
       AUDITORIA,
       { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [entry] } },
+      // R1: el candado compartido del periodo dentro de la transacción de posteo.
+      { cuando: /FROM fiscal_periods WHERE id = \$1 FOR SHARE/, responde: { rows: [{ status: 'open', period_name: 'Periodo de prueba' }] } },
       { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
       { cuando: /UPDATE journal_entries\s+SET status = 'posted'/, responde: {} },
       { cuando: /INSERT INTO account_balances/, responde: {} },

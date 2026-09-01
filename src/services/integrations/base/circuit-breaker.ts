@@ -91,7 +91,7 @@ export class CircuitBreaker {
   /**
    * Record a failed call
    */
-  async recordFailure(tenantId: string, provider: string, error?: Error): Promise<void> {
+  async recordFailure(tenantId: string, provider: string, _error?: Error): Promise<void> {
     const state = await this.getState(tenantId, provider);
     const newFailures = state.consecutive_failures + 1;
 

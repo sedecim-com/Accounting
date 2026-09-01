@@ -1,0 +1,8 @@
+{
+  "caso": "ask-equipo-computo",
+  "resultado": "pregunta",
+  "tratamiento": null,
+  "sospecha": false,
+  "asiento": null,
+  "nota": "Activo fijo (1220) o gasto: depende del umbral de capitalizacion del despacho (panel umbral_capitalizacion_mxn). La respuesta correcta es preguntar, no adivinar."
+}

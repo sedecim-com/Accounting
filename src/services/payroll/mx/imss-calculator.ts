@@ -64,7 +64,7 @@ export class MexicoImssEmployeeCalculator implements ITaxCalculator {
     const sbcCapped = Math.min(sbc_daily, topeSbc);
     const excedente3uma = Math.max(0, sbcCapped - 3 * uma);
 
-    const ee = (params.imss_employee as unknown as ImssRates) || ({} as ImssRates);
+    const ee = (params.imss_employee as ImssRates) || ({} as ImssRates);
 
     const breakdown: Record<string, number> = {};
 
@@ -111,7 +111,7 @@ export class MexicoImssEmployerCalculator implements ITaxCalculator {
     const topeSbc = uma * 25;
     const sbcCapped = Math.min(sbc_daily, topeSbc);
     const excedente3uma = Math.max(0, sbcCapped - 3 * uma);
-    const er = (params.imss_employer as unknown as ImssEmployerRates) || ({} as ImssEmployerRates);
+    const er = (params.imss_employer as ImssEmployerRates) || ({} as ImssEmployerRates);
 
     const breakdown: Record<string, number> = {};
 

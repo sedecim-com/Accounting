@@ -85,7 +85,13 @@ function extractRfc(subject: string): string | null {
 }
 
 function classify(cert: forge.pki.Certificate): CertificateInfo['type'] {
-  const ku = cert.getExtension('keyUsage') as unknown as
+  // node-forge types getExtension() as `{}`; the keyUsage extension really
+  // carries these flags, and they are what separates an e.firma from a CSD.
+  // `{}` is assignable to an all-optional shape, so the rule below reads this
+  // assertion as a no-op. tsc does not: without it the property reads on the
+  // next line fail to compile with TS2339.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  const ku = cert.getExtension('keyUsage') as
     | { dataEncipherment?: boolean; keyEncipherment?: boolean }
     | undefined;
   if (!ku) return 'unknown';
@@ -124,7 +130,7 @@ export function decryptPrivateKey(keyDer: Buffer, password: string): forge.pki.r
       'Could not decrypt the private key: the password is incorrect or the format is not the SAT .key.'
     );
   }
-  return forge.pki.privateKeyFromAsn1(info) as forge.pki.rsa.PrivateKey;
+  return forge.pki.privateKeyFromAsn1(info);
 }
 
 /** Key as PEM, ready for signing (XML-DSig of the SAT token). */

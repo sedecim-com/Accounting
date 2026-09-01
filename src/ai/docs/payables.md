@@ -15,4 +15,5 @@
 - In CFDI ingestion: propose the draft journal entry for the expense (see the mnemosine doc).
 
 ## Human (REST /v1/bills)
-- POST / (create), POST /:id/approve, POST /:id/schedule-payment, POST /payments (payment applied to bills).
+- POST / (create), POST /:id/approve, POST /payments (payment applied to bills — this is the call that moves amount_due and posts to the ledger).
+- POST /:id/schedule-payment answers 501: mnemosine has no payment scheduler and no connection to any bank. It used to answer 200 and append a line to bills.memo, which left the vendor unpaid on the date it reported. Never tell a human a payment is scheduled.

@@ -17,7 +17,7 @@ const CWD = '/fake/project';
 function healthyDeps(over: Partial<DetectDeps> = {}): DetectDeps {
   return {
     cwd: CWD,
-    env: { DATABASE_URL: 'postgresql://localhost/accounting' } as NodeJS.ProcessEnv,
+    env: { DATABASE_URL: 'postgresql://localhost/accounting' },
     fileExists: (p: string) => p === path.join(CWD, '.env'),
     probeDb: vi.fn().mockResolvedValue(undefined),
     countActiveEntities: vi.fn().mockResolvedValue(2),
@@ -30,7 +30,7 @@ describe('detectSetupState — fresh', () => {
   it('is fresh when neither .env nor any config file exists', async () => {
     const probeDb = vi.fn();
     const state = await detectSetupState(
-      healthyDeps({ fileExists: () => false, env: {} as NodeJS.ProcessEnv, probeDb })
+      healthyDeps({ fileExists: () => false, env: {}, probeDb })
     );
     expect(state.state).toBe('fresh');
     expect(state.reasons).toContain('no .env file (never configured)');
@@ -39,7 +39,7 @@ describe('detectSetupState — fresh', () => {
   });
 
   it('is fresh when config exists but DATABASE_URL is missing', async () => {
-    const state = await detectSetupState(healthyDeps({ env: {} as NodeJS.ProcessEnv }));
+    const state = await detectSetupState(healthyDeps({ env: {} }));
     expect(state.state).toBe('fresh');
     expect(state.reasons.join(' ')).toContain('DATABASE_URL');
   });
