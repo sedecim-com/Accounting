@@ -107,7 +107,12 @@ export async function setCachedReport(key: string, data: unknown): Promise<void>
   } catch { /* ignore */ }
 }
 
-export async function invalidateReportCache(entityId: string, periodId?: string): Promise<void> {
+// Entity-wide by design: the report keys below are `report:<name>:<entityId>:*`,
+// so there is no period in the key to narrow on. The parameter that used to sit
+// here suggested a per-period invalidation the key scheme cannot deliver, which
+// is a trap for the first caller who trusts it. Narrowing this needs the period
+// in the cache key first.
+export async function invalidateReportCache(entityId: string): Promise<void> {
   try {
     const r = getRedis();
     if (!r) return;

@@ -87,7 +87,7 @@ const recordPaymentSchema = z.object({
 // Enforcing it is an observable API change -- a body-less POST that used to
 // succeed now gets 422 VALIDATION_ERROR from validateBody.
 const voidInvoiceSchema = z.object({
-  reason: z.string().min(1),
+  reason: z.string().min(1, 'Reason is required for voiding'),
 });
 
 const meta = (req: Request) => ({
@@ -223,15 +223,18 @@ router.post('/:id/payments', requirePermission('invoices:create'), requireEntity
 // same transaction as the status change. The stamped-CFDI and applied-cash
 // guards the service states are opted out of here on purpose: this endpoint
 // has never enforced them and its contract is unchanged.
-// El motivo es OBLIGATORIO: voidInvoiceSchema estaba definido y sin cablear,
-// así que anular no dejaba ninguna razón. Cambio observable: un POST sin
-// cuerpo, que antes pasaba, ahora es 422 VALIDATION_ERROR.
+//
+// The reason IS required, and is not cosmetic: voidInvoice persists it in the
+// reversal's description, in the original entry's notes and in the audit
+// record, so it is the only account of WHY revenue was annulled. Same rule as
+// POST /v1/journal-entries/:id/void.
 router.post('/:id/void', requirePermission('invoices:void'), requireEntityAccess, validateBody(voidInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { reason } = req.body as { reason: string };
   const { invoice, attest } = await voidInvoice(req.params.id, req.user!.user_id, {
     entityId: req.entityId!,
     allowStamped: true,
     allowApplied: true,
-    reason: req.body.reason,
+    reason,
   });
   if (attest && req.tenantId) attestEntryAsync(req.tenantId, attest.entityId, attest.entryId);
 

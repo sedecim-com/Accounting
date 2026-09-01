@@ -223,4 +223,34 @@ describe('el endpoint público de agregados', () => {
     const r = await pedir(s, 'GET', `/public/v1/entities/${f.entityId}/aggregates?to_period=ayer`);
     expect(r.status).toBe(422);
   });
+
+  // EL CONTRATO NUEVO, FIJADO. Witness lo pidió y tenía razón: `limit` y
+  // `truncated` son observables desde fuera y ningún test los sujetaba, así que
+  // el siguiente refactor podía romperlos sin que la CI dijera nada.
+  it('un entityId mal formado es 422, no un 500 de Postgres', async () => {
+    // Antes llegaba tal cual al WHERE y Postgres respondía 22P02: el endpoint
+    // devolvía 500 por una petición que el cliente podía corregir.
+    const r = await pedir(s, 'GET', '/public/v1/entities/no-es-un-uuid/aggregates');
+    expect(r.status).toBe(422);
+  });
+
+  it('con más filas que el tope, lo dice en vez de presentar una parte como el todo', async () => {
+    // 100 es el tope; se siembran 101 para cruzarlo por uno.
+    const extra = Array.from({ length: 101 }, (_, i) => i);
+    for (const i of extra) {
+      await query(
+        `INSERT INTO published_aggregates (
+           id, tenant_id, entity_id, period_id, dimension_type, dimension_value,
+           dimension_hash, aggregate_commitment, transaction_count, public_amount, is_simulated
+         ) VALUES ($1,$2,$3,$4,'account_type',$5,'h','ac',1,'1.00',false)`,
+        [uuidv4(), f.tenantId, f.entityId, periodoReal, `relleno_${i}`]
+      );
+    }
+    const r = await pedir(s, 'GET', `/public/v1/entities/${f.entityId}/aggregates`);
+    expect(r.status).toBe(200);
+    expect(r.body.data).toHaveLength(100);
+    const meta = r.body.meta as { limit: number; truncated: boolean };
+    expect(meta.limit).toBe(100);
+    expect(meta.truncated, 'un listado recortado que no se declara es el engaño que este PR vino a quitar').toBe(true);
+  });
 });

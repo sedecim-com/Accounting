@@ -56,6 +56,8 @@ function rechazarSimulada(res: Response, que: string): void {
   });
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Rate limiter stub - 100 req/min per IP (already covered by global rate-limiter)
 
 // ============================================================
@@ -326,6 +328,8 @@ router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, r
   const { entityId } = req.params;
   const { dimension, value, from_period, to_period } = req.query;
 
+  if (!UUID_RE.test(entityId)) throw new ValidationError('entityId must be a uuid');
+
   let where = 'WHERE pa.entity_id = $1';
   const params: unknown[] = [entityId];
   let idx = 2;
@@ -355,19 +359,23 @@ router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, r
   //    published_aggregates.period_id es NOT NULL REFERENCES fiscal_periods(id),
   //    así que la unión interna no puede perder renglones: una llamada sin
   //    rango devuelve lo mismo que devolvía.
+  // Y se pide UNA fila de más que el tope, para declarar el truncamiento en
+  // vez de presentar un listado parcial como si fuera el conjunto entero.
+  const LIMIT = 100;
   const result = await consultaPublica(
     `SELECT pa.dimension_type, pa.dimension_value, pa.public_amount, pa.transaction_count,
             pa.period_id, pa.published_at, pa.aggregate_commitment
      FROM published_aggregates pa
      JOIN fiscal_periods fp ON fp.id = pa.period_id
      ${where} AND pa.is_simulated = false
-     ORDER BY pa.published_at DESC LIMIT 100`,
+     ORDER BY pa.published_at DESC LIMIT ${LIMIT + 1}`,
     params
   );
 
+  const truncated = result.rows.length > LIMIT;
   res.json({
-    data: result.rows,
-    meta: { timestamp: new Date().toISOString(), version: 'v1' },
+    data: result.rows.slice(0, LIMIT),
+    meta: { timestamp: new Date().toISOString(), version: 'v1', limit: LIMIT, truncated },
   });
 }));
 
