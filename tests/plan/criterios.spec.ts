@@ -88,7 +88,12 @@ describe('la lista de criterios', () => {
     }
   });
 
-  it('todo resultado trae un detalle con el que se puede actuar', async () => {
+  // 30 s y no los 5 por omisión: esta prueba EJECUTA los criterios de los quince
+  // paquetes, y hoy entre ellos hay uno que lanza `git check-ignore` como
+  // subproceso y otro que abre un socket a Postgres. Con la suite entera en
+  // paralelo eso pasa de cinco segundos y el fallo aparece como un timeout que
+  // nadie reproduce a mano — se vio una vez, en verde las dos siguientes.
+  it('todo resultado trae un detalle con el que se puede actuar', { timeout: 30_000 }, async () => {
     for (const c of CRITERIOS) {
       const r = await c.evaluar();
       expect(r.detalle, c.enunciado).toBeTruthy();
