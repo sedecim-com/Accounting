@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { limiteEnMemoria } from '../../src/services/cache/redis.js';
 
 /**
@@ -35,24 +35,39 @@ describe('limiteEnMemoria', () => {
 });
 
 /**
- * Y «SIN REDIS CONFIGURADO» ERA EL TERCER ESTADO, EL QUE SEGUÍA ABIERTO.
+ * LA DEGRADACIÓN REAL OCURRE EN EL `catch`, NO EN LA RAMA `if (!r)`.
  *
- * La rama de Redis caído ya degradaba al contador local —«nunca barra libre»,
- * dice el archivo—, pero la de Redis ausente devolvía allowed:true sin contar
- * nada. Dos respuestas opuestas a la misma pregunta, y la abierta era la del
- * despliegue que olvida configurarlo: justamente el que no quiere quedar sin
- * freno, ahora que /public/v1 sirve sin credenciales.
+ * Escribí antes una prueba titulada «sin Redis configurado» que resultó floja
+ * en CI, y al perseguirla apareció algo más útil: `getRedis()` NUNCA devuelve
+ * null. Construye el cliente y lo devuelve (`return redis!`); sólo lo anula
+ * después, dentro del `.catch()` asíncrono de `connect()`. De modo que la rama
+ * `if (!r)` de checkRateLimit es inalcanzable en la práctica —lo era también
+ * cuando devolvía allowed:true— y una prueba que dependa de alcanzarla depende
+ * en realidad de una carrera.
+ *
+ * El camino que SÍ se recorre cuando Redis no responde es el `catch` de
+ * `r.incr()`, y eso es lo que se fija aquí, con un cliente que falla a
+ * propósito: cuenta, niega al rebasar, y nunca deja barra libre.
  */
-describe('checkRateLimit sin Redis configurado', () => {
-  it('cuenta y niega igual que con Redis caído: no devuelve barra libre', async () => {
+describe('checkRateLimit con Redis inalcanzable', () => {
+  it('cae al contador local: cuenta, niega, y no deja barra libre', async () => {
+    vi.resetModules();
+    vi.doMock('ioredis', () => ({
+      default: class {
+        on() { return this; }
+        connect() { return Promise.resolve(); }
+        incr() { return Promise.reject(new Error('ECONNREFUSED')); }
+        pexpire() { return Promise.resolve(); }
+      },
+    }));
     const { checkRateLimit } = await import('../../src/services/cache/redis.js');
-    const key = `sinredis-${Math.floor(performance.now() * 1000)}`;
+    const key = `caido-${Math.floor(performance.now() * 1000)}`;
     const w = 60_000;
 
     const primera = await checkRateLimit(key, w, 2);
     expect(primera.allowed).toBe(true);
-    // La prueba de que CUENTA: si fuera barra libre, remaining sería siempre
-    // el máximo y resetAt cero.
+    // Que CUENTE es la prueba: con barra libre, remaining sería siempre el
+    // máximo y resetAt cero.
     expect(primera.remaining).toBe(1);
     expect(primera.resetAt).toBeGreaterThan(0);
 
@@ -60,5 +75,6 @@ describe('checkRateLimit sin Redis configurado', () => {
     const tercera = await checkRateLimit(key, w, 2);
     expect(tercera.allowed).toBe(false);
     expect(tercera.remaining).toBe(0);
+    vi.doUnmock('ioredis');
   });
 });
