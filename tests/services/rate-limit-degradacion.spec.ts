@@ -33,3 +33,32 @@ describe('limiteEnMemoria', () => {
     expect(limiteEnMemoria(b, w, 1).allowed).toBe(true);
   });
 });
+
+/**
+ * Y «SIN REDIS CONFIGURADO» ERA EL TERCER ESTADO, EL QUE SEGUÍA ABIERTO.
+ *
+ * La rama de Redis caído ya degradaba al contador local —«nunca barra libre»,
+ * dice el archivo—, pero la de Redis ausente devolvía allowed:true sin contar
+ * nada. Dos respuestas opuestas a la misma pregunta, y la abierta era la del
+ * despliegue que olvida configurarlo: justamente el que no quiere quedar sin
+ * freno, ahora que /public/v1 sirve sin credenciales.
+ */
+describe('checkRateLimit sin Redis configurado', () => {
+  it('cuenta y niega igual que con Redis caído: no devuelve barra libre', async () => {
+    const { checkRateLimit } = await import('../../src/services/cache/redis.js');
+    const key = `sinredis-${Math.floor(performance.now() * 1000)}`;
+    const w = 60_000;
+
+    const primera = await checkRateLimit(key, w, 2);
+    expect(primera.allowed).toBe(true);
+    // La prueba de que CUENTA: si fuera barra libre, remaining sería siempre
+    // el máximo y resetAt cero.
+    expect(primera.remaining).toBe(1);
+    expect(primera.resetAt).toBeGreaterThan(0);
+
+    await checkRateLimit(key, w, 2);
+    const tercera = await checkRateLimit(key, w, 2);
+    expect(tercera.allowed).toBe(false);
+    expect(tercera.remaining).toBe(0);
+  });
+});

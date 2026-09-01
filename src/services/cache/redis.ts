@@ -189,9 +189,22 @@ export async function checkRateLimit(
   key: string, windowMs: number, maxRequests: number
 ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
   const r = getRedis();
-  // Sin Redis CONFIGURADO no hay límite: decisión del operador, visible en
-  // su configuración. (En producción, configurarlo es lo esperado.)
-  if (!r) return { allowed: true, remaining: maxRequests, resetAt: 0 };
+  // SIN REDIS TAMPOCO HAY BARRA LIBRE.
+  //
+  // Antes esta rama devolvía allowed:true —«decisión del operador»—, lo que
+  // dejaba sin freno alguno a quien no configurara Redis. Y dos líneas más
+  // abajo, para el caso de Redis configurado pero inalcanzable, el mismo
+  // archivo ya decía «degradación local, nunca barra libre» y caía al límite
+  // en memoria. Eran dos respuestas opuestas a la misma pregunta.
+  //
+  // Pesa más ahora que /public/v1 sirve sin credenciales y hasheado de
+  // pruebas de Merkle bajo demanda: el despliegue que olvida Redis es
+  // justamente el que no quiere quedar abierto.
+  //
+  // El límite en memoria es por proceso —varias instancias multiplican la
+  // cuota, y un reinicio la olvida—, así que Redis sigue siendo lo correcto
+  // en producción. Pero un freno imperfecto vence a ninguno.
+  if (!r) return limiteEnMemoria(key, windowMs, maxRequests);
   try {
     const now = Date.now();
     const windowKey = `ratelimit:${key}:${Math.floor(now / windowMs)}`;
