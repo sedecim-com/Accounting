@@ -174,6 +174,21 @@ describe('createEntity', () => {
     expect(us.taxId).toBe('123456789');
   });
 
+  it('guarda un país que quepa en la columna, que es CHAR(2)', async () => {
+    // legal_entities.incorporation_country es CHAR(2) y aquí se insertaba la
+    // CLAVE del catálogo de perfiles, que para Estados Unidos es 'USA'. Crear
+    // una entidad estadounidense moría con «value too long for type
+    // character(2)»: el carril entero de EE. UU. —su nómina incluida— nunca se
+    // había ejecutado, y por eso nadie lo había visto.
+    db();
+    await createEntity({ name: 'Acme Inc', taxId: '12-3456789', country: 'USA', tenantId: TENANT, createdBy: USER });
+    const llamadas = mockClient.query.mock.calls as Array<[string, unknown[]?]>;
+    const insert = llamadas.find((c) => /INSERT INTO legal_entities/.test(c[0]));
+    const pais = insert?.[1]?.[6];
+    expect(pais).toBe('US');
+    expect(String(pais)).toHaveLength(2);
+  });
+
   it('honours an explicit currency over the country default', async () => {
     db();
     const r = await createEntity({ name: 'Acme SA', taxId: 'AAA010101AAA', country: 'MX', currency: 'USD', tenantId: TENANT, createdBy: USER });

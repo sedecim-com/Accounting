@@ -40,6 +40,50 @@ export interface PolicySpec {
 export const POLICY_CATALOG: PolicySpec[] = [
   // ── Accounting ──
   {
+    // El catálogo base se sembraba en TODA entidad sin mirar el país, así que
+    // una sociedad estadounidense nacía con IVA, ISR y una cuenta de banco en
+    // pesos. Que NO reciba el estrato fiscal mexicano es un hecho, no una
+    // opinión: no hay despacho para el que eso sea correcto, y se arregló en
+    // el código. Lo que sí es criterio del despacho es lo otro — si a esa
+    // entidad se le siembra el catálogo de la casa o se le deja vacío para
+    // traer el suyo—, y por eso vive aquí y no en un `if`.
+    key: 'catalogo_entidad_no_mexicana',
+    category: 'contable',
+    question: 'What chart of accounts does an entity that does not keep Mexican books receive?',
+    impact:
+      'Decides what a foreign entity is born with. The house chart keeps it posting from day one; ' +
+      'no chart leaves it empty until its own is imported, and until then every invoice fails with ' +
+      'MISSING_ROLE_ACCOUNT because the roles have no account to point at.',
+    options: [
+      {
+        value: 'base_neutro',
+        label: 'The house chart without the Mexican tax layer (generic bank and sales tax instead)',
+      },
+      {
+        value: 'ninguno',
+        label: 'No chart: the entity brings its own and it is imported',
+      },
+    ],
+    defaultValue: 'base_neutro',
+    defaultRationale:
+      'An entity that can post on its first day beats one that cannot. The universal scaffolding is ' +
+      'double-entry, not Mexican, so it fits any country; importing a chart later still works and ' +
+      'never overwrites what the firm chose.',
+    whyAsking:
+      'Your foreign subsidiary can start with the same chart your Mexican entities use — minus the ' +
+      'IVA, ISR and withholding accounts, which it will never use — or it can start empty because you ' +
+      'plan to bring its existing chart over from another system. Both are defensible; which one is ' +
+      'right depends on whether that entity already has books elsewhere.',
+    whatIDo:
+      'On the house chart I seed the universal accounts plus a generic bank and sales-tax account, so ' +
+      'invoices, bills and payments post immediately. On no chart I seed nothing and only report which ' +
+      'roles are left unmapped, so `mnemosine doctor` tells you what the import still owes.',
+    ifSkipped:
+      'Foreign entities get the house chart. If you were going to import their real chart, you will ' +
+      'have a handful of unused accounts to deactivate.',
+    priority: 35,
+  },
+  {
     key: 'umbral_capitalizacion_mxn',
     category: 'contable',
     question: 'From what amount is an item capitalized as a fixed asset instead of expensed?',

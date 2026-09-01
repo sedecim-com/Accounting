@@ -24,7 +24,20 @@ export interface Fixture {
   roles: Record<string, string>;
 }
 
-export async function crearInquilino(nombre = 'Prueba de integración'): Promise<Fixture> {
+/** País y norma de la entidad. Por omisión mexicana, que es el caso normal. */
+export interface OpcionesInquilino {
+  pais?: string;
+  moneda?: string;
+  norma?: 'mx_nif' | 'us_gaap' | 'ifrs';
+}
+
+export async function crearInquilino(
+  nombre = 'Prueba de integración',
+  opciones: OpcionesInquilino = {}
+): Promise<Fixture> {
+  const pais = opciones.pais ?? 'MX';
+  const moneda = opciones.moneda ?? (pais === 'US' ? 'USD' : 'MXN');
+  const norma = opciones.norma ?? (pais === 'US' ? 'us_gaap' : 'mx_nif');
   const tenantId = uuidv4();
   const entityId = uuidv4();
   const userId = uuidv4();
@@ -55,8 +68,9 @@ export async function crearInquilino(nombre = 'Prueba de integración'): Promise
   await query(
     `INSERT INTO legal_entities (id, tenant_id, organization_id, name, entity_type, tax_id, tax_id_type,
       incorporation_country, functional_currency, accounting_standard, fiscal_year_start_month, is_active)
-     VALUES ($1, $2, $3, $4, 'corporation', $5, 'rfc', 'MX', 'MXN', 'mx_nif', 1, true)`,
-    [entityId, tenantId, orgId, nombre, 'XAXX010101000']
+     VALUES ($1, $2, $3, $4, 'corporation', $5, $6, $7, $8, $9, 1, true)`,
+    [entityId, tenantId, orgId, nombre, pais === 'US' ? '12-3456789' : 'XAXX010101000',
+     pais === 'US' ? 'ein' : 'rfc', pais, moneda, norma]
   );
 
   enterTenant(tenantId);

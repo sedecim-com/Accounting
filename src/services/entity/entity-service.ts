@@ -40,6 +40,18 @@ interface CountryProfile {
   taxIdLabel: string;
   /** Shape only. Neither authority publishes a checksum we can verify offline. */
   taxIdPattern: RegExp;
+  /**
+   * Lo que se GUARDA en legal_entities.incorporation_country, que es CHAR(2).
+   *
+   * La clave de este catálogo es 'USA' y se insertaba tal cual, así que crear
+   * una entidad estadounidense moría con «value too long for type
+   * character(2)». Nadie lo había visto porque ninguna prueba, ninguna semilla
+   * y ningún dato de ejemplo crea una: el carril de EE. UU. entero —incluido
+   * su catálogo de nómina— nunca se había ejecutado.
+   *
+   * Se guarda el alfa-2 de ISO 3166, que es lo que una columna CHAR(2) pide.
+   */
+  iso2: string;
 }
 
 export const COUNTRY_PROFILES: Record<Country, CountryProfile> = {
@@ -51,6 +63,7 @@ export const COUNTRY_PROFILES: Record<Country, CountryProfile> = {
     taxIdLabel: 'RFC',
     // 12 for a moral person, 13 for a physical one. Ñ and & are legal.
     taxIdPattern: /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/,
+    iso2: 'MX',
   },
   USA: {
     currency: 'USD',
@@ -59,6 +72,7 @@ export const COUNTRY_PROFILES: Record<Country, CountryProfile> = {
     entityType: 'corporation',
     taxIdLabel: 'EIN',
     taxIdPattern: /^\d{2}-?\d{7}$/,
+    iso2: 'US',
   },
 };
 
@@ -226,7 +240,7 @@ export async function createEntity(
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [
         org.rows[0].id, tenantId, name, profile.entityType, taxId,
-        profile.taxIdType, input.country, currency, profile.standard,
+        profile.taxIdType, profile.iso2, currency, profile.standard,
       ]
     );
     const entityId = entity.rows[0].id;

@@ -1,3 +1,4 @@
+import type pg from 'pg';
 import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
@@ -102,8 +103,24 @@ export interface EffectivePolicy {
  * Never throws for lack of definition: the system keeps operating and
  * the decision remains visible in `/pendientes`.
  */
-export async function getPolicy(ctx: PolicyContext, key: string): Promise<EffectivePolicy> {
-  const r = await query<PolicyRow>(
+export async function getPolicy(
+  ctx: PolicyContext,
+  key: string,
+  /**
+   * Cliente del llamador, para leer DENTRO de su transacción.
+   *
+   * Sin esto, `query` toma una segunda conexión del pool, y el primer lector
+   * de una política resultó ser la siembra de una entidad —que ya tiene una
+   * conexión abierta y en transacción—. Dos conexiones simultáneas por alta no
+   * es un detalle de estilo: con el pool pequeño, la segunda espera a que la
+   * primera termine, y la primera espera a la segunda.
+   */
+  client?: pg.PoolClient
+): Promise<EffectivePolicy> {
+  const ejecutar = client
+    ? <T extends pg.QueryResultRow>(sql: string, params: unknown[]) => client.query<T>(sql, params)
+    : query;
+  const r = await ejecutar<PolicyRow>(
     // El alcance por entidad se ACOTA, no sólo se ordena.
     //
     // Antes era `WHERE tenant_id AND key ORDER BY entity_id IS NULL ASC`, y

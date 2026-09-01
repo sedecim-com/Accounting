@@ -145,11 +145,14 @@ export const MX_BUCKET_MAP: Record<string, string> = {
  *     semilla toca. El paso de uno en uno no es capricho: 2151–2154 ya estaban
  *     así, y seguir la convención del propio bloque vale más que imponerle la
  *     de x5 del catálogo mexicano.
- *   · 1111 deja de declararse. Se REUSA, exactamente como MX ya reusa 1111 y
+ *   · el banco deja de declararse. Se REUSA, exactamente como MX reusa 1111 y
  *     2130: declararlo como «Operating Bank Account» chocaba con «Banco
- *     Nacional - MXN». Si la entidad llegó con catálogo propio y no tiene
- *     1111, cash_payroll sale en `bucketsUnmappable` — que es la conducta
- *     diseñada para eso y la que MX ya tenía.
+ *     Nacional - MXN». Y desde que el catálogo base ramifica por país, una
+ *     entidad estadounidense ya no recibe 1111 —que es una cuenta en pesos—
+ *     sino 1115 «Cuenta Bancaria Operativa», del estrato fiscal neutro. Si la
+ *     entidad llegó con catálogo propio y no tiene ninguna de las dos,
+ *     cash_payroll sale en `bucketsUnmappable`, que es la conducta diseñada
+ *     para eso y la que MX ya tenía.
  */
 export const US_PAYROLL_ACCOUNTS: PayrollAccountSpec[] = [
   {
@@ -202,7 +205,7 @@ export const US_PAYROLL_ACCOUNTS: PayrollAccountSpec[] = [
 export const US_BUCKET_MAP: Record<string, string> = {
   wages_expense: '6150',
   payroll_tax_expense: '6155',
-  cash_payroll: '1111',        // reusada, no declarada: ver el comentario de arriba
+  cash_payroll: '1115',        // Cuenta Bancaria Operativa, del estrato neutro
   fit_payable: '2155',
   fica_payable: '2151',
   futa_payable: '2152',
@@ -224,8 +227,19 @@ export interface PayrollSeedResult {
   bucketsUnmappable: Array<{ bucket: string; code: string }>;
 }
 
+/**
+ * Acepta 'US' y 'USA'. La columna incorporation_country es CHAR(2), así que lo
+ * que la base puede guardar es 'US' — y esta función comparaba contra 'USA', de
+ * modo que jamás devolvía el catálogo estadounidense por más que la entidad lo
+ * fuera. Se aceptan los dos: el alfa-2 que se almacena y la clave 'USA' con la
+ * que el asistente y COUNTRY_PROFILES nombran al país.
+ *
+ * Cualquier otro país sigue siendo México, que es la regla de la casa ante la
+ * duda (ver pais-contable.ts).
+ */
 export function chartFor(country: string): { accounts: PayrollAccountSpec[]; buckets: Record<string, string> } {
-  return country === 'USA'
+  const pais = (country ?? '').trim().toUpperCase();
+  return pais === 'US' || pais === 'USA'
     ? { accounts: US_PAYROLL_ACCOUNTS, buckets: US_BUCKET_MAP }
     : { accounts: MX_PAYROLL_ACCOUNTS, buckets: MX_BUCKET_MAP };
 }

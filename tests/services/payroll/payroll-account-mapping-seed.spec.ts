@@ -14,7 +14,7 @@ import {
   MX_PAYROLL_ACCOUNTS,
   US_PAYROLL_ACCOUNTS,
 } from '../../../src/services/payroll/common/payroll-account-mapping-seed.js';
-import { BASE_CHART_MX } from '../../../src/services/accounting/chart-seed.js';
+import { BASE_CHART_MX, ESTRATO_FISCAL_NEUTRO } from '../../../src/services/accounting/chart-seed.js';
 import { REQUIRED_ACCOUNTS } from '../../../src/services/xml-ingestion/account-roles-seed.js';
 
 // ============================================================
@@ -82,12 +82,14 @@ describe('every bucket the posting engine can ask for is mapped', () => {
       ).toBe(true);
     }
     const seededUs = new Set(US_PAYROLL_ACCOUNTS.map((a) => a.code));
+    const neutro = new Set(ESTRATO_FISCAL_NEUTRO.map((a) => a.code));
     for (const code of Object.values(US_BUCKET_MAP)) {
-      // 1111 se reusa igual que en México: declararlo como «Operating Bank
-      // Account» chocaba con el «Banco Nacional - MXN» del catálogo base, que
-      // se siembra en toda entidad sin mirar el país.
+      // El banco se reusa en vez de declararse, igual que en México.
+      // Pero es el del estrato NEUTRO (1115), no el 1111 mexicano: desde que
+      // el catálogo base ramifica por país, una entidad estadounidense no
+      // recibe una cuenta denominada en pesos.
       expect(
-        seededUs.has(code) || base.has(code),
+        seededUs.has(code) || neutro.has(code),
         `US code ${code} has no source`
       ).toBe(true);
     }

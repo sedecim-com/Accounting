@@ -1154,15 +1154,38 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.1',
-    enunciado: 'Las cuatro cuentas de IVA se siembran siempre, también sobre catálogo importado',
-    evaluar: () => {
+    enunciado:
+      'Las cuatro cuentas de IVA se siembran en toda entidad MEXICANA, también sobre catálogo importado',
+    evaluar: async () => {
+      // El enunciado decía «siempre» y se volvió falso el día que la siembra
+      // empezó a ramificar por país: una entidad estadounidense ya no recibe
+      // cuentas de IVA, y debe ser así. Pero el criterio no se relaja, se
+      // AFINA — lo que protegía sigue protegido y ahora además se comprueba
+      // que la ramificación no se lleve por delante el caso mexicano, que es
+      // el 100% de los clientes de este producto.
       const s = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
       const faltan = ['1130', '1135', '2120', '2125'].filter(
         (c) => !new RegExp(`code:\\s*'${c}'`).test(s)
       );
-      return faltan.length === 0
-        ? ok('1130, 1135, 2120 y 2125 en REQUIRED_ACCOUNTS')
-        : falla(`no se siembran: ${faltan.join(', ')} — una entidad onboardeada revienta con MISSING_ROLE_ACCOUNT`);
+      if (faltan.length > 0) {
+        return falla(
+          `no se siembran: ${faltan.join(', ')} — una entidad onboardeada revienta con MISSING_ROLE_ACCOUNT`
+        );
+      }
+      // Y que sigan llegando a una entidad mexicana pese al filtro por país.
+      // Sin esto, marcar los cuatro códigos como fiscales-mexicanos-y-fuera
+      // dejaría el criterio en verde con las cuentas fuera del catálogo.
+      const { cuentasRequeridasPara } = await import(
+        '../services/xml-ingestion/account-roles-seed.js'
+      );
+      const mexicanas = new Set(cuentasRequeridasPara(true).map((a) => a.code));
+      const perdidas = ['1130', '1135', '2120', '2125'].filter((c) => !mexicanas.has(c));
+      return perdidas.length === 0
+        ? ok('1130, 1135, 2120 y 2125 declaradas y entregadas a toda entidad mexicana')
+        : falla(
+            `${perdidas.join(', ')} están declaradas pero el filtro por país no se las entrega ` +
+              'a una entidad mexicana: el IVA dejaría de acreditarse'
+          );
     },
   },
 
