@@ -731,13 +731,22 @@ export async function postVendorApplicationEntry(
       credit_amount: null,
       description: `AP settlement ${payment.payment_number}`,
     },
-    {
+  ];
+  // La línea del anticipo va CONDICIONADA, igual que las cuatro de
+  // `postVendorPaymentEntry`. Sin la guarda, un evento que no aplica nada y
+  // condona todo —un saldo residual que era íntegramente IVA— emitía un abono
+  // de 0.0000 contra 1150, y `journal_entry_lines` lo rechaza:
+  // `CHECK (credit_amount IS NULL OR credit_amount > 0)` (001_core_schema.sql:289).
+  // El asiento entero se caía en el INSERT, no aquí, así que el error salía
+  // lejos de su causa. Cuadra igual: si `total` es cero no hay nada que abonar.
+  if (total.greaterThan(0)) {
+    jeLines.push({
       account_id: requireRole(roles, 'anticipo_proveedores'),
       debit_amount: null,
       credit_amount: total.toFixed(4),
       description: `On-account advance applied ${payment.payment_number}`,
-    },
-  ];
+    });
+  }
   if (descuento.greaterThan(0)) {
     jeLines.push({
       account_id: requireRole(roles, 'devolucion_compras'),
