@@ -295,3 +295,63 @@ describe('voidJournalEntry · el estado void es solo para borradores', () => {
     expect(attest).not.toHaveBeenCalled();
   });
 });
+
+// ============================================================
+// LAS GUARDAS QUE NADIE EJERCITABA.
+//
+// Son las tres rutas de error que la cobertura de posting.ts señalaba sin
+// tocar. No son ramas decorativas: la del periodo es una carrera —el cierre
+// pudo ganarle al posteo mientras el asiento estaba en vuelo— y las dos de
+// asiento inexistente son la última línea entre una reversa y un NULL.
+// ============================================================
+describe('las guardas de posting.ts', () => {
+  /** Igual que reglas(), pero con el candado del periodo bajo control. */
+  function reglasConPeriodo(periodo: { rows: Array<{ status: string; period_name: string }> }) {
+    return clienteFalso([
+      AUDITORIA,
+      { cuando: /SELECT status, period_name FROM fiscal_periods WHERE id = \$1 FOR SHARE/, responde: periodo },
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [asientoFalso()] } },
+      { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
+      { cuando: /UPDATE journal_entries/, responde: {} },
+      { cuando: /INSERT INTO account_balances/, responde: {} },
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1$/, responde: { rows: [asientoFalso()] } },
+    ]);
+  }
+
+  it('si el periodo desapareció entre la lectura y el candado, no postea', async () => {
+    const cf = (arnes.actual = reglasConPeriodo({ rows: [] }));
+    await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/Fiscal period not found/i);
+    expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(0);
+  });
+
+  it.each(['hard_close', 'locked'])(
+    'si el periodo cerró (%s) mientras el asiento estaba en vuelo, no postea y lo dice',
+    async (estado) => {
+      const cf = (arnes.actual = reglasConPeriodo({ rows: [{ status: estado, period_name: 'Agosto 2026' }] }));
+      // El mensaje nombra el periodo y el estado: quien lo lee sabe que perdió
+      // una carrera, no que su asiento estaba mal.
+      await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(
+        new RegExp(`Agosto 2026.*${estado}.*nothing was posted`, 'i')
+      );
+      expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(0);
+    }
+  );
+
+  it('reverseJournalEntry rechaza un asiento inexistente', async () => {
+    arnes.actual = clienteFalso([
+      AUDITORIA,
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [] } },
+    ]);
+    await expect(reverseJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/not found/i);
+  });
+
+  it('voidJournalEntryInTx rechaza un asiento inexistente', async () => {
+    const cf = (arnes.actual = clienteFalso([
+      AUDITORIA,
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [] } },
+    ]));
+    await expect(
+      voidJournalEntryInTx(cf.client as never, ID.asiento, ID.usuario, 'motivo')
+    ).rejects.toThrow(/not found/i);
+  });
+});
