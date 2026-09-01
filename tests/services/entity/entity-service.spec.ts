@@ -24,7 +24,7 @@ import {
   COUNTRY_PROFILES,
 } from '../../../src/services/entity/entity-service.js';
 import { ensureEntityAccounting } from '../../../src/services/accounting/entity-accounting.js';
-import { ValidationError, ConflictError, NotFoundError } from '../../../src/utils/errors.js';
+import { ValidationError, NotFoundError } from '../../../src/utils/errors.js';
 
 // ============================================================
 // Creating a company used to be a PRIVATE METHOD of the setup wizard, so

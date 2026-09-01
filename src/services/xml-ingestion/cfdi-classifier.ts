@@ -187,7 +187,7 @@ export async function classifyParsed(
   for (const t of matched.posting) {
     const amount = t.amount(facts);
     if (t.omitIfZero && Math.abs(amount) < 0.005) continue;
-    const role = (t.role === 'gasto' && roleOverride ? roleOverride : t.role) as AccountRole;
+    const role = (t.role === 'gasto' && roleOverride ? roleOverride : t.role);
     const acct = roleMap.get(role);
     if (!acct) missingRoles.push(role);
     lines.push({

@@ -138,7 +138,7 @@ export async function reprocesarREPsAparcados(
     resultado.reprocesados += 1;
     const fila = await query(`SELECT * FROM pre_registrations WHERE id = $1`, [rep.id]);
     try {
-      await service.processToAccounting(fila.rows[0] as Record<string, unknown>, userId);
+      await service.processToAccounting(fila.rows[0], userId);
       resultado.ligados += 1;
       resultado.detalles.push({ id: rep.id, resultado: 'ligado' });
     } catch (err) {

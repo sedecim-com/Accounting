@@ -18,7 +18,7 @@ import {
   listEntitySequences,
   type InvoiceLineInput,
 } from '../services/ar/invoice-service.js';
-import { InvoiceStatus } from '../types/index.js';
+import { InvoiceStatus, AccountType } from '../types/index.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
@@ -469,7 +469,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         for (const spec of specs) {
           const fields = parseInvoiceLine(spec);
           const account = await resolveAccount(ctx.entityId, fields.account);
-          if (account.account_type !== 'revenue' && account.account_type !== 'contra_asset') {
+          if (account.account_type !== AccountType.REVENUE && account.account_type !== AccountType.CONTRA_ASSET) {
             process.stderr.write(
               deps.palette.yellow(
                 `Note: ${account.code} ${account.name} has type "${account.account_type}", not revenue.\n`
@@ -542,7 +542,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
             'Correct it with `invoice void`, which reverses the entry and leaves the trail.'
         );
       }
-      if (target.status === 'void' || target.status === 'cancelled') {
+      if (target.status === InvoiceStatus.VOID || target.status === InvoiceStatus.CANCELLED) {
         throw blockedByState(`${target.invoice_number} is ${target.status} and can never be issued.`);
       }
       if (!new Decimal(target.total_amount).greaterThan(0)) {
@@ -633,10 +633,10 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       const { dryRun, reason } = gateMutation(voidCmd, opts as Record<string, unknown>);
       const p = deps.palette;
 
-      if (target.status === 'void') {
+      if (target.status === InvoiceStatus.VOID) {
         throw blockedByState(`${target.invoice_number} is already void.`);
       }
-      if (target.status === 'paid') {
+      if (target.status === InvoiceStatus.PAID) {
         throw blockedByState(
           `${target.invoice_number} is paid. Unapply the cash first, or issue a credit note.`
         );

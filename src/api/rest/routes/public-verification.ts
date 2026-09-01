@@ -271,6 +271,58 @@ router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Req
   });
 }));
 
+const PERIOD_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve one end of a ?from_period=/&to_period= range.
+ *
+ * Both name a fiscal period by the same id that
+ * GET /public/v1/entities/:entityId/periods/:periodId serves, and that this
+ * endpoint already echoes back as `period_id`. A UUID carries no order, so the
+ * range can only be expressed through the dates of the period each bound
+ * points at -- hence the read, and hence the join in the caller.
+ *
+ * The bound is validated up front rather than folded into the WHERE clause: a
+ * subquery against an id that does not exist yields NULL, every comparison
+ * against it is false, and the caller gets an empty page that looks exactly
+ * like "this entity published no aggregates". Failing loudly is the point of
+ * the whole fix.
+ */
+async function periodBound(
+  entityId: string,
+  raw: unknown,
+  field: 'from_period' | 'to_period'
+): Promise<{ start_date: string; end_date: string }> {
+  const id = String(raw);
+  if (!PERIOD_UUID.test(id)) {
+    throw new ValidationError(`${field} must be a fiscal period UUID`, field);
+  }
+
+  // ::text, as close-service.ts:51 and pending-service.ts:141 already do: with
+  // no setTypeParser override in src/database, pg turns a DATE column into a
+  // Date at LOCAL midnight, and handing that back as a query parameter
+  // re-serializes it through the driver's timestamp path. A plain
+  // 'YYYY-MM-DD' makes the round trip unambiguous, and a date filter that
+  // slips by a day would be the same silent-wrong answer this fix is about.
+  //
+  // Y consultaPublica, no `query`: TODO lo que sirve este router pasa por el
+  // rol mnemosine_verifier. Bajo RLS forzada, `query` con mnemosine_app y sin
+  // contexto de inquilino devolvería cero filas y este helper contestaría
+  // «no es un periodo de esta entidad» a un id perfectamente válido.
+  const period = await consultaPublica<{ start_date: string; end_date: string }>(
+    'SELECT start_date::text, end_date::text FROM fiscal_periods WHERE id = $1 AND entity_id = $2',
+    [id, entityId]
+  );
+
+  // An unknown id and another entity's id answer identically. This endpoint is
+  // unauthenticated; separating the two would turn it into an oracle for
+  // whether a given UUID is some other entity's fiscal period.
+  if (period.rows.length === 0) {
+    throw new ValidationError(`${field} is not a fiscal period of this entity`, field);
+  }
+  return period.rows[0];
+}
+
 // GET /public/v1/entities/:entityId/aggregates
 router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, res: Response) => {
   const { entityId } = req.params;
@@ -278,33 +330,45 @@ router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, r
 
   if (!UUID_RE.test(entityId)) throw new ValidationError('entityId must be a uuid');
 
-  // El rango from_period/to_period NO se implementa aquí. Ordenar «de..a» exige
-  // las fechas de fiscal_periods, y mnemosine_verifier —el rol de menos
-  // privilegios que consultaPublica asume, migración 042— no tiene GRANT sobre
-  // esa tabla: el JOIN revienta con «permission denied». Darle el GRANT expone
-  // el calendario fiscal de todas las entidades en un endpoint sin autenticar,
-  // y esa es una decisión de una persona, no de un rebase. Va con PR #6.
-
-  let where = 'WHERE entity_id = $1';
+  let where = 'WHERE pa.entity_id = $1';
   const params: unknown[] = [entityId];
   let idx = 2;
 
-  if (dimension) { where += ` AND dimension_type = $${idx++}`; params.push(dimension); }
-  if (value) { where += ` AND dimension_value = $${idx++}`; params.push(value); }
+  if (dimension) { where += ` AND pa.dimension_type = $${idx++}`; params.push(dimension); }
+  if (value) { where += ` AND pa.dimension_value = $${idx++}`; params.push(value); }
 
-  // Los agregados simulados no se sirven: se filtran en el propio SQL, no
-  // después, para que la cifra de este endpoint nunca dependa de que alguien
-  // se acuerde de filtrar en JavaScript. Un listado vacío es la respuesta
-  // correcta mientras el anclaje sea fabricado.
+  // The range closes on the bound periods' own dates, not on their ids.
+  if (from_period) {
+    const from = await periodBound(entityId, from_period, 'from_period');
+    where += ` AND fp.start_date >= $${idx++}`;
+    params.push(from.start_date);
+  }
+  if (to_period) {
+    const to = await periodBound(entityId, to_period, 'to_period');
+    where += ` AND fp.end_date <= $${idx++}`;
+    params.push(to.end_date);
+  }
+
+  // Dos filtros que NO se estorban y no se puede quitar ninguno:
   //
-  // Se pide UNA fila de más para poder reportar el truncamiento en vez de
-  // presentar un listado parcial como si fuera el conjunto entero.
+  //  · `pa.is_simulated = false` — los agregados simulados no se sirven, y se
+  //    filtran en el propio SQL para que la cifra nunca dependa de que alguien
+  //    se acuerde de filtrar en JavaScript. (La política del verificador lo
+  //    repite en la base; aquí queda a la vista de quien lee la consulta.)
+  //  · el JOIN con fiscal_periods — es lo que da sentido al WHERE de arriba.
+  //    published_aggregates.period_id es NOT NULL REFERENCES fiscal_periods(id),
+  //    así que la unión interna no puede perder renglones: una llamada sin
+  //    rango devuelve lo mismo que devolvía.
+  // Y se pide UNA fila de más que el tope, para declarar el truncamiento en
+  // vez de presentar un listado parcial como si fuera el conjunto entero.
   const LIMIT = 100;
   const result = await consultaPublica(
-    `SELECT dimension_type, dimension_value, public_amount, transaction_count,
-            period_id, published_at, aggregate_commitment
-     FROM published_aggregates ${where} AND is_simulated = false
-     ORDER BY published_at DESC LIMIT ${LIMIT + 1}`,
+    `SELECT pa.dimension_type, pa.dimension_value, pa.public_amount, pa.transaction_count,
+            pa.period_id, pa.published_at, pa.aggregate_commitment
+     FROM published_aggregates pa
+     JOIN fiscal_periods fp ON fp.id = pa.period_id
+     ${where} AND pa.is_simulated = false
+     ORDER BY pa.published_at DESC LIMIT ${LIMIT + 1}`,
     params
   );
 

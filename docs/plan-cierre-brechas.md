@@ -833,7 +833,11 @@ Trabajo `integracion` (needs: unidad):
   6. TEST_ADMIN_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres, TEST_DB_OWNER=mnemosine_owner, TEST_MIGRATION_DATABASE_URL=postgresql://mnemosine_owner:<owner_pw>@localhost:5432/postgres y npm run test:e2e. Conectar como mnemosine_owner y no como superusuario es deliberado: un superusuario ignora RLS y la suite dejaría de ejercitar el perímetro (ver decisión).
 - Contraseñas de CI en el propio workflow como literales de usar y tirar (el clúster vive y muere con el trabajo); no usar secretos para esto.
 
-NO incluir `npm run lint` en la CI: eslint 8 está en devDependencies pero no existe ningún .eslintrc* ni eslint.config.* en el repositorio, así que `npm run lint` falla hoy por falta de configuración. Añadir la configuración de eslint no pertenece a este paquete; dejarlo anotado en el propio workflow con un comentario.
+~~NO incluir `npm run lint` en la CI: eslint 8 está en devDependencies pero no existe ningún .eslintrc* ni eslint.config.* en el repositorio, así que `npm run lint` falla hoy por falta de configuración. Añadir la configuración de eslint no pertenece a este paquete; dejarlo anotado en el propio workflow con un comentario.~~
+
+**SUPERADO (2026-08-27).** La brecha quedó cerrada: el repositorio tiene `eslint.config.mjs` (configuración plana de ESLint 9 con typescript-eslint y reglas con información de tipos) y el guion es `eslint src/ tests/ scripts/ --max-warnings 1067`. La CI sí invoca `npm run lint`, en un trabajo propio llamado `lint`. Las 1067 advertencias (436 en src, 631 en tests) son la falta de solidez que entra por tipos de terceros (`req.body: any` de Express, `parse(): any` de fast-xml-parser, filas `Record<string, unknown>`, y el cliente pg falso de tests/helpers); el tope las congela, de modo que la deuda no puede crecer en silencio, y baja conforme se tipe cada frontera.
+
+`scripts/` también quedó cubierto. Antes sólo se revisaba `build-niif-indice.ts`, y de rebote: `tests/ai/niif-registry.spec.ts` lo importa y eso lo mete en el programa de tsconfig.test.json. Por eso su autor topó con la restricción y dejó escrito que usa `__dirname` y no `import.meta` (el proyecto compila a CommonJS). Los otros dos guiones no los revisaba nadie, y justo por eso `generate-cli-reference.ts` se había desviado de esa convención y usaba `import.meta` (TS1470). Ahora `tsconfig.test.json` incluye `scripts/**/*`, el guion desviado usa `__dirname` como su hermano, y eslint le aplica las mismas reglas con información de tipos que a `src/`. Importa porque `scripts/reclasificar-iva-ppd.ts` reescribe IVA ya contabilizado: ahí `no-floating-promises` es exactamente la regla que se quiere apuntando.
 
 Disparadores: push a la rama principal y pull_request. Hasta que el proyecto esté bajo git con un remoto (hoy no lo está), el archivo queda inerte: ver la decisión correspondiente.
 
@@ -847,7 +851,7 @@ Disparadores: push a la rama principal y pull_request. Hasta que el proyecto est
 - El trabajo `unidad` pasa sin ningún servicio de base de datos declarado: ninguna prueba unitaria abre una conexión.
 - El trabajo `integracion` corre migrate + seed + provision-roles + verify-isolation.sh + test:e2e y termina verde sobre un Postgres recién levantado.
 - verify-isolation.sh imprime 'Aislamiento verificado.' y sale con código 0.
-- El workflow no invoca `npm run lint` y lleva el comentario que explica por qué.
+- ~~El workflow no invoca `npm run lint` y lleva el comentario que explica por qué.~~ SUPERADO: el workflow sí invoca `npm run lint` y el trabajo `lint` termina verde.
 - Introducir a propósito un fallo (por ejemplo quitar el candado ALREADY_REVERSED) hace fallar la CI.
 
 **Riesgo.** Riesgo principal: la CI no puede ejecutarse porque el proyecto no está bajo control de versiones. Segundo riesgo: verify-isolation.sh elige T1 con `SELECT tenant_id FROM legal_entities WHERE tenant_id <> $T2 LIMIT 1`; si el paso de seed se omitiera, T1 quedaría vacío y la comprobación de escritura cruzada fallaría por una razón equivocada. Por eso el orden de los pasos es parte de la especificación, no una sugerencia.

@@ -11,7 +11,7 @@ import type {
   JournalEntryLine,
   ValidationResult,
 } from '../../types/index.js';
-import { JournalEntryType } from '../../types/index.js';
+import { JournalEntryType, JournalEntryStatus } from '../../types/index.js';
 
 // ============================================================
 // JOURNAL ENTRIES — domain service (reads, drafting, validation)
@@ -587,10 +587,10 @@ export interface EntryPreview {
  */
 export async function previewEntryPosting(entityId: string, ref: string): Promise<EntryPreview> {
   const entry = await resolveJournalEntry(entityId, ref);
-  if (entry.status === 'posted') {
+  if (entry.status === JournalEntryStatus.POSTED) {
     throw new AccountingError('ALREADY_POSTED', `${entry.entry_number} ya está aplicada: no hay delta que previsualizar.`);
   }
-  if (entry.status === 'void') {
+  if (entry.status === JournalEntryStatus.VOID) {
     throw new AccountingError('ENTRY_VOID', `${entry.entry_number} está anulada y jamás se aplicará.`);
   }
   const lines = await listEntryLines(entry.id);
@@ -705,13 +705,13 @@ export async function updateDraftEntry(
       throw new AccountingError('ENTRY_NOT_FOUND', `Journal entry ${ref} not found`);
     }
     const entry = bloqueada.rows[0];
-    if (entry.status === 'posted') {
+    if (entry.status === JournalEntryStatus.POSTED) {
       throw new AccountingError('ALREADY_POSTED', `${entry.entry_number} ya está aplicada: una póliza en el mayor es inmutable.`);
     }
-    if (entry.status === 'void') {
+    if (entry.status === JournalEntryStatus.VOID) {
       throw new AccountingError('ENTRY_VOID', `${entry.entry_number} está anulada.`);
     }
-    if (entry.status !== 'draft') {
+    if (entry.status !== JournalEntryStatus.DRAFT) {
       throw new AccountingError(
         'ENTRY_NOT_EDITABLE',
         `${entry.entry_number} está en ${entry.status}: solo un borrador se edita.`

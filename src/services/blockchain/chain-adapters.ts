@@ -164,7 +164,7 @@ class EvmChainAdapter extends BaseChainAdapter {
     };
   }
 
-  async getTransactionStatus(txHash: string): Promise<{
+  async getTransactionStatus(_txHash: string): Promise<{
     status: 'pending' | 'confirmed' | 'failed';
     blockNumber?: number;
     confirmations?: number;

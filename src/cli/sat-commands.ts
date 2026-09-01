@@ -95,7 +95,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
       let rl: readline.Interface | undefined;
       try {
         const ctx = await resolveEntity(opts.entity);
-        const { dryRun, live } = gateMutation(add, opts as Record<string, unknown>);
+        const { dryRun, live } = gateMutation(add, opts);
         if (opts.idempotencyKey) {
           stderr.write(
             '  --idempotency-key does not apply here: custody is guarded by the typed consent and the credential status.\n'
@@ -245,7 +245,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
     .action(async (opts: { entity?: string; limit: number }) => {
       try {
         const ctx = await resolveEntity(opts.entity);
-        const log = (await getAccessLog(ctx.entityId, ctx.tenantId, opts.limit)) as Array<Record<string, unknown>>;
+        const log = (await getAccessLog(ctx.entityId, ctx.tenantId, opts.limit));
         if (log.length === 0) {
           console.log('No accesses recorded.');
         } else {
@@ -288,7 +288,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
       let rl: readline.Interface | undefined;
       try {
         const ctx = await resolveEntity(opts.entity);
-        const { dryRun, reason } = gateMutation(revoke, opts as Record<string, unknown>);
+        const { dryRun, reason } = gateMutation(revoke, opts);
         if (opts.idempotencyKey) {
           stderr.write(
             '  --idempotency-key does not apply here: a second revoke is refused because no active credential remains.\n'

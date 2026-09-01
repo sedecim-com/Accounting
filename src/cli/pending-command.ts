@@ -228,7 +228,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
               : answer;
         }
 
-        await resolvePolicy({ tenantId: ctx.tenantId }, key, chosen!, reviewer.email, optOf<string>(opts, command, 'note'));
+        await resolvePolicy({ tenantId: ctx.tenantId }, key, chosen, reviewer.email, optOf<string>(opts, command, 'note'));
         const remaining = (await listPending({ tenantId: ctx.tenantId })).length;
         console.log(`✔ ${c.bold(key)} = ${chosen}`);
         console.log(c.dim(`${plural(remaining, 'definition', 'definitions')} still pending.`));

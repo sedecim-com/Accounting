@@ -1,6 +1,6 @@
 import { query } from '../../../database/connection.js';
 import { encrypt, decrypt } from '../../../utils/encryption.js';
-import type { IIntegrationAdapter, AdapterContext } from './adapter.interface.js';
+import type { IIntegrationAdapter } from './adapter.interface.js';
 import { AccountingError } from '../../../utils/errors.js';
 
 // ============================================================

@@ -92,7 +92,7 @@ export function anthropicView(messages: readonly AnthropicMessageLike[]): Compac
     const text = flattenAnthropic(m);
     const blocks = typeof m.content === 'string' ? [] : m.content;
     return {
-      role: (m.role === 'assistant' ? 'assistant' : 'user') as CompactableMessage['role'],
+      role: (m.role === 'assistant' ? 'assistant' : 'user'),
       chars: text.length,
       opensToolUse: blocks.some((b) => b.type === 'tool_use'),
       isToolResult: blocks.some((b) => b.type === 'tool_result'),

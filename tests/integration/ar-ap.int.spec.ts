@@ -246,7 +246,7 @@ describe('la entidad recién sembrada puede contabilizar sin SQL a mano', () => 
     // Forzar el camino que el guard de journal_entry_id no ve: el índice
     // parcial uq_je_document_source es la última línea de defensa.
     await expect(
-      withTransaction((c) => postInvoiceEntry(c, { ...inv, journal_entry_id: null } as Invoice, lineas, f.userId))
+      withTransaction((c) => postInvoiceEntry(c, { ...inv, journal_entry_id: null }, lineas, f.userId))
     ).rejects.toThrow(/uq_je_document_source|duplicate key/);
   });
 });

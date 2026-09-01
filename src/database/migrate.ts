@@ -139,5 +139,12 @@ async function runMigrations() {
 // require.main identifica al archivo que se invocó.
 // ============================================================
 if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
-  runMigrations();
+  // El .catch no es decorativo: runMigrations marca `fallo` y sale por su
+  // cuenta ante un error de migracion, pero un rechazo del `finally`
+  // (pool.end) escapa a su try/catch interno. Sin este backstop seria un
+  // unhandled rejection y el proceso saldria en VERDE tras fallar.
+  runMigrations().catch((err) => {
+    console.error('Migration failed:', err);
+    process.exit(1);
+  });
 }

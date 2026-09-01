@@ -75,7 +75,7 @@ describe('contrato de vocabularios', () => {
       expect(enBase, `${clave} no tiene CHECK de vocabulario en el esquema`).toBeDefined();
 
       const declarados = [...voc.valores].sort();
-      const reales = [...new Set(enBase!)].sort();
+      const reales = [...new Set(enBase)].sort();
 
       // Se comparan los dos sentidos por separado para que el fallo diga
       // CUÁL de los dos problemas es: aceptar lo que revienta, o esconder

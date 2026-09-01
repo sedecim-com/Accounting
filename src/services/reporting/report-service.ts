@@ -193,7 +193,7 @@ async function resolveSinglePeriod(entityId: string, expr: string): Promise<Peri
 }
 
 /** Several consecutive periods matched one expression: report their span. */
-function spanOf(rows: FiscalPeriodRow[], expr: string): PeriodRange {
+function spanOf(rows: FiscalPeriodRow[], _expr: string): PeriodRange {
   return {
     start_date: rows[0].start_date,
     end_date: rows[rows.length - 1].end_date,

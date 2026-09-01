@@ -61,7 +61,9 @@ export interface PagoREP {
 export interface CfdiFacts {
   // Identity
   uuid: string;
-  tipo: 'I' | 'E' | 'T' | 'N' | 'P' | 'R' | string;
+  // `string & {}` keeps the SAT codes visible to the checker and to editors
+  // without narrowing away whatever the XML actually carries.
+  tipo: 'I' | 'E' | 'T' | 'N' | 'P' | 'R' | (string & {});
   /** emitido = the entity is the issuer. recibido = it is the receiver. */
   direction: 'emitido' | 'recibido' | 'ajeno';
   emisorRfc: string;
@@ -70,7 +72,7 @@ export interface CfdiFacts {
   fecha: Date;
 
   // Payment
-  metodoPago?: 'PUE' | 'PPD' | string;
+  metodoPago?: 'PUE' | 'PPD' | (string & {});
   formaPago?: string;
   /** Payment method 01 = cash: relevant for deductibility. */
   pagadoEnEfectivo: boolean;
@@ -266,7 +268,7 @@ function breakdownTaxes(cfdi: CFDIParsed) {
 function extractImpuestosLocales(cfdi: CFDIParsed): { trasladados: number; retenidos: number } {
   const c = cfdi.complementos.find((x) => x.type === 'ImpuestosLocales');
   if (!c) return { trasladados: 0, retenidos: 0 };
-  const d = c.data as Record<string, unknown>;
+  const d = c.data;
   return {
     trasladados: num(d.TotaldeTraslados ?? d.totaldeTraslados),
     retenidos: num(d.TotaldeRetenciones ?? d.totaldeRetenciones),
@@ -289,7 +291,7 @@ function extractPagos(cfdi: CFDIParsed): DoctoRelacionado[] {
 export function extractPagosCompletos(cfdi: CFDIParsed): PagoREP[] {
   const c = cfdi.complementos.find((x) => x.type === 'Pagos');
   if (!c) return [];
-  const data = c.data as Record<string, unknown>;
+  const data = c.data;
   const pagoNode = data.Pago ?? data.pago;
   const pagos = Array.isArray(pagoNode) ? pagoNode : pagoNode ? [pagoNode] : [];
 

@@ -18,7 +18,6 @@ import { estimateCostUsd } from '../usage-ledger.js';
 import {
   CooldownRegistry,
   runWithFailover,
-  type NamedProfile,
   type ProviderErrorCategory,
 } from './failover.js';
 
@@ -206,7 +205,7 @@ export async function createLlmSessionWithFailover(
 
   const firstTurn = async (userInput: string, signal?: AbortSignal): Promise<string> => {
     const { result } = await runWithFailover<{ session: LlmSession; text: string }>(
-      chain as NamedProfile[],
+      chain,
       async (candidate) => {
         // Setup (credential resolution + construction) and the first turn's
         // connection are ONE attempt: either can trip the walk.

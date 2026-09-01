@@ -349,7 +349,7 @@ describe('grounding gate — MnemosineAgent (Anthropic runner)', () => {
                 yield { on: () => {}, finalMessage: async () => final };
               },
               done: async () => final,
-              params: { messages: [...(params.messages as unknown[]), { role: 'assistant', content: final.content }] },
+              params: { messages: [...(params.messages), { role: 'assistant', content: final.content }] },
             };
           },
         },

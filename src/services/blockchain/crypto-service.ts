@@ -175,7 +175,7 @@ export class CryptoService {
     return {
       leaf: leaf,
       proof: proof.map((p) => ({
-        position: (p.position as 'left' | 'right'),
+        position: (p.position),
         data: '0x' + p.data.toString('hex'),
       })),
       root: '0x' + tree.getRoot().toString('hex'),
