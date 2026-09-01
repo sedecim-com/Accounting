@@ -444,7 +444,7 @@ async function invoicesAppliedBy(
   paymentId: string
 ): Promise<AppliedDocumentRow[]> {
   const { rows } = await client.query<AppliedDocumentRow>(
-    // Sólo aplicaciones VIVAS (048): una desaplicada es historia, y contarla
+    // Sólo aplicaciones VIVAS (049): una desaplicada es historia, y contarla
     // aquí re-liberaría el IVA que su desaplicación ya re-aparcó.
     `SELECT pa.invoice_id                       AS document_id,
             i.invoice_number                    AS document_number,

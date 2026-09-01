@@ -465,6 +465,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.2',
     enunciado: 'Una migración de datos que olvide la RLS truena en vez de correr filtrada',
+    mutantes: [
+      {
+        archivo: 'src/database/migrate.ts',
+        de: "await client.query('SET row_security = off');",
+        a: "await client.query('SET row_security = on');",
+        porque: 'apagar el piso es exactamente la regresión que costó cuatro siembras silenciosas',
+      },
+    ],
     evaluar: () => {
       // Tres veces una siembra corrió como dueño bajo FORCE RLS sin GUC de
       // inquilino y leyó cero filas «con éxito»: la 025 (confesada por la
@@ -490,7 +498,10 @@ export const CRITERIOS: Criterio[] = [
       const sinOptIn = fs.readdirSync(dir)
         .filter((f) => f.endsWith('.sql'))
         .filter((f) => {
-          const sql = fs.readFileSync(path.join(dir, f), 'utf-8');
+          // Por el seam (crudoDe), no por fs directo: una lectura que rodea
+          // el seam es un criterio que ningún espejo puede mutar — y el
+          // criterio E0.0 del arnés cuenta esas lecturas y las acusa.
+          const sql = crudoDe('src/database/migrations', f);
           return sql.includes("set_config('app.current_tenant'")
             && !/SET LOCAL row_security = on/.test(sql);
         });
@@ -2533,7 +2544,7 @@ export const CRITERIOS: Criterio[] = [
     enunciado: 'El folio eliminado deja hueco explicado, y el perfil fiscal se valida contra catálogo antes de escribir',
     mutantes: [
       {
-        archivo: 'src/database/migrations/048_cobrar.sql',
+        archivo: 'src/database/migrations/049_cobrar.sql',
         de: 'ADD COLUMN tax_regime VARCHAR(3),',
         a: 'ADD COLUMN tax_regimen VARCHAR(3),',
         porque: 'el mutante-sufijo: «tax_regimen» CONTIENE «tax_regime» y solo \\b lo mata',
@@ -2543,7 +2554,7 @@ export const CRITERIOS: Criterio[] = [
       // F03: borrar un borrador es legal; borrar su rastro no. El DELETE
       // guarda el documento completo en audit_log y la serie cruza sus
       // huecos contra ese rastro: hueco con motivo = explicado; sin motivo
-      // = hallazgo. Y el perfil fiscal (régimen/CP/UsoCFDI, 048) valida
+      // = hallazgo. Y el perfil fiscal (régimen/CP/UsoCFDI, 049) valida
       // contra los catálogos del SAT ANTES del UPDATE: un código inventado
       // fallaría el timbrado semanas después, donde ya nadie recuerda.
       const inv = codigoDe('src/services/ar/invoice-service.ts');
@@ -2588,10 +2599,10 @@ export const CRITERIOS: Criterio[] = [
       // \b: la lección del mutante-sufijo — «tax_regimen» CONTIENE
       // «tax_regime» y un regex sin frontera lo bendice.
       return /ADD COLUMN tax_regime\b/.test(
-        crudoDe('src/database/migrations/048_cobrar.sql')
+        crudoDe('src/database/migrations/049_cobrar.sql')
       )
         ? ok('DELETE con rastro completo y serie que lo lee; perfil fiscal validado contra catálogo antes del UPDATE')
-        : falla('la 048 perdió las columnas del perfil fiscal: el control previo a facturar no tendría dónde vivir');
+        : falla('la 049 perdió las columnas del perfil fiscal: el control previo a facturar no tendría dónde vivir');
     },
   },
   {

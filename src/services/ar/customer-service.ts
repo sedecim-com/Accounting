@@ -570,7 +570,7 @@ export function customerLabel(row: {
 }
 
 // ============================================================
-// EL PERFIL FISCAL DEL CLIENTE (048 · F03)
+// EL PERFIL FISCAL DEL CLIENTE (049 · F03)
 //
 // RFC, régimen, CP y UsoCFDI: los cuatro datos que el timbrado CFDI 4.0
 // valida contra el padrón del SAT — si no casan, el PAC rechaza. Vivían en

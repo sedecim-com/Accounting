@@ -79,7 +79,7 @@ export const VENDOR_PAYMENT_STATUSES = [
 ] as const;
 
 /**
- * 'reversed' (048): el cobro OCURRIÓ y rebotó (NSF). Distinto de 'void' —
+ * 'reversed' (049): el cobro OCURRIÓ y rebotó (NSF). Distinto de 'void' —
  * que nunca debió existir. El lado del proveedor no lo tiene: un pago
  * nuestro devuelto es otra historia, con su propia fase.
  */
@@ -87,7 +87,7 @@ export const CUSTOMER_PAYMENT_STATUSES = [
   'draft', 'pending', 'processing', 'completed', 'failed', 'void', 'reversed',
 ] as const;
 
-// ── Notas de crédito (048) ──
+// ── Notas de crédito (049) ──
 
 export const CREDIT_NOTE_TYPES = ['devolucion', 'descuento', 'correccion', 'anticipo'] as const;
 export const CREDIT_NOTE_STATUSES = ['draft', 'issued', 'applied', 'void'] as const;
