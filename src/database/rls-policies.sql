@@ -151,6 +151,7 @@ BEGIN
       ('bill_lines',                   'bill_id',                    'bills'),
       ('payment_allocations',          'payment_id',                 'customer_payments'),
       ('payment_applications',         'payment_id',                 'vendor_payments'),
+      ('credit_note_applications',     'credit_note_id',             'credit_notes'),
       ('inventory_layers',             'item_id',                    'inventory_items'),
       ('inventory_layer_consumption',  'item_id',                    'inventory_items'),
       ('depreciation_schedules',       'asset_id',                   'fixed_assets'),

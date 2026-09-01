@@ -4,10 +4,8 @@ import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { attestEntryAsync } from '../services/accounting/posting.js';
 import { resolveBill } from '../services/ap/bill-service.js';
-import { resolveInvoice } from '../services/ar/invoice-service.js';
 import {
   recordVendorPayment,
-  recordCustomerPayment,
   type EntradaPago,
   type ResultadoPago,
 } from '../services/payments/payment-service.js';
@@ -23,11 +21,12 @@ import {
 } from './kernel/index.js';
 
 // ============================================================
-// mnemosine payment · mnemosine receipt
+// mnemosine payment
 //
-// El dinero que sale (`payment`, a proveedores) y el que entra (`receipt`,
-// de clientes), sobre services/payments/payment-service.ts — el mismo camino
-// que toma la API.
+// El dinero que sale (`payment`, a proveedores), sobre
+// services/payments/payment-service.ts — el mismo camino que toma la API.
+// El que entra vive en receipt-command.ts (F03): el cobro dejó de ser una
+// sola hoja y se llevó su familia entera.
 //
 // POR QUÉ EXISTEN. Registrar el cobro o el pago no es papeleo: es el acto que
 // RECONOCE EL IVA de un CFDI a crédito. Bajo PPD el IVA acreditable espera en
@@ -75,9 +74,6 @@ interface MontoOpts extends CommonOpts {
 
 /** Un gasto se paga cuando su pasivo ya está en el mayor. */
 const PAGABLES = ['approved', 'posted', 'partially_paid'] as const;
-/** Una factura se cobra cuando ya salió al cliente y su ingreso está contabilizado. */
-const COBRABLES = ['sent', 'viewed', 'partially_paid', 'overdue'] as const;
-
 export function registerPaymentCommands(program: Command, deps: PaymentCommandDeps): void {
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -192,65 +188,6 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     })
   );
 
-  // ============================================================
-  // receipt · lo que entra
-  // ============================================================
-  const receipt = program
-    .command('receipt')
-    .alias('cobro')
-    .description('Customer collections: record cash received and recognize the IVA it was holding');
-
-  const record = receipt
-    .command('record')
-    .alias('registrar')
-    .argument('<invoice>', 'invoice number or id')
-    .description('Record cash received against an invoice and recognize the IVA it was holding');
-  montoFlags(record).option('--reference <text>', 'bank reference or transfer number');
-  withContext(record);
-  declareRisk(record, {
-    risk: 'irreversible',
-    agent: false,
-    writes: 'customer_payments, payment_allocations, invoices.amount_due, journal_entries',
-  });
-  record.action((ref: string, opts: MontoOpts) =>
-    run(async () => {
-      const ctx = await writeEntityOf(opts);
-      const target = await resolveInvoice(ctx.entityId, ref);
-
-      if (!COBRABLES.includes(target.status as (typeof COBRABLES)[number])) {
-        throw blockedByState(
-          `${target.invoice_number} is "${target.status}". ` +
-            (target.status === 'paid'
-              ? 'It is already settled.'
-              : target.status === 'draft'
-                ? 'Issue it first: an invoice has to be in the ledger before cash can be applied to it.'
-                : `Only ${COBRABLES.join(', ')} invoices can be collected.`)
-        );
-      }
-
-      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      const entrada: EntradaPago = {
-        entityId: ctx.entityId,
-        paymentAmount: opts.amount,
-        paymentDate: opts.date ?? hoy(),
-        paymentMethod: opts.method,
-        bankAccountId: opts.bank ?? null,
-        referenceNumber: opts.reference ?? null,
-        applications: [{ documentId: target.id, amountApplied: opts.amount }],
-      };
-
-      await ejecutar({
-        opts, deps, entrada, reviewer: reviewer.userId, ctx,
-        registrar: recordCustomerPayment,
-        etiqueta: target.invoice_number,
-        moneda: target.currency_code,
-        pregunta: (d) =>
-          `Record ${opts.amount} ${target.currency_code} collected on ${target.invoice_number} ` +
-          `(${d.saldoAnterior} → ${d.saldoNuevo}) in ${ctx.entityName}? This posts to the ledger.`,
-        confirmOrAbort,
-      });
-    })
-  );
 }
 
 const hoy = (): string => new Date().toISOString().slice(0, 10);

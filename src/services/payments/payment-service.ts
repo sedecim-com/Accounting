@@ -1,9 +1,17 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import type pg from 'pg';
-import { withTransaction } from '../../database/connection.js';
+import { query, withTransaction } from '../../database/connection.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
-import { postVendorPaymentEntry, postCustomerPaymentEntry } from '../accounting/ar-ap-posting.js';
+import {
+  postVendorPaymentEntry,
+  postCustomerPaymentEntry,
+  postReceiptApplicationEntry,
+  postReceiptUnapplicationEntry,
+  type AplicacionPosterior,
+} from '../accounting/ar-ap-posting.js';
+import { voidJournalEntryInTx } from '../accounting/posting.js';
+import { ivaToReclassify } from '../accounting/iva-cash-basis.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
@@ -66,6 +74,14 @@ export interface EntradaPago {
    */
   cfdiUuid?: string | null;
   cfdiPagoIndice?: number | null;
+  /**
+   * SOLO lado cliente (048): permite que las aplicaciones sumen MENOS que el
+   * pago — el remanente queda a cuenta (CR anticipo_clientes, nunca colgado
+   * de la cuenta de control) — e incluso que no haya ninguna (anticipo puro,
+   * que entonces exige counterpartyId y moneda). El lado proveedor no lo
+   * acepta: un pago nuestro sin aplicar es otra historia.
+   */
+  onAccount?: boolean;
 }
 
 interface DocumentoAplicado {
@@ -99,10 +115,21 @@ function assertEstado(status: string | undefined): void {
   }
 }
 
-function assertAplicaciones(entrada: EntradaPago): void {
-  if (entrada.applications.length === 0) {
+function assertAplicaciones(entrada: EntradaPago, permiteACuenta = false): void {
+  const aCuenta = permiteACuenta && entrada.onAccount === true;
+  if (entrada.onAccount === true && !permiteACuenta) {
+    throw new ValidationError(
+      'El pago a cuenta sólo existe del lado del cliente: un pago nuestro sin aplicar a ningún gasto no tiene dónde vivir.'
+    );
+  }
+  if (entrada.applications.length === 0 && !aCuenta) {
     throw new ValidationError(
       'Un pago sin aplicar a ningún documento no libera saldo ni acredita IVA: indica a qué se aplica.'
+    );
+  }
+  if (entrada.applications.length === 0 && aCuenta && !entrada.counterpartyId) {
+    throw new ValidationError(
+      'Un anticipo sin factura necesita el cliente explícito: sin documento no hay de dónde deducirlo.'
     );
   }
 
@@ -143,17 +170,22 @@ function assertAplicaciones(entrada: EntradaPago): void {
     (s, a) => s.plus(a.amountApplied),
     new Decimal(0)
   );
-  // Exacto, no «no más de». Aplicar de menos dejaba el asiento cargando el
-  // importe COMPLETO del pago contra la cuenta de control mientras el
-  // auxiliar sólo bajaba la parte aplicada: el resto quedaba en el aire. Un
-  // pago a cuenta es otro concepto y todavía no existe.
-  if (!total.equals(entrada.paymentAmount)) {
+  // Exacto, no «no más de» — salvo a cuenta EXPLÍCITO (048), donde el
+  // remanente va a anticipo_clientes en el asiento y no queda en el aire.
+  // Aplicar de menos SIN pedirlo sigue rechazándose: el que suma mal debe
+  // enterarse, no ganar un anticipo por accidente.
+  if (total.greaterThan(entrada.paymentAmount)) {
     throw new ValidationError(
       `Las aplicaciones suman ${total.toFixed(2)} y el pago es de ` +
-        `${new Decimal(entrada.paymentAmount).toFixed(2)}. Tienen que coincidir: ` +
-        (total.greaterThan(entrada.paymentAmount)
-          ? 'no se puede aplicar más de lo que se pagó.'
-          : 'lo que sobra quedaría cargado a la cuenta de control sin bajar de ningún auxiliar.')
+        `${new Decimal(entrada.paymentAmount).toFixed(2)}: no se puede aplicar más de lo que se pagó.`
+    );
+  }
+  if (!total.equals(entrada.paymentAmount) && !aCuenta) {
+    throw new ValidationError(
+      `Las aplicaciones suman ${total.toFixed(2)} y el pago es de ` +
+        `${new Decimal(entrada.paymentAmount).toFixed(2)}. Tienen que coincidir: lo que sobra ` +
+        'quedaría cargado a la cuenta de control sin bajar de ningún auxiliar. Si el remanente ' +
+        'es deliberado, dilo con onAccount (--on-account): quedará como anticipo del cliente.'
     );
   }
 }
@@ -333,7 +365,7 @@ export async function recordCustomerPayment(
   opts: OpcionesPago = {}
 ): Promise<ResultadoPago> {
   assertEstado(entrada.status);
-  assertAplicaciones(entrada);
+  assertAplicaciones(entrada, true);
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     const documentos: DocumentoAplicado[] = [];
@@ -385,6 +417,18 @@ export async function recordCustomerPayment(
       )).rows[0]?.customer_id;
     if (!customerId) throw new ValidationError('No se pudo determinar el cliente del cobro.');
 
+    // Anticipo puro (048): sin documento no hay moneda de referencia — se
+    // toma la del cliente, verificando de paso que existe EN ESTA entidad.
+    let monedaAnticipo: string | null = null;
+    if (entrada.applications.length === 0) {
+      const c = await client.query<{ currency_code: string }>(
+        `SELECT currency_code FROM customers WHERE id = $1 AND entity_id = $2`,
+        [customerId, entrada.entityId]
+      );
+      if (c.rows.length === 0) throw new NotFoundError('Customer', customerId);
+      monedaAnticipo = entrada.currencyCode ?? c.rows[0].currency_code;
+    }
+
     const paymentNumber = await nextEntityNumber(client, entrada.entityId, 'customer_payment', 'PMT', entrada.paymentDate);
     const paymentId = uuidv4();
 
@@ -397,7 +441,7 @@ export async function recordCustomerPayment(
          status, created_by, cfdi_uuid, cfdi_pago_indice
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [paymentId, entrada.entityId, paymentNumber, customerId, entrada.paymentAmount,
-       monedaDe(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
+       monedaAnticipo ?? monedaDe(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
        entrada.bankAccountId ?? null, entrada.paymentDate, ESTADO, userId,
        entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null]
     );
@@ -494,4 +538,699 @@ const COBRABLES = ['sent', 'viewed', 'partially_paid', 'overdue'] as const;
 /** assertMoneda ya garantizó que son todas la misma. */
 function monedaDe(documentos: DocumentoAplicado[]): string {
   return documentos[0]?.moneda ?? 'MXN';
+}
+
+// ============================================================
+// EL COBRO COMO HISTORIA (048 · F03)
+//
+// Registrar era el único evento; ahora hay cuatro: aplicar el saldo a
+// cuenta (el anticipo encuentra su factura), desaplicar (la aplicación se
+// clausura como evento nuevo, jamás se borra), y reversar (el cheque
+// rebotó: TODO se deshace por espejo NIF B-1 y el cobro queda 'reversed' —
+// ocurrió y se deshizo, que no es lo mismo que 'void').
+//
+// Las mismas fronteras que el registro: entidad DENTRO del SQL, FOR UPDATE
+// antes de leer saldos, y el ensayo recorre el camino real y revierte.
+// ============================================================
+
+class EnsayoEvento extends Error {
+  constructor(public readonly resultado: unknown) {
+    super('dry-run');
+  }
+}
+
+async function ejecutarEvento<T>(
+  correr: (client: pg.PoolClient) => Promise<T>,
+  opts: OpcionesPago
+): Promise<T> {
+  if (opts.client) return correr(opts.client);
+  try {
+    return await withTransaction(correr);
+  } catch (e) {
+    if (e instanceof EnsayoEvento) return e.resultado as T;
+    throw e;
+  }
+}
+
+interface PagoVivo {
+  id: string;
+  payment_number: string;
+  customer_id: string;
+  payment_amount: string;
+  currency_code: string;
+  payment_date: Date;
+  bank_account_id: string | null;
+  journal_entry_id: string | null;
+  status: string;
+  cfdi_uuid: string | null;
+}
+
+/** El cobro, acotado por entidad y con candado: la base de los tres eventos. */
+async function cobroParaEscribir(
+  client: pg.PoolClient,
+  entityId: string,
+  paymentId: string
+): Promise<PagoVivo> {
+  const r = await client.query<PagoVivo>(
+    `SELECT id, payment_number, customer_id, payment_amount, currency_code,
+            payment_date, bank_account_id, journal_entry_id, status, cfdi_uuid
+       FROM customer_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+    [paymentId, entityId]
+  );
+  if (r.rows.length === 0) throw new NotFoundError('Customer payment', paymentId);
+  const pago = r.rows[0];
+  if (pago.status !== ESTADO) {
+    throw new ValidationError(
+      `El cobro ${pago.payment_number} está en '${pago.status}': sólo un cobro 'completed' admite este evento.`
+    );
+  }
+  return pago;
+}
+
+async function remanenteDe(client: pg.PoolClient, paymentId: string, paymentAmount: string): Promise<Decimal> {
+  const r = await client.query<{ aplicado: string }>(
+    `SELECT COALESCE(SUM(amount_applied), 0)::text AS aplicado
+       FROM payment_allocations WHERE payment_id = $1 AND unapplied_at IS NULL`,
+    [paymentId]
+  );
+  return new Decimal(paymentAmount).minus(r.rows[0]?.aplicado ?? '0');
+}
+
+export interface ResultadoAplicacion {
+  paymentId: string;
+  paymentNumber: string;
+  journalEntry: JournalEntry | null;
+  attestation: { entityId: string; entryId: string } | null;
+  documentos: DocumentoAplicado[];
+  remanenteAnterior: string;
+  remanenteNuevo: string;
+}
+
+/** Aplicar saldo a cuenta de un cobro existente a una o varias facturas. */
+export async function applyCustomerPayment(
+  entityId: string,
+  paymentId: string,
+  aplicaciones: AplicacionPago[],
+  userId: string,
+  opts: OpcionesPago = {}
+): Promise<ResultadoAplicacion> {
+  if (aplicaciones.length === 0) {
+    throw new ValidationError('Indica a qué factura(s) se aplica el saldo a cuenta.');
+  }
+  const vistos = new Set<string>();
+  for (const a of aplicaciones) {
+    if (vistos.has(a.documentId)) {
+      throw new ValidationError(
+        `El documento ${a.documentId} aparece dos veces en la misma aplicación: súmalas en una.`
+      );
+    }
+    vistos.add(a.documentId);
+  }
+
+  const correr = async (client: pg.PoolClient): Promise<ResultadoAplicacion> => {
+    const pago = await cobroParaEscribir(client, entityId, paymentId);
+    const remanente = await remanenteDe(client, paymentId, pago.payment_amount);
+    const total = aplicaciones.reduce((s, a) => s.plus(a.amountApplied), new Decimal(0));
+    if (total.greaterThan(remanente)) {
+      throw new ValidationError(
+        `El cobro ${pago.payment_number} tiene ${remanente.toFixed(2)} sin aplicar y se intentan ` +
+          `aplicar ${total.toFixed(2)}: el saldo a cuenta no alcanza.`
+      );
+    }
+
+    const documentos: DocumentoAplicado[] = [];
+    const posteriores: AplicacionPosterior[] = [];
+    const filas: { allocId: string; invoiceId: string }[] = [];
+
+    for (const app of aplicaciones) {
+      const r = await client.query<{
+        id: string; invoice_number: string; amount_due: string; status: string;
+        currency_code: string; tax_amount: string; total_amount: string;
+        cfdi_uuid: string | null; terms: string | null; memo: string | null;
+      }>(
+        `SELECT id, invoice_number, amount_due, status, currency_code,
+                tax_amount, total_amount, cfdi_uuid, terms, memo
+           FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+        [app.documentId, entityId]
+      );
+      if (r.rows.length === 0) throw new NotFoundError('Invoice', app.documentId);
+      const inv = r.rows[0];
+      if (!COBRABLES.includes(inv.status as (typeof COBRABLES)[number])) {
+        throw new ValidationError(
+          `${inv.invoice_number} está en "${inv.status}" y sólo se puede aplicar a una factura ` +
+            `${COBRABLES.join(', ')}.`
+        );
+      }
+      assertMoneda(inv.invoice_number, inv.currency_code, pago.currency_code);
+      const aplicado = new Decimal(app.amountApplied);
+      const saldo = new Decimal(inv.amount_due);
+      if (aplicado.greaterThan(saldo)) {
+        throw new ValidationError(
+          `${inv.invoice_number} debe ${saldo.toFixed(2)} y se intentan aplicar ${aplicado.toFixed(2)}.`
+        );
+      }
+
+      // Lo aplicado (vivo) a la factura ANTES de este evento: la base del
+      // objetivo acumulado del IVA, para que las parciales no deriven.
+      const prev = await client.query<{ aplicado: string }>(
+        `SELECT COALESCE(SUM(amount_applied), 0)::text AS aplicado
+           FROM payment_allocations WHERE invoice_id = $1 AND unapplied_at IS NULL`,
+        [app.documentId]
+      );
+
+      const allocId = uuidv4();
+      await client.query(
+        `INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_applied)
+         VALUES ($1,$2,$3,$4)`,
+        [allocId, paymentId, app.documentId, app.amountApplied]
+      );
+      await client.query(
+        `UPDATE invoices SET
+           amount_paid = amount_paid + $1,
+           amount_due  = amount_due - $1,
+           status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
+           last_payment_date = $2
+         WHERE id = $3 AND entity_id = $4`,
+        [app.amountApplied, new Date(), app.documentId, entityId]
+      );
+
+      const nuevo = saldo.minus(aplicado);
+      documentos.push({
+        id: inv.id, numero: inv.invoice_number,
+        saldoAnterior: saldo.toFixed(2), saldoNuevo: nuevo.toFixed(2),
+        estado: nuevo.lessThanOrEqualTo(0) ? 'paid' : 'partially_paid',
+        moneda: inv.currency_code,
+      });
+      posteriores.push({
+        invoiceId: inv.id,
+        invoiceNumber: inv.invoice_number,
+        amount: aplicado.toFixed(4),
+        priorApplied: prev.rows[0]?.aplicado ?? '0',
+        taxAmount: inv.tax_amount,
+        totalAmount: inv.total_amount,
+        cfdiUuid: inv.cfdi_uuid,
+        terms: inv.terms,
+        memo: inv.memo,
+      });
+      filas.push({ allocId, invoiceId: inv.id });
+    }
+
+    const { entry, ivaPorFactura } = await postReceiptApplicationEntry(
+      client,
+      {
+        id: pago.id, entity_id: entityId, payment_number: pago.payment_number,
+        payment_amount: pago.payment_amount, payment_date: pago.payment_date,
+        bank_account_id: pago.bank_account_id, journal_entry_id: null,
+      },
+      posteriores,
+      userId
+    );
+    for (const fila of filas) {
+      const iva = ivaPorFactura.get(fila.invoiceId);
+      if (iva) {
+        await client.query(
+          `UPDATE payment_allocations SET iva_reclass_amount = $1 WHERE id = $2`,
+          [iva, fila.allocId]
+        );
+      }
+    }
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      userId,
+      action: 'update',
+      entityType: 'customer_payments',
+      entityId: paymentId,
+      newValues: {
+        evento: 'apply',
+        aplicado: total.toFixed(2),
+        documentos: documentos.length,
+        journal_entry_id: entry.id,
+      },
+    });
+
+    const salida: ResultadoAplicacion = {
+      paymentId, paymentNumber: pago.payment_number, journalEntry: entry,
+      attestation: { entityId, entryId: entry.id },
+      documentos,
+      remanenteAnterior: remanente.toFixed(2),
+      remanenteNuevo: remanente.minus(total).toFixed(2),
+    };
+    if (opts.dryRun) throw new EnsayoEvento(salida);
+    return salida;
+  };
+
+  return ejecutarEvento(correr, opts);
+}
+
+export interface ResultadoDesaplicacion {
+  paymentId: string;
+  paymentNumber: string;
+  journalEntry: JournalEntry;
+  attestation: { entityId: string; entryId: string };
+  documento: DocumentoAplicado;
+  desaplicado: string;
+  ivaReAparcado: string;
+  ivaEstimado: boolean;
+}
+
+/**
+ * Desaplicar un cobro de una factura: la aplicación se CLAUSURA (nunca se
+ * borra), la factura reabre y el crédito vuelve a estar a cuenta. El IVA que
+ * la aplicación liberó se re-aparca por el importe exacto que guardó su fila.
+ */
+export async function unapplyCustomerPayment(
+  entityId: string,
+  paymentId: string,
+  args: { invoiceId: string; reason: string },
+  userId: string,
+  opts: OpcionesPago = {}
+): Promise<ResultadoDesaplicacion> {
+  const correr = async (client: pg.PoolClient): Promise<ResultadoDesaplicacion> => {
+    const pago = await cobroParaEscribir(client, entityId, paymentId);
+
+    const inv = await client.query<{
+      id: string; invoice_number: string; amount_due: string; amount_paid: string;
+      currency_code: string; tax_amount: string; total_amount: string;
+    }>(
+      `SELECT id, invoice_number, amount_due, amount_paid, currency_code, tax_amount, total_amount
+         FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+      [args.invoiceId, entityId]
+    );
+    if (inv.rows.length === 0) throw new NotFoundError('Invoice', args.invoiceId);
+    const factura = inv.rows[0];
+
+    const vivas = await client.query<{ id: string; amount_applied: string; iva_reclass_amount: string | null }>(
+      `SELECT id, amount_applied::text, iva_reclass_amount::text
+         FROM payment_allocations
+        WHERE payment_id = $1 AND invoice_id = $2 AND unapplied_at IS NULL
+        FOR UPDATE`,
+      [paymentId, args.invoiceId]
+    );
+    if (vivas.rows.length === 0) {
+      throw new ValidationError(
+        `El cobro ${pago.payment_number} no tiene ninguna aplicación viva sobre ${factura.invoice_number}: ` +
+          'no hay qué desaplicar.'
+      );
+    }
+
+    const total = vivas.rows.reduce((s, r) => s.plus(r.amount_applied), new Decimal(0));
+    const conIva = vivas.rows.filter((r) => r.iva_reclass_amount !== null);
+    const sinIva = vivas.rows.filter((r) => r.iva_reclass_amount === null);
+    const ivaExacto = conIva.reduce((s, r) => s.plus(r.iva_reclass_amount as string), new Decimal(0));
+    // Filas pre-048 no guardaron su IVA: se estima pro-rata y el asiento lo dice.
+    const montoSinIva = sinIva.reduce((s, r) => s.plus(r.amount_applied), new Decimal(0));
+    const ivaEstimadoParte = montoSinIva.greaterThan(0)
+      ? new Decimal(
+          ivaToReclassify({
+            ivaTotal: factura.tax_amount,
+            documentTotal: factura.total_amount,
+            priorApplied: '0',
+            appliedNow: montoSinIva.toFixed(4),
+          })
+        )
+      : new Decimal(0);
+    const estimado = sinIva.length > 0 && ivaEstimadoParte.greaterThan(0);
+
+    await client.query(
+      `UPDATE payment_allocations
+          SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = $2
+        WHERE payment_id = $3 AND invoice_id = $4 AND unapplied_at IS NULL`,
+      [userId, args.reason, paymentId, args.invoiceId]
+    );
+    await client.query(
+      `UPDATE invoices SET
+         amount_paid = amount_paid - $1,
+         amount_due  = amount_due + $1,
+         status = CASE WHEN amount_paid - $1 <= 0 THEN 'sent' ELSE 'partially_paid' END
+       WHERE id = $2 AND entity_id = $3`,
+      [total.toFixed(4), args.invoiceId, entityId]
+    );
+
+    const entry = await postReceiptUnapplicationEntry(
+      client,
+      {
+        id: pago.id, entity_id: entityId, payment_number: pago.payment_number,
+        payment_amount: pago.payment_amount, payment_date: pago.payment_date,
+        bank_account_id: pago.bank_account_id, journal_entry_id: null,
+      },
+      {
+        invoiceNumber: factura.invoice_number,
+        amount: total.toFixed(4),
+        ivaReclass: estimado ? null : ivaExacto.toFixed(4),
+        ivaEstimado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
+      },
+      userId
+    );
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      userId,
+      action: 'update',
+      entityType: 'customer_payments',
+      entityId: paymentId,
+      newValues: {
+        evento: 'unapply',
+        invoice: factura.invoice_number,
+        desaplicado: total.toFixed(2),
+        journal_entry_id: entry.id,
+      },
+      reason: args.reason,
+    });
+
+    const salida: ResultadoDesaplicacion = {
+      paymentId, paymentNumber: pago.payment_number, journalEntry: entry,
+      attestation: { entityId, entryId: entry.id },
+      documento: {
+        id: factura.id, numero: factura.invoice_number,
+        saldoAnterior: new Decimal(factura.amount_due).toFixed(2),
+        saldoNuevo: new Decimal(factura.amount_due).plus(total).toFixed(2),
+        estado: new Decimal(factura.amount_paid).minus(total).lessThanOrEqualTo(0) ? 'sent' : 'partially_paid',
+        moneda: factura.currency_code,
+      },
+      desaplicado: total.toFixed(2),
+      ivaReAparcado: ivaExacto.plus(ivaEstimadoParte).toFixed(4),
+      ivaEstimado: estimado,
+    };
+    if (opts.dryRun) throw new EnsayoEvento(salida);
+    return salida;
+  };
+
+  return ejecutarEvento(correr, opts);
+}
+
+export interface ResultadoReversa {
+  paymentId: string;
+  paymentNumber: string;
+  reversals: { entryNumber: string; of: string }[];
+  attestations: { entityId: string; entryId: string }[];
+  documentosReabiertos: DocumentoAplicado[];
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export interface CobroDetalle {
+  id: string;
+  payment_number: string;
+  customer_id: string;
+  customer_name: string | null;
+  payment_amount: string;
+  currency_code: string;
+  payment_date: Date;
+  payment_method: string;
+  reference_number: string | null;
+  status: string;
+  journal_entry_number: string | null;
+  /** REP: el UUID del CFDI tipo P que documenta este cobro, si ya se ligó. */
+  cfdi_uuid: string | null;
+  cfdi_pago_indice: number | null;
+  reversed_at: Date | null;
+  unapplied_amount: string;
+  aplicaciones: {
+    invoice_number: string;
+    amount_applied: string;
+    iva_reclass_amount: string | null;
+    viva: boolean;
+    unapplied_at: Date | null;
+    unapply_reason: string | null;
+  }[];
+}
+
+/** El cobro por folio o id, con sus aplicaciones (vivas e historia) y su REP. */
+export async function getCustomerPayment(entityId: string, ref: string): Promise<CobroDetalle> {
+  const trimmed = ref.trim();
+  if (!trimmed) throw new ValidationError('A receipt reference is required.');
+  const porId = UUID_RE.test(trimmed);
+  const base = await query<{
+    id: string; payment_number: string; customer_id: string; customer_name: string | null;
+    payment_amount: string; currency_code: string; payment_date: Date; payment_method: string;
+    reference_number: string | null; status: string; journal_entry_number: string | null;
+    cfdi_uuid: string | null; cfdi_pago_indice: number | null; reversed_at: Date | null;
+  }>(
+    `SELECT cp.id, cp.payment_number, cp.customer_id, COALESCE(cu.company_name, NULLIF(TRIM(CONCAT(cu.first_name, ' ', cu.last_name)), '')) AS customer_name,
+            cp.payment_amount::text, cp.currency_code, cp.payment_date, cp.payment_method,
+            cp.reference_number, cp.status, je.entry_number AS journal_entry_number,
+            cp.cfdi_uuid, cp.cfdi_pago_indice, cp.reversed_at
+       FROM customer_payments cp
+       LEFT JOIN customers cu ON cu.id = cp.customer_id
+       LEFT JOIN journal_entries je ON je.id = cp.journal_entry_id
+      WHERE cp.${porId ? 'id' : 'payment_number'} = $1 AND cp.entity_id = $2`,
+    [trimmed, entityId]
+  );
+  if (base.rows.length === 0) throw new NotFoundError('Customer payment', trimmed);
+  const pago = base.rows[0];
+
+  const apps = await query<{
+    invoice_number: string; amount_applied: string; iva_reclass_amount: string | null;
+    unapplied_at: Date | null; unapply_reason: string | null;
+  }>(
+    `SELECT i.invoice_number, pa.amount_applied::text, pa.iva_reclass_amount::text,
+            pa.unapplied_at, pa.unapply_reason
+       FROM payment_allocations pa
+       JOIN invoices i ON i.id = pa.invoice_id AND i.entity_id = $2
+      WHERE pa.payment_id = $1
+      ORDER BY pa.created_at`,
+    [pago.id, entityId]
+  );
+
+  const vivas = apps.rows.filter((a) => a.unapplied_at === null);
+  const aplicado = vivas.reduce((s: Decimal, a) => s.plus(a.amount_applied), new Decimal(0));
+
+  return {
+    id: pago.id,
+    payment_number: pago.payment_number,
+    customer_id: pago.customer_id,
+    customer_name: pago.customer_name,
+    payment_amount: new Decimal(pago.payment_amount).toFixed(2),
+    currency_code: pago.currency_code,
+    payment_date: pago.payment_date,
+    payment_method: pago.payment_method,
+    reference_number: pago.reference_number,
+    status: pago.status,
+    journal_entry_number: pago.journal_entry_number,
+    cfdi_uuid: pago.cfdi_uuid,
+    cfdi_pago_indice: pago.cfdi_pago_indice,
+    reversed_at: pago.reversed_at,
+    unapplied_amount:
+      pago.status === ESTADO ? new Decimal(pago.payment_amount).minus(aplicado).toFixed(2) : '0.00',
+    aplicaciones: apps.rows.map((a) => ({
+      invoice_number: a.invoice_number,
+      amount_applied: new Decimal(a.amount_applied).toFixed(2),
+      iva_reclass_amount: a.iva_reclass_amount,
+      viva: a.unapplied_at === null,
+      unapplied_at: a.unapplied_at,
+      unapply_reason: a.unapply_reason,
+    })),
+  };
+}
+
+export interface FiltroCobros {
+  customerId?: string;
+  since?: string;
+  until?: string;
+  /** Sólo cobros con saldo sin aplicar. */
+  unapplied?: boolean;
+  /** Sólo cobros completados sin REP ligado (obligación fiscal propia). */
+  needsRep?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CobroResumen {
+  id: string;
+  payment_number: string;
+  customer_name: string | null;
+  payment_date: Date;
+  payment_amount: string;
+  applied_amount: string;
+  unapplied_amount: string;
+  currency_code: string;
+  status: string;
+  has_rep: boolean;
+}
+
+export async function listCustomerPayments(
+  entityId: string,
+  filtro: FiltroCobros = {}
+): Promise<{ rows: CobroResumen[]; total: number }> {
+  const params: unknown[] = [entityId];
+  const where: string[] = ['cp.entity_id = $1'];
+  if (filtro.customerId) {
+    params.push(filtro.customerId);
+    where.push(`cp.customer_id = $${params.length}`);
+  }
+  if (filtro.since) {
+    params.push(filtro.since);
+    where.push(`cp.payment_date >= $${params.length}`);
+  }
+  if (filtro.until) {
+    params.push(filtro.until);
+    where.push(`cp.payment_date <= $${params.length}`);
+  }
+  if (filtro.needsRep) {
+    where.push(`cp.cfdi_uuid IS NULL AND cp.status = 'completed'`);
+  }
+  if (filtro.unapplied) {
+    where.push(`cp.status = 'completed' AND cp.payment_amount > COALESCE(ap.aplicado, 0)`);
+  }
+
+  const sql = `
+    SELECT cp.id, cp.payment_number, COALESCE(cu.company_name, NULLIF(TRIM(CONCAT(cu.first_name, ' ', cu.last_name)), '')) AS customer_name, cp.payment_date,
+           cp.payment_amount::text, COALESCE(ap.aplicado, 0)::text AS applied_amount,
+           cp.currency_code, cp.status, (cp.cfdi_uuid IS NOT NULL) AS has_rep,
+           COUNT(*) OVER()::int AS total
+      FROM customer_payments cp
+      LEFT JOIN customers cu ON cu.id = cp.customer_id
+      LEFT JOIN LATERAL (
+        SELECT SUM(amount_applied) AS aplicado
+          FROM payment_allocations pa
+         WHERE pa.payment_id = cp.id AND pa.unapplied_at IS NULL
+      ) ap ON true
+     WHERE ${where.join(' AND ')}
+     ORDER BY cp.payment_date DESC, cp.payment_number DESC
+     LIMIT ${Math.max(1, Math.min(filtro.limit ?? 50, 500))} OFFSET ${Math.max(0, filtro.offset ?? 0)}`;
+
+  const r = await query<{
+    id: string; payment_number: string; customer_name: string | null; payment_date: Date;
+    payment_amount: string; applied_amount: string; currency_code: string; status: string;
+    has_rep: boolean; total: number;
+  }>(sql, params);
+  return {
+    total: r.rows[0]?.total ?? 0,
+    rows: r.rows.map((row) => ({
+      id: row.id,
+      payment_number: row.payment_number,
+      customer_name: row.customer_name,
+      payment_date: row.payment_date,
+      payment_amount: new Decimal(row.payment_amount).toFixed(2),
+      applied_amount: new Decimal(row.applied_amount).toFixed(2),
+      unapplied_amount:
+        row.status === ESTADO
+          ? new Decimal(row.payment_amount).minus(row.applied_amount).toFixed(2)
+          : '0.00',
+      currency_code: row.currency_code,
+      status: row.status,
+      has_rep: row.has_rep,
+    })),
+  };
+}
+
+/**
+ * Reversa de un cobro devuelto (NSF): cada asiento del cobro —el original y
+ * los de aplicación/desaplicación posteriores— recibe su espejo NIF B-1, las
+ * facturas reabren, las aplicaciones vivas se clausuran con el motivo, y el
+ * cobro queda 'reversed': ocurrió y rebotó, que no es 'void'.
+ */
+export async function reverseCustomerPayment(
+  entityId: string,
+  paymentId: string,
+  args: { reason: string; feeAmount?: string },
+  userId: string,
+  opts: OpcionesPago = {}
+): Promise<ResultadoReversa> {
+  if (args.feeAmount !== undefined && new Decimal(args.feeAmount).greaterThan(0)) {
+    // El mismo trato que el descuento por pronto pago: reconocer la comisión
+    // exige una cuenta con rol que la capa semántica aún no tiene, y sin
+    // ella el cargo iría a una cuenta adivinada. Se rechaza en voz alta.
+    throw new ValidationError(
+      'La comisión por devolución todavía no se puede registrar: necesita una cuenta con rol de ' +
+        'comisiones bancarias en la capa semántica. Reversa el cobro sin --fee y registra la ' +
+        'comisión como asiento manual mientras tanto.'
+    );
+  }
+
+  const correr = async (client: pg.PoolClient): Promise<ResultadoReversa> => {
+    const pago = await cobroParaEscribir(client, entityId, paymentId);
+
+    // Todos los asientos posteados del cobro: el original y los eventos.
+    const asientos = await client.query<{ id: string; entry_number: string; source_type: string }>(
+      `SELECT id, entry_number, source_type FROM journal_entries
+        WHERE entity_id = $1 AND status = 'posted' AND reversed_by_entry_id IS NULL
+          AND ((source_type = 'customer_payment' AND source_id = $2)
+            OR (source_type IN ('receipt_application', 'receipt_unapplication') AND source_id = $2))
+        ORDER BY created_at`,
+      [entityId, paymentId]
+    );
+
+    const reversals: ResultadoReversa['reversals'] = [];
+    const attestations: ResultadoReversa['attestations'] = [];
+    for (const je of asientos.rows) {
+      const { reversal } = await voidJournalEntryInTx(client, je.id, userId, `NSF: ${args.reason}`);
+      if (reversal) {
+        reversals.push({ entryNumber: reversal.entry_number, of: je.entry_number });
+        attestations.push({ entityId, entryId: reversal.id });
+      }
+    }
+
+    // Las facturas reabren por lo VIVO que este cobro les tenía aplicado.
+    const vivas = await client.query<{ invoice_id: string; total: string }>(
+      `SELECT invoice_id, SUM(amount_applied)::text AS total
+         FROM payment_allocations
+        WHERE payment_id = $1 AND unapplied_at IS NULL
+        GROUP BY invoice_id`,
+      [paymentId]
+    );
+    const documentosReabiertos: DocumentoAplicado[] = [];
+    for (const fila of vivas.rows) {
+      const inv = await client.query<{
+        id: string; invoice_number: string; amount_due: string; amount_paid: string; currency_code: string;
+      }>(
+        `SELECT id, invoice_number, amount_due, amount_paid, currency_code
+           FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+        [fila.invoice_id, entityId]
+      );
+      if (inv.rows.length === 0) continue;
+      const factura = inv.rows[0];
+      await client.query(
+        `UPDATE invoices SET
+           amount_paid = amount_paid - $1,
+           amount_due  = amount_due + $1,
+           status = CASE WHEN amount_paid - $1 <= 0 THEN 'sent' ELSE 'partially_paid' END
+         WHERE id = $2 AND entity_id = $3`,
+        [fila.total, fila.invoice_id, entityId]
+      );
+      documentosReabiertos.push({
+        id: factura.id, numero: factura.invoice_number,
+        saldoAnterior: new Decimal(factura.amount_due).toFixed(2),
+        saldoNuevo: new Decimal(factura.amount_due).plus(fila.total).toFixed(2),
+        estado: new Decimal(factura.amount_paid).minus(fila.total).lessThanOrEqualTo(0) ? 'sent' : 'partially_paid',
+        moneda: factura.currency_code,
+      });
+    }
+    await client.query(
+      `UPDATE payment_allocations
+          SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = $2
+        WHERE payment_id = $3 AND unapplied_at IS NULL`,
+      [userId, `NSF: ${args.reason}`, paymentId]
+    );
+
+    await client.query(
+      `UPDATE customer_payments SET status = 'reversed', reversed_at = NOW() WHERE id = $1`,
+      [paymentId]
+    );
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      userId,
+      action: 'update',
+      entityType: 'customer_payments',
+      entityId: paymentId,
+      oldValues: { status: ESTADO },
+      newValues: {
+        evento: 'reverse',
+        status: 'reversed',
+        asientos_reversados: reversals.length,
+        facturas_reabiertas: documentosReabiertos.length,
+      },
+      reason: args.reason,
+    });
+
+    const salida: ResultadoReversa = {
+      paymentId, paymentNumber: pago.payment_number, reversals, attestations, documentosReabiertos,
+    };
+    if (opts.dryRun) throw new EnsayoEvento(salida);
+    return salida;
+  };
+
+  return ejecutarEvento(correr, opts);
 }

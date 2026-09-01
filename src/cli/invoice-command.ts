@@ -16,6 +16,9 @@ import {
   issueInvoice,
   voidInvoice,
   listEntitySequences,
+  updateDraftInvoice,
+  deleteDraftInvoice,
+  checkInvoiceSeries,
   type InvoiceLineInput,
 } from '../services/ar/invoice-service.js';
 import { InvoiceStatus } from '../types/index.js';
@@ -685,6 +688,153 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     })
   );
 
+  // ---- invoice edit ------------------------------------------------
+  const edit = invoice
+    .command('edit')
+    .alias('editar')
+    .argument('<ref>', 'invoice number or id')
+    .description('Edit a DRAFT invoice: dates, memo or its lines (issued ones are voided or credited, never edited)');
+  withContext(edit);
+  edit
+    .option('--line <spec...>', 'REPLACE all lines: "account=4100;qty=2;price=1500;tax=16;…" (repeatable)')
+    .option('--from-file <path>', 'JSON array of lines instead of repeated --line')
+    .option('--date <date>', 'new invoice date (YYYY-MM-DD)')
+    .option('--due-date <date>', 'new due date')
+    .option('--memo <text>', 'new memo')
+    .option('--po-number <text>', 'new purchase order reference')
+    .option('--json', 'JSON output');
+  declareRisk(edit, { risk: 'escritura', agent: false, writes: 'invoices + invoice_lines (draft only)' });
+  edit.action(
+    (
+      ref: string,
+      opts: CommonOpts & {
+        line?: string[]; fromFile?: string; date?: string; dueDate?: string;
+        memo?: string; poNumber?: string;
+      }
+    ) =>
+      run(async () => {
+        const ctx = await writeEntityOf(opts);
+        const target = await resolveInvoice(ctx.entityId, ref);
+        if (target.status !== 'draft') {
+          throw blockedByState(
+            `${target.invoice_number} is "${target.status}". Only a draft can be edited: ` +
+              'correct an issued invoice with `invoice void` or a credit note.'
+          );
+        }
+
+        const specs = [
+          ...(opts.line ?? []),
+          ...(opts.fromFile ? readLineFile(opts.fromFile) : []),
+        ];
+        let lines: InvoiceLineInput[] | undefined;
+        if (specs.length > 0) {
+          lines = [];
+          for (const spec of specs) {
+            const fields = parseInvoiceLine(spec);
+            const account = await resolveAccount(ctx.entityId, fields.account);
+            lines.push({
+              revenue_account_id: account.id,
+              description: fields.description ?? account.name,
+              quantity: fields.qty ?? fields.quantity ?? '1',
+              unit_price: fields.price ?? fields.unit_price,
+              tax_rate: fields.tax ?? fields.tax_rate ?? null,
+              tax_code: fields['tax-code'] ?? null,
+              cost_center_id: fields['cost-center'] ?? null,
+              project_id: fields.project ?? null,
+            });
+          }
+        }
+        if (opts.dueDate && opts.date && opts.dueDate < opts.date) {
+          throw usageError(`--due-date ${opts.dueDate} falls before the invoice date ${opts.date}.`);
+        }
+
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const updated = await updateDraftInvoice(
+          target.id,
+          {
+            entityId: ctx.entityId,
+            invoice_date: opts.date,
+            due_date: opts.dueDate,
+            memo: opts.memo,
+            po_number: opts.poNumber,
+            lines,
+          },
+          reviewer.userId
+        );
+
+        if (opts.json) {
+          render([updated as unknown as Record<string, unknown>], { json: true });
+          return;
+        }
+        const p = deps.palette;
+        process.stdout.write(
+          `${p.green('✔')} ${p.bold(updated.invoice_number)} edited ` +
+            `${p.dim(`(${updated.total_amount} ${updated.currency_code}, due ${day(updated.due_date)})`)}\n` +
+            p.dim('  Still a draft: nothing posted, nothing stamped.\n')
+        );
+      })
+  );
+
+  // ---- invoice delete ----------------------------------------------
+  const del = invoice
+    .command('delete')
+    .alias('eliminar')
+    .argument('<ref>', 'invoice number or id')
+    .description('Delete a DRAFT that never touched the ledger; its folio stays as a documented gap');
+  withContext(del);
+  del.option('--json', 'JSON output');
+  // Un DELETE es el único acto sin espejo: irreversible por definición, con
+  // --reason obligatorio (verbo de deshacer) y jamás del agente.
+  declareRisk(del, {
+    risk: 'irreversible',
+    writes: 'invoices + invoice_lines (hard delete, audit-logged)',
+  });
+  del.action((ref: string, opts: CommonOpts) =>
+    run(async () => {
+      const ctx = await writeEntityOf(opts);
+      const target = await resolveInvoice(ctx.entityId, ref);
+      const { dryRun, reason } = gateMutation(del, opts as Record<string, unknown>);
+      const p = deps.palette;
+
+      if (target.status !== 'draft') {
+        throw blockedByState(
+          `${target.invoice_number} is "${target.status}". Only a draft can be deleted; ` +
+            'an issued invoice is voided, which leaves the reversal trail.'
+        );
+      }
+
+      if (dryRun) {
+        process.stdout.write(
+          `${p.bold(`Would delete ${target.invoice_number}`)} ${p.dim(
+            `(${target.total_amount} ${target.currency_code}, draft). The folio would remain as a documented gap.`
+          )}\n`
+        );
+        return;
+      }
+      await confirmOrAbort(
+        opts,
+        `Delete draft ${target.invoice_number} (${target.total_amount} ${target.currency_code})? ` +
+          'The document is erased; only the audit trail keeps its numbers.'
+      );
+
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const result = await deleteDraftInvoice(
+        target.id,
+        { entityId: ctx.entityId, reason: reason as string },
+        reviewer.userId
+      );
+
+      if (opts.json) {
+        render([{ invoice_number: result.invoiceNumber, deleted: true, folio_gap: result.folioGap }], { json: true });
+        return;
+      }
+      process.stdout.write(
+        `${p.green('✔')} ${p.bold(result.invoiceNumber)} deleted ` +
+          p.dim('· the folio stays as a gap that `invoice series check` will report as explained.\n')
+      );
+    })
+  );
+
   // ---- invoice series list -----------------------------------------
   const series = invoice
     .command('series')
@@ -719,6 +869,80 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
         })),
         { ...opts, total: rows.length, idField: 'document_type', numeric: ['issued'] }
       );
+    })
+  );
+
+  // ---- invoice series check ----------------------------------------
+  const seriesCheck = series
+    .command('check')
+    .alias('verificar')
+    .description('Report gaps in the invoice folio series; a gap with an audit trail is explained, one without is a finding');
+  withOutput(withContext(seriesCheck));
+  seriesCheck
+    .option('--year <year>', 'only this fiscal year of the series')
+    .option('--strict', 'exit 4 even when every gap is explained');
+  declareRisk(seriesCheck, { risk: 'lectura', agent: true });
+  seriesCheck.action((opts: CommonOpts & { year?: string; strict?: boolean }) =>
+    run(async () => {
+      const ctx = await entityOf(opts);
+      let year: number | undefined;
+      if (opts.year !== undefined) {
+        year = Number(opts.year);
+        if (!Number.isSafeInteger(year) || year < 1900 || year > 9999) {
+          throw usageError(`--year must be a four-digit year; got "${opts.year}".`);
+        }
+      }
+      const series = await checkInvoiceSeries(ctx.entityId, { year });
+      const p = deps.palette;
+
+      const rows = series.flatMap((s) => {
+        const explicadosPorFolio = new Map(s.explained.map((e) => [e.folio, e]));
+        return s.missing.map((folio) => {
+          const e = explicadosPorFolio.get(folio);
+          return {
+            folio,
+            year: s.year,
+            explained: e ? 'yes' : 'NO',
+            reason: e?.reason ?? '',
+            deleted_at: e ? new Date(e.deleted_at).toISOString().slice(0, 10) : '',
+          };
+        });
+      });
+      const sinExplicar = rows.filter((r) => r.explained === 'NO').length;
+
+      if (opts.json || opts.output || opts.format) {
+        render(rows, {
+          ...opts,
+          total: rows.length,
+          idField: 'folio',
+          fields: opts.fields ?? 'folio,year,explained,reason,deleted_at',
+        });
+      } else {
+        for (const s of series) {
+          process.stdout.write(
+            `${p.bold(`INV ${s.year}`)} ${p.dim(`· ${s.used} used, counter at ${s.counterAt}`)}\n`
+          );
+        }
+        if (rows.length === 0) {
+          process.stdout.write(`${p.green('✔')} No gaps: the series is continuous.\n`);
+        } else {
+          render(rows, { format: 'table' });
+          process.stdout.write(
+            sinExplicar > 0
+              ? p.yellow(
+                  `\n${sinExplicar} gap(s) WITHOUT a trail: a transaction rolled back mid-issue, or worse. ` +
+                    'Each folio needs an explanation an auditor will accept.\n'
+                )
+              : p.dim('\nEvery gap has its audit trail (deleted drafts with a reason).\n')
+          );
+        }
+      }
+
+      // Un hueco sin explicar es hallazgo (exit 4); con --strict, cualquiera.
+      const hallazgos = opts.strict ? rows.length : sinExplicar;
+      if (hallazgos > 0) {
+        await deps.shutdown(4);
+      }
     })
   );
 }

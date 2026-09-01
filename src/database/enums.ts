@@ -79,6 +79,20 @@ export const VENDOR_PAYMENT_STATUSES = [
 ] as const;
 
 /**
+ * 'reversed' (048): el cobro OCURRIÓ y rebotó (NSF). Distinto de 'void' —
+ * que nunca debió existir. El lado del proveedor no lo tiene: un pago
+ * nuestro devuelto es otra historia, con su propia fase.
+ */
+export const CUSTOMER_PAYMENT_STATUSES = [
+  'draft', 'pending', 'processing', 'completed', 'failed', 'void', 'reversed',
+] as const;
+
+// ── Notas de crédito (048) ──
+
+export const CREDIT_NOTE_TYPES = ['devolucion', 'descuento', 'correccion', 'anticipo'] as const;
+export const CREDIT_NOTE_STATUSES = ['draft', 'issued', 'applied', 'void'] as const;
+
+/**
  * El censo que la prueba de contrato recorre. Añadir una fila aquí es lo que
  * pone el vocabulario bajo vigilancia; declararlo arriba sin registrarlo lo
  * deja fuera y vuelve a permitir que se separe en silencio.
@@ -95,4 +109,7 @@ export const VOCABULARIOS: readonly Vocabulario[] = [
   v('fiscal_periods', 'status', FISCAL_PERIOD_STATUSES),
   v('invoices', 'cfdi_status', CFDI_STATUSES),
   v('vendor_payments', 'status', VENDOR_PAYMENT_STATUSES),
+  v('customer_payments', 'status', CUSTOMER_PAYMENT_STATUSES),
+  v('credit_notes', 'type', CREDIT_NOTE_TYPES),
+  v('credit_notes', 'status', CREDIT_NOTE_STATUSES),
 ];

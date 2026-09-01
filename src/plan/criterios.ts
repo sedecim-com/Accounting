@@ -2261,4 +2261,181 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  // ---- F03 · Cobrar ----
+
+  {
+    paquete: 'E0.1',
+    enunciado: 'La nota de crédito postea al emitir por la vía única, y su aplicación no toca efectivo',
+    evaluar: () => {
+      // F03: la nota es documento con folio (CN), posteada por el MISMO
+      // motor AR→GL que la factura (ar-ap-posting), idempotente tras su
+      // journal_entry_id. La aplicación reparte en el auxiliar SIN asiento
+      // (el mayor se movió al emitir) y SIN tocar amount_paid — una nota no
+      // es efectivo, y confundirlos infla el cobrado que el REP reporta.
+      const posting = codigoDe('src/services/accounting/ar-ap-posting.ts');
+      if (!/sourceType: 'credit_note'/.test(posting)) {
+        return falla('la nota dejó de postear por la vía única con su source_type: el asiento perdería su documento');
+      }
+      if (!/if \(note\.journal_entry_id\) return null/.test(posting)) {
+        return falla('postCreditNoteEntry perdió la idempotencia: reemitir duplicaría el crédito contra CxC');
+      }
+      if (!/requireRole\(roles, 'devolucion_ventas'\)/.test(posting)) {
+        return falla('la nota dejó de cargar al contra-ingreso por rol: caería a una cuenta adivinada');
+      }
+      const svc = codigoDe('src/services/ar/credit-note-service.ts');
+      // La forma EXACTA del UPDATE de aplicación: baja amount_due, conserva
+      // el status salvo saldado, y NO nombra amount_paid. Un mutante que
+      // sume amount_paid ahí rompe este regex por construcción.
+      if (!/amount_due = amount_due - \$1,\s*\n\s*status = CASE WHEN amount_due - \$1 <= 0 THEN 'paid' ELSE status END/.test(svc)) {
+        return falla('la aplicación de la nota cambió su UPDATE: o toca amount_paid (una nota no es efectivo) o perdió el estado saldado');
+      }
+      // La liga fiscal, con sus dos guardas: ligada→sólo su factura, y
+      // suelta→jamás a una PPD (el IVA quedaría varado en la 2125).
+      if (!/nota\.invoice_id && nota\.invoice_id !== factura\.id/.test(svc)) {
+        return falla('una nota ligada volvería a aplicarse a cualquier factura: el IVA por método de pago se descuadraría');
+      }
+      if (!/metodo\.metodo === 'PPD'/.test(svc)) {
+        return falla('la nota suelta dejó de rechazar facturas PPD: aplicarla dejaría IVA aparcado para siempre');
+      }
+      return /SUM\(total_amount - amount_applied\)/.test(codigoDe('src/services/ar/ar-controls.ts'))
+        ? ok('vía única con idempotencia, aplicación sin efectivo con liga fiscal, y la conciliación resta las notas por aplicar')
+        : falla('ar reconcile dejó de restar las notas emitidas por aplicar: el descuadre legítimo se volvería hallazgo falso');
+    },
+  },
+  {
+    paquete: 'E0.1',
+    enunciado: 'El folio eliminado deja hueco explicado, y el perfil fiscal se valida contra catálogo antes de escribir',
+    evaluar: () => {
+      // F03: borrar un borrador es legal; borrar su rastro no. El DELETE
+      // guarda el documento completo en audit_log y la serie cruza sus
+      // huecos contra ese rastro: hueco con motivo = explicado; sin motivo
+      // = hallazgo. Y el perfil fiscal (régimen/CP/UsoCFDI, 048) valida
+      // contra los catálogos del SAT ANTES del UPDATE: un código inventado
+      // fallaría el timbrado semanas después, donde ya nadie recuerda.
+      const inv = codigoDe('src/services/ar/invoice-service.ts');
+      // Conteo ×2: el folio del muerto se escribe en el audit (delete) Y se
+      // busca desde la serie — mutar uno deja al otro y un chequeo de
+      // presencia lo bendice.
+      const rastroFolio = (inv.match(/invoice_number/g) ?? []).length;
+      if (!/action: 'delete',\s*\n\s*entityType: 'invoices'/.test(inv)) {
+        return falla('deleteDraftInvoice dejó de auditar el DELETE: el hueco de la serie quedaría sin explicación posible');
+      }
+      // Conteo ×2: el folio del audit se LEE (SELECT) y se CRUZA (WHERE);
+      // mutar uno deja al otro y la presencia lo bendice.
+      if ((inv.match(/old_values->>'invoice_number'/g) ?? []).length < 2) {
+        return falla('checkInvoiceSeries dejó de cruzar los huecos contra el audit_log: todo hueco sería hallazgo, o peor, ninguno');
+      }
+      if (rastroFolio < 10) {
+        return falla(`invoice_number aparece ×${rastroFolio} en invoice-service: la serie o el rastro perdieron piezas`);
+      }
+      // Las TRES guardas del DELETE, cada una con su ancla propia (una
+      // alternativa compartida bendeciría al mutante que borre una sola).
+      if (!/if \(factura\.journal_entry_id\)/.test(inv)) {
+        return falla('deleteDraftInvoice perdió la guarda del asiento: se podría borrar un documento que tocó el mayor');
+      }
+      if (!/if \(factura\.cfdi_uuid\)/.test(inv)) {
+        return falla('deleteDraftInvoice perdió la guarda del CFDI: un timbrado se cancela ante el SAT, no se borra');
+      }
+      if (!/FROM payment_allocations WHERE invoice_id = \$1/.test(inv)) {
+        return falla('deleteDraftInvoice perdió la guarda de cobros: se borraría una factura con dinero aplicado');
+      }
+      const cust = codigoDe('src/services/ar/customer-service.ts');
+      // Conteo ×2 por catálogo: se usa al MOSTRAR (nombre legible) y al
+      // ESCRIBIR (validación) — la validación es la que salva el timbrado.
+      if (
+        (cust.match(/SAT_CATALOGS\.REGIMEN_FISCAL/g) ?? []).length < 2 ||
+        (cust.match(/SAT_CATALOGS\.USO_CFDI/g) ?? []).length < 2
+      ) {
+        return falla('el perfil fiscal dejó de validar contra los catálogos del SAT: un código inventado se guardaría y fallaría al timbrar');
+      }
+      if (!/RFC_CLIENTE_RE\.test\(rfc\)/.test(cust)) {
+        return falla('el RFC del cliente dejó de validarse en forma antes de escribirse');
+      }
+      // \b: la lección del mutante-sufijo — «tax_regimen» CONTIENE
+      // «tax_regime» y un regex sin frontera lo bendice.
+      return /ADD COLUMN tax_regime\b/.test(
+        fs.readFileSync(rutaDe('src/database/migrations/048_cobrar.sql'), 'utf-8')
+      )
+        ? ok('DELETE con rastro completo y serie que lo lee; perfil fiscal validado contra catálogo antes del UPDATE')
+        : falla('la 048 perdió las columnas del perfil fiscal: el control previo a facturar no tendría dónde vivir');
+    },
+  },
+  {
+    paquete: 'E1.2',
+    enunciado: 'El cobro es historia: la aplicación se clausura, su IVA viaja en la fila y la reversa es por espejos',
+    evaluar: () => {
+      // F03: tres propiedades que mantienen el IVA de flujo de efectivo
+      // verdadero cuando el cobro deja de ser una instantánea:
+      // 1. SÓLO las aplicaciones VIVAS cuentan — una clausurada que siguiera
+      //    contando re-liberaría el IVA que su desaplicación ya re-aparcó;
+      // 2. el IVA liberado se guarda POR APLICACIÓN, para desaplicar el
+      //    importe EXACTO y no re-derivarlo bajo otro contexto;
+      // 3. la reversa NSF refleja CADA asiento del cobro (espejo NIF B-1) y
+      //    el estado queda 'reversed' — ocurrió y rebotó, no 'void'.
+      const iva = codigoDe('src/services/accounting/iva-cash-basis.ts');
+      // Los DOS filtros de vida (pa y pa2): mutar uno deja al otro.
+      if (!/pa\.unapplied_at IS NULL/.test(iva) || !/pa2\.unapplied_at IS NULL/.test(iva)) {
+        return falla('invoicesAppliedBy volvió a contar aplicaciones clausuradas: el IVA se liberaría dos veces');
+      }
+      // Las DOS vías persisten el IVA de la fila, cada una donde vive: el
+      // registro (posting escribe tras armar sus líneas) y la aplicación
+      // posterior (el servicio, sobre las filas recién insertadas).
+      const posting = codigoDe('src/services/accounting/ar-ap-posting.ts');
+      const pagosSvc = codigoDe('src/services/payments/payment-service.ts');
+      if (
+        !/SET iva_reclass_amount = \$1/.test(posting) ||
+        !/SET iva_reclass_amount = \$1 WHERE id = \$2/.test(pagosSvc)
+      ) {
+        return falla('el IVA por aplicación dejó de persistirse en las DOS vías (registro y aplicación posterior): desaplicar volvería a adivinar');
+      }
+      // El rol de anticipos se EXIGE en las tres vías (registro con
+      // remanente, aplicación posterior, desaplicación): conteo de la forma
+      // de llamada, no presencia — quitar una vía deja las otras dos y un
+      // chequeo laxo lo bendice.
+      if ((posting.match(/requireRole\(roles, 'anticipo_clientes'\)/g) ?? []).length < 3) {
+        return falla('el remanente a cuenta perdió una de sus tres vías: lo no aplicado volvería a colgar de la cuenta de control');
+      }
+      const pagos = pagosSvc;
+      if (!/voidJournalEntryInTx\(client, je\.id, userId, `NSF: /.test(pagos)) {
+        return falla('la reversa NSF dejó de reflejar los asientos por la vía NIF B-1: quedaría dinero contado sin espejo');
+      }
+      if (!/SET status = 'reversed', reversed_at = NOW\(\)/.test(pagos)) {
+        return falla("el cobro devuelto dejó de quedar 'reversed': se confundiría con 'void', que es otra afirmación ante un auditor");
+      }
+      // Conteo ×2: la clausura con motivo vive en DOS vías (desaplicar y
+      // reversa NSF); mutar una deja la otra y la presencia lo bendice.
+      return (pagos.match(/SET unapplied_at = NOW\(\), unapplied_by = \$1, unapply_reason = \$2/g) ?? []).length >= 2
+        ? ok('aplicaciones con clausura (nunca DELETE), IVA exacto por fila, remanente en anticipos y reversa por espejos')
+        : falla('la desaplicación dejó de clausurar con rastro: borraría historia en lugar de cerrarla');
+    },
+  },
+  {
+    paquete: 'E3.1',
+    enunciado: 'Lo que no envía no existe: el adaptador de correo simulado está retirado',
+    evaluar: () => {
+      // F03: el plan preguntaba «¿cablear invoice send al adaptador SendGrid
+      // o retirar la promesa?» y el reconocimiento volteó la premisa: el
+      // adaptador era simulación doble — send() fabricaba el messageId con
+      // crypto.randomBytes sin llamar a la API, healthCheck() devolvía sano
+      // fijo, y los adjuntos se descartaban. Cablearlo habría recreado el
+      // «sent:true sin envío» que CLI-5 purgó y que el cerrojo
+      // antisimulación del timbrado existe para impedir. Se retiró entero;
+      // la ruta REST conserva su contrato honesto: marca, no transmite.
+      if (existe('src/services/integrations/email/sendgrid-adapter.ts')) {
+        return falla('el adaptador simulado volvió: un send() que fabrica messageId sin llamar a la API es la mentira que este criterio veta');
+      }
+      if (/sendGrid/i.test(codigoDe('src/services/integrations/index.ts'))) {
+        return falla('el registro de integraciones volvió a anunciar un correo que no existe: el panel aceptaría credenciales para nada');
+      }
+      const rutas = codigoDe('src/api/rest/routes/invoices.ts');
+      // El contrato honesto de /send, con sus dos mitades: marca Y confiesa.
+      if (!/transmitted: false/.test(rutas)) {
+        return falla('POST /:id/send dejó de confesar que no transmite: volvería el «sent» que no envió nada');
+      }
+      return /marked_sent: true/.test(rutas)
+        ? ok('adaptador retirado, registro limpio y la ruta de envío marca confesando que no transmite')
+        : falla('la ruta de envío perdió su mitad honesta: marcar sin decir qué significó');
+    },
+  },
+
 ];

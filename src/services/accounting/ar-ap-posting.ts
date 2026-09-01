@@ -10,6 +10,8 @@ import {
   resolveBillMetodoPago,
   ivaReclassificationsFor,
   ivaRoleFor,
+  ivaToReclassify,
+  ivaStillParked,
   reclassRoles,
   describeMetodo,
   ivaTreatmentNote,
@@ -204,6 +206,96 @@ export async function postBillEntry(
   return entry;
 }
 
+interface CreditNoteRow {
+  id: string;
+  entity_id: string;
+  credit_note_number: string;
+  invoice_id: string | null;
+  subtotal: string;
+  tax_amount: string;
+  total_amount: string;
+  credit_date: Date | string;
+  journal_entry_id: string | null;
+}
+
+/**
+ * DR devolucion_ventas (subtotal) · DR the IVA role · CR cxc (total).
+ *
+ * The IVA side mirrors the linked invoice's MetodoPago: a PUE invoice put
+ * its IVA in iva_trasladado, so the note takes it back out of there; a PPD
+ * invoice parked it in iva_trasladado_no_cobrado and — while uncollected —
+ * that is where the note unwinds it. A note with no linked invoice assumes
+ * PUE and says so in the entry: reversing tax that was already caused is
+ * the conservative direction for a credit against collected sales.
+ */
+export async function postCreditNoteEntry(
+  client: pg.PoolClient,
+  note: CreditNoteRow,
+  userId: string
+): Promise<JournalEntry | null> {
+  if (note.journal_entry_id) return null; // already posted (idempotent)
+  if (!new Decimal(note.total_amount).greaterThan(0)) return null;
+
+  const cashBasis = await entityUsesCashBasisIva(client, note.entity_id);
+  let metodo: MetodoPagoDecision | null = null;
+  if (cashBasis && note.invoice_id) {
+    const inv = await client.query<{
+      id: string; invoice_number: string; cfdi_uuid: string | null;
+      terms: string | null; memo: string | null;
+    }>(
+      `SELECT id, invoice_number, cfdi_uuid, terms, memo
+         FROM invoices WHERE id = $1 AND entity_id = $2`,
+      [note.invoice_id, note.entity_id]
+    );
+    if (inv.rows[0]) {
+      metodo = await resolveInvoiceMetodoPago(client, {
+        ...inv.rows[0],
+        entity_id: note.entity_id,
+      });
+    }
+  }
+  const ivaRole = metodo ? ivaRoleFor('issued', metodo.metodo) : 'iva_trasladado';
+  const roles = await roleAccounts(client, note.entity_id, ['cxc', ivaRole, 'devolucion_ventas']);
+
+  const jeLines: JeLine[] = [
+    {
+      account_id: requireRole(roles, 'devolucion_ventas'),
+      debit_amount: note.subtotal,
+      credit_amount: null,
+      description: `Credit note ${note.credit_note_number}`,
+    },
+  ];
+  if (new Decimal(note.tax_amount || '0').greaterThan(0)) {
+    jeLines.push({
+      account_id: requireRole(roles, ivaRole),
+      debit_amount: note.tax_amount,
+      credit_amount: null,
+      description: metodo
+        ? `IVA reversed ${describeMetodo(metodo)} - Credit note ${note.credit_note_number}`
+        : `IVA reversed - Credit note ${note.credit_note_number} · no linked invoice: PUE assumed`,
+    });
+  }
+  jeLines.push({
+    account_id: requireRole(roles, 'cxc'),
+    debit_amount: null,
+    credit_amount: note.total_amount,
+    description: `AR credit ${note.credit_note_number}`,
+  });
+
+  const entry = await createJournalEntry(
+    note.entity_id,
+    new Date(note.credit_date),
+    JournalEntryType.AUTO_INVOICE,
+    withAssumptionNote(`Credit note ${note.credit_note_number}`, metodo),
+    jeLines,
+    userId,
+    { autoPost: true, client, sourceType: 'credit_note', sourceId: note.id, reference: note.credit_note_number }
+  );
+
+  await client.query('UPDATE credit_notes SET journal_entry_id = $1 WHERE id = $2', [entry.id, note.id]);
+  return entry;
+}
+
 /** The bank's GL account: the linked bank account's gl_account_id, else the banco role. */
 async function bankGlAccount(
   client: pg.PoolClient,
@@ -247,13 +339,13 @@ async function ivaReclassLines(
   client: pg.PoolClient,
   side: 'issued' | 'received',
   payment: PaymentRow
-): Promise<{ lines: JeLine[]; documents: string[] }> {
+): Promise<{ lines: JeLine[]; documents: string[]; items: { documentId: string; amount: string }[] }> {
   if (!(await entityUsesCashBasisIva(client, payment.entity_id))) {
-    return { lines: [], documents: [] };
+    return { lines: [], documents: [], items: [] };
   }
 
   const items = await ivaReclassificationsFor(client, side, payment.entity_id, payment.id);
-  if (items.length === 0) return { lines: [], documents: [] };
+  if (items.length === 0) return { lines: [], documents: [], items: [] };
 
   const { from, to } = reclassRoles(side);
   const roles = await roleAccounts(client, payment.entity_id, [from, to]);
@@ -290,7 +382,11 @@ async function ivaReclassLines(
       description: note(credited),
     });
   }
-  return { lines, documents: items.map((i) => i.documentNumber) };
+  return {
+    lines,
+    documents: items.map((i) => i.documentNumber),
+    items: items.map((i) => ({ documentId: i.documentId, amount: i.amount })),
+  };
 }
 
 /**
@@ -308,8 +404,43 @@ export async function postCustomerPaymentEntry(
   if (!new Decimal(payment.payment_amount).greaterThan(0)) return null;
 
   const bankId = await bankGlAccount(client, payment.entity_id, payment.bank_account_id);
-  const roles = await roleAccounts(client, payment.entity_id, ['cxc']);
   const iva = await ivaReclassLines(client, 'issued', payment);
+
+  // El CR se reparte entre lo APLICADO (cxc) y lo que queda A CUENTA
+  // (anticipo_clientes). Con aplicación exacta —el caso de siempre— el
+  // remanente es cero y el asiento es idéntico al histórico. Acreditar el
+  // total a cxc con aplicación parcial era exactamente el agujero que la
+  // validación de suma exacta tapaba: el control bajaba sin auxiliar.
+  const alloc = await client.query<{ aplicado: string }>(
+    `SELECT COALESCE(SUM(amount_applied), 0)::text AS aplicado
+       FROM payment_allocations WHERE payment_id = $1 AND unapplied_at IS NULL`,
+    [payment.id]
+  );
+  const aplicado = new Decimal(alloc.rows[0]?.aplicado ?? '0');
+  const remanente = new Decimal(payment.payment_amount).minus(aplicado);
+  const rolesPedidos = ['cxc', ...(remanente.greaterThan(0) ? ['anticipo_clientes'] : [])];
+  const roles = await roleAccounts(client, payment.entity_id, rolesPedidos);
+
+  const jeLines: JeLine[] = [
+    { account_id: bankId, debit_amount: payment.payment_amount, credit_amount: null, description: `Payment received ${payment.payment_number}` },
+  ];
+  if (aplicado.greaterThan(0)) {
+    jeLines.push({
+      account_id: requireRole(roles, 'cxc'),
+      debit_amount: null,
+      credit_amount: aplicado.toFixed(4),
+      description: `AR settlement ${payment.payment_number}`,
+    });
+  }
+  if (remanente.greaterThan(0)) {
+    jeLines.push({
+      account_id: requireRole(roles, 'anticipo_clientes'),
+      debit_amount: null,
+      credit_amount: remanente.toFixed(4),
+      description: `On-account (unapplied) ${payment.payment_number}`,
+    });
+  }
+  jeLines.push(...iva.lines);
 
   const entry = await createJournalEntry(
     payment.entity_id,
@@ -318,17 +449,189 @@ export async function postCustomerPaymentEntry(
     iva.documents.length
       ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}`
       : `Customer payment ${payment.payment_number}`,
-    [
-      { account_id: bankId, debit_amount: payment.payment_amount, credit_amount: null, description: `Payment received ${payment.payment_number}` },
-      { account_id: requireRole(roles, 'cxc'), debit_amount: null, credit_amount: payment.payment_amount, description: `AR settlement ${payment.payment_number}` },
-      ...iva.lines,
-    ],
+    jeLines,
     userId,
     { autoPost: true, client, sourceType: 'customer_payment', sourceId: payment.id, reference: payment.payment_number }
   );
 
+  // El IVA que ESTA aplicación liberó se guarda en su fila: desaplicarla
+  // re-aparca ese importe exacto, sin re-derivar bajo otro contexto.
+  for (const item of iva.items) {
+    await client.query(
+      `UPDATE payment_allocations SET iva_reclass_amount = $1
+        WHERE payment_id = $2 AND invoice_id = $3 AND unapplied_at IS NULL`,
+      [item.amount, payment.id, item.documentId]
+    );
+  }
+
   await client.query('UPDATE customer_payments SET journal_entry_id = $1 WHERE id = $2', [entry.id, payment.id]);
   return entry;
+}
+
+export interface AplicacionPosterior {
+  invoiceId: string;
+  invoiceNumber: string;
+  amount: string;
+  /** Lo aplicado (vivo) a la factura por CUALQUIER pago, ANTES de este evento. */
+  priorApplied: string;
+  taxAmount: string;
+  totalAmount: string;
+  cfdiUuid: string | null;
+  terms: string | null;
+  memo: string | null;
+}
+
+/**
+ * Aplicar saldo a cuenta a facturas, como evento posterior al cobro:
+ * DR anticipo_clientes · CR cxc por lo aplicado, más la liberación de IVA
+ * de cada factura PPD por la parte que ESTE evento aplica. El efectivo no
+ * se mueve — ya entró con el cobro; lo que se mueve es el crédito, del
+ * pasivo de anticipos al auxiliar.
+ *
+ * Devuelve el IVA liberado por factura para que el llamador lo persista en
+ * las filas de aplicación recién insertadas.
+ */
+export async function postReceiptApplicationEntry(
+  client: pg.PoolClient,
+  payment: PaymentRow,
+  aplicaciones: AplicacionPosterior[],
+  userId: string
+): Promise<{ entry: JournalEntry; ivaPorFactura: Map<string, string> }> {
+  const total = aplicaciones.reduce((s, a) => s.plus(a.amount), new Decimal(0));
+  const cashBasis = await entityUsesCashBasisIva(client, payment.entity_id);
+  const ivaPorFactura = new Map<string, string>();
+  const ivaLines: JeLine[] = [];
+  const documentos: string[] = [];
+
+  if (cashBasis) {
+    const { from, to } = reclassRoles('issued');
+    const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
+    for (const app of aplicaciones) {
+      const metodo = await resolveInvoiceMetodoPago(client, {
+        id: app.invoiceId,
+        entity_id: payment.entity_id,
+        invoice_number: app.invoiceNumber,
+        cfdi_uuid: app.cfdiUuid,
+        terms: app.terms,
+        memo: app.memo,
+      });
+      if (metodo.metodo !== 'PPD') continue;
+      const bruto = ivaToReclassify({
+        ivaTotal: app.taxAmount,
+        documentTotal: app.totalAmount,
+        priorApplied: app.priorApplied,
+        appliedNow: app.amount,
+      });
+      const parked = await ivaStillParked(client, 'issued', payment.entity_id, app.invoiceId);
+      const liberable = Decimal.min(new Decimal(bruto), new Decimal(parked));
+      if (liberable.lessThanOrEqualTo(0)) continue;
+      const monto = liberable.toFixed(4);
+      ivaPorFactura.set(app.invoiceId, monto);
+      documentos.push(app.invoiceNumber);
+      ivaLines.push({
+        account_id: requireRole(ivaRoles, from),
+        debit_amount: monto,
+        credit_amount: null,
+        description: `IVA released from ${from} on collection - Invoice ${app.invoiceNumber}`,
+      });
+      ivaLines.push({
+        account_id: requireRole(ivaRoles, to),
+        debit_amount: null,
+        credit_amount: monto,
+        description: `IVA now in ${to} (PPD collection) - Invoice ${app.invoiceNumber}`,
+      });
+    }
+  }
+
+  const roles = await roleAccounts(client, payment.entity_id, ['cxc', 'anticipo_clientes']);
+  const entry = await createJournalEntry(
+    payment.entity_id,
+    new Date(),
+    JournalEntryType.AUTO_PAYMENT,
+    documentos.length
+      ? `Application of ${payment.payment_number} · IVA caused on collection: ${documentos.join(', ')}`
+      : `Application of ${payment.payment_number}`,
+    [
+      {
+        account_id: requireRole(roles, 'anticipo_clientes'),
+        debit_amount: total.toFixed(4),
+        credit_amount: null,
+        description: `On-account applied ${payment.payment_number}`,
+      },
+      {
+        account_id: requireRole(roles, 'cxc'),
+        debit_amount: null,
+        credit_amount: total.toFixed(4),
+        description: `AR settlement ${payment.payment_number}`,
+      },
+      ...ivaLines,
+    ],
+    userId,
+    // Fuera del índice parcial uq_je_document_source a propósito: un cobro
+    // puede tener VARIOS eventos de aplicación, cada uno con su asiento.
+    { autoPost: true, client, sourceType: 'receipt_application', sourceId: payment.id, reference: payment.payment_number }
+  );
+  return { entry, ivaPorFactura };
+}
+
+/**
+ * Desaplicar, como evento nuevo: DR cxc · CR anticipo_clientes (el crédito
+ * vuelve a estar a cuenta — desaplicar NO es devolver dinero) y el IVA que
+ * aquella aplicación liberó se RE-APARCA (DR iva_trasladado · CR
+ * iva_trasladado_no_cobrado). El importe sale de la fila de la aplicación;
+ * una fila anterior a la 048 no lo guardó y se estima pro-rata, diciéndolo.
+ */
+export async function postReceiptUnapplicationEntry(
+  client: pg.PoolClient,
+  payment: PaymentRow,
+  app: { invoiceNumber: string; amount: string; ivaReclass: string | null; ivaEstimado: string },
+  userId: string
+): Promise<JournalEntry> {
+  const roles = await roleAccounts(client, payment.entity_id, ['cxc', 'anticipo_clientes']);
+  const jeLines: JeLine[] = [
+    {
+      account_id: requireRole(roles, 'cxc'),
+      debit_amount: app.amount,
+      credit_amount: null,
+      description: `AR reopened ${app.invoiceNumber} (unapply ${payment.payment_number})`,
+    },
+    {
+      account_id: requireRole(roles, 'anticipo_clientes'),
+      debit_amount: null,
+      credit_amount: app.amount,
+      description: `Back on account ${payment.payment_number}`,
+    },
+  ];
+
+  const iva = new Decimal(app.ivaReclass ?? app.ivaEstimado);
+  const estimado = app.ivaReclass === null && iva.greaterThan(0);
+  if (iva.greaterThan(0)) {
+    const { from, to } = reclassRoles('issued');
+    const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
+    const nota = estimado ? ' · pre-048: pro-rata estimate' : '';
+    jeLines.push({
+      account_id: requireRole(ivaRoles, to),
+      debit_amount: iva.toFixed(4),
+      credit_amount: null,
+      description: `IVA re-parked out of ${to} (unapply) - Invoice ${app.invoiceNumber}${nota}`,
+    });
+    jeLines.push({
+      account_id: requireRole(ivaRoles, from),
+      debit_amount: null,
+      credit_amount: iva.toFixed(4),
+      description: `IVA back in ${from} (unapply) - Invoice ${app.invoiceNumber}${nota}`,
+    });
+  }
+
+  return createJournalEntry(
+    payment.entity_id,
+    new Date(),
+    JournalEntryType.AUTO_PAYMENT,
+    `Unapplication of ${payment.payment_number} from ${app.invoiceNumber}`,
+    jeLines,
+    userId,
+    { autoPost: true, client, sourceType: 'receipt_unapplication', sourceId: payment.id, reference: payment.payment_number }
+  );
 }
 
 /**
