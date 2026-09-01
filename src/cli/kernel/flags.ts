@@ -45,6 +45,13 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   '--reason': null, '--note': null, '--idempotency-key': null, '--live': null,
   '--strict': null, '--no-input': null, '--watch': null,
   '--provider': '-p', '--model': '-m',
+  // S3: el destino de un respaldo (directorio) o de una restauración (base).
+  // Lo nombra el catálogo en las filas de `backup` desde antes de existir.
+  '--target': null,
+  // S3: `backup verify` comprueba hash y manifiesto sin restaurar (lo que el
+  // catálogo promete); con --restore ENSAYA la restauración de verdad, que es
+  // lo único que demuestra que un respaldo sirve.
+  '--restore': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

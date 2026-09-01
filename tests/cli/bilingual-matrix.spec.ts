@@ -43,6 +43,8 @@ const TOP_LEVEL: Record<string, string> = {
   // F03: la otra mitad del ciclo de cobro y los controles de la cartera.
   'credit-note': 'nota-credito',
   ar: 'cxc',
+  // S3: la vía de recuperación que el propio esquema nombra.
+  backup: 'respaldo',
   report: 'reporte',
   entities: 'entidades', // deprecated alias of `entity list`; kept working per R9
 
@@ -113,6 +115,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   },
   'credit-note': { create: 'crear', show: 'ver', list: 'listar', issue: 'emitir', apply: 'aplicar' },
   ar: { reconcile: 'conciliar', check: 'verificar' },
+  backup: { create: 'crear', list: 'listar', verify: 'comprobar', restore: 'restaurar' },
   report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },
   outbox: { list: 'listar', run: 'ejecutar' },
   question: { list: 'listar', answer: 'responder' },
@@ -200,7 +203,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

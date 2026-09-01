@@ -40,6 +40,93 @@ export function assertNumeracionUnica(files: string[]): void {
   }
 }
 
+
+// ============================================================
+// LA GUARDA DEL CORREDOR (S3)
+//
+// EL DEFECTO QUE CIERRA. Las migraciones corren como `mnemosine_owner`
+// —NOSUPERUSER, NOBYPASSRLS a propósito— y toda tabla con tenant_id/entity_id
+// lleva FORCE ROW LEVEL SECURITY, que es justo lo que le quita al DUEÑO su
+// exención implícita. Sin `app.current_tenant` fijado, `app_current_tenant()`
+// devuelve NULL y el predicado no casa con nada: TODO DML de migración sobre
+// una tabla acotada afecta CERO FILAS, sin error y sin aviso, y la migración
+// queda registrada como aplicada. Tres lo sufrieron (037, 040, 043) y una de
+// ellas ya provocó una colisión de folios en un despliegue real.
+//
+// POR QUÉ HACE FALTA UNA GUARDA Y NO BASTA DOCUMENTARLO: la 026 ya había
+// escrito el patrón correcto —el bucle por inquilino— y la 043 lo repitió sin
+// él dieciocho migraciones después.
+//
+// Se comprueba lo que de verdad determina el fallo, no una heurística:
+//   · ¿este rol está sujeto a RLS? (no superusuario y sin BYPASSRLS)
+//   · ¿la tabla que el DML toca fuerza RLS AHORA?
+//   · ¿el .sql fija contexto de inquilino (directo o por el helper)?
+// Si el corredor está silenciado y la migración no fija contexto, se NIEGA a
+// ejecutarla. Fallar ruidoso es infinitamente mejor que rellenar cero.
+// ============================================================
+
+/** Marcas que demuestran que el .sql sí fija contexto de inquilino. */
+export const FIJA_CONTEXTO = /por_cada_inquilino|set_config\(\s*'app\.current_tenant'/;
+
+/** DML sobre una tabla nombrada, en SQL sin comentarios. */
+export function tablasConDml(sql: string): Set<string> {
+  const limpio = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*--.*$/gm, '');
+  const out = new Set<string>();
+  const patrones = [
+    /\bINSERT\s+INTO\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gi,
+    /\bUPDATE\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gi,
+    /\bDELETE\s+FROM\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gi,
+  ];
+  for (const p of patrones) {
+    p.lastIndex = 0;
+    for (const m of limpio.matchAll(p)) out.add(m[1].toLowerCase());
+  }
+  return out;
+}
+
+interface Corredor {
+  silenciado: boolean;
+  motivo: string;
+}
+
+/** ¿Este rol vería cero filas al tocar una tabla acotada? */
+export async function estadoDelCorredor(client: pg.PoolClient): Promise<Corredor> {
+  const r = await client.query<{ superusuario: boolean; salta_rls: boolean; contexto: string | null }>(
+    `SELECT rolsuper AS superusuario, rolbypassrls AS salta_rls,
+            NULLIF(current_setting('app.current_tenant', true), '') AS contexto
+       FROM pg_roles WHERE rolname = current_user`
+  );
+  const f = r.rows[0];
+  if (!f) return { silenciado: false, motivo: 'rol desconocido' };
+  if (f.superusuario) return { silenciado: false, motivo: 'superusuario: RLS no aplica' };
+  if (f.salta_rls) return { silenciado: false, motivo: 'BYPASSRLS: RLS no aplica' };
+  if (f.contexto) return { silenciado: false, motivo: `contexto fijado (${f.contexto})` };
+  return {
+    silenciado: true,
+    motivo: `${'el rol'} está sujeto a RLS y no hay contexto de inquilino fijado`,
+  };
+}
+
+/** Las tablas que HOY fuerzan RLS: lo que decide, no una lista escrita a mano. */
+export async function tablasQueFuerzanRls(client: pg.PoolClient): Promise<Set<string>> {
+  const r = await client.query<{ relname: string }>(
+    `SELECT c.relname FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relforcerowsecurity`
+  );
+  return new Set(r.rows.map((x) => x.relname.toLowerCase()));
+}
+
+export function motivoDeNegativa(file: string, tablas: string[]): string {
+  return (
+    `La migración ${file} hace DML sobre ${tablas.join(', ')} — tabla(s) que fuerzan RLS — ` +
+    'y este rol está sujeto a esas políticas sin contexto de inquilino fijado.\n' +
+    'Ejecutarla afectaría CERO FILAS en silencio, y quedaría registrada como aplicada.\n' +
+    'Envuelve su DML con el helper:  SELECT public.por_cada_inquilino($sql$ … $sql$);\n' +
+    '(ver la migración 049, que repara las tres que ya lo sufrieron).'
+  );
+}
+
 async function runMigrations() {
   const client = await pool.connect();
   let fallo = false;
@@ -73,6 +160,16 @@ async function runMigrations() {
 
       console.log(`  Executing ${file}...`);
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
+
+      // La guarda: se niega a rellenar cero filas en silencio.
+      const corredor = await estadoDelCorredor(client);
+      if (corredor.silenciado && !FIJA_CONTEXTO.test(sql)) {
+        const forzadas = await tablasQueFuerzanRls(client);
+        const enPeligro = [...tablasConDml(sql)].filter((t) => forzadas.has(t)).sort();
+        if (enPeligro.length > 0) {
+          throw new Error(motivoDeNegativa(file, enPeligro));
+        }
+      }
 
       // Ejecutar el .sql y anotarlo en public.migrations son UN acto, no
       // dos. Antes eran dos transacciones implícitas: un fallo entre ambas

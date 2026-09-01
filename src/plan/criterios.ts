@@ -225,6 +225,94 @@ export function codigoDe(...p: string[]): string {
   return sinComentarios(leer(rutaDe(...p)));
 }
 
+/**
+ * PREGUNTARLE A LA BASE, no al fuente (S3).
+ *
+ * Los dos criterios que vigilaban la purga de la 040 y la siembra de la 043
+ * leían el `.sql` y daban verde por que el DML estuviera ESCRITO. Ninguno
+ * podía distinguir «la migración corrió» de «la migración no tocó nada» — y
+ * no tocó nada: bajo FORCE ROW LEVEL SECURITY el migrador afectaba cero
+ * filas en silencio. Un criterio que no distingue esas dos cosas informa de
+ * su propio texto.
+ *
+ * Se comparte el cliente por llamada y se cierra siempre: estos criterios
+ * corren dentro de `plan:status`, que no tiene el pool de la aplicación.
+ */
+async function conBase<T>(fn: (c: import('pg').Client) => Promise<T>): Promise<T | null> {
+  const url =
+    process.env.DATABASE_URL ?? process.env.MIGRATION_DATABASE_URL ?? process.env.BACKUP_DATABASE_URL;
+  if (!url) return null;
+  const { default: pg } = await import('pg');
+  const client = new pg.Client({ connectionString: url, connectionTimeoutMillis: 3000 });
+  try {
+    await client.connect();
+  } catch {
+    return null;
+  }
+  try {
+    return await fn(client);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+/** ¿Queda alguna atestación con el importe y el factor de apertura dentro? */
+export async function sinResiduoDelSecreto(): Promise<Resultado> {
+  const r = await conBase(async (c) => {
+    const q = await c.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM blockchain_attestations
+        WHERE (range_proof IS NOT NULL
+               AND position('\\x5f746573745f76616c7565'::bytea in range_proof) > 0)
+           OR (zkverify_proof IS NOT NULL
+               AND position('\\x5f746573745f76616c7565'::bytea in zkverify_proof) > 0)`
+    );
+    return Number(q.rows[0]?.n ?? 0);
+  });
+  if (r === null) {
+    return noEvaluable('sin base accesible: la purga sólo se puede comprobar contra los datos');
+  }
+  return r === 0
+    ? ok('el generador no escribe el valor, la 040 purga ambos blobs y NO QUEDA una sola fila con el secreto')
+    : falla(
+        `${r} atestación(es) siguen llevando el importe y el factor de apertura dentro del compromiso: ` +
+          'la purga está escrita y no surtió efecto (la clase que la 049 repara).'
+      );
+}
+
+/** ¿La siembra de contadores anuales llegó a escribir algo donde hay folios? */
+export async function contadoresAnualesSembrados(): Promise<Resultado> {
+  const r = await conBase(async (c) => {
+    const q = await c.query<{ con_folios: string; con_contador: string }>(
+      `WITH emisoras AS (
+         SELECT DISTINCT entity_id FROM journal_entries
+       ), sembradas AS (
+         SELECT DISTINCT entity_id FROM entity_sequences WHERE name ~ '_[0-9]{4}$'
+       )
+       SELECT (SELECT count(*)::text FROM emisoras)  AS con_folios,
+              (SELECT count(*)::text FROM emisoras e
+                WHERE EXISTS (SELECT 1 FROM sembradas s WHERE s.entity_id = e.entity_id)) AS con_contador`
+    );
+    return {
+      conFolios: Number(q.rows[0]?.con_folios ?? 0),
+      conContador: Number(q.rows[0]?.con_contador ?? 0),
+    };
+  });
+  if (r === null) {
+    return noEvaluable('sin base accesible: la siembra sólo se puede comprobar contra los datos');
+  }
+  if (r.conFolios === 0) {
+    return ok('la llave anual está escrita; no hay entidades con folios emitidos que sembrar todavía');
+  }
+  return r.conContador === r.conFolios
+    ? ok(
+        `la llave anual está escrita y las ${r.conFolios} entidad(es) con folios emitidos tienen su contador sembrado`
+      )
+    : falla(
+        `${r.conFolios - r.conContador} de ${r.conFolios} entidad(es) con folios emitidos NO tienen contador anual: ` +
+          'la serie del ejercicio arrancaría en 1 y chocaría con lo ya emitido (la colisión que este defecto ya provocó).'
+      );
+}
+
 export const ok = (detalle: string): Resultado => ({ estado: 'ok', detalle });
 export const falla = (detalle: string): Resultado => ({ estado: 'falla', detalle });
 export const noEvaluable = (detalle: string): Resultado => ({ estado: 'no-evaluable', detalle });
@@ -581,7 +669,7 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.1',
     enunciado: 'El compromiso no persiste el valor que promete ocultar',
-    evaluar: () => {
+    evaluar: async () => {
       // S1 (E1.4-a rescatada): el range proof placeholder incluía
       // _test_value y _test_bf bajo el comentario «DO NOT store the value in
       // a real proof», y el orquestador lo persistía entero — el compromiso
@@ -596,10 +684,18 @@ export const CRITERIOS: Criterio[] = [
         return falla('la migración de purga (040) desapareció: las filas históricas retendrían la fuga');
       }
       const purga = crudoDe('src/database/migrations/040_el_secreto_que_el_compromiso_revelaba.sql');
-      return /range_proof\s*=\s*NULL/.test(purga) && /zkverify_proof\s*=\s*NULL/.test(purga)
-        ? ok('el generador no escribe el valor y la 040 purgó ambos blobs')
-        : falla('la 040 no purga los dos blobs (range_proof y zkverify_proof)');
+      if (!/range_proof\s*=\s*NULL/.test(purga) || !/zkverify_proof\s*=\s*NULL/.test(purga)) {
+        return falla('la 040 no purga los dos blobs (range_proof y zkverify_proof)');
+      }
+      // S3 · DE TEXTO A EFECTO. Este criterio leía el .sql y daba verde por
+      // que la purga ESTUVIERA ESCRITA — sin poder distinguir «corrió» de «no
+      // tocó nada». Y no tocó nada: bajo FORCE RLS el migrador afectaba cero
+      // filas en silencio. Un criterio que no distingue esas dos cosas es
+      // exactamente el falso verde que esta casa persigue, así que ahora se
+      // le pregunta A LA BASE.
+      return await sinResiduoDelSecreto();
     },
+    necesita: 'base-de-datos',
   },
   {
     paquete: 'E0.1',
@@ -715,7 +811,7 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.1',
     enunciado: 'La serie del folio la fija la fecha del documento, no el reloj',
-    evaluar: () => {
+    evaluar: async () => {
       // R3: «JE-2026-00042» insinuaba serie anual y el año lo ponía el
       // reloj, con un contador que jamás se reiniciaba — un asiento de
       // diciembre capturado en enero salía en la serie del año nuevo
@@ -741,10 +837,15 @@ export const CRITERIOS: Criterio[] = [
       if (!existe(m)) return falla('la 043 desapareció: los contadores anuales arrancarían en 1 y colisionarían con lo emitido');
       const siembra = crudoDe(m);
       const inserts = (siembra.match(/INSERT INTO entity_sequences/g) ?? []).length;
-      return inserts >= 5 && /GREATEST/.test(siembra)
-        ? ok('la fecha del documento fija año y contador (llave anual), con la siembra desde los folios reales')
-        : falla(`la siembra de la 043 no cubre las cinco series (${inserts}) o perdió el GREATEST`);
+      if (inserts < 5 || !/GREATEST/.test(siembra)) {
+        return falla(`la siembra de la 043 no cubre las cinco series (${inserts}) o perdió el GREATEST`);
+      }
+      // S3 · DE TEXTO A EFECTO, por la misma razón que la 040: la siembra
+      // estaba escrita y había sembrado CERO contadores, que es lo que
+      // provocó la colisión de folios real. Ahora se comprueba el estado.
+      return await contadoresAnualesSembrados();
     },
+    necesita: 'base-de-datos',
   },
 
   {
@@ -2756,6 +2857,121 @@ export const CRITERIOS: Criterio[] = [
       },
     ],
   },
+  // ---- S3 · Respaldo, restauración y el corredor que no rellenaba ----
+
+  {
+    paquete: 'E0.0',
+    enunciado: 'El migrador se niega a rellenar cero filas en silencio',
+    evaluar: () => {
+      // S3: las migraciones corren como un rol NOBYPASSRLS que además es
+      // DUEÑO de unas tablas con FORCE ROW LEVEL SECURITY — lo que le quita
+      // su exención implícita. Sin contexto de inquilino, todo DML de
+      // migración sobre una tabla acotada afecta CERO FILAS, sin error, y la
+      // migración se registra como aplicada. Tres lo sufrieron (037, 040,
+      // 043) y una ya provocó una colisión de folios en un despliegue.
+      //
+      // La 026 YA había escrito el patrón correcto y la 043 lo repitió sin él
+      // dieciocho migraciones después: documentarlo no basta, hace falta que
+      // el corredor se niegue.
+      const m = codigoDe('src/database/migrate.ts');
+      if (!/estadoDelCorredor\(client\)/.test(m) || !/tablasQueFuerzanRls\(client\)/.test(m)) {
+        return falla('el migrador dejó de comprobar el corredor: volvería a rellenar cero filas en silencio');
+      }
+      // Lo que decide es el ESTADO REAL del rol y de las tablas, no una
+      // lista escrita a mano que se desincroniza.
+      if (!/rolbypassrls/.test(m) || !/relforcerowsecurity/.test(m)) {
+        return falla('la guarda dejó de preguntarle al catálogo de Postgres: una heurística no sabe quién está sujeto a RLS');
+      }
+      if (!/throw new Error\(motivoDeNegativa\(file, enPeligro\)\)/.test(m)) {
+        return falla('la guarda detecta y NO se niega: avisar de un relleno a cero equivale a no verlo');
+      }
+      // El helper que hace más fácil hacerlo bien que evitarlo.
+      const migracion = 'src/database/migrations/049_el_corredor_que_no_rellenaba.sql';
+      if (!existe(migracion)) {
+        return falla('la 049 desapareció: sin el helper, cada migración con DML tendría que reinventar el bucle');
+      }
+      const sql = crudoDe(migracion);
+      return /CREATE OR REPLACE FUNCTION public\.por_cada_inquilino/.test(sql) &&
+        /GET DIAGNOSTICS n = ROW_COUNT/.test(sql)
+        ? ok('el corredor se niega ante DML acotado sin contexto, y el helper por_cada_inquilino devuelve cuántas filas tocó')
+        : falla('el helper perdió su bucle o su cuenta de filas: una reparación sin constancia no se puede auditar');
+    },
+    mutantes: [
+      {
+        archivo: 'src/database/migrate.ts',
+        de: 'throw new Error(motivoDeNegativa(file, enPeligro));',
+        a: 'console.warn(motivoDeNegativa(file, enPeligro));',
+        porque: 'la guarda pasa de negarse a avisar: un aviso sobre un relleno a cero es lo mismo que no verlo',
+      },
+      {
+        archivo: 'src/database/migrations/049_el_corredor_que_no_rellenaba.sql',
+        de: 'GET DIAGNOSTICS n = ROW_COUNT',
+        a: 'n := 0',
+        porque: 'el helper deja de contar filas y la reparación pierde su constancia',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    enunciado: 'Un respaldo se prueba restaurándolo, y dice lo que no lleva',
+    evaluar: () => {
+      // S3: el mayor es inmutable a propósito (041 no admite UPDATE ni
+      // DELETE sobre lo posteado; 033 deja la bitácora en sólo-agregar), y
+      // esa misma inmutabilidad impide repararlo a mano — la 041 llega a
+      // prescribir «bórrala entera y vuelve a migrar». La vía de recuperación
+      // que el esquema NOMBRA es la restauración, y no existía ni una línea
+      // sobre ella en todo el árbol.
+      if (!existe('src/services/backup/backup-service.ts')) {
+        return falla('no hay camino de respaldo: la inmutabilidad del mayor deja de ser una garantía y pasa a ser una trampa');
+      }
+      const b = codigoDe('src/services/backup/backup-service.ts');
+      // La verificación que importa RESTAURA. Un verificador que sólo mira el
+      // archivo comprueba que existe, no que sirva.
+      // Forma de LLAMADA, no el símbolo: el nombre también aparece en el
+      // import, y un regex laxo bendice al mutante que deja el import y
+      // desconecta la llamada — la lección de AUD-6, cometida aquí mismo al
+      // escribir este criterio y cazada por su propio espejo.
+      if (!/pg_restore/.test(b) || !/await runLedgerChecksEn\(/.test(b)) {
+        return falla('la verificación dejó de restaurar y de correr los chequeos: un respaldo no probado no es un respaldo');
+      }
+      // Y falla cerrado si el rol no puede volcar: se descubrió construyéndolo
+      // que pg_dump como dueño REVIENTA por FORCE RLS — la misma clase que
+      // silenciaba el DML, ahora sobre la recuperación.
+      // El ANCLA ES LA NEGATIVA, no la existencia del comprobador: dejar la
+      // función y borrar el `throw` es exactamente el mutante que sobrevivió
+      // a la primera versión de este criterio.
+      if (!/if \(!capacidad\.puede\) throw new ValidationError/.test(b) || !/rolbypassrls/.test(b)) {
+        return falla('el respaldo dejó de NEGARSE cuando el rol no puede volcar: produciría un volcado parcial con nombre de respaldo');
+      }
+      // Lo que el volcado NO lleva se declara SIEMPRE: el material
+      // criptográfico vive fuera de la base y sin él lo restaurado queda
+      // ilegible.
+      if (!/noIncluye/.test(b) || !/ENCRYPTION_KEY/.test(b)) {
+        return falla('el manifiesto dejó de declarar lo que el volcado no lleva: prometería un respaldo completo que no lo es');
+      }
+      return /restaurar encima de una viva|ya existe/.test(b)
+        ? ok('respaldo con manifiesto, verificación que restaura y corre los chequeos, y lo que no lleva declarado')
+        : falla('la restauración dejó de exigir base NUEVA: sobrescribir una viva destruye lo que se intenta salvar');
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/backup/backup-service.ts',
+        de: 'if (!capacidad.puede) throw new ValidationError(capacidad.motivo);',
+        a: 'void capacidad;',
+        porque: 'el respaldo deja de fallar cerrado y produce un volcado parcial con nombre de respaldo',
+      },
+      {
+        // Sobre la LLAMADA, no sobre el import: mutar el import deja la
+        // llamada viva y el criterio la sigue viendo — lo comprobó este mismo
+        // espejo, que en su primera versión declaró el mutante flojo.
+        archivo: 'src/services/backup/backup-service.ts',
+        de: 'await runLedgerChecksEn(',
+        a: 'await noVerificarNada(',
+        porque: 'la verificación deja de correr los chequeos del mayor: comprobaría que el archivo existe, no que sirva',
+      },
+    ],
+  },
+
   // ---- A7 · Una sola puerta al auto-posteo ----
 
   {

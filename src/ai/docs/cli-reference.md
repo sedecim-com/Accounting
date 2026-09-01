@@ -106,6 +106,9 @@ Commands:
   ar|cxc                                Receivables controls: reconcile the
                                         subledger against the control account,
                                         run named diagnostics
+  backup|respaldo                       Logical backups: create, list, verify
+                                        (optionally by rehearsing the restore)
+                                        and restore
   report|reporte                        Financial statements, trial balance,
                                         general ledger and ageing
   ledger|mayor                          The general ledger itself: integrity
@@ -3312,6 +3315,123 @@ Options:
   --check [names]                          comma-separated diagnostics to run; bare --check lists the battery
   --strict                                 exit 4 on warnings too, not only blocking findings
   -h, --help                               display help for command
+```
+
+## `mnemosine backup` (alias: respaldo)
+
+```
+Usage: mnemosine backup|respaldo [options] [command]
+
+Logical backups: create, list, verify (optionally by rehearsing the restore) and
+restore
+
+Options:
+  -h, --help                          display help for command
+
+Commands:
+  create|crear [options]              Take a logical dump of the database with
+                                      its schema-version manifest
+  list|listar [options]               List known backups with their date, size,
+                                      schema version and whether their hash
+                                      still matches
+  verify|comprobar [options] <file>   Verify a backup against its manifest; with
+                                      --restore, rehearse the restore and run
+                                      the ledger checks
+  restore|restaurar [options] <file>  Restore a backup into a NEW database;
+                                      never over an existing one
+  help [command]                      display help for command
+```
+
+### `mnemosine backup create` (alias: crear)
+
+```
+Usage: mnemosine backup create|crear [options]
+
+Take a logical dump of the database with its schema-version manifest
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --target <dir>           directory to write into (default: ./respaldos)
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+### `mnemosine backup list` (alias: listar)
+
+```
+Usage: mnemosine backup list|listar [options]
+
+List known backups with their date, size, schema version and whether their hash
+still matches
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --target <dir>                           directory to read (default: ./respaldos)
+  -h, --help                               display help for command
+```
+
+### `mnemosine backup verify` (alias: comprobar)
+
+```
+Usage: mnemosine backup verify|comprobar [options] <file>
+
+Verify a backup against its manifest; with --restore, rehearse the restore and
+run the ledger checks
+
+Arguments:
+  file                                     backup file to verify
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --restore                                RESTORE it into a throwaway database and run the ledger checks (the only real proof)
+  --strict                                 exit 4 on warnings too
+  -h, --help                               display help for command
+```
+
+### `mnemosine backup restore` (alias: restaurar)
+
+```
+Usage: mnemosine backup restore|restaurar [options] <file>
+
+Restore a backup into a NEW database; never over an existing one
+
+Arguments:
+  file                     backup file to restore
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --target <database>      name of the NEW database to create and restore into
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
 ```
 
 ## `mnemosine report` (alias: reporte)

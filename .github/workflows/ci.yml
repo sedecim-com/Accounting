@@ -76,6 +76,31 @@ jobs:
   plan:
     name: Estado del plan
     runs-on: ubuntu-latest
+    # POSTGRES AQUÍ, Y NO ES UN EXTRA (S3).
+    #
+    # `Criterio.necesita: 'base-de-datos'` existía desde el principio y NUNCA
+    # había juzgado nada: este job no tenía base, así que el único criterio que
+    # lo declaraba salía siempre `no-evaluable` y el trinquete pasaba igual —
+    # un campo declarado que nadie honra promete una semántica y entrega otra.
+    # S3 convirtió en criterios DE EFECTO los dos que vigilaban la purga de la
+    # 040 y la siembra de la 043 (leían el .sql y no podían distinguir «corrió»
+    # de «no tocó nada»), y sin base aquí seguirían sin juzgar.
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mnemosine_plan
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_plan
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_plan
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,6 +108,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - run: npm run migrate
       # TRINQUETE, NO INFORME.
       #
       # La salida completa se imprime siempre —un paquete abierto es
@@ -130,6 +156,48 @@ jobs:
       # cuando cambia una fuente de un manual ya revisado — no verifica el
       # contenido (eso sería medir prosa), detecta caducidad y nombra qué releer.
       - run: npx tsx scripts/corpus-manifiesto.ts --check
+
+  # EL ENSAYO DE LA RESTAURACIÓN (S3).
+  #
+  # Un respaldo no probado no es un respaldo. Este job siembra, respalda,
+  # RESTAURA en otra base y le corre los chequeos del mayor: es la única
+  # forma de que «se pueden recuperar los libros» deje de ser una promesa.
+  # Va aparte del job de integración porque necesita las herramientas de
+  # cliente de Postgres (pg_dump/pg_restore) y un rol que pueda volcar.
+  restauracion:
+    name: Ensayo de restauración
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mnemosine_restore
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_restore
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_restore
+      BACKUP_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_restore
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      # pg_dump/pg_restore del cliente 15: el respaldo lo hacen las
+      # herramientas de Postgres, no este proceso.
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client-15 || sudo apt-get install -y postgresql-client
+      - run: npm ci
+      - run: npm run migrate
+      - run: npx vitest run --config vitest.integration.config.ts tests/integration/s3-respaldo.int.spec.ts tests/integration/s3-corredor.int.spec.ts
+        env:
+          TEST_ADMIN_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
 
   integration:
     name: Integración contra Postgres
