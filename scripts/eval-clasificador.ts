@@ -61,6 +61,10 @@ const BITACORA = path.resolve('docs/evals/clasificador.jsonl');
 const tasa = (m: { aciertos: number; total: number }): string =>
   m.total === 0 ? '—' : (m.aciertos / m.total).toFixed(3);
 
+// El purgador del catch final: identidad hasta que el perfil resuelve su
+// credencial (main lo re-arma en ese punto con redactDetail).
+let redactar = (texto: string): string => texto;
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
@@ -73,7 +77,7 @@ async function main(): Promise<void> {
     const { cargarCasosGolden } = await import('../src/ai/eval/golden.js');
     const { puntuarCaso, agregarPuntuaciones } = await import('../src/ai/eval/puntuacion.js');
     const { crearInquilino } = await import('../tests/integration/helpers/tenant-fixture.js');
-    const { resolveProfile, createLlmSession } = await import('../src/ai/providers/index.js');
+    const { resolveProfile, createLlmSession, redactDetail } = await import('../src/ai/providers/index.js');
     const { ingestCfdiFiles } = await import('../src/ai/ingest-service.js');
     const { query, closeDatabase } = await import('../src/database/connection.js');
     type ObservadoCaso = import('../src/ai/eval/puntuacion.js').ObservadoCaso;
@@ -113,6 +117,10 @@ async function main(): Promise<void> {
 
     // Proveedor FIJADO: sesión directa, sin failover, grounding apagado.
     const profile = resolveProfile(args.provider, args.model);
+    // En cuanto la credencial existe, el purgador se arma: un error de red
+    // puede ecoar la URL o las cabeceras con el secreto dentro, y el catch
+    // final lo imprimiría tal cual. Antes de este punto nadie la ha leído.
+    redactar = (texto) => redactDetail(texto, profile.apiKey, 2000);
     const capture: DraftCapture = { drafts: [] };
     let llamadasAlModelo = 0;
     const base = await createLlmSession(
@@ -246,6 +254,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(`\neval-clasificador: ${(err as Error).message}`);
+  console.error(`\neval-clasificador: ${redactar((err as Error).message)}`);
   process.exit(1);
 });

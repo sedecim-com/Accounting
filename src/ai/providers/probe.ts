@@ -45,11 +45,11 @@ export interface ProbeOptions {
  * echo the full request URL — `https://user:secret@host/...` would leak the
  * embedded credential) and truncates: details are shareable.
  */
-function redactDetail(text: string, apiKey?: string): string {
+export function redactDetail(text: string, apiKey?: string, max = DETAIL_MAX_CHARS): string {
   let out = text.replace(/\s+/g, ' ').trim();
   if (apiKey && apiKey.length > 0) out = out.split(apiKey).join('[redacted]');
   out = out.replace(/\/\/[^\s/@]+@/g, '//[redacted]@');
-  return out.slice(0, DETAIL_MAX_CHARS);
+  return out.slice(0, max);
 }
 
 interface HttpErrorLike extends Error {

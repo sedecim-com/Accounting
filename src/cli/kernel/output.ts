@@ -140,7 +140,10 @@ function toDelimited(rows: Row[], cols: string[], delimiter: string): string {
 }
 
 function toMarkdown(rows: Row[], cols: string[]): string {
-  const esc = (s: string) => s.replace(/\|/g, '\\|');
+  // La diagonal invertida va PRIMERO: si sólo se escapara el pipe, una celda
+  // que ya trae `\|` saldría como `\\|` — barra literal seguida de un pipe
+  // SIN escapar, que parte la fila de la tabla.
+  const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
   return [
     `| ${cols.map(esc).join(' | ')} |`,
     `|${cols.map(() => '---').join('|')}|`,

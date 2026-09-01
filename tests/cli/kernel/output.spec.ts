@@ -112,6 +112,15 @@ describe('formats', () => {
     expect(s.stdoutText).toContain('--format <csv\\|json>');
   });
 
+  it('markdown escapes backslashes before pipes, so `\\|` in a cell cannot smuggle a bare pipe', () => {
+    // Con el orden invertido, `\|` se volvía `\\|`: barra literal + pipe SIN
+    // escapar — la celda parte la fila de la tabla.
+    const s = sink();
+    render([{ ruta: 'C:\\temp', nota: 'ya venia \\| escapado' }], { format: 'md', stdout: s.stdout, stderr: s.stderr });
+    expect(s.stdoutText).toContain('C:\\\\temp');
+    expect(s.stdoutText).toContain('ya venia \\\\\\| escapado');
+  });
+
   it('table right-aligns numeric columns and left-aligns text', () => {
     const s = sink();
     render(ROWS, { stdout: s.stdout, stderr: s.stderr });
