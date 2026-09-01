@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -34,9 +34,9 @@ import { buildSections } from '../../../src/cli/init/index.js';
 import type { SectionContext } from '../../../src/cli/init/section.js';
 import { query, withTransaction, enterTenant } from '../../../src/database/connection.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
-const mockTx = withTransaction as unknown as ReturnType<typeof vi.fn>;
-const mockEnterTenant = enterTenant as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
+const mockTx = withTransaction as unknown as Mock;
+const mockEnterTenant = enterTenant as unknown as Mock;
 
 let tmp: string;
 const ENV = { ...process.env };

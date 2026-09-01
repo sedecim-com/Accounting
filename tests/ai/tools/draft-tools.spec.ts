@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/ai/draft-service.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../../src/ai/draft-service.js')>();
@@ -39,8 +39,8 @@ type ToolHandle<Input = Record<string, unknown>> = BetaTool & {
   run: (input: Input) => Promise<string | BetaToolResultContentBlockParam[]>;
 };
 
-const mockCreateDraft = createDraft as unknown as ReturnType<typeof vi.fn>;
-const mockListDrafts = listDrafts as unknown as ReturnType<typeof vi.fn>;
+const mockCreateDraft = createDraft as unknown as Mock;
+const mockListDrafts = listDrafts as unknown as Mock;
 
 const CTX: AgentContext = {
   entityId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',

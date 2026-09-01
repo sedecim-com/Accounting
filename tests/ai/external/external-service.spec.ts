@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
 vi.mock('../../../src/services/integrations/accounting/registry.js', () => ({
@@ -24,9 +24,9 @@ import { getExternalAdapter } from '../../../src/services/integrations/accountin
 import { matchApproval } from '../../../src/ai/approval-policy.js';
 import type { AgentContext } from '../../../src/ai/context.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
-const mockGetAdapter = getExternalAdapter as unknown as ReturnType<typeof vi.fn>;
-const mockMatchApproval = matchApproval as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
+const mockGetAdapter = getExternalAdapter as unknown as Mock;
+const mockMatchApproval = matchApproval as unknown as Mock;
 
 const CTX: AgentContext = {
   entityId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',

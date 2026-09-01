@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -23,7 +23,7 @@ import {
   type StatusReport,
 } from '../../src/cli/status-command.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 
 const FAKE_KEY = 'sk-super-secret-status-key-42';
 let tmpDir: string;
@@ -112,7 +112,7 @@ describe('buildStatusReport — providers and probes', () => {
     expect(backup.keySet).toBe(false);
     expect(backup.skipped).toBe('credential BACKUP_KEY unset');
     expect(backup.probe).toBeUndefined();
-    const urls = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    const urls = (fetchImpl as unknown as Mock).mock.calls.map((c) => c[0]);
     expect(urls).toEqual(['https://primary.example/v1/models']);
   });
 });
@@ -241,7 +241,7 @@ describe('buildStatusReport — api_key_cmd credential resolution', () => {
     expect(row?.keySource).toBe('cmd');
     expect(row?.skipped).toBeUndefined();
     expect(row?.probe?.ok).toBe(true);
-    const mock = fetchImpl as unknown as ReturnType<typeof vi.fn>;
+    const mock = fetchImpl as unknown as Mock;
     expect(mock.mock.calls[0][0]).toBe('https://vault.example/v1/models');
     expect(mock.mock.calls[0][1].headers.authorization).toBe(`Bearer ${CMD_KEY}`);
   });
@@ -262,7 +262,7 @@ describe('buildStatusReport — api_key_cmd credential resolution', () => {
     const row = r.providers.find((p) => p.name === 'vaulted');
     expect(row?.skipped).toBe('api_key_cmd failed to produce a credential');
     expect(row?.probe).toBeUndefined();
-    expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+    expect((fetchImpl as unknown as Mock).mock.calls).toHaveLength(0);
     expect(JSON.stringify(r)).not.toContain('find-generic-password'); // helper cmdline never leaks
   });
 

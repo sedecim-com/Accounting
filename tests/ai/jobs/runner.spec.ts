@@ -40,9 +40,11 @@ type GateFn = NonNullable<RunnerDeps['gate']>;
 type RecordFn = NonNullable<RunnerDeps['record']>;
 type RunAgentTurnFn = RunnerDeps['runAgentTurn'];
 
-type MockOf<F extends (...args: never[]) => unknown> = Mock<Parameters<F>, ReturnType<F>>;
+// vitest 4 tipa `Mock` con la firma entera de la función, no con el par
+// (argumentos, retorno) que usaba vitest 1; el doble sigue naciendo del tipo real.
+type MockOf<F extends (...args: never[]) => unknown> = Mock<(...args: Parameters<F>) => ReturnType<F>>;
 const mockFn = <F extends (...args: never[]) => unknown>(): MockOf<F> =>
-  vi.fn<Parameters<F>, ReturnType<F>>();
+  vi.fn<(...args: Parameters<F>) => ReturnType<F>>();
 
 interface MockedDeps {
   claim: MockOf<ClaimFn>;

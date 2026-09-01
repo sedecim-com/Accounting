@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { Command } from 'commander';
 
@@ -31,8 +31,8 @@ import { registerSkillsCommand } from '../../src/cli/skills-command.js';
 import { resolveReviewer } from '../../src/ai/draft-service.js';
 import { listSkillDrafts } from '../../src/ai/skills/skill-drafts.js';
 
-const mockListDrafts = listSkillDrafts as unknown as ReturnType<typeof vi.fn>;
-const mockResolveReviewer = resolveReviewer as unknown as ReturnType<typeof vi.fn>;
+const mockListDrafts = listSkillDrafts as unknown as Mock;
+const mockResolveReviewer = resolveReviewer as unknown as Mock;
 
 const id = (s: string): string => s;
 const palette = {
@@ -57,7 +57,7 @@ const PENDING = [
 ];
 
 let origIsTTY: boolean | undefined;
-let logSpy: MockInstance<Parameters<Console['log']>, ReturnType<Console['log']>>;
+let logSpy: MockInstance<Console['log']>;
 
 beforeEach(() => {
   vi.clearAllMocks();

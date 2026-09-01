@@ -115,10 +115,10 @@ function run(opts: {
   /**
    * A3: la vía secundaria; por defecto «ninguna política casa» (la realidad sin grants).
    *
-   * Tipado como función y no como `ReturnType<typeof vi.fn>`: ese alias fija
-   * `Mock<any[], unknown>`, y los miembros del mock (`mock.calls`, entre otros)
-   * son invariantes, así que un `vi.fn(async () => …)` con su retorno concreto
-   * no encaja. Aquí sólo hace falta poder invocarlo — `run` lo pasa al servicio
+   * Tipado como función y no como `Mock`: ese alias fija la firma genérica
+   * `(...args: any[]) => any`, y los miembros del mock (`mock.calls`, entre
+   * otros) son invariantes, así que un `vi.fn(async () => …)` con su retorno
+   * concreto no encaja. Aquí sólo hace falta poder invocarlo — `run` lo pasa al servicio
    * con un molde, y las aserciones de vitest no dependen de este tipo.
    */
   autoApproveByPolicy?: (...args: never[]) => unknown;

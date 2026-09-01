@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -55,9 +55,9 @@ import {
 import { query, withTransaction } from '../../../src/database/connection.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 const SCOPE = { kind: 'entity', tenantId: 't-1', entityId: 'e-1' } as const;
-const mockTx = withTransaction as unknown as ReturnType<typeof vi.fn>;
+const mockTx = withTransaction as unknown as Mock;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const USER = 'user-1';
 const TENANT = 'tenant-1';

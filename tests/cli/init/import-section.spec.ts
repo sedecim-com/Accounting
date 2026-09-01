@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -47,8 +47,8 @@ import type { AgentContext } from '../../../src/ai/context.js';
 import { query } from '../../../src/database/connection.js';
 import { runDoctor } from '../../../src/ai/doctor-service.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
-const mockRunDoctor = runDoctor as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
+const mockRunDoctor = runDoctor as unknown as Mock;
 
 const ENTITY: AgentContext = {
   entityId: 'e1', entityName: 'Acme', tenantId: 't1', currency: 'MXN',
@@ -90,9 +90,9 @@ function makeSection(overrides: Partial<Parameters<typeof deps>[0]> = {}) {
 
 function deps(overrides: {
   env?: NodeJS.ProcessEnv;
-  plan?: ReturnType<typeof vi.fn>;
-  execute?: ReturnType<typeof vi.fn>;
-  ingest?: ReturnType<typeof vi.fn>;
+  plan?: Mock;
+  execute?: Mock;
+  ingest?: Mock;
   listXmlFiles?: (dir: string) => string[];
   resolveEntity?: () => Promise<AgentContext>;
 }) {
