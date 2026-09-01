@@ -67,47 +67,56 @@ describe('reversa y anulación contra Postgres real', () => {
     await expect(reverseJournalEntry(original.id, f.userId)).rejects.toThrow(/ALREADY_REVERSED|already has a reversal/);
   });
 
-  it('original + espejo dejan el saldo neto en cero DENTRO DEL MISMO PERIODO', async () => {
-    // La fecha del espejo se PIDE. Sin ella el motor usa la de hoy, y entonces
-    // esta prueba sólo pasaba mientras «hoy» cayera en el periodo del asiento:
-    // el 1 de septiembre de 2026 empezó a fallar por 777 sin que nada del
-    // motor cambiara. Una prueba con fecha implícita es una bomba de frontera
-    // de mes; la aritmética del espejo se mide fijando el periodo.
+  // ESTA PRUEBA LLEVABA UNA DEPENDENCIA DEL RELOJ, Y ESTALLÓ A MEDIANOCHE.
+  //
+  // El asiento se fecha siempre en agosto (fechaEnPeriodo), pero la reversa sin
+  // fecha explícita usa `new Date()`. Mientras «hoy» fue agosto, el espejo caía
+  // en el mismo periodo y el saldo volvía solo; el 1 de septiembre el espejo
+  // pasó a otro periodo y agosto se quedó con los 777. CI lo dijo así:
+  // «expected 1327 to be close to 550» — la diferencia era el monto entero.
+  //
+  // Lo que estaba mal era la prueba, no el motor: retrofechar una reversa al
+  // periodo del original —que puede estar cerrado— sería el error de verdad.
+  // Así que ahora se fijan las DOS semánticas por separado, y ninguna depende
+  // de qué día se corra la suite.
+  it('con fecha en el periodo del original, el espejo devuelve el saldo', async () => {
     const antes = await saldoDe(f.roles.banco, f.periodos[8]);
     const original = await asientoPosteado('777.00');
     expect(await saldoDe(f.roles.banco, f.periodos[8])).toBeCloseTo(antes + 777, 4);
 
-    await reverseJournalEntry(original.id, f.userId, { reversalDate: fechaEnPeriodo() });
+    await reverseJournalEntry(original.id, f.userId, { reversalDate: fechaEnPeriodo(8, 20) });
     expect(await saldoDe(f.roles.banco, f.periodos[8])).toBeCloseTo(antes, 4);
   });
 
-  it('sin fecha, el espejo se fecha HOY: el periodo del original no se toca', async () => {
-    // La semántica que la prueba anterior daba por supuesta y nadie afirmaba.
-    // Es la correcta: una reversa capturada hoy pertenece a hoy —el periodo
-    // del original puede estar cerrado— y quien quiera lo contrario lo dice
-    // con `entry reverse --date`.
-    const netoDeLaCuenta = async (): Promise<number> => {
-      const r = await query<{ s: string }>(
-        `SELECT COALESCE(SUM(debit_total - credit_total), 0)::text AS s
-           FROM account_balances WHERE account_id = $1`,
-        [f.roles.banco]
-      );
-      return Number(r.rows[0].s);
-    };
+  it('sin fecha, el espejo se fecha HOY y el par sigue neteando cero', async () => {
+    // Ni se adivina el periodo del espejo ni se supone que empieza en cero:
+    // se mide el TOTAL de la cuenta sobre todo el ejercicio. «El par netea
+    // cero» es precisamente una afirmación sobre el total, y así se cumple
+    // caiga donde caiga el espejo. Adivinar el periodo fue lo que rompió esta
+    // prueba el 1 de septiembre; suponer que el otro periodo estaba limpio la
+    // habría roto igual, porque otra prueba de este archivo también revierte
+    // sin fecha.
+    const total = async () =>
+      (await Promise.all(Object.values(f.periodos).map((p) => saldoDe(f.roles.banco, p))))
+        .reduce((a, b) => a + b, 0);
 
-    const antesPeriodo = await saldoDe(f.roles.banco, f.periodos[8]);
-    const antesNeto = await netoDeLaCuenta();
-    const original = await asientoPosteado('45.00');
+    const totalAntes = await total();
+    const agostoAntes = await saldoDe(f.roles.banco, f.periodos[8]);
+
+    const original = await asientoPosteado('777.00');
+    expect(await total()).toBeCloseTo(totalAntes + 777, 4);
+
     const espejo = await reverseJournalEntry(original.id, f.userId);
+    expect(await total()).toBeCloseTo(totalAntes, 4);
 
-    // En el periodo del original queda el cargo si el espejo se fue a otro mes.
-    const mismoPeriodo = espejo.fiscal_period_id === original.fiscal_period_id;
-    expect(await saldoDe(f.roles.banco, f.periodos[8])).toBeCloseTo(
-      mismoPeriodo ? antesPeriodo : antesPeriodo + 45,
+    // Y el detalle por periodo, derivado del espejo y no del calendario: si se
+    // fue a otro periodo, agosto CONSERVA el cargo. No es un saldo mal puesto
+    // — es que una reversa no se retrofecha a un periodo que pudo cerrarse.
+    const agostoDespues = await saldoDe(f.roles.banco, f.periodos[8]);
+    expect(agostoDespues).toBeCloseTo(
+      espejo.fiscal_period_id === f.periodos[8] ? agostoAntes : agostoAntes + 777,
       4
     );
-    // Y el neto de por VIDA de la cuenta cierra siempre, caiga donde caiga.
-    expect(await netoDeLaCuenta()).toBeCloseTo(antesNeto, 4);
   });
 
   it('anular un posteado NO cambia su estado: le enlaza un espejo', async () => {

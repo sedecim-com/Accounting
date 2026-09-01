@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { limiteEnMemoria } from '../../src/services/cache/redis.js';
 
 /**
@@ -31,5 +31,50 @@ describe('limiteEnMemoria', () => {
     limiteEnMemoria(a, w, 1);
     expect(limiteEnMemoria(a, w, 1).allowed).toBe(false);
     expect(limiteEnMemoria(b, w, 1).allowed).toBe(true);
+  });
+});
+
+/**
+ * LA DEGRADACIÓN REAL OCURRE EN EL `catch`, NO EN LA RAMA `if (!r)`.
+ *
+ * Escribí antes una prueba titulada «sin Redis configurado» que resultó floja
+ * en CI, y al perseguirla apareció algo más útil: `getRedis()` NUNCA devuelve
+ * null. Construye el cliente y lo devuelve (`return redis!`); sólo lo anula
+ * después, dentro del `.catch()` asíncrono de `connect()`. De modo que la rama
+ * `if (!r)` de checkRateLimit es inalcanzable en la práctica —lo era también
+ * cuando devolvía allowed:true— y una prueba que dependa de alcanzarla depende
+ * en realidad de una carrera.
+ *
+ * El camino que SÍ se recorre cuando Redis no responde es el `catch` de
+ * `r.incr()`, y eso es lo que se fija aquí, con un cliente que falla a
+ * propósito: cuenta, niega al rebasar, y nunca deja barra libre.
+ */
+describe('checkRateLimit con Redis inalcanzable', () => {
+  it('cae al contador local: cuenta, niega, y no deja barra libre', async () => {
+    vi.resetModules();
+    vi.doMock('ioredis', () => ({
+      default: class {
+        on() { return this; }
+        connect() { return Promise.resolve(); }
+        incr() { return Promise.reject(new Error('ECONNREFUSED')); }
+        pexpire() { return Promise.resolve(); }
+      },
+    }));
+    const { checkRateLimit } = await import('../../src/services/cache/redis.js');
+    const key = `caido-${Math.floor(performance.now() * 1000)}`;
+    const w = 60_000;
+
+    const primera = await checkRateLimit(key, w, 2);
+    expect(primera.allowed).toBe(true);
+    // Que CUENTE es la prueba: con barra libre, remaining sería siempre el
+    // máximo y resetAt cero.
+    expect(primera.remaining).toBe(1);
+    expect(primera.resetAt).toBeGreaterThan(0);
+
+    await checkRateLimit(key, w, 2);
+    const tercera = await checkRateLimit(key, w, 2);
+    expect(tercera.allowed).toBe(false);
+    expect(tercera.remaining).toBe(0);
+    vi.doUnmock('ioredis');
   });
 });
