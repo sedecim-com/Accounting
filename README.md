@@ -29,16 +29,30 @@ npm run plan:status
 ```
 
 Ese comando evalúa criterios ejecutables (`src/plan/criterios.ts`) contra el
-árbol y decide el estado de cada paquete de trabajo. Responde cuántos paquetes tienen todos sus criterios en verde, y para los
-restantes imprime la razón exacta de su rojo. La CI corre `plan:status --exigir=...` sobre los ya
-cerrados: es un trinquete contra el retroceso, no un informe. Un paquete que
-resulta ser un falso verde se **reabre** en el mismo commit que lo quita de esa
-lista, con su porqué.
+árbol y decide el estado de cada paquete de trabajo. Responde cuántos paquetes
+tienen todos sus criterios en verde, y para los restantes imprime la razón
+exacta de su rojo. La CI corre `plan:status --exigir=...` sobre los ya cerrados:
+es un trinquete contra el retroceso, no un informe. Un paquete que resulta ser
+un falso verde se **reabre** en el mismo commit que lo quita de esa lista, con
+su porqué.
 
 Lo mismo con la superficie del CLI: el número de comandos lo cuenta
-`npx tsx scripts/catalogo-estado.ts` sobre el árbol del binario y lo escribe en
+`npm run catalogo:estado` sobre el árbol del binario y lo escribe en
 [`docs/cli-command-catalog.md`](docs/cli-command-catalog.md); la CI verifica que
-el bloque esté al día. Hoy: **108 comandos en 41 familias**.
+el bloque esté al día.
+
+Las cifras de abajo llevan commit a propósito. Este archivo no es un marcador —
+lo son los dos comandos— y una cifra escrita a mano caduca en cuanto alguien
+empuja. Si no coinciden con lo que responde tu árbol, gana el comando.
+
+| Al commit `29d0b35` | |
+|---|---:|
+| Paquetes con todos sus criterios en verde | **9** de 15 |
+| Comandos que el binario ejecuta | **134** en 45 familias |
+| Filas del catálogo ya invocables | **119** de 1 624 |
+| Fase 1 —el compromiso— | **108** de 379 |
+| Migraciones · tablas | **52** · 99 |
+| Pruebas unitarias | **2 205** en 143 archivos |
 
 ### Lo que todavía no es lo que parece
 
@@ -50,10 +64,15 @@ Se dice aquí porque descubrirlo leyendo el código sería peor:
   verificación pública está **apagada por omisión** —se enciende con
   `PUBLIC_VERIFICATION_ENABLED=true`— y, aun encendida, cada endpoint se niega a
   servir una fila simulada.
-- **El timbrado con PAC es real en un solo proveedor.** De los cuatro
-  adaptadores, tres (Finkok, Edicom, SW Sapien) se declaran simulados y un
-  cerrojo les impide timbrar fuera de sandbox; sólo Sovos/Reachcore declara
-  `simulado = false`.
+- **El timbrado con PAC es real en un solo proveedor, y ese no se puede
+  configurar.** De los cuatro adaptadores, tres (Finkok, Edicom, SW Sapien) se
+  declaran simulados y un cerrojo les impide timbrar fuera de sandbox; sólo
+  Sovos/Reachcore declara `simulado = false`. Pero
+  `src/services/integrations/index.ts:12-15` registra únicamente Stripe, Conekta,
+  SendGrid y S3: **ningún adaptador de PAC entra al registro**, así que
+  configurar cualquiera de ellos por `/v1/integrations/:provider` muere en
+  `PROVIDER_NOT_FOUND`. Contratar un PAC es una decisión de negocio; poder
+  intentarlo es un renglón que falta.
 - **La descarga masiva del SAT no existe.** Ni SOAP, ni ZIP, ni comando. Un
   despacho no puede afirmar completitud de CFDI recibidos desde aquí.
 - **La nómina reporta ceros en 941/940.** `paycheck_taxes`,
@@ -64,6 +83,19 @@ Se dice aquí porque descubrirlo leyendo el código sería peor:
   quedó apagado hasta que eso se arregle.
 - De los 151 manejadores REST, **7 están retirados** y lanzan
   `NotImplementedError` en vez de fingir que hicieron algo.
+- **No hay respaldo ni restauración.** Ni una línea en todo el árbol. Y lo que
+  el proyecto hizo bien lo empeora: desde la migración 041 el mayor es
+  físicamente inmutable y `audit_log` es de sólo agregar, así que un error de
+  datos **no se puede reparar a mano**. Quien opere esto tiene que resolver su
+  propio respaldo de PostgreSQL mientras el proyecto no lo traiga. Es la brecha
+  abierta más grande y por eso está aquí arriba y no en una nota al pie.
+- **El sueldo bruto de la nómina cae en la cuenta equivocada.** Dos catálogos
+  semilla reclaman el código `5200`: los roles fiscales lo crean como
+  *Devoluciones y Descuentos sobre Compras*
+  (`src/services/xml-ingestion/account-roles-seed.ts:126`) y el mapeo de nómina,
+  que corre después (`src/services/accounting/entity-accounting.ts:77`), salta la
+  creación porque el código ya existe y apunta `wages_expense` a esa misma
+  cuenta. No truena: la guarda es por código y la colisión es de significado.
 
 ---
 
@@ -83,7 +115,7 @@ cp .env.example .env
 # NIEGA a correr con los valores de desarrollo bajo NODE_ENV=production.
 
 createdb mnemosine
-npm run migrate      # 46 migraciones; reaplica rls-policies.sql al final
+npm run migrate      # 52 migraciones; reaplica rls-policies.sql al final
 npm run seed         # tenant, entidad, catálogo y periodos de demostración
 ```
 
@@ -117,9 +149,10 @@ a mano— está en [`src/ai/docs/cli-reference.md`](src/ai/docs/cli-reference.md
 mnemosine no está casado con un proveedor. Hay dos motores de sesión: el nativo
 de Anthropic (`MnemosineAgent`, con caché de prompt y bloques de razonamiento) y
 un adaptador OpenAI-compatible (`OpenAiCompatSession`) que sirve a todo lo demás.
-Vienen doce perfiles predefinidos —anthropic, openai, gemini, grok, qwen,
-minimax, openrouter, hermes, copilot, ollama y dos pasarelas locales— y se
-añaden más en el archivo de configuración.
+Vienen once perfiles predefinidos —anthropic, openai, gemini, grok, qwen,
+minimax, openrouter, copilot, hermes y dos pasarelas locales (`ollama` y
+`openclaw`)— y se añaden más en el archivo de configuración
+(`src/ai/providers/config.ts`).
 
 **Funciona con modelos locales y sin API key.** El `mnemosine.config.json` del
 repositorio ya viene apuntando a Ollama:
@@ -176,7 +209,7 @@ Cinco capas, de fuera hacia dentro:
 4. **Servicios (`src/services/`)** — el motor: contabilidad y posteo, cierre de
    periodo, AP/AR, pagos, bancos, activos, nómina MX/USA, ingesta de CFDI,
    reportes, bóveda de credenciales fiscales, auditoría.
-5. **Base (`src/database/`)** — 46 migraciones, 94 tablas, y las políticas de RLS
+5. **Base (`src/database/`)** — 52 migraciones, 99 tablas, y las políticas de RLS
    que se reaplican después de cada migración.
 
 Todas las escrituras físicas al mayor pasan por un único módulo
@@ -247,16 +280,18 @@ estado que `plan:status` declara.
 ```bash
 npm run typecheck        # tsc --noEmit sobre src/
 npm run typecheck:tests
-npm test                 # unitarias (hoy: 2 095 en 132 archivos)
-npm run test:integration # contra Postgres real (hoy: 221 en 22 archivos)
+npm test                 # unitarias: 2 205 casos en 143 archivos
+npm run test:integration # contra Postgres real: 28 archivos
 ```
 
 La suite de integración crea y destruye una base efímera por corrida, por lo que
 pide `TEST_ADMIN_DATABASE_URL` (un rol con `CREATE DATABASE`) y se niega a
 arrancar sin ella. Corre en serie a propósito: varias pruebas cuentan filas.
 
-`npm run lint` existe en el `package.json` pero hoy no aporta señal real. Las
-puertas de verdad son las cuatro de arriba, más `plan:status`.
+`npm run lint` ya no es un adorno: corre ESLint 9 con información de tipos
+(`eslint.config.mjs`) sobre `src/`, `tests/` y `scripts/`, y la CI lo exige. Los
+errores rompen la compilación; las advertencias llevan trinquete
+(`--max-warnings 1239`, congelado en lo medido) para que sólo puedan bajar.
 
 ---
 
@@ -266,7 +301,7 @@ Lee [CONTRIBUTING.md](CONTRIBUTING.md): están ahí el flujo, los invariantes de
 casa y por qué los mensajes de commit explican el *porqué* y no el diff.
 
 En corto: un PR por idea, contra `main`, con **1 aprobación** y la CI en verde
-—Tipos, Pruebas unitarias, Integración contra Postgres, Aislamiento por
+—Tipos, Lint, Pruebas unitarias, Integración contra Postgres, Aislamiento por
 inquilino y Estado del plan—. Un push nuevo invalida las aprobaciones
 anteriores, y Copilot revisa cada PR automáticamente; su comentario es insumo,
 no la aprobación que exige la regla. Si tu cambio cierra un paquete del plan,
@@ -289,6 +324,16 @@ sección 5 de la propia licencia cubre las contribuciones.
 
 ## Más documentación
 
+La **[wiki del repositorio](https://github.com/sedecim-com/Accounting/wiki)** es
+el sitio largo: cómo funciona por dentro y por qué se decidió así. Este README
+responde qué es y cómo arrancar; la wiki responde todo lo demás —arquitectura,
+el modelo de autonomía del agente, el aislamiento por inquilino, lo fiscal
+mexicano con ejemplos numéricos, el glosario para quien no es contador, y
+solución de problemas—. Su fuente vive en
+[`docs/wiki/`](docs/wiki/) y se publica desde ahí.
+
+Dentro del repositorio:
+
 - [`docs/cli-command-catalog.md`](docs/cli-command-catalog.md) — la superficie de
   comandos a la que se aspira, contrastada fila por fila contra el backend, con
   el recuento generado.
@@ -297,5 +342,10 @@ sección 5 de la propia licencia cubre las contribuciones.
 - [`docs/migraciones.md`](docs/migraciones.md) — numeración, rangos y los cuatro
   duplicados históricos que no se pueden renumerar.
 - [`docs/pac-proveedores.md`](docs/pac-proveedores.md) — proveedores de timbrado.
-- [`docs/auditorias/2026-08-31-integral/`](docs/auditorias/2026-08-31-integral/) —
-  siete lentes sobre el árbol, incluida la de aislamiento multi-inquilino.
+- [`docs/plan-catalogo.md`](docs/plan-catalogo.md) — «Doce sprints o sesenta»: el
+  modelo de coste por fila y el orden por flujos.
+- [`docs/plan-cierre-brechas.md`](docs/plan-cierre-brechas.md) — las garantías
+  heredadas, dispuestas partida por partida.
+- [`docs/auditorias/`](docs/auditorias/) — las auditorías adversariales. La de
+  agosto abrió con siete lentes; la de septiembre subió a doce y cada hallazgo
+  mayor pasó por un escéptico con el encargo de refutarlo.
