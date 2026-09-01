@@ -9,6 +9,12 @@
 -- ZERO rows and silently seeds nothing — numbering would then restart at 1
 -- and collide with existing document numbers. The tenants table is excluded
 -- from RLS, so the loop can enumerate it.
+--
+-- El opt-in: migrate.ts corre la sesión con row_security=off, que convierte
+-- el filtrado silencioso en error 42501. Este bucle SÍ maneja RLS a
+-- propósito (GUC por inquilino), así que lo declara; SET LOCAL muere con la
+-- transacción de esta migración.
+SET LOCAL row_security = on;
 DO $seed$
 DECLARE t record;
 BEGIN

@@ -31,7 +31,7 @@ describe('money survives as a decimal string', () => {
   it('JSON keeps amounts as strings, never as numbers', () => {
     const s = sink();
     render(ROWS, { json: true, stdout: s.stdout, stderr: s.stderr });
-    const parsed = JSON.parse(s.stdoutText);
+    const parsed = JSON.parse(s.stdoutText) as { rows: Array<Record<string, unknown>>; meta?: Record<string, unknown> };
     expect(typeof parsed.rows[0].balance).toBe('string');
     expect(parsed.rows[0].balance).toBe('1000.51');
     // The exact cent survives a parse round-trip, which is the whole point.
@@ -56,7 +56,7 @@ describe('truncation is always reported', () => {
   it('carries truncation in the JSON envelope instead of a note', () => {
     const s = sink();
     render(ROWS, { json: true, total: 1200, stdout: s.stdout, stderr: s.stderr });
-    const parsed = JSON.parse(s.stdoutText);
+    const parsed = JSON.parse(s.stdoutText) as { rows: Array<Record<string, unknown>>; meta?: Record<string, unknown> };
     expect(parsed).toMatchObject({ schema: SCHEMA_VERSION, count: 2, total: 1200, truncated: true });
     expect(s.stderrText).toBe('');
   });
@@ -110,6 +110,15 @@ describe('formats', () => {
     const s = sink();
     render([{ flags: '--format <csv|json>' }], { format: 'md', stdout: s.stdout, stderr: s.stderr });
     expect(s.stdoutText).toContain('--format <csv\\|json>');
+  });
+
+  it('markdown escapes backslashes before pipes, so `\\|` in a cell cannot smuggle a bare pipe', () => {
+    // Con el orden invertido, `\|` se volvía `\\|`: barra literal + pipe SIN
+    // escapar — la celda parte la fila de la tabla.
+    const s = sink();
+    render([{ ruta: 'C:\\temp', nota: 'ya venia \\| escapado' }], { format: 'md', stdout: s.stdout, stderr: s.stderr });
+    expect(s.stdoutText).toContain('C:\\\\temp');
+    expect(s.stdoutText).toContain('ya venia \\\\\\| escapado');
   });
 
   it('table right-aligns numeric columns and left-aligns text', () => {

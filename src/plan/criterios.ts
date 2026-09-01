@@ -462,6 +462,43 @@ export const CRITERIOS: Criterio[] = [
         : falla('rls-policies.sql no corre en el finally: un fallo a mitad deja tablas sin política');
     },
   },
+  {
+    paquete: 'E0.2',
+    enunciado: 'Una migración de datos que olvide la RLS truena en vez de correr filtrada',
+    evaluar: () => {
+      // Tres veces una siembra corrió como dueño bajo FORCE RLS sin GUC de
+      // inquilino y leyó cero filas «con éxito»: la 025 (confesada por la
+      // 026), la 043 (colisión de folio, 2026-08-31) y con ellas la 037 y la
+      // 040 — la purga de secretos que no purgó. El remedio no es acordarse:
+      // el corredor pone row_security=off y Postgres LANZA 42501 donde antes
+      // filtraba en silencio (el mismo default de pg_dump). Prescriptivo
+      // sobre el instrumento, que es cuando un criterio nombra el archivo.
+      const s = codigoDe('src/database/migrate.ts');
+      const piso = s.indexOf("SET row_security = off");
+      if (piso < 0) {
+        return falla('migrate.ts ya no apaga row_security: la siguiente siembra olvidada volverá a leer cero filas en silencio');
+      }
+      const bucle = s.indexOf('for (const file of files)');
+      if (bucle >= 0 && piso > bucle) {
+        return falla('el piso row_security=off se pone DESPUÉS de correr los archivos: las migraciones corren sin él');
+      }
+      // Y el patrón santo sigue siendo transitable: toda migración que itera
+      // inquilinos con el GUC debe declarar el opt-in, porque contra el piso
+      // un bucle sin declaración muere con 42501 en el primer catch-up de
+      // una base rezagada — una regresión que sólo muerde en el campo.
+      const dir = rutaDe('src', 'database', 'migrations');
+      const sinOptIn = fs.readdirSync(dir)
+        .filter((f) => f.endsWith('.sql'))
+        .filter((f) => {
+          const sql = fs.readFileSync(path.join(dir, f), 'utf-8');
+          return sql.includes("set_config('app.current_tenant'")
+            && !/SET LOCAL row_security = on/.test(sql);
+        });
+      return sinOptIn.length === 0
+        ? ok('el corredor convierte el filtrado silencioso en 42501 y las siembras por inquilino declaran su opt-in')
+        : falla(`bucle por inquilino sin «SET LOCAL row_security = on» — contra el piso mueren en el catch-up: ${sinOptIn.join(', ')}`);
+    },
+  },
 
   {
     paquete: 'E0.1',
