@@ -102,6 +102,8 @@ Commands:
                                         here)
   report|reporte                        Financial statements, trial balance,
                                         general ledger and ageing
+  ai|ia                                 Métricas y calibración del agente
+                                        contable
   usage|uso [options]                   Token usage and estimated cost from the
                                         local ledger (no API calls)
   status|estado [options]               Health snapshot: config, live provider
@@ -2683,6 +2685,41 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --view <name...>                         which views to rebuild (default: all of mv_trial_balance, mv_account_balance_summary)
   --no-concurrently                        rebuild with an exclusive lock; needed only for a never-populated view
+  -h, --help                               display help for command
+```
+
+## `mnemosine ai` (alias: ia)
+
+```
+Usage: mnemosine ai|ia [options] [command]
+
+Métricas y calibración del agente contable
+
+Options:
+  -h, --help                    display help for command
+
+Commands:
+  stats|estadisticas [options]  Aprobación por bucket de confianza, delta
+                                confianza-vs-realidad, costo y eventos
+  help [command]                display help for command
+```
+
+### `mnemosine ai stats` (alias: estadisticas)
+
+```
+Usage: mnemosine ai stats|estadisticas [options]
+
+Aprobación por bucket de confianza, delta confianza-vs-realidad, costo y eventos
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
   -h, --help                               display help for command
 ```
 

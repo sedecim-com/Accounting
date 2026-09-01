@@ -1918,4 +1918,123 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E5.1',
+    enunciado: 'El clasificador tiene vara de medir: golden set con esperado y arnés fijado',
+    evaluar: () => {
+      // A1: «medir antes de soltar» era doctrina sin instrumento — la brecha
+      // madre de la auditoría integral. La vara: un corpus con respuesta
+      // (tests/golden/cfdi, pares xml + esperado.json que incluyen los casos
+      // donde lo correcto es PREGUNTAR) y un arnés que corre el MISMO camino
+      // que la ingesta —ingestCfdiFiles con sus compuertas— contra un
+      // proveedor FIJADO: createLlmSession directo, sin cadena de failover
+      // (un eval que cambia de modelo a mitad de corrida no mide nada).
+      const dir = rutaDe('tests/golden/cfdi');
+      if (!fs.existsSync(dir)) return falla('el golden set no existe: no hay contra qué medir al clasificador');
+      const archivos = fs.readdirSync(dir);
+      const xmls = archivos.filter((a) => a.endsWith('.xml'));
+      const huerfanos = xmls.filter((a) => !archivos.includes(a.replace(/\.xml$/, '.esperado.json')));
+      if (xmls.length < 9 || huerfanos.length > 0) {
+        return falla(`el corpus perdió casos o respuestas (${xmls.length} xml, sin esperado: ${huerfanos.join(', ') || 'ninguno'})`);
+      }
+      const arnes = codigoDe('scripts/eval-clasificador.ts');
+      if (!/createLlmSession\(/.test(arnes) || /createLlmSessionWithFailover/.test(arnes)) {
+        return falla('el arnés dejó de fijar proveedor: con cadena de failover la corrida no es comparable');
+      }
+      if (!/ingestCfdiFiles\(/.test(arnes)) {
+        return falla('el arnés ya no corre el camino real de la ingesta: mediría un clasificador que no existe');
+      }
+      if (!/clasificador\.jsonl/.test(arnes) || !/agregarPuntuaciones\(/.test(arnes)) {
+        return falla('el arnés perdió la bitácora o la puntuación: sin «contra la corrida anterior» no hay tendencia');
+      }
+      // Forma de LLAMADA (marca('abstencion', …)), no el símbolo: la unión de
+      // tipos también dice 'abstencion' y un regex laxo bendice al mutante
+      // que renombra la marcación real — el primo del import (AUD-6).
+      return /marca\(\s*\n?\s*'abstencion'/.test(codigoDe('src/ai/eval/puntuacion.ts'))
+        ? ok(`${xmls.length} casos con esperado, arnés por el camino real, proveedor fijado y bitácora comparable`)
+        : falla('la puntuación perdió la clase abstención: dejaría de medirse la humildad de preguntar');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'La calibración se lee del rastro: ai stats por bucket, con delta',
+    evaluar: () => {
+      // A2: la confianza que el modelo reporta contra lo que el despacho
+      // decidió, bucket por bucket — y el DELTA que exhibe el exceso de
+      // confianza. El destino se reconstruye del rastro de atribución que
+      // los caminos de aprobación dejan a propósito (la nota del auto-post,
+      // el reviewed_by 'policy:'), no de una columna que no existe.
+      const svc = codigoDe('src/ai/stats-service.ts');
+      // Conteos, no presencia: la nota del auto-post aparece en TRES brazos
+      // del CASE (el filtro de auto y los dos NOT LIKE que separan política
+      // y humano) y el prefijo 'policy:' en DOS. Mutar uno deja los demás y
+      // un chequeo de presencia lo bendice — la lección de R1 (la resta
+      // JSONB contada una vez, existiendo en dos funciones).
+      const notasAuto = (svc.match(/'auto-post by threshold%'/g) ?? []).length;
+      const prefijosPolitica = (svc.match(/'policy:%'/g) ?? []).length;
+      if (!/FROM ai_drafts/.test(svc) || notasAuto < 3 || prefijosPolitica < 2) {
+        return falla(
+          `las estadísticas dejaron de leer el rastro de atribución completo (nota auto ×${notasAuto}, prefijo policy ×${prefijosPolitica}): auto, política y humano se confundirían`
+        );
+      }
+      if (!/media\.minus\(tasa\)/.test(svc)) {
+        return falla('el delta confianza-vs-realidad desapareció: los buckets sin delta son un conteo, no una calibración');
+      }
+      const cmd = codigoDe('src/cli/ai-command.ts');
+      if (!/declareRisk\(stats,\s*\{\s*risk:\s*'lectura',\s*agent:\s*true/.test(cmd)) {
+        return falla('ai stats dejó de ser lectura abierta al agente: medirse a sí mismo es el único privilegio que debe tener');
+      }
+      return /registerAiCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'))
+        ? ok('ai stats registrado: buckets sobre ai_drafts, atribución por rastro y delta a la vista')
+        : falla('registerAiCommand no está en el binario: la calibración existiría sin superficie');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'Lo que el agente hace deja rastro medible: duración, corridas y eventos',
+    evaluar: () => {
+      // A2: las métricas que faltaban. duration_ms en el ledger de uso (los
+      // DOS runners miden alrededor de su llamada), los counts de la ingesta
+      // persistidos por corrida (con consumo, para que costo-por-borrador
+      // sea una división), y sospecha/nudge/failover como filas — el delito
+      // menor deja rastro ANTES de discutir la autonomía mayor.
+      const m = 'src/database/migrations/044_el_agente_medible.sql';
+      if (!existe(m)) return falla('la 044 desapareció: sin tablas no hay rastro');
+      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      if (!/ADD COLUMN duration_ms/.test(sql) || !/CREATE TABLE ai_ingest_runs/.test(sql) || !/CREATE TABLE ai_agent_events/.test(sql)) {
+        return falla('la 044 perdió una de sus tres piezas (duration_ms, ai_ingest_runs, ai_agent_events)');
+      }
+      // Conteo por archivo, no presencia: el agente emite en DOS sitios
+      // (bucle del runner y summarize) y el compat en TRES (summarize,
+      // no-stream, stream) — mutar el sitio principal dejando el secundario
+      // pasa un chequeo de presencia. Tercera aparición de la lección del
+      // conteo en esta misma corrida.
+      // Sólo Date.now() cuenta como medición: una alternativa `durationMs`
+      // casaba la FIRMA de emitUsage(usage, durationMs?) y la declaración
+      // pasaba por sitio medido — el regex mordiéndose la cola.
+      const emisionesMedidas = (f: string): number =>
+        (codigoDe(f).match(/emitUsage\([^)]*,\s*Date\.now\(\)/g) ?? []).length;
+      const enAgente = emisionesMedidas('src/ai/agent.ts');
+      const enCompat = emisionesMedidas('src/ai/providers/openai-compat.ts');
+      if (enAgente < 2 || enCompat < 3) {
+        return falla(
+          `un runner dejó de medir alguna de sus llamadas (agente ${enAgente}/2, compat ${enCompat}/3)`
+        );
+      }
+      if (!/duration_ms/.test(codigoDe('src/ai/usage-ledger.ts'))) {
+        return falla('el ledger de uso dejó de persistir la duración que los runners miden');
+      }
+      const cli = codigoDe('src/cli/mnemosine.ts');
+      if (!/registrarCorridaIngesta\(ctx/.test(cli)) {
+        return falla('la ingesta volvió a imprimir y evaporar: nadie registra la corrida');
+      }
+      if ((cli.match(/registrarEventoEnSegundoPlano\(ctx/g) ?? []).length < 3) {
+        return falla('los eventos del agente (sospecha/nudge/failover) perdieron cableado en el CLI');
+      }
+      return /this\.onNudge\?\.\(\)/.test(codigoDe('src/ai/grounding.ts'))
+        ? ok('duración en los dos runners y el ledger, corridas de ingesta con consumo, y los tres eventos cableados')
+        : falla('el guard de grounding dejó de avisar el nudge: el contador quedaría siempre en cero');
+    },
+  },
+
 ];

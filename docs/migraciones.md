@@ -31,7 +31,7 @@ coordina: desinforma, porque promete un orden que el historial ya contradice.
 La regla vigente es la simple:
 
 - **Secuencial estricto.** El siguiente número es `max + 1` sobre lo que hay
-  en `src/database/migrations/`. Hoy: **044** (la 043 es la última en el árbol).
+  en `src/database/migrations/`. Hoy: **045** (la 044 es la última en el árbol).
 - **La guarda decide, no este documento.** `assertNumeracionUnica` falla ante
   cualquier duplicado nuevo; los cuatro históricos de arriba son los únicos
   tolerados.

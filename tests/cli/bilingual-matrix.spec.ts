@@ -23,6 +23,8 @@ function help(...args: string[]): string {
 
 /** canonical → Spanish alias ('' = same word in both languages). */
 const TOP_LEVEL: Record<string, string> = {
+  // A2: la familia de métricas del agente.
+  ai: 'ia',
   entity: 'entidad',
   account: 'cuenta',
   entry: 'poliza',

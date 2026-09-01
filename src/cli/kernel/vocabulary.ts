@@ -87,6 +87,11 @@ export const VERBS: Readonly<Record<string, string>> = Object.freeze({
   'show'       : 'ver',
   'stamp'      : 'timbrar',
   'start'      : 'iniciar',
+  // Deliberate amendment (2026-08-31, A2): `ai stats` es el informe de
+  // calibración del agente comprometido por el plan maestro y la auditoría
+  // integral — el nombre embarcado gana (lección S0.1). Sustantivo-como-verbo
+  // con el mismo precedente que 'status'→'estado' e 'history'→'historial'.
+  'stats'      : 'estadisticas',
   'status'     : 'estado',
   'stop'       : 'detener',
   'submit'     : 'enviar',

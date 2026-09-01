@@ -179,6 +179,10 @@ describe('ingestCfdiFiles — layers and thresholds', () => {
     // Y la anotación para el humano sigue viajando en el detalle.
     expect(r.detail).toMatch(/suspicious third-party content in issuer name/);
     expect(r.detail).toMatch(/instruction-like injection phrase/);
+    // A2: además del texto, los campos marcados viajan ESTRUCTURADOS — es lo
+    // que ai_ingest_runs cuenta y ai_agent_events guarda sin re-parsear consola.
+    expect(r.sospechas).toBeDefined();
+    expect(r.sospechas!.some((s) => s.includes('issuer name'))).toBe(true);
   });
 
   it('stays a draft due to unregistered vendor', async () => {

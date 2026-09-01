@@ -49,6 +49,7 @@ import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store
 import { registerSatCommands } from './sat-commands.js';
 import { registerPendingCommands, renderAll } from './pending-command.js';
 import { registerDoctorCommand } from './doctor-command.js';
+import { registerAiCommand } from './ai-command.js';
 import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
 import { registerInitCommand, runInitWizard, type InitWizardResult } from './init-command.js';
@@ -73,7 +74,9 @@ import { registerCustomerCommand } from './customer-command.js';
 import { registerInvoiceCommand } from './invoice-command.js';
 import { registerPaymentCommands } from './payment-command.js';
 import { registerReportCommand } from './report-command.js';
-import { recordUsage } from '../ai/usage-ledger.js';
+import { recordUsage, estimateCostUsd, clampTokenCount } from '../ai/usage-ledger.js';
+import { registrarEventoEnSegundoPlano } from '../ai/agent-events.js';
+import { registrarCorridaIngesta } from '../ai/ingest-runs.js';
 import type { TurnUsage } from '../ai/providers/types.js';
 import type { RunAgentTurn } from '../ai/jobs/runner.js';
 import {
@@ -286,6 +289,9 @@ const makeRunAgentTurn = (ctx: AgentContext, opciones?: { externo?: boolean }): 
       herramientas: opciones?.externo ? SUPERFICIE_DESATENDIDA : SUPERFICIE_DESATENDIDA_SANDBOX,
       onFailover: (from, errorType, to) => {
         stderr.write(ce.dim(`  ⚠ provider ${from} failed (${errorType}); trying ${to}\n`));
+        registrarEventoEnSegundoPlano(ctx, {
+          kind: 'failover', provider: from, detail: { categoria: errorType, siguiente: to },
+        });
       },
     });
     await session.runTurn(prompt);
@@ -304,8 +310,16 @@ async function buildSession(
   // session and surfaced here so the operator always knows who answered.
   const session = await createLlmSessionWithFailover(providerFlag, ctx, callbacks, {
     model: modelFlag,
+    // A2: nudge y failover dejan evento (ai_agent_events) — la salud del
+    // agente se mide, no se recuerda de leer stderr.
+    grounding: {
+      onNudge: () => registrarEventoEnSegundoPlano(ctx, { kind: 'nudge' }),
+    },
     onFailover: (from, errorType, to) => {
       stderr.write(ce.red(`  ⚠ provider ${from} failed (${errorType}); trying ${to}\n`));
+      registrarEventoEnSegundoPlano(ctx, {
+        kind: 'failover', provider: from, detail: { categoria: errorType, siguiente: to },
+      });
       onFailover?.(from, errorType, to);
     },
   });
@@ -1213,6 +1227,29 @@ ingest.action(async (files: string[], opts: {
       const callbacks = makeCallbacks(undefined, (info) => {
         capture.drafts.push(info);
       });
+      // A2: la ingesta acumula su consumo para la fila de ai_ingest_runs —
+      // y de paso cierra un hueco: este camino no registraba NADA en
+      // ai_usage (el onUsage nunca se cableó aquí; ask/chat/jobs sí).
+      const consumo = { input: 0, output: 0, costo: 0, costoConocido: false };
+      callbacks.onUsage = (usage) => {
+        recordUsageInBackground(ctx, null, usage);
+        // Mismas pinzas que recordUsage: contadores hostiles o no-numéricos
+        // se fijan ANTES de estimar el costo, o un NaN envenena el total.
+        const fijado = {
+          ...usage,
+          inputTokens: clampTokenCount(usage.inputTokens),
+          outputTokens: clampTokenCount(usage.outputTokens),
+          cacheReadInputTokens: clampTokenCount(usage.cacheReadInputTokens ?? 0),
+          cacheCreationInputTokens: clampTokenCount(usage.cacheCreationInputTokens ?? 0),
+        };
+        consumo.input += fijado.inputTokens;
+        consumo.output += fijado.outputTokens;
+        const costo = estimateCostUsd(fijado);
+        if (costo !== null) {
+          consumo.costo += costo;
+          consumo.costoConocido = true;
+        }
+      };
       const profile = resolveProfile(opts.provider, opts.model);
       // Batch pipeline with auto-post thresholds: the grounding corrective
       // turn is harness-initiated and must never be able to add drafts to
@@ -1231,10 +1268,43 @@ ingest.action(async (files: string[], opts: {
           )
       );
 
+      const corridaInicio = Date.now();
       const report = await ingestCfdiFiles({
         ctx, reviewer, files, thresholds, session, capture,
         onProgress: (msg) => stderr.write(ce.dim(`\n── ${msg}\n`)),
       });
+
+      // A2: la corrida deja fila (counts, borradores, consumo) y cada CFDI
+      // sospechoso deja evento con sus campos marcados. El registro nunca
+      // tira la corrida: los resultados de ARRIBA ya son verdad aunque la
+      // anotación falle — se avisa y se sigue.
+      try {
+        const corridaId = await registrarCorridaIngesta(ctx, {
+          provider: profile.name,
+          model: profile.model,
+          filesTotal: files.length,
+          counts: report.counts,
+          sospechaCount: report.results.filter((r) => (r.sospechas?.length ?? 0) > 0).length,
+          draftsCreated: report.results.filter((r) => r.draftId).length,
+          inputTokens: consumo.input,
+          outputTokens: consumo.output,
+          estimatedCostUsd: consumo.costoConocido ? consumo.costo : null,
+          durationMs: Date.now() - corridaInicio,
+          autoPostEnabled: thresholds.autoPost,
+          createdBy: reviewer.email,
+        });
+        for (const r of report.results) {
+          if ((r.sospechas?.length ?? 0) > 0) {
+            registrarEventoEnSegundoPlano(ctx, {
+              kind: 'sospecha',
+              provider: profile.name,
+              detail: { archivo: r.file, campos: r.sospechas, corrida: corridaId },
+            });
+          }
+        }
+      } catch (err) {
+        stderr.write(ce.yellow(`  (aviso: la corrida no quedó registrada en ai_ingest_runs: ${(err as Error).message})\n`));
+      }
 
       const icon: Record<string, string> = {
         rules: '⚙', auto_post: '✔', draft: '📝', blocked: '❓',
@@ -2055,6 +2125,7 @@ registerBillCommand(program, { palette: c, shutdown, reportError });
 registerCustomerCommand(program, { palette: c, shutdown, reportError });
 registerInvoiceCommand(program, { palette: c, shutdown, reportError });
 registerReportCommand(program, { palette: c, shutdown, reportError });
+registerAiCommand(program, { palette: c, shutdown, reportError });
 registerUsageCommand(program, { palette: c, shutdown, reportError });
 registerStatusCommand(program, { palette: c, shutdown, reportError });
 registerJobsCommand(program, { palette: c, shutdown, reportError, makeRunAgentTurn });

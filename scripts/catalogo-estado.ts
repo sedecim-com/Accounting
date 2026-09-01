@@ -81,6 +81,9 @@ export function comandosVivos(): Set<string> {
 export const FUERA_DEL_CATALOGO = new Set([
   'jobs', 'webhooks', 'approvals', 'pending', 'skills', 'memory', 'drafts',
   'sessions', 'usage', 'providers', 'entities', 'prompt-size',
+  // A2: métricas y calibración del agente (ai stats) — instrumentación del
+  // propio agente, no capacidad contable; misma razón que usage/providers.
+  'ai',
 ]);
 
 /**

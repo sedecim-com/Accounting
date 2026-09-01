@@ -46,6 +46,12 @@ export interface IngestFileResult {
   detail?: string;
   draftId?: string;
   entryNumber?: string;
+  /**
+   * A2: los campos de tercero que scanImportedText marcó, estructurados —
+   * antes solo viajaban concatenados en `detail` y el conteo de sospechas
+   * era imposible de persistir sin re-parsear texto de consola.
+   */
+  sospechas?: string[];
 }
 
 export interface IngestReport {
@@ -132,6 +138,7 @@ export async function ingestCfdiFiles(opts: {
     const suspicion = collectSuspicion(upload);
     const result = await classify(upload, name, suspicion);
     if (suspicion.length > 0) {
+      result.sospechas = suspicion;
       result.detail =
         (result.detail ? `${result.detail} · ` : '') +
         `suspicious third-party content in ${suspicion.join(', ')} — sanitized and wrapped as untrusted data`;
