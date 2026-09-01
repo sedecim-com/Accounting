@@ -186,8 +186,7 @@ async function bootstrap() {
   // El escudo va ANTES de authenticate: verificar una firma JWT es trabajo de
   // CPU, y sin esto salía gratis para quien no tiene credenciales — el
   // limitador de abajo, que reparte por inquilino, no llegaba a correr.
-  app.use(apiPrefix, preAuthRateLimiter);
-  app.use(apiPrefix, authenticate);
+  app.use(apiPrefix, preAuthRateLimiter, authenticate);
   // Right after authenticate, and before anything that touches the
   // database: it opens the tenant context that the RLS policies read.
   // Mounted here, once, so no router can forget it.
