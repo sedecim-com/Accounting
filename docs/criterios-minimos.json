@@ -20,6 +20,20 @@
     "E5.1 · Lo que el agente hace deja rastro medible: duración, corridas y eventos",
     "E5.1 · Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre",
     "E5.1 · El presupuesto corta donde nacen las sesiones, y desatendido el tope es tope",
-    "E5.1 · La sombra opina sin postear, y encender el auto-posteo exige su historial"
+    "E5.1 · La sombra opina sin postear, y encender el auto-posteo exige su historial",
+    "E0.1 · Los proyectos unitario y de integración están separados",
+    "E0.1 · La cobertura del motor contable tiene trinquete por archivo",
+    "E0.1 · La suite de integración usa una base efímera, no la de desarrollo",
+    "E0.1 · El compromiso no persiste el valor que promete ocultar",
+    "E0.1 · Un asiento posteado no admite UPDATE ni DELETE fuera de su lista blanca",
+    "E0.1 · Los saldos materializados se verifican contra las líneas, y la deriva es fail",
+    "E0.1 · El posteo y el cierre no se cruzan: el candado del periodo vive en ambas transacciones",
+    "E0.1 · Ningún posteo paga el refresco de las vistas de reporte de todos",
+    "E0.1 · La serie del folio la fija la fecha del documento, no el reloj",
+    "E0.1 · El refresco de las materializadas ve el clúster entero, no el inquilino de la sesión",
+    "E0.1 · El maker-checker vive en el panel y muerde solo la póliza manual",
+    "E0.1 · El espejo del CFDI es por entidad y el estatus SAT dice la verdad",
+    "E0.1 · La nota de crédito postea al emitir por la vía única, y su aplicación no toca efectivo",
+    "E0.1 · El folio eliminado deja hueco explicado, y el perfil fiscal se valida contra catálogo antes de escribir"
   ]
 }
