@@ -67,13 +67,47 @@ describe('reversa y anulación contra Postgres real', () => {
     await expect(reverseJournalEntry(original.id, f.userId)).rejects.toThrow(/ALREADY_REVERSED|already has a reversal/);
   });
 
-  it('original + espejo dejan el saldo neto en cero', async () => {
+  it('original + espejo dejan el saldo neto en cero DENTRO DEL MISMO PERIODO', async () => {
+    // La fecha del espejo se PIDE. Sin ella el motor usa la de hoy, y entonces
+    // esta prueba sólo pasaba mientras «hoy» cayera en el periodo del asiento:
+    // el 1 de septiembre de 2026 empezó a fallar por 777 sin que nada del
+    // motor cambiara. Una prueba con fecha implícita es una bomba de frontera
+    // de mes; la aritmética del espejo se mide fijando el periodo.
     const antes = await saldoDe(f.roles.banco, f.periodos[8]);
     const original = await asientoPosteado('777.00');
     expect(await saldoDe(f.roles.banco, f.periodos[8])).toBeCloseTo(antes + 777, 4);
 
-    await reverseJournalEntry(original.id, f.userId);
+    await reverseJournalEntry(original.id, f.userId, { reversalDate: fechaEnPeriodo() });
     expect(await saldoDe(f.roles.banco, f.periodos[8])).toBeCloseTo(antes, 4);
+  });
+
+  it('sin fecha, el espejo se fecha HOY: el periodo del original no se toca', async () => {
+    // La semántica que la prueba anterior daba por supuesta y nadie afirmaba.
+    // Es la correcta: una reversa capturada hoy pertenece a hoy —el periodo
+    // del original puede estar cerrado— y quien quiera lo contrario lo dice
+    // con `entry reverse --date`.
+    const netoDeLaCuenta = async (): Promise<number> => {
+      const r = await query<{ s: string }>(
+        `SELECT COALESCE(SUM(debit_total - credit_total), 0)::text AS s
+           FROM account_balances WHERE account_id = $1`,
+        [f.roles.banco]
+      );
+      return Number(r.rows[0].s);
+    };
+
+    const antesPeriodo = await saldoDe(f.roles.banco, f.periodos[8]);
+    const antesNeto = await netoDeLaCuenta();
+    const original = await asientoPosteado('45.00');
+    const espejo = await reverseJournalEntry(original.id, f.userId);
+
+    // En el periodo del original queda el cargo si el espejo se fue a otro mes.
+    const mismoPeriodo = espejo.fiscal_period_id === original.fiscal_period_id;
+    expect(await saldoDe(f.roles.banco, f.periodos[8])).toBeCloseTo(
+      mismoPeriodo ? antesPeriodo : antesPeriodo + 45,
+      4
+    );
+    // Y el neto de por VIDA de la cuenta cierra siempre, caiga donde caiga.
+    expect(await netoDeLaCuenta()).toBeCloseTo(antesNeto, 4);
   });
 
   it('anular un posteado NO cambia su estado: le enlaza un espejo', async () => {
