@@ -579,7 +579,7 @@ export async function postReceiptApplicationEntry(
  * vuelve a estar a cuenta — desaplicar NO es devolver dinero) y el IVA que
  * aquella aplicación liberó se RE-APARCA (DR iva_trasladado · CR
  * iva_trasladado_no_cobrado). El importe sale de la fila de la aplicación;
- * una fila anterior a la 048 no lo guardó y se estima pro-rata, diciéndolo.
+ * una fila anterior a la 049 no lo guardó y se estima pro-rata, diciéndolo.
  */
 export async function postReceiptUnapplicationEntry(
   client: pg.PoolClient,
@@ -608,7 +608,7 @@ export async function postReceiptUnapplicationEntry(
   if (iva.greaterThan(0)) {
     const { from, to } = reclassRoles('issued');
     const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
-    const nota = estimado ? ' · pre-048: pro-rata estimate' : '';
+    const nota = estimado ? ' · pre-049: pro-rata estimate' : '';
     jeLines.push({
       account_id: requireRole(ivaRoles, to),
       debit_amount: iva.toFixed(4),

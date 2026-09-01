@@ -550,6 +550,54 @@ export const CRITERIOS: Criterio[] = [
         : falla('rls-policies.sql no corre en el finally: un fallo a mitad deja tablas sin política');
     },
   },
+  {
+    paquete: 'E0.2',
+    enunciado: 'Una migración de datos que olvide la RLS truena en vez de correr filtrada',
+    mutantes: [
+      {
+        archivo: 'src/database/migrate.ts',
+        de: "await client.query('SET row_security = off');",
+        a: "await client.query('SET row_security = on');",
+        porque: 'apagar el piso es exactamente la regresión que costó cuatro siembras silenciosas',
+      },
+    ],
+    evaluar: () => {
+      // Tres veces una siembra corrió como dueño bajo FORCE RLS sin GUC de
+      // inquilino y leyó cero filas «con éxito»: la 025 (confesada por la
+      // 026), la 043 (colisión de folio, 2026-08-31) y con ellas la 037 y la
+      // 040 — la purga de secretos que no purgó. El remedio no es acordarse:
+      // el corredor pone row_security=off y Postgres LANZA 42501 donde antes
+      // filtraba en silencio (el mismo default de pg_dump). Prescriptivo
+      // sobre el instrumento, que es cuando un criterio nombra el archivo.
+      const s = codigoDe('src/database/migrate.ts');
+      const piso = s.indexOf("SET row_security = off");
+      if (piso < 0) {
+        return falla('migrate.ts ya no apaga row_security: la siguiente siembra olvidada volverá a leer cero filas en silencio');
+      }
+      const bucle = s.indexOf('for (const file of files)');
+      if (bucle >= 0 && piso > bucle) {
+        return falla('el piso row_security=off se pone DESPUÉS de correr los archivos: las migraciones corren sin él');
+      }
+      // Y el patrón santo sigue siendo transitable: toda migración que itera
+      // inquilinos con el GUC debe declarar el opt-in, porque contra el piso
+      // un bucle sin declaración muere con 42501 en el primer catch-up de
+      // una base rezagada — una regresión que sólo muerde en el campo.
+      const dir = rutaDe('src', 'database', 'migrations');
+      const sinOptIn = fs.readdirSync(dir)
+        .filter((f) => f.endsWith('.sql'))
+        .filter((f) => {
+          // Por el seam (crudoDe), no por fs directo: una lectura que rodea
+          // el seam es un criterio que ningún espejo puede mutar — y el
+          // criterio E0.0 del arnés cuenta esas lecturas y las acusa.
+          const sql = crudoDe('src/database/migrations', f);
+          return sql.includes("set_config('app.current_tenant'")
+            && !/SET LOCAL row_security = on/.test(sql);
+        });
+      return sinOptIn.length === 0
+        ? ok('el corredor convierte el filtrado silencioso en 42501 y las siembras por inquilino declaran su opt-in')
+        : falla(`bucle por inquilino sin «SET LOCAL row_security = on» — contra el piso mueren en el catch-up: ${sinOptIn.join(', ')}`);
+    },
+  },
 
   {
     paquete: 'E0.1',
@@ -2597,7 +2645,7 @@ export const CRITERIOS: Criterio[] = [
     enunciado: 'El folio eliminado deja hueco explicado, y el perfil fiscal se valida contra catálogo antes de escribir',
     mutantes: [
       {
-        archivo: 'src/database/migrations/048_cobrar.sql',
+        archivo: 'src/database/migrations/049_cobrar.sql',
         de: 'ADD COLUMN tax_regime VARCHAR(3),',
         a: 'ADD COLUMN tax_regimen VARCHAR(3),',
         porque: 'el mutante-sufijo: «tax_regimen» CONTIENE «tax_regime» y solo \\b lo mata',
@@ -2607,7 +2655,7 @@ export const CRITERIOS: Criterio[] = [
       // F03: borrar un borrador es legal; borrar su rastro no. El DELETE
       // guarda el documento completo en audit_log y la serie cruza sus
       // huecos contra ese rastro: hueco con motivo = explicado; sin motivo
-      // = hallazgo. Y el perfil fiscal (régimen/CP/UsoCFDI, 048) valida
+      // = hallazgo. Y el perfil fiscal (régimen/CP/UsoCFDI, 049) valida
       // contra los catálogos del SAT ANTES del UPDATE: un código inventado
       // fallaría el timbrado semanas después, donde ya nadie recuerda.
       const inv = codigoDe('src/services/ar/invoice-service.ts');
@@ -2652,10 +2700,10 @@ export const CRITERIOS: Criterio[] = [
       // \b: la lección del mutante-sufijo — «tax_regimen» CONTIENE
       // «tax_regime» y un regex sin frontera lo bendice.
       return /ADD COLUMN tax_regime\b/.test(
-        crudoDe('src/database/migrations/048_cobrar.sql')
+        crudoDe('src/database/migrations/049_cobrar.sql')
       )
         ? ok('DELETE con rastro completo y serie que lo lee; perfil fiscal validado contra catálogo antes del UPDATE')
-        : falla('la 048 perdió las columnas del perfil fiscal: el control previo a facturar no tendría dónde vivir');
+        : falla('la 049 perdió las columnas del perfil fiscal: el control previo a facturar no tendría dónde vivir');
     },
   },
   {

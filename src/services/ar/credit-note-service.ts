@@ -11,7 +11,7 @@ import type { JournalEntry } from '../../types/index.js';
 import { CREDIT_NOTE_TYPES } from '../../database/enums.js';
 
 // ============================================================
-// NOTAS DE CRÉDITO (048 · F03)
+// NOTAS DE CRÉDITO (049 · F03)
 //
 // La nota es un documento propio con folio (CN), no una factura negativa:
 // nace en borrador, se POSTEA AL EMITIR (DR devoluciones + DR IVA / CR CxC

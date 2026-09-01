@@ -131,6 +131,22 @@ async function runMigrations() {
   const client = await pool.connect();
   let fallo = false;
   try {
+    // ============================================================
+    // EL PISO: FILTRAR EN SILENCIO SE VUELVE ERROR.
+    //
+    // El corredor conecta como mnemosine_owner, que bajo FORCE ROW LEVEL
+    // SECURITY está SUJETO a las políticas y sin GUC de inquilino las evalúa
+    // a falso: un INSERT...SELECT sobre una tabla de inquilino "termina bien"
+    // habiendo leído CERO filas. Así se perdieron las siembras de la 025 (la
+    // confesó la 026) y de la 043 (colisión de folio el 2026-08-31), y los
+    // rellenos de la 037 y la purga de secretos de la 040 (reparados por la
+    // 046). Con row_security=off Postgres no desactiva RLS: LANZA 42501 en
+    // cuanto una política fuera a aplicarse — el mismo default de pg_dump,
+    // por la misma razón. Una migración de datos legítima lo declara con
+    // `SET LOCAL row_security = on` y el bucle por inquilino (docs/
+    // migraciones.md); el opt-in muere con el COMMIT de su transacción.
+    // ============================================================
+    await client.query('SET row_security = off');
     // Create migrations tracking table
     await client.query(`
       CREATE TABLE IF NOT EXISTS public.migrations (

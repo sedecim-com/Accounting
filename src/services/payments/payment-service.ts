@@ -75,7 +75,7 @@ export interface EntradaPago {
   cfdiUuid?: string | null;
   cfdiPagoIndice?: number | null;
   /**
-   * SOLO lado cliente (048): permite que las aplicaciones sumen MENOS que el
+   * SOLO lado cliente (049): permite que las aplicaciones sumen MENOS que el
    * pago — el remanente queda a cuenta (CR anticipo_clientes, nunca colgado
    * de la cuenta de control) — e incluso que no haya ninguna (anticipo puro,
    * que entonces exige counterpartyId y moneda). El lado proveedor no lo
@@ -170,7 +170,7 @@ function assertAplicaciones(entrada: EntradaPago, permiteACuenta = false): void 
     (s, a) => s.plus(a.amountApplied),
     new Decimal(0)
   );
-  // Exacto, no «no más de» — salvo a cuenta EXPLÍCITO (048), donde el
+  // Exacto, no «no más de» — salvo a cuenta EXPLÍCITO (049), donde el
   // remanente va a anticipo_clientes en el asiento y no queda en el aire.
   // Aplicar de menos SIN pedirlo sigue rechazándose: el que suma mal debe
   // enterarse, no ganar un anticipo por accidente.
@@ -417,7 +417,7 @@ export async function recordCustomerPayment(
       )).rows[0]?.customer_id;
     if (!customerId) throw new ValidationError('No se pudo determinar el cliente del cobro.');
 
-    // Anticipo puro (048): sin documento no hay moneda de referencia — se
+    // Anticipo puro (049): sin documento no hay moneda de referencia — se
     // toma la del cliente, verificando de paso que existe EN ESTA entidad.
     let monedaAnticipo: string | null = null;
     if (entrada.applications.length === 0) {
@@ -541,7 +541,7 @@ function monedaDe(documentos: DocumentoAplicado[]): string {
 }
 
 // ============================================================
-// EL COBRO COMO HISTORIA (048 · F03)
+// EL COBRO COMO HISTORIA (049 · F03)
 //
 // Registrar era el único evento; ahora hay cuatro: aplicar el saldo a
 // cuenta (el anticipo encuentra su factura), desaplicar (la aplicación se
@@ -838,7 +838,7 @@ export async function unapplyCustomerPayment(
     const conIva = vivas.rows.filter((r) => r.iva_reclass_amount !== null);
     const sinIva = vivas.rows.filter((r) => r.iva_reclass_amount === null);
     const ivaExacto = conIva.reduce((s, r) => s.plus(r.iva_reclass_amount as string), new Decimal(0));
-    // Filas pre-048 no guardaron su IVA: se estima pro-rata y el asiento lo dice.
+    // Filas pre-049 no guardaron su IVA: se estima pro-rata y el asiento lo dice.
     const montoSinIva = sinIva.reduce((s, r) => s.plus(r.amount_applied), new Decimal(0));
     const ivaEstimadoParte = montoSinIva.greaterThan(0)
       ? new Decimal(

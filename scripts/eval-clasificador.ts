@@ -139,6 +139,8 @@ function sinSecretos(texto: string): string {
 const tasa = (m: { aciertos: number; total: number }): string =>
   m.total === 0 ? '—' : (m.aciertos / m.total).toFixed(3);
 
+// El purgador del catch final: identidad hasta que el perfil resuelve su
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
