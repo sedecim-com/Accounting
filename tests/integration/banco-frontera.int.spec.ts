@@ -184,4 +184,67 @@ describe('la frontera de entidad en las rutas hermanas de auto-match', () => {
     expect(status, 'la ruta rechaza la cuenta ajena').toBe(404);
     expect(ses.rows[0].n, 'y no le queda sesión abierta a la víctima').toBe('0');
   });
+
+  // ============================================================
+  // Y LA OTRA MITAD: ACOTAR NO PUEDE SIGNIFICAR NO DEVOLVER NADA.
+  //
+  // Las cuatro pruebas de arriba dicen que la ruta ajena se rechaza. Ninguna
+  // dice que la PROPIA funcione, y en `suggestions` esa mitad se rompió sin
+  // ruido: la consulta de facturas pasó a `entity_id = $1` con la entidad del
+  // token, y la de gastos conservó `entity_id = (SELECT entity_id FROM
+  // bank_accounts WHERE id = $1)` mientras $1 cambiaba de significado. Una
+  // entidad nunca es un `bank_accounts.id`, así que la subconsulta devolvía
+  // NULL y `entity_id = NULL` no es cierto para ninguna fila: las sugerencias
+  // de gastos salían VACÍAS siempre, con 200 y sin decir nada.
+  //
+  // Una prueba que sólo comprueba 404 no distingue «acotado» de «roto». Ésta
+  // es la que faltaba.
+  // ============================================================
+  it('suggestions: la cuenta PROPIA sí devuelve la factura y el gasto de su entidad', async () => {
+    const cuentaDeA = await cuentaBancaria(a);
+    const txDeA = uuidv4();
+    await query(
+      `INSERT INTO bank_transactions (id, bank_account_id, bank_transaction_id, transaction_date,
+         amount, transaction_type, description)
+       VALUES ($1, $2, $3, $4, 1160.00, 'debit', 'Pago a proveedor')`,
+      [txDeA, cuentaDeA, `TX-${uuidv4().slice(0, 8)}`, fechaEnPeriodo()]
+    );
+
+    // Un gasto de A por el MISMO importe: es lo que la ruta debe sugerir.
+    const proveedor = uuidv4();
+    const gasto = uuidv4();
+    const marca = uuidv4().slice(0, 8);
+    await query(
+      `INSERT INTO vendors (id, entity_id, vendor_number, company_name, currency_code, created_by)
+       VALUES ($1, $2, $3, 'Proveedor de prueba', 'MXN', $4)`,
+      [proveedor, a.entityId, `V-${marca}`, a.userId]
+    );
+    await query(
+      `INSERT INTO bills (id, entity_id, vendor_id, bill_number, bill_date, due_date,
+         subtotal, tax_amount, total_amount, amount_due, currency_code, status, created_by)
+       VALUES ($1, $2, $3, $4, $5, $5, 1000.00, 160.00, 1160.00, 1160.00, 'MXN', 'approved', $6)`,
+      [gasto, a.entityId, proveedor, `B-${marca}`, fechaEnPeriodo(), a.userId]
+    );
+
+    const s = await levantar([['/v1/bank-accounts', bankReconciliationRouter]], sesionDe(a));
+    let status = 0;
+    let tipos: string[] = [];
+    let referencias: string[] = [];
+    try {
+      const r = await pedir(s, 'GET', `/v1/bank-accounts/transactions/${txDeA}/suggestions`);
+      status = r.status;
+      const filas = Array.isArray(r.body?.data) ? (r.body.data as Array<Record<string, unknown>>) : [];
+      tipos = filas.map((f) => String(f.type));
+      referencias = filas.map((f) => String(f.reference));
+    } finally {
+      await s.cerrar();
+    }
+
+    expect(status).toBe(200);
+    // La aserción que importa: el gasto de la MISMA entidad aparece. Sin ella,
+    // la consulta rota pasaba con 200 y una lista vacía.
+    expect(tipos, 'la sugerencia de gasto tiene que llegar').toContain('bill');
+    expect(referencias).toContain(`B-${marca}`);
+  }, 60_000);
+
 });

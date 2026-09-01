@@ -177,11 +177,23 @@ router.get('/transactions/:id/suggestions', requirePermission('journal_entries:r
     [req.entityId, amount.toFixed(4), tolerance.toFixed(4)]
   );
 
-  // Find matching bills
+  // Find matching bills.
+  //
+  // Acotada DIRECTAMENTE por la entidad del token, igual que la consulta de
+  // facturas de arriba. Decía `entity_id = (SELECT entity_id FROM bank_accounts
+  // WHERE id = $1)`, y eso no sólo no acotaba nada —deducía la entidad de la
+  // cuenta que pedía quien llamaba— sino que dejó de funcionar cuando el
+  // arreglo de la frontera hizo que `$1` pasara a ser la ENTIDAD y no la
+  // cuenta: una entidad nunca es un `bank_accounts.id`, así que la subconsulta
+  // devolvía NULL y `entity_id = NULL` no es cierto para ninguna fila.
+  //
+  // Las sugerencias de gastos salían VACÍAS siempre, con 200 y sin una palabra.
+  // Acotar y romper se ven igual desde fuera si nadie prueba el caso PROPIO;
+  // por eso `banco-frontera.int.spec.ts` gana una prueba positiva.
   const billMatches = await query(
     `SELECT 'bill' as type, id, bill_number as reference, total_amount as amount, bill_date as date
      FROM bills
-     WHERE entity_id = (SELECT entity_id FROM bank_accounts WHERE id = $1)
+     WHERE entity_id = $1
      AND ABS(total_amount - $2) <= $3
      AND status IN ('approved', 'posted', 'partially_paid')
      ORDER BY ABS(total_amount - $2) ASC

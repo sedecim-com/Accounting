@@ -42,8 +42,53 @@ COMMENT ON COLUMN bank_accounts.account_type IS
 -- E0.3 de la bitácora ya la nombra entre «los campos que los servicios cifran
 -- hoy» — daba por hecho un cifrado que no existía.
 --
--- Se puede reemplazar sin conservar nada porque NADIE la escribe: ni un
--- servicio, ni una ruta, ni la siembra (seed.ts:172 inserta sin ella).
+-- NADIE la escribe hoy: ni un servicio, ni una ruta, ni la siembra
+-- (seed.ts:172 inserta sin ella). Pero que el código de HOY no la escriba no
+-- prueba que las bases ya desplegadas estén vacías: la columna existe desde la
+-- 003, y una instalación pudo poblarla por SQL, por una versión anterior o por
+-- una carga. Soltarla a ciegas destruiría, sin vuelta y sin aviso, justo el
+-- dato más sensible del maestro bancario — la CLABE ES el número de cuenta.
+--
+-- Y no se puede migrar aquí: `clabe_encrypted` se cifra con la llave de la
+-- APLICACIÓN (la misma de account_number_encrypted), que vive en el proceso de
+-- Node y no en Postgres. Una migración SQL no tiene con qué cifrar, y llamar
+-- `_encrypted` a una columna que guardara texto en claro sería peor que el
+-- problema que esta migración viene a resolver.
+--
+-- Así que se comprueba y se PLANTA. Sobre una base sin CLABEs —la de
+-- desarrollo, la de CI y cualquier instalación que nunca la usó— no cambia
+-- nada. Sobre una que sí las tenga, la migración se detiene y dice qué hacer,
+-- en vez de dejar al operador enterarse por el hueco.
+--
+-- Se declara el opt-in de RLS y se itera por inquilino: es el patrón sancionado
+-- (docs/migraciones.md). `migrate.ts` corre con row_security=off, que bajo el
+-- piso hace que un SELECT sobre una tabla acotada lance 42501 en vez de mirar
+-- filtrado; sin este bucle, el conteo vería CERO filas y la guarda daría el
+-- visto bueno precisamente en la base que venía a proteger.
+SET LOCAL row_security = on;
+DO $clabe$
+DECLARE
+  t record;
+  n bigint := 0;
+  total bigint := 0;
+BEGIN
+  FOR t IN SELECT id FROM tenants LOOP
+    PERFORM set_config('app.current_tenant', t.id::text, true);
+    SELECT count(*) INTO n FROM bank_accounts WHERE clabe IS NOT NULL;
+    total := total + n;
+  END LOOP;
+  PERFORM set_config('app.current_tenant', '', true);
+
+  IF total > 0 THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'raise_exception',
+      MESSAGE = format('051 se detiene: hay %s cuenta(s) con CLABE en claro y esta migración las borraría.', total),
+      DETAIL  = 'La CLABE es el número de cuenta bancaria. Soltar la columna aquí la destruiría sin vuelta, y no se puede cifrar desde SQL: la llave vive en la aplicación.',
+      HINT    = 'Cífralas desde la aplicación (misma llave que account_number_encrypted) hacia clabe_encrypted/clabe_last4, limpia bank_accounts.clabe, y vuelve a correr npm run migrate. Si de verdad no valen nada, bórralas a mano y deja constancia de por qué.';
+  END IF;
+END
+$clabe$;
+
 ALTER TABLE bank_accounts DROP COLUMN clabe;
 ALTER TABLE bank_accounts
     ADD COLUMN clabe_encrypted TEXT,
