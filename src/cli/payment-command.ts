@@ -1,23 +1,29 @@
 import * as readline from 'node:readline/promises';
 import type { Command } from 'commander';
 import { BillStatus } from '../types/index.js';
+import { query } from '../database/connection.js';
+import { NotFoundError } from '../utils/errors.js';
 import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { attestEntryAsync } from '../services/accounting/posting.js';
 import { resolveBill } from '../services/ap/bill-service.js';
 import {
   recordVendorPayment,
+  applyVendorPayment,
   type EntradaPago,
   type ResultadoPago,
+  type ResultadoAplicacionProveedor,
 } from '../services/payments/payment-service.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
+  gateMutation,
   render,
   withContext,
   requireExplicitEntity,
   blockedByState,
   abortedByUser,
+  usageError,
   exitCodeFor,
 } from './kernel/index.js';
 
@@ -72,6 +78,18 @@ interface MontoOpts extends CommonOpts {
   memo?: string;
   discount?: string;
 }
+
+interface AplicarOpts extends CommonOpts {
+  bill?: string[];
+  amount?: string[];
+  discount?: string[];
+  mode?: string;
+  shortPayReason?: string;
+  idempotencyKey?: string;
+}
+
+/** `--bill A --amount 100 --bill B --amount 50` se lee por posición. */
+const acumular = (valor: string, previo: string[] = []): string[] => [...previo, valor];
 
 /** Un gasto se paga cuando su pasivo ya está en el mayor. */
 const PAGABLES = ['approved', 'posted', 'partially_paid'] as const;
@@ -189,6 +207,134 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     })
   );
 
+  // ---- payment apply ------------------------------------------------
+  //
+  // La fila que faltaba, y por qué faltaba. Hasta hoy el único instante en que
+  // un pago podía tocar un gasto era el de registrarlo: `payment create` nace
+  // ya apuntando a una factura. Pero una tesorería real transfiere PRIMERO
+  // —un importe global al proveedor, cerrando la semana— y decide DESPUÉS
+  // contra cuáles de sus seis facturas abiertas iba. Ese dinero quedaba como
+  // anticipo a proveedores (1150) sin forma de repartirlo nunca.
+  //
+  // Los tres repartos que el catálogo promete:
+  //   · PARCIAL     — se aplica de menos y el gasto sigue abierto por el resto.
+  //   · DESCUENTO   — el pronto pago extingue más pasivo que el efectivo.
+  //   · PAGO CORTO  — `--mode residual`: el gasto se CIERRA pagando de menos y
+  //                   lo que falta deja de deberse. Exige motivo escrito, y la
+  //                   cuenta a la que va ese saldo la decide el panel
+  //                   (`pago_corto_residual`), no este comando.
+  const apply = payment
+    .command('apply')
+    .alias('aplicar')
+    .argument('<payment>', 'payment number or id whose on-account balance is to be applied')
+    .description('Apply an existing payment to specific bills: partial, with discount, or short-paid');
+  apply
+    .option('--bill <ref...>', 'bill to apply to; repeat it, paired in order with --amount', acumular)
+    .option('--amount <amount...>', 'amount applied to the bill in the same position', acumular)
+    .option('--discount <amount...>', 'early-payment discount for the bill in the same position', acumular)
+    .option('--mode <mode>', 'partial (leave the rest open) or residual (close it short)', 'partial')
+    .option('--short-pay-reason <text>', 'why the unpaid balance is being written off; required by --mode residual')
+    .option('--json', 'JSON output');
+  withContext(apply);
+  declareRisk(apply, {
+    risk: 'irreversible',
+    agent: false,
+    writes: 'payment_applications, bills.amount_due, journal_entries',
+  });
+  apply.action((ref: string, opts: AplicarOpts) =>
+    run(async () => {
+      const { dryRun } = gateMutation(apply, opts as unknown as Record<string, unknown>);
+      const p = deps.palette;
+      const bills = opts.bill ?? [];
+      const amounts = opts.amount ?? [];
+      if (bills.length === 0) {
+        throw usageError(
+          'Indica a qué gasto se aplica: --bill <ref> --amount <importe>. Repítelos para repartir entre varios.'
+        );
+      }
+      // El emparejamiento es POSICIONAL, así que un descuadre de longitudes no
+      // se puede adivinar: aplicar 100 al gasto equivocado es peor que fallar.
+      if (bills.length !== amounts.length) {
+        throw usageError(
+          `Hay ${bills.length} --bill y ${amounts.length} --amount: van emparejados por posición, ` +
+            'así que tienen que ser tantos como aquéllos.'
+        );
+      }
+      if (opts.discount && opts.discount.length > bills.length) {
+        throw usageError(
+          `Hay ${opts.discount.length} --discount para ${bills.length} --bill: sobra alguno.`
+        );
+      }
+      if (opts.mode !== 'partial' && opts.mode !== 'residual') {
+        throw usageError(`--mode admite "partial" o "residual"; llegó "${opts.mode}".`);
+      }
+      // Se traduce a la unión en vez de afirmarla con `as`.
+      //
+      // Commander entrega `string`, y descartar dos literales de `string`
+      // sigue dejando `string`: el rechazo de arriba no estrecha nada que el
+      // compilador pueda usar. Un `as 'partial' | 'residual'` habría callado
+      // al compilador tapando justo eso — el día que alguien borrara el
+      // guardia, la aserción seguiría compilando y el modo inválido llegaría
+      // vivo al servicio. Esta línea no puede producir un valor que la unión
+      // no admita, con guardia o sin él.
+      const modo: 'partial' | 'residual' = opts.mode === 'residual' ? 'residual' : 'partial';
+
+      const ctx = await writeEntityOf(opts);
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const pago = await resolveVendorPayment(ctx.entityId, ref);
+
+      const aplicaciones = [];
+      for (let i = 0; i < bills.length; i++) {
+        const target = await resolveBill(ctx.entityId, bills[i]);
+        if (!PAGABLES.includes(target.status as (typeof PAGABLES)[number])) {
+          throw blockedByState(
+            `Bill ${target.bill_number} is "${target.status}"; only ${PAGABLES.join(', ')} bills can be applied to.`
+          );
+        }
+        aplicaciones.push({
+          documentId: target.id,
+          amountApplied: amounts[i],
+          discountAmount: opts.discount?.[i],
+        });
+      }
+
+      // Sin aserción de tipo: el rechazo de arriba ya estrechó `opts.mode` a
+      // las dos grafías válidas, y el linter lo demuestra marcando el `as`
+      // como innecesario. Un `as` aquí habría escondido el día en que alguien
+      // borrara ese guardia.
+      const opciones = { modo, shortPayReason: opts.shortPayReason };
+
+      // La vista previa recorre EL MISMO código y revierte: lo que el motor
+      // rechazaría se rechaza antes de preguntar nada.
+      const previo = await applyVendorPayment(ctx.entityId, pago.id, aplicaciones, reviewer.userId, {
+        ...opciones,
+        dryRun: true,
+      });
+      if (dryRun) {
+        imprimirAplicacion(previo, p, true, opts.json === true);
+        process.stderr.write(p.dim('Dry run: nothing was written.\n'));
+        return;
+      }
+
+      await confirmOrAbort(
+        opts,
+        `Apply ${previo.documentos.length} document(s) of ${pago.payment_number} in ${ctx.entityName}` +
+          (previo.condonado !== '0.00'
+            ? `, WRITING OFF ${previo.condonado} that will stop being owed`
+            : '') +
+          '? This posts to the ledger.'
+      );
+
+      const result = await applyVendorPayment(
+        ctx.entityId, pago.id, aplicaciones, reviewer.userId, opciones
+      );
+      if (result.attestation) {
+        attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
+      }
+      imprimirAplicacion(result, p, false, opts.json === true);
+    })
+  );
+
 }
 
 const hoy = (): string => new Date().toISOString().slice(0, 10);
@@ -268,5 +414,123 @@ function imprimir(
   // la señal de que el reconocimiento ocurrió, no sólo el movimiento de caja.
   if (result.journalEntry?.description?.includes('IVA')) {
     process.stderr.write(p.dim(`${result.journalEntry.description}\n`));
+  }
+}
+
+/**
+ * El pago por número o por id, ACOTADO POR ENTIDAD.
+ *
+ * `resolveBill` hace lo propio para los gastos y vive en su servicio; aquí no
+ * hay un `resolveVendorPayment` equivalente porque hasta F04 nadie necesitaba
+ * referirse a un pago YA HECHO: `payment create` lo crea y lo aplica en el
+ * mismo acto. La búsqueda por número va primero porque es lo que el operador
+ * tiene a mano —lo imprimió `payment create`—, y el id sólo se intenta cuando
+ * la cadena de verdad puede ser un UUID.
+ */
+async function resolveVendorPayment(
+  entityId: string,
+  ref: string
+): Promise<{ id: string; payment_number: string; payment_amount: string; currency_code: string }> {
+  type Fila = { id: string; payment_number: string; payment_amount: string; currency_code: string };
+  const porNumero = await query<Fila>(
+    `SELECT id, payment_number, payment_amount, currency_code
+       FROM vendor_payments WHERE entity_id = $1 AND payment_number = $2`,
+    [entityId, ref]
+  );
+  if (porNumero.rows.length > 0) return porNumero.rows[0];
+
+  if (UUID_RE.test(ref)) {
+    const porId = await query<Fila>(
+      `SELECT id, payment_number, payment_amount, currency_code
+         FROM vendor_payments WHERE entity_id = $1 AND id = $2`,
+      [entityId, ref]
+    );
+    if (porId.rows.length > 0) return porId.rows[0];
+  }
+  throw new NotFoundError('Vendor payment', ref);
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function imprimirAplicacion(
+  result: ResultadoAplicacionProveedor,
+  p: Palette,
+  ensayo: boolean,
+  json: boolean
+): void {
+  if (json) {
+    render(
+      [
+        {
+          payment_number: result.paymentNumber,
+          documents: result.documentos.map((d) => ({
+            document: d.numero,
+            amount_due_before: d.saldoAnterior,
+            amount_due_after: d.saldoNuevo,
+            document_status: d.estado,
+          })),
+          on_account_before: result.remanenteAnterior,
+          on_account_after: result.remanenteNuevo,
+          written_off: result.condonado,
+          discounts_outside_terms: result.descuentosFueraDeTerminos,
+          write_off_account: result.cuentaCondonacion,
+          non_creditable_iva: result.ivaNoAcreditable,
+          journal_entry: result.journalEntry?.entry_number ?? null,
+          dry_run: ensayo,
+        },
+      ],
+      { json: true }
+    );
+    return;
+  }
+
+  process.stdout.write(
+    (ensayo
+      ? p.bold(`Would apply ${result.paymentNumber}`)
+      : `${p.green('✔')} ${p.bold(result.paymentNumber)}`) +
+      p.dim(
+        ` · on account ${result.remanenteAnterior} → ${result.remanenteNuevo}` +
+          (result.journalEntry ? ` · entry ${result.journalEntry.entry_number}` : '')
+      ) +
+      '\n'
+  );
+  for (const d of result.documentos) {
+    process.stdout.write(
+      `  ${d.numero} ${p.dim(`${d.saldoAnterior} → ${d.saldoNuevo} (${d.estado})`)}\n`
+    );
+  }
+
+  // Un descuento que las condiciones no otorgaban es admisible, pero es OTRA
+  // COSA que un 2/10 ejercido en plazo. Se nombra.
+  if (result.descuentosFueraDeTerminos.length > 0) {
+    process.stderr.write(
+      p.yellow(
+        `  Descuento tomado fuera de las condiciones en ` +
+          `${result.descuentosFueraDeTerminos.join(', ')}`
+      ) + p.dim(': es una deducción negociada, no un pronto pago pactado.\n')
+    );
+  }
+
+  // EL PAGO CORTO SE DICE EN VOZ ALTA. Un pasivo que desaparece sin pagarse es
+  // lo que un auditor persigue; enterrarlo en el JSON sería esconderlo.
+  if (result.condonado !== '0.00') {
+    process.stderr.write(
+      p.yellow(`  ${result.condonado} dejó de deberse (pago corto)`) +
+        p.dim(` → ${result.cuentaCondonacion}\n`) +
+        (result.politicaDefinida
+          ? ''
+          : p.dim(
+              '  Esa cuenta es el DEFECTO declarado, nadie la ha decidido todavía:\n' +
+                '  `mnemosine pending show pago_corto_residual` para verla y resolverla.\n'
+            ))
+    );
+    if (result.ivaNoAcreditable !== '0.00') {
+      process.stderr.write(
+        p.dim(
+          `  ${result.ivaNoAcreditable} de IVA salió de 1135 SIN acreditarse: era el impuesto\n` +
+            '  de la parte que no se pagó, y bajo flujo de efectivo no se acredita lo no pagado.\n'
+        )
+      );
+    }
   }
 }

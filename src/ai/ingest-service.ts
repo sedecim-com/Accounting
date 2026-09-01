@@ -181,9 +181,16 @@ export async function ingestCfdiFiles(opts: {
     // despacho; el modelo no tiene nada que decidir aquí.
     if (upload.preRegistration.document_type === 'payment') {
       try {
+        // NUNCA crea proveedores. Hoy esta rama sólo alcanza REP (document_type
+        // 'payment'), que no pasa por createBillFromPreReg; se escribe explícito
+        // igual, porque el día que alguien ensanche el `switch` por tipo de
+        // documento el camino del agente tiene que seguir cerrado: el agente
+        // propone y una persona dispone, y dar de alta una contraparte es
+        // disponer.
         const r = await defaultService.processToAccounting(
           upload.preRegistration,
-          reviewer.userId
+          reviewer.userId,
+          { permitirProveedorNuevo: false }
         );
         return {
           file: name,

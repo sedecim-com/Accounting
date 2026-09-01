@@ -75,7 +75,6 @@
     "connectivity.md",
     "identity-access.md",
     "mnemosine.md",
-    "payables.md",
     "payroll.md",
     "playbooks.md",
     "receivables.md",
@@ -88,15 +87,18 @@
     "src/services/accounting/fiscal-calendar-service.ts": "d5d7a785b11a533a34c39d5d1c4568f2c4122930",
     "src/cli/entry-command.ts": "bda3af4169e96a2548f52512dfc5415ed5f6ae42",
     "src/services/accounting/iva-cash-basis.ts": "0fa82412b57e1c26a8164a80fa757aec80e46fc0",
-    "src/services/xml-ingestion/cfdi-taxonomy.ts": "b2a6f48015dfbe756450de2e0348f922b5d989d4",
+    "src/services/xml-ingestion/cfdi-taxonomy.ts": "54de95c63d0fd4d6fd51cad38a8dae654e0eead4",
     "src/services/integrations/mexico/pac/pac-router.ts": "adb8d8fde1a2bd9ae22817492682b4c480351d48",
     "src/api/rest/routes/invoices.ts": "852a2b050a60044e8c1b1d6e38f6582ff70653fc",
-    "src/ai/ingest-service.ts": "d71820b4eb663c309ffdc5c36ff01e8c28b6493b",
+    "src/ai/ingest-service.ts": "227cfda8de3cc49502de0e2aaff9e3f29a406aba",
     "src/services/banking/matching.ts": "0d575f2f8fdf60495a2980bf60c7637258f50bdb",
     "src/api/rest/routes/bank-reconciliation.ts": "bc4e58d30e8a08388fbf39c7f5211d44ef84a005",
     "src/database/enums.ts": "0c4d5959590a1dc2b9ed2053956a230f48611198",
     "src/ai/external-service.ts": "0dcfa6a6f06c6b2985a947fefd08ccaf0819c571",
     "src/ai/tools/external-tools.ts": "283948b7b85553aff42f03cf69f59c932859b567",
-    "src/services/integrations/accounting/contalink-adapter.ts": "26f1f237d951a438adfc9e3d0430c316ff762f2b"
+    "src/services/integrations/accounting/contalink-adapter.ts": "26f1f237d951a438adfc9e3d0430c316ff762f2b",
+    "src/services/ap/bill-service.ts": "28d1ab2eaf5c8a2c30be2f073b450b60d0f2ded6",
+    "src/services/ap/vendor-service.ts": "266636a0d6b50c28994e3f2a373cca5b1f628361",
+    "src/services/payments/payment-service.ts": "fe90ca9452cfd192ab0b9610ba6accecbb3e8486"
   }
 }

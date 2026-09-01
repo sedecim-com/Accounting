@@ -34,10 +34,18 @@ interface Manifiesto {
 /**
  * DEUDA DECLARADA. Sellar los trece de golpe habría dicho «revisado» sobre
  * páginas congeladas desde agosto — la misma mentira que el manifiesto viene a
- * acabar. Se sellan los cuatro que se releyeron de verdad y los nueve
- * restantes quedan nombrados. Este número sólo BAJA.
+ * acabar. Se sellan los que se releyeron de verdad y los restantes quedan
+ * nombrados. Este número sólo BAJA.
+ *
+ * F04 lo bajó de 9 a 8 revisando `payables.md`, que era el manual que este
+ * flujo dejaba más desactualizado: describía el pago a proveedor como «cargo a
+ * CxP, abono a bancos» cuando el cargo ya se reparte entre pasivo y anticipo,
+ * no mencionaba que aplicar un pago después existiera, y daba por buena la
+ * frase sobre el descuento por pronto pago que el código llevaba meses
+ * rechazando. Un manual obsoleto no es documentación vieja: es el agente
+ * afirmando cosas falsas con seguridad.
  */
-export const SIN_REVISAR_MAXIMO = 9;
+export const SIN_REVISAR_MAXIMO = 8;
 
 /** El mismo hash que `git hash-object`: nadie tiene que aprender otro. */
 export function hashDe(rel: string): string | null {

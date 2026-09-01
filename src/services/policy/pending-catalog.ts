@@ -459,6 +459,47 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'It stays off: no separation check, which is the only workable default for a single-user tenant.',
     priority: 30,
   },
+  {
+    // F04 · El pago corto. `payment apply --mode residual` cierra un gasto
+    // pagando MENOS de lo que debía: la diferencia deja de deberse y tiene que
+    // ir a alguna cuenta. Cuál, es criterio del despacho — no del programa —
+    // y por eso se pregunta aquí en vez de decidirse en el código.
+    key: 'pago_corto_residual',
+    category: 'contable',
+    question: 'When a bill is closed paying less than it owed, where does the shortfall go?',
+    impact:
+      'Governs `payment apply --mode residual`. With "descuento_compras" the shortfall lands in ' +
+      '5200 (contra-cost), the same account as an early-payment discount, so the cost of the ' +
+      'purchase drops. With "otros_ingresos" it is income of the period instead, leaving the cost ' +
+      'untouched. With "prohibir" the mode is refused outright and the bill stays open until the ' +
+      'vendor issues a credit note.',
+    options: [
+      {
+        value: 'descuento_compras',
+        label: 'Contra-cost (5200): it reduces what the purchase cost, like a discount',
+      },
+      {
+        value: 'otros_ingresos',
+        label: 'Other income: the cost stands and the shortfall is a gain of the period',
+      },
+      {
+        value: 'prohibir',
+        label: 'Refuse: no bill closes short — demand the vendor credit note',
+      },
+    ],
+    defaultValue: 'descuento_compras',
+    defaultRationale:
+      'It keeps a short payment and an early-payment discount in the same account, which is what ' +
+      'they economically are: less paid for the same purchase. It also avoids inflating revenue ' +
+      'with something that was never a sale.',
+    whyAsking:
+      'Sometimes a bill is settled for less than its balance — a disputed freight charge, a few pesos of rounding, an agreed deduction — and the remainder is never going to be paid. That remainder has to stop being a liability, and where you send it changes your cost of sales and your income. It is a criterion of your firm, not a rule of the SAT.',
+    whatIDo:
+      'When you close a bill short with `payment apply --mode residual --short-pay-reason "..."`, I post the shortfall to the account you choose here and write your reason into the entry, so the auditor reads why the liability disappeared. If you choose "prohibir", I refuse the operation and tell you to ask the vendor for a credit note.',
+    ifSkipped:
+      'Shortfalls go to purchase discounts (5200). Nothing breaks, but if your criterion is to treat them as income, the cost of sales will be understated until you say so.',
+    priority: 35,
+  },
 ];
 
 export function getPolicySpec(key: string): PolicySpec | undefined {

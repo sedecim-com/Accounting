@@ -199,14 +199,34 @@ describe('la entidad recién sembrada puede contabilizar sin SQL a mano', () => 
     expect(await saldoDe(f.roles.banco, f.periodos[8])).toBeCloseTo(bancoAntes + 1160, 4);
   });
 
-  it('pago a proveedor → DR CxP, CR Banco', async () => {
+  it('pago a proveedor APLICADO a un gasto → DR CxP, CR Banco', async () => {
+    // F04 cambió lo que este asiento decide, y por eso la prueba cambió con
+    // él: el cargo a la cuenta de control ya no es «todo el importe pagado»
+    // sino lo que ese pago APLICA a gastos concretos, leído de
+    // payment_applications. La versión anterior de esta prueba no insertaba
+    // ninguna aplicación y aun así esperaba ver bajar la 2110 — es decir,
+    // pedía que el control se moviera sin que ningún auxiliar se moviera con
+    // él, que es exactamente el descuadre que `ap reconcile` vino a delatar.
     const vendorId = await crearProveedor();
+    const billId = uuidv4();
+    await query(
+      `INSERT INTO bills (id, entity_id, bill_number, vendor_id, subtotal, tax_amount,
+        total_amount, amount_due, currency_code, bill_date, due_date, status, created_by)
+       VALUES ($1,$2,$3,$4,500,80,580,580,'MXN',$5,$6,'approved',$7)`,
+      [billId, f.entityId, `BILL-PAY-${billId.slice(0, 6)}`, vendorId,
+       fechaEnPeriodo(), fechaEnPeriodo(9), f.userId]
+    );
     const payId = uuidv4();
     await query(
       `INSERT INTO vendor_payments (id, entity_id, payment_number, vendor_id, payment_amount,
         payment_method, payment_date, status, created_by)
        VALUES ($1,$2,$3,$4,580,'spei',$5,'completed',$6)`,
       [payId, f.entityId, `VPMT-IT-${payId.slice(0, 6)}`, vendorId, fechaEnPeriodo(), f.userId]
+    );
+    await query(
+      `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied)
+       VALUES ($1,$2,$3,580)`,
+      [uuidv4(), payId, billId]
     );
 
     const cxpAntes = await saldoDe(f.roles.cxp, f.periodos[8]);
@@ -220,6 +240,36 @@ describe('la entidad recién sembrada puede contabilizar sin SQL a mano', () => 
 
     expect(entry).not.toBeNull();
     expect(await saldoDe(f.roles.cxp, f.periodos[8])).toBeCloseTo(cxpAntes + 580, 4);
+  });
+
+  it('pago a proveedor SIN aplicar → no toca la cuenta de control: es un anticipo', async () => {
+    // El otro lado de la misma moneda. Un importe que sale del banco sin
+    // decir a qué gasto va no extingue ningún pasivo: es un derecho contra el
+    // proveedor (1150) hasta que alguien lo reparta con `payment apply`.
+    const vendorId = await crearProveedor();
+    const payId = uuidv4();
+    await query(
+      `INSERT INTO vendor_payments (id, entity_id, payment_number, vendor_id, payment_amount,
+        payment_method, payment_date, status, created_by)
+       VALUES ($1,$2,$3,$4,580,'spei',$5,'completed',$6)`,
+      [payId, f.entityId, `VPMT-AC-${payId.slice(0, 6)}`, vendorId, fechaEnPeriodo(), f.userId]
+    );
+
+    const cxpAntes = await saldoDe(f.roles.cxp, f.periodos[8]);
+    const anticipoAntes = await saldoDe(f.roles.anticipo_proveedores, f.periodos[8]);
+    await withTransaction((client) =>
+      postVendorPaymentEntry(client, {
+        id: payId, entity_id: f.entityId, payment_number: `VPMT-AC-${payId.slice(0, 6)}`,
+        payment_amount: '580.0000', payment_date: fechaEnPeriodo(),
+        bank_account_id: null, journal_entry_id: null,
+      }, f.userId)
+    );
+
+    expect(await saldoDe(f.roles.cxp, f.periodos[8]), 'la 2110 no se mueve').toBeCloseTo(cxpAntes, 4);
+    expect(
+      await saldoDe(f.roles.anticipo_proveedores, f.periodos[8]),
+      'el anticipo sube por todo lo pagado'
+    ).toBeCloseTo(anticipoAntes + 580, 4);
   });
 
   it('el índice único por documento impide dos asientos para la misma factura', async () => {

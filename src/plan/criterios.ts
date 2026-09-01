@@ -451,6 +451,11 @@ export const CRITERIOS: Criterio[] = [
         // murió dos veces contra el límite de la cuenta): su registro dice eso
         // en su primera sección, porque el método es parte del veredicto.
         F03: 'docs/auditorias/F03.md',
+        // F04 se auditó igual que F03 —por EJECUCIÓN contra la base— y además
+        // sometiendo sus propios criterios al arnés de mutación, que devolvió
+        // cinco anclas blandas antes de dar el verde. Las dos cosas están en
+        // su registro, porque el método es parte del veredicto.
+        F04: 'docs/auditorias/F04.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -492,7 +497,12 @@ export const CRITERIOS: Criterio[] = [
       {
         archivo: 'docs/cli-command-catalog.md',
         de: 'hecha en F03',
-        a: 'hecha en F04',
+        // El destino tiene que ser un flujo que NO exista todavía. Este mutante
+        // apuntaba a F04 y dejó de matar el día que F04 se cerró con su
+        // registro: la mutación pasó a describir algo verdadero. Un mutante
+        // caduca cuando su «mentira» se vuelve cierta, y hay que reapuntarlo al
+        // siguiente flujo sin auditar — no borrarlo.
+        a: 'hecha en F05',
         porque: 'el catálogo reclama un flujo NUEVO sin auditoría: cerrar sin registro es exactamente lo prohibido',
       },
     ],
@@ -1067,15 +1077,21 @@ export const CRITERIOS: Criterio[] = [
       //
       // Los huérfanos NUEVOS los barre doctor a nivel capacidad (nunca fail);
       // esta lista fija los conocidos para que cerrarlos sea visible y
-      // olvidarlos imposible. Destinos: earlyPaymentDiscount → F04;
-      // calculateBenefitsForPaycheck → F08; checkSoDViolations → decisión §5
-      // (maker-checker); autoApproveDraftByPolicy → A3 (un solo autorizador).
+      // olvidarlos imposible. Destinos: calculateBenefitsForPaycheck → F08;
+      // checkSoDViolations → decisión §5 (maker-checker);
+      // autoApproveDraftByPolicy → A3 (un solo autorizador).
+      //
+      // PAGADO EN F04: earlyPaymentDiscount. Llevaba sin llamador desde que se
+      // retiró el programador de pagos que lo usaba, mientras el descuento por
+      // pronto pago se aceptaba a ojo en el otro extremo del sistema. Ahora es
+      // quien decide cuánto descuento CONCEDEN las condiciones del gasto, y
+      // tomar más que eso se rechaza señalando `--mode residual`. Su línea se
+      // borra aquí, que es el registro de que la deuda se pagó.
       const HUERFANOS_CONGELADOS: Record<string, string> = {
         // El gemelo del que pagó en A3: mismo motor (matchApproval), brazo
         // external_op. Su consumidor llega con el ejecutor DESATENDIDO del
         // outbox (hoy `outbox run` es humano y no necesita política).
         autoExecuteOpByPolicy: 'external-service.ts',
-        earlyPaymentDiscount: 'bill-service.ts',
         calculateBenefitsForPaycheck: 'benefits-service.ts',
       };
       const conConsumidor = Object.entries(HUERFANOS_CONGELADOS)
@@ -3190,6 +3206,361 @@ export const CRITERIOS: Criterio[] = [
         porque: 'la garantía deja de medirse por ruta y se cuenta el árbol entero: la separación se vuelve ruido',
       },
     ],
+  },
+
+  // ---- F04 · Pagar ----
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'Un CFDI de fuera no da de alta a su propio emisor: el alta de contraparte la autoriza quien llama',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: '} else if (!opciones.permitirProveedorNuevo) {',
+        a: '} else if (false) {',
+        porque: 'la puerta se abre de par en par: cualquier XML volvería a fabricar la contraparte y su pasivo sin que nadie lo apruebe',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: 'await this.processToAccounting(preReg, userId, { permitirProveedorNuevo: false });',
+        a: 'await this.processToAccounting(preReg, userId, { permitirProveedorNuevo: true });',
+        porque: 'el lote programado —que corre desatendido sobre N documentos— se autoconcede crear proveedores: quien lanzó el lote aprobó el lote, no al emisor de cada comprobante',
+      },
+    ],
+    evaluar: () => {
+      // EL HUECO QUE EL PROPIO CATÁLOGO TENÍA ESCRITO. `createBillFromPreReg`
+      // daba de alta al emisor del comprobante con el nombre y el RFC que
+      // venían DENTRO del XML —dato maestro redactado por un tercero— y en la
+      // misma llamada reconocía el pasivo a su favor y posteaba su póliza.
+      // Bastaba con que un CFDI llegara, por cualquier vía, para que el
+      // catálogo de proveedores creciera solo. Es el ejemplo de manual de por
+      // qué un control interno existe.
+      const svc = codigoDe('src/services/xml-ingestion/pre-registration-service.ts');
+
+      // 1. La puerta existe y es FAIL-CLOSED: se ancla el throw, no el `if`.
+      //    Un guardia que comprueba y no actúa es la fuga clásica.
+      if (!/else if \(!opciones\.permitirProveedorNuevo\) \{[\s\S]{0,400}?throw new ProveedorNuevoSinAutorizar\(/.test(svc)) {
+        return falla(
+          'el alta del emisor del CFDI ya no exige autorización del llamador: un XML de fuera ' +
+            'volvería a crear la contraparte y su pasivo sin que nadie lo apruebe'
+        );
+      }
+
+      // 2. El defecto es NO. Una opción cuyo tipo admite `undefined` y que se
+      //    lee sin `?? false` sería fail-open el día que alguien pase `{}`.
+      if (!/permitirProveedorNuevo\?: boolean;/.test(svc)) {
+        return falla('la autorización dejó de ser opcional-negativa: el que no dice nada tiene que NO crear proveedores');
+      }
+
+      // 3. NINGÚN camino automático la concede. Se listan por ruta y se exige
+      //    que todos pasen `false` literal: el motor de reglas (que un renglón
+      //    antes pudo ponerse processing_mode='auto' él mismo), el lote
+      //    programado, la ingesta del agente y el barrido de REP pendientes.
+      const AUTOMATICOS: Record<string, string> = {
+        'src/ai/ingest-service.ts': 'la ingesta del agente',
+        'src/services/xml-ingestion/rep-pendientes.ts': 'el barrido de REP pendientes',
+      };
+      const concedidos = Object.entries(AUTOMATICOS)
+        .filter(([archivo]) => {
+          const f = codigoDe(archivo);
+          return (
+            /processToAccounting\(/.test(f) &&
+            !/permitirProveedorNuevo:\s*false/.test(f)
+          );
+        })
+        .map(([, quien]) => quien);
+      if (concedidos.length > 0) {
+        return falla(
+          `camino(s) automático(s) que contabilizan sin negar el alta de proveedor: ${concedidos.join(', ')}`
+        );
+      }
+
+      // Y dentro del propio servicio, las DOS ramas desatendidas —la del motor
+      // de reglas y la del lote programado— la niegan. Se CUENTAN: son gemelas
+      // textuales, y un ancla de presencia se conforma con encontrar la otra.
+      const negaciones = (svc.match(/permitirProveedorNuevo:\s*false/g) ?? []).length;
+      return negaciones >= 2
+        ? ok(
+            'el alta del emisor exige autorización explícita del llamador, el defecto es negarla ' +
+              'y ningún camino desatendido la concede'
+          )
+        : falla(
+            `sólo ${negaciones} de las 2 ramas desatendidas del servicio niegan el alta de proveedor ` +
+              '(el motor de reglas y el lote programado)'
+          );
+    },
+  },
+
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El descuento por pronto pago tiene cuenta, asiento y un techo que las condiciones fijan',
+    mutantes: [
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'if (derecho.applied && descuento.greaterThan(derecho.discountAmount)) {',
+        a: 'if (false) {',
+        porque: 'el techo del descuento se apaga: tomar más de lo pactado volvería a pasar por pronto pago en vez de por pago corto',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: "account_id: requireRole(roles, 'devolucion_compras'),",
+        a: "account_id: requireRole(roles, 'cxp'),",
+        porque: 'el contra-costo se convierte en la propia cuenta de control: el descuento dejaría de reducir la compra y el pasivo se cancelaría solo',
+      },
+    ],
+    evaluar: () => {
+      // El descuento se INSERTABA en payment_applications y no participaba en
+      // nada más: ni bajaba el saldo ni entraba en el asiento, así que el
+      // proveedor quedaba debiendo el descuento para siempre. Se rechazaba en
+      // voz alta alegando que faltaba «una cuenta de ingreso por descuentos en
+      // la capa de roles» — y la cuenta llevaba sembrada desde el principio
+      // (5200, contra-costo, espejo del 4400 de las ventas). Lo que faltaba no
+      // era la cuenta: era atarla.
+      const svc = codigoDe('src/services/payments/payment-service.ts');
+      const post = codigoDe('src/services/accounting/ar-ap-posting.ts');
+
+      // 1. La cuenta existe en el mapa de roles, que es de donde el asiento la saca.
+      if (!/devolucion_compras:\s*'5200'/.test(codigoDe('src/services/xml-ingestion/account-roles-seed.ts'))) {
+        return falla('el rol devolucion_compras perdió su cuenta: el descuento no tendría dónde abonarse');
+      }
+
+      // 2. Los DOS asientos lo abonan de verdad: el del pago directo y el de
+      //    la aplicación posterior. Se CUENTAN, no se busca «alguna»
+      //    ocurrencia — son gemelos textuales, y un ancla de presencia se
+      //    conforma con encontrar el otro. El arnés lo cobró: mutar la línea
+      //    del primero dejaba el criterio en verde señalando al segundo.
+      const abonos = (
+        post.match(
+          /account_id: requireRole\(roles, 'devolucion_compras'\),\s*\n\s*debit_amount: null,\s*\n\s*credit_amount: descuento/g
+        ) ?? []
+      ).length;
+      if (abonos !== 2) {
+        return falla(
+          `el descuento se abona a devolucion_compras en ${abonos} de los 2 asientos que lo admiten ` +
+            '(el del pago y el de la aplicación posterior)'
+        );
+      }
+
+      // 3. El pasivo se extingue por efectivo + descuento (+ condonación): si
+      //    el cargo a cxp fuera sólo del efectivo, el asiento cuadraría igual
+      //    y el gasto quedaría abierto por el descuento — mudo.
+      if (!/debit_amount: total\.plus\(descuento\)\.plus\(condonado\)\.toFixed\(4\)/.test(post)) {
+        return falla('el cargo a la cuenta de control dejó de cubrir todo lo que deja de deberse');
+      }
+
+      // 4. Y EL TECHO. `earlyPaymentDiscount` sabe cuánto conceden unas
+      //    condiciones «2/10 net 30»; sin este guardia, tomar 500 sobre un
+      //    descuento de 20 pasaría por pronto pago en vez de por el pago corto
+      //    que es —el que exige motivo escrito. Se ancla el `throw`, no la
+      //    llamada: comprobar y no actuar es la fuga clásica.
+      const techo = /if \(derecho\.applied && descuento\.greaterThan\(derecho\.discountAmount\)\) \{[\s\S]{0,400}?throw new ValidationError\(/.test(svc);
+      return techo
+        ? ok('5200 recibe el descuento en el asiento, el pasivo se extingue entero y el techo lo fijan las condiciones del gasto')
+        : falla('el descuento ya no se topa contra lo que las condiciones conceden: tomar de más volvería a pasar por pronto pago');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Un gasto cerrado con pago corto no deja IVA vivo en la cuenta de pendientes',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: 'ivaNoAcreditablePorGasto.set(app.invoiceId, ivaCondonado.toFixed(4));',
+        a: 'ivaCondonado = new Decimal(0);',
+        porque: 'el IVA de la parte condonada deja de salir de 1135: un gasto CERRADO conservaría impuesto aparcado que nadie podrá vaciar nunca',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: 'const costoCondonado = condonado.minus(ivaYaSalido);',
+        a: 'const costoCondonado = condonado;',
+        porque: 'la parte de IVA se abonaría DOS veces —a 1135 y a la cuenta del pago corto— y el asiento saldría descuadrado por el importe del impuesto',
+      },
+    ],
+    evaluar: () => {
+      // Bajo flujo de efectivo el IVA acreditable espera en 1135 hasta que se
+      // paga. Cerrar un gasto pagando de menos crea un caso que el sistema no
+      // tenía: el impuesto de la parte que NO se pagó nunca va a ser
+      // acreditable, y si sólo se libera la parte pagada queda un resto vivo
+      // en 1135 de un documento sin saldo — un residuo que ningún informe
+      // sabe explicar y que ya no se puede vaciar, porque el gasto que lo
+      // justificaba está cerrado. Sale en el mismo asiento, y NO hacia 1130:
+      // no se acredita lo que no se pagó.
+      const post = codigoDe('src/services/accounting/ar-ap-posting.ts');
+
+      // El reparto es proporcional al peso del IVA en el total del gasto...
+      if (!/condonadoAqui\s*\n?\s*\.times\(app\.taxAmount\)\s*\n?\s*\.dividedBy\(app\.totalAmount\)/.test(post)) {
+        return falla('el IVA condonado dejó de repartirse en proporción al impuesto del gasto');
+      }
+      // ...y se topa con lo que de verdad queda aparcado tras la liberación:
+      // sacar de 1135 más de lo que hay dejaría la cuenta en negativo.
+      if (!/const restaAparcado = new Decimal\(parked\)\.minus\(liberable\);/.test(post)) {
+        return falla('el IVA condonado ya no se topa contra lo que queda aparcado: podría vaciar 1135 por debajo de cero');
+      }
+      // Va contra `from` (1135), no contra `to` (1130): acreditarlo sería
+      // deducir un impuesto que nadie pagó.
+      if (!/account_id: requireRole\(ivaRoles, from\),\s*\n\s*debit_amount: null,\s*\n\s*credit_amount: ivaCondonado\.toFixed\(4\)/.test(post)) {
+        return falla('el IVA de la parte condonada ya no sale de la cuenta de pendientes');
+      }
+
+      // Y SE ANOTA POR GASTO. Sin esta línea el importe sigue posteándose,
+      // pero en CERO —el arnés lo demostró: anular ivaCondonado justo antes
+      // del push dejaba las tres anclas anteriores intactas y el criterio en
+      // verde—. El mapa no es contabilidad de adorno: es lo que el llamador
+      // resta del costo condonado para no abonar el impuesto dos veces.
+      if (!/ivaNoAcreditablePorGasto\.set\(app\.invoiceId, ivaCondonado\.toFixed\(4\)\);/.test(post)) {
+        return falla('el IVA condonado ya no se anota por gasto: el asiento lo abonaría en cero y el residuo volvería a 1135');
+      }
+
+      // Y ESE RESTO se descuenta del abono al pago corto. Si no, la parte de
+      // impuesto se abonaría dos veces —a 1135 y a la cuenta de condonación—
+      // y el asiento saldría descuadrado justo por el IVA.
+      const resta = /const costoCondonado = condonado\.minus\(ivaYaSalido\);/.test(post);
+      return resta
+        ? ok('el IVA de lo condonado sale de 1135 proporcional, topado y anotado, y no se abona dos veces')
+        : falla('el abono del pago corto dejó de restar el IVA que ya salió de 1135: el asiento se descuadraría por el impuesto');
+    },
+  },
+
+  {
+    paquete: 'E1.3',
+    enunciado: 'A qué cuenta va un saldo condonado lo decide el panel, y sin motivo escrito no se condona',
+    mutantes: [
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: "if (residual && !opts.shortPayReason?.trim()) {",
+        a: 'if (false) {',
+        porque: 'un pasivo podría desaparecer sin una línea que explique por qué: es lo único que el auditor tiene',
+      },
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: "      ? await getPolicy({ tenantId, entityId }, 'pago_corto_residual')",
+        a: "      ? { key: 'x', value: 'descuento_compras', defined: true, question: '', rationale: null }",
+        porque: 'la cuenta se cablea en el código y el panel deja de gobernarla: la opción «prohibir» del despacho no se aplicaría nunca',
+      },
+    ],
+    evaluar: () => {
+      // Una bifurcación de criterio contable no se pregunta por chat ni se
+      // elige en el código: se añade al panel. Aquí la bifurcación es a dónde
+      // va el saldo que deja de deberse —menos costo (5200) u otro ingreso
+      // (4200)—, y hasta puede estar prohibido cerrar corto. El código postea
+      // lo que el panel dicte.
+      const cat = codigoDe('src/services/policy/pending-catalog.ts');
+      const svc = codigoDe('src/services/payments/payment-service.ts');
+      const post = codigoDe('src/services/accounting/ar-ap-posting.ts');
+
+      // 1. La decisión está en el panel, con sus tres salidas.
+      //
+      // El recorte va de SU clave a la siguiente entrada del catálogo (o al
+      // final), no por una ventana de N caracteres: la primera versión usaba
+      // 1400 y la prosa de `whyAsking`/`whatIDo` empujaba `priority:` más
+      // allá, así que el criterio fallaba por la longitud del texto y no por
+      // lo que mide. Una ventana fija es una ancla que caduca cuando alguien
+      // escribe de más.
+      const desde = cat.indexOf("key: 'pago_corto_residual'");
+      if (desde < 0) {
+        return falla('la decisión pago_corto_residual desapareció del panel');
+      }
+      const siguiente = cat.indexOf("\n    key: '", desde);
+      const spec = cat.slice(desde, siguiente < 0 ? cat.length : siguiente);
+      const opciones = ['descuento_compras', 'otros_ingresos', 'prohibir'].filter(
+        (o) => !new RegExp(`value: '${o}'`).test(spec)
+      );
+      if (opciones.length > 0) {
+        return falla(
+          `la decisión pago_corto_residual perdió opciones del panel: ${opciones.join(', ')}`
+        );
+      }
+
+      // 2. Y TIENE LECTOR. Un panel sin lector es decoración: la regla de la
+      //    casa es que la decisión y quien la obedece viajan en el mismo
+      //    commit.
+      if (!/getPolicy\([\s\S]{0,80}?'pago_corto_residual'\)/.test(svc)) {
+        return falla('pago_corto_residual no se lee en ninguna parte: sería una pregunta sin consecuencia');
+      }
+
+      // 3. «prohibir» PROHÍBE de verdad. Se ancla el throw, no el `if`.
+      if (!/politica\?\.value === 'prohibir'[\s\S]{0,300}?throw new ValidationError\(/.test(svc)) {
+        return falla('la opción «prohibir» del panel ya no impide cerrar un gasto pagando de menos');
+      }
+
+      // 4. La capa de asiento NO decide: recibe la cuenta y se niega a postear
+      //    sin ella, en vez de suponer una.
+      if (!/writeOffRole\?: 'devolucion_compras' \| 'otros_ingresos'/.test(post)) {
+        return falla('el asiento dejó de recibir la cuenta del pago corto como parámetro: la estaría eligiendo él');
+      }
+      if (!/condonado\.greaterThan\(0\) && !writeOffRole[\s\S]{0,300}?throw new AccountingError\(/.test(post)) {
+        return falla('el asiento postearía un pago corto sin saber a qué cuenta: elegiría una por su cuenta o descuadraría');
+      }
+
+      // 5. Sin motivo escrito no se condona.
+      const motivo = /if \(residual && !opts\.shortPayReason\?\.trim\(\)\) \{[\s\S]{0,300}?throw new ValidationError\(/.test(svc);
+      return motivo
+        ? ok('la cuenta del pago corto la dicta el panel (con «prohibir» que prohíbe), el asiento la recibe y sin motivo escrito no se condona')
+        : falla('cerrar un gasto pagando de menos ya no exige motivo: el pasivo desaparecería sin explicación');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Un pago ya hecho se puede repartir después, sin volver a mover el efectivo',
+    mutantes: [
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'if (total.greaterThan(remanente)) {',
+        a: 'if (false) {',
+        porque: 'se podría aplicar más de lo que el pago tiene sin repartir: el anticipo quedaría en negativo y el auxiliar dejaría de cuadrar',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: "sourceType: 'vendor_application'",
+        a: "sourceType: 'vendor_payment'",
+        porque: 'la aplicación se disfraza del pago que la originó: la conciliación contaría dos veces el mismo movimiento de efectivo',
+      },
+    ],
+    evaluar: () => {
+      // Una tesorería real transfiere PRIMERO —un importe global al proveedor,
+      // cerrando la semana— y decide DESPUÉS contra cuáles de sus facturas
+      // abiertas iba. Hasta F04 el único instante en que un pago podía tocar
+      // un gasto era el de registrarlo, así que ese dinero quedaba en 1150 sin
+      // forma de repartirlo nunca.
+      const svc = codigoDe('src/services/payments/payment-service.ts');
+      const post = codigoDe('src/services/accounting/ar-ap-posting.ts');
+
+      if (!/export async function applyVendorPayment\(/.test(svc)) {
+        return falla('no existe applyVendorPayment: un pago global seguiría sin poder repartirse');
+      }
+      // El efectivo NO se vuelve a mover: el asiento de la aplicación cambia
+      // anticipo por cuenta de control, y nada más. Si tocara el banco,
+      // contaría dos veces una salida que ya se posteó.
+      const cuerpo = /export async function postVendorApplicationEntry\(([\s\S]*?)\n\}/.exec(post)?.[1] ?? '';
+      if (/requireRole\((?:roles|[a-zA-Z]+), 'banco'\)/.test(cuerpo)) {
+        return falla('el asiento de la aplicación toca el banco: el efectivo ya salió con el pago y se estaría contando dos veces');
+      }
+      // Y la lectura del pago va ACOTADA POR ENTIDAD dentro del SQL: un pago
+      // de otro inquilino no se aplica ni conociendo su id.
+      if (!/FROM vendor_payments WHERE id = \$1 AND entity_id = \$2 FOR UPDATE/.test(svc)) {
+        return falla('el pago se lee sin acotar por entidad o sin candado: la frontera del inquilino se cruzaría por id');
+      }
+      // La aplicación lleva su PROPIO source_type. Disfrazarla del pago que
+      // la originó haría que cualquier conciliación que agrupe por origen
+      // contara dos veces el mismo movimiento de efectivo.
+      if (!/sourceType: 'vendor_application'/.test(post)) {
+        return falla('el asiento de la aplicación perdió su source_type propio: se confundiría con el del pago');
+      }
+
+      // El tope contra el remanente, CONTADO en los dos eventos que reparten
+      // saldo a cuenta (cobro y pago). Son gemelos textuales: buscar «alguno»
+      // deja vivo al mutante que rompe el otro, y el arnés lo cobró.
+      const topes = (svc.match(/if \(total\.greaterThan\(remanente\)\) \{\s*\n\s*throw new ValidationError\(/g) ?? []).length;
+      return topes === 2
+        ? ok('applyVendorPayment reparte un pago vivo sin tocar el banco, acotado por entidad, con source_type propio y topado en los dos eventos')
+        : falla(
+            `el tope contra el remanente sobrevive en ${topes} de los 2 eventos que reparten saldo a cuenta: ` +
+              'sin él se repartiría dinero que el pago no tiene'
+          );
+    },
   },
 
 ];

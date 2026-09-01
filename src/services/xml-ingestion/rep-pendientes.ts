@@ -138,7 +138,11 @@ export async function reprocesarREPsAparcados(
     resultado.reprocesados += 1;
     const fila = await query(`SELECT * FROM pre_registrations WHERE id = $1`, [rep.id]);
     try {
-      await service.processToAccounting(fila.rows[0], userId);
+      // NUNCA crea proveedores: esto es un reproceso desatendido de una cola.
+      // `listRepAparcados` sólo devuelve document_type='payment', que no llega
+      // a createBillFromPreReg, pero la autorización se escribe igual para que
+      // el filtro sea la segunda cerca y no la única.
+      await service.processToAccounting(fila.rows[0], userId, { permitirProveedorNuevo: false });
       resultado.ligados += 1;
       resultado.detalles.push({ id: rep.id, resultado: 'ligado' });
     } catch (err) {

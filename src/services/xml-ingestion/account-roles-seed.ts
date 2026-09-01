@@ -128,6 +128,15 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     description: 'Contra-costo: reduce las compras.',
   },
   {
+    code: '4200', name: 'Otros Ingresos', account_type: 'revenue',
+    normal_balance: 'credit', fs_category: 'other_income',
+    description:
+      'Ingresos que no provienen de una venta. Existe porque la política ' +
+      '`pago_corto_residual` permite tratar como ganancia el saldo que deja de ' +
+      'deberse al cerrar un gasto pagando de menos, y esa ganancia no puede ' +
+      'ensuciar 4100: las ventas se comparan contra los CFDI emitidos.',
+  },
+  {
     code: '6900', name: 'Gastos No Deducibles', account_type: 'expense',
     normal_balance: 'debit', fs_category: 'operating_expenses',
     description:
@@ -143,6 +152,7 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
 export const ROLE_MAP: Record<AccountRole, string> = {
   // Income and collection
   ingreso: '4100',
+  otros_ingresos: '4200',
   devolucion_ventas: '4400',
   anticipo_clientes: '2150',
   cxc: '1120',

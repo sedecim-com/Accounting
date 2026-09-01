@@ -106,6 +106,8 @@ Commands:
   ar|cxc                                Receivables controls: reconcile the
                                         subledger against the control account,
                                         run named diagnostics
+  ap|cxp                                Payables controls: reconcile the vendor
+                                        subledger against the control account
   backup|respaldo                       Logical backups: create, list, verify
                                         (optionally by rehearsing the restore)
                                         and restore
@@ -1003,12 +1005,15 @@ Vendor payments: record cash that already left the bank and settle the bill it
 pays
 
 Options:
-  -h, --help                     display help for command
+  -h, --help                         display help for command
 
 Commands:
-  create|crear [options] <bill>  Record a payment made against a bill and
-                                 recognize the IVA it was holding
-  help [command]                 display help for command
+  create|crear [options] <bill>      Record a payment made against a bill and
+                                     recognize the IVA it was holding
+  apply|aplicar [options] <payment>  Apply an existing payment to specific
+                                     bills: partial, with discount, or
+                                     short-paid
+  help [command]                     display help for command
 ```
 
 ### `mnemosine payment create` (alias: crear)
@@ -1041,6 +1046,42 @@ Options:
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
+```
+
+### `mnemosine payment apply` (alias: aplicar)
+
+```
+Usage: mnemosine payment apply|aplicar [options] <payment>
+
+Apply an existing payment to specific bills: partial, with discount, or
+short-paid
+
+Arguments:
+  payment                    payment number or id whose on-account balance is to
+                             be applied
+
+Options:
+  --bill <ref...>            bill to apply to; repeat it, paired in order with
+                             --amount
+  --amount <amount...>       amount applied to the bill in the same position
+  --discount <amount...>     early-payment discount for the bill in the same
+                             position
+  --mode <mode>              partial (leave the rest open) or residual (close it
+                             short) (default: "partial")
+  --short-pay-reason <text>  why the unpaid balance is being written off;
+                             required by --mode residual
+  --json                     JSON output
+  -e, --entity <idOrName>    legal entity to operate on (defaults to the active
+                             one)
+  -t, --tenant <id>          tenant (firm) whose data to scope to
+  -u, --user <email>         acting user, for attribution and permissions
+  --dry-run                  compute and show the full effect; write nothing and
+                             call nothing external
+  -y, --yes                  skip the confirmation prompt
+  --idempotency-key <key>    client dedupe key, stored on success: a retry with
+                             the same key and payload returns the recorded
+                             result
+  -h, --help                 display help for command
 ```
 
 ## `mnemosine account` (alias: cuenta)
@@ -2189,6 +2230,8 @@ Commands:
   approve|aprobar [options] <bill>  Approve a bill and recognize the liability
                                     in the ledger (DR expense + IVA / CR
                                     payables)
+  inbox|bandeja                     CFDI inbox: pre-registrations waiting to
+                                    become vendor bills
   help [command]                    display help for command
 ```
 
@@ -2347,6 +2390,79 @@ Options:
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
+```
+
+### `mnemosine bill inbox` (alias: bandeja)
+
+```
+Usage: mnemosine bill inbox|bandeja [options] [command]
+
+CFDI inbox: pre-registrations waiting to become vendor bills
+
+Options:
+  -h, --help                   display help for command
+
+Commands:
+  list|listar [options]        The CFDI queue: what arrived, whose it is, and
+                               what is holding it up
+  run|ejecutar [options] [id]  Turn pre-registrations into vendor bills, or
+                               approve, reject and schedule them in bulk
+  help [command]               display help for command
+```
+
+#### `mnemosine bill inbox list` (alias: listar)
+
+```
+Usage: mnemosine bill inbox list|listar [options]
+
+The CFDI queue: what arrived, whose it is, and what is holding it up
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --processing-mode <mode>                 how it is meant to be processed: auto, batch, manual, hold
+  --requires-approval                      only the ones held for a prior approval
+  --vendor <ref>                           only this vendor (number, name or id)
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bill inbox run` (alias: ejecutar)
+
+```
+Usage: mnemosine bill inbox run|ejecutar [options] [id]
+
+Turn pre-registrations into vendor bills, or approve, reject and schedule them
+in bulk
+
+Arguments:
+  id                                           one pre-registration, by id
+
+Options:
+  -e, --entity <idOrName>                      legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                            tenant (firm) whose data to scope to
+  -u, --user <email>                           acting user, for attribution and permissions
+  --action <process|approve|reject|set-batch>  what to do with the selection (default: "process")
+  --bulk                                       act on everything --query selects, instead of a single id
+  --query <expr>                               selection for --bulk, comma-separated key=value: status, mode, requires-approval, vendor, since, until, search
+  --batch <ref>                                processing batch to schedule into; required by --action set-batch
+  --allow-new-vendor                           authorize creating the CFDI issuer as a vendor when the catalog does not have it; without it, those are refused
+  --reason <text>                              why it is rejected; required by --action reject
+  --note <text>                                annotation stored with the approval
+  --dry-run                                    compute and show the full effect; write nothing
+  -y, --yes                                    skip the confirmation prompt
+  --idempotency-key <key>                      client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
+  --json                                       JSON output
+  -h, --help                                   display help for command
 ```
 
 ## `mnemosine customer` (alias: cliente)
@@ -3314,6 +3430,45 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --check [names]                          comma-separated diagnostics to run; bare --check lists the battery
   --strict                                 exit 4 on warnings too, not only blocking findings
+  -h, --help                               display help for command
+```
+
+## `mnemosine ap` (alias: cxp)
+
+```
+Usage: mnemosine ap|cxp [options] [command]
+
+Payables controls: reconcile the vendor subledger against the control account
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  reconcile|conciliar [options]  Vendor subledger (open bills) vs the cxp
+                                 control account, naming the reconciling items
+  help [command]                 display help for command
+```
+
+### `mnemosine ap reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine ap reconcile|conciliar [options]
+
+Vendor subledger (open bills) vs the cxp control account, naming the reconciling
+items
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --as-of <date>                           cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)
+  --explain                                spell out every reconciling item in prose, not just the table
   -h, --help                               display help for command
 ```
 

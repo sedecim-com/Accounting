@@ -11,6 +11,11 @@ import { TIPO_RELACION, type CfdiFacts } from './cfdi-facts.js';
 export type AccountRole =
   // Revenue and collections
   | 'ingreso' | 'devolucion_ventas' | 'anticipo_clientes' | 'cxc' | 'banco'
+  // Ingresos que no son ventas: hoy sólo el remanente de un pago corto que se
+  // decide tratar como ganancia (política `pago_corto_residual`). Separado de
+  // `ingreso` a propósito — meterlo en 4100 inflaría las ventas con algo que
+  // nadie compró, y es justo la cifra que el despacho compara contra el CFDI.
+  | 'otros_ingresos'
   // VAT owed to the SAT. Under PPD, VAT is TRIGGERED on collection, not on invoicing.
   | 'iva_trasladado' | 'iva_trasladado_no_cobrado'
   // Purchases, expenses and assets

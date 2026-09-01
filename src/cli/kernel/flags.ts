@@ -52,6 +52,30 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // catálogo promete); con --restore ENSAYA la restauración de verdad, que es
   // lo único que demuestra que un respaldo sirve.
   '--restore': null,
+  // F04 · la bandeja de CFDI (`bill inbox list|run`). El catálogo las nombra
+  // desde antes de que existieran. Entran aquí para congelar la grafía: sin
+  // esto `--query` reaparece como --filter o --where en la próxima sesión, y
+  // `--vendor` —que `bill list` y `bill create` ya declaraban a mano— podría
+  // ganar una forma corta en un comando y no en otro.
+  '--vendor': null,
+  '--processing-mode': null,
+  '--requires-approval': null,
+  '--bulk': null,
+  '--query': null,
+  '--action': null,
+  // El lote programado al que `--action set-batch` engancha el pre-registro.
+  '--batch': null,
+  // F04 · la autorización explícita de alta de proveedor desde un CFDI. Es
+  // control interno, no criterio contable: no se pregunta al panel de
+  // políticas, se escribe en la orden o no ocurre.
+  '--allow-new-vendor': null,
+  // F04 · el desglose en prosa de un resultado que la tabla sólo enumera: el
+  // porqué de cada partida, no sólo su importe. El catálogo la promete en
+  // `ap reconcile` y la reclamarán las demás conciliaciones; entra al
+  // diccionario para que las tres se escriban igual. `explain` ya existía como
+  // VERBO (`cfdi explain`): son cosas distintas y conviven sin estorbarse,
+  // igual que `--diff` convive con el verbo `diff`.
+  '--explain': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

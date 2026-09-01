@@ -472,6 +472,16 @@ export interface AplicacionPosterior {
   invoiceId: string;
   invoiceNumber: string;
   amount: string;
+  /** F04 · sólo lado proveedor: el descuento por pronto pago de esta aplicación. */
+  discount?: string;
+  /**
+   * F04 · sólo lado proveedor: el saldo que DEJA DE DEBERSE al cerrar el gasto
+   * pagando de menos (`payment apply --mode residual`). No es un descuento
+   * pactado de antemano sino un remanente que se renuncia a pagar, y por eso
+   * va a la cuenta que dicte la política `pago_corto_residual` y no siempre a
+   * la misma que el descuento.
+   */
+  writeOff?: string;
   /** Lo aplicado (vivo) a la factura por CUALQUIER pago, ANTES de este evento. */
   priorApplied: string;
   taxAmount: string;
@@ -575,6 +585,202 @@ export async function postReceiptApplicationEntry(
 }
 
 /**
+ * Aplicar el anticipo a proveedor a facturas, como evento posterior al pago
+ * (F04): DR cxp · CR anticipo_proveedores por lo aplicado, más la
+ * acreditación del IVA de cada gasto PPD por la parte que ESTE evento paga.
+ * El efectivo no se mueve — ya salió con el pago; lo que se mueve es el
+ * derecho, del activo por anticipos al pasivo que extingue.
+ *
+ * Espejo del lado cliente, con los roles invertidos y una diferencia real:
+ * aquí el descuento por pronto pago SÍ puede aparecer, porque una aplicación
+ * tardía dentro de la ventana sigue dando derecho a él.
+ */
+export async function postVendorApplicationEntry(
+  client: pg.PoolClient,
+  payment: PaymentRow,
+  aplicaciones: AplicacionPosterior[],
+  userId: string,
+  /**
+   * Cuenta destino del pago corto. Llega como PARÁMETRO y no se decide aquí:
+   * cuál es depende de la política `pago_corto_residual` del despacho, y esta
+   * capa no consulta políticas — postea lo que se le dice y cuadra. Si no
+   * viene, es que ninguna aplicación trae writeOff.
+   */
+  writeOffRole?: 'devolucion_compras' | 'otros_ingresos'
+): Promise<{
+  entry: JournalEntry;
+  ivaPorGasto: Map<string, string>;
+  /** IVA que salió de 1135 SIN acreditarse, por gasto condonado. */
+  ivaNoAcreditablePorGasto: Map<string, string>;
+}> {
+  const total = aplicaciones.reduce((s, a) => s.plus(a.amount), new Decimal(0));
+  const descuento = aplicaciones.reduce((s, a) => s.plus(a.discount ?? '0'), new Decimal(0));
+  const condonado = aplicaciones.reduce((s, a) => s.plus(a.writeOff ?? '0'), new Decimal(0));
+  if (condonado.greaterThan(0) && !writeOffRole) {
+    throw new AccountingError(
+      'WRITE_OFF_ACCOUNT_UNRESOLVED',
+      'Hay un pago corto que condona saldo y nadie dijo a qué cuenta va. La decide la ' +
+        'política `pago_corto_residual`; postear sin ella dejaría el asiento descuadrado.'
+    );
+  }
+  const cashBasis = await entityUsesCashBasisIva(client, payment.entity_id);
+  const ivaPorGasto = new Map<string, string>();
+  /** IVA que salió de 1135 SIN acreditarse, por haberse condonado su gasto. */
+  const ivaNoAcreditablePorGasto = new Map<string, string>();
+  const ivaLines: JeLine[] = [];
+  const documentos: string[] = [];
+
+  if (cashBasis) {
+    const { from, to } = reclassRoles('received');
+    const ivaRoles = await roleAccounts(client, payment.entity_id, [from, to]);
+    for (const app of aplicaciones) {
+      const metodo = await resolveBillMetodoPago(client, {
+        id: app.invoiceId,
+        entity_id: payment.entity_id,
+        bill_number: app.invoiceNumber,
+        terms: app.terms,
+        memo: app.memo,
+      });
+      if (metodo.metodo !== 'PPD') continue;
+      const bruto = ivaToReclassify({
+        ivaTotal: app.taxAmount,
+        documentTotal: app.totalAmount,
+        priorApplied: app.priorApplied,
+        appliedNow: app.amount,
+      });
+      const parked = await ivaStillParked(client, 'received', payment.entity_id, app.invoiceId);
+      const liberable = Decimal.min(new Decimal(bruto), new Decimal(parked));
+
+      // ── EL IVA DEL SALDO CONDONADO ──────────────────────────────────
+      //
+      // Un pago corto cierra el gasto sin pagarlo entero, y el IVA de la
+      // parte que no se pagó NUNCA va a ser acreditable: bajo flujo de
+      // efectivo se acredita lo pagado, y eso ya no se va a pagar. Si sólo
+      // se liberara la parte pagada, en 1135 quedaría un resto vivo de un
+      // gasto CERRADO — un residuo que ningún informe sabe explicar y que
+      // nadie puede vaciar después, porque el documento que lo justificaba
+      // ya no tiene saldo. Es exactamente el residuo permanente que la
+      // migración 050 advierte.
+      //
+      // Así que sale de 1135 en el mismo asiento, y NO hacia 1130 (no se
+      // acredita: no se pagó) sino hacia la cuenta del pago corto, junto
+      // con la parte de costo que se condona. El reparto es proporcional
+      // al peso del IVA en el total del gasto, y se topa con lo que de
+      // verdad quede aparcado tras la liberación: nunca se puede sacar de
+      // 1135 más de lo que hay.
+      const condonadoAqui = new Decimal(app.writeOff ?? '0');
+      let ivaCondonado = new Decimal(0);
+      if (condonadoAqui.greaterThan(0) && new Decimal(app.totalAmount).greaterThan(0)) {
+        const proporcional = condonadoAqui
+          .times(app.taxAmount)
+          .dividedBy(app.totalAmount);
+        const restaAparcado = new Decimal(parked).minus(liberable);
+        ivaCondonado = Decimal.max(
+          0,
+          Decimal.min(proporcional, restaAparcado)
+        );
+      }
+      if (ivaCondonado.greaterThan(0)) {
+        ivaNoAcreditablePorGasto.set(app.invoiceId, ivaCondonado.toFixed(4));
+        ivaLines.push({
+          account_id: requireRole(ivaRoles, from),
+          debit_amount: null,
+          credit_amount: ivaCondonado.toFixed(4),
+          description:
+            `IVA on the written-off balance leaves ${from} without becoming creditable - ` +
+            `Bill ${app.invoiceNumber}`,
+        });
+      }
+
+      if (liberable.lessThanOrEqualTo(0)) continue;
+      const monto = liberable.toFixed(4);
+      ivaPorGasto.set(app.invoiceId, monto);
+      documentos.push(app.invoiceNumber);
+      // Recibido: el IVA sale del PENDIENTE (1135, activo: se vacía con
+      // crédito) y entra al ACREDITABLE (1130, activo: se llena con débito).
+      ivaLines.push({
+        account_id: requireRole(ivaRoles, to),
+        debit_amount: monto,
+        credit_amount: null,
+        description: `IVA now in ${to} (PPD payment) - Bill ${app.invoiceNumber}`,
+      });
+      ivaLines.push({
+        account_id: requireRole(ivaRoles, from),
+        debit_amount: null,
+        credit_amount: monto,
+        description: `IVA released from ${from} on payment - Bill ${app.invoiceNumber}`,
+      });
+    }
+  }
+
+  const rolesPedidos = [
+    'cxp',
+    'anticipo_proveedores',
+    ...(descuento.greaterThan(0) ? ['devolucion_compras'] : []),
+    ...(condonado.greaterThan(0) && writeOffRole ? [writeOffRole] : []),
+  ];
+  const roles = await roleAccounts(client, payment.entity_id, rolesPedidos);
+  const jeLines: JeLine[] = [
+    {
+      // El pasivo se extingue por TODO lo que el proveedor deja de tener
+      // derecho a cobrar: el efectivo aplicado, el descuento pactado y el
+      // remanente condonado. Los tres salen del 2110; lo que cambia es la
+      // contrapartida de cada uno.
+      account_id: requireRole(roles, 'cxp'),
+      debit_amount: total.plus(descuento).plus(condonado).toFixed(4),
+      credit_amount: null,
+      description: `AP settlement ${payment.payment_number}`,
+    },
+    {
+      account_id: requireRole(roles, 'anticipo_proveedores'),
+      debit_amount: null,
+      credit_amount: total.toFixed(4),
+      description: `On-account advance applied ${payment.payment_number}`,
+    },
+  ];
+  if (descuento.greaterThan(0)) {
+    jeLines.push({
+      account_id: requireRole(roles, 'devolucion_compras'),
+      debit_amount: null,
+      credit_amount: descuento.toFixed(4),
+      description: `Early-payment discount taken ${payment.payment_number}`,
+    });
+  }
+  if (condonado.greaterThan(0) && writeOffRole) {
+    // Sólo la parte de COSTO del saldo condonado. Su parte de IVA ya salió
+    // arriba, contra 1135; abonarla aquí también la contaría dos veces y
+    // dejaría el asiento descuadrado por el importe del impuesto.
+    const ivaYaSalido = [...ivaNoAcreditablePorGasto.values()].reduce(
+      (s2, v) => s2.plus(v),
+      new Decimal(0)
+    );
+    const costoCondonado = condonado.minus(ivaYaSalido);
+    if (costoCondonado.greaterThan(0)) {
+      jeLines.push({
+        account_id: requireRole(roles, writeOffRole),
+        debit_amount: null,
+        credit_amount: costoCondonado.toFixed(4),
+        description: `Short-pay write-off ${payment.payment_number}`,
+      });
+    }
+  }
+  jeLines.push(...ivaLines);
+
+  const entry = await createJournalEntry(
+    payment.entity_id,
+    new Date(),
+    JournalEntryType.AUTO_PAYMENT,
+    documentos.length
+      ? `Application of ${payment.payment_number} · IVA creditable on payment: ${documentos.join(', ')}`
+      : `Application of ${payment.payment_number}`,
+    jeLines,
+    userId,
+    { autoPost: true, client, sourceType: 'vendor_application', sourceId: payment.id, reference: payment.payment_number }
+  );
+  return { entry, ivaPorGasto, ivaNoAcreditablePorGasto };
+}
+
+/**
  * Desaplicar, como evento nuevo: DR cxc · CR anticipo_clientes (el crédito
  * vuelve a estar a cuenta — desaplicar NO es devolver dinero) y el IVA que
  * aquella aplicación liberó se RE-APARCA (DR iva_trasladado · CR
@@ -649,21 +855,83 @@ export async function postVendorPaymentEntry(
   if (!new Decimal(payment.payment_amount).greaterThan(0)) return null;
 
   const bankId = await bankGlAccount(client, payment.entity_id, payment.bank_account_id);
-  const roles = await roleAccounts(client, payment.entity_id, ['cxp']);
   const iva = await ivaReclassLines(client, 'received', payment);
+
+  // F04 · EL DESGLOSE DEL PAGO, en tres partes que no siempre coinciden.
+  //
+  // Lo APLICADO baja el pasivo (DR cxp). Lo que sale del banco es el efectivo
+  // REAL, que puede ser menor si hubo descuento por pronto pago. Y lo pagado
+  // de más queda como ANTICIPO al proveedor (1150, un activo: el proveedor
+  // nos debe mercancía o servicio), nunca colgado de la cuenta de control.
+  //
+  // El descuento se abona a `devolucion_compras` (5200, contra-costo), que es
+  // el espejo exacto de lo que la nota de crédito hace del lado cliente con
+  // 4400. Antes se rechazaba en voz alta «necesita una cuenta de ingreso por
+  // descuentos en la capa de roles»: la cuenta existía desde la siembra, y
+  // nadie la había atado.
+  const aplic = await client.query<{ aplicado: string; descuento: string }>(
+    `SELECT COALESCE(SUM(amount_applied), 0)::text  AS aplicado,
+            COALESCE(SUM(discount_amount), 0)::text AS descuento
+       FROM payment_applications WHERE payment_id = $1`,
+    [payment.id]
+  );
+  const aplicado = new Decimal(aplic.rows[0]?.aplicado ?? '0');
+  const descuento = new Decimal(aplic.rows[0]?.descuento ?? '0');
+  const efectivo = new Decimal(payment.payment_amount);
+  // El pasivo que se extingue es lo aplicado MÁS el descuento: el proveedor
+  // deja de tener derecho a las dos cosas.
+  const pasivo = aplicado.plus(descuento);
+  const anticipo = efectivo.minus(aplicado);
+
+  const rolesPedidos = [
+    'cxp',
+    ...(descuento.greaterThan(0) ? ['devolucion_compras'] : []),
+    ...(anticipo.greaterThan(0) ? ['anticipo_proveedores'] : []),
+  ];
+  const roles = await roleAccounts(client, payment.entity_id, rolesPedidos);
+
+  const jeLines: JeLine[] = [];
+  if (pasivo.greaterThan(0)) {
+    jeLines.push({
+      account_id: requireRole(roles, 'cxp'),
+      debit_amount: pasivo.toFixed(4),
+      credit_amount: null,
+      description: `AP settlement ${payment.payment_number}`,
+    });
+  }
+  if (anticipo.greaterThan(0)) {
+    jeLines.push({
+      account_id: requireRole(roles, 'anticipo_proveedores'),
+      debit_amount: anticipo.toFixed(4),
+      credit_amount: null,
+      description: `On-account advance ${payment.payment_number}`,
+    });
+  }
+  jeLines.push({
+    account_id: bankId,
+    debit_amount: null,
+    credit_amount: efectivo.toFixed(4),
+    description: `Payment made ${payment.payment_number}`,
+  });
+  if (descuento.greaterThan(0)) {
+    jeLines.push({
+      account_id: requireRole(roles, 'devolucion_compras'),
+      debit_amount: null,
+      credit_amount: descuento.toFixed(4),
+      description: `Early-payment discount taken ${payment.payment_number}`,
+    });
+  }
+  jeLines.push(...iva.lines);
 
   const entry = await createJournalEntry(
     payment.entity_id,
     new Date(payment.payment_date),
     JournalEntryType.AUTO_PAYMENT,
-    iva.documents.length
+    (iva.documents.length
       ? `Vendor payment ${payment.payment_number} · IVA creditable on payment: ${iva.documents.join(', ')}`
-      : `Vendor payment ${payment.payment_number}`,
-    [
-      { account_id: requireRole(roles, 'cxp'), debit_amount: payment.payment_amount, credit_amount: null, description: `AP settlement ${payment.payment_number}` },
-      { account_id: bankId, debit_amount: null, credit_amount: payment.payment_amount, description: `Payment made ${payment.payment_number}` },
-      ...iva.lines,
-    ],
+      : `Vendor payment ${payment.payment_number}`) +
+      (descuento.greaterThan(0) ? ` · early-payment discount ${descuento.toFixed(2)}` : ''),
+    jeLines,
     userId,
     { autoPost: true, client, sourceType: 'vendor_payment', sourceId: payment.id, reference: payment.payment_number }
   );

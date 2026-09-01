@@ -43,6 +43,10 @@ const TOP_LEVEL: Record<string, string> = {
   // F03: la otra mitad del ciclo de cobro y los controles de la cartera.
   'credit-note': 'nota-credito',
   ar: 'cxc',
+  // F04: el gemelo de `ar` del lado del pasivo — cuadra el subdiario de
+  // proveedores contra su cuenta de control y enseña los asientos manuales
+  // posteados directo al control, que es con lo que se cierra CxP.
+  ap: 'cxp',
   // S3: la vía de recuperación que el propio esquema nombra.
   backup: 'respaldo',
   report: 'reporte',
@@ -115,6 +119,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   },
   'credit-note': { create: 'crear', show: 'ver', list: 'listar', issue: 'emitir', apply: 'aplicar' },
   ar: { reconcile: 'conciliar', check: 'verificar' },
+  ap: { reconcile: 'conciliar' },
   backup: { create: 'crear', list: 'listar', verify: 'comprobar', restore: 'restaurar' },
   report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },
   outbox: { list: 'listar', run: 'ejecutar' },

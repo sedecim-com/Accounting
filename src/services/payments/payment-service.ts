@@ -8,13 +8,16 @@ import {
   postCustomerPaymentEntry,
   postReceiptApplicationEntry,
   postReceiptUnapplicationEntry,
+  postVendorApplicationEntry,
   type AplicacionPosterior,
 } from '../accounting/ar-ap-posting.js';
 import { voidJournalEntryInTx } from '../accounting/posting.js';
+import { earlyPaymentDiscount } from '../ap/bill-service.js';
 import { ivaToReclassify } from '../accounting/iva-cash-basis.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
+import { getPolicy } from '../policy/policy-service.js';
 
 // ============================================================
 // REGISTRAR UN PAGO QUE YA OCURRIÓ.
@@ -115,13 +118,13 @@ function assertEstado(status: string | undefined): void {
   }
 }
 
-function assertAplicaciones(entrada: EntradaPago, permiteACuenta = false): void {
-  const aCuenta = permiteACuenta && entrada.onAccount === true;
-  if (entrada.onAccount === true && !permiteACuenta) {
-    throw new ValidationError(
-      'El pago a cuenta sólo existe del lado del cliente: un pago nuestro sin aplicar a ningún gasto no tiene dónde vivir.'
-    );
-  }
+// `lado` decide dos cosas y ninguna es cosmética: si el descuento por pronto
+// pago se acepta o se manda a la nota de crédito, y de quién es el anticipo
+// cuando sobra dinero. Antes era `permiteACuenta`, una bandera que después de
+// F04 los dos llamadores pasaban en `true` — un parámetro que nadie puede
+// poner en `false` no es una opción, es ruido con forma de opción.
+function assertAplicaciones(entrada: EntradaPago, lado: 'cliente' | 'proveedor'): void {
+  const aCuenta = entrada.onAccount === true;
   if (entrada.applications.length === 0 && !aCuenta) {
     throw new ValidationError(
       'Un pago sin aplicar a ningún documento no libera saldo ni acredita IVA: indica a qué se aplica.'
@@ -129,7 +132,7 @@ function assertAplicaciones(entrada: EntradaPago, permiteACuenta = false): void 
   }
   if (entrada.applications.length === 0 && aCuenta && !entrada.counterpartyId) {
     throw new ValidationError(
-      'Un anticipo sin factura necesita el cliente explícito: sin documento no hay de dónde deducirlo.'
+      `Un anticipo sin documento necesita el ${lado} explícito: sin documento no hay de dónde deducirlo.`
     );
   }
 
@@ -150,22 +153,35 @@ function assertAplicaciones(entrada: EntradaPago, permiteACuenta = false): void 
     vistos.add(a.documentId);
   }
 
-  // El descuento por pronto pago se insertaba en payment_applications y no
-  // participaba en nada más: ni reducía el saldo ni entraba en el asiento. El
-  // proveedor quedaba debiendo el descuento para siempre. Reconocerlo bien
-  // exige una cuenta de ingreso por descuentos que la capa de roles todavía
-  // no tiene, así que se rechaza en voz alta en vez de aceptarse y perderse.
+  // EL DESCUENTO POR PRONTO PAGO, por fin cableado (F04).
+  //
+  // Se insertaba en payment_applications y no participaba en nada más: ni
+  // reducía el saldo ni entraba en el asiento, así que el proveedor quedaba
+  // debiendo el descuento para siempre. Se rechazaba en voz alta diciendo que
+  // «necesita una cuenta de ingreso por descuentos en la capa de roles» — y la
+  // cuenta existía desde la siembra: `devolucion_compras` (5200, contra-costo),
+  // espejo exacto del 4400 con el que la nota de crédito reduce las ventas.
+  // Lo que faltaba no era la cuenta: era atarla.
+  //
+  // Del lado CLIENTE sigue rechazado, y no por simetría perezosa: un descuento
+  // que NOSOTROS concedemos a un cliente es una nota de crédito —documento
+  // fiscal, con su CFDI de egreso— y no una línea suelta en el cobro. F03 le
+  // construyó su camino propio.
   const conDescuento = entrada.applications.find(
     (a) => a.discountAmount !== undefined && new Decimal(a.discountAmount).greaterThan(0)
   );
-  if (conDescuento) {
+  if (conDescuento && lado === 'cliente') {
     throw new ValidationError(
-      'El descuento por pronto pago todavía no se puede registrar: necesita una cuenta de ' +
-        'ingreso por descuentos en la capa de roles, y sin ella el asiento no cuadraría. ' +
-        'Registra el pago por el importe neto mientras tanto.'
+      'Un descuento concedido a un cliente no es una línea del cobro: es una NOTA DE CRÉDITO, ' +
+        'con su documento y su CFDI de egreso. Emítela con `mnemosine credit-note create --type descuento` ' +
+        'y aplícala a la factura.'
     );
   }
 
+  // Sólo EFECTIVO: el descuento extingue pasivo pero no salió del banco, así
+  // que comparar `amountApplied` contra el importe pagado sigue siendo la
+  // igualdad correcta. Sumar el descuento aquí exigiría un pago mayor que el
+  // que de verdad se hizo.
   const total = entrada.applications.reduce(
     (s, a) => s.plus(a.amountApplied),
     new Decimal(0)
@@ -185,7 +201,9 @@ function assertAplicaciones(entrada: EntradaPago, permiteACuenta = false): void 
       `Las aplicaciones suman ${total.toFixed(2)} y el pago es de ` +
         `${new Decimal(entrada.paymentAmount).toFixed(2)}. Tienen que coincidir: lo que sobra ` +
         'quedaría cargado a la cuenta de control sin bajar de ningún auxiliar. Si el remanente ' +
-        'es deliberado, dilo con onAccount (--on-account): quedará como anticipo del cliente.'
+        `es deliberado, dilo con onAccount (--on-account): quedará como anticipo ${
+          lado === 'cliente' ? 'del cliente' : 'a proveedores'
+        }.`
     );
   }
 }
@@ -209,7 +227,10 @@ export async function recordVendorPayment(
   opts: OpcionesPago = {}
 ): Promise<ResultadoPago> {
   assertEstado(entrada.status);
-  assertAplicaciones(entrada);
+  // F04: el lado proveedor admite pago a cuenta (anticipo, 1150) y descuento
+  // por pronto pago (contra-costo, 5200) — las dos cosas que el catálogo
+  // promete en `payment create --vendor` y `payment apply --discount`.
+  assertAplicaciones(entrada, 'proveedor');
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     const documentos: DocumentoAplicado[] = [];
@@ -249,13 +270,18 @@ export async function recordVendorPayment(
         );
       }
       const aplicado = new Decimal(app.amountApplied);
+      const descuento = new Decimal(app.discountAmount ?? '0');
       const saldo = new Decimal(bill.amount_due);
-      if (aplicado.greaterThan(saldo)) {
+      // El descuento EXTINGUE pasivo igual que el efectivo: lo que el
+      // proveedor deja de tener derecho a cobrar es la suma de los dos.
+      const extingue = aplicado.plus(descuento);
+      if (extingue.greaterThan(saldo)) {
         throw new ValidationError(
-          `${bill.bill_number} debe ${saldo.toFixed(2)} y se intentan aplicar ${aplicado.toFixed(2)}.`
+          `${bill.bill_number} debe ${saldo.toFixed(2)} y se intentan extinguir ${extingue.toFixed(2)} ` +
+            `(${aplicado.toFixed(2)} de efectivo + ${descuento.toFixed(2)} de descuento).`
         );
       }
-      const nuevo = saldo.minus(aplicado);
+      const nuevo = saldo.minus(extingue);
       const estado = nuevo.lessThanOrEqualTo(0) ? 'paid' : 'partially_paid';
       documentos.push({
         id: bill.id, numero: bill.bill_number,
@@ -297,14 +323,21 @@ export async function recordVendorPayment(
          VALUES ($1,$2,$3,$4,$5)`,
         [uuidv4(), paymentId, app.documentId, app.amountApplied, app.discountAmount ?? 0]
       );
+      // amount_paid recibe SÓLO el efectivo; el saldo baja por los dos. Un
+      // descuento no es dinero cobrado: contarlo como pagado inflaría lo que
+      // el proveedor recibió y descuadraría cualquier conciliación de banco.
       await client.query(
         `UPDATE bills SET
            amount_paid = amount_paid + $1,
-           amount_due  = amount_due - $1,
-           status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-           last_payment_date = $2
-         WHERE id = $3 AND entity_id = $4`,
-        [app.amountApplied, entrada.paymentDate, app.documentId, entrada.entityId]
+           amount_due  = amount_due - $2,
+           status = CASE WHEN amount_due - $2 <= 0 THEN 'paid' ELSE 'partially_paid' END,
+           last_payment_date = $3
+         WHERE id = $4 AND entity_id = $5`,
+        [
+          app.amountApplied,
+          new Decimal(app.amountApplied).plus(app.discountAmount ?? '0').toFixed(4),
+          entrada.paymentDate, app.documentId, entrada.entityId,
+        ]
       );
     }
 
@@ -365,7 +398,7 @@ export async function recordCustomerPayment(
   opts: OpcionesPago = {}
 ): Promise<ResultadoPago> {
   assertEstado(entrada.status);
-  assertAplicaciones(entrada, true);
+  assertAplicaciones(entrada, 'cliente');
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     const documentos: DocumentoAplicado[] = [];
@@ -1227,6 +1260,362 @@ export async function reverseCustomerPayment(
 
     const salida: ResultadoReversa = {
       paymentId, paymentNumber: pago.payment_number, reversals, attestations, documentosReabiertos,
+    };
+    if (opts.dryRun) throw new EnsayoEvento(salida);
+    return salida;
+  };
+
+  return ejecutarEvento(correr, opts);
+}
+
+// ============================================================
+// APLICAR UN PAGO YA HECHO (050 · F04)
+//
+// El espejo de `applyCustomerPayment`, y la fila del catálogo que decía
+// «Aplica un pago existente a facturas concretas, con parcial, residual o
+// pago corto documentado». Hasta hoy el único momento en que un pago podía
+// tocar un gasto era el de registrarlo: si el dinero salía antes de saber a
+// qué gasto iba —una transferencia global a un proveedor con seis facturas
+// abiertas, lo normal en una tesorería real— no había forma de repartirlo
+// después. El remanente vivía como anticipo a proveedores y ahí se quedaba.
+//
+// LO QUE SE MUEVE Y LO QUE NO. El efectivo NO se toca: ya salió del banco
+// cuando se registró el pago, y volver a acreditar el banco lo contaría dos
+// veces. Lo que se mueve es el DERECHO: del anticipo (1150) a la cuenta de
+// control de proveedores (2110), más el IVA acreditable que cada gasto PPD
+// libera por la parte que este evento paga.
+// ============================================================
+
+interface PagoProveedorVivo {
+  id: string;
+  payment_number: string;
+  vendor_id: string;
+  payment_amount: string;
+  currency_code: string;
+  payment_date: Date;
+  bank_account_id: string | null;
+  journal_entry_id: string | null;
+  status: string;
+}
+
+/** El pago, acotado por entidad y con candado. */
+async function pagoProveedorParaEscribir(
+  client: pg.PoolClient,
+  entityId: string,
+  paymentId: string
+): Promise<PagoProveedorVivo> {
+  const r = await client.query<PagoProveedorVivo>(
+    `SELECT id, payment_number, vendor_id, payment_amount, currency_code,
+            payment_date, bank_account_id, journal_entry_id, status
+       FROM vendor_payments WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+    [paymentId, entityId]
+  );
+  if (r.rows.length === 0) throw new NotFoundError('Vendor payment', paymentId);
+  const pago = r.rows[0];
+  if (pago.status !== ESTADO) {
+    throw new ValidationError(
+      `El pago ${pago.payment_number} está en '${pago.status}': sólo un pago 'completed' admite este evento.`
+    );
+  }
+  return pago;
+}
+
+/**
+ * Lo que queda del pago sin repartir.
+ *
+ * NO filtra por `unapplied_at IS NULL` porque esa columna no existe todavía:
+ * `payment unapply` es de la fase 2 y la 050 explica por qué no adelantó la
+ * columna. El día que exista, este filtro y el de postVendorPaymentEntry
+ * tienen que añadirse JUNTOS — si sólo uno de los dos cuenta las aplicaciones
+ * clausuradas, el remanente y el asiento dejarán de hablar del mismo pago.
+ */
+async function remanenteDeVendorPago(
+  client: pg.PoolClient,
+  paymentId: string,
+  paymentAmount: string
+): Promise<Decimal> {
+  const r = await client.query<{ aplicado: string }>(
+    `SELECT COALESCE(SUM(amount_applied), 0)::text AS aplicado
+       FROM payment_applications WHERE payment_id = $1`,
+    [paymentId]
+  );
+  return new Decimal(paymentAmount).minus(r.rows[0]?.aplicado ?? '0');
+}
+
+export interface OpcionesAplicacionProveedor extends OpcionesPago {
+  /**
+   * `partial` (omisión): se aplica de menos y el gasto SIGUE ABIERTO por la
+   * diferencia. `residual`: el gasto se cierra aunque se pague de menos, y lo
+   * que queda deja de deberse — un pago corto.
+   */
+  modo?: 'partial' | 'residual';
+  /** Obligatorio con `residual`: por qué se renuncia a cobrar el resto. */
+  shortPayReason?: string;
+}
+
+export interface ResultadoAplicacionProveedor extends ResultadoAplicacion {
+  /** Saldo que dejó de deberse por pago corto, y a qué cuenta fue. */
+  condonado: string;
+  cuentaCondonacion: 'devolucion_compras' | 'otros_ingresos' | null;
+  /** IVA que salió de 1135 sin llegar a acreditarse. Cero salvo PPD condonado. */
+  ivaNoAcreditable: string;
+  politicaDefinida: boolean;
+  /**
+   * Gastos en los que se tomó un descuento que sus CONDICIONES no otorgaban
+   * —sin términos de pronto pago, o fuera de la ventana—. No es un error: un
+   * proveedor concede deducciones fuera de contrato todos los días. Pero es
+   * otra cosa que un `2/10 net 30` ejercido en plazo, y quien firma los libros
+   * merece saber cuál de las dos está viendo.
+   */
+  descuentosFueraDeTerminos: string[];
+}
+
+/** Aplicar el saldo a cuenta de un pago existente a uno o varios gastos. */
+export async function applyVendorPayment(
+  entityId: string,
+  paymentId: string,
+  aplicaciones: AplicacionPago[],
+  userId: string,
+  opts: OpcionesAplicacionProveedor = {}
+): Promise<ResultadoAplicacionProveedor> {
+  if (aplicaciones.length === 0) {
+    throw new ValidationError('Indica a qué gasto(s) se aplica el saldo a cuenta.');
+  }
+  const vistos = new Set<string>();
+  for (const a of aplicaciones) {
+    if (vistos.has(a.documentId)) {
+      throw new ValidationError(
+        `El documento ${a.documentId} aparece dos veces en la misma aplicación: súmalas en una.`
+      );
+    }
+    vistos.add(a.documentId);
+  }
+
+  const residual = opts.modo === 'residual';
+  if (residual && !opts.shortPayReason?.trim()) {
+    throw new ValidationError(
+      'Cerrar un gasto pagando de menos borra un pasivo que sí se debía: di por qué ' +
+        'con --short-pay-reason. Sin motivo escrito, el auditor sólo ve un saldo que ' +
+        'desapareció.'
+    );
+  }
+
+  const correr = async (client: pg.PoolClient): Promise<ResultadoAplicacionProveedor> => {
+    const pago = await pagoProveedorParaEscribir(client, entityId, paymentId);
+    const remanente = await remanenteDeVendorPago(client, paymentId, pago.payment_amount);
+
+    // LA CUENTA DEL PAGO CORTO NO LA ELIGE ESTE CÓDIGO. A dónde va el saldo
+    // que deja de deberse es criterio del despacho —menos costo, u otro
+    // ingreso— y hasta puede estar prohibido. Se lee del panel; mientras
+    // nadie lo defina, rige el defecto declarado y se dice que es el defecto.
+    const tenantId = await tenantDe(client, entityId);
+    const politica = residual
+      ? await getPolicy({ tenantId, entityId }, 'pago_corto_residual')
+      : null;
+    if (politica?.value === 'prohibir') {
+      throw new ValidationError(
+        'La política `pago_corto_residual` de este despacho está en "prohibir": ningún gasto ' +
+          'se cierra pagando de menos. Pide al proveedor la nota de crédito y aplícala, o ' +
+          'cambia la política con `mnemosine pending resolve pago_corto_residual`.'
+      );
+    }
+    const cuentaCondonacion =
+      politica === null
+        ? null
+        : politica.value === 'otros_ingresos'
+          ? ('otros_ingresos' as const)
+          : ('devolucion_compras' as const);
+    // Sólo el EFECTIVO consume remanente. El descuento extingue pasivo sin
+    // salir del banco, así que un pago de 980 puede saldar un gasto de 1000
+    // con 20 de descuento: lo que no puede es repartir 1000 de efectivo.
+    const total = aplicaciones.reduce((s, a) => s.plus(a.amountApplied), new Decimal(0));
+    if (total.greaterThan(remanente)) {
+      throw new ValidationError(
+        `El pago ${pago.payment_number} tiene ${remanente.toFixed(2)} sin aplicar y se intentan ` +
+          `aplicar ${total.toFixed(2)}: el saldo a cuenta no alcanza.`
+      );
+    }
+
+    const documentos: DocumentoAplicado[] = [];
+    const posteriores: AplicacionPosterior[] = [];
+    const filas: { allocId: string; billId: string }[] = [];
+    let condonadoTotal = new Decimal(0);
+    const fueraDeTerminos: string[] = [];
+
+    for (const app of aplicaciones) {
+      const r = await client.query<{
+        id: string; bill_number: string; amount_due: string; status: string;
+        currency_code: string; tax_amount: string; total_amount: string;
+        cfdi_uuid: string | null; terms: string | null; memo: string | null;
+        bill_date: Date;
+      }>(
+        `SELECT id, bill_number, amount_due, status, currency_code,
+                tax_amount, total_amount, cfdi_uuid, terms, memo, bill_date
+           FROM bills WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+        [app.documentId, entityId]
+      );
+      if (r.rows.length === 0) throw new NotFoundError('Bill', app.documentId);
+      const bill = r.rows[0];
+      if (!PAGABLES.includes(bill.status as (typeof PAGABLES)[number])) {
+        throw new ValidationError(
+          `${bill.bill_number} está en "${bill.status}" y sólo se puede aplicar a un gasto ` +
+            `${PAGABLES.join(', ')}.`
+        );
+      }
+      assertMoneda(bill.bill_number, bill.currency_code, pago.currency_code);
+
+      const aplicado = new Decimal(app.amountApplied);
+      const descuento = new Decimal(app.discountAmount ?? '0');
+      const extingue = aplicado.plus(descuento);
+      const saldo = new Decimal(bill.amount_due);
+      if (extingue.greaterThan(saldo)) {
+        throw new ValidationError(
+          `${bill.bill_number} debe ${saldo.toFixed(2)} y se intentan extinguir ${extingue.toFixed(2)} ` +
+            `(${aplicado.toFixed(2)} de efectivo + ${descuento.toFixed(2)} de descuento).`
+        );
+      }
+      // ── EL DESCUENTO, CONTRA LO QUE LAS CONDICIONES OTORGAN ──────────
+      //
+      // `earlyPaymentDiscount` sabe leer un `2/10 net 30` y decir cuánto da
+      // derecho a descontar quien paga en tal fecha. Llevaba desde que se
+      // retiró el programador de pagos sin un solo llamador —la deuda que el
+      // plan mandaba «cablear o retirar»— mientras el descuento se aceptaba
+      // a ojo. Aquí es donde vuelve a servir: tomar MÁS de lo que las
+      // condiciones conceden no es un descuento, es pagar de menos, y para
+      // eso está `--mode residual`, que exige motivo escrito.
+      if (descuento.greaterThan(0)) {
+        const derecho = earlyPaymentDiscount(
+          { amount_due: bill.amount_due, bill_date: bill.bill_date, terms: bill.terms },
+          new Date(pago.payment_date).toISOString().slice(0, 10)
+        );
+        if (derecho.applied && descuento.greaterThan(derecho.discountAmount)) {
+          throw new ValidationError(
+            `${bill.bill_number} concede ${new Decimal(derecho.discountAmount).toFixed(2)} de ` +
+              `descuento por pronto pago ("${bill.terms}") y se están tomando ` +
+              `${descuento.toFixed(2)}. La diferencia no es descuento: es pagar de menos. ` +
+              'Si es deliberado, dilo con --mode residual --short-pay-reason.'
+          );
+        }
+        // Sin condiciones de pronto pago, o fuera de la ventana, el descuento
+        // es una deducción NEGOCIADA. Se admite y se reporta como tal.
+        if (!derecho.applied) fueraDeTerminos.push(bill.bill_number);
+      }
+
+      // Lo que sobra tras el efectivo y el descuento. En modo `residual` deja
+      // de deberse aquí mismo; en `partial` sigue vivo y el gasto queda abierto.
+      const condonado = residual ? saldo.minus(extingue) : new Decimal(0);
+      const baja = extingue.plus(condonado);
+      condonadoTotal = condonadoTotal.plus(condonado);
+
+      // Lo aplicado al gasto ANTES de este evento: la base del objetivo
+      // acumulado del IVA, para que las parciales no deriven.
+      const prev = await client.query<{ aplicado: string }>(
+        `SELECT COALESCE(SUM(amount_applied), 0)::text AS aplicado
+           FROM payment_applications WHERE bill_id = $1`,
+        [app.documentId]
+      );
+
+      const allocId = uuidv4();
+      await client.query(
+        `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied, discount_amount)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [allocId, paymentId, app.documentId, app.amountApplied, descuento.toFixed(4)]
+      );
+      // amount_paid recibe SÓLO el efectivo; el saldo baja por los tres —
+      // efectivo, descuento y condonación. Un descuento no es dinero cobrado
+      // y una condonación menos aún: contarlos como pagados inflaría lo que
+      // el proveedor recibió y descuadraría la conciliación de banco.
+      await client.query(
+        `UPDATE bills SET
+           amount_paid = amount_paid + $1,
+           amount_due  = amount_due - $2,
+           status = CASE WHEN amount_due - $2 <= 0 THEN 'paid' ELSE 'partially_paid' END,
+           last_payment_date = $3
+         WHERE id = $4 AND entity_id = $5`,
+        [app.amountApplied, baja.toFixed(4), new Date(), app.documentId, entityId]
+      );
+
+      const nuevo = saldo.minus(baja);
+      documentos.push({
+        id: bill.id, numero: bill.bill_number,
+        saldoAnterior: saldo.toFixed(2), saldoNuevo: nuevo.toFixed(2),
+        estado: nuevo.lessThanOrEqualTo(0) ? 'paid' : 'partially_paid',
+        moneda: bill.currency_code,
+      });
+      posteriores.push({
+        invoiceId: bill.id,
+        invoiceNumber: bill.bill_number,
+        amount: aplicado.toFixed(4),
+        discount: descuento.toFixed(4),
+        writeOff: condonado.toFixed(4),
+        priorApplied: prev.rows[0]?.aplicado ?? '0',
+        taxAmount: bill.tax_amount,
+        totalAmount: bill.total_amount,
+        cfdiUuid: bill.cfdi_uuid,
+        terms: bill.terms,
+        memo: bill.memo,
+      });
+      filas.push({ allocId, billId: bill.id });
+    }
+
+    const { entry, ivaPorGasto, ivaNoAcreditablePorGasto } = await postVendorApplicationEntry(
+      client,
+      {
+        id: pago.id, entity_id: entityId, payment_number: pago.payment_number,
+        payment_amount: pago.payment_amount, payment_date: pago.payment_date,
+        bank_account_id: pago.bank_account_id, journal_entry_id: null,
+      },
+      posteriores,
+      userId,
+      cuentaCondonacion ?? undefined
+    );
+    for (const fila of filas) {
+      const iva = ivaPorGasto.get(fila.billId);
+      if (iva) {
+        await client.query(
+          `UPDATE payment_applications SET iva_reclass_amount = $1 WHERE id = $2`,
+          [iva, fila.allocId]
+        );
+      }
+    }
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entityId),
+      userId,
+      action: 'update',
+      entityType: 'vendor_payments',
+      entityId: paymentId,
+      newValues: {
+        evento: 'apply',
+        aplicado: total.toFixed(2),
+        documentos: documentos.length,
+        journal_entry_id: entry.id,
+        // El pago corto se anota en la bitácora CON SU MOTIVO: es la única
+        // huella de por qué un pasivo dejó de existir sin haberse pagado.
+        ...(condonadoTotal.greaterThan(0)
+          ? {
+              condonado: condonadoTotal.toFixed(2),
+              cuenta_condonacion: cuentaCondonacion,
+              short_pay_reason: opts.shortPayReason,
+              politica_definida: politica?.defined ?? false,
+            }
+          : {}),
+      },
+    });
+
+    const salida: ResultadoAplicacionProveedor = {
+      paymentId, paymentNumber: pago.payment_number, journalEntry: entry,
+      attestation: { entityId, entryId: entry.id },
+      documentos,
+      remanenteAnterior: remanente.toFixed(2),
+      remanenteNuevo: remanente.minus(total).toFixed(2),
+      condonado: condonadoTotal.toFixed(2),
+      cuentaCondonacion: condonadoTotal.greaterThan(0) ? cuentaCondonacion : null,
+      ivaNoAcreditable: [...ivaNoAcreditablePorGasto.values()]
+        .reduce((s2, v) => s2.plus(v), new Decimal(0))
+        .toFixed(2),
+      politicaDefinida: politica?.defined ?? false,
+      descuentosFueraDeTerminos: fueraDeTerminos,
     };
     if (opts.dryRun) throw new EnsayoEvento(salida);
     return salida;

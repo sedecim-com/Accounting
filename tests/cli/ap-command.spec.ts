@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { registerVendorCommand } from '../../src/cli/vendor-command.js';
 import { registerBillCommand, parseLineSpec } from '../../src/cli/bill-command.js';
+import { registerApCommand } from '../../src/cli/ap-command.js';
 import { riskOf, declareRisk } from '../../src/cli/kernel/risk.js';
 import { VERBS } from '../../src/cli/kernel/vocabulary.js';
 
@@ -41,12 +42,17 @@ const risks = new Map<string, ReturnType<typeof riskOf>>();
 const LEAVES = [
   'vendor list', 'vendor show', 'vendor create', 'vendor edit', 'vendor terms set',
   'bill list', 'bill show', 'bill create', 'bill line set', 'bill approve',
+  // F04: la bandeja de CFDI —por donde entra el mes— y el cuadre del subdiario
+  // contra la cuenta de control, que es con lo que se cierra CxP.
+  'bill inbox list', 'bill inbox run',
+  'ap reconcile',
 ];
 
 beforeAll(() => {
   program = new Command('mnemosine');
   registerVendorCommand(program, deps);
   registerBillCommand(program, deps);
+  registerApCommand(program, deps);
   violations = auditProgram(program);
   for (const path of LEAVES) risks.set(path, riskOf(find(path)));
 });
@@ -63,7 +69,7 @@ function find(path: string): Command {
 
 describe('the rulebook', () => {
   it('registers without declareRisk refusing anything', () => {
-    expect(program.commands.map((c) => c.name()).sort()).toEqual(['bill', 'vendor']);
+    expect(program.commands.map((c) => c.name()).sort()).toEqual(['ap', 'bill', 'vendor']);
   });
 
   it('passes the consistency audit with no violations', () => {
@@ -102,6 +108,11 @@ describe('the bilingual surface', () => {
     'bill line': 'linea',
     'bill line set': 'fijar',
     'bill approve': 'aprobar',
+    'bill inbox': 'bandeja',
+    'bill inbox list': 'listar',
+    'bill inbox run': 'ejecutar',
+    ap: 'cxp',
+    'ap reconcile': 'conciliar',
   };
 
   it('gives every command exactly one Spanish alias', () => {
@@ -127,12 +138,22 @@ describe('the bilingual surface', () => {
 
 describe('safety declarations', () => {
   it('lets the agent read and nothing else', () => {
-    const agentAllowed = ['vendor list', 'vendor show', 'bill list', 'bill show'];
+    const agentAllowed = [
+      'vendor list', 'vendor show', 'bill list', 'bill show',
+      // La bandeja se LEE sin riesgo; ejecutarla crea pasivos y contrapartes.
+      'bill inbox list', 'ap reconcile',
+    ];
     for (const path of agentAllowed) {
       expect(risks.get(path)?.risk, path).toBe('lectura');
       expect(risks.get(path)?.agentAllowed, path).toBe(true);
     }
-    for (const path of ['vendor create', 'vendor edit', 'vendor terms set', 'bill create', 'bill line set', 'bill approve']) {
+    for (const path of [
+      'vendor create', 'vendor edit', 'vendor terms set',
+      'bill create', 'bill line set', 'bill approve',
+      // `bill inbox run` contabiliza y puede dar de alta al emisor del CFDI:
+      // es la fila que el catálogo marca IA ✗ por el hueco de control.
+      'bill inbox run',
+    ]) {
       expect(risks.get(path)?.agentAllowed, path).toBe(false);
     }
   });
