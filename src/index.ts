@@ -262,6 +262,7 @@ async function bootstrap() {
       // toque la base. Que esta puerta esté fuera del prefijo auditado no es
       // razón para que además corra sin inquilino.
       tenantContext,
+      rateLimiter,
       expressMiddleware(apolloServer, {
         context: async ({ req }) => ({
           user: req.user,
