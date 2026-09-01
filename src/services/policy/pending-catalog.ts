@@ -339,6 +339,7 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'intervention when the confidence, amount, and known-vendor thresholds are met.',
     options: [
       { value: 'off', label: 'Off: everything goes to human review' },
+      { value: 'shadow', label: 'Shadow: run every gate, record the verdict, post NOTHING — builds the track record' },
       { value: 'on', label: 'On with the configured thresholds' },
     ],
     defaultValue: 'off',

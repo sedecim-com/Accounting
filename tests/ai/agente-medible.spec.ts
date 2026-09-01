@@ -129,7 +129,9 @@ describe('estadisticasDelAgente', () => {
           { kind: 'sospecha', n: 2 },
           { kind: 'failover', n: 1 },
         ],
-      });
+      })
+      // A4: la consulta de concordancia sombra (sin veredictos aún).
+      .mockResolvedValueOnce({ rows: [{ veredictos: 0, decididos: 0, acuerdos: 0, dias: 0 }] });
 
     const est = await estadisticasDelAgente(CTX);
     const b = est.buckets[0];
@@ -158,7 +160,8 @@ describe('estadisticasDelAgente', () => {
       })
       .mockResolvedValueOnce({ rows: [{ corridas: 0, borradores: 0, costo_total: null, sospechas: 0 }] })
       .mockResolvedValueOnce({ rows: [{ llamadas: 0, promedio: null, p95: null }] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ veredictos: 0, decididos: 0, acuerdos: 0, dias: 0 }] });
 
     const est = await estadisticasDelAgente(CTX);
     expect(est.buckets[0].tasa_aprobacion).toBeNull();

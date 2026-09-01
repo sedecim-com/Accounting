@@ -15,6 +15,19 @@ import type { AgentContext } from '../../../src/ai/context.js';
 import type { DraftCreatedInfo } from '../../../src/ai/tools/observer.js';
 import type { BetaTool, BetaToolResultContentBlockParam } from '@anthropic-ai/sdk/resources/beta';
 
+// A3: los resultados con datos de terceros viajan envueltos en marcadores
+// UNTRUSTED; parsear = des-envolver primero. Los sin envoltura pasan igual.
+function parseResultado(r: string): any {
+  const abre = r.indexOf('<<<UNTRUSTED_CFDI_DATA>>>');
+  if (abre < 0) return JSON.parse(r);
+  const cuerpo = r.slice(
+    abre + '<<<UNTRUSTED_CFDI_DATA>>>'.length,
+    r.lastIndexOf('<<<END_UNTRUSTED_CFDI_DATA>>>')
+  );
+  return JSON.parse(cuerpo);
+}
+
+
 /**
  * The concrete shape `betaZodTool` produces: a plain `BetaTool` plus `run`.
  * The builders return a union over many different input schemas and a tool is
@@ -69,7 +82,7 @@ describe('draft_journal_entry tool', () => {
     mockCreateDraft.mockResolvedValueOnce({ id: 'draft-1', totalDebits: '10000.00', totalCredits: '10000.00' });
     const created: unknown[] = [];
     const out = await getTool('draft_journal_entry', (info) => created.push(info)).run(INPUT);
-    const parsed = JSON.parse(out as string);
+    const parsed = parseResultado(out as string);
     expect(parsed.draft_id).toBe('draft-1');
     expect(parsed.status).toBe('pending_review');
     expect(parsed.message).toMatch(/mnemosine review/);
@@ -109,7 +122,7 @@ describe('list_drafts tool', () => {
         ai_confidence: '0.90', journal_entry_id: null, review_notes: 'Wrong account',
       },
     ]);
-    const parsed = JSON.parse((await getTool('list_drafts').run({ status: 'rejected' })) as string);
+    const parsed = parseResultado((await getTool('list_drafts').run({ status: 'rejected' })) as string);
     expect(parsed.count).toBe(1);
     expect(parsed.drafts[0].review_notes).toBe('Wrong account');
     expect(mockListDrafts.mock.calls[0][1]).toBe('rejected');

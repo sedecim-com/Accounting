@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { query } from '../database/connection.js';
+import { concordanciaSombra, type ConcordanciaSombra } from './shadow-verdicts.js';
 import type { AgentContext } from './context.js';
 
 // ============================================================
@@ -61,6 +62,8 @@ export interface ResumenAgente {
 export interface EstadisticasAgente {
   buckets: BucketCalibracion[];
   resumen: ResumenAgente;
+  /** A4: el historial de sombra — la evidencia que resolvePolicy exige para 'on'. */
+  sombra: ConcordanciaSombra;
 }
 
 interface BucketRow {
@@ -165,8 +168,10 @@ export async function estadisticasDelAgente(ctx: AgentContext): Promise<Estadist
   for (const e of eventos.rows) porKind[e.kind] = e.n;
 
   const costoTotal = cr.costo_total === null ? null : new Decimal(cr.costo_total);
+  const sombra = await concordanciaSombra(ctx);
   return {
     buckets,
+    sombra,
     resumen: {
       borradores_total: borradoresTotal,
       decididos,

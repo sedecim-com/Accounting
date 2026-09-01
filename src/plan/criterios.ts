@@ -759,9 +759,12 @@ export const CRITERIOS: Criterio[] = [
       // calculateBenefitsForPaycheck → F08; checkSoDViolations → decisión §5
       // (maker-checker); autoApproveDraftByPolicy → A3 (un solo autorizador).
       const HUERFANOS_CONGELADOS: Record<string, string> = {
+        // El gemelo del que pagó en A3: mismo motor (matchApproval), brazo
+        // external_op. Su consumidor llega con el ejecutor DESATENDIDO del
+        // outbox (hoy `outbox run` es humano y no necesita política).
+        autoExecuteOpByPolicy: 'external-service.ts',
         earlyPaymentDiscount: 'bill-service.ts',
         calculateBenefitsForPaycheck: 'benefits-service.ts',
-              autoApproveDraftByPolicy: 'draft-service.ts',
       };
       const conConsumidor = Object.entries(HUERFANOS_CONGELADOS)
         .filter(([simbolo, archivo]) => consumidoresDe(simbolo, archivo).length > 0)
@@ -2119,6 +2122,142 @@ export const CRITERIOS: Criterio[] = [
       return /this\.onNudge\?\.\(\)/.test(codigoDe('src/ai/grounding.ts'))
         ? ok('duración en los dos runners y el ledger, corridas de ingesta con consumo, y los tres eventos cableados')
         : falla('el guard de grounding dejó de avisar el nudge: el contador quedaría siempre en cero');
+    },
+  },
+
+  {
+    paquete: 'E5.1',
+    enunciado: 'Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre',
+    evaluar: () => {
+      // A3: había DOS autorizadores — matchApprovalPolicy con toda la
+      // jurisprudencia (tope del operador vía Math.min, revocación,
+      // last_used_at) y un gemelo huérfano que la ingesta no usaba. La
+      // ingesta migró a la vía única: cuando una compuerta DISCRECIONAL no
+      // basta, autoApproveDraftByPolicy tiene su oportunidad; las de
+      // INTEGRIDAD retornan antes y jamás llegan ahí.
+      const ing = codigoDe('src/ai/ingest-service.ts');
+      // Forma de LLAMADA con el default (la lección de la firma-como-
+      // callsite): el seam de pruebas debe caer al autorizador real, no a
+      // un stub que aprobaría sin jurisprudencia.
+      if (!/opts\.deps\?\.autoApproveByPolicy \?\? autoApproveDraftByPolicy/.test(ing)) {
+        return falla('la ingesta dejó de caer al autorizador real: el seam de pruebas se volvió el camino de producción');
+      }
+      if (!/configuredMaxAmount: floorMaxAutoAmount\(thresholds\.maxAmount\)/.test(ing)) {
+        return falla('la vía de política perdió el tope obligatorio del operador: una política podría autorizar por encima');
+      }
+      if (!/if \(veredicto\.integridad\)/.test(ing)) {
+        return falla('la integridad dejó de retornar antes de la política: sospecha, multi-draft, moneda o cuadre se volverían negociables');
+      }
+      if (!/instanceof NoMatchingApprovalPolicyError/.test(ing)) {
+        return falla('el «no casó» perdió el nombre: no se distinguiría de «casó y falló al aplicarse»');
+      }
+      // El huérfano pagó: la ingesta IMPORTA el autorizador del servicio de
+      // borradores (si este import muere, E0.2 debe recongelar el símbolo).
+      if (!/import\s*\{[^}]*\bautoApproveDraftByPolicy\b[^}]*\}\s*from '\.\/draft-service\.js'/.test(ing)) {
+        return falla('la ingesta ya no importa autoApproveDraftByPolicy: volvería a haber dos autorizadores o ninguno');
+      }
+      return /code = 'NO_MATCHING_APPROVAL_POLICY'/.test(codigoDe('src/ai/draft-service.ts'))
+        ? ok('vía única con tope floor-clampeado, integridad no negociable y NoMatchingApprovalPolicyError con código')
+        : falla('el error de política sin casar perdió su código: los llamadores volverían a comparar strings');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'El presupuesto corta donde nacen las sesiones, y desatendido el tope es tope',
+    evaluar: () => {
+      // A3 (spec E5.1-e): presupuesto opt-in por archivo de config, pero con
+      // un default que distingue rutas: con humano enfrente, warn; en ruta
+      // DESATENDIDA (grounding apagado = nadie mira), block — «solo avisa»
+      // significa que no hay tope. Y el corte vive en el ÚNICO sitio donde
+      // nacen las sesiones, no repartido por los llamadores.
+      if (!existe('src/ai/budget.ts')) return falla('budget.ts no existe: el gasto del agente no tiene tope posible');
+      const b = codigoDe('src/ai/budget.ts');
+      if (!/opts\.unattended \? 'block' : 'warn'/.test(b)) {
+        return falla('la ruta desatendida perdió su default block: un agente sin humano enfrente correría sin tope real');
+      }
+      if (!/code = 'AI_BUDGET_EXCEEDED'/.test(b)) {
+        return falla('BudgetExceededError perdió su código: los llamadores no distinguirían tope de cualquier otro error');
+      }
+      // Declarado Y usado en la comparación (conteo, no presencia): mutar el
+      // umbral del aviso dejando la constante viva pasa un chequeo laxo.
+      if ((b.match(/BUDGET_WARN_RATIO/g) ?? []).length < 2) {
+        return falla('el aviso del 80% dejó de compararse: el usuario se enteraría del tope al chocar con él');
+      }
+      if (!/sin medición/.test(b)) {
+        return falla('block dejó de ser cerrado ante una base que no responde: un tope que no puede medirse no debe fingir que midió');
+      }
+      const prov = codigoDe('src/ai/providers/index.ts');
+      if (!/const unattended = opts\.grounding\?\.enabled === false/.test(prov)) {
+        return falla('la señal de desatendido se desconectó del grounding: la ruta sin humano dejaría de reconocerse');
+      }
+      if (!/await assertWithinBudget\(ctx, opts\.cwd, \{ unattended \}\)/.test(prov)) {
+        return falla('createLlmSession dejó de pasar por el presupuesto: el chokepoint tiene un desvío');
+      }
+      // El decorador muerde al ENTRAR a cada turno: un cruce a mitad de
+      // sesión corta sin esperar a la siguiente sesión.
+      if (!/guard\.check\(\);\s*return session\.runTurn\(/.test(prov)) {
+        return falla('withBudgetGuard dejó de checar por turno: un cruce a mitad de sesión seguiría gastando');
+      }
+      return /return withBudgetGuard\(session, guard\)/.test(prov)
+        ? ok('presupuesto opt-in con block por default en desatendido, cerrado sin medición, y el guard muerde cada turno en el chokepoint')
+        : falla('la sesión sale sin decorar: el guard existiría sin morder');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'La sombra opina sin postear, y encender el auto-posteo exige su historial',
+    evaluar: () => {
+      // A4: autoPost 'shadow' corre TODAS las compuertas, registra el
+      // veredicto y no postea nada. La concordancia cruza esos veredictos
+      // contra decisiones HUMANAS (nunca contra el propio umbral ni contra
+      // políticas), y resolvePolicy exige ese historial antes de aceptar
+      // 'on': el encendido es una decisión con evidencia, no una casilla.
+      const m = 'src/database/migrations/047_el_veredicto_de_la_sombra.sql';
+      if (!existe(m)) return falla('la 047 desapareció: la sombra no tendría dónde opinar');
+      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      if (!/CREATE TABLE ai_shadow_verdicts/.test(sql) || !/UNIQUE \(draft_id\)/.test(sql)) {
+        return falla('ai_shadow_verdicts perdió la unicidad por borrador: una sombra que opina dos veces infla su propia concordancia');
+      }
+      const ing = codigoDe('src/ai/ingest-service.ts');
+      if (!/const modoSombra = thresholds\.sombra === true && !thresholds\.autoPost/.test(ing)) {
+        return falla("la sombra dejó de excluir autoPost encendido: 'shadow' sólo tiene sentido cuando nada postea");
+      }
+      // El MISMO evaluador para el modo real y la sombra: el veredicto
+      // registrado sale de evaluarAutoPost, no de una copia que diverge.
+      if (!/wouldAutoPost: veredicto\.procede/.test(ing)) {
+        return falla('la sombra dejó de registrar el veredicto del evaluador compartido: mediría un clasificador que no es el real');
+      }
+      const sv = codigoDe('src/ai/shadow-verdicts.ts');
+      if (!/ON CONFLICT \(draft_id\) DO NOTHING/.test(sv)) {
+        return falla('el registro del veredicto perdió su idempotencia: reintentos duplicarían opiniones');
+      }
+      // Conteos ×2 (numerador Y denominador excluyen máquina): mutar uno
+      // dejando el otro pasa un chequeo de presencia — la lección de R1.
+      const notasAuto = (sv.match(/'auto-post by threshold%'/g) ?? []).length;
+      const prefPol = (sv.match(/'policy:%'/g) ?? []).length;
+      if (notasAuto < 2 || prefPol < 2) {
+        return falla(
+          `la concordancia volvería a contar decisiones de máquina (nota auto ×${notasAuto}, prefijo policy ×${prefPol}): el agente se calificaría a sí mismo`
+        );
+      }
+      const ps = codigoDe('src/services/policy/policy-service.ts');
+      if (!/key === 'ingest_auto_post' && value === 'on'/.test(ps)) {
+        return falla("la compuerta de evidencia desapareció de resolvePolicy: 'on' volvería a ser una casilla sin historial");
+      }
+      // Las TRES varas del piso, cada una comparada de verdad.
+      if (
+        !/c\.dias_con_veredictos < FLOOR_SOMBRA_DIAS/.test(ps) ||
+        !/c\.decididos < FLOOR_SOMBRA_VEREDICTOS/.test(ps) ||
+        !/acuerdo < FLOOR_SOMBRA_ACUERDO/.test(ps)
+      ) {
+        return falla('el piso del encendido perdió una de sus tres varas (días, volumen decidido, acuerdo)');
+      }
+      if (!/polAuto\.defined && polAuto\.value === 'shadow'/.test(codigoDe('src/ai/ingest-thresholds.ts'))) {
+        return falla('la sombra dejó de ser SOLO del panel: un literal suelto en el archivo de config no debe encenderla');
+      }
+      return /value: 'shadow'/.test(codigoDe('src/services/policy/pending-catalog.ts'))
+        ? ok('sombra panel-only con veredicto único por borrador, concordancia sobre humanos y encendido con peaje de evidencia')
+        : falla('el panel perdió la opción shadow: el camino al encendido quedaría sin puerta');
     },
   },
 
