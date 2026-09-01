@@ -86,6 +86,31 @@ describe('postJournalEntry · candados', () => {
     await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/not found/i);
   });
 
+  it('PERIOD_NOT_FOUND: el periodo desapareció en vuelo y nada toca saldos', async () => {
+    const cf = (arnes.actual = clienteFalso([
+      AUDITORIA,
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [asientoFalso()] } },
+      { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
+      { cuando: /SELECT status, period_name FROM fiscal_periods WHERE id = \$1 FOR SHARE/, responde: { rows: [] } },
+    ]));
+    await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/Fiscal period not found/);
+    expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(0);
+  });
+
+  it('PERIOD_CLOSED: cerró mientras el asiento volaba — el mensaje lo dice y nada se postea', async () => {
+    const cf = (arnes.actual = clienteFalso([
+      AUDITORIA,
+      { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [asientoFalso()] } },
+      { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
+      {
+        cuando: /SELECT status, period_name FROM fiscal_periods WHERE id = \$1 FOR SHARE/,
+        responde: { rows: [{ status: 'hard_close', period_name: 'Agosto 2026' }] },
+      },
+    ]));
+    await expect(postJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/closed while this entry was in flight/);
+    expect(cf.coincidencias(/UPDATE journal_entries/)).toHaveLength(0);
+  });
+
   it('valida antes de postear: si falla, ni UPDATE ni saldos', async () => {
     validateJournalEntry.mockResolvedValue({ isValid: false, errors: ['desbalanceado'], warnings: [] });
     const cf = (arnes.actual = reglas(asientoFalso()));
@@ -188,6 +213,14 @@ describe('reverseJournalEntry · NIF B-1', () => {
     expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(0);
   });
 
+  it('rechaza ENTRY_NOT_FOUND si el asiento a reversar no existe', async () => {
+    arnes.actual = clienteFalso([
+      AUDITORIA,
+      { cuando: /FOR UPDATE/, responde: { rows: [] } },
+    ]);
+    await expect(reverseJournalEntry(ID.asiento, ID.usuario)).rejects.toThrow(/not found/i);
+  });
+
   it('crea el espejo con las columnas invertidas y lo marca como reversa', async () => {
     const cf = (arnes.actual = reglasReversa(asientoFalso({ status: 'posted' } as Partial<JournalEntry>)));
     await reverseJournalEntry(ID.asiento, ID.usuario, { reason: 'error de captura' });
@@ -268,6 +301,14 @@ describe('voidJournalEntry · el estado void es solo para borradores', () => {
       { cuando: /FOR UPDATE/, responde: { rows: [asientoFalso({ status: 'void' } as Partial<JournalEntry>)] } },
     ]);
     await expect(voidJournalEntry(ID.asiento, ID.usuario, 'otra vez')).rejects.toThrow(/already voided/i);
+  });
+
+  it('voidJournalEntryInTx rechaza ENTRY_NOT_FOUND si el asiento no existe', async () => {
+    const cf = clienteFalso([
+      AUDITORIA,
+      { cuando: /FOR UPDATE/, responde: { rows: [] } },
+    ]);
+    await expect(voidJournalEntryInTx(cf.client, ID.asiento, ID.usuario, 'no existe')).rejects.toThrow(/not found/i);
   });
 
   it('voidJournalEntryInTx corre sobre el cliente del llamador y devuelve el espejo', async () => {

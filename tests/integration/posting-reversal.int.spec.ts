@@ -72,7 +72,13 @@ describe('reversa y anulación contra Postgres real', () => {
     const original = await asientoPosteado('777.00');
     expect(await saldoDe(f.roles.banco, f.periodos[8])).toBeCloseTo(antes + 777, 4);
 
-    await reverseJournalEntry(original.id, f.userId);
+    // La fecha del espejo va FIJADA al periodo que la aserción mide: por
+    // omisión la reversa postea a new Date(), y el 2026-09-01 UTC el espejo
+    // cayó en el periodo SIGUIENTE — el saldo de agosto se quedó con los
+    // +777 y CI lo vio antes que nadie (en local aún era 31 de agosto).
+    // Reversar «hoy» es la semántica correcta del motor; lo que esta prueba
+    // afirma es el neto en el MISMO periodo, así que lo pide explícito.
+    await reverseJournalEntry(original.id, f.userId, { reversalDate: fechaEnPeriodo() });
     expect(await saldoDe(f.roles.banco, f.periodos[8])).toBeCloseTo(antes, 4);
   });
 
