@@ -551,6 +551,108 @@ export const CRITERIOS: Criterio[] = [
         : falla('el cierre suave volvió a fotografiar el checklist fuera de su transacción');
     },
   },
+  {
+    paquete: 'E0.1',
+    enunciado: 'Ningún posteo paga el refresco de las vistas de reporte de todos',
+    evaluar: () => {
+      // R3 (decidido en el plan de cierre, ejecutado aquí): el trigger de la
+      // 004 refrescaba DOS vistas globales —cross-join de todos los
+      // inquilinos— dentro de cada transacción de posteo, serializando
+      // posteos de inquilinos distintos entre sí. El orden de migraciones es
+      // la verdad: el último acto sobre el trigger debe ser el DROP, y el
+      // camino de reemplazo (refresh_reporting_views + report view sync +
+      // detector de deriva) debe seguir vivo.
+      const dir = 'src/database/migrations';
+      const sql = fs
+        .readdirSync(rutaDe(dir))
+        .sort()
+        .map((m) => fs.readFileSync(rutaDe(dir, m), 'utf-8'))
+        .join('\n');
+      const ultimaCreacion = sql.lastIndexOf('CREATE TRIGGER trg_refresh_materialized_views');
+      const ultimoDrop = sql.lastIndexOf('DROP TRIGGER IF EXISTS trg_refresh_materialized_views');
+      if (ultimoDrop < 0 || ultimoDrop < ultimaCreacion) {
+        return falla(
+          'el trigger de refresco sigue vivo al final de la cadena de migraciones: cada posteo vuelve a pagar el reporte de todos'
+        );
+      }
+      if (!/refresh_reporting_views/.test(sql)) {
+        return falla('el refresco callable (031) desapareció: no queda camino de refresco');
+      }
+      return /refreshReportingViews/.test(codigoDe('src/cli/report-command.ts'))
+        ? ok('el trigger cayó (042) y el refresco vive en el callable + report view sync + detector de deriva')
+        : falla('el comando de refresco desapareció: las vistas sólo se refrescarían a mano por SQL');
+    },
+  },
+  {
+    paquete: 'E0.1',
+    enunciado: 'La serie del folio la fija la fecha del documento, no el reloj',
+    evaluar: () => {
+      // R3: «JE-2026-00042» insinuaba serie anual y el año lo ponía el
+      // reloj, con un contador que jamás se reiniciaba — un asiento de
+      // diciembre capturado en enero salía en la serie del año nuevo
+      // continuando la cuenta del viejo. Decidido ANTES del primer cruce de
+      // ejercicio con datos reales.
+      const s = codigoDe('src/utils/sequence.ts');
+      // El tramo de nextEntityNumber en concreto: la firma de añoDeDocumento
+      // también dice `fecha: Date | string` y dio verde a la mutación que
+      // volvía opcional la fecha del folio — anclar al símbolo equivocado es
+      // el primo del regex que casa el import.
+      const iNext = s.indexOf('export async function nextEntityNumber');
+      const tramoNext = iNext >= 0 ? s.slice(iNext, s.indexOf('export', iNext + 10)) : '';
+      if (!/fecha:\s*Date \| string/.test(tramoNext)) {
+        return falla('nextEntityNumber ya no exige la fecha del documento: el reloj vuelve a foliar');
+      }
+      if (!/\$\{name\}_\$\{año\}/.test(s)) {
+        return falla('la llave del contador perdió el año: la serie vuelve a ser una sola cuenta eterna');
+      }
+      if (!/^\s*const m = \/\^\(\\d\{4\}\)-\\d\{2\}-\\d\{2\}\/\.exec/m.test(s) && !/exec\(String\(fecha\)/.test(s)) {
+        return falla('añoDeDocumento dejó de leer la cadena sin pasar por Date: el 31-dic retrocede de año al oeste de Greenwich');
+      }
+      const m = 'src/database/migrations/043_la_serie_del_folio_por_ejercicio.sql';
+      if (!existe(m)) return falla('la 043 desapareció: los contadores anuales arrancarían en 1 y colisionarían con lo emitido');
+      const siembra = fs.readFileSync(rutaDe(m), 'utf-8');
+      const inserts = (siembra.match(/INSERT INTO entity_sequences/g) ?? []).length;
+      return inserts >= 5 && /GREATEST/.test(siembra)
+        ? ok('la fecha del documento fija año y contador (llave anual), con la siembra desde los folios reales')
+        : falla(`la siembra de la 043 no cubre las cinco series (${inserts}) o perdió el GREATEST`);
+    },
+  },
+
+  {
+    paquete: 'E0.1',
+    enunciado: 'El refresco de las materializadas ve el clúster entero, no el inquilino de la sesión',
+    evaluar: () => {
+      // R3, medido por el detector de deriva: con las 'm' reasignadas a
+      // mnemosine_owner (NOBYPASSRLS, RLS forzada), REFRESH corría la
+      // consulta definitoria con los lentes del inquilino casual de la
+      // sesión — refresh_reporting_views() devolvía «hecho» y dejaba la
+      // vista global VACÍA. El dueño de régimen de una materializada es
+      // mnemosine_refresher: NOLOGIN (nadie se conecta con él) y BYPASSRLS
+      // (el refresco ve a todos, que es su única función). Las planas
+      // siguen con el operador: ésas SÍ re-corren su consulta al leerse.
+      const prov = codigoDe('scripts/provision-roles.sql');
+      const lineaRol = /CREATE ROLE mnemosine_refresher[^;]*;/.exec(prov)?.[0] ?? '';
+      // (?<!NO)BYPASSRLS: «NOBYPASSRLS» contiene «BYPASSRLS» y un regex
+      // ingenuo daría verde al mutante que apaga el bypass.
+      if (!/NOLOGIN/.test(lineaRol) || !/(?<!NO)BYPASSRLS/.test(lineaRol)) {
+        return falla('mnemosine_refresher perdió NOLOGIN o BYPASSRLS: el refresco vuelve a mirar por los lentes de un inquilino');
+      }
+      if (!/GRANT mnemosine_refresher TO mnemosine_owner/.test(prov)) {
+        return falla('sin la membresía, refresh_reporting_views() (definer del operador) no pasa el chequeo de propiedad del REFRESH');
+      }
+      const pol = codigoDe('src/database/rls-policies.sql');
+      if (!/'m' THEN 'mnemosine_refresher'/.test(pol) || !/ELSE 'mnemosine_owner'/.test(pol)) {
+        return falla('el reconciliador dejó de repartir dueños por tipo: o la materializada refresca filtrada o la plana vuelve a leer sin RLS');
+      }
+      const ver = codigoDe('scripts/verify-isolation.sh');
+      if (!/relkind = 'm'/.test(ver) || !/<> 'mnemosine_refresher'/.test(ver)) {
+        return falla('verify-isolation dejó de comprobar el dueño de las materializadas');
+      }
+      return /CREATE ROLE mnemosine_refresher/.test(codigoDe('tests/integration/global-setup.ts'))
+        ? ok('las «m» son del refresher (NOLOGIN+BYPASSRLS), las «v» del operador, y CI lo prueba de punta a punta')
+        : falla('la base efímera de integración nace sin refresher: la suite dejaría de probar el refresco real');
+    },
+  },
 
   {
     paquete: 'E0.2',

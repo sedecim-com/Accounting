@@ -81,14 +81,26 @@ sin_politica=$(psql "$SUPERUSER_URL" -tAc "
                         WHERE p.polrelid = c.oid AND p.polname = 'tenant_isolation'))")
 check "todas las tablas con alcance tienen política" "$sin_politica" ""
 
-# Las vistas corren con los permisos de su dueño: una vista de un superusuario
-# sobre una tabla protegida se salta RLS.
+# Las vistas PLANAS corren su consulta con los permisos de su dueño en cada
+# lectura: una vista de un superusuario sobre una tabla protegida salta RLS.
 vistas_ajenas=$(psql "$SUPERUSER_URL" -tAc "
   SELECT coalesce(string_agg(c.relname, ', '), '')
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname='public' AND c.relkind IN ('v','m')
+  WHERE n.nspname='public' AND c.relkind = 'v'
     AND pg_get_userbyid(c.relowner) <> 'mnemosine_owner'")
-check "ninguna vista pertenece a un rol que ignore RLS" "$vistas_ajenas" ""
+check "ninguna vista plana pertenece a un rol que ignore RLS" "$vistas_ajenas" ""
+
+# Las MATERIALIZADAS son el caso contrario: leerlas no re-corre la consulta
+# (las aíslan GRANTs y WHERE, no políticas), pero el REFRESH corre como su
+# dueño — y un dueño sujeto a RLS reconstruye la vista global filtrada por
+# el inquilino casual de la sesión, o vacía. Su dueño de régimen es
+# mnemosine_refresher (NOLOGIN, BYPASSRLS).
+mv_ajenas=$(psql "$SUPERUSER_URL" -tAc "
+  SELECT coalesce(string_agg(c.relname, ', '), '')
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname='public' AND c.relkind = 'm'
+    AND pg_get_userbyid(c.relowner) <> 'mnemosine_refresher'")
+check "toda materializada pertenece al refresher que ve el clúster entero" "$mv_ajenas" ""
 
 # Una tabla sin permisos para la app rompe el comando que la toque, semanas
 # después y lejos de la migración que la creó. Pasó con siete.

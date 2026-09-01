@@ -51,6 +51,16 @@ export async function setup(): Promise<void> {
       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_verifier') THEN
         CREATE ROLE mnemosine_verifier NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
       END IF;
+      -- R3: el dueño de las vistas materializadas. El REFRESH corre la
+      -- consulta definitoria como el dueño de la vista; sin BYPASSRLS la
+      -- reconstruye filtrada por el inquilino casual de la sesión (o vacía).
+      -- NOLOGIN: nadie se conecta con él; solo existe para poseer las 'm'.
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_refresher') THEN
+        CREATE ROLE mnemosine_refresher NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB BYPASSRLS;
+      END IF;
+      IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_owner') THEN
+        GRANT mnemosine_refresher TO mnemosine_owner;
+      END IF;
     END $$`);
   await admin.end();
 

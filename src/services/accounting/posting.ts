@@ -109,7 +109,7 @@ export async function createJournalEntry(
     // Generate entry number (atomic per-entity counter; the row lock it
     // takes lives until this transaction commits, so concurrent posts can
     // never draw the same number — COUNT(*) here used to collide).
-    const entryNumber = await nextEntityNumber(client, entityId, 'journal_entry', 'JE');
+    const entryNumber = await nextEntityNumber(client, entityId, 'journal_entry', 'JE', entryDate);
 
     // Create journal entry
     const entryId = uuidv4();
