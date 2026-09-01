@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../database/connection.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
+import { resolvePeriod } from './fiscal-calendar-service.js';
 import type { Account } from '../../types/index.js';
 
 // ============================================================
@@ -404,8 +405,14 @@ export async function getAccountBalanceByPeriod(
   const params: unknown[] = [accountId, entityId];
   let i = 3;
   if (filtros.period) {
-    cond.push(`fp.period_name ILIKE $${i++}`);
-    params.push(`%${filtros.period}%`);
+    // Por id, no por texto: un `ILIKE` que no casa ningún periodo devuelve una
+    // lista vacía, y una lista vacía se lee como «esta cuenta no tuvo
+    // movimiento», que es una respuesta distinta de «no encontré ese periodo».
+    // `resolvePeriod` acepta uuid, «2026-08» o parte inequívoca del nombre, y
+    // se niega en vez de contestar sobre la nada.
+    const periodo = await resolvePeriod(entityId, filtros.period);
+    cond.push(`fp.id = $${i++}`);
+    params.push(periodo.id);
   }
   if (filtros.asOf) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(filtros.asOf)) {
