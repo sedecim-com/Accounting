@@ -11,6 +11,7 @@ import {
   VENDOR_UPDATABLE_FIELDS,
 } from '../../../services/ap/vendor-service.js';
 import type { PaginationMeta } from '../../../types/index.js';
+import { entityScope } from '../../../database/scope.js';
 
 // ============================================================
 // /v1/vendors — HTTP surface over the vendor master service.
@@ -98,19 +99,20 @@ router.post('/', requirePermission('bills:create'), requireEntityAccess, validat
 }));
 
 // GET /v1/vendors/:id
-router.get('/:id', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {
-  const vendor = await getVendorById(req.params.id, { includeBankSecrets: true });
+router.get('/:id', requirePermission('bills:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  const vendor = await getVendorById(req.params.id, entityScope(req.tenantId!, req.entityId!), { includeBankSecrets: true });
   if (!vendor) throw new NotFoundError('Vendor', req.params.id);
   res.json({ data: vendor, meta: meta(req) });
 }));
 
 // PATCH /v1/vendors/:id
-router.patch('/:id', requirePermission('bills:create'), validateBody(updateVendorSchema), asyncHandler(async (req: Request, res: Response) => {
+router.patch('/:id', requirePermission('bills:create'), requireEntityAccess, validateBody(updateVendorSchema), asyncHandler(async (req: Request, res: Response) => {
   const patch = Object.fromEntries(
     VENDOR_UPDATABLE_FIELDS.filter((f) => req.body[f] !== undefined).map((f) => [f, req.body[f]])
   );
   const vendor = await updateVendor(
     req.params.id,
+    entityScope(req.tenantId!, req.entityId!),
     patch,
     { userId: req.user!.user_id, tenantId: req.tenantId },
     { includeBankSecrets: true }

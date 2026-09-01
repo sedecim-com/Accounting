@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { query } from '../../../database/connection.js';
+import { consultaPublica } from '../../../database/consulta-publica.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { bitcoinAnchorService } from '../../../services/blockchain/bitcoin-anchor.js';
@@ -55,7 +55,7 @@ router.get('/verify/:entryHash', asyncHandler(async (req: Request, res: Response
     throw new ValidationError('entryHash must be 0x followed by 64 hex chars');
   }
 
-  const attestation = await query<{
+  const attestation = await consultaPublica<{
     id: string;
     tenant_id: string;
     entity_id: string;
@@ -150,7 +150,7 @@ console.log(hash === '${entryHash}');
 router.get('/entities/:entityId', asyncHandler(async (req: Request, res: Response) => {
   const entityId = req.params.entityId;
 
-  const entity = await query<{
+  const entity = await consultaPublica<{
     id: string;
     name: string;
     entity_type: string;
@@ -165,7 +165,7 @@ router.get('/entities/:entityId', asyncHandler(async (req: Request, res: Respons
   if (entity.rows.length === 0) throw new NotFoundError('Entity', entityId);
 
   // Aggregate stats (public info only)
-  const stats = await query<{ total_attestations: string; total_periods: string }>(
+  const stats = await consultaPublica<{ total_attestations: string; total_periods: string }>(
     `SELECT
       (SELECT COUNT(*)::text FROM blockchain_attestations WHERE entity_id = $1 AND status = 'confirmed') as total_attestations,
       (SELECT COUNT(*)::text FROM period_commitments WHERE entity_id = $1) as total_periods`,
@@ -188,7 +188,7 @@ router.get('/entities/:entityId', asyncHandler(async (req: Request, res: Respons
 router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Request, res: Response) => {
   const { entityId, periodId } = req.params;
 
-  const commitment = await query<{
+  const commitment = await consultaPublica<{
     id: string;
     merkle_root: string;
     entry_count: number;
@@ -218,7 +218,7 @@ router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Req
   }
 
   // Get published aggregates
-  const aggregates = await query<{
+  const aggregates = await consultaPublica<{
     dimension_type: string;
     dimension_value: string;
     public_amount: string | null;
@@ -270,7 +270,7 @@ router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, r
   // después, para que la cifra de este endpoint nunca dependa de que alguien
   // se acuerde de filtrar en JavaScript. Un listado vacío es la respuesta
   // correcta mientras el anclaje sea fabricado.
-  const result = await query(
+  const result = await consultaPublica(
     `SELECT dimension_type, dimension_value, public_amount, transaction_count,
             period_id, published_at, aggregate_commitment
      FROM published_aggregates ${where} AND is_simulated = false
@@ -292,7 +292,7 @@ router.get('/bitcoin/verify/:txid', asyncHandler(async (req: Request, res: Respo
     throw new ValidationError('txid must be 64 hex chars');
   }
 
-  const anchor = await query<{
+  const anchor = await consultaPublica<{
     id: string;
     anchor_type: string;
     merkle_root: string;

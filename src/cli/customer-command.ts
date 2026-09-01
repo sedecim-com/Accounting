@@ -13,6 +13,7 @@ import {
   customerLabel,
 } from '../services/ar/customer-service.js';
 import type { Palette } from './palette.js';
+import { entityScope } from '../database/scope.js';
 import {
   declareRisk,
   gateMutation,
@@ -243,7 +244,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       }
 
       const found = await resolveCustomer(ctx.entityId, ref);
-      const card = await getCustomerById(found.id, {
+      const card = await getCustomerById(found.id, entityScope(ctx.tenantId, ctx.entityId), {
         withBalance: true,
         includeDocuments: true,
         asOf: opts.asOf,
@@ -425,7 +426,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-        const updated = await updateCustomer(target.id, patch, {
+        const updated = await updateCustomer(target.id, entityScope(ctx.tenantId, ctx.entityId), patch, {
           audit: { userId: reviewer.userId, tenantId: ctx.tenantId, reason: opts.reason },
         });
         process.stdout.write(
@@ -453,7 +454,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       const { reason } = gateMutation(archive, opts as Record<string, unknown>);
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
-      const { balance } = await archiveCustomer(target.id, {
+      const { balance } = await archiveCustomer(target.id, entityScope(ctx.tenantId, ctx.entityId), {
         allowWithBalance: opts.force === true,
         audit: { userId: reviewer.userId, tenantId: ctx.tenantId, reason },
       });
@@ -484,7 +485,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       const ctx = await writeEntityOf(opts);
       const target = await resolveCustomer(ctx.entityId, ref);
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      const updated = await restoreCustomer(target.id, {
+      const updated = await restoreCustomer(target.id, entityScope(ctx.tenantId, ctx.entityId), {
         audit: { userId: reviewer.userId, tenantId: ctx.tenantId, reason: opts.reason },
       });
       process.stdout.write(`${deps.palette.green('✔')} ${updated.customer_number} is active again.\n`);

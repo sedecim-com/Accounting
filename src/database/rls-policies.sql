@@ -247,3 +247,50 @@ BEGIN
   RAISE NOTICE 'vistas reasignadas a mnemosine_owner: %', reasignadas;
 END
 $vistas$;
+
+-- ============================================================
+-- R2 · LA VERIFICACIÓN PÚBLICA TIENE CAMINO SANCIONADO.
+--
+-- /public/v1 corre sin contexto de inquilino; bajo RLS forzada eso era cero
+-- filas con mnemosine_app, y el feature empujaba a conectar el proceso con
+-- un rol que ignora RLS — el despliegue que el guardián de arranque impide.
+-- El camino sancionado: mnemosine_verifier (NOLOGIN, lo crea
+-- provision-roles.sql) con SELECT de columnas ENUMERADAS sobre
+-- legal_entities, SELECT sobre las cuatro tablas de atestación, y políticas
+-- PROPIAS con el predicado público. El router lo asume por transacción
+-- (SET LOCAL ROLE, src/database/consulta-publica.ts): un paso HACIA ABAJO
+-- en privilegios. Si el rol no existe (clúster sin aprovisionar), se salta
+-- con aviso — el mismo contrato que el GRANT general de arriba.
+-- ============================================================
+DO $verifier$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_verifier') THEN
+    RAISE NOTICE 'mnemosine_verifier no existe: corre scripts/provision-roles.sql; la verificación pública queda sin camino';
+    RETURN;
+  END IF;
+
+  -- Columnas públicas ENUMERADAS: un SELECT * nuevo truena en vez de exponer.
+  -- El RFC no está: no es dato público de verificación.
+  GRANT SELECT (id, name, entity_type, incorporation_country, accounting_standard, is_active)
+    ON legal_entities TO mnemosine_verifier;
+  GRANT SELECT ON blockchain_attestations TO mnemosine_verifier;
+  GRANT SELECT ON period_commitments      TO mnemosine_verifier;
+  GRANT SELECT ON published_aggregates    TO mnemosine_verifier;
+  GRANT SELECT ON bitcoin_anchors         TO mnemosine_verifier;
+
+  DROP POLICY IF EXISTS verificacion_publica ON legal_entities;
+  CREATE POLICY verificacion_publica ON legal_entities
+    FOR SELECT TO mnemosine_verifier USING (is_active = true);
+  DROP POLICY IF EXISTS verificacion_publica ON blockchain_attestations;
+  CREATE POLICY verificacion_publica ON blockchain_attestations
+    FOR SELECT TO mnemosine_verifier USING (true);
+  DROP POLICY IF EXISTS verificacion_publica ON period_commitments;
+  CREATE POLICY verificacion_publica ON period_commitments
+    FOR SELECT TO mnemosine_verifier USING (true);
+  DROP POLICY IF EXISTS verificacion_publica ON published_aggregates;
+  CREATE POLICY verificacion_publica ON published_aggregates
+    FOR SELECT TO mnemosine_verifier USING (is_simulated = false);
+  DROP POLICY IF EXISTS verificacion_publica ON bitcoin_anchors;
+  CREATE POLICY verificacion_publica ON bitcoin_anchors
+    FOR SELECT TO mnemosine_verifier USING (true);
+END $verifier$;

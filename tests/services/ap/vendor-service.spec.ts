@@ -5,6 +5,39 @@ vi.mock('../../../src/database/connection.js', () => ({
   withTransaction: vi.fn(),
 }));
 
+// R2: scope.ts se mockea PASANDO por el mismo mockQuery, para que las
+// secuencias mockResolvedValueOnce de cada prueba sigan alineadas (una
+// consulta por lectura, como antes). La frontera real la prueba la suite de
+// integración (perimetro-r2); aquí se prueba la lógica del servicio.
+vi.mock('../../../src/database/scope.js', async () => {
+  const { NotFoundError } = await vi.importActual<typeof import('../../../src/utils/errors.js')>(
+    '../../../src/utils/errors.js'
+  );
+  const { query } = await import('../../../src/database/connection.js');
+  const find = async (tabla: string, id: string) => {
+    const r = await (query as unknown as (s: string, p: unknown[]) => Promise<{ rows: unknown[] }>)(
+      `SELECT * FROM ${tabla} WHERE id = $1 AND entity_id = $2`,
+      [id, 'e-1']
+    );
+    return (r.rows[0] as Record<string, unknown> | undefined) ?? null;
+  };
+  return {
+    entityScope: (tenantId: string, entityId: string) => ({ kind: 'entity', tenantId, entityId }),
+    tenantScope: (tenantId: string) => ({ kind: 'tenant', tenantId }),
+    findByIdInScope: find,
+    requireByIdInScope: async (tabla: string, id: string) => {
+      const fila = await find(tabla, id);
+      if (!fila) throw new NotFoundError(tabla, id);
+      return fila;
+    },
+    condicionDeAlcance: async (_t: string, _s: unknown, i: number) => ({
+      sql: `entity_id = $${i}`,
+      valor: 'e-1',
+    }),
+  };
+});
+
+
 import {
   listVendors,
   getVendorById,
@@ -23,6 +56,7 @@ import { query, withTransaction } from '../../../src/database/connection.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const SCOPE = { kind: 'entity', tenantId: 't-1', entityId: 'e-1' } as const;
 const mockTx = withTransaction as unknown as ReturnType<typeof vi.fn>;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const USER = 'user-1';
@@ -236,21 +270,21 @@ describe('listVendors', () => {
 describe('getVendorById', () => {
   it('returns null instead of throwing, so the caller chooses the error', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    expect(await getVendorById('v1')).toBeNull();
+    expect(await getVendorById('v1', SCOPE)).toBeNull();
   });
 
   it('keeps money as strings and excludes settled documents from the open balance', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ bill_count: '3', open_balance: '1160.0000' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ payment_count: '1', paid: '500.0000' }] });
-    const vendor = await getVendorById('v1', { includeActivity: true });
+    const vendor = await getVendorById('v1', SCOPE, { includeActivity: true });
     expect((vendor?.activity as Record<string, unknown>).open_balance).toBe('1160.0000');
     expect(sql(1)).toMatch(/FILTER \(WHERE status NOT IN \('paid', 'void', 'cancelled'\)\)/);
   });
 
   it('does not touch bills or payments when activity was not asked for', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
-    await getVendorById('v1');
+    await getVendorById('v1', SCOPE);
     expect(mockQuery.mock.calls).toHaveLength(1);
   });
 });
@@ -353,13 +387,13 @@ describe('updateVendor', () => {
   it('writes only whitelisted fields — bank columns are not among them', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', email: 'old@x' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
-    await updateVendor('v1', { email: 'new@x', clabe_encrypted: 'ENC' } as never, { userId: USER });
+    await updateVendor('v1', SCOPE, { email: 'new@x', clabe_encrypted: 'ENC' } as never, { userId: USER });
     expect(sql(1)).toMatch(/SET email = \$1, updated_at = NOW\(\)/);
     expect(sql(1)).not.toMatch(/clabe/);
   });
 
   it('names the updatable fields when given none of them, before touching the database', async () => {
-    await expect(updateVendor('v1', {}, { userId: USER })).rejects.toThrow(
+    await expect(updateVendor('v1', SCOPE, {}, { userId: USER })).rejects.toThrow(
       new RegExp(VENDOR_UPDATABLE_FIELDS.join(', '))
     );
     expect(mockQuery).not.toHaveBeenCalled();
@@ -368,14 +402,17 @@ describe('updateVendor', () => {
   it('locks the row before reading the before-image, so the audit cannot race', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', email: 'old@x' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
-    await updateVendor('v1', { email: 'new@x' }, { userId: USER });
-    expect(sql(0)).toMatch(/SELECT \* FROM vendors WHERE id = \$1 FOR UPDATE/);
+    await updateVendor('v1', SCOPE, { email: 'new@x' }, { userId: USER });
+    // R2: la pertenencia y el candado van juntos vía requireByIdInScope
+    // (forUpdate:true); el FOR UPDATE real lo ejercita la suite de
+    // integración — aquí el mock de scope.ts registra la forma acotada.
+    expect(sql(0)).toMatch(/SELECT \* FROM vendors WHERE id = \$1 AND entity_id = \$2/);
   });
 
   it('writes an audit row with before and after when a tenant is known', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', email: 'old@x' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
-    await updateVendor('v1', { email: 'new@x' }, { userId: USER, tenantId: TENANT, reason: 'por telefono' });
+    await updateVendor('v1', SCOPE, { email: 'new@x' }, { userId: USER, tenantId: TENANT, reason: 'por telefono' });
     expect(sql(2)).toMatch(/INSERT INTO audit_log/);
     expect(params(2)[4]).toBe('{"email":"old@x"}');
     expect(params(2)[5]).toBe('{"email":"new@x"}');
@@ -385,13 +422,13 @@ describe('updateVendor', () => {
   it('skips the audit row when there is no tenant to attribute it to', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
-    await updateVendor('v1', { email: 'new@x' }, { userId: USER });
+    await updateVendor('v1', SCOPE, { email: 'new@x' }, { userId: USER });
     expect(mockQuery.mock.calls).toHaveLength(2);
   });
 
   it('throws NotFound when the vendor is gone', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await expect(updateVendor('gone', { email: 'x@y' }, { userId: USER })).rejects.toThrow(NotFoundError);
+    await expect(updateVendor('gone', SCOPE, { email: 'x@y' }, { userId: USER })).rejects.toThrow(NotFoundError);
   });
 });
 
@@ -399,30 +436,30 @@ describe('setVendorTerms', () => {
   it('stores the normalized spelling, not what was typed', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', payment_terms: 'Net 30', currency_code: 'MXN' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', payment_terms: 'Net 45', currency_code: 'MXN' }] });
-    const { terms } = await setVendorTerms('v1', { terms: 'net45' }, { userId: USER });
+    const { terms } = await setVendorTerms('v1', SCOPE, { terms: 'net45' }, { userId: USER });
     expect(params(1)[0]).toBe('Net 45');
     expect(terms?.netDays).toBe(45);
   });
 
   it('refuses terms no due date can be computed from', async () => {
     await expect(
-      setVendorTerms('v1', { terms: 'cuando se pueda' }, { userId: USER })
+      setVendorTerms('v1', SCOPE, { terms: 'cuando se pueda' }, { userId: USER })
     ).rejects.toThrow(/not understood/);
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
   it('refuses a currency that is not a 3-letter ISO code', async () => {
-    await expect(setVendorTerms('v1', { currencyCode: 'pesos' }, { userId: USER })).rejects.toThrow(ValidationError);
+    await expect(setVendorTerms('v1', SCOPE, { currencyCode: 'pesos' }, { userId: USER })).rejects.toThrow(ValidationError);
   });
 
   it('upper-cases the currency', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
-    await setVendorTerms('v1', { currencyCode: 'usd' }, { userId: USER });
+    await setVendorTerms('v1', SCOPE, { currencyCode: 'usd' }, { userId: USER });
     expect(params(1)[0]).toBe('USD');
   });
 
   it('refuses to write nothing', async () => {
-    await expect(setVendorTerms('v1', {}, { userId: USER })).rejects.toThrow(ValidationError);
+    await expect(setVendorTerms('v1', SCOPE, {}, { userId: USER })).rejects.toThrow(ValidationError);
   });
 });

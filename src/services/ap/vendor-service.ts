@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../database/connection.js';
+import { findByIdInScope, requireByIdInScope, type Scope } from '../../database/scope.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
 import { encrypt } from '../../utils/encryption.js';
 import { generateEntryNumber } from '../../utils/sequence.js';
@@ -288,12 +289,15 @@ export interface GetVendorOptions extends VendorReadOptions {
 
 export async function getVendorById(
   id: string,
+  scope: Scope,
   opts: GetVendorOptions = {}
 ): Promise<Record<string, unknown> | null> {
-  const result = await query<Vendor>('SELECT * FROM vendors WHERE id = $1', [id]);
-  if (result.rows.length === 0) return null;
+  // R2: la frontera dentro del SQL (scope.ts), con el alcance obligatorio en
+  // la firma — un llamador sin alcance no compila (patrón TEN-1).
+  const fila = await findByIdInScope<Vendor>('vendors', id, scope);
+  if (!fila) return null;
 
-  const raw = result.rows[0] as unknown as Record<string, unknown>;
+  const raw = fila as unknown as Record<string, unknown>;
   const vendor = opts.includeBankSecrets ? { ...raw } : redactBankSecrets(raw);
 
   if (opts.includeActivity) {
@@ -462,6 +466,7 @@ export interface VendorUpdateContext {
 
 export async function updateVendor(
   id: string,
+  scope: Scope,
   patch: VendorPatch,
   ctx: VendorUpdateContext,
   opts: VendorReadOptions = {}
@@ -474,8 +479,12 @@ export async function updateVendor(
   }
 
   const row = await withTransaction(async (client) => {
-    const before = await client.query<Vendor>('SELECT * FROM vendors WHERE id = $1 FOR UPDATE', [id]);
-    if (before.rows.length === 0) throw new NotFoundError('Vendor', id);
+    // R2: pertenencia y candado en la MISMA sentencia (scope.ts); el UPDATE
+    // por id que sigue es seguro: la fila ya está probada y bloqueada.
+    const beforeRow = await requireByIdInScope<Vendor>('vendors', id, scope, {
+      forUpdate: true,
+      client,
+    });
 
     const sets: string[] = [];
     const params: unknown[] = [];
@@ -493,7 +502,7 @@ export async function updateVendor(
     );
 
     if (ctx.tenantId) {
-      const previous = before.rows[0] as unknown as Record<string, unknown>;
+      const previous = beforeRow as unknown as Record<string, unknown>;
       await client.query(
         `INSERT INTO audit_log (id, user_id, tenant_id, action, entity_type, entity_id, old_values, new_values, reason)
          VALUES ($1, $2, $3, 'update', 'vendor', $4, $5, $6, $7)`,
@@ -518,6 +527,7 @@ export async function updateVendor(
  */
 export async function setVendorTerms(
   id: string,
+  scope: Scope,
   input: { terms?: string; currencyCode?: string },
   ctx: VendorUpdateContext
 ): Promise<{ vendor: Record<string, unknown>; terms: PaymentTerms | null }> {
@@ -551,8 +561,12 @@ export async function setVendorTerms(
   }
 
   const vendor = await withTransaction(async (client) => {
-    const before = await client.query<Vendor>('SELECT * FROM vendors WHERE id = $1 FOR UPDATE', [id]);
-    if (before.rows.length === 0) throw new NotFoundError('Vendor', id);
+    // R2: pertenencia y candado en la MISMA sentencia (scope.ts); el UPDATE
+    // por id que sigue es seguro: la fila ya está probada y bloqueada.
+    const beforeRow = await requireByIdInScope<Vendor>('vendors', id, scope, {
+      forUpdate: true,
+      client,
+    });
 
     sets.push('updated_at = NOW()');
     params.push(id);
@@ -562,7 +576,7 @@ export async function setVendorTerms(
     );
 
     if (ctx.tenantId) {
-      const previous = before.rows[0];
+      const previous = beforeRow;
       await client.query(
         `INSERT INTO audit_log (id, user_id, tenant_id, action, entity_type, entity_id, old_values, new_values, reason)
          VALUES ($1, $2, $3, 'update', 'vendor', $4, $5, $6, $7)`,

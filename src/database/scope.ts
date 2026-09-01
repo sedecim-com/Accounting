@@ -185,3 +185,29 @@ function nombreLegible(tabla: string): string {
   const palabras = singular.replace(/_/g, ' ');
   return palabras.charAt(0).toUpperCase() + palabras.slice(1);
 }
+
+/**
+ * La condición de alcance como fragmento de SQL, para la escritura de UN
+ * viaje (R2): `UPDATE customers SET ... WHERE id = $3 AND <condicion>`.
+ *
+ * Existe porque el patrón alterno —probar pertenencia con un SELECT y luego
+ * escribir por id— o duplica el viaje en la ruta caliente o reabre la
+ * ventana entre comprobar y escribir. Con esto, el UPDATE que no alcanza
+ * devuelve cero filas y el llamador lo trata como NotFound, indistinguible
+ * de «no existe» a propósito.
+ */
+export async function condicionDeAlcance(
+  tabla: string,
+  scope: Scope,
+  indice: number
+): Promise<{ sql: string; valor: string }> {
+  if (!NOMBRE_SQL.test(tabla)) throw new Error(`Nombre de tabla inválido: ${tabla}`);
+  const columna = await columnaDeAlcance(tabla);
+  if (columna === null) {
+    throw new Error(
+      `La tabla "${tabla}" no tiene columna de alcance (entity_id ni tenant_id): no se puede acotar.`
+    );
+  }
+  const { predicado, valor } = predicadoDe(columna, scope);
+  return { sql: predicado.replace('$2', `$${indice}`), valor };
+}

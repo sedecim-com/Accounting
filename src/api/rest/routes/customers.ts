@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError } from '../../../utils/errors.js';
+import { entityScope } from '../../../database/scope.js';
 import {
   listCustomers,
   getCustomerById,
@@ -99,20 +100,20 @@ router.post('/', requirePermission('invoices:create'), requireEntityAccess, vali
 }));
 
 // GET /v1/customers/:id
-router.get('/:id', requirePermission('invoices:read'), asyncHandler(async (req: Request, res: Response) => {
-  const customer = await getCustomerById(req.params.id);
+router.get('/:id', requirePermission('invoices:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  const customer = await getCustomerById(req.params.id, entityScope(req.tenantId!, req.entityId!));
   if (!customer) throw new NotFoundError('Customer', req.params.id);
   res.json({ data: customer, meta: meta(req) });
 }));
 
 // PATCH /v1/customers/:id
-router.patch('/:id', requirePermission('invoices:create'), validateBody(updateCustomerSchema), asyncHandler(async (req: Request, res: Response) => {
+router.patch('/:id', requirePermission('invoices:create'), requireEntityAccess, validateBody(updateCustomerSchema), asyncHandler(async (req: Request, res: Response) => {
   const patch = Object.fromEntries(
     CUSTOMER_UPDATABLE_FIELDS.filter((f) => req.body[f] !== undefined).map((f) => [f, req.body[f]])
   );
   // No audit context: the HTTP surface keeps writing its one middleware row
   // (middleware/audit.ts), exactly as it did before the service existed.
-  const customer = await updateCustomer(req.params.id, patch);
+  const customer = await updateCustomer(req.params.id, entityScope(req.tenantId!, req.entityId!), patch);
   res.json({ data: customer, meta: meta(req) });
 }));
 

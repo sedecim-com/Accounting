@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../database/connection.js';
+import { findByIdInScope, condicionDeAlcance, type Scope } from '../../database/scope.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
 import { generateEntryNumber } from '../../utils/sequence.js';
@@ -262,11 +263,15 @@ export interface GetCustomerOptions {
 
 export async function getCustomerById(
   id: string,
+  scope: Scope,
   opts: GetCustomerOptions = {}
 ): Promise<Record<string, unknown> | null> {
-  const result = await query<Customer>('SELECT * FROM customers WHERE id = $1', [id]);
-  if (result.rows.length === 0) return null;
-  const customer = result.rows[0] as unknown as Record<string, unknown>;
+  // R2: la frontera va DENTRO del SQL (scope.ts). El alcance es parámetro
+  // OBLIGATORIO y posicional a propósito: un llamador sin alcance no compila
+  // — el patrón de TEN-1. Cero filas = «no existe» y «no es tuyo», indistinguibles.
+  const fila = await findByIdInScope<Customer>('customers', id, scope);
+  if (!fila) return null;
+  const customer = fila as unknown as Record<string, unknown>;
 
   if (opts.withBalance || opts.includeDocuments) {
     Object.assign(customer, await getCustomerBalance(id, opts.asOf));
@@ -448,6 +453,7 @@ export interface UpdateCustomerOptions {
 
 export async function updateCustomer(
   id: string,
+  scope: Scope,
   patch: CustomerPatch,
   opts: UpdateCustomerOptions = {}
 ): Promise<Customer> {
@@ -464,11 +470,15 @@ export async function updateCustomer(
 
   // Only read the previous values when someone is going to record them:
   // the HTTP path must keep making exactly one round trip.
-  const before = opts.audit ? await getCustomerById(id) : null;
+  const before = opts.audit ? await getCustomerById(id, scope) : null;
 
   sets.push('updated_at = NOW()');
   params.push(id);
-  const sql = `UPDATE customers SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`;
+  // R2: la frontera dentro del MISMO UPDATE — un viaje, sin ventana entre
+  // comprobar y escribir. Cero filas = no existe o no es tuyo.
+  const alcance = await condicionDeAlcance('customers', scope, i + 1);
+  params.push(alcance.valor);
+  const sql = `UPDATE customers SET ${sets.join(', ')} WHERE id = $${i} AND ${alcance.sql} RETURNING *`;
 
   // Sin auditoría, un solo viaje: es la ruta HTTP caliente.
   if (!opts.audit) {
@@ -512,6 +522,7 @@ export interface ArchiveCustomerOptions {
  */
 export async function archiveCustomer(
   id: string,
+  scope: Scope,
   opts: ArchiveCustomerOptions = {}
 ): Promise<{ customer: Customer; balance: CustomerBalance }> {
   const balance = await getCustomerBalance(id);
@@ -523,6 +534,7 @@ export async function archiveCustomer(
   }
   const customer = await updateCustomer(
     id,
+    scope,
     { is_active: false },
     { audit: opts.audit ? { action: 'update', ...opts.audit } : undefined }
   );
@@ -531,9 +543,10 @@ export async function archiveCustomer(
 
 export async function restoreCustomer(
   id: string,
+  scope: Scope,
   opts: UpdateCustomerOptions = {}
 ): Promise<Customer> {
-  return updateCustomer(id, { is_active: true }, opts);
+  return updateCustomer(id, scope, { is_active: true }, opts);
 }
 
 /** The audited fields only: an audit row is a diff, not a copy of the table. */

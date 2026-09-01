@@ -30,6 +30,15 @@ BEGIN
     CREATE ROLE mnemosine_app LOGIN;
     RAISE NOTICE 'creado rol mnemosine_app';
   END IF;
+  -- R2: el rol de la verificación pública. SIN LOGIN: solo se asume con
+  -- SET LOCAL ROLE dentro de la transacción de una consulta pública
+  -- (src/database/consulta-publica.ts). Sus privilegios y políticas los
+  -- reconcilia rls-policies.sql tras cada migración.
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_verifier') THEN
+    CREATE ROLE mnemosine_verifier NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
+    RAISE NOTICE 'creado rol mnemosine_verifier';
+  END IF;
+  GRANT mnemosine_verifier TO mnemosine_app;
 END $$;
 
 -- NOBYPASSRLS es la línea que hace que las políticas signifiquen algo.

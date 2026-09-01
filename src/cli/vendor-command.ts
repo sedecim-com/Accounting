@@ -16,6 +16,7 @@ import {
 import { resolveAccount } from '../services/accounting/account-service.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import type { Palette } from './palette.js';
+import { entityScope } from '../database/scope.js';
 import {
   declareRisk,
   render,
@@ -182,7 +183,7 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
       }
 
       const found = await resolveVendor(ctx.entityId, ref);
-      const full = await getVendorById(found.id, { includeActivity: parts.includes('activity') });
+      const full = await getVendorById(found.id, entityScope(ctx.tenantId, ctx.entityId), { includeActivity: parts.includes('activity') });
       if (!full) throw notFound(`Vendor ${ref} disappeared while reading it.`);
 
       // The encrypted bank columns never leave the service; what a reader
@@ -339,7 +340,7 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
           );
         }
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-        const updated = await updateVendor(target.id, patch, {
+        const updated = await updateVendor(target.id, entityScope(ctx.tenantId, ctx.entityId), patch, {
           userId: reviewer.userId,
           tenantId: ctx.tenantId,
           reason: opts.reason,
@@ -376,6 +377,7 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
 
         const { vendor: updated, terms: parsed } = await setVendorTerms(
           target.id,
+          entityScope(ctx.tenantId, ctx.entityId),
           { terms: opts.terms, currencyCode: opts.currency },
           { userId: reviewer.userId, tenantId: ctx.tenantId, reason: opts.reason }
         );

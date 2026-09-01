@@ -1229,6 +1229,102 @@ export const CRITERIOS: Criterio[] = [
       return ok('producción no arranca con un rol que ignora RLS, salvo break-glass explícito');
     },
   },
+  {
+    paquete: 'E2.1',
+    enunciado: 'Las contrapartes y los webhooks por id llevan la frontera dentro del SQL',
+    evaluar: () => {
+      // R2: dentro de un inquilino multi-entidad, conocer el UUID bastaba
+      // para leer o parchar contrapartes de OTRA entidad (customers/vendors
+      // por id sin alcance), y el ciclo entero de webhooks (borrar,
+      // re-disparar, historial) filtraba sólo por id. scope.ts existía
+      // exactamente para esto y estos caminos no lo usaban.
+      const cust = codigoDe('src/services/ar/customer-service.ts');
+      const vend = codigoDe('src/services/ap/vendor-service.ts');
+      const wh = codigoDe('src/services/webhooks/webhook-service.ts');
+      // Forma de LLAMADA, no de import: un import huérfano dio verde en la
+      // primera mutación de este criterio — la lección del barril de AUD-6.
+      if (!/findByIdInScope[<(]/.test(cust) || !/condicionDeAlcance\(/.test(cust)) {
+        return falla('customer-service volvió al id sin frontera (lectura o UPDATE de un viaje)');
+      }
+      if (!/ByIdInScope[<(]/.test(vend)) {
+        return falla('vendor-service volvió al id sin frontera');
+      }
+      const whChecks: Array<[RegExp, string]> = [
+        [/DELETE FROM webhook_subscriptions WHERE id = \$1 AND tenant_id = \$2/, 'borrar un webhook'],
+        [/JOIN webhook_subscriptions s ON s\.id = d\.webhook_id\s+WHERE d\.id = \$1 AND s\.tenant_id = \$2/, 're-disparar una entrega'],
+        [/WHERE d\.webhook_id = \$1 AND s\.tenant_id = \$2/, 'el historial de entregas'],
+      ];
+      const roto = whChecks.find(([re]) => !re.test(wh));
+      return roto
+        ? falla(`webhook-service perdió la frontera de inquilino en: ${roto[1]}`)
+        : ok('customers/vendors por scope.ts y el ciclo de webhooks acotado por inquilino en el SQL');
+    },
+  },
+  {
+    paquete: 'E2.1',
+    enunciado: 'Los webhooks salientes no alcanzan la red privada, firman contra el replay y no regalan su secreto',
+    evaluar: () => {
+      // R2: la URL de suscripción sólo pasaba un .url() de zod y el servidor
+      // le hacía POST — SSRF hacia el metadata endpoint con las credenciales
+      // del servidor; la firma cubría sólo el cuerpo (la cabecera de tiempo
+      // viajaba sin firmar: replay libre); y el secreto salía ENTERO en cada
+      // listado.
+      if (!existe('src/services/webhooks/url-guard.ts')) {
+        return falla('el guardián de URL desapareció: SSRF de libro con las credenciales del servidor');
+      }
+      const g = codigoDe('src/services/webhooks/url-guard.ts');
+      if (!/a === 169 && b === 254/.test(g) || !/ipPrivada/.test(g)) {
+        return falla('el guardián no conoce los rangos privados o el metadata endpoint');
+      }
+      const s = codigoDe('src/services/webhooks/webhook-service.ts');
+      if (!/assertUrlDeWebhook\(url\)/.test(s)) {
+        return falla('crear una suscripción ya no valida la URL');
+      }
+      if (!/assertDestinoPublico\(subscription\.url\)/.test(s)) {
+        return falla('la entrega ya no resuelve y verifica el destino: un dominio público que apunte adentro se entrega');
+      }
+      if (!/t=\$\{timestamp\},v1=/.test(s)) {
+        return falla('la firma dejó de cubrir el timestamp: el receptor no puede rechazar un replay por firma');
+      }
+      return /SELECT id, tenant_id, url, events/.test(s) && !/SELECT \* FROM webhook_subscriptions WHERE tenant_id/.test(s)
+        ? ok('URL vigilada dos veces, firma t=…,v1=… y el secreto sólo en el 201')
+        : falla('el listado volvió al asterisco: el secreto viaja en cada GET');
+    },
+  },
+  {
+    paquete: 'E2.1',
+    enunciado: 'La verificación pública tiene camino sancionado, no un empujón al rol que ignora RLS',
+    evaluar: () => {
+      // R2: /public/v1 corre sin contexto de inquilino y bajo RLS forzada
+      // eso era cero filas — el feature sólo podía funcionar conectando el
+      // proceso con un rol que ignora RLS, exactamente el despliegue que el
+      // guardián de arranque impide. El camino sancionado: mnemosine_verifier
+      // (provision-roles) + políticas propias (rls-policies, reconciliadas
+      // tras cada migración) + SET LOCAL ROLE por transacción.
+      if (!existe('src/database/consulta-publica.ts')) {
+        return falla('no existe consulta-publica.ts: el router público vuelve a consultar sin camino');
+      }
+      const cp = codigoDe('src/database/consulta-publica.ts');
+      if (!/SET LOCAL ROLE mnemosine_verifier/.test(cp)) {
+        return falla('la consulta pública no asume el rol verificador');
+      }
+      const router = codigoDe('src/api/rest/routes/public-verification.ts');
+      if (/from '..\/..\/..\/database\/connection.js'/.test(router)) {
+        return falla('el router público volvió a consultar por el pool directo, fuera del camino sancionado');
+      }
+      const politicas = fs.readFileSync(rutaDe('src/database/rls-policies.sql'), 'utf-8');
+      const n = (politicas.match(/CREATE POLICY verificacion_publica/g) ?? []).length;
+      if (n < 5) {
+        return falla(`las políticas del verificador no cubren las cinco tablas (hay ${n})`);
+      }
+      if (!/GRANT SELECT \(id, name, entity_type/.test(politicas)) {
+        return falla('legal_entities perdió el GRANT de columnas enumeradas: un SELECT * nuevo expondría en vez de tronar');
+      }
+      return /mnemosine_verifier/.test(fs.readFileSync(rutaDe('scripts/provision-roles.sql'), 'utf-8'))
+        ? ok('rol verificador aprovisionado, políticas en el reconciliador y el router por SET LOCAL ROLE')
+        : falla('provision-roles.sql no crea mnemosine_verifier: el camino existe sólo donde alguien lo creó a mano');
+    },
+  },
 
   // ---- E2.2 · Catálogo de autorización ----
   {

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requirePermission } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { ValidationError } from '../../../utils/errors.js';
+import { ValidationError, NotFoundError } from '../../../utils/errors.js';
 import {
   createWebhook,
   deleteWebhook,
@@ -49,7 +49,9 @@ router.get('/', requirePermission('settings:manage'), asyncHandler(async (req: R
 
 // DELETE /v1/webhooks/:id
 router.delete('/:id', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
-  await deleteWebhook(req.params.id);
+  // R2: acotado por inquilino; cero filas = no existe o no es tuyo → 404.
+  const borrado = await deleteWebhook(req.params.id, req.user!.tenant_id);
+  if (!borrado) throw new NotFoundError('Webhook', req.params.id);
   res.status(204).send();
 }));
 
@@ -68,6 +70,7 @@ router.get('/:id/deliveries', requirePermission('settings:manage'), asyncHandler
   const { status, limit } = req.query;
   const deliveries = await getDeliveries(
     req.params.id,
+    req.user!.tenant_id,
     { status: status as string, limit: limit ? parseInt(limit as string, 10) : undefined }
   );
 
@@ -79,7 +82,8 @@ router.get('/:id/deliveries', requirePermission('settings:manage'), asyncHandler
 
 // POST /v1/webhook-deliveries/:id/retry
 router.post('/deliveries/:id/retry', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
-  await retryDelivery(req.params.id);
+  const retried = await retryDelivery(req.params.id, req.user!.tenant_id);
+  if (!retried) throw new NotFoundError('Webhook delivery', req.params.id);
 
   res.json({
     data: { retried: true },
