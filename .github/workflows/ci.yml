@@ -5,8 +5,26 @@
 name: CI
 
 on:
+  # `push:` sin filtro corría los cinco jobs en cada rama Y otra vez en el PR.
+  # En un repositorio público eso es el doble de bitácoras publicadas por el
+  # mismo trabajo: las de Actions son legibles por cualquiera.
   push:
+    branches: [main]
   pull_request:
+
+# Un push nuevo cancela la corrida anterior de la misma rama. Sin esto, empujar
+# tres veces seguidas deja tres corridas compitiendo por el mismo veredicto.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# El token de la corrida es de SOLO LECTURA, dicho aquí y no heredado.
+# Hoy lo es porque el ajuste del repositorio (default_workflow_permissions)
+# dice "read"; eso se cambia con un clic en una página de configuración, y el
+# día que cambie, cada job de un repositorio público le entregaría un token con
+# escritura al árbol de dependencias que `npm ci` ejecuta.
+permissions:
+  contents: read
 
 env:
   NODE_VERSION: '20'

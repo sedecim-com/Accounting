@@ -51,3 +51,12 @@ Thumbs.db
 
 # Artefacto generado: se reconstruye con `npx tsx scripts/artefacto-catalogo.ts`
 artefacto-catalogo.html
+
+# Ajustes locales del agente: rutas de esta máquina y tokens de desarrollo.
+# Nunca del repositorio — y menos de uno público.
+.claude/settings.local.json
+.claude/worktrees/
+
+# Bóveda local de credenciales fiscales. Hoy sólo la salva el glob *.key;
+# un vault.json o un .bak dentro quedaría rastreable con un `git add -A`.
+.mnemosine-vault/

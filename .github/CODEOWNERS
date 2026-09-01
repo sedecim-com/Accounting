@@ -1,0 +1,25 @@
+# Dueños del código. La regla require_code_owner_review del ruleset "branch
+# rules" exige la aprobación del dueño de CADA archivo tocado: sin este
+# archivo la regla existía y no pedía nada, porque ninguna ruta tenía dueño.
+
+# Todo, por omisión.
+*                                   @vic2099
+
+# ─── Rutas donde un error no se corrige con un parche ───
+# No es que valgan más: es que su falla es silenciosa y su daño, retroactivo.
+
+# Custodia de credenciales fiscales (e.firma/CSD) y la bóveda que las cifra.
+/src/services/fiscal-credentials/   @vic2099
+/src/services/vault/                @vic2099
+
+# El esquema y el aislamiento entre inquilinos. Una migración mal hecha se
+# aplica sola en cada despliegue; una política RLS ausente no avisa.
+/src/database/migrations/           @vic2099
+/src/database/rls-policies.sql      @vic2099
+
+# Los límites que ninguna configuración puede levantar (sólo Math.min).
+/src/ai/floor.ts                    @vic2099
+
+# La CI es la única puerta automática: quien la edita, edita la puerta.
+/.github/workflows/                 @vic2099
+/.github/CODEOWNERS                 @vic2099

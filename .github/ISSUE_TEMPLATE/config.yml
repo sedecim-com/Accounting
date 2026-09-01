@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Reportar una vulnerabilidad (canal privado)
+    url: https://github.com/sedecim-com/Accounting/security/advisories/new
+    about: >-
+      Fugas entre inquilinos, custodia de credenciales fiscales, escrituras de la
+      IA sin revisión humana. NO abras un issue público: publicaría el camino de
+      ataque antes que la corrección.
