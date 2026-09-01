@@ -14,7 +14,6 @@ import type { AgentContext } from './context.js';
 // entry via createJournalEntry (all engine validations apply).
 // ============================================================
 
-const BALANCE_TOLERANCE = new Decimal('0.01');
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface DraftLine {

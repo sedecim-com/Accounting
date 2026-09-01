@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Command } from 'commander';
-import { VERBS, isVerb } from '../../../src/cli/kernel/vocabulary.js';
+import { VERBS } from '../../../src/cli/kernel/vocabulary.js';
 import { FLAG_DICTIONARY, withReadFlags, withContext, withOutput, withSelection } from '../../../src/cli/kernel/flags.js';
 import { declareRisk, resetDeclarations, riskOf } from '../../../src/cli/kernel/risk.js';
 import { auditProgram } from '../../../src/cli/kernel/audit.js';

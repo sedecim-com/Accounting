@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { clienteFalso, type ClienteFalso } from '../helpers/fake-pg.js';
-import { asientoFalso, lineaFalsa, cuentaFalsa, ID } from '../helpers/entidades.js';
+import { asientoFalso, lineaFalsa, ID } from '../helpers/entidades.js';
 import type { JournalEntry } from '../../src/types/index.js';
 
 // El motor corre sobre el PoolClient que le entrega withTransaction: se
