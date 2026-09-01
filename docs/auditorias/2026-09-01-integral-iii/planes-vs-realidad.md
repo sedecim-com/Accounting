@@ -39,7 +39,7 @@ Audito también a favor. Esto lo verifiqué y aguantó:
 
 ## HALLAZGOS
 
-### 1 · [NUEVA] ALTA — §1 rompe, en su propio párrafo, la regla que ese párrafo enuncia: tres de sus ocho baldosas no son lectura de ningún medidor
+### 1 · [NUEVA] ALTA — §1 rompe, en su propio párrafo, la regla que ese párrafo enuncia: dos de sus ocho baldosas no son lectura de ningún medidor
 
 §1 abre con: *«Ninguno de estos números se escribe aquí a mano: se copian de la última corrida de los medidores, y si el documento y el medidor discrepan, gana el medidor.»* Corrí los tres medidores. Tres baldosas no salen de ninguno:
 
@@ -47,9 +47,39 @@ Audito también a favor. Esto lo verifiqué y aguantó:
 |---|---|---|
 | «390 líneas por fila — 200 entrega + 190 garantía» | `Agregado desde S0.1: 31 fila(s) · 13126 líneas · **423 líneas/fila**`. El 390 aparece sólo rotulado «**Referencia fundacional** («Doce sprints», medida una vez sobre 50 filas)». El desglose 200/190 **no lo imprime ningún medidor**: sale a mano de `docs/plan-catalogo.md:20-22`. | **FALSA como lectura** |
 | «047 migraciones» | `ls src/database/migrations/*.sql \| wc -l` = **52**. 047 es la cabeza de la cadena, no un conteo. | **FALSA como conteo** |
-| «10 de 15 paquetes en verde» | `plan:status` imprime **8 de 15**. Llega a 10 sólo descontando E0.0 (artefacto de worktree) y E0.1 (no evaluable sin Postgres). | **Defendible, pero sin convención declarada** |
+| «10 de 15 paquetes en verde» | `plan:status` imprime **10 de 15** desde un clon con Postgres alcanzable. El **8 de 15** que esta tabla publicaba salió de correr el medidor en un worktree y sin base: los dos verdes que faltaban eran del entorno, no del código. Ver la nota de abajo. | **CIERTA — la falsa era mi lectura** |
 
-Y §1 remata: *«Los cinco paquetes en rojo lo están a propósito»*, enumerando E1.4, E3.2, E4.1, E4.2, E5.1. El medidor lista **seis** no-verdes: falta E0.1 (12/13), que el propio comando pinta 🟠 y excluye del verde.
+Y §1 remata: *«Los cinco paquetes en rojo lo están a propósito»*, enumerando E1.4, E3.2, E4.1, E4.2, E5.1. Esta auditoría publicó que el medidor listaba **seis**, contando un E0.1 en 🟠 — y también era lectura del sitio equivocado: **con Postgres alcanzable E0.1 sale ✅ 13/13** y los no-verdes son los cinco que §1 enumera. §1 acierta aquí también.
+
+> **Nota de corrección — el medidor se lee donde el medidor mide.** La celda de `plan:status`
+> decía «imprime 8 de 15» a secas, y ese número no se reproduce: depende del entorno de la
+> corrida, no del árbol. Re-medido sobre el árbol de este PR, cuyo `src/plan/criterios.ts` es
+> byte a byte el de la base (`git diff 433c7c7 HEAD -- src/plan/criterios.ts` → vacío):
+>
+> | Dónde se corre | Lo que imprime |
+> |---|---|
+> | Clon limpio · Postgres alcanzable | `10 de 15 paquetes con todos sus criterios en verde` |
+> | Clon limpio · sin base | `9 de 15 … · 1 criterio(s) no evaluable(s)` |
+> | Worktree de git · Postgres alcanzable | `9 de 15` |
+> | Worktree de git · sin base | `8 de 15 … · 1 criterio(s) no evaluable(s)` |
+>
+> Los dos verdes que separan el 10 del 8 son artefactos del sitio de medición, no del código:
+> E0.1 pierde un criterio cuando no hay base, y **E0.0 se pone en rojo dentro de un worktree
+> porque busca `.git/config` y en un worktree `.git` es un ARCHIVO, no un directorio**
+> (`src/plan/criterios.ts:166-167`), de modo que el criterio informa «no hay .git» sobre un
+> repositorio que sí está versionado. Es exactamente el falso dato que esta casa ya se comió
+> una vez, ahora dicho por el instrumento en vez de por una tabla a mano — y publicado aquí
+> como si desmintiera a §1. **§1 tiene razón: el medidor imprime 10 de 15 donde el medidor
+> se puede leer.**
+>
+> Y el resto del hallazgo cae con lo mismo. Este documento llegó a decir que §1 «llama
+> «cinco» a los rojos y el comando pinta seis, contando el 🟠 de E0.1». En la lectura
+> canónica —clon limpio, Postgres alcanzable— **no hay 🟠**: E0.1 sale ✅ 13/13, y los
+> no-verdes son los cinco que §1 enumera. El 🟠 sólo aparece en las lecturas sin base, que
+> son justamente las que este párrafo acaba de descalificar como artefacto del sitio de
+> medición. Matar un veredicto falso con un principio y firmar el siguiente con el mismo
+> principio en la mano es el error que esta sección persigue, cometido dentro de ella.
+
 
 **Escenario de fallo concreto:** Victor dimensiona la fase 1 leyendo «390 líneas por fila» en §1 y la tabla de §6 (271 filas → ~105 700 líneas). El instrumento vivo dice 423. Sobre 271 filas son **~114 700 líneas: ~8 900 líneas fuera de presupuesto**, casi un sprint entero, en la única cifra que convierte el plan en un compromiso de calendario. Y la baldosa que lo esconde es la que promete que no esconde nada.
 

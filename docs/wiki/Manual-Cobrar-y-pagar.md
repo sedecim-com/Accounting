@@ -206,8 +206,10 @@ No hay comando de nota de crédito. Conviene decir con precisión hasta dónde l
 Para encontrarlos:
 
 ```bash
-mnemosine cfdi list --type cfdi_egreso --period 2026-08
+mnemosine cfdi list --type cfdi_egreso --since 2026-08-01 --until 2026-08-31
 ```
+
+**`cfdi list --period` no filtra nada, así que aquí va con fechas.** El comando declara la bandera —se la da el juego de banderas de tiempo— pero su acción nunca la lee (`cfdi-command.ts:103-111`: la llamada a `listCfdis` recibe `since` y `until`, jamás `period`). Un CFDI de agosto sale igual con `--period 2026-01` y con `--period no-existe-este-periodo`, y sale con 0: no avisa de que no filtró. `--since`/`--until` sí funcionan.
 
 **En la captura.** Hay dos caminos, y cuál te toca depende de si la factura original ya se timbró o ya se cobró.
 

@@ -105,13 +105,13 @@ Es el sustituto que el propio 501 recomienda: concilia la cuenta fuera de mnemos
 Lo que la contabilidad dice de la chequera se saca completo, y esta parte sí es cómoda:
 
 ```bash
-mnemosine ledger auxiliary show --account 1111 --period 2026-08
+mnemosine ledger auxiliary show --account 1111 --period August
 ```
 
-Es el auxiliar: saldo inicial, cada movimiento y saldo final, con la forma que pide el auxiliar XC del SAT. Sin `--limit` devuelve **todos** los movimientos, así que en una chequera con miles de renglones conviene acotar o exportar:
+Es el auxiliar: saldo inicial, cada movimiento y saldo final, con la forma que pide el auxiliar XC del SAT. El periodo va por **fragmento del nombre** —en inglés—, no por fecha: `--period 2026-08` no encuentra nada aquí (ver la tabla de las tres familias en [[Manual-El-cierre-de-mes]]). Sin `--limit` devuelve **todos** los movimientos, así que en una chequera con miles de renglones conviene acotar o exportar:
 
 ```bash
-mnemosine ledger auxiliary show --account 1111 --period 2026-08 \
+mnemosine ledger auxiliary show --account 1111 --period August \
   --format csv -o auxiliar-bancos-agosto.csv
 ```
 

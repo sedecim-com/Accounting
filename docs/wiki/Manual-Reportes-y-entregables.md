@@ -76,9 +76,11 @@ Columnas: código de cuenta, nombre, tipo, cargos del periodo, abonos del period
 --period 2026-08          un mes
 --period 2026-Q3          un trimestre
 --period FY2026           el ejercicio
---period last-month       el mes anterior
+--period 2026             el ejercicio, también
 --period 2026-01..2026-06 un rango
 ```
+
+**`last-month` no está entre ellas, aunque la ayuda de la bandera lo anuncie.** `--period <expr>` se describe a sí misma como «period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06» (`flags.ts:131`), pero no hay código que resuelva expresiones relativas: `--period last-month` sale con **4** y `No period matches "last-month"`. El mes anterior se pide por su nombre o por su `YYYY-MM`.
 
 Cuando la expresión casa con un periodo fiscal exacto, el reporte usa **ese periodo por su identificador**, que es la lectura estricta. Cuando no casa con ninguno, te lo dice y usa el rango de calendario. Es un aviso, no un error, y conviene leerlo.
 
@@ -143,10 +145,10 @@ Con `--as-of` el significado es el mismo que en la balanza: todo lo posteado has
 ## El auxiliar de una cuenta
 
 ```bash
-mnemosine ledger auxiliary show --account 1120 --period 2026-08
+mnemosine ledger auxiliary show --account 1120 --period August
 ```
 
-Saldo inicial, cada movimiento, saldo final: **la forma XC que pide el SAT**. Las dos banderas son obligatorias; el periodo acepta un fragmento del nombre si es inequívoco.
+Saldo inicial, cada movimiento, saldo final: **la forma XC que pide el SAT**. Las dos banderas son obligatorias, y el periodo aquí es **un fragmento del nombre guardado** —que se acuña en inglés—, no una fecha: `--period August` encuentra, `--period 2026-08` sale con 3 y `Fiscal period with id 2026-08 not found`. Es una de las dos banderas `--period` que se comportan así; la otra es la de `close`, y las tres familias están en [[Manual-El-cierre-de-mes]]. Ojo con el contraste de dos bloques más abajo: `account balance show --period` **sí** acepta `2026-08`.
 
 El encabezado trae la cuenta, el periodo, **el estatus del periodo** y el saldo inicial. Y aquí hay una advertencia que este comando da y que casi ningún sistema da: si el periodo anterior no tiene cierre duro, el saldo inicial se marca como *actividad, no acumulado*. Es la diferencia entre un auxiliar que se puede entregar y uno que hay que explicar.
 
@@ -232,12 +234,14 @@ El archivo es `code,valor`, una cuenta por renglón, con coma o punto y coma. `m
 **El espejo de CFDI:**
 
 ```bash
-mnemosine cfdi list --direction recibido --period 2026-08
+mnemosine cfdi list --direction recibido --since 2026-08-01 --until 2026-08-31
 mnemosine cfdi show <uuid>
 mnemosine cfdi show <uuid> --format xml     # los bytes exactos del comprobante
 mnemosine cfdi explain <uuid>               # por qué se registró así
 mnemosine cfdi status sync --live           # revalida el estatus ante el SAT
 ```
+
+**`cfdi list --period` no filtra nada, así que aquí va con fechas.** El comando declara la bandera —se la da el juego de banderas de tiempo— pero su acción nunca la lee (`cfdi-command.ts:103-111`: la llamada a `listCfdis` recibe `since` y `until`, jamás `period`). Un CFDI de agosto sale igual con `--period 2026-01` y con `--period no-existe-este-periodo`, y sale con 0: no avisa de que no filtró. `--since`/`--until` sí funcionan.
 
 El `--format xml` es el que entregas cuando alguien pide el comprobante original: son los bytes tal como llegaron, no una reconstrucción.
 
@@ -292,7 +296,7 @@ mnemosine report aged-payable show \
 # 4. El soporte
 mnemosine entry export --period 2026-08 \
   --format csv -o entregables/2026-08/polizas.csv
-mnemosine ledger auxiliary show --account 1120 --period 2026-08 --all \
+mnemosine ledger auxiliary show --account 1120 --period August --all \
   --format csv -o entregables/2026-08/auxiliar-bancos.csv
 ```
 

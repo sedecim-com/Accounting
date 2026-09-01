@@ -32,7 +32,18 @@ mnemosine close --period 2026-08      # NO encuentra nada
 mnemosine close --period agosto       # NO encuentra nada
 ```
 
-Si no encuentra, el comando enumera los disponibles, así que la corrección es rápida. Pero ojo: es la única bandera `--period` que se comporta así. Las de los reportes (`report trial-balance show --period 2026-08`) son un selector de rango y sí aceptan `2026-08`, `2026-Q3`, `FY2026`, `last-month` y `2026-01..2026-06`. Y `period show` acepta las dos formas.
+Si no encuentra, el comando enumera los disponibles, así que la corrección es rápida. Pero ojo: **`close` no es la única bandera `--period` que se comporta así, y tampoco se comportan todas igual.** Hay tres familias, y conviene saber en cuál cae lo que vas a teclear:
+
+| Familia | Banderas | Qué acepta |
+|---|---|---|
+| **Sólo fragmento del nombre** | `close --period` · `ledger auxiliary show --period` | `August`, `August 2026`. **No** `2026-08` ni `agosto`. |
+| **Resuelto contra el calendario** | `ledger check` · `ledger stale-draft list` · `ledger balance show` · `account balance show` · `entry list` · `entry export` · `invoice list` · `period show` | `2026-08`, el nombre, un fragmento inequívoco, o el uuid. Un periodo que no existe **lanza** en vez de contestar sobre la nada. |
+| **Selector de rango (reportes)** | `report trial-balance show` y los demás `report`, `bill list` | `2026-08`, `2026-Q3`, `FY2026`, `2026`, y rangos `2026-01..2026-06`. |
+
+Dos advertencias sobre esa tabla, las dos comprobadas corriendo:
+
+- **`last-month` no funciona en ninguna parte**, aunque la ayuda de la propia bandera lo anuncie (`flags.ts:131`). No hay código que lo resuelva: `report trial-balance show --period last-month` sale con 4 y `No period matches "last-month"`. Usa `2026-08` o un rango.
+- **`cfdi list --period` no filtra nada.** El comando declara la bandera pero su acción nunca la lee (`cfdi-command.ts:103-111`, la llamada a `listCfdis` no recibe `period`): un CFDI de agosto sale igual con `--period 2026-01` y con `--period no-existe-este-periodo`. Ahí el mes se acota con `--since` y `--until`, que sí funcionan.
 
 Para ver qué hay:
 

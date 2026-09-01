@@ -163,7 +163,7 @@ Con cero filas en `bank_accounts`, el `COUNT(*)` da 0, `is_complete` da `true`, 
 
 Práctica que incumple. Nielsen 1 (visibilidad del estado del sistema): un checklist que dice "completo" porque no hay nada que revisar es la peor forma de invisibilidad. Y en el terreno contable, cualquier despacho que use CONTPAQi Bancos o el módulo de conciliación de Aspel COI da por sentado que el cierre no se firma sin la conciliación; aquí se firma solo.
 
-Escenario. El contador cierra agosto. `mnemosine close --period 2026-08 --check` le lista el checklist y la línea de conciliación bancaria aparece cumplida. Cierra. En octubre el cliente pregunta por qué la 1120 trae 84 mil pesos más que el estado de cuenta: nunca hubo comisiones, ni intereses, ni cheques en tránsito registrados, porque nunca hubo conciliación y nada se lo dijo.
+Escenario. El contador cierra agosto. `mnemosine close --period August --check` le lista el checklist y la línea de conciliación bancaria aparece cumplida. Cierra. En octubre el cliente pregunta por qué la 1120 trae 84 mil pesos más que el estado de cuenta: nunca hubo comisiones, ni intereses, ni cheques en tránsito registrados, porque nunca hubo conciliación y nada se lo dijo.
 
 ---
 
@@ -724,7 +724,7 @@ if (!incomeSummaryId || !retainedEarningsId) return []; // System accounts not s
 
 Práctica que incumple. La regla que el propio proyecto aplica bien en otros sitios: un acto que no se ejecuta tiene que decirlo. Aquí `hardClosePeriod` reporta éxito habiendo omitido su parte más importante.
 
-Escenario. Un cliente se migra desde CONTPAQi con su catálogo propio, cuyas cuentas de capital no son 3200/3900. En diciembre el contador ejecuta `mnemosine close --period 2026-12 --hard --reason "cierre del ejercicio"`. El comando responde bien. Ningún asiento de cierre se generó: los resultados no se traspasaron a capital, y el balance de enero arrastra ingresos y gastos del año anterior.
+Escenario. Un cliente se migra desde CONTPAQi con su catálogo propio, cuyas cuentas de capital no son 3200/3900. En diciembre el contador ejecuta `mnemosine close --period December --hard --reason "cierre del ejercicio"`. El comando responde bien. Ningún asiento de cierre se generó: los resultados no se traspasaron a capital, y el balance de enero arrastra ingresos y gastos del año anterior.
 
 ---
 
@@ -967,9 +967,11 @@ Y hay que saber que el checklist de cierre **no** va a avisar de nada (brecha 1)
 
 ```bash
 mnemosine close --list                          # periodos cerrables
-mnemosine close --period 2026-08 --check        # sólo el checklist, nunca cierra
+mnemosine close --period August --check         # sólo el checklist, nunca cierra
+    # El mes va por FRAGMENTO DEL NOMBRE, que se acuña en inglés: `--period 2026-08`
+    # no casa ningún periodo abierto y el comando sale con 1 enumerando los que hay.
 
-# Los cinco bloqueos y avisos que evalúa (period-close.ts:36-183):
+# Las siete partidas que evalúa (period-close.ts:36-183):
 #   1. Pólizas en borrador o pendientes de aprobación  → BLOQUEA
 #   2. Conciliaciones bancarias                        → avisa (y da falso verde, brecha 1)
 #   3. Facturas de cliente en borrador                 → avisa
@@ -994,11 +996,11 @@ mnemosine ledger check --period 2026-08
 mnemosine report view show     # ¿las vistas materializadas siguen de acuerdo con el mayor?
 mnemosine report view sync     # reconstruirlas si no
 
-mnemosine close --period 2026-08 --dry-run
-mnemosine close --period 2026-08 --reason "cierre mensual agosto"
+mnemosine close --period August --dry-run
+mnemosine close --period August --reason "cierre mensual agosto"
     # soft_close. Reversible por diseño... pero no hay comando para revertirlo (brecha 10).
 
-mnemosine close --period 2026-08 --hard --reason "cierre definitivo"
+mnemosine close --period August --hard --reason "cierre definitivo"
     # Exige soft_close previo. Si es el último periodo del ejercicio,
     # genera los asientos de cierre y arrastra saldos al siguiente periodo.
 ```
@@ -1019,7 +1021,9 @@ mnemosine report balance-sheet show --as-of 2026-08-31
 mnemosine report income-statement show --period 2026-08
 mnemosine report general-ledger show --account 1120 --period 2026-08
 
-mnemosine ledger auxiliary show --account 1120 --period 2026-08
+mnemosine ledger auxiliary show --account 1120 --period August
+    # También por nombre: getAuxiliaryView compara `period_name ILIKE`
+    # (report-service.ts:947), así que `--period 2026-08` sale con 3.
     # Saldo inicial → cada movimiento → saldo final. La forma del XC del SAT.
 
 mnemosine ledger balance show --account 1120 --as-of 2026-08-31

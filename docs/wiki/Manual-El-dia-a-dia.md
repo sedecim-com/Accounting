@@ -135,8 +135,10 @@ npm run mnemosine -- drafts -s pending_review
 Una preparación que sí ayuda mucho: **antes de entrar a la cola, abre una segunda terminal** con el espejo de CFDI. Dentro de la revisión no vas a poder consultar nada.
 
 ```bash
-npm run mnemosine -- cfdi list --period 2026-08 --direction recibido
+npm run mnemosine -- cfdi list --since 2026-08-01 --until 2026-08-31 --direction recibido
 ```
+
+**`cfdi list --period` no filtra nada, así que aquí va con fechas.** El comando declara la bandera —se la da el juego de banderas de tiempo— pero su acción nunca la lee (`cfdi-command.ts:103-111`: la llamada a `listCfdis` recibe `since` y `until`, jamás `period`). Un CFDI de agosto sale igual con `--period 2026-01` y con `--period no-existe-este-periodo`, y sale con 0: no avisa de que no filtró. `--since`/`--until` sí funcionan.
 
 Atención al idioma de esa bandera: en `cfdi list` los valores de `--direction` son **en español** (`emitido`, `recibido`, `ajeno`), mientras que en `rep missing list` la misma bandera se escribe **en inglés** (`received`, `issued`). No es un error tuyo; el producto es así hoy.
 
@@ -413,7 +415,7 @@ Con menos detalle y sin cuentas en ceros:
 npm run mnemosine -- report trial-balance show --period 2026-08 --level 4 --exclude-zero
 ```
 
-`--period` acepta varias formas: `2026-08`, `2026-Q3`, `FY2026`, `last-month`, y rangos como `2026-01..2026-06`.
+`--period` acepta varias formas: `2026-08`, `2026-Q3`, `FY2026`, `2026`, y rangos como `2026-01..2026-06`. **No** acepta `last-month`, aunque la ayuda de la bandera lo anuncie: no hay código que resuelva expresiones relativas y la corrida sale con 4 (ver [[Manual-Reportes-y-entregables]]).
 
 **Qué vas a ver, y cómo leerlo.** Las columnas salen con nombres técnicos en inglés (`account_code`, `account_name`, `debit_total`, `credit_total`, `ending_balance`) sobre nombres de cuenta en español, y los importes salen **sin separador de miles y con cuatro decimales**: `12458930.5500`, no `12,458,930.55`. Hay que contar dígitos con el dedo. Está reconocido como una brecha; hoy es así, y es una razón más para exportar a CSV cuando el reporte es para alguien más.
 
@@ -436,13 +438,15 @@ npm run mnemosine -- report aged-payable show --as-of 2026-08-31
 Saldo inicial, cada movimiento y saldo final. Es la forma que pide el SAT:
 
 ```bash
-npm run mnemosine -- ledger auxiliary show --account 1120 --period 2026-08
+npm run mnemosine -- ledger auxiliary show --account 1120 --period August
 ```
+
+**El periodo va por nombre, no por fecha.** Aquí `--period 2026-08` no sirve —sale con 3 y `Fiscal period with id 2026-08 not found`—, aunque en los reportes de arriba sí sirva. Es una de las dos banderas `--period` que buscan por fragmento del nombre; la tabla de las tres familias está en [[Manual-El-cierre-de-mes]].
 
 **Cuidado con el volumen:** este comando **no tiene límite por omisión**. Sobre la chequera de un cliente con cuatro mil movimientos vuelca cuatro mil renglones a la terminal. Ponle `-n`:
 
 ```bash
-npm run mnemosine -- ledger auxiliary show --account 1120 --period 2026-08 -n 100
+npm run mnemosine -- ledger auxiliary show --account 1120 --period August -n 100
 ```
 
 ### El saldo de una cuenta por periodo
@@ -487,8 +491,10 @@ En CSV los importes salen sin separador de miles y con punto decimal, que es lo 
 ### Qué le falta al mes para cerrar
 
 ```bash
-npm run mnemosine -- close --period 2026-08 --check
+npm run mnemosine -- close --period August --check
 ```
+
+**Fíjate en el `August`, no es un descuido.** `close --period` es una de las dos banderas de periodo que buscan por fragmento del nombre guardado —y los nombres se acuñan en inglés—, así que `--period 2026-08` no encuentra nada y el comando te enumera los disponibles. Las tres familias de `--period`, con lo que acepta cada una, están en [[Manual-El-cierre-de-mes]].
 
 Sólo revisa; nunca cierra. Evalúa siete partidas: pólizas en borrador o pendientes de aprobación (bloquea), conciliaciones bancarias (avisa), facturas de cliente en borrador (avisa), depreciación del periodo (avisa), balanza cuadrada (bloquea), REP apartados para revisión (avisa), y pagos y cobros sin REP (bloquea o avisa según lo que hayas definido en el panel).
 
@@ -509,8 +515,8 @@ La primera corre las verificaciones de integridad del mayor. La segunda dice si 
 **Si vas a cerrar**, hazlo con la vista previa primero y con un motivo escrito:
 
 ```bash
-npm run mnemosine -- close --period 2026-08 --dry-run
-npm run mnemosine -- close --period 2026-08 --reason "cierre mensual agosto"
+npm run mnemosine -- close --period August --dry-run
+npm run mnemosine -- close --period August --reason "cierre mensual agosto"
 ```
 
 **Y aquí, más que en ningún otro sitio, cuida la respuesta.** La compuerta de `close` es laxa: cualquier respuesta que empiece con `s` —incluida `salir`— se toma como **sí**. Para cancelar escribe `n`. Y recuerda que **no hay comando para reabrir un periodo cerrado**.
@@ -586,7 +592,7 @@ npm run mnemosine -- ledger stale-draft list --days 7 --period 2026-08
 npm run mnemosine -- rep missing list --direction received
 npm run mnemosine -- rep reconcile
 npm run mnemosine -- ledger check --period 2026-08
-npm run mnemosine -- close --period 2026-08 --check
+npm run mnemosine -- close --period August --check
 ```
 
 **Para entregar**
