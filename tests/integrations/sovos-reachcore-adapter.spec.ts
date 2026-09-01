@@ -239,7 +239,14 @@ describe('la llave privada no se entrega: las dos vías prohibidas', () => {
    */
   it('ningún método prohibido se invoca', () => {
     for (const prohibido of METODOS_PROHIBIDOS) {
-      const invocaciones = [...fuente.matchAll(new RegExp(`${prohibido}\\s*\\(`, 'g'))];
+      // Sin regex construida desde la lista: entradas como api-test.sovos.com
+      // traen puntos que, sueltos en una regex, casan cualquier carácter. Se
+      // busca el LITERAL y se mira qué le sigue — misma pregunta («¿alguien lo
+      // invoca?»), sin patrón que pueda ensancharse.
+      const invocaciones = fuente
+        .split(prohibido)
+        .slice(1)
+        .filter((resto) => /^\s*\(/.test(resto));
       expect(invocaciones, `${prohibido} no puede llamarse`).toHaveLength(0);
     }
   });
