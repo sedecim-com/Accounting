@@ -135,7 +135,10 @@ export function declareRisk(cmd: Command, decl: RiskDeclaration): Command {
   if (resolved.requiresDryRun) {
     anadir('--dry-run', 'compute and show the full effect; write nothing and call nothing external');
     anadir('-y, --yes', 'skip the confirmation prompt');
-    anadir('--idempotency-key <key>', 'client dedupe key; defaults to a hash of the payload');
+    anadir(
+      '--idempotency-key <key>',
+      'client dedupe key, stored on success: a retry with the same key and payload returns the recorded result'
+    );
   }
   if (resolved.requiresLiveGate) {
     anadir('--live', 'perform the real external effect (default is the sandbox endpoint)');

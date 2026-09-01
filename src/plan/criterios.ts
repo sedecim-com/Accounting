@@ -1262,7 +1262,11 @@ export const CRITERIOS: Criterio[] = [
         return falla('no existe la superficie nombrada: la desatendida vuelve a recibir todo por omisión');
       }
       const cli = codigoDe('src/cli/mnemosine.ts');
-      if (!/herramientas:\s*SUPERFICIE_DESATENDIDA/.test(cli)) {
+      // La expresión admite el ternario de S0.6: con --live viaja la
+      // superficie completa y sin ella la variante SANDBOX (misma lista menos
+      // las dos lecturas externas). Lo que se afirma es que la opción
+      // `herramientas` se alimenta de la lista NOMBRADA, nunca de una omisión.
+      if (!/herramientas:[^\n]*SUPERFICIE_DESATENDIDA/.test(cli)) {
         return falla(
           'makeRunAgentTurn no pasa SUPERFICIE_DESATENDIDA: la sesión desatendida recibe la ' +
             'superficie completa por omisión, y una herramienta futura entraría sin que nadie lo decida'
@@ -1272,6 +1276,49 @@ export const CRITERIOS: Criterio[] = [
       return /permitidas/.test(fabrica) && /throw new Error/.test(fabrica)
         ? ok('la desatendida corre con lista explícita, y un nombre fantasma rompe en el arranque')
         : falla('buildTools no valida la lista: un nombre renombrado filtraría en silencio');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'Los graves declaran junto a su registro, con la compuerta cableada y la llave guardada',
+    evaluar: () => {
+      // S0.6, tres afirmaciones mecánicas sobre el mismo borde.
+      //
+      // 1) La tabla de retrofit no declara ningún grave. Un irreversible o
+      //    externo declarado por tabla es un manejador que nadie cableó: el
+      //    preAction de la tabla sólo sabía rechazar --dry-run/--live en voz
+      //    alta, nunca honrarlas. Una fila grave nueva sería ese retroceso.
+      const tabla = codigoDe('src/cli/kernel/riesgos-retrofit.ts');
+      if (/risk:\s*'(irreversible|externo)'/.test(tabla)) {
+        return falla(
+          'la tabla de retrofit volvió a declarar un grave: su manejador no honra --dry-run/--live — declara junto al registro y cablea gateMutation'
+        );
+      }
+      // 2) La compuerta tiene consumidores reales fuera del kernel: los ocho
+      //    graves migrados más las familias que ya nacieron cableadas.
+      const consumidores = consumidoresDe('gateMutation', 'risk.ts').filter(
+        (f) => !f.startsWith('src/cli/kernel/')
+      );
+      if (consumidores.length < 8) {
+        return falla(
+          `gateMutation se consume en ${consumidores.length} archivo(s) fuera del kernel; con los ocho graves cableados deben ser al menos 8`
+        );
+      }
+      // 3) La llave de idempotencia se guarda de verdad: hay quien escribe
+      //    idempotency_keys y más de un comando pasa por el almacén. Sin
+      //    esto, --idempotency-key vuelve a ser un aviso que promete de más.
+      const escritores = dondeAparece(/INSERT\s+INTO\s+idempotency_keys/i, ['src'], true);
+      if (escritores.length === 0) {
+        return falla('nadie escribe idempotency_keys: la bandera vuelve a ser un aviso sin almacén');
+      }
+      const usos = consumidoresDe('conLlave', 'idempotency-store.ts');
+      return usos.length >= 3
+        ? ok(
+            `graves fuera de la tabla; compuerta consumida en ${consumidores.length} archivos; llave guardada (${escritores[0]}) y consumida en ${usos.length}`
+          )
+        : falla(
+            `conLlave se consume en ${usos.length} archivo(s); entry post/reverse/void, close y onboard exigen al menos 3`
+          );
     },
   },
   {

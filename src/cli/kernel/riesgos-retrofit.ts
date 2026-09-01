@@ -26,18 +26,20 @@ import { declareRisk, riskOf, type RiskDeclaration } from './risk.js';
 //
 // EL CRITERIO DE CLASIFICACIÓN: EL MÁXIMO QUE ALCANZA CUALQUIER CAMINO
 //
-// Siete comandos hacen cosas distintas según una bandera: `close --check` lee
-// y `close --hard` es irreversible; `outbox -l` lista y sin la bandera
-// EJECUTA. La regla del núcleo prohíbe que el permiso dependa del valor de
-// una bandera, y la lectura conservadora de esa regla no es dejarlos sin
-// declarar —que es lo que había— sino declararlos al riesgo MÁS ALTO que
-// alcanza cualquiera de sus caminos. Eso no hace depender el permiso de nada:
-// aplica el más estricto a todos.
+// Varios comandos hacen cosas distintas según una bandera. La regla del
+// núcleo prohíbe que el PERMISO dependa del valor de una bandera, y la
+// lectura conservadora es declararlos al riesgo MÁS ALTO que alcanza
+// cualquiera de sus caminos: aplica el más estricto a todos.
 //
-// Partirlos en dos comandos es mejor superficie y sigue siendo lo correcto,
-// pero es un cambio de interfaz con alias de deprecación — otro trabajo. Lo
-// que no puede esperar es que `outbox` ejecute contra un tercero sin ninguna
-// compuerta.
+// S0.6 sacó de esta tabla a los ocho graves: `review`, `ingest`, `onboard`,
+// `close`, `outbox`, `jobs run-due` y las dos de `sat cred` declaran hoy
+// junto a su registro Y honran sus banderas (gateMutation, --dry-run real,
+// --live para lo externo, llave de idempotencia guardada). Los modos de
+// bandera que eran clases de riesgo distintas se partieron donde el catálogo
+// lo comete (`outbox list`/`outbox run`, `question list`/`question answer`,
+// con el comando viejo como shim de deprecación); `close`, `review`,
+// `ingest` y `onboard` se quedan de una hoja porque el REGISTRY así lo
+// dictamina (§5 #6: `close --check` se queda), declarados al máximo.
 // ============================================================
 
 export const RIESGOS_RETROFIT: Record<string, RiskDeclaration> = {
@@ -90,7 +92,6 @@ export const RIESGOS_RETROFIT: Record<string, RiskDeclaration> = {
     agent: false,
     writes: 'tenants, legal_entities, users, accounts, account_roles, policy_decisions, mnemosine.config.json',
   },
-  questions: { risk: 'escritura', agent: false, writes: 'ai_questions y los precedentes que su respuesta siembra' },
   'pending define': { risk: 'escritura', agent: false, writes: 'policy_decisions' },
   'pending dismiss': { risk: 'escritura', agent: false, writes: 'policy_decisions' },
   'pending reopen': { risk: 'escritura', agent: false, writes: 'policy_decisions' },
@@ -111,53 +112,10 @@ export const RIESGOS_RETROFIT: Record<string, RiskDeclaration> = {
   },
   'approvals revoke': { risk: 'escritura', agent: false, writes: 'approval_policies' },
 
-  // ── Postean al mayor o no se deshacen re-ejecutando ──
-  //
-  // Los tres primeros son de los que hacen cosas distintas según una bandera,
-  // y se declaran por su camino más grave.
-  review: {
-    risk: 'irreversible',
-    agent: false,
-    writes: 'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador',
-  },
-  ingest: {
-    risk: 'irreversible',
-    agent: false,
-    writes: 'xml_documents, pre_registrations, bills; y con --auto-post, asientos POSTEADOS',
-  },
-  onboard: {
-    risk: 'irreversible',
-    agent: false,
-    writes: 'accounts, saldos iniciales; y con --post, el asiento de apertura POSTEADO',
-  },
-  close: {
-    risk: 'irreversible',
-    agent: false,
-    writes: 'fiscal_periods; con --hard el cierre no se deshace re-ejecutando',
-  },
-  'sat cred revoke': {
-    risk: 'irreversible',
-    agent: false,
-    writes: 'fiscal_credentials + destrucción del material en la bóveda',
-  },
-
-  // ── Tienen efecto fuera de este sistema ──
-  outbox: {
-    risk: 'externo',
-    agent: false,
-    writes:
-      'ai_external_ops; y EJECUTA cada operación contra el sistema contable del cliente con su credencial',
-  },
-  'jobs run-due': {
-    risk: 'externo',
-    agent: false,
-    writes: 'job_runs; y ejecuta el trabajo de cada job vencido, que puede salir del sistema',
-  },
-  'sat cred add': {
-    risk: 'externo',
-    agent: false,
-    writes: 'fiscal_credentials + el material en la bóveda; valida el certificado contra el SAT',
-  },
+  // Los graves (irreversible/externo) ya no viven aquí: S0.6 los migró a
+  // declarar junto a su registro, con sus manejadores cableados a la
+  // compuerta. Una fila grave nueva en esta tabla sería un retroceso — el
+  // criterio del plan lo vigila.
 };
 
 /** Toda hoja del árbol, como `familia sub verbo`. */

@@ -17,7 +17,7 @@ vi.mock('../../src/ai/providers/config.js', async (importOriginal) => {
 
 import { resolverUmbralesConPanel } from '../../src/ai/ingest-thresholds.js';
 import { buildTools } from '../../src/ai/tools/index.js';
-import { SUPERFICIE_DESATENDIDA } from '../../src/ai/tools/superficie.js';
+import { SUPERFICIE_DESATENDIDA, SUPERFICIE_DESATENDIDA_SANDBOX } from '../../src/ai/tools/superficie.js';
 
 /**
  * LA FRONTERA DE LA CORRIDA DESATENDIDA.
@@ -171,5 +171,23 @@ describe('la superficie desatendida es nombrada y falla cerrado', () => {
     expect(() =>
       buildTools(ctx as never, deps, [...SUPERFICIE_DESATENDIDA, 'herramienta_renombrada'])
     ).toThrow(/no existen/);
+  });
+
+  it('la variante SANDBOX es la misma lista sin el brazo externo, y también es válida', () => {
+    // S0.6: `jobs run-due` sin --live corre con esta variante. El único
+    // alcance fuera del sistema de una corrida desatendida son las dos
+    // lecturas contra el sistema del cliente con su credencial; quitarlas es
+    // exactamente lo que la compuerta --live del kernel promete gobernar.
+    const externas = ['external_pull', 'external_diff_trial_balance'];
+    expect([...SUPERFICIE_DESATENDIDA_SANDBOX].sort()).toEqual(
+      SUPERFICIE_DESATENDIDA.filter((n) => !externas.includes(n)).sort()
+    );
+    for (const n of externas) {
+      expect(SUPERFICIE_DESATENDIDA_SANDBOX, `${n} no viaja sin --live`).not.toContain(n);
+    }
+    // Y sigue siendo una lista de nombres reales: si un renombre la rompe,
+    // rompe aquí y no en una corrida nocturna.
+    const recortadas = buildTools(ctx as never, deps, SUPERFICIE_DESATENDIDA_SANDBOX);
+    expect(recortadas.map((t) => t.name).sort()).toEqual([...SUPERFICIE_DESATENDIDA_SANDBOX].sort());
   });
 });

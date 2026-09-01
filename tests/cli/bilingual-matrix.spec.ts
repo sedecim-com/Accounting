@@ -48,8 +48,10 @@ const TOP_LEVEL: Record<string, string> = {
   ingest: 'ingesta',
   lang: 'idioma',
   onboard: 'alta',
-  outbox: 'envios',
-  questions: 'dudas',
+  // S0.6: familias partidas. El alias español pasa a singular (catálogo);
+  // `envios`/`questions`/`dudas` siguen vivos como aliases de compatibilidad.
+  outbox: 'envio',
+  question: 'duda',
   sat: '',
   pending: 'pendientes',
   login: 'entrar',
@@ -82,6 +84,8 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   customer: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', archive: 'archivar', restore: 'restaurar' },
   invoice: { list: 'listar', show: 'ver', create: 'crear', issue: 'emitir', void: 'anular', series: 'serie' },
   report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },
+  outbox: { list: 'listar', run: 'ejecutar' },
+  question: { list: 'listar', answer: 'responder' },
 };
 
 const SAT_CRED: Record<string, string> = {
@@ -166,7 +170,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

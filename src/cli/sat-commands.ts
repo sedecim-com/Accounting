@@ -13,6 +13,8 @@ import {
   revokeCredential,
   CONSENT_TEXT,
 } from '../services/fiscal-credentials/service.js';
+import { declareRisk, gateMutation } from './kernel/risk.js';
+import { exitCodeFor } from './kernel/index.js';
 
 // ============================================================
 // `mnemosine sat cred …` COMMANDS
@@ -64,23 +66,41 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
   const sat = program.command('sat').description('SAT services (credentials and CFDI download)');
   const cred = sat.command('cred').description('Fiscal credentials (e.firma)');
 
-  cred
+  const add = cred
     .command('add')
     .alias('agregar')
-    .description('Registers the e.firma of an entity (validates locally before transmitting)')
+    .description('Registers the e.firma of an entity (validates locally; storing in the vault requires --live)')
     .requiredOption('--cer <file>', 'SAT .cer certificate (DER)')
     .requiredOption('--key <file>', 'SAT .key private key (DER)')
     .option('-e, --entity <idOrName>', 'Legal entity')
     .option('-u, --user <email>', 'Who grants the consent')
     .option('--no-unattended', 'Forbid use without an operator present')
-    .option('--max-diario <n>', 'Access limit per 24 h', (v) => parseInt(v, 10))
-    .action(async (opts: {
+    .option('--max-diario <n>', 'Access limit per 24 h', (v) => parseInt(v, 10));
+  // Externo, declarado junto a su registro (S0.6): el material viaja a la
+  // bóveda (AWS Secrets Manager) — un sistema fuera de éste. El kernel añade
+  // --dry-run, --yes, --idempotency-key y --live, y aquí se honran: --dry-run
+  // valida el certificado sin pedir la contraseña ni guardar nada, y el
+  // depósito real exige --live. El consentimiento tecleado NO lo salta --yes:
+  // la custodia de una e.firma se autoriza escribiendo "accept", siempre.
+  declareRisk(add, {
+    risk: 'externo',
+    agent: false,
+    writes: 'fiscal_credentials + el material en la bóveda; valida el certificado localmente antes',
+  });
+  add.action(async (opts: {
       cer: string; key: string; entity?: string; user?: string;
       unattended: boolean; maxDiario?: number;
+      dryRun?: boolean; live?: boolean; yes?: boolean; idempotencyKey?: string;
     }) => {
       let rl: readline.Interface | undefined;
       try {
         const ctx = await resolveEntity(opts.entity);
+        const { dryRun, live } = gateMutation(add, opts as Record<string, unknown>);
+        if (opts.idempotencyKey) {
+          stderr.write(
+            '  --idempotency-key does not apply here: custody is guarded by the typed consent and the credential status.\n'
+          );
+        }
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
         const cer = readSensitiveFile(opts.cer, '.cer', (s) => stderr.write(ce.red(`\n${s}\n`)));
@@ -121,6 +141,24 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
           await shutdown(1);
         }
 
+        if (dryRun) {
+          console.log(c.dim(
+            '\n(dry-run: certificate valid for this entity. The real run asks the key password, ' +
+              'verifies the pair and stores the material in the vault. Nothing was stored.)'
+          ));
+          await shutdown(0);
+        }
+        if (!live) {
+          console.log(
+            c.bold('\nValidation passed.') +
+              c.dim(
+                ' Storing the e.firma in the vault is the real external effect and is opt-in: ' +
+                  're-run with --live to be asked the password and complete the deposit.'
+              )
+          );
+          await shutdown(0);
+        }
+
         const password = await askHidden(c.cyan('\nPrivate key password (not shown): '));
         if (!verifyKeyPair(cer, key, password)) {
           console.error(ce.red('\nThe key does not match the certificate, or the password is incorrect.'));
@@ -128,10 +166,11 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
         }
         console.log(c.dim('Key pair verified locally.'));
 
-        // 2) Explicit informed consent.
+        // 2) Explicit informed consent. --yes does NOT skip it on purpose:
+        // custody of an e.firma is authorized by typing the word, always.
         console.log(`\n${CONSENT_TEXT}\n`);
         rl = readline.createInterface({ input: stdin, output: stdout });
-        const ok = await ask(rl, c.cyan('Do you authorize storing this e.firma? type "accept" to continue: '));
+        const ok = await ask(rl, c.cyan('Do you authorize storing this e.firma? type "accept" to continue (--yes does not skip this): '));
         rl.close();
         if ((ok ?? '').trim().toLowerCase() !== 'accept') {
           console.log(c.dim('Cancelled. Nothing was saved.'));
@@ -158,7 +197,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
       } catch (err) {
         rl?.close();
         reportError(err);
-        await shutdown(1);
+        await shutdown(exitCodeFor(err));
       }
     });
 
@@ -227,35 +266,75 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
       }
     });
 
-  cred
+  const revoke = cred
     .command('revoke')
     .alias('revocar')
     .description('Revokes the credential and deletes the material from the vault (irreversible)')
     .option('-e, --entity <idOrName>', 'Legal entity')
-    .option('-u, --user <email>', 'Who revokes')
-    .action(async (opts: { entity?: string; user?: string }) => {
+    .option('-u, --user <email>', 'Who revokes');
+  // Irreversible, declarado junto a su registro (S0.6): la destrucción del
+  // material en la bóveda es criptográfica. El kernel añade --dry-run, --yes,
+  // --idempotency-key y —por ser un verbo que deshace— --reason obligatoria,
+  // que aterriza en audit_log vía revokeCredential.
+  declareRisk(revoke, {
+    risk: 'irreversible',
+    agent: false,
+    writes: 'fiscal_credentials + destrucción criptográfica del material en la bóveda',
+  });
+  revoke.action(async (opts: {
+      entity?: string; user?: string;
+      dryRun?: boolean; yes?: boolean; reason?: string; idempotencyKey?: string;
+    }) => {
       let rl: readline.Interface | undefined;
       try {
         const ctx = await resolveEntity(opts.entity);
+        const { dryRun, reason } = gateMutation(revoke, opts as Record<string, unknown>);
+        if (opts.idempotencyKey) {
+          stderr.write(
+            '  --idempotency-key does not apply here: a second revoke is refused because no active credential remains.\n'
+          );
+        }
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+
+        if (dryRun) {
+          const rows = await getCredentialStatus(ctx.entityId, ctx.tenantId);
+          const activa = rows.find((r) => r.status === 'active');
+          if (!activa) {
+            console.log('There is no active credential to revoke; the real run would refuse too.');
+            await shutdown(0);
+          }
+          console.log(
+            `${c.bold('Would revoke')} the ${activa!.credential_type} of ${ctx.entityName} ` +
+              `(serial ${activa!.cert_serial}) and cryptographically destroy its vault material ` +
+              c.dim(`(custody: ${activa!.vault_backend})`)
+          );
+          console.log(c.dim('(dry-run: nothing was revoked or destroyed)'));
+          await shutdown(0);
+        }
+
         console.log(
           ce.red(`\nYou are about to delete the e.firma of ${ctx.entityName} from custody.`) +
             c.dim('\nThe deletion is cryptographic and irreversible; it will have to be loaded again.\n')
         );
-        rl = readline.createInterface({ input: stdin, output: stdout });
-        const ok = await ask(rl, c.cyan('Type the RFC of the entity to confirm: '));
-        rl.close();
-        if ((ok ?? '').trim().toUpperCase() !== ctx.taxId.toUpperCase()) {
-          console.log(c.dim('Cancelled.'));
-          await shutdown(0);
+        if (!opts.yes) {
+          rl = readline.createInterface({ input: stdin, output: stdout });
+          const ok = await ask(rl, c.cyan('Type the RFC of the entity to confirm: '));
+          rl.close();
+          if ((ok ?? '').trim().toUpperCase() !== ctx.taxId.toUpperCase()) {
+            console.log(c.dim('Cancelled.'));
+            await shutdown(0);
+          }
         }
-        await revokeCredential(ctx.entityId, ctx.tenantId, reviewer.email);
+        await revokeCredential(ctx.entityId, ctx.tenantId, reviewer.email, {
+          userId: reviewer.userId,
+          reason,
+        });
         console.log('✔ Credential revoked and material deleted from the vault.');
         await shutdown(0);
       } catch (err) {
         rl?.close();
         reportError(err);
-        await shutdown(1);
+        await shutdown(exitCodeFor(err));
       }
     });
 }

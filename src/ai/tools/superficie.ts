@@ -54,3 +54,19 @@ export const SUPERFICIE_DESATENDIDA: readonly string[] = [
   'external_pull',
   'external_diff_trial_balance',
 ];
+
+/**
+ * La superficie desatendida SIN el alcance externo: lo que corre
+ * `jobs run-due` cuando NO se pasó --live.
+ *
+ * El único brazo de una corrida desatendida que sale de este sistema son las
+ * dos lecturas contra el sistema del cliente con su credencial (el runner no
+ * escribe fuera jamás; external_push sólo encola). `--live` es la compuerta
+ * del kernel para efectos externos, y aquí significa exactamente eso: sin la
+ * bandera, los trabajos corren completos sobre los datos propios y el brazo
+ * externo no viaja — un cron que concilia contra Contalink lo dice explícito
+ * en su línea: `mnemosine jobs run-due --live`.
+ */
+export const SUPERFICIE_DESATENDIDA_SANDBOX: readonly string[] = SUPERFICIE_DESATENDIDA.filter(
+  (n) => n !== 'external_pull' && n !== 'external_diff_trial_balance'
+);

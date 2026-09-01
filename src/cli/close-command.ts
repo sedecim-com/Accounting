@@ -8,12 +8,24 @@ import {
 import { softClosePeriod, hardClosePeriod } from '../services/accounting/period-close.js';
 import { resolveEntity, bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
+import { declareRisk, gateMutation } from './kernel/risk.js';
+import { abortedByUser, exitCodeFor } from './kernel/index.js';
+import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 
 // ============================================================
 // mnemosine cierre
 // Answers "can I close the month?" and, if so, closes it.
 // Soft close first (reversible, blocks new entries), hard close
 // only as an explicit second step.
+//
+// One leaf, declared at its gravest path (S0.6). The catalog's
+// REGISTRY §5 #6 rules that `close --check` STAYS a flag of this
+// leaf — `closing check` does not replace it — so the risk is
+// declared irreversible (the --hard path) and the kernel's flags
+// are honored here: --dry-run reports without writing, --yes
+// skips the prompt (and a non-TTY run without it aborts loudly
+// instead of pretending), --idempotency-key is stored on success,
+// and --reason lands in the audit trail of the close.
 // ============================================================
 
 export interface CloseCliDeps {
@@ -65,21 +77,31 @@ export function renderReadiness(r: CloseReadiness, c: CloseCliDeps['palette']): 
 }
 
 export function registerCloseCommand(program: Command, deps: CloseCliDeps): void {
-  program
+  const close = program
     .command('close')
     .alias('cierre')
     .description('Month-end close: checks what is missing and closes the period')
     .option('-e, --entity <idOrName>', 'Legal entity')
     .option('-t, --tenant <id>', 'Tenant')
     .option('-u, --user <email>', 'Who performs the close')
-    .option('-p, --period <name>', 'Period to close (default: the oldest open one)')
+    // Sin forma corta: el diccionario reserva -p a --provider (R6).
+    .option('--period <name>', 'Period to close (default: the oldest open one)')
     .option('-l, --list', 'List closable periods and exit')
     .option('--check', 'Only check readiness, never close')
     .option('--hard', 'Hard close (irreversible) instead of soft close')
-    .option('--json', 'JSON output for scripts')
-    .action(async (opts: {
+    .option('--reason <text>', 'why this close happens now; recorded in the audit trail')
+    .option('--json', 'JSON output for scripts');
+  // Declarado por su camino más grave: --hard genera asientos de cierre y
+  // arrastra saldos, y no se deshace re-ejecutando. El kernel añade
+  // --dry-run, --yes e --idempotency-key, y le niega el comando al agente.
+  declareRisk(close, {
+    risk: 'irreversible',
+    writes: 'fiscal_periods; con --hard, asientos de cierre POSTEADOS y arrastre de saldos',
+  });
+  close.action(async (opts: {
       entity?: string; tenant?: string; user?: string; period?: string;
       list?: boolean; check?: boolean; hard?: boolean; json?: boolean;
+      yes?: boolean; reason?: string; idempotencyKey?: string;
     }) => {
       let rl: readline.Interface | undefined;
       try {
@@ -128,29 +150,63 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
           await deps.shutdown(readiness.canClose ? 0 : 1);
         }
 
-        // Closing changes what can be posted: always confirm.
+        const { dryRun, reason } = gateMutation(close, opts as Record<string, unknown>);
         const kind = opts.hard ? 'HARD close (irreversible)' : 'soft close (reversible)';
-        if (!stdin.isTTY) {
-          console.log(deps.palette.dim(`Not a terminal: not closing. Run without --check in a terminal.`));
+
+        if (dryRun) {
+          // El mismo veredicto que el acto real daría: aquí sólo se llega con
+          // canClose en verde, así que la marcha seca informa y sale 0.
+          console.log(deps.palette.bold(`Would ${opts.hard ? 'hard' : 'soft'} close ${period.period_name}.`));
+          console.log(deps.palette.dim('  (dry-run: nothing was written)'));
           await deps.shutdown(0);
         }
-        rl = readline.createInterface({ input: stdin, output: stdout });
-        const askFn = deps.ask ?? (async (r: readline.Interface, q: string) => r.question(q).catch(() => null));
-        const answer = await askFn(rl, deps.palette.cyan(`Proceed with ${kind}? [y/N] `));
-        rl.close();
-        rl = undefined;
 
-        if (!answer || !/^y|^s/i.test(answer.trim())) {
-          console.log('Cancelled.');
-          await deps.shutdown(0);
+        // Closing changes what can be posted: always confirm. Without a
+        // terminal there is nobody to ask, so the command refuses instead of
+        // assuming consent — re-run with --yes once you are sure.
+        if (!opts.yes) {
+          if (!stdin.isTTY) {
+            throw abortedByUser(
+              `Proceed with ${kind}? — there is no terminal to ask on. ` +
+                'Re-run with --yes once you are sure, or with --dry-run to see the effect first.'
+            );
+          }
+          rl = readline.createInterface({ input: stdin, output: stdout });
+          const askFn = deps.ask ?? (async (r: readline.Interface, q: string) => r.question(q).catch(() => null));
+          const answer = await askFn(rl, deps.palette.cyan(`Proceed with ${kind}? [y/N] `));
+          rl.close();
+          rl = undefined;
+          if (!answer || !/^y|^s/i.test(answer.trim())) {
+            console.log('Cancelled.');
+            await deps.shutdown(0);
+          }
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-        const closed = opts.hard
-          ? await hardClosePeriod(period.id, ctx.entityId, reviewer.userId)
-          : await softClosePeriod(period.id, ctx.entityId, reviewer.userId);
+        const acto = await conLlave(
+          { tenantId: ctx.tenantId, entityId: ctx.entityId },
+          {
+            scope: 'close',
+            clave: opts.idempotencyKey,
+            payloadHash: hashDeCarga(period.id, opts.hard ? 'hard' : 'soft'),
+          },
+          async () => {
+            const closed = opts.hard
+              ? await hardClosePeriod(period.id, ctx.entityId, reviewer.userId, reason)
+              : await softClosePeriod(period.id, ctx.entityId, reviewer.userId, reason);
+            return { period_name: period.period_name, status: closed.status };
+          }
+        );
 
-        console.log(`✔ ${period.period_name} is now ${closed.status} (by ${reviewer.email})`);
+        if (acto.repetido) {
+          console.log(
+            `↩ Idempotency hit: key "${opts.idempotencyKey}" already closed ` +
+              `${acto.resultado.period_name} (now ${acto.resultado.status}). Nothing was executed again.`
+          );
+          await deps.shutdown(0);
+        }
+
+        console.log(`✔ ${acto.resultado.period_name} is now ${acto.resultado.status} (by ${reviewer.email})`);
         if (!opts.hard) {
           console.log(deps.palette.dim('  Soft close is reversible. To seal it: mnemosine close --hard'));
         }
@@ -158,7 +214,7 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
       } catch (err) {
         rl?.close();
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 }

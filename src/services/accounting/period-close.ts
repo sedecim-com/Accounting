@@ -121,7 +121,8 @@ export async function getPeriodCloseStatus(
 export async function softClosePeriod(
   periodId: string,
   entityId: string,
-  userId: string
+  userId: string,
+  reason?: string
 ): Promise<FiscalPeriod> {
   const status = await getPeriodCloseStatus(periodId, entityId);
 
@@ -156,6 +157,7 @@ export async function softClosePeriod(
       entityType: 'fiscal_period',
       entityId: periodId,
       newValues: { status: 'soft_close' },
+      reason,
     });
 
     return result.rows[0];
@@ -183,7 +185,8 @@ async function inquilinoDe(client: pg.PoolClient, entityId: string): Promise<str
 export async function hardClosePeriod(
   periodId: string,
   entityId: string,
-  userId: string
+  userId: string,
+  reason?: string
 ): Promise<FiscalPeriod> {
   // Closing entries are created with the transaction's client (atomic with
   // the hard close), so attestation must fire here, AFTER commit.
@@ -237,6 +240,21 @@ export async function hardClosePeriod(
        WHERE id = $1`,
       [periodId]
     );
+
+    // El sello duro deja rastro en la misma transacción, igual que el suave.
+    // Antes NO auditaba nada: el único vestigio era hard_close_date, sin
+    // quién ni por qué — y es el acto que genera asientos de cierre y
+    // arrastra saldos.
+    await registrarAuditoria(client, {
+      tenantId: await inquilinoDe(client, entityId),
+      userId,
+      action: 'close',
+      entityType: 'fiscal_period',
+      entityId: periodId,
+      oldValues: { status: 'soft_close' },
+      newValues: { status: 'hard_close', closing_entries: closingEntryIds.length },
+      reason,
+    });
 
     // Lock all journal entries in this period
     await client.query(

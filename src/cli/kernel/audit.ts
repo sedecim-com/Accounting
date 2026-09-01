@@ -200,8 +200,9 @@ export const LINEA_BASE: readonly string[] = [
   'sessions|R1 objectless allowlist|"sessions" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'drafts|R1 objectless allowlist|"drafts" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'onboard|R6 banned spelling|--from is banned',
-  'outbox|R1 objectless allowlist|"outbox" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
-  'questions|R1 objectless allowlist|"questions" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
+  // S0.6 borró tres entradas: `outbox` y `questions` dejaron de ser hojas sin
+  // objeto (hoy son familias `outbox list|run` y `question list|answer`), y
+  // `close` retiró la forma corta -p que el diccionario reserva a --provider.
   'sat cred audit|R3 closed verb list|"audit" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
   'pending define|R3 closed verb list|"define" is not a verb in the registry. Use one of the # canonical verbs, or add it to vocabulary.ts deliberately.',
   'pending define|R6 short flag|--note should use no short form, found -n',
@@ -234,7 +235,6 @@ export const LINEA_BASE: readonly string[] = [
   'init|R6 short flag|--entity should use -e, found none',
   'init|R6 short flag|--provider should use -p, found none',
   'init|R6 short flag|--model should use -m, found none',
-  'close|R6 short flag|--period should use no short form, found -p',
 ];
 
 export interface ResultadoAuditoria {

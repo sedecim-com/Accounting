@@ -20,6 +20,7 @@ import {
   type JournalEntryLineWithAccount,
 } from '../services/accounting/journal-entry-service.js';
 import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
+import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import {
   postJournalEntry,
   reverseJournalEntry,
@@ -212,19 +213,17 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
    * default is how an unattended script posts a month it never meant to.
    */
   /**
-   * The kernel gives every irreversible command an --idempotency-key. There is
-   * no idempotency store in this repo yet, so saying nothing would let a caller
-   * believe a retry is deduplicated when it is not. What actually protects a
-   * retry here is the entry's own state — the second post, reversal or void is
-   * refused by the ledger.
+   * The kernel gives every irreversible command an --idempotency-key, and
+   * since migration 039 it is real: on success the key is stored with a hash
+   * of the act, a retry with the same key returns the recorded result (exit
+   * 0), and reusing the key with a different act is a conflict (exit 6). The
+   * entry's own state remains the backstop for a process that died mid-act.
    */
-  const noteIdempotencyKey = (opts: { idempotencyKey?: string }): void => {
-    if (!opts.idempotencyKey) return;
+  const repeatNotice = (opts: { idempotencyKey?: string }, summary: string): void => {
+    // A note, not data: stderr, so a --json pipe stays clean (output contract).
     process.stderr.write(
-      deps.palette.yellow(
-        '  --idempotency-key is accepted but not yet stored: nothing deduplicates on it. ' +
-          "A repeat is refused by the entry's state instead (already posted / already reversed).\n"
-      )
+      `↩ Idempotency hit: key "${opts.idempotencyKey}" already completed this act — ${summary}\n` +
+        '  Nothing was executed again; this is the recorded result.\n'
     );
   };
 
@@ -550,7 +549,6 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       announceTarget(opts, ctx);
       const target = await resolveJournalEntry(ctx.entityId, number);
       const { dryRun } = gateMutation(post, opts as Record<string, unknown>);
-      noteIdempotencyKey(opts);
 
       if (target.status === 'posted') {
         throw blockedByState(
@@ -581,15 +579,24 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       );
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      const posted = await postJournalEntry(target.id, reviewer.userId);
+      const acto = await conLlave(
+        { tenantId: ctx.tenantId, entityId: ctx.entityId },
+        { scope: 'entry post', clave: opts.idempotencyKey, payloadHash: hashDeCarga(target.id, 'post') },
+        async () => summarize((await postJournalEntry(target.id, reviewer.userId)) as unknown as Record<string, unknown>)
+      );
+      if (acto.repetido) {
+        repeatNotice(opts, `${acto.resultado.entry_number} posted (${acto.resultado.total_debits})`);
+        if (opts.json) render([acto.resultado], { json: true });
+        return;
+      }
 
       if (opts.json) {
-        render([summarize(posted as unknown as Record<string, unknown>)], { json: true });
+        render([acto.resultado], { json: true });
         return;
       }
       process.stdout.write(
-        `${deps.palette.green('✔')} ${deps.palette.bold(posted.entry_number)} posted ` +
-          `${deps.palette.dim(`(${posted.total_debits} / ${posted.total_credits})`)}\n`
+        `${deps.palette.green('✔')} ${deps.palette.bold(String(acto.resultado.entry_number))} posted ` +
+          `${deps.palette.dim(`(${acto.resultado.total_debits} / ${acto.resultado.total_credits})`)}\n`
       );
     })
   );
@@ -610,7 +617,6 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       announceTarget(opts, ctx);
       const target = await resolveJournalEntry(ctx.entityId, number);
       const { dryRun, reason } = gateMutation(reverse, opts as Record<string, unknown>);
-      noteIdempotencyKey(opts);
 
       if (target.status !== 'posted') {
         throw blockedByState(
@@ -652,15 +658,32 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       );
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      const mirror = await reverseJournalEntry(target.id, reviewer.userId, {
-        reason,
-        // Local midnight: see createDraftEntry — a UTC midnight Date lands in
-        // the DATE column as the previous day west of Greenwich.
-        reversalDate: opts.date ? new Date(`${opts.date}T00:00:00`) : undefined,
-      });
+      const acto = await conLlave(
+        { tenantId: ctx.tenantId, entityId: ctx.entityId },
+        {
+          scope: 'entry reverse',
+          clave: opts.idempotencyKey,
+          // The mirror's date is part of the act: the same key with another
+          // date is a different reversal, and must surface as a conflict.
+          payloadHash: hashDeCarga(target.id, 'reverse', opts.date),
+        },
+        async () => {
+          const mirror = await reverseJournalEntry(target.id, reviewer.userId, {
+            reason,
+            // Local midnight: see createDraftEntry — a UTC midnight Date lands in
+            // the DATE column as the previous day west of Greenwich.
+            reversalDate: opts.date ? new Date(`${opts.date}T00:00:00`) : undefined,
+          });
+          return { entry_number: mirror.entry_number, reversal_of: target.entry_number };
+        }
+      );
+      if (acto.repetido) {
+        repeatNotice(opts, `${acto.resultado.entry_number} posted as the reversal of ${acto.resultado.reversal_of}`);
+        return;
+      }
 
       process.stdout.write(
-        `${deps.palette.green('✔')} ${deps.palette.bold(mirror.entry_number)} posted as the reversal of ` +
+        `${deps.palette.green('✔')} ${deps.palette.bold(String(acto.resultado.entry_number))} posted as the reversal of ` +
           `${target.entry_number}.\n` +
           deps.palette.dim(`  ${target.entry_number} is unchanged and now linked to its mirror.\n`)
       );
@@ -681,7 +704,6 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       announceTarget(opts, ctx);
       const target = await resolveJournalEntry(ctx.entityId, number);
       const { dryRun, reason } = gateMutation(voidCmd, opts as Record<string, unknown>);
-      noteIdempotencyKey(opts);
 
       if (target.status === 'void') {
         throw blockedByState(`${target.entry_number} is already void.`);
@@ -708,11 +730,22 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       await confirmOrAbort(opts, `Void ${target.entry_number} (${target.total_debits})?`);
 
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      const result = await voidJournalEntry(target.id, reviewer.userId, reason as string);
+      const acto = await conLlave(
+        { tenantId: ctx.tenantId, entityId: ctx.entityId },
+        { scope: 'entry void', clave: opts.idempotencyKey, payloadHash: hashDeCarga(target.id, 'void') },
+        async () => {
+          const result = await voidJournalEntry(target.id, reviewer.userId, reason as string);
+          return { entry_number: result.entry_number, status: result.status };
+        }
+      );
+      if (acto.repetido) {
+        repeatNotice(opts, `${acto.resultado.entry_number} annulled (now '${acto.resultado.status}')`);
+        return;
+      }
 
       const p = deps.palette;
       process.stdout.write(
-        `${p.green('✔')} ${p.bold(result.entry_number)} annulled ${p.dim(`(now '${result.status}')`)}\n` +
+        `${p.green('✔')} ${p.bold(String(acto.resultado.entry_number))} annulled ${p.dim(`(now '${acto.resultado.status}')`)}\n` +
           p.dim(`  ${effect}\n`)
       );
     })

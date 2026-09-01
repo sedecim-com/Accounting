@@ -4,6 +4,8 @@ import {
   PreRegistrationService,
   DuplicateError,
 } from '../services/xml-ingestion/pre-registration-service.js';
+import { CFDIParser } from '../services/xml-ingestion/cfdi-parser.js';
+import { query } from '../database/connection.js';
 import { ValidationError } from '../utils/errors.js';
 import { floorMaxAutoAmount, FLOOR_MAX_AUTO_POST } from './floor.js';
 import { approveDraft, DraftValidationError, type Reviewer } from './draft-service.js';
@@ -459,4 +461,84 @@ Instructions:
 3. Create the draft with reference "${referenceSerieFolio} · ${d.cfdi_uuid}".
 4. Report an honest confidence; if a question BLOCKS the classification, use ask_user (it will be
    logged) and do NOT create the draft.`;
+}
+
+// ============================================================
+// LA MARCHA SECA DE LA INGESTA (S0.6).
+//
+// `ingest` es irreversible por su camino más grave (el auto-posteo), así que
+// el kernel le exige --dry-run — y una --dry-run que escribe es peor que no
+// ofrecerla. El pipeline real registra ANTES de decidir (processXMLUpload
+// escribe xml_documents en cuanto parsea), de modo que la vista previa no
+// puede reusarlo: reconstruye aquí la capa determinista que sí es pura o de
+// sólo lectura — parseo, validación, hash, dedupe y tipo de comprobante — y
+// DICE lo que no calculó: las reglas del despacho, la clasificación IA y el
+// plan de asiento se deciden en la corrida real. Honesta y parcial es mejor
+// que completa y mentirosa.
+// ============================================================
+
+export interface IngestPreviewRow {
+  file: string;
+  verdict: 'would_process' | 'duplicate' | 'invalid' | 'error';
+  tipo?: string;
+  uuid?: string;
+  total?: string;
+  route?: string;
+  detail?: string;
+}
+
+export async function previewCfdiFiles(opts: {
+  files: string[];
+  thresholds: IngestThresholds;
+  readFile?: (file: string) => string;
+}): Promise<IngestPreviewRow[]> {
+  const readFile = opts.readFile ?? ((file: string) => fs.readFileSync(file, 'utf-8'));
+  const parser = new CFDIParser();
+  const rows: IngestPreviewRow[] = [];
+
+  for (const file of opts.files) {
+    const name = path.basename(file);
+    let xml: string;
+    try {
+      xml = readFile(file);
+    } catch (err) {
+      rows.push({ file: name, verdict: 'error', detail: `Could not read: ${(err as Error).message}` });
+      continue;
+    }
+    try {
+      const parsed = parser.parse(xml);
+      const validation = parser.validate(parsed);
+      if (!validation.valid) {
+        rows.push({ file: name, verdict: 'invalid', detail: validation.errors.join('; ') });
+        continue;
+      }
+      const hash = parser.calculateHash(xml);
+      const uuid = parsed.timbreFiscalDigital!.uuid;
+      const existing = await query<{ id: string }>(
+        `SELECT id FROM xml_documents WHERE cfdi_uuid = $1 OR xml_hash = $2 LIMIT 1`,
+        [uuid, hash]
+      );
+      if (existing.rows.length > 0) {
+        rows.push({
+          file: name, verdict: 'duplicate', uuid,
+          detail: `CFDI already registered (${existing.rows[0].id})`,
+        });
+        continue;
+      }
+      const tipo = parsed.tipoDeComprobante;
+      const route =
+        tipo === 'P'
+          ? 'REP: would link to its payment deterministically (procesarREP)'
+          : opts.thresholds.autoPost
+            ? `firm rules → AI classification → draft, auto-posted only if every gate passes (conf ≥ ${opts.thresholds.minConfidence}, amount ≤ ${opts.thresholds.maxAmount})`
+            : 'firm rules → AI classification → draft for `mnemosine review`';
+      rows.push({
+        file: name, verdict: 'would_process', tipo, uuid,
+        total: `${parsed.total} ${parsed.moneda}`, route,
+      });
+    } catch (err) {
+      rows.push({ file: name, verdict: 'error', detail: (err as Error).message });
+    }
+  }
+  return rows;
 }

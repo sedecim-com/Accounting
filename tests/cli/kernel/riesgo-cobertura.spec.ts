@@ -51,16 +51,43 @@ describe('cobertura de declaraciones', () => {
     }
   });
 
-  it('las tres que más pueden hacer están declaradas por su camino más grave', () => {
-    // `outbox` ejecuta contra un tercero con la credencial del cliente;
+  it('las que más pueden hacer están declaradas por su camino más grave', () => {
+    // `outbox run` ejecuta contra un tercero con la credencial del cliente;
     // `review` postea al mayor; `close --hard` no se deshace re-ejecutando.
-    // Hacen cosas distintas según una bandera, y la lectura conservadora de
-    // «el permiso no depende del valor de una bandera» es declararlas al
-    // máximo que alcanzan, no dejarlas sin declarar — que es lo que había.
+    // S0.6: los modos de bandera que eran clases distintas se partieron donde
+    // el catálogo lo comete (outbox/question); `close`, `review`, `ingest` y
+    // `onboard` siguen siendo una hoja por dictamen del REGISTRY (§5 #6) y
+    // declaran al máximo que alcanza cualquiera de sus caminos.
     const de = (ruta: string) => riskOf(hojas.find((h) => h.ruta === ruta)!.cmd)!;
-    expect(de('outbox').risk).toBe('externo');
+    expect(de('outbox run').risk).toBe('externo');
+    expect(de('jobs run-due').risk).toBe('externo');
+    expect(de('sat cred add').risk).toBe('externo');
     expect(de('review').risk).toBe('irreversible');
     expect(de('close').risk).toBe('irreversible');
+    expect(de('ingest').risk).toBe('irreversible');
+    expect(de('onboard').risk).toBe('irreversible');
+    expect(de('sat cred revoke').risk).toBe('irreversible');
+  });
+
+  it('la partición dejó la lectura como lectura, invocable por el agente', () => {
+    // La mitad del punto de partir outbox/questions: listar no debe cargar
+    // las banderas ni la compuerta del camino grave.
+    const de = (ruta: string) => riskOf(hojas.find((h) => h.ruta === ruta)!.cmd)!;
+    expect(de('outbox list').risk).toBe('lectura');
+    expect(de('outbox list').agentAllowed).toBe(true);
+    expect(de('question list').risk).toBe('lectura');
+    expect(de('question answer').risk).toBe('escritura');
+    expect(de('question answer').agentAllowed).toBe(false);
+  });
+
+  it('la tabla de retrofit ya no declara ningún grave', () => {
+    // S0.6: los ocho graves declaran junto a su registro y honran sus
+    // banderas. Una fila irreversible/externo nueva aquí sería un retroceso:
+    // volvería a existir un camino grave cuyo manejador nadie cableó.
+    const graves = Object.entries(RIESGOS_RETROFIT)
+      .filter(([, d]) => d.risk === 'irreversible' || d.risk === 'externo')
+      .map(([ruta]) => ruta);
+    expect(graves, 'un grave declarado por tabla no tiene manejador cableado a la compuerta').toEqual([]);
   });
 
   it('las de riesgo alto llevan las banderas de seguridad que su clase exige', () => {

@@ -49,11 +49,11 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **106 comandos** repartidos en **41 familias** de primer nivel. De las **1626** filas del catálogo, **90** (5.5 %) ya se pueden invocar.
+El binario ejecuta hoy **108 comandos** repartidos en **41 familias** de primer nivel. De las **1626** filas del catálogo, **94** (5.8 %) ya se pueden invocar.
 
 Del motor que cada comando necesita, **163** filas lo declaran completo, **447** a medias y **1016** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **380** filas, de las que **82** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **380** filas, de las que **86** ya se teclean.
 
 **El objetivo comprometible son 1382 filas** (S0.5): las **244** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola. Los 5 solapamientos entre familias siguen SIN enumerar: ese medio corte espera a S0.7.
 
@@ -73,8 +73,8 @@ Del motor que cada comando necesita, **163** filas lo declaran completo, **447**
 | `year` | 12 | 3 |
 | `(raíz)` | 3 | 3 |
 | `memory` | 9 | 2 |
-| `ingest` | 2 | 2 |
-| `init` | 2 | 2 |
+| `outbox` | 5 | 2 |
+| `question` | 4 | 2 |
 
 Las 590 citas `archivo:línea` del documento resuelven.
 

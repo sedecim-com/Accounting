@@ -51,9 +51,10 @@ Commands:
   onboard|alta [options]                Imports a client's accounting from an
                                         external system (chart of accounts +
                                         opening balances)
-  outbox|envios [options]               Reviews and executes the operations
-                                        queued for external accounting systems
-  questions|dudas [options]             Manages the agent's pending questions:
+  outbox|envio [options]                Operations queued for external
+                                        accounting systems: list, review and
+                                        execute
+  question|duda [options]               The agent's pending questions: list,
                                         answer (saved as a precedent) or dismiss
   sat                                   SAT services (credentials and CFDI
                                         download)
@@ -221,7 +222,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   -h, --help               display help for command
 ```
 
@@ -251,7 +253,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   -h, --help               display help for command
 ```
 
@@ -293,42 +296,141 @@ Options:
                             as a draft for mnemosine review)
   --dry-run                 Only show the plan, without executing anything
   -y, --yes                 skip the confirmation prompt
-  --idempotency-key <key>   client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>   client dedupe key, stored on success: a retry with
+                            the same key and payload returns the recorded result
   -h, --help                display help for command
 ```
 
-## `mnemosine outbox` (alias: envios)
+## `mnemosine outbox` (alias: envio, envios)
 
 ```
-Usage: mnemosine outbox|envios [options]
+Usage: mnemosine outbox|envio [options] [command]
 
-Reviews and executes the operations queued for external accounting systems
+Operations queued for external accounting systems: list, review and execute
+
+Options:
+  -e, --entity <idOrName>         Legal entity (id, RFC or name fragment)
+  -u, --user <email>              Who executes (default: sole active user of the
+                                  tenant)
+  -l, --list                      Only list, without executing (deprecated: use
+                                  `outbox list`)
+  -h, --help                      display help for command
+
+Commands:
+  list|listar [options]           List queued external operations (default:
+                                  pending)
+  run|ejecutar [options] [id...]  Execute queued operations against the client's
+                                  external system (the real effect requires
+                                  --live)
+```
+
+### `mnemosine outbox list` (alias: listar)
+
+```
+Usage: mnemosine outbox list|listar [options]
+
+List queued external operations (default: pending)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine outbox run` (alias: ejecutar)
+
+```
+Usage: mnemosine outbox run|ejecutar [options] [id...]
+
+Execute queued operations against the client's external system (the real effect
+requires --live)
+
+Arguments:
+  id                       operation ids to execute; omit to review the whole
+                           queue interactively
 
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -u, --user <email>       Who executes (default: sole active user of the
                            tenant)
-  -l, --list               Only list, without executing
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
 ```
 
-## `mnemosine questions` (alias: dudas)
+## `mnemosine question` (alias: duda, questions, dudas)
 
 ```
-Usage: mnemosine questions|dudas [options]
+Usage: mnemosine question|duda [options] [command]
 
-Manages the agent's pending questions: answer (saved as a precedent) or dismiss
+The agent's pending questions: list, answer (saved as a precedent) or dismiss
+
+Options:
+  -e, --entity <idOrName>                      Legal entity (id, RFC or name fragment)
+  -u, --user <email>                           Who answers (default: sole active user of the tenant)
+  -l, --list                                   Only list, without answering (deprecated: use `question list`)
+  -h, --help                                   display help for command
+
+Commands:
+  list|listar [options]                        List the agent's questions (default: pending)
+  answer|responder [options] [id] [answer...]  Answer a question (the answer is saved as a precedent), or work the pending queue
+```
+
+### `mnemosine question list` (alias: listar)
+
+```
+Usage: mnemosine question list|listar [options]
+
+List the agent's questions (default: pending)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine question answer` (alias: responder)
+
+```
+Usage: mnemosine question answer|responder [options] [id] [answer...]
+
+Answer a question (the answer is saved as a precedent), or work the pending
+queue
+
+Arguments:
+  id                       question id; omit to answer the pending queue
+                           interactively
+  answer                   the answer text, or the number of an option (requires
+                           <id>)
 
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -u, --user <email>       Who answers (default: sole active user of the tenant)
-  -l, --list               Only list, without answering
   -h, --help               display help for command
 ```
 
@@ -359,7 +461,7 @@ Options:
 
 Commands:
   add|agregar [options]      Registers the e.firma of an entity (validates
-                             locally before transmitting)
+                             locally; storing in the vault requires --live)
   status|estado [options]    Shows the entity credentials and their validity
   audit|auditoria [options]  Credential access history (who used it, when and
                              what for)
@@ -373,7 +475,8 @@ Commands:
 ```
 Usage: mnemosine sat cred add|agregar [options]
 
-Registers the e.firma of an entity (validates locally before transmitting)
+Registers the e.firma of an entity (validates locally; storing in the vault
+requires --live)
 
 Options:
   --cer <file>             SAT .cer certificate (DER)
@@ -385,7 +488,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
@@ -429,7 +533,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
@@ -915,7 +1020,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   -h, --help               display help for command
 ```
 
@@ -961,7 +1067,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   -h, --help               display help for command
 ```
 
@@ -1283,7 +1390,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   -h, --help               display help for command
 ```
 
@@ -1307,7 +1415,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
@@ -1330,7 +1439,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
@@ -1850,7 +1960,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   -h, --help               display help for command
 ```
 
@@ -2156,7 +2267,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   -h, --help               display help for command
 ```
 
@@ -2179,7 +2291,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
@@ -2626,7 +2739,8 @@ Commands:
                              recomputes the next run)
   disable [options] <jobId>  Disable a job (it stays configured; runs stop)
   run-due [options]          Tick entry point: claim and run every due job (call
-                             this from cron/launchd)
+                             this from cron/launchd; --live enables the external
+                             reads)
   history [options]          Execution log (most recent first)
   help [command]             display help for command
 ```
@@ -2701,7 +2815,8 @@ Options:
 ```
 Usage: mnemosine jobs run-due [options]
 
-Tick entry point: claim and run every due job (call this from cron/launchd)
+Tick entry point: claim and run every due job (call this from cron/launchd;
+--live enables the external reads)
 
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
@@ -2709,7 +2824,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
@@ -2909,15 +3025,18 @@ Options:
   -e, --entity <idOrName>  Legal entity
   -t, --tenant <id>        Tenant
   -u, --user <email>       Who performs the close
-  -p, --period <name>      Period to close (default: the oldest open one)
+  --period <name>          Period to close (default: the oldest open one)
   -l, --list               List closable periods and exit
   --check                  Only check readiness, never close
   --hard                   Hard close (irreversible) instead of soft close
+  --reason <text>          why this close happens now; recorded in the audit
+                           trail
   --json                   JSON output for scripts
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key; defaults to a hash of the payload
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   -h, --help               display help for command
 ```
 
