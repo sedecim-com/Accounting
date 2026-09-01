@@ -56,6 +56,8 @@ function rechazarSimulada(res: Response, que: string): void {
   });
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Rate limiter stub - 100 req/min per IP (already covered by global rate-limiter)
 
 // ============================================================
@@ -274,6 +276,15 @@ router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, r
   const { entityId } = req.params;
   const { dimension, value, from_period, to_period } = req.query;
 
+  if (!UUID_RE.test(entityId)) throw new ValidationError('entityId must be a uuid');
+
+  // El rango from_period/to_period NO se implementa aquí. Ordenar «de..a» exige
+  // las fechas de fiscal_periods, y mnemosine_verifier —el rol de menos
+  // privilegios que consultaPublica asume, migración 042— no tiene GRANT sobre
+  // esa tabla: el JOIN revienta con «permission denied». Darle el GRANT expone
+  // el calendario fiscal de todas las entidades en un endpoint sin autenticar,
+  // y esa es una decisión de una persona, no de un rebase. Va con PR #6.
+
   let where = 'WHERE entity_id = $1';
   const params: unknown[] = [entityId];
   let idx = 2;
@@ -285,17 +296,22 @@ router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, r
   // después, para que la cifra de este endpoint nunca dependa de que alguien
   // se acuerde de filtrar en JavaScript. Un listado vacío es la respuesta
   // correcta mientras el anclaje sea fabricado.
+  //
+  // Se pide UNA fila de más para poder reportar el truncamiento en vez de
+  // presentar un listado parcial como si fuera el conjunto entero.
+  const LIMIT = 100;
   const result = await consultaPublica(
     `SELECT dimension_type, dimension_value, public_amount, transaction_count,
             period_id, published_at, aggregate_commitment
      FROM published_aggregates ${where} AND is_simulated = false
-     ORDER BY published_at DESC LIMIT 100`,
+     ORDER BY published_at DESC LIMIT ${LIMIT + 1}`,
     params
   );
 
+  const truncated = result.rows.length > LIMIT;
   res.json({
-    data: result.rows,
-    meta: { timestamp: new Date().toISOString(), version: 'v1' },
+    data: result.rows.slice(0, LIMIT),
+    meta: { timestamp: new Date().toISOString(), version: 'v1', limit: LIMIT, truncated },
   });
 }));
 
