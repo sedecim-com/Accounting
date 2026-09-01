@@ -34,8 +34,8 @@ jobs:
     name: Tipos
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -43,12 +43,27 @@ jobs:
       - run: npm run typecheck
       - run: npm run typecheck:tests
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # eslint.config.mjs: los errores rompen la CI; las advertencias que
+      # entran por tipos de terceros están topadas con --max-warnings, así
+      # que el trabajo también falla si su número sube.
+      - run: npm run lint
+
   unit:
     name: Pruebas unitarias
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -62,8 +77,8 @@ jobs:
     name: Estado del plan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -91,7 +106,7 @@ jobs:
       # dos cadenas de prosa en una pregunta de política, no código. La
       # descarga masiva del SAT no existe (11 tareas de motor). Vuelve cuando
       # el motor exista de verdad.
-      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E2.1,E2.2,E3.1
+      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1
       # El catálogo de comandos publica cuánto de su superficie existe ya. Ese
       # número estaba escrito a mano y duró 42 commits: decía «~30 comandos»
       # con 106 que el binario ejecuta. Ahora se genera, y esto falla ante tres
@@ -121,8 +136,8 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_test
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -159,8 +174,8 @@ jobs:
       SUPERUSER_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_iso
       MNEMOSINE_APP_PASSWORD: ci_app_pw
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm

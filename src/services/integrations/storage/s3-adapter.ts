@@ -67,7 +67,7 @@ export class S3Adapter implements IStorageAdapter {
     if (!creds) throw new AccountingError('NOT_CONFIGURED', 'S3 not configured');
 
     // Production: await s3Client.send(new PutObjectCommand({ Bucket, Key, Body, ContentType }))
-    const etag = crypto.createHash('md5').update(params.body as string | Buffer).digest('hex');
+    const etag = crypto.createHash('md5').update(params.body).digest('hex');
     const endpoint = creds.endpoint || `https://s3.${creds.region}.amazonaws.com`;
     const url = `${endpoint}/${creds.bucket}/${params.key}`;
 

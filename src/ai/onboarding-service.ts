@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../database/connection.js';
 import { getExternalAdapter } from '../services/integrations/accounting/registry.js';
 import { createDraft, approveDraft, type Reviewer, type DraftPayload } from './draft-service.js';
-import type { ExternalTrialBalanceRow } from '../services/integrations/accounting/accounting-adapter.interface.js';
 import type { AgentContext } from './context.js';
 
 // ============================================================

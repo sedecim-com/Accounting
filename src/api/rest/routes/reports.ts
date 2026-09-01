@@ -14,6 +14,7 @@ import {
   type AgedReceivableRow,
   type AgedPayableRow,
 } from '../../../services/reporting/report-service.js';
+import { toCsv, csvAttachment } from '../../../utils/csv.js';
 
 // ============================================================
 // /v1/reports/*
@@ -36,9 +37,39 @@ const meta = (req: Request) => ({
   version: 'v1',
 });
 
+/**
+ * Columns of the CSV rendering of the trial balance, in order.
+ *
+ * These are exactly the columns queryTrialBalanceRows projects -- so the CSV
+ * and the JSON `data.accounts` carry the same facts in two encodings, and
+ * neither one invents a field. In particular beginning_balance is absent: the
+ * type TrialBalanceRow declares it, but no query behind this endpoint selects
+ * it, so listing it here would emit a column of blanks that reads like a real
+ * zero.
+ *
+ * The totals block stays out of the CSV. A trailing total row is the classic
+ * way to break every consumer that sums a column; callers who want the
+ * is_balanced check ask for JSON, which is where it lives.
+ */
+const TRIAL_BALANCE_CSV_COLUMNS = [
+  'account_id',
+  'account_code',
+  'account_name',
+  'account_type',
+  'debit_total',
+  'credit_total',
+  'ending_balance',
+] as const;
+
 // GET /v1/reports/trial-balance
 router.get('/trial-balance', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
-  const { entity_id, fiscal_period_id, as_of_date, account_level = '5' } = req.query;
+  const { entity_id, fiscal_period_id, as_of_date, account_level = '5', format = 'json' } = req.query;
+
+  // Rechazado, no servido en silencio como JSON. Contestar ?format=xlsx con un
+  // cuerpo JSON es exactamente como ?format=csv pasó ignorado tanto tiempo.
+  if (format !== 'json' && format !== 'csv') {
+    throw new ValidationError(`format must be 'json' or 'csv', got '${String(format)}'`, 'format');
+  }
   const entityId = entity_id as string || req.entityId;
 
   if (!entityId) throw new ValidationError('entity_id is required');
@@ -48,6 +79,13 @@ router.get('/trial-balance', requirePermission('reports:read'), requireEntityAcc
     fiscalPeriodId: fiscal_period_id as string | undefined,
     asOfDate: as_of_date as string | undefined,
   });
+
+  if (format === 'csv') {
+    res.type('text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', csvAttachment(`trial-balance-${entityId}`));
+    res.send(toCsv(TRIAL_BALANCE_CSV_COLUMNS, report.rows));
+    return;
+  }
 
   res.json({
     data: {

@@ -7,7 +7,7 @@ import type { JournalEntry } from '../../src/types/index.js';
 // sin esto haría falta un import dinámico (await de nivel superior), que bajo
 // CommonJS es un error de compilación aunque el runtime lo soporte.
 const { arnes, validateJournalEntry, attest } = vi.hoisted(() => ({
-  arnes: { actual: null } as { actual: ClienteFalso | null },
+  arnes: { actual: null as ClienteFalso | null },
   validateJournalEntry: vi.fn(),
   attest: vi.fn(),
 }));
@@ -16,6 +16,15 @@ vi.mock('../../src/database/connection.js', () => ({
   withTransaction: vi.fn(async (fn: (c: unknown) => unknown) => fn(arnes.actual!.client)),
   query: vi.fn(),
   currentTenant: vi.fn(() => 'tenant-1'),
+}));
+
+// F01: el maker-checker lee la política del panel dentro de postJournalEntry;
+// el arnés la deja en 'off' (el default de la casa) para que estas pruebas
+// midan lo suyo. El propio maker-checker tiene sus pruebas aparte.
+vi.mock('../../src/services/policy/policy-service.js', () => ({
+  getPolicy: vi.fn(async (_ctx: unknown, key: string) => ({
+    key, value: 'off', defined: false, question: '', rationale: '',
+  })),
 }));
 
 vi.mock('../../src/services/accounting/validation.js', () => ({

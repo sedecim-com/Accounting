@@ -92,7 +92,7 @@ function extractEntityId(path: string, body?: Record<string, unknown>): string |
 
   // Try response body
   if (body && typeof body === 'object') {
-    const data = (body as Record<string, unknown>).data as Record<string, unknown>;
+    const data = (body).data as Record<string, unknown>;
     return (data?.id as string) || null;
   }
 

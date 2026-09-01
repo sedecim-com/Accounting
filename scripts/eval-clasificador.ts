@@ -1,3 +1,4 @@
+import { createHmac, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -58,12 +59,87 @@ function parseArgs(argv: string[]): Args {
 const GOLDEN_DIR = path.resolve('tests/golden/cfdi');
 const BITACORA = path.resolve('docs/evals/clasificador.jsonl');
 
+// ============================================================
+// NINGUNA CREDENCIAL SALE POR AQUÍ — Y EL REDACTOR TAMPOCO LA LLEVA.
+//
+// El arnés corre con una llave de proveedor de verdad (resolveProfile la lee
+// de api_key_env o la saca de api_key_cmd), y todo lo que el proveedor falla
+// vuelve como texto: el mensaje de error viaja al `detalle` del caso, se
+// imprime, y en una corrida de CI queda en el registro para siempre. Un SDK
+// que eche la petición en el mensaje basta para publicarla.
+//
+// La primera versión de esto guardaba la llave para hacer `split(llave)` —
+// y así el propio redactor pasaba a ser portador del secreto: cualquiera que
+// siga el flujo de datos (CodeQL lo hizo) ve la credencial entrar al
+// sanitizador y salir hacia un `console.error`. Que la salida no la contenga
+// es cierto, pero no es demostrable desde el flujo.
+//
+// Ahora se compara por HUELLA: se guarda el sha256 de cada credencial, no la
+// credencial. Un token del texto se tacha cuando su huella coincide. El valor
+// sensible no entra nunca al camino de la salida, la comparación exacta se
+// conserva, y de paso siguen tachándose las formas de llave más comunes por
+// si el mensaje trae una que este proceso no resolvió.
+// ============================================================
+const HUELLAS = new Set<string>();
+const OCULTO = '«credencial oculta»';
+
+// Clave efímera, nueva en cada proceso y que no se persiste en ninguna parte.
+//
+// Convierte la huella en un MAC: fuera de este proceso no significa nada, así
+// que un volcado de memoria o un depurador no entrega algo contra lo que
+// comparar por diccionario. Con sha256 a secas la huella era estable entre
+// corridas y entre máquinas, y eso sí es material para un ataque fuera de línea.
+const CLAVE_HUELLA = randomBytes(32);
+
+/**
+ * La huella con la que se compara, NO un hash de contraseña.
+ *
+ * CodeQL lo marca como `js/insufficient-password-hash`, que es la regla del
+ * almacenamiento de contraseñas: ahí la respuesta correcta es bcrypt o scrypt,
+ * porque el hash se guarda y alguien lo atacará fuera de línea. Aquí no se
+ * guarda nada: es una comparación de igualdad en memoria para tachar la
+ * credencial de un mensaje de error, y el valor muere con el proceso.
+ *
+ * Una función de derivación sería además lo contrario de correcta. `sinSecretos`
+ * hashea CADA trozo del texto que tenga pinta de token —doce caracteres o más—
+ * para compararlo; con scrypt, redactar un mensaje de error largo costaría
+ * segundos, y el redactor está en el camino de todo lo que se imprime.
+ *
+ * Lo que sí faltaba era la clave, y eso es lo que se corrige aquí.
+ */
+function huella(valor: string): string {
+  // `js/insufficient-password-hash` queda DESCARTADA como falso positivo en el
+  // panel de seguridad (alerta #22), no silenciada aquí: el escaneo por
+  // omisión de GitHub no honra los comentarios `// codeql[regla]`, así que uno
+  // puesto aquí aparentaría una supresión que no ocurre — creerse protegido
+  // por un no-op es peor que no tener nada.
+  //
+  // El motivo del descarte, comprobado y no argumentado: una KDF con sal
+  // devuelve digests DISTINTOS para el mismo valor en cada llamada, y la única
+  // propiedad que este redactor necesita es que coincidan. El remedio de la
+  // regla no es indeseable aquí — es inaplicable.
+  return createHmac('sha256', CLAVE_HUELLA).update(valor).digest('hex');
+}
+
+/** Registra una credencial por su huella. La credencial no se conserva. */
+function recordarSecreto(valor: string | undefined): void {
+  if (valor && valor.length >= 8) HUELLAS.add(huella(valor));
+}
+
+function sinSecretos(texto: string): string {
+  const porPatron = texto
+    .replace(/\b(?:sk|rk|pk)-[A-Za-z0-9_-]{8,}/g, OCULTO)
+    .replace(/\bBearer\s+[A-Za-z0-9._-]{8,}/gi, `Bearer ${OCULTO}`);
+  if (HUELLAS.size === 0) return porPatron;
+  // Sólo los trozos con pinta de token se hashean: barrer cada palabra del
+  // mensaje sería caro y no aportaría — una credencial no tiene 4 caracteres.
+  return porPatron.replace(/[A-Za-z0-9._-]{12,}/g, (t) => (HUELLAS.has(huella(t)) ? OCULTO : t));
+}
+
 const tasa = (m: { aciertos: number; total: number }): string =>
   m.total === 0 ? '—' : (m.aciertos / m.total).toFixed(3);
 
 // El purgador del catch final: identidad hasta que el perfil resuelve su
-// credencial (main lo re-arma en ese punto con redactDetail).
-let redactar = (texto: string): string => texto;
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
@@ -77,7 +153,7 @@ async function main(): Promise<void> {
     const { cargarCasosGolden } = await import('../src/ai/eval/golden.js');
     const { puntuarCaso, agregarPuntuaciones } = await import('../src/ai/eval/puntuacion.js');
     const { crearInquilino } = await import('../tests/integration/helpers/tenant-fixture.js');
-    const { resolveProfile, createLlmSession, redactDetail } = await import('../src/ai/providers/index.js');
+    const { resolveProfile, listProfiles, createLlmSession } = await import('../src/ai/providers/index.js');
     const { ingestCfdiFiles } = await import('../src/ai/ingest-service.js');
     const { query, closeDatabase } = await import('../src/database/connection.js');
     type ObservadoCaso = import('../src/ai/eval/puntuacion.js').ObservadoCaso;
@@ -116,11 +192,26 @@ async function main(): Promise<void> {
     }
 
     // Proveedor FIJADO: sesión directa, sin failover, grounding apagado.
+    // LA IDENTIDAD DEL PERFIL NO SALE DEL OBJETO QUE LLEVA LA CREDENCIAL.
+    //
+    // `resolveProfile` hace `process.env[profile.api_key_env]` y devuelve la
+    // llave en el MISMO objeto que el nombre y el modelo. Copiar `profile.name`
+    // al registro metía en la bitácora un valor que el análisis considera
+    // derivado de la credencial — y tiene razón sobre la forma: ese archivo se
+    // relee y se imprime. Pasarlo por `sinSecretos()` no basta, porque es un
+    // filtro propio que ningún analizador reconoce como saneador: el flujo
+    // seguía ahí.
+    //
+    // `listProfiles` resuelve el mismo nombre y el mismo modelo SIN leer
+    // ninguna credencial. No es una anotación para callar la alerta: es que el
+    // registro deja de tocar el objeto que la lleva.
+    const { profiles: perfilesDeclarados, defaultName } = listProfiles();
+    const nombrePerfil = args.provider || defaultName;
+    const modeloPerfil =
+      args.model || perfilesDeclarados[nombrePerfil]?.model || '(sin modelo declarado)';
     const profile = resolveProfile(args.provider, args.model);
-    // En cuanto la credencial existe, el purgador se arma: un error de red
-    // puede ecoar la URL o las cabeceras con el secreto dentro, y el catch
-    // final lo imprimiría tal cual. Antes de este punto nadie la ha leído.
-    redactar = (texto) => redactDetail(texto, profile.apiKey, 2000);
+    // La llave de ESTA corrida, para tacharla si algún mensaje la trae.
+    recordarSecreto(profile.apiKey);
     const capture: DraftCapture = { drafts: [] };
     let llamadasAlModelo = 0;
     const base = await createLlmSession(
@@ -185,9 +276,9 @@ async function main(): Promise<void> {
       const p = puntuarCaso(caso.esperado, observado);
       puntuaciones.push(p);
       const icono = p.fallas.length === 0 ? '✓' : '✗';
-      console.log(`${icono} ${caso.nombre} → ${observado.resultado}` +
-        (observado.confianza !== undefined ? ` (confianza ${observado.confianza.toFixed(2)})` : ''));
-      for (const falla of p.fallas) console.log(`    · ${falla}`);
+      console.log(sinSecretos(`${icono} ${caso.nombre} → ${observado.resultado}` +
+        (observado.confianza !== undefined ? ` (confianza ${observado.confianza.toFixed(2)})` : '')));
+      for (const falla of p.fallas) console.log(sinSecretos(`    · ${falla}`));
     }
 
     const agregado = agregarPuntuaciones(puntuaciones);
@@ -206,8 +297,8 @@ async function main(): Promise<void> {
     // Bitácora y comparación contra la corrida anterior del mismo proveedor+modelo.
     const registro = {
       fecha: new Date().toISOString(),
-      provider: profile.name,
-      model: profile.model,
+      provider: nombrePerfil,
+      model: modeloPerfil,
       casos: casos.length,
       clases: agregado.clases,
       global: agregado.global,
@@ -224,7 +315,14 @@ async function main(): Promise<void> {
       }
     }
     fs.mkdirSync(path.dirname(BITACORA), { recursive: true });
-    fs.appendFileSync(BITACORA, JSON.stringify(registro) + '\n');
+    // La bitácora pasa por el mismo filtro que la salida por pantalla.
+    //
+    // Hoy `registro` sólo copia el nombre y el modelo del perfil, así que no
+    // hay clave que ocultar — pero eso es INCIDENTAL: depende de que nadie
+    // añada un campo más adelante, y el perfil del que se copia sí lleva la
+    // credencial. Un archivo que se relee y se imprime no puede depender de
+    // la disciplina de quien edite el objeto.
+    fs.appendFileSync(BITACORA, sinSecretos(JSON.stringify(registro)) + '\n');
 
     if (anterior) {
       console.log(`\nContra la corrida anterior (${anterior.fecha}):`);
@@ -254,6 +352,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(`\neval-clasificador: ${redactar((err as Error).message)}`);
+  console.error(sinSecretos(`\neval-clasificador: ${(err as Error).message}`));
   process.exit(1);
 });

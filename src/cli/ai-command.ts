@@ -124,6 +124,13 @@ export function registerAiCommand(program: Command, deps: AiCommandDeps): void {
         `eventos: ${r.eventos.sospecha} sospecha(s) de inyección, ` +
           `${r.eventos.nudge} nudge(s) de grounding, ${r.eventos.failover} failover(s)`
       );
+      if (est.sombra.veredictos > 0) {
+        note(
+          `sombra: ${est.sombra.veredictos} veredicto(s) en ${est.sombra.dias_con_veredictos} día(s), ` +
+            `${est.sombra.decididos} decidido(s) por humano, acuerdo ${est.sombra.tasa_acuerdo ?? '—'} ` +
+            `(encender 'on' exige ≥7 días, ≥10 decididos y ≥0.90)`
+        );
+      }
     })
   );
 }

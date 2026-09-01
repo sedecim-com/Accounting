@@ -12,7 +12,7 @@ import {
   UPDATABLE_FIELDS,
 } from '../../../src/services/accounting/account-service.js';
 import { query } from '../../../src/database/connection.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -157,7 +157,7 @@ describe('createAccount', () => {
 describe('updateAccount', () => {
   it('writes only whitelisted fields', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1' }] });
-    await updateAccount('a1', { name: 'Nuevo', is_active: false } as never, USER);
+    await updateAccount('a1', { name: 'Nuevo', is_active: false }, USER);
     expect(sql(0)).toMatch(/SET name = \$1, is_active = \$2, updated_at = NOW\(\), updated_by = \$3/);
   });
 
@@ -170,13 +170,13 @@ describe('updateAccount', () => {
 
   it('serialises tags as JSON, matching the JSONB column', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1' }] });
-    await updateAccount('a1', { tags: ['a', 'b'] } as never, USER);
+    await updateAccount('a1', { tags: ['a', 'b'] }, USER);
     expect(params(0)[0]).toBe('["a","b"]');
   });
 
   it('throws NotFound when the row does not exist', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await expect(updateAccount('gone', { name: 'x' } as never, USER)).rejects.toThrow(NotFoundError);
+    await expect(updateAccount('gone', { name: 'x' }, USER)).rejects.toThrow(NotFoundError);
   });
 });
 
@@ -188,24 +188,48 @@ describe('deactivateAccount — retiring is not deleting', () => {
     expect(mockQuery.mock.calls).toHaveLength(1);
   });
 
-  it('allows it when the caller can justify itself, and reports the history', async () => {
+  // F01: entre el conteo de historia y el UPDATE viaja ahora la consulta del
+  // saldo de por vida (la regla del archivado); la secuencia lo refleja.
+  it('allows it when the caller can justify itself, and reports history and balance', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '7' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: '150.0000' }] });
     mockQuery.mockResolvedValueOnce({ rowCount: 1 });
     const result = await deactivateAccount('a1', USER, { allowWithHistory: true });
     expect(result.hadHistory).toBe(true);
-    expect(sql(1)).toMatch(/SET is_active = false/);
+    expect(result.balance).toBe('150.0000');
+    expect(sql(2)).toMatch(/SET is_active = false/);
   });
 
   it('never issues a DELETE — history has to survive', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: '0' }] });
     mockQuery.mockResolvedValueOnce({ rowCount: 1 });
     await deactivateAccount('a1', USER);
-    expect(sql(1)).not.toMatch(/DELETE/i);
+    expect(sql(2)).not.toMatch(/DELETE/i);
   });
 
   it('throws NotFound when nothing was updated', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: '0' }] });
     mockQuery.mockResolvedValueOnce({ rowCount: 0 });
     await expect(deactivateAccount('gone', USER)).rejects.toThrow(NotFoundError);
+  });
+
+  it('F01: la regla del archivado — saldo vivo bloquea salvo fuerza, y dry-run no escribe', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ count: '7' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: '150.0000' }] });
+    await expect(
+      deactivateAccount('a1', USER, { allowWithHistory: true, enforceZeroBalance: true })
+    ).rejects.toThrow(/saldo vivo/);
+    expect(mockQuery.mock.calls).toHaveLength(2); // nada se escribió
+
+    mockQuery.mockClear();
+    mockQuery.mockResolvedValueOnce({ rows: [{ count: '7' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: '0.0000' }] });
+    const seco = await deactivateAccount('a1', USER, {
+      allowWithHistory: true, enforceZeroBalance: true, dryRun: true,
+    });
+    expect(seco.balance).toBe('0.0000');
+    expect(mockQuery.mock.calls).toHaveLength(2); // dry-run: sin UPDATE
   });
 });

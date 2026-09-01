@@ -468,7 +468,7 @@ describe('la ingesta reconoce un REP y lo procesa', () => {
       f.entityId, xmlDeREP(g, uuidv4()), 'manual_upload', f.userId
     );
     const res = await svc.processToAccounting(
-      subida.preRegistration as Record<string, unknown>, f.userId
+      subida.preRegistration, f.userId
     );
 
     expect(res.paymentId, 'el REP debía resolverse en un pago').toBeTruthy();
@@ -498,7 +498,7 @@ describe('la ingesta reconoce un REP y lo procesa', () => {
       f.entityId, xmlDeREP(ajeno, uuidv4()), 'manual_upload', f.userId
     );
     await expect(
-      svc.processToAccounting(subida.preRegistration as Record<string, unknown>, f.userId)
+      svc.processToAccounting(subida.preRegistration, f.userId)
     ).rejects.toThrow();
 
     const pr = await query<{ status: string; validation_status: string; error_message: string }>(

@@ -1,4 +1,5 @@
 import { query } from '../../database/connection.js';
+import { consultaCfdi, toValidationStatus } from '../sat/cfdi-status.js';
 
 export interface SATValidationResult {
   uuid: string;
@@ -17,10 +18,12 @@ export interface SATValidationResult {
  * Note: In production, integrates with https://consultaqr.facturaelectronica.sat.gob.mx
  */
 export class SATValidationService {
-  private readonly WSDL_URL = 'https://consultaqr.facturaelectronica.sat.gob.mx/ConsultaCFDIService.svc?wsdl';
-
   /**
-   * Validate CFDI against SAT (stub for production SOAP integration)
+   * F02: delega en el cliente REAL (src/services/sat/cfdi-status.ts —
+   * ConsultaCFDIService, público y anónimo). El stub anterior respondía
+   * «Vigente» SIEMPRE en sandbox: un CFDI cancelado se clasificaba vigente
+   * y el asiento se planeaba encima. Apagado (SAT_STATUS_MODE=off) ahora
+   * significa apagado — un resultado que LO DICE, jamás un vigente falso.
    */
   async validate(
     emisorRfc: string,
@@ -29,30 +32,24 @@ export class SATValidationService {
     uuid: string
   ): Promise<SATValidationResult> {
     try {
-      // Production: use soap.createClientAsync(this.WSDL_URL) and call ConsultaAsync
-      // Sandbox/dev: return a simulated "valid" response
-      if (process.env.PAC_ENVIRONMENT === 'sandbox') {
+      const st = await consultaCfdi({ emisorRfc, receptorRfc, total, uuid });
+      if (st.codigoEstatus === 'DISABLED') {
         return {
-          uuid,
-          status: 'valid',
-          estado: 'Vigente',
-          esCancelable: 'Cancelable sin aceptación',
-          validatedAt: new Date(),
-          rawResponse: { simulated: true },
+          uuid, status: 'error', estado: st.estado, esCancelable: '',
+          validatedAt: st.consultedAt, rawResponse: { disabled: true },
         };
       }
-
-      // Real SOAP implementation would go here:
-      // const soapClient = await soap.createClientAsync(this.WSDL_URL);
-      // const expresionImpresa = `?re=${emisorRfc}&rr=${receptorRfc}&tt=${total}&id=${uuid}`;
-      // const [result] = await soapClient.ConsultaAsync({ expresionImpresa });
-
       return {
         uuid,
-        status: 'error',
-        estado: 'SAT validation not configured',
-        esCancelable: '',
-        validatedAt: new Date(),
+        status: toValidationStatus(st.estado),
+        estado: st.estado,
+        esCancelable: st.esCancelable,
+        estatusCancelacion: st.estatusCancelacion ?? undefined,
+        validatedAt: st.consultedAt,
+        rawResponse: {
+          codigoEstatus: st.codigoEstatus,
+          validacionEFOS: st.validacionEFOS,
+        },
       };
     } catch (error) {
       return {

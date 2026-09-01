@@ -1,5 +1,6 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
+import { AccountType, FiscalPeriodStatus, NormalBalance } from '../../types/index.js';
 import type {
   JournalEntry,
   JournalEntryLine,
@@ -139,7 +140,7 @@ const accountTypeRule: ValidationRule = {
       if (!account) continue;
 
       const isDebit = line.debit_amount !== null;
-      const normalIsDebit = account.normal_balance === 'debit';
+      const normalIsDebit = account.normal_balance === NormalBalance.DEBIT;
 
       if (isDebit !== normalIsDebit) {
         warnings.push(
@@ -174,11 +175,11 @@ const periodStatusRule: ValidationRule = {
 
     const period = result.rows[0];
 
-    if (period.status === 'hard_close' || period.status === 'locked') {
+    if (period.status === FiscalPeriodStatus.HARD_CLOSE || period.status === FiscalPeriodStatus.LOCKED) {
       errors.push(`Cannot post to ${period.status} period`);
-    } else if (period.status === 'soft_close') {
+    } else if (period.status === FiscalPeriodStatus.SOFT_CLOSE) {
       warnings.push('Period is in soft_close status. Only adjusting entries recommended.');
-    } else if (period.status === 'future') {
+    } else if (period.status === FiscalPeriodStatus.FUTURE) {
       warnings.push(
         'Posting to a future period [NIF A-2, devengación: los efectos se reconocen ' +
         'en el periodo en que ocurren, no antes]'
@@ -316,7 +317,7 @@ const nifSubstanceRule: ValidationRule = {
       // the good/service transfers. Crediting revenue on an "anticipo" is
       // the most common revenue-recognition error in small firms.
       if (
-        account.account_type === 'revenue' &&
+        account.account_type === AccountType.REVENUE &&
         line.credit_amount !== null &&
         /\banticipo\b/.test(description)
       ) {
@@ -330,7 +331,7 @@ const nifSubstanceRule: ValidationRule = {
       // NIF C-11: equity moves through formal acts (aportaciones, dividendos,
       // asambleas), not routine bookkeeping. A manual equity line deserves
       // a second look.
-      if (account.account_type === 'equity' || account.account_type === 'contra_equity') {
+      if (account.account_type === AccountType.EQUITY || account.account_type === AccountType.CONTRA_EQUITY) {
         warnings.push(
           `Line ${line.line_number}: manual posting to equity account "${account.code}" ` +
           `[NIF C-11: los movimientos de capital contable derivan de actos formales ` +

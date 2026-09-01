@@ -50,6 +50,9 @@ import { registerSatCommands } from './sat-commands.js';
 import { registerPendingCommands, renderAll } from './pending-command.js';
 import { registerDoctorCommand } from './doctor-command.js';
 import { registerAiCommand } from './ai-command.js';
+import { registerLedgerCommand } from './ledger-command.js';
+import { registerCfdiCommand } from './cfdi-command.js';
+import { registerRepCommand } from './rep-command.js';
 import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
 import { registerInitCommand, runInitWizard, type InitWizardResult } from './init-command.js';
@@ -505,7 +508,7 @@ const NO_DB_COMMANDS = new Set(['lang', 'idioma']);
 // machine the chat action routes to the first-run rescue, which needs the
 // process alive to diagnose and offer the wizard. Every other command keeps
 // today's fail-fast behavior.
-let chatDbInitError: unknown = null;
+let chatDbInitError: Error | null = null;
 
 program.hook('preAction', async (thisCommand, actionCommand) => {
   bootstrapTenant(thisCommand.opts().tenant as string | undefined);
@@ -518,7 +521,7 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
     if (warning) stderr.write(ce.dim(`  ⚠ ${warning}\n`));
   } catch (err) {
     if (actionCommand.name() !== 'chat') throw err;
-    chatDbInitError = err;
+    chatDbInitError = err instanceof Error ? err : new Error(String(err));
   }
 });
 
@@ -1052,7 +1055,7 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
     let rl: readline.Interface | undefined;
     try {
       const ctx = await resolveEntity(opts.entity);
-      const { dryRun } = gateMutation(review, opts as Record<string, unknown>);
+      const { dryRun } = gateMutation(review, opts);
       const pending = await listDrafts(ctx, 'pending_review');
 
       if (pending.length === 0) {
@@ -1188,14 +1191,14 @@ ingest.action(async (files: string[], opts: {
         },
         ctx
       );
-      const { dryRun } = gateMutation(ingest, opts as Record<string, unknown>);
+      const { dryRun } = gateMutation(ingest, opts);
 
       if (dryRun) {
         // La capa determinista, sin escribir NADA y sin llamar a nadie: ni
         // xml_documents, ni el validador del SAT, ni el modelo. Se dice lo
         // que no se calculó: las reglas del despacho, la clasificación IA y
         // el plan de asiento se deciden en la corrida real.
-        const preview = await previewCfdiFiles({ files, thresholds });
+        const preview = await previewCfdiFiles({ files, thresholds, entityId: ctx.entityId });
         const icon: Record<string, string> = {
           would_process: '·', duplicate: '↩', invalid: '✘', error: '✘',
         };
@@ -1391,7 +1394,7 @@ onboard.action(async (opts: {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(opts.cutoff)) throw new Error('--cutoff must be YYYY-MM-DD');
       const startDate = opts.from ?? `${opts.cutoff.slice(0, 4)}-01-01`;
       const ctx = await resolveEntity(opts.entity);
-      const { dryRun } = gateMutation(onboard, opts as Record<string, unknown>);
+      const { dryRun } = gateMutation(onboard, opts);
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
       console.log(c.bold('\nmnemosine onboard') + c.dim(` · ${ctx.entityName} ← ${opts.provider} · cutoff ${opts.cutoff}`));
@@ -1546,7 +1549,7 @@ async function correrOutboxImpl(
   let rl: readline.Interface | undefined;
   try {
     const ctx = await resolveEntity(opts.entity);
-    const { dryRun, live } = gateMutation(cmd, opts as Record<string, unknown>);
+    const { dryRun, live } = gateMutation(cmd, opts);
     if (opts.idempotencyKey) {
       stderr.write(
         '  --idempotency-key does not apply here: each operation is claimed atomically and bound ' +
@@ -2125,6 +2128,9 @@ registerBillCommand(program, { palette: c, shutdown, reportError });
 registerCustomerCommand(program, { palette: c, shutdown, reportError });
 registerInvoiceCommand(program, { palette: c, shutdown, reportError });
 registerReportCommand(program, { palette: c, shutdown, reportError });
+registerLedgerCommand(program, { palette: c, shutdown, reportError });
+registerCfdiCommand(program, { palette: c, shutdown, reportError });
+registerRepCommand(program, { palette: c, shutdown, reportError });
 registerAiCommand(program, { palette: c, shutdown, reportError });
 registerUsageCommand(program, { palette: c, shutdown, reportError });
 registerStatusCommand(program, { palette: c, shutdown, reportError });

@@ -13,7 +13,6 @@ import {
   computeBill,
   APPROVABLE_STATUSES,
   type BillLineInput,
-  type BillDateBasis,
 } from '../services/ap/bill-service.js';
 import { resolveVendor, dueDateFrom } from '../services/ap/vendor-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
@@ -252,7 +251,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           status,
           startDate: since,
           endDate: until,
-          dateBasis: basis as BillDateBasis,
+          dateBasis: basis,
           dueBefore: opts.dueBefore ? requireDate('--due-before', opts.dueBefore) : undefined,
           search,
           limit: opts.all ? undefined : (opts.limit ?? 50),

@@ -274,8 +274,7 @@ export const CRITERIOS: Criterio[] = [
       // borrarla, como la línea base del auditor.
       const RECLAMADAS: Record<string, string> = {
         asset_categories: 'F06/DEP-2: el alta de activo la necesita (fixed_assets.category_id NOT NULL)',
-        cfdi_classifications: 'F02: el rastro del clasificador — el criterio en rojo de E1.2 mide su escritor',
-        inventory_items: 'familia inventario: el esquema es el diseñado; el motor es neto nuevo (S0.4)',
+            inventory_items: 'familia inventario: el esquema es el diseñado; el motor es neto nuevo (S0.4)',
         inventory_layers: 'familia inventario: capas de costeo',
         inventory_layer_consumption: 'familia inventario: consumo de capas',
         scheduled_payments: 'F04: la programación de pagos retirada con 501 escribe aquí cuando exista',
@@ -692,6 +691,93 @@ export const CRITERIOS: Criterio[] = [
   },
 
   {
+    paquete: 'E0.1',
+    enunciado: 'El maker-checker vive en el panel y muerde solo la póliza manual',
+    evaluar: () => {
+      // F01: la decisión §5 no se difirió tácitamente ni se decidió en
+      // código — es política del panel (segregacion_de_funciones) con
+      // default off, y su lector está DENTRO del motor de posteo: con
+      // 'exigir', quien creó el borrador MANUAL no lo postea. Las pólizas
+      // del sistema (source_type no nulo: nómina, ai_draft, reversas)
+      // quedan exentas por construcción — ahí creador=posteador es
+      // intencional y exigir separación produciría falsos positivos.
+      const panel = codigoDe('src/services/policy/pending-catalog.ts');
+      if (!/key: 'segregacion_de_funciones'/.test(panel) || !/'exigir'/.test(panel)) {
+        return falla('la clave segregacion_de_funciones salió del panel: la decisión §5 vuelve a estar diferida tácitamente');
+      }
+      const p = codigoDe('src/services/accounting/posting.ts');
+      const iPost = p.indexOf('export async function postJournalEntry');
+      const tramo = iPost >= 0 ? p.slice(iPost, p.indexOf('export', iPost + 10)) : '';
+      if (!/!entry\.source_type && entry\.created_by === userId/.test(tramo)) {
+        return falla('la compuerta perdió su forma (manual + coincidencia): o muerde a nómina/reversas o dejó de morder');
+      }
+      if (!/politica\.value === 'exigir'/.test(tramo) || !/SOD_QUIEN_CREA_NO_POSTEA/.test(tramo)) {
+        return falla('el lector dejó de comparar contra el literal exigir o perdió su código de dominio');
+      }
+      if (!/'SOD_QUIEN_CREA_NO_POSTEA'/.test(codigoDe('src/cli/entry-command.ts'))) {
+        return falla('el rechazo SoD dejó de salir como BLOQUEADO (5): se leería como entrada inválida');
+      }
+      // El huérfano pagado: checkSoDViolations con LLAMADA real en doctor
+      // (composición de permisos), y el check enchufado a runDoctor.
+      // El push, no el nombre: la FIRMA de checkPermisosEnConflicto() también
+      // casa `nombre()` — cuarta aparición del regex que muerde el símbolo
+      // equivocado en esta serie de sprints.
+      const doctor = codigoDe('src/ai/doctor-service.ts');
+      return /checkSoDViolations\(permisos\)/.test(doctor) &&
+        /checks\.push\(await checkPermisosEnConflicto\(\)\)/.test(doctor)
+        ? ok('panel + lector en el motor (solo manual), salida bloqueada, y la composición de permisos vigilada en doctor')
+        : falla('checkSoDViolations volvió a quedarse sin consumidor o el check salió de runDoctor');
+    },
+  },
+
+  {
+    paquete: 'E0.1',
+    enunciado: 'El espejo del CFDI es por entidad y el estatus SAT dice la verdad',
+    evaluar: () => {
+      // F02: la unicidad fiscal era GLOBAL (005) y mataba el caso normal de
+      // un despacho — las dos partes de la operación como clientes, el mismo
+      // XML entrando como 'emitido' y como 'recibido'. Y el estatus SAT era
+      // un «Vigente» simulado: un CFDI cancelado se clasificaba vigente. La
+      // 046 vuelve la unicidad (entity_id, cfdi_uuid) — y respalda xml_hash
+      // en esquema —, el dedupe filtra por entidad en sus DOS sitios, y el
+      // estatus sale del ConsultaCFDIService real (público y anónimo:
+      // ningún bloqueo de E3.x le aplicó jamás), con apagado que LO DICE.
+      const m = 'src/database/migrations/046_el_espejo_del_cfdi.sql';
+      if (!existe(m)) return falla('la 046 desapareció: la unicidad fiscal vuelve a ser global');
+      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      if (!/DROP CONSTRAINT xml_documents_cfdi_uuid_key/.test(sql) ||
+          // \b tras el nombre: un sufijo _x seguiría casando el regex desnudo
+          // — quinta variante de la familia del ancla en estos sprints.
+          !/uq_xml_documents_entity_cfdi\b[\s\S]{0,80}\(entity_id, cfdi_uuid\)/.test(sql) ||
+          !/uq_xml_documents_entity_hash\b[\s\S]{0,80}\(entity_id, xml_hash\)/.test(sql)) {
+        return falla('la 046 perdió una de sus tres piezas (drop global, unique uuid, unique hash)');
+      }
+      const dedupe = /WHERE entity_id = \$1 AND \(cfdi_uuid = \$2 OR xml_hash = \$3\)/;
+      if (!dedupe.test(codigoDe('src/services/xml-ingestion/pre-registration-service.ts'))) {
+        return falla('el dedupe del registro dejó de filtrar por entidad: el espejo vuelve a chocar');
+      }
+      const ingest = codigoDe('src/ai/ingest-service.ts');
+      const iPrev = ingest.indexOf('export async function previewCfdiFiles');
+      const tramoPrev = iPrev >= 0 ? ingest.slice(iPrev, iPrev + 2500) : '';
+      if (!/entityId: string/.test(tramoPrev) || !dedupe.test(tramoPrev)) {
+        return falla('previewCfdiFiles perdió la entidad: su veredicto de duplicado sería mentira');
+      }
+      const stub = codigoDe('src/services/xml-ingestion/sat-validation.ts');
+      if (/'Vigente'/.test(stub)) {
+        return falla('sat-validation volvió a fabricar un Vigente: un cancelado se clasificaría vigente');
+      }
+      if (!/consultaCfdi\(/.test(stub)) {
+        return falla('sat-validation dejó de delegar en el cliente real');
+      }
+      const cliente = codigoDe('src/services/sat/cfdi-status.ts');
+      return /IConsultaCFDIService\/Consulta/.test(cliente) &&
+        /toFixed\(6\)/.test(cliente) && /'DISABLED'/.test(cliente)
+        ? ok('unicidad (entidad, uuid) con hash respaldado, dedupe escopado en los dos sitios, y el SOAP real con apagado honesto')
+        : falla('el cliente SAT perdió el sobre, el relleno del total o el apagado que lo dice');
+    },
+  },
+
+  {
     paquete: 'E0.2',
     enunciado: 'La capacidad huérfana conocida sólo encoge',
     evaluar: () => {
@@ -710,10 +796,12 @@ export const CRITERIOS: Criterio[] = [
       // calculateBenefitsForPaycheck → F08; checkSoDViolations → decisión §5
       // (maker-checker); autoApproveDraftByPolicy → A3 (un solo autorizador).
       const HUERFANOS_CONGELADOS: Record<string, string> = {
+        // El gemelo del que pagó en A3: mismo motor (matchApproval), brazo
+        // external_op. Su consumidor llega con el ejecutor DESATENDIDO del
+        // outbox (hoy `outbox run` es humano y no necesita política).
+        autoExecuteOpByPolicy: 'external-service.ts',
         earlyPaymentDiscount: 'bill-service.ts',
         calculateBenefitsForPaycheck: 'benefits-service.ts',
-        checkSoDViolations: 'auth.ts',
-        autoApproveDraftByPolicy: 'draft-service.ts',
       };
       const conConsumidor = Object.entries(HUERFANOS_CONGELADOS)
         .filter(([simbolo, archivo]) => consumidoresDe(simbolo, archivo).length > 0)
@@ -2071,6 +2159,142 @@ export const CRITERIOS: Criterio[] = [
       return /this\.onNudge\?\.\(\)/.test(codigoDe('src/ai/grounding.ts'))
         ? ok('duración en los dos runners y el ledger, corridas de ingesta con consumo, y los tres eventos cableados')
         : falla('el guard de grounding dejó de avisar el nudge: el contador quedaría siempre en cero');
+    },
+  },
+
+  {
+    paquete: 'E5.1',
+    enunciado: 'Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre',
+    evaluar: () => {
+      // A3: había DOS autorizadores — matchApprovalPolicy con toda la
+      // jurisprudencia (tope del operador vía Math.min, revocación,
+      // last_used_at) y un gemelo huérfano que la ingesta no usaba. La
+      // ingesta migró a la vía única: cuando una compuerta DISCRECIONAL no
+      // basta, autoApproveDraftByPolicy tiene su oportunidad; las de
+      // INTEGRIDAD retornan antes y jamás llegan ahí.
+      const ing = codigoDe('src/ai/ingest-service.ts');
+      // Forma de LLAMADA con el default (la lección de la firma-como-
+      // callsite): el seam de pruebas debe caer al autorizador real, no a
+      // un stub que aprobaría sin jurisprudencia.
+      if (!/opts\.deps\?\.autoApproveByPolicy \?\? autoApproveDraftByPolicy/.test(ing)) {
+        return falla('la ingesta dejó de caer al autorizador real: el seam de pruebas se volvió el camino de producción');
+      }
+      if (!/configuredMaxAmount: floorMaxAutoAmount\(thresholds\.maxAmount\)/.test(ing)) {
+        return falla('la vía de política perdió el tope obligatorio del operador: una política podría autorizar por encima');
+      }
+      if (!/if \(veredicto\.integridad\)/.test(ing)) {
+        return falla('la integridad dejó de retornar antes de la política: sospecha, multi-draft, moneda o cuadre se volverían negociables');
+      }
+      if (!/instanceof NoMatchingApprovalPolicyError/.test(ing)) {
+        return falla('el «no casó» perdió el nombre: no se distinguiría de «casó y falló al aplicarse»');
+      }
+      // El huérfano pagó: la ingesta IMPORTA el autorizador del servicio de
+      // borradores (si este import muere, E0.2 debe recongelar el símbolo).
+      if (!/import\s*\{[^}]*\bautoApproveDraftByPolicy\b[^}]*\}\s*from '\.\/draft-service\.js'/.test(ing)) {
+        return falla('la ingesta ya no importa autoApproveDraftByPolicy: volvería a haber dos autorizadores o ninguno');
+      }
+      return /code = 'NO_MATCHING_APPROVAL_POLICY'/.test(codigoDe('src/ai/draft-service.ts'))
+        ? ok('vía única con tope floor-clampeado, integridad no negociable y NoMatchingApprovalPolicyError con código')
+        : falla('el error de política sin casar perdió su código: los llamadores volverían a comparar strings');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'El presupuesto corta donde nacen las sesiones, y desatendido el tope es tope',
+    evaluar: () => {
+      // A3 (spec E5.1-e): presupuesto opt-in por archivo de config, pero con
+      // un default que distingue rutas: con humano enfrente, warn; en ruta
+      // DESATENDIDA (grounding apagado = nadie mira), block — «solo avisa»
+      // significa que no hay tope. Y el corte vive en el ÚNICO sitio donde
+      // nacen las sesiones, no repartido por los llamadores.
+      if (!existe('src/ai/budget.ts')) return falla('budget.ts no existe: el gasto del agente no tiene tope posible');
+      const b = codigoDe('src/ai/budget.ts');
+      if (!/opts\.unattended \? 'block' : 'warn'/.test(b)) {
+        return falla('la ruta desatendida perdió su default block: un agente sin humano enfrente correría sin tope real');
+      }
+      if (!/code = 'AI_BUDGET_EXCEEDED'/.test(b)) {
+        return falla('BudgetExceededError perdió su código: los llamadores no distinguirían tope de cualquier otro error');
+      }
+      // Declarado Y usado en la comparación (conteo, no presencia): mutar el
+      // umbral del aviso dejando la constante viva pasa un chequeo laxo.
+      if ((b.match(/BUDGET_WARN_RATIO/g) ?? []).length < 2) {
+        return falla('el aviso del 80% dejó de compararse: el usuario se enteraría del tope al chocar con él');
+      }
+      if (!/sin medición/.test(b)) {
+        return falla('block dejó de ser cerrado ante una base que no responde: un tope que no puede medirse no debe fingir que midió');
+      }
+      const prov = codigoDe('src/ai/providers/index.ts');
+      if (!/const unattended = opts\.grounding\?\.enabled === false/.test(prov)) {
+        return falla('la señal de desatendido se desconectó del grounding: la ruta sin humano dejaría de reconocerse');
+      }
+      if (!/await assertWithinBudget\(ctx, opts\.cwd, \{ unattended \}\)/.test(prov)) {
+        return falla('createLlmSession dejó de pasar por el presupuesto: el chokepoint tiene un desvío');
+      }
+      // El decorador muerde al ENTRAR a cada turno: un cruce a mitad de
+      // sesión corta sin esperar a la siguiente sesión.
+      if (!/guard\.check\(\);\s*return session\.runTurn\(/.test(prov)) {
+        return falla('withBudgetGuard dejó de checar por turno: un cruce a mitad de sesión seguiría gastando');
+      }
+      return /return withBudgetGuard\(session, guard\)/.test(prov)
+        ? ok('presupuesto opt-in con block por default en desatendido, cerrado sin medición, y el guard muerde cada turno en el chokepoint')
+        : falla('la sesión sale sin decorar: el guard existiría sin morder');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'La sombra opina sin postear, y encender el auto-posteo exige su historial',
+    evaluar: () => {
+      // A4: autoPost 'shadow' corre TODAS las compuertas, registra el
+      // veredicto y no postea nada. La concordancia cruza esos veredictos
+      // contra decisiones HUMANAS (nunca contra el propio umbral ni contra
+      // políticas), y resolvePolicy exige ese historial antes de aceptar
+      // 'on': el encendido es una decisión con evidencia, no una casilla.
+      const m = 'src/database/migrations/047_el_veredicto_de_la_sombra.sql';
+      if (!existe(m)) return falla('la 047 desapareció: la sombra no tendría dónde opinar');
+      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      if (!/CREATE TABLE ai_shadow_verdicts/.test(sql) || !/UNIQUE \(draft_id\)/.test(sql)) {
+        return falla('ai_shadow_verdicts perdió la unicidad por borrador: una sombra que opina dos veces infla su propia concordancia');
+      }
+      const ing = codigoDe('src/ai/ingest-service.ts');
+      if (!/const modoSombra = thresholds\.sombra === true && !thresholds\.autoPost/.test(ing)) {
+        return falla("la sombra dejó de excluir autoPost encendido: 'shadow' sólo tiene sentido cuando nada postea");
+      }
+      // El MISMO evaluador para el modo real y la sombra: el veredicto
+      // registrado sale de evaluarAutoPost, no de una copia que diverge.
+      if (!/wouldAutoPost: veredicto\.procede/.test(ing)) {
+        return falla('la sombra dejó de registrar el veredicto del evaluador compartido: mediría un clasificador que no es el real');
+      }
+      const sv = codigoDe('src/ai/shadow-verdicts.ts');
+      if (!/ON CONFLICT \(draft_id\) DO NOTHING/.test(sv)) {
+        return falla('el registro del veredicto perdió su idempotencia: reintentos duplicarían opiniones');
+      }
+      // Conteos ×2 (numerador Y denominador excluyen máquina): mutar uno
+      // dejando el otro pasa un chequeo de presencia — la lección de R1.
+      const notasAuto = (sv.match(/'auto-post by threshold%'/g) ?? []).length;
+      const prefPol = (sv.match(/'policy:%'/g) ?? []).length;
+      if (notasAuto < 2 || prefPol < 2) {
+        return falla(
+          `la concordancia volvería a contar decisiones de máquina (nota auto ×${notasAuto}, prefijo policy ×${prefPol}): el agente se calificaría a sí mismo`
+        );
+      }
+      const ps = codigoDe('src/services/policy/policy-service.ts');
+      if (!/key === 'ingest_auto_post' && value === 'on'/.test(ps)) {
+        return falla("la compuerta de evidencia desapareció de resolvePolicy: 'on' volvería a ser una casilla sin historial");
+      }
+      // Las TRES varas del piso, cada una comparada de verdad.
+      if (
+        !/c\.dias_con_veredictos < FLOOR_SOMBRA_DIAS/.test(ps) ||
+        !/c\.decididos < FLOOR_SOMBRA_VEREDICTOS/.test(ps) ||
+        !/acuerdo < FLOOR_SOMBRA_ACUERDO/.test(ps)
+      ) {
+        return falla('el piso del encendido perdió una de sus tres varas (días, volumen decidido, acuerdo)');
+      }
+      if (!/polAuto\.defined && polAuto\.value === 'shadow'/.test(codigoDe('src/ai/ingest-thresholds.ts'))) {
+        return falla('la sombra dejó de ser SOLO del panel: un literal suelto en el archivo de config no debe encenderla');
+      }
+      return /value: 'shadow'/.test(codigoDe('src/services/policy/pending-catalog.ts'))
+        ? ok('sombra panel-only con veredicto único por borrador, concordancia sobre humanos y encendido con peaje de evidencia')
+        : falla('el panel perdió la opción shadow: el camino al encendido quedaría sin puerta');
     },
   },
 

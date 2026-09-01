@@ -71,7 +71,7 @@ afterAll(async () => {
 
 describe('la siembra bajo FORCE RLS', () => {
   it('la trampa: sin GUC de inquilino, el dueño lee cero filas y ningún error', async () => {
-    const r = await db.query(`SELECT count(*)::int AS n FROM ${TABLA}`);
+    const r = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${TABLA}`);
     expect(r.rows[0].n).toBe(0); // dos filas existen; la política las tapa callando
   });
 
@@ -89,7 +89,7 @@ describe('la siembra bajo FORCE RLS', () => {
     try {
       await db.query('SET LOCAL row_security = on');
       await db.query(`SELECT set_config('app.current_tenant', $1, true)`, [tenantA]);
-      const r = await db.query(`SELECT count(*)::int AS n, min(id) AS id FROM ${TABLA}`);
+      const r = await db.query<{ n: number; id: number }>(`SELECT count(*)::int AS n, min(id) AS id FROM ${TABLA}`);
       expect(r.rows[0].n).toBe(1);
       expect(r.rows[0].id).toBe(1);
       await db.query('COMMIT');

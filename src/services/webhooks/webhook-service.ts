@@ -186,7 +186,7 @@ export async function retryDelivery(deliveryId: string, tenantId: string): Promi
   );
   if (delivery.rows.length === 0) return false;
   const fila = delivery.rows[0];
-  await deliverWebhook(deliveryId, fila.sub as unknown as WebhookSubscription, fila.payload);
+  await deliverWebhook(deliveryId, fila.sub, fila.payload);
   return true;
 }
 

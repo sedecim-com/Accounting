@@ -56,7 +56,7 @@ function runQuery<T extends pg.QueryResultRow>(
   text: string,
   params: unknown[]
 ): Promise<pg.QueryResult<T>> {
-  return client ? client.query<T>(text, params as unknown[]) : query<T>(text, params);
+  return client ? client.query<T>(text, params) : query<T>(text, params);
 }
 
 const SESSION_COLUMNS = `id, tenant_id, entity_id, title, provider, model, terminal_key, created_at, last_active_at`;

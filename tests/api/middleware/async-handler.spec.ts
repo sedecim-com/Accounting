@@ -15,7 +15,9 @@ describe('asyncHandler', () => {
     const { req, res, next } = mockReqRes();
     const boom = new Error('boom');
     const wrapped = asyncHandler(async () => { throw boom; });
-    await wrapped(req, res, next);
+    // asyncHandler returns void, so there is nothing to await here; the
+    // flush below is what lets the inner rejection reach next().
+    wrapped(req, res, next);
     // next is called with the error after the promise rejects
     await new Promise((r) => setImmediate(r));
     expect(next).toHaveBeenCalledWith(boom);
@@ -24,7 +26,7 @@ describe('asyncHandler', () => {
   it('does not call next() on success', async () => {
     const { req, res, next } = mockReqRes();
     const wrapped = asyncHandler(async () => { /* ok */ });
-    await wrapped(req, res, next);
+    wrapped(req, res, next);
     await new Promise((r) => setImmediate(r));
     expect(next).not.toHaveBeenCalled();
   });
