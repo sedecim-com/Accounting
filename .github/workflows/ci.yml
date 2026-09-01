@@ -67,7 +67,13 @@ jobs:
       # en el diff, con su porqué, y vuelven a la lista cuando su salida
       # exista de verdad. Cuando un paquete cierre, se añade en el mismo
       # commit que lo cierra.
-      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E2.1,E2.2,E3.1,E3.2
+      #
+      # S1 (auditoría 2026-08-31): E3.2 sale por la MISMA causa que E1.2/E4.1
+      # — era un falso verde: su criterio pasaba porque una regex matcheaba
+      # dos cadenas de prosa en una pregunta de política, no código. La
+      # descarga masiva del SAT no existe (11 tareas de motor). Vuelve cuando
+      # el motor exista de verdad.
+      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E2.1,E2.2,E3.1
       # El catálogo de comandos publica cuánto de su superficie existe ya. Ese
       # número estaba escrito a mano y duró 42 commits: decía «~30 comandos»
       # con 106 que el binario ejecuta. Ahora se genera, y esto falla ante tres

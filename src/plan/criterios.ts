@@ -230,6 +230,35 @@ export const CRITERIOS: Criterio[] = [
         : falla('el job de aislamiento conecta como superusuario: la RLS no filtra y una política ausente no se detecta');
     },
   },
+  {
+    paquete: 'E0.0',
+    enunciado: 'Un flujo no se declara cerrado sin su auditoría adversarial registrada',
+    evaluar: () => {
+      // S1: la regla «la auditoría adversarial cierra cada tramo» era
+      // disciplina sin compuerta — AUD-5/AUD-6 existieron como práctica, pero
+      // nada impedía declarar cerrado un F0x sin auditarlo. Cerrar un flujo
+      // es AÑADIR su entrada aquí, con la ruta de su registro; una entrada
+      // cuyo archivo no existe se acusa. El piso de la práctica queda
+      // registrado: la auditoría integral del 2026-08-31.
+      const FLUJOS_CERRADOS: Record<string, string> = {
+        // 'F01': 'docs/auditorias/F01.md',
+      };
+      if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
+        return falla('el registro de auditorías desapareció: docs/auditorias/2026-08-31-integral');
+      }
+      const sinRegistro = Object.entries(FLUJOS_CERRADOS).filter(([, doc]) => !existe(doc));
+      return sinRegistro.length === 0
+        ? ok(
+            `${Object.keys(FLUJOS_CERRADOS).length} flujo(s) cerrados con registro; ` +
+              'la integral 2026-08-31 en el archivo'
+          )
+        : falla(
+            `flujo(s) declarados cerrados sin registro de auditoría: ${sinRegistro
+              .map(([f]) => f)
+              .join(', ')}`
+          );
+    },
+  },
 
   // ---- E0.1 · Red de pruebas ----
   {
@@ -423,6 +452,67 @@ export const CRITERIOS: Criterio[] = [
           ? `sin sellos de periodos cerrados que revisar en ${alcance}`
           : `${sellos.rows.length} sello(s) de periodos cerrados coinciden con su periodo (${alcance})`
       );
+    },
+  },
+  {
+    paquete: 'E0.1',
+    enunciado: 'El compromiso no persiste el valor que promete ocultar',
+    evaluar: () => {
+      // S1 (E1.4-a rescatada): el range proof placeholder incluía
+      // _test_value y _test_bf bajo el comentario «DO NOT store the value in
+      // a real proof», y el orquestador lo persistía entero — el compromiso
+      // que vende «prueba el rango SIN revelar el importe» llevaba dentro el
+      // importe y el factor para abrirlo. El generador ya no las escribe y
+      // la 040 purgó las filas; esto vigila que no vuelvan.
+      const fuga = dondeAparece(/_test_value|_test_bf/, ['src'], true);
+      if (fuga.length > 0) {
+        return falla(`el valor volvió al blob del compromiso: ${fuga.join(', ')}`);
+      }
+      if (!existe('src/database/migrations/040_el_secreto_que_el_compromiso_revelaba.sql')) {
+        return falla('la migración de purga (040) desapareció: las filas históricas retendrían la fuga');
+      }
+      const purga = fs.readFileSync(
+        rutaDe('src/database/migrations/040_el_secreto_que_el_compromiso_revelaba.sql'),
+        'utf-8'
+      );
+      return /range_proof\s*=\s*NULL/.test(purga) && /zkverify_proof\s*=\s*NULL/.test(purga)
+        ? ok('el generador no escribe el valor y la 040 purgó ambos blobs')
+        : falla('la 040 no purga los dos blobs (range_proof y zkverify_proof)');
+    },
+  },
+
+  {
+    paquete: 'E0.2',
+    enunciado: 'La capacidad huérfana conocida sólo encoge',
+    evaluar: () => {
+      // S1: §7 prometía «doctor sin huérfanos nuevos entra como criterio» y
+      // el criterio no existía — mientras tanto, cuatro exports vivían sin un
+      // solo llamador de producción, incluido uno en la capa más delicada
+      // (autoApproveDraftByPolicy, con docstring que afirmaba en falso ser el
+      // camino de la ingesta). El patrón es la línea base del auditor: la
+      // lista CONGELA los huérfanos conocidos y sólo puede encoger — un
+      // export que gana consumidor obliga a borrar su línea, y borrar la
+      // línea es el registro de que la deuda se pagó (o el export se retiró).
+      //
+      // Los huérfanos NUEVOS los barre doctor a nivel capacidad (nunca fail);
+      // esta lista fija los conocidos para que cerrarlos sea visible y
+      // olvidarlos imposible. Destinos: earlyPaymentDiscount → F04;
+      // calculateBenefitsForPaycheck → F08; checkSoDViolations → decisión §5
+      // (maker-checker); autoApproveDraftByPolicy → A3 (un solo autorizador).
+      const HUERFANOS_CONGELADOS: Record<string, string> = {
+        earlyPaymentDiscount: 'bill-service.ts',
+        calculateBenefitsForPaycheck: 'benefits-service.ts',
+        checkSoDViolations: 'auth.ts',
+        autoApproveDraftByPolicy: 'draft-service.ts',
+      };
+      const conConsumidor = Object.entries(HUERFANOS_CONGELADOS)
+        .filter(([simbolo, archivo]) => consumidoresDe(simbolo, archivo).length > 0)
+        .map(([simbolo]) => simbolo);
+      return conConsumidor.length === 0
+        ? ok(`${Object.keys(HUERFANOS_CONGELADOS).length} huérfanos congelados, ninguno resuelto aún`)
+        : falla(
+            `ya tienen consumidor — borra su línea de HUERFANOS_CONGELADOS: ${conConsumidor.join(', ')}`
+          );
     },
   },
 
@@ -734,6 +824,30 @@ export const CRITERIOS: Criterio[] = [
       );
     },
   },
+  {
+    paquete: 'E0.3',
+    enunciado: 'La bitácora no guarda en claro lo que las tablas cifran',
+    evaluar: () => {
+      // S1: el middleware de auditoría escribía JSON.stringify(req.body)
+      // entero en audit_log.new_values — un alta de empleado dejaba ssn y
+      // bank_account EN CLARO en la única tabla que, por diseño de la 033,
+      // no admite remediación. Lo que se exige: el stringify crudo no existe
+      // y la redacción cubre, como mínimo, los campos que los servicios
+      // cifran hoy (ssn, clabe, bank_account*, password, key/cer).
+      const m = codigoDe('src/api/rest/middleware/audit.ts');
+      if (/JSON\.stringify\(req\.body\)/.test(m)) {
+        return falla('el middleware volvió al stringify crudo: los secretos vuelven a la bitácora inmutable');
+      }
+      if (!/redactarSensibles/.test(m)) {
+        return falla('no hay redacción en el middleware de auditoría');
+      }
+      const minimos = ['ssn', 'clabe', 'bank_account', 'password', 'key', 'cer'];
+      const faltan = minimos.filter((c) => !new RegExp(`'${c}'`).test(m));
+      return faltan.length === 0
+        ? ok('el cuerpo se redacta antes de tocar la bitácora, con los campos cifrados cubiertos')
+        : falla(`la lista de redacción no cubre: ${faltan.join(', ')} — un campo que se cifra en tabla no puede viajar en claro al rastro`);
+    },
+  },
 
   // ---- E1.1 · Roles de cuenta ----
   {
@@ -992,6 +1106,30 @@ export const CRITERIOS: Criterio[] = [
         : falla('GraphQL montado sin compuerta: dos mutaciones llegan al motor de posteo sin permisos');
     },
   },
+  {
+    paquete: 'E2.1',
+    enunciado: 'El arranque falla cerrado ante un rol que ignora RLS',
+    evaluar: () => {
+      // S1 (E2.1-e rescatada): el aislamiento entero cuelga de que el rol de
+      // conexión esté SUJETO a RLS, y detectarlo era un logger.warn — también
+      // en producción. Un aviso que nadie lee no es una defensa. Ahora, en
+      // producción, un rol con BYPASSRLS/superusuario impide arrancar salvo
+      // la válvula explícita ALLOW_RLS_BYPASS_ROLE (break-glass que queda
+      // escrito). En desarrollo sigue siendo warn: la suite de integración
+      // corre como superusuario a propósito.
+      if (!existe('src/database/rls-guard.ts')) {
+        return falla('no existe el guardián del rol (src/database/rls-guard.ts): volvió a ser sólo un warn');
+      }
+      const g = codigoDe('src/database/rls-guard.ts');
+      const lanza = /production/.test(g) && /throw new RolIgnoraRlsError/.test(g);
+      const valvula = /ALLOW_RLS_BYPASS_ROLE/.test(g);
+      const cableado = /verificarRolSujetoARls/.test(codigoDe('src/index.ts'));
+      if (!lanza) return falla('el guardián no lanza en producción: el aislamiento vuelve a colgar de un log');
+      if (!valvula) return falla('sin válvula de break-glass explícita, el guardián se puentea comentándolo');
+      if (!cableado) return falla('el guardián existe y el arranque no lo llama');
+      return ok('producción no arranca con un rol que ignora RLS, salvo break-glass explícito');
+    },
+  },
 
   // ---- E2.2 · Catálogo de autorización ----
   {
@@ -1066,10 +1204,33 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E3.2',
     enunciado: 'El despacho puede traer del SAT los CFDI que no le llegaron',
     evaluar: () => {
-      const cons = dondeAparece(/sat\s+download|descargaMasiva|SolicitaDescarga/i, ['src'], true);
-      return cons.length > 0
-        ? ok(`${cons.length} archivo(s) en el camino de descarga`)
-        : falla('sin descarga masiva el despacho no puede afirmar completitud, que es lo que vende');
+      // ROJO HONESTO (S1). La versión anterior de este criterio pasó VERDE
+      // durante semanas porque su regex matcheaba dos cadenas de PROSA en una
+      // pregunta de política (pending-catalog.ts: «direct SAT download …») —
+      // la clase exacta de falso verde que AUD-6 purgó, cometida por el
+      // propio instrumento. La descarga masiva NO existe: ni cliente SOAP
+      // (SolicitaDescarga/VerificaSolicitud), ni lector de paquetes ZIP, ni
+      // comando `sat download`, ni la reversa de facturas contabilizadas
+      // cuyo CFDI el emisor canceló. Son ~11 tareas de motor (plan de
+      // cierre E3.2), no «cargar una credencial».
+      //
+      // Verde exige el SERVICIO con transporte: un módulo bajo
+      // src/services/sat-download/ que el camino de políticas no pueda
+      // imitar con una cadena.
+      if (!existe('src/services/sat-download')) {
+        return falla(
+          'la descarga masiva del SAT no existe (ni SOAP, ni ZIP, ni comando): el despacho no ' +
+            'puede afirmar completitud, que es lo que vende. El criterio anterior pasaba por dos ' +
+            'cadenas de prosa en pending-catalog.ts — este rojo es la corrección'
+        );
+      }
+      if (!existe('src/services/sat-download/descarga-masiva.ts')) {
+        return falla('src/services/sat-download existe pero sin descarga-masiva.ts (el motor)');
+      }
+      const motor = codigoDe('src/services/sat-download/descarga-masiva.ts');
+      return /SolicitaDescarga/i.test(motor) && /Verifica/i.test(motor)
+        ? ok('el motor de descarga masiva existe con su transporte')
+        : falla('src/services/sat-download existe pero sin el ciclo solicitar/verificar/descargar');
     },
   },
 
@@ -1319,6 +1480,63 @@ export const CRITERIOS: Criterio[] = [
         : falla(
             `conLlave se consume en ${usos.length} archivo(s); entry post/reverse/void, close y onboard exigen al menos 3`
           );
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'Los importes sobreviven a la compactación por construcción',
+    evaluar: () => {
+      // S1 (hueco confesado de E5.1-c): el backstop determinista de la
+      // compactación cubría UUIDs, RFCs y folios, y los IMPORTES —la carga
+      // útil de un agente contable— quedaban «protegidos por instrucción
+      // solamente», según confesaba el propio comentario del módulo. Verde
+      // exige que MONTO_RE exista y esté en la lista del extractor.
+      const c = codigoDe('src/ai/compaction.ts');
+      if (!/MONTO_RE/.test(c)) {
+        return falla('no existe MONTO_RE: los importes vuelven a depender de que el modelo se porte bien');
+      }
+      return /\[UUID_RE,\s*RFC_RE,\s*FOLIO_RE,\s*MONTO_RE\]/.test(c)
+        ? ok('el extractor incluye importes: lo que el resumen tire, el backstop lo re-adjunta')
+        : falla('MONTO_RE existe pero el extractor no lo usa: es un regex decorativo');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'El «--continue» rehidrata el contexto que promete',
+    evaluar: () => {
+      // ROJO HONESTO (S1, hueco confesado de E5.1-b): la propia opción lo
+      // dice — «transcript continuity; the model context starts fresh». Un
+      // usuario que retoma su sesión espera que el agente recuerde la
+      // conversación, no sólo que el transcript se anexe. Verde exige que
+      // las opciones de sesión acepten un historial y que el camino de
+      // --continue lo alimente desde getSessionMessages.
+      const tipos = codigoDe('src/ai/providers/index.ts');
+      const cli = codigoDe('src/cli/mnemosine.ts');
+      if (!/historial/.test(tipos)) {
+        return falla(
+          'CreateLlmSessionOptions no acepta historial: --continue anexa transcript pero el ' +
+            'modelo arranca en blanco — la rehidratación es trabajo de la familia del agente'
+        );
+      }
+      return /historial/.test(cli)
+        ? ok('el camino de --continue alimenta el historial de la sesión')
+        : falla('las opciones aceptan historial y el CLI no lo alimenta');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado: 'Los precios del ledger declaran su vigencia, y el reporte la muestra',
+    evaluar: () => {
+      // S1 (hueco confesado de E5.1-f): la tabla de precios llevaba su fecha
+      // de corte en un COMENTARIO. Un costo estimado con precios de hace un
+      // año se lee como costo de hoy si nadie lo dice en la salida.
+      const p = codigoDe('src/ai/providers/prices.ts');
+      if (!/PRECIOS_VIGENTES_A\s*=\s*'\d{4}-\d{2}-\d{2}'/.test(p)) {
+        return falla('la fecha de corte volvió a ser prosa: PRECIOS_VIGENTES_A no existe como dato');
+      }
+      return /PRECIOS_VIGENTES_A/.test(codigoDe('src/cli/usage-command.ts'))
+        ? ok('la vigencia es un dato y cada reporte de uso la muestra')
+        : falla('la fecha existe y el reporte de uso no la enseña');
     },
   },
   {

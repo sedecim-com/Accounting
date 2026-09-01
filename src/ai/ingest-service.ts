@@ -127,9 +127,10 @@ export async function ingestCfdiFiles(opts: {
 
     // Third-party-controlled fields are scanned up front. A flagged file is
     // still processed (the prompt only ever sees SANITIZED, marker-wrapped
-    // text), but the suspicion is surfaced on the result for the human.
+    // text), but the suspicion is surfaced on the result for the human — and
+    // desde S1 también es COMPUERTA: un CFDI marcado jamás auto-postea.
     const suspicion = collectSuspicion(upload);
-    const result = await classify(upload, name);
+    const result = await classify(upload, name, suspicion);
     if (suspicion.length > 0) {
       result.detail =
         (result.detail ? `${result.detail} · ` : '') +
@@ -138,7 +139,11 @@ export async function ingestCfdiFiles(opts: {
     return result;
   }
 
-  async function classify(upload: UploadOutcome, name: string): Promise<IngestFileResult> {
+  async function classify(
+    upload: UploadOutcome,
+    name: string,
+    suspicion: string[] = []
+  ): Promise<IngestFileResult> {
     if (upload.autoProcessed) {
       return { file: name, status: 'rules', detail: 'Processed by firm rules' };
     }
@@ -198,6 +203,18 @@ export async function ingestCfdiFiles(opts: {
     // for human review with the explicit reason.
     if (!thresholds.autoPost) {
       return { file: name, status: 'draft', draftId: draft.draftId, detail: 'auto-post disabled' };
+    }
+    if (suspicion.length > 0) {
+      // S1 (auditoría 2026-08-31): la sospecha de inyección sólo ANOTABA el
+      // resultado — un archivo con «instruction-like injection phrase» podía
+      // auto-postearse si todo lo demás cuadraba, y el humano leía la
+      // advertencia después, en el CLI. Un CFDI marcado va SIEMPRE a
+      // revisión humana: el que quiere postear sin humano no puede a la vez
+      // traer texto que intenta darle órdenes al clasificador.
+      return {
+        file: name, status: 'draft', draftId: draft.draftId,
+        detail: 'suspicious third-party content: a flagged CFDI never auto-posts',
+      };
     }
     if (drafts.length > 1) {
       // Ambiguous: the AI proposed multiple entries for one CFDI — never auto-post.

@@ -5,6 +5,7 @@ import {
   type UsageGroupBy,
   type UsageSummary,
 } from '../ai/usage-ledger.js';
+import { PRECIOS_VIGENTES_A } from '../ai/providers/prices.js';
 
 // ============================================================
 // mnemosine usage
@@ -83,7 +84,14 @@ export function formatUsageTable(
   groupBy: UsageGroupBy,
   c: UsagePalette
 ): string[] {
-  const out: string[] = ['', c.bold(`Usage by ${groupBy} (costs are local estimates, not billing)`), ''];
+  const out: string[] = [
+    '',
+    c.bold(`Usage by ${groupBy} (costs are local estimates, not billing)`),
+    // La fecha de corte de los precios viaja con cada reporte (S1): un
+    // estimado con tabla vieja debe leerse como lo que es.
+    c.dim(`  price table as of ${PRECIOS_VIGENTES_A} — providers reprice without notice`),
+    '',
+  ];
 
   if (summary.rows.length === 0) {
     out.push(c.dim('  No usage recorded for this entity in the selected window.'));

@@ -463,6 +463,35 @@ function main(argv: string[]): number {
   }
 
   if (argv.includes('--check')) {
+    // DOS INVARIANTES ESTRUCTURALES (S1), antes que el trinquete.
+    //
+    // (1) Toda fila de comando declara fase ∈ {1,2,3}. `pac create` vivió
+    // meses con la fase ilegible —un pipe sin escapar partía su celda
+    // Backend y corría las columnas— y escapaba a TODO conteo por fase sin
+    // que nada lo acusara. (2) Ninguna fila cruda se pierde en el parseo:
+    // filas con menos celdas de las debidas (el modo exacto en que S0.7
+    // rompió 25 filas) dejan de ser invisibles.
+    const completas = filasCompletas(md);
+    const sinFase = completas.filter((f) => !['1', '2', '3'].includes(f.fase));
+    if (sinFase.length > 0) {
+      process.stderr.write(
+        `${sinFase.length} fila(s) sin fase legible (fase ∈ {1,2,3}):\n` +
+          sinFase.map((f) => `  mnemosine ${f.invocacion}`).join('\n') +
+          '\n\nCasi siempre es un pipe sin escapar dentro de una celda, que corre las columnas.\n'
+      );
+      return 1;
+    }
+    const brutas = md
+      .split('\n')
+      .filter((l) => /^\|\s*`mnemosine\b/.test(l) && !/`mnemosine <noun>/.test(l)).length;
+    if (completas.length !== brutas) {
+      process.stderr.write(
+        `El parseo pierde filas: ${brutas} líneas de comando en crudo, ${completas.length} parseadas.\n` +
+          'Busca filas con celdas de menos (pipes sin escapar, colas de columnas perdidas).\n'
+      );
+      return 1;
+    }
+
     // EL TRINQUETE, ANTES QUE EL FORMATO.
     //
     // Que el bloque esté regenerado no impide un retroceso: quien borre un

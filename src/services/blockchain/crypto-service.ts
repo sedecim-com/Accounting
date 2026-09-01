@@ -114,15 +114,20 @@ export class CryptoService {
       throw new Error(`Value ${value} out of range [${min}, ${max}]`);
     }
 
-    // Real implementation would use bb/Noir circuit here
+    // Real implementation would use bb/Noir circuit here.
+    //
+    // S1 (auditoría 2026-08-31): las claves _test_value/_test_bf que este
+    // placeholder incluía «solo para verificación de pruebas» se persistían
+    // en blockchain_attestations.range_proof y zkverify_proof — el compromiso
+    // que promete no revelar el importe lo revelaba, junto con el blinding
+    // factor que permite abrirlo. Cero consumidores las leían (ni las
+    // pruebas). La migración 040 purga las filas ya escritas; un criterio
+    // del plan vigila que no vuelvan.
     const proofData = {
       scheme: 'range_proof_v1',
       min,
       max,
       timestamp: Date.now(),
-      // DO NOT store the value in a real proof — included here only for test verification
-      _test_value: valueNum.toString(),
-      _test_bf: blindingFactor,
     };
 
     return {

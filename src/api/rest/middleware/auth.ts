@@ -105,7 +105,11 @@ function resolverEntidadActiva(
 
 function verifyLocal(token: string): JwtPayload {
   try {
-    return jwt.verify(token, config.jwt.secret) as JwtPayload;
+    // Algoritmo FIJADO (S1): sin la lista, jwt.verify acepta el algoritmo
+    // que el token declare — la puerta clásica de alg-confusion. La retirada
+    // completa de esta rama sigue en la mesa (plan de cierre); mientras viva,
+    // no negocia.
+    return jwt.verify(token, config.jwt.secret, { algorithms: ['HS256'] }) as JwtPayload;
   } catch {
     throw new UnauthorizedError('Invalid or expired token');
   }

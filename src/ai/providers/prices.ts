@@ -43,6 +43,14 @@ const anthropic = (prefix: string, input: number, output: number): ModelPrice =>
 // family, it must be priced at the EXPENSIVE one (overestimate, never
 // underestimate). Longer prefixes below pin the expensive legacy ids that
 // a shorter family prefix would otherwise underprice.
+/**
+ * Fecha de corte de esta tabla, COMO DATO y no como comentario (S1): la
+ * salida de `mnemosine usage` la muestra, para que un costo estimado con
+ * precios de hace un año no se lea como costo de hoy. Actualizar la tabla
+ * implica actualizar esta fecha — están juntas a propósito.
+ */
+export const PRECIOS_VIGENTES_A = '2026-08-24';
+
 export const PRICE_TABLE: ModelPrice[] = [
   // --- Anthropic (first-party API rates) ---
   // Legacy Opus 4/4.1 ($15/$75) sort ahead of the 'claude-opus-4' family

@@ -6,6 +6,7 @@ import { ApolloServer } from '@apollo/server';
 import { expressMiddleware } from '@apollo/server/express4';
 import { config } from './config/index.js';
 import { query, closeDatabase, initDatabase } from './database/connection.js';
+import { verificarRolSujetoARls } from './database/rls-guard.js';
 import { drainAttestations } from './services/accounting/posting.js';
 import { authenticate, requireEntityAccess } from './api/rest/middleware/auth.js';
 import { auditLogMiddleware } from './api/rest/middleware/audit.js';
@@ -39,48 +40,15 @@ import aiRouter from './api/rest/routes/ai.js';
 import './services/integrations/index.js'; // Register all adapters
 import './services/payroll/tax-engine/register-all.js'; // Register all tax calculators
 
-/**
- * El middleware de contexto acota cada petición al inquilino del token, pero
- * quien hace cumplir esa frontera es RLS, y RLS es INERTE para un rol
- * superusuario o con BYPASSRLS. Arrancar así no es un fallo —es lo normal en
- * desarrollo— pero tiene que verse en el arranque y no descubrirse después:
- * en ese estado un error de programación que olvide filtrar por inquilino
- * devuelve las filas de todos en vez de ninguna.
- *
- * `mnemosine doctor` lo reporta también (checkTenantIsolation).
- */
-async function advertirSiElRolIgnoraRls(): Promise<void> {
-  try {
-    const r = await query<{ rol: string; ignora: boolean }>(
-      `SELECT current_user AS rol,
-              COALESCE(rolsuper OR rolbypassrls, false) AS ignora
-         FROM pg_roles WHERE rolname = current_user`
-    );
-    const fila = r.rows[0];
-    if (!fila) return;
-    if (fila.ignora) {
-      logger.warn('db_role_bypasses_rls', {
-        role: fila.rol,
-        detail:
-          'El rol de conexión ignora row level security: el aislamiento entre ' +
-          'inquilinos depende solo del código. Conectar como mnemosine_app ' +
-          '(scripts/provision-roles.sql).',
-      });
-    } else {
-      logger.info('db_role_subject_to_rls', { role: fila.rol });
-    }
-  } catch (error) {
-    logger.warn('db_role_check_failed', { error: (error as Error).message });
-  }
-}
-
 async function bootstrap() {
   // Túnel y TLS resueltos antes de la primera consulta.
   const { tunneled, warning } = await initDatabase();
   if (tunneled) logger.info('db_tunnel_open');
   if (warning) logger.warn('db_tls_warning', { warning });
 
-  await advertirSiElRolIgnoraRls();
+  // Falla cerrado en producción ante un rol que ignora RLS (S1); advierte en
+  // desarrollo. `mnemosine doctor` lo reporta también (checkTenantIsolation).
+  await verificarRolSujetoARls();
 
   const app = express();
 
@@ -88,7 +56,16 @@ async function bootstrap() {
   // Middleware
   // ============================================================
   app.use(helmet({ contentSecurityPolicy: config.env === 'production' ? undefined : false }));
-  app.use(cors());
+  // CORS explícito por entorno (S1): `cors()` a secas publica
+  // Access-Control-Allow-Origin: * también en producción. La API la consumen
+  // el CLI y agentes (sin navegador), así que producción sin ALLOWED_ORIGINS
+  // no permite ningún origen cruzado; declarar orígenes es opt-in por env
+  // (lista separada por comas). En desarrollo se queda abierto.
+  app.use(cors({
+    origin: config.env === 'production'
+      ? (process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? false)
+      : true,
+  }));
   // Global JSON body parser — but the inbound AI webhook path parses its OWN
   // body with express.raw (exact-bytes idempotency fallback + a hard 1MB cap).
   // If the global json parser consumed those requests first, body-parser would
