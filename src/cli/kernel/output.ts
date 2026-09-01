@@ -140,7 +140,17 @@ function toDelimited(rows: Row[], cols: string[], delimiter: string): string {
 }
 
 function toMarkdown(rows: Row[], cols: string[]): string {
-  const esc = (s: string) => s.replace(/\|/g, '\\|');
+  // Escapa lo que puede FORJAR la tabla, no sólo lo que la afea, y en este
+  // orden: primero la barra invertida —si fuera al final escaparía las que
+  // añaden los otros pasos—, luego el pipe, que abre una columna, y al final
+  // los saltos de línea, que abren una FILA entera. Un valor con \n convertía
+  // una celda en dos renglones y desplazaba la tabla completa: el nombre de un
+  // proveedor con salto de línea bastaba para que las cifras dejaran de
+  // corresponder a su columna.
+  const esc = (s: string) => s
+    .replace(/\\/g, '\\\\')
+    .replace(/\|/g, '\\|')
+    .replace(/\r?\n/g, '<br>');
   return [
     `| ${cols.map(esc).join(' | ')} |`,
     `|${cols.map(() => '---').join('|')}|`,
