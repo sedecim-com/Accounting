@@ -8,6 +8,7 @@ import { postInvoiceEntry } from '../accounting/ar-ap-posting.js';
 import { voidJournalEntryInTx } from '../accounting/posting.js';
 import { OPEN_INVOICE_STATUSES } from './customer-service.js';
 import type { Invoice, InvoiceLine, JournalEntry } from '../../types/index.js';
+import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 
 // ============================================================
 // CUSTOMER INVOICES — domain service
@@ -517,6 +518,22 @@ async function issueInvoiceInTx(
     entryLines = posted.rows;
   }
 
+  // R1: el ciclo de vida deja SU rastro — antes sólo el asiento derivado
+  // quedaba auditado, y «quién emitió la factura» no estaba en ninguna parte.
+  await registrarAuditoria(client, {
+    tenantId: await tenantDe(client, invoice.entity_id),
+    userId,
+    action: 'update',
+    entityType: 'invoices',
+    entityId: invoiceId,
+    oldValues: { status: invoice.status },
+    newValues: {
+      status: 'sent',
+      invoice_number: invoice.invoice_number,
+      journal_entry_id: entry?.id ?? invoice.journal_entry_id ?? null,
+    },
+  });
+
   const after = await client.query<Invoice>('SELECT * FROM invoices WHERE id = $1', [invoiceId]);
   return {
     invoice: after.rows[0],
@@ -628,6 +645,22 @@ export async function voidInvoice(
           attest = { entityId: voided.entity_id, entryId: reversal.id };
         }
       }
+
+      // R1: la anulación deja su rastro con la razón — antes sólo el
+      // asiento espejo quedaba auditado.
+      await registrarAuditoria(client, {
+        tenantId: await tenantDe(client, voided.entity_id),
+        userId,
+        action: 'void',
+        entityType: 'invoices',
+        entityId: voided.id,
+        newValues: {
+          status: 'void',
+          invoice_number: voided.invoice_number,
+          reversal_entry_id: reversalEntryId,
+        },
+        reason: opts.reason ?? null,
+      });
 
       const result: VoidInvoiceResult = {
         invoice: voided,

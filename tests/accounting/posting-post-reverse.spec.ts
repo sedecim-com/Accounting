@@ -41,6 +41,8 @@ const LINEAS_BD = [
 function reglas(entry: JournalEntry, extra: ReglaConsulta[] = []) {
   return clienteFalso([
       AUDITORIA,
+    // R1: el posteo toma el candado compartido del periodo dentro de su transacción.
+    { cuando: /SELECT status, period_name FROM fiscal_periods WHERE id = \$1 FOR SHARE/, responde: { rows: [{ status: 'open', period_name: 'Periodo de prueba' }] } },
     { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [entry] } },
     { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
     { cuando: /UPDATE journal_entries SET status = 'posted'|UPDATE journal_entries SET status = 'posted', posted_date/, responde: {} },

@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const client = { query: vi.fn() };
 
 vi.mock('../../../src/database/connection.js', () => ({
+  // R1: tenantDe usa el contexto cuando existe; el arnés lo da fijo.
+  currentTenant: () => 'tenant-1',
   query: vi.fn(),
   withTransaction: vi.fn(async (fn: (c: unknown) => Promise<unknown>) => fn(client)),
 }));

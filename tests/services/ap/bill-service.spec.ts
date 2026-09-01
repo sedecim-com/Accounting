@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
+  // R1: tenantDe usa el contexto cuando existe; el arnés lo da fijo.
+  currentTenant: () => 'tenant-1',
   query: vi.fn(),
   withTransaction: vi.fn(),
 }));

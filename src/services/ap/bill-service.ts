@@ -6,6 +6,7 @@ import { nextEntityNumber } from '../../utils/sequence.js';
 import { postBillEntry } from '../accounting/ar-ap-posting.js';
 import { parsePaymentTerms } from './vendor-service.js';
 import type { Bill, BillLine, JournalEntry, JournalEntryLine } from '../../types/index.js';
+import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 
 // ============================================================
 // VENDOR BILLS — domain service
@@ -527,6 +528,22 @@ export async function approveBill(
         );
         entryLines = lines.rows as Record<string, unknown>[];
       }
+
+      // R1: aprobar la factura del proveedor deja su rastro propio — antes
+      // sólo el asiento derivado quedaba auditado.
+      await registrarAuditoria(client, {
+        tenantId: await tenantDe(client, approved.entity_id),
+        userId,
+        action: 'approve',
+        entityType: 'bills',
+        entityId: approved.id,
+        oldValues: { status: 'draft' },
+        newValues: {
+          status: 'approved',
+          bill_number: (approved as { bill_number?: string }).bill_number ?? null,
+          journal_entry_id: entry?.id ?? null,
+        },
+      });
 
       const out = {
         bill: approved,

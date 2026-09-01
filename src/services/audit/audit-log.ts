@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type pg from 'pg';
+import { currentTenant } from '../../database/connection.js';
 
 // ============================================================
 // RASTRO DE AUDITORÍA — un solo punto de escritura.
@@ -38,6 +39,28 @@ export interface EntradaAuditoria {
   oldValues?: Record<string, unknown> | null;
   newValues?: Record<string, unknown> | null;
   reason?: string | null;
+}
+
+/**
+ * El inquilino para un renglón de auditoría: el del contexto RLS si lo hay,
+ * o el de la entidad. Lanza si no resuelve — un hecho sin inquilino no se
+ * registra, y registrarlo con uno inventado sería peor. (R1: compartido para
+ * que los ciclos de vida de invoice/bill/payment no dupliquen la lógica.)
+ */
+export async function tenantDe(client: pg.PoolClient, entityId: string): Promise<string> {
+  const delContexto = currentTenant();
+  if (delContexto) return delContexto;
+  const r = await client.query<{ tenant_id: string }>(
+    'SELECT tenant_id FROM legal_entities WHERE id = $1',
+    [entityId]
+  );
+  const tenantId = r.rows[0]?.tenant_id;
+  if (!tenantId) {
+    throw new Error(
+      `No se pudo determinar el inquilino de la entidad ${entityId}: el hecho no se registra sin rastro.`
+    );
+  }
+  return tenantId;
 }
 
 export async function registrarAuditoria(

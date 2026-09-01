@@ -6,6 +6,7 @@ import { nextEntityNumber } from '../../utils/sequence.js';
 import { postVendorPaymentEntry, postCustomerPaymentEntry } from '../accounting/ar-ap-posting.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
+import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 
 // ============================================================
 // REGISTRAR UN PAGO QUE YA OCURRIÓ.
@@ -290,6 +291,22 @@ export async function recordVendorPayment(
       userId
     );
 
+    // R1: el pago deja su rastro propio — antes sólo el asiento derivado
+    // quedaba auditado, y «quién registró el pago» no estaba en el rastro.
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entrada.entityId),
+      userId,
+      action: 'create',
+      entityType: 'vendor_payments',
+      entityId: paymentId,
+      newValues: {
+        payment_number: paymentNumber,
+        payment_amount: entrada.paymentAmount,
+        journal_entry_id: entry?.id ?? null,
+        documentos: documentos.length,
+      },
+    });
+
     if (opts.dryRun) {
       throw new EnsayoTerminado({
         paymentId, paymentNumber, journalEntry: entry,
@@ -415,6 +432,21 @@ export async function recordCustomerPayment(
       },
       userId
     );
+
+    // R1: mismo rastro que el pago a proveedor, del lado del cobro.
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, entrada.entityId),
+      userId,
+      action: 'create',
+      entityType: 'customer_payments',
+      entityId: paymentId,
+      newValues: {
+        payment_number: paymentNumber,
+        payment_amount: entrada.paymentAmount,
+        journal_entry_id: entry?.id ?? null,
+        documentos: documentos.length,
+      },
+    });
 
     const salida: ResultadoPago = {
       paymentId, paymentNumber, journalEntry: entry,

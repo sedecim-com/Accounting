@@ -186,6 +186,8 @@ describe('contabilización, reversión y anulación', () => {
     return clienteFalso([
       AUDITORIA,
       { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [entry] } },
+      // R1: el candado compartido del periodo dentro de la transacción de posteo.
+      { cuando: /FROM fiscal_periods WHERE id = \$1 FOR SHARE/, responde: { rows: [{ status: 'open', period_name: 'Periodo de prueba' }] } },
       { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
       { cuando: /UPDATE journal_entries\s+SET status = 'posted'/, responde: {} },
       { cuando: /INSERT INTO account_balances/, responde: {} },

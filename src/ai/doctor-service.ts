@@ -52,6 +52,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(checkConnectionTransport());
     checks.push(await checkConsistenciaCli());
     checks.push(await checkTenantIsolation());
+    checks.push(await checkLedgerIntegrity());
     checks.push(await checkReopenedPeriods());
     checks.push(await checkPendingWork());
     checks.push(await checkCredentials(deps.now ?? new Date()));
@@ -761,6 +762,72 @@ export function checkOrphanedCapability(deps: DoctorDeps = {}): CheckResult {
  * guarda la reapertura con su motivo, y un cierre posterior sobre el mismo
  * periodo la salda. Una reapertura sin cierre que la siga es el rastro.
  */
+/**
+ * LEDGER INTEGRITY (R1) — y éste sí amerita `fail`.
+ *
+ * `account_balances` es tabla load-bearing del cierre (balanza del checklist,
+ * closing entries, carry-forward) y nada la verificaba contra la suma de
+ * líneas posteadas; y un asiento posteado sin fila de bitácora es un hecho
+ * sin autor. A diferencia de la capacidad huérfana (informativa a propósito),
+ * un mayor que no cuadra con sus propias líneas significa que el sistema NO
+ * puede operar: todo reporte construido encima hereda la mentira.
+ */
+export async function checkLedgerIntegrity(): Promise<CheckResult> {
+  const deriva = await query<{ account_id: string; fiscal_period_id: string }>(
+    `SELECT COALESCE(ab.account_id, l.account_id) AS account_id,
+            COALESCE(ab.fiscal_period_id, l.fiscal_period_id) AS fiscal_period_id
+       FROM account_balances ab
+       FULL OUTER JOIN (
+         SELECT jel.account_id, je.fiscal_period_id,
+                SUM(jel.debit_amount)  AS d,
+                SUM(jel.credit_amount) AS c
+           FROM journal_entry_lines jel
+           JOIN journal_entries je ON je.id = jel.journal_entry_id
+          WHERE je.status = 'posted'
+          GROUP BY jel.account_id, je.fiscal_period_id
+       ) l ON l.account_id = ab.account_id AND l.fiscal_period_id = ab.fiscal_period_id
+      WHERE COALESCE(ab.debit_total, 0)  IS DISTINCT FROM COALESCE(l.d, 0)
+         OR COALESCE(ab.credit_total, 0) IS DISTINCT FROM COALESCE(l.c, 0)
+      LIMIT 20`
+  );
+  const sinRastro = await query<{ n: string }>(
+    `SELECT count(*) AS n
+       FROM journal_entries je
+      WHERE je.status = 'posted'
+        AND NOT EXISTS (
+          SELECT 1 FROM audit_log a
+           WHERE a.entity_type = 'journal_entries' AND a.entity_id = je.id AND a.action = 'post'
+        )`
+  );
+  const huerfanos = Number(sinRastro.rows[0]?.n ?? 0);
+
+  if (deriva.rows.length === 0 && huerfanos === 0) {
+    return {
+      name: 'Ledger integrity',
+      level: 'ok',
+      detail: 'account_balances = Σ líneas posteadas, y todo posteado tiene su rastro',
+    };
+  }
+  const partes: string[] = [];
+  if (deriva.rows.length > 0) {
+    partes.push(
+      `${deriva.rows.length}${deriva.rows.length === 20 ? '+' : ''} (cuenta, periodo) donde ` +
+        'account_balances ≠ Σ líneas posteadas — todo reporte encima hereda la diferencia'
+    );
+  }
+  if (huerfanos > 0) {
+    partes.push(`${huerfanos} asiento(s) posteado(s) sin fila 'post' en audit_log — hechos sin autor`);
+  }
+  return {
+    name: 'Ledger integrity',
+    level: 'fail',
+    detail: partes.join('; '),
+    fix:
+      'La deriva de saldos se investiga ANTES de recalcular: desde la 041 una línea posteada no se ' +
+      'edita, así que una diferencia nueva apunta al camino de escritura de account_balances, no a las líneas.',
+  };
+}
+
 export async function checkReopenedPeriods(): Promise<CheckResult> {
   const r = await query<{ period_name: string; entity: string; reason: string; cuando: Date }>(
     `SELECT fp.period_name, le.name AS entity, a.reason, a.timestamp AS cuando

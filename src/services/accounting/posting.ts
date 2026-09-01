@@ -181,6 +181,9 @@ export async function createJournalEntry(
         );
       }
 
+      // Mismo candado que postJournalEntry (R1): el autoPost también postea.
+      await bloquearPeriodoParaPostear(client, entry.fiscal_period_id);
+
       const now = new Date();
       await client.query(
         `UPDATE journal_entries SET status = 'posted', posted_date = $1, posted_by = $2 WHERE id = $3`,
@@ -295,6 +298,13 @@ export async function postJournalEntry(
       );
     }
 
+    // Candado compartido sobre el periodo (R1): la validación de arriba lee
+    // el estado FUERA de esta transacción, así que un cierre concurrente
+    // podía colarse entre la lectura y el UPDATE. El FOR SHARE se cruza con
+    // el FOR UPDATE del cierre: o el posteo entra antes de que el cierre
+    // tome su foto del checklist, o espera a que el cierre decida.
+    await bloquearPeriodoParaPostear(client, entry.fiscal_period_id);
+
     // Post the entry
     const now = new Date();
     await client.query(
@@ -361,6 +371,39 @@ export async function postJournalEntry(
  * que la entidad existe— y el error señala un fallo de contexto, no un
  * dato faltante.
  */
+/**
+ * Candado compartido del periodo dentro de la transacción de posteo (R1).
+ *
+ * La regla 4 de validación lee el estado del periodo con una consulta de
+ * POOL, fuera de la transacción: entre esa lectura y el UPDATE que postea,
+ * un cierre concurrente podía confirmar — y el asiento aterrizaba en un
+ * periodo cuyo checklist ya se había fotografiado sin él. El FOR SHARE se
+ * cruza con el FOR UPDATE que el cierre toma sobre su fila: los posteos
+ * concurren entre sí (SHARE no bloquea SHARE) y el cierre serializa contra
+ * todos. La re-verificación usa la MISMA regla que la validación
+ * (hard_close/locked rechazan; future/soft_close son compuerta de política,
+ * no barrera) para no cambiar comportamiento, sólo cerrar la carrera.
+ */
+async function bloquearPeriodoParaPostear(
+  client: pg.PoolClient,
+  fiscalPeriodId: string
+): Promise<void> {
+  const r = await client.query<{ status: string; period_name: string }>(
+    'SELECT status, period_name FROM fiscal_periods WHERE id = $1 FOR SHARE',
+    [fiscalPeriodId]
+  );
+  const p = r.rows[0];
+  if (!p) {
+    throw new AccountingError('PERIOD_NOT_FOUND', 'Fiscal period not found while posting');
+  }
+  if (p.status === 'hard_close' || p.status === 'locked') {
+    throw new AccountingError(
+      'PERIOD_CLOSED',
+      `${p.period_name} is '${p.status}': it closed while this entry was in flight; nothing was posted`
+    );
+  }
+}
+
 async function tenantParaAuditoria(client: pg.PoolClient, entityId: string): Promise<string> {
   const tenantId = await resolveTenantId(client, entityId);
   if (!tenantId) {

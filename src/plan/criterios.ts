@@ -480,6 +480,77 @@ export const CRITERIOS: Criterio[] = [
         : falla('la 040 no purga los dos blobs (range_proof y zkverify_proof)');
     },
   },
+  {
+    paquete: 'E0.1',
+    enunciado: 'Un asiento posteado no admite UPDATE ni DELETE fuera de su lista blanca',
+    evaluar: () => {
+      // R1: la 033 blindó la bitácora y el mayor —lo que la bitácora
+      // protege— seguía físicamente reescribible: un UPDATE balanceado sobre
+      // una línea posteada no viola ningún CHECK y desalinea los saldos sin
+      // rastro. La 041 pone el disparador condicional (lista blanca de
+      // metadatos por resta de JSONB: una columna nueva nace protegida) en
+      // las DOS tablas, más el candado de TRUNCATE.
+      const m = 'src/database/migrations/041_el_mayor_inviolable.sql';
+      if (!existe(m)) return falla('la 041 desapareció: el mayor vuelve a ser reescribible');
+      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      const checks: Array<[boolean, string]> = [
+        [/ON journal_entries\b[\s\S]{0,80}FOR EACH ROW/.test(sql) || /BEFORE UPDATE OR DELETE ON journal_entries/.test(sql), 'falta el disparador de journal_entries'],
+        [/BEFORE UPDATE OR DELETE ON journal_entry_lines/.test(sql), 'falta el disparador de journal_entry_lines'],
+        [(sql.match(/to_jsonb\(NEW\)\s*-\s*permitidas/g) ?? []).length >= 2, 'la comparación por resta de JSONB falta en alguna de las DOS funciones: una columna nueva nacería expuesta (la primera mutación de este criterio se escapó por contar una sola)'],
+        [/BEFORE TRUNCATE ON journal_entries/.test(sql) && /BEFORE TRUNCATE ON journal_entry_lines/.test(sql), 'falta el candado de TRUNCATE'],
+        [(sql.match(/RAISE EXCEPTION/g) ?? []).length >= 3, 'los disparadores no rechazan'],
+      ];
+      const roto = checks.find(([pasa]) => !pasa);
+      return roto ? falla(roto[1]) : ok('el mayor posteado sólo admite su lista blanca de metadatos, en las dos tablas');
+    },
+  },
+  {
+    paquete: 'E0.1',
+    enunciado: 'Los saldos materializados se verifican contra las líneas, y la deriva es fail',
+    evaluar: () => {
+      // R1: account_balances es tabla load-bearing del cierre y nada la
+      // comprobaba contra Σ de líneas posteadas; doctor la vigila y —a
+      // diferencia de la capacidad huérfana, informativa a propósito— aquí
+      // fallar es 'fail': un mayor que no cuadra con sus líneas no opera.
+      const d = codigoDe('src/ai/doctor-service.ts');
+      if (!/checkLedgerIntegrity/.test(d)) {
+        return falla('doctor perdió el chequeo de integridad del mayor');
+      }
+      const i = d.indexOf('function checkLedgerIntegrity');
+      const cuerpo = d.slice(i, i + 3500);
+      if (!/FULL OUTER JOIN/i.test(cuerpo) || !/status\s*=\s*'posted'/.test(cuerpo)) {
+        return falla('el chequeo no compara account_balances contra Σ de líneas POSTEADAS por ambos lados');
+      }
+      if (!/level:\s*'fail'/.test(cuerpo)) {
+        return falla('la deriva del mayor quedó degradada a warn: un número falso con aspecto de número');
+      }
+      return /checks\.push\(await checkLedgerIntegrity\(\)\)/.test(d)
+        ? ok('doctor verifica saldos = Σ líneas y posteados con rastro, y la deriva es fail')
+        : falla('el chequeo existe y runDoctor no lo corre');
+    },
+  },
+  {
+    paquete: 'E0.1',
+    enunciado: 'El posteo y el cierre no se cruzan: el candado del periodo vive en ambas transacciones',
+    evaluar: () => {
+      // R1 (TOCTOU): la validación leía el periodo FUERA de la transacción
+      // del posteo, y el checklist del cierre suave se fotografiaba FUERA de
+      // la suya — un posteo en vuelo podía aterrizar en un periodo que
+      // cerraba, con un checklist que no lo contaba. FOR SHARE (posteo) ×
+      // FOR UPDATE (cierre) sobre la misma fila cierran la carrera.
+      const p = codigoDe('src/services/accounting/posting.ts');
+      const consumos = (p.match(/bloquearPeriodoParaPostear\(client/g) ?? []).length;
+      if (!/FOR SHARE/.test(p) || consumos < 2) {
+        return falla(
+          `el posteo no toma el candado compartido del periodo en sus dos transacciones (consumos: ${consumos})`
+        );
+      }
+      const c = codigoDe('src/services/accounting/period-close.ts');
+      return /FOR UPDATE/.test(c) && /getPeriodCloseStatus\(periodId,\s*entityId,\s*client\)/.test(c)
+        ? ok('FOR SHARE en el posteo (×2) y checklist bajo FOR UPDATE en el cierre suave')
+        : falla('el cierre suave volvió a fotografiar el checklist fuera de su transacción');
+    },
+  },
 
   {
     paquete: 'E0.2',
@@ -743,13 +814,21 @@ export const CRITERIOS: Criterio[] = [
       // «Hay disparador» y «el disparador rechaza» son cosas distintas: uno
       // cuyo cuerpo hiciera `RETURN NEW` satisfaría lo primero y no protegería
       // nada. Se exige que la función que cuelga del disparador levante
-      // excepción.
+      // excepción — Y que rechace SIEMPRE: desde la 041 (R1) existe una
+      // segunda clase de protección, la inmutabilidad CONDICIONAL del mayor
+      // (rechaza lo posteado, deja pasar el resto con RETURN NEW). Esa clase
+      // NO es una bitácora de sólo-agregar y no debe entrar a los arrays
+      // append_only, que le revocarían el UPDATE que el posteo necesita. El
+      // discriminador es estructural: una función de sólo-agregar no tiene
+      // ningún camino que devuelva NEW.
       const rechaza = (fn: string): boolean => {
         const i = new RegExp(
           `CREATE\\s+(?:OR\\s+REPLACE\\s+)?FUNCTION\\s+(?:public\\.)?"?${fn}"?`,
           'i'
         ).exec(sql);
-        return i !== null && /RAISE\s+EXCEPTION/i.test(sql.slice(i.index, i.index + 2000));
+        if (i === null) return false;
+        const cuerpo = sql.slice(i.index, i.index + 2000);
+        return /RAISE\s+EXCEPTION/i.test(cuerpo) && !/RETURN\s+NEW/i.test(cuerpo);
       };
 
       const protegidas = new Set<string>();
@@ -846,6 +925,26 @@ export const CRITERIOS: Criterio[] = [
       return faltan.length === 0
         ? ok('el cuerpo se redacta antes de tocar la bitácora, con los campos cifrados cubiertos')
         : falla(`la lista de redacción no cubre: ${faltan.join(', ')} — un campo que se cifra en tabla no puede viajar en claro al rastro`);
+    },
+  },
+  {
+    paquete: 'E0.3',
+    enunciado: 'Los ciclos de vida del dinero dejan su propio rastro, no sólo su asiento',
+    evaluar: () => {
+      // R1: emitir/anular una factura, aprobar la del proveedor y registrar
+      // un pago sólo auditaban su asiento derivado — «quién emitió» o «quién
+      // registró el pago» no estaba en ninguna parte. Los tres servicios
+      // escriben registrarAuditoria DENTRO de sus transacciones existentes.
+      const consumidores = consumidoresDe('registrarAuditoria', 'audit-log.ts');
+      const exigidos = [
+        'src/services/ar/invoice-service.ts',
+        'src/services/ap/bill-service.ts',
+        'src/services/payments/payment-service.ts',
+      ];
+      const faltan = exigidos.filter((f) => !consumidores.includes(f));
+      return faltan.length === 0
+        ? ok(`el rastro cubre los ciclos de vida (${consumidores.length} escritores en total)`)
+        : falla(`ciclos de vida sin rastro propio: ${faltan.join(', ')}`);
     },
   },
 
