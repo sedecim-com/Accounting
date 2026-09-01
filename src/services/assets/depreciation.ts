@@ -2,8 +2,8 @@ import Decimal from 'decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction, currentTenant } from '../../database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
-import type { FixedAsset, DepreciationMethod } from '../../types/index.js';
-import { JournalEntryType } from '../../types/index.js';
+import type { FixedAsset } from '../../types/index.js';
+import { DepreciationMethod, JournalEntryType } from '../../types/index.js';
 
 interface DepreciationInput {
   asset_id: string;
@@ -248,17 +248,17 @@ export function calculateDepreciation(
   unitsOfProductionData?: { totalCapacity: number; periodsUnits: Array<{ period: number; units: number }> }
 ): DepreciationResult[] {
   switch (input.method) {
-    case 'straight_line':
+    case DepreciationMethod.STRAIGHT_LINE:
       return calculateStraightLine(input);
-    case 'declining_balance_150':
+    case DepreciationMethod.DECLINING_BALANCE_150:
       return calculateDecliningBalance(input, 1.5);
-    case 'declining_balance_200':
+    case DepreciationMethod.DECLINING_BALANCE_200:
       return calculateDecliningBalance(input, 2.0);
-    case 'sum_of_years_digits':
+    case DepreciationMethod.SUM_OF_YEARS_DIGITS:
       return calculateSumOfYearsDigits(input);
-    case 'macrs':
+    case DepreciationMethod.MACRS:
       return calculateMACRS(input);
-    case 'units_of_production':
+    case DepreciationMethod.UNITS_OF_PRODUCTION:
       if (!unitsOfProductionData) throw new Error('Units of production requires totalCapacity and periodsUnits');
       return calculateUnitsOfProduction(input, unitsOfProductionData.totalCapacity, unitsOfProductionData.periodsUnits);
     default:

@@ -42,11 +42,6 @@ function hhmm(): string {
   return String(d.getUTCHours()).padStart(2, '0') + String(d.getUTCMinutes()).padStart(2, '0');
 }
 
-function rulerFill(str: string, mult = 10): string {
-  const pad = (mult - (str.length % mult)) % mult;
-  return str + '9'.repeat(pad * 94);
-}
-
 export async function generateNachaFile(
   payRunId: string,
   companyInfo: NachaCompanyInfo
@@ -115,7 +110,7 @@ export async function generateNachaFile(
   // Entry Detail records (Type 6)
   const entries: string[] = [];
   let hashTotal = 0;
-  let debitTotal = 0;
+  const debitTotal = 0;
   let creditTotal = 0;
   let entryCount = 0;
 

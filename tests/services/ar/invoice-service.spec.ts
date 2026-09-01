@@ -32,7 +32,7 @@ import { query } from '../../../src/database/connection.js';
 import { postInvoiceEntry } from '../../../src/services/accounting/ar-ap-posting.js';
 import { voidJournalEntryInTx } from '../../../src/services/accounting/posting.js';
 import { OPEN_INVOICE_STATUSES } from '../../../src/services/ar/customer-service.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
 const mockPost = postInvoiceEntry as unknown as ReturnType<typeof vi.fn>;
@@ -53,7 +53,6 @@ beforeEach(() => {
 const sql = (call: number) => String(mockQuery.mock.calls[call][0]).replace(/\s+/g, ' ');
 const params = (call: number) => mockQuery.mock.calls[call][1];
 const txSql = (call: number) => String(client.query.mock.calls[call][0]).replace(/\s+/g, ' ');
-const txParams = (call: number) => client.query.mock.calls[call][1];
 
 describe('listInvoices', () => {
   it('reports the true total so a caller can detect truncation', async () => {

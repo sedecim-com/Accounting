@@ -12,7 +12,7 @@ import {
   UPDATABLE_FIELDS,
 } from '../../../src/services/accounting/account-service.js';
 import { query } from '../../../src/database/connection.js';
-import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -157,7 +157,7 @@ describe('createAccount', () => {
 describe('updateAccount', () => {
   it('writes only whitelisted fields', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1' }] });
-    await updateAccount('a1', { name: 'Nuevo', is_active: false } as never, USER);
+    await updateAccount('a1', { name: 'Nuevo', is_active: false }, USER);
     expect(sql(0)).toMatch(/SET name = \$1, is_active = \$2, updated_at = NOW\(\), updated_by = \$3/);
   });
 
@@ -170,13 +170,13 @@ describe('updateAccount', () => {
 
   it('serialises tags as JSON, matching the JSONB column', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1' }] });
-    await updateAccount('a1', { tags: ['a', 'b'] } as never, USER);
+    await updateAccount('a1', { tags: ['a', 'b'] }, USER);
     expect(params(0)[0]).toBe('["a","b"]');
   });
 
   it('throws NotFound when the row does not exist', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await expect(updateAccount('gone', { name: 'x' } as never, USER)).rejects.toThrow(NotFoundError);
+    await expect(updateAccount('gone', { name: 'x' }, USER)).rejects.toThrow(NotFoundError);
   });
 });
 

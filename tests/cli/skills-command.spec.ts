@@ -37,7 +37,7 @@ const mockResolveReviewer = resolveReviewer as unknown as ReturnType<typeof vi.f
 const id = (s: string): string => s;
 const palette = {
   dim: id, bold: id, cyan: id, red: id, green: id, yellow: id,
-} as unknown as import('../../src/cli/palette.js').Palette;
+};
 
 const PENDING = [
   {

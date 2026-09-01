@@ -250,7 +250,7 @@ export async function listInvoiceAllocations(
      ORDER BY p.payment_date ASC`,
     [invoiceId]
   );
-  return result.rows as Record<string, unknown>[];
+  return result.rows;
 }
 
 /** Resolves an invoice number or uuid inside one entity. */
@@ -311,10 +311,10 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
 
     const processedLines = input.lines.map((line, i) => {
       const qty = new Decimal((line.quantity as number) || 1);
-      const price = new Decimal(line.unit_price as number);
+      const price = new Decimal(line.unit_price);
       const lineAmount = qty.times(price);
       const lineTax = line.tax_rate
-        ? lineAmount.times(new Decimal(line.tax_rate as number).dividedBy(100))
+        ? lineAmount.times(new Decimal(line.tax_rate).dividedBy(100))
         : new Decimal(0);
       const totalAmt = lineAmount.plus(lineTax);
 

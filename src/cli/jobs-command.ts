@@ -178,7 +178,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
     writes: 'job_runs; y ejecuta el trabajo de cada job vencido — con --live, con lecturas al sistema externo del cliente',
   });
   runDue.action(run(async (ctx, opts: { dryRun?: boolean; live?: boolean; idempotencyKey?: string }) => {
-      const { dryRun, live } = gateMutation(runDue, opts as Record<string, unknown>);
+      const { dryRun, live } = gateMutation(runDue, opts);
       if (opts.idempotencyKey) {
         process.stderr.write(
           '  --idempotency-key does not apply to the tick: each due job is claimed atomically, and ' +

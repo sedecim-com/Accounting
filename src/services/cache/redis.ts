@@ -23,7 +23,7 @@ export function getRedis(): Redis {
       redis = null;
     });
   }
-  return redis!;
+  return redis;
 }
 
 const TTL = {
@@ -90,7 +90,7 @@ export async function setCachedExchangeRate(
 // Layer 3: Report Results Cache
 // ============================================================
 
-export async function getCachedReport(key: string): Promise<unknown | null> {
+export async function getCachedReport(key: string): Promise<unknown> {
   try {
     const r = getRedis();
     if (!r) return null;

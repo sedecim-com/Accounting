@@ -85,7 +85,7 @@ describe('nifSubstanceRule — sustancia sobre forma', () => {
       ],
     });
     const result = await validateJournalEntry(
-      { ...ENTRY, description: 'Anticipo del cliente Acme por proyecto' } as JournalEntry,
+      { ...ENTRY, description: 'Anticipo del cliente Acme por proyecto' },
       [
         line({ line_number: 1, account_id: 'acc-1', debit_amount: '11600.00' }),
         line({ line_number: 2, account_id: 'acc-2', credit_amount: '11600.00' }),
@@ -106,7 +106,7 @@ describe('nifSubstanceRule — sustancia sobre forma', () => {
       ],
     });
     const result = await validateJournalEntry(
-      { ...ENTRY, description: 'Venta de servicios agosto' } as JournalEntry,
+      { ...ENTRY, description: 'Venta de servicios agosto' },
       [
         line({ line_number: 1, account_id: 'acc-1', debit_amount: '1160.00' }),
         line({ line_number: 2, account_id: 'acc-2', credit_amount: '1160.00' }),
@@ -284,7 +284,7 @@ describe('citas NIF en reglas existentes', () => {
   it('foreign currency without exchange rate cites NIF B-15', async () => {
     mockRuleQueries();
     const result = await validateJournalEntry(ENTRY, [
-      line({ line_number: 1, account_id: 'acc-1', debit_amount: '1000.00', currency_code: 'USD', foreign_debit: '54.05' } as Partial<JournalEntryLine>),
+      line({ line_number: 1, account_id: 'acc-1', debit_amount: '1000.00', currency_code: 'USD', foreign_debit: '54.05' }),
       line({ line_number: 2, account_id: 'acc-2', credit_amount: '1000.00' }),
     ]);
     const err = result.errors.find((e) => e.includes('exchange_rate'));

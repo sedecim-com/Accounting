@@ -178,7 +178,7 @@ export async function ingestCfdiFiles(opts: {
     if (upload.preRegistration.document_type === 'payment') {
       try {
         const r = await defaultService.processToAccounting(
-          upload.preRegistration as Record<string, unknown>,
+          upload.preRegistration,
           reviewer.userId
         );
         return {

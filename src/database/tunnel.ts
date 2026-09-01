@@ -93,7 +93,7 @@ export async function openTunnel(
   const localPort = await freePort();
   const args = buildSshArgs(cfg, localPort);
 
-  const spawnFn = deps.spawnFn ?? (spawn as unknown as SpawnFn);
+  const spawnFn = deps.spawnFn ?? (spawn);
   const child: ChildProcess = spawnFn('ssh', args, { stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
   child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });

@@ -11,7 +11,7 @@ vi.mock('../../src/services/policy/policy-service.js', () => ({
   getPolicy: (...a: unknown[]) => getPolicyMock(...a),
 }));
 vi.mock('../../src/ai/providers/config.js', async (importOriginal) => {
-  const real = (await importOriginal()) as Record<string, unknown>;
+  const real = await importOriginal<Record<string, unknown>>();
   return { ...real, ingestFileValues: (...a: unknown[]) => fileValuesMock(...a) };
 });
 
@@ -36,7 +36,7 @@ const CTX = { tenantId: 't-1', entityId: 'e-1' };
 
 const politica = (respuestas: Record<string, { value: string; defined: boolean }>) => {
   getPolicyMock.mockImplementation((_ctx: unknown, key: string) => {
-    const r = respuestas[key as string];
+    const r = respuestas[key];
     if (!r) throw new Error(`política inesperada: ${key}`);
     return Promise.resolve({ key, ...r, question: key, rationale: null });
   });
@@ -151,8 +151,8 @@ describe('la superficie desatendida es nombrada y falla cerrado', () => {
   });
 
   it('con la lista, la sesión recibe exactamente esos nombres', () => {
-    const todas = buildTools(ctx as never, deps);
-    const recortadas = buildTools(ctx as never, deps, SUPERFICIE_DESATENDIDA);
+    const todas = buildTools(ctx, deps);
+    const recortadas = buildTools(ctx, deps, SUPERFICIE_DESATENDIDA);
     expect(recortadas.map((t) => t.name).sort()).toEqual([...SUPERFICIE_DESATENDIDA].sort());
     // Hoy la lista es la superficie completa a propósito: el commit que la
     // introduce no cambia comportamiento, cambia quién decide el futuro.
@@ -187,7 +187,7 @@ describe('la superficie desatendida es nombrada y falla cerrado', () => {
     }
     // Y sigue siendo una lista de nombres reales: si un renombre la rompe,
     // rompe aquí y no en una corrida nocturna.
-    const recortadas = buildTools(ctx as never, deps, SUPERFICIE_DESATENDIDA_SANDBOX);
+    const recortadas = buildTools(ctx, deps, SUPERFICIE_DESATENDIDA_SANDBOX);
     expect(recortadas.map((t) => t.name).sort()).toEqual([...SUPERFICIE_DESATENDIDA_SANDBOX].sort());
   });
 });

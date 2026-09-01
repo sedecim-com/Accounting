@@ -2,7 +2,7 @@ import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
 import { FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_VEREDICTOS } from '../../ai/floor.js';
-import { POLICY_CATALOG, getPolicySpec, type PolicySpec } from './pending-catalog.js';
+import { POLICY_CATALOG, getPolicySpec } from './pending-catalog.js';
 
 // ============================================================
 // POLICY SERVICE

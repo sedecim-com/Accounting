@@ -131,7 +131,7 @@ describe('clampTokenCount', () => {
       provider: 'openai_compat', model: 'llama3.1',
       inputTokens: -50, outputTokens: Number.NaN,
       cacheReadInputTokens: 2 ** 60, cacheCreationInputTokens: 7.9,
-    } as TurnUsage);
+    });
     const [, params] = mockQuery.mock.calls[0];
     expect(params[6]).toBe(0); // input clamped from -50
     expect(params[7]).toBe(0); // output clamped from NaN

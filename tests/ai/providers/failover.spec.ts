@@ -89,7 +89,7 @@ describe('isFailoverEligible', () => {
 
 describe('CooldownRegistry', () => {
   it('starts at 30s and doubles each trip up to the 5m cap', () => {
-    let t = 0;
+    const t = 0;
     const reg = new CooldownRegistry(() => t);
     expect(reg.trip('hermes')).toBe(30_000);
     expect(reg.trip('hermes')).toBe(60_000);
@@ -115,7 +115,7 @@ describe('CooldownRegistry', () => {
   });
 
   it('a success (clear) fully resets the doubling', () => {
-    let t = 0;
+    const t = 0;
     const reg = new CooldownRegistry(() => t);
     reg.trip('a');
     reg.trip('a');
