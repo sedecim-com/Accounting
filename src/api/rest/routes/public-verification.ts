@@ -21,6 +21,11 @@ const router = Router();
 // `js/missing-rate-limiting`—. Aquí viaja con el router a donde se monte.
 router.use(preAuthRateLimiter);
 
+/** ceil(log2(hojas)): 64 cubre un árbol de 2^64 hojas. Ver /verify/merkle-proof. */
+const MAX_ELEMENTOS_PRUEBA = 64;
+/** Un digest sha256 en hexadecimal, con o sin el 0x de cortesía. */
+const DIGEST_HEX = /^(0x)?[0-9a-f]{64}$/i;
+
 // ============================================================
 // UNA PRUEBA FABRICADA ES PEOR QUE NINGUNA.
 //
@@ -370,6 +375,38 @@ router.post('/verify/merkle-proof', asyncHandler(async (req: Request, res: Respo
 
   if (!leaf || !proof || !root) {
     throw new ValidationError('leaf, proof, and root are required');
+  }
+
+  // TRABAJO ACOTADO ANTES DE EMPEZARLO.
+  //
+  // Todo lo que sigue son datos del solicitante, y este endpoint no pide
+  // credenciales: verifyMerkleProof recorre `proof` decodificando y hasheando
+  // elemento por elemento. Sin tope, un arreglo de un millón de entradas son un
+  // millón de sha256 que cualquiera puede pedir gratis —el mismo patrón que el
+  // lote de XML sin `.max()`—.
+  //
+  // El tope no es arbitrario: una prueba de Merkle tiene ceil(log2(hojas))
+  // elementos, así que 64 cubre árboles de 2^64 hojas. Un `proof` más largo que
+  // eso no es una prueba grande: es otra cosa.
+  if (!Array.isArray(proof) || proof.length === 0 || proof.length > MAX_ELEMENTOS_PRUEBA) {
+    throw new ValidationError(
+      `proof must be an array of 1 to ${MAX_ELEMENTOS_PRUEBA} elements`, 'proof'
+    );
+  }
+  // Cada elemento es un digest sha256 y su lado. Validar la FORMA aquí evita
+  // que Buffer.from(...,'hex') se coma megabytes de basura por elemento.
+  for (const p of proof) {
+    if (!p || typeof p !== 'object' || (p.position !== 'left' && p.position !== 'right')) {
+      throw new ValidationError("each proof element needs position 'left' or 'right'", 'proof');
+    }
+    if (typeof p.data !== 'string' || !DIGEST_HEX.test(p.data)) {
+      throw new ValidationError('each proof element data must be a 32-byte hex digest', 'proof');
+    }
+  }
+  for (const [nombre, valor] of [['leaf', leaf], ['root', root]] as const) {
+    if (typeof valor !== 'string' || !DIGEST_HEX.test(valor)) {
+      throw new ValidationError(`${nombre} must be a 32-byte hex digest`, nombre);
+    }
   }
 
   const valid = cryptoService.verifyMerkleProof({ leaf, proof, root });
