@@ -1,5 +1,5 @@
 -- ============================================================
--- 048: la nómina deja de cargarse a «Devoluciones sobre Compras»
+-- 049: la nómina deja de cargarse a «Devoluciones sobre Compras»
 --
 -- Cuatro semillas escriben en el catálogo de la misma entidad y las que corren
 -- después se guardan de pisar a la anterior COMPARANDO CÓDIGOS. El catálogo de
@@ -38,6 +38,14 @@
 -- decir nada. Es exactamente lo que le pasó a la 025 y por lo que existió la
 -- 026. El bucle sobre `tenants` —excluida de RLS— es lo que da el contexto.
 -- ============================================================
+
+-- El opt-in: migrate.ts corre la sesión con row_security=off, que convierte el
+-- filtrado silencioso en un 42501 en vez de en una reparación de cero filas.
+-- Este bucle SÍ maneja la RLS a propósito —fija el GUC por inquilino—, así que
+-- lo declara. Sin esta línea, contra el piso, la migración muere en el primer
+-- catch-up de una base rezagada. SET LOCAL muere con la transacción que
+-- migrate.ts abre alrededor de este archivo.
+SET LOCAL row_security = on;
 
 DO $reparacion$
 DECLARE
