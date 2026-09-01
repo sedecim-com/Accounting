@@ -16,6 +16,20 @@ Si lo que buscas es «qué es esto y cómo arranco en cinco minutos», eso está
 
 ## El mapa
 
+### Quiero llevar contabilidad con esto
+
+El **[[Manual-de-usuario]]** está organizado por tareas, no por comandos: entra por lo
+que quieres lograr. Dice con exactitud lo que hoy se puede teclear y lo que no —un manual
+que promete un paso inexistente es peor que no tener manual—.
+
+- **[[Manual-Primer-cliente]]** — de la nada al primer asiento contabilizado.
+- **[[Manual-El-dia-a-dia]]** — recibir CFDI, revisar lo que propuso la IA, capturar, cobrar y pagar.
+- **[[Manual-Cobrar-y-pagar]]** — los ciclos de clientes y proveedores, con el REP donde toca.
+- **[[Manual-Bancos-y-conciliacion]]** — hasta dónde llega hoy la conciliación, y dónde se acaba.
+- **[[Manual-El-cierre-de-mes]]** — la lista de verificación, el cierre suave y el duro.
+- **[[Manual-Trabajar-con-el-agente]]** — revisar, corregir, enseñar, y qué cuesta.
+- **[[Manual-Reportes-y-entregables]]** — lo que el despacho le entrega a su cliente.
+
 ### Quiero usarlo
 
 - **[[Puesta-en-marcha]]** — la instalación completa y cuidadosa: requisitos reales, el `.env` variable por variable, los dos roles de base, migraciones, siembra y el primer ciclo de trabajo.
