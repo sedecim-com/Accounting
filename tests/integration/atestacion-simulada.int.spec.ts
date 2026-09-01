@@ -74,7 +74,11 @@ describe('el endpoint público', () => {
     expect(fuenteIndex).toMatch(/PUBLIC_VERIFICATION_ENABLED === 'true'/);
     // El montaje tiene que estar DENTRO del condicional, no antes.
     const i = fuenteIndex.indexOf("PUBLIC_VERIFICATION_ENABLED === 'true'");
-    const j = fuenteIndex.indexOf("app.use('/public/v1', publicVerificationRouter)");
+    // Se busca el montaje, no su firma exacta: entre la ruta y el router
+    // pueden ir middlewares (hoy va el limitador por IP, porque este router
+    // sirve sin credenciales). Lo que esta prueba defiende es que el montaje
+    // esté DENTRO del condicional, no cuántas piezas lleve.
+    const j = fuenteIndex.search(/app\.use\('\/public\/v1'/);
     expect(j).toBeGreaterThan(i);
   });
 
