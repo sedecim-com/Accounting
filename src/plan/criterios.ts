@@ -204,19 +204,41 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
-    enunciado: 'Hay un solo archivo de CI y declara sus cuatro jobs',
+    enunciado: 'Los checks viven en un solo ci.yml, que declara sus cuatro jobs',
     evaluar: () => {
+      // Lo que E0.0-b compró no fue «un archivo en .github/workflows»: fue que
+      // la CI de *checks* no se reparta entre archivos —«los demás paquetes
+      // AÑADEN jobs a ci.yml; ninguno lo crea de nuevo»—, porque dos pipelines
+      // en paralelo es como se pierde de vista cuál puerta está roja.
+      //
+      // Contar archivos medía eso por accidente y castigaba lo que no es un
+      // pipeline: un listener de eventos de PR (witness-triage.yml) no corre
+      // ninguna puerta, no puede diluirlas y no puede quedarse desfasado
+      // respecto a ellas. Así que se mide la propiedad, no el número: ci.yml
+      // lleva los cuatro jobs y NINGÚN otro workflow corre una puerta.
       const dir = rutaDe('.github', 'workflows');
       if (!fs.existsSync(dir)) return falla('no existe .github/workflows');
-      const archivos = fs.readdirSync(dir);
-      if (archivos.length !== 1) return falla(`${archivos.length} archivos de workflow: ${archivos.join(', ')}`);
-      const y = fs.readFileSync(path.join(dir, archivos[0]), 'utf-8');
-      const jobs = ['typecheck', 'unit', 'integration', 'aislamiento'].filter((j) =>
-        new RegExp(`^  ${j}:`, 'm').test(y)
-      );
-      return jobs.length === 4
-        ? ok(`${archivos[0]} con los cuatro jobs`)
-        : falla(`faltan jobs: ${['typecheck', 'unit', 'integration', 'aislamiento'].filter((j) => !jobs.includes(j)).join(', ')}`);
+      const archivos = fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
+      if (!archivos.includes('ci.yml')) {
+        return falla(`no hay ci.yml: ${archivos.join(', ') || 'ningún workflow'}`);
+      }
+      const NOMBRES = ['typecheck', 'unit', 'integration', 'aislamiento'];
+      const y = fs.readFileSync(path.join(dir, 'ci.yml'), 'utf-8');
+      const faltan = NOMBRES.filter((j) => !new RegExp(`^  ${j}:`, 'm').test(y));
+      if (faltan.length > 0) return falla(`faltan jobs en ci.yml: ${faltan.join(', ')}`);
+
+      // Una puerta corrida fuera de ci.yml es el pipeline partiéndose, se
+      // llame como se llame el job que la corre.
+      const PUERTAS = /tsc --noEmit|typecheck:tests|vitest run|test:integration|verify-isolation|plan\/status|catalogo-estado/;
+      const intrusos = archivos
+        .filter((f) => f !== 'ci.yml')
+        .filter((f) => {
+          const otro = fs.readFileSync(path.join(dir, f), 'utf-8');
+          return PUERTAS.test(otro) || NOMBRES.some((j) => new RegExp(`^  ${j}:`, 'm').test(otro));
+        });
+      return intrusos.length === 0
+        ? ok(`ci.yml con los cuatro jobs${archivos.length > 1 ? `; ${archivos.length - 1} workflow(s) sin puertas` : ''}`)
+        : falla(`la CI de checks se reparte fuera de ci.yml: ${intrusos.join(', ')}`);
     },
   },
   {
