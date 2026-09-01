@@ -456,6 +456,11 @@ export const CRITERIOS: Criterio[] = [
         // cinco anclas blandas antes de dar el verde. Las dos cosas están en
         // su registro, porque el método es parte del veredicto.
         F04: 'docs/auditorias/F04.md',
+        // F05 va por TRAMOS, y la compuerta los admite: su expresión acepta
+        // `F\d+[a-z]?`. Cada tramo cierra con su propio registro, y mientras
+        // ninguno escriba «hecha en F05» a secas el mutante de esta compuerta
+        // sigue matando sin reapuntarse.
+        F05a: 'docs/auditorias/F05a.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -1161,8 +1166,18 @@ export const CRITERIOS: Criterio[] = [
         // `[^;]*?` y no `[\s\S]*?`: con el segundo, un ALTER sin CHECK se
         // engancha al CHECK de otra tabla más abajo del archivo y le atribuye
         // un vocabulario ajeno. Costó tres atribuciones falsas descubrirlo.
+        //
+        // Y `ADD (CONSTRAINT|COLUMN)`, no sólo CONSTRAINT: un vocabulario
+        // puede nacer con su columna en el mismo ALTER —
+        // `ADD COLUMN account_type VARCHAR(20) ... CHECK (account_type IN (...))`—
+        // y ésa es la tercera forma de declarar un CHECK que este criterio no
+        // leía. El síntoma era el contrario del defecto: la 051 censó
+        // `bank_accounts.account_type` correctamente y el criterio la acusó de
+        // «vocabulario declarado sin decir de qué columna es», porque su
+        // columna no existía en el esquema QUE ÉL SABE LEER. Un criterio que
+        // no reconoce una sintaxis válida no protege menos: acusa en falso.
         for (const a of sql.matchAll(
-          /ALTER\s+TABLE\s+(?:ONLY\s+)?([\w.]+)[^;]*?ADD\s+CONSTRAINT[^;]*?CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi
+          /ALTER\s+TABLE\s+(?:ONLY\s+)?([\w.]+)[^;]*?ADD\s+(?:CONSTRAINT|COLUMN)[^;]*?CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi
         )) {
           anota(a[1], a[2], a[3]);
         }
@@ -3206,6 +3221,242 @@ export const CRITERIOS: Criterio[] = [
         porque: 'la garantía deja de medirse por ruta y se cuenta el árbol entero: la separación se vuelve ruido',
       },
     ],
+  },
+
+
+  // ---- F05a · La cuenta y el extracto ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El extracto es un documento con sus dos saldos, y el mismo archivo no entra dos veces',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: '    UNIQUE (bank_account_id, file_sha256)',
+        a: '    CHECK (line_count >= 0)',
+        porque: 'el mismo archivo del banco vuelve a poder importarse entero: el extracto se duplica y el saldo de banco deja de ser el del banco',
+      },
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: '    opening_balance DECIMAL(19,4) NOT NULL,',
+        a: '    opening_balance DECIMAL(19,4),',
+        porque: 'el saldo inicial vuelve a poder faltar, que es exactamente por lo que la sesión de conciliación llevaba un cero fijo en su lugar',
+      },
+    ],
+    evaluar: () => {
+      // Hasta F05a el módulo bancario tenía movimientos sueltos colgando de un
+      // `import_batch_id` que era un UUID sin tabla, y una sesión que insertaba
+      // su `beginning_balance` FIJO EN CERO porque no tenía de dónde sacarlo.
+      // Las siete pruebas de integridad son preguntas sobre un DOCUMENTO con
+      // saldo inicial y final; sin él no hay ninguna que se pueda formular.
+      const sql = crudoDe('src/database/migrations/051_la_cuenta_y_el_extracto.sql');
+
+      if (!/CREATE TABLE bank_statements/.test(sql)) {
+        return falla('no existe la tabla del estado de cuenta: sin documento no hay conciliación posible');
+      }
+      // Los dos saldos, OBLIGATORIOS. Un saldo que puede faltar reproduce el
+      // cero-que-significa-nada del que venimos.
+      const obligatorias = ['opening_balance', 'closing_balance'].filter(
+        (c) => !new RegExp(`${c} DECIMAL\\(19,4\\) NOT NULL`).test(sql)
+      );
+      if (obligatorias.length > 0) {
+        return falla(`el estado de cuenta admite saldo ausente en: ${obligatorias.join(', ')}`);
+      }
+      // El hash del archivo ORIGINAL: el extracto es evidencia fiscal y quien
+      // lo audite tiene que poder atar el PDF del banco con lo que entró.
+      if (!/file_sha256 CHAR\(64\) NOT NULL/.test(sql)) {
+        return falla('el estado de cuenta no guarda el hash de su archivo: deja de ser evidencia atable');
+      }
+      const dedupe = /UNIQUE \(bank_account_id, file_sha256\)/.test(sql);
+      return dedupe
+        ? ok('el estado de cuenta lleva sus dos saldos obligatorios y el hash de su archivo, y el mismo archivo no entra dos veces')
+        : falla('desapareció el dedupe por archivo: reimportar el mismo extracto volvería a duplicarlo entero');
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'La deduplicación de movimientos la calcula la base, no quien escribe',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: '  NEW.content_hash := encode(',
+        a: '  NEW.content_hash := COALESCE(NEW.content_hash, encode(',
+        porque: 'el llamador recupera el control del hash: mandando uno inventado en cada fila, el índice único deja de reconocer el duplicado y el dedupe se apaga desde fuera',
+      },
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: 'CREATE UNIQUE INDEX uq_bank_tx_contenido ON bank_transactions(bank_account_id, content_hash);',
+        a: 'CREATE INDEX uq_bank_tx_contenido ON bank_transactions(bank_account_id, content_hash);',
+        porque: 'el índice deja de ser único y vuelve el defecto de la 003: se calcula un hash que a nadie le impide nada',
+      },
+    ],
+    evaluar: () => {
+      // EL DEDUPE QUE NO DEDUPLICABA. La 003 declaraba
+      // `UNIQUE(bank_account_id, bank_transaction_id)` sobre una columna
+      // NULLABLE, y en Postgres dos NULL no colisionan: no impedía nada en
+      // cuanto el banco no publicaba id nativo, que es el caso de todo CSV. Y
+      // el guardia de aplicación fallaba por el otro lado —
+      // `WHERE bank_transaction_id = $1` con $1 nulo no casa nunca—. Dos
+      // capas, el mismo agujero: reimportar duplicaba el extracto entero.
+      //
+      // Se reparó donde no se puede rodear. Un hash que el llamador PROVEE es
+      // un hash que el llamador puede equivocar o falsear, y entonces el
+      // índice único deja de significar «esta línea ya está».
+      const sql = crudoDe('src/database/migrations/051_la_cuenta_y_el_extracto.sql');
+
+      if (!/CREATE TRIGGER bank_transactions_content_hash/.test(sql)) {
+        return falla('el hash de contenido dejó de calcularlo la base: vuelve a depender de que cada superficie lo mande bien');
+      }
+      // Y lo IMPONE: una asignación directa, no un COALESCE que respetaría lo
+      // que venga de fuera. Es la diferencia entre calcularlo y aceptarlo.
+      if (!/NEW\.content_hash := encode\(/.test(sql)) {
+        return falla('el disparador dejó de imponer el hash: si respeta el que manda el llamador, el dedupe se apaga desde fuera');
+      }
+      if (!/ALTER COLUMN content_hash SET NOT NULL/.test(sql)) {
+        return falla('content_hash volvió a admitir NULL, que es la forma exacta del defecto que se venía a reparar');
+      }
+      const unico = /CREATE UNIQUE INDEX uq_bank_tx_contenido/.test(sql);
+      return unico
+        ? ok('el hash lo impone un disparador y el índice único lo hace valer: el dedupe no se puede rodear desde ninguna superficie')
+        : falla('el índice de contenido dejó de ser único: se calcularía un hash que no impide ningún duplicado');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Las siete pruebas del extracto existen todas y su hallazgo bloqueante sale 4',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/statement-checks.ts',
+        de: "      check: 'continuidad',",
+        a: "      check: 'cadena-de-saldos',",
+        porque: 'la prueba que detecta un estado FALTANTE se disfraza de otra: el hueco entre el saldo final de un mes y el inicial del siguiente dejaría de tener nombre propio',
+      },
+      {
+        archivo: 'src/cli/bank-command.ts',
+        de: 'return checkExitCode(',
+        a: 'return 0 || checkExitCode(',
+        porque: 'un extracto con hallazgo bloqueante sale 0 y cualquier guion de cierre lo da por bueno: el §4.1 del catálogo exige 4',
+      },
+    ],
+    evaluar: () => {
+      // El catálogo las nombra una por una (fila 1165) y exige salida 4. Son
+      // el producto entero de este tramo: importar un extracto sin poder
+      // comprobarlo es volver a creerle al archivo.
+      const checks = codigoDe('src/services/banking/statement-checks.ts');
+      const LAS_SIETE = [
+        'cadena-de-saldos',
+        'continuidad',
+        'huecos-y-traslapes',
+        'identidad',
+        'moneda',
+        'secuencia',
+        'reversos',
+      ];
+      const faltan = LAS_SIETE.filter((c) => !new RegExp(`check: '${c}'`).test(checks));
+      if (faltan.length > 0) {
+        return falla(`de las siete pruebas de integridad del extracto faltan: ${faltan.join(', ')}`);
+      }
+
+      // Y VIVEN SEPARADAS DE LA BASE. Una comprobación que sólo se puede
+      // ejercitar con Postgres detrás es una comprobación que nadie prueba, y
+      // acaba siendo la que miente.
+      if (/\bfrom '\.\.\/\.\.\/database\/connection\.js'/.test(checks)) {
+        return falla('las siete pruebas se ataron a la base: dejan de poder ejercitarse sobre datos en memoria');
+      }
+
+      // El 4 se ancla en la LLAMADA, no en el import: importar checkExitCode y
+      // no usar su resultado es el falso verde clásico de esta familia.
+      const sale4 = /return checkExitCode\(\s*\n?\s*\{ blocking:/.test(codigoDe('src/cli/bank-command.ts'));
+      return sale4
+        ? ok('las siete pruebas están, viven fuera de la base y el hallazgo bloqueante sale 4')
+        : falla('`bank statement check` dejó de devolver el código de checkExitCode: un extracto roto saldría 0');
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'Importar un extracto no alcanza el mayor, que es lo único que se lo permite al agente',
+    mutantes: [
+      {
+        // El mutante inserta CÓDIGO, no un comentario. La primera versión
+        // metía `/* createJournalEntry( */` y sobrevivía con razón:
+        // `codigoDe` quita los comentarios antes de mirar, y un comentario
+        // que nombra el mayor no es un camino al mayor. El mutante estaba
+        // mal, no el ancla.
+        archivo: 'src/services/banking/bank-statement-service.ts',
+        de: '    await client.query(',
+        a: '    await createJournalEntry(); await client.query(',
+        porque: 'basta un camino al mayor dentro del importador para que su `draftOnly` sea falso, y con él la única razón por la que el agente puede invocarlo',
+      },
+      {
+        archivo: 'src/cli/bank-command.ts',
+        de: '    draftOnly: true,',
+        a: '    draftOnly: false,',
+        porque: 'el agente conservaría la escritura sin la afirmación que la justifica — es la combinación que declareRisk existe para negar',
+      },
+    ],
+    evaluar: () => {
+      // `bank statement import` es la ÚNICA fila de esta familia con IA ✓
+      // sobre un verbo que escribe, y `declareRisk` sólo lo admite con
+      // `draftOnly: true` (kernel/risk.ts:103). Esa afirmación no se cree: se
+      // comprueba. Lo que la sostiene es que el importador escribe staging
+      // bancario —la afirmación de un tercero sobre nuestro dinero, esperando
+      // cotejo— y no tiene camino al mayor por ninguna bandera.
+      const cli = codigoDe('src/cli/bank-command.ts');
+      const svc = codigoDe('src/services/banking/bank-statement-service.ts');
+
+      const declara = /declareRisk\(importar, \{[\s\S]{0,200}?risk: 'escritura',[\s\S]{0,120}?agent: true,[\s\S]{0,120}?draftOnly: true,/.test(cli);
+      if (!declara) {
+        return falla('`bank statement import` dejó de declararse escritura+agente+draftOnly: o el agente perdió la fila, o la ganó sin la afirmación que la justifica');
+      }
+
+      // Y LA AFIRMACIÓN SE VERIFICA CONTRA EL SERVICIO. Un `draftOnly: true`
+      // es una promesa sobre lo que el código hace; anclarlo sin mirar el
+      // servicio sería creerle a la declaración.
+      const alMayor = /createJournalEntry|postJournalEntry|INSERT INTO journal_entries/.exec(svc);
+      return alMayor === null
+        ? ok('el importador declara draftOnly y lo cumple: no hay un solo camino desde él al mayor')
+        : falla(
+            `el importador alcanza el mayor ("${alMayor[0]}"): su draftOnly es falso y con él la razón por la que el agente puede llamarlo`
+          );
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'La CLABE se guarda cifrada, como el número de cuenta que es',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/bank-account-service.ts',
+        de: '            clabe ? encrypt(clabe.clabe) : null,',
+        a: '            clabe ? clabe.clabe : null,',
+        porque: 'la CLABE vuelve a la base en claro, que es exactamente el defecto de la 003 que este tramo repara',
+      },
+    ],
+    evaluar: () => {
+      // La 003 cifraba el número de cuenta y el routing y dejaba la CLABE en
+      // `VARCHAR(18)` a la vista, al lado de las otras dos. La CLABE ES el
+      // número de cuenta en México: era el mismo dato que las columnas
+      // vecinas protegían, guardado sin protección. El criterio E0.3 de la
+      // bitácora ya la nombraba entre «los campos que los servicios cifran
+      // hoy» — daba por hecho un cifrado que no existía.
+      const sql = crudoDe('src/database/migrations/051_la_cuenta_y_el_extracto.sql');
+      if (!/ALTER TABLE bank_accounts DROP COLUMN clabe;/.test(sql)) {
+        return falla('la columna clabe en claro sigue en pie');
+      }
+      const svc = codigoDe('src/services/banking/bank-account-service.ts');
+      if (!/encrypt\(clabe\.clabe\)/.test(svc)) {
+        return falla('la CLABE se escribe sin cifrar: vuelve a estar en claro en la base');
+      }
+      // Y NO SALE ENTERA POR NINGUNA SUPERFICIE: lo que se muestra son los
+      // últimos cuatro. Cifrarla y luego imprimirla no protege nada.
+      const enmascara = /clabe: enmascarar\(fila\.clabe_last4\)/.test(svc);
+      return enmascara
+        ? ok('la CLABE se cifra al escribir y sólo salen sus últimos cuatro dígitos al leer')
+        : falla('la ficha de la cuenta dejó de enmascarar la CLABE: cifrarla y luego imprimirla no protege nada');
+    },
   },
 
   // ---- F04 · Pagar ----

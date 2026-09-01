@@ -47,6 +47,9 @@ const TOP_LEVEL: Record<string, string> = {
   // proveedores contra su cuenta de control y enseña los asientos manuales
   // posteados directo al control, que es con lo que se cierra CxP.
   ap: 'cxp',
+  // F05a: la tesorería. `bank` es el sustantivo raíz; `account` y `statement`
+  // son calificadores suyos, no sustantivos de primer nivel.
+  bank: 'banco',
   // S3: la vía de recuperación que el propio esquema nombra.
   backup: 'respaldo',
   report: 'reporte',
@@ -120,6 +123,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   'credit-note': { create: 'crear', show: 'ver', list: 'listar', issue: 'emitir', apply: 'aplicar' },
   ar: { reconcile: 'conciliar', check: 'verificar' },
   ap: { reconcile: 'conciliar' },
+  bank: { account: 'cuenta', statement: 'estado-cuenta' },
   backup: { create: 'crear', list: 'listar', verify: 'comprobar', restore: 'restaurar' },
   report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },
   outbox: { list: 'listar', run: 'ejecutar' },

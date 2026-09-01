@@ -14,6 +14,12 @@
 - Consequence to state plainly when asked: the close checklist item "Bank reconciliations complete" will stay unticked. That is accurate, not a bug. Reconcile the account outside mnemosine and post the adjustments you find as journal entries.
 - A session's `variance` and `ending_balance_per_books` are column defaults of 0. Never read them as a computed result.
 
+## The CLI (F05a) — the statement is now a document
+- `bank account create|list|show|edit|set` · `banco cuenta …`. `create`/`edit`/`set` are yours to READ ABOUT, not to run (IA ✗). `show` masks every identifier: you will never see a full CLABE, account number or routing — only the last four. Do not ask the user to paste one either.
+- `bank statement import <file...>` · `estado-cuenta importar` is IA ✓ **because it cannot reach the ledger**: it parses a file into the bank staging tables and posts nothing. Formats: csv (with per-bank profiles), camt053, mt940. Deduplicates twice — the whole file by sha256, and each line by a content hash the DATABASE computes; you cannot forge either. Re-importing the same file is refused, not silently duplicated.
+- `bank statement check [<id>]` · `estado-cuenta verificar` runs seven integrity tests and EXITS 4 when one blocks: balance chain, continuity with the previous statement, date gaps/overlaps, account identity, currency, sequence, reversals. Run it after every import and read the finding, do not just look at the exit code.
+- A statement that fails `check` is not a statement you work from. Say so plainly instead of reconciling around it.
+
 ## What YOU do
-- You have no direct banking tools yet. You can: query the ledger of the bank accounts (get_general_ledger with the account code, e.g. 1110), detect imbalances vs. the bank statement the user describes to you, and propose adjustment journal entries as drafts (fees, interest, exchange differences) explaining the reason.
-- Direct the human to the endpoints above to import/reconcile.
+- Read: `bank account list|show`, `bank statement list|show|check`. Import a file when the user gives you one. Query the ledger of the bank accounts (get_general_ledger with the account code, e.g. 1110), detect imbalances vs. the statement, and propose adjustment journal entries as drafts (fees, interest, exchange differences) explaining the reason.
+- You still cannot reconcile: matching, the session and the adjustments it uncovers are later tranches. Importing a statement is not reconciling it, and saying otherwise would repeat the exact false attestation this file records above.

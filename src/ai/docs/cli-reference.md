@@ -108,6 +108,8 @@ Commands:
                                         run named diagnostics
   ap|cxp                                Payables controls: reconcile the vendor
                                         subledger against the control account
+  bank|banco                            Bank accounts and bank statements:
+                                        master data and imported statements
   backup|respaldo                       Logical backups: create, list, verify
                                         (optionally by rehearsing the restore)
                                         and restore
@@ -3469,6 +3471,326 @@ Options:
   --strict                                 treat warnings as blocking (exit 4)
   --as-of <date>                           cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)
   --explain                                spell out every reconciling item in prose, not just the table
+  -h, --help                               display help for command
+```
+
+## `mnemosine bank` (alias: banco)
+
+```
+Usage: mnemosine bank|banco [options] [command]
+
+Bank accounts and bank statements: master data and imported statements
+
+Options:
+  -h, --help               display help for command
+
+Commands:
+  account|cuenta           Bank accounts as master data: identifiers, currency
+                           and the 1:1 GL mapping
+  statement|estado-cuenta  Bank statements as documents: import, inspect and
+                           check their integrity
+  help [command]           display help for command
+```
+
+### `mnemosine bank account` (alias: cuenta)
+
+```
+Usage: mnemosine bank account|cuenta [options] [command]
+
+Bank accounts as master data: identifiers, currency and the 1:1 GL mapping
+
+Options:
+  -h, --help                       display help for command
+
+Commands:
+  create|crear [options] <name>    Register a bank account, validating the CLABE
+                                   check digit, the ABA routing checksum, the
+                                   currency against the GL account and the 1:1
+                                   mapping
+  list|listar [options] [query]    List the accounts with currency, type, GL
+                                   account, book balance and the last approved
+                                   reconciliation
+  show|ver [options] <account>     Show one account: masked identifiers, SAT
+                                   bank key, book vs bank balance and the
+                                   reconciliation anchor
+  edit|editar [options] <account>  Change master data, recording the before and
+                                   after field by field
+  set|fijar [options] <account>    Write the 1:1 GL mapping, refusing the change
+                                   when the old account has posted entries
+  help [command]                   display help for command
+```
+
+#### `mnemosine bank account create` (alias: crear)
+
+```
+Usage: mnemosine bank account create|crear [options] <name>
+
+Register a bank account, validating the CLABE check digit, the ABA routing
+checksum, the currency against the GL account and the 1:1 mapping
+
+Arguments:
+  name                                                     name this account is known by inside the books
+
+Options:
+  -e, --entity <idOrName>                                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                        tenant (firm) whose data to scope to
+  -u, --user <email>                                       acting user, for attribution and permissions
+  --bank <name>                                            name of the institution
+  --gl-account <code>                                      GL account this bank account maps to, 1:1 (code or id)
+  --currency <code>                                        3-letter ISO code; must equal the GL account currency
+  --type <checking|savings|petty-cash|credit-card|escrow>  account nature; credit-card is a LIABILITY and maps to a liability GL account (default: "checking")
+  --clabe <18 digits>                                      CLABE; stored encrypted, only the last 4 are ever shown
+  --account-number <number>                                account number; stored encrypted
+  --routing-ach <9 digits>                                 ABA routing number for ACH
+  --routing-wire <9 digits>                                ABA routing number for wires
+  --sat-bank-code <ccc>                                    SAT c_Banco key; derived from the CLABE when omitted
+  --branch <text>                                          branch
+  --swift <code>                                           SWIFT/BIC
+  --iban <code>                                            IBAN
+  --dry-run                                                run every validation and the insert, then roll it back
+  --json                                                   JSON output
+  -h, --help                                               display help for command
+```
+
+#### `mnemosine bank account list` (alias: listar)
+
+```
+Usage: mnemosine bank account list|listar [options] [query]
+
+List the accounts with currency, type, GL account, book balance and the last
+approved reconciliation
+
+Arguments:
+  query                                                    match against the account name or the bank name
+
+Options:
+  -e, --entity <idOrName>                                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                        tenant (firm) whose data to scope to
+  -u, --user <email>                                       acting user, for attribution and permissions
+  -n, --limit <n>                                          maximum rows to return
+  --offset <n>                                             skip this many rows
+  -s, --status <state...>                                  filter by lifecycle state (repeatable)
+  -a, --all                                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>                  output format (default: "table")
+  --json                                                   shorthand for --format json
+  -o, --output <path>                                      write to a file instead of stdout
+  --fields [names]                                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                              identifiers only, one per line, for piping
+  --type <checking|savings|petty-cash|credit-card|escrow>  only accounts of this nature
+  --currency <code>                                        only accounts in this currency
+  --all-entities                                           every entity of the tenant, for a firm's overview; still bounded inside the SQL
+  -h, --help                                               display help for command
+```
+
+#### `mnemosine bank account show` (alias: ver)
+
+```
+Usage: mnemosine bank account show|ver [options] <account>
+
+Show one account: masked identifiers, SAT bank key, book vs bank balance and the
+reconciliation anchor
+
+Arguments:
+  account                                  account name or id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --redacted                               drop even the last 4 digits of the identifiers, for a shared screen
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank account edit` (alias: editar)
+
+```
+Usage: mnemosine bank account edit|editar [options] <account>
+
+Change master data, recording the before and after field by field
+
+Arguments:
+  account                                                  account name or id
+
+Options:
+  -e, --entity <idOrName>                                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                        tenant (firm) whose data to scope to
+  -u, --user <email>                                       acting user, for attribution and permissions
+  --name <text>                                            new account name
+  --bank <name>                                            new institution name
+  --branch <text>                                          branch; empty clears it
+  --type <checking|savings|petty-cash|credit-card|escrow>  account nature
+  --currency <code>                                        currency; re-checked against the GL account
+  --clabe <18 digits>                                      CLABE; requires --reason. Empty clears it
+  --account-number <number>                                account number; requires --reason. Empty clears it
+  --routing-ach <9 digits>                                 ABA routing for ACH; requires --reason. Empty clears it
+  --routing-wire <9 digits>                                ABA routing for wires; requires --reason. Empty clears it
+  --sat-bank-code <ccc>                                    SAT c_Banco key; empty clears it
+  --swift <code>                                           SWIFT/BIC; empty clears it
+  --iban <code>                                            IBAN; empty clears it
+  --reason <text>                                          justification recorded in the audit trail; required for identifiers
+  --dry-run                                                apply the change and roll it back, showing what would differ
+  -y, --yes                                                skip the confirmation prompt
+  --json                                                   JSON output
+  -h, --help                                               display help for command
+```
+
+#### `mnemosine bank account set` (alias: fijar)
+
+```
+Usage: mnemosine bank account set|fijar [options] <account>
+
+Write the 1:1 GL mapping, refusing the change when the old account has posted
+entries
+
+Arguments:
+  account                  account name or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --force                  override a blocking validation (closed period, lock
+                           date, duplicate); requires --reason
+  --gl-account <code>      GL account to map to (code or id)
+  --reason <text>          justification recorded in the audit trail; required
+                           by --force
+  --dry-run                apply the remap and roll it back
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+### `mnemosine bank statement` (alias: estado-cuenta)
+
+```
+Usage: mnemosine bank statement|estado-cuenta [options] [command]
+
+Bank statements as documents: import, inspect and check their integrity
+
+Options:
+  -h, --help                           display help for command
+
+Commands:
+  import|importar [options] <file...>  Parse, normalize and stage a bank
+                                       statement, deduplicating by native id or
+                                       content hash; posts NOTHING to the ledger
+  list|listar [options]                List imported statements by account and
+                                       period, with opening and closing balance,
+                                       line count and the balance chain
+  show|ver [options] <id>              Show one statement: electronic sequence
+                                       number, date range, hash of the original
+                                       file and the profile applied
+  check|verificar [options] [id]       Run the seven integrity checks and EXIT 4
+                                       naming which one broke
+  help [command]                       display help for command
+```
+
+#### `mnemosine bank statement import` (alias: importar)
+
+```
+Usage: mnemosine bank statement import|importar [options] <file...>
+
+Parse, normalize and stage a bank statement, deduplicating by native id or
+content hash; posts NOTHING to the ledger
+
+Arguments:
+  file                                                          statement files; combine with --dir to take a whole folder
+
+Options:
+  -e, --entity <idOrName>                                       legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                             tenant (firm) whose data to scope to
+  -u, --user <email>                                            acting user, for attribution and permissions
+  --account <ref>                                               bank account these statements belong to (name or id)
+  --format <csv|camt053|mt940|ofx|qfx|mt942|camt054|bai2|xlsx>  format of the FILE (not of the output; use --json for that); sniffed from the content when omitted
+  --profile <name>                                              CSV column profile to read the file with
+  --dir <path>                                                  import every file in this folder as well
+  --closing-balance <amount>                                    closing balance you assert, for a format that carries none (a CSV); refused if the file says otherwise
+  --dry-run                                                     parse, run the seven checks and roll the write back
+  --json                                                        JSON output
+  -h, --help                                                    display help for command
+```
+
+#### `mnemosine bank statement list` (alias: listar)
+
+```
+Usage: mnemosine bank statement list|listar [options]
+
+List imported statements by account and period, with opening and closing
+balance, line count and the balance chain
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --account <ref>                          only this bank account (name or id)
+  --since <date>                           statements whose period ENDS on or after this date (YYYY-MM-DD)
+  --until <date>                           statements whose period STARTS on or before this date (YYYY-MM-DD)
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank statement show` (alias: ver)
+
+```
+Usage: mnemosine bank statement show|ver [options] <id>
+
+Show one statement: electronic sequence number, date range, hash of the original
+file and the profile applied
+
+Arguments:
+  id                                       statement id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --lines                                  include the statement lines
+  -n, --limit <n>                          maximum lines to list with --lines (default 500)
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank statement check` (alias: verificar)
+
+```
+Usage: mnemosine bank statement check|verificar [options] [id]
+
+Run the seven integrity checks and EXIT 4 naming which one broke
+
+Arguments:
+  id                                       one statement; without it, the latest of each account
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --check [names]                          comma-separated checks to run; bare --check lists them (cadena-de-saldos, continuidad, huecos-y-traslapes, identidad, moneda, secuencia, reversos)
+  -a, --all                                every statement of the entity, not just the latest per account
+  --account <ref>                          every statement of this bank account (name or id)
+  --since <date>                           only statements whose period ends on or after this date (YYYY-MM-DD)
   -h, --help                               display help for command
 ```
 

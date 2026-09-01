@@ -76,6 +76,48 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // VERBO (`cfdi explain`): son cosas distintas y conviven sin estorbarse,
   // igual que `--diff` convive con el verbo `diff`.
   '--explain': null,
+
+  // ── F05a · la familia `bank` ──────────────────────────────────────────
+  //
+  // Ninguna de estas lleva forma corta, así que estrictamente el auditor no
+  // las exigía aquí. Entran igual porque el diccionario existe para que una
+  // grafía se decida UNA vez: `bank account edit --clabe` y el
+  // `payment dispatch --clabe` de F05b tienen que ser la misma bandera, y el
+  // día que alguien le ponga `-c` a una de las dos el auditor lo dirá en vez
+  // de dejarlo pasar. Cuatro de ellas —`--type`, `--currency`, `--name`,
+  // `--check`— las hablan ya cuatro familias cada una (account, entry,
+  // credit-note, cfdi; ledger, ar, close) sin que nadie las hubiera
+  // congelado; se congelan ahora, con la forma que ya tenían.
+  '--name': null,
+  '--type': null,
+  '--currency': null,
+  '--check': null,
+  '--bank': null,
+  '--branch': null,
+  '--gl-account': null,
+  // Los tres identificadores por los que sale el dinero. Su edición exige
+  // --reason y nunca se devuelven en claro (051 · cifrado de la CLABE).
+  '--clabe': null,
+  '--account-number': null,
+  '--routing-ach': null,
+  '--routing-wire': null,
+  '--swift': null,
+  '--iban': null,
+  '--sat-bank-code': null,
+  // `bank account show --redacted`: oculta hasta los últimos 4, para la
+  // pantalla que se comparte. No es lo mismo que enmascarar, que es siempre.
+  '--redacted': null,
+  // Lecturas de despacho: la misma pregunta sobre todas las entidades del
+  // inquilino. Sólo lecturas — un alta necesita saber en cuál entidad ocurre.
+  '--all-entities': null,
+  // `bank statement import --dir`: el directorio del que se toman los
+  // archivos, complementario a los posicionales.
+  '--dir': null,
+  // El saldo final que el operador AFIRMA, cuando el archivo no lo trae (un
+  // CSV no tiene saldos). Si el archivo sí lo trae y no coinciden, se rechaza.
+  '--closing-balance': null,
+  // `bank statement show --lines`: trae las líneas, no sólo la cabecera.
+  '--lines': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
