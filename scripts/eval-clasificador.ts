@@ -58,6 +58,31 @@ function parseArgs(argv: string[]): Args {
 const GOLDEN_DIR = path.resolve('tests/golden/cfdi');
 const BITACORA = path.resolve('docs/evals/clasificador.jsonl');
 
+// ============================================================
+// NINGUNA CREDENCIAL SALE POR AQUÍ.
+//
+// El arnés corre con una llave de proveedor de verdad (resolveProfile la lee
+// de api_key_env o la saca de api_key_cmd), y todo lo que el proveedor falla
+// vuelve como texto: el mensaje de error viaja al `detalle` del caso, se
+// imprime, y en una corrida de CI queda en el registro para siempre. Un SDK
+// que eche la petición en el mensaje basta para publicarla. Así que lo que
+// se imprime pasa antes por aquí: se tacha la llave concreta que esta
+// corrida resolvió, y de paso las formas de llave más comunes por si el
+// mensaje trae otra.
+// ============================================================
+const SECRETOS: string[] = [];
+const OCULTO = '«credencial oculta»';
+
+function sinSecretos(texto: string): string {
+  let limpio = texto;
+  for (const s of SECRETOS) {
+    if (s && s.length >= 8) limpio = limpio.split(s).join(OCULTO);
+  }
+  return limpio
+    .replace(/\b(?:sk|rk|pk)-[A-Za-z0-9_-]{8,}/g, OCULTO)
+    .replace(/\bBearer\s+[A-Za-z0-9._-]{8,}/gi, `Bearer ${OCULTO}`);
+}
+
 const tasa = (m: { aciertos: number; total: number }): string =>
   m.total === 0 ? '—' : (m.aciertos / m.total).toFixed(3);
 
@@ -113,6 +138,8 @@ async function main(): Promise<void> {
 
     // Proveedor FIJADO: sesión directa, sin failover, grounding apagado.
     const profile = resolveProfile(args.provider, args.model);
+    // La llave de ESTA corrida, para tacharla si algún mensaje la trae.
+    if (profile.apiKey) SECRETOS.push(profile.apiKey);
     const capture: DraftCapture = { drafts: [] };
     let llamadasAlModelo = 0;
     const base = await createLlmSession(
@@ -177,9 +204,9 @@ async function main(): Promise<void> {
       const p = puntuarCaso(caso.esperado, observado);
       puntuaciones.push(p);
       const icono = p.fallas.length === 0 ? '✓' : '✗';
-      console.log(`${icono} ${caso.nombre} → ${observado.resultado}` +
-        (observado.confianza !== undefined ? ` (confianza ${observado.confianza.toFixed(2)})` : ''));
-      for (const falla of p.fallas) console.log(`    · ${falla}`);
+      console.log(sinSecretos(`${icono} ${caso.nombre} → ${observado.resultado}` +
+        (observado.confianza !== undefined ? ` (confianza ${observado.confianza.toFixed(2)})` : '')));
+      for (const falla of p.fallas) console.log(sinSecretos(`    · ${falla}`));
     }
 
     const agregado = agregarPuntuaciones(puntuaciones);
@@ -246,6 +273,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(`\neval-clasificador: ${(err as Error).message}`);
+  console.error(sinSecretos(`\neval-clasificador: ${(err as Error).message}`));
   process.exit(1);
 });
