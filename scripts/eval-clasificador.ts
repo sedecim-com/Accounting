@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -83,8 +83,32 @@ const BITACORA = path.resolve('docs/evals/clasificador.jsonl');
 const HUELLAS = new Set<string>();
 const OCULTO = '«credencial oculta»';
 
+// Clave efímera, nueva en cada proceso y que no se persiste en ninguna parte.
+//
+// Convierte la huella en un MAC: fuera de este proceso no significa nada, así
+// que un volcado de memoria o un depurador no entrega algo contra lo que
+// comparar por diccionario. Con sha256 a secas la huella era estable entre
+// corridas y entre máquinas, y eso sí es material para un ataque fuera de línea.
+const CLAVE_HUELLA = randomBytes(32);
+
+/**
+ * La huella con la que se compara, NO un hash de contraseña.
+ *
+ * CodeQL lo marca como `js/insufficient-password-hash`, que es la regla del
+ * almacenamiento de contraseñas: ahí la respuesta correcta es bcrypt o scrypt,
+ * porque el hash se guarda y alguien lo atacará fuera de línea. Aquí no se
+ * guarda nada: es una comparación de igualdad en memoria para tachar la
+ * credencial de un mensaje de error, y el valor muere con el proceso.
+ *
+ * Una función de derivación sería además lo contrario de correcta. `sinSecretos`
+ * hashea CADA trozo del texto que tenga pinta de token —doce caracteres o más—
+ * para compararlo; con scrypt, redactar un mensaje de error largo costaría
+ * segundos, y el redactor está en el camino de todo lo que se imprime.
+ *
+ * Lo que sí faltaba era la clave, y eso es lo que se corrige aquí.
+ */
 function huella(valor: string): string {
-  return createHash('sha256').update(valor).digest('hex');
+  return createHmac('sha256', CLAVE_HUELLA).update(valor).digest('hex');
 }
 
 /** Registra una credencial por su huella. La credencial no se conserva. */
