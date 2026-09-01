@@ -278,19 +278,36 @@ BEGIN
   GRANT SELECT ON published_aggregates    TO mnemosine_verifier;
   GRANT SELECT ON bitcoin_anchors         TO mnemosine_verifier;
 
+-- CUIDADO CON LA MEMBRESÍA: una política `TO rol` aplica a TODO MIEMBRO de ese
+-- rol, no sólo a quien lo asumió. Y mnemosine_app ES miembro de
+-- mnemosine_verifier —tiene que serlo para poder hacer SET LOCAL ROLE—, así
+-- que estas políticas, siendo PERMISIVAS, se sumaban con OR a tenant_isolation
+-- y le abrían a la aplicación TODAS las filas activas de TODOS los inquilinos,
+-- sin contexto de inquilino siquiera. Es la fuga que `verify-isolation.sh`
+-- detectó: «sin contexto no ve ninguna entidad — obtenido 2, esperado 0».
+--
+-- Por eso cada predicado exige current_user = 'mnemosine_verifier': el rol
+-- ASUMIDO, no el heredado. SET LOCAL ROLE cambia current_user, de modo que el
+-- router público sigue leyendo y la aplicación, actuando como ella misma,
+-- vuelve a quedar sujeta sólo a tenant_isolation.
   DROP POLICY IF EXISTS verificacion_publica ON legal_entities;
   CREATE POLICY verificacion_publica ON legal_entities
-    FOR SELECT TO mnemosine_verifier USING (is_active = true);
+    FOR SELECT TO mnemosine_verifier
+    USING (is_active = true AND current_user = 'mnemosine_verifier');
   DROP POLICY IF EXISTS verificacion_publica ON blockchain_attestations;
   CREATE POLICY verificacion_publica ON blockchain_attestations
-    FOR SELECT TO mnemosine_verifier USING (true);
+    FOR SELECT TO mnemosine_verifier
+    USING (current_user = 'mnemosine_verifier');
   DROP POLICY IF EXISTS verificacion_publica ON period_commitments;
   CREATE POLICY verificacion_publica ON period_commitments
-    FOR SELECT TO mnemosine_verifier USING (true);
+    FOR SELECT TO mnemosine_verifier
+    USING (current_user = 'mnemosine_verifier');
   DROP POLICY IF EXISTS verificacion_publica ON published_aggregates;
   CREATE POLICY verificacion_publica ON published_aggregates
-    FOR SELECT TO mnemosine_verifier USING (is_simulated = false);
+    FOR SELECT TO mnemosine_verifier
+    USING (is_simulated = false AND current_user = 'mnemosine_verifier');
   DROP POLICY IF EXISTS verificacion_publica ON bitcoin_anchors;
   CREATE POLICY verificacion_publica ON bitcoin_anchors
-    FOR SELECT TO mnemosine_verifier USING (true);
+    FOR SELECT TO mnemosine_verifier
+    USING (current_user = 'mnemosine_verifier');
 END $verifier$;
