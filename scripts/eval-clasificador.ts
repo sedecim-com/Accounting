@@ -108,6 +108,12 @@ const CLAVE_HUELLA = randomBytes(32);
  * Lo que sí faltaba era la clave, y eso es lo que se corrige aquí.
  */
 function huella(valor: string): string {
+  // codeql[js/insufficient-password-hash] — no es almacenamiento de
+  // contraseñas: es un MAC de redacción con clave efímera, y su propiedad
+  // necesaria es que dos huellas del MISMO valor coincidan para poder tachar.
+  // Una KDF con sal (bcrypt/scrypt/argon2) rompería exactamente eso, además
+  // de costar segundos por mensaje en el camino de todo lo que se imprime.
+  // La justificación larga está en el comentario de arriba.
   return createHmac('sha256', CLAVE_HUELLA).update(valor).digest('hex');
 }
 
