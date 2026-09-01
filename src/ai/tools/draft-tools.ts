@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { envolverDatosDeTerceros } from '../untrusted.js';
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import type { AgentContext } from '../context.js';
 import type { ToolDeps } from './observer.js';
@@ -95,7 +96,7 @@ export function buildDraftTools(ctx: AgentContext, deps: ToolDeps) {
       observe?.('list_drafts', input);
       const rows = await listDrafts(ctx, input.status, { limit: 50, newestFirst: true });
       if (rows.length === 0) return 'No drafts' + (input.status ? ` with status ${input.status}` : '') + '.';
-      return JSON.stringify({
+      return envolverDatosDeTerceros({
         count: rows.length,
         note: rows.length === 50 ? 'Showing the 50 most recent' : undefined,
         drafts: rows.map((d) => ({

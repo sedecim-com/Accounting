@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// F02 · E1.3: el techo y la reacción salen del panel. El arnés fija el
+// panel en «no estorbes»: techo enorme (manda el de la credencial) y
+// reacción 'bloquear' (la semántica que estas pruebas siempre midieron).
+vi.mock('../../src/services/policy/policy-service.js', () => ({
+  getPolicyNumber: vi.fn(async () => 999999),
+  getPolicy: vi.fn(async (_c: unknown, key: string) => ({
+    key, value: 'bloquear', defined: true, question: '', rationale: '',
+  })),
+}));
+
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(),
   withTransaction: vi.fn(),

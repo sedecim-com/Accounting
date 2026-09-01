@@ -1,0 +1,8 @@
+{
+  "caso": "ask-ambiguo-servicios",
+  "resultado": "pregunta",
+  "tratamiento": null,
+  "sospecha": false,
+  "asiento": null,
+  "nota": "UsoCFDI S01 (sin efectos fiscales) + concepto generico + ClaveProdServ de relleno: no hay base para elegir cuenta ni deducibilidad. Abstenerse es el acierto."
+}

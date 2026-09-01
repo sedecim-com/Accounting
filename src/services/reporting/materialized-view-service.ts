@@ -27,6 +27,13 @@ import { queryTrialBalanceRows, totalTrialBalance, LEDGER_SCALE } from './report
 // (mnemosine_app) does not own the views, and only an owner may REFRESH
 // one. Calling REFRESH directly from here fails with
 // "must be owner of materialized view mv_trial_balance".
+//
+// R3: el dueño de las vistas es mnemosine_refresher (NOLOGIN, BYPASSRLS,
+// rls-policies.sql). Un REFRESH corre la consulta definitoria COMO EL
+// DUEÑO; cuando el dueño era mnemosine_owner (sujeto a RLS forzada), el
+// refresco reconstruía la vista global con los lentes del inquilino
+// casual de la sesión — o vacía sin inquilino: devolvía «hecho» y dejaba
+// cero filas para todos, y solo el detector de deriva de abajo lo veía.
 // ============================================================
 
 /** The only names the refresh function accepts, mirrored from migration 031. */

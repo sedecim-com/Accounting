@@ -119,23 +119,28 @@ describe('main — la compuerta de CI', () => {
     vi.restoreAllMocks();
   });
 
-  it('sin --exigir informa y no rompe el build: un paquete abierto es información', async () => {
+  // Mismo motivo que en criterios.spec.ts: `main()` evalúa los quince paquetes,
+  // con subproceso y socket incluidos. El timeout por omisión es demasiado
+  // corto para lo que esta prueba hace de verdad.
+  it('sin --exigir informa y no rompe el build: un paquete abierto es información', { timeout: 30_000 }, async () => {
     callar();
     expect(await main([])).toBe(0);
   });
 
   it('rompe cuando se exige cerrado un paquete que está abierto', async () => {
     callar();
-    // E1.3 es hoy el más rojo del tablero: ninguna de sus políticas se lee.
-    expect(await main(['--exigir=E1.3'])).toBe(1);
+    // F02 puso E1.3 en verde (todas las políticas ganaron lector): el rojo
+    // de guardia pasa a E3.2 — la descarga masiva del SAT, bloqueada por la
+    // e.firma real, el rojo más longevo del tablero.
+    expect(await main(['--exigir=E3.2'])).toBe(1);
   });
 
   it('el filtro no puede blanquear lo exigido', async () => {
-    // `plan:status E0 --exigir=E1.3` miraba sólo E0, no encontraba E1.3 entre
+    // `plan:status E0 --exigir=E3.2` miraba sólo E0, no encontraba E3.2 entre
     // lo abierto, y pasaba. Un trinquete que se apaga con un argumento no es
     // un trinquete.
     callar();
-    expect(await main(['E0', '--exigir=E1.3'])).toBe(1);
+    expect(await main(['E0', '--exigir=E3.2'])).toBe(1);
   });
 
   it('un paquete exigido que NO EXISTE rompe, en vez de pasar en silencio', async () => {

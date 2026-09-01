@@ -238,7 +238,7 @@ export async function recordVendorPayment(
       )).rows[0]?.vendor_id;
     if (!vendorId) throw new ValidationError('No se pudo determinar el proveedor del pago.');
 
-    const paymentNumber = await nextEntityNumber(client, entrada.entityId, 'vendor_payment', 'VPMT');
+    const paymentNumber = await nextEntityNumber(client, entrada.entityId, 'vendor_payment', 'VPMT', entrada.paymentDate);
     const paymentId = uuidv4();
 
     await client.query(
@@ -385,7 +385,7 @@ export async function recordCustomerPayment(
       )).rows[0]?.customer_id;
     if (!customerId) throw new ValidationError('No se pudo determinar el cliente del cobro.');
 
-    const paymentNumber = await nextEntityNumber(client, entrada.entityId, 'customer_payment', 'PMT');
+    const paymentNumber = await nextEntityNumber(client, entrada.entityId, 'customer_payment', 'PMT', entrada.paymentDate);
     const paymentId = uuidv4();
 
     await client.query(

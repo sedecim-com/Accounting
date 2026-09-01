@@ -12,13 +12,23 @@ import {
   checkDraftDocument,
   parseEntryDocument,
   parseLineFlag,
+  previewEntryPosting,
+  updateDraftEntry,
+  listEntriesWithLines,
   MANUAL_ENTRY_TYPES,
   ENTRY_TYPES,
   ENTRY_STATUSES,
   type DraftLineInput,
+  type DraftPatch,
   type EntryCheckResult,
   type JournalEntryLineWithAccount,
 } from '../services/accounting/journal-entry-service.js';
+import {
+  parseImportFile,
+  stageEntryImport,
+  IMPORT_LAYOUTS,
+} from '../services/accounting/entry-import-service.js';
+import { queryLedgerRows, countLedgerRows } from '../services/reporting/report-service.js';
 import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import {
@@ -117,6 +127,12 @@ const LIST_COLUMNS = [
 const BLOCKED_CODES = new Set([
   'ALREADY_POSTED', 'ENTRY_VOID', 'ENTRY_NOT_POSTED', 'ALREADY_REVERSED',
   'ALREADY_VOID', 'PERIOD_CLOSED', 'PERIOD_NOT_FUTURE', 'PERIOD_ALREADY_OPEN',
+  // F01: una pending_approval/approved no se edita — ya salió de las manos
+  // de su autor; el estado lo prohíbe, no la entrada del usuario.
+  'ENTRY_NOT_EDITABLE',
+  // F01 · maker-checker: la política del panel prohíbe que quien creó
+  // postee. No es entrada inválida: es el estado del control interno.
+  'SOD_QUIEN_CREA_NO_POSTEA',
 ]);
 
 export function translateDomainError(err: unknown): unknown {
@@ -529,6 +545,213 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
         { blocking: result.errors.length, warning: result.warnings.length },
         { strict: opts.strict }
       );
+    })
+  );
+
+  // ---- entry line list (F01) ---------------------------------------
+  const line = entry
+    .command('line')
+    .alias('renglon')
+    .description('Ledger lines: from an account balance down to the entries behind it');
+  const lineList = line
+    .command('list')
+    .alias('listar')
+    .argument('<code>', 'account code')
+    .description('Posted lines of one account, each with the entry it belongs to');
+  withOutput(withSelection(withTime(withContext(lineList))));
+  declareRisk(lineList, { risk: 'lectura', agent: true });
+  lineList.action((code: string, opts: CommonOpts & { since?: string; until?: string }) =>
+    run(async () => {
+      const ctx = await entityOf(opts);
+      const filtros = { accountCode: code, startDate: opts.since, endDate: opts.until };
+      const total = await countLedgerRows(ctx.entityId, filtros);
+      const rows = await queryLedgerRows(ctx.entityId, {
+        ...filtros,
+        limit: opts.all ? total : (opts.limit ?? 50),
+        offset: opts.offset,
+      });
+      render(
+        rows.map((r) => ({
+          entry_number: r.entry_number,
+          entry_date: r.entry_date,
+          line_number: r.line_number,
+          debit_amount: r.debit_amount,
+          credit_amount: r.credit_amount,
+          line_description: r.line_description,
+          entry_description: r.entry_description,
+        })),
+        { ...opts, total, idField: 'entry_number' }
+      );
+    })
+  );
+
+  // ---- entry preview (F01) -----------------------------------------
+  const preview = entry
+    .command('preview')
+    .alias('previsualizar')
+    .argument('<number>', 'entry number or id')
+    .description('The exact account_balances delta this entry would produce, without touching anything');
+  withOutput(withContext(preview));
+  declareRisk(preview, { risk: 'lectura', agent: true });
+  preview.action((ref: string, opts: CommonOpts) =>
+    run(async () => {
+      const ctx = await entityOf(opts);
+      const p = await previewEntryPosting(ctx.entityId, ref);
+      process.stderr.write(deps.palette.dim(
+        `${p.entry_number} (${p.status}) · ${p.period_name ?? 'sin periodo'} · delta por cuenta si se aplicara:\n`
+      ));
+      render(p.deltas as unknown as Record<string, unknown>[], { ...opts, idField: 'account_code' });
+      for (const a of p.advertencias) process.stderr.write(deps.palette.yellow(`  ⚠ ${a}\n`));
+    })
+  );
+
+  // ---- entry edit (F01) --------------------------------------------
+  const edit = entry
+    .command('edit')
+    .alias('editar')
+    .argument('<number>', 'entry number or id')
+    .description('Edit a DRAFT entry: description, reference, note, date or full line replacement');
+  withContext(edit);
+  edit
+    .option('--description <text>', 'new description')
+    .option('--reference <text>', 'new external reference')
+    .option('--note <text>', 'new note')
+    .option('--date <date>', 'new entry date (YYYY-MM-DD)')
+    .option('--line <spec...>', 'replace ALL lines: <account>:<debit|credit>:<amount>[:description]')
+    .option('--file <path>', 'JSON document whose date/description/reference/lines replace the draft');
+  // draft-only, igual que create: la edición jamás alcanza una póliza que ya
+  // salió del borrador — el servicio lo garantiza bajo FOR UPDATE.
+  declareRisk(edit, {
+    risk: 'escritura',
+    agent: true,
+    draftOnly: true,
+    writes: 'journal_entries (draft) + journal_entry_lines',
+  });
+  edit.action((
+    ref: string,
+    opts: CommonOpts & {
+      description?: string; reference?: string; note?: string; date?: string;
+      line?: string[]; file?: string;
+    }
+  ) =>
+    run(async () => {
+      bootstrapTenant(opts.tenant);
+      const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+      announceTarget(opts, ctx);
+      if (opts.line?.length && opts.file) {
+        throw usageError('Pass either --line flags or a --file document, not both.');
+      }
+      const patch: DraftPatch = {};
+      if (opts.file) {
+        const doc = parseEntryDocument(readFileSync(opts.file, 'utf-8'));
+        patch.lines = doc.lines;
+        patch.date = opts.date ?? doc.date;
+        patch.description = opts.description ?? doc.description;
+        patch.reference = opts.reference ?? doc.reference;
+      } else {
+        if (opts.line?.length) patch.lines = opts.line.map(parseLineFlag);
+        if (opts.description !== undefined) patch.description = opts.description;
+        if (opts.reference !== undefined) patch.reference = opts.reference;
+        if (opts.date !== undefined) patch.date = opts.date;
+      }
+      if (opts.note !== undefined) patch.notes = opts.note;
+
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const updated = await updateDraftEntry(ctx.entityId, ref, patch, reviewer.userId);
+      process.stdout.write(
+        `${deps.palette.green('✔')} ${updated.entry_number} editada (sigue en borrador; se aplica con entry post).\n`
+      );
+    })
+  );
+
+  // ---- entry export (F01) ------------------------------------------
+  const exportar = entry
+    .command('export')
+    .alias('exportar')
+    .description('Entries WITH their lines, flat, for audit or migration — no page cap');
+  // withTime ya aporta --period/--since/--until: no se re-declaran.
+  withOutput(withTime(withContext(exportar)));
+  declareRisk(exportar, { risk: 'lectura', agent: true });
+  exportar.action((opts: CommonOpts & { since?: string; until?: string; period?: string }) =>
+    run(async () => {
+      const ctx = await entityOf(opts);
+      let fiscalPeriodId: string | undefined;
+      if (opts.period) {
+        fiscalPeriodId = (await resolvePeriod(ctx.entityId, opts.period)).id;
+      }
+      const rows = await listEntriesWithLines(ctx.entityId, {
+        since: opts.since,
+        until: opts.until,
+        fiscalPeriodId,
+      });
+      render(rows as unknown as Record<string, unknown>[], {
+        ...opts,
+        total: rows.length,
+        idField: 'entry_number',
+      });
+      process.stderr.write(deps.palette.dim(
+        `${rows.length} línea(s) exportadas. XLSX aún no: usa --format csv y ábrelo en la hoja de cálculo.\n`
+      ));
+    })
+  );
+
+  // ---- entry import (F01: staging, jamás el mayor) ------------------
+  const importar = entry
+    .command('import')
+    .alias('importar')
+    .argument('<file>', 'file of journal entries to stage')
+    .description('Stage a file of entries into a batch (returns a batch_id); NEVER touches the ledger');
+  withContext(importar);
+  importar
+    .option('--layout <name>', `file layout: ${IMPORT_LAYOUTS.join(', ')} (contpaqi/aspel/iif/sat-polizas: aún sin parser)`, 'csv')
+    .option('--dry-run', 'parse and report, stage nothing')
+    .option('--idempotency-key <key>', 'replay-safe key: the same key with the same file returns the first batch');
+  // agent: true SOLO porque escribe staging: el lote no crea ni un borrador —
+  // aplicarlo será un acto humano de la familia batch, con sus compuertas.
+  declareRisk(importar, {
+    risk: 'escritura',
+    agent: true,
+    draftOnly: true,
+    writes: 'journal_entry_import_batches + journal_entry_import_rows (staging; jamás el mayor)',
+  });
+  importar.action((file: string, opts: CommonOpts & { layout: string; dryRun?: boolean; idempotencyKey?: string }) =>
+    run(async () => {
+      bootstrapTenant(opts.tenant);
+      const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+      announceTarget(opts, ctx);
+      const contenido = readFileSync(file, 'utf-8');
+      const lote = parseImportFile(opts.layout, contenido);
+
+      if (opts.dryRun) {
+        process.stdout.write(
+          `${lote.validas} póliza(s) legible(s), ${lote.invalidas} con error (dry-run: nada se preparó)\n`
+        );
+        for (const f of lote.filas.filter((x) => x.parse_error).slice(0, 10)) {
+          process.stderr.write(deps.palette.yellow(`  · fila ${f.row_number}: ${f.parse_error}\n`));
+        }
+        return lote.invalidas > 0 ? ExitCode.VALIDATION : ExitCode.OK;
+      }
+
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+      const { repetido, resultado } = await conLlave(
+        ctx,
+        { scope: 'entry import', clave: opts.idempotencyKey, payloadHash: hashDeCarga(opts.layout, contenido) },
+        async () =>
+          (await stageEntryImport(
+            ctx,
+            { layout: opts.layout, fileName: file, fileHash: hashDeCarga(contenido), lote },
+            reviewer.email
+          )) as unknown as Record<string, unknown>
+      );
+      process.stdout.write(
+        `${deps.palette.green('✔')} lote ${deps.palette.bold(String(resultado.batchId))}: ` +
+          `${resultado.validas} póliza(s) preparadas, ${resultado.invalidas} con error` +
+          (repetido ? deps.palette.dim(' [repetido: lote de la primera corrida]') : '') +
+          '\n'
+      );
+      process.stderr.write(deps.palette.dim(
+        'El lote NO tocó el mayor: se valida y aplica con la familia batch (check/post) cuando llegue; mientras, es inspeccionable por batch_id.\n'
+      ));
     })
   );
 

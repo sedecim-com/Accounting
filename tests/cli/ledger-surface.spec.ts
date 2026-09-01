@@ -63,9 +63,19 @@ describe('the surface obeys the kernel', () => {
   });
 
   it('gives every subcommand the one Spanish verb from the vocabulary', () => {
+    // F01: un hijo puede ser un SUBGRUPO-sustantivo (entry line …) — su alias
+    // es el sustantivo español y sus hojas siguen la regla del verbo.
+    const SUBGRUPOS: Record<string, string> = { line: 'renglon' };
     const program = build();
     for (const family of ['entry', 'period', 'year']) {
       for (const sub of find(family, program).commands) {
+        if (sub.commands.length > 0) {
+          expect(sub.aliases(), `${family} ${sub.name()}`).toEqual([SUBGRUPOS[sub.name()]]);
+          for (const hoja of sub.commands) {
+            expect(hoja.aliases(), `${family} ${sub.name()} ${hoja.name()}`).toEqual([VERBS[hoja.name()]]);
+          }
+          continue;
+        }
         expect(sub.aliases(), `${family} ${sub.name()}`).toEqual([VERBS[sub.name()]]);
       }
     }
