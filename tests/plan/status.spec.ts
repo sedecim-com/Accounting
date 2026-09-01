@@ -119,7 +119,10 @@ describe('main — la compuerta de CI', () => {
     vi.restoreAllMocks();
   });
 
-  it('sin --exigir informa y no rompe el build: un paquete abierto es información', async () => {
+  // Mismo motivo que en criterios.spec.ts: `main()` evalúa los quince paquetes,
+  // con subproceso y socket incluidos. El timeout por omisión es demasiado
+  // corto para lo que esta prueba hace de verdad.
+  it('sin --exigir informa y no rompe el build: un paquete abierto es información', { timeout: 30_000 }, async () => {
     callar();
     expect(await main([])).toBe(0);
   });
