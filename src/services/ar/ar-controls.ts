@@ -174,7 +174,7 @@ const SONDAS: Sonda[] = [
            FROM invoices WHERE entity_id = $1 AND (amount_due < 0 OR amount_paid < 0)
           ORDER BY invoice_number LIMIT 5`,
         [entityId],
-        (r) => `${r.invoice_number} debe ${r.amount_due}`
+        (r) => `${String(r.invoice_number)} debe ${String(r.amount_due)}`
       );
       return { count, detail: count ? 'sobre-aplicación o corrección a medias' : 'ninguna', sample };
     },
@@ -197,7 +197,7 @@ const SONDAS: Sonda[] = [
             AND COALESCE(pa.s,0) + COALESCE(cna.s,0) > i.total_amount + 0.005
           ORDER BY i.invoice_number LIMIT 5`,
         [entityId],
-        (r) => `${r.invoice_number}: ${r.aplicado} sobre ${r.total_amount}`
+        (r) => `${String(r.invoice_number)}: ${String(r.aplicado)} sobre ${String(r.total_amount)}`
       );
       return { count, detail: count ? 'el auxiliar promete más de lo facturado' : 'ninguna', sample };
     },
@@ -215,7 +215,7 @@ const SONDAS: Sonda[] = [
           WHERE pa.unapplied_at IS NULL AND cp.status IN ('void', 'reversed', 'failed')
           ORDER BY cp.payment_number LIMIT 5`,
         [entityId],
-        (r) => `${r.payment_number} (${r.status}) → ${r.invoice_number}`
+        (r) => `${String(r.payment_number)} (${String(r.status)}) → ${String(r.invoice_number)}`
       );
       return {
         count,
@@ -263,7 +263,7 @@ const SONDAS: Sonda[] = [
             AND cp.payment_date < NOW() - INTERVAL '30 days'
           ORDER BY cp.payment_date LIMIT 5`,
         [entityId],
-        (r) => `${r.payment_number}: ${r.remanente} a cuenta`
+        (r) => `${String(r.payment_number)}: ${String(r.remanente)} a cuenta`
       );
       return {
         count,
@@ -306,7 +306,7 @@ const SONDAS: Sonda[] = [
           WHERE entity_id = $1 AND cfdi_status = 'cancelled' AND amount_due > 0
           ORDER BY invoice_number LIMIT 5`,
         [entityId],
-        (r) => `${r.invoice_number} debe ${r.amount_due}`
+        (r) => `${String(r.invoice_number)} debe ${String(r.amount_due)}`
       );
       return {
         count,

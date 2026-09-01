@@ -1,6 +1,6 @@
 import * as readline from 'node:readline/promises';
 import type { Command } from 'commander';
-import { BillStatus, InvoiceStatus } from '../types/index.js';
+import { BillStatus } from '../types/index.js';
 import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { attestEntryAsync } from '../services/accounting/posting.js';

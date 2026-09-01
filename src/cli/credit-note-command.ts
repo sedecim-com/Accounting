@@ -79,10 +79,10 @@ interface CommonOpts {
 
 const MONEY = ['total_amount', 'subtotal', 'tax_amount', 'amount_applied', 'amount_available'];
 
-const day = (v: unknown): string =>
+const day = (v: Date | string | null | undefined): string =>
   v instanceof Date
     ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
-    : v == null ? '' : String(v);
+    : v ?? '';
 
 export function registerCreditNoteCommand(program: Command, deps: CreditNoteCommandDeps): void {
   const creditNote = program
@@ -226,7 +226,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
       }
       const out = process.stdout;
       out.write(`\n${p.bold(nota.credit_note_number)} ${p.dim(nota.status)}  ${nota.customer_name ?? ''}\n`);
-      const fact = (label: string, value: unknown) => {
+      const fact = (label: string, value: string | number | null | undefined) => {
         if (value === null || value === undefined || value === '') return;
         out.write(`  ${p.dim(label.padEnd(18))}${String(value)}\n`);
       };

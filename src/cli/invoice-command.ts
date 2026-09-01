@@ -715,7 +715,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       run(async () => {
         const ctx = await writeEntityOf(opts);
         const target = await resolveInvoice(ctx.entityId, ref);
-        if (target.status !== 'draft') {
+        if (target.status !== InvoiceStatus.DRAFT) {
           throw blockedByState(
             `${target.invoice_number} is "${target.status}". Only a draft can be edited: ` +
               'correct an issued invoice with `invoice void` or a credit note.'
@@ -796,7 +796,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
       const { dryRun, reason } = gateMutation(del, opts as Record<string, unknown>);
       const p = deps.palette;
 
-      if (target.status !== 'draft') {
+      if (target.status !== InvoiceStatus.DRAFT) {
         throw blockedByState(
           `${target.invoice_number} is "${target.status}". Only a draft can be deleted; ` +
             'an issued invoice is voided, which leaves the reversal trail.'

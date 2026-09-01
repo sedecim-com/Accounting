@@ -531,7 +531,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
       }
       const out = process.stdout;
       out.write(`\n${p.bold(perfil.customer_number)}  ${perfil.name ?? ''}\n`);
-      const fact = (label: string, value: unknown, extra?: string | null) => {
+      const fact = (label: string, value: string | null | undefined, extra?: string | null) => {
         out.write(
           `  ${p.dim(label.padEnd(16))}${value ? `${String(value)}${extra ? p.dim(` · ${extra}`) : ''}` : p.yellow('—')}\n`
         );

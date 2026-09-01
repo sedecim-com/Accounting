@@ -16,12 +16,12 @@ import {
   type EntradaPago,
   type ResultadoPago,
 } from '../services/payments/payment-service.js';
+import { InvoiceStatus } from '../types/index.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
   gateMutation,
   render,
-  resolveFormat,
   withContext,
   withOutput,
   withSelection,
@@ -205,9 +205,9 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (!COBRABLES.includes(target.status as (typeof COBRABLES)[number])) {
           throw blockedByState(
             `${target.invoice_number} is "${target.status}". ` +
-              (target.status === 'paid'
+              (target.status === InvoiceStatus.PAID
                 ? 'It is already settled.'
-                : target.status === 'draft'
+                : target.status === InvoiceStatus.DRAFT
                   ? 'Issue it first: an invoice has to be in the ledger before cash can be applied to it.'
                   : `Only ${COBRABLES.join(', ')} invoices can be collected.`)
           );
@@ -285,7 +285,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
       out.write(
         `\n${p.bold(cobro.payment_number)} ${p.dim(cobro.status)}  ${cobro.customer_name ?? ''}\n`
       );
-      const fact = (label: string, value: unknown) => {
+      const fact = (label: string, value: string | number | null | undefined) => {
         if (value === null || value === undefined || value === '') return;
         out.write(`  ${p.dim(label.padEnd(18))}${String(value)}\n`);
       };

@@ -8,8 +8,8 @@ import {
   updateDraftInvoice,
   deleteDraftInvoice,
   checkInvoiceSeries,
-  type Invoice,
 } from '../../src/services/ar/invoice-service.js';
+import type { Invoice } from '../../src/types/index.js';
 import {
   createCreditNote,
   issueCreditNote,

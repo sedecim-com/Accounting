@@ -7,6 +7,7 @@ import { nextEntityNumber, formatDocumentNumber } from '../../utils/sequence.js'
 import { postInvoiceEntry } from '../accounting/ar-ap-posting.js';
 import { voidJournalEntryInTx } from '../accounting/posting.js';
 import { OPEN_INVOICE_STATUSES } from './customer-service.js';
+import { InvoiceStatus } from '../../types/index.js';
 import type { Invoice, InvoiceLine, JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 
@@ -756,7 +757,7 @@ export async function updateDraftInvoice(
     );
     if (r.rows.length === 0) throw new NotFoundError('Invoice', invoiceId);
     const factura = r.rows[0];
-    if (factura.status !== 'draft') {
+    if (factura.status !== InvoiceStatus.DRAFT) {
       throw new ConflictError(
         `${factura.invoice_number} is "${factura.status}". Only a draft can be edited: ` +
           'an issued invoice is corrected by voiding it or by a credit note, never in place.'
@@ -774,11 +775,11 @@ export async function updateDraftInvoice(
       let subtotal = new Decimal(0);
       let taxAmount = new Decimal(0);
       const procesadas = input.lines.map((line, i) => {
-        const qty = new Decimal((line.quantity as number) || 1);
-        const price = new Decimal(line.unit_price as number);
+        const qty = new Decimal(line.quantity || 1);
+        const price = new Decimal(line.unit_price);
         const lineAmount = qty.times(price);
         const lineTax = line.tax_rate
-          ? lineAmount.times(new Decimal(line.tax_rate as number).dividedBy(100))
+          ? lineAmount.times(new Decimal(line.tax_rate).dividedBy(100))
           : new Decimal(0);
         subtotal = subtotal.plus(lineAmount);
         taxAmount = taxAmount.plus(lineTax);
@@ -880,7 +881,7 @@ export async function deleteDraftInvoice(
     );
     if (r.rows.length === 0) throw new NotFoundError('Invoice', invoiceId);
     const factura = r.rows[0];
-    if (factura.status !== 'draft') {
+    if (factura.status !== InvoiceStatus.DRAFT) {
       throw new ConflictError(
         `${factura.invoice_number} is "${factura.status}". Only a draft can be deleted; ` +
           'an issued invoice is voided (reversal), never erased.'

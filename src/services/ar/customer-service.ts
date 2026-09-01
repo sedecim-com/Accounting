@@ -739,7 +739,7 @@ export async function setCustomerTaxProfile(
       reason: audit.reason,
     });
 
-    return perfilDe({ ...antes, ...cambios } as typeof antes);
+    return perfilDe({ ...antes, ...cambios });
   });
 }
 
