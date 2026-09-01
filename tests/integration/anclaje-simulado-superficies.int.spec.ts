@@ -188,6 +188,42 @@ describe('el endpoint público de agregados', () => {
     expect(valores).toContain('activo_real');
   });
 
+  // ── El rango ?from_period=/&to_period= ──
+  //
+  // Se leían y se tiraban: quien acotaba a un periodo viejo recibía los 100
+  // renglones más recientes de TODOS los periodos, sin autenticar. El rango se
+  // cierra por las FECHAS del periodo al que apunta cada extremo (un UUID no
+  // ordena), lo que exige unir contra fiscal_periods — y esa unión sólo
+  // funciona si el rol verificador puede leer esa tabla. Estas pruebas hablan
+  // por HTTP contra la base real justamente por eso: un GRANT que falte sale
+  // aquí como 500, no como un comentario optimista.
+  //
+  // periodoSimulado es ANTERIOR a periodoReal: `periodoLibre()` ordena por
+  // start_date y los toma en ese orden.
+  it('el extremo inferior acota de verdad: incluye el periodo que se pide', async () => {
+    const r = await pedir(s, 'GET', `/public/v1/entities/${f.entityId}/aggregates?from_period=${periodoReal}`);
+    expect(r.status, 'el JOIN contra fiscal_periods necesita el GRANT del verificador').toBe(200);
+    const valores = (r.body.data as Array<{ dimension_value: string }>).map((x) => x.dimension_value);
+    expect(valores).toContain('activo_real');
+  });
+
+  it('el extremo superior EXCLUYE lo que queda fuera, en vez de servirlo igual', async () => {
+    const r = await pedir(s, 'GET', `/public/v1/entities/${f.entityId}/aggregates?to_period=${periodoSimulado}`);
+    expect(r.status).toBe(200);
+    const valores = (r.body.data as Array<{ dimension_value: string }>).map((x) => x.dimension_value);
+    expect(valores, 'el rango se ignoraba y devolvía los agregados de todos los periodos').not.toContain('activo_real');
+  });
+
+  it('un periodo inexistente es 422, no una página vacía que parece «no publicó nada»', async () => {
+    const r = await pedir(s, 'GET', `/public/v1/entities/${f.entityId}/aggregates?from_period=${uuidv4()}`);
+    expect(r.status).toBe(422);
+  });
+
+  it('un id que no es UUID también es 422', async () => {
+    const r = await pedir(s, 'GET', `/public/v1/entities/${f.entityId}/aggregates?to_period=ayer`);
+    expect(r.status).toBe(422);
+  });
+
   // EL CONTRATO NUEVO, FIJADO. Witness lo pidió y tenía razón: `limit` y
   // `truncated` son observables desde fuera y ningún test los sujetaba, así que
   // el siguiente refactor podía romperlos sin que la CI dijera nada.
