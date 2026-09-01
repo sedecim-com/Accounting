@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/ai/question-service.js', () => ({
   createQuestion: vi.fn(),
@@ -30,9 +30,9 @@ type ToolHandle<Input> = BetaTool & {
 type AskUserInput = { question: string; context?: string; options?: string[]; topic?: string };
 type SearchPrecedentsInput = { search: string };
 
-const mockCreate = createQuestion as unknown as ReturnType<typeof vi.fn>;
-const mockRecord = recordAnsweredQuestion as unknown as ReturnType<typeof vi.fn>;
-const mockSearch = searchPrecedents as unknown as ReturnType<typeof vi.fn>;
+const mockCreate = createQuestion as unknown as Mock;
+const mockRecord = recordAnsweredQuestion as unknown as Mock;
+const mockSearch = searchPrecedents as unknown as Mock;
 
 const CTX: AgentContext = {
   entityId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',

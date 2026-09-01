@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 const client = { query: vi.fn() };
 
@@ -21,7 +21,7 @@ import {
 import { query } from '../../../src/database/connection.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../../src/utils/errors.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const PERIOD = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee';
 const USER = 'user-1';

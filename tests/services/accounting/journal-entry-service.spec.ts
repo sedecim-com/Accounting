@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
 vi.mock('../../../src/services/accounting/posting.js', () => ({ createJournalEntry: vi.fn() }));
@@ -21,9 +21,9 @@ import { createJournalEntry } from '../../../src/services/accounting/posting.js'
 import { validateJournalEntry } from '../../../src/services/accounting/validation.js';
 import { NotFoundError, ValidationError } from '../../../src/utils/errors.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
-const mockCreate = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
-const mockValidate = validateJournalEntry as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
+const mockCreate = createJournalEntry as unknown as Mock;
+const mockValidate = validateJournalEntry as unknown as Mock;
 
 const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const USER = 'user-1';

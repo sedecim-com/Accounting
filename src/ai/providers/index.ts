@@ -23,6 +23,7 @@ import {
 
 export { resolveProfile, listProfiles, BUILTIN_PROFILES, configFilePaths, resolveCompactionConfig, resolveFailoverChain } from './config.js';
 export { classifyProviderError, runWithFailover, CooldownRegistry } from './failover.js';
+export { redactDetail } from './probe.js';
 export type { LlmSession, ResolvedProfile, ProviderProfile, SessionCallbacks } from './types.js';
 
 // ============================================================

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 import { discover, isAsymmetric, verifyIdpToken, resetOidcCaches } from '../../src/auth/oidc.js';
 
@@ -56,7 +56,7 @@ describe('discover', () => {
     expect(a.jwks_uri).toBe(`${ISSUER}/jwks`);
     expect(b).toEqual(a);
     // A single request: discovery is not queried for every token.
-    expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+    expect((fetchImpl as unknown as Mock).mock.calls).toHaveLength(1);
   });
 
   it('fails clearly if the configuration is incomplete', async () => {

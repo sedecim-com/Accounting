@@ -3,7 +3,10 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { ApolloServer } from '@apollo/server';
-import { expressMiddleware } from '@apollo/server/express4';
+// Apollo Server 5 retiró el subpath `@apollo/server/express4`: la integración con
+// Express vive ahora en un paquete propio. Seguimos en Express 4, así que el
+// paquete es el de la versión 4, no el de la 5.
+import { expressMiddleware } from '@as-integrations/express4';
 import { config } from './config/index.js';
 import { query, closeDatabase, initDatabase } from './database/connection.js';
 import { verificarRolSujetoARls } from './database/rls-guard.js';
@@ -87,11 +90,17 @@ async function bootstrap() {
   // Access-Control-Allow-Origin: * también en producción. La API la consumen
   // el CLI y agentes (sin navegador), así que producción sin ALLOWED_ORIGINS
   // no permite ningún origen cruzado; declarar orígenes es opt-in por env
-  // (lista separada por comas). En desarrollo se queda abierto.
+  // (lista separada por comas). En desarrollo sólo se reflejan orígenes
+  // locales — `true` reflejaba CUALQUIERA, y un navegador en la LAN contra
+  // un dev server es exactamente el caso que CORS existe para parar. Cada
+  // entrada de la lista debe ser un origen concreto con esquema: un '*'
+  // colado en el env volvería público lo que el opt-in quiso enumerar, así
+  // que se descarta en vez de honrarse.
   app.use(cors({
     origin: config.env === 'production'
-      ? (process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? false)
-      : true,
+      ? (process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim())
+          .filter((o) => /^https?:\/\/[^*\s/]+$/.test(o)) ?? false)
+      : [/^https?:\/\/localhost(:\d+)?$/, /^https?:\/\/127\.0\.0\.1(:\d+)?$/],
   }));
   // Global JSON body parser — but the inbound AI webhook path parses its OWN
   // body with express.raw (exact-bytes idempotency fallback + a hard 1MB cap).

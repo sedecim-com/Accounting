@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -9,8 +9,8 @@ vi.mock('../../src/database/connection.js', () => ({
 import { resolveEntity, listEntities, bootstrapTenant } from '../../src/ai/context.js';
 import { query, enterTenant } from '../../src/database/connection.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
-const mockEnterTenant = enterTenant as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
+const mockEnterTenant = enterTenant as unknown as Mock;
 
 const ENTITY_ROW = {
   id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',

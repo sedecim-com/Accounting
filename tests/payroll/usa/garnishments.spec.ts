@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 // Mock DB before importing the engine
 vi.mock('../../../src/database/connection.js', () => ({
@@ -8,7 +8,7 @@ vi.mock('../../../src/database/connection.js', () => ({
 import { calculateGarnishments } from '../../../src/services/payroll/usa/garnishments/garnishment-engine.js';
 import { query } from '../../../src/database/connection.js';
 
-const mockQuery = query as unknown as ReturnType<typeof vi.fn>;
+const mockQuery = query as unknown as Mock;
 
 function ordersResponse(rows: Array<Record<string, unknown>>) {
   mockQuery.mockResolvedValueOnce({ rows });

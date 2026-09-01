@@ -204,19 +204,41 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
-    enunciado: 'Hay un solo archivo de CI y declara sus cuatro jobs',
+    enunciado: 'Los checks viven en un solo ci.yml, que declara sus cuatro jobs',
     evaluar: () => {
+      // Lo que E0.0-b compró no fue «un archivo en .github/workflows»: fue que
+      // la CI de *checks* no se reparta entre archivos —«los demás paquetes
+      // AÑADEN jobs a ci.yml; ninguno lo crea de nuevo»—, porque dos pipelines
+      // en paralelo es como se pierde de vista cuál puerta está roja.
+      //
+      // Contar archivos medía eso por accidente y castigaba lo que no es un
+      // pipeline: un listener de eventos de PR (witness-triage.yml) no corre
+      // ninguna puerta, no puede diluirlas y no puede quedarse desfasado
+      // respecto a ellas. Así que se mide la propiedad, no el número: ci.yml
+      // lleva los cuatro jobs y NINGÚN otro workflow corre una puerta.
       const dir = rutaDe('.github', 'workflows');
       if (!fs.existsSync(dir)) return falla('no existe .github/workflows');
-      const archivos = fs.readdirSync(dir);
-      if (archivos.length !== 1) return falla(`${archivos.length} archivos de workflow: ${archivos.join(', ')}`);
-      const y = fs.readFileSync(path.join(dir, archivos[0]), 'utf-8');
-      const jobs = ['typecheck', 'unit', 'integration', 'aislamiento'].filter((j) =>
-        new RegExp(`^  ${j}:`, 'm').test(y)
-      );
-      return jobs.length === 4
-        ? ok(`${archivos[0]} con los cuatro jobs`)
-        : falla(`faltan jobs: ${['typecheck', 'unit', 'integration', 'aislamiento'].filter((j) => !jobs.includes(j)).join(', ')}`);
+      const archivos = fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
+      if (!archivos.includes('ci.yml')) {
+        return falla(`no hay ci.yml: ${archivos.join(', ') || 'ningún workflow'}`);
+      }
+      const NOMBRES = ['typecheck', 'unit', 'integration', 'aislamiento'];
+      const y = fs.readFileSync(path.join(dir, 'ci.yml'), 'utf-8');
+      const faltan = NOMBRES.filter((j) => !new RegExp(`^  ${j}:`, 'm').test(y));
+      if (faltan.length > 0) return falla(`faltan jobs en ci.yml: ${faltan.join(', ')}`);
+
+      // Una puerta corrida fuera de ci.yml es el pipeline partiéndose, se
+      // llame como se llame el job que la corre.
+      const PUERTAS = /tsc --noEmit|typecheck:tests|vitest run|test:integration|verify-isolation|plan\/status|catalogo-estado/;
+      const intrusos = archivos
+        .filter((f) => f !== 'ci.yml')
+        .filter((f) => {
+          const otro = fs.readFileSync(path.join(dir, f), 'utf-8');
+          return PUERTAS.test(otro) || NOMBRES.some((j) => new RegExp(`^  ${j}:`, 'm').test(otro));
+        });
+      return intrusos.length === 0
+        ? ok(`ci.yml con los cuatro jobs${archivos.length > 1 ? `; ${archivos.length - 1} workflow(s) sin puertas` : ''}`)
+        : falla(`la CI de checks se reparte fuera de ci.yml: ${intrusos.join(', ')}`);
     },
   },
   {
@@ -335,6 +357,43 @@ export const CRITERIOS: Criterio[] = [
       return finallyIdx >= 0 && rlsIdx > finallyIdx
         ? ok('transaccional, y el endurecimiento corre pase lo que pase')
         : falla('rls-policies.sql no corre en el finally: un fallo a mitad deja tablas sin política');
+    },
+  },
+  {
+    paquete: 'E0.2',
+    enunciado: 'Una migración de datos que olvide la RLS truena en vez de correr filtrada',
+    evaluar: () => {
+      // Tres veces una siembra corrió como dueño bajo FORCE RLS sin GUC de
+      // inquilino y leyó cero filas «con éxito»: la 025 (confesada por la
+      // 026), la 043 (colisión de folio, 2026-08-31) y con ellas la 037 y la
+      // 040 — la purga de secretos que no purgó. El remedio no es acordarse:
+      // el corredor pone row_security=off y Postgres LANZA 42501 donde antes
+      // filtraba en silencio (el mismo default de pg_dump). Prescriptivo
+      // sobre el instrumento, que es cuando un criterio nombra el archivo.
+      const s = codigoDe('src/database/migrate.ts');
+      const piso = s.indexOf("SET row_security = off");
+      if (piso < 0) {
+        return falla('migrate.ts ya no apaga row_security: la siguiente siembra olvidada volverá a leer cero filas en silencio');
+      }
+      const bucle = s.indexOf('for (const file of files)');
+      if (bucle >= 0 && piso > bucle) {
+        return falla('el piso row_security=off se pone DESPUÉS de correr los archivos: las migraciones corren sin él');
+      }
+      // Y el patrón santo sigue siendo transitable: toda migración que itera
+      // inquilinos con el GUC debe declarar el opt-in, porque contra el piso
+      // un bucle sin declaración muere con 42501 en el primer catch-up de
+      // una base rezagada — una regresión que sólo muerde en el campo.
+      const dir = rutaDe('src', 'database', 'migrations');
+      const sinOptIn = fs.readdirSync(dir)
+        .filter((f) => f.endsWith('.sql'))
+        .filter((f) => {
+          const sql = fs.readFileSync(path.join(dir, f), 'utf-8');
+          return sql.includes("set_config('app.current_tenant'")
+            && !/SET LOCAL row_security = on/.test(sql);
+        });
+      return sinOptIn.length === 0
+        ? ok('el corredor convierte el filtrado silencioso en 42501 y las siembras por inquilino declaran su opt-in')
+        : falla(`bucle por inquilino sin «SET LOCAL row_security = on» — contra el piso mueren en el catch-up: ${sinOptIn.join(', ')}`);
     },
   },
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
@@ -41,7 +41,7 @@ const USER = 'uuuuuuuu-uuuu-uuuu-uuuu-uuuuuuuuuuuu';
 
 beforeEach(() => {
   mockClient.query.mockReset();
-  (ensureEntityAccounting as unknown as ReturnType<typeof vi.fn>).mockClear();
+  (ensureEntityAccounting as unknown as Mock).mockClear();
 });
 
 /** Routes each query by the table it names, so order does not matter. */
@@ -213,7 +213,7 @@ describe('createEntity', () => {
   it('seeds chart, roles and payroll in the SAME transaction as the entity', async () => {
     db();
     await createEntity({ name: 'Acme SA', taxId: 'AAA010101AAA', country: 'MX', tenantId: TENANT, createdBy: USER });
-    const call = (ensureEntityAccounting as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const call = (ensureEntityAccounting as unknown as Mock).mock.calls[0];
     expect(call[0]).toBe('entity-1');
     expect(call[1]).toBe(TENANT);
     expect(call[2]).toBe(USER);

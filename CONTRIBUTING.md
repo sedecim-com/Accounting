@@ -32,8 +32,12 @@ CI corre además `npm run plan:status -- --exigir=...` sobre la lista de
 paquetes ya cerrados: es un trinquete, no un informe. Ese comando se pone rojo
 si algo que estaba cerrado retrocede.
 
-`npm run lint` existe en el `package.json`, pero hoy no aporta señal real. Las
-puertas de verdad son las cuatro de arriba, más las de integración.
+`npm run lint` ya es una puerta con dientes: ESLint 9 en configuración plana y
+**con información de tipos** (`eslint.config.mjs`) sobre `src/`, `tests/` y
+`scripts/`, con su propio trabajo en la CI. Los errores rompen la compilación;
+las advertencias llevan trinquete —`--max-warnings 1239`, congelado en lo
+medido— así que sólo pueden bajar. Un PR que suba ese número sale rojo aunque
+no haya escrito un solo error.
 
 ### Cobertura
 
