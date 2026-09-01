@@ -64,12 +64,13 @@ async function bootstrap() {
   // a propósito en desarrollo. La API sirve JSON: encender CSP no le cuesta
   // nada y quita una diferencia entre lo que se prueba y lo que se despliega.
   //
-  // Y LA EXCEPCIÓN NO APAGA CSP: LO DECLARA. Poner `contentSecurityPolicy:
-  // false` era la misma alerta escrita más pequeña — dejaba una ruta de
-  // ejecución sin ninguna política, que es justo lo que el análisis marca. El
-  // playground recibe las directivas por omisión de helmet MÁS el CDN que su
-  // landing necesita en script/style/img, y nada más. La política se aplica en
-  // los dos caminos; lo único que cambia es cuánto permite.
+  // Y la excepción NO apaga CSP: lo declara. Poner
+  // `contentSecurityPolicy: false` seguía siendo la misma alerta
+  // (`js/insecure-helmet-configuration`) escrita más pequeña — dejaba una
+  // ruta de ejecución sin ninguna política. En vez de eso, el playground
+  // recibe las directivas por omisión de helmet con el CDN que su landing
+  // necesita añadido a script/style/img, y nada más. La política sigue
+  // aplicándose en los dos caminos; lo único que cambia es cuánto permite.
   const playgroundGraphql = process.env.GRAPHQL_ENABLED === 'true' && config.env !== 'production';
   const CDN_PLAYGROUND = 'https://cdn.jsdelivr.net';
   const cspPlayground = {
