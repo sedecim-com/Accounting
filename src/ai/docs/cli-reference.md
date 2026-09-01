@@ -105,6 +105,10 @@ Commands:
   ledger|mayor                          The general ledger itself: integrity
                                         checks, stale drafts, auxiliaries and
                                         balances
+  cfdi                                  The CFDI mirror: list, inspect, SAT
+                                        status and the classifier trail
+  rep                                   Payment receipts (REP): what is missing
+                                        one, and the parked ones to retry
   ai|ia                                 Métricas y calibración del agente
                                         contable
   usage|uso [options]                   Token usage and estimated cost from the
@@ -3269,6 +3273,247 @@ Options:
   --period <name>                          only the periods whose name matches
   --dim <name>                             per-dimension breakdown (not available: the dimension family does not exist yet)
   -h, --help                               display help for command
+```
+
+## `mnemosine cfdi`
+
+```
+Usage: mnemosine cfdi [options] [command]
+
+The CFDI mirror: list, inspect, SAT status and the classifier trail
+
+Options:
+  -h, --help                         display help for command
+
+Commands:
+  list|listar [options]              The mirror, filtered by direction, type,
+                                     status and date
+  show|ver [options] <uuid>          One CFDI: header, lines, taxes and SAT
+                                     status; --format xml prints the exact bytes
+  status|estatus                     SAT status of the mirror (public
+                                     ConsultaCFDIService; no e.firma involved)
+  explain|explicar [options] <uuid>  WHY it was recorded the way it was: case,
+                                     facts and decisions the classifier left
+  help [command]                     display help for command
+```
+
+### `mnemosine cfdi list` (alias: listar)
+
+```
+Usage: mnemosine cfdi list|listar [options]
+
+The mirror, filtered by direction, type, status and date
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --direction <d>                          emitido, recibido o ajeno (derivada contra el RFC de la entidad)
+  --type <t>                               document_type (cfdi_ingreso, cfdi_egreso, cfdi_pago…)
+  -h, --help                               display help for command
+```
+
+### `mnemosine cfdi show` (alias: ver)
+
+```
+Usage: mnemosine cfdi show|ver [options] <uuid>
+
+One CFDI: header, lines, taxes and SAT status; --format xml prints the exact
+bytes
+
+Arguments:
+  uuid                                     CFDI UUID (timbre fiscal)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine cfdi status` (alias: estatus)
+
+```
+Usage: mnemosine cfdi status|estatus [options] [command]
+
+SAT status of the mirror (public ConsultaCFDIService; no e.firma involved)
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  show|ver [options] <uuid>   Estado, EsCancelable and EstatusCancelacion as the
+                              SAT last answered
+  sync|sincronizar [options]  Re-check the whole mirror against the SAT: stale
+                              or never-consulted first
+  help [command]              display help for command
+```
+
+#### `mnemosine cfdi status show` (alias: ver)
+
+```
+Usage: mnemosine cfdi status show|ver [options] <uuid>
+
+Estado, EsCancelable and EstatusCancelacion as the SAT last answered
+
+Arguments:
+  uuid                                     CFDI UUID
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --refresh                                consulta al SAT ahora y actualiza la caché sat_* del documento
+  -h, --help                               display help for command
+```
+
+#### `mnemosine cfdi status sync` (alias: sincronizar)
+
+```
+Usage: mnemosine cfdi status sync|sincronizar [options]
+
+Re-check the whole mirror against the SAT: stale or never-consulted first
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  -n, --limit <n>          maximum CFDIs to consult in this run (default: "100")
+  --stale-hours <h>        a consultation older than this is stale (default:
+                           "24")
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
+  -h, --help               display help for command
+```
+
+### `mnemosine cfdi explain` (alias: explicar)
+
+```
+Usage: mnemosine cfdi explain|explicar [options] <uuid>
+
+WHY it was recorded the way it was: case, facts and decisions the classifier
+left
+
+Arguments:
+  uuid                                     CFDI UUID
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+## `mnemosine rep`
+
+```
+Usage: mnemosine rep [options] [command]
+
+Payment receipts (REP): what is missing one, and the parked ones to retry
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  missing|faltante               Payments and collections whose REP has not
+                                 arrived or been issued
+  reconcile|conciliar [options]  Retry the parked REPs (needs_review): safe to
+                                 repeat, resolved nodes are skipped
+  help [command]                 display help for command
+```
+
+### `mnemosine rep missing` (alias: faltante)
+
+```
+Usage: mnemosine rep missing|faltante [options] [command]
+
+Payments and collections whose REP has not arrived or been issued
+
+Options:
+  -h, --help             display help for command
+
+Commands:
+  list|listar [options]  received: paid PPD bills without the supplier REP (VAT
+                         parked); issued: our collections without a REP
+  help [command]         display help for command
+```
+
+#### `mnemosine rep missing list` (alias: listar)
+
+```
+Usage: mnemosine rep missing list|listar [options]
+
+received: paid PPD bills without the supplier REP (VAT parked); issued: our
+collections without a REP
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --direction <d>                          received (default) or issued (default: "received")
+  --min-amount <n>                         only payments at or above this amount
+  -h, --help                               display help for command
+```
+
+### `mnemosine rep reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine rep reconcile|conciliar [options]
+
+Retry the parked REPs (needs_review): safe to repeat, resolved nodes are skipped
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  -n, --limit <n>          maximum parked REPs to retry (default: "50")
+  --dry-run                list what would be retried, retry nothing
+  -h, --help               display help for command
 ```
 
 ## `mnemosine ai` (alias: ia)

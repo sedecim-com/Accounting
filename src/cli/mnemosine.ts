@@ -51,6 +51,8 @@ import { registerPendingCommands, renderAll } from './pending-command.js';
 import { registerDoctorCommand } from './doctor-command.js';
 import { registerAiCommand } from './ai-command.js';
 import { registerLedgerCommand } from './ledger-command.js';
+import { registerCfdiCommand } from './cfdi-command.js';
+import { registerRepCommand } from './rep-command.js';
 import { registerMemoryCommand } from './memory-command.js';
 import { registerPromptSizeCommand } from './prompt-size-command.js';
 import { registerInitCommand, runInitWizard, type InitWizardResult } from './init-command.js';
@@ -1196,7 +1198,7 @@ ingest.action(async (files: string[], opts: {
         // xml_documents, ni el validador del SAT, ni el modelo. Se dice lo
         // que no se calculó: las reglas del despacho, la clasificación IA y
         // el plan de asiento se deciden en la corrida real.
-        const preview = await previewCfdiFiles({ files, thresholds });
+        const preview = await previewCfdiFiles({ files, thresholds, entityId: ctx.entityId });
         const icon: Record<string, string> = {
           would_process: '·', duplicate: '↩', invalid: '✘', error: '✘',
         };
@@ -2127,6 +2129,8 @@ registerCustomerCommand(program, { palette: c, shutdown, reportError });
 registerInvoiceCommand(program, { palette: c, shutdown, reportError });
 registerReportCommand(program, { palette: c, shutdown, reportError });
 registerLedgerCommand(program, { palette: c, shutdown, reportError });
+registerCfdiCommand(program, { palette: c, shutdown, reportError });
+registerRepCommand(program, { palette: c, shutdown, reportError });
 registerAiCommand(program, { palette: c, shutdown, reportError });
 registerUsageCommand(program, { palette: c, shutdown, reportError });
 registerStatusCommand(program, { palette: c, shutdown, reportError });

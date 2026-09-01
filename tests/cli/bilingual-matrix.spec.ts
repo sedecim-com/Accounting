@@ -57,6 +57,9 @@ const TOP_LEVEL: Record<string, string> = {
   outbox: 'envio',
   question: 'duda',
   sat: '',
+  // F02: cfdi es la misma palabra en los dos idiomas, como sat.
+  cfdi: '',
+  rep: '',
   pending: 'pendientes',
   login: 'entrar',
   logout: 'salir',

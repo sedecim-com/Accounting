@@ -514,6 +514,8 @@ export interface IngestPreviewRow {
 export async function previewCfdiFiles(opts: {
   files: string[];
   thresholds: IngestThresholds;
+  /** F02 · el espejo: el dedupe es por entidad (046) — sin entidad no hay veredicto de duplicado honesto. */
+  entityId: string;
   readFile?: (file: string) => string;
 }): Promise<IngestPreviewRow[]> {
   const readFile = opts.readFile ?? ((file: string) => fs.readFileSync(file, 'utf-8'));
@@ -539,8 +541,9 @@ export async function previewCfdiFiles(opts: {
       const hash = parser.calculateHash(xml);
       const uuid = parsed.timbreFiscalDigital!.uuid;
       const existing = await query<{ id: string }>(
-        `SELECT id FROM xml_documents WHERE cfdi_uuid = $1 OR xml_hash = $2 LIMIT 1`,
-        [uuid, hash]
+        `SELECT id FROM xml_documents
+          WHERE entity_id = $1 AND (cfdi_uuid = $2 OR xml_hash = $3) LIMIT 1`,
+        [opts.entityId, uuid, hash]
       );
       if (existing.rows.length > 0) {
         rows.push({

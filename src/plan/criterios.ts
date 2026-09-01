@@ -274,8 +274,7 @@ export const CRITERIOS: Criterio[] = [
       // borrarla, como la línea base del auditor.
       const RECLAMADAS: Record<string, string> = {
         asset_categories: 'F06/DEP-2: el alta de activo la necesita (fixed_assets.category_id NOT NULL)',
-        cfdi_classifications: 'F02: el rastro del clasificador — el criterio en rojo de E1.2 mide su escritor',
-        inventory_items: 'familia inventario: el esquema es el diseñado; el motor es neto nuevo (S0.4)',
+            inventory_items: 'familia inventario: el esquema es el diseñado; el motor es neto nuevo (S0.4)',
         inventory_layers: 'familia inventario: capas de costeo',
         inventory_layer_consumption: 'familia inventario: consumo de capas',
         scheduled_payments: 'F04: la programación de pagos retirada con 501 escribe aquí cuando exista',
@@ -691,6 +690,53 @@ export const CRITERIOS: Criterio[] = [
         /checks\.push\(await checkPermisosEnConflicto\(\)\)/.test(doctor)
         ? ok('panel + lector en el motor (solo manual), salida bloqueada, y la composición de permisos vigilada en doctor')
         : falla('checkSoDViolations volvió a quedarse sin consumidor o el check salió de runDoctor');
+    },
+  },
+
+  {
+    paquete: 'E0.1',
+    enunciado: 'El espejo del CFDI es por entidad y el estatus SAT dice la verdad',
+    evaluar: () => {
+      // F02: la unicidad fiscal era GLOBAL (005) y mataba el caso normal de
+      // un despacho — las dos partes de la operación como clientes, el mismo
+      // XML entrando como 'emitido' y como 'recibido'. Y el estatus SAT era
+      // un «Vigente» simulado: un CFDI cancelado se clasificaba vigente. La
+      // 046 vuelve la unicidad (entity_id, cfdi_uuid) — y respalda xml_hash
+      // en esquema —, el dedupe filtra por entidad en sus DOS sitios, y el
+      // estatus sale del ConsultaCFDIService real (público y anónimo:
+      // ningún bloqueo de E3.x le aplicó jamás), con apagado que LO DICE.
+      const m = 'src/database/migrations/046_el_espejo_del_cfdi.sql';
+      if (!existe(m)) return falla('la 046 desapareció: la unicidad fiscal vuelve a ser global');
+      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      if (!/DROP CONSTRAINT xml_documents_cfdi_uuid_key/.test(sql) ||
+          // \b tras el nombre: un sufijo _x seguiría casando el regex desnudo
+          // — quinta variante de la familia del ancla en estos sprints.
+          !/uq_xml_documents_entity_cfdi\b[\s\S]{0,80}\(entity_id, cfdi_uuid\)/.test(sql) ||
+          !/uq_xml_documents_entity_hash\b[\s\S]{0,80}\(entity_id, xml_hash\)/.test(sql)) {
+        return falla('la 046 perdió una de sus tres piezas (drop global, unique uuid, unique hash)');
+      }
+      const dedupe = /WHERE entity_id = \$1 AND \(cfdi_uuid = \$2 OR xml_hash = \$3\)/;
+      if (!dedupe.test(codigoDe('src/services/xml-ingestion/pre-registration-service.ts'))) {
+        return falla('el dedupe del registro dejó de filtrar por entidad: el espejo vuelve a chocar');
+      }
+      const ingest = codigoDe('src/ai/ingest-service.ts');
+      const iPrev = ingest.indexOf('export async function previewCfdiFiles');
+      const tramoPrev = iPrev >= 0 ? ingest.slice(iPrev, iPrev + 2500) : '';
+      if (!/entityId: string/.test(tramoPrev) || !dedupe.test(tramoPrev)) {
+        return falla('previewCfdiFiles perdió la entidad: su veredicto de duplicado sería mentira');
+      }
+      const stub = codigoDe('src/services/xml-ingestion/sat-validation.ts');
+      if (/'Vigente'/.test(stub)) {
+        return falla('sat-validation volvió a fabricar un Vigente: un cancelado se clasificaría vigente');
+      }
+      if (!/consultaCfdi\(/.test(stub)) {
+        return falla('sat-validation dejó de delegar en el cliente real');
+      }
+      const cliente = codigoDe('src/services/sat/cfdi-status.ts');
+      return /IConsultaCFDIService\/Consulta/.test(cliente) &&
+        /toFixed\(6\)/.test(cliente) && /'DISABLED'/.test(cliente)
+        ? ok('unicidad (entidad, uuid) con hash respaldado, dedupe escopado en los dos sitios, y el SOAP real con apagado honesto')
+        : falla('el cliente SAT perdió el sobre, el relleno del total o el apagado que lo dice');
     },
   },
 
