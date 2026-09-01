@@ -22,10 +22,18 @@
 -- en la migración que traiga el comando que la clausura, no antes.
 --
 -- Consecuencia deliberada mientras tanto: las sumas de payment_applications
--- (en postVendorPaymentEntry y en remanenteDeVendorPago) NO filtran por
--- `unapplied_at IS NULL`, porque no hay nada que filtrar. La fase 2 tendrá que
--- añadir ese filtro en los dos sitios el mismo día que añada la columna; está
--- anotado en ambos.
+-- NO filtran por `unapplied_at IS NULL`, porque no hay nada que filtrar. Son
+-- TRES sitios, no dos —la primera versión de este encabezado contaba dos y se
+-- dejaba el de applyVendorPayment, que es el que alimenta el objetivo
+-- acumulado del IVA y por tanto el que peor derivaría—:
+--
+--   · ar-ap-posting.ts, postVendorPaymentEntry      (SUM por payment_id)
+--   · payment-service.ts, remanenteDeVendorPago     (SUM por payment_id)
+--   · payment-service.ts, applyVendorPayment        (SUM por bill_id)
+--
+-- La fase 2 tiene que añadir el filtro en los tres el mismo día que añada la
+-- columna. Están anotados en docs/migraciones.md, «Migraciones deliberadamente
+-- incompletas», que es donde una auditoría los va a buscar.
 -- ============================================================
 
 ALTER TABLE payment_applications
