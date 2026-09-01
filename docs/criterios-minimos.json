@@ -1,0 +1,25 @@
+{
+  "_": "PISO DE CRITERIOS. Lo comprueba `npm run plan:status -- --piso`, que corre en CI.",
+  "_por_que": "--exigir protege PAQUETES, y el estado de un paquete es el peor de sus criterios: un paquete YA abierto absorbe cualquier regresion interna sin mover el veredicto de CI. La auditoria integral II lo demostro creando un archivo que solo NOMBRABA postJournalEntry: el criterio «ninguna herramienta del agente alcanza el mayor» se puso rojo y la misma linea de CI siguio saliendo con 0. Estos son los criterios verdes que viven en paquetes abiertos y que nadie protegia.",
+  "_reglas": "Tres direcciones, porque un trinquete que solo mira una se vacia por las otras dos: (1) un criterio del piso que se pone rojo falla; (2) un criterio del piso cuyo enunciado ya no existe falla —el renombre silencioso vaciaria la lista—; (3) un criterio verde de un paquete ABIERTO que no este aqui falla: el piso sube en el mismo commit que gana el terreno. Los criterios de paquetes RESUELTOS no se listan: --exigir ya los cubre enteros.",
+  "_s2": "Nace en S2 con los 17 verdes desprotegidos del HEAD que lo introduce. Cuando un paquete rojo se cierre, sus criterios salen de aqui y entran a --exigir con el paquete.",
+  "verdes": [
+    "E1.4 · Ninguna función reporta éxito de un acto externo que no realiza",
+    "E4.1 · Una conciliación no se declara cuadrada sin postear su diferencia",
+    "E4.1 · El mapeo contable de nómina se siembra en el alta",
+    "E4.2 · Postear no dispara el refresco de vistas materializadas",
+    "E5.1 · La auditoría de consistencia corre contra el binario que se embarca, y su deuda no crece",
+    "E5.1 · Toda hoja del CLI declara su riesgo, así que hay algo sobre lo que aplicar la compuerta",
+    "E5.1 · La corrida desatendida corre con una superficie nombrada, no con «todas»",
+    "E5.1 · Los graves declaran junto a su registro, con la compuerta cableada y la llave guardada",
+    "E5.1 · Los importes sobreviven a la compactación por construcción",
+    "E5.1 · Los precios del ledger declaran su vigencia, y el reporte la muestra",
+    "E5.1 · Ninguna herramienta del agente alcanza el mayor ni ejecuta hacia fuera",
+    "E5.1 · El clasificador tiene vara de medir: golden set con esperado y arnés fijado",
+    "E5.1 · La calibración se lee del rastro: ai stats por bucket, con delta",
+    "E5.1 · Lo que el agente hace deja rastro medible: duración, corridas y eventos",
+    "E5.1 · Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre",
+    "E5.1 · El presupuesto corta donde nacen las sesiones, y desatendido el tope es tope",
+    "E5.1 · La sombra opina sin postear, y encender el auto-posteo exige su historial"
+  ]
+}

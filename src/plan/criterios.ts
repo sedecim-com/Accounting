@@ -33,6 +33,29 @@ export interface Resultado {
   detalle: string;
 }
 
+/**
+ * Un mutante declarado: el cambio de fuente que este criterio EXISTE para
+ * acusar. tests/plan/mutacion.spec.ts lo aplica sobre el seam de lectura
+ * (jamás sobre el árbol real) y exige `falla` — el espejo que §7 prometía,
+ * convertido de disciplina manual en prueba que corre en cada CI (S2).
+ */
+export interface Mutante {
+  /** Ruta relativa a la raíz del archivo a mutar. */
+  archivo: string;
+  /** Literal a reemplazar (la primera aparición). Debe existir: un ancla ausente es un espejo roto. */
+  de: string;
+  /**
+   * El reemplazo, o `null` para que el archivo DESAPAREZCA. La segunda forma
+   * existe porque hay criterios cuyo modo de fallo no es que un texto cambie
+   * sino que un archivo se borre —el registro de una auditoría, una
+   * migración— y un espejo que no puede expresar el fallo que vigila no es
+   * un espejo.
+   */
+  a: string | null;
+  /** Qué clase de escape encarna (la familia de lecciones: sufijo, conteo, firma-como-llamada…). */
+  porque: string;
+}
+
 export interface Criterio {
   paquete: string;
   /** Qué se afirma, en términos de comportamiento observable. */
@@ -40,6 +63,13 @@ export interface Criterio {
   /** Precondición que el runner comprueba antes de evaluar. */
   necesita?: 'base-de-datos' | 'red';
   evaluar: () => Promise<Resultado> | Resultado;
+  /**
+   * Espejos: mutaciones que DEBEN poner este criterio en rojo. Sólo para
+   * criterios SIN `necesita` (los de conducta se juzgan contra la base, no
+   * contra el fuente). La línea base de criterios sin espejo sólo encoge
+   * (meta-criterio en E0.0).
+   */
+  mutantes?: Mutante[];
 }
 
 // ── Ayudas ──────────────────────────────────────────────────
@@ -50,7 +80,51 @@ export function rutaDe(...p: string[]): string {
   return path.join(RAIZ, ...p);
 }
 
+/**
+ * EL SEAM DE LECTURA (S2). Toda lectura de fuente que hacen los criterios
+ * pasa por aquí, para que tests/plan/mutacion.spec.ts pueda aplicar un
+ * mutante EN MEMORIA — sin tocar el árbol real jamás — y exigir el rojo.
+ * Fuera de esa prueba, el overlay es null y leer() es fs.readFileSync.
+ */
+let sobreescrituras: Map<string, string | null> | null = null;
+
+/**
+ * SOLO PRUEBAS: corre fn con los archivos del overlay sustituidos en memoria.
+ * Un valor `null` finge que el archivo NO EXISTE.
+ */
+export async function conFuenteMutada<T>(
+  overlay: Record<string, string | null>,
+  fn: () => Promise<T> | T
+): Promise<T> {
+  sobreescrituras = new Map(Object.entries(overlay));
+  try {
+    return await fn();
+  } finally {
+    sobreescrituras = null;
+  }
+}
+
+function leer(abs: string): string {
+  if (sobreescrituras) {
+    const rel = path.relative(RAIZ, abs);
+    if (sobreescrituras.has(rel)) {
+      const o = sobreescrituras.get(rel);
+      if (o === null) throw new Error(`ENOENT (mutante): ${rel}`);
+      return o as string;
+    }
+  }
+  return fs.readFileSync(abs, 'utf-8');
+}
+
+/** El contenido crudo (con comentarios) de un archivo, por el seam. */
+export function crudoDe(...p: string[]): string {
+  return leer(rutaDe(...p));
+}
+
 export function existe(rel: string): boolean {
+  // El overlay también gobierna la EXISTENCIA: así un espejo puede fingir
+  // que un registro de auditoría o una migración desaparecieron.
+  if (sobreescrituras?.get(rel) === null) return false;
   return fs.existsSync(rutaDe(rel));
 }
 
@@ -106,7 +180,7 @@ export function dondeAparece(
   const hits: string[] = [];
   for (const dir of dirs) {
     for (const f of fuentes(dir)) {
-      const bruto = fs.readFileSync(f, 'utf-8');
+      const bruto = leer(f);
       const texto = soloCodigo ? sinComentarios(bruto) : bruto;
       patron.lastIndex = 0;
       if (patron.test(texto)) hits.push(path.relative(RAIZ, f));
@@ -120,7 +194,7 @@ export function apariciones(patron: RegExp, dirs: string[] = ['src']): number {
   let n = 0;
   for (const dir of dirs) {
     for (const f of fuentes(dir)) {
-      const m = fs.readFileSync(f, 'utf-8').match(patron);
+      const m = leer(f).match(patron);
       n += m ? m.length : 0;
     }
   }
@@ -148,7 +222,7 @@ export function consumidoresDe(simbolo: string, definidoEn: string): string[] {
  * conducta es el error que este archivo existe para no cometer.
  */
 export function codigoDe(...p: string[]): string {
-  return sinComentarios(fs.readFileSync(rutaDe(...p), 'utf-8'));
+  return sinComentarios(leer(rutaDe(...p)));
 }
 
 export const ok = (detalle: string): Resultado => ({ estado: 'ok', detalle });
@@ -165,7 +239,7 @@ export const CRITERIOS: Criterio[] = [
     evaluar: () => {
       const cfg = rutaDe('.git', 'config');
       if (!fs.existsSync(cfg)) return falla('no hay .git');
-      const tiene = /\[remote /.test(fs.readFileSync(cfg, 'utf-8'));
+      const tiene = /\[remote /.test(leer(cfg));
       return tiene
         ? ok('remoto configurado')
         : falla('sin remoto: ci.yml existe pero nunca puede ejecutarse');
@@ -210,7 +284,7 @@ export const CRITERIOS: Criterio[] = [
       if (!fs.existsSync(dir)) return falla('no existe .github/workflows');
       const archivos = fs.readdirSync(dir);
       if (archivos.length !== 1) return falla(`${archivos.length} archivos de workflow: ${archivos.join(', ')}`);
-      const y = fs.readFileSync(path.join(dir, archivos[0]), 'utf-8');
+      const y = leer(path.join(dir, archivos[0]));
       const jobs = ['typecheck', 'unit', 'integration', 'aislamiento'].filter((j) =>
         new RegExp(`^  ${j}:`, 'm').test(y)
       );
@@ -223,7 +297,7 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E0.0',
     enunciado: 'La aplicación conecta como rol NO privilegiado en el job que prueba el aislamiento',
     evaluar: () => {
-      const y = fs.readFileSync(rutaDe('.github', 'workflows', 'ci.yml'), 'utf-8');
+      const y = crudoDe('.github', 'workflows', 'ci.yml');
       const bloque = y.slice(y.indexOf('aislamiento:'));
       return /DATABASE_URL:\s*postgresql:\/\/mnemosine_app/.test(bloque)
         ? ok('DATABASE_URL usa mnemosine_app')
@@ -234,30 +308,81 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E0.0',
     enunciado: 'Un flujo no se declara cerrado sin su auditoría adversarial registrada',
     evaluar: () => {
-      // S1: la regla «la auditoría adversarial cierra cada tramo» era
-      // disciplina sin compuerta — AUD-5/AUD-6 existieron como práctica, pero
-      // nada impedía declarar cerrado un F0x sin auditarlo. Cerrar un flujo
-      // es AÑADIR su entrada aquí, con la ruta de su registro; una entrada
-      // cuyo archivo no existe se acusa. El piso de la práctica queda
-      // registrado: la auditoría integral del 2026-08-31.
-      const FLUJOS_CERRADOS: Record<string, string> = {
-        // 'F01': 'docs/auditorias/F01.md',
+      // S1 lo escribió como INVITACIÓN y por eso no acusó a nadie: la lista de
+      // flujos cerrados era un objeto que había que poblar a mano, su único
+      // renglón estaba comentado, y `[].filter(...).length === 0` es verdad
+      // constante. Con la compuerta en verde por vacía, F01, F02 y A3-A4 se
+      // declararon hechos sin un solo registro — la auditoría integral II lo
+      // nombró como la meta-brecha: el instrumento que juzga a todos era el
+      // único que nadie juzgaba.
+      //
+      // S2 la vuelve DERIVADA: lo cerrado no lo dice una lista que hay que
+      // acordarse de poblar, lo dice EL CATÁLOGO. Cada celda «hecha en F0x»
+      // es la declaración de que ese flujo cerró, y entonces su registro de
+      // auditoría DEBE existir. Ya no se puede cerrar un flujo sin auditarlo:
+      // habría que no reclamar ni una fila.
+      //
+      // Se derivó del catálogo y no del historial de git a propósito: el
+      // primer intento leía los asuntos de los commits y el clon de esta
+      // misma máquina resultó ser SUPERFICIAL —igual que el de
+      // `actions/checkout` por omisión—, así que la compuerta habría visto un
+      // solo commit y dado verde por no mirar. El catálogo está en el árbol,
+      // lo versiona el mismo commit que cierra el flujo, y el arnés de
+      // mutación puede tocarlo.
+      const REGISTROS: Record<string, string> = {
+        // Los tramos que la integral II verificó tarjeta por tarjeta.
+        F01: 'docs/auditorias/2026-09-01-integral-ii/maestro-vs-codigo.md',
+        F02: 'docs/auditorias/2026-09-01-integral-ii/maestro-vs-codigo.md',
+        'A3-A4': 'docs/auditorias/2026-09-01-integral-ii/a3a4-entregado.md',
+        // F03 se auditó por EJECUCIÓN contra la base (el abanico de escépticos
+        // murió dos veces contra el límite de la cuenta): su registro dice eso
+        // en su primera sección, porque el método es parte del veredicto.
+        F03: 'docs/auditorias/F03.md',
       };
+
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
         return falla('el registro de auditorías desapareció: docs/auditorias/2026-08-31-integral');
       }
-      const sinRegistro = Object.entries(FLUJOS_CERRADOS).filter(([, doc]) => !existe(doc));
+
+      const catalogo = crudoDe('docs/cli-command-catalog.md');
+      const cerrados = [
+        ...new Set(
+          [...catalogo.matchAll(/hecha en (F\d+[a-z]?|A\d+(?:-A\d+)?|R\d+)\b/g)].map((m) => m[1])
+        ),
+      ].sort();
+
+      if (cerrados.length === 0) {
+        return falla(
+          'ninguna fila del catálogo se declara hecha en un flujo: o la convención se abandonó ' +
+            'y esta compuerta dejó de ver nada, o el catálogo perdió sus celdas.'
+        );
+      }
+
+      const sinRegistro = cerrados.filter((f) => !REGISTROS[f] || !existe(REGISTROS[f]));
       return sinRegistro.length === 0
         ? ok(
-            `${Object.keys(FLUJOS_CERRADOS).length} flujo(s) cerrados con registro; ` +
-              'la integral 2026-08-31 en el archivo'
+            `${cerrados.length} flujo(s) reclamados por el catálogo (${cerrados.join(', ')}), ` +
+              'cada uno con su registro de auditoría en el árbol'
           )
         : falla(
-            `flujo(s) declarados cerrados sin registro de auditoría: ${sinRegistro
-              .map(([f]) => f)
-              .join(', ')}`
+            `flujo(s) que el catálogo declara hechos SIN registro de auditoría: ${sinRegistro.join(', ')}. ` +
+              'Cerrar un flujo es auditarlo y archivar el registro bajo docs/auditorias/ en el mismo commit.'
           );
     },
+    mutantes: [
+      {
+        archivo: 'docs/auditorias/F03.md',
+        de: '# Auditoría adversarial de F03',
+        a: null,
+        porque: 'el registro de un flujo cerrado desaparece: la compuerta debe acusarlo, que es lo único que vino a hacer',
+      },
+      {
+        archivo: 'docs/cli-command-catalog.md',
+        de: 'hecha en F03',
+        a: 'hecha en F04',
+        porque: 'el catálogo reclama un flujo NUEVO sin auditoría: cerrar sin registro es exactamente lo prohibido',
+      },
+    ],
   },
 
   // ---- E0.1 · Red de pruebas ----
@@ -282,7 +407,7 @@ export const CRITERIOS: Criterio[] = [
       const dirMigraciones = 'src/database/migrations';
       const sql = fs
         .readdirSync(rutaDe(dirMigraciones))
-        .map((m) => fs.readFileSync(rutaDe(dirMigraciones, m), 'utf-8'))
+        .map((m) => crudoDe(dirMigraciones, m))
         .join('\n');
       const creadas = new Set(
         [...sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?(\w+)/gi)].map((m) => m[1])
@@ -470,10 +595,7 @@ export const CRITERIOS: Criterio[] = [
       if (!existe('src/database/migrations/040_el_secreto_que_el_compromiso_revelaba.sql')) {
         return falla('la migración de purga (040) desapareció: las filas históricas retendrían la fuga');
       }
-      const purga = fs.readFileSync(
-        rutaDe('src/database/migrations/040_el_secreto_que_el_compromiso_revelaba.sql'),
-        'utf-8'
-      );
+      const purga = crudoDe('src/database/migrations/040_el_secreto_que_el_compromiso_revelaba.sql');
       return /range_proof\s*=\s*NULL/.test(purga) && /zkverify_proof\s*=\s*NULL/.test(purga)
         ? ok('el generador no escribe el valor y la 040 purgó ambos blobs')
         : falla('la 040 no purga los dos blobs (range_proof y zkverify_proof)');
@@ -491,7 +613,7 @@ export const CRITERIOS: Criterio[] = [
       // las DOS tablas, más el candado de TRUNCATE.
       const m = 'src/database/migrations/041_el_mayor_inviolable.sql';
       if (!existe(m)) return falla('la 041 desapareció: el mayor vuelve a ser reescribible');
-      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      const sql = crudoDe(m);
       const checks: Array<[boolean, string]> = [
         [/ON journal_entries\b[\s\S]{0,80}FOR EACH ROW/.test(sql) || /BEFORE UPDATE OR DELETE ON journal_entries/.test(sql), 'falta el disparador de journal_entries'],
         [/BEFORE UPDATE OR DELETE ON journal_entry_lines/.test(sql), 'falta el disparador de journal_entry_lines'],
@@ -531,6 +653,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.1',
     enunciado: 'El posteo y el cierre no se cruzan: el candado del periodo vive en ambas transacciones',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/posting.ts',
+        de: 'bloquearPeriodoParaPostear(client',
+        a: 'bloquearPeriodoParaPostearSin(client',
+        porque: 'una de las dos transacciones suelta el candado: el conteo ×2 debe acusarlo',
+      },
+    ],
     evaluar: () => {
       // R1 (TOCTOU): la validación leía el periodo FUERA de la transacción
       // del posteo, y el checklist del cierre suave se fotografiaba FUERA de
@@ -565,7 +695,7 @@ export const CRITERIOS: Criterio[] = [
       const sql = fs
         .readdirSync(rutaDe(dir))
         .sort()
-        .map((m) => fs.readFileSync(rutaDe(dir, m), 'utf-8'))
+        .map((m) => crudoDe(dir, m))
         .join('\n');
       const ultimaCreacion = sql.lastIndexOf('CREATE TRIGGER trg_refresh_materialized_views');
       const ultimoDrop = sql.lastIndexOf('DROP TRIGGER IF EXISTS trg_refresh_materialized_views');
@@ -609,7 +739,7 @@ export const CRITERIOS: Criterio[] = [
       }
       const m = 'src/database/migrations/043_la_serie_del_folio_por_ejercicio.sql';
       if (!existe(m)) return falla('la 043 desapareció: los contadores anuales arrancarían en 1 y colisionarían con lo emitido');
-      const siembra = fs.readFileSync(rutaDe(m), 'utf-8');
+      const siembra = crudoDe(m);
       const inserts = (siembra.match(/INSERT INTO entity_sequences/g) ?? []).length;
       return inserts >= 5 && /GREATEST/.test(siembra)
         ? ok('la fecha del documento fija año y contador (llave anual), con la siembra desde los folios reales')
@@ -656,6 +786,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.1',
     enunciado: 'El maker-checker vive en el panel y muerde solo la póliza manual',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/posting.ts',
+        de: "politica.value === 'exigir'",
+        a: "politica.value === 'siempre'",
+        porque: 'el lector deja de comparar contra el literal del panel: la política existiría sin morder',
+      },
+    ],
     evaluar: () => {
       // F01: la decisión §5 no se difirió tácitamente ni se decidió en
       // código — es política del panel (segregacion_de_funciones) con
@@ -707,7 +845,7 @@ export const CRITERIOS: Criterio[] = [
       // ningún bloqueo de E3.x le aplicó jamás), con apagado que LO DICE.
       const m = 'src/database/migrations/046_el_espejo_del_cfdi.sql';
       if (!existe(m)) return falla('la 046 desapareció: la unicidad fiscal vuelve a ser global');
-      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      const sql = crudoDe(m);
       if (!/DROP CONSTRAINT xml_documents_cfdi_uuid_key/.test(sql) ||
           // \b tras el nombre: un sufijo _x seguiría casando el regex desnudo
           // — quinta variante de la familia del ancla en estos sprints.
@@ -822,7 +960,7 @@ export const CRITERIOS: Criterio[] = [
       const dir = 'src/database/migrations';
       const enElEsquema = new Map<string, string[]>();
       for (const f of fs.readdirSync(rutaDe(dir)).filter((n) => n.endsWith('.sql')).sort()) {
-        const sql = fs.readFileSync(rutaDe(dir, f), 'utf-8').replace(/--[^\n]*/g, '');
+        const sql = crudoDe(dir, f).replace(/--[^\n]*/g, '');
         const anota = (tabla: string, columna: string, lista: string): void => {
           const valores = literales(lista);
           if (valores.length) enElEsquema.set(`${tabla.replace(/^public\./i, '')}.${columna}`, valores);
@@ -931,7 +1069,7 @@ export const CRITERIOS: Criterio[] = [
     evaluar: () => {
       const migs = fs.readdirSync(rutaDe('src/database/migrations'));
       const protege = migs.some((m) => {
-        const s = fs.readFileSync(rutaDe('src/database/migrations', m), 'utf-8');
+        const s = crudoDe('src/database/migrations', m);
         return /audit_log/.test(s) && /(REVOKE|CREATE RULE|BEFORE UPDATE OR DELETE)/i.test(s);
       });
       return protege
@@ -974,7 +1112,7 @@ export const CRITERIOS: Criterio[] = [
       const sql = sinComentariosSql(
         fs
           .readdirSync(rutaDe(dir))
-          .map((m) => fs.readFileSync(rutaDe(dir, m), 'utf-8'))
+          .map((m) => crudoDe(dir, m))
           .join('\n')
       );
 
@@ -1049,7 +1187,7 @@ export const CRITERIOS: Criterio[] = [
       }
 
       const arrayDe = (rel: string): Set<string> | null => {
-        const txt = sinComentariosSql(fs.readFileSync(rutaDe(rel), 'utf-8'));
+        const txt = sinComentariosSql(crudoDe(rel));
         const m = /append_only\s+text\[\]\s*:=\s*ARRAY\[([^\]]*)\]/.exec(txt);
         if (!m) return null;
         return new Set([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]));
@@ -1226,7 +1364,7 @@ export const CRITERIOS: Criterio[] = [
     evaluar: () => {
       const catalogo = rutaDe('src', 'services', 'policy', 'pending-catalog.ts');
       if (!fs.existsSync(catalogo)) return noEvaluable('no existe el catálogo de políticas');
-      const claves = [...fs.readFileSync(catalogo, 'utf-8').matchAll(/key:\s*'([a-z0-9_]+)'/g)]
+      const claves = [...leer(catalogo).matchAll(/key:\s*'([a-z0-9_]+)'/g)]
         .map((m) => m[1]);
       if (claves.length === 0) return noEvaluable('el catálogo no declara ninguna clave legible');
 
@@ -1344,7 +1482,7 @@ export const CRITERIOS: Criterio[] = [
       let revisadas = 0;
 
       for (const f of archivos) {
-        const texto = sinComentarios(fs.readFileSync(f, 'utf-8'));
+        const texto = sinComentarios(leer(f));
         for (const m of texto.matchAll(ROUTER)) {
           revisadas += 1;
           const cuerpo = m[3];
@@ -1502,7 +1640,7 @@ export const CRITERIOS: Criterio[] = [
       if (/from '..\/..\/..\/database\/connection.js'/.test(router)) {
         return falla('el router público volvió a consultar por el pool directo, fuera del camino sancionado');
       }
-      const politicas = fs.readFileSync(rutaDe('src/database/rls-policies.sql'), 'utf-8');
+      const politicas = crudoDe('src/database/rls-policies.sql');
       const n = (politicas.match(/CREATE POLICY verificacion_publica/g) ?? []).length;
       if (n < 5) {
         return falla(`las políticas del verificador no cubren las cinco tablas (hay ${n})`);
@@ -1510,7 +1648,7 @@ export const CRITERIOS: Criterio[] = [
       if (!/GRANT SELECT \(id, name, entity_type/.test(politicas)) {
         return falla('legal_entities perdió el GRANT de columnas enumeradas: un SELECT * nuevo expondría en vez de tronar');
       }
-      return /mnemosine_verifier/.test(fs.readFileSync(rutaDe('scripts/provision-roles.sql'), 'utf-8'))
+      return /mnemosine_verifier/.test(crudoDe('scripts/provision-roles.sql'))
         ? ok('rol verificador aprovisionado, políticas en el reconciliador y el router por SET LOCAL ROLE')
         : falla('provision-roles.sql no crea mnemosine_verifier: el camino existe sólo donde alguien lo creó a mano');
     },
@@ -1531,7 +1669,7 @@ export const CRITERIOS: Criterio[] = [
       // Derivarlo de otro —lo que hace hoy middleware/auth.ts— no cuenta:
       // eso es un consumidor con otra forma, no una segunda verdad.
       const declaran = fuentes('src')
-        .map((f) => ({ rel: path.relative(rutaDe(), f), texto: sinComentarios(fs.readFileSync(f, 'utf-8')) }))
+        .map((f) => ({ rel: path.relative(rutaDe(), f), texto: sinComentarios(leer(f)) }))
         .filter(({ texto }) => /^\s*[a-z_]+:\s*\{[\s\S]{0,400}?permissions:\s*\[/m.test(texto))
         .map(({ rel }) => rel);
 
@@ -1927,6 +2065,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E5.1',
     enunciado: 'Ninguna herramienta del agente alcanza el mayor ni ejecuta hacia fuera',
+    mutantes: [
+      {
+        archivo: 'src/ai/tools/ledger-tools.ts',
+        de: 'envolverDatosDeTerceros(',
+        a: 'envolverDatosDeTerceros(postJournalEntry, ',
+        porque: 'una herramienta que NOMBRA una puerta de dinero debe enrojecer, aunque no la llame (la lección del import)',
+      },
+    ],
     evaluar: () => {
       // ESTE CRITERIO ESTABA EN ROJO POR UNA AFIRMACIÓN FALSA.
       //
@@ -1980,7 +2126,7 @@ export const CRITERIOS: Criterio[] = [
         /from\s+'[^']*(accounting\/posting|payments\/payment-service|xml-ingestion\/rep-linkage|accounting\/period-close|xml-ingestion\/pre-registration-service)/;
       const culpables: string[] = [];
       for (const f of archivos) {
-        const codigo = sinComentarios(fs.readFileSync(f, 'utf-8'));
+        const codigo = sinComentarios(leer(f));
         const rel = path.relative(rutaDe(), f);
         for (const nombre of PROHIBIDOS) {
           if (new RegExp(`\\b${nombre}\\b`).test(codigo)) culpables.push(`${rel} → ${nombre}`);
@@ -2088,7 +2234,7 @@ export const CRITERIOS: Criterio[] = [
       // menor deja rastro ANTES de discutir la autonomía mayor.
       const m = 'src/database/migrations/044_el_agente_medible.sql';
       if (!existe(m)) return falla('la 044 desapareció: sin tablas no hay rastro');
-      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      const sql = crudoDe(m);
       if (!/ADD COLUMN duration_ms/.test(sql) || !/CREATE TABLE ai_ingest_runs/.test(sql) || !/CREATE TABLE ai_agent_events/.test(sql)) {
         return falla('la 044 perdió una de sus tres piezas (duration_ms, ai_ingest_runs, ai_agent_events)');
       }
@@ -2128,6 +2274,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E5.1',
     enunciado: 'Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre',
+    mutantes: [
+      {
+        archivo: 'src/ai/ingest-service.ts',
+        de: 'opts.deps?.autoApproveByPolicy ?? autoApproveDraftByPolicy',
+        a: 'opts.deps!.autoApproveByPolicy',
+        porque: 'el seam de pruebas se vuelve el camino de producción: el default al autorizador real desaparece',
+      },
+    ],
     evaluar: () => {
       // A3: había DOS autorizadores — matchApprovalPolicy con toda la
       // jurisprudencia (tope del operador vía Math.min, revocación,
@@ -2164,6 +2318,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E5.1',
     enunciado: 'El presupuesto corta donde nacen las sesiones, y desatendido el tope es tope',
+    mutantes: [
+      {
+        archivo: 'src/ai/budget.ts',
+        de: "opts.unattended ? 'block' : 'warn'",
+        a: "'warn'",
+        porque: 'la ruta desatendida pierde su default block: «solo avisa» significa que no hay tope',
+      },
+    ],
     evaluar: () => {
       // A3 (spec E5.1-e): presupuesto opt-in por archivo de config, pero con
       // un default que distingue rutas: con humano enfrente, warn; en ruta
@@ -2206,6 +2368,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E5.1',
     enunciado: 'La sombra opina sin postear, y encender el auto-posteo exige su historial',
+    mutantes: [
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: 'c.decididos < FLOOR_SOMBRA_VEREDICTOS ||',
+        a: '',
+        porque: 'el piso pierde la vara del volumen decidido: tres comparaciones, cada una con ancla propia',
+      },
+    ],
     evaluar: () => {
       // A4: autoPost 'shadow' corre TODAS las compuertas, registra el
       // veredicto y no postea nada. La concordancia cruza esos veredictos
@@ -2214,7 +2384,7 @@ export const CRITERIOS: Criterio[] = [
       // 'on': el encendido es una decisión con evidencia, no una casilla.
       const m = 'src/database/migrations/047_el_veredicto_de_la_sombra.sql';
       if (!existe(m)) return falla('la 047 desapareció: la sombra no tendría dónde opinar');
-      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      const sql = crudoDe(m);
       if (!/CREATE TABLE ai_shadow_verdicts/.test(sql) || !/UNIQUE \(draft_id\)/.test(sql)) {
         return falla('ai_shadow_verdicts perdió la unicidad por borrador: una sombra que opina dos veces infla su propia concordancia');
       }
@@ -2266,6 +2436,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.1',
     enunciado: 'La nota de crédito postea al emitir por la vía única, y su aplicación no toca efectivo',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: "sourceType: 'credit_note'",
+        a: "sourceType: 'nota'",
+        porque: 'la nota pierde su source_type: el asiento quedaría sin documento',
+      },
+    ],
     evaluar: () => {
       // F03: la nota es documento con folio (CN), posteada por el MISMO
       // motor AR→GL que la factura (ar-ap-posting), idempotente tras su
@@ -2305,6 +2483,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.1',
     enunciado: 'El folio eliminado deja hueco explicado, y el perfil fiscal se valida contra catálogo antes de escribir',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/048_cobrar.sql',
+        de: 'ADD COLUMN tax_regime VARCHAR(3),',
+        a: 'ADD COLUMN tax_regimen VARCHAR(3),',
+        porque: 'el mutante-sufijo: «tax_regimen» CONTIENE «tax_regime» y solo \\b lo mata',
+      },
+    ],
     evaluar: () => {
       // F03: borrar un borrador es legal; borrar su rastro no. El DELETE
       // guarda el documento completo en audit_log y la serie cruza sus
@@ -2354,7 +2540,7 @@ export const CRITERIOS: Criterio[] = [
       // \b: la lección del mutante-sufijo — «tax_regimen» CONTIENE
       // «tax_regime» y un regex sin frontera lo bendice.
       return /ADD COLUMN tax_regime\b/.test(
-        fs.readFileSync(rutaDe('src/database/migrations/048_cobrar.sql'), 'utf-8')
+        crudoDe('src/database/migrations/048_cobrar.sql')
       )
         ? ok('DELETE con rastro completo y serie que lo lee; perfil fiscal validado contra catálogo antes del UPDATE')
         : falla('la 048 perdió las columnas del perfil fiscal: el control previo a facturar no tendría dónde vivir');
@@ -2363,6 +2549,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E1.2',
     enunciado: 'El cobro es historia: la aplicación se clausura, su IVA viaja en la fila y la reversa es por espejos',
+    mutantes: [
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: "SET status = 'reversed', reversed_at = NOW()",
+        a: "SET status = 'void', reversed_at = NOW()",
+        porque: "«reversed» degradado a «void»: ocurrió-y-rebotó es otra afirmación ante un auditor",
+      },
+    ],
     evaluar: () => {
       // F03: tres propiedades que mantienen el IVA de flujo de efectivo
       // verdadero cuando el cobro deja de ser una instantánea:
@@ -2412,6 +2606,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E3.1',
     enunciado: 'Lo que no envía no existe: el adaptador de correo simulado está retirado',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/routes/invoices.ts',
+        de: 'transmitted: false',
+        a: 'transmitted: true',
+        porque: 'la ruta vuelve a mentir que transmite: el «sent:true sin envío» que CLI-5 purgó',
+      },
+    ],
     evaluar: () => {
       // F03: el plan preguntaba «¿cablear invoice send al adaptador SendGrid
       // o retirar la promesa?» y el reconocimiento volteó la premisa: el
@@ -2436,6 +2638,148 @@ export const CRITERIOS: Criterio[] = [
         ? ok('adaptador retirado, registro limpio y la ruta de envío marca confesando que no transmite')
         : falla('la ruta de envío perdió su mitad honesta: marcar sin decir qué significó');
     },
+  },
+
+  // ---- S2 · El instrumento se somete al instrumento ----
+
+  {
+    paquete: 'E0.0',
+    enunciado: 'Los criterios tienen espejo ejecutable: un mutante declarado los pone en rojo',
+    evaluar: () => {
+      // S2: §7 prometía desde el principio que «cada criterio llega con su
+      // espejo que neutraliza la conducta medida y afirma el rojo». Era verdad
+      // a medias — los espejos existían como PASE MANUAL, corrido a mano cada
+      // fase, cuyo resultado vivía en el mensaje del commit. Nada impedía que
+      // un criterio naciera sin ninguno ni que uno viejo dejara de morder.
+      //
+      // Ahora el espejo es una prueba: cada `mutante` se aplica sobre el seam
+      // de lectura (overlay en memoria, el árbol jamás se toca) y se exige
+      // `falla`. Este criterio vigila que el arnés siga existiendo, que el
+      // seam siga siendo la única puerta de lectura, y que la deuda encoja.
+      if (!existe('tests/plan/mutacion.spec.ts')) {
+        return falla('el arnés de mutación desapareció: los espejos volverían a ser un pase manual');
+      }
+      const arnes = codigoDe('tests/plan/mutacion.spec.ts');
+      if (!/conFuenteMutada\(overlay, \(\) => criterio\.evaluar\(\)\)/.test(arnes)) {
+        return falla('el arnés dejó de evaluar el criterio BAJO la mutación: mediría el árbol limpio');
+      }
+      if (!/\.toBe\('falla'\)/.test(arnes)) {
+        return falla('el arnés dejó de EXIGIR el rojo: un mutante que sobrevive pasaría inadvertido');
+      }
+      // El seam es la única puerta: si un criterio vuelve a leer el disco
+      // directo, su mutante no lo toca y el espejo miente en verde. Se cuenta
+      // sobre el fuente CRUDO porque el comentario que lo explica también
+      // nombra fs.readFileSync — y aquí importa el conteo, no la presencia.
+      const cru = crudoDe('src/plan/criterios.ts');
+      const lecturasDirectas = (cru.match(/fs\.readFileSync\(/g) ?? []).length;
+      if (lecturasDirectas > 1) {
+        return falla(
+          `${lecturasDirectas} lectura(s) directa(s) de disco en los criterios: sólo puede quedar la ` +
+            'de leer() (el seam). Una lectura que rodea el seam es un criterio que ningún espejo puede mutar.'
+        );
+      }
+      // La línea base sólo SUBE: S2 nace con catorce espejos y ninguno se
+      // retira sin bajar este número a la vista, en el mismo commit.
+      const conEspejo = CRITERIOS.filter((c) => (c.mutantes?.length ?? 0) > 0).length;
+      return conEspejo >= 14
+        ? ok(`${conEspejo} criterios con espejo ejecutable; toda lectura de fuente pasa por el seam`)
+        : falla(`sólo ${conEspejo} criterios con espejo declarado: la línea base de S2 eran 14 y sólo sube`);
+    },
+    mutantes: [
+      {
+        archivo: 'tests/plan/mutacion.spec.ts',
+        de: ".toBe('falla')",
+        a: ".toBe('ok')",
+        porque: 'el arnés deja de exigir el rojo: los espejos pasarían a bendecir a los mutantes vivos',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    enunciado: 'El corpus que instruye al agente tiene compuerta de caducidad',
+    evaluar: () => {
+      // S2: el agente lee src/ai/docs como VERDAD —grounding.ts incluso lo
+      // manda a leerlos para *verificar*— y la auditoría II encontró dos
+      // páginas que le enseñaban lo que el sistema tiene módulos para
+      // corregir: el IVA acreditado de inmediato (el defecto que
+      // iva-ppd-reclass repara) y una anulación con auto-posteo que R1 hizo
+      // imposible. No estaban desactualizadas: MAL-INSTRUÍAN, y su lector no
+      // puede dudar como dudaría una persona.
+      if (!existe('src/ai/docs/manifiesto.json') || !existe('scripts/corpus-manifiesto.ts')) {
+        return falla('el manifiesto del corpus desapareció: los manuales del agente volverían a caducar en silencio');
+      }
+      const script = codigoDe('scripts/corpus-manifiesto.ts');
+      if (!/sellado !== hoy/.test(script)) {
+        return falla('el manifiesto dejó de comparar hashes: no detectaría que una fuente cambió');
+      }
+      if (!/m\.sin_revisar\.length > SIN_REVISAR_MAXIMO/.test(script)) {
+        return falla('la deuda de manuales sin revisar dejó de tener trinquete: podría crecer en silencio');
+      }
+      // La compuerta corre en CI o es un comando que nadie teclea.
+      if (!/corpus-manifiesto\.ts --check/.test(crudoDe('.github', 'workflows', 'ci.yml'))) {
+        return falla('la compuerta del corpus no está en CI: sería una comprobación optativa');
+      }
+      // Y los dos pasajes que mal-instruían quedaron corregidos: el manual
+      // debe NOMBRAR la cuenta donde el IVA de un PPD aparca, y decir que un
+      // asiento posteado no cambia de estado.
+      const cfdi = crudoDe('src/ai/docs/mexico-cfdi.md');
+      if (!/1135/.test(cfdi) || !/2125/.test(cfdi)) {
+        return falla('mexico-cfdi.md volvió a enseñar el IVA sin las cuentas de aparcado (1135/2125)');
+      }
+      return /IMMUTABLE|inmutable/i.test(crudoDe('src/ai/docs/accounting.md'))
+        ? ok('manifiesto con hashes y deuda que sólo encoge, en CI, y los dos manuales que mal-instruían corregidos')
+        : falla('accounting.md volvió a prometer que un asiento posteado cambia de estado');
+    },
+    mutantes: [
+      {
+        archivo: 'src/ai/docs/mexico-cfdi.md',
+        de: '1135',
+        a: '1130',
+        porque: 'el manual vuelve a enseñar que el IVA de un PPD se acredita de inmediato: el defecto que iva-ppd-reclass existe para reparar',
+      },
+      {
+        archivo: 'scripts/corpus-manifiesto.ts',
+        de: 'sellado !== hoy',
+        a: 'sellado === hoy',
+        porque: 'la comparación de hashes se invierte: la compuerta pasaría a acusar lo que NO cambió',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    enunciado: 'El costo por fila publica su banda y separa entrega de garantía',
+    evaluar: () => {
+      // S2: el instrumento publicaba 0,7 % de cola correctiva —y bajando,
+      // porque su regex sobre el asunto sólo casaba uno de cada dieciocho
+      // commits correctivos— donde la medición a mano de la auditoría II da
+      // entre 11,8 % y 51,7 %. Subestimaba por un factor de 17× a 74× y lo
+      // hacía dos líneas encima de la referencia fundacional del 12,3 %, como
+      // invitando a concluir que la cola se había resuelto sola.
+      const s = codigoDe('scripts/costo-por-fila.ts');
+      // La banda son DOS convenciones publicadas juntas: una sola volvería a
+      // cerrar la pregunta con un número.
+      if (!/estricta/.test(s) || !/amplia/.test(s)) {
+        return falla('la cola volvió a publicarse como un número solo: cerraría la pregunta con la cifra equivocada');
+      }
+      if (!/TRAILER_CORRIGE/.test(s)) {
+        return falla('el clasificador perdió el trailer declarado y volvería a depender sólo de adivinar el asunto');
+      }
+      // Entrega y garantía MEDIDAS por ruta, no derivadas de un porcentaje.
+      if (!/export function entregaYGarantia/.test(s) || !/insercionesEn\(a, b, 'tests', 'scripts'\)/.test(s)) {
+        return falla('entrega y garantía dejaron de medirse por ruta: volverían a ser una estimación de una estimación');
+      }
+      return /ENTREGA/.test(s) && /GARANTÍA/.test(s)
+        ? ok('la cola se publica como banda con su trailer, y entrega/garantía salen medidas por ruta')
+        : falla('la salida dejó de separar entrega de garantía: presupuestar una fase con el número junto la presupuesta mal');
+    },
+    mutantes: [
+      {
+        archivo: 'scripts/costo-por-fila.ts',
+        de: "insercionesEn(a, b, 'tests', 'scripts')",
+        a: 'insercionesEn(a, b)',
+        porque: 'la garantía deja de medirse por ruta y se cuenta el árbol entero: la separación se vuelve ruido',
+      },
+    ],
   },
 
 ];

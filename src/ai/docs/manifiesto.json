@@ -1,0 +1,102 @@
+{
+  "_": "Qué fuentes describe cada manual del agente, y con qué hash se revisó. Ver MANIFIESTO.md.",
+  "_como_actualizar": "npx tsx scripts/corpus-manifiesto.ts --actualizar <manual.md> — DESPUES de releer ese manual contra sus fuentes.",
+  "_sin_revisar": "Manuales que NADIE ha releido contra el codigo de hoy. Sellarlos sin leerlos diria «revisado» sobre paginas congeladas desde agosto, que es la mentira que este manifiesto existe para acabar. La lista SOLO ENCOGE: cada manual revisado sale de aqui y entra a hashes, en el mismo commit.",
+  "manuales": {
+    "accounting.md": [
+      "src/services/accounting/posting.ts",
+      "src/services/accounting/validation.ts",
+      "src/services/accounting/fiscal-calendar-service.ts",
+      "src/cli/entry-command.ts"
+    ],
+    "mexico-cfdi.md": [
+      "src/services/accounting/iva-cash-basis.ts",
+      "src/services/xml-ingestion/cfdi-taxonomy.ts",
+      "src/services/integrations/mexico/pac/pac-router.ts",
+      "src/api/rest/routes/invoices.ts",
+      "src/ai/ingest-service.ts"
+    ],
+    "receivables.md": [
+      "src/services/ar/invoice-service.ts",
+      "src/services/ar/customer-service.ts",
+      "src/services/ar/credit-note-service.ts",
+      "src/services/ar/ar-controls.ts",
+      "src/services/accounting/ar-ap-posting.ts",
+      "src/services/payments/payment-service.ts"
+    ],
+    "payables.md": [
+      "src/services/ap/bill-service.ts",
+      "src/services/ap/vendor-service.ts",
+      "src/services/payments/payment-service.ts"
+    ],
+    "banking.md": [
+      "src/services/banking/matching.ts",
+      "src/api/rest/routes/bank-reconciliation.ts",
+      "src/database/enums.ts"
+    ],
+    "payroll.md": [
+      "src/services/payroll/common/pay-run-service.ts",
+      "src/services/payroll/common/paycheck-service.ts",
+      "src/services/payroll/mx/cfdi-nomina-generator.ts"
+    ],
+    "reports.md": [
+      "src/services/reporting/report-service.ts"
+    ],
+    "mnemosine.md": [
+      "src/ai/draft-service.ts",
+      "src/ai/question-service.ts",
+      "src/ai/budget.ts",
+      "src/ai/floor.ts",
+      "src/services/policy/policy-service.ts"
+    ],
+    "playbooks.md": [
+      "src/ai/doctor-service.ts",
+      "src/ai/onboarding-service.ts"
+    ],
+    "system.md": [
+      "src/services/webhooks/webhook-service.ts",
+      "src/services/integrations/index.ts"
+    ],
+    "identity-access.md": [
+      "src/database/rls-policies.sql",
+      "src/services/fiscal-credentials/service.ts"
+    ],
+    "connectivity.md": [
+      "src/ai/providers/index.ts",
+      "src/ai/providers/config.ts"
+    ],
+    "external-integrations.md": [
+      "src/ai/external-service.ts",
+      "src/ai/tools/external-tools.ts",
+      "src/services/integrations/accounting/contalink-adapter.ts"
+    ]
+  },
+  "sin_revisar": [
+    "connectivity.md",
+    "identity-access.md",
+    "mnemosine.md",
+    "payables.md",
+    "payroll.md",
+    "playbooks.md",
+    "receivables.md",
+    "reports.md",
+    "system.md"
+  ],
+  "hashes": {
+    "src/services/accounting/posting.ts": "efc8459cd780d094acd3e3788c11048f310d655a",
+    "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
+    "src/services/accounting/fiscal-calendar-service.ts": "d5d7a785b11a533a34c39d5d1c4568f2c4122930",
+    "src/cli/entry-command.ts": "bda3af4169e96a2548f52512dfc5415ed5f6ae42",
+    "src/services/accounting/iva-cash-basis.ts": "54ff44d04baa5609dfd13385934a4aa4231a65e9",
+    "src/services/xml-ingestion/cfdi-taxonomy.ts": "b2a6f48015dfbe756450de2e0348f922b5d989d4",
+    "src/services/integrations/mexico/pac/pac-router.ts": "adb8d8fde1a2bd9ae22817492682b4c480351d48",
+    "src/api/rest/routes/invoices.ts": "852a2b050a60044e8c1b1d6e38f6582ff70653fc",
+    "src/ai/ingest-service.ts": "0deb70c0e448f88f91cdc87c60e80736d198a2aa",
+    "src/services/banking/matching.ts": "0d575f2f8fdf60495a2980bf60c7637258f50bdb",
+    "src/api/rest/routes/bank-reconciliation.ts": "bc4e58d30e8a08388fbf39c7f5211d44ef84a005",
+    "src/database/enums.ts": "5dccae2793057f5471435cf6a18779c8e4fc7596",
+    "src/ai/external-service.ts": "0dcfa6a6f06c6b2985a947fefd08ccaf0819c571",
+    "src/ai/tools/external-tools.ts": "283948b7b85553aff42f03cf69f59c932859b567",
+    "src/services/integrations/accounting/contalink-adapter.ts": "26f1f237d951a438adfc9e3d0430c316ff762f2b"
+  }
+}

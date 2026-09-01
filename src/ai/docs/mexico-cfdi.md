@@ -2,12 +2,16 @@
 
 ## CFDI 4.0 essentials
 - PUE (single-payment) → the expense is credited against BANKS. PPD (installments or deferred) → against VENDORS (AP); the later payment generates its own entry (and payment complement).
-- 16% input VAT goes as a separate debit (input VAT account). Withholdings (ISR/VAT) subtract from the total.
+- IVA IS ON A CASH BASIS (LIVA art. 1-B, art. 5-III) and WHICH account it hits depends on MetodoPago:
+  - PUE received → DR 1130 "IVA Acreditable" (creditable now). PUE issued → CR 2120 "IVA Trasladado".
+  - PPD received → DR 1135 "IVA Pendiente de Acreditar" — NOT creditable yet; it PARKS there and the PAYMENT (with its REP) releases it to 1130, pro-rata to the amount paid. PPD issued mirrors this: parks in 2125 "IVA Trasladado No Cobrado", released to 2120 on collection.
+  - Never send PPD tax straight to 1130/2120: that claims/causes tax before the law does. The engine (iva-cash-basis.ts) picks the role from MetodoPago and the payment path does the release — your draft must use the parked account for PPD.
+- Withholdings (ISR/VAT) subtract from the total.
 - Identifiers: UUID (fiscal stamp), series/folio, issuer/receiver RFC. The UUID is the system's dedupe key.
 
 ## Multi-PAC stamping (issued invoices)
-- Failover chain: Finkok → SW Sapien → Edicom, with a per-provider circuit breaker and per-tenant preferences.
-- Human: POST /v1/invoices/:id/cfdi/stamp and /cfdi/cancel (SAT reasons 01-04). Success/fallback metrics at /metrics.
+- Failover chain with per-provider circuit breaker and per-tenant preferences. Three adapters are SIMULATED (Finkok, SW Sapien, Edicom): an anti-simulation lock guarantees a simulated folio is NEVER persisted as 'stamped' (it lands as 'failed' with a note). Stamping is de facto off until a real PAC is configured (§5 decision).
+- Human: POST /v1/invoices/:id/cfdi/stamp. CANCELLATION IS WITHDRAWN: /cfdi/cancel answers 501 — the human cancels at the PAC/SAT portal and reverses the entry with `mnemosine entry reverse`. Never tell a user the system cancels CFDIs.
 
 ## Ingestion of received CFDIs (expenses)
 3-layer pipeline (`mnemosine ingest *.xml` command):

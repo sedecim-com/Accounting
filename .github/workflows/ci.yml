@@ -106,7 +106,17 @@ jobs:
       # dos cadenas de prosa en una pregunta de política, no código. La
       # descarga masiva del SAT no existe (11 tareas de motor). Vuelve cuando
       # el motor exista de verdad.
-      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1
+      # --piso: EL TRINQUETE POR CRITERIO (S2).
+      #
+      # --exigir protege paquetes, y el estado de un paquete es el peor de sus
+      # criterios: uno YA abierto absorbe cualquier regresión interna sin mover
+      # el veredicto. La auditoría II lo demostró creando un archivo que sólo
+      # NOMBRABA postJournalEntry — la cerca del agente se puso roja y esta
+      # misma línea siguió saliendo con 0. El piso nombra uno a uno los verdes
+      # que viven en paquetes abiertos, y falla en tres direcciones: si uno
+      # regresa, si un enunciado se renombró sin actualizar la lista, y si un
+      # verde nuevo no se añadió al piso en el commit que lo ganó.
+      - run: npm run plan:status -- --piso --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1
       # El catálogo de comandos publica cuánto de su superficie existe ya. Ese
       # número estaba escrito a mano y duró 42 commits: decía «~30 comandos»
       # con 106 que el binario ejecuta. Ahora se genera, y esto falla ante tres
@@ -115,6 +125,11 @@ jobs:
       # comando vivo sin fila — el desajuste que hacía que `report` entregara
       # ocho comandos y cerrara cero filas.
       - run: npx tsx scripts/catalogo-estado.ts --check
+      # El corpus que el agente lee como VERDAD. Un manual desfasado no lo
+      # desinforma: lo mal-instruye, y su lector no puede dudar. Esto falla
+      # cuando cambia una fuente de un manual ya revisado — no verifica el
+      # contenido (eso sería medir prosa), detecta caducidad y nombra qué releer.
+      - run: npx tsx scripts/corpus-manifiesto.ts --check
 
   integration:
     name: Integración contra Postgres
