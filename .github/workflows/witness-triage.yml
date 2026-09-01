@@ -1,0 +1,137 @@
+# Witness Triage — reacción inmediata determinista al abrir/actualizar un PR.
+#
+# Este workflow NO es la revisión semántica de Witness (eso ocurre fuera de
+# GitHub, en el perfil `witness` de Hermes). Aquí solo corren chequeos
+# deterministas que caben en CI y se deja rastro para que el watcher del
+# servidor sepa que hay un PR pendiente de revisión profunda.
+#
+# Reglas del repo: los workflows viven como archivos propios (ci.yml es el
+# único archivo de CI de *checks*; los trabajos de integración se añaden ahí,
+# pero esto es un listener de eventos de PR, no un check de build).
+name: Witness Triage
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  triage:
+    name: Triage determinista
+    runs-on: ubuntu-latest
+    # No correr en drafts; ready_for_review lo recoge al salir de borrador.
+    if: github.event.pull_request.draft == false
+    steps:
+      # Token de la GitHub App witness-vic → el comentario de triage sale
+      # firmado `witness-vic[bot]` (no github-actions[bot] ni vic2099).
+      # Requiere los secrets del repo WITNESS_APP_ID y WITNESS_APP_PRIVATE_KEY.
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.WITNESS_APP_ID }}
+          private-key: ${{ secrets.WITNESS_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          # Necesitamos la base para diff correcto.
+          fetch-depth: 0
+
+      - name: Datos del PR
+        id: meta
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          PR=${{ github.event.pull_request.number }}
+          {
+            echo "pr_number=$PR"
+            echo "head_sha=${{ github.event.pull_request.head.sha }}"
+          } >> "$GITHUB_OUTPUT"
+          gh pr view "$PR" --json additions,deletions,changedFiles,title,author \
+            > /tmp/pr_meta.json
+          cat /tmp/pr_meta.json
+
+      - name: Chequeos deterministas sobre el diff
+        id: checks
+        run: |
+          set -u
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          DIFF=$(git diff "$BASE...$HEAD" || true)
+          OUT=/tmp/triage_findings.txt
+          : > "$OUT"
+
+          # 1. Conflict markers
+          if printf '%s' "$DIFF" | grep -nE '^\+(<<<<<<<|=======|>>>>>>>)' >/dev/null; then
+            echo "- 🔴 **Marcadores de conflicto** presentes en el diff." >> "$OUT"
+          fi
+
+          # 2. Posibles secretos (patrones comunes, sin imprimir valores)
+          SECRET_HITS=$(printf '%s' "$DIFF" | grep -inE '^\+.*(BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|api[_-]?key["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9_\-]{16,}|password\s*[:=]\s*["'"'"'][^"'"'"']+|secret\s*[:=]\s*["'"'"'][^"'"'"']+)' | grep -ivE 'example|placeholder|dummy|test|fake|sample|\.env\.example|redacted|\*\*\*' | cut -d: -f1 | sort -u | wc -l)
+          if [ "$SECRET_HITS" -gt 0 ]; then
+            echo "- 🔴 **$SECRET_HITS línea(s) con posible secreto** en el diff (patrón de clave/password/key material). Verificar antes de merge; NO imprimir el valor." >> "$OUT"
+          fi
+
+          # 3. Debug statements / TODOs nuevos
+          DBG=$(printf '%s' "$DIFF" | grep -cE '^\+.*(console\.log\(|debugger;|print\(f?["'"'"'])' || true)
+          TODO=$(printf '%s' "$DIFF" | grep -cE '^\+.*(TODO|FIXME|HACK|XXX)' || true)
+          [ "$DBG" -gt 0 ] && echo "- ⚠️ **$DBG posible(s) statement(s) de depuración** nuevos (console.log/debugger/print)." >> "$OUT"
+          [ "$TODO" -gt 0 ] && echo "- 💡 **$TODO TODO/FIXME** nuevo(s) introducido(s)." >> "$OUT"
+
+          # 4. Tamaño del PR
+          ADD=$(jq -r .additions /tmp/pr_meta.json)
+          DEL=$(jq -r .deletions /tmp/pr_meta.json)
+          FILES=$(jq -r .changedFiles /tmp/pr_meta.json)
+          echo "- 📏 **Tamaño:** +$ADD / −$DEL en $FILES archivos." >> "$OUT"
+          if [ "$ADD" -gt 8000 ]; then
+            echo "- ⚠️ **PR grande** (+$ADD líneas): la revisión profunda aplicará muestreo estructurado por rutas críticas, no lectura exhaustiva." >> "$OUT"
+          fi
+
+          # 5. Archivos sensibles tocados
+          SENSITIVE=$(git diff --name-only "$BASE...$HEAD" | grep -E '(^|/)(\.env($|\.)|.*\.(pem|key|p12|pfx)$|secrets?|credentials)' | grep -v '.env.example' || true)
+          if [ -n "$SENSITIVE" ]; then
+            echo "- 🔴 **Archivos sensibles modificados:**" >> "$OUT"
+            printf '%s\n' "$SENSITIVE" | sed 's/^/  - /' >> "$OUT"
+          fi
+
+          if [ ! -s "$OUT" ] || [ "$(grep -c '^- ' "$OUT")" -le 1 ]; then
+            echo "- ✅ Sin hallazgos deterministas. Pendiente revisión semántica de Witness." > "$OUT"
+          fi
+          cat "$OUT"
+
+      - name: Comentario de triage en el PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # PR number es un entero controlado por GitHub (no texto libre) → seguro.
+          PR=${{ steps.meta.outputs.pr_number }}
+          # title/author salen del API como JSON y se leen con jq -r; NO se
+          # expanden como ${{ github.event.* }} para evitar inyección en run:.
+          TITLE=$(jq -r .title /tmp/pr_meta.json)
+          AUTHOR=$(jq -r .author.login /tmp/pr_meta.json)
+          {
+            echo "## 🔎 Witness — triage inicial"
+            echo ""
+            echo "**PR #$PR** · $TITLE · por @$AUTHOR"
+            echo ""
+            cat /tmp/triage_findings.txt
+            echo ""
+            echo "---"
+            echo "_Revisión semántica profunda (dictamen APROBADO / CAMBIOS_REQUERIDOS / BLOQUEADO) a cargo de **Witness** en curso — se publicará como review formal._"
+          } > /tmp/triage_comment.md
+          gh pr comment "$PR" --body-file /tmp/triage_comment.md
+
+      - name: Marcar como pendiente de revisión Witness
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          PR=${{ steps.meta.outputs.pr_number }}
+          # Crear labels si no existen (idempotente)
+          gh label create "witness:pending"  --color "FBCA04" --description "Pendiente revisión semántica Witness" --force || true
+          gh label create "witness:approved" --color "0E8A16" --description "Witness: APROBADO" --force || true
+          gh label create "witness:changes"  --color "D93F0B" --description "Witness: CAMBIOS_REQUERIDOS o BLOQUEADO" --force || true
+          # Marcar este PR
+          gh pr edit "$PR" --add-label "witness:pending" || true
