@@ -1,11 +1,35 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
-import { query, withTransaction } from '../../database/connection.js';
+import pg from 'pg';
+import { query, withTransaction, getClient } from '../../database/connection.js';
 import { createJournalEntry } from '../accounting/posting.js';
 import { planearAsiento, planContabilizable, type PlanDeAsiento } from './cfdi-posting-plan.js';
+import {
+  decideMetodoPago,
+  entityUsesCashBasisIva,
+  ivaRoleFor,
+  ivaTreatmentNote,
+} from '../accounting/iva-cash-basis.js';
+import type { AccountRole } from './cfdi-taxonomy.js';
 import { JournalEntryType } from '../../types/index.js';
 import { CFDIParser, CFDIParsed, CFDIConcepto } from './cfdi-parser.js';
+import { extractPagosCompletos } from './cfdi-facts.js';
+import { ligarPagoREP, type ResultadoREP } from './rep-linkage.js';
 import { SATValidationService } from './sat-validation.js';
+
+/**
+ * Tipo de comprobante del SAT → el vocabulario de `pre_registrations`.
+ *
+ * 'I' es ingreso —para quien lo recibe, un gasto— y 'P' es el recibo
+ * electrónico de pago. Lo demás sigue cayendo en 'credit_note' por descarte,
+ * como antes; lo que cambia es que el REP deje de hacerlo, porque no es una
+ * nota de crédito y tratarlo como tal lo mataba con UNSUPPORTED_TYPE.
+ */
+function tipoDocumentoDe(tipo: string | undefined): string {
+  if (tipo === 'I') return 'bill';
+  if (tipo === 'P') return 'payment';
+  return 'credit_note';
+}
 import { RulesEngine, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
 import { AccountingError, ValidationError } from '../../utils/errors.js';
 
@@ -160,7 +184,7 @@ export class PreRegistrationService {
         const result = await this.processToAccounting(updated as Record<string, unknown>, uploadedBy);
         autoProcessed = true;
         bill = result.bill;
-        journalEntry = result.journalEntry;
+        journalEntry = result.journalEntry ?? undefined;
       } catch (err) {
         console.error('Auto-processing failed:', err);
       }
@@ -191,7 +215,12 @@ export class PreRegistrationService {
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
       [
         preRegId, entityId, xmlDocument.id, 'xml_cfdi',
-        parsed.tipoDeComprobante === 'I' ? 'bill' : 'credit_note',
+        // Un CFDI tipo P es un RECIBO DE PAGO, no una nota de crédito. Caía en
+        // 'credit_note' por descarte y moría en processToAccounting con
+        // UNSUPPORTED_TYPE: el pre-registro quedaba en 'error' y el
+        // comprobante que sostiene el acreditamiento del IVA no llegaba a
+        // ninguna parte. El vocabulario de la columna ya admitía 'payment'.
+        tipoDocumentoDe(parsed.tipoDeComprobante),
         vendorMatch.vendor?.id || null,
         vendorMatch.confidence, vendorMatch.method,
         vendorMatch.isNew, vendorMatch.suggestedData ? JSON.stringify(vendorMatch.suggestedData) : null,
@@ -433,15 +462,29 @@ export class PreRegistrationService {
   async processToAccounting(
     preReg: Record<string, unknown>,
     userId: string
-  ): Promise<{ bill?: Record<string, unknown>; journalEntry: Record<string, unknown> }> {
+  ): Promise<{
+    bill?: Record<string, unknown>;
+    journalEntry?: Record<string, unknown> | null;
+    paymentId?: string;
+  }> {
     await query(`UPDATE pre_registrations SET status = 'processing' WHERE id = $1`, [preReg.id]);
 
     try {
-      let result: { bill?: Record<string, unknown>; journalEntry: Record<string, unknown> };
+      // Un REP no genera póliza propia: o casa con un pago ya registrado —cuyo
+      // asiento ya existe— o crea el pago, y entonces la póliza es la de ese
+      // pago. Por eso el asiento es opcional aquí.
+      let result: {
+        bill?: Record<string, unknown>;
+        journalEntry?: Record<string, unknown> | null;
+        paymentId?: string;
+      };
 
       switch (preReg.document_type) {
         case 'bill':
           result = await this.createBillFromPreReg(preReg, userId);
+          break;
+        case 'payment':
+          result = await this.procesarREP(preReg, userId);
           break;
         default:
           throw new AccountingError('UNSUPPORTED_TYPE', `Unsupported document type: ${preReg.document_type}`);
@@ -456,10 +499,10 @@ export class PreRegistrationService {
          WHERE id = $1`,
         [
           preReg.id,
-          result.bill ? 'bill' : 'journal_entry',
-          result.bill?.id || result.journalEntry.id,
+          result.bill ? 'bill' : result.paymentId ? 'payment' : 'journal_entry',
+          result.bill?.id ?? result.paymentId ?? result.journalEntry?.id ?? null,
           result.bill?.id || null,
-          result.journalEntry.id,
+          result.journalEntry?.id ?? null,
           userId,
         ]
       );
@@ -599,46 +642,212 @@ export class PreRegistrationService {
     lines: LineWithSuggestion[],
     billNumber: string
   ): Promise<Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }>> {
-    const cuentas = await query<{ id: string; code: string }>(
-      `SELECT id, code FROM accounts WHERE entity_id = $1 AND code = ANY($2::text[])`,
-      [preReg.entity_id, ['2110', '1130']]
+    const entityId = preReg.entity_id as string;
+    const cliente = await getClient();
+    try {
+      // Sin CFDI no hay MetodoPago declarado, pero eso no autoriza a inventar
+      // un tratamiento propio: el mismo gasto no puede caer en una cuenta u
+      // otra según por qué puerta entró. Antes esta función resolvía por los
+      // códigos literales '2110' y '1130' y mandaba TODO el IVA a acreditable
+      // sin mirar el método, contradiciendo a AR/AP y a la ingesta con CFDI.
+      //
+      // Ahora usa la MISMA decisión (decideMetodoPago, con su supuesto
+      // conservador) y el MISMO mapa de roles (ivaRoleFor, que se lo pregunta
+      // a la taxonomía CFDI). Una entidad no mexicana no se toca: su impuesto
+      // no es IVA acreditable y sigue posteando donde siempre.
+      const flujo = await entityUsesCashBasisIva(cliente, entityId);
+      const decision = decideMetodoPago('received', {
+        terms: null,
+        memo: (preReg.notes as string) ?? null,
+      });
+      const rolIva: AccountRole = flujo
+        ? ivaRoleFor('received', decision.metodo)
+        : 'iva_acreditable';
+
+      const cuentas = await cuentasPorRol(cliente, entityId, ['cxp', rolIva]);
+      const cxp = cuentas.get('cxp');
+      if (!cxp) {
+        throw new AccountingError(
+          'AP_ACCOUNT_MISSING',
+          `La entidad no tiene cuenta para el rol "cxp" (proveedores). ` +
+            `Siembra la contabilidad con: mnemosine init --section identity`
+        );
+      }
+
+      const jeLines: Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }> = [
+        {
+          account_id: cxp,
+          debit_amount: null,
+          credit_amount: new Decimal(preReg.total_amount as string).toFixed(4),
+          description: `Bill ${billNumber}`,
+        },
+      ];
+
+      for (const line of lines) {
+        const accountId = line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
+        jeLines.push({
+          account_id: accountId,
+          debit_amount: new Decimal(line.importe).toFixed(4),
+          credit_amount: null,
+          description: line.descripcion,
+        });
+      }
+
+      const totalTax = new Decimal(preReg.tax_amount as string);
+      if (totalTax.greaterThan(0)) {
+        const cuentaIva = cuentas.get(rolIva);
+        if (!cuentaIva) {
+          // Antes se descartaba la línea en silencio con un `&& iva`, y el
+          // asiento salía descuadrado lejos del origen.
+          throw new AccountingError(
+            'MISSING_ROLE_ACCOUNT',
+            `La entidad no tiene cuenta para el rol "${rolIva}". ` +
+              `Siembra la contabilidad con: mnemosine init --section identity`
+          );
+        }
+        jeLines.push({
+          account_id: cuentaIva,
+          debit_amount: totalTax.toFixed(4),
+          credit_amount: null,
+          // El supuesto queda escrito en el renglón, no sólo en este archivo.
+          description: `${ivaTreatmentNote('received', decision)} — Bill ${billNumber}`,
+        });
+      }
+      return jeLines;
+    } finally {
+      cliente.release();
+    }
+  }
+
+  /**
+   * UN REP INGERIDO NO CONTABILIZA: LIGA.
+   *
+   * Todo lo demás que pasa por aquí crea una póliza. Éste no, y es
+   * deliberado. Un recibo electrónico de pago documenta un movimiento de
+   * banco que o bien ya se registró —y entonces su póliza existe— o bien hay
+   * que registrar por la puerta de pagos, que es la que sabe aplicar el pago
+   * a los documentos y, con eso, liberar el IVA aparcado.
+   *
+   * Postear aquí el efectivo, como especificaba el plan anterior, abona el
+   * banco por segunda vez cuando el pago también se capturó a mano; y si
+   * además se escriben las líneas de IVA, el impuesto se traspasa dos veces
+   * sin que nada proteste, porque el tope de lo aparcado recorta el exceso en
+   * silencio y la póliza acaba cuadrando. Un número equivocado que cuadra no
+   * lo encuentra nadie.
+   *
+   * Un comprobante puede traer varios nodos `Pago`: son varios movimientos de
+   * banco y se resuelven uno por uno. Si alguno queda para revisión, el
+   * comprobante entero espera a una persona — se lanza la misma señal que usa
+   * un CFDI que necesita una decisión, así que el pre-registro cae en
+   * `needs_review` con el motivo legible en vez de en `error`.
+   */
+  private async procesarREP(
+    preReg: Record<string, unknown>,
+    userId: string
+  ): Promise<{ journalEntry?: Record<string, unknown> | null; paymentId?: string }> {
+    const doc = await query<{
+      xml_content: string;
+      cfdi_uuid: string;
+      emisor_rfc: string;
+      receptor_rfc: string;
+      cfdi_fecha: Date;
+    }>(
+      `SELECT xml_content, cfdi_uuid, emisor_rfc, receptor_rfc, cfdi_fecha
+         FROM xml_documents WHERE id = $1`,
+      [preReg.xml_document_id]
     );
-    const porCodigo = new Map(cuentas.rows.map((c) => [c.code, c.id]));
-    const cxp = porCodigo.get('2110');
-    if (!cxp) {
-      throw new AccountingError('AP_ACCOUNT_MISSING', 'Accounts Payable control account (2110) not found');
+    if (doc.rows.length === 0 || !doc.rows[0].xml_content) {
+      throw new AccountingError('REP_SIN_XML', 'No se conserva el XML del comprobante de pago.');
     }
 
-    const jeLines: Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }> = [
-      {
-        account_id: cxp,
-        debit_amount: null,
-        credit_amount: new Decimal(preReg.total_amount as string).toFixed(4),
-        description: `Bill ${billNumber}`,
-      },
-    ];
+    const entidad = await query<{ tax_id: string; functional_currency: string; tenant_id: string }>(
+      `SELECT tax_id, functional_currency, tenant_id FROM legal_entities WHERE id = $1`,
+      [preReg.entity_id]
+    );
+    if (entidad.rows.length === 0) {
+      throw new AccountingError('ENTITY_NOT_FOUND', 'La entidad del pre-registro no existe.');
+    }
+    const { tax_id: rfc, functional_currency: moneda, tenant_id: tenantId } = entidad.rows[0];
 
-    for (const line of lines) {
-      const accountId = line.account_id || line.suggested_account_id || (preReg.default_account_id as string);
-      jeLines.push({
-        account_id: accountId,
-        debit_amount: new Decimal(line.importe).toFixed(4),
-        credit_amount: null,
-        description: line.descripcion,
-      });
+    const pagos = extractPagosCompletos(new CFDIParser().parse(doc.rows[0].xml_content));
+    if (pagos.length === 0) {
+      throw new AccountingError(
+        'REP_SIN_PAGOS',
+        'El comprobante es de tipo P pero no trae complemento de pagos: no hay nada que ligar.'
+      );
     }
 
-    const totalTax = new Decimal(preReg.tax_amount as string);
-    const iva = porCodigo.get('1130');
-    if (totalTax.greaterThan(0) && iva) {
-      jeLines.push({
-        account_id: iva,
-        debit_amount: totalTax.toFixed(4),
-        credit_amount: null,
-        description: `IVA Acreditable - Bill ${billNumber}`,
-      });
+    // Emisor o receptor. Del lado emitido el REP lo expedimos nosotros y
+    // documenta un cobro; del recibido lo expide el proveedor y documenta un
+    // pago nuestro. Son dos subledgers distintos.
+    // Emisor, receptor… o ninguno. La primera versión decidía por descarte
+    // —«si no lo emitimos, lo recibimos»— y un comprobante AJENO (de otro RFC
+    // a otro RFC, algo común en un buzón compartido o una descarga masiva
+    // equivocada) se habría procesado como pago nuestro a un proveedor.
+    if (doc.rows[0].emisor_rfc !== rfc && doc.rows[0].receptor_rfc !== rfc) {
+      throw new AccountingError(
+        'CFDI_REQUIERE_DECISION',
+        `El comprobante es de ${doc.rows[0].emisor_rfc} para ${doc.rows[0].receptor_rfc} y la ` +
+          `entidad es ${rfc}: no es parte de la operación. Revisa si se subió a la entidad equivocada.`
+      );
     }
-    return jeLines;
+    const direction = doc.rows[0].emisor_rfc === rfc ? 'emitido' : 'recibido';
+
+    const resultados: ResultadoREP[] = [];
+    for (const [indice, pago] of pagos.entries()) {
+      resultados.push(
+        await ligarPagoREP({
+          tenantId,
+          entityId: preReg.entity_id as string,
+          userId,
+          cfdiUuid: doc.rows[0].cfdi_uuid,
+          direction,
+          indice,
+          pago,
+          fechaCfdi: new Date(doc.rows[0].cfdi_fecha),
+          monedaFuncional: moneda,
+        })
+      );
+    }
+
+    const paraRevision = resultados.filter((r) => r.accion === 'revision');
+    if (paraRevision.length > 0) {
+      // Los nodos anteriores pueden haber creado o casado pagos YA: cada
+      // ligadura es su propia transacción y no se puede des-postear un pago
+      // legítimo porque otro nodo necesite una decisión. Lo que sí se puede
+      // —y es obligatorio— es que el estado lo DIGA: un needs_review que
+      // calla que la mitad del dinero ya se movió haría que el revisor
+      // reprocesara desde cero, y sólo la idempotencia lo salvaría de
+      // duplicar. El motivo enumera lo hecho y lo pendiente.
+      const hechos = resultados
+        .map((r, i) => ({ r, i }))
+        .filter((x) => x.r.accion !== 'revision');
+      const prefijo =
+        hechos.length > 0
+          ? `OJO: ${hechos.length} de ${resultados.length} nodos de pago YA quedaron resueltos ` +
+            `(${hechos.map((x) => `nodo ${x.i}: ${x.r.accion}${x.r.paymentId ? ` → ${x.r.paymentId}` : ''}`).join('; ')}). ` +
+            'Reprocesar es seguro: la idempotencia los salta. Pendiente: '
+          : '';
+      throw new AccountingError(
+        'CFDI_REQUIERE_DECISION',
+        prefijo + paraRevision.map((r) => r.motivo).join(' · ')
+      );
+    }
+
+    const conPago = resultados.find((r) => r.paymentId);
+    const asiento = conPago?.paymentId
+      ? (
+          await query(
+            `SELECT je.* FROM journal_entries je
+              WHERE je.source_type IN ('vendor_payment','customer_payment')
+                AND je.source_id = $1
+              ORDER BY je.created_at DESC LIMIT 1`,
+            [conPago.paymentId]
+          )
+        ).rows[0] ?? null
+      : null;
+
+    return { journalEntry: asiento, paymentId: conPago?.paymentId };
   }
 
   private async createBillFromPreReg(
@@ -686,16 +895,23 @@ export class PreRegistrationService {
 
     // Create bill
     await query(
+      // El UUID fiscal viaja con el gasto desde su nacimiento (migración
+      // 037). Antes sólo existía por el rodeo pre_registrations→xml_documents,
+      // que muere con el pre-registro; la columna directa es la que hacen
+      // baratos el DIOT, el amarre y la ligadura del REP.
       `INSERT INTO bills (
         id, entity_id, bill_number, vendor_id, vendor_invoice_number,
         subtotal, tax_amount, total_amount, amount_due,
-        currency_code, exchange_rate, bill_date, due_date, status, created_by
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'posted',$14)`,
+        currency_code, exchange_rate, bill_date, due_date, status, created_by,
+        cfdi_uuid
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'posted',$14,
+        (SELECT cfdi_uuid FROM xml_documents WHERE id = $15))`,
       [
         billId, preReg.entity_id, billNumber, vendorId, preReg.external_reference,
         preReg.subtotal, preReg.tax_amount, preReg.total_amount, preReg.total_amount,
         preReg.currency_code, preReg.exchange_rate,
         preReg.document_date, preReg.due_date, userId,
+        preReg.xml_document_id ?? null,
       ]
     );
 
@@ -816,4 +1032,49 @@ function mapearEstadoSat(
     case 'not_found': return 'no_encontrado';
     default: return 'sin_validar';
   }
+}
+
+/**
+ * Rol contable → id de cuenta, dentro de la entidad.
+ *
+ * El rol manda. El código heredado queda de red para las entidades sembradas
+ * antes de que existiera la capa semántica, que todavía no han pasado por el
+ * relleno de account_roles (E1.1).
+ */
+const CODIGO_HEREDADO: Partial<Record<AccountRole, string>> = {
+  cxp: '2110',
+  iva_acreditable: '1130',
+  iva_pendiente_acreditar: '1135',
+};
+
+async function cuentasPorRol(
+  cliente: pg.PoolClient,
+  entityId: string,
+  roles: AccountRole[]
+): Promise<Map<string, string>> {
+  const porRol = new Map<string, string>();
+
+  const r = await cliente.query<{ role: string; account_id: string }>(
+    `SELECT role, account_id FROM account_roles
+      WHERE entity_id = $1 AND qualifier IS NULL AND role = ANY($2::text[])`,
+    [entityId, roles]
+  );
+  for (const fila of r.rows) porRol.set(fila.role, fila.account_id);
+
+  const faltan = roles.filter((rol) => !porRol.has(rol));
+  if (faltan.length === 0) return porRol;
+
+  const codigos = faltan.map((rol) => CODIGO_HEREDADO[rol]).filter((c): c is string => !!c);
+  if (codigos.length === 0) return porRol;
+
+  const c = await cliente.query<{ id: string; code: string }>(
+    `SELECT id, code FROM accounts WHERE entity_id = $1 AND code = ANY($2::text[])`,
+    [entityId, codigos]
+  );
+  const porCodigo = new Map(c.rows.map((x) => [x.code, x.id]));
+  for (const rol of faltan) {
+    const id = porCodigo.get(CODIGO_HEREDADO[rol] as string);
+    if (id) porRol.set(rol, id);
+  }
+  return porRol;
 }

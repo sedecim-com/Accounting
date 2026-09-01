@@ -116,6 +116,67 @@ timbrado cuya respuesta se perdió por timeout, en vez de retimbrar y duplicar.
 
 Autenticación: Basic en el header + `contrato` como parámetro de consulta.
 
+### Sovos (marca «Reachcore») — Advantage Security, S. de R.L. de C.V.
+
+**Confianza alta, y es el único de esta lista con adaptador escrito**
+(`src/services/integrations/mexico/pac/sovos-reachcore-adapter.ts`).
+
+**Identidad — y la trampa de buscarlo.** RFC `ASE0201179X0`, autorización SAT
+**55267**, CSD para timbrado `00001000000405428599`. En el padrón del SAT hay
+que buscar **«Reachcore»** o **«Advantage Security»**: buscar «Sovos» no
+devuelve nada. Es PAC propio, no revendedor — los ejemplos de su
+documentación devuelven el timbre con `RfcProvCertif="ASE0201179X0"`, que es
+su propio RFC. La ficha del SAT que trae los datos es la del alta original de
+2011, **sin sello de renovación**, así que la vigencia 2026 sigue sin
+comprobar (ver la advertencia de arriba: el padrón vigente no es legible por
+máquina).
+
+**La trampa que de verdad importa: son TRES productos con una sola marca, y
+dos exigen tu llave privada.**
+
+| producto | quién sella | veredicto |
+|---|---|---|
+| **RC Timbre v6.0** (`go.reachcore.com`) · `TimbrarComprobante` | **tú** | ✔ es éste |
+| RC **Emisión** (`Emision60`) · `EmitirComprobante` | Sovos, con el CSD que le cargues | ✘ |
+| **Sovos Compliance Cloud** (`api-test.sovos.com`) | Sovos; pide `.cer`, `.key` y contraseña | ✘ |
+
+Las dos vías descartadas están a **un nombre de método de distancia** de la
+buena. Por eso la prohibición vive en el código —`METODOS_PROHIBIDOS` en el
+adaptador, con pruebas que fallan si alguno se invoca— y no sólo aquí. Y por
+eso hay que exigir por escrito en el contrato que el servicio contratado es
+**Timbrado**, no Emisión ni Compliance Cloud.
+
+**Contrato verificado.** Todo el ciclo fiscal es **SOAP** (WCF
+`basicHttpBinding`); sólo la recuperación de documentos ya procesados y los
+reportes son REST. **No publican SDK en ningún lenguaje.**
+
+- timbrado: `https://go.reachcore.com/api/ws/6.0/pacservices/Timbre.svc/basic?wsdl`
+  (pruebas: `oat.reachcore.com`, con un simulador del SAT y certificados de prueba)
+- autenticación: una sola `ApiKey`, en el cuerpo SOAP como `<cus:ApiKey>` y en
+  REST como encabezado `RCApiKey`. Cabe en una variable de entorno. **No es
+  recuperable desde su portal:** si se pierde, hay que generar otra.
+- el CFDI viaja **ya sellado, dentro de un CDATA**. Sovos valida el sello
+  contra el certificado público que va en el propio XML: el `.key` nunca sale
+  de la bóveda.
+- límite de **10 MB por petición, sobre SOAP incluido**, y un comprobante por
+  llamada — no hay lotes.
+- complementos: Nómina 1.2, Pagos 1.0 y **2.0 (el REP)**, Comercio Exterior,
+  Carta Porte 2.0/3.0/3.1.
+- error **311** «Comprobante timbrado previamente»: un reintento del mismo XML
+  sellado **no** genera un segundo UUID, lo rechaza. El adaptador lo trata como
+  señal de recuperación, nunca de reintento.
+
+**Lo que NO tiene.** Sin descarga masiva de CFDI del SAT ni nada que use la
+e.firma. Sin SLA publicado, sin límites de tasa publicados: el endpoint de
+saldos es un contador histórico de consumo, no avisa de agotamiento, así que
+el cortacircuitos no puede anticiparse a una cuota vencida. Exigir SLA y
+límites por escrito.
+
+**Dos compuertas manuales por inquilino** que rompen el alta desatendida en
+multi-inquilino: el RFC del emisor debe estar publicado en la LCO del SAT, y
+el alta de RFC por API devuelve `"Autorizado": false` hasta que el
+contribuyente hace clic en un correo.
+
 ### Formas Digitales (Forsedi / facturacfdi.mx)
 
 **Confianza alta.** SOAP/WSDL para timbrado, cancelación 4.0, timbrado ZIP,
@@ -173,7 +234,8 @@ autorización del SAT antes de nada.
 
 ## Recomendación
 
-**Primario: SW sapien. Failover: Finkok o Prodigia.**
+**Primario: SW sapien. Failover: Finkok o Prodigia. Sovos: escrito y listo,
+a la espera de contrato.**
 
 SW porque es el único con SDK de Node oficial y REST documentado, y porque su
 separación de rutas hace difícil equivocarse de modelo de custodia. Finkok o
@@ -185,6 +247,18 @@ retimbrar.
 
 El router de failover exige proveedores **distintos** para significar algo: dos
 adaptadores contra el mismo PAC comparten la caída.
+
+**Sobre Sovos.** Califica técnicamente —acepta el XML ya sellado, y eso está
+verificado en fuente primaria— y su adaptador ya está escrito y probado. Lo que
+no aporta es ventaja: no publica SDK, todo el ciclo fiscal es SOAP, su
+recuperación ante timeout (`folioOperacion`) es *opt-in* —sólo funciona si se
+envió un folio propio **antes** del timbrado, y caduca a los 6 meses— frente al
+`cfdPorUUID` de Prodigia, que no exige preparación. Y suma dos compuertas
+manuales por inquilino que las otras tres no tienen. Está listo para el
+disparador que lo justifica: **un cliente que ya tenga contrato con Sovos
+Reachcore y quiera conservarlo.** Antes de firmar, dos cosas: verificar a mano
+la autorización 55267 en el padrón vigente, y exigir por escrito que el servicio
+es Timbrado y que `RfcProvCertif` será `ASE0201179X0`.
 
 ---
 

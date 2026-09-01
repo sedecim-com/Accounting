@@ -150,13 +150,56 @@ export async function setCachedFiscalPeriods(entityId: string, periods: unknown[
 // Rate Limiting
 // ============================================================
 
+// ============================================================
+// «SIN REDIS» Y «REDIS CAÍDO» SON DOS ESTADOS DISTINTOS (S1).
+//
+// Antes ambos degradaban a allowed:true — fail-open. Aceptable cuando el
+// operador decidió no configurar Redis (desarrollo); inaceptable cuando lo
+// configuró y se cayó, porque la superficie NO autenticada de adivinación de
+// tokens de webhook depende de este límite. La degradación correcta es un
+// contador local en memoria: peor que Redis (por proceso, se pierde al
+// reiniciar) pero un límite de verdad mientras Redis vuelve.
+// ============================================================
+
+const ventanaLocal = new Map<string, { ventana: number; cuenta: number }>();
+
+/** Exportada para pruebas: la degradación debe contarse, no suponerse. */
+export function limiteEnMemoria(
+  key: string, windowMs: number, maxRequests: number
+): { allowed: boolean; remaining: number; resetAt: number } {
+  const now = Date.now();
+  const ventana = Math.floor(now / windowMs);
+  const entrada = ventanaLocal.get(key);
+  const cuenta = entrada && entrada.ventana === ventana ? entrada.cuenta + 1 : 1;
+  ventanaLocal.set(key, { ventana, cuenta });
+  // Poda oportunista: sin ella, claves únicas (p. ej. por IP) crecerían sin tope.
+  if (ventanaLocal.size > 10_000) {
+    for (const [k, v] of ventanaLocal) {
+      if (v.ventana !== ventana) ventanaLocal.delete(k);
+    }
+  }
+  return {
+    allowed: cuenta <= maxRequests,
+    remaining: Math.max(0, maxRequests - cuenta),
+    resetAt: (ventana + 1) * windowMs,
+  };
+}
+
 export async function checkRateLimit(
   key: string, windowMs: number, maxRequests: number
 ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  const r = getRedis();
+  // Cinturón, no la única sujeción: hoy `getRedis()` no devuelve null nunca
+  // —construye el cliente y lo devuelve, y sólo lo anula después, dentro del
+  // .catch() asíncrono de connect()—, así que esta rama es inalcanzable en la
+  // práctica. Lo era también cuando devolvía allowed:true, de modo que la
+  // «barra libre» que parecía haber aquí tampoco ocurría.
+  //
+  // Se deja delegando al contador local, no devolviendo true, porque si algún
+  // día getRedis() sí devuelve null lo correcto es contar, no abrir. Quien
+  // recorre el camino de verdad cuando Redis no responde es el catch de abajo.
+  if (!r) return limiteEnMemoria(key, windowMs, maxRequests);
   try {
-    const r = getRedis();
-    if (!r) return { allowed: true, remaining: maxRequests, resetAt: 0 };
-
     const now = Date.now();
     const windowKey = `ratelimit:${key}:${Math.floor(now / windowMs)}`;
 
@@ -170,6 +213,7 @@ export async function checkRateLimit(
 
     return { allowed: count <= maxRequests, remaining, resetAt };
   } catch {
-    return { allowed: true, remaining: maxRequests, resetAt: 0 };
+    // Redis configurado pero inalcanzable: degradación local, nunca barra libre.
+    return limiteEnMemoria(key, windowMs, maxRequests);
   }
 }

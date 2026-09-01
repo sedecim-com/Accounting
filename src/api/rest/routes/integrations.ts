@@ -21,7 +21,7 @@ const pacPreferencesSchema = z.object({
 // List all registered integrations + tenant config status
 // ============================================================
 
-router.get('/', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const adapters = integrationRegistry.list();
   const data = await Promise.all(
     adapters.map(async (adapter) => {
@@ -51,14 +51,14 @@ router.get('/', requirePermission('settings:manage'), async (req: Request, res: 
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // ============================================================
 // GET /v1/admin/integrations/:provider
 // Get sanitized config info for a specific provider
 // ============================================================
 
-router.get('/:provider', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/:provider', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const adapter = integrationRegistry.get(req.params.provider);
   const info = await adapter.getConfigInfo({ tenantId: req.user!.tenant_id, userId: req.user!.user_id });
 
@@ -72,7 +72,7 @@ router.get('/:provider', requirePermission('settings:manage'), async (req: Reque
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // ============================================================
 // PUT /v1/admin/integrations/:provider
@@ -125,7 +125,7 @@ router.delete('/:provider', requirePermission('settings:manage'), asyncHandler(a
 // ============================================================
 
 // GET /v1/admin/integrations/pac/preferences
-router.get('/pac/preferences/all', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/pac/preferences/all', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const prefs = await pacRouter.getPreferences(req.user!.tenant_id);
   const health = await pacRouter.getAllHealth({ tenantId: req.user!.tenant_id, userId: req.user!.user_id });
 
@@ -133,7 +133,7 @@ router.get('/pac/preferences/all', requirePermission('settings:manage'), async (
     data: { preferences: prefs, health },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // PUT /v1/admin/integrations/pac/preferences
 router.put('/pac/preferences/all', requirePermission('settings:manage'), validateBody(pacPreferencesSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -151,7 +151,7 @@ router.put('/pac/preferences/all', requirePermission('settings:manage'), validat
 
 // GET /v1/admin/integrations/health/all
 // Provider health status across all integrations (circuit breaker state)
-router.get('/health/all', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/health/all', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const result = await query<{
     provider: string;
     circuit_state: string;
@@ -172,6 +172,6 @@ router.get('/health/all', requirePermission('settings:manage'), async (req: Requ
     data: result.rows,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 export default router;

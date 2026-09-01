@@ -1,18 +1,37 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
-import Decimal from 'decimal.js';
-import { query, withTransaction } from '../../../database/connection.js';
+import { withTransaction } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { NotFoundError, ValidationError } from '../../../utils/errors.js';
-import { nextEntityNumber } from '../../../utils/sequence.js';
+import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
+import { recordVendorPayment } from '../../../services/payments/payment-service.js';
 import {
-  postBillEntry,
   postVendorPaymentEntry,
   attestEntryAsync,
 } from '../../../services/accounting/index.js';
-import type { Bill, BillLine, PaginationMeta } from '../../../types/index.js';
+import {
+  listBills,
+  getBillById,
+  createBill,
+  approveBill,
+} from '../../../services/ap/bill-service.js';
+import type { PaginationMeta } from '../../../types/index.js';
+
+// ============================================================
+// /v1/bills — HTTP surface over the vendor-bill service.
+// Capture, retrieval and approval live in services/ap/
+// bill-service.ts so the CLI and the agent reach the same
+// behaviour; this file is request parsing, permissions and
+// response shape.
+//
+// Payments (POST /payments) now go through services/payments/
+// payment-service.ts too, shared with `mnemosine bill pay`. The state
+// question the catalog flagged — every payment written as 'completed',
+// leaving four of the CHECK's states unreachable — is answered there and
+// on purpose: recording a payment means the money already left the bank,
+// and the other four belong to a scheduler that does not exist.
+// ============================================================
 
 const router = Router();
 
@@ -42,13 +61,6 @@ const createBillSchema = z.object({
   attachments: z.array(z.unknown()).optional(),
 });
 
-const schedulePaymentSchema = z.object({
-  payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
-  payment_method: z.string().min(1),
-  bank_account_id: z.string().uuid().optional(),
-  apply_early_discount: z.boolean().optional(),
-});
-
 const vendorPaymentSchema = z.object({
   entity_id: z.string().uuid(),
   vendor_id: z.string().uuid(),
@@ -64,269 +76,130 @@ const vendorPaymentSchema = z.object({
   memo: z.string().optional(),
 });
 
+const meta = (req: Request) => ({
+  request_id: req.headers['x-request-id'],
+  timestamp: new Date().toISOString(),
+  version: 'v1',
+});
+
 // GET /v1/bills
-router.get('/', requirePermission('bills:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/', requirePermission('bills:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const {
     entity_id, vendor_id, status,
     start_date, end_date,
     page = '1', per_page = '50',
   } = req.query;
 
-  const entityId = entity_id as string || req.entityId;
+  const entityId = (entity_id as string) || req.entityId!;
   const pageNum = Math.max(1, parseInt(page as string, 10));
   const perPage = Math.min(100, Math.max(1, parseInt(per_page as string, 10)));
-  const offset = (pageNum - 1) * perPage;
 
-  let whereClause = 'WHERE b.entity_id = $1';
-  const params: unknown[] = [entityId];
-  let paramIndex = 2;
-
-  if (vendor_id) { whereClause += ` AND b.vendor_id = $${paramIndex++}`; params.push(vendor_id); }
-  if (status) { whereClause += ` AND b.status = $${paramIndex++}`; params.push(status); }
-  if (start_date) { whereClause += ` AND b.bill_date >= $${paramIndex++}`; params.push(start_date); }
-  if (end_date) { whereClause += ` AND b.bill_date <= $${paramIndex++}`; params.push(end_date); }
-
-  const countResult = await query<{ count: string }>(
-    `SELECT COUNT(*) as count FROM bills b ${whereClause}`,
-    params
-  );
-
-  const result = await query<Bill & { vendor_name: string }>(
-    `SELECT b.*, v.company_name as vendor_name
-     FROM bills b LEFT JOIN vendors v ON v.id = b.vendor_id
-     ${whereClause} ORDER BY b.bill_date DESC
-     LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
-    [...params, perPage, offset]
-  );
-
-  res.json({
-    data: result.rows,
-    pagination: {
-      page: pageNum, per_page: perPage,
-      total_pages: Math.ceil(parseInt(countResult.rows[0].count, 10) / perPage),
-      total_count: parseInt(countResult.rows[0].count, 10),
-      next_cursor: null, prev_cursor: null,
-    },
-    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
+  const { rows, total } = await listBills(entityId, {
+    vendorId: vendor_id as string | undefined,
+    status: status as string | undefined,
+    startDate: start_date as string | undefined,
+    endDate: end_date as string | undefined,
+    limit: perPage,
+    offset: (pageNum - 1) * perPage,
   });
-});
+
+  const pagination: PaginationMeta = {
+    page: pageNum, per_page: perPage,
+    total_pages: Math.ceil(total / perPage),
+    total_count: total,
+    next_cursor: null, prev_cursor: null,
+  };
+
+  res.json({ data: rows, pagination, meta: meta(req) });
+}));
 
 // GET /v1/bills/:id
-router.get('/:id', requirePermission('bills:read'), async (req: Request, res: Response) => {
-  const billResult = await query<Bill>(
-    `SELECT b.*, v.company_name as vendor_name
-     FROM bills b LEFT JOIN vendors v ON v.id = b.vendor_id WHERE b.id = $1`,
-    [req.params.id]
-  );
+router.get('/:id', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {
+  const bill = await getBillById(req.params.id, { includeLines: true });
+  if (!bill) throw new NotFoundError('Bill', req.params.id);
 
-  if (billResult.rows.length === 0) throw new NotFoundError('Bill', req.params.id);
-
-  const bill = billResult.rows[0] as Bill & { lines?: BillLine[] };
-  const linesResult = await query<BillLine>(
-    'SELECT * FROM bill_lines WHERE bill_id = $1 ORDER BY line_number',
-    [req.params.id]
-  );
-  bill.lines = linesResult.rows;
-
-  res.json({
-    data: bill,
-    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
-  });
-});
+  res.json({ data: bill, meta: meta(req) });
+}));
 
 // POST /v1/bills
 router.post('/', requirePermission('bills:create'), requireEntityAccess, validateBody(createBillSchema), asyncHandler(async (req: Request, res: Response) => {
-  const { entity_id, vendor_id, vendor_invoice_number, bill_date, due_date, currency_code, lines, terms, description, attachments } = req.body;
+  const bill = await createBill({ ...req.body, created_by: req.user!.user_id });
 
-  const bill = await withTransaction(async (client) => {
-    const billNumber = await nextEntityNumber(client, entity_id, 'bill', 'BILL');
-
-    let subtotal = new Decimal(0);
-    let taxAmount = new Decimal(0);
-
-    const processedLines = lines.map((line: Record<string, unknown>, i: number) => {
-      const qty = new Decimal(line.quantity as number || 1);
-      const price = new Decimal(line.unit_price as number);
-      const lineAmount = qty.times(price);
-      const lineTax = new Decimal(line.tax_amount as number || 0);
-      const totalAmt = lineAmount.plus(lineTax);
-
-      subtotal = subtotal.plus(lineAmount);
-      taxAmount = taxAmount.plus(lineTax);
-
-      return { ...line, line_number: i + 1, quantity: qty.toFixed(4), unit_price: price.toFixed(4), line_amount: lineAmount.toFixed(4), tax_amount: lineTax.toFixed(4), total_amount: totalAmt.toFixed(4) };
-    });
-
-    const totalAmount = subtotal.plus(taxAmount);
-    const billId = uuidv4();
-
-    await client.query(
-      `INSERT INTO bills (
-        id, entity_id, bill_number, vendor_id, vendor_invoice_number,
-        subtotal, tax_amount, total_amount, amount_due,
-        currency_code, bill_date, due_date, status, description, terms,
-        attachments, created_by
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'draft',$13,$14,$15,$16)`,
-      [
-        billId, entity_id, billNumber, vendor_id, vendor_invoice_number || null,
-        subtotal.toFixed(4), taxAmount.toFixed(4), totalAmount.toFixed(4), totalAmount.toFixed(4),
-        currency_code || 'USD', bill_date, due_date, description || null, terms || null,
-        JSON.stringify(attachments || []), req.user!.user_id,
-      ]
-    );
-
-    for (const line of processedLines) {
-      await client.query(
-        `INSERT INTO bill_lines (id, bill_id, line_number, account_id, item_id, description, quantity, unit_price, line_amount, tax_amount, total_amount, cost_center_id, project_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-        [uuidv4(), billId, line.line_number, line.account_id, line.item_id || null, line.description || null, line.quantity, line.unit_price, line.line_amount, line.tax_amount, line.total_amount, line.cost_center_id || null, line.project_id || null]
-      );
-    }
-
-    const result = await client.query<Bill>('SELECT * FROM bills WHERE id = $1', [billId]);
-    return result.rows[0];
-  });
-
-  res.status(201).json({
-    data: bill,
-    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
-  });
+  res.status(201).json({ data: bill, meta: meta(req) });
 }));
 
 // POST /v1/bills/:id/approve
 router.post('/:id/approve', requirePermission('bills:approve'), asyncHandler(async (req: Request, res: Response) => {
   // Approval recognizes the liability: CR AP / DR expense + creditable IVA,
   // atomically with the status change (idempotent behind journal_entry_id).
-  const { bill, attest } = await withTransaction(async (client) => {
-    const result = await client.query<Bill>(
-      `UPDATE bills SET status = 'approved', approved_by = $1, approved_at = NOW()
-       WHERE id = $2 AND status IN ('draft', 'pending_approval') RETURNING *`,
-      [req.user!.user_id, req.params.id]
-    );
-    if (result.rows.length === 0) throw new NotFoundError('Bill', req.params.id);
-    const approved = result.rows[0];
-
-    const linesResult = await client.query<BillLine>(
-      'SELECT * FROM bill_lines WHERE bill_id = $1 ORDER BY line_number',
-      [req.params.id]
-    );
-    const entry = await postBillEntry(client, approved, linesResult.rows, req.user!.user_id);
-    return { bill: approved, attest: entry ? { entityId: approved.entity_id, entryId: entry.id } : null };
-  });
-  if (attest && req.tenantId) attestEntryAsync(req.tenantId, attest.entityId, attest.entryId);
-  const result = { rows: [bill] };
-
-  res.json({
-    data: result.rows[0],
-    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
-  });
-}));
-
-// POST /v1/bills/:id/schedule-payment
-router.post('/:id/schedule-payment', requirePermission('bills:create'), validateBody(schedulePaymentSchema), asyncHandler(async (req: Request, res: Response) => {
-  const { payment_date, payment_method, bank_account_id, apply_early_discount } = req.body;
-
-  const billResult = await query<Bill>(
-    'SELECT * FROM bills WHERE id = $1 AND status IN (\'approved\', \'posted\')',
-    [req.params.id]
-  );
-  if (billResult.rows.length === 0) throw new NotFoundError('Bill', req.params.id);
-
-  const bill = billResult.rows[0];
-  let paymentAmount = new Decimal(bill.amount_due);
-
-  // Apply early payment discount if applicable
-  let discountAmount = new Decimal(0);
-  if (apply_early_discount && bill.terms) {
-    const termsMatch = bill.terms.match(/(\d+)\/(\d+)/);
-    if (termsMatch) {
-      const discountPct = parseInt(termsMatch[1], 10);
-      const discountDays = parseInt(termsMatch[2], 10);
-      const daysUntilPayment = Math.floor(
-        (new Date(payment_date).getTime() - new Date(bill.bill_date).getTime()) / (86400000)
-      );
-      if (daysUntilPayment <= discountDays) {
-        discountAmount = paymentAmount.times(discountPct).dividedBy(100);
-        paymentAmount = paymentAmount.minus(discountAmount);
-      }
-    }
+  const { bill, attestation } = await approveBill(req.params.id, req.user!.user_id);
+  if (attestation && req.tenantId) {
+    attestEntryAsync(req.tenantId, attestation.entityId, attestation.entryId);
   }
 
-  // Schedule the payment (in production, would use BullMQ delayed job)
-  await query(
-    `UPDATE bills SET memo = COALESCE(memo, '') || $1 WHERE id = $2`,
-    [`\nScheduled payment: ${paymentAmount.toFixed(2)} via ${payment_method} on ${payment_date}`, req.params.id]
-  );
+  res.json({ data: bill, meta: meta(req) });
+}));
 
-  res.json({
-    data: {
-      bill_id: req.params.id,
-      scheduled_date: payment_date,
-      payment_method,
-      payment_amount: paymentAmount.toFixed(4),
-      discount_amount: discountAmount.toFixed(4),
-      bank_account_id,
-    },
-    meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
-  });
+// POST /v1/bills/:id/schedule-payment — WITHDRAWN
+//
+// This answered 200 with {scheduled_date, payment_method, payment_amount,
+// bank_account_id} and appended a line to bills.memo. That was the entire
+// act. No row in scheduled_payments (that table has never been written to),
+// no queued job, no instruction to any bank — and the bill's amount_due was
+// untouched, so a vendor "scheduled" for the 15th was simply unpaid on the
+// 15th, with a sentence in a memo field to show for it.
+//
+// There is no payment scheduler in mnemosine to route this to. Until one
+// exists that actually holds and releases a payment, the endpoint says so.
+router.post('/:id/schedule-payment', requirePermission('bills:create'), asyncHandler(async () => {
+  throw new NotImplementedError(
+    'mnemosine does not schedule payments: it has no payment scheduler and no connection to your ' +
+      'bank, so nothing would be released on the date you give. Pay the bill in your bank, then ' +
+      'record it with POST /v1/bills/payments (passing discount_amount if you took an early-payment ' +
+      'discount) — that is the call that moves amount_due and posts to the ledger.'
+  );
 }));
 
 // POST /v1/payments/vendors
-router.post('/payments', requirePermission('bills:create'), validateBody(vendorPaymentSchema), asyncHandler(async (req: Request, res: Response) => {
+// requireEntityAccess: el entity_id viene del CUERPO y nadie comprobaba
+// que fuera una entidad del usuario. Con el UUID de una entidad hermana
+// se fabricaba un pago a proveedor en sus libros.
+router.post('/payments', requirePermission('bills:create'), requireEntityAccess, validateBody(vendorPaymentSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, vendor_id, payment_amount, payment_method, payment_date, bank_account_id, applications, memo } = req.body;
 
-  const jeInfo = await withTransaction(async (client) => {
-    const paymentNumber = await nextEntityNumber(client, entity_id, 'vendor_payment', 'VPMT');
-    const paymentId = uuidv4();
+  // Una sola implementación, compartida con `mnemosine bill pay` y con el
+  // agente. Antes vivía aquí dentro y la terminal no podía alcanzarla, lo
+  // que importaba porque el pago es lo que LIBERA el IVA aparcado de un
+  // CFDI a crédito: quien operaba por terminal nunca lo acreditaba.
+  const result = await recordVendorPayment(
+    {
+      entityId: entity_id,
+      counterpartyId: vendor_id,
+      paymentAmount: String(payment_amount),
+      paymentDate: payment_date,
+      paymentMethod: payment_method,
+      bankAccountId: bank_account_id || null,
+      memo: memo || null,
+      applications: (applications ?? []).map((a: { bill_id: string; amount_applied: string | number; discount_amount?: string | number }) => ({
+        documentId: a.bill_id,
+        amountApplied: String(a.amount_applied),
+        discountAmount: a.discount_amount !== undefined ? String(a.discount_amount) : undefined,
+      })),
+    },
+    req.user!.user_id
+  );
 
-    await client.query(
-      `INSERT INTO vendor_payments (
-        id, entity_id, payment_number, vendor_id, payment_amount,
-        payment_method, bank_account_id, payment_date, status, memo, created_by
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'completed',$9,$10)`,
-      [paymentId, entity_id, paymentNumber, vendor_id, payment_amount, payment_method, bank_account_id || null, payment_date, memo || null, req.user!.user_id]
-    );
-
-    if (applications) {
-      for (const app of applications) {
-        await client.query(
-          `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied, discount_amount)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [uuidv4(), paymentId, app.bill_id, app.amount_applied, app.discount_amount || 0]
-        );
-
-        // Update bill
-        await client.query(
-          `UPDATE bills SET
-            amount_paid = amount_paid + $1,
-            amount_due = amount_due - $1,
-            status = CASE WHEN amount_due - $1 <= 0 THEN 'paid' ELSE 'partially_paid' END,
-            last_payment_date = $2
-           WHERE id = $3`,
-          [app.amount_applied, payment_date, app.bill_id]
-        );
-      }
-    }
-
-    const entry = await postVendorPaymentEntry(
-      client,
-      {
-        id: paymentId,
-        entity_id,
-        payment_number: paymentNumber,
-        payment_amount: String(payment_amount),
-        payment_date,
-        bank_account_id: bank_account_id || null,
-        journal_entry_id: null,
-      },
-      req.user!.user_id
-    );
-    return entry ? { entityId: entity_id as string, entryId: entry.id } : null;
-  });
-  if (jeInfo && req.tenantId) attestEntryAsync(req.tenantId, jeInfo.entityId, jeInfo.entryId);
+  if (result.attestation && req.tenantId) {
+    attestEntryAsync(req.tenantId, result.attestation.entityId, result.attestation.entryId);
+  }
 
   res.status(201).json({
-    data: { recorded: true },
+    data: {
+      recorded: true,
+      payment_number: result.paymentNumber,
+      journal_entry_id: result.journalEntry?.id ?? null,
+      applied: result.documentos,
+    },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
 }));

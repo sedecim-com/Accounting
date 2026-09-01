@@ -424,6 +424,17 @@ export interface IngestThresholds {
   minConfidence: number;
   /** Maximum amount (entity currency) eligible for auto-post. */
   maxAmount: number;
+  /**
+   * De dónde salió cada umbral, para el rastro: cuando algo se postea sin
+   * humano, la bitácora tiene que poder decir QUIÉN lo decidió — una bandera
+   * explícita, el archivo del operador, la política del despacho o la
+   * omisión del código. Lo rellena el resolutor con panel.
+   */
+  fuentes?: {
+    autoPost: 'bandera' | 'archivo' | 'politica' | 'omision';
+    minConfidence: 'bandera' | 'archivo' | 'omision';
+    maxAmount: 'bandera' | 'archivo' | 'politica' | 'omision';
+  };
 }
 
 const INGEST_DEFAULTS: IngestThresholds = {
@@ -431,6 +442,32 @@ const INGEST_DEFAULTS: IngestThresholds = {
   minConfidence: 0.95,
   maxAmount: 10000,
 };
+
+/**
+ * Valores CRUDOS del bloque ingest del archivo del operador, sin mezclar con
+ * omisiones. Existe para que el resolutor con panel (src/ai/ingest-thresholds)
+ * pueda insertar la capa de la política ENTRE el archivo y la omisión: la
+ * precedencia decidida es bandera > archivo del operador > política del
+ * despacho > omisión del código, y para eso hay que saber si el archivo
+ * TRAÍA valor, no sólo cuál quedó tras mezclar.
+ */
+export function ingestFileValues(cwd = process.cwd()): {
+  autoPost?: boolean;
+  minConfidence?: number;
+  maxAmount?: number;
+} {
+  const { config } = loadConfigFile(cwd);
+  const file = config.ingest ?? {};
+  const num = (v: number | undefined): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+  return {
+    autoPost: typeof file.auto_post === 'boolean' ? file.auto_post : undefined,
+    minConfidence: num(file.auto_post_min_confidence),
+    maxAmount: num(file.auto_post_max_amount),
+  };
+}
+
+export const UMBRALES_INGESTA_OMISION: IngestThresholds = INGEST_DEFAULTS;
 
 /** Config file + CLI overrides. The default is conservative: no auto-post. */
 export function resolveIngestThresholds(

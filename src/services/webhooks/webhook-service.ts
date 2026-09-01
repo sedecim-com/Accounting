@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../database/connection.js';
+import { assertUrlDeWebhook, assertDestinoPublico } from './url-guard.js';
 import { hashWebhookSignature } from '../../utils/encryption.js';
 import { config } from '../../config/index.js';
 import type { WebhookSubscription, WebhookDelivery } from '../../types/index.js';
@@ -24,6 +25,11 @@ export async function createWebhook(
   url: string,
   events: string[],
 ): Promise<WebhookSubscription> {
+  // R2: la URL se valida ANTES de guardarla — un webhook que apunte a la red
+  // privada o al metadata endpoint es SSRF con credenciales del servidor.
+  assertUrlDeWebhook(url);
+  // El secreto COMPLETO sale una sola vez: en esta respuesta (201). Los
+  // listados lo omiten (listWebhooks) — quien lo pierde, rota el webhook.
   const secret = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
   const id = uuidv4();
 
@@ -36,13 +42,23 @@ export async function createWebhook(
   return result.rows[0];
 }
 
-export async function deleteWebhook(webhookId: string): Promise<void> {
-  await query('DELETE FROM webhook_subscriptions WHERE id = $1', [webhookId]);
+export async function deleteWebhook(webhookId: string, tenantId: string): Promise<boolean> {
+  // R2: la frontera dentro del SQL — conocer el UUID no basta para borrar el
+  // webhook de otro inquilino. Devuelve si borró, para que la ruta pueda 404.
+  const r = await query('DELETE FROM webhook_subscriptions WHERE id = $1 AND tenant_id = $2', [
+    webhookId,
+    tenantId,
+  ]);
+  return (r.rowCount ?? 0) > 0;
 }
 
-export async function listWebhooks(tenantId: string): Promise<WebhookSubscription[]> {
-  const result = await query<WebhookSubscription>(
-    'SELECT * FROM webhook_subscriptions WHERE tenant_id = $1 ORDER BY created_at DESC',
+export async function listWebhooks(tenantId: string): Promise<Array<Omit<WebhookSubscription, 'secret'>>> {
+  // R2: el secreto NO viaja en los listados — salía entero en cada GET. Las
+  // columnas se enumeran para que un campo nuevo decida su exposición a
+  // propósito, no por el asterisco.
+  const result = await query<Omit<WebhookSubscription, 'secret'>>(
+    `SELECT id, tenant_id, url, events, is_active, created_at, updated_at
+       FROM webhook_subscriptions WHERE tenant_id = $1 ORDER BY created_at DESC`,
     [tenantId]
   );
   return result.rows;
@@ -90,10 +106,17 @@ async function deliverWebhook(
   payload: Record<string, unknown>
 ): Promise<void> {
   const body = JSON.stringify(payload);
-  const signature = hashWebhookSignature(body, subscription.secret);
   const timestamp = Math.floor(Date.now() / 1000).toString();
+  // R2: la firma cubre `timestamp.body` (formato t=...,v1=... estilo Stripe).
+  // Con la firma sólo sobre el cuerpo, el receptor no podía rechazar un
+  // REPLAY por firma: la cabecera de tiempo viajaba sin firmar.
+  const signature = `t=${timestamp},v1=${hashWebhookSignature(`${timestamp}.${body}`, subscription.secret)}`;
 
   try {
+    // R2 (SSRF): el nombre se resuelve y se verifica ANTES de conectar — un
+    // dominio público que apunte a la red privada no se entrega. Queda la
+    // ventana de re-binding entre resolver y conectar; se anota, no se finge.
+    await assertDestinoPublico(subscription.url);
     const response = await fetch(subscription.url, {
       method: 'POST',
       headers: {
@@ -151,39 +174,42 @@ async function markFailed(
   );
 }
 
-export async function retryDelivery(deliveryId: string): Promise<void> {
-  const delivery = await query<WebhookDelivery>(
-    'SELECT * FROM webhook_deliveries WHERE id = $1',
-    [deliveryId]
+export async function retryDelivery(deliveryId: string, tenantId: string): Promise<boolean> {
+  // R2: la entrega se localiza YA acotada por el inquilino de su suscripción
+  // — conocer el UUID de una entrega ajena no re-dispara su webhook.
+  const delivery = await query<WebhookDelivery & { sub: WebhookSubscription }>(
+    `SELECT d.*, row_to_json(s.*) AS sub
+       FROM webhook_deliveries d
+       JOIN webhook_subscriptions s ON s.id = d.webhook_id
+      WHERE d.id = $1 AND s.tenant_id = $2`,
+    [deliveryId, tenantId]
   );
-
-  if (delivery.rows.length === 0) return;
-
-  const webhook = await query<WebhookSubscription>(
-    'SELECT * FROM webhook_subscriptions WHERE id = $1',
-    [delivery.rows[0].webhook_id]
-  );
-
-  if (webhook.rows.length === 0) return;
-
-  await deliverWebhook(deliveryId, webhook.rows[0], delivery.rows[0].payload);
+  if (delivery.rows.length === 0) return false;
+  const fila = delivery.rows[0];
+  await deliverWebhook(deliveryId, fila.sub as unknown as WebhookSubscription, fila.payload);
+  return true;
 }
 
 export async function getDeliveries(
   webhookId: string,
+  tenantId: string,
   filters?: { status?: string; limit?: number }
 ): Promise<WebhookDelivery[]> {
-  let whereClause = 'WHERE webhook_id = $1';
-  const params: unknown[] = [webhookId];
+  // R2: acotado por el inquilino de la suscripción — el historial de
+  // entregas de un webhook ajeno no se lee por UUID.
+  let whereClause = 'WHERE d.webhook_id = $1 AND s.tenant_id = $2';
+  const params: unknown[] = [webhookId, tenantId];
 
   if (filters?.status) {
-    whereClause += ' AND status = $2';
+    whereClause += ' AND d.status = $3';
     params.push(filters.status);
   }
 
   const result = await query<WebhookDelivery>(
-    `SELECT * FROM webhook_deliveries ${whereClause}
-     ORDER BY created_at DESC LIMIT $${params.length + 1}`,
+    `SELECT d.* FROM webhook_deliveries d
+       JOIN webhook_subscriptions s ON s.id = d.webhook_id
+     ${whereClause}
+     ORDER BY d.created_at DESC LIMIT $${params.length + 1}`,
     [...params, filters?.limit || 50]
   );
 

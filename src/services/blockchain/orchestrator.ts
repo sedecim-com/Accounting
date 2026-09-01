@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../database/connection.js';
+import { requireByIdInScope, tenantScope } from '../../database/scope.js';
 import { cryptoService } from './crypto-service.js';
 import { chainAdapterFactory, ChainId, ChainTransactionResult } from './chain-adapters.js';
 import { zkVerifyClient } from './zkverify-client.js';
@@ -19,6 +20,32 @@ interface BlockchainConfig {
 }
 
 export class BlockchainOrchestrator {
+  /**
+   * ¿El anclaje de esta configuración es SIMULADO?
+   *
+   * Basta un eslabón fabricado para que la cadena entera deje de probar
+   * nada, así que se pregunta a todos y con que uno simule, simula el
+   * conjunto: la capa de verificación (zkVerify) y cada cadena a la que se
+   * fuera a enrutar.
+   *
+   * Esto existe porque `is_simulated` vivía del DEFAULT `true` de la
+   * migración 034 y NINGÚN código lo escribía. Un default es una suposición,
+   * no una medida: el día que llegue un adaptador real, un valor heredado
+   * habría seguido marcando como simulados anclajes que ya no lo son —y, en
+   * el sentido contrario y peor, un default mal elegido habría marcado como
+   * reales los fabricados—. Ahora el valor lo declara quien lo sabe.
+   */
+  private anclajeSimulado(config: BlockchainConfig): boolean {
+    if (zkVerifyClient.simulado) return true;
+    const cadenas = [
+      config.primary_chain,
+      ...(config.redundancy_mode !== 'none'
+        ? config.secondary_chains.map((s) => s.chain_id)
+        : []),
+    ];
+    return cadenas.some((c) => chainAdapterFactory.get(c as ChainId).simulado);
+  }
+
   /**
    * Attest a journal entry to blockchain.
    * Returns attestation record ID.
@@ -83,9 +110,9 @@ export class BlockchainOrchestrator {
     await query(
       `INSERT INTO blockchain_attestations (
         id, tenant_id, entity_id, source_type, source_id,
-        entry_hash, commitment, status
-      ) VALUES ($1, $2, $3, 'journal_entry', $4, $5, $6, 'pending')`,
-      [attestationId, params.tenantId, params.entityId, params.journalEntryId, entryHash, Buffer.from(commitment.commitment.slice(2), 'hex')]
+        entry_hash, commitment, status, is_simulated
+      ) VALUES ($1, $2, $3, 'journal_entry', $4, $5, $6, 'pending', $7)`,
+      [attestationId, params.tenantId, params.entityId, params.journalEntryId, entryHash, Buffer.from(commitment.commitment.slice(2), 'hex'), this.anclajeSimulado(config)]
     );
 
     // Link attestation to journal entry
@@ -203,6 +230,32 @@ export class BlockchainOrchestrator {
   }
 
   /**
+   * LA PAREJA (tenantId, entityId) SE ESCRIBE EN LA FILA; HAY QUE PROBARLA.
+   *
+   * Las dos rutas que llegan aquí toman `tenant_id` del token y `entity_id`
+   * del CUERPO de la petición, y nadie comprobaba que la segunda colgara del
+   * primero. El resultado se INSERTA tal cual en period_commitments y en
+   * published_aggregates: filas con el inquilino del atacante y la entidad de
+   * la víctima. Y published_aggregates se sirve después SIN AUTENTICAR en
+   * `GET /public/v1/entities/:entityId/aggregates`, que filtra sólo por
+   * entity_id — así que la escritura era el vehículo y la lectura pública el
+   * destino. Exfiltración de cifras contables por escritura.
+   *
+   * Hay un segundo efecto, más silencioso: publishAggregates busca los
+   * umbrales de privacidad con `WHERE tenant_id = $1 AND entity_id = $2`. Con
+   * la pareja cruzada no encuentra fila y cae a los valores por omisión
+   * (agregación mínima 5, redondeo a 1000). O sea que los umbrales que la
+   * víctima hubiera endurecido no se aplicaban: se publicaba con los de fábrica.
+   *
+   * La comprobación va aquí, en el servicio, y no sólo en la ruta: `entityId`
+   * y `tenantId` entran por parámetro desde cualquier llamador presente o
+   * futuro, y la fila se escribe aquí.
+   */
+  private async exigirEntidadDelInquilino(tenantId: string, entityId: string): Promise<void> {
+    await requireByIdInScope('legal_entities', entityId, tenantScope(tenantId), { columns: 'id' });
+  }
+
+  /**
    * Commit a fiscal period by building a Merkle tree of all posted entries
    */
   async commitPeriod(params: {
@@ -210,16 +263,82 @@ export class BlockchainOrchestrator {
     entityId: string;
     periodId: string;
   }): Promise<{ commitmentId: string; merkleRoot: string; entryCount: number }> {
-    // Fetch all posted journal entries in period
+    await this.exigirEntidadDelInquilino(params.tenantId, params.entityId);
+
+    // LEER un sello existente va PRIMERO, antes de cualquier comprobación.
+    //
+    // La primera versión de ATE-1 puso la negativa por asientos sin atestar
+    // por encima de esto, y así un periodo YA sellado dejaba de poder
+    // devolver su sello en cuanto entraba un solo posteado sin hash: la
+    // llamada reventaba antes de mirar si la fila existía. Como
+    // `POST /commit-period` es el único camino autenticado a
+    // `period_commitments` —no hay GET—, el sello quedaba ilegible para
+    // siempre. Negarse a EMITIR un sello incompleto es el punto del
+    // elemento; negarse a LEER uno ya emitido es perder información.
+    //
+    // Y devuelve lo guardado, no lo recalculado. Antes daba el commitmentId
+    // de la fila junto al merkleRoot
+    // y el entryCount de ESTA llamada. Si el periodo había recibido asientos
+    // desde el primer sello, el llamador recibía una raíz que no está en
+    // ninguna parte: ni comprometida, ni anclada, ni igual a la que sirve el
+    // endpoint público. Un sello vale por lo que se firmó, no por lo que se
+    // podría firmar ahora.
+    const existing = await query<{ id: string; merkle_root: string; entry_count: number }>(
+      `SELECT id, merkle_root, entry_count FROM period_commitments
+        WHERE tenant_id = $1 AND entity_id = $2 AND period_id = $3`,
+      [params.tenantId, params.entityId, params.periodId]
+    );
+
+    if (existing.rows.length > 0) {
+      return {
+        commitmentId: existing.rows[0].id,
+        merkleRoot: existing.rows[0].merkle_root,
+        entryCount: existing.rows[0].entry_count,
+      };
+    }
+
+
+    // TODOS los asientos posteados del periodo, con hash o sin él.
+    //
+    // Antes esta consulta llevaba `AND entry_hash IS NOT NULL` y el sello se
+    // emitía sobre lo que quedara. Con 100 asientos posteados y 3 atestados
+    // se sellaban 3, se guardaba entry_count = 3, y ese 3 se servía SIN
+    // AUTENTICAR como la cuenta del periodo (public-verification.ts). Un
+    // tercero leía «3 asientos» sin manera de saber que el periodo tenía 100:
+    // el sello no distinguía «periodo de 3» de «periodo de 100 del que sólo
+    // pude probar 3». Es la misma familia que CLI-5 —reportar el éxito de un
+    // acto que no se realizó del todo—, y aquí encima se firma.
     const entries = await query<{ id: string; entry_hash: string | null }>(
       `SELECT id, entry_hash FROM journal_entries
-       WHERE fiscal_period_id = $1 AND entity_id = $2 AND status = 'posted' AND entry_hash IS NOT NULL
+       WHERE fiscal_period_id = $1 AND entity_id = $2 AND status = 'posted'
        ORDER BY entry_date, entry_number`,
       [params.periodId, params.entityId]
     );
 
     if (entries.rows.length === 0) {
-      throw new Error('No posted entries with hashes in period');
+      throw new Error('No posted entries in period');
+    }
+
+    // Se NIEGA en vez de declarar cobertura parcial, por tres razones.
+    //
+    // Primera: sellar declarando la laguna deja escrito para siempre un sello
+    // que no cubre el periodo, y la rama de idempotencia de más abajo lo
+    // congela — devuelve el commitmentId almacenado con un merkleRoot
+    // recalculado que nunca se comprometió. Segunda: negarse no bloquea nada,
+    // porque el cierre de periodo no llama aquí; sellar es un acto aparte y
+    // reintentarlo es gratis. Tercera: la atestación es asíncrona, así que la
+    // laguna casi siempre es una carrera y no un hecho — negarse invita a
+    // repetir, y declarar invitaría a firmar la foto movida.
+    const sinAtestar = entries.rows.filter((e) => e.entry_hash === null);
+    if (sinAtestar.length > 0) {
+      throw new Error(
+        `El periodo tiene ${entries.rows.length} asientos posteados y ${sinAtestar.length} ` +
+          `sin atestar, así que un sello sólo probaría ${entries.rows.length - sinAtestar.length}. ` +
+          'Un sello que cubre parte del periodo y no lo dice es peor que ninguno: se publica ' +
+          'como la cuenta del periodo. Espera a que termine la atestación —es asíncrona— o ' +
+          'revisa que el inquilino tenga configuración de anclaje activa; sin ella no se ' +
+          'escribe ningún hash y ningún periodo será sellable.'
+      );
     }
 
     const hashes = entries.rows.map((e) => e.entry_hash!);
@@ -232,38 +351,30 @@ export class BlockchainOrchestrator {
 
     const commitmentId = uuidv4();
 
-    // Check existing
-    const existing = await query(
-      `SELECT id FROM period_commitments WHERE tenant_id = $1 AND entity_id = $2 AND period_id = $3`,
-      [params.tenantId, params.entityId, params.periodId]
-    );
-
-    if (existing.rows.length > 0) {
-      return {
-        commitmentId: existing.rows[0].id as string,
-        merkleRoot,
-        entryCount: entries.rows.length,
-      };
-    }
+    const config = await this.getConfig(params.tenantId);
 
     await query(
       `INSERT INTO period_commitments (
         id, tenant_id, entity_id, period_id,
         merkle_root, entry_count, tree_depth, balance_commitment,
-        status, committed_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'committed', NOW())`,
+        status, committed_at, is_simulated
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'committed', NOW(), $9)`,
       [commitmentId, params.tenantId, params.entityId, params.periodId,
-       merkleRoot, entries.rows.length, treeDepth, balanceCommitment]
+       merkleRoot, entries.rows.length, treeDepth, balanceCommitment,
+       config ? this.anclajeSimulado(config) : true]
     );
 
-    // Link to fiscal period
+    // Link to fiscal period. Acotado por entidad aunque hoy sea inalcanzable
+    // de otra forma —un periodo de otra entidad no tiene asientos de ésta, y
+    // arriba se habría lanzado ya—: la escritura no debería depender de que
+    // ese razonamiento siga siendo cierto.
     await query(
-      `UPDATE fiscal_periods SET period_commitment_id = $1 WHERE id = $2`,
-      [commitmentId, params.periodId]
+      `UPDATE fiscal_periods SET period_commitment_id = $1 WHERE id = $2 AND entity_id = $3`,
+      [commitmentId, params.periodId, params.entityId]
     );
 
-    // Attest the period commitment itself to zkVerify + chains
-    const config = await this.getConfig(params.tenantId);
+    // Attest the period commitment itself to zkVerify + chains.
+    // `config` ya se resolvió arriba, para decidir is_simulated.
     if (config?.is_active) {
       const zkResult = await zkVerifyClient.verifyProof({
         proof: Buffer.from(JSON.stringify({ merkleRoot, balanceCommitment })),
@@ -298,6 +409,8 @@ export class BlockchainOrchestrator {
     entityId: string;
     periodId: string;
   }): Promise<{ published: number }> {
+    await this.exigirEntidadDelInquilino(params.tenantId, params.entityId);
+
     // Aggregate by account type (simple dimension)
     const aggregates = await query<{ account_type: string; total: string; count: string }>(
       `SELECT a.account_type,
@@ -320,6 +433,10 @@ export class BlockchainOrchestrator {
     const minCount = disclosure.rows[0]?.minimum_aggregation_count || 5;
     const roundTo = disclosure.rows[0]?.round_to_nearest ? parseFloat(disclosure.rows[0].round_to_nearest) : 1000;
 
+    // Se resuelve aquí, no dentro del bucle: la marca de simulación es la
+    // misma para todas las dimensiones de una publicación.
+    const config = await this.getConfig(params.tenantId);
+
     let published = 0;
     for (const agg of aggregates.rows) {
       const count = parseInt(agg.count, 10);
@@ -335,16 +452,17 @@ export class BlockchainOrchestrator {
         `INSERT INTO published_aggregates (
           id, tenant_id, entity_id, period_id,
           dimension_type, dimension_value, dimension_hash,
-          aggregate_commitment, transaction_count, public_amount
-        ) VALUES ($1, $2, $3, $4, 'account_type', $5, $6, $7, $8, $9)
+          aggregate_commitment, transaction_count, public_amount, is_simulated
+        ) VALUES ($1, $2, $3, $4, 'account_type', $5, $6, $7, $8, $9, $10)
         ON CONFLICT (tenant_id, entity_id, period_id, dimension_type, dimension_value)
         DO UPDATE SET
           aggregate_commitment = $7, transaction_count = $8, public_amount = $9,
-          published_at = NOW()`,
+          is_simulated = $10, published_at = NOW()`,
         [
           uuidv4(), params.tenantId, params.entityId, params.periodId,
           agg.account_type, dimensionHash,
           aggregateCommitment, count, rounded,
+          config ? this.anclajeSimulado(config) : true,
         ]
       );
       published++;

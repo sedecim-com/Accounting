@@ -23,7 +23,22 @@ function help(...args: string[]): string {
 
 /** canonical → Spanish alias ('' = same word in both languages). */
 const TOP_LEVEL: Record<string, string> = {
-  entities: 'entidades',
+  entity: 'entidad',
+  account: 'cuenta',
+  entry: 'poliza',
+  period: 'periodo',
+  year: 'ejercicio',
+  vendor: 'proveedor',
+  bill: 'factura-proveedor',
+  customer: 'cliente',
+  invoice: 'factura',
+  // El dinero que sale y el que entra. Los nombres los fija
+  // docs/cli-command-catalog.md: 'payment create' y 'receipt record'.
+  payment: 'pago',
+  receipt: 'cobro',
+  report: 'reporte',
+  entities: 'entidades', // deprecated alias of `entity list`; kept working per R9
+
   providers: 'proveedores',
   ask: 'pregunta',
   chat: '',
@@ -33,8 +48,10 @@ const TOP_LEVEL: Record<string, string> = {
   ingest: 'ingesta',
   lang: 'idioma',
   onboard: 'alta',
-  outbox: 'envios',
-  questions: 'dudas',
+  // S0.6: familias partidas. El alias español pasa a singular (catálogo);
+  // `envios`/`questions`/`dudas` siguen vivos como aliases de compatibilidad.
+  outbox: 'envio',
+  question: 'duda',
   sat: '',
   pending: 'pendientes',
   login: 'entrar',
@@ -57,6 +74,18 @@ const TOP_LEVEL: Record<string, string> = {
 const SUBCOMMANDS: Record<string, Record<string, string>> = {
   memory: { teach: 'enseña', correct: 'corrige', retire: 'retira', restore: 'restaura' },
   pending: { define: 'definir', dismiss: 'descartar', reopen: 'reabrir' },
+  entity: { list: 'listar', show: 'ver', use: 'usar', create: 'crear', archive: 'archivar', unset: 'limpiar' },
+  account: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', deactivate: 'desactivar', restore: 'restaurar' },
+  entry: { list: 'listar', show: 'ver', create: 'crear', check: 'verificar', post: 'contabilizar', reverse: 'reversar', void: 'anular' },
+  period: { list: 'listar', show: 'ver', open: 'abrir' },
+  year: { list: 'listar', show: 'ver', create: 'crear' },
+  vendor: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', terms: 'terminos' },
+  bill: { list: 'listar', show: 'ver', create: 'crear', line: 'linea', approve: 'aprobar' },
+  customer: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', archive: 'archivar', restore: 'restaurar' },
+  invoice: { list: 'listar', show: 'ver', create: 'crear', issue: 'emitir', void: 'anular', series: 'serie' },
+  report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },
+  outbox: { list: 'listar', run: 'ejecutar' },
+  question: { list: 'listar', answer: 'responder' },
 };
 
 const SAT_CRED: Record<string, string> = {
@@ -74,12 +103,16 @@ let topHelp = '';
 let memoryHelp = '';
 let pendingHelp = '';
 let satCredHelp = '';
+let entityHelp = '';
+let accountHelp = '';
 
 beforeAll(() => {
   topHelp = help();
   memoryHelp = help('memory');
   pendingHelp = help('pending');
   satCredHelp = help('sat', 'cred');
+  entityHelp = help('entity');
+  accountHelp = help('account');
 }, 120_000);
 
 describe('canonical English names', () => {
@@ -122,6 +155,31 @@ describe('Spanish surface is complete', () => {
       expect(pendingHelp).toMatch(new RegExp(`${canonical}\\|${alias}`));
     }
   });
+
+  it('entity subcommands are bilingual', () => {
+    for (const [canonical, alias] of Object.entries(SUBCOMMANDS.entity)) {
+      expect(entityHelp).toMatch(new RegExp(`${canonical}\\|${alias}`));
+    }
+  });
+
+  it('account subcommands are bilingual', () => {
+    for (const [canonical, alias] of Object.entries(SUBCOMMANDS.account)) {
+      expect(accountHelp).toMatch(new RegExp(`${canonical}\\|${alias}`));
+    }
+  });
+
+  // Every accounting family added on the kernel: one assertion, so a new family
+  // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question'])(
+    '%s subcommands are bilingual',
+    (family) => {
+      const text = help(family);
+      for (const [canonical, alias] of Object.entries(SUBCOMMANDS[family])) {
+        expect(text, `${family} ${canonical} is missing its alias ${alias}`)
+          .toMatch(new RegExp(`${canonical}\\|${alias}`));
+      }
+    }
+  );
 
   it('sat cred subcommands are bilingual', () => {
     for (const [canonical, alias] of Object.entries(SAT_CRED)) {

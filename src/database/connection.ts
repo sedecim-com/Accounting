@@ -195,11 +195,8 @@ export async function withTransaction<T>(
   }
 }
 
-export async function setTenantSchema(
-  client: pg.PoolClient,
-  schemaName: string
-): Promise<void> {
-  await client.query(`SET search_path TO ${schemaName}, public`);
-}
+// setTenantSchema se retiró en S1: cero llamadores e interpolaba el nombre
+// del esquema directo en el SQL — el aislamiento real es RLS por
+// set_config parametrizado (enterTenant), nunca search_path.
 
 export { getPool };

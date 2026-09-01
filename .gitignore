@@ -4,8 +4,16 @@ dist/
 *.tsbuildinfo
 
 # Configuración con secretos — NUNCA versionar
-.env
+# Cualquier variante de .env, sólo con .env.example como excepción. El
+# patrón era una lista —.env, .env.local, .env.backup-*— y una lista sólo
+# cubre lo que alguien se acordó de escribir: `.env.old` o `.env.copia` no
+# entraban. Con remoto configurado, un descuido ahí ya no es local.
+.env*
+!.env.example
 .env.local
+# Respaldos de .env: los valores de hoy son los de desarrollo, pero el
+# siguiente respaldo puede llevar credenciales reales.
+.env.backup-*
 .env.*.local
 mnemosine.config.json
 
@@ -34,3 +42,21 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Andamiaje de depuración: configuraciones de vitest de un solo uso y sus
+# ganchos (p. ej. el que CONSERVA la base efímera de integración en vez de
+# destruirla). Son de sesión, nunca del repositorio — misma razón por la que
+# S2 dejó de versionar los respaldos de .env.
+.tmp-*
+
+# Artefacto generado: se reconstruye con `npx tsx scripts/artefacto-catalogo.ts`
+artefacto-catalogo.html
+
+# Ajustes locales del agente: rutas de esta máquina y tokens de desarrollo.
+# Nunca del repositorio — y menos de uno público.
+.claude/settings.local.json
+.claude/worktrees/
+
+# Bóveda local de credenciales fiscales. Hoy sólo la salva el glob *.key;
+# un vault.json o un .bak dentro quedaría rastreable con un `git add -A`.
+.mnemosine-vault/

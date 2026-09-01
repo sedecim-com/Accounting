@@ -316,8 +316,11 @@ export const CASES: CfdiCase[] = [
     requiresLinkage: true,
     notes:
       'A type-P CFDI is NOT an expense: it is the application of a payment to prior PPD invoices. ' +
-      'Recording it as an expense doubles the cost. It also triggers the transfer of ' +
-      '"VAT pending crediting" to "creditable VAT" for the amount paid.',
+      'Recording it as an expense doubles the cost. NOTE: in production a REP does NOT post through ' +
+      'this case — rep-linkage.ts matches it to (or creates) a payment via the payment door, which ' +
+      'is what releases the parked VAT through the payment applications. Posting these two lines AND ' +
+      'the payment would credit the bank twice. This case remains as the classifier description of ' +
+      'the economic fact, not as a posting path.',
     priority: 80,
   },
   {
@@ -331,8 +334,9 @@ export const CASES: CfdiCase[] = [
     ],
     requiresLinkage: true,
     notes:
-      'It is not revenue: the revenue was recognized with the invoice. It triggers the transfer of ' +
-      '"output VAT not collected" to "output VAT" for the amount collected.',
+      'It is not revenue: the revenue was recognized with the invoice. NOTE: in production a REP does ' +
+      'NOT post through this case — rep-linkage.ts routes it through the payment door, which releases ' +
+      'the deferred output VAT via the payment allocations. See pago_recibido for why.',
     priority: 80,
   },
 

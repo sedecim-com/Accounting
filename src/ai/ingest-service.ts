@@ -4,6 +4,8 @@ import {
   PreRegistrationService,
   DuplicateError,
 } from '../services/xml-ingestion/pre-registration-service.js';
+import { CFDIParser } from '../services/xml-ingestion/cfdi-parser.js';
+import { query } from '../database/connection.js';
 import { ValidationError } from '../utils/errors.js';
 import { floorMaxAutoAmount, FLOOR_MAX_AUTO_POST } from './floor.js';
 import { approveDraft, DraftValidationError, type Reviewer } from './draft-service.js';
@@ -125,9 +127,10 @@ export async function ingestCfdiFiles(opts: {
 
     // Third-party-controlled fields are scanned up front. A flagged file is
     // still processed (the prompt only ever sees SANITIZED, marker-wrapped
-    // text), but the suspicion is surfaced on the result for the human.
+    // text), but the suspicion is surfaced on the result for the human — and
+    // desde S1 también es COMPUERTA: un CFDI marcado jamás auto-postea.
     const suspicion = collectSuspicion(upload);
-    const result = await classify(upload, name);
+    const result = await classify(upload, name, suspicion);
     if (suspicion.length > 0) {
       result.detail =
         (result.detail ? `${result.detail} · ` : '') +
@@ -136,9 +139,43 @@ export async function ingestCfdiFiles(opts: {
     return result;
   }
 
-  async function classify(upload: UploadOutcome, name: string): Promise<IngestFileResult> {
+  async function classify(
+    upload: UploadOutcome,
+    name: string,
+    suspicion: string[] = []
+  ): Promise<IngestFileResult> {
     if (upload.autoProcessed) {
       return { file: name, status: 'rules', detail: 'Processed by firm rules' };
+    }
+
+    // Un CFDI tipo P no se clasifica: SE LIGA. Antes caía en la capa del
+    // modelo, que le redactaba una póliza plana de efectivo — el diseño que
+    // IVA-5 retiró porque duplica el abono al banco cuando el pago ya se
+    // capturó, y deja el IVA aparcado si no. El camino determinista
+    // (procesarREP vía processToAccounting) casa el comprobante con su pago o
+    // lo crea por la puerta de pagos, gobernado por las políticas del
+    // despacho; el modelo no tiene nada que decidir aquí.
+    if (upload.preRegistration.document_type === 'payment') {
+      try {
+        const r = await defaultService.processToAccounting(
+          upload.preRegistration as Record<string, unknown>,
+          reviewer.userId
+        );
+        return {
+          file: name,
+          status: 'rules',
+          detail: r.paymentId
+            ? `Payment receipt linked deterministically (payment ${r.paymentId})`
+            : 'Payment receipt processed deterministically',
+        };
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        return {
+          file: name,
+          status: code === 'CFDI_REQUIERE_DECISION' ? 'blocked' : 'error',
+          detail: (err as Error).message,
+        };
+      }
     }
 
     // Layer 2: the AI classifies and creates the draft
@@ -166,6 +203,18 @@ export async function ingestCfdiFiles(opts: {
     // for human review with the explicit reason.
     if (!thresholds.autoPost) {
       return { file: name, status: 'draft', draftId: draft.draftId, detail: 'auto-post disabled' };
+    }
+    if (suspicion.length > 0) {
+      // S1 (auditoría 2026-08-31): la sospecha de inyección sólo ANOTABA el
+      // resultado — un archivo con «instruction-like injection phrase» podía
+      // auto-postearse si todo lo demás cuadraba, y el humano leía la
+      // advertencia después, en el CLI. Un CFDI marcado va SIEMPRE a
+      // revisión humana: el que quiere postear sin humano no puede a la vez
+      // traer texto que intenta darle órdenes al clasificador.
+      return {
+        file: name, status: 'draft', draftId: draft.draftId,
+        detail: 'suspicious third-party content: a flagged CFDI never auto-posts',
+      };
     }
     if (drafts.length > 1) {
       // Ambiguous: the AI proposed multiple entries for one CFDI — never auto-post.
@@ -221,9 +270,16 @@ export async function ingestCfdiFiles(opts: {
     }
 
     try {
+      // La nota que queda en review_notes dice QUIÉN decidió el umbral. Un
+      // asiento que llegó al mayor sin humano tiene que poder explicarse
+      // meses después: «lo encendió la política del despacho» y «lo encendió
+      // un json local» son responsabilidades distintas.
+      const fuente = thresholds.fuentes
+        ? `; umbral por ${thresholds.fuentes.autoPost}`
+        : '';
       const posted = await approve(
         ctx, draft.draftId, reviewer,
-        `auto-post by threshold (confidence ${draft.confidence.toFixed(2)}, amount ${total})`
+        `auto-post by threshold (confidence ${draft.confidence.toFixed(2)}, amount ${total}${fuente})`
       );
       return { file: name, status: 'auto_post', draftId: draft.draftId, entryNumber: posted.entryNumber };
     } catch (err) {
@@ -408,9 +464,98 @@ ${conceptos || '  (no lines)'}
 
 Instructions:
 1. Search precedents (search_precedents) and prior journal entries for the issuer (search_journal_entries).
-2. Verify the accounts in the chart of accounts (search_accounts). The typical entry for an expense with VAT:
-   debit to expense for the subtotal + debit to creditable VAT (IVA acreditable) + credit to vendors (PPD) or banks (PUE).
+2. Verify the accounts in the chart of accounts (search_accounts). VAT IS ON A CASH BASIS
+   (LIVA art. 5-III): input VAT is creditable only once the invoice has been PAID, so the
+   Method above decides which VAT account the entry hits.
+   - PUE (paid in one go): debit expense for the subtotal + debit "IVA Acreditable" (1130)
+     + credit banks.
+   - PPD (on credit): debit expense for the subtotal + debit "IVA Pendiente de Acreditar"
+     (1135) + credit vendors. Do NOT debit IVA Acreditable: nothing has been paid yet, and
+     crediting VAT that was never paid is the finding the SAT actually writes up. The
+     payment entry is what later moves it from 1135 to 1130.
+   - No Method declared: treat it as PPD. It is the assumption that cannot overstate the
+     credit, and it self-corrects when the payment is recorded.
 3. Create the draft with reference "${referenceSerieFolio} · ${d.cfdi_uuid}".
 4. Report an honest confidence; if a question BLOCKS the classification, use ask_user (it will be
    logged) and do NOT create the draft.`;
+}
+
+// ============================================================
+// LA MARCHA SECA DE LA INGESTA (S0.6).
+//
+// `ingest` es irreversible por su camino más grave (el auto-posteo), así que
+// el kernel le exige --dry-run — y una --dry-run que escribe es peor que no
+// ofrecerla. El pipeline real registra ANTES de decidir (processXMLUpload
+// escribe xml_documents en cuanto parsea), de modo que la vista previa no
+// puede reusarlo: reconstruye aquí la capa determinista que sí es pura o de
+// sólo lectura — parseo, validación, hash, dedupe y tipo de comprobante — y
+// DICE lo que no calculó: las reglas del despacho, la clasificación IA y el
+// plan de asiento se deciden en la corrida real. Honesta y parcial es mejor
+// que completa y mentirosa.
+// ============================================================
+
+export interface IngestPreviewRow {
+  file: string;
+  verdict: 'would_process' | 'duplicate' | 'invalid' | 'error';
+  tipo?: string;
+  uuid?: string;
+  total?: string;
+  route?: string;
+  detail?: string;
+}
+
+export async function previewCfdiFiles(opts: {
+  files: string[];
+  thresholds: IngestThresholds;
+  readFile?: (file: string) => string;
+}): Promise<IngestPreviewRow[]> {
+  const readFile = opts.readFile ?? ((file: string) => fs.readFileSync(file, 'utf-8'));
+  const parser = new CFDIParser();
+  const rows: IngestPreviewRow[] = [];
+
+  for (const file of opts.files) {
+    const name = path.basename(file);
+    let xml: string;
+    try {
+      xml = readFile(file);
+    } catch (err) {
+      rows.push({ file: name, verdict: 'error', detail: `Could not read: ${(err as Error).message}` });
+      continue;
+    }
+    try {
+      const parsed = parser.parse(xml);
+      const validation = parser.validate(parsed);
+      if (!validation.valid) {
+        rows.push({ file: name, verdict: 'invalid', detail: validation.errors.join('; ') });
+        continue;
+      }
+      const hash = parser.calculateHash(xml);
+      const uuid = parsed.timbreFiscalDigital!.uuid;
+      const existing = await query<{ id: string }>(
+        `SELECT id FROM xml_documents WHERE cfdi_uuid = $1 OR xml_hash = $2 LIMIT 1`,
+        [uuid, hash]
+      );
+      if (existing.rows.length > 0) {
+        rows.push({
+          file: name, verdict: 'duplicate', uuid,
+          detail: `CFDI already registered (${existing.rows[0].id})`,
+        });
+        continue;
+      }
+      const tipo = parsed.tipoDeComprobante;
+      const route =
+        tipo === 'P'
+          ? 'REP: would link to its payment deterministically (procesarREP)'
+          : opts.thresholds.autoPost
+            ? `firm rules → AI classification → draft, auto-posted only if every gate passes (conf ≥ ${opts.thresholds.minConfidence}, amount ≤ ${opts.thresholds.maxAmount})`
+            : 'firm rules → AI classification → draft for `mnemosine review`';
+      rows.push({
+        file: name, verdict: 'would_process', tipo, uuid,
+        total: `${parsed.total} ${parsed.moneda}`, route,
+      });
+    } catch (err) {
+      rows.push({ file: name, verdict: 'error', detail: (err as Error).message });
+    }
+  }
+  return rows;
 }

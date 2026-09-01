@@ -243,6 +243,27 @@ describe('identifier backstop', () => {
     expect(ensureIdentifiersSurvive(summary, source)).toBe(summary);
   });
 
+  it('los importes tienen backstop determinista (S1): el resumen que los tira los recupera', () => {
+    // El hueco confesado de E5.1-c: «monetary amounts are protected by
+    // instruction ONLY». En un agente contable el importe es la carga útil.
+    const source = 'factura por 19720.00 con IVA de $3,155.20 sobre subtotal 1,234.56';
+    expect(extractIdentifiers(source)).toEqual(['19720.00', '3,155.20', '1,234.56']);
+    const out = ensureIdentifiersSurvive('resumen sin números.', source);
+    expect(out).toContain('19720.00');
+    expect(out).toContain('3,155.20');
+    expect(out).toContain('1,234.56');
+  });
+
+  it('el regex de importes es deliberadamente conservador: tasas y números chicos no son dinero', () => {
+    // Dos decimales y ≥3 dígitos (o miles): un backstop que re-adjunta cada
+    // «16.00» de IVA engorda el resumen con ruido — la asimetría es a
+    // propósito y el modelo sigue instruido a conservarlos todos.
+    expect(extractIdentifiers('tasa 16.00 % y 0.08 de IEPS, versión 1.0.4')).toEqual([]);
+    expect(extractIdentifiers('monto 928.00 pagado')).toEqual(['928.00']);
+    // Dentro de otro número/token no se recorta un pedazo.
+    expect(extractIdentifiers('cadena 123456.789')).toEqual([]);
+  });
+
   it('matches RFCs with Ñ/& initial characters and lowercase (custom boundaries, not \\b)', () => {
     expect(extractIdentifiers('pago de ÑAB010101AB1 hoy')).toEqual(['ÑAB010101AB1']);
     expect(extractIdentifiers('proveedor &BC010101AB1.')).toEqual(['&BC010101AB1']);

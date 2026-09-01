@@ -31,10 +31,32 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const ENTITY_COLUMNS = `id, name, tenant_id, functional_currency, incorporation_country, accounting_standard, tax_id`;
 
 function toContext(row: EntityRow): AgentContext {
-  // From here on every query is scoped to this entity's tenant. If a context
-  // already existed (via --tenant), it is the same one: RLS would not have
-  // allowed reading an entity from another tenant.
-  enterTenant(row.tenant_id);
+  // El contexto de inquilino NO se reemplaza si ya hay uno.
+  //
+  // El razonamiento anterior —«si ya existía es el mismo, porque RLS no
+  // habría dejado leer una entidad de otro inquilino»— sólo se sostiene con
+  // RLS ACTIVA, y RLS es inerte para un rol dueño o superusuario. En el
+  // servidor eso era una fuga: la petición abre su contexto con withTenant a
+  // partir del token, y aquí `enterWith` lo SUSTITUÍA por el inquilino de la
+  // fila que designa la cabecera x-entity-id. A partir de ese punto el
+  // inquilino efectivo lo elegía quien enviaba la cabecera, no el token.
+  //
+  // Es la forma que este repositorio prohíbe por escrito en
+  // api/rest/middleware/tenant-context.ts. Ahora:
+  //  · sin contexto (la terminal, que es de un proceso y un inquilino) se
+  //    entra, que es para lo que enterTenant existe;
+  //  · con contexto abierto se COMPRUEBA la pertenencia y se rechaza si no
+  //    coincide, en vez de acomodarse al inquilino de la fila.
+  const abierto = currentTenant();
+  if (!abierto) {
+    enterTenant(row.tenant_id);
+  } else if (abierto !== row.tenant_id) {
+    throw new Error(
+      `La entidad ${row.name} pertenece al inquilino ${row.tenant_id} y el contexto activo es ` +
+        `${abierto}. Si lo fijaste con --tenant o MNEMOSINE_TENANT, corrígelo o quítalo; ` +
+        `en el servidor, el inquilino lo fija el token y no la cabecera x-entity-id.`
+    );
+  }
   return {
     entityId: row.id,
     entityName: row.name,

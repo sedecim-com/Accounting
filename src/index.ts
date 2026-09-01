@@ -6,11 +6,13 @@ import { ApolloServer } from '@apollo/server';
 import { expressMiddleware } from '@apollo/server/express4';
 import { config } from './config/index.js';
 import { query, closeDatabase, initDatabase } from './database/connection.js';
+import { verificarRolSujetoARls } from './database/rls-guard.js';
+import { drainAttestations } from './services/accounting/posting.js';
 import { authenticate, requireEntityAccess } from './api/rest/middleware/auth.js';
 import { auditLogMiddleware } from './api/rest/middleware/audit.js';
 import { tenantContext } from './api/rest/middleware/tenant-context.js';
 import { errorHandler } from './api/rest/middleware/error-handler.js';
-import { rateLimiter } from './api/rest/middleware/rate-limiter.js';
+import { rateLimiter, preAuthRateLimiter } from './api/rest/middleware/rate-limiter.js';
 import { metricsMiddleware, metricsHandler } from './api/rest/middleware/metrics.js';
 import { correlationIdMiddleware, enrichLogContextMiddleware } from './api/rest/middleware/correlation.js';
 import { logger } from './utils/logger.js';
@@ -38,56 +40,41 @@ import aiRouter from './api/rest/routes/ai.js';
 import './services/integrations/index.js'; // Register all adapters
 import './services/payroll/tax-engine/register-all.js'; // Register all tax calculators
 
-/**
- * El middleware de contexto acota cada petición al inquilino del token, pero
- * quien hace cumplir esa frontera es RLS, y RLS es INERTE para un rol
- * superusuario o con BYPASSRLS. Arrancar así no es un fallo —es lo normal en
- * desarrollo— pero tiene que verse en el arranque y no descubrirse después:
- * en ese estado un error de programación que olvide filtrar por inquilino
- * devuelve las filas de todos en vez de ninguna.
- *
- * `mnemosine doctor` lo reporta también (checkTenantIsolation).
- */
-async function advertirSiElRolIgnoraRls(): Promise<void> {
-  try {
-    const r = await query<{ rol: string; ignora: boolean }>(
-      `SELECT current_user AS rol,
-              COALESCE(rolsuper OR rolbypassrls, false) AS ignora
-         FROM pg_roles WHERE rolname = current_user`
-    );
-    const fila = r.rows[0];
-    if (!fila) return;
-    if (fila.ignora) {
-      logger.warn('db_role_bypasses_rls', {
-        role: fila.rol,
-        detail:
-          'El rol de conexión ignora row level security: el aislamiento entre ' +
-          'inquilinos depende solo del código. Conectar como mnemosine_app ' +
-          '(scripts/provision-roles.sql).',
-      });
-    } else {
-      logger.info('db_role_subject_to_rls', { role: fila.rol });
-    }
-  } catch (error) {
-    logger.warn('db_role_check_failed', { error: (error as Error).message });
-  }
-}
-
 async function bootstrap() {
   // Túnel y TLS resueltos antes de la primera consulta.
   const { tunneled, warning } = await initDatabase();
   if (tunneled) logger.info('db_tunnel_open');
   if (warning) logger.warn('db_tls_warning', { warning });
 
-  await advertirSiElRolIgnoraRls();
+  // Falla cerrado en producción ante un rol que ignora RLS (S1); advierte en
+  // desarrollo. `mnemosine doctor` lo reporta también (checkTenantIsolation).
+  await verificarRolSujetoARls();
 
   const app = express();
 
   // ============================================================
   // Middleware
   // ============================================================
-  app.use(helmet({ contentSecurityPolicy: config.env === 'production' ? undefined : false }));
-  app.use(cors());
+  // CSP ENCENDIDO EN TODOS LOS ENTORNOS, con una sola excepción declarada.
+  //
+  // Estaba apagado fuera de producción —`js/insecure-helmet-configuration`— y
+  // la razón original era el playground de GraphQL, cuya landing page carga
+  // scripts de un CDN que CSP bloquea. Pero GraphQL ya viene APAGADO por
+  // omisión, así que la excepción sólo hace falta cuando alguien lo enciende
+  // a propósito en desarrollo. La API sirve JSON: encender CSP no le cuesta
+  // nada y quita una diferencia entre lo que se prueba y lo que se despliega.
+  const playgroundGraphql = process.env.GRAPHQL_ENABLED === 'true' && config.env !== 'production';
+  app.use(helmet({ contentSecurityPolicy: playgroundGraphql ? false : undefined }));
+  // CORS explícito por entorno (S1): `cors()` a secas publica
+  // Access-Control-Allow-Origin: * también en producción. La API la consumen
+  // el CLI y agentes (sin navegador), así que producción sin ALLOWED_ORIGINS
+  // no permite ningún origen cruzado; declarar orígenes es opt-in por env
+  // (lista separada por comas). En desarrollo se queda abierto.
+  app.use(cors({
+    origin: config.env === 'production'
+      ? (process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? false)
+      : true,
+  }));
   // Global JSON body parser — but the inbound AI webhook path parses its OWN
   // body with express.raw (exact-bytes idempotency fallback + a hard 1MB cap).
   // If the global json parser consumed those requests first, body-parser would
@@ -134,16 +121,34 @@ async function bootstrap() {
     res.json({ status: 'healthy', version: '1.0.0', timestamp: new Date().toISOString() });
   });
 
-  // PUBLIC verification endpoints (no auth)
-  app.use('/public/v1', publicVerificationRouter);
+  // PUBLIC verification endpoints (no auth) — APAGADOS POR OMISIÓN.
+  //
+  // Este router sirve, sin credenciales, atestaciones cuyo anclaje los
+  // adaptadores de cadena FABRICAN: no hay transacción en ninguna red. Su
+  // propósito es que un tercero se las crea, así que publicarlo por defecto
+  // es la peor variante del acto que CLI-5 retiró. Se enciende cuando el
+  // anclaje sea real, con PUBLIC_VERIFICATION_ENABLED=true.
+  //
+  // Encendido, cada endpoint se niega igualmente a servir una fila
+  // simulada: la bandera decide si el router existe, no si miente.
+  if (process.env.PUBLIC_VERIFICATION_ENABLED === 'true') {
+    // El limitador por IP no va aquí: vive DENTRO del router, para que viaje
+    // con él y se vea desde el archivo que sirve sin credenciales.
+    app.use('/public/v1', publicVerificationRouter);
+    logger.warn('public_verification_enabled', {
+      detail:
+        'La verificación pública está encendida. Sólo servirá atestaciones no simuladas; ' +
+        'hoy todas lo son, porque ningún adaptador de cadena ancla de verdad.',
+    });
+  }
 
   // Inbound AI webhooks: authenticated by their own dedicated tokens
   // (Bearer, hashed at rest), NOT by JWT — mounted before `authenticate` so
   // it must not require a JWT. It IS still rate limited: the limiter runs
-  // first (keyed per-IP here, since there is no JWT tenant) so the
+  // first (preAuthRateLimiter: keyed per-IP, since there is no JWT tenant) so the
   // unauthenticated token-guessing / flood surface is throttled instead of
   // being both unauthenticated AND unthrottled.
-  app.use('/v1/ai/webhooks', rateLimiter, aiWebhooksRouter);
+  app.use('/v1/ai/webhooks', preAuthRateLimiter, aiWebhooksRouter);
 
   // ============================================================
   // REST API Routes
@@ -151,6 +156,10 @@ async function bootstrap() {
   const apiPrefix = `/v1`;
 
   // Auth + rate limiting middleware for all API routes
+  // El escudo va ANTES de authenticate: verificar una firma JWT es trabajo de
+  // CPU, y sin esto salía gratis para quien no tiene credenciales — el
+  // limitador de abajo, que reparte por inquilino, no llegaba a correr.
+  app.use(apiPrefix, preAuthRateLimiter);
   app.use(apiPrefix, authenticate);
   // Right after authenticate, and before anything that touches the
   // database: it opens the tenant context that the RLS policies read.
@@ -180,8 +189,31 @@ async function bootstrap() {
   app.use(`${apiPrefix}/ai`, aiRouter);
 
   // ============================================================
-  // GraphQL API
+  // GraphQL API — DISABLED BY DEFAULT
+  //
+  // This is a second door into the same engine, and it is measurably the
+  // less safe one:
+  //   · it is mounted at /graphql, OUTSIDE the /v1 prefix, so it bypasses
+  //     the audit and rate-limiting middleware every REST route carries —
+  //     y hasta TEN-2 también se saltaba `tenantContext`, que es el que abre
+  //     el contexto que leen las políticas de RLS. Sin él la consulta viaja
+  //     directa al pool SIN inquilino: con el rol mnemosine_app habría
+  //     devuelto cero filas y con un rol dueño o superusuario —que ignora
+  //     RLS— las de TODOS los inquilinos. Ya va montado;
+  //   · `createJournalEntry` and `postJournalEntry` reach the posting engine
+  //     with `authenticate` only — there is no permission check anywhere in
+  //     the resolvers, so any authenticated principal can post to any ledger
+  //     the tenant context lets it see, leaving no audit row;
+  //   · nothing in this repository consumes it. There is no web, ui, client
+  //     or frontend directory; the only importer is this file.
+  //
+  // It is gated rather than deleted because this repository has no version
+  // control, and 891 lines are not recoverable once removed. Set
+  // GRAPHQL_ENABLED=true to bring it back exactly as it was — and if it is
+  // ever brought back for real, the mutations need permission checks and the
+  // mount needs to move inside the audited prefix first.
   // ============================================================
+  const graphqlEnabled = process.env.GRAPHQL_ENABLED === 'true';
   type GraphqlContext = {
     user: import('./types/index.js').JwtPayload | undefined;
     tenantId: string | undefined;
@@ -194,17 +226,28 @@ async function bootstrap() {
 
   await apolloServer.start();
 
-  app.use(
-    '/graphql',
-    authenticate,
-    expressMiddleware(apolloServer, {
-      context: async ({ req }) => ({
-        user: req.user,
-        tenantId: req.tenantId,
-        entityId: req.entityId,
-      }),
-    })
-  );
+  if (graphqlEnabled) {
+    app.use(
+      '/graphql',
+      preAuthRateLimiter,
+      authenticate,
+      // Igual que en /v1: justo después de authenticate y antes de nada que
+      // toque la base. Que esta puerta esté fuera del prefijo auditado no es
+      // razón para que además corra sin inquilino.
+      tenantContext,
+      expressMiddleware(apolloServer, {
+        context: async ({ req }) => ({
+          user: req.user,
+          tenantId: req.tenantId,
+          entityId: req.entityId,
+        }),
+      })
+    );
+    logger.warn(
+      'GraphQL is mounted at /graphql. It sits outside the audited /v1 prefix and its ' +
+        'ledger mutations carry no permission check — do not expose it publicly.'
+    );
+  }
 
   // ============================================================
   // Error Handler (must be last)
@@ -221,7 +264,7 @@ async function bootstrap() {
 ║         Accounting Core API Server               ║
 ║══════════════════════════════════════════════════║
 ║  REST API:    http://localhost:${config.port}/v1          ║
-║  GraphQL:     http://localhost:${config.port}/graphql     ║
+${graphqlEnabled ? `║  GraphQL:     http://localhost:${config.port}/graphql     ║` : '║  GraphQL:     disabled (GRAPHQL_ENABLED=true to mount)   ║'}
 ║  Health:      http://localhost:${config.port}/health      ║
 ║  Live:        http://localhost:${config.port}/live        ║
 ║  Ready:       http://localhost:${config.port}/ready       ║
@@ -248,6 +291,16 @@ async function bootstrap() {
         server.close((err) => (err ? reject(err) : resolve()))
       );
       await apolloServer.stop();
+      // Las atestaciones en vuelo, antes de cerrar el pool.
+      //
+      // `attestEntryAsync` es dispara-y-olvida: la promesa vive fuera de la
+      // petición. El CLI ya drenaba al apagarse (mnemosine.ts); aquí no, así
+      // que `closeDatabase()` mataba por debajo la atestación de un asiento
+      // recién posteado y el `.catch` la degradaba a un warn. El asiento
+      // quedaba posteado y sin hash — y, desde ATE-1, un periodo con un solo
+      // asiento así ya no se puede sellar, que es como debe ser: mejor que se
+      // note.
+      await drainAttestations(5000).catch(() => undefined);
       await closeDatabase();
       logger.info('shutdown_complete');
       process.exit(0);

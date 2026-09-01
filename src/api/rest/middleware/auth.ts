@@ -1,10 +1,11 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../../../config/index.js';
-import { UnauthorizedError, ForbiddenError } from '../../../utils/errors.js';
+import { UnauthorizedError, ForbiddenError, ValidationError } from '../../../utils/errors.js';
 import { isAsymmetric, verifyIdpToken } from '../../../auth/oidc.js';
 import { resolveIdentity, NoAccessError } from '../../../auth/provisioning.js';
 import type { JwtPayload } from '../../../types/index.js';
+import { ROLES as CATALOGO_DE_ROLES } from '../../../auth/roles.js';
 
 // Extend Express Request
 declare global {
@@ -43,12 +44,72 @@ async function authenticateAsync(req: Request, _res: Response): Promise<void> {
 
   req.user = payload;
   req.tenantId = payload.tenant_id;
-  req.entityId = (req.headers['x-entity-id'] as string) || payload.entities[0];
+  req.entityId = resolverEntidadActiva(payload, req.headers['x-entity-id']);
+}
+
+/**
+ * LA CABECERA ELIGE ENTRE LAS ENTIDADES DEL TOKEN; NO LAS AMPLÍA.
+ *
+ * Esto era `(req.headers['x-entity-id'] as string) || payload.entities[0]`, sin
+ * contrastar la cabecera contra nada. Y `req.entityId` es el alcance con el que
+ * trabaja media API: `entityId: req.entityId!` en invoices, `entity_id ||
+ * req.entityId` en bills, customers, vendors, journal-entries y fiscal-periods.
+ *
+ * Lo que eso significaba: el alcance de la petición lo escribía el cliente. El
+ * primer tramo de TEN-1 acotó `issueInvoice`/`voidInvoice` con `entityId`
+ * obligatorio, y las dos rutas que los llaman —POST /v1/invoices/:id/send y
+ * /:id/void— no llevan `requireEntityAccess`. Así que el filtro `AND entity_id
+ * = $2` que se añadió al SQL recibía el valor de la cabecera: bastaba mandar
+ * `x-entity-id: <entidad ajena>` para que el SELECT ... FOR UPDATE acotado
+ * encontrara la factura ajena y la anulara, contraasentando su ingreso en el
+ * mayor de la víctima. El arreglo era correcto y sorteable a la vez.
+ *
+ * `requireEntityAccess` no lo tapaba ni donde está montado: mira el PRIMERO de
+ * (req.entityId, params.entity_id, body.entity_id), y req.entityId siempre
+ * tiene valor — de modo que en una ruta cuyo id de entidad viaja en el cuerpo
+ * valida la cabecera y nunca el cuerpo.
+ *
+ * Se arregla AQUÍ, en authenticate, y no en un middleware que cada ruta deba
+ * recordar montar: es el mismo criterio que puso la frontera en la capa de
+ * datos. Un valor que sale de authenticate ya es de fiar, o no sale.
+ *
+ * 403 y no 404: no hay lectura de base ni oráculo de existencia. La cabecera se
+ * contrasta contra una lista que el propio llamador ya tiene en su token, así
+ * que la respuesta no le dice nada que no supiera.
+ */
+function resolverEntidadActiva(
+  payload: JwtPayload,
+  cabecera: string | string[] | undefined
+): string | undefined {
+  // Sin cabecera: la entidad por omisión del token. Es la que ya se usaba.
+  if (cabecera === undefined) return payload.entities[0];
+
+  // Repetida (`x-entity-id: a, x-entity-id: b`) Express la entrega como array.
+  // No se elige una: una petición actúa sobre UNA entidad, y adivinar cuál
+  // quiso decir el cliente es exactamente la clase de decisión que no debe
+  // tomar la capa de autenticación.
+  if (Array.isArray(cabecera)) {
+    throw new ForbiddenError('x-entity-id viene repetida: la petición actúa sobre una sola entidad');
+  }
+
+  const pedida = cabecera.trim();
+  if (pedida === '') return payload.entities[0];
+
+  if (!payload.entities.includes(pedida)) {
+    // El mensaje no distingue entre «esa entidad no existe» y «existe y no es
+    // tuya»: no hace falta, porque no se ha leído nada para saberlo.
+    throw new ForbiddenError('Access denied to this entity');
+  }
+  return pedida;
 }
 
 function verifyLocal(token: string): JwtPayload {
   try {
-    return jwt.verify(token, config.jwt.secret) as JwtPayload;
+    // Algoritmo FIJADO (S1): sin la lista, jwt.verify acepta el algoritmo
+    // que el token declare — la puerta clásica de alg-confusion. La retirada
+    // completa de esta rama sigue en la mesa (plan de cierre); mientras viva,
+    // no negocia.
+    return jwt.verify(token, config.jwt.secret, { algorithms: ['HS256'] }) as JwtPayload;
   } catch {
     throw new UnauthorizedError('Invalid or expired token');
   }
@@ -106,12 +167,75 @@ export function requireEntityAccess(req: Request, _res: Response, next: NextFunc
     throw new UnauthorizedError();
   }
 
-  const entityId = req.entityId || req.params.entity_id || req.body?.entity_id;
-  if (!entityId) {
-    return next();
+  // SE VALIDAN TODOS LOS QUE LA PETICIÓN TRAE, NO EL PRIMERO.
+  //
+  // Esto era una cadena de `||`, y por eso no servía: `authenticate` puebla
+  // SIEMPRE `req.entityId`, y un usuario sin entidades accesibles ni
+  // siquiera puede iniciar sesión. El primer término nunca es falsy, así que
+  // la cadena jamás llegaba a los otros tres: la guarda comprobaba una
+  // fuente mientras el manejador leía su `?entity_id=`. Tres de las cuatro
+  // eran inalcanzables.
+  //
+  // La cabecera ya la valida `resolverEntidadActiva` en el origen; esto es
+  // la otra mitad, para las fuentes que no pasan por ahí.
+  //
+  // Con varias fuentes no hay forma de saber aquí cuál va a usar el
+  // manejador —cada ruta lee la suya— así que la única regla correcta es
+  // que TODAS tienen que ser suyas. Una petición que menciona una entidad
+  // ajena se rechaza aunque el manejador fuera a ignorarla.
+  //
+  // Se distingue lo que la petición NOMBRA de lo que se puso por omisión.
+  // `authenticate` deja `req.entityId = cabecera || payload.entities[0]`, así
+  // que ese campo no dice si el cliente pidió algo: mezclarlo con lo nombrado
+  // haría que un `?entity_id=B` legítimo, sin cabecera, chocara contra la
+  // entidad que el token trae de relleno.
+  const nombradas: Array<{ fuente: string; valor: string }> = [];
+  const anota = (fuente: string, v: unknown): void => {
+    if (typeof v === 'string' && v.length > 0) nombradas.push({ fuente, valor: v });
+  };
+  anota('la cabecera x-entity-id', req.headers?.['x-entity-id']);
+  anota('la ruta (:entity_id)', req.params.entity_id);
+  anota('el cuerpo', (req.body as { entity_id?: string } | undefined)?.entity_id);
+  const enQuery = req.query.entity_id;
+  for (const v of Array.isArray(enQuery) ? enQuery : [enQuery]) anota('la cadena de consulta (?entity_id=)', v);
+
+  const distintas = [...new Set(nombradas.map((n) => n.valor))];
+
+  // DOS ENTIDADES DISTINTAS EN UNA PETICIÓN SE RECHAZAN, AUNQUE LAS DOS SEAN
+  // SUYAS.
+  //
+  // Comprobar que ambas pertenecen al usuario cierra el hueco de acceso y deja
+  // otro abierto, que en un sistema contable es el que importa: cada ruta lee
+  // la fuente que le da la gana —unas la cabecera, otras `?entity_id=`— y el
+  // contexto de la bitácora se arma SIEMPRE con `req.entityId`
+  // (middleware/correlation.ts). Con cabecera A y query B, el trabajo ocurre
+  // sobre B y todo lo registrado dice A. No es una fuga: es una atribución
+  // falsa, y no se puede reparar después porque el rastro ya se escribió así.
+  //
+  // Aquí no hay forma de saber cuál de las dos iba a usar el manejador. La
+  // única respuesta correcta es no adivinar.
+  if (distintas.length > 1) {
+    throw new ValidationError(
+      'La petición nombra ' +
+        `${distintas.length} entidades distintas (` +
+        nombradas.map((n) => `${n.fuente}: ${n.valor}`).join('; ') +
+        '). Cada ruta usa la fuente que le corresponde y la bitácora registra la de la cabecera, ' +
+        'así que con dos no se puede saber sobre cuál se trabajó. Manda una sola.',
+      'entity_id'
+    );
   }
 
-  assertEntityAccess(req.user, entityId);
+  // Una sola entidad nombrada MANDA sobre la de relleno, y con ella se
+  // registra la petición. Sin esto, `?entity_id=B` sin cabecera se trabaja
+  // sobre B y se registra sobre la primera entidad del token — la misma
+  // atribución falsa que el rechazo de arriba evita en el otro caso.
+  if (distintas.length === 1) {
+    req.entityId = distintas[0];
+  }
+
+  for (const entityId of new Set([...distintas, req.entityId].filter((v): v is string => !!v))) {
+    assertEntityAccess(req.user, entityId);
+  }
   next();
 }
 
@@ -125,51 +249,31 @@ export function assertEntityAccess(
   user: { entities: string[]; permissions: string[] },
   entityId: string
 ): void {
-  if (!user.entities.includes(entityId) && !user.permissions.includes('*')) {
+  // UN COMODÍN DE PERMISOS AUTORIZA VERBOS, NO FILAS.
+  //
+  // Antes esto era `... && !user.permissions.includes('*')`, y el rol owner
+  // es exactamente ['*'] (ROLES.owner, abajo). O sea: para cualquier owner
+  // esta función era un no-op y aceptaba el id de CUALQUIER entidad, de
+  // cualquier inquilino. Lo único que quedaba en medio era RLS, que es
+  // inerte con un rol de conexión que la ignora.
+  //
+  // Permiso y pertenencia son dos ejes distintos: `journal_entries:post`
+  // dice QUÉ puedes hacer, accessible_entities dice SOBRE QUÉ. Quitar el
+  // comodín no deja a nadie fuera: un usuario sin entidades accesibles ni
+  // siquiera puede iniciar sesión (auth/provisioning.ts).
+  if (!user.entities.includes(entityId)) {
     throw new ForbiddenError('Access denied to this entity');
   }
 }
 
-// RBAC role definitions
-export const ROLES: Record<string, string[]> = {
-  owner: ['*'],
-  admin: [
-    'accounts:read', 'accounts:create', 'accounts:update', 'accounts:delete',
-    'journal_entries:read', 'journal_entries:create', 'journal_entries:post', 'journal_entries:void',
-    'invoices:read', 'invoices:create', 'invoices:send', 'invoices:void',
-    'bills:read', 'bills:create', 'bills:approve', 'bills:void',
-    'reports:read', 'reports:export',
-    'users:manage', 'settings:manage',
-  ],
-  controller: [
-    'accounts:read', 'accounts:create',
-    'journal_entries:read', 'journal_entries:create', 'journal_entries:post', 'journal_entries:void',
-    'periods:close', 'periods:reopen',
-    'reports:read', 'reports:export',
-  ],
-  accountant: [
-    'accounts:read',
-    'journal_entries:read', 'journal_entries:create',
-    'invoices:read', 'invoices:create', 'invoices:send',
-    'bills:read', 'bills:create',
-    'reports:read',
-  ],
-  viewer: [
-    'accounts:read',
-    'journal_entries:read',
-    'invoices:read',
-    'bills:read',
-    'reports:read',
-  ],
-  auditor: [
-    'accounts:read',
-    'journal_entries:read',
-    'invoices:read',
-    'bills:read',
-    'reports:read', 'reports:export',
-    'audit_log:read',
-  ],
-};
+// El catálogo vive en src/auth/roles.ts, que es el único. Aquí había una de
+// las dos copias que existían, con nombres de rol distintos de los del
+// asistente de alta.
+export const ROLES: Record<string, readonly string[]> = Object.freeze(
+  Object.fromEntries(
+    Object.entries(CATALOGO_DE_ROLES).map(([nombre, spec]) => [nombre, spec.permissions])
+  )
+);
 
 // Segregation of Duties rules
 interface SoDRule {

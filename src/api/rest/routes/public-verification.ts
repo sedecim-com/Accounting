@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { query } from '../../../database/connection.js';
+import { consultaPublica } from '../../../database/consulta-publica.js';
+import { asyncHandler } from '../middleware/async-handler.js';
+import { preAuthRateLimiter } from '../middleware/rate-limiter.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { bitcoinAnchorService } from '../../../services/blockchain/bitcoin-anchor.js';
 import { cryptoService } from '../../../services/blockchain/crypto-service.js';
@@ -10,6 +12,50 @@ import { cryptoService } from '../../../services/blockchain/crypto-service.js';
 
 const router = Router();
 
+// EL FRENO VIVE AQUÍ, NO EN EL MONTAJE.
+//
+// Este router sirve sin credenciales y hace trabajo caro: /verify/merkle-proof
+// verifica criptográficamente lo que mande cualquiera. Ponerlo en el montaje
+// funcionaba, pero dejaba la protección a un archivo de distancia —invisible
+// para quien lee este router y para el análisis estático, que lo señalaba como
+// `js/missing-rate-limiting`—. Aquí viaja con el router a donde se monte.
+router.use(preAuthRateLimiter);
+
+/** ceil(log2(hojas)): 64 cubre un árbol de 2^64 hojas. Ver /verify/merkle-proof. */
+const MAX_ELEMENTOS_PRUEBA = 64;
+/** Un digest sha256 en hexadecimal, con o sin el 0x de cortesía. */
+const DIGEST_HEX = /^(0x)?[0-9a-f]{64}$/i;
+
+// ============================================================
+// UNA PRUEBA FABRICADA ES PEOR QUE NINGUNA.
+//
+// Los adaptadores de cadena no anclan nada: `simulateBlockNumber()`,
+// `simulateGasCost()` y un `confirmations: 12` fijo fabrican la atestación
+// entera. Este router sirve esas filas SIN AUTENTICACIÓN, y su propósito es
+// que un tercero —el auditor del cliente— se las crea.
+//
+// Es la misma clase que retiró CLI-5, en su peor variante: un timbre
+// inventado engaña a quien lo emitió; una atestación inventada engaña a
+// quien vino a comprobarla. Así que mientras el anclaje sea simulado, este
+// router no sirve nada y lo dice.
+//
+// No es un 404. Un 404 diría «no existe», y existe: lo que no existe es la
+// prueba. La distinción importa porque el auditor tiene que saber que la
+// contabilidad está ahí y que lo que falta es el anclaje.
+// ============================================================
+function rechazarSimulada(res: Response, que: string): void {
+  res.status(501).json({
+    errors: [{
+      code: 'ATTESTATION_SIMULATED',
+      message:
+        `${que} existe, pero su anclaje es SIMULADO: ningún hash se escribió en ninguna cadena, ` +
+        `así que no hay nada que un tercero pueda comprobar. Este endpoint se niega a presentarlo ` +
+        `como prueba. Volverá a responder cuando exista un adaptador de cadena real.`,
+    }],
+    meta: { timestamp: new Date().toISOString(), version: 'v1' },
+  });
+}
+
 // Rate limiter stub - 100 req/min per IP (already covered by global rate-limiter)
 
 // ============================================================
@@ -17,14 +63,14 @@ const router = Router();
 // ============================================================
 
 // GET /public/v1/verify/:entryHash
-router.get('/verify/:entryHash', async (req: Request, res: Response) => {
+router.get('/verify/:entryHash', asyncHandler(async (req: Request, res: Response) => {
   const entryHash = req.params.entryHash;
 
   if (!/^0x[a-fA-F0-9]{64}$/.test(entryHash)) {
     throw new ValidationError('entryHash must be 0x followed by 64 hex chars');
   }
 
-  const attestation = await query<{
+  const attestation = await consultaPublica<{
     id: string;
     tenant_id: string;
     entity_id: string;
@@ -35,10 +81,11 @@ router.get('/verify/:entryHash', async (req: Request, res: Response) => {
     chain_attestations: unknown;
     status: string;
     created_at: Date;
+    is_simulated: boolean;
   }>(
     `SELECT id, tenant_id, entity_id, entry_hash,
             zkverify_attestation_id, zkverify_merkle_root, zkverify_confirmed_at,
-            chain_attestations, status, created_at
+            chain_attestations, status, created_at, is_simulated
      FROM blockchain_attestations WHERE entry_hash = $1 LIMIT 1`,
     [entryHash]
   );
@@ -52,6 +99,10 @@ router.get('/verify/:entryHash', async (req: Request, res: Response) => {
   }
 
   const a = attestation.rows[0];
+  if (a.is_simulated) {
+    rechazarSimulada(res, 'La atestación de ese asiento');
+    return;
+  }
   const chains = Array.isArray(a.chain_attestations) ? a.chain_attestations : [];
 
   // Check Bitcoin anchor
@@ -108,13 +159,13 @@ console.log(hash === '${entryHash}');
     },
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /public/v1/entities/:entityId
-router.get('/entities/:entityId', async (req: Request, res: Response) => {
+router.get('/entities/:entityId', asyncHandler(async (req: Request, res: Response) => {
   const entityId = req.params.entityId;
 
-  const entity = await query<{
+  const entity = await consultaPublica<{
     id: string;
     name: string;
     entity_type: string;
@@ -129,7 +180,7 @@ router.get('/entities/:entityId', async (req: Request, res: Response) => {
   if (entity.rows.length === 0) throw new NotFoundError('Entity', entityId);
 
   // Aggregate stats (public info only)
-  const stats = await query<{ total_attestations: string; total_periods: string }>(
+  const stats = await consultaPublica<{ total_attestations: string; total_periods: string }>(
     `SELECT
       (SELECT COUNT(*)::text FROM blockchain_attestations WHERE entity_id = $1 AND status = 'confirmed') as total_attestations,
       (SELECT COUNT(*)::text FROM period_commitments WHERE entity_id = $1) as total_periods`,
@@ -146,13 +197,13 @@ router.get('/entities/:entityId', async (req: Request, res: Response) => {
     },
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /public/v1/entities/:entityId/periods/:periodId
-router.get('/entities/:entityId/periods/:periodId', async (req: Request, res: Response) => {
+router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Request, res: Response) => {
   const { entityId, periodId } = req.params;
 
-  const commitment = await query<{
+  const commitment = await consultaPublica<{
     id: string;
     merkle_root: string;
     entry_count: number;
@@ -162,17 +213,27 @@ router.get('/entities/:entityId/periods/:periodId', async (req: Request, res: Re
     chain_commitments: unknown;
     status: string;
     committed_at: Date | null;
+    is_simulated: boolean;
   }>(
     `SELECT id, merkle_root, entry_count, tree_depth, balance_commitment,
-            zkverify_attestation_id, chain_commitments, status, committed_at
+            zkverify_attestation_id, chain_commitments, status, committed_at,
+            is_simulated
      FROM period_commitments WHERE entity_id = $1 AND period_id = $2`,
     [entityId, periodId]
   );
 
   if (commitment.rows.length === 0) throw new NotFoundError('Period commitment');
 
+  // E1.4 puso este cerrojo en /verify/:entryHash y no aquí, que es donde vive
+  // la carga útil de la prueba: el sello del periodo y su `entryCount`. Un
+  // compromiso simulado se servía sin autenticar, sin marca y sin rechazo.
+  if (commitment.rows[0].is_simulated) {
+    rechazarSimulada(res, 'El compromiso de ese periodo');
+    return;
+  }
+
   // Get published aggregates
-  const aggregates = await query<{
+  const aggregates = await consultaPublica<{
     dimension_type: string;
     dimension_value: string;
     public_amount: string | null;
@@ -206,10 +267,10 @@ router.get('/entities/:entityId/periods/:periodId', async (req: Request, res: Re
     },
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /public/v1/entities/:entityId/aggregates
-router.get('/entities/:entityId/aggregates', async (req: Request, res: Response) => {
+router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, res: Response) => {
   const { entityId } = req.params;
   const { dimension, value, from_period, to_period } = req.query;
 
@@ -220,10 +281,14 @@ router.get('/entities/:entityId/aggregates', async (req: Request, res: Response)
   if (dimension) { where += ` AND dimension_type = $${idx++}`; params.push(dimension); }
   if (value) { where += ` AND dimension_value = $${idx++}`; params.push(value); }
 
-  const result = await query(
+  // Los agregados simulados no se sirven: se filtran en el propio SQL, no
+  // después, para que la cifra de este endpoint nunca dependa de que alguien
+  // se acuerde de filtrar en JavaScript. Un listado vacío es la respuesta
+  // correcta mientras el anclaje sea fabricado.
+  const result = await consultaPublica(
     `SELECT dimension_type, dimension_value, public_amount, transaction_count,
             period_id, published_at, aggregate_commitment
-     FROM published_aggregates ${where}
+     FROM published_aggregates ${where} AND is_simulated = false
      ORDER BY published_at DESC LIMIT 100`,
     params
   );
@@ -232,17 +297,17 @@ router.get('/entities/:entityId/aggregates', async (req: Request, res: Response)
     data: result.rows,
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /public/v1/bitcoin/verify/:txid
-router.get('/bitcoin/verify/:txid', async (req: Request, res: Response) => {
+router.get('/bitcoin/verify/:txid', asyncHandler(async (req: Request, res: Response) => {
   const txid = req.params.txid;
 
   if (!/^[a-fA-F0-9]{64}$/.test(txid)) {
     throw new ValidationError('txid must be 64 hex chars');
   }
 
-  const anchor = await query<{
+  const anchor = await consultaPublica<{
     id: string;
     anchor_type: string;
     merkle_root: string;
@@ -284,10 +349,10 @@ router.get('/bitcoin/verify/:txid', async (req: Request, res: Response) => {
     },
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // GET /public/v1/bitcoin/proof/:entryHash
-router.get('/bitcoin/proof/:entryHash', async (req: Request, res: Response) => {
+router.get('/bitcoin/proof/:entryHash', asyncHandler(async (req: Request, res: Response) => {
   const entryHash = req.params.entryHash;
 
   if (!/^0x[a-fA-F0-9]{64}$/.test(entryHash)) {
@@ -301,15 +366,47 @@ router.get('/bitcoin/proof/:entryHash', async (req: Request, res: Response) => {
     data: proof,
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /public/v1/verify/merkle-proof
 // Verify a user-submitted Merkle proof against our root
-router.post('/verify/merkle-proof', async (req: Request, res: Response) => {
+router.post('/verify/merkle-proof', asyncHandler(async (req: Request, res: Response) => {
   const { leaf, proof, root } = req.body;
 
   if (!leaf || !proof || !root) {
     throw new ValidationError('leaf, proof, and root are required');
+  }
+
+  // TRABAJO ACOTADO ANTES DE EMPEZARLO.
+  //
+  // Todo lo que sigue son datos del solicitante, y este endpoint no pide
+  // credenciales: verifyMerkleProof recorre `proof` decodificando y hasheando
+  // elemento por elemento. Sin tope, un arreglo de un millón de entradas son un
+  // millón de sha256 que cualquiera puede pedir gratis —el mismo patrón que el
+  // lote de XML sin `.max()`—.
+  //
+  // El tope no es arbitrario: una prueba de Merkle tiene ceil(log2(hojas))
+  // elementos, así que 64 cubre árboles de 2^64 hojas. Un `proof` más largo que
+  // eso no es una prueba grande: es otra cosa.
+  if (!Array.isArray(proof) || proof.length === 0 || proof.length > MAX_ELEMENTOS_PRUEBA) {
+    throw new ValidationError(
+      `proof must be an array of 1 to ${MAX_ELEMENTOS_PRUEBA} elements`, 'proof'
+    );
+  }
+  // Cada elemento es un digest sha256 y su lado. Validar la FORMA aquí evita
+  // que Buffer.from(...,'hex') se coma megabytes de basura por elemento.
+  for (const p of proof) {
+    if (!p || typeof p !== 'object' || (p.position !== 'left' && p.position !== 'right')) {
+      throw new ValidationError("each proof element needs position 'left' or 'right'", 'proof');
+    }
+    if (typeof p.data !== 'string' || !DIGEST_HEX.test(p.data)) {
+      throw new ValidationError('each proof element data must be a 32-byte hex digest', 'proof');
+    }
+  }
+  for (const [nombre, valor] of [['leaf', leaf], ['root', root]] as const) {
+    if (typeof valor !== 'string' || !DIGEST_HEX.test(valor)) {
+      throw new ValidationError(`${nombre} must be a 32-byte hex digest`, nombre);
+    }
   }
 
   const valid = cryptoService.verifyMerkleProof({ leaf, proof, root });
@@ -318,6 +415,6 @@ router.post('/verify/merkle-proof', async (req: Request, res: Response) => {
     data: { valid, leaf, root },
     meta: { timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 export default router;

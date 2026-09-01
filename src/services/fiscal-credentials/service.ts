@@ -1,4 +1,5 @@
 import { query, withTransaction } from '../../database/connection.js';
+import { registrarAuditoria } from '../audit/audit-log.js';
 import { getVault, zeroize, type SecretContext } from '../vault/index.js';
 import {
   parseCertificate,
@@ -316,7 +317,8 @@ export async function getCredentialStatus(entityId: string, tenantId: string) {
 export async function revokeCredential(
   entityId: string,
   tenantId: string,
-  revokedBy: string
+  revokedBy: string,
+  auditoria?: { userId: string; reason?: string }
 ): Promise<void> {
   const found = await query<CredentialRow>(
     `SELECT ${CREDENTIAL_COLUMNS} FROM fiscal_credentials
@@ -330,10 +332,28 @@ export async function revokeCredential(
     ref: row.vault_ref,
     backend: row.vault_backend,
   });
-  await query(
-    `UPDATE fiscal_credentials SET status = 'revoked', updated_at = NOW() WHERE id = $1`,
-    [row.id]
-  );
+  await withTransaction(async (client) => {
+    await client.query(
+      `UPDATE fiscal_credentials SET status = 'revoked', updated_at = NOW() WHERE id = $1`,
+      [row.id]
+    );
+    // La razón del --reason aterriza aquí: sin este renglón, la bandera que
+    // el kernel exige a un verbo que deshace prometería un rastro que no
+    // existe. `action: 'update'` porque el vocabulario CHECK de audit_log no
+    // tiene 'revoke'; lo que pasó queda en new_values.
+    if (auditoria) {
+      await registrarAuditoria(client, {
+        tenantId,
+        userId: auditoria.userId,
+        action: 'update',
+        entityType: 'fiscal_credentials',
+        entityId: row.id,
+        oldValues: { status: 'active' },
+        newValues: { status: 'revoked', vault_material: 'destroyed' },
+        reason: auditoria.reason,
+      });
+    }
+  });
   await logAccess(row, { purpose: 'export', actor: revokedBy, unattended: false }, 'success');
 }
 

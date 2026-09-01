@@ -4,6 +4,8 @@ import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, fechaEnPeriodo, saldoDe, type Fixture } from './helpers/tenant-fixture.js';
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { censarIvaPpd, reclasificarIvaPpd } from '../../src/services/accounting/iva-ppd-reclass.js';
+import { postVendorPaymentEntry } from '../../src/services/accounting/ar-ap-posting.js';
+import { withTransaction } from '../../src/database/connection.js';
 import { JournalEntryType } from '../../src/types/index.js';
 
 /**
@@ -49,7 +51,7 @@ async function facturaPpdMalAcreditada(
   subtotal = '1000.00',
   iva = '160.00',
   metodoPago = 'PPD'
-): Promise<{ entryId: string; uuid: string; periodId: string }> {
+): Promise<{ entryId: string; uuid: string; periodId: string; billId: string; vendorId: string }> {
   const cfdiUuid = uuidv4().toUpperCase();
   const xmlId = uuidv4();
   const billId = uuidv4();
@@ -109,7 +111,7 @@ async function facturaPpdMalAcreditada(
     { autoPost: true, sourceType: 'bill', sourceId: billId }
   );
 
-  return { entryId: asiento.id, uuid: cfdiUuid, periodId: asiento.fiscal_period_id };
+  return { entryId: asiento.id, uuid: cfdiUuid, periodId: asiento.fiscal_period_id, billId, vendorId };
 }
 
 describe('censo del IVA PPD acreditado antes de tiempo', () => {
@@ -247,5 +249,199 @@ describe('periodos cerrados', () => {
       `SELECT status FROM fiscal_periods WHERE id = $1`, [periodo]
     );
     expect(estado.rows[0].status).toBe('locked');
+  });
+});
+
+/**
+ * EL CÍRCULO COMPLETO: entrada equivocada → corrección → pago → acreditamiento.
+ *
+ * Es la prueba que no existía en ninguno de los seis archivos de integración,
+ * y su ausencia era exactamente la grieta. La unitaria de ivaStillParked le
+ * entrega a la función la respuesta que la función existe para calcular
+ * (`query: vi.fn(async () => ({ rows: [{ parked }] }))`), y esta suite se
+ * detenía en la reclasificación sin llegar nunca al pago. Cobertura verde a
+ * los dos lados y nada encima de la costura donde el `source_id` del asiento
+ * de corrección choca con el id del documento.
+ *
+ * Lo que se fija aquí: un gasto PPD mal acreditado, corregido por el backfill,
+ * SÍ acredita su IVA cuando se paga. Antes de la reparación de
+ * iva-cash-basis.ts el tope salía cero y el impuesto quedaba varado en 1135
+ * para siempre.
+ */
+describe('el pago acredita el IVA que el backfill había aparcado', () => {
+  it('1135 vuelve a cero y 1130 recibe el impuesto', async () => {
+    // El describe anterior dejó el periodo en 'locked'.
+    await query(`UPDATE fiscal_periods SET status = 'open' WHERE id = $1`, [periodo]);
+
+    const gasto = await facturaPpdMalAcreditada('4000.00', '640.00');
+
+    // 1) La corrección mueve el IVA a la cuenta de pendientes.
+    const hallazgos = (await censarIvaPpd(f.tenantId, f.entityId))
+      .filter((h) => h.entry_id === gasto.entryId);
+    expect(hallazgos).toHaveLength(1);
+    const r = await reclasificarIvaPpd(hallazgos, f.userId);
+    expect(r.fallos).toEqual([]);
+    expect(r.reclasificados).toBe(1);
+
+    const pendienteTrasCorregir = await saldoDe(cuentaPendiente, periodo);
+    const acreditableTrasCorregir = await saldoDe(cuentaAcreditable, periodo);
+
+    // 2) Se paga la factura completa.
+    const pagoId = uuidv4();
+    await query(
+      `INSERT INTO vendor_payments (
+         id, entity_id, payment_number, vendor_id, payment_amount,
+         currency_code, payment_method, payment_date, status, created_by
+       ) VALUES ($1,$2,$3,$4,$5,'MXN','spei',$6,'completed',$7)`,
+      [pagoId, f.entityId, `VP-${gasto.uuid.slice(0, 8)}`, gasto.vendorId,
+       '4640.00', fechaEnPeriodo(), f.userId]
+    );
+    await query(
+      `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied)
+       VALUES ($1,$2,$3,$4)`,
+      [uuidv4(), pagoId, gasto.billId, '4640.00']
+    );
+
+    const asientoPago = await withTransaction((client) =>
+      postVendorPaymentEntry(
+        client,
+        {
+          id: pagoId,
+          entity_id: f.entityId,
+          payment_number: `VP-${gasto.uuid.slice(0, 8)}`,
+          payment_amount: '4640.00',
+          payment_date: fechaEnPeriodo(),
+          bank_account_id: null,
+          journal_entry_id: null,
+        },
+        f.userId
+      )
+    );
+    expect(asientoPago, 'el pago debe generar asiento').not.toBeNull();
+
+    // 3) El IVA salió de pendientes y entró en acreditable.
+    const pendienteFinal = await saldoDe(cuentaPendiente, periodo);
+    const acreditableFinal = await saldoDe(cuentaAcreditable, periodo);
+
+    expect(
+      pendienteFinal,
+      'el IVA aparcado debe haberse liberado; si sigue ahí, ivaStillParked dio tope cero'
+    ).toBeCloseTo(pendienteTrasCorregir - 640, 2);
+    expect(acreditableFinal).toBeCloseTo(acreditableTrasCorregir + 640, 2);
+
+    // El asiento del pago menciona el acreditamiento: si el tope fuera cero,
+    // la descripción no nombraría ningún documento.
+    expect(asientoPago!.description).toMatch(/IVA creditable on payment/);
+  });
+
+  it('un segundo pago no vuelve a acreditar lo ya acreditado', async () => {
+    // Las liberaciones previas se netean solas dentro de ivaStillParked: un
+    // pago posterior sobre el mismo gasto no puede acreditar dos veces.
+    const gasto = await facturaPpdMalAcreditada('1000.00', '160.00');
+    const hallazgos = (await censarIvaPpd(f.tenantId, f.entityId))
+      .filter((h) => h.entry_id === gasto.entryId);
+    await reclasificarIvaPpd(hallazgos, f.userId);
+
+    const pagar = async (monto: string): Promise<void> => {
+      const pagoId = uuidv4();
+      const numero = `VP2-${uuidv4().slice(0, 8)}`;
+      await query(
+        `INSERT INTO vendor_payments (
+           id, entity_id, payment_number, vendor_id, payment_amount,
+           currency_code, payment_method, payment_date, status, created_by
+         ) VALUES ($1,$2,$3,$4,$5,'MXN','spei',$6,'completed',$7)`,
+        [pagoId, f.entityId, numero, gasto.vendorId, monto, fechaEnPeriodo(), f.userId]
+      );
+      await query(
+        `INSERT INTO payment_applications (id, payment_id, bill_id, amount_applied)
+         VALUES ($1,$2,$3,$4)`,
+        [uuidv4(), pagoId, gasto.billId, monto]
+      );
+      await withTransaction((client) =>
+        postVendorPaymentEntry(
+          client,
+          { id: pagoId, entity_id: f.entityId, payment_number: numero,
+            payment_amount: monto, payment_date: fechaEnPeriodo(),
+            bank_account_id: null, journal_entry_id: null },
+          f.userId
+        )
+      );
+    };
+
+    const antes = await saldoDe(cuentaAcreditable, periodo);
+    await pagar('1160.00');
+    const trasPagoCompleto = await saldoDe(cuentaAcreditable, periodo);
+    expect(trasPagoCompleto).toBeCloseTo(antes + 160, 2);
+
+    // Un pago de más sobre el mismo gasto no puede acreditar otro peso.
+    await pagar('100.00');
+    expect(await saldoDe(cuentaAcreditable, periodo)).toBeCloseTo(trasPagoCompleto, 2);
+  });
+});
+
+/**
+ * EL DEFECTO MÁS CARO QUE ENCONTRÓ LA AUDITORÍA DE ESTE GUION.
+ *
+ * El censo sólo excluía «ya reclasificado» y nadie miraba si el gasto estaba
+ * PAGADO. Para un gasto PPD ya pagado su IVA YA es acreditable —LIVA art. 5
+ * fracc. III: se acredita cuando se paga— y está correctamente en la 1130.
+ * Moverlo a la 1135 lo dejaba varado para siempre, porque el pago que lo
+ * liberaría ya ocurrió y nada reevalúa un pago contabilizado.
+ *
+ * Es decir: el backfill DESTRUÍA crédito legítimo en vez de repararlo.
+ */
+describe('lo ya pagado no se reclasifica', () => {
+  /** Marca el gasto como pagado, como estaría si se hubiera liquidado antes. */
+  async function marcarPagado(billId: string, importe: string): Promise<void> {
+    await query(
+      `UPDATE bills SET amount_paid = $2, amount_due = 0, status = 'paid' WHERE id = $1`,
+      [billId, importe]
+    );
+  }
+
+  it('un gasto PPD ya liquidado se omite, y el censo dice por qué', async () => {
+    await query(`UPDATE fiscal_periods SET status = 'open' WHERE id = $1`, [periodo]);
+    const gasto = await facturaPpdMalAcreditada('2000.00', '320.00');
+    await marcarPagado(gasto.billId, '2320.00');
+
+    const hallazgos = (await censarIvaPpd(f.tenantId, f.entityId))
+      .filter((h) => h.entry_id === gasto.entryId);
+    expect(hallazgos, 'sigue apareciendo en el censo, pero omitido al aplicar').toHaveLength(1);
+
+    const acreditableAntes = await saldoDe(cuentaAcreditable, periodo);
+    const r = await reclasificarIvaPpd(hallazgos, f.userId);
+
+    expect(r.reclasificados).toBe(0);
+    expect([...r.motivosOmision.values()][0]).toMatch(/ya está pagado/);
+    expect(
+      await saldoDe(cuentaAcreditable, periodo),
+      'el IVA acreditable no puede perderse: ya se pagó'
+    ).toBeCloseTo(acreditableAntes, 2);
+  });
+
+  it('de un gasto a medio pagar sólo se mueve la parte pendiente', async () => {
+    const gasto = await facturaPpdMalAcreditada('1000.00', '160.00');
+    // Pagado 25%: 290 de 1160. Sólo el 75% del IVA sigue sin acreditarse.
+    await query(
+      `UPDATE bills SET amount_paid = 290, amount_due = 870, status = 'partially_paid' WHERE id = $1`,
+      [gasto.billId]
+    );
+
+    const hallazgos = (await censarIvaPpd(f.tenantId, f.entityId))
+      .filter((h) => h.entry_id === gasto.entryId);
+    const r = await reclasificarIvaPpd(hallazgos, f.userId);
+
+    expect(r.reclasificados).toBe(1);
+    // 160 × (870 / 1160) = 120
+    expect(r.montoReclasificado).toBeCloseTo(120, 2);
+
+    const linea = await query<{ debit_amount: string }>(
+      `SELECT jel.debit_amount FROM journal_entry_lines jel
+         JOIN journal_entries je ON je.id = jel.journal_entry_id
+        WHERE je.source_type = 'iva_reclass' AND je.source_id = $1
+          AND jel.account_id = $2`,
+      [gasto.entryId, cuentaPendiente]
+    );
+    expect(Number(linea.rows[0].debit_amount)).toBeCloseTo(120, 2);
   });
 });

@@ -1,28 +1,35 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { query } from '../../../database/connection.js';
-import { requirePermission, requireEntityAccess, assertEntityAccess } from '../middleware/auth.js';
+import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
-import { NotFoundError } from '../../../utils/errors.js';
+import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 import {
   createJournalEntry,
   postJournalEntry,
   voidJournalEntry,
   reverseJournalEntry,
+  listJournalEntries,
+  listEntryLines,
 } from '../../../services/accounting/index.js';
 import type { JournalEntry, JournalEntryLine, PaginationMeta } from '../../../types/index.js';
 import { JournalEntryType } from '../../../types/index.js';
 
 const router = Router();
 
-/** Fetches the entry's entity and enforces the caller's membership. */
+/**
+ * Exige que el asiento sea de la entidad de la petición, o 404.
+ *
+ * Era la misma forma que se acaba de borrar en el servicio
+ * (`assertEntryBelongsTo`): leer `WHERE id = $1` sin acotar y comparar
+ * después. La usan `/:id/post`, `/:id/void` y `/:id/reverse` —las tres
+ * escrituras que mueven el mayor por UUID—, y en las tres dejaba ventana entre
+ * la comprobación y la escritura, y contestaba 403 sobre un asiento ajeno
+ * existente frente a 404 sobre uno inventado.
+ */
 async function assertEntryAccess(req: Request, entryId: string): Promise<void> {
-  const result = await query<{ entity_id: string }>(
-    'SELECT entity_id FROM journal_entries WHERE id = $1',
-    [entryId]
-  );
-  if (result.rows.length === 0) throw new NotFoundError('Journal Entry', entryId);
-  assertEntityAccess(req.user!, result.rows[0].entity_id);
+  await requireByIdInScope('journal_entries', entryId, entityScope(req.tenantId!, req.entityId!), {
+    columns: 'id',
+  });
 }
 
 // ─── Schemas ───
@@ -66,7 +73,7 @@ const reverseJeSchema = z.object({
 });
 
 // GET /v1/journal-entries
-router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const {
     entity_id,
     fiscal_period_id,
@@ -84,47 +91,21 @@ router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, 
   const perPage = Math.min(100, Math.max(1, parseInt(per_page as string, 10)));
   const offset = (pageNum - 1) * perPage;
 
-  let whereClause = 'WHERE entity_id = $1';
-  const params: unknown[] = [entityId];
-  let paramIndex = 2;
-
-  if (fiscal_period_id) {
-    whereClause += ` AND fiscal_period_id = $${paramIndex++}`;
-    params.push(fiscal_period_id);
-  }
-  if (status) {
-    whereClause += ` AND status = $${paramIndex++}`;
-    params.push(status);
-  }
-  if (entry_type) {
-    whereClause += ` AND entry_type = $${paramIndex++}`;
-    params.push(entry_type);
-  }
-  if (start_date) {
-    whereClause += ` AND entry_date >= $${paramIndex++}`;
-    params.push(start_date);
-  }
-  if (end_date) {
-    whereClause += ` AND entry_date <= $${paramIndex++}`;
-    params.push(end_date);
-  }
-  if (source_type) {
-    whereClause += ` AND source_type = $${paramIndex++}`;
-    params.push(source_type);
-  }
-
-  const countResult = await query<{ count: string }>(
-    `SELECT COUNT(*) as count FROM journal_entries ${whereClause}`,
-    params
-  );
-  const totalCount = parseInt(countResult.rows[0].count, 10);
-
-  const result = await query<JournalEntry>(
-    `SELECT * FROM journal_entries ${whereClause}
-     ORDER BY entry_date DESC, created_at DESC
-     LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
-    [...params, perPage, offset]
-  );
+  // Filtering, counting and ordering moved verbatim into the domain service
+  // so the CLI and the agent search the ledger the same way this route does.
+  // `entityId` keeps the route's original nullability: without an entity in
+  // scope the WHERE matched nothing, and it still does.
+  const { rows, total: totalCount } = await listJournalEntries(entityId as string, {
+    fiscalPeriodId: fiscal_period_id as string | undefined,
+    status: status as string | undefined,
+    entryType: entry_type as string | undefined,
+    startDate: start_date as string | undefined,
+    endDate: end_date as string | undefined,
+    sourceType: source_type as string | undefined,
+    limit: perPage,
+    offset,
+  });
+  const result = { rows };
 
   const pagination: PaginationMeta = {
     page: pageNum,
@@ -144,34 +125,39 @@ router.get('/', requirePermission('journal_entries:read'), requireEntityAccess, 
       version: 'v1',
     },
   });
-});
+}));
 
 // GET /v1/journal-entries/:id
-router.get('/:id', requirePermission('journal_entries:read'), async (req: Request, res: Response) => {
+//
+// DOS DEFECTOS QUE SE TAPABAN EL UNO AL OTRO.
+//
+// El manejador es `async` y NO iba envuelto en `asyncHandler`. Express 4 no
+// captura la promesa rechazada de un manejador asíncrono: no llega al
+// errorHandler, no hay respuesta, y la petición queda colgada hasta que el
+// unhandledRejection de Node —que desde la v15 aborta por omisión— tumba el
+// proceso. O sea que el ForbiddenError de la línea siguiente no devolvía 403:
+// mataba el servidor. Pedir en bucle asientos ajenos era una negación de
+// servicio de una línea, y la disparaba precisamente el control de seguridad.
+//
+// Y ese control era la forma equivocada: leer sin acotar y comparar después.
+// Aun capturado, respondía 403 —«existe, y no es tuyo»— cuando el asiento era
+// de otra entidad, y 404 cuando no existía. Eso convierte la ruta en oráculo
+// de existencia sobre el mayor ajeno.
+//
+// Con `requireByIdInScope` las dos cosas se van a la vez: el filtro entra en
+// el SQL, los dos casos salen por el mismo 404, y `asyncHandler` lleva el
+// error al pipeline en vez de al suelo.
+router.get('/:id', requirePermission('journal_entries:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { include_lines = 'true' } = req.query;
 
-  const entryResult = await query<JournalEntry>(
-    'SELECT * FROM journal_entries WHERE id = $1',
-    [req.params.id]
-  );
-
-  if (entryResult.rows.length === 0) {
-    throw new NotFoundError('Journal Entry', req.params.id);
-  }
-
-  const entry = entryResult.rows[0] as JournalEntry & { lines?: JournalEntryLine[] };
-  assertEntityAccess(req.user!, entry.entity_id);
+  const entry = await requireByIdInScope<JournalEntry>(
+    'journal_entries',
+    req.params.id,
+    entityScope(req.tenantId!, req.entityId!)
+  ) as JournalEntry & { lines?: JournalEntryLine[] };
 
   if (include_lines === 'true') {
-    const linesResult = await query<JournalEntryLine & { account_code: string; account_name: string }>(
-      `SELECT jel.*, a.code as account_code, a.name as account_name
-       FROM journal_entry_lines jel
-       JOIN accounts a ON a.id = jel.account_id
-       WHERE jel.journal_entry_id = $1
-       ORDER BY jel.line_number`,
-      [req.params.id]
-    );
-    entry.lines = linesResult.rows;
+    entry.lines = await listEntryLines(req.params.id);
   }
 
   res.json({
@@ -182,7 +168,7 @@ router.get('/:id', requirePermission('journal_entries:read'), async (req: Reques
       version: 'v1',
     },
   });
-});
+}));
 
 // POST /v1/journal-entries
 router.post(

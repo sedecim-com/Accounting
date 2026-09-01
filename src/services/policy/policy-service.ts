@@ -101,11 +101,23 @@ export interface EffectivePolicy {
  */
 export async function getPolicy(ctx: PolicyContext, key: string): Promise<EffectivePolicy> {
   const r = await query<PolicyRow>(
+    // El alcance por entidad se ACOTA, no sólo se ordena.
+    //
+    // Antes era `WHERE tenant_id AND key ORDER BY entity_id IS NULL ASC`, y
+    // ese orden hace ganar a cualquier fila con entity_id no nulo — sea de la
+    // entidad que sea. Con dos entidades del mismo inquilino, una de ellas
+    // recibía la política de la otra. No se notaba porque hasta hoy todo se
+    // sembraba a nivel de inquilino (entity_id NULL) y ninguna política tenía
+    // lector; al aparecer el primero, el defecto deja de ser teórico.
+    //
+    // La fila de la entidad gana sobre la del inquilino, que es lo que el
+    // orden pretendía decir.
     `SELECT ${COLUMNS} FROM policy_decisions
      WHERE tenant_id = $1 AND key = $2
+       AND (entity_id IS NULL OR entity_id = $3::uuid)
      ORDER BY entity_id IS NULL ASC
      LIMIT 1`,
-    [ctx.tenantId, key]
+    [ctx.tenantId, key, ctx.entityId ?? null]
   );
   const row = r.rows[0];
   const spec = getPolicySpec(key);

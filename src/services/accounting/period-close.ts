@@ -20,14 +20,20 @@ interface PeriodCloseStatus {
 
 export async function getPeriodCloseStatus(
   periodId: string,
-  entityId: string
+  entityId: string,
+  client?: pg.PoolClient
 ): Promise<PeriodCloseStatus> {
+  // Con `client`, el checklist corre DENTRO de la transacción del cierre,
+  // con la fila del periodo ya bajo FOR UPDATE (R1): la foto y el acto son
+  // el mismo instante. Sin él, es la consulta informativa de siempre.
+  const q = <T extends Record<string, unknown>>(sql: string, params: unknown[]) =>
+    client ? client.query<T>(sql, params) : query<T>(sql, params);
   const blocking_issues: string[] = [];
   const warnings: string[] = [];
   const checklist: PeriodCloseChecklist[] = [];
 
   // 1. Check all journal entries are posted
-  const draftEntries = await query<{ count: string }>(
+  const draftEntries = await q<{ count: string }>(
     `SELECT COUNT(*) as count FROM journal_entries
      WHERE fiscal_period_id = $1 AND entity_id = $2 AND status IN ('draft', 'pending_approval')`,
     [periodId, entityId]
@@ -41,7 +47,7 @@ export async function getPeriodCloseStatus(
   if (draftCount > 0) blocking_issues.push(`${draftCount} unposted journal entries`);
 
   // 2. Check bank reconciliations complete
-  const unreconciledAccounts = await query<{ count: string }>(
+  const unreconciledAccounts = await q<{ count: string }>(
     `SELECT COUNT(*) as count FROM bank_accounts ba
      WHERE ba.entity_id = $1 AND ba.is_active = true
      AND NOT EXISTS (
@@ -61,7 +67,7 @@ export async function getPeriodCloseStatus(
   if (unreconCount > 0) warnings.push(`${unreconCount} bank accounts not reconciled`);
 
   // 3. Check invoices reviewed
-  const draftInvoices = await query<{ count: string }>(
+  const draftInvoices = await q<{ count: string }>(
     `SELECT COUNT(*) as count FROM invoices
      WHERE entity_id = $1
      AND invoice_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
@@ -78,7 +84,7 @@ export async function getPeriodCloseStatus(
   if (draftInvCount > 0) warnings.push(`${draftInvCount} draft invoices in period`);
 
   // 4. Check depreciation calculated
-  const undepreciatedAssets = await query<{ count: string }>(
+  const undepreciatedAssets = await q<{ count: string }>(
     `SELECT COUNT(*) as count FROM fixed_assets fa
      WHERE fa.entity_id = $1 AND fa.status = 'active'
      AND NOT EXISTS (
@@ -96,7 +102,7 @@ export async function getPeriodCloseStatus(
   if (undepCount > 0) warnings.push(`${undepCount} assets without depreciation posted`);
 
   // 5. Trial balance check
-  const trialBalance = await query<{ diff: string }>(
+  const trialBalance = await q<{ diff: string }>(
     `SELECT ABS(SUM(COALESCE(debit_total, 0)) - SUM(COALESCE(credit_total, 0))) as diff
      FROM account_balances
      WHERE fiscal_period_id = $1 AND entity_id = $2`,
@@ -121,21 +127,36 @@ export async function getPeriodCloseStatus(
 export async function softClosePeriod(
   periodId: string,
   entityId: string,
-  userId: string
+  userId: string,
+  reason?: string
 ): Promise<FiscalPeriod> {
-  const status = await getPeriodCloseStatus(periodId, entityId);
-
-  if (!status.can_close) {
-    throw new AccountingError(
-      'CANNOT_CLOSE_PERIOD',
-      `Cannot close period: ${status.blocking_issues.join('; ')}`
-    );
-  }
-
   // Cierre y rastro en la MISMA transacción. Antes eran dos query()
   // independientes: si el renglón de auditoría fallaba, el periodo quedaba
-  // cerrado sin constancia de quién lo cerró.
+  // cerrado sin constancia de quién lo cerró. Y desde R1 el CHECKLIST también
+  // vive dentro: se evaluaba fuera, así que un posteo en vuelo podía
+  // confirmar entre la foto y el UPDATE — el periodo cerraba con un checklist
+  // que no lo contaba. El FOR UPDATE de la fila se cruza con el FOR SHARE que
+  // todo posteo toma (posting.ts): la foto y el acto son el mismo instante.
   return withTransaction(async (client) => {
+    const candado = await client.query<{ status: string }>(
+      'SELECT status FROM fiscal_periods WHERE id = $1 AND entity_id = $2 FOR UPDATE',
+      [periodId, entityId]
+    );
+    if (candado.rows.length === 0) {
+      throw new AccountingError('PERIOD_NOT_FOUND', 'Fiscal period not found');
+    }
+    if (candado.rows[0].status !== 'open') {
+      throw new AccountingError('PERIOD_NOT_OPEN', 'Period is not in open status');
+    }
+
+    const status = await getPeriodCloseStatus(periodId, entityId, client);
+    if (!status.can_close) {
+      throw new AccountingError(
+        'CANNOT_CLOSE_PERIOD',
+        `Cannot close period: ${status.blocking_issues.join('; ')}`
+      );
+    }
+
     const result = await client.query<FiscalPeriod>(
       `UPDATE fiscal_periods
        SET status = 'soft_close', soft_close_date = NOW(), closed_by = $1,
@@ -156,6 +177,7 @@ export async function softClosePeriod(
       entityType: 'fiscal_period',
       entityId: periodId,
       newValues: { status: 'soft_close' },
+      reason,
     });
 
     return result.rows[0];
@@ -183,7 +205,8 @@ async function inquilinoDe(client: pg.PoolClient, entityId: string): Promise<str
 export async function hardClosePeriod(
   periodId: string,
   entityId: string,
-  userId: string
+  userId: string,
+  reason?: string
 ): Promise<FiscalPeriod> {
   // Closing entries are created with the transaction's client (atomic with
   // the hard close), so attestation must fire here, AFTER commit.
@@ -237,6 +260,21 @@ export async function hardClosePeriod(
        WHERE id = $1`,
       [periodId]
     );
+
+    // El sello duro deja rastro en la misma transacción, igual que el suave.
+    // Antes NO auditaba nada: el único vestigio era hard_close_date, sin
+    // quién ni por qué — y es el acto que genera asientos de cierre y
+    // arrastra saldos.
+    await registrarAuditoria(client, {
+      tenantId: await inquilinoDe(client, entityId),
+      userId,
+      action: 'close',
+      entityType: 'fiscal_period',
+      entityId: periodId,
+      oldValues: { status: 'soft_close' },
+      newValues: { status: 'hard_close', closing_entries: closingEntryIds.length },
+      reason,
+    });
 
     // Lock all journal entries in this period
     await client.query(

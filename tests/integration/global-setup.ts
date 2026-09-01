@@ -42,6 +42,16 @@ export async function setup(): Promise<void> {
   const admin = new pg.Client({ connectionString: urlConBase(BASE_URL, 'postgres') });
   await admin.connect();
   await admin.query(`CREATE DATABASE ${nombre}`);
+  // R2: mnemosine_verifier es objeto de CLÚSTER (lo crea provision-roles.sql
+  // en producción); el clúster de CI nace sin aprovisionar, y sin el rol el
+  // bloque del verifier de rls-policies.sql se salta y el camino sancionado
+  // de /public/v1 quedaría sin probar. Crearlo aquí es idempotente.
+  await admin.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mnemosine_verifier') THEN
+        CREATE ROLE mnemosine_verifier NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS;
+      END IF;
+    END $$`);
   await admin.end();
 
   const urlEfimera = urlConBase(BASE_URL, nombre);

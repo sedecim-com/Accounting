@@ -2,11 +2,12 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
-import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
+import { requirePermission, requireEntityAccess, assertEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
 import { blockchainOrchestrator } from '../../../services/blockchain/orchestrator.js';
 import { CHAIN_CONFIGS, ChainId } from '../../../services/blockchain/chain-adapters.js';
+import { REDUNDANCY_MODES, VERIFICATION_LAYERS, MESSAGING_PROTOCOLS } from '../../../database/enums.js';
 
 const router = Router();
 
@@ -19,10 +20,12 @@ const blockchainConfigSchema = z.object({
   primary_chain: z.string().optional(),
   primary_chain_contract_address: z.string().optional(),
   secondary_chains: z.array(secondaryChainSchema).optional(),
-  redundancy_mode: z.enum(['none', 'mirror', 'verify_only']).optional(),
+  // Los tres vocabularios de blockchain_config estaban separados de sus
+  // CHECK: de los nueve valores en juego coincidía UNO.
+  redundancy_mode: z.enum(REDUNDANCY_MODES).optional(),
   required_confirmations: z.number().int().min(1).max(100).optional(),
-  verification_layer: z.enum(['zkverify', 'none']).optional(),
-  messaging_protocol: z.enum(['layerzero', 'ccip', 'wormhole', 'none']).optional(),
+  verification_layer: z.enum(VERIFICATION_LAYERS).optional(),
+  messaging_protocol: z.enum(MESSAGING_PROTOCOLS).optional(),
   max_gas_price_gwei: z.union([z.string(), z.number()]).optional(),
   max_tx_cost_usd: z.union([z.string(), z.number()]).optional(),
   is_active: z.boolean().optional(),
@@ -75,7 +78,7 @@ const commitPeriodSchema = z.object({
 // ============================================================
 
 // GET /v1/admin/blockchain/config
-router.get('/config', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/config', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const result = await query(
     'SELECT * FROM blockchain_config WHERE tenant_id = $1',
     [req.user!.tenant_id]
@@ -85,7 +88,7 @@ router.get('/config', requirePermission('settings:manage'), async (req: Request,
     data: result.rows[0] || null,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // PUT /v1/admin/blockchain/config
 router.put('/config', requirePermission('settings:manage'), validateBody(blockchainConfigSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -175,19 +178,19 @@ router.post('/config/validate', requirePermission('settings:manage'), validateBo
 }));
 
 // GET /v1/admin/blockchain/chains
-router.get('/chains', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/chains', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   res.json({
     data: Object.values(CHAIN_CONFIGS),
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // ============================================================
 // DISCLOSURE CONFIG
 // ============================================================
 
 // GET /v1/admin/disclosure-config
-router.get('/disclosure-config', requirePermission('settings:manage'), requireEntityAccess, async (req: Request, res: Response) => {
+router.get('/disclosure-config', requirePermission('settings:manage'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id } = req.query;
   const entityId = entity_id as string || req.entityId;
 
@@ -200,7 +203,7 @@ router.get('/disclosure-config', requirePermission('settings:manage'), requireEn
     data: result.rows[0] || null,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // PUT /v1/admin/disclosure-config
 router.put('/disclosure-config', requirePermission('settings:manage'), requireEntityAccess, validateBody(disclosureConfigSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -247,7 +250,7 @@ router.put('/disclosure-config', requirePermission('settings:manage'), requireEn
 // ============================================================
 
 // GET /v1/admin/bitcoin/config
-router.get('/bitcoin/config', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/bitcoin/config', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const result = await query(
     'SELECT * FROM bitcoin_anchor_config WHERE tenant_id = $1',
     [req.user!.tenant_id]
@@ -257,7 +260,7 @@ router.get('/bitcoin/config', requirePermission('settings:manage'), async (req: 
     data: result.rows[0] || null,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // PUT /v1/admin/bitcoin/config
 router.put('/bitcoin/config', requirePermission('settings:manage'), validateBody(bitcoinConfigSchema), asyncHandler(async (req: Request, res: Response) => {
@@ -355,7 +358,7 @@ router.post('/bitcoin/anchor-now', requirePermission('settings:manage'), asyncHa
 // ============================================================
 
 // GET /v1/admin/blockchain/attestations
-router.get('/attestations', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/attestations', requirePermission('settings:manage'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, status, source_type, page = '1', per_page = '50' } = req.query;
   const pageNum = Math.max(1, parseInt(page as string, 10));
   const perPage = Math.min(100, parseInt(per_page as string, 10));
@@ -373,17 +376,33 @@ router.get('/attestations', requirePermission('settings:manage'), async (req: Re
     params
   );
 
+  // `is_simulated` va en el SELECT y sale en la respuesta.
+  //
+  // E1.4 tapó esto en /public/v1 —que rechaza con 501 lo simulado— y dejó
+  // fuera esta ruta, que es autenticada pero la ve el administrador y el
+  // auditor del propio inquilino. Servía status 'confirmed' junto a un
+  // chain_attestations con txHash, blockNumber y explorerUrl fabricados por
+  // `generateTxHash`, sin una palabra que dijera que nada de eso se escribió
+  // en ninguna cadena. Aquí no se rechaza —el administrador tiene derecho a
+  // ver el estado real de su instalación— pero se nombra.
   const result = await query(
     `SELECT id, tenant_id, entity_id, source_type, source_id,
             entry_hash, zkverify_attestation_id, zkverify_merkle_root,
-            chain_attestations, status, created_at
+            chain_attestations, status, created_at, is_simulated
      FROM blockchain_attestations ${where}
      ORDER BY created_at DESC LIMIT $${idx++} OFFSET $${idx}`,
     [...params, perPage, (pageNum - 1) * perPage]
   );
 
+  const simuladas = result.rows.filter((r) => (r as { is_simulated: boolean }).is_simulated).length;
+
   res.json({
     data: result.rows,
+    aviso: simuladas > 0
+      ? `${simuladas} de ${result.rows.length} atestaciones de esta página son SIMULADAS: su ` +
+        'txHash, su número de bloque y su enlace al explorador están fabricados y no ' +
+        'corresponden a ninguna transacción. No sirven como prueba ante un tercero.'
+      : undefined,
     pagination: {
       page: pageNum, per_page: perPage,
       total_pages: Math.ceil(parseInt(countResult.rows[0].count, 10) / perPage),
@@ -392,11 +411,18 @@ router.get('/attestations', requirePermission('settings:manage'), async (req: Re
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 // POST /v1/admin/blockchain/commit-period
+//
+// `requireEntityAccess` NO sirve aquí, y conviene decir por qué: mira el
+// PRIMERO de (req.entityId, params.entity_id, body.entity_id), y req.entityId
+// siempre tiene valor — así que en una ruta cuyo id de entidad viaja en el
+// cuerpo validaría la cabecera y nunca el cuerpo. La pertenencia del
+// entity_id del cuerpo se comprueba explícitamente.
 router.post('/commit-period', requirePermission('periods:close'), validateBody(commitPeriodSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, period_id } = req.body;
+  assertEntityAccess(req.user!, entity_id);
 
   const result = await blockchainOrchestrator.commitPeriod({
     tenantId: req.user!.tenant_id, entityId: entity_id, periodId: period_id,
@@ -409,8 +435,13 @@ router.post('/commit-period', requirePermission('periods:close'), validateBody(c
 }));
 
 // POST /v1/admin/blockchain/publish-aggregates
+//
+// Lo que esta ruta publica se sirve DESPUÉS SIN AUTENTICAR en
+// GET /public/v1/entities/:entityId/aggregates, que filtra sólo por entity_id.
+// Escribir aquí con la entidad de otro era publicar sus cifras al mundo.
 router.post('/publish-aggregates', requirePermission('periods:close'), validateBody(commitPeriodSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, period_id } = req.body;
+  assertEntityAccess(req.user!, entity_id);
 
   const result = await blockchainOrchestrator.publishAggregates({
     tenantId: req.user!.tenant_id, entityId: entity_id, periodId: period_id,
@@ -427,7 +458,7 @@ router.post('/publish-aggregates', requirePermission('periods:close'), validateB
 // ============================================================
 
 // GET /v1/admin/bitcoin/anchors
-router.get('/bitcoin/anchors', requirePermission('settings:manage'), async (req: Request, res: Response) => {
+router.get('/bitcoin/anchors', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const result = await query(
     `SELECT id, anchor_type, merkle_root, entry_count,
             bitcoin_txid, bitcoin_block_height, confirmations,
@@ -441,6 +472,6 @@ router.get('/bitcoin/anchors', requirePermission('settings:manage'), async (req:
     data: result.rows,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
-});
+}));
 
 export default router;

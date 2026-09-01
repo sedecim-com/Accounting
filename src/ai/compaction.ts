@@ -13,10 +13,11 @@
 //    CFDI UUIDs, RFCs, folios, draft/question ids and amounts
 //    VERBATIM. A deterministic backstop additionally greps the
 //    source and re-appends every UUID (draft/question ids are
-//    UUIDs), RFC and serie-folio token (e.g. "F-2041") the summary
-//    dropped. ONLY those three shapes are enforced by code:
-//    monetary amounts are protected by instruction ONLY — there is
-//    no deterministic amount backstop;
+//    UUIDs), RFC, serie-folio token (e.g. "F-2041") and — desde S1
+//    (auditoría 2026-08-31) — monetary amount the summary dropped.
+//    En un agente CONTABLE el importe es la carga útil: protegerlo
+//    «solo por instrucción» era el hueco que E5.1-c confesaba en
+//    este mismo comentario;
 //  - a memory-flush turn runs BEFORE compaction, once per WINDOW:
 //    the flush gate looks only at messages newer than the last
 //    flush marker (excluding the flush turn's own reply), so every
@@ -234,16 +235,23 @@ const UUID_RE = /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 // \b is useless next to Ñ/& (non-word chars in JS regex): custom lookaround
 // boundaries instead, and the 'i' flag accepts lowercase RFCs (ñ folds too).
 const RFC_RE = /(?<![A-ZÑ&0-9])[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}(?![A-ZÑ&0-9])/gi;
+// Importes monetarios: 1,234.56 · 19720.00 · $1,234.56 — exige DOS decimales
+// y al menos tres dígitos enteros (o separador de miles), para no re-adjuntar
+// cada «16.00» de una tasa de IVA ni números sueltos que no son dinero. La
+// asimetría es deliberada: un importe chico perdido cuesta menos que un
+// backstop que engorde cada resumen con ruido — y el modelo sigue instruido
+// a conservarlos TODOS verbatim.
+const MONTO_RE = /(?<![\d.,])(?:\d{1,3}(?:,\d{3})+|\d{3,})\.\d{2}(?![\d])/g;
 // Serie-folio tokens like "F-2041" / "FAC-123". Uppercase-only on purpose
 // (cheap, low false-positive rate); the hyphen exclusion in the boundaries
 // keeps it from matching segments INSIDE an uppercase UUID.
 const FOLIO_RE = /(?<![\w-])[A-Z]{1,5}-\d{1,7}(?![\w-])/g;
 
-/** UUID/RFC/serie-folio tokens in order of appearance, deduplicated. */
+/** UUID/RFC/serie-folio/importe tokens in order of appearance, deduplicated. */
 export function extractIdentifiers(text: string): string[] {
   const found: string[] = [];
   const seen = new Set<string>();
-  for (const re of [UUID_RE, RFC_RE, FOLIO_RE]) {
+  for (const re of [UUID_RE, RFC_RE, FOLIO_RE, MONTO_RE]) {
     for (const match of text.match(re) ?? []) {
       const key = match.toUpperCase();
       if (!seen.has(key)) {
@@ -257,11 +265,11 @@ export function extractIdentifiers(text: string): string[] {
 
 /**
  * Deterministic backstop for identifierPolicy 'strict': any UUID (CFDI
- * folio fiscal, draft id, question id), RFC or serie-folio token present
- * in the source slice but missing from the summary is appended on an
+ * folio fiscal, draft id, question id), RFC, serie-folio token or monetary
+ * amount (MONTO_RE — dos decimales, ≥3 dígitos o miles) present in the
+ * source slice but missing from the summary is appended on an
  * 'Identifiers:' line. The model is instructed to keep them, but
- * survival must not depend on the model alone. Monetary amounts are NOT
- * backstopped — instruction only.
+ * survival must not depend on the model alone.
  */
 export function ensureIdentifiersSurvive(summary: string, sourceText: string): string {
   const upperSummary = summary.toUpperCase();
@@ -289,10 +297,11 @@ export interface SummarizationRequest {
   sourceText: string;
 }
 
-// Instruction to the summarizer. Everything listed here except monetary
-// amounts is ALSO enforced by the deterministic backstop
-// (ensureIdentifiersSurvive: UUIDs — draft/question ids included — RFCs and
-// serie-folio tokens); amounts rely on this instruction alone.
+// Instruction to the summarizer. Everything listed here is ALSO enforced by
+// the deterministic backstop (ensureIdentifiersSurvive: UUIDs — draft/
+// question ids included — RFCs, serie-folio tokens y, desde S1, importes que
+// pasan MONTO_RE); los importes chicos que el regex deja fuera dependen de
+// esta instrucción.
 const STRICT_IDENTIFIER_RULE =
   'CRITICAL — identifier policy is STRICT: every CFDI UUID (folio fiscal), RFC, serie-folio ' +
   '(e.g. F-2041), draft id, question id and monetary amount that appears in the transcript MUST ' +

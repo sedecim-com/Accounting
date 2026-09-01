@@ -10,38 +10,13 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 // Roles are materialized in users.roles/permissions (JSONB).
 // ============================================================
 
-/** Permissions per role. The API already consumes them via requirePermission(). */
-export const ROLES = {
-  owner: {
-    label: 'Owner — everything, including fiscal credentials',
-    permissions: ['*'],
-  },
-  contador: {
-    label: 'Accountant — operates and approves, without touching SAT credentials',
-    permissions: [
-      'accounts:read', 'accounts:create', 'accounts:update',
-      'journal_entries:read', 'journal_entries:create', 'journal_entries:post',
-      'invoices:read', 'invoices:create', 'bills:read', 'bills:create', 'bills:approve',
-      'reports:read', 'periods:close', 'settings:read',
-    ],
-  },
-  revisor: {
-    label: 'Reviewer — approves drafts and answers questions, does not configure',
-    permissions: [
-      'accounts:read', 'journal_entries:read', 'journal_entries:post',
-      'invoices:read', 'bills:read', 'bills:approve', 'reports:read',
-    ],
-  },
-  auditor: {
-    label: 'Auditor — read-only, including the audit trail',
-    permissions: [
-      'accounts:read', 'journal_entries:read', 'invoices:read',
-      'bills:read', 'reports:read', 'audit:read',
-    ],
-  },
-} as const;
-
-export type RoleName = keyof typeof ROLES;
+// El catálogo vive en src/auth/roles.ts. Aquí había una SEGUNDA copia, con
+// nombres de rol distintos de los del middleware REST: un usuario creado por
+// la terminal recibía permisos que la API no reconocía, y los roles `admin`
+// y `controller` eran inalcanzables desde el único sitio donde se crean
+// usuarios.
+import { ROLES, type RoleName } from '../../auth/roles.js';
+export { ROLES, type RoleName };
 
 const MIN_PASSWORD = 12;
 const BCRYPT_ROUNDS = 12;

@@ -1,0 +1,7 @@
+{
+  "_": "SUELO DEL CATÁLOGO. Lo comprueba `npx tsx scripts/catalogo-estado.ts --check`, que corre en CI.",
+  "_por_que": "El bloque generado publica el número de hoy, y regenerarlo lo actualiza — así que por sí solo no impide un retroceso: bastaría con borrar un comando y regenerar. Este archivo es el trinquete: sólo sube, y sube en el MISMO commit que gana el terreno, igual que la lista --exigir de plan:status.",
+  "invocables": 92,
+  "fase1Invocables": 84,
+  "_ajuste_s07": "S0.7 bajó el suelo 94→92 y 86→84 SIN ceder terreno: el medidor contaba las dos filas-contrato («no es un comando», dice su propia celda) como comandos invocables de fase 1. La corrección del instrumento baja la cifra y el suelo baja con ella."
+}

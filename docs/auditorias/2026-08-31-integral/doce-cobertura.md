@@ -1,0 +1,35 @@
+COMPROMISOS EXTRAÍDOS DE «DOCE SPRINTS O SESENTA» (doce-sprints.txt)
+- Hito: comprometer solo fase 1 — 377 filas, 72 ya tecleables (líneas 62, 13); el resto respaldo.
+- Aritmética: 390 líneas/fila medidas sobre 50 filas cerradas; 12,3 % de cola correctiva; coste escalonado ✅~250 / 🟡~390 / ❌~520; pendiente fase 1 ~124 000 líneas (líneas 23-52, 67-77).
+- Pre-trabajo S0.1–S0.5: medición bidireccional, migración de etiquetado que caduca, fuga de la sesión desatendida (criterio antes que fuga), borrar `recordInventorySale`, recorte mecánico 1623→~1374 (líneas 94-158).
+- Secuencia: 12 sprints por flujo ejecutable (01 asiento manual ~20 … 08 nómina ~10; 09-12 cola larga ~197 filas / 190 familias) (líneas 176-217).
+- Gobierno: estado solo por `npm run catalogo:estado` / `npm run plan:status`; cada sprint mete sus criterios al trinquete de CI en el mismo commit; E4.2 compuerta de `report`, E5.1 de la superficie del agente (líneas 225-232).
+
+FORTALEZAS
+
+1. El tramo S0 completo está ejecutado y cometido, y más ancho de lo que el documento pedía. git log: S0.1 `40a45af` … S0.7 `5d24463` (HEAD). S0.4 borró el módulo entero `inventory/costing.ts`, no solo `recordInventorySale` (`4e90539`); S0.2 entregó la migración 037 y arregló los defectos de `migrate.ts` (`79565b8`); y aparecieron dos fases que el documento no tenía (S0.6 banderas, S0.7 símbolos/espejos), absorbidas por el Plan Maestro §4.
+2. El Plan Maestro absorbe TODO lo prospectivo del documento, con las cifras re-medidas en vez de copiadas: los 12 sprints son F01–F12 con conteos desde las filas (plan-maestro.txt:289-388: F01 32 vs «~20», F03 38 vs «~21», F04 12 vs «~15», cola 175 filas/65 familias vs «~197/190»), la aritmética en §6 y el gobierno en §7; el pie declara ambos documentos sustituidos en lo prospectivo (plan-maestro.txt:459).
+3. La regla «criterio en el trinquete en el mismo commit» tiene sus dos mitades cableadas en CI: `.github/workflows/ci.yml:70` (`plan:status --exigir=E0.0,…,E3.2` — la lista casa exactamente con los 9 paquetes hoy en verde) y `ci.yml:78` (`catalogo-estado.ts --check`), con suelo que solo sube en `docs/catalogo-minimos.json` (invocables 92 / fase1 84) y compuerta de «comando vivo sin fila» (scripts/catalogo-estado.ts:495-507) — exactamente el desajuste de la familia `report` que el documento denunciaba (doce-sprints.txt:102).
+4. El recorte S0.5 y los solapamientos dejaron de ser estimación: el medidor calcula solo el objetivo comprometible (1380 filas, docs/cli-command-catalog.md:58) y enumera los solapamientos por comando (16 rutas / 21 filas, no «5»; docs/cli-command-catalog.md:60).
+5. La advertencia más fina del documento —«arreglar el criterio antes que la fuga» (doce-sprints.txt:128)— se cumplió literalmente: AUD-6 (`f41f6cc`) puso en rojo el falso verde del puente ANTES de que S0.3 (`18c7adf`) cercara la sesión desatendida, y `plan:status` hoy mantiene E5.1 en rojo honesto con la explicación completa.
+6. El bloque generado cometido está al día: regenerarlo hoy no produce diff y `--check` sale 0.
+
+BRECHAS
+
+1. (NUEVA) El modelo de costes —el número que sostiene la tesis entera «doce o sesenta»— se midió una vez y no tiene instrumento. Las 390 líneas/fila y el 12,3 % de cola se midieron sobre 50 filas (doce-sprints.txt:52); hoy hay 92 invocables y nada lo re-mide: cero menciones de ese cálculo en scripts/ o src/plan/ (grep de 390/12.3/cola correctiva: vacío). El Plan Maestro §6 lo declara «medido, no estimado» (plan-maestro.txt:430) pero lo arrastra congelado, con correcciones solo cualitativas («S0.7 abarata, F08 encarece»). Si el coste real de las ~42 filas nuevas divergió, nadie lo sabría.
+2. (nombrada como regla en §7, no como brecha) «Un criterio se prueba por mutación» es prosa sin mecanismo. tests/plan/criterios.spec.ts:1-98 prueba los ayudantes del instrumento (`sinComentarios`, `consumidoresDe`) contra errores ya cometidos — valioso, pero ningún arnés muta el código medido y exige que el criterio caiga en rojo. Los tres falsos verdes de AUD-6 son el coste documentado de esa ausencia (plan-maestro.txt:447).
+3. (nombrada en §7 como «no es opcional», sin compuerta) La auditoría adversarial por flujo es disciplina, no puerta: AUD-5/AUD-6 existen como práctica (`edb1468`, `c4d47c6`, `f41f6cc`), pero nada en ci.yml ni en criterios.ts impide declarar cerrado un flujo F0x sin su auditoría.
+4. (nombrada en plan-maestro.txt:451, incumplida) «doctor sin huérfanos nuevos entra como criterio» — no existe: en src/plan/criterios.ts «huérfana»/«doctor» solo aparecen en comentarios (líneas 132, 1113).
+5. (NUEVA, menor) Las cifras estampadas del Plan Maestro no casan con su propio commit estampado: §1 dice 1626 filas / 106 comandos / 90 invocables / fase1 380/82 y S0.5 «objetivo 1,382» (plan-maestro.txt:31-35, 217), pero el bloque cometido EN `5d24463` dice 1624 / 108 / 92 / 378/84 / 1380 (docs/cli-command-catalog.md:52-58). El plan ordena re-preguntar, pero un lector que compare se topa con el desfase. Además los flujos F01…F12 suman 377 y el medidor dice fase 1 = 378: una fila sin flujo asignado.
+6. (NUEVA, menor) La vigilancia de la cola larga («si tres sprints seguidos no la bajan, el orden se revisa», plan-maestro.txt:386) no tiene instrumento: el medidor no publica el tamaño de la cola F09-F12 ni su serie temporal, así que la regla no es comprobable.
+
+RESPUESTA DIRECTA A LAS CIFRAS (pregunta 3): fase 1 es hoy 378 filas / 84 tecleables (era 377/72); total 1624 (era 1623); comandos vivos 108 bajo la unidad de cuenta de S0.1 (los «136» del documento incluían 30 menús); objetivo comprometible 1380 mecánico (era «~1374» a mano). El costo por fila NO se puede confirmar contra lo medido: nadie lo ha vuelto a medir (brecha 1).
+
+RECOMENDACIONES
+
+1. (M) Instrumentar el costo: un `scripts/costo-por-fila.ts` que, sobre el historial de git y los deltas del suelo del catálogo, recalcule líneas/fila por estado de motor y el % de cola correctiva, y lo publique en el bloque generado — mismo patrón que catalogo-estado. Es el único número rector que sigue siendo de una sola medición.
+2. (S) Añadir el criterio «doctor sin huérfanos nuevos» a criterios.ts con línea base congelada (el patrón de las 40 violaciones del CLI ya existe) y meterlo a `--exigir` al cerrarlo.
+3. (M) Operacionalizar la mutación mínimamente: convención de que cada criterio nuevo llegue con su espejo en tests/plan que neutraliza la conducta medida (fixture o revert temporal) y asserta el rojo; un meta-criterio que cuente criterios sin espejo la vuelve exigible.
+4. (S) Dar compuerta a la auditoría adversarial: un criterio por flujo que exija registro de auditoría (p. ej. docs/auditorias/F0x.md con hallazgos y reproducción) antes de que el flujo entre a `--exigir`.
+5. (S) Publicar en el bloque generado el tamaño de la cola F09-F12 por familia, para que la regla de «tres sprints sin bajar» sea un dato y no una intención; de paso asignar la fila 378 que ningún flujo suma.
+6. (S) Regenerar o retirar las cifras de §1/S0.5 del Plan Maestro (o generarlas con el mismo medidor): un plan que prohíbe copiar cifras no debería portar cifras caducas ni siquiera como decoración.

@@ -42,6 +42,7 @@ export function assertNumeracionUnica(files: string[]): void {
 
 async function runMigrations() {
   const client = await pool.connect();
+  let fallo = false;
   try {
     // Create migrations tracking table
     await client.query(`
@@ -72,31 +73,71 @@ async function runMigrations() {
 
       console.log(`  Executing ${file}...`);
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
-      await client.query(sql);
 
-      await client.query(
-        'INSERT INTO public.migrations (filename) VALUES ($1)',
-        [file]
-      );
+      // Ejecutar el .sql y anotarlo en public.migrations son UN acto, no
+      // dos. Antes eran dos transacciones implícitas: un fallo entre ambas
+      // dejaba la migración aplicada y sin registrar, y la siguiente corrida
+      // la re-ejecutaba — lo que revienta en cualquier migración no
+      // idempotente y, peor, re-corre los rellenos de datos. El BEGIN
+      // envuelve las dos; el ROLLBACK deshace ambas o ninguna.
+      await client.query('BEGIN');
+      try {
+        await client.query(sql);
+        await client.query(
+          'INSERT INTO public.migrations (filename) VALUES ($1)',
+          [file]
+        );
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw err;
+      }
       console.log(`  Completed ${file}`);
-    }
-
-    // ALWAYS re-harden: a migration may have created new tables, and a
-    // table with tenant_id but no policy is a silent leak.
-    const rlsPath = path.join(__dirname, 'rls-policies.sql');
-    if (fs.existsSync(rlsPath)) {
-      console.log('  Applying isolation policies...');
-      await client.query(fs.readFileSync(rlsPath, 'utf-8'));
     }
 
     console.log('All migrations complete.');
   } catch (error) {
     console.error('Migration failed:', error);
-    process.exit(1);
+    fallo = true;
   } finally {
+    // El endurecimiento corre SIEMPRE — su comentario decía «ALWAYS» y vivía
+    // dentro del try, así que un fallo a mitad de la corrida se lo saltaba:
+    // las migraciones que SÍ se aplicaron antes del fallo quedaban con sus
+    // tablas creadas y sin política, que es la fuga silenciosa que este
+    // bloque existe para impedir. En el finally cubre lo aplicado pase lo
+    // que pase, y el proceso sale en rojo igualmente.
+    const rlsPath = path.join(__dirname, 'rls-policies.sql');
+    if (fs.existsSync(rlsPath)) {
+      console.log('  Applying isolation policies...');
+      try {
+        await client.query(fs.readFileSync(rlsPath, 'utf-8'));
+      } catch (rlsError) {
+        console.error('Hardening failed:', rlsError);
+        fallo = true;
+      }
+    }
     client.release();
     await pool.end();
   }
+  if (fallo) {
+    process.exit(1);
+  }
 }
 
-runMigrations();
+// ============================================================
+// MIGRAR SÓLO CUANDO SE INVOCA, NO CUANDO SE IMPORTA
+//
+// `runMigrations()` estaba aquí suelta, y este archivo exporta además
+// assertNumeracionUnica, que una prueba unitaria importa. El import ejecutaba
+// las migraciones: en CI —donde el job unitario NO tiene Postgres a propósito—
+// eso reventaba con ECONNREFUSED y ponía el job en rojo con las 2007 pruebas
+// en verde, porque vitest falla ante un error no manejado aunque no falle
+// ninguna aserción. En la máquina de quien desarrolla no se veía: había un
+// Postgres escuchando, así que `npm test` migraba su base sin decírselo.
+//
+// Es el mismo cerrojo que ya lleva mnemosine.ts: bajo CJS (tsx / node dist)
+// require.main identifica al archivo que se invocó.
+// ============================================================
+if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
+  runMigrations();
+}
