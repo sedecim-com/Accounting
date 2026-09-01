@@ -26,6 +26,8 @@ export interface TurnUsage {
   outputTokens: number;
   cacheReadInputTokens?: number;
   cacheCreationInputTokens?: number;
+  /** A2: wall-clock de la llamada, medido por el runner; ausente = NULL en la fila. */
+  durationMs?: number;
 }
 
 /**
@@ -93,18 +95,25 @@ export async function recordUsage(
     cacheCreationInputTokens: clampTokenCount(usage.cacheCreationInputTokens ?? 0),
   };
   const cost = estimateCostUsd(clamped);
+  // A2: NULL cuando el emisor no midió — un cero sería una latencia falsa,
+  // no una ausencia. Valores no-finitos o negativos también quedan NULL.
+  const durationMs =
+    Number.isFinite(usage.durationMs) && (usage.durationMs as number) >= 0
+      ? Math.trunc(usage.durationMs as number)
+      : null;
   await query(
     `INSERT INTO ai_usage (
       id, tenant_id, entity_id, session_id, provider, model,
       input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-      estimated_cost_usd
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      estimated_cost_usd, duration_ms
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
     [
       id, ctx.tenantId, ctx.entityId, sessionId,
       clamped.provider, clamped.model,
       clamped.inputTokens, clamped.outputTokens,
       clamped.cacheReadInputTokens, clamped.cacheCreationInputTokens,
       cost === null ? null : cost.toFixed(6),
+      durationMs,
     ]
   );
   return id;

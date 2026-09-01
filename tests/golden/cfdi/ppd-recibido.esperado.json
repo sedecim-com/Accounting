@@ -1,0 +1,30 @@
+{
+  "caso": "ppd-recibido",
+  "resultado": "draft",
+  "tratamiento": "PPD",
+  "sospecha": false,
+  "asiento": [
+    {
+      "cuenta": [
+        "6100"
+      ],
+      "lado": "cargo",
+      "monto": "12000.00"
+    },
+    {
+      "cuenta": [
+        "1135"
+      ],
+      "lado": "cargo",
+      "monto": "1920.00"
+    },
+    {
+      "cuenta": [
+        "2110"
+      ],
+      "lado": "abono",
+      "monto": "13920.00"
+    }
+  ],
+  "nota": "Gasto PPD: IVA pendiente de acreditar 1135 y abono a proveedores 2110, nunca a bancos."
+}

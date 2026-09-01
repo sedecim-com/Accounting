@@ -185,66 +185,90 @@ END
 $child$;
 
 -- ============================================================
--- DUEÑO DE LAS VISTAS MATERIALIZADAS
+-- DUEÑO DE LAS VISTAS — plana y materializada NO son el mismo caso
 --
--- Una vista corre con los permisos de SU DUEÑO, no de quien la consulta. Las
--- migraciones las crea el rol que las aplica —en CI, un superusuario— así que
--- una consulta de la aplicación contra mv_trial_balance leía a través de la
--- RLS de TODOS los inquilinos. verify-isolation.sh ya comprobaba esto y era
--- su única comprobación en rojo.
+-- Una vista PLANA re-corre su consulta con los permisos de SU DUEÑO cada vez
+-- que alguien la lee: si el dueño es un superusuario, la aplicación leía a
+-- través de la RLS de TODOS los inquilinos. verify-isolation.sh ya comprobaba
+-- esto y era su única comprobación en rojo. Reasignarla a mnemosine_owner
+-- (NOBYPASSRLS) la devuelve al régimen normal.
 --
--- Reasignarlas a mnemosine_owner las devuelve al régimen normal: el dueño está
--- sujeto a las políticas como cualquier otro.
+-- Una vista MATERIALIZADA es lo contrario: es una tabla-instantánea. Leerla
+-- NO re-corre la consulta (la aíslan los GRANTs y el WHERE entity_id, no las
+-- políticas — una MV ni siquiera admite CREATE POLICY). Donde su dueño SÍ
+-- importa es en el REFRESH: la consulta definitoria corre como el dueño, y
+-- bajo RLS forzada un dueño sin BYPASSRLS reconstruye la vista GLOBAL con los
+-- lentes del inquilino que traiga la sesión — o VACÍA si no trae ninguno.
+-- R3 lo midió: refresh_reporting_views() devolvía «hecho» y dejaba cero
+-- filas para todos. Por eso las 'm' van a mnemosine_refresher (NOLOGIN,
+-- BYPASSRLS, lo crea provision-roles.sql): nadie puede conectarse con él y
+-- el refresco vuelve a ver el clúster entero, que es su única función.
 --
--- Silencioso cuando el rol no existe (entorno de desarrollo sin roles
--- aprovisionados) y cuando quien ejecuta no puede reasignar: es una mejora de
--- postura, no un requisito para que las migraciones corran.
+-- Silencioso cuando el rol no existe (entorno sin aprovisionar) y cuando
+-- quien ejecuta no puede reasignar: es una mejora de postura, no un
+-- requisito para que las migraciones corran.
 -- ============================================================
 DO $vistas$
 DECLARE
   v RECORD;
+  destino TEXT;
   reasignadas INT := 0;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnemosine_owner') THEN
-    RAISE NOTICE 'mnemosine_owner no existe: no se reasignan vistas materializadas';
+    RAISE NOTICE 'mnemosine_owner no existe: no se reasignan vistas';
     RETURN;
   END IF;
 
   -- Para que la vista siga funcionando tras el cambio de dueño, ese dueño
-  -- necesita poder leer las tablas base: una vista corre con SUS permisos, y
-  -- reasignarla a un rol sin acceso la rompe entera con «permission denied for
-  -- table accounts». Por eso el GRANT va ANTES del ALTER.
-  --
-  -- Esto no debilita nada: mnemosine_owner se crea NOBYPASSRLS, así que una
-  -- vista suya queda SUJETA a las políticas — que es justo la propiedad que
-  -- faltaba cuando la vista pertenecía a un superusuario.
+  -- necesita poder leer las tablas base: sin el GRANT previo, la reasignación
+  -- la rompe entera con «permission denied for table accounts». BYPASSRLS
+  -- salta políticas, no GRANTs, así que el refresher también lo necesita.
   BEGIN
     EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA public TO mnemosine_owner';
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnemosine_refresher') THEN
+      EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA public TO mnemosine_refresher';
+      -- ALTER ... OWNER exige que el dueño ENTRANTE pueda crear en el
+      -- esquema; sin esto la reasignación de abajo muere con 42501. Si quien
+      -- corre no puede otorgarlo (no es dueño del esquema), provision-roles
+      -- ya lo dio y esto es un eco inofensivo.
+      BEGIN
+        EXECUTE 'GRANT USAGE, CREATE ON SCHEMA public TO mnemosine_refresher';
+      EXCEPTION WHEN insufficient_privilege THEN
+        RAISE NOTICE 'sin privilegio para dar CREATE en el esquema al refresher';
+      END;
+    END IF;
   EXCEPTION WHEN insufficient_privilege THEN
-    RAISE NOTICE 'sin privilegio para otorgar lectura a mnemosine_owner; no se reasignan vistas';
+    RAISE NOTICE 'sin privilegio para otorgar lectura; no se reasignan vistas';
     RETURN;
   END;
 
   FOR v IN
-    SELECT c.relname
+    SELECT c.relname, c.relkind
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public'
       AND c.relkind IN ('v', 'm')
-      AND pg_get_userbyid(c.relowner) <> 'mnemosine_owner'
   LOOP
-    BEGIN
-      EXECUTE format('ALTER %s public.%I OWNER TO mnemosine_owner',
-                     CASE WHEN (SELECT relkind FROM pg_class WHERE relname = v.relname
-                                  AND relnamespace = 'public'::regnamespace) = 'm'
-                          THEN 'MATERIALIZED VIEW' ELSE 'VIEW' END,
-                     v.relname);
-      reasignadas := reasignadas + 1;
-    EXCEPTION WHEN insufficient_privilege THEN
-      RAISE NOTICE 'sin privilegio para reasignar la vista %; queda con su dueño actual', v.relname;
-    END;
+    destino := CASE WHEN v.relkind = 'm' THEN 'mnemosine_refresher' ELSE 'mnemosine_owner' END;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = destino) THEN
+      -- Sin refresher NO se cae al operador: una 'm' del operador refresca
+      -- filtrada, que es peor que quedarse con el dueño actual y avisar.
+      RAISE NOTICE 'el rol % no existe; la vista % queda con su dueño actual', destino, v.relname;
+      CONTINUE;
+    END IF;
+    IF pg_get_userbyid((SELECT relowner FROM pg_class WHERE relname = v.relname
+                          AND relnamespace = 'public'::regnamespace)) <> destino THEN
+      BEGIN
+        EXECUTE format('ALTER %s public.%I OWNER TO %I',
+                       CASE WHEN v.relkind = 'm' THEN 'MATERIALIZED VIEW' ELSE 'VIEW' END,
+                       v.relname, destino);
+        reasignadas := reasignadas + 1;
+      EXCEPTION WHEN insufficient_privilege THEN
+        RAISE NOTICE 'sin privilegio para reasignar la vista %; queda con su dueño actual', v.relname;
+      END;
+    END IF;
   END LOOP;
-  RAISE NOTICE 'vistas reasignadas a mnemosine_owner: %', reasignadas;
+  RAISE NOTICE 'vistas reasignadas a su dueño de régimen: %', reasignadas;
 END
 $vistas$;
 
@@ -271,12 +295,30 @@ BEGIN
 
   -- Columnas públicas ENUMERADAS: un SELECT * nuevo truena en vez de exponer.
   -- El RFC no está: no es dato público de verificación.
-  GRANT SELECT (id, name, entity_type, incorporation_country, accounting_standard, is_active)
+  -- tenant_id NO se sirve nunca: entra aquí porque la POLÍTICA lo necesita.
+  -- Las tablas que sólo tienen entity_id (fiscal_periods, abajo) llevan un
+  -- tenant_isolation cuyo predicado es
+  --   entity_id IN (SELECT id FROM legal_entities WHERE tenant_id = ...)
+  -- y esa subconsulta se evalúa con los privilegios de quien pregunta. Sin la
+  -- columna, leer fiscal_periods muere con «permission denied for table
+  -- legal_entities» — un error que apunta a la tabla equivocada. El router
+  -- proyecta columnas explícitas, así que un GRANT no la pone en ninguna
+  -- respuesta.
+  GRANT SELECT (id, name, entity_type, incorporation_country, accounting_standard, is_active, tenant_id)
     ON legal_entities TO mnemosine_verifier;
   GRANT SELECT ON blockchain_attestations TO mnemosine_verifier;
   GRANT SELECT ON period_commitments      TO mnemosine_verifier;
   GRANT SELECT ON published_aggregates    TO mnemosine_verifier;
   GRANT SELECT ON bitcoin_anchors         TO mnemosine_verifier;
+  -- fiscal_periods entra por el JOIN de GET /public/v1/entities/:id/aggregates:
+  -- published_aggregates.period_id es un UUID, y un UUID no ordena, así que el
+  -- rango ?from_period=/&to_period= sólo se puede cerrar por las FECHAS del
+  -- periodo al que apunta cada extremo. Sin este GRANT esa consulta muere con
+  -- «permission denied for table fiscal_periods» en cuanto el router asume el
+  -- rol. Columnas ENUMERADAS: las cuatro que el rango necesita. Ni el estado
+  -- del cierre ni quién lo cerró son dato público de verificación.
+  GRANT SELECT (id, entity_id, start_date, end_date)
+    ON fiscal_periods TO mnemosine_verifier;
 
 -- CUIDADO CON LA MEMBRESÍA: una política `TO rol` aplica a TODO MIEMBRO de ese
 -- rol, no sólo a quien lo asumió. Y mnemosine_app ES miembro de
@@ -308,6 +350,14 @@ BEGIN
     USING (is_simulated = false AND current_user = 'mnemosine_verifier');
   DROP POLICY IF EXISTS verificacion_publica ON bitcoin_anchors;
   CREATE POLICY verificacion_publica ON bitcoin_anchors
+    FOR SELECT TO mnemosine_verifier
+    USING (current_user = 'mnemosine_verifier');
+  -- Con el mismo `current_user = 'mnemosine_verifier'` que las de arriba, y por
+  -- la misma razón: mnemosine_app ES miembro del rol, y una política permisiva
+  -- sin ese predicado le sumaría con OR TODOS los periodos de TODOS los
+  -- inquilinos a su tenant_isolation.
+  DROP POLICY IF EXISTS verificacion_publica ON fiscal_periods;
+  CREATE POLICY verificacion_publica ON fiscal_periods
     FOR SELECT TO mnemosine_verifier
     USING (current_user = 'mnemosine_verifier');
 END $verifier$;

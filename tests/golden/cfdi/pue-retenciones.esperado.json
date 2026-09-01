@@ -1,0 +1,38 @@
+{
+  "caso": "pue-retenciones",
+  "resultado": "draft",
+  "tratamiento": "PUE",
+  "sospecha": false,
+  "asiento": [
+    {
+      "cuenta": [
+        "6100"
+      ],
+      "lado": "cargo",
+      "monto": "10000.00"
+    },
+    {
+      "cuenta": [
+        "1130"
+      ],
+      "lado": "cargo",
+      "monto": "1600.00"
+    },
+    {
+      "cuenta": [
+        "2140"
+      ],
+      "lado": "abono",
+      "monto": "2066.67"
+    },
+    {
+      "cuenta": [
+        "1110",
+        "1111"
+      ],
+      "lado": "abono",
+      "monto": "9533.33"
+    }
+  ],
+  "nota": "Honorarios de persona fisica: ISR retenido 10% e IVA retenido 2/3 van a Retenciones por Pagar 2140; al banco sale el neto."
+}

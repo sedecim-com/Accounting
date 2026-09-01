@@ -107,9 +107,12 @@ export async function setCachedReport(key: string, data: unknown): Promise<void>
   } catch { /* ignore */ }
 }
 
-// Every period for the entity is dropped, so the periodId narrowing is not
-// used: over-invalidating a report cache is safe, under-invalidating is not.
-export async function invalidateReportCache(entityId: string, _periodId?: string): Promise<void> {
+// Entity-wide by design: the report keys below are `report:<name>:<entityId>:*`,
+// so there is no period in the key to narrow on. The parameter that used to sit
+// here suggested a per-period invalidation the key scheme cannot deliver, which
+// is a trap for the first caller who trusts it. Narrowing this needs the period
+// in the cache key first.
+export async function invalidateReportCache(entityId: string): Promise<void> {
   try {
     const r = getRedis();
     if (!r) return;
@@ -191,15 +194,26 @@ export async function checkRateLimit(
   key: string, windowMs: number, maxRequests: number
 ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
   const r = getRedis();
-  // Cinturón, no la única sujeción: hoy `getRedis()` no devuelve null nunca
-  // —construye el cliente y lo devuelve, y sólo lo anula después, dentro del
-  // .catch() asíncrono de connect()—, así que esta rama es inalcanzable en la
-  // práctica. Lo era también cuando devolvía allowed:true, de modo que la
-  // «barra libre» que parecía haber aquí tampoco ocurría.
+  // SIN REDIS TAMPOCO HAY BARRA LIBRE — Y HOY, ADEMÁS, ESTA RAMA NO SE PISA.
   //
-  // Se deja delegando al contador local, no devolviendo true, porque si algún
-  // día getRedis() sí devuelve null lo correcto es contar, no abrir. Quien
-  // recorre el camino de verdad cuando Redis no responde es el catch de abajo.
+  // Antes devolvía allowed:true —«decisión del operador»—, lo que dejaba sin
+  // freno a quien no configurara Redis. Dos líneas más abajo, para el caso de
+  // Redis configurado pero inalcanzable, el mismo archivo ya decía
+  // «degradación local, nunca barra libre». Eran dos respuestas opuestas a la
+  // misma pregunta.
+  //
+  // La corrección importa aunque el camino esté muerto: `getRedis()` no
+  // devuelve null nunca —construye el cliente y sólo lo anula después, en el
+  // .catch() asíncrono de connect()—, así que esta rama es hoy inalcanzable, y
+  // lo era también cuando devolvía true. La «barra libre» que parecía haber
+  // aquí tampoco ocurría. Quien recorre el camino de verdad cuando Redis no
+  // responde es el catch de abajo.
+  //
+  // Se deja contando en memoria y no abriendo, porque si algún día getRedis()
+  // sí devuelve null lo correcto es contar. Ese límite es por proceso —varias
+  // instancias multiplican la cuota y un reinicio la olvida—, así que Redis
+  // sigue siendo lo correcto en producción; pero un freno imperfecto vence a
+  // ninguno. Pesa más desde que /public/v1 sirve sin credenciales.
   if (!r) return limiteEnMemoria(key, windowMs, maxRequests);
   try {
     const now = Date.now();

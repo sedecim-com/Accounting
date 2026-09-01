@@ -652,6 +652,9 @@ describe('OpenAiCompatSession compaction', () => {
         outputTokens: 30,
         cacheReadInputTokens: 100,
         cacheCreationInputTokens: undefined,
+        // A2: el runner mide alrededor de la llamada; con el cliente mockeado
+        // el reloj casi no avanza, pero el campo VIAJA.
+        durationMs: expect.any(Number),
       },
     ]);
   });

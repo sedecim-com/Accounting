@@ -136,7 +136,8 @@ export async function classifyParsed(
   }
 
   // ── Decisions applicable given the facts + those from external context
-  const points: DecisionPoint[] = decisionsFor(facts, opts.thresholds ?? DEFAULT_THRESHOLDS).filter(
+  const effectiveThresholds = opts.thresholds ?? DEFAULT_THRESHOLDS;
+  const points: DecisionPoint[] = decisionsFor(facts, effectiveThresholds).filter(
     (d) => matched.decisions?.includes(d.id) ?? false
   );
   if (opts.vendorExists === false && facts.direction === 'recibido') {
@@ -163,7 +164,16 @@ export async function classifyParsed(
       severity: d.severity,
       question: d.question,
       context: d.context(facts),
-      options: d.options.map((o) => ({ value: o.value, label: o.label })),
+      // F02 · lleva_inventarios (E1.3): solo el literal 'perpetuos' habilita
+      // la opción de inventario — un despacho a costo directo no puede
+      // acabar con compras capitalizadas en 1140 por un click distraído.
+      options: d.options
+        .filter(
+          (o) =>
+            !(d.id === 'gasto_vs_activo' && o.value === 'inventario' &&
+              effectiveThresholds.inventoryPolicy !== 'perpetuos')
+        )
+        .map((o) => ({ value: o.value, label: o.label })),
       default: d.default,
       topic: d.topic(facts),
       basis: d.basis,

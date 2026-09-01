@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { envolverDatosDeTerceros } from '../untrusted.js';
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { query } from '../../database/connection.js';
 import type { AgentContext } from '../context.js';
@@ -69,7 +70,7 @@ export function buildLedgerTools(ctx: AgentContext, observe?: ToolObserver) {
       const truncated = result.rows.length > MAX_ROWS;
       const rows = result.rows.slice(0, MAX_ROWS);
       if (rows.length === 0) return 'No journal entries match those filters.';
-      return JSON.stringify({ truncated, count: rows.length, entries: rows });
+      return envolverDatosDeTerceros({ truncated, count: rows.length, entries: rows });
     },
   });
 
@@ -106,7 +107,7 @@ export function buildLedgerTools(ctx: AgentContext, observe?: ToolObserver) {
       );
 
       const { id: _id, ...entryWithoutId } = entry;
-      return JSON.stringify({ ...entryWithoutId, lines: lines.rows });
+      return envolverDatosDeTerceros({ ...entryWithoutId, lines: lines.rows });
     },
   });
 

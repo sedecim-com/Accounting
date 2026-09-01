@@ -1,5 +1,8 @@
 import { query } from '../../database/connection.js';
-import { POLICY_CATALOG, getPolicySpec } from './pending-catalog.js';
+import { ValidationError } from '../../utils/errors.js';
+import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
+import { FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_VEREDICTOS } from '../../ai/floor.js';
+import { POLICY_CATALOG, getPolicySpec, type PolicySpec } from './pending-catalog.js';
 
 // ============================================================
 // POLICY SERVICE
@@ -159,6 +162,30 @@ export async function resolvePolicy(
   notes?: string
 ): Promise<void> {
   const spec = getPolicySpec(key);
+
+  // A4 · LA COMPUERTA DE LA EVIDENCIA: encender el auto-posteo exige el
+  // historial de sombra que el piso manda (días, acuerdo y veredictos
+  // decididos por un humano). Va AQUÍ y no en el CLI porque resolvePolicy
+  // tiene dos llamadores (pending define y el wizard de init): un guard solo
+  // en uno dejaría al otro como puerta trasera. reopen→resolve vuelve a
+  // pasar por aquí, así que el ciclo shadow→on también queda cubierto.
+  if (key === 'ingest_auto_post' && value === 'on') {
+    const c = await concordanciaSombra({ tenantId: ctx.tenantId, entityId: ctx.entityId ?? null });
+    const acuerdo = c.tasa_acuerdo === null ? 0 : Number(c.tasa_acuerdo);
+    if (
+      c.dias_con_veredictos < FLOOR_SOMBRA_DIAS ||
+      c.decididos < FLOOR_SOMBRA_VEREDICTOS ||
+      acuerdo < FLOOR_SOMBRA_ACUERDO
+    ) {
+      throw new ValidationError(
+        `Encender el auto-posteo exige evidencia de sombra: ${FLOOR_SOMBRA_DIAS} día(s) con veredictos ` +
+          `(hay ${c.dias_con_veredictos}), ${FLOOR_SOMBRA_VEREDICTOS} veredicto(s) decididos por un humano ` +
+          `(hay ${c.decididos}) y acuerdo ≥ ${FLOOR_SOMBRA_ACUERDO} (va ${c.tasa_acuerdo ?? '—'}). ` +
+          `Contesta 'shadow', deja que la sombra opine unos días, y vuelve: el encendido será una decisión con historial.`
+      );
+    }
+  }
+
   // A free-form value is accepted (catalogs don't cover everything), but a
   // note is added when it is not among the options so it doesn't go unnoticed.
   const known = spec?.options.some((o) => o.value === value) ?? true;

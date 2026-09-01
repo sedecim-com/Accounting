@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:pago20="http://www.sat.gob.mx/Pagos20" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="P" Folio="901" Fecha="2026-08-28T10:00:00" TipoDeComprobante="P" Moneda="XXX" SubTotal="0" Total="0" LugarExpedicion="06600">
+  <cfdi:Emisor Rfc="CON850101AB3" Nombre="Consultores Asociados del Bajio SC" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="XAXX010101000" Nombre="Demo Corp MX" UsoCFDI="CP01" DomicilioFiscalReceptor="06600" RegimenFiscalReceptor="601"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="84111506" ClaveUnidad="ACT" Descripcion="Pago" Cantidad="1" ValorUnitario="0" Importe="0" ObjetoImp="01"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <pago20:Pagos Version="2.0">
+      <pago20:Totales MontoTotalPagos="13920.00"/>
+      <pago20:Pago FechaPago="2026-08-27T12:00:00" FormaDePagoP="03" MonedaP="MXN" TipoCambioP="1" Monto="13920.00">
+        <pago20:DoctoRelacionado IdDocumento="22B2B2B2-0002-4B02-8B02-B2B2B2B2B002" MonedaDR="MXN" EquivalenciaDR="1" NumParcialidad="1" ImpSaldoAnt="13920.00" ImpPagado="13920.00" ImpSaldoInsoluto="0.00" ObjetoImpDR="01"/>
+      </pago20:Pago>
+    </pago20:Pagos>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="99C9C9C9-0009-4C09-8C09-C9C9C9C9C009" FechaTimbrado="2026-08-28T10:05:00" RfcProvCertif="SAT970701NN3" SelloCFD="selloCFD" NoCertificadoSAT="30001000000500000001" SelloSAT="selloSAT"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

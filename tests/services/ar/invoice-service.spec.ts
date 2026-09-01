@@ -10,9 +10,11 @@ vi.mock('../../../src/database/connection.js', () => ({
 }));
 vi.mock('../../../src/services/accounting/ar-ap-posting.js', () => ({ postInvoiceEntry: vi.fn() }));
 vi.mock('../../../src/services/accounting/posting.js', () => ({ voidJournalEntryInTx: vi.fn() }));
-vi.mock('../../../src/utils/sequence.js', () => ({
+vi.mock('../../../src/utils/sequence.js', async (importActual) => ({
+  // formatDocumentNumber real (R3: firma de tres argumentos, el año en medio);
+  // un doble a mano aquí ya nos mintió una vez cuando la firma cambió.
+  ...(await importActual<typeof import('../../../src/utils/sequence.js')>()),
   nextEntityNumber: vi.fn(async () => 'INV-2026-00007'),
-  formatDocumentNumber: (prefix: string, n: number) => `${prefix}-2026-${String(n).padStart(5, '0')}`,
 }));
 
 import {

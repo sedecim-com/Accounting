@@ -32,6 +32,15 @@ vi.mock('../../src/database/connection.js', () => ({
   currentTenant: vi.fn(() => inquilino.actual),
 }));
 
+// F01: el maker-checker lee la política del panel dentro de postJournalEntry;
+// el arnés la deja en 'off' (el default de la casa) para que estas pruebas
+// midan lo suyo. El propio maker-checker tiene sus pruebas aparte.
+vi.mock('../../src/services/policy/policy-service.js', () => ({
+  getPolicy: vi.fn(async (_ctx: unknown, key: string) => ({
+    key, value: 'off', defined: false, question: '', rationale: '',
+  })),
+}));
+
 vi.mock('../../src/services/accounting/validation.js', () => ({
   validateJournalEntry: (...a: unknown[]) => validateJournalEntry(...a),
 }));

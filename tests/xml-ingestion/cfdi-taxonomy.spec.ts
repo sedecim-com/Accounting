@@ -302,6 +302,23 @@ describe('decisions for the user', () => {
     expect(d).toBeDefined();
     expect(d!.severity).toBe('blocking');
     expect(c.verdict).toBe('needs_input');
+    // F02 · lleva_inventarios: con la política por defecto ('directo') la
+    // opción de inventario NO se ofrece — un despacho a costo directo no
+    // capitaliza compras en 1140 por un click distraído.
+    expect(d!.options.map((o) => o.value)).toEqual(['activo_fijo', 'gasto']);
+  });
+
+  it("F02: la política 'perpetuos' devuelve la opción de inventario a la mesa", async () => {
+    const c = await classify(
+      { subtotal: 50000, iva: 8000, total: 58000 },
+      {
+        thresholds: {
+          capitalizationThreshold: 20000, restaurantPolicy: 'split_85',
+          iepsTreatment: 'costo', inventoryPolicy: 'perpetuos',
+        },
+      }
+    );
+    const d = c.decisions.find((x) => x.id === 'gasto_vs_activo');
     expect(d!.options.map((o) => o.value)).toEqual(['activo_fijo', 'gasto', 'inventario']);
   });
 

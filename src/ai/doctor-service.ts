@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { checkSoDViolations } from '../api/rest/middleware/auth.js';
 import { query } from '../database/connection.js';
 import { REQUIRED_BUCKETS } from '../services/payroll/common/payroll-account-mapping-seed.js';
 import { config } from '../config/index.js';
@@ -53,6 +54,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(await checkConsistenciaCli());
     checks.push(await checkTenantIsolation());
     checks.push(await checkLedgerIntegrity());
+    checks.push(await checkPermisosEnConflicto());
     checks.push(await checkReopenedPeriods());
     checks.push(await checkPendingWork());
     checks.push(await checkCredentials(deps.now ?? new Date()));
@@ -856,5 +858,45 @@ export async function checkReopenedPeriods(): Promise<CheckResult> {
       `${primero.period_name} of ${primero.entity}. A period left open accepts postings that ` +
       `would unbalance a close already filed.`,
     fix: 'mnemosine period close <period> --entity <entity>',
+  };
+}
+
+/**
+ * F01 · SEGREGACIÓN POR COMPOSICIÓN DE ROL — el consumidor que
+ * checkSoDViolations esperaba desde su nacimiento (huérfano congelado en
+ * E0.2, pagado aquí). Es el control HERMANO del maker-checker por póliza:
+ * aquél compara personas en una transacción; éste pregunta si un usuario
+ * ACUMULA permisos en conflicto (crear proveedores y aprobar sus facturas,
+ * crear pólizas y postearlas, cerrar y reabrir periodos). Se revisa donde
+ * los permisos están a la vista — el perfil del usuario — y avisa como
+ * `warn`: en un despacho unipersonal el conflicto es inevitable y la
+ * decisión de exigir separación vive en el panel, no aquí.
+ */
+export async function checkPermisosEnConflicto(): Promise<CheckResult> {
+  const usuarios = await query<{ email: string; permissions: unknown }>(
+    `SELECT email, permissions FROM users WHERE is_active = true`
+  );
+  const conflictos: string[] = [];
+  for (const u of usuarios.rows) {
+    const permisos = Array.isArray(u.permissions) ? (u.permissions as string[]) : [];
+    const violaciones = checkSoDViolations(permisos);
+    for (const v of violaciones) {
+      conflictos.push(`${u.email}: ${v.rule} (${v.severity})`);
+    }
+  }
+  if (conflictos.length === 0) {
+    return {
+      name: 'Segregación de funciones (permisos)',
+      level: 'ok',
+      detail: 'ningún usuario activo acumula permisos en conflicto',
+    };
+  }
+  return {
+    name: 'Segregación de funciones (permisos)',
+    level: 'warn',
+    detail: conflictos.slice(0, 10).join('; ') + (conflictos.length > 10 ? ` … (+${conflictos.length - 10})` : ''),
+    fix:
+      'Reparte los permisos en conflicto entre usuarios distintos, o acepta el riesgo a sabiendas ' +
+      '(en un despacho unipersonal es inevitable; el maker-checker por póliza vive en el panel: segregacion_de_funciones).',
   };
 }

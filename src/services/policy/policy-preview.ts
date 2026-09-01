@@ -1,4 +1,5 @@
 import { query } from '../../database/connection.js';
+import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
 
 // ============================================================
 // POLICY IMPACT PREVIEW
@@ -74,6 +75,17 @@ export const PREVIEWS: Record<string, PreviewFn> = {
       lines.push(`  · no rejections yet — a track record that supports turning it on`);
     } else {
       lines.push(`  · too few yet to tell how often I would be right`);
+    }
+    // A4: la evidencia de SOMBRA — la que resolvePolicy exige para 'on'.
+    const sombra = await concordanciaSombra({ tenantId: ctx.tenantId, entityId: ctx.entityId ?? null });
+    if (sombra.veredictos > 0) {
+      lines.push(
+        `  · shadow: ${sombra.veredictos} verdict(s) over ${sombra.dias_con_veredictos} day(s), ` +
+          `${sombra.decididos} human-decided, agreement ${sombra.tasa_acuerdo ?? '—'} ` +
+          `(turning 'on' requires ≥7 days, ≥10 decided, ≥0.90)`
+      );
+    } else {
+      lines.push(`  · no shadow history yet: answer 'shadow' first — 'on' requires that evidence`);
     }
     return lines;
   },

@@ -9,6 +9,19 @@ import { query } from '../../../src/database/connection.js';
 import type { AgentContext } from '../../../src/ai/context.js';
 import type { BetaTool, BetaToolResultContentBlockParam } from '@anthropic-ai/sdk/resources/beta';
 
+// A3: los resultados con datos de terceros viajan envueltos en marcadores
+// UNTRUSTED; parsear = des-envolver primero. Los sin envoltura pasan igual.
+function parseResultado(r: string): any {
+  const abre = r.indexOf('<<<UNTRUSTED_CFDI_DATA>>>');
+  if (abre < 0) return JSON.parse(r);
+  const cuerpo = r.slice(
+    abre + '<<<UNTRUSTED_CFDI_DATA>>>'.length,
+    r.lastIndexOf('<<<END_UNTRUSTED_CFDI_DATA>>>')
+  );
+  return JSON.parse(cuerpo);
+}
+
+
 /**
  * The concrete shape `betaZodTool` produces: a plain `BetaTool` plus `run`.
  * The builders return a union over many different input schemas and a tool is
@@ -95,7 +108,7 @@ describe('tool-result size cap', () => {
     });
     const out = (await getTool('search_accounts').run({})) as string;
     expect(out).not.toContain('truncated at');
-    expect(JSON.parse(out).accounts[0].code).toBe('1101');
+    expect(parseResultado(out).accounts[0].code).toBe('1101');
   });
 });
 
@@ -112,7 +125,7 @@ describe('search_accounts', () => {
     expect(sql).toMatch(/code ILIKE \$2 OR name ILIKE \$2/);
     expect(sql).toMatch(/account_type = \$3/);
     expect(params).toEqual([CTX.entityId, '%banco%', 'asset']);
-    const parsed = JSON.parse(out as string);
+    const parsed = parseResultado(out as string);
     expect(parsed.count).toBe(1);
     expect(parsed.accounts[0].code).toBe('1101');
   });
@@ -129,7 +142,7 @@ describe('search_accounts', () => {
       account_subtype: null, normal_balance: 'debit', allow_manual_entries: true, fs_category: null,
     }));
     mockQuery.mockResolvedValueOnce({ rows });
-    const parsed = JSON.parse((await getTool('search_accounts').run({})) as string);
+    const parsed = parseResultado((await getTool('search_accounts').run({})) as string);
     expect(parsed.truncated).toBe(true);
     expect(parsed.count).toBe(50);
   });
@@ -166,7 +179,7 @@ describe('get_journal_entry', () => {
           { line_number: 2, account_code: '1101', account_name: 'Bancos', debit_amount: null, credit_amount: '10000.0000', description: null },
         ],
       });
-    const parsed = JSON.parse((await getTool('get_journal_entry').run({ entry_number: 'JE-2026-00042' })) as string);
+    const parsed = parseResultado((await getTool('get_journal_entry').run({ entry_number: 'JE-2026-00042' })) as string);
     expect(parsed.id).toBeUndefined();
     expect(parsed.entry_number).toBe('JE-2026-00042');
     expect(parsed.lines).toHaveLength(2);
@@ -190,7 +203,7 @@ describe('get_trial_balance', () => {
         { account_code: '4101', account_name: 'Ventas', account_type: 'revenue', debit_total: '0.00', credit_total: '1000.00', ending_balance: '-1000.00' },
       ],
     });
-    const parsed = JSON.parse((await getTool('get_trial_balance').run({})) as string);
+    const parsed = parseResultado((await getTool('get_trial_balance').run({})) as string);
     expect(parsed.totals.total_debits).toBe('1500.00');
     expect(parsed.totals.total_credits).toBe('1500.00');
     expect(parsed.totals.is_balanced).toBe(true);
@@ -204,7 +217,7 @@ describe('get_trial_balance', () => {
         { account_code: '1102', account_name: 'Caja', account_type: 'asset', debit_total: '50.00', credit_total: '0.00', ending_balance: '50.00' },
       ],
     });
-    const parsed = JSON.parse((await getTool('get_trial_balance').run({ only_with_balance: true })) as string);
+    const parsed = parseResultado((await getTool('get_trial_balance').run({ only_with_balance: true })) as string);
     expect(parsed.accounts).toHaveLength(1);
     expect(parsed.accounts[0].account_code).toBe('1102');
   });
@@ -230,7 +243,7 @@ describe('get_balance_sheet', () => {
         { account_type: 'equity', fs_category: 'equity', code: '3101', name: 'Capital', balance: '-100.00' },
       ],
     });
-    const parsed = JSON.parse((await getTool('get_balance_sheet').run({ as_of_date: '2026-06-30' })) as string);
+    const parsed = parseResultado((await getTool('get_balance_sheet').run({ as_of_date: '2026-06-30' })) as string);
     expect(parsed.assets.total).toBe('600.00');
     expect(parsed.liabilities.total).toBe('500.00');
     expect(parsed.equity.total).toBe('100.00');
@@ -259,7 +272,7 @@ describe('get_income_statement', () => {
         { account_type: 'expense', code: '5201', name: 'Renta', debit_total: '4000.00', credit_total: '0.00' },
       ],
     });
-    const parsed = JSON.parse(
+    const parsed = parseResultado(
       (await getTool('get_income_statement').run({ start_date: '2026-01-01', end_date: '2026-06-30' })) as string
     );
     expect(parsed.revenue.total).toBe('10000.00');
@@ -278,7 +291,7 @@ describe('get_aged_receivables', () => {
         { customer_name: 'Cliente B', customer_number: 'C-2', invoice_number: 'F-2', invoice_date: '2026-06-01', due_date: '2026-07-01', total_amount: '580.00', amount_due: '80.00', days_overdue: -10 },
       ],
     });
-    const parsed = JSON.parse((await getTool('get_aged_receivables').run({ as_of_date: '2026-06-21' })) as string);
+    const parsed = parseResultado((await getTool('get_aged_receivables').run({ as_of_date: '2026-06-21' })) as string);
     expect(parsed.total_due).toBe('1240.00');
     expect(parsed.count).toBe(2);
   });
@@ -294,7 +307,7 @@ describe('get_general_ledger', () => {
         { entry_number: 'JE-2', entry_date: '2026-05-02', entry_description: 'y', debit_amount: null, credit_amount: '40.00', line_description: null },
       ],
     });
-    const parsed = JSON.parse((await getTool('get_general_ledger').run({ account_code: '1101' })) as string);
+    const parsed = parseResultado((await getTool('get_general_ledger').run({ account_code: '1101' })) as string);
     expect(parsed.period_debits).toBe('100.00');
     expect(parsed.period_credits).toBe('40.00');
     const [sql, params] = mockQuery.mock.calls[0];

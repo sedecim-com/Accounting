@@ -1,4 +1,5 @@
 import type { AgentContext } from '../context.js';
+import { UNTRUSTED_OPEN, UNTRUSTED_CLOSE } from '../untrusted.js';
 import type { ToolDeps } from './observer.js';
 import { buildSearchTools } from './search-tools.js';
 import { buildLedgerTools } from './ledger-tools.js';
@@ -41,7 +42,14 @@ function withResultCap<T extends { run: (...args: any[]) => any }>(tool: T): T {
     run: async (...args: Parameters<T['run']>) => {
       const result = await originalRun(...args);
       if (typeof result === 'string' && result.length > MAX_TOOL_RESULT_CHARS) {
-        return result.slice(0, MAX_TOOL_RESULT_CHARS) + TRUNCATION_MARKER;
+        let cortado = result.slice(0, MAX_TOOL_RESULT_CHARS) + TRUNCATION_MARKER;
+        // A3: un corte jamás deja un bloque UNTRUSTED abierto — un marcador
+        // sin cierre convierte TODO lo que sigue (incluido el marcador de
+        // truncación, que es del sistema) en «datos de tercero».
+        const opens = cortado.split(UNTRUSTED_OPEN).length - 1;
+        const closes = cortado.split(UNTRUSTED_CLOSE).length - 1;
+        if (opens > closes) cortado += `\n${UNTRUSTED_CLOSE}`;
+        return cortado;
       }
       return result;
     },

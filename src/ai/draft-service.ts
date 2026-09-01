@@ -470,11 +470,18 @@ export function deriveDraftKind(payload: DraftPayload): string {
   return 'journal_entry';
 }
 
+/** El «no casó» tiene nombre: la ingesta lo distingue del «casó y falló». */
+export class NoMatchingApprovalPolicyError extends Error {
+  readonly code = 'NO_MATCHING_APPROVAL_POLICY';
+}
+
 /**
  * Policy path: approve a pending draft because a stored approval policy
- * (src/ai/approval-policy.ts) authorizes it — the ingest auto-post path
- * calls this instead of raw thresholds. approveDraft remains the HUMAN
- * path and is untouched.
+ * (src/ai/approval-policy.ts) authorizes it. A3: es la VÍA SECUNDARIA de
+ * la ingesta — cuando una compuerta DISCRECIONAL del auto-post no basta
+ * (confianza, monto, proveedor), una política otorgada por un humano puede
+ * autorizar; las compuertas de INTEGRIDAD (sospecha, multi-draft, moneda,
+ * cuadre) jamás se saltan. approveDraft remains the HUMAN path, untouched.
  *
  * Safety properties:
  * - matching is conservative and the FLOOR wins: matchApproval caps any
@@ -520,7 +527,9 @@ export async function autoApproveDraftByPolicy(
     opts
   );
   if (!policy) {
-    throw new Error(`No approval policy authorizes draft ${draftId}; it stays pending for human review`);
+    throw new NoMatchingApprovalPolicyError(
+      `No approval policy authorizes draft ${draftId}; it stays pending for human review`
+    );
   }
 
   // Attribution: journal_entries.created_by must be a real user — the

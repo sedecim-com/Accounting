@@ -1,0 +1,8 @@
+{
+  "caso": "rep-recibido",
+  "resultado": "determinista",
+  "tratamiento": null,
+  "sospecha": false,
+  "asiento": null,
+  "nota": "CFDI tipo P: se LIGA por el camino determinista (procesarREP), el modelo no se invoca. Si el clasificador llega a verlo, es regresion de IVA-5."
+}

@@ -46,10 +46,14 @@ export async function resolverUmbralesConPanel(
   let autoPost = UMBRALES_INGESTA_OMISION.autoPost;
   let fuenteAuto: 'bandera' | 'archivo' | 'politica' | 'omision' = 'omision';
   const polAuto = await getPolicy(ctx, 'ingest_auto_post');
+  // A4: la sombra SOLO la enciende el panel — sin bandera ni archivo. Es la
+  // decisión del despacho de medir, no un override de corrida; y sigue viva
+  // aunque una bandera --no-auto-post apague el interruptor real.
+  const sombra = polAuto.defined && polAuto.value === 'shadow';
   if (polAuto.defined) {
     // El vocabulario del panel está cerrado al declarar y abierto al
-    // escribir: sólo el literal 'on' enciende. Un valor desconocido no puede
-    // acabar posteando sin revisión.
+    // escribir: sólo el literal 'on' enciende ('shadow' NO postea: opina).
+    // Un valor desconocido no puede acabar posteando sin revisión.
     autoPost = polAuto.value === 'on';
     fuenteAuto = 'politica';
   }
@@ -99,6 +103,7 @@ export async function resolverUmbralesConPanel(
   }
 
   return {
+    sombra,
     autoPost,
     minConfidence: Math.min(1, Math.max(0, minConfidence)),
     maxAmount: Math.max(0, maxAmount),

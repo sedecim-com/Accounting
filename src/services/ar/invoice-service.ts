@@ -304,7 +304,7 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
   if (!input.lines?.length) throw new ValidationError('At least 1 line required');
 
   return withTransaction(async (client) => {
-    const invoiceNumber = await nextEntityNumber(client, input.entity_id, 'invoice', 'INV');
+    const invoiceNumber = await nextEntityNumber(client, input.entity_id, 'invoice', 'INV', input.invoice_date);
 
     let subtotal = new Decimal(0);
     let taxAmount = new Decimal(0);
@@ -706,12 +706,17 @@ export async function listEntitySequences(entityId: string): Promise<SequenceRow
   );
   return result.rows.map((row) => {
     const issued = parseInt(row.value, 10);
-    const prefix = SEQUENCE_PREFIXES[row.name] ?? row.name.toUpperCase();
+    // R3: las llaves anuales son `tipo_AAAA`; las viejas sin año quedan como
+    // registro histórico del esquema anterior (retiradas en sitio, 043).
+    const m = /^(.+)_(\d{4})$/.exec(row.name);
+    const tipo = m ? m[1] : row.name;
+    const año = m ? Number(m[2]) : new Date().getFullYear();
+    const prefix = SEQUENCE_PREFIXES[tipo] ?? tipo.toUpperCase();
     return {
       document_type: row.name,
       issued,
-      last_number: issued > 0 ? formatDocumentNumber(prefix, issued) : null,
-      next_number: formatDocumentNumber(prefix, issued + 1),
+      last_number: issued > 0 ? formatDocumentNumber(prefix, año, issued) : null,
+      next_number: formatDocumentNumber(prefix, año, issued + 1),
       updated_at: row.updated_at ?? null,
     };
   });
