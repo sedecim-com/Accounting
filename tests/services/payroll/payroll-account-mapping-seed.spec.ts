@@ -14,6 +14,8 @@ import {
   MX_PAYROLL_ACCOUNTS,
   US_PAYROLL_ACCOUNTS,
 } from '../../../src/services/payroll/common/payroll-account-mapping-seed.js';
+import { BASE_CHART_MX } from '../../../src/services/accounting/chart-seed.js';
+import { REQUIRED_ACCOUNTS } from '../../../src/services/xml-ingestion/account-roles-seed.js';
 
 // ============================================================
 // payroll_account_mapping had a reader (gl-posting-service) and NO writer
@@ -66,19 +68,44 @@ describe('every bucket the posting engine can ask for is mapped', () => {
     }
   });
 
-  it('every mapped code is either seeded here or is a base-chart code', () => {
-    // 1111 and 2130 come from chart-seed's BASE_CHART_MX and are reused
-    // deliberately rather than duplicated under a second code.
-    const BASE_CHART_MX_CODES = ['1111', '2130'];
+  it('every mapped code is seeded here or by a seed that runs first', () => {
+    // Las fuentes se IMPORTAN en vez de listarse a mano: la lista escrita a
+    // mano decía ['1111','2130'] y quedó falsa en cuanto la nómina empezó a
+    // reusar 2170 de account-roles-seed.
+    const base = new Set(BASE_CHART_MX.map((a) => a.code));
+    const roles = new Set(REQUIRED_ACCOUNTS.map((a) => a.code));
     const seeded = new Set(MX_PAYROLL_ACCOUNTS.map((a) => a.code));
     for (const code of Object.values(MX_BUCKET_MAP)) {
-      expect(seeded.has(code) || BASE_CHART_MX_CODES.includes(code), `MX code ${code} has no source`).toBe(true);
+      expect(
+        seeded.has(code) || base.has(code) || roles.has(code),
+        `MX code ${code} has no source`
+      ).toBe(true);
     }
     const seededUs = new Set(US_PAYROLL_ACCOUNTS.map((a) => a.code));
     for (const code of Object.values(US_BUCKET_MAP)) {
-      // There is no US base chart, so every US code must be seeded here.
-      expect(seededUs.has(code), `US code ${code} is not seeded and there is no US base chart`).toBe(true);
+      // 1111 se reusa igual que en México: declararlo como «Operating Bank
+      // Account» chocaba con el «Banco Nacional - MXN» del catálogo base, que
+      // se siembra en toda entidad sin mirar el país.
+      expect(
+        seededUs.has(code) || base.has(code),
+        `US code ${code} has no source`
+      ).toBe(true);
     }
+  });
+
+  it('ninguna semilla reclama un código que otra ya declaró con otro nombre', () => {
+    // La colisión no la ve el motor: la guarda de creación compara CÓDIGOS, y
+    // dos nombres distintos bajo el mismo número hacen que la segunda semilla
+    // herede la cuenta de la primera en silencio. `wages_expense` apuntó
+    // durante meses a «Devoluciones y Descuentos sobre Compras» por esto.
+    const porCodigo = new Map<string, Set<string>>();
+    for (const a of [...BASE_CHART_MX, ...REQUIRED_ACCOUNTS, ...MX_PAYROLL_ACCOUNTS, ...US_PAYROLL_ACCOUNTS]) {
+      porCodigo.set(a.code, (porCodigo.get(a.code) ?? new Set()).add(a.name));
+    }
+    const choques = [...porCodigo.entries()]
+      .filter(([, nombres]) => nombres.size > 1)
+      .map(([code, nombres]) => `${code}: ${[...nombres].join(' vs ')}`);
+    expect(choques).toEqual([]);
   });
 });
 
@@ -86,8 +113,8 @@ describe('seedPayrollAccountMapping', () => {
   it('creates only the accounts the chart lacks', async () => {
     arrange(['1111', '2130'], []);
     const result = await seedPayrollAccountMapping(ENTITY, TENANT, 'MX', USER, { client: mockClient as never });
-    // 1111 and 2130 already existed; the six MX payroll accounts did not.
-    expect(result.accountsCreated).toEqual(['5200', '5210', '2150', '2160', '2170', '2180']);
+    // 1111 y 2130 ya estaban; las cinco cuentas de nómina no.
+    expect(result.accountsCreated).toEqual(['2165', '2175', '2185', '6110', '6115']);
   });
 
   it('creates nothing when the chart already carries every account', async () => {
@@ -146,15 +173,21 @@ describe('seedPayrollAccountMapping', () => {
     arrange([], []);
     const result = await seedPayrollAccountMapping(ENTITY, TENANT, 'MX', USER, { client: mockClient as never });
 
-    expect(result.bucketsUnmappable.map((b) => b.bucket).sort()).toEqual(['cash_payroll', 'isr_payable']);
+    // Tres códigos se REUSAN en vez de crearse: 1111 y 2130 del catálogo base,
+    // y 2170 «IMSS por Pagar» de account-roles-seed. Los tres pueden faltar en
+    // una llamada suelta como ésta; en el alta real no faltan, porque
+    // ensureEntityAccounting corre las dos semillas antes que ésta.
+    expect(result.bucketsUnmappable.map((b) => b.bucket).sort())
+      .toEqual(['cash_payroll', 'imss_payable', 'isr_payable']);
     expect(result.bucketsUnmappable.find((b) => b.bucket === 'cash_payroll')?.code).toBe('1111');
+    expect(result.bucketsUnmappable.find((b) => b.bucket === 'imss_payable')?.code).toBe('2170');
     // Everything this seeder creates itself still got mapped.
     expect(result.bucketsMapped).toContain('wages_expense');
-    expect(result.bucketsMapped).toContain('imss_payable');
+    expect(result.bucketsMapped).toContain('infonavit_payable');
   });
 
   it('leaves nothing unmappable on a chart that has the reused codes', async () => {
-    arrange(['1111', '2130'], []);
+    arrange(['1111', '2130', '2170'], []);
     const result = await seedPayrollAccountMapping(ENTITY, TENANT, 'MX', USER, { client: mockClient as never });
     expect(result.bucketsUnmappable).toEqual([]);
     expect(result.bucketsMapped.sort()).toEqual(Object.keys(MX_BUCKET_MAP).sort());

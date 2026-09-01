@@ -1166,6 +1166,73 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E1.1',
+    enunciado: 'Un código de cuenta significa UNA cuenta en todas las semillas',
+    evaluar: () => {
+      // EL FALLO QUE ESTE CRITERIO PERSIGUE. Cuatro semillas escriben en el
+      // catálogo de la MISMA entidad —el catálogo base, los roles del CFDI, el
+      // mapeo de nómina y el sembrador de `npm run seed`— y las tres que
+      // corren después se guardan de pisar a la anterior COMPARANDO CÓDIGOS:
+      // `if (byCode.has(spec.code)) continue`. La guarda funciona; lo que no
+      // vigila nadie es que dos semillas llamen cosas distintas al mismo
+      // número. Cuando pasa, la segunda no crea su cuenta, hereda la ajena, y
+      // el error es de SIGNIFICADO: no hay excepción, no hay fila de más, y
+      // UNIQUE(code, entity_id) tampoco puede acusarlo porque desde la base
+      // sólo hay una cuenta con ese código, que es justo lo que exige.
+      //
+      // Ocurrió con seis códigos a la vez: 5200 mandaba el sueldo bruto a
+      // «Devoluciones y Descuentos sobre Compras», y 2150/2160/2170/2180
+      // repartían los pasivos de nómina entre anticipos de clientes, sueldos
+      // por pagar e IEPS.
+      //
+      // El criterio DESCUBRE los catálogos en vez de enumerarlos: la lección
+      // que este archivo ya pagó una vez es que un detector de clases
+      // enumeradas sólo ve las clases que enumeró, y una quinta semilla
+      // añadida mañana tiene que quedar vigilada sin tocar esto.
+      const decl = /code:\s*'([^']+)'\s*,\s*name:\s*'([^']*)'/g;
+      const porCodigo = new Map<string, Map<string, string[]>>();
+      for (const f of fuentes('src')) {
+        const texto = sinComentarios(fs.readFileSync(f, 'utf-8'));
+        const rel = path.relative(RAIZ, f);
+        decl.lastIndex = 0;
+        for (const m of texto.matchAll(decl)) {
+          const [, codigo, nombre] = m;
+          const nombres = porCodigo.get(codigo) ?? new Map<string, string[]>();
+          nombres.set(nombre, [...(nombres.get(nombre) ?? []), rel]);
+          porCodigo.set(codigo, nombres);
+        }
+      }
+      if (porCodigo.size === 0) {
+        return noEvaluable('ninguna fuente declara pares código/nombre de cuenta');
+      }
+
+      // La comparación es TOTAL, también entre el catálogo mexicano y el
+      // estadounidense, que hoy no coexisten en una misma entidad. Es a
+      // propósito y tiene precio: obliga a que MX y EE. UU. no compartan
+      // número aunque podrían. A cambio, el criterio no necesita un modelo de
+      // qué semillas son mutuamente excluyentes —el modelo que estaba mal era
+      // justamente ése: `ensureEntityAccounting` siembra el catálogo base
+      // mexicano en TODA entidad, país incluido o no— y la regla que enuncia
+      // se puede leer sin saberse el pipeline: un número, un nombre.
+      const choques = [...porCodigo.entries()]
+        .filter(([, nombres]) => nombres.size > 1)
+        .map(([codigo, nombres]) => {
+          const partes = [...nombres.entries()].map(
+            ([nombre, archivos]) => `«${nombre}» (${[...new Set(archivos)].join(', ')})`
+          );
+          return `${codigo}: ${partes.join(' vs ')}`;
+        });
+
+      return choques.length === 0
+        ? ok(`${porCodigo.size} códigos de cuenta declarados, cada uno con un solo nombre`)
+        : falla(
+            `${choques.length} código(s) con dos significados — la semilla que corre después ` +
+              `no crea su cuenta y hereda la ajena, sin error: ${choques.join(' · ')}`
+          );
+    },
+  },
+
   // ---- E1.2 · Cerebro fiscal del CFDI ----
   {
     paquete: 'E1.2',

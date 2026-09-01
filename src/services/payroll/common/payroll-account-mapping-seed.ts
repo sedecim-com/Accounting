@@ -11,11 +11,16 @@ import { withTransaction } from '../../../database/connection.js';
 // in the repository, so the first pay run of any entity died with
 // "Missing payroll_account_mapping for bucket: wages_expense".
 //
-// The base chart (chart-seed.ts) carries no payroll accounts at all, so this
-// creates the ones it lacks rather than mapping a bucket to something close
-// enough. Mapping "IMSS por pagar" onto a generic "Retenciones por Pagar"
-// would make the account reconcile to nothing and the IDSE payment
-// impossible to tie out.
+// Crea las cuentas que el catálogo de la entidad no tenga, en vez de mapear un
+// bucket a algo parecido: llevar «IMSS por pagar» a la genérica «Retenciones
+// por Pagar» deja una cuenta que no concilia contra nada y un pago al IDSE
+// imposible de amarrar.
+//
+// LOS CÓDIGOS DE ESTE ARCHIVO CONVIVEN CON LOS DE OTRAS TRES SEMILLAS
+// —chart-seed.ts, account-roles-seed.ts y database/seed.ts— dentro de la MISMA
+// entidad, y la guarda de creación es por código. Elegir un número que otra
+// semilla ya usa no falla: se salta la creación y hereda la cuenta ajena. Ver
+// el comentario de MX_PAYROLL_ACCOUNTS.
 //
 // Idempotent by construction: it creates only missing accounts and maps only
 // unmapped buckets, so re-running never overwrites a firm's own choice.
@@ -34,77 +39,119 @@ export interface PayrollAccountSpec {
 export const REQUIRED_BUCKETS = ['wages_expense', 'payroll_tax_expense', 'cash_payroll'] as const;
 
 /**
- * Mexico. Codes follow the existing MX numbering (chart-seed.ts) so they slot
- * into the chart naturally; 2130 "ISR por Pagar" and 1111 already exist there
- * and are reused rather than duplicated.
+ * México. LOS CÓDIGOS NO PUEDEN CHOCAR CON LOS DE OTRA SEMILLA.
+ *
+ * Este catálogo pedía 5200, 5210, 2150, 2160, 2170 y 2180. Los cinco últimos
+ * y el primero ya los declaraba otra semilla que corre ANTES —el catálogo
+ * base (chart-seed.ts) y los roles del CFDI (account-roles-seed.ts)—, y la
+ * guarda de más abajo es por CÓDIGO: `if (byCode.has(spec.code)) continue`.
+ * Así que la cuenta no se creaba y el bucket terminaba apuntando a la cuenta
+ * ajena que ocupaba ese número. No tronaba: la colisión era de significado.
+ *
+ * El resultado en toda entidad mexicana recién creada:
+ *   wages_expense       → 5200 «Devoluciones y Descuentos sobre Compras»
+ *   imss_payable        → 2150 «Anticipos de Clientes»
+ *   infonavit_payable   → 2160 «Sueldos por Pagar»
+ *   garnishment_payable → 2170 «IMSS por Pagar»
+ *   benefits_payable    → 2180 «IEPS por Pagar»
+ * Es decir: el sueldo bruto cargado a un contra-costo de naturaleza acreedora,
+ * y tres pasivos de nómina revueltos con anticipos de clientes y con IEPS.
+ *
+ * POR QUÉ SE MUEVE ÉSTE Y NO EL OTRO. Lo decide el agrupador del SAT (Anexo
+ * 24), que es con lo que esta contabilidad se presenta:
+ *   · 503 «Devoluciones, descuentos o bonificaciones sobre compras» vive en la
+ *     familia 5xx de COSTOS. La cuenta 5200 de account-roles-seed está bien
+ *     donde está: es un contra-costo y su número lo refleja.
+ *   · 601.01 «Sueldos y salarios», 601.26 «Cuotas al IMSS» y 601.27
+ *     «Aportaciones al INFONAVIT» viven todos bajo 601 «Gastos generales».
+ *     La nómina es GASTO DE OPERACIÓN, o sea 6xxx en esta numeración, y nunca
+ *     debió pedir un número de la familia de costos.
+ *   · 211 «Provisión de contribuciones de seguridad social por pagar» cubre a
+ *     la vez IMSS e INFONAVIT: por eso quedan contiguos, 2170 y 2175.
+ *
+ * DOS CÓDIGOS SE REUSAN EN LUGAR DE DUPLICARSE:
+ *   · 6110 «Sueldos y Salarios» ya existe en BASE_CHART_MX, y ROLE_MAP ya
+ *     manda ahí el rol `sueldos_gasto`. Pedir un número propio partía el gasto
+ *     de nómina en dos cuentas según entrara por CFDI o por corrida de nómina.
+ *     Se declara aquí ADEMÁS, con el nombre idéntico, porque el catálogo base
+ *     es condicional (sólo corre si la entidad no tenía cuentas) y
+ *     wages_expense es un bucket obligatorio: sobre catálogo importado tiene
+ *     que existir igual. Es el mismo motivo por el que account-roles-seed
+ *     repite 1130 y 2120.
+ *   · 2170 «IMSS por Pagar» ya lo crea account-roles-seed, que corre siempre y
+ *     sin condición. Duplicarlo bajo otro número dejaba dos cuentas de IMSS
+ *     que nadie podría conciliar contra un solo pago al SUA.
  */
 export const MX_PAYROLL_ACCOUNTS: PayrollAccountSpec[] = [
   {
-    code: '5200', name: 'Sueldos y Salarios', account_type: 'expense',
+    code: '2165', name: 'Otras Retenciones de Nómina', account_type: 'liability',
+    normal_balance: 'credit', fs_category: 'current_liabilities',
+    description: 'Pensiones alimenticias, préstamos y descuentos posteriores al impuesto.',
+  },
+  {
+    code: '2175', name: 'INFONAVIT por Pagar', account_type: 'liability',
+    normal_balance: 'credit', fs_category: 'current_liabilities',
+    description: 'Aportaciones y amortizaciones de crédito, bimestrales.',
+  },
+  {
+    code: '2185', name: 'Prestaciones por Pagar', account_type: 'liability',
+    normal_balance: 'credit', fs_category: 'current_liabilities',
+    description: 'Deducciones anteriores al impuesto retenidas a favor de un tercero.',
+  },
+  {
+    // El nombre tiene que ser CARÁCTER POR CARÁCTER el de BASE_CHART_MX: dos
+    // semillas que declaran el mismo código con nombres distintos es justo la
+    // falla que este catálogo acaba de corregir, y hay un criterio del plan
+    // que la persigue.
+    code: '6110', name: 'Sueldos y Salarios', account_type: 'expense',
     normal_balance: 'debit', fs_category: 'operating_expenses',
     description: 'Percepciones brutas del personal, antes de retenciones.',
   },
   {
-    code: '5210', name: 'Cuotas Patronales IMSS e INFONAVIT', account_type: 'expense',
+    code: '6115', name: 'Cuotas Patronales IMSS e INFONAVIT', account_type: 'expense',
     normal_balance: 'debit', fs_category: 'operating_expenses',
     description:
       'Aportaciones que paga el patrón, separadas del sueldo porque no son percepción ' +
       'del trabajador y no entran en su CFDI de nómina.',
   },
-  {
-    code: '2150', name: 'IMSS por Pagar', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
-    description: 'Cuota obrera retenida más cuota patronal, hasta enterarse por SUA/IDSE.',
-  },
-  {
-    code: '2160', name: 'INFONAVIT por Pagar', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
-    description: 'Aportaciones y amortizaciones de crédito, bimestrales.',
-  },
-  {
-    code: '2170', name: 'Otras Retenciones de Nómina', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
-    description: 'Pensiones alimenticias, préstamos y descuentos posteriores al impuesto.',
-  },
-  {
-    code: '2180', name: 'Prestaciones por Pagar', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
-    description: 'Deducciones anteriores al impuesto retenidas a favor de un tercero.',
-  },
 ];
 
 export const MX_BUCKET_MAP: Record<string, string> = {
-  wages_expense: '5200',
-  payroll_tax_expense: '5210',
-  cash_payroll: '1111',        // Banco Nacional - MXN, from the base chart
-  isr_payable: '2130',         // ISR por Pagar, from the base chart
-  imss_payable: '2150',
-  infonavit_payable: '2160',
-  garnishment_payable: '2170',
-  benefits_payable: '2180',
+  wages_expense: '6110',
+  payroll_tax_expense: '6115',
+  cash_payroll: '1111',        // Banco Nacional - MXN, del catálogo base
+  isr_payable: '2130',         // ISR por Pagar, del catálogo base
+  imss_payable: '2170',        // IMSS por Pagar, de account-roles-seed
+  infonavit_payable: '2175',
+  garnishment_payable: '2165',
+  benefits_payable: '2185',
 };
 
 /**
- * United States. There is no US base chart in this repository, so every
- * account here is created. The numbering deliberately mirrors the MX scheme
- * already in use rather than inventing a second convention.
+ * Estados Unidos. MISMA COLISIÓN, MISMA CAUSA.
+ *
+ * `ensureEntityAccounting` siembra el catálogo base MEXICANO y los roles del
+ * CFDI en TODA entidad, sin mirar el país, y sólo después ramifica por país
+ * para la nómina. Así que este catálogo convive con los otros dos igual que el
+ * mexicano, y chocaba en los mismos números: 5200, 2150, 2170, 2180 y 1111.
+ * Una entidad estadounidense cargaba también su sueldo bruto a «Devoluciones y
+ * Descuentos sobre Compras».
+ *
+ * Que el catálogo base sea el mexicano para una entidad de EE. UU. es OTRO
+ * defecto, y no se arregla aquí. Lo que sí se hace es no depender de él:
+ *   · Los gastos se van a 6150/6155, en la banda de gastos de operación, por
+ *     el mismo motivo contable que la nómina mexicana —son gasto, no costo—.
+ *   · Los pasivos se agrupan en 2151–2157, el único tramo que ninguna otra
+ *     semilla toca. El paso de uno en uno no es capricho: 2151–2154 ya estaban
+ *     así, y seguir la convención del propio bloque vale más que imponerle la
+ *     de x5 del catálogo mexicano.
+ *   · 1111 deja de declararse. Se REUSA, exactamente como MX ya reusa 1111 y
+ *     2130: declararlo como «Operating Bank Account» chocaba con «Banco
+ *     Nacional - MXN». Si la entidad llegó con catálogo propio y no tiene
+ *     1111, cash_payroll sale en `bucketsUnmappable` — que es la conducta
+ *     diseñada para eso y la que MX ya tenía.
  */
 export const US_PAYROLL_ACCOUNTS: PayrollAccountSpec[] = [
-  {
-    code: '5200', name: 'Salaries and Wages', account_type: 'expense',
-    normal_balance: 'debit', fs_category: 'operating_expenses',
-    description: 'Gross compensation before withholding.',
-  },
-  {
-    code: '5210', name: 'Employer Payroll Taxes', account_type: 'expense',
-    normal_balance: 'debit', fs_category: 'operating_expenses',
-    description: 'Employer FICA, FUTA and SUTA — the employer cost, not the employee withholding.',
-  },
-  {
-    code: '2150', name: 'Federal Income Tax Withheld', account_type: 'liability',
-    normal_balance: 'credit', fs_category: 'current_liabilities',
-    description: 'FIT withheld from employees, until deposited.',
-  },
   {
     code: '2151', name: 'FICA Payable', account_type: 'liability',
     normal_balance: 'credit', fs_category: 'current_liabilities',
@@ -126,35 +173,44 @@ export const US_PAYROLL_ACCOUNTS: PayrollAccountSpec[] = [
     description: 'State income tax and disability withholding.',
   },
   {
-    code: '2170', name: 'Garnishments Payable', account_type: 'liability',
+    code: '2155', name: 'Federal Income Tax Withheld', account_type: 'liability',
+    normal_balance: 'credit', fs_category: 'current_liabilities',
+    description: 'FIT withheld from employees, until deposited.',
+  },
+  {
+    code: '2156', name: 'Garnishments Payable', account_type: 'liability',
     normal_balance: 'credit', fs_category: 'current_liabilities',
     description: 'Post-tax deductions owed to a third party.',
   },
   {
-    code: '2180', name: 'Benefits Payable', account_type: 'liability',
+    code: '2157', name: 'Benefits Payable', account_type: 'liability',
     normal_balance: 'credit', fs_category: 'current_liabilities',
     description: 'Pre-tax deductions owed to a benefits provider.',
   },
   {
-    code: '1111', name: 'Operating Bank Account', account_type: 'asset',
-    normal_balance: 'debit', fs_category: 'current_assets',
-    description: 'Account the net pay leaves from.',
+    code: '6150', name: 'Salaries and Wages', account_type: 'expense',
+    normal_balance: 'debit', fs_category: 'operating_expenses',
+    description: 'Gross compensation before withholding.',
+  },
+  {
+    code: '6155', name: 'Employer Payroll Taxes', account_type: 'expense',
+    normal_balance: 'debit', fs_category: 'operating_expenses',
+    description: 'Employer FICA, FUTA and SUTA — the employer cost, not the employee withholding.',
   },
 ];
 
 export const US_BUCKET_MAP: Record<string, string> = {
-  wages_expense: '5200',
-  payroll_tax_expense: '5210',
-  cash_payroll: '1111',
-  fit_payable: '2150',
+  wages_expense: '6150',
+  payroll_tax_expense: '6155',
+  cash_payroll: '1111',        // reusada, no declarada: ver el comentario de arriba
+  fit_payable: '2155',
   fica_payable: '2151',
   futa_payable: '2152',
   suta_payable: '2153',
   state_tax_payable: '2154',
-  garnishment_payable: '2170',
-  benefits_payable: '2180',
+  garnishment_payable: '2156',
+  benefits_payable: '2157',
 };
-
 export interface PayrollSeedResult {
   country: 'MX' | 'USA';
   accountsCreated: string[];
