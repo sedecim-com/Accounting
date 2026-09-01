@@ -26,6 +26,15 @@ jobs:
     # No correr en drafts; ready_for_review lo recoge al salir de borrador.
     if: github.event.pull_request.draft == false
     steps:
+      # Token de la GitHub App witness-vic → el comentario de triage sale
+      # firmado `witness-vic[bot]` (no github-actions[bot] ni vic2099).
+      # Requiere los secrets del repo WITNESS_APP_ID y WITNESS_APP_PRIVATE_KEY.
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.WITNESS_APP_ID }}
+          private-key: ${{ secrets.WITNESS_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           # Necesitamos la base para diff correcto.
@@ -34,7 +43,7 @@ jobs:
       - name: Datos del PR
         id: meta
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           PR=${{ github.event.pull_request.number }}
           {
@@ -95,7 +104,7 @@ jobs:
 
       - name: Comentario de triage en el PR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           # PR number es un entero controlado por GitHub (no texto libre) → seguro.
           PR=${{ steps.meta.outputs.pr_number }}
@@ -117,7 +126,7 @@ jobs:
 
       - name: Marcar como pendiente de revisión Witness
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           PR=${{ steps.meta.outputs.pr_number }}
           # Crear labels si no existen (idempotente)
