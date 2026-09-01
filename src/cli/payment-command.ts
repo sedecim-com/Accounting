@@ -1,5 +1,6 @@
 import * as readline from 'node:readline/promises';
 import type { Command } from 'commander';
+import { BillStatus, InvoiceStatus } from '../types/index.js';
 import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { attestEntryAsync } from '../services/accounting/posting.js';
@@ -154,9 +155,9 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       if (!PAGABLES.includes(target.status as (typeof PAGABLES)[number])) {
         throw blockedByState(
           `Bill ${target.bill_number} is "${target.status}". ` +
-            (target.status === 'paid'
+            (target.status === BillStatus.PAID
               ? 'It is already settled.'
-              : target.status === 'draft' || target.status === 'pending_approval'
+              : target.status === BillStatus.DRAFT || target.status === BillStatus.PENDING_APPROVAL
                 ? 'Approve it first: the liability has to be in the ledger before it can be paid.'
                 : `Only ${PAGABLES.join(', ')} bills can be paid.`)
         );

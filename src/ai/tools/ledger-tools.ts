@@ -94,7 +94,7 @@ export function buildLedgerTools(ctx: AgentContext, observe?: ToolObserver) {
       if (header.rows.length === 0) {
         return `Journal entry ${input.entry_number} does not exist in this entity.`;
       }
-      const entry = header.rows[0] as Record<string, unknown>;
+      const entry = header.rows[0];
 
       const lines = await query(
         `SELECT jel.line_number, a.code AS account_code, a.name AS account_name,

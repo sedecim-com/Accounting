@@ -2,11 +2,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { getPolicy } from '../policy/policy-service.js';
 import type pg from 'pg';
-import { query, withTransaction, currentTenant } from '../../database/connection.js';
+import { withTransaction, currentTenant } from '../../database/connection.js';
 import { validateJournalEntry } from './validation.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ErrorCodes } from '../../utils/errors.js';
 import { blockchainOrchestrator } from '../blockchain/orchestrator.js';
+import { JournalEntryStatus } from '../../types/index.js';
 import type {
   JournalEntry,
   JournalEntryLine,
@@ -277,11 +278,11 @@ export async function postJournalEntry(
 
     const entry = entryResult.rows[0];
 
-    if (entry.status === 'posted') {
+    if (entry.status === JournalEntryStatus.POSTED) {
       throw new AccountingError('ALREADY_POSTED', 'Journal entry is already posted');
     }
 
-    if (entry.status === 'void') {
+    if (entry.status === JournalEntryStatus.VOID) {
       throw new AccountingError('ENTRY_VOID', 'Cannot post a voided entry');
     }
 
@@ -498,7 +499,7 @@ async function reverseWithinTransaction(
   description: string,
   reversalDate: Date
 ): Promise<JournalEntry> {
-  if (entry.status !== 'posted') {
+  if (entry.status !== JournalEntryStatus.POSTED) {
     throw new AccountingError(
       'ENTRY_NOT_POSTED',
       `Only posted entries can be reversed; ${entry.entry_number} is '${entry.status}' and never touched the ledger — reject or void it instead`
@@ -636,12 +637,12 @@ export async function voidJournalEntryInTx(
 
   const entry = entryResult.rows[0];
 
-  if (entry.status === 'void') {
+  if (entry.status === JournalEntryStatus.VOID) {
     throw new AccountingError('ALREADY_VOID', 'Journal entry is already voided');
   }
 
   let reversal: JournalEntry | null = null;
-  if (entry.status === 'posted') {
+  if (entry.status === JournalEntryStatus.POSTED) {
     // reverseWithinTransaction rejects a second void via ALREADY_REVERSED.
     reversal = await reverseWithinTransaction(
       client,

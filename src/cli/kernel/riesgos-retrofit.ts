@@ -188,7 +188,7 @@ export function declararPendientes(program: Command): {
     const resolved = riskOf(cmd)!;
     if (resolved.requiresDryRun || resolved.requiresLiveGate) {
       cmd.hook('preAction', (_this, action) => {
-        const o = action.opts() as { dryRun?: boolean; live?: boolean };
+        const o = action.opts();
         const pedidas = [o.dryRun ? '--dry-run' : null, o.live ? '--live' : null].filter(Boolean);
         if (pedidas.length > 0) {
           throw new Error(

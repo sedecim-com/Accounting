@@ -121,6 +121,6 @@ export async function setAccountRole(
       qualifier,
       account_code: cuenta.rows[0].code,
       accion: upd.rowCount === 0 ? 'creado' : 'reapuntado',
-    } as SetRoleResult;
+    };
   });
 }

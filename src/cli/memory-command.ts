@@ -118,7 +118,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
     .option('--topic <slug>', 'Topic for grouping precedents')
     .action(async function (this: Command, rule: string, criterion: string) {
       try {
-        const opts = this.optsWithGlobals() as SubOpts;
+        const opts = this.optsWithGlobals();
         const { ctx, reviewer } = await withEntity(opts);
         const id = await teachMemory(ctx, {
           rule, criterion, topic: opts.topic, taughtBy: reviewer.email,
@@ -141,7 +141,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
     .option('-u, --user <email>', 'Who corrects')
     .action(async function (this: Command, id: string, answer: string) {
       try {
-        const { ctx, reviewer } = await withEntity(this.optsWithGlobals() as SubOpts);
+        const { ctx, reviewer } = await withEntity(this.optsWithGlobals());
         const updated = await correctMemory(ctx, id, answer, reviewer.email);
         console.log(`✔ Precedent corrected: ${updated.answer}`);
         await deps.shutdown(0);
@@ -159,7 +159,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
     .option('-u, --user <email>', 'Who retires it')
     .action(async function (this: Command, id: string) {
       try {
-        const { ctx, reviewer } = await withEntity(this.optsWithGlobals() as SubOpts);
+        const { ctx, reviewer } = await withEntity(this.optsWithGlobals());
         await retireMemory(ctx, id, reviewer.email);
         console.log('✔ Precedent retired. The AI will no longer see it.');
         await deps.shutdown(0);
@@ -176,7 +176,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
     .argument('<id>', 'Precedent id')
     .action(async function (this: Command, id: string) {
       try {
-        const opts = this.optsWithGlobals() as SubOpts;
+        const opts = this.optsWithGlobals();
         bootstrapTenant(opts.tenant);
         const ctx = await resolveEntity(opts.entity);
         await restoreMemory(ctx, id);

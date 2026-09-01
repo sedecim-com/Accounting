@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import pg from 'pg';
-import { query, withTransaction, getClient } from '../../database/connection.js';
+import { query, getClient } from '../../database/connection.js';
 import { createJournalEntry } from '../accounting/posting.js';
 import { planearAsiento, planContabilizable, type PlanDeAsiento } from './cfdi-posting-plan.js';
 import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
@@ -159,7 +159,7 @@ export class PreRegistrationService {
 
     // Fetch saved doc
     const xmlDocResult = await query('SELECT * FROM xml_documents WHERE id = $1', [xmlDocId]);
-    const xmlDocument = xmlDocResult.rows[0] as Record<string, unknown>;
+    const xmlDocument = xmlDocResult.rows[0];
 
     // Async SAT validation (non-blocking)
     this.satValidator.validateAndUpdate(xmlDocId).catch((err) =>
@@ -186,7 +186,7 @@ export class PreRegistrationService {
       updated.status === 'ready'
     ) {
       try {
-        const result = await this.processToAccounting(updated as Record<string, unknown>, uploadedBy);
+        const result = await this.processToAccounting(updated, uploadedBy);
         autoProcessed = true;
         bill = result.bill;
         journalEntry = result.journalEntry ?? undefined;
@@ -239,7 +239,7 @@ export class PreRegistrationService {
     );
 
     const result = await query('SELECT * FROM pre_registrations WHERE id = $1', [preRegId]);
-    return result.rows[0] as Record<string, unknown>;
+    return result.rows[0];
   }
 
   private async matchVendor(
@@ -458,7 +458,7 @@ export class PreRegistrationService {
     );
 
     const result = await query('SELECT * FROM pre_registrations WHERE id = $1', [preReg.id]);
-    return result.rows[0] as Record<string, unknown>;
+    return result.rows[0];
   }
 
   /**
@@ -1082,7 +1082,7 @@ export class PreRegistrationService {
     const billResult = await query('SELECT * FROM bills WHERE id = $1', [billId]);
 
     return {
-      bill: billResult.rows[0] as Record<string, unknown>,
+      bill: billResult.rows[0],
       journalEntry: journalEntry as unknown as Record<string, unknown>,
     };
   }

@@ -296,12 +296,30 @@ BEGIN
 
   -- Columnas públicas ENUMERADAS: un SELECT * nuevo truena en vez de exponer.
   -- El RFC no está: no es dato público de verificación.
-  GRANT SELECT (id, name, entity_type, incorporation_country, accounting_standard, is_active)
+  -- tenant_id NO se sirve nunca: entra aquí porque la POLÍTICA lo necesita.
+  -- Las tablas que sólo tienen entity_id (fiscal_periods, abajo) llevan un
+  -- tenant_isolation cuyo predicado es
+  --   entity_id IN (SELECT id FROM legal_entities WHERE tenant_id = ...)
+  -- y esa subconsulta se evalúa con los privilegios de quien pregunta. Sin la
+  -- columna, leer fiscal_periods muere con «permission denied for table
+  -- legal_entities» — un error que apunta a la tabla equivocada. El router
+  -- proyecta columnas explícitas, así que un GRANT no la pone en ninguna
+  -- respuesta.
+  GRANT SELECT (id, name, entity_type, incorporation_country, accounting_standard, is_active, tenant_id)
     ON legal_entities TO mnemosine_verifier;
   GRANT SELECT ON blockchain_attestations TO mnemosine_verifier;
   GRANT SELECT ON period_commitments      TO mnemosine_verifier;
   GRANT SELECT ON published_aggregates    TO mnemosine_verifier;
   GRANT SELECT ON bitcoin_anchors         TO mnemosine_verifier;
+  -- fiscal_periods entra por el JOIN de GET /public/v1/entities/:id/aggregates:
+  -- published_aggregates.period_id es un UUID, y un UUID no ordena, así que el
+  -- rango ?from_period=/&to_period= sólo se puede cerrar por las FECHAS del
+  -- periodo al que apunta cada extremo. Sin este GRANT esa consulta muere con
+  -- «permission denied for table fiscal_periods» en cuanto el router asume el
+  -- rol. Columnas ENUMERADAS: las cuatro que el rango necesita. Ni el estado
+  -- del cierre ni quién lo cerró son dato público de verificación.
+  GRANT SELECT (id, entity_id, start_date, end_date)
+    ON fiscal_periods TO mnemosine_verifier;
 
 -- CUIDADO CON LA MEMBRESÍA: una política `TO rol` aplica a TODO MIEMBRO de ese
 -- rol, no sólo a quien lo asumió. Y mnemosine_app ES miembro de
@@ -333,6 +351,14 @@ BEGIN
     USING (is_simulated = false AND current_user = 'mnemosine_verifier');
   DROP POLICY IF EXISTS verificacion_publica ON bitcoin_anchors;
   CREATE POLICY verificacion_publica ON bitcoin_anchors
+    FOR SELECT TO mnemosine_verifier
+    USING (current_user = 'mnemosine_verifier');
+  -- Con el mismo `current_user = 'mnemosine_verifier'` que las de arriba, y por
+  -- la misma razón: mnemosine_app ES miembro del rol, y una política permisiva
+  -- sin ese predicado le sumaría con OR TODOS los periodos de TODOS los
+  -- inquilinos a su tenant_isolation.
+  DROP POLICY IF EXISTS verificacion_publica ON fiscal_periods;
+  CREATE POLICY verificacion_publica ON fiscal_periods
     FOR SELECT TO mnemosine_verifier
     USING (current_user = 'mnemosine_verifier');
 END $verifier$;

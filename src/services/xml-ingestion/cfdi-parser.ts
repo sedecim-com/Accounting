@@ -162,7 +162,7 @@ export class CFDIParser {
     // Extract TimbreFiscalDigital
     const timbre = cfdi.complementos.find((c) => c.type === 'TimbreFiscalDigital');
     if (timbre) {
-      const t = timbre.data as Record<string, unknown>;
+      const t = timbre.data;
       cfdi.timbreFiscalDigital = {
         uuid: String(t.UUID),
         fechaTimbrado: new Date(String(t.FechaTimbrado)),

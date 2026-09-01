@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('../../../src/services/payroll/tax-engine/tax-tables.js', async () => {
   const actual = await vi.importActual<typeof import('../../../src/services/payroll/tax-engine/tax-tables.js')>(

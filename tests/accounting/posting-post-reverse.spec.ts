@@ -7,7 +7,7 @@ import type { JournalEntry } from '../../src/types/index.js';
 // sin esto haría falta un import dinámico (await de nivel superior), que bajo
 // CommonJS es un error de compilación aunque el runtime lo soporte.
 const { arnes, validateJournalEntry, attest } = vi.hoisted(() => ({
-  arnes: { actual: null } as { actual: ClienteFalso | null },
+  arnes: { actual: null as ClienteFalso | null },
   validateJournalEntry: vi.fn(),
   attest: vi.fn(),
 }));
