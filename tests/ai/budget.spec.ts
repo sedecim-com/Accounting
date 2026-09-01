@@ -9,7 +9,9 @@ vi.mock('../../src/ai/providers/config.js', async (importActual) => ({
 }));
 
 const { budgetFileValuesMock } = vi.hoisted(() => ({
-  budgetFileValuesMock: vi.fn(() => ({} as Record<string, unknown>)),
+  // El parámetro de resto no es adorno: sin él `vi.fn` declara un mock de CERO
+  // argumentos, y el envoltorio de arriba le hace spread de un `unknown[]`.
+  budgetFileValuesMock: vi.fn((..._a: unknown[]) => ({}) as Record<string, unknown>),
 }));
 
 import {

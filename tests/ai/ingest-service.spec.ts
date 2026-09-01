@@ -4,7 +4,9 @@ vi.mock('../../src/ai/shadow-verdicts.js', () => ({
   registrarVeredictoSombra: (...a: unknown[]) => registrarSombraMock(...a),
 }));
 const { registrarSombraMock } = vi.hoisted(() => ({
-  registrarSombraMock: vi.fn(async () => undefined),
+  // Con resto explícito: el envoltorio del vi.mock le pasa los argumentos
+  // reales, y un mock de cero parámetros no los admite.
+  registrarSombraMock: vi.fn(async (..._a: unknown[]) => undefined),
 }));
 
 import { describe, it, expect, vi } from 'vitest';
@@ -86,8 +88,16 @@ function run(opts: {
   uploads?: Array<Record<string, unknown> | Error>;
   approveError?: Error;
   files?: string[];
-  /** A3: la vía secundaria; por defecto «ninguna política casa» (la realidad sin grants). */
-  autoApproveByPolicy?: ReturnType<typeof vi.fn>;
+  /**
+   * A3: la vía secundaria; por defecto «ninguna política casa» (la realidad sin grants).
+   *
+   * Tipado como función y no como `ReturnType<typeof vi.fn>`: ese alias fija
+   * `Mock<any[], unknown>`, y los miembros del mock (`mock.calls`, entre otros)
+   * son invariantes, así que un `vi.fn(async () => …)` con su retorno concreto
+   * no encaja. Aquí sólo hace falta poder invocarlo — `run` lo pasa al servicio
+   * con un molde, y las aserciones de vitest no dependen de este tipo.
+   */
+  autoApproveByPolicy?: (...args: never[]) => unknown;
 }) {
   const capture: DraftCapture = { drafts: [] };
   const uploads = opts.uploads ?? [makeUpload()];
@@ -495,7 +505,7 @@ describe('scanImportedText', () => {
 
 describe('A3 · la vía de política: el segundo autorizador con nombre', () => {
   it('una compuerta DISCRECIONAL que no basta le da su oportunidad a la política otorgada', async () => {
-    const autoApproveByPolicy = vi.fn(async () => ({
+    const autoApproveByPolicy = vi.fn(async (..._a: unknown[]) => ({
       entryId: 'je-9', entryNumber: 'JE-2026-00900', policyId: 'pol-1',
     }));
     const { report, approve } = run({ plan: [{ confidence: 0.8 }], autoApproveByPolicy });
@@ -523,7 +533,7 @@ describe('A3 · la vía de política: el segundo autorizador con nombre', () => 
   });
 
   it('«la política casó pero falló al aplicarse» se distingue de «no casó»', async () => {
-    const autoApproveByPolicy = vi.fn(async () => {
+    const autoApproveByPolicy = vi.fn(async (..._a: unknown[]) => {
       throw new Error('reviewer deactivated');
     });
     const { report } = run({ plan: [{ confidence: 0.8 }], autoApproveByPolicy });
