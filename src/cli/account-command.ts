@@ -571,7 +571,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       const correr = () =>
         importAccountMappings(ctx.entityId, opts.scheme, pares, reviewer.userId, {
           dryRun: opts.dryRun === true,
-        }).then((resultados) => ({ resultados } as Record<string, unknown>));
+        }).then((resultados) => ({ resultados }));
 
       const { repetido, resultado } = opts.dryRun
         ? { repetido: false, resultado: await correr() }

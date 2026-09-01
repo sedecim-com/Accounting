@@ -515,7 +515,7 @@ describe('A3 · la vía de política: el segundo autorizador con nombre', () => 
     expect(r.detail).toMatch(/por política pol-1/);
     expect(r.detail).toMatch(/confidence 0\.80/); // el motivo del umbral queda dicho
     // El tope configurado viaja OBLIGATORIO: la política nunca autoriza encima.
-    const [, , opciones] = autoApproveByPolicy.mock.calls[0] as unknown[];
+    const [, , opciones] = autoApproveByPolicy.mock.calls[0];
     expect((opciones as { configuredMaxAmount: number }).configuredMaxAmount).toBe(10000);
     expect(approve).not.toHaveBeenCalled(); // el umbral no aprobó: aprobó la política
   });
@@ -557,7 +557,7 @@ describe('A4 · el modo sombra: opina, registra, jamás postea', () => {
     expect(r.detail).toMatch(/HABRÍA auto-posteado/);
     expect(approve).not.toHaveBeenCalled();
     expect(autoApproveByPolicy).not.toHaveBeenCalled();
-    const [, veredicto] = registrarSombraMock.mock.calls[0] as unknown[];
+    const [, veredicto] = registrarSombraMock.mock.calls[0];
     expect(veredicto).toMatchObject({ draftId: 'draft-1', wouldAutoPost: true });
   });
 
@@ -567,7 +567,7 @@ describe('A4 · el modo sombra: opina, registra, jamás postea', () => {
     const r = (await report).results[0];
     expect(r.sombra).toBe(false);
     expect(r.detail).toMatch(/no habría auto-posteado \(confidence 0\.80/);
-    const [, veredicto] = registrarSombraMock.mock.calls[0] as unknown[];
+    const [, veredicto] = registrarSombraMock.mock.calls[0];
     expect(veredicto).toMatchObject({ wouldAutoPost: false });
   });
 

@@ -132,9 +132,9 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
         return;
       }
       const { xml_content, lineas, ...cabecera } = doc;
-      render([cabecera as unknown as Row], { ...opts, idField: 'cfdi_uuid' });
+      render([cabecera], { ...opts, idField: 'cfdi_uuid' });
       note(`${lineas.length} concepto(s):`);
-      render(lineas as unknown as Row[], { ...opts, idField: 'line_number' });
+      render(lineas, { ...opts, idField: 'line_number' });
     })
   );
 
@@ -173,7 +173,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
       if (!opts.refresh && fila.rows[0].sat_validated_at === null) {
         note('Nunca consultado: corre con --refresh para preguntarle al SAT ahora.');
       }
-      render(fila.rows as Row[], { ...opts, idField: 'cfdi_uuid' });
+      render(fila.rows, { ...opts, idField: 'cfdi_uuid' });
     })
   );
 
@@ -245,7 +245,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
         id: d.id, severity: d.severity, question: d.question,
       }));
       if (decisiones.length > 0) {
-        render(decisiones as Row[], { ...opts, idField: 'id' });
+        render(decisiones, { ...opts, idField: 'id' });
       } else {
         note('Sin decisiones pendientes: el caso se resolvió solo con las políticas del panel.');
       }

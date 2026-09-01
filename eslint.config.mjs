@@ -135,6 +135,17 @@ export default tseslint.config(
         },
       ],
 
+      // La aserción "innecesaria" que sí hace falta.
+      //
+      // Con el arnés de dobles, `vi.hoisted(() => ({ arnes: { actual: null } }))`
+      // infiere `{ actual: null }`, y sin el `as { actual: ClienteFalso | null }`
+      // ninguna asignación posterior compila. ESLint, con su propia vista de
+      // tipos, cree que la aserción sobra; `tsc -p tsconfig.test.json` dice lo
+      // contrario, y es la autoridad: aplicar el --fix de esta regla rompió
+      // literalmente el typecheck de tests/accounting/posting-sod.spec.ts.
+      // Se apaga en tests, no en src, porque es el arnés lo que la provoca.
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
+
       // Same third-party/`any` boundary as src, plus the fake pg client in
       // tests/helpers/fake-pg.ts, which is deliberately loosely typed so one
       // helper can stand in for every query shape.
