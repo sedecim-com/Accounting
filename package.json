@@ -45,7 +45,7 @@
     "jsonwebtoken": "^9.0.2",
     "kysely": "^0.27.0",
     "merkletreejs": "^0.6.0",
-    "morgan": "^1.10.0",
+    "morgan": "^1.11.0",
     "node-forge": "^1.4.0",
     "openai": "^7.5.0",
     "pg": "^8.11.0",
