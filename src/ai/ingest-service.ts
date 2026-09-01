@@ -11,10 +11,14 @@ import { floorMaxAutoAmount, FLOOR_MAX_AUTO_POST } from './floor.js';
 import {
   approveDraft,
   autoApproveDraftByPolicy,
+  deriveDraftAmount,
+  deriveDraftKind,
+  getDraft,
   DraftValidationError,
   NoMatchingApprovalPolicyError,
   type Reviewer,
 } from './draft-service.js';
+import { wouldMatchApproval } from './approval-policy.js';
 import { registrarVeredictoSombra } from './shadow-verdicts.js';
 import type { AgentContext } from './context.js';
 import type { LlmSession } from './providers/types.js';
@@ -242,16 +246,56 @@ export async function ingestCfdiFiles(opts: {
     if (modoSombra) {
       // A4: el veredicto se registra y NADA se postea. El registro no es
       // inyectable; si falla, la ingesta sigue y el detail lo dice.
+      //
+      // A7 · LA SOMBRA MIDE EL MODO QUE SE VA A ENCENDER.
+      //
+      // Registrar sólo el veredicto del UMBRAL validaba un clasificador MÁS
+      // CONSERVADOR que el real: desde A3, cuando una compuerta discrecional
+      // no basta, el modo encendido le da su oportunidad a la vía de
+      // política. Una sombra ciega a esa vía acumula evidencia sobre algo que
+      // no es lo que se enciende — y esa evidencia es justo la que autoriza
+      // el encendido. Se consulta con el MISMO candidato (deriveDraftAmount /
+      // deriveDraftKind) y el MISMO tope floor-clampeado que usa el camino
+      // real, por la variante de SOLO LECTURA: la sombra no gasta políticas.
+      let porPolitica: string | null = null;
+      if (!veredicto.procede && !veredicto.integridad) {
+        try {
+          const fila = await getDraft(ctx, draft.draftId);
+          const monto = fila ? deriveDraftAmount(fila.payload) : null;
+          if (fila && monto !== null) {
+            const p = await wouldMatchApproval(
+              ctx,
+              'draft',
+              { kind: deriveDraftKind(fila.payload), amount: monto },
+              { configuredMaxAmount: floorMaxAutoAmount(thresholds.maxAmount) }
+            );
+            porPolitica = p?.id ?? null;
+          }
+        } catch {
+          // Una consulta de sombra que falla no puede tumbar la ingesta ni
+          // inventar un veredicto: se queda sin vía de política, que es el
+          // lado conservador (declara «no habría posteado»).
+          porPolitica = null;
+        }
+      }
+      const habriaPosteado = veredicto.procede || porPolitica !== null;
+      const motivoSombra = veredicto.procede
+        ? veredicto.motivo
+        : porPolitica !== null
+          ? `el umbral no bastaba (${veredicto.motivo}) y la política ${porPolitica} lo habría autorizado`
+          : veredicto.motivo;
+
       let notaRegistro = '';
       try {
         await registrarVeredictoSombra(ctx, {
           draftId: draft.draftId,
-          wouldAutoPost: veredicto.procede,
-          motivo: veredicto.motivo,
+          wouldAutoPost: habriaPosteado,
+          motivo: motivoSombra,
           thresholds: {
             minConfidence: thresholds.minConfidence,
             maxAmount: thresholds.maxAmount,
             fuente: thresholds.fuentes?.autoPost ?? 'omision',
+            viaPolitica: porPolitica,
           },
         });
       } catch (err) {
@@ -259,10 +303,10 @@ export async function ingestCfdiFiles(opts: {
       }
       return {
         file: name, status: 'draft', draftId: draft.draftId,
-        sombra: veredicto.procede,
-        detail: veredicto.procede
-          ? `sombra: HABRÍA auto-posteado${notaRegistro}`
-          : `sombra: no habría auto-posteado (${veredicto.motivo})${notaRegistro}`,
+        sombra: habriaPosteado,
+        detail: habriaPosteado
+          ? `sombra: HABRÍA auto-posteado${porPolitica ? ` (por política ${porPolitica})` : ''}${notaRegistro}`
+          : `sombra: no habría auto-posteado (${motivoSombra})${notaRegistro}`,
       };
     }
 

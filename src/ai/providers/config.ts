@@ -442,6 +442,12 @@ export interface IngestThresholds {
    * sombra es una decisión del despacho, no un override de corrida.
    */
   sombra?: boolean;
+  /**
+   * A7: el archivo o la bandera pidieron ENCENDER y el panel no lo autoriza,
+   * así que se ignoró. Se expone para que la corrida pueda decirlo en voz
+   * alta en vez de dejar al operador creyendo que su `true` hizo algo.
+   */
+  encendidoIgnorado?: boolean;
   /** Minimum AI-reported confidence to auto-post. */
   minConfidence: number;
   /** Maximum amount (entity currency) eligible for auto-post. */

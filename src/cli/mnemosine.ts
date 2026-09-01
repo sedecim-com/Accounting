@@ -1165,11 +1165,11 @@ const ingest = program
   .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat);
 // Irreversible por su camino más grave (el auto-posteo), declarado junto a su
 // registro (S0.6). El plan de cierre proponía partirlo por bandera, pero S0.3
-// lo dejó atrás: el auto-posteo ya no lo decide una bandera sino la
-// precedencia bandera > archivo del operador > política del panel > omisión —
-// partirlo rompería el gobierno del panel, y el apagado garantizado del
-// operador ya existe (`--no-auto-post`, la bandera gana). Lo que sí exige la
-// clase es --dry-run honesta, y aquí se honra en la capa determinista.
+// lo dejó atrás: el auto-posteo no lo decide una bandera sino el panel del
+// despacho. Desde A7 la relación entre capas es una ASIMETRÍA y no un orden:
+// `--no-auto-post` apaga siempre (apagar es local), y `--auto-post` sólo
+// confirma lo que el panel ya autorizó — encender rodearía la compuerta de
+// evidencia, que es lo único que separa «medimos» de «posteamos».
 declareRisk(ingest, {
   risk: 'irreversible',
   agent: false,
@@ -1194,6 +1194,22 @@ ingest.action(async (files: string[], opts: {
         },
         ctx
       );
+      // A7: lo que la capa local pidió y el panel no autoriza no desaparece en
+      // silencio. Sin esto, un operador con `"auto_post": true` en su json
+      // creería que su corrida auto-postea y no entendería por qué no pasa
+      // nada — o peor, creería que el sistema le falla.
+      if (thresholds.encendidoIgnorado) {
+        console.error(
+          c.yellow(
+            'Aviso: el auto-posteo pedido por bandera o por mnemosine.config.json se IGNORA: ' +
+              'el panel del despacho no lo autoriza.'
+          ) +
+            c.dim(
+              '\n  Encender es del panel (`mnemosine pending`), y exige la evidencia de sombra. ' +
+                'Apagar sí puede ser local.'
+            )
+        );
+      }
       const { dryRun } = gateMutation(ingest, opts);
 
       if (dryRun) {

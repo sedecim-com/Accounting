@@ -2394,8 +2394,19 @@ export const CRITERIOS: Criterio[] = [
       }
       // El MISMO evaluador para el modo real y la sombra: el veredicto
       // registrado sale de evaluarAutoPost, no de una copia que diverge.
-      if (!/wouldAutoPost: veredicto\.procede/.test(ing)) {
-        return falla('la sombra dejó de registrar el veredicto del evaluador compartido: mediría un clasificador que no es el real');
+      //
+      // EL ANCLA CAMBIÓ EN A7, Y ES LA MITAD DE LA HISTORIA. Pedía
+      // literalmente `wouldAutoPost: veredicto.procede`, y eso era exacto
+      // mientras el modo encendido tuviera UNA sola vía. A3 le añadió la
+      // segunda —la política otorgada, cuando una compuerta discrecional no
+      // basta— y entonces la fidelidad exigía lo contrario de lo que el
+      // criterio pedía: registrar sólo el umbral mide un clasificador MÁS
+      // CONSERVADOR que el que se enciende. El piso por criterio (S2) cazó
+      // este cambio en el mismo commit, que es exactamente para lo que se
+      // construyó. Se sigue exigiendo que el veredicto salga del evaluador
+      // compartido, ahora componiéndolo con la vía de política.
+      if (!/const habriaPosteado = veredicto\.procede \|\| porPolitica !== null/.test(ing)) {
+        return falla('la sombra dejó de componer su veredicto con el evaluador compartido y la vía de política: mediría un clasificador que no es el real');
       }
       const sv = codigoDe('src/ai/shadow-verdicts.ts');
       if (!/ON CONFLICT \(draft_id\) DO NOTHING/.test(sv)) {
@@ -2742,6 +2753,105 @@ export const CRITERIOS: Criterio[] = [
         de: 'sellado !== hoy',
         a: 'sellado === hoy',
         porque: 'la comparación de hashes se invierte: la compuerta pasaría a acusar lo que NO cambió',
+      },
+    ],
+  },
+  // ---- A7 · Una sola puerta al auto-posteo ----
+
+  {
+    paquete: 'E1.3',
+    enunciado: 'Encender el auto-posteo es del panel: la bandera y el archivo sólo pueden ser más estrictos',
+    evaluar: () => {
+      // A7: el piso de evidencia (A4) vive en el panel, así que cualquier capa
+      // que encienda por su cuenta lo rodea ENTERO. La auditoría integral II
+      // lo ejecutó: panel en 'shadow' + archivo en true = posteo real, sin un
+      // solo veredicto de sombra registrado. Contestar «mídelo primero»
+      // producía posteo con cero evidencia, en silencio.
+      //
+      // La regla ya existía para el tope de monto y ahora rige las tres
+      // decisiones: apagar y apretar son de cualquiera; encender y aflojar,
+      // sólo del despacho.
+      const t = codigoDe('src/ai/ingest-thresholds.ts');
+      // La forma exacta de la asimetría: encender exige que el panel ya lo
+      // hubiera autorizado. Un `autoPost = valor` suelto la rompe.
+      if (!/const autorizado = polAuto\.defined/.test(t)) {
+        return falla('el interruptor dejó de derivarse del panel: la capa local volvería a poder encender');
+      }
+      if (!/if \(valor === false\) \{/.test(t) || !/if \(autorizado\) \{/.test(t)) {
+        return falla('la asimetría perdió su forma: apagar y encender volverían a tratarse igual');
+      }
+      // Y el intento ignorado no desaparece: el operador tiene que poder
+      // entender por qué su `true` no hizo nada.
+      if (!/encendidoIgnorado/.test(t) || !/encendidoIgnorado/.test(codigoDe('src/cli/mnemosine.ts'))) {
+        return falla('un encendido ignorado volvería a ser silencioso: el operador no sabría por qué su archivo no hace nada');
+      }
+      // El tope: la bandera vivía FUERA de la regla que el archivo ya
+      // respetaba, así que --max-amount subía el techo del panel.
+      return /const tope = maxPolitica \?\? Infinity/.test(t)
+        ? ok('encender y aflojar el tope son del panel; apagar y apretar, de cualquier capa, y lo ignorado se dice')
+        : falla('la bandera puede volver a aflojar el tope por encima de lo que el despacho contestó');
+    },
+    mutantes: [
+      {
+        archivo: 'src/ai/ingest-thresholds.ts',
+        de: 'if (autorizado) {',
+        a: 'if (true) {',
+        porque: 'la capa local vuelve a encender sobre un panel que no lo autorizó: la puerta que A7 cerró',
+      },
+      {
+        archivo: 'src/ai/ingest-thresholds.ts',
+        de: 'const tope = maxPolitica ?? Infinity;',
+        a: 'const tope = Infinity;',
+        porque: 'la bandera vuelve a aflojar el tope por encima del panel',
+      },
+    ],
+  },
+  {
+    paquete: 'E1.3',
+    enunciado: 'La sombra mide el modo que se va a encender, y la decisión se escribe donde se midió',
+    evaluar: () => {
+      // A7, dos mitades de la misma idea: la evidencia sólo autoriza si mide
+      // LO MISMO que se enciende, y en el MISMO alcance.
+      //
+      // (1) Desde A3 el modo encendido tiene dos vías: el umbral y, cuando una
+      //     compuerta discrecional no basta, la política otorgada. Una sombra
+      //     ciega a la segunda acumula evidencia sobre un clasificador más
+      //     conservador que el real.
+      const ing = codigoDe('src/ai/ingest-service.ts');
+      if (!/wouldMatchApproval\(/.test(ing)) {
+        return falla('la sombra volvió a medir sólo el umbral: la evidencia validaría un clasificador que no es el que se enciende');
+      }
+      if (!/wouldAutoPost: habriaPosteado/.test(ing)) {
+        return falla('el veredicto registrado dejó de incluir la vía de política');
+      }
+      // La sombra NO puede gastar políticas: el emparejador de solo lectura
+      // existe justo para eso, y debe seguir sin tocar last_used_at.
+      const ap = codigoDe('src/ai/approval-policy.ts');
+      const iWould = ap.indexOf('export async function wouldMatchApproval');
+      const cuerpo = iWould >= 0 ? ap.slice(iWould, ap.indexOf('export async function matchApproval')) : '';
+      if (!cuerpo || /UPDATE ai_approval_policies/.test(cuerpo)) {
+        return falla('el emparejador de sombra escribe: una sombra con efectos gasta las políticas que dice sólo observar');
+      }
+      // (2) El alcance: la evidencia se mide por entidad y la decisión se
+      //     escribía sin acotar, así que siete días de sombra en UNA entidad
+      //     encendían el auto-posteo de todas.
+      const ps = codigoDe('src/services/policy/policy-service.ts');
+      return /AND entity_id IS NOT DISTINCT FROM \$6::uuid/.test(ps)
+        ? ok('la sombra consulta la vía de política sin consumirla, y la decisión se resuelve en el alcance que se midió')
+        : falla('resolvePolicy volvió a escribir sin acotar por entidad: la evidencia de una entidad encendería a todas');
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: 'AND entity_id IS NOT DISTINCT FROM $6::uuid',
+        a: '',
+        porque: 'la decisión vuelve a escribirse sin alcance: la evidencia de una entidad enciende a todas (pilar 6 del plan)',
+      },
+      {
+        archivo: 'src/ai/ingest-service.ts',
+        de: 'wouldAutoPost: habriaPosteado',
+        a: 'wouldAutoPost: veredicto.procede',
+        porque: 'la sombra vuelve a registrar sólo el umbral y la evidencia mide un modo distinto del que se enciende',
       },
     ],
   },

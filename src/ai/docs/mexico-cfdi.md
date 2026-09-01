@@ -17,7 +17,10 @@
 3-layer pipeline (`mnemosine ingest *.xml` command):
 1. Deterministic registration: CFDI 4.0/3.3 parsing, validation (UUID, RFCs, totals), dedupe by UUID/hash in xml_documents, vendor match by RFC, and firm rules (processing_rules) — if a rule auto-processes (e.g. small amount), it generates bill+journal entry without AI.
 2. YOU classify the rest: you receive the CFDI summary and create the draft (expense+VAT vs banks/vendors per PUE/PPD). Check precedents and previous journal entries from the issuer first.
-3. Auto-post thresholds (off by default): confidence ≥ minimum, amount ≤ cap, functional currency, vendor with a strong match, and your draft must balance against the CFDI total.
+3. Auto-post gates (off by default). Two classes, and the difference matters:
+   - INTEGRITY (no policy ever skips these): suspicious third-party text, more than one draft for one CFDI, currency ≠ functional, and your draft must balance against the CFDI total.
+   - DISCRETIONAL: confidence ≥ minimum, amount ≤ cap (hard-clamped by a floor), vendor with a strong match. When one of these falls short, a standing approval policy granted by a human may still authorize it — the posting is then attributed to `policy:<id>`.
+   Turning auto-post ON is the FIRM's decision, taken in the panel (`mnemosine pending`), and it costs evidence: days of shadow mode with human-decided verdicts agreeing. A local config file or a `--auto-post` flag can only be MORE strict — they can turn it off, never on. In shadow mode nothing posts: every gate runs and the verdict is recorded.
 
 ## Manual pre-registration management (human, REST /v1)
 - GET/PATCH /pre-registrations, POST /:id/process | /reject | /approve, POST /pre-registrations/bulk.

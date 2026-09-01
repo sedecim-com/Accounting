@@ -3,10 +3,34 @@
 vi.mock('../../src/ai/shadow-verdicts.js', () => ({
   registrarVeredictoSombra: (...a: unknown[]) => registrarSombraMock(...a),
 }));
-const { registrarSombraMock } = vi.hoisted(() => ({
+// A7: la sombra consulta la vía de política SIN consumirla. En unidad se
+// moquea el emparejador de solo lectura (y el lector del borrador que le da
+// el candidato), para poder afirmar qué se registra en cada caso.
+vi.mock('../../src/ai/approval-policy.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  wouldMatchApproval: (...a: unknown[]) => wouldMatchMock(...a),
+}));
+// La sombra RELEE el borrador de la base para derivar el candidato con las
+// mismas funciones que el camino real (deriveDraftAmount/deriveDraftKind). Es
+// deliberado: derivarlo de otro sitio mediría un candidato distinto del que
+// se aplicará, que es justo la divergencia que A7 vino a cerrar. En unidad,
+// entonces, hay que modelar esa lectura.
+vi.mock('../../src/ai/draft-service.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getDraft: (...a: unknown[]) => getDraftMock(...a),
+}));
+const { registrarSombraMock, wouldMatchMock, getDraftMock } = vi.hoisted(() => ({
   // Con resto explícito: el envoltorio del vi.mock le pasa los argumentos
   // reales, y un mock de cero parámetros no los admite.
   registrarSombraMock: vi.fn(async (..._a: unknown[]) => undefined),
+  wouldMatchMock: vi.fn(async (..._a: unknown[]) => null as { id: string } | null),
+  getDraftMock: vi.fn(async (..._a: unknown[]) => ({
+    id: 'draft-1',
+    payload: { entry_date: '2026-01-15', description: 'x', lines: [
+      { account_code: '6100', debit: 500 },
+      { account_code: '1110', credit: 500 },
+    ] },
+  }) as unknown),
 }));
 
 import { describe, it, expect, vi } from 'vitest';
@@ -577,5 +601,60 @@ describe('A4 · el modo sombra: opina, registra, jamás postea', () => {
     const r = (await report).results[0];
     expect(r.status).toBe('draft');
     expect(r.detail).toMatch(/veredicto no quedó registrado \(tabla caída\)/);
+  });
+});
+
+describe('A7 · la sombra mide el modo que se va a encender', () => {
+  const SOMBRA: IngestThresholds = { autoPost: false, sombra: true, minConfidence: 0.95, maxAmount: 10000 };
+
+  it('cuando el umbral no basta pero una política HABRÍA autorizado, la sombra lo registra', async () => {
+    // El defecto que A7 cierra: registrar sólo el veredicto del umbral hacía
+    // que la evidencia validara un clasificador MÁS CONSERVADOR que el modo
+    // encendido, que desde A3 tiene una segunda vía.
+    registrarSombraMock.mockClear();
+    wouldMatchMock.mockReset();
+    wouldMatchMock.mockResolvedValue({ id: 'pol-7' });
+    const { report, approve, autoApproveByPolicy } = run({
+      plan: [{ confidence: 0.8 }], thresholds: SOMBRA,
+    });
+    const r = (await report).results[0];
+    expect(r.sombra, 'el modo real habría posteado por política').toBe(true);
+    expect(r.detail).toMatch(/HABRÍA auto-posteado \(por política pol-7\)/);
+    const [, veredicto] = registrarSombraMock.mock.calls[0];
+    expect(veredicto).toMatchObject({ wouldAutoPost: true });
+    expect((veredicto as { motivo: string }).motivo).toMatch(/el umbral no bastaba/);
+    expect((veredicto as { thresholds: { viaPolitica: string } }).thresholds.viaPolitica).toBe('pol-7');
+    // Y sigue sin postear NADA: es sombra.
+    expect(approve).not.toHaveBeenCalled();
+    expect(autoApproveByPolicy).not.toHaveBeenCalled();
+  });
+
+  it('una compuerta de INTEGRIDAD no consulta la política: ninguna la salta, ni en sombra', async () => {
+    // Moneda distinta de la funcional: integridad pura. Aunque hubiera una
+    // política que autorizara el importe, el modo REAL no la consultaría —
+    // así que la sombra tampoco puede, o mediría un modo más permisivo que
+    // el que se enciende, justo al revés del defecto que A7 cerró.
+    registrarSombraMock.mockClear();
+    wouldMatchMock.mockReset();
+    wouldMatchMock.mockResolvedValue({ id: 'pol-jamas' });
+    const { report } = run({
+      plan: [{ confidence: 0.99 }],
+      thresholds: SOMBRA,
+      uploads: [makeUpload({ moneda: 'USD' })],
+    });
+    const r = (await report).results[0];
+    expect(r.sombra).toBe(false);
+    expect(wouldMatchMock, 'la integridad no negocia, y la sombra no debe fingir que sí').not.toHaveBeenCalled();
+  });
+
+  it('si la consulta de sombra revienta, se declara «no habría posteado» (lado conservador)', async () => {
+    registrarSombraMock.mockClear();
+    wouldMatchMock.mockReset();
+    wouldMatchMock.mockRejectedValue(new Error('base caída'));
+    const { report } = run({ plan: [{ confidence: 0.8 }], thresholds: SOMBRA });
+    const r = (await report).results[0];
+    expect(r.sombra).toBe(false);
+    const [, veredicto] = registrarSombraMock.mock.calls[0];
+    expect(veredicto).toMatchObject({ wouldAutoPost: false });
   });
 });
