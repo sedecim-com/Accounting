@@ -117,7 +117,7 @@ async function main(): Promise<void> {
     const { cargarCasosGolden } = await import('../src/ai/eval/golden.js');
     const { puntuarCaso, agregarPuntuaciones } = await import('../src/ai/eval/puntuacion.js');
     const { crearInquilino } = await import('../tests/integration/helpers/tenant-fixture.js');
-    const { resolveProfile, createLlmSession } = await import('../src/ai/providers/index.js');
+    const { resolveProfile, listProfiles, createLlmSession } = await import('../src/ai/providers/index.js');
     const { ingestCfdiFiles } = await import('../src/ai/ingest-service.js');
     const { query, closeDatabase } = await import('../src/database/connection.js');
     type ObservadoCaso = import('../src/ai/eval/puntuacion.js').ObservadoCaso;
@@ -156,6 +156,23 @@ async function main(): Promise<void> {
     }
 
     // Proveedor FIJADO: sesión directa, sin failover, grounding apagado.
+    // LA IDENTIDAD DEL PERFIL NO SALE DEL OBJETO QUE LLEVA LA CREDENCIAL.
+    //
+    // `resolveProfile` hace `process.env[profile.api_key_env]` y devuelve la
+    // llave en el MISMO objeto que el nombre y el modelo. Copiar `profile.name`
+    // al registro metía en la bitácora un valor que el análisis considera
+    // derivado de la credencial — y tiene razón sobre la forma: ese archivo se
+    // relee y se imprime. Pasarlo por `sinSecretos()` no basta, porque es un
+    // filtro propio que ningún analizador reconoce como saneador: el flujo
+    // seguía ahí.
+    //
+    // `listProfiles` resuelve el mismo nombre y el mismo modelo SIN leer
+    // ninguna credencial. No es una anotación para callar la alerta: es que el
+    // registro deja de tocar el objeto que la lleva.
+    const { profiles: perfilesDeclarados, defaultName } = listProfiles();
+    const nombrePerfil = args.provider || defaultName;
+    const modeloPerfil =
+      args.model || perfilesDeclarados[nombrePerfil]?.model || '(sin modelo declarado)';
     const profile = resolveProfile(args.provider, args.model);
     // La llave de ESTA corrida, para tacharla si algún mensaje la trae.
     recordarSecreto(profile.apiKey);
@@ -244,8 +261,8 @@ async function main(): Promise<void> {
     // Bitácora y comparación contra la corrida anterior del mismo proveedor+modelo.
     const registro = {
       fecha: new Date().toISOString(),
-      provider: profile.name,
-      model: profile.model,
+      provider: nombrePerfil,
+      model: modeloPerfil,
       casos: casos.length,
       clases: agregado.clases,
       global: agregado.global,
