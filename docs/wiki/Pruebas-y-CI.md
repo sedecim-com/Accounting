@@ -1,4 +1,4 @@
-# Dos suites, seis trabajos y tres trinquetes
+# Dos suites, siete trabajos y tres trinquetes
 
 Esta página explica cómo se verifica mnemosine: qué prueba cada suite, qué hace cada trabajo de la integración continua, y —la parte que suele faltar— **qué queda fuera de medición y por qué**.
 
@@ -98,7 +98,7 @@ Dos apagados que solo aplican a `tests/` y que ilustran la disciplina: `no-unnec
 
 ---
 
-## Los seis trabajos de CI, uno por uno
+## Los siete trabajos de CI, uno por uno
 
 Hay **un solo** archivo de workflow, [`.github/workflows/ci.yml`](https://github.com/sedecim-com/Accounting/blob/main/.github/workflows/ci.yml), y esa unicidad es un criterio del tablero: los paquetes de trabajo **añaden** trabajos ahí, ninguno vuelve a crear el archivo.
 
@@ -114,14 +114,36 @@ Antes de los trabajos, tres decisiones del encabezado:
 | **Lint** | `npm run lint` | Errores rompen; advertencias con trinquete |
 | **Pruebas unitarias** | `npm test` y después `npx vitest run --coverage` | La suite, y el trinquete de cobertura por archivo |
 | **Estado del plan** | `npm run plan:status -- --exigir=…` y `npx tsx scripts/catalogo-estado.ts --check` | Los dos marcadores de la casa, como compuerta y no como informe |
+| **Ensayo de restauración** | Servicio propio, instala el cliente `postgresql-15`, migra, y corre `tests/integration/s3-` | Que los libros se puedan recuperar, probado **restaurándolos** |
 | **Integración contra Postgres** | Servicio `postgres:15`, `npm run migrate`, `npm run test:integration` | La conducta contra una base real |
 | **Aislamiento por inquilino** | Servicio propio, aprovisiona roles, migra, siembra, y `scripts/verify-isolation.sh` | Comprobar la RLS **como rol no privilegiado** |
 
-Dos trabajos merecen detalle.
+Tres trabajos merecen detalle.
 
 ### Estado del plan
 
 Es un **trinquete, no un informe**. Imprime siempre la salida completa —un paquete abierto es información— pero `--exigir` convierte en rojo el **retroceso** de los paquetes ya cerrados. Sin eso, el comando sería otra tabla que nadie mira, que es justo lo que vino a reemplazar. El mecanismo completo, incluida la disciplina de reabrir un paquete en el mismo commit que lo saca de la lista, está en [[El-tablero-y-los-criterios]]. El segundo paso del trabajo verifica el catálogo de comandos y su suelo; ver [[Catalogo-de-comandos]].
+
+### Ensayo de restauración
+
+Es el trabajo más joven, y contesta la pregunta que ningún otro contesta: **¿se pueden recuperar los libros?**
+
+El mayor es inmutable a propósito —la migración 041 no admite `UPDATE` ni `DELETE` sobre lo posteado, y la 033 deja la bitácora en sólo-agregar— y esa misma inmutabilidad impide repararlo a mano: la 041 llega a prescribir «bórrala entera y vuelve a migrar». La vía de recuperación que el esquema **nombra** es la restauración, así que tiene que existir y tiene que estar probada.
+
+El trabajo siembra un inquilino con un dato reconocible, hace el respaldo con `crearRespaldo` —`pg_dump` en formato custom, más un manifiesto con la última migración aplicada, el sha256 y **la lista de lo que el volcado no lleva**, que incluye el material criptográfico sin el cual lo restaurado queda ilegible— y después `verificarRespaldo` **restaura de verdad en una base nueva y le corre los chequeos del mayor**. Un volcado que no restaura no es un respaldo; uno que restaura un mayor descuadrado es peor, porque promete lo que no tiene. De paso comprueba que cambiar **un solo byte** rompe el hash, y que restaurar encima de una base viva se rechaza: sobrescribir destruye justo lo que se intenta salvar.
+
+**Por qué va aparte del trabajo de integración** y no como un paso más de aquél: necesita dos cosas que ese trabajo no le da.
+
+- **Las herramientas de cliente de Postgres.** El volcado y la restauración los hacen `pg_dump` y `pg_restore`, no este proceso, y el trabajo instala `postgresql-client-15` explícitamente en vez de confiar en lo que traiga la imagen del corredor.
+- **Un rol que pueda volcar.** Se descubrió construyéndolo que `pg_dump` como `mnemosine_owner` **revienta a mitad** del volcado: toda tabla acotada lleva `FORCE ROW LEVEL SECURITY` y el dueño también queda sujeto — la misma clase de defecto que dejaba el DML de las migraciones en cero filas, ahora sobre la vía de recuperación, o sea el endurecimiento que protege los datos impidiendo respaldarlos. Un respaldo tiene que ver **todas** las filas por definición, así que el trabajo pasa `BACKUP_DATABASE_URL` con un rol que salta la RLS, y no lo hereda del migrador a propósito. Esa variable dice **con qué privilegio se vuelca, nunca qué se vuelca**: el nombre de la base sale de `DATABASE_URL`. Tomarlo también de la credencial fue un defecto real con la peor forma posible — el volcado salía de la base equivocada con todas las señales de salud intactas: manifiesto escrito, sha256 correcto, y `verify` restaurando sin un error.
+
+Para reproducirlo en local, con `pg_dump` y `pg_restore` en el `PATH` y las variables de la suite de integración puestas:
+
+```bash
+npx vitest run --config vitest.integration.config.ts tests/integration/s3-
+```
+
+Ese argumento es un **prefijo**, y la precisión importa: el argumento posicional de Vitest es un filtro de **subcadena sobre la ruta**, no un glob. La línea enumeraba antes dos archivos y uno se había retirado del árbol; Vitest ignora en silencio una ruta que no existe, así que el trabajo llevaba tiempo corriendo la mitad de lo que su propia línea decía, en verde. Con el prefijo, un `s3-*` nuevo entra solo, y el día que no quede ninguno Vitest sale con error en vez de dar verde por no mirar.
 
 ### Aislamiento por inquilino
 
@@ -195,7 +217,11 @@ Y un cuarto, más chico pero de la misma familia: `--max-warnings 1239` en `pack
 
 ## Lo que la CI no cubre
 
-**Ningún criterio vigila dos de los seis trabajos.** El criterio del tablero exige que exista un solo archivo de workflow y que declare `typecheck`, `unit`, `integration` y `aislamiento`. Los trabajos `lint` y `plan` **no** están en esa lista: borrar el trabajo de lint del YAML no pondría rojo ningún criterio del tablero. La compuerta se caería en silencio.
+**Ningún criterio vigila dos de los siete trabajos.** El criterio del tablero exige que exista un solo archivo de workflow y que declare `typecheck`, `unit`, `integration`, `aislamiento` y `restauracion`. Los trabajos `lint` y `plan` **no** están en esa lista: borrar el trabajo de lint del YAML no pondría rojo ningún criterio del tablero. La compuerta se caería en silencio.
+
+`restauracion` estuvo en ese mismo hueco y salió al entrar en la lista. Merecía salir por una razón que a los otros dos no les aplica igual: existe un criterio que afirma que la verificación del respaldo **restaura y corre los chequeos del mayor**, pero lo afirma leyendo el fuente — borrar el trabajo del YAML dejaba esa afirmación en verde con nadie que la ejecutara nunca, que es código diciendo la verdad sobre sí mismo sin correr jamás. Y el trabajo no es una puerta cualquiera: el propio plan exige «respaldo verificado» como condición de sus tres remediaciones destructivas —las que corromperían el mayor de una entidad viva si salen mal—, así que este trabajo **es** ese control ejecutándose. El criterio entró con su espejo: una prueba de mutación renombra el trabajo en una copia **en memoria** del YAML y exige que el tablero se ponga rojo, porque un criterio sin mordida es prosa.
+
+**La prueba del respaldo corre en dos trabajos.** `tests/integration/s3-respaldo.int.spec.ts` casa el `include` de la configuración de integración, así que la suite completa también lo ejecuta. No es desperdicio del todo —el ensayo la corre sola, con el cliente 15 fijado y el rol que vuelca, y da su veredicto sin esperar a la suite entera— pero conviene saberlo por dos motivos: un fallo del respaldo pone rojos **dos** trabajos, y quien lea el YAML buscando dónde se prueba la restauración la encontrará en dos sitios.
 
 **La base que el trabajo de integración migra no es la que usan las pruebas.** El trabajo corre `npm run migrate` sobre `mnemosine_test`, y después el `globalSetup` crea su propia base efímera a partir de `TEST_ADMIN_DATABASE_URL` y migra **ésa**. La migración previa no es inútil —falla el trabajo temprano si la cadena no aplica limpio sobre una base vacía— pero no es la base contra la que se prueba, y leer el YAML sin saberlo confunde.
 
