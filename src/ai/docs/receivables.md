@@ -16,4 +16,4 @@
 - get_aged_receivables (aging with days_overdue; negative = not yet due), search_customers, and query the generated journal entries (search_journal_entries with entry_type auto_invoice/auto_payment).
 
 ## Human (REST /v1/invoices)
-- POST / (create), POST /:id/send, POST /:id/payments (record a collection), POST /:id/void, POST /:id/cfdi/stamp, POST /:id/cfdi/cancel.
+- POST / (create), POST /:id/send, POST /:id/payments (record a collection), POST /:id/void (requires reason), POST /:id/cfdi/stamp, POST /:id/cfdi/cancel.
