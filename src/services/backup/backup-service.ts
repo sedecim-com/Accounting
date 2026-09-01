@@ -170,6 +170,50 @@ function nombreDeBase(url: string): string {
   return new URL(url).pathname.replace(/^\//, '');
 }
 
+/**
+ * La conexión de respaldo NUNCA viaja en argv.
+ *
+ * Es la única credencial del sistema que no está sujeta a RLS —con ella se leen
+ * todas las filas de todos los inquilinos sin fijar `app.current_tenant`—, y los
+ * argumentos de un proceso los lee cualquier usuario del anfitrión con
+ * `ps -eo args`: otro usuario del host, un proceso vecino del mismo contenedor,
+ * un job que comparte runner. El entorno de un hijo no: en Linux
+ * /proc/PID/environ es 0600 del dueño.
+ *
+ * Así que la base se nombra con `--dbname <nombre>` —un nombre no es un
+ * secreto— y host, usuario y contraseña se pasan por el entorno del hijo, que
+ * es lo que libpq lee cuando no se le da cadena de conexión.
+ */
+function entornoDe(url: string): { base: string; env: NodeJS.ProcessEnv } {
+  const u = new URL(url);
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (u.hostname) env.PGHOST = decodeURIComponent(u.hostname);
+  if (u.port) env.PGPORT = u.port;
+  if (u.username) env.PGUSER = decodeURIComponent(u.username);
+  if (u.password) env.PGPASSWORD = decodeURIComponent(u.password);
+  const sslmode = u.searchParams.get('sslmode');
+  if (sslmode) env.PGSSLMODE = sslmode;
+  return { base: nombreDeBase(url), env };
+}
+
+/**
+ * Por qué murió un hijo, SIN contarlo con su `message`.
+ *
+ * Node pone en `e.message` de un execFile fallido la línea literal
+ * `Command failed: <argv completo>`. Si el proceso muere por señal —OOM-killer,
+ * `timeout` del job, evicción del contenedor— no alcanza a escribir en stderr,
+ * el `stderr` queda vacío, y un `stderr || message` cae en esa línea y publica
+ * la cadena de conexión entera al terminal y al log del job, donde se conserva.
+ * Es el mismo motivo por el que existe `sanitizeDbError` en status-command.ts:
+ * de un fallo se cuenta la causa, nunca el texto crudo.
+ */
+function porQueMurio(e: { stderr?: string; code?: string | number; signal?: string }): string {
+  const dicho = e.stderr?.trim();
+  if (dicho) return dicho;
+  if (e.signal) return `terminó por la señal ${e.signal} sin alcanzar a explicarse`;
+  return `terminó con código ${e.code ?? 'desconocido'} y sin decir nada por stderr`;
+}
+
 function urlConBase(url: string, base: string): string {
   const u = new URL(url);
   u.pathname = `/${base}`;
@@ -237,18 +281,24 @@ export async function crearRespaldo(opts: OpcionesRespaldo): Promise<ResultadoRe
   const esquema = await estadoDelEsquema(url);
 
   try {
-    await ejecutar('pg_dump', ['--format=custom', '--no-owner', '--no-privileges', '--file', archivo, url], {
-      maxBuffer: 1024 * 1024 * 64,
-    });
+    const { base: aVolcar, env } = entornoDe(url);
+    await ejecutar(
+      'pg_dump',
+      ['--format=custom', '--no-owner', '--no-privileges', '--file', archivo, '--dbname', aVolcar],
+      { maxBuffer: 1024 * 1024 * 64, env }
+    );
   } catch (err) {
-    const e = err as { stderr?: string; code?: string; message: string };
+    const e = err as { stderr?: string; code?: string; signal?: string; message: string };
     if (e.code === 'ENOENT') {
       throw new ValidationError(
         'pg_dump no está en el PATH: el respaldo lo hace la herramienta de Postgres, no este proceso. ' +
           'Instala el cliente de PostgreSQL (postgresql-client) y vuelve a intentarlo.'
       );
     }
-    throw new ValidationError(`pg_dump falló: ${e.stderr?.trim() || e.message}`);
+    // El .dump a medias no se queda: un archivo truncado con nombre de respaldo
+    // es justo la mentira que este módulo existe para no contar.
+    fs.rmSync(archivo, { force: true });
+    throw new ValidationError(`pg_dump falló: ${porQueMurio(e)}`);
   }
 
   const manifiesto: Manifiesto = {
@@ -336,18 +386,17 @@ export async function verificarRespaldo(archivo: string): Promise<ResultadoVerif
   try {
     await raiz.query(`CREATE DATABASE ${efimera}`);
     try {
-      await ejecutar(
-        'pg_restore',
-        ['--no-owner', '--no-privileges', '--dbname', urlConBase(url, efimera), archivo],
-        { maxBuffer: 1024 * 1024 * 64 }
-      );
+      await ejecutar('pg_restore', ['--no-owner', '--no-privileges', '--dbname', efimera, archivo], {
+        maxBuffer: 1024 * 1024 * 64,
+        env: entornoDe(url).env,
+      });
       restauro = true;
     } catch (err) {
       // pg_restore avisa por stderr de cosas benignas (roles ausentes) y sale
       // distinto de cero; lo que decide es si la base quedó utilizable, y eso
       // se comprueba consultándola, no leyendo su bitácora.
-      const e = err as { stderr?: string; message: string };
-      detalle = (e.stderr ?? e.message).trim().split('\n').slice(-3).join(' · ');
+      const e = err as { stderr?: string; code?: string | number; signal?: string };
+      detalle = porQueMurio(e).split('\n').slice(-3).join(' · ');
     }
 
     // ¿Quedó utilizable? Se le pregunta a la base, no al proceso.
@@ -461,14 +510,13 @@ export async function restaurarRespaldo(
   } finally {
     await raiz.end();
   }
-  await ejecutar(
-    'pg_restore',
-    ['--no-owner', '--no-privileges', '--dbname', urlConBase(url, destino), archivo],
-    { maxBuffer: 1024 * 1024 * 64 }
-  ).catch((err: { stderr?: string; message: string }) => {
+  await ejecutar('pg_restore', ['--no-owner', '--no-privileges', '--dbname', destino, archivo], {
+    maxBuffer: 1024 * 1024 * 64,
+    env: entornoDe(url).env,
+  }).catch((err: { stderr?: string; code?: string | number; signal?: string }) => {
     // Igual que en la verificación: pg_restore avisa de cosas benignas. Se
     // reporta, no se oculta, y el operador verifica con `backup verify`.
-    process.stderr.write(`Avisos de pg_restore: ${(err.stderr ?? err.message).trim()}\n`);
+    process.stderr.write(`Avisos de pg_restore: ${porQueMurio(err)}\n`);
   });
   return { archivo, destino, creada: true };
 }
