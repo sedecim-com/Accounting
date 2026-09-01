@@ -91,7 +91,7 @@ jobs:
       # dos cadenas de prosa en una pregunta de política, no código. La
       # descarga masiva del SAT no existe (11 tareas de motor). Vuelve cuando
       # el motor exista de verdad.
-      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E2.1,E2.2,E3.1
+      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1
       # El catálogo de comandos publica cuánto de su superficie existe ya. Ese
       # número estaba escrito a mano y duró 42 commits: decía «~30 comandos»
       # con 106 que el binario ejecuta. Ahora se genera, y esto falla ante tres

@@ -1,5 +1,8 @@
-import { query } from '../../database/connection.js';
-import { NotFoundError, ValidationError } from '../../utils/errors.js';
+import Decimal from 'decimal.js';
+import { v4 as uuidv4 } from 'uuid';
+import { query, withTransaction } from '../../database/connection.js';
+import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
+import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry } from './posting.js';
 import { validateJournalEntry } from './validation.js';
 import { resolveAccount } from './account-service.js';
@@ -556,3 +559,265 @@ export function parseLineFlag(spec: string): DraftLineInput {
 //
 // Quien la necesitaba ahora usa `requireByIdInScope('journal_entries', ...)`,
 // que filtra dentro del SQL y no distingue los dos casos.
+
+// ---- F01 · Preview, edición de borrador y exportación --------------
+
+export interface DeltaPorCuenta {
+  account_code: string;
+  account_name: string;
+  cargo: string;
+  abono: string;
+  saldo_antes: string;
+  saldo_despues: string;
+}
+
+export interface EntryPreview {
+  entry_number: string;
+  status: string;
+  period_name: string | null;
+  deltas: DeltaPorCuenta[];
+  advertencias: string[];
+}
+
+/**
+ * El delta exacto de account_balances que produciría aplicar la póliza, en
+ * SOLO LECTURA: la misma aritmética del upsert de postJournalEntry, calculada
+ * fuera de toda transacción de escritura (nada de FOR UPDATE aquí — es un
+ * espejo, no una reserva). Rechaza posted/void: no hay nada que previsualizar.
+ */
+export async function previewEntryPosting(entityId: string, ref: string): Promise<EntryPreview> {
+  const entry = await resolveJournalEntry(entityId, ref);
+  if (entry.status === 'posted') {
+    throw new AccountingError('ALREADY_POSTED', `${entry.entry_number} ya está aplicada: no hay delta que previsualizar.`);
+  }
+  if (entry.status === 'void') {
+    throw new AccountingError('ENTRY_VOID', `${entry.entry_number} está anulada y jamás se aplicará.`);
+  }
+  const lines = await listEntryLines(entry.id);
+
+  const porCuenta = new Map<string, { code: string; name: string; d: Decimal; c: Decimal }>();
+  for (const l of lines) {
+    const acc = porCuenta.get(l.account_id) ?? {
+      code: l.account_code, name: l.account_name, d: new Decimal(0), c: new Decimal(0),
+    };
+    acc.d = acc.d.plus(l.debit_amount ?? 0);
+    acc.c = acc.c.plus(l.credit_amount ?? 0);
+    porCuenta.set(l.account_id, acc);
+  }
+
+  const saldos = await query<{ account_id: string; ending: string }>(
+    `SELECT account_id, ending_balance::text AS ending
+       FROM account_balances
+      WHERE fiscal_period_id = $1 AND account_id = ANY($2)`,
+    [entry.fiscal_period_id, [...porCuenta.keys()]]
+  );
+  const endingDe = new Map(saldos.rows.map((r) => [r.account_id, r.ending]));
+
+  const periodo = await query<{ period_name: string; status: string }>(
+    `SELECT period_name, status FROM fiscal_periods WHERE id = $1 AND entity_id = $2`,
+    [entry.fiscal_period_id, entityId]
+  );
+
+  const advertencias: string[] = [];
+  const estadoPeriodo = periodo.rows[0]?.status;
+  // La MISMA regla que bloquearPeriodoParaPostear: solo hard_close/locked
+  // rechazan el posteo — avisar «fallará» sobre un periodo future sería
+  // prometer un candado que el motor no tiene.
+  if (estadoPeriodo === 'hard_close' || estadoPeriodo === 'locked') {
+    advertencias.push(`el periodo está ${estadoPeriodo}: aplicar fallará`);
+  }
+  const totalD = [...porCuenta.values()].reduce((s, a) => s.plus(a.d), new Decimal(0));
+  const totalC = [...porCuenta.values()].reduce((s, a) => s.plus(a.c), new Decimal(0));
+  if (!totalD.equals(totalC)) {
+    advertencias.push(`la póliza no cuadra (${totalD.toFixed(4)} vs ${totalC.toFixed(4)}): aplicar fallará`);
+  }
+
+  const deltas: DeltaPorCuenta[] = [...porCuenta.entries()]
+    .map(([accountId, a]) => {
+      const antes = new Decimal(endingDe.get(accountId) ?? 0);
+      return {
+        account_code: a.code,
+        account_name: a.name,
+        cargo: a.d.toFixed(4),
+        abono: a.c.toFixed(4),
+        saldo_antes: antes.toFixed(4),
+        saldo_despues: antes.plus(a.d).minus(a.c).toFixed(4),
+      };
+    })
+    .sort((x, y) => x.account_code.localeCompare(y.account_code));
+
+  return {
+    entry_number: entry.entry_number,
+    status: entry.status,
+    period_name: periodo.rows[0]?.period_name ?? null,
+    deltas,
+    advertencias,
+  };
+}
+
+export interface DraftPatch {
+  description?: string;
+  reference?: string | null;
+  notes?: string | null;
+  /** Reemplaza TODAS las líneas (misma forma que el alta); undefined las deja. */
+  lines?: DraftLineInput[];
+  date?: string;
+}
+
+/**
+ * Edita una póliza SOLO mientras es borrador. Una aplicada es inmutable (eso
+ * lo sostiene el mayor, 041) y una pending_approval ya salió de las manos de
+ * su autor: editarla invalidaría lo que el aprobador cree estar aprobando.
+ * Las líneas se reemplazan enteras (DELETE + INSERT) y los totales los
+ * recalcula el trigger update_je_totals — escribirlos a mano sería tener dos
+ * relojes. La auditoría viaja EN LA MISMA transacción.
+ */
+export async function updateDraftEntry(
+  entityId: string,
+  ref: string,
+  patch: DraftPatch,
+  userId: string
+): Promise<JournalEntry> {
+  if (
+    patch.description === undefined && patch.reference === undefined &&
+    patch.notes === undefined && patch.lines === undefined && patch.date === undefined
+  ) {
+    throw new ValidationError('Nada que cambiar: pasa --description, --reference, --note, --date, --line o --file.');
+  }
+  if (patch.lines !== undefined) {
+    // Solo la forma de fecha+líneas: entityId/createdBy no participan en la
+    // validación pura y aquí aún no se conocen bajo el candado.
+    validateDraftShape({
+      entityId: '', createdBy: '',
+      date: patch.date ?? '1970-01-01',
+      lines: patch.lines,
+    });
+  }
+
+  return withTransaction(async (client) => {
+    const bloqueada = await client.query<JournalEntry>(
+      `SELECT * FROM journal_entries WHERE entity_id = $1
+        AND (id::text = $2 OR UPPER(entry_number) = UPPER($2))
+        FOR UPDATE`,
+      [entityId, ref.trim()]
+    );
+    if (bloqueada.rows.length === 0) {
+      throw new AccountingError('ENTRY_NOT_FOUND', `Journal entry ${ref} not found`);
+    }
+    const entry = bloqueada.rows[0];
+    if (entry.status === 'posted') {
+      throw new AccountingError('ALREADY_POSTED', `${entry.entry_number} ya está aplicada: una póliza en el mayor es inmutable.`);
+    }
+    if (entry.status === 'void') {
+      throw new AccountingError('ENTRY_VOID', `${entry.entry_number} está anulada.`);
+    }
+    if (entry.status !== 'draft') {
+      throw new AccountingError(
+        'ENTRY_NOT_EDITABLE',
+        `${entry.entry_number} está en ${entry.status}: solo un borrador se edita.`
+      );
+    }
+
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    if (patch.description !== undefined) { sets.push(`description = $${i++}`); params.push(patch.description); }
+    if (patch.reference !== undefined) { sets.push(`reference = $${i++}`); params.push(patch.reference); }
+    if (patch.notes !== undefined) { sets.push(`notes = $${i++}`); params.push(patch.notes); }
+    if (patch.date !== undefined) {
+      if (!DATE_RE.test(patch.date)) throw new ValidationError(`"${patch.date}" is not a date as YYYY-MM-DD.`);
+      sets.push(`entry_date = $${i++}`);
+      params.push(patch.date);
+    }
+    if (sets.length > 0) {
+      // journal_entries no lleva updated_at (001): el rastro temporal de la
+      // edición es la fila de auditoría de más abajo, no una columna.
+      params.push(entry.id);
+      await client.query(`UPDATE journal_entries SET ${sets.join(', ')} WHERE id = $${i}`, params);
+    }
+
+    if (patch.lines !== undefined) {
+      const resueltas = await resolveDraftLines(entityId, patch.lines);
+      await client.query('DELETE FROM journal_entry_lines WHERE journal_entry_id = $1', [entry.id]);
+      for (const [idx, linea] of resueltas.entries()) {
+        await client.query(
+          `INSERT INTO journal_entry_lines (
+            id, journal_entry_id, line_number, account_id, debit_amount, credit_amount, description
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [uuidv4(), entry.id, idx + 1, linea.account_id, linea.debit_amount, linea.credit_amount, linea.description]
+        );
+      }
+    }
+
+    // journal_entries no lleva tenant_id: el inquilino se resuelve por la
+    // entidad, dentro de la MISMA transacción (el molde de posting.ts).
+    const tenantRow = await client.query<{ tenant_id: string }>(
+      'SELECT tenant_id FROM legal_entities WHERE id = $1', [entityId]
+    );
+    await registrarAuditoria(client, {
+      tenantId: tenantRow.rows[0].tenant_id,
+      userId,
+      action: 'update',
+      entityType: 'journal_entries',
+      entityId: entry.id,
+      oldValues: { description: entry.description, reference: entry.reference },
+      newValues: {
+        ...(patch.description !== undefined ? { description: patch.description } : {}),
+        ...(patch.reference !== undefined ? { reference: patch.reference } : {}),
+        ...(patch.lines !== undefined ? { lines_replaced: patch.lines.length } : {}),
+        ...(patch.date !== undefined ? { entry_date: patch.date } : {}),
+      },
+    });
+
+    const releida = await client.query<JournalEntry>('SELECT * FROM journal_entries WHERE id = $1', [entry.id]);
+    return releida.rows[0];
+  });
+}
+
+export interface FilaExportacion {
+  entry_number: string;
+  entry_date: string;
+  entry_type: string;
+  status: string;
+  description: string;
+  reference: string | null;
+  line_number: number;
+  account_code: string;
+  account_name: string;
+  debit_amount: string | null;
+  credit_amount: string | null;
+  line_description: string | null;
+}
+
+/**
+ * Pólizas CON sus líneas en un solo JOIN, para exportar sin N+1 y sin el tope
+ * de página del REST: la CLI llama al servicio y el servicio no pagina — la
+ * verdad completa o el filtro que pidas.
+ */
+export async function listEntriesWithLines(
+  entityId: string,
+  filtros: { since?: string; until?: string; fiscalPeriodId?: string; status?: string } = {}
+): Promise<FilaExportacion[]> {
+  const cond: string[] = ['je.entity_id = $1'];
+  const params: unknown[] = [entityId];
+  let i = 2;
+  if (filtros.since) { cond.push(`je.entry_date >= $${i++}`); params.push(filtros.since); }
+  if (filtros.until) { cond.push(`je.entry_date <= $${i++}`); params.push(filtros.until); }
+  if (filtros.fiscalPeriodId) { cond.push(`je.fiscal_period_id = $${i++}`); params.push(filtros.fiscalPeriodId); }
+  if (filtros.status) { cond.push(`je.status = $${i++}`); params.push(filtros.status); }
+
+  const result = await query<FilaExportacion>(
+    `SELECT je.entry_number, je.entry_date::text AS entry_date, je.entry_type, je.status,
+            je.description, je.reference,
+            jel.line_number, a.code AS account_code, a.name AS account_name,
+            jel.debit_amount::text AS debit_amount, jel.credit_amount::text AS credit_amount,
+            jel.description AS line_description
+       FROM journal_entries je
+       JOIN journal_entry_lines jel ON jel.journal_entry_id = je.id
+       JOIN accounts a ON a.id = jel.account_id
+      WHERE ${cond.join(' AND ')}
+      ORDER BY je.entry_date, je.entry_number, jel.line_number`,
+    params
+  );
+  return result.rows;
+}

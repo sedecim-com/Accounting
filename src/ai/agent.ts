@@ -164,6 +164,7 @@ export class MnemosineAgent implements LlmSession {
     sourceText: string,
     signal?: AbortSignal
   ): Promise<string> {
+    const summarizeStart = Date.now();
     const response = await this.client.beta.messages.create(
       {
         model: this.model,
@@ -174,11 +175,11 @@ export class MnemosineAgent implements LlmSession {
       { signal }
     );
     const usage = response.usage;
-    if (usage) this.emitUsage(usage);
+    if (usage) this.emitUsage(usage, Date.now() - summarizeStart);
     return extractText(response);
   }
 
-  private emitUsage(usage: Anthropic.Beta.BetaUsage): void {
+  private emitUsage(usage: Anthropic.Beta.BetaUsage, durationMs?: number): void {
     this.callbacks.onUsage?.({
       provider: this.providerName,
       model: this.model,
@@ -186,6 +187,7 @@ export class MnemosineAgent implements LlmSession {
       outputTokens: usage.output_tokens ?? 0,
       cacheReadInputTokens: usage.cache_read_input_tokens ?? undefined,
       cacheCreationInputTokens: usage.cache_creation_input_tokens ?? undefined,
+      durationMs,
     });
   }
 
@@ -229,10 +231,15 @@ export class MnemosineAgent implements LlmSession {
       { signal }
     );
 
+    // A2: la duración se mide por LLAMADA al modelo (una vuelta del runner,
+    // herramientas del harness incluidas hasta la siguiente petición), que es
+    // la granularidad de la fila de ai_usage.
+    let llamadaInicio = Date.now();
     for await (const stream of runner) {
       if (!silent && this.callbacks.onText) stream.on('text', this.callbacks.onText);
       const message = await stream.finalMessage();
-      if (message.usage) this.emitUsage(message.usage);
+      if (message.usage) this.emitUsage(message.usage, Date.now() - llamadaInicio);
+      llamadaInicio = Date.now();
     }
 
     const final = await runner.done();

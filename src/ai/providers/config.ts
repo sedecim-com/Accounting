@@ -162,6 +162,20 @@ const ingestSchema = z
   .strict();
 
 /**
+ * A3 · E5.1-e: el presupuesto del agente. Sin sección budget no hay
+ * límites y no se consulta gasto alguno (opt-in). on_exceed decide si al
+ * cruzarlo se ADVIERTE o se CORTA; su omisión la resuelve la ruta: las
+ * DESATENDIDAS cortan por defecto («solo avisa» significa que no hay tope).
+ */
+const budgetSchema = z
+  .object({
+    daily_usd: z.number().positive().optional(),
+    monthly_usd: z.number().positive().optional(),
+    on_exceed: z.enum(['warn', 'block']).optional(),
+  })
+  .strict();
+
+/**
  * History-compaction settings. Auto-compaction is ON BY DEFAULT (see
  * resolveCompactionConfig): omitting the section compacts at ~150k
  * estimated tokens. `threshold_tokens: 0` disables auto-compaction
@@ -185,6 +199,7 @@ const configFileSchema = z
     default_provider: z.string().optional(),
     providers: z.record(profileSchema).optional(),
     ingest: ingestSchema.optional(),
+    budget: budgetSchema.optional(),
     compaction: compactionSchema.optional(),
   })
   .strict();
@@ -420,6 +435,13 @@ export function resolveFailoverChain(
 export interface IngestThresholds {
   /** Master switch: false = everything stays as a draft (safe default). */
   autoPost: boolean;
+  /**
+   * A4 · modo sombra: las compuertas corren completas y el veredicto se
+   * registra (ai_shadow_verdicts), pero nada postea. Solo lo enciende el
+   * PANEL (ingest_auto_post = 'shadow'); no hay bandera ni archivo — la
+   * sombra es una decisión del despacho, no un override de corrida.
+   */
+  sombra?: boolean;
   /** Minimum AI-reported confidence to auto-post. */
   minConfidence: number;
   /** Maximum amount (entity currency) eligible for auto-post. */
@@ -451,6 +473,23 @@ const INGEST_DEFAULTS: IngestThresholds = {
  * despacho > omisión del código, y para eso hay que saber si el archivo
  * TRAÍA valor, no sólo cuál quedó tras mezclar.
  */
+/** A3: los valores CRUDOS de la sección budget del archivo del operador. */
+export function budgetFileValues(cwd = process.cwd()): {
+  dailyUsd?: number;
+  monthlyUsd?: number;
+  onExceed?: 'warn' | 'block';
+} {
+  const { config } = loadConfigFile(cwd);
+  const file = config.budget ?? {};
+  const num = (v: number | undefined): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+  return {
+    dailyUsd: num(file.daily_usd),
+    monthlyUsd: num(file.monthly_usd),
+    onExceed: file.on_exceed,
+  };
+}
+
 export function ingestFileValues(cwd = process.cwd()): {
   autoPost?: boolean;
   minConfidence?: number;

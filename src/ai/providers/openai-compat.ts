@@ -195,6 +195,7 @@ export class OpenAiCompatSession implements LlmSession {
     sourceText: string,
     signal?: AbortSignal
   ): Promise<string> {
+    const summarizeStart = Date.now();
     const response = await this.client.chat.completions.create(
       {
         model: this.profile.model,
@@ -207,17 +208,18 @@ export class OpenAiCompatSession implements LlmSession {
       },
       { signal }
     );
-    if (response.usage) this.emitUsage(response.usage);
+    if (response.usage) this.emitUsage(response.usage, Date.now() - summarizeStart);
     return response.choices[0]?.message?.content ?? '';
   }
 
-  private emitUsage(usage: OpenAI.Completions.CompletionUsage): void {
+  private emitUsage(usage: OpenAI.Completions.CompletionUsage, durationMs?: number): void {
     this.callbacks.onUsage?.({
       provider: this.profile.name,
       model: this.profile.model,
       inputTokens: usage.prompt_tokens ?? 0,
       outputTokens: usage.completion_tokens ?? 0,
       cacheReadInputTokens: usage.prompt_tokens_details?.cached_tokens ?? undefined,
+      durationMs,
     });
   }
 
@@ -336,13 +338,17 @@ export class OpenAiCompatSession implements LlmSession {
       ...(this.toolSpecs ? { tools: this.toolSpecs } : {}),
     };
 
+    // A2: la duración de la llamada, del create al último chunk — la
+    // granularidad de la fila de ai_usage.
+    const llamadaInicio = Date.now();
+
     if (this.profile.stream === false) {
       const response = await this.client.chat.completions.create(
         { ...base, stream: false },
         { signal }
       );
       const choice = response.choices[0];
-      if (response.usage) this.emitUsage(response.usage);
+      if (response.usage) this.emitUsage(response.usage, Date.now() - llamadaInicio);
       const content = choice?.message?.content ?? '';
       if (content && !this.muteText) this.callbacks.onText?.(content);
       const toolCalls: AccumulatedToolCall[] = (choice?.message?.tool_calls ?? [])
@@ -390,7 +396,7 @@ export class OpenAiCompatSession implements LlmSession {
       }
     }
 
-    if (usage) this.emitUsage(usage);
+    if (usage) this.emitUsage(usage, Date.now() - llamadaInicio);
     const toolCalls = [...byIndex.entries()]
       .sort(([a], [b]) => a - b)
       .map(([, tc], i) => ({ ...tc, id: tc.id || `call_${i}` }));

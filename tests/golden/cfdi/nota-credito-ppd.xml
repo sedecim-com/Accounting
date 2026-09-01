@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="NC" Folio="501" Fecha="2026-08-20T10:00:00" FormaPago="99" MetodoPago="PPD" TipoDeComprobante="E" Moneda="MXN" SubTotal="2000.00" Total="2320.00" LugarExpedicion="06600">
+  <cfdi:Emisor Rfc="CON850101AB3" Nombre="Consultores Asociados del Bajio SC" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="XAXX010101000" Nombre="Demo Corp MX" UsoCFDI="G02" DomicilioFiscalReceptor="06600" RegimenFiscalReceptor="601"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="80101500" ClaveUnidad="E48" Unidad="Servicio" Descripcion="Nota de credito: ajuste a consultoria agosto 2026" Cantidad="1" ValorUnitario="2000.00" Importe="2000.00" ObjetoImp="02"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="320.00">
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="2000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="320.00"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+  <cfdi:CfdiRelacionados TipoRelacion="01">
+    <cfdi:CfdiRelacionado UUID="22B2B2B2-0002-4B02-8B02-B2B2B2B2B002"/>
+  </cfdi:CfdiRelacionados>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="55E5E5E5-0005-4E05-8E05-E5E5E5E5E005" FechaTimbrado="2026-08-20T10:00:00" RfcProvCertif="SAT970701NN3" SelloCFD="selloCFD" NoCertificadoSAT="30001000000500000001" SelloSAT="selloSAT"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

@@ -4,6 +4,7 @@ import pg from 'pg';
 import { query, withTransaction, getClient } from '../../database/connection.js';
 import { createJournalEntry } from '../accounting/posting.js';
 import { planearAsiento, planContabilizable, type PlanDeAsiento } from './cfdi-posting-plan.js';
+import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
 import {
   decideMetodoPago,
   entityUsesCashBasisIva,
@@ -86,10 +87,14 @@ export class PreRegistrationService {
     const hash = this.parser.calculateHash(xmlContent);
     const cfdiUuid = parsed.timbreFiscalDigital!.uuid;
 
-    // Check duplicates
+    // F02 · EL ESPEJO: el dedupe es POR ENTIDAD (046), no global. Las dos
+    // partes de una operación pueden ser clientes del despacho, y el MISMO
+    // XML entra dos veces — el emisor como 'emitido', el receptor como
+    // 'recibido'. Lo que sigue prohibido es la misma entidad dos veces.
     const existing = await query<{ id: string }>(
-      `SELECT id FROM xml_documents WHERE cfdi_uuid = $1 OR xml_hash = $2 LIMIT 1`,
-      [cfdiUuid, hash]
+      `SELECT id FROM xml_documents
+        WHERE entity_id = $1 AND (cfdi_uuid = $2 OR xml_hash = $3) LIMIT 1`,
+      [entityId, cfdiUuid, hash]
     );
     if (existing.rows.length > 0) {
       throw new DuplicateError(`CFDI already exists: ${existing.rows[0].id}`, existing.rows[0].id);
@@ -509,6 +514,17 @@ export class PreRegistrationService {
 
       await query(`UPDATE xml_documents SET processing_status = 'completed' WHERE id = $1`, [preReg.xml_document_id]);
 
+      // F02: el rastro del clasificador se cierra con el asiento que produjo.
+      if (result.journalEntry?.id) {
+        await query(
+          `UPDATE cfdi_classifications cc
+              SET journal_entry_id = $1, status = 'posted', updated_at = NOW()
+             FROM xml_documents xd
+            WHERE xd.id = $2 AND cc.entity_id = xd.entity_id AND cc.cfdi_uuid = xd.cfdi_uuid`,
+          [result.journalEntry.id, preReg.xml_document_id]
+        );
+      }
+
       return result;
     } catch (error) {
       // Un CFDI que necesita una decisión no es un error del sistema: es un
@@ -552,10 +568,24 @@ export class PreRegistrationService {
     preReg: Record<string, unknown>,
     lines: LineWithSuggestion[],
     billNumber: string
-  ): Promise<Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }>> {
+  ): Promise<{
+    lineas: Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }>;
+    /** F02: true cuando la política cfdi_periodo_cerrado manda la póliza al periodo abierto. */
+    fechaContableHoy: boolean;
+  }> {
     const plan = await this.planDeAsiento(preReg, lines, billNumber);
 
-    if (!plan) return this.lineasSinCfdi(preReg, lines, billNumber);
+    if (!plan) {
+      return { lineas: await this.lineasSinCfdi(preReg, lines, billNumber), fechaContableHoy: false };
+    }
+
+    // F02 · EL RASTRO DEL CLASIFICADOR (E1.2 pagado): la 015 prometió que
+    // cfdi_classifications guardaría POR QUÉ un XML se registró como se
+    // registró, y el clasificador calculaba todo esto en cada ingesta y lo
+    // tiraba. Se escribe ANTES del veredicto de contabilizable: el rastro
+    // de un CFDI bloqueado vale tanto como el de uno posteado — es el que
+    // el reproceso y el auditor van a leer.
+    await this.guardarClasificacion(preReg, plan);
 
     const { ok, motivo } = planContabilizable(plan);
     if (!ok) {
@@ -577,12 +607,53 @@ export class PreRegistrationService {
       );
     }
 
-    return plan.lineas.map((l) => ({
-      account_id: l.account_id,
-      debit_amount: l.debit_amount,
-      credit_amount: l.credit_amount,
-      description: l.description,
-    }));
+    return {
+      lineas: plan.lineas.map((l) => ({
+        account_id: l.account_id,
+        debit_amount: l.debit_amount,
+        credit_amount: l.credit_amount,
+        description: l.description,
+      })),
+      fechaContableHoy: plan.fechaContableHoy === true,
+    };
+  }
+
+  /**
+   * F02: el UPSERT del rastro. Llave (entity_id, cfdi_uuid) — la de la 015.
+   * El veredicto del clasificador se mapea al vocabulario de la tabla:
+   * ready→ready, needs_input→pending, blocked→blocked, no_posting→skipped;
+   * 'posted' lo escribe processToAccounting al completar, con el asiento.
+   */
+  private async guardarClasificacion(
+    preReg: Record<string, unknown>,
+    plan: PlanDeAsiento
+  ): Promise<void> {
+    const c = plan.clasificacion;
+    const estado =
+      c.verdict === 'ready' ? 'ready'
+      : c.verdict === 'needs_input' ? 'pending'
+      : c.verdict === 'blocked' ? 'blocked'
+      : 'skipped';
+    const tenant = await query<{ tenant_id: string }>(
+      `SELECT tenant_id FROM legal_entities WHERE id = $1`,
+      [preReg.entity_id]
+    );
+    await query(
+      `INSERT INTO cfdi_classifications (
+        id, tenant_id, entity_id, cfdi_uuid, tipo_comprobante, direction,
+        case_id, facts, decisions, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ON CONFLICT (entity_id, cfdi_uuid)
+      DO UPDATE SET case_id = EXCLUDED.case_id, facts = EXCLUDED.facts,
+                    decisions = EXCLUDED.decisions, status = EXCLUDED.status,
+                    updated_at = NOW()`,
+      [
+        uuidv4(), tenant.rows[0]?.tenant_id, preReg.entity_id,
+        c.facts.uuid, c.facts.tipo, c.facts.direction,
+        c.case?.id ?? null, JSON.stringify(c.facts), JSON.stringify(c.decisions),
+        estado,
+      ]
+    );
   }
 
   /** null cuando el pre-registro no viene de un CFDI. */
@@ -599,8 +670,8 @@ export class PreRegistrationService {
     );
     if (doc.rows.length === 0 || !doc.rows[0].xml_content) return null;
 
-    const entidad = await query<{ tax_id: string }>(
-      `SELECT tax_id FROM legal_entities WHERE id = $1`,
+    const entidad = await query<{ tax_id: string; tenant_id: string }>(
+      `SELECT tax_id, tenant_id FROM legal_entities WHERE id = $1`,
       [preReg.entity_id]
     );
     if (entidad.rows.length === 0) {
@@ -614,8 +685,36 @@ export class PreRegistrationService {
         LIMIT 1`,
       [preReg.entity_id, preReg.document_date]
     );
+    const periodOpen = periodo.rows.length > 0;
 
-    return planearAsiento({
+    // F02 · E1.3: LOS UMBRALES SALEN DEL PANEL. La inyección existía
+    // diseñada (PolicyThresholds) y el llamador de producción nunca la
+    // inyectaba: el despacho contestaba y no cambiaba nada. Además, una
+    // política CONTESTADA se vuelve respuesta automática de su decisión —
+    // el clasificador deja de preguntar lo que el despacho ya respondió.
+    const ctx = { tenantId: entidad.rows[0].tenant_id, entityId: preReg.entity_id as string };
+    const [umbralCap, polRestaurantes, polIeps, polInventarios] = await Promise.all([
+      getPolicyNumber(ctx, 'umbral_capitalizacion_mxn'),
+      getPolicy(ctx, 'politica_restaurantes'),
+      getPolicy(ctx, 'tratamiento_ieps'),
+      getPolicy(ctx, 'lleva_inventarios'),
+    ]);
+    const answers: Record<string, string> = {};
+    if (polRestaurantes.defined) answers.consumo_restaurante = polRestaurantes.value;
+    if (polIeps.defined) answers.ieps_acreditable = polIeps.value;
+
+    // cfdi_periodo_cerrado: solo el literal 'periodo_actual' registra solo;
+    // 'preguntar', 'reabrir' o un valor desconocido escalan como siempre.
+    let fechaContableHoy = false;
+    if (!periodOpen) {
+      const polPeriodo = await getPolicy(ctx, 'cfdi_periodo_cerrado');
+      if (polPeriodo.value === 'periodo_actual') {
+        answers.periodo_cerrado = 'periodo_actual';
+        fechaContableHoy = true;
+      }
+    }
+
+    const plan = await planearAsiento({
       entityId: preReg.entity_id as string,
       entityRfc: entidad.rows[0].tax_id,
       xml: doc.rows[0].xml_content,
@@ -631,9 +730,24 @@ export class PreRegistrationService {
       cuentaGastoPorDefecto: (preReg.default_account_id as string) ?? null,
       // El proveedor ya quedó resuelto o creado antes de llegar aquí.
       vendorExists: true,
-      periodOpen: periodo.rows.length > 0,
+      periodOpen: fechaContableHoy ? true : periodOpen,
       satStatus: mapearEstadoSat(doc.rows[0].sat_validation_status),
+      answers,
+      thresholds: {
+        capitalizationThreshold: umbralCap,
+        restaurantPolicy: polRestaurantes.value,
+        iepsTreatment: polIeps.value,
+        inventoryPolicy: polInventarios.value,
+      },
     });
+    if (fechaContableHoy) {
+      plan.fechaContableHoy = true;
+      plan.avisos.push(
+        'CFDI de periodo cerrado: la póliza se registra en el periodo abierto por la política ' +
+          'cfdi_periodo_cerrado=periodo_actual; la fecha fiscal del documento no cambia.'
+      );
+    }
+    return plan;
   }
 
   /** Armado directo para documentos sin CFDI. */
@@ -944,11 +1058,17 @@ export class PreRegistrationService {
     // Acreditable», sin mirar el método de pago. Bajo PPD el IVA no es
     // acreditable hasta que se paga la factura y llega el REP: cada
     // factura a crédito adelantaba un acreditamiento inexistente.
-    const jeLines = await this.lineasDelAsiento(preReg, lines, billNumber);
+    const plan = await this.lineasDelAsiento(preReg, lines, billNumber);
+    const jeLines = plan.lineas;
+    // F02 · cfdi_periodo_cerrado='periodo_actual': la PÓLIZA va al periodo
+    // abierto (fecha contable = hoy); la factura conserva su fecha fiscal.
+    const fechaContable = plan.fechaContableHoy
+      ? new Date()
+      : new Date(preReg.document_date as string);
 
     const journalEntry = await createJournalEntry(
       preReg.entity_id as string,
-      new Date(preReg.document_date as string),
+      fechaContable,
       JournalEntryType.AUTO_INVOICE,
       `Bill ${billNumber} - ${preReg.external_reference}`,
       jeLines,

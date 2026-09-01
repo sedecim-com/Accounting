@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
-import { ValidationError } from '../../utils/errors.js';
+import { ValidationError, NotFoundError } from '../../utils/errors.js';
 import type { BalanceSheetSection, IncomeStatementSection } from '../../types/index.js';
 
 // ============================================================
@@ -899,5 +899,98 @@ export async function getAgedPayables(
     rows: paginate(all, opts.limit, opts.offset),
     total: all.length,
     total_due: sumDue(all, opts.scale ?? LEDGER_SCALE),
+  };
+}
+
+// ------------------------------------------------------------
+// F01 · AUXILIAR DE CUENTA — saldo inicial → movimientos → final
+//
+// La forma que pide el XML XC del SAT (Anexo 24): por cuenta y
+// periodo, el inicial, cada movimiento y el final. El inicial sale de
+// account_balances.beginning_balance — que solo siembra el cierre
+// DURO: en periodos abiertos el campo dice 0 y eso es ausencia de
+// arrastre, no un saldo; la vista lo dice con period_status y con
+// `inicial_confiable` en lugar de fingir.
+// ------------------------------------------------------------
+
+export interface AuxiliaryView {
+  account_code: string;
+  account_name: string;
+  period_name: string;
+  period_status: string;
+  inicial: string;
+  inicial_confiable: boolean;
+  movimientos: LedgerQueryRow[];
+  /** Movimientos totales del filtro, antes de limit/offset. */
+  total_movimientos: number;
+  cargos: string;
+  abonos: string;
+  final: string;
+  /** inicial + cargos − abonos, para exhibir cualquier deriva contra account_balances. */
+  final_calculado: string;
+}
+
+export async function getAuxiliaryView(
+  entityId: string,
+  accountCode: string,
+  periodName: string,
+  opts: { limit?: number; offset?: number } = {}
+): Promise<AuxiliaryView> {
+  const cuenta = await query<{ id: string; code: string; name: string }>(
+    `SELECT id, code, name FROM accounts WHERE entity_id = $1 AND code = $2`,
+    [entityId, accountCode]
+  );
+  if (cuenta.rows.length === 0) throw new NotFoundError('Account', accountCode);
+
+  const periodos = await query<{ id: string; period_name: string; status: string; start_date: string; end_date: string }>(
+    `SELECT id, period_name, status, start_date::text AS start_date, end_date::text AS end_date
+       FROM fiscal_periods WHERE entity_id = $1 AND period_name ILIKE $2
+      ORDER BY start_date`,
+    [entityId, `%${periodName}%`]
+  );
+  if (periodos.rows.length === 0) throw new NotFoundError('Fiscal period', periodName);
+  if (periodos.rows.length > 1) {
+    throw new ValidationError(
+      `"${periodName}" casa ${periodos.rows.length} periodos (${periodos.rows.map((p) => p.period_name).join(', ')}): precisa el nombre.`
+    );
+  }
+  const periodo = periodos.rows[0];
+
+  const saldo = await query<{ beginning: string; ending: string; d: string; c: string }>(
+    `SELECT beginning_balance::text AS beginning, ending_balance::text AS ending,
+            debit_total::text AS d, credit_total::text AS c
+       FROM account_balances WHERE account_id = $1 AND fiscal_period_id = $2`,
+    [cuenta.rows[0].id, periodo.id]
+  );
+  const fila = saldo.rows[0];
+
+  const filtros = {
+    accountCode,
+    startDate: periodo.start_date,
+    endDate: periodo.end_date,
+  };
+  const total = await countLedgerRows(entityId, filtros);
+  const movimientos = await queryLedgerRows(entityId, {
+    ...filtros,
+    limit: opts.limit ?? total,
+    offset: opts.offset,
+  });
+
+  const inicial = new Decimal(fila?.beginning ?? 0);
+  const cargos = new Decimal(fila?.d ?? 0);
+  const abonos = new Decimal(fila?.c ?? 0);
+  return {
+    account_code: cuenta.rows[0].code,
+    account_name: cuenta.rows[0].name,
+    period_name: periodo.period_name,
+    period_status: periodo.status,
+    inicial: inicial.toFixed(LEDGER_SCALE),
+    inicial_confiable: periodo.status === 'hard_close' || periodo.status === 'locked',
+    movimientos,
+    total_movimientos: total,
+    cargos: cargos.toFixed(LEDGER_SCALE),
+    abonos: abonos.toFixed(LEDGER_SCALE),
+    final: new Decimal(fila?.ending ?? 0).toFixed(LEDGER_SCALE),
+    final_calculado: inicial.plus(cargos).minus(abonos).toFixed(LEDGER_SCALE),
   };
 }

@@ -13,6 +13,19 @@ import { getExternalAdapter } from '../../../src/services/integrations/accountin
 import type { AgentContext } from '../../../src/ai/context.js';
 import type { BetaTool, BetaToolResultContentBlockParam } from '@anthropic-ai/sdk/resources/beta';
 
+// A3: los resultados con datos de terceros viajan envueltos en marcadores
+// UNTRUSTED; parsear = des-envolver primero. Los sin envoltura pasan igual.
+function parseResultado(r: string): any {
+  const abre = r.indexOf('<<<UNTRUSTED_CFDI_DATA>>>');
+  if (abre < 0) return JSON.parse(r);
+  const cuerpo = r.slice(
+    abre + '<<<UNTRUSTED_CFDI_DATA>>>'.length,
+    r.lastIndexOf('<<<END_UNTRUSTED_CFDI_DATA>>>')
+  );
+  return JSON.parse(cuerpo);
+}
+
+
 /**
  * The concrete shape `betaZodTool` produces: a plain `BetaTool` plus `run`.
  * The builders return a union over many different input schemas and a tool is
@@ -70,7 +83,7 @@ describe('external_pull trial_balance (sized to the tool-result cap, not a fixed
     const out = (await getTool('external_pull').run(PULL_INPUT)) as string;
 
     // never cut mid-JSON: the whole result parses
-    const parsed = JSON.parse(out);
+    const parsed = parseResultado(out);
     expect(parsed.count).toBe(2000);
     expect(parsed.shown).toBeGreaterThan(0);
     expect(parsed.shown).toBeLessThan(parsed.count);
@@ -90,7 +103,7 @@ describe('external_pull trial_balance (sized to the tool-result cap, not a fixed
     const rows = fakeBalance(5);
     mockGetAdapter.mockReturnValue({ getTrialBalance: vi.fn(async () => rows) });
 
-    const parsed = JSON.parse((await getTool('external_pull').run(PULL_INPUT)) as string);
+    const parsed = parseResultado((await getTool('external_pull').run(PULL_INPUT)) as string);
     expect(parsed.count).toBe(5);
     expect(parsed.shown).toBe(5);
     expect(parsed.omitted).toBe(0);

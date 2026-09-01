@@ -58,3 +58,15 @@ export function isOpStale(createdAt: Date | string, now: Date = new Date()): boo
   if (Number.isNaN(created.getTime())) return true;
   return now.getTime() - created.getTime() > FLOOR_MAX_OP_AGE_DAYS * MS_PER_DAY;
 }
+
+/**
+ * A4 · «Medir antes de soltar», con números: encender ingest_auto_post='on'
+ * exige un historial de SOMBRA con al menos estos días distintos, este
+ * acuerdo sombra-vs-humano y estos veredictos decididos. Son PISO, no
+ * configuración: la doctrina que ordena estos sprints hecha invariante —
+ * un despacho puede medir MÁS tiempo, nunca menos.
+ */
+export const FLOOR_SOMBRA_DIAS = 7;
+export const FLOOR_SOMBRA_ACUERDO = 0.9;
+export const FLOOR_SOMBRA_VEREDICTOS = 10;
+

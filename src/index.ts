@@ -63,8 +63,25 @@ async function bootstrap() {
   // omisión, así que la excepción sólo hace falta cuando alguien lo enciende
   // a propósito en desarrollo. La API sirve JSON: encender CSP no le cuesta
   // nada y quita una diferencia entre lo que se prueba y lo que se despliega.
+  //
+  // Y la excepción NO apaga CSP: lo declara. Poner
+  // `contentSecurityPolicy: false` seguía siendo la misma alerta
+  // (`js/insecure-helmet-configuration`) escrita más pequeña — dejaba una
+  // ruta de ejecución sin ninguna política. En vez de eso, el playground
+  // recibe las directivas por omisión de helmet con el CDN que su landing
+  // necesita añadido a script/style/img, y nada más. La política sigue
+  // aplicándose en los dos caminos; lo único que cambia es cuánto permite.
   const playgroundGraphql = process.env.GRAPHQL_ENABLED === 'true' && config.env !== 'production';
-  app.use(helmet({ contentSecurityPolicy: playgroundGraphql ? false : undefined }));
+  const CDN_PLAYGROUND = 'https://cdn.jsdelivr.net';
+  const cspPlayground = {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'script-src': ["'self'", "'unsafe-inline'", CDN_PLAYGROUND],
+      'style-src': ["'self'", "'unsafe-inline'", CDN_PLAYGROUND],
+      'img-src': ["'self'", 'data:', CDN_PLAYGROUND],
+    },
+  };
+  app.use(helmet({ contentSecurityPolicy: playgroundGraphql ? cspPlayground : undefined }));
   // CORS explícito por entorno (S1): `cors()` a secas publica
   // Access-Control-Allow-Origin: * también en producción. La API la consumen
   // el CLI y agentes (sin navegador), así que producción sin ALLOWED_ORIGINS

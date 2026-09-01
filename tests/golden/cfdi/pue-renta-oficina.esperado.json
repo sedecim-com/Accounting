@@ -1,0 +1,31 @@
+{
+  "caso": "pue-renta-oficina",
+  "resultado": "draft",
+  "tratamiento": "PUE",
+  "sospecha": false,
+  "asiento": [
+    {
+      "cuenta": [
+        "6120"
+      ],
+      "lado": "cargo",
+      "monto": "15000.00"
+    },
+    {
+      "cuenta": [
+        "1130"
+      ],
+      "lado": "cargo",
+      "monto": "2400.00"
+    },
+    {
+      "cuenta": [
+        "1110",
+        "1111"
+      ],
+      "lado": "abono",
+      "monto": "17400.00"
+    }
+  ],
+  "nota": "Mide especificidad: el catalogo tiene Renta de Oficina 6120; cargarlo al generico 6100 cuenta como fallo de cuenta."
+}

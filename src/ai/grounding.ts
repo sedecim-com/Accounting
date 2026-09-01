@@ -25,6 +25,13 @@ export interface GroundingOptions {
   enabled?: boolean;
   /** Override of DEFAULT_MIN_ANSWER_CHARS. */
   minAnswerChars?: number;
+  /**
+   * A2: se dispara cuando el guard emite el turno correctivo. El CLI lo
+   * persiste como evento ('nudge' en ai_agent_events): cuántas veces el
+   * modelo contestó de memoria es una métrica de salud del agente, no una
+   * línea fugaz de stderr.
+   */
+  onNudge?: () => void;
 }
 
 /**
@@ -47,6 +54,7 @@ needs a write, say so in your corrected answer and let the human ask for it.`;
 export class GroundingGuard {
   private readonly enabled: boolean;
   private readonly minAnswerChars: number;
+  private readonly onNudge?: () => void;
   private toolCallsThisTurn = 0;
   private docsReadsInSession = 0;
   private nudgedThisSession = false;
@@ -54,6 +62,7 @@ export class GroundingGuard {
   constructor(options: GroundingOptions = {}) {
     this.enabled = options.enabled ?? true;
     this.minAnswerChars = options.minAnswerChars ?? DEFAULT_MIN_ANSWER_CHARS;
+    this.onNudge = options.onNudge;
   }
 
   /** Call at the start of every agentic loop run (real or corrective). */
@@ -102,6 +111,7 @@ export class GroundingGuard {
   /** The corrective prompt; marks the once-per-session latch. */
   buildNudge(): string {
     this.nudgedThisSession = true;
+    this.onNudge?.();
     return GROUNDING_NUDGE;
   }
 }
