@@ -83,6 +83,30 @@ export async function ensureEntityAccounting(
       ? 'base_neutro'
       : (await getPolicy({ tenantId, entityId }, 'catalogo_entidad_no_mexicana', client)).value;
 
+    // EL INTERRUPTOR LLEGA AL CATÁLOGO BASE Y A NADA MÁS, A PROPÓSITO.
+    //
+    // Con 'ninguno' la entidad NO nace vacía: nace con dieciséis cuentas
+    // —siete de los roles y nueve de la nómina estadounidense— porque las dos
+    // semillas de abajo corren igual. Extenderles el interruptor sonaría más
+    // fiel a la palabra «ninguno» y dejaría payroll_account_mapping sin una
+    // sola fila: esa tabla no tiene otro escritor en tiempo de ejecución —sólo
+    // esta semilla y la migración 049 que la sembró de golpe—, así que la
+    // primera corrida moriría con «Missing payroll_account_mapping for bucket:
+    // wages_expense» en vez de con el bucket que sí falta. Porque falta uno:
+    // bajo 'ninguno', `cash_payroll` —obligatorio junto a wages_expense y
+    // payroll_tax_expense, ver gl-posting-service— apunta a 1111/1115, que las
+    // crea el catálogo base y sólo él. La primera nómina falla igual; lo que
+    // cambia es que falla nombrando UN bucket en vez de todos, y `entity
+    // create` ya lo avisa por su nombre al sembrar.
+    //
+    // account_roles sí tiene otro escritor —account-roles-service, detrás de
+    // `account map`—, así que ahí el argumento no es que nadie más escriba,
+    // sino que sin la semilla la primera factura muere con MISSING_ROLE_ACCOUNT
+    // antes de que nadie llegue a mapear a mano.
+    //
+    // Lo que se corrigió es el TEXTO de la opción, que prometía «no chart» y
+    // «I seed nothing»: quien la escoge ha de saber que importará el catálogo
+    // sobre una entidad que ya trae esas dieciséis. Ver pending-catalog.ts.
     const crearBase =
       catalogoExtranjero !== 'ninguno' &&
       (estrategia === 'siempre' || (estrategia === 'auto' && !teniaCatalogo));

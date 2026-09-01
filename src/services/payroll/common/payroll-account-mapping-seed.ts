@@ -214,8 +214,22 @@ export const US_BUCKET_MAP: Record<string, string> = {
   garnishment_payable: '2156',
   benefits_payable: '2157',
 };
+
+/** Los dos carriles de nómina que existen. 'USA' es la clave de COUNTRY_PROFILES. */
+export type PaisNomina = 'MX' | 'USA';
+
 export interface PayrollSeedResult {
-  country: 'MX' | 'USA';
+  /**
+   * El país que ESTA corrida usó para escoger el catálogo, no el que llegó por
+   * parámetro. Se declaraba con un `country === 'USA' ? 'USA' : 'MX'` propio,
+   * paralelo al de `chartFor`, y lo que llega de la base es el alfa-2 'US'
+   * (legal_entities.incorporation_country es CHAR(2)): una entidad
+   * estadounidense recibía el catálogo estadounidense correcto y se declaraba
+   * mexicana. Y salía al mundo, porque `entity create --json` vuelca el
+   * resultado entero. Ahora lo produce `chartFor`, de una sola normalización,
+   * para que catálogo y etiqueta no puedan volver a separarse.
+   */
+  country: PaisNomina;
   accountsCreated: string[];
   bucketsMapped: string[];
   /** Buckets already mapped by someone else; left exactly as they were. */
@@ -229,19 +243,38 @@ export interface PayrollSeedResult {
 
 /**
  * Acepta 'US' y 'USA'. La columna incorporation_country es CHAR(2), así que lo
- * que la base puede guardar es 'US' — y esta función comparaba contra 'USA', de
+ * que la base puede guardar es 'US' — y `chartFor` comparaba contra 'USA', de
  * modo que jamás devolvía el catálogo estadounidense por más que la entidad lo
  * fuera. Se aceptan los dos: el alfa-2 que se almacena y la clave 'USA' con la
  * que el asistente y COUNTRY_PROFILES nombran al país.
  *
  * Cualquier otro país sigue siendo México, que es la regla de la casa ante la
  * duda (ver pais-contable.ts).
+ *
+ * ES FUNCIÓN Y NO UNA LÍNEA SUELTA porque la comparación estaba escrita DOS
+ * VECES —aquí y en el `country:` del resultado— y las dos copias divergieron:
+ * una aceptaba 'US' y la otra no, así que la entidad estadounidense se
+ * llevaba el catálogo correcto y la etiqueta equivocada. Una sola normaliza.
  */
-export function chartFor(country: string): { accounts: PayrollAccountSpec[]; buckets: Record<string, string> } {
+export function normalizarPais(country: string | null | undefined): PaisNomina {
   const pais = (country ?? '').trim().toUpperCase();
-  return pais === 'US' || pais === 'USA'
-    ? { accounts: US_PAYROLL_ACCOUNTS, buckets: US_BUCKET_MAP }
-    : { accounts: MX_PAYROLL_ACCOUNTS, buckets: MX_BUCKET_MAP };
+  return pais === 'US' || pais === 'USA' ? 'USA' : 'MX';
+}
+
+/**
+ * El catálogo de nómina del país, junto con el país ya normalizado que lo
+ * eligió: quien informe cuál se usó lee `pais` de aquí en vez de rehacer la
+ * comparación por su cuenta.
+ */
+export function chartFor(country: string): {
+  pais: PaisNomina;
+  accounts: PayrollAccountSpec[];
+  buckets: Record<string, string>;
+} {
+  const pais = normalizarPais(country);
+  return pais === 'USA'
+    ? { pais, accounts: US_PAYROLL_ACCOUNTS, buckets: US_BUCKET_MAP }
+    : { pais, accounts: MX_PAYROLL_ACCOUNTS, buckets: MX_BUCKET_MAP };
 }
 
 /**
@@ -259,7 +292,7 @@ export async function seedPayrollAccountMapping(
   options?: { client?: pg.PoolClient }
 ): Promise<PayrollSeedResult> {
   const run = async (client: pg.PoolClient): Promise<PayrollSeedResult> => {
-    const { accounts, buckets } = chartFor(country);
+    const { pais, accounts, buckets } = chartFor(country);
 
     const existing = await client.query<{ code: string; id: string }>(
       'SELECT code, id FROM accounts WHERE entity_id = $1',
@@ -325,7 +358,9 @@ export async function seedPayrollAccountMapping(
     }
 
     return {
-      country: country === 'USA' ? 'USA' : 'MX',
+      // El país sale de `chartFor`, que es quien escogió el catálogo. Antes se
+      // recalculaba aquí con otra comparación y las dos discrepaban en 'US'.
+      country: pais,
       accountsCreated,
       bucketsMapped,
       bucketsAlreadyMapped,

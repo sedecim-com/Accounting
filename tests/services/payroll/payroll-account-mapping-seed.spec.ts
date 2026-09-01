@@ -8,6 +8,7 @@ vi.mock('../../../src/database/connection.js', () => ({
 import {
   seedPayrollAccountMapping,
   chartFor,
+  normalizarPais,
   REQUIRED_BUCKETS,
   MX_BUCKET_MAP,
   US_BUCKET_MAP,
@@ -152,6 +153,8 @@ describe('seedPayrollAccountMapping', () => {
     expect(chartFor('CA').buckets).toBe(MX_BUCKET_MAP);
     expect(chartFor('MX').buckets).toBe(MX_BUCKET_MAP);
     expect(chartFor('USA').buckets).toBe(US_BUCKET_MAP);
+    // El alfa-2 que la columna CHAR(2) guarda de verdad.
+    expect(chartFor('US').buckets).toBe(US_BUCKET_MAP);
   });
 
   it('scopes both writes to the entity and the tenant', async () => {
@@ -193,5 +196,61 @@ describe('seedPayrollAccountMapping', () => {
     const result = await seedPayrollAccountMapping(ENTITY, TENANT, 'MX', USER, { client: mockClient as never });
     expect(result.bucketsUnmappable).toEqual([]);
     expect(result.bucketsMapped.sort()).toEqual(Object.keys(MX_BUCKET_MAP).sort());
+  });
+});
+
+// ============================================================
+// EL PAÍS QUE SE INFORMA Y EL CATÁLOGO QUE SE USA SALEN DE LA MISMA CUENTA
+//
+// Lo que legal_entities.incorporation_country guarda es 'US': la columna es
+// CHAR(2) y COUNTRY_PROFILES.USA.iso2 === 'US'. `chartFor` lo aceptaba, pero
+// el `country` del resultado se recalculaba aparte con `=== 'USA'`, así que
+// una entidad estadounidense recibía el catálogo estadounidense CORRECTO y se
+// declaraba mexicana. No reventaba nada: sólo mentía — y salía al mundo,
+// porque `entity create --json` vuelca el resultado entero.
+//
+// Estas pruebas no fijan un valor: fijan que las dos respuestas no puedan
+// volver a discrepar, que es lo que el arreglo hizo estructuralmente.
+// ============================================================
+describe('el país informado no puede discrepar del catálogo usado', () => {
+  it('acepta el alfa-2 que la columna guarda y la clave que el asistente usa', () => {
+    expect(normalizarPais('US')).toBe('USA');
+    expect(normalizarPais('USA')).toBe('USA');
+    expect(normalizarPais('  us  ')).toBe('USA');
+    expect(normalizarPais('MX')).toBe('MX');
+    expect(normalizarPais('CA')).toBe('MX');
+    expect(normalizarPais(null)).toBe('MX');
+    expect(normalizarPais(undefined)).toBe('MX');
+  });
+
+  it("informa 'USA' para el 'US' que la base de datos entrega", async () => {
+    arrange([], []);
+    const result = await seedPayrollAccountMapping(ENTITY, TENANT, 'US', USER, {
+      client: mockClient as never,
+    });
+    expect(result.country).toBe('USA');
+    // Y no es que informe bien y siembre mal: el catálogo es el de EE. UU.
+    expect(result.bucketsMapped).toContain('futa_payable');
+    expect(result.bucketsMapped).not.toContain('infonavit_payable');
+  });
+
+  it('venga como venga el país, la etiqueta describe el catálogo sembrado', async () => {
+    for (const entrada of ['US', 'USA', 'us', ' Us ', 'MX', 'mx', 'CA', '']) {
+      mockClient.query.mockReset();
+      arrange([], []);
+      const result = await seedPayrollAccountMapping(ENTITY, TENANT, entrada, USER, {
+        client: mockClient as never,
+      });
+      const { pais, buckets } = chartFor(entrada);
+      expect(result.country, entrada).toBe(pais);
+      // Un bucket que SÓLO existe en el catálogo de ese país, y que esta
+      // semilla crea ella misma (así se mapea aunque el catálogo esté vacío).
+      const propio = pais === 'USA' ? 'futa_payable' : 'infonavit_payable';
+      const ajeno = pais === 'USA' ? 'infonavit_payable' : 'futa_payable';
+      expect(Object.keys(buckets), entrada).toContain(propio);
+      expect(Object.keys(buckets), entrada).not.toContain(ajeno);
+      expect(result.bucketsMapped, entrada).toContain(propio);
+      expect(result.bucketsMapped, entrada).not.toContain(ajeno);
+    }
   });
 });
