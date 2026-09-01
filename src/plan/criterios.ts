@@ -2909,53 +2909,64 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.0',
-    enunciado: 'El migrador se niega a rellenar cero filas en silencio',
+    enunciado: 'El migrador no puede rellenar cero filas en silencio: Postgres se lo impide',
     evaluar: () => {
-      // S3: las migraciones corren como un rol NOBYPASSRLS que además es
-      // DUEÑO de unas tablas con FORCE ROW LEVEL SECURITY — lo que le quita
-      // su exención implícita. Sin contexto de inquilino, todo DML de
-      // migración sobre una tabla acotada afecta CERO FILAS, sin error, y la
-      // migración se registra como aplicada. Tres lo sufrieron (037, 040,
-      // 043) y una ya provocó una colisión de folios en un despliegue.
+      // EL DEFECTO. Las migraciones corren como un rol NOBYPASSRLS que además
+      // es DUEÑO de tablas con FORCE ROW LEVEL SECURITY — lo que le quita su
+      // exención implícita. Sin contexto de inquilino, todo DML de migración
+      // sobre una tabla acotada afecta CERO FILAS, sin error, y la migración
+      // se registra como aplicada. Reproducido: el rol ve 0 de 4 entidades.
+      // Tres migraciones lo sufrieron (037, 040, 043) y una ya provocó una
+      // colisión de folios en un despliegue real.
       //
-      // La 026 YA había escrito el patrón correcto y la 043 lo repitió sin él
-      // dieciocho migraciones después: documentarlo no basta, hace falta que
-      // el corredor se niegue.
+      // POR QUÉ NO BASTA DOCUMENTARLO: la 026 ya había escrito el patrón
+      // correcto —el bucle por inquilino— y la 043 lo repitió sin él
+      // dieciocho migraciones después. Es reincidencia, no descuido.
+      //
+      // LA GUARDA ES DE POSTGRES, NO NUESTRA, y esa es su virtud. Con
+      // `row_security = off` el motor no desactiva RLS: LANZA 42501 cuando
+      // una consulta habría sido filtrada. El cuarto olvido no podrá callar,
+      // porque quien se niega es el motor y no un regex sobre el .sql. Una
+      // migración que SÍ maneja inquilinos hace opt-in explícito con
+      // `SET LOCAL row_security = on` y su bucle.
       const m = codigoDe('src/database/migrate.ts');
-      if (!/estadoDelCorredor\(client\)/.test(m) || !/tablasQueFuerzanRls\(client\)/.test(m)) {
-        return falla('el migrador dejó de comprobar el corredor: volvería a rellenar cero filas en silencio');
+      if (!/SET row_security = off/.test(m)) {
+        return falla(
+          'el migrador dejó de correr con row_security=off: el filtrado silencioso volvería a ser ' +
+            'silencioso, y la clase que ya costó una colisión de folios podría repetirse'
+        );
       }
-      // Lo que decide es el ESTADO REAL del rol y de las tablas, no una
-      // lista escrita a mano que se desincroniza.
-      if (!/rolbypassrls/.test(m) || !/relforcerowsecurity/.test(m)) {
-        return falla('la guarda dejó de preguntarle al catálogo de Postgres: una heurística no sabe quién está sujeto a RLS');
+      // Y la reparación de lo que se perdió, con el patrón que la 026
+      // consagró: iterar inquilinos fijando el contexto.
+      const reparacion = 'src/database/migrations/048_reparar_lo_que_rls_filtro_en_silencio.sql';
+      if (!existe(reparacion)) {
+        return falla('la migración de reparación desapareció: las tres siembras mudas seguirían mudas');
       }
-      if (!/throw new Error\(motivoDeNegativa\(file, enPeligro\)\)/.test(m)) {
-        return falla('la guarda detecta y NO se niega: avisar de un relleno a cero equivale a no verlo');
+      const r = crudoDe(reparacion);
+      const cubre =
+        /range_proof = NULL/.test(r) &&
+        /zkverify_proof = NULL/.test(r) &&
+        (r.match(/INSERT INTO entity_sequences/g) ?? []).length >= 5 &&
+        /UPDATE bills/.test(r);
+      if (!cubre) {
+        return falla('la reparación dejó de cubrir las tres migraciones (037 etiquetado, 040 purga, 043 siembra)');
       }
-      // El helper que hace más fácil hacerlo bien que evitarlo.
-      const migracion = 'src/database/migrations/049_el_corredor_que_no_rellenaba.sql';
-      if (!existe(migracion)) {
-        return falla('la 049 desapareció: sin el helper, cada migración con DML tendría que reinventar el bucle');
-      }
-      const sql = crudoDe(migracion);
-      return /CREATE OR REPLACE FUNCTION public\.por_cada_inquilino/.test(sql) &&
-        /GET DIAGNOSTICS n = ROW_COUNT/.test(sql)
-        ? ok('el corredor se niega ante DML acotado sin contexto, y el helper por_cada_inquilino devuelve cuántas filas tocó')
-        : falla('el helper perdió su bucle o su cuenta de filas: una reparación sin constancia no se puede auditar');
+      return /SET LOCAL row_security = on/.test(r) && /set_config\('app\.current_tenant'/.test(r)
+        ? ok('el motor lanza 42501 ante el filtrado silencioso, y la reparación re-corre las tres con el bucle por inquilino')
+        : falla('la reparación no declara su opt-in ni fija contexto: correría bajo el piso y fallaría, o volvería a rellenar cero');
     },
     mutantes: [
       {
         archivo: 'src/database/migrate.ts',
-        de: 'throw new Error(motivoDeNegativa(file, enPeligro));',
-        a: 'console.warn(motivoDeNegativa(file, enPeligro));',
-        porque: 'la guarda pasa de negarse a avisar: un aviso sobre un relleno a cero es lo mismo que no verlo',
+        de: "await client.query('SET row_security = off');",
+        a: "await client.query('SELECT 1');",
+        porque: 'el piso desaparece y el filtrado silencioso vuelve a ser silencioso: la clase que ya costó una colisión de folios',
       },
       {
-        archivo: 'src/database/migrations/049_el_corredor_que_no_rellenaba.sql',
-        de: 'GET DIAGNOSTICS n = ROW_COUNT',
-        a: 'n := 0',
-        porque: 'el helper deja de contar filas y la reparación pierde su constancia',
+        archivo: 'src/database/migrations/048_reparar_lo_que_rls_filtro_en_silencio.sql',
+        de: 'SET LOCAL row_security = on',
+        a: 'SET LOCAL row_security = off',
+        porque: 'la reparación pierde su opt-in: correría bajo el piso y ni siquiera podría leer lo que viene a reparar',
       },
     ],
   },
