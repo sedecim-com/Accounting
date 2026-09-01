@@ -37,10 +37,32 @@ const ejecutar = promisify(execFile);
 // llaves es del operador, y el manifiesto se lo recuerda cada vez.
 // ============================================================
 
+/**
+ * EL ALCANCE DEL VOLCADO, dicho por el propio artefacto.
+ *
+ * El manifiesto declaraba con cuidado lo que el archivo NO lleva y no decía
+ * NADA de a quién pertenece lo que sí lleva. Un respaldo que no dice de quién
+ * es no se puede custodiar: no se sabe a quién avisar si se pierde, ni bajo qué
+ * acuerdo de tratamiento de datos vive, ni si puede salir de la máquina.
+ *
+ * Este volcado es de la INSTALACIÓN ENTERA —pg_dump no filtra filas— y por eso
+ * lleva la cuenta de inquilinos: `inquilinos: 7` en la cabecera de un archivo
+ * es la advertencia que ninguna prosa consigue, y es lo que distingue este
+ * artefacto de una exportación por inquilino
+ * (src/services/backup/exportacion-inquilino.ts).
+ */
+export interface AlcanceDelVolcado {
+  tipo: 'instalacion-completa';
+  /** Cuántos despachos van SIN REDACTAR dentro. */
+  inquilinos: number;
+}
+
 export interface Manifiesto {
   /** Versión del formato del manifiesto, para que un lector futuro sepa leerlo. */
   formato: 1;
   creado: string;
+  /** De quién es lo que el archivo lleva. Se escribe SIEMPRE. */
+  alcance: AlcanceDelVolcado;
   /** La última migración aplicada: sin esto, restaurar es adivinar contra qué código. */
   esquema: { ultimaMigracion: string; migracionesAplicadas: number };
   base: string;
@@ -59,6 +81,9 @@ export interface Manifiesto {
 }
 
 const NO_INCLUYE = [
+  'ESTE VOLCADO NO ESTÁ ACOTADO A NINGÚN INQUILINO: lleva los datos SIN REDACTAR de todos los ' +
+    'que haya en la instalación (ver `alcance.inquilinos`). Para el archivo de UN despacho, ' +
+    '`mnemosine backup export --tenant <id>`.',
   'La llave del vault (.mnemosine-vault/vault.key o el gestor de secretos): sin ella, ' +
     'las credenciales fiscales y los datos bancarios cifrados quedan ilegibles tras restaurar.',
   'ENCRYPTION_KEY del entorno: misma consecuencia.',
@@ -230,6 +255,22 @@ async function sha256De(archivo: string): Promise<string> {
   });
 }
 
+/**
+ * Cuántos despachos van dentro. No es adorno: es el número que convierte
+ * «respaldo» en «archivo con los datos sin redactar de siete clientes», que es
+ * lo que este artefacto es de verdad y lo que decide cómo se custodia.
+ */
+async function contarInquilinos(url: string): Promise<number> {
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  try {
+    const r = await client.query<{ n: string }>('SELECT count(*)::text AS n FROM public.tenants');
+    return Number(r.rows[0]?.n ?? 0);
+  } finally {
+    await client.end();
+  }
+}
+
 async function estadoDelEsquema(url: string): Promise<Manifiesto['esquema']> {
   const client = new pg.Client({ connectionString: url });
   await client.connect();
@@ -279,6 +320,7 @@ export async function crearRespaldo(opts: OpcionesRespaldo): Promise<ResultadoRe
   if (!capacidad.puede) throw new ValidationError(capacidad.motivo);
 
   const esquema = await estadoDelEsquema(url);
+  const inquilinos = await contarInquilinos(url);
 
   try {
     const { base: aVolcar, env } = entornoDe(url);
@@ -304,6 +346,7 @@ export async function crearRespaldo(opts: OpcionesRespaldo): Promise<ResultadoRe
   const manifiesto: Manifiesto = {
     formato: 1,
     creado: new Date().toISOString(),
+    alcance: { tipo: 'instalacion-completa', inquilinos },
     esquema,
     base,
     archivo: path.basename(archivo),
@@ -510,13 +553,55 @@ export async function restaurarRespaldo(
   } finally {
     await raiz.end();
   }
+  let aviso = '';
   await ejecutar('pg_restore', ['--no-owner', '--no-privileges', '--dbname', destino, archivo], {
     maxBuffer: 1024 * 1024 * 64,
     env: entornoDe(url).env,
   }).catch((err: { stderr?: string; code?: string | number; signal?: string }) => {
-    // Igual que en la verificación: pg_restore avisa de cosas benignas. Se
-    // reporta, no se oculta, y el operador verifica con `backup verify`.
-    process.stderr.write(`Avisos de pg_restore: ${porQueMurio(err)}\n`);
+    // pg_restore avisa de cosas benignas (roles ausentes) y sale distinto de
+    // cero, así que su código NO decide. Se guarda para poder contarlo si
+    // resulta que además falló de verdad.
+    aviso = porQueMurio(err);
   });
+
+  // LO QUE DECIDE ES LA BASE, NO EL PROCESO — y hasta que se preguntó, no se
+  // preguntaba: el catch de arriba imprimía «Avisos» y la función devolvía
+  // `creada: true` pasara lo que pasara. Un archivo que pg_restore rechaza
+  // entero dejaba una base VACÍA y el CLI imprimía «✔ restaurado» con salida 0.
+  // Dejó de ser teórico cuando `backup export` empezó a escribir un segundo
+  // tipo de archivo en el mismo directorio y a publicarlo en la misma columna
+  // de `backup list`: copiar el nombre de `list` y pegarlo en `restore` es el
+  // gesto natural, y terminaba en un falso éxito.
+  const restaurada = new pg.Client({ connectionString: urlConBase(url, destino) });
+  await restaurada.connect();
+  let tablas = 0;
+  try {
+    const r = await restaurada.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM information_schema.tables WHERE table_schema = 'public'`
+    );
+    tablas = Number(r.rows[0]?.n ?? 0);
+  } finally {
+    await restaurada.end();
+  }
+
+  if (tablas === 0) {
+    // La base a medio nacer no se queda: con el nombre que el operador pidió,
+    // se leería mañana como una restauración buena.
+    const limpieza = new pg.Client({ connectionString: urlConBase(url, 'postgres') });
+    await limpieza.connect();
+    try {
+      await limpieza.query(`DROP DATABASE IF EXISTS ${destino}`);
+    } finally {
+      await limpieza.end();
+    }
+    throw new ValidationError(
+      `pg_restore no restauró nada: "${destino}" quedó sin una sola tabla, así que se eliminó. ` +
+        (aviso ? `Lo que dijo pg_restore: ${aviso}. ` : '') +
+        'Si el archivo es una exportación por inquilino (.ndjson), `backup restore` no la lee: ' +
+        'es una exportación, no un respaldo, y su propio manifiesto lo declara con `restaurable: false`.'
+    );
+  }
+
+  if (aviso) process.stderr.write(`Avisos de pg_restore: ${aviso}\n`);
   return { archivo, destino, creada: true };
 }

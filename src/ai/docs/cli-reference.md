@@ -110,9 +110,10 @@ Commands:
                                         subledger against the control account
   bank|banco                            Bank accounts and bank statements:
                                         master data and imported statements
-  backup|respaldo                       Logical backups: create, list, verify
-                                        (optionally by rehearsing the restore)
-                                        and restore
+  backup|respaldo                       Logical backups of the whole
+                                        installation (create, list, verify by
+                                        rehearsing the restore, restore) and
+                                        per-tenant logical exports (export)
   report|reporte                        Financial statements, trial balance,
                                         general ledger and ageing
   ledger|mayor                          The general ledger itself: integrity
@@ -3799,18 +3800,23 @@ Options:
 ```
 Usage: mnemosine backup|respaldo [options] [command]
 
-Logical backups: create, list, verify (optionally by rehearsing the restore) and
-restore
+Logical backups of the whole installation (create, list, verify by rehearsing
+the restore, restore) and per-tenant logical exports (export)
 
 Options:
   -h, --help                          display help for command
 
 Commands:
-  create|crear [options]              Take a logical dump of the database with
-                                      its schema-version manifest
-  list|listar [options]               List known backups with their date, size,
-                                      schema version and whether their hash
-                                      still matches
+  create|crear [options]              Take a logical dump of the WHOLE
+                                      installation with its schema-version
+                                      manifest
+  export|exportar [options]           Logical EXPORT of ONE tenant (or one
+                                      entity): consistent, scoped by the
+                                      database's own RLS, with a manifest. NOT a
+                                      restorable backup
+  list|listar [options]               List known backups and exports with their
+                                      date, scope, size, schema version and
+                                      whether their hash still matches
   verify|comprobar [options] <file>   Verify a backup against its manifest; with
                                       --restore, rehearse the restore and run
                                       the ledger checks
@@ -3824,13 +3830,30 @@ Commands:
 ```
 Usage: mnemosine backup create|crear [options]
 
-Take a logical dump of the database with its schema-version manifest
+Take a logical dump of the WHOLE installation with its schema-version manifest
 
 Options:
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
+  -t, --tenant <id>        NOT here: this dump is not scoped. A per-tenant
+                           archive is `mnemosine backup export --tenant <id>`
+  -e, --entity <idOrName>  NOT here: a per-entity archive is `mnemosine backup
+                           export --entity <idOrName>`
+  --target <dir>           directory to write into (default: ./respaldos)
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+### `mnemosine backup export` (alias: exportar)
+
+```
+Usage: mnemosine backup export|exportar [options]
+
+Logical EXPORT of ONE tenant (or one entity): consistent, scoped by the
+database's own RLS, with a manifest. NOT a restorable backup
+
+Options:
+  -t, --tenant <id>        tenant (firm) to export (defaults to --tenant /
+                           MNEMOSINE_TENANT)
+  -e, --entity <idOrName>  narrow it further to one legal entity of that tenant
   --target <dir>           directory to write into (default: ./respaldos)
   --json                   JSON output
   -h, --help               display help for command
@@ -3841,8 +3864,8 @@ Options:
 ```
 Usage: mnemosine backup list|listar [options]
 
-List known backups with their date, size, schema version and whether their hash
-still matches
+List known backups and exports with their date, scope, size, schema version and
+whether their hash still matches
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)

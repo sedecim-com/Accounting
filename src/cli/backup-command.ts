@@ -7,6 +7,12 @@ import {
   verificarRespaldo,
   restaurarRespaldo,
 } from '../services/backup/backup-service.js';
+import {
+  exportarInquilino,
+  listarExportaciones,
+} from '../services/backup/exportacion-inquilino.js';
+import { enterTenant, currentTenant } from '../database/connection.js';
+import { resolveEntity } from '../ai/context.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
@@ -15,6 +21,7 @@ import {
   withOutput,
   withSelection,
   withContext,
+  globalsOf,
   usageError,
   abortedByUser,
   exitCodeFor,
@@ -37,8 +44,15 @@ import {
 // es todo lo que hizo. Con `--restore` ENSAYA la restauración en una base de
 // usar y tirar y le corre los chequeos del mayor. Sólo eso demuestra algo.
 //
-// `create` es IA ✗ por la regla (f) del catálogo: produce un volcado SIN
-// REDACTAR del inquilino entero. `restore` es irreversible y crea una base
+// DOS ARTEFACTOS, DOS NOMBRES. `create` vuelca la INSTALACIÓN entera con
+// pg_dump: es restaurable y es la vía ante desastre, y por eso su manifiesto
+// dice ahora cuántos inquilinos SIN REDACTAR lleva dentro. `export` saca UN
+// inquilino (o una de sus entidades) leyendo por RLS: está acotado y es
+// consistente, pero NO se puede volver a meter, así que no se llama respaldo
+// en ninguna de las tres superficies —CLI, manifiesto y catálogo—.
+//
+// `create` y `export` son IA ✗ por la regla (f) del catálogo: los dos
+// materializan datos sin redactar. `restore` es irreversible y crea una base
 // NUEVA siempre — restaurar encima de una viva destruiría justo lo que se
 // intenta salvar.
 // ============================================================
@@ -51,6 +65,8 @@ export interface BackupCommandDeps {
 }
 
 interface CommonOpts {
+  tenant?: string;
+  entity?: string;
   target?: string;
   json?: boolean;
   quiet?: boolean;
@@ -75,7 +91,10 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
   const backup = program
     .command('backup')
     .alias('respaldo')
-    .description('Logical backups: create, list, verify (optionally by rehearsing the restore) and restore');
+    .description(
+      'Logical backups of the whole installation (create, list, verify by rehearsing the restore, restore) ' +
+        'and per-tenant logical exports (export)'
+    );
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -108,26 +127,61 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
   };
 
   // ---- backup create ------------------------------------------------
+  //
+  // LO QUE ESTE COMANDO ES: el volcado de la INSTALACIÓN ENTERA con pg_dump —
+  // la vía de recuperación ante desastre, y por eso su comportamiento no
+  // cambia.
+  //
+  // LO QUE DEJÓ DE FINGIR: publicaba `-t/--tenant` («tenant (firm) whose data
+  // to scope to») y `-e/--entity` porque llamaba a `withContext`, y los
+  // ignoraba — pg_dump no filtra filas. Con un UUID de inquilino inexistente
+  // el archivo pesaba EXACTAMENTE lo mismo y traía los datos de los dos
+  // despachos de la prueba. Ahora esas dos banderas responden, y lo que
+  // responden es a dónde ir: `mnemosine backup export`. Se declaran a
+  // propósito en vez de borrarse —«unknown option» no enseña nada a quien ya
+  // las tiene escritas en un script— y `--tenant` se comprueba TAMBIÉN en la
+  // raíz, porque Commander entrega la opción larga repetida al programa padre
+  // y no al subcomando (kernel/flags.ts lo documenta).
   const create = backup
     .command('create')
     .alias('crear')
-    .description('Take a logical dump of the database with its schema-version manifest');
-  withContext(create);
+    .description('Take a logical dump of the WHOLE installation with its schema-version manifest');
   create
+    .option(
+      '-t, --tenant <id>',
+      'NOT here: this dump is not scoped. A per-tenant archive is `mnemosine backup export --tenant <id>`'
+    )
+    .option(
+      '-e, --entity <idOrName>',
+      'NOT here: a per-entity archive is `mnemosine backup export --entity <idOrName>`'
+    )
     .option('--target <dir>', `directory to write into (default: ${DESTINO_OMISION})`)
     .option('--json', 'JSON output');
-  // Lectura para la base (no la modifica), pero IA ✗: produce un volcado SIN
-  // REDACTAR del inquilino entero — la regla (f) del catálogo es sobre el
-  // DATO, no sobre el verbo.
+  // Lectura para la base (no la modifica), pero IA ✗ por la regla (f) del
+  // catálogo: produce un volcado SIN REDACTAR de todos los inquilinos.
   declareRisk(create, { risk: 'lectura', agent: false });
   create.action((opts: CommonOpts) =>
     run(async () => {
+      const acotado =
+        opts.tenant !== undefined ||
+        opts.entity !== undefined ||
+        program.getOptionValueSource('tenant') === 'cli';
+      if (acotado) {
+        throw usageError(
+          '`backup create` vuelca la instalación ENTERA con pg_dump, que no filtra filas: acotarlo ' +
+            'a un inquilino o a una entidad es imposible por construcción, y hasta hoy la bandera ' +
+            'se aceptaba y se ignoraba en silencio.\n' +
+            'Para el archivo de UN despacho: `mnemosine backup export --tenant <id>` ' +
+            '(con `--entity <id|nombre>` para una sola sociedad).\n' +
+            'Para la recuperación ante desastre de la instalación completa: `backup create` sin banderas.'
+        );
+      }
       const destino = opts.target ?? DESTINO_OMISION;
       const r = await crearRespaldo({ destino });
       const p = deps.palette;
 
       if (opts.json) {
-        render([{ archivo: r.archivo, manifiesto: r.manifiestoEn, bytes: r.manifiesto.bytes, sha256: r.manifiesto.sha256 }], { json: true });
+        render([{ archivo: r.archivo, manifiesto: r.manifiestoEn, bytes: r.manifiesto.bytes, sha256: r.manifiesto.sha256, alcance: r.manifiesto.alcance.tipo, inquilinos: r.manifiesto.alcance.inquilinos }], { json: true });
         return;
       }
       process.stdout.write(
@@ -135,10 +189,16 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
           p.dim(`(${(r.manifiesto.bytes / 1024 / 1024).toFixed(1)} MB · esquema ${r.manifiesto.esquema.ultimaMigracion})\n`) +
           p.dim(`  manifiesto: ${path.basename(r.manifiestoEn)}\n`)
       );
-      // Lo que el volcado NO lleva se dice AQUÍ, no sólo en el manifiesto:
-      // quien no lo lea creerá que tiene un respaldo completo.
+      // DE QUIÉN ES ESTE ARCHIVO, en voz alta y antes que nada. El manifiesto
+      // declaraba con cuidado lo que el volcado NO lleva y callaba a quién
+      // pertenece lo que sí lleva; un respaldo que no dice de quién es no se
+      // puede custodiar.
       process.stderr.write(
-        p.yellow('  Este volcado NO incluye el material criptográfico:\n') +
+        p.yellow(
+          `  Contiene los datos SIN REDACTAR de ${r.manifiesto.alcance.inquilinos} inquilino(s): es la instalación entera, no un despacho.\n`
+        ) +
+          p.dim('  Para el archivo de uno solo: `mnemosine backup export --tenant <id>`.\n') +
+          p.yellow('  Y NO incluye el material criptográfico:\n') +
           p.dim(
             '  la llave del vault y ENCRYPTION_KEY viven fuera de la base. Sin ellas, al restaurar\n' +
               '  las credenciales fiscales y los datos bancarios quedan ilegibles. Respáldalas aparte.\n'
@@ -148,11 +208,111 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
     })
   );
 
+  // ---- backup export ------------------------------------------------
+  //
+  // SE LLAMA `export` Y NO `create --tenant`, y el nombre ES la decisión.
+  //
+  // El catálogo prometía «un respaldo lógico consistente del tenant (o de una
+  // entidad)». La mitad de la promesa —consistente, acotado, con manifiesto—
+  // se cumple aquí. La otra mitad, RESTAURABLE, no: `users.password_hash` sale
+  // redactado y es NOT NULL, el orden de dependencias por clave foránea no está
+  // resuelto, y `account_balances` volvería a calcularse con los disparadores
+  // del mayor. Un artefacto que no se puede volver a meter NO es un respaldo,
+  // así que no se llama así en ningún sitio: ni aquí, ni en el manifiesto
+  // (`restaurable: false`), ni en el catálogo. Una exportación honesta y bien
+  // nombrada vale más que un «respaldo» que no restaura.
+  //
+  // `export` es el verbo que §1 ya tiene para «sacar datos internos», y el
+  // sustantivo sigue siendo `backup`·`respaldo`, que plataforma posee (§5
+  // regla 41).
+  const exportar = backup
+    .command('export')
+    .alias('exportar')
+    .description(
+      "Logical EXPORT of ONE tenant (or one entity): consistent, scoped by the database's own RLS, with a manifest. NOT a restorable backup"
+    );
+  exportar
+    .option('-t, --tenant <id>', 'tenant (firm) to export (defaults to --tenant / MNEMOSINE_TENANT)')
+    .option('-e, --entity <idOrName>', 'narrow it further to one legal entity of that tenant')
+    .option('--target <dir>', `directory to write into (default: ${DESTINO_OMISION})`)
+    .option('--json', 'JSON output');
+  // IA ✗ por la misma regla (f) del catálogo: materializa los datos sin
+  // redactar de un despacho entero, RFC de terceros incluidos.
+  declareRisk(exportar, { risk: 'lectura', agent: false });
+  exportar.action((opts: CommonOpts, command: Command) =>
+    run(async () => {
+      const p = deps.palette;
+      // De los globales: Commander entrega `--tenant` al programa PADRE y `-t`
+      // al subcomando, así que leer `opts.tenant` a secas perdería la mitad de
+      // las invocaciones. Es exactamente el aviso de kernel/flags.ts.
+      const tenantId =
+        (globalsOf<{ tenant?: string }>(command).tenant ?? currentTenant() ?? '').trim();
+      if (!tenantId) {
+        throw usageError(
+          'No hay inquilino que exportar. Nómbralo con `--tenant <uuid>` o fija MNEMOSINE_TENANT.\n' +
+            'Un archivo que no dice de quién es no se puede custodiar, así que esto no se adivina.'
+        );
+      }
+      // El contexto se fija ANTES de resolver la entidad: sin esto, resolver un
+      // nombre buscaría en los libros de todos los despachos.
+      enterTenant(tenantId);
+
+      const entityId = opts.entity ? (await resolveEntity(opts.entity)).entityId : undefined;
+      const destino = opts.target ?? DESTINO_OMISION;
+      const r = await exportarInquilino({ tenantId, entityId, destino });
+      const m = r.manifiesto;
+
+      if (opts.json) {
+        render(
+          [
+            {
+              archivo: r.archivo,
+              manifiesto: r.manifiestoEn,
+              alcance: m.alcance.tipo,
+              tenant: m.alcance.tenantId,
+              entidad: m.alcance.entityId ?? '',
+              bytes: m.bytes,
+              sha256: m.sha256,
+              filas: m.totalFilas,
+              restaurable: m.restaurable,
+            },
+          ],
+          { json: true }
+        );
+        return;
+      }
+
+      const de =
+        m.alcance.tipo === 'entidad'
+          ? `${m.alcance.entityNombre ?? ''} (entidad de ${m.alcance.tenantNombre})`
+          : m.alcance.tenantNombre;
+      process.stdout.write(
+        `${p.green('✔')} ${p.bold(path.basename(r.archivo))} ` +
+          p.dim(`(${(m.bytes / 1024 / 1024).toFixed(1)} MB · ${m.totalFilas} filas · ${m.tablas.length} tablas)\n`) +
+          p.dim(`  alcance: ${m.alcance.tipo} — ${de}\n`) +
+          p.dim(`  leído como ${m.leidoComo.rol}, sujeto a RLS, en una sola instantánea REPEATABLE READ\n`) +
+          p.dim(`  manifiesto: ${path.basename(r.manifiestoEn)}\n`)
+      );
+      process.stderr.write(
+        p.yellow('  Esto es una EXPORTACIÓN, no un respaldo: no hay camino de vuelta probado.\n') +
+          p.dim('  Para recuperación ante desastre: `mnemosine backup create` + `backup restore`.\n') +
+          (m.fueraDeAlcance.length > 0
+            ? p.dim(
+                `  ${m.fueraDeAlcance.length} tabla(s) acotada(s) quedan fuera de este alcance; el manifiesto las nombra una por una.\n`
+              )
+            : '') +
+          p.dim('  Lleva datos sin redactar del despacho, RFC de terceros incluidos: trátalo como tal.\n')
+      );
+    })
+  );
+
   // ---- backup list --------------------------------------------------
   const list = backup
     .command('list')
     .alias('listar')
-    .description('List known backups with their date, size, schema version and whether their hash still matches');
+    .description(
+      'List known backups and exports with their date, scope, size, schema version and whether their hash still matches'
+    );
   withOutput(withSelection(withContext(list)));
   list.option('--target <dir>', `directory to read (default: ${DESTINO_OMISION})`);
   declareRisk(list, { risk: 'lectura', agent: true });
@@ -166,11 +326,39 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
           '`backup list` no tiene estado que filtrar: un respaldo es un archivo, no un documento con ciclo.'
         );
       }
-      const respaldos = await listarRespaldos(opts.target ?? DESTINO_OMISION);
-      render(
-        respaldos.map((r) => ({
+      // Y el mismo trato para las banderas de acotación, por la misma razón que
+      // en `create`: se publicaban y se ignoraban. Aquí engaña MÁS que allí,
+      // porque la columna «alcance» que esta lista estrena hace que parezcan un
+      // filtro que existe — pedir el inquilino B listaría lo de A. Filtrar el
+      // inventario por alcance no está hecho; decirlo es lo que separa un
+      // límite utilizable de uno silencioso.
+      if (
+        opts.tenant !== undefined ||
+        opts.entity !== undefined ||
+        program.getOptionValueSource('tenant') === 'cli'
+      ) {
+        throw usageError(
+          '`backup list` inventaría un DIRECTORIO, y todavía no filtra por alcance: la bandera se ' +
+            'aceptaba y se ignoraba.\n' +
+            'La columna «alcance» de la salida ya dice de quién es cada archivo — inquilino, entidad ' +
+            'o instalación completa —, así que por ahora el filtro se hace leyéndola.'
+        );
+      }
+      const directorio = opts.target ?? DESTINO_OMISION;
+      const respaldos = await listarRespaldos(directorio);
+      // La columna «alcance» era una promesa escrita del catálogo —«fecha,
+      // alcance (tenant o entidad), tamaño…»— que no se podía cumplir mientras
+      // el único artefacto fuese el volcado entero: todos habrían dicho lo
+      // mismo. Con la exportación por inquilino la columna distingue de verdad,
+      // así que el inventario mira los dos tipos de archivo del directorio.
+      const exportaciones = await listarExportaciones(directorio);
+      const filas = [
+        ...respaldos.map((r) => ({
           archivo: path.basename(r.archivo),
           creado: r.manifiesto?.creado ?? '',
+          alcance: r.manifiesto
+            ? `instalación (${r.manifiesto.alcance?.inquilinos ?? '?'} inquilinos)`
+            : '(sin manifiesto)',
           esquema: r.manifiesto?.esquema.ultimaMigracion ?? '(sin manifiesto)',
           mb: r.manifiesto ? (r.manifiesto.bytes / 1024 / 1024).toFixed(1) : '',
           integro: r.integro === null ? '?' : r.integro ? 'sí' : 'NO',
@@ -178,13 +366,26 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
             ? `${r.manifiesto.verificacion.fecha.slice(0, 10)} (${r.manifiesto.verificacion.hallazgos} hallazgos)`
             : 'nunca',
         })),
-        {
-          ...opts,
-          total: respaldos.length,
-          idField: 'archivo',
-          fields: opts.fields ?? 'archivo,creado,esquema,mb,integro,verificado',
-        }
-      );
+        ...exportaciones.map((x) => ({
+          archivo: path.basename(x.archivo),
+          creado: x.manifiesto?.creado ?? '',
+          alcance: x.manifiesto
+            ? `${x.manifiesto.alcance.tipo}: ${x.manifiesto.alcance.entityNombre ?? x.manifiesto.alcance.tenantNombre}`
+            : '(sin manifiesto)',
+          esquema: x.manifiesto?.esquema.ultimaMigracion ?? '(sin manifiesto)',
+          mb: x.manifiesto ? (x.manifiesto.bytes / 1024 / 1024).toFixed(1) : '',
+          integro: x.integro === null ? '?' : x.integro ? 'sí' : 'NO',
+          // Una exportación no tiene ensayo de restauración que anotar, y
+          // escribir «nunca» aquí insinuaría que podría tenerlo.
+          verificado: 'n/a (exportación, no restaurable)',
+        })),
+      ].sort((a, b) => b.creado.localeCompare(a.creado));
+      render(filas, {
+        ...opts,
+        total: filas.length,
+        idField: 'archivo',
+        fields: opts.fields ?? 'archivo,creado,alcance,esquema,mb,integro,verificado',
+      });
     })
   );
 
