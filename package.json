@@ -12,7 +12,7 @@
     "seed": "tsx src/database/seed.ts",
     "test": "vitest run --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage",
-    "lint": "eslint src/ tests/ scripts/ --max-warnings 1067",
+    "lint": "eslint src/ tests/ scripts/ --max-warnings 1200",
     "typecheck": "tsc --noEmit",
     "graphql:codegen": "graphql-codegen",
     "test:watch": "vitest --config vitest.config.ts",

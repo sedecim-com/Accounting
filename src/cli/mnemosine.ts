@@ -1038,7 +1038,7 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
     let rl: readline.Interface | undefined;
     try {
       const ctx = await resolveEntity(opts.entity);
-      const { dryRun } = gateMutation(review, opts as Record<string, unknown>);
+      const { dryRun } = gateMutation(review, opts);
       const pending = await listDrafts(ctx, 'pending_review');
 
       if (pending.length === 0) {
@@ -1174,7 +1174,7 @@ ingest.action(async (files: string[], opts: {
         },
         ctx
       );
-      const { dryRun } = gateMutation(ingest, opts as Record<string, unknown>);
+      const { dryRun } = gateMutation(ingest, opts);
 
       if (dryRun) {
         // La capa determinista, sin escribir NADA y sin llamar a nadie: ni
@@ -1321,7 +1321,7 @@ onboard.action(async (opts: {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(opts.cutoff)) throw new Error('--cutoff must be YYYY-MM-DD');
       const startDate = opts.from ?? `${opts.cutoff.slice(0, 4)}-01-01`;
       const ctx = await resolveEntity(opts.entity);
-      const { dryRun } = gateMutation(onboard, opts as Record<string, unknown>);
+      const { dryRun } = gateMutation(onboard, opts);
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
       console.log(c.bold('\nmnemosine onboard') + c.dim(` · ${ctx.entityName} ← ${opts.provider} · cutoff ${opts.cutoff}`));
@@ -1476,7 +1476,7 @@ async function correrOutboxImpl(
   let rl: readline.Interface | undefined;
   try {
     const ctx = await resolveEntity(opts.entity);
-    const { dryRun, live } = gateMutation(cmd, opts as Record<string, unknown>);
+    const { dryRun, live } = gateMutation(cmd, opts);
     if (opts.idempotencyKey) {
       stderr.write(
         '  --idempotency-key does not apply here: each operation is claimed atomically and bound ' +

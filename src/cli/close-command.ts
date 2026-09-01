@@ -150,7 +150,7 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
           await deps.shutdown(readiness.canClose ? 0 : 1);
         }
 
-        const { dryRun, reason } = gateMutation(close, opts as Record<string, unknown>);
+        const { dryRun, reason } = gateMutation(close, opts);
         const kind = opts.hard ? 'HARD close (irreversible)' : 'soft close (reversible)';
 
         if (dryRun) {

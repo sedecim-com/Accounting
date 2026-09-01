@@ -165,7 +165,7 @@ const payment = (over: Record<string, unknown> = {}) => ({
 describe('the four issuance cases land in the four accounts', () => {
   it('invoice PUE → CR iva_trasladado 160', async () => {
     state.cfdiMetodo = { 'UUID-1': 'PUE' };
-    await postInvoiceEntry(fakeClient(), invoice({ cfdi_uuid: 'UUID-1' } as Partial<Invoice>), invoiceLines(), USER);
+    await postInvoiceEntry(fakeClient(), invoice({ cfdi_uuid: 'UUID-1' }), invoiceLines(), USER);
 
     const iva = lineFor('acct:iva_trasladado');
     expect(iva).toBeDefined();
@@ -177,7 +177,7 @@ describe('the four issuance cases land in the four accounts', () => {
 
   it('invoice PPD → CR iva_trasladado_no_cobrado 160, nothing in iva_trasladado', async () => {
     state.cfdiMetodo = { 'UUID-2': 'PPD' };
-    await postInvoiceEntry(fakeClient(), invoice({ cfdi_uuid: 'UUID-2' } as Partial<Invoice>), invoiceLines(), USER);
+    await postInvoiceEntry(fakeClient(), invoice({ cfdi_uuid: 'UUID-2' }), invoiceLines(), USER);
 
     const iva = lineFor('acct:iva_trasladado_no_cobrado');
     expect(iva).toBeDefined();
@@ -210,7 +210,7 @@ describe('the four issuance cases land in the four accounts', () => {
 
   it('the entry still balances in every case', async () => {
     state.cfdiMetodo = { 'UUID-3': 'PPD' };
-    await postInvoiceEntry(fakeClient(), invoice({ cfdi_uuid: 'UUID-3' } as Partial<Invoice>), invoiceLines(), USER);
+    await postInvoiceEntry(fakeClient(), invoice({ cfdi_uuid: 'UUID-3' }), invoiceLines(), USER);
 
     const debits = lines().reduce((s, l) => s + Number(l.debit_amount ?? 0), 0);
     const credits = lines().reduce((s, l) => s + Number(l.credit_amount ?? 0), 0);

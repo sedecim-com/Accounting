@@ -5,7 +5,6 @@ import { preAuthRateLimiter } from '../middleware/rate-limiter.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { bitcoinAnchorService } from '../../../services/blockchain/bitcoin-anchor.js';
 import { cryptoService } from '../../../services/blockchain/crypto-service.js';
-import { asyncHandler } from '../middleware/async-handler.js';
 
 // PUBLIC verification endpoints — NO authentication required
 // These expose cryptographic proofs so third parties can verify

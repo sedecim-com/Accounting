@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { query, closeDatabase, withTransaction } from '../../src/database/connection.js';
-import { crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
+import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { ivaStillParked } from '../../src/services/accounting/iva-cash-basis.js';
 import { checkReopenedPeriods } from '../../src/ai/doctor-service.js';
 import {

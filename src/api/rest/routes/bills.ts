@@ -1,15 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
-import { withTransaction } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError } from '../../../utils/errors.js';
 import { recordVendorPayment } from '../../../services/payments/payment-service.js';
-import {
-  postVendorPaymentEntry,
-  attestEntryAsync,
-} from '../../../services/accounting/index.js';
+import { attestEntryAsync } from '../../../services/accounting/index.js';
 import {
   listBills,
   getBillById,

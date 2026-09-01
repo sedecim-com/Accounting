@@ -1,8 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
-import Decimal from 'decimal.js';
-import { query, withTransaction } from '../../../database/connection.js';
+import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, ValidationError, NotImplementedError } from '../../../utils/errors.js';
@@ -15,7 +13,6 @@ import {
   issueInvoice,
   voidInvoice,
 } from '../../../services/ar/invoice-service.js';
-import { nextEntityNumber } from '../../../utils/sequence.js';
 import { estadoParaPersistir } from '../../../services/integrations/mexico/pac/simulacion.js';
 import type { Invoice } from '../../../types/index.js';
 
@@ -73,10 +70,6 @@ const recordPaymentSchema = z.object({
   reference: z.string().optional(),
   notes: z.string().optional(),
 }).passthrough();
-
-const voidInvoiceSchema = z.object({
-  reason: z.string().min(1),
-});
 
 const meta = (req: Request) => ({
   request_id: req.headers['x-request-id'],
