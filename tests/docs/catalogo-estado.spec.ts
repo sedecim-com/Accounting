@@ -109,6 +109,36 @@ describe('medir — el número sale del árbol vivo', () => {
     expect(e.citas.sinArchivo).toHaveLength(0);
     expect(e.citas.fueraDeRango).toHaveLength(0);
   });
+
+  it('enumera los solapamientos y las cuentas cuadran (S0.7)', () => {
+    // La misma ruta en dos secciones es UNA ruta con dos filas: el total de
+    // filas no es un total de comandos. La identidad filas − rutasÚnicas =
+    // filasRepetidas es la que delató a las filas-contrato, cuyo colapso a la
+    // ruta vacía descuadraba la resta por dos.
+    const doc = [
+      '| `mnemosine period list` · `a` | x | y | ✅ z | lectura | ✓ | 1 |',
+      '| `mnemosine period list --json` · `b` | x | y | ❌ z | lectura | ✓ | 2 |',
+      '| `mnemosine period show <p>` · `c` | x | y | ✅ z | lectura | ✓ | 1 |',
+    ].join('\n');
+    const e = medir(doc);
+    expect(e.solapamientos.rutas).toEqual([{ ruta: 'period list', veces: 2 }]);
+    expect(e.solapamientos.filasRepetidas).toBe(1);
+    expect(e.filas - e.comandosUnicos).toBe(e.solapamientos.filasRepetidas);
+  });
+
+  it('las filas-contrato no cuentan como comandos ni como invocables (S0.7)', () => {
+    // Su propia celda dice «no es un comando», y aun así entraban como
+    // invocables de fase 1 porque su ruta colapsa a la vacía — que es la de
+    // la invocación desnuda, la única que legítimamente cuenta sin árbol.
+    const doc = [
+      '| `mnemosine` (sin argumentos) | x | y | ✅ z | lectura | ✓ | 1 |',
+      '| `mnemosine <noun> <verb> --format <fmt>` (contrato) | x | y | 🟡 z | lectura | ✓ | 1 |',
+    ].join('\n');
+    const e = medir(doc);
+    expect(e.filas, 'el contrato no es una fila de comando').toBe(1);
+    expect(e.implementadas, 'sólo la invocación desnuda cuenta').toBe(1);
+    expect(e.fase1.total).toBe(1);
+  });
 });
 
 describe('render', () => {
@@ -185,16 +215,22 @@ describe('filasCompletas — los datos que consume el artefacto navegable', () =
     expect(vive.viva).toBe(true);
   });
 
-  it('sobre el catálogo real no pierde ni una fila', () => {
+  it('sobre el catálogo real no pierde ni una fila, salvo los dos contratos', () => {
     // Esta prueba fijaba el número 1623 y se puso en rojo el día que S0.1 añadió
     // tres filas: un literal que castiga el avance, que es justo lo que estos
     // scripts existen para quitar. Lo que hay que afirmar es la PROPIEDAD —que
     // el parser no descarta filas en silencio— y ésa se comprueba contando el
-    // archivo, no recordando un número.
+    // archivo, no recordando un número. La única exclusión legítima son las
+    // filas-CONTRATO (`mnemosine <noun> <verb> …`, «no es un comando» dice su
+    // propia celda): S0.7 las sacó del conteo porque entraban como comandos
+    // invocables de fase 1. La exclusión se cuenta AQUÍ, explícita, para que
+    // una fila descartada por accidente siga rompiendo.
     const md: string = require('node:fs').readFileSync('docs/cli-command-catalog.md', 'utf-8');
-    const enBruto = md.split('\n').filter((l: string) => /^\|\s*`mnemosine\b/.test(l)).length;
-    expect(enBruto).toBeGreaterThan(1000);
-    expect(filasCompletas(md)).toHaveLength(enBruto);
+    const brutas = md.split('\n').filter((l: string) => /^\|\s*`mnemosine\b/.test(l));
+    const contratos = brutas.filter((l: string) => /`mnemosine <noun>/.test(l)).length;
+    expect(brutas.length).toBeGreaterThan(1000);
+    expect(contratos, 'los dos contratos transversales').toBe(2);
+    expect(filasCompletas(md)).toHaveLength(brutas.length - contratos);
     expect(filasCompletas(md).every((f) => '✅🟡❌'.includes(f.estado))).toBe(true);
   });
 });

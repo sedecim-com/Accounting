@@ -39,40 +39,13 @@ documento se escribiera.
 
 ### Instantánea
 
-_Generada con `npm run plan:status`. Vale lo que valga su fecha; el comando vale siempre._
+No se copia. El estado vivo se pregunta:
 
-```
-Estado del plan, evaluado contra el código
+    npm run plan:status                  # el plan, criterio por criterio
+    npx tsx scripts/catalogo-estado.ts   # el catálogo CLI (reescribe su bloque generado en docs/cli-command-catalog.md)
 
-✅ E0.0   4/4 criterios
-✅ E0.1   3/3 criterios
-✅ E0.2   3/3 criterios
-✅ E0.3   2/2 criterios
-✅ E1.1   2/2 criterios
-✅ E1.2   2/2 criterios
-⬜ E1.3   0/1 criterios
-     ✘ Contestar una política cambia el comportamiento de alguien
-       ninguna de las 10 políticas se lee: nadie llama a getPolicy fuera del módulo, así que el catálogo entero es decorativo
-🟡 E1.4   1/2 criterios
-     ✘ La depreciación mensual tiene por dónde invocarse
-       runMonthlyDepreciation no tiene llamador: el motor existe y no hay puerta
-✅ E2.1   3/3 criterios
-✅ E2.2   2/2 criterios
-✅ E3.1   2/2 criterios
-✅ E3.2   1/1 criterios
-✅ E4.1   2/2 criterios
-🟡 E4.2   1/2 criterios
-     ✘ Las superficies de reportes consumen una sola capa de consulta
-       4 copia(s) del SQL de saldos fuera de report-service: src/ai/external-service.ts, src/api/graphql/resolvers/index.ts, src/api/rest/routes/reports.ts, src/services/blockchain/orchestrator.ts
-🟡 E5.1   1/2 criterios
-     ✘ Una corrida desatendida no puede alcanzar una herramienta que escriba
-       makeRunAgentTurn crea la sesión sin recortar herramientas: la corrida desatendida tiene las mismas que una interactiva, y lo único que pide borradores es una frase del prompt (KIND_INSTRUCTIONS). Un modelo que la ignora escribe de verdad
-
-11 de 15 paquetes con todos sus criterios en verde
-El estado de un paquete es el PEOR de sus criterios. Los criterios viven en src/plan/criterios.ts; el documento los cita, este comando los decide.
-```
-
-**Cerrados por el camino:** Superficie CLI del motor: ya existen `mnemosine entry reverse`, `entry void` y `period open`. · Los reportes ya no están duplicados: una sola capa de consulta compartida.
+(Aquí vivía la salida copiada de `plan:status`. Se pudrió como todo espejo: dos renglones más
+abajo afirmaba resuelto lo que su propio texto mostraba a medias — S0.7 la retiró.)
 
 ## Antes de la primera tarea
 

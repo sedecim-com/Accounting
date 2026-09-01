@@ -66,19 +66,21 @@ export function comandosVivos(): Set<string> {
 }
 
 /**
- * Familias que el catálogo NO pretende cubrir, y por qué.
+ * Familias que el catálogo NO cubre todavía, y por qué la lista importa.
  *
- * Su introducción las enumera como la superficie que ya existía —«casi todos de
- * plomería del agente»— y su alcance es la capacidad CONTABLE. Sin esta lista,
- * sus 29 hojas aparecen como «comandos vivos sin fila» y se leen como deuda de
- * catalogación. No lo son: están fuera por diseño, y decirlo es lo que hace
- * creíble el número que sí queda.
+ * Sin ella, sus hojas aparecen como «comandos vivos sin fila» y se leen como
+ * deuda de catalogación cuando son plomería del agente que quedó fuera por
+ * diseño. Pero la lista es una CEGUERA deliberada de la guardia `sinFila`,
+ * así que sólo puede contener familias con hojas de verdad sin fila: S0.7
+ * sacó quince que ya estaban catalogadas por completo (ask, chat, close,
+ * compact, doctor, ingest, init, lang, login, logout, onboard, outbox,
+ * review, status, whoami) y a `questions`, que ya ni existe como familia —
+ * dejarlas dentro habría escondido cualquier hoja futura suya que naciera
+ * sin fila. `memory` se queda a medias: teach/retire siguen sin fila.
  */
 export const FUERA_DEL_CATALOGO = new Set([
   'jobs', 'webhooks', 'approvals', 'pending', 'skills', 'memory', 'drafts',
-  'outbox', 'questions', 'sessions', 'usage', 'providers', 'entities',
-  'prompt-size', 'chat', 'ask', 'review', 'ingest', 'onboard', 'doctor',
-  'status', 'login', 'logout', 'whoami', 'lang', 'compact', 'init', 'close',
+  'sessions', 'usage', 'providers', 'entities', 'prompt-size',
 ]);
 
 /**
@@ -114,17 +116,35 @@ export function rutaDe(invocacion: string): string {
     .join(' ');
 }
 
+/**
+ * Filas-CONTRATO: `mnemosine <noun> <verb> --format <fmt>` y su hermana de
+ * contexto. Su propia celda dice «no es un comando», pero el medidor las
+ * contaba como comandos —y como INVOCABLES de fase 1, porque su ruta colapsa
+ * a la vacía y la vacía cuenta como la invocación desnuda—. Dos filas de
+ * mentira estructural: el binario no responde a `<noun>`. Quedan fuera del
+ * conteo de comandos; siguen siendo filas del documento, como la prosa.
+ *
+ * La firma es «la ruta colapsa a vacía sin ser la invocación desnuda»: todos
+ * sus tokens son plantilla o bandera. Un `<noun>` como ARGUMENTO de un
+ * comando real (`schema show <noun>`) no cae aquí — la primera versión de
+ * este filtro se lo comía, y el total salía 1623 en vez de 1624.
+ */
+const esContrato = (invocacion: string): boolean =>
+  invocacion !== '' && rutaDe(invocacion) === '';
+
 export function filasDelCatalogo(md: string): Fila[] {
   // `\b` y no un espacio: hay una fila para la invocación DESNUDA,
   // `| \`mnemosine\` (sin argumentos)`, que detecta el estado de la máquina.
   // Exigir el espacio la dejaba fuera y el total salía 1622 en vez de 1623 —
   // un documento de referencia que se equivoca por uno se lee igual de mal
   // que uno que se equivoca por cien.
-  return [...md.matchAll(/^\|\s*`mnemosine\b([^`]*)`/gm)].map((m) => {
-    const invocacion = m[1].trim();
-    const ruta = rutaDe(invocacion);
-    return { invocacion, ruta, familia: ruta.split(' ')[0] || '(raíz)' };
-  });
+  return [...md.matchAll(/^\|\s*`mnemosine\b([^`]*)`/gm)]
+    .map((m) => {
+      const invocacion = m[1].trim();
+      const ruta = rutaDe(invocacion);
+      return { invocacion, ruta, familia: ruta.split(' ')[0] || '(raíz)' };
+    })
+    .filter((f) => !esContrato(f.invocacion));
 }
 
 /**
@@ -183,6 +203,7 @@ export function filasCompletas(md: string): FilaCompleta[] {
     const c = celdasDe(linea).slice(1);
     if (c.length < 7) continue;
     const inv = (linea.match(/`mnemosine\b([^`]*)`/) ?? [])[1]?.trim() ?? '';
+    if (esContrato(inv)) continue;
     const ruta = rutaDe(inv);
     const backend = c[3] ?? '';
     const primero = [...backend][0] ?? '?';
@@ -236,6 +257,17 @@ export interface Estado {
    * fase 3 que gane motor vuelve a contarse por sí misma.
    */
   recorte: { fase3SinMotor: number; objetivo: number };
+  /**
+   * El medio corte de S0.7: rutas de comando catalogadas en MÁS de una
+   * sección. El plan estimó a mano «5 solapamientos»; contados, son más —
+   * la misma lección que el 244 de S0.5: la cifra la da el instrumento, no
+   * la memoria. No se borra ninguna fila (cada sección describe el comando
+   * desde su dominio y el REGISTRY §5 reparte la propiedad): se cuenta por
+   * COMANDO, para que el total de filas no se lea como total de comandos.
+   */
+  solapamientos: { rutas: Array<{ ruta: string; veces: number }>; filasRepetidas: number };
+  /** Rutas de comando únicas (la invocación desnuda incluida). */
+  comandosUnicos: number;
   porFamilia: Array<{ familia: string; total: number; implementadas: number }>;
   citas: { total: number; sinArchivo: Cita[]; fueraDeRango: Cita[] };
   superficie: { familias: number; comandos: number };
@@ -291,6 +323,21 @@ export function medir(md: string): Estado {
       const fase3SinMotor = completas.filter((f) => f.fase === '3' && f.estado === '❌').length;
       return { fase3SinMotor, objetivo: filas.length - fase3SinMotor };
     })(),
+    ...(() => {
+      const porRuta = new Map<string, number>();
+      for (const f of filas) porRuta.set(f.ruta, (porRuta.get(f.ruta) ?? 0) + 1);
+      const rutas = [...porRuta.entries()]
+        .filter(([ruta, n]) => n > 1 && ruta !== '')
+        .map(([ruta, veces]) => ({ ruta, veces }))
+        .sort((a, b) => b.veces - a.veces || a.ruta.localeCompare(b.ruta));
+      return {
+        solapamientos: {
+          rutas,
+          filasRepetidas: rutas.reduce((s, r) => s + r.veces - 1, 0),
+        },
+        comandosUnicos: porRuta.size,
+      };
+    })(),
     porFamilia: [...agrupado.entries()]
       .map(([familia, g]) => ({ familia, ...g }))
       .filter((g) => g.implementadas > 0 || g.total >= 20)
@@ -335,8 +382,18 @@ export function render(e: Estado): string {
       `**${e.recorte.fase3SinMotor}** de fase 3 cuyo motor no existe quedan declaradas fuera ` +
       '— analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se ' +
       'conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane ' +
-      'motor vuelve a contarse sola. Los 5 solapamientos entre familias siguen SIN enumerar: ese ' +
-      'medio corte espera a S0.7.'
+      'motor vuelve a contarse sola.'
+  );
+  l.push('');
+  l.push(
+    `Contadas por COMANDO, las ${e.filas} filas son **${e.comandosUnicos} rutas únicas**: ` +
+      `**${e.solapamientos.rutas.length} rutas** están catalogadas en más de una sección ` +
+      `(**${e.solapamientos.filasRepetidas}** filas repetidas — el plan estimaba a mano «5 solapamientos»; ` +
+      'contados por el instrumento son estos, S0.7): ' +
+      e.solapamientos.rutas.map((r) => `\`${r.ruta}\` ×${r.veces}`).join(', ') +
+      '. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 ' +
+      'reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar ' +
+      'por fila contaría dos veces estas rutas.'
   );
   l.push('');
   l.push('| Familia | En el catálogo | Ya invocables |');
