@@ -4257,6 +4257,16 @@ export const CRITERIOS: Criterio[] = [
         porque: 'invierte el signo de TODO saldo publicado: la balanza, el estado de resultados y el balance general dirían lo contrario de lo que los libros dicen, y hasta G1a ninguna prueba de cifras lo notaba',
       },
       {
+        // La línea que el reconocimiento de S4 demostró desprotegida: invirtió
+        // ÉSTA —la del balance general, no la anclada— y el arnés, el plan y
+        // las 3 435 unitarias siguieron en verde. Una utilidad de 3 000
+        // publicada como pérdida de 2 000, otra vez, por la puerta de al lado.
+        archivo: 'src/services/reporting/report-service.ts',
+        de: 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0) as balance',
+        a: 'COALESCE(SUM(COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)), 0) as balance',
+        porque: 'invierte el signo en la consulta del BALANCE GENERAL: el capital contable se publica del revés y ninguna prueba de la vía rápida lo nota',
+      },
+      {
         // El diente, no la boca: el saldo se consulta DOS veces (ingresos y
         // gastos) y mutar una sola basta, porque el barrido de esa mitad cae
         // del lado contrario y el ejercicio queda sin barrer.
@@ -4278,8 +4288,21 @@ export const CRITERIOS: Criterio[] = [
       //    aquí —y no sólo en la prueba de conducta— porque un criterio sólo
       //    mata lo que inspecciona: la primera versión de este bloque no
       //    leía report-service, y sus dos mutantes sobrevivieron.
-      if (!/COALESCE\(SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\), 0\) AS ending_balance/.test(rs)) {
-        return falla('se invirtió el signo del saldo publicado: la balanza, el estado de resultados y el balance general dirían lo contrario de lo que dicen los libros');
+      // SE CUENTAN LAS CINCO. La primera versión ancló sólo la de
+      // `AS ending_balance` y dejó fuera las otras cuatro —entre ellas la del
+      // BALANCE GENERAL (:445)—, así que invertir el signo una línea más abajo
+      // pasaba el arnés, el plan y las 3 435 unitarias: sólo lo acusaba un job
+      // de integración de cuatro minutos que nadie corre antes de empujar. Es
+      // la lección que este mismo criterio aplica a period-close doce líneas
+      // más abajo, y que no se aplicó al archivo que acababa de añadir.
+      const saldosPublicados = (
+        rs.match(/COALESCE\(SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\)/g) ?? []
+      ).length;
+      if (saldosPublicados !== 5) {
+        return falla(
+          `${5 - saldosPublicados} de las cinco consultas del saldo publicado tienen la resta invertida: ` +
+            'la balanza, el estado de resultados o el balance general dirían lo contrario de lo que dicen los libros'
+        );
       }
       // Se CUENTAN las dos apariciones —ingresos y gastos— en vez de
       //    comprobar que haya una: son gemelas textuales, y un mutante que
