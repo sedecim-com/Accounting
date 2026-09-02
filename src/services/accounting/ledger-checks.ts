@@ -1,5 +1,7 @@
 import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
+import { resolvePeriod } from './fiscal-calendar-service.js';
+import { resolveAccount } from './account-service.js';
 
 // ============================================================
 // F01 · LEDGER CHECKS — verificaciones nombradas y enumerables
@@ -38,17 +40,39 @@ export interface LedgerCheckFilters {
   period?: string;
 }
 
+/**
+ * Los filtros se RESUELVEN, no se interpolan.
+ *
+ * `balance` devuelve sólo los renglones descuadrados, así que un filtro que no
+ * casa nada y un mayor sano dan exactamente lo mismo —cero filas—, y arriba eso
+ * se imprime como «✔ el mayor pasa las verificaciones bloqueantes» con salida 0.
+ * Un `ILIKE '%lo que sea%'` convertía cualquier forma no prevista en un visto
+ * bueno silencioso: con `account_balances` corrompido a propósito, `--period
+ * 2026-08` salía con 0 y daba el visto bueno mientras la misma corrida sin
+ * bandera salía con 4 y nombraba el descuadre. Quien copiara esa línea antes de
+ * cerrar el mes cerraba creyendo que había comprobado la integridad.
+ *
+ * `resolvePeriod` es el resolvedor que la casa ya tiene para esto —acepta uuid,
+ * «2026-08» y cualquier parte inequívoca del nombre, y rehúsa el match ambiguo
+ * en vez de tomar el primero—, y nació justamente porque `close -p` podía
+ * cerrar en silencio un mes distinto del que se quería. Es el mismo fallo, así
+ * que se usa el mismo remedio: aquí ya no se compara texto, se filtra por id.
+ * Un filtro que no existe lanza NotFoundError —igual que en el resto del
+ * sistema— en vez de estrenar un universo vacío y llamarlo limpio.
+ */
 async function checkBalance(entityId: string, f: LedgerCheckFilters): Promise<LedgerFinding[]> {
   const cond: string[] = [];
   const params: unknown[] = [entityId];
   let i = 2;
   if (f.account) {
-    cond.push(`a.code = $${i++}`);
-    params.push(f.account);
+    const cuenta = await resolveAccount(entityId, f.account);
+    cond.push(`a.id = $${i++}`);
+    params.push(cuenta.id);
   }
   if (f.period) {
-    cond.push(`fp.period_name ILIKE $${i++}`);
-    params.push(`%${f.period}%`);
+    const periodo = await resolvePeriod(entityId, f.period);
+    cond.push(`fp.id = $${i++}`);
+    params.push(periodo.id);
   }
   const extra = cond.length > 0 ? ` AND ${cond.join(' AND ')}` : '';
   const result = await query<{
@@ -189,8 +213,12 @@ export async function listStaleDrafts(
   ];
   const params: unknown[] = [entityId, String(dias)];
   if (opts.period) {
-    cond.push('fp.period_name ILIKE $3');
-    params.push(`%${opts.period}%`);
+    // Por id, como en `balance` y por lo mismo: una lista vacía y «no hay
+    // borradores viejos» se imprimen igual, así que un filtro que no casaba
+    // ningún periodo tranquilizaba en vez de avisar.
+    const periodo = await resolvePeriod(entityId, opts.period);
+    cond.push('fp.id = $3');
+    params.push(periodo.id);
   }
   const result = await query<BorradorViejo>(
     `SELECT je.entry_number, je.description, je.status,
