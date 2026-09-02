@@ -464,6 +464,7 @@ export const CRITERIOS: Criterio[] = [
         F05b: 'docs/auditorias/F05b.md',
         F05c: 'docs/auditorias/F05c.md',
         F05d: 'docs/auditorias/F05d.md',
+        F06a: 'docs/auditorias/F06a.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -529,8 +530,7 @@ export const CRITERIOS: Criterio[] = [
       // entrada reclamada cuya tabla gane escritor sobra: se reporta para
       // borrarla, como la línea base del auditor.
       const RECLAMADAS: Record<string, string> = {
-        asset_categories: 'F06/DEP-2: el alta de activo la necesita (fixed_assets.category_id NOT NULL)',
-            inventory_items: 'familia inventario: el esquema es el diseñado; el motor es neto nuevo (S0.4)',
+        inventory_items: 'familia inventario: el esquema es el diseñado; el motor es neto nuevo (S0.4)',
         inventory_layers: 'familia inventario: capas de costeo',
         inventory_layer_consumption: 'familia inventario: consumo de capas',
         scheduled_payments: 'F04: la programación de pagos retirada con 501 escribe aquí cuando exista',
@@ -1746,12 +1746,51 @@ export const CRITERIOS: Criterio[] = [
   // ---- E1.4 · Módulos sin puerta ----
   {
     paquete: 'E1.4',
-    enunciado: 'La depreciación mensual tiene por dónde invocarse',
+    enunciado: 'La depreciación mensual tiene por dónde invocarse, y la puerta llega al binario',
+    mutantes: [
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerDepreciationCommand(program, { palette: c, shutdown, reportError });',
+        a: '// registerDepreciationCommand fuera del binario',
+        porque: 'la familia entera vuelve a estar verificada y no entregada: 76 pruebas verdes sobre un programa que sólo construye el spec, y una puerta que nadie puede empujar',
+      },
+      {
+        archivo: 'src/services/assets/depreciation-math.ts',
+        de: 'export function indiceDeCalendario(',
+        a: 'export function indiceDeCalendario_(',
+        porque: 'el índice de calendario desaparece del módulo puro: el motor volvería a indexar por su cuenta, que es como marzo repetía la fila de febrero',
+      },
+    ],
     evaluar: () => {
+      // LA HISTORIA DE ESTE CRITERIO ES LA DE SU PROPIA DEBILIDAD. Su primera
+      // versión sólo pedía «un llamador», y F06a lo demostró en vivo: el
+      // llamador existió en depreciation-command.ts, E1.4 se puso VERDE, y el
+      // binario no cargaba ese archivo — una puerta que nadie podía empujar,
+      // exactamente el «verde no es entregado» que F05a ya había enseñado.
+      // consumidoresDe hace grep sobre src/ y no distingue código alcanzable
+      // de código muerto, ni motor correcto de motor roto.
       const cons = consumidoresDe('runMonthlyDepreciation', 'depreciation.ts');
-      return cons.length > 0
-        ? ok(`invocable desde ${cons.join(', ')}`)
-        : falla('runMonthlyDepreciation no tiene llamador: el motor existe y no hay puerta');
+      if (cons.length === 0) {
+        return falla('runMonthlyDepreciation no tiene llamador: el motor existe y no hay puerta');
+      }
+      // 1 · ALCANZABLE: la puerta está registrada en el binario de verdad.
+      if (!/registerDepreciationCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'))) {
+        return falla('registerDepreciationCommand no está en el binario: el llamador vive en un archivo que mnemosine.ts no carga');
+      }
+      // 2 · EL ÍNDICE ES CALENDARIO, NO PROMEDIO. Dividir por 30,44 días
+      // —la longitud MEDIA de un mes— hacía que marzo repitiera la fila de
+      // febrero y que la última no se consumiera nunca: once filas en doce
+      // meses, y la suma posteada jamás daba costo menos salvamento.
+      const math = codigoDe('src/services/assets/depreciation-math.ts');
+      if (!/export function indiceDeCalendario\(/.test(math) || /30\.44/.test(math)) {
+        return falla('la aritmética volvió a medir meses con un promedio (30,44 d): marzo repite febrero y la última fila no se consume nunca');
+      }
+      // 3 · Y EL MOTOR LA USA. Que la función correcta exista no basta si
+      // runMonthlyDepreciation sigue indexando por su cuenta.
+      if (!/indiceDeCalendario\(/.test(codigoDe('src/services/assets/depreciation.ts'))) {
+        return falla('runMonthlyDepreciation dejó de indexar por calendario: el motor no consume la aritmética que sí está bien');
+      }
+      return ok(`invocable desde ${cons.join(', ')}, registrado en el binario, e indexando por calendario`);
     },
   },
   {
@@ -3968,6 +4007,97 @@ export const CRITERIOS: Criterio[] = [
       return clausura
         ? ok('el sello va con fecha y dueño o no va, y desaplicar clausura el cotejo en vez de borrarlo')
         : falla('la clausura del cotejo perdió su fecha: un cotejo deshecho seguiría contando como vivo');
+    },
+  },
+
+
+  // ---- F06a · El activo y su corrida ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El mismo mes no se carga dos veces al mayor, ni cambiando la política entre corridas',
+    mutantes: [
+      {
+        archivo: 'src/services/assets/depreciation.ts',
+        de: "            AND (ds.is_posted = true OR ds.schedule_type = $3)",
+        a: "            AND ds.schedule_type = $3",
+        porque: 'el freno vuelve a acotarse por libro: correr marzo, contestar el panel con la otra base y correr marzo otra vez postea un SEGUNDO asiento — 20.000 en el mayor para un mes que vale 10.000, y con la 041 eso son reversas, no ediciones',
+      },
+    ],
+    evaluar: () => {
+      // MEDIDO por el verificador adversarial, y la secuencia es la que el
+      // propio sistema invita a hacer: correr el mes con `vida_util_nif`,
+      // contestar el panel con `tasa_lisr` —literalmente lo que sugiere el
+      // mensaje de criteriosDeLaCorrida— y correr otra vez. El freno estaba
+      // acotado por `schedule_type`, así que la segunda corrida no encontraba
+      // fila `tax` y debitaba la misma cuenta de gasto por segunda vez.
+      //
+      // Por eso el freno tiene dos mitades: un renglón `is_posted` de
+      // CUALQUIER libro cierra el mayor para ese mes, y el tipo sigue cerrando
+      // la UNIQUE para el calendario.
+      const svc = codigoDe('src/services/assets/depreciation.ts');
+      if (!/AND \(ds\.is_posted = true OR ds\.schedule_type = \$\d\)/.test(svc)) {
+        return falla('el freno de la corrida volvió a acotarse por libro: cambiar la política entre corridas cargaría el mismo mes dos veces');
+      }
+      // Y LA FICHA SE DERIVA DE LO POSTEADO, no del calendario teórico. Los
+      // meses no tienen por qué correrse en orden: con el acumulado teórico,
+      // correr marzo→enero→febrero dejaba la ficha un mes por debajo PARA
+      // SIEMPRE y last_depreciation_date retrocedía. Derivada de la suma de
+      // renglones posteados —que la 056 garantiza con asiento detrás—, ficha
+      // y mayor coinciden por construcción en cualquier orden.
+      const derivada = /current_book_value = fa\.acquisition_cost - p\.acumulada,/.test(svc) &&
+        /SELECT COALESCE\(SUM\(ds\.depreciation_expense\), 0\) AS acumulada,/.test(svc);
+      return derivada
+        ? ok('el freno mira lo posteado de cualquier libro y la ficha es la suma de lo posteado: mayor y ficha no pueden separarse')
+        : falla('la ficha volvió a copiar el renglón teórico del calendario: correr los meses en desorden la separa del mayor para siempre');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'La vida del activo suma exacta: doce filas en doce meses y el tapón cierra al peso',
+    mutantes: [
+      {
+        archivo: 'src/services/assets/depreciation-math.ts',
+        de: '    const restante = base.minus(acumulado);',
+        a: '    const restante = base.dividedBy(2);',
+        porque: 'el último renglón deja de absorber la diferencia de redondeo: 100.000 a 36 meses vuelve a acumular 100.000,0008 y el activo nunca llega a cero exacto',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerAssetCommand(program, { palette: c, shutdown, reportError });',
+        a: '// registerAssetCommand fuera del binario',
+        porque: 'el alta se queda verificada y no entregada: sin ficha no hay activo, y sin activo toda la aritmética de este criterio es letra muerta',
+      },
+    ],
+    evaluar: () => {
+      // El defecto original: el índice del calendario dividía milisegundos
+      // entre 30,44 días —la longitud MEDIA de un mes—, así que marzo repetía
+      // la fila de febrero y la última no se consumía nunca: once filas en
+      // doce meses, y la suma posteada jamás daba costo menos salvamento.
+      // E1.4 ancla el índice; aquí se ancla LO OTRO que hace exacta la vida.
+      const math = codigoDe('src/services/assets/depreciation-math.ts');
+      // El tapón: el último renglón es base − acumulado, no una división más.
+      // Aparece en dos series (línea recta y decrecientes); se CUENTAN porque
+      // son gemelos y un ancla de presencia se conforma con encontrar el otro.
+      const tapones = (math.match(/const restante = base\.minus\(acumulado\);/g) ?? []).length;
+      if (tapones < 2) {
+        return falla(
+          `el tapón del último renglón sobrevive en ${tapones} de las 2 series que agotan la base: la que lo pierda dejará residuo de redondeo para siempre`
+        );
+      }
+      // Y el dinero entra como STRING: el motor viejo pasaba DECIMAL(19,4) por
+      // parseFloat, que es por donde se cuelan los centavos.
+      if (!/acquisition_cost: string;[\s\S]{0,80}?salvage_value: string;/.test(math)) {
+        return falla('el costo o el salvamento volvieron a ser number: los centavos se pierden en el parseFloat de entrada');
+      }
+      // Y EL ALTA ESTÁ EN EL BINARIO. Sin ficha no hay activo, y sin activo
+      // toda la aritmética de arriba es letra muerta — el «verde no es
+      // entregado» que F05a enseñó y F06a repitió con la otra familia.
+      const entregada = /registerAssetCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'));
+      return entregada
+        ? ok('el tapón cierra las dos series al peso, el dinero viaja como cadena y el alta está en el binario')
+        : falla('registerAssetCommand no está en el binario: el alta quedó verificada y no entregada, y nadie puede crear la ficha');
     },
   },
 

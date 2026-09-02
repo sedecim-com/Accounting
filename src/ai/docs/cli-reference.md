@@ -110,6 +110,10 @@ Commands:
                                         subledger against the control account
   bank|banco                            Bank accounts and bank statements:
                                         master data and imported statements
+  asset|activo                          Fixed asset register: the ledger of what
+                                        the company owns and depreciates
+  depreciation|depreciacion             The monthly depreciation run: compute
+                                        it, look at it, then post it
   backup|respaldo                       Logical backups of the whole
                                         installation (create, list, verify by
                                         rehearsing the restore, restore) and
@@ -4614,6 +4618,134 @@ Options:
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
+```
+
+## `mnemosine asset` (alias: activo)
+
+```
+Usage: mnemosine asset|activo [options] [command]
+
+Fixed asset register: the ledger of what the company owns and depreciates
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  create|crear [options] <name>  Register a fixed asset with its class, dates,
+                                 cost and accounts — writes no journal entry
+  help [command]                 display help for command
+```
+
+### `mnemosine asset create` (alias: crear)
+
+```
+Usage: mnemosine asset create|crear [options] <name>
+
+Register a fixed asset with its class, dates, cost and accounts — writes no
+journal entry
+
+Arguments:
+  name                                     what the asset is called in the register
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --note <text>                            free annotation stored with the record
+  --category <idOrName>                    asset class: its id, or enough of its name to be unambiguous
+  --cost <amount>                          original cost of the investment (MOI), as a decimal
+  --acquired <date>                        acquisition date (YYYY-MM-DD)
+  --in-service <date>                      date depreciation starts (YYYY-MM-DD); defaults from the first-month convention on the panel
+  --book <book|tax>                        the depreciation book you believe you are working on; checked against the panel
+  --capitalized <yes|no>                   whether the cost is ALREADY charged to the asset account in the ledger — no default
+  --source-entry <id>                      the journal entry the cost already sits in, when it is known
+  --salvage <amount>                       residual value at the end of its life (default 0)
+  --life-years <n>                         useful life in years
+  --life-months <n>                        useful life in months; years are the ceiling of months over twelve
+  --method <method>                        BOOK depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, units_of_production, macrs
+  --tax-method <method>                    TAX depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, units_of_production, macrs
+  --asset-account <id>                     GL account the cost sits in (defaults from the class)
+  --accum-account <id>                     accumulated depreciation account (defaults from the class)
+  --expense-account <id>                   depreciation expense account (defaults from the class)
+  --number <folio>                         asset number; generated from the entity series when omitted
+  --description <text>                     what the asset is
+  --vendor <id>                            vendor it was bought from
+  --serial <text>                          serial number, so the register can find the physical thing
+  --location <text>                        where it is
+  --dry-run                                run the real path and undo it: shows the asset that would be created
+  -h, --help                               display help for command
+```
+
+## `mnemosine depreciation` (alias: depreciacion)
+
+```
+Usage: mnemosine depreciation|depreciacion [options] [command]
+
+The monthly depreciation run: compute it, look at it, then post it
+
+Options:
+  -h, --help                   display help for command
+
+Commands:
+  run|ejecutar [options]       Compute the period run and show it asset by asset
+                               — writes nothing, posts nothing
+  post|contabilizar [options]  Post the period run to the ledger — one journal
+                               entry per asset, irreversible
+  help [command]               display help for command
+```
+
+### `mnemosine depreciation run` (alias: ejecutar)
+
+```
+Usage: mnemosine depreciation run|ejecutar [options]
+
+Compute the period run and show it asset by asset — writes nothing, posts
+nothing
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --period <expr>                          period to compute: 2026-08, or any unambiguous part of its name
+  --book <book|tax>                        the depreciation book you believe you are running; checked against the panel
+  --by <dimension>                         detail or summary: asset, class, account, method (asset is the per-asset detail) (default: "asset")
+  -h, --help                               display help for command
+```
+
+### `mnemosine depreciation post` (alias: contabilizar)
+
+```
+Usage: mnemosine depreciation post|contabilizar [options]
+
+Post the period run to the ledger — one journal entry per asset, irreversible
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to post: 2026-08, or any unambiguous part of its name
+  --book <book|tax>                        the depreciation book you believe you are posting; checked against the panel
+  --file <path>                            the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
+  -h, --help                               display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)

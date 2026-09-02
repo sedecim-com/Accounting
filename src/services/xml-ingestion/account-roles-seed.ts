@@ -173,6 +173,23 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
       'NO es gasto: es pago provisional a favor (1145), y tratarlo como gasto lo pierde.',
   },
   {
+    // F06a. La ficha del activo necesita a dónde mandar el gasto y el
+    // acumulado, y una entidad que IMPORTÓ su catálogo puede no traer 1290 ni
+    // 6140 — el mismo argumento que metió aquí a las cuatro cuentas de IVA.
+    // La primera versión venía SIN rol «para no crear capacidad huérfana», y
+    // la prueba de la casa la rechazó: toda cuenta de esta lista lleva su rol,
+    // porque una cuenta sembrada que ningún rol nombra es exactamente la que
+    // alguien cablea después a mano y por código.
+    code: '1290', name: 'Depreciación Acumulada', account_type: 'contra_asset',
+    normal_balance: 'credit', fs_category: 'non_current_assets',
+    description: 'Contra-activo: el costo ya consumido de los activos fijos. La abona cada corrida mensual.',
+  },
+  {
+    code: '6140', name: 'Depreciación', account_type: 'expense',
+    normal_balance: 'debit', fs_category: 'operating_expenses',
+    description: 'El gasto mensual por depreciación. Lo carga la corrida contra 1290.',
+  },
+  {
     code: '6900', name: 'Gastos No Deducibles', account_type: 'expense',
     normal_balance: 'debit', fs_category: 'operating_expenses',
     description:
@@ -201,6 +218,8 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   gasto_anticipado: '1160',
   inventario: '1140',
   activo_fijo: '1210',
+  depreciacion_acumulada: '1290',
+  depreciacion_gasto: '6140',
   devolucion_compras: '5200',
   anticipo_proveedores: '1150',
   cxp: '2110',

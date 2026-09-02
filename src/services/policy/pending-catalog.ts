@@ -97,6 +97,92 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 35,
   },
   {
+    // F06a · Qué depreciación rige el gasto que se postea. El esquema ya tenía
+    // la dualidad desde la 003 —`book_depreciation_method` y
+    // `tax_depreciation_method`— y nadie la leía: el motor usaba la columna
+    // única y clavaba `schedule_type: 'book'`.
+    key: 'base_depreciacion',
+    category: 'contable',
+    question: 'Which depreciation drives the expense you post: book life or the tax rate?',
+    impact:
+      'Governs `depreciation run`. With "vida_util_nif" the monthly expense follows the useful ' +
+      'life you set per asset (NIF C-6). With "tasa_lisr" it follows the maximum rate the income ' +
+      'tax law allows for that asset class (arts. 31-38 LISR), which is what most Mexican SMEs ' +
+      'book so that the accounting and the deduction do not diverge. Either way BOTH schedules ' +
+      'can be computed; this decides which one reaches the ledger.',
+    options: [
+      { value: 'vida_util_nif', label: 'Book: the useful life you assigned to the asset (NIF C-6)' },
+      { value: 'tasa_lisr', label: 'Tax: the maximum LISR rate for its class, so books and deduction agree' },
+    ],
+    defaultValue: 'vida_util_nif',
+    defaultRationale:
+      'It is what the financial statements are supposed to show, and it is the column the engine ' +
+      'already used. Choosing the tax rate is a legitimate simplification, but it has to be chosen.',
+    whyAsking:
+      'A machine you expect to use for ten years can be deducted faster than that, or slower, depending on which rule you follow. Both answers are defensible and they post different amounts every month — so this is your firm\'s criterion, not something I can look up.',
+    whatIDo:
+      'I compute the monthly expense on the basis you pick and record which one I used on every schedule row, so a later run can prove it kept the same criterion. If you ever switch, the rows already posted keep saying what they were.',
+    ifSkipped:
+      'I use the book useful life. Your deduction may then differ from your booked expense, which is normal but means a reconciliation at year end.',
+    priority: 25,
+  },
+  {
+    // F06a · El primer y el último mes de cada activo. El motor no tenía
+    // convención: indexaba filas de un calendario.
+    key: 'convencion_primer_mes',
+    category: 'contable',
+    question: 'An asset bought mid-month: does it depreciate that whole month, or only the days it was owned?',
+    impact:
+      'Governs the first and last amount of every asset. "mes_completo" charges the full month of ' +
+      'the in-service date; "proporcional_dias" charges only the days owned and pushes the ' +
+      'remainder to the final month. Over the life of the asset the total is identical — what ' +
+      'changes is which period carries it, and therefore every monthly result in between.',
+    options: [
+      { value: 'mes_completo', label: 'Whole month from the month it entered service (LISR counts whole months)' },
+      { value: 'proporcional_dias', label: 'Pro rata by days owned in the first and last month' },
+    ],
+    defaultValue: 'mes_completo',
+    defaultRationale:
+      'It is what the income tax law counts, it is simpler to audit, and it avoids a partial ' +
+      'amount that no one can reproduce a year later without knowing the exact purchase day.',
+    whyAsking:
+      'You buy a machine on the 20th. Charging the whole month overstates that month slightly; charging eleven days understates it and leaves a stub at the end. Neither is wrong — your firm picks one and stays with it.',
+    whatIDo:
+      'I apply the convention you pick to the first and last month of every asset, and I record it on the schedule row so the amount can be reproduced.',
+    ifSkipped:
+      'I charge the whole month, which matches how the tax law counts and is the easier of the two to defend.',
+    priority: 26,
+  },
+  {
+    // F06a · ¿La casilla del cierre bloquea? Precedente exacto en este mismo
+    // archivo: `rep_faltante_recibido` y `rep_faltante_emitido` preguntan lo
+    // mismo y las lee `getPeriodCloseStatus`.
+    key: 'depreciacion_faltante_al_cierre',
+    category: 'operativa',
+    question: 'Closing a month with assets whose depreciation was never run: warn, or refuse?',
+    impact:
+      'Governs the "Depreciation calculated and posted" item on the close checklist. With ' +
+      '"avisar" the month closes and the checklist says what is missing; with "bloquear" it ' +
+      'refuses until the run happens. A month closed without depreciation overstates profit and ' +
+      'the asset, and the error compounds because next month starts from the wrong book value.',
+    options: [
+      { value: 'avisar', label: 'Warn: the month closes and the checklist names what is missing' },
+      { value: 'bloquear', label: 'Refuse: no month closes with depreciation pending' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'Same default as the other two close gates in this panel, and for the same reason: a hard ' +
+      'block on a control that has just started producing data would stall the first close after ' +
+      'this feature ships. Turn it on once the run is part of your routine.',
+    whyAsking:
+      'Forgetting the depreciation run is the easiest way to close a month that looks better than it was — and unlike most mistakes it does not correct itself: next month starts from a book value that is too high.',
+    whatIDo:
+      'I count the active assets with no posted depreciation for the period and either warn you or refuse to close, as you choose. Either way the checklist names them.',
+    ifSkipped:
+      'I warn but let the month close, so the first month after this ships does not get stuck.',
+    priority: 27,
+  },
+  {
     key: 'umbral_capitalizacion_mxn',
     category: 'contable',
     question: 'From what amount is an item capitalized as a fixed asset instead of expensed?',

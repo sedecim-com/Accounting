@@ -50,6 +50,11 @@ const TOP_LEVEL: Record<string, string> = {
   // F05a: la tesorería. `bank` es el sustantivo raíz; `account` y `statement`
   // son calificadores suyos, no sustantivos de primer nivel.
   bank: 'banco',
+  // F06a: el activo y su corrida. Dos familias y no una: `asset` es el
+  // maestro, `depreciation` es el ACTO mensual — igual que `bank` no absorbe
+  // a `reconciliation` genérica.
+  asset: 'activo',
+  depreciation: 'depreciacion',
   // S3: la vía de recuperación que el propio esquema nombra.
   backup: 'respaldo',
   report: 'reporte',

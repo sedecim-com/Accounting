@@ -224,6 +224,78 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // `--sat-bank-code` se escriben con el nombre de lo que nombran.
   '--rate': null,
   '--iva-rate': null,
+
+  // ── F06a · el activo y su corrida ─────────────────────────────────────
+  //
+  // Ninguna lleva forma corta, y una de ellas es la razón por la que este
+  // bloque existe: `--book`.
+  //
+  // `--book` ES EL LIBRO DE DEPRECIACIÓN (contable o fiscal) Y NADA MÁS. El
+  // catálogo lo escribe en once filas de la familia `asset`/`depreciation` con
+  // ese único sentido, y F05b ya se negó a usarlo para el otro lado de un
+  // cotejo justamente para dejarlo libre: allí se llama `--book-item`. En
+  // México las dos depreciaciones existen a la vez —la contable sigue la vida
+  // útil de la NIF C-6 y la fiscal las tasas máximas de los artículos 31-38 de
+  // la LISR—, dan números distintos sobre el mismo bien todos los meses, y
+  // `depreciation_schedules.schedule_type` guarda las dos desde la 003. Una
+  // grafía con dos significados aquí no sería una lista mal filtrada: sería
+  // deducir por el libro equivocado.
+  //
+  // LO QUE `--book` NO HACE: elegir. Cuál de los dos libros llega al mayor es
+  // la política `base_depreciacion`, que vive en el panel porque es criterio
+  // del despacho. La bandera DECLARA sobre cuál se cree estar operando y el
+  // comando la contrasta con el panel; si no coinciden, se detiene. Apretar es
+  // de cualquiera, aflojar sólo del despacho —la misma asimetría que
+  // `--tolerance` en F05c—.
+  '--book': null,
+  // La dimensión por la que se agrupa un resumen. Ya existía sin congelar en
+  // `usage --by` y el catálogo la nombra en nueve filas más (`ap spend show`,
+  // `grni list`, `trial-balance show`…). Se congela con la grafía que ya tenía.
+  '--by': null,
+  // El método de depreciación, del vocabulario que la 056 puso en el CHECK.
+  // `--method` es el CONTABLE y `--tax-method` el FISCAL: son dos columnas
+  // distintas desde la 003 y confundirlas es el mismo error que `--book`.
+  '--method': null,
+  '--tax-method': null,
+  // La clase del activo. El catálogo la escribe así en `asset create`,
+  // `asset capitalization create` y `asset category set`.
+  '--category': null,
+  // Las tres fechas y los dos importes de un alta. `--cost` es el MOI (monto
+  // original de la inversión) y `--salvage` el valor residual; el CHECK de la
+  // 003 exige `acquisition_cost > salvage_value`.
+  '--acquired': null,
+  '--in-service': null,
+  '--cost': null,
+  '--salvage': null,
+  // La vida útil, en años o en meses. Existen las dos porque las tasas de la
+  // LISR no dan años enteros —el 30% del equipo de cómputo son 40 meses— y
+  // `vidaUtilCoherente` trata los años como el TECHO de los meses entre doce.
+  '--life-years': null,
+  '--life-months': null,
+  // Las tres cuentas del activo, con la grafía que el catálogo ya usa en
+  // `asset category create` (`--asset-account`, `--accum-account`). La tercera
+  // se nombra igual que sus hermanas y no `--expense-destination`, que en el
+  // catálogo es otra cosa: si el gasto va a resultados o a costo de producción.
+  '--asset-account': null,
+  '--accum-account': null,
+  '--expense-account': null,
+  // DÓNDE ESTÁ YA EL COSTO. No tiene valor por omisión a propósito: el alta de
+  // un activo cuyo importe ya se cargó a la cuenta de activo (el CFDI que se
+  // capitalizó) y el alta de uno que nadie ha contabilizado son dos hechos
+  // distintos, y suponer uno de los dos duplica el activo o lo deja fuera del
+  // mayor. `--source-entry` nombra el asiento donde está, cuando se sabe.
+  '--capitalized': null,
+  '--source-entry': null,
+  // El folio del activo. Se genera solo si no se pasa (`nextEntityNumber`).
+  '--number': null,
+  // Identidad física del bien: es para lo que sirve un registro de activo fijo
+  // —encontrar la cosa—. `--model` y `--manufacturer` NO entran: `-m/--model`
+  // ya significa el modelo de IA en este binario, y una grafía con dos
+  // significados es lo que este diccionario existe para impedir. Van a
+  // `asset edit`, que es fase 2.
+  '--serial': null,
+  '--location': null,
+  '--description': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

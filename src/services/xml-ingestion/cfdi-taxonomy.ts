@@ -37,7 +37,11 @@ export type AccountRole =
   // Ninguno de los dos va a la cuenta genérica que le quedaría cerca —6300 es
   // pérdida cambiaria y 4300 es «otros ingresos»—: mezclarlos esconde
   // exactamente las dos líneas que un tesorero mira.
-  | 'comision_bancaria' | 'producto_financiero';
+  | 'comision_bancaria' | 'producto_financiero'
+  // Activos (F06a): el gasto mensual y su contra-activo. El consumidor es la
+  // siembra de categorías del alta, que los resuelve para dar cuentas por
+  // omisión a cada categoría.
+  | 'depreciacion_gasto' | 'depreciacion_acumulada';
 
 export interface PostingLine {
   role: AccountRole;
