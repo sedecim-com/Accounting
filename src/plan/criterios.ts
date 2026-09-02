@@ -366,7 +366,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
-    enunciado: 'Los checks viven en un solo ci.yml, que declara sus cuatro jobs',
+    enunciado: 'Los checks viven en un solo ci.yml, que declara sus cinco jobs',
     evaluar: () => {
       // Lo que E0.0-b compró no fue «un archivo en .github/workflows»: fue que
       // la CI de *checks* no se reparta entre archivos —«los demás paquetes
@@ -377,14 +377,28 @@ export const CRITERIOS: Criterio[] = [
       // pipeline: un listener de eventos de PR (witness-triage.yml) no corre
       // ninguna puerta, no puede diluirlas y no puede quedarse desfasado
       // respecto a ellas. Así que se mide la propiedad, no el número: ci.yml
-      // lleva los cuatro jobs y NINGÚN otro workflow corre una puerta.
+      // lleva los jobs de puerta y NINGÚN otro workflow corre una puerta.
       const dir = rutaDe('.github', 'workflows');
       if (!fs.existsSync(dir)) return falla('no existe .github/workflows');
       const archivos = fs.readdirSync(dir).filter((f) => /\.ya?ml$/.test(f));
       if (!archivos.includes('ci.yml')) {
         return falla(`no hay ci.yml: ${archivos.join(', ') || 'ningún workflow'}`);
       }
-      const NOMBRES = ['typecheck', 'unit', 'integration', 'aislamiento'];
+      // POR QUÉ ENTRÓ `restauracion` (S3). Los cuatro primeros son los que
+      // E0.0-b nombró. El quinto se añade porque su ausencia era la misma
+      // fuga un piso más abajo: el criterio «un respaldo se prueba
+      // restaurándolo» afirma que `verificarRespaldo` restaura y corre los
+      // chequeos del mayor, pero lo afirma LEYENDO EL FUENTE. Borrar el job
+      // del YAML dejaba esa afirmación intacta y en verde con nadie que la
+      // ejecutara nunca — código que dice la verdad sobre sí mismo y no corre.
+      // Y no es una puerta cualquiera: el propio plan exige «respaldo
+      // verificado» como condición de sus tres remediaciones destructivas
+      // (E1.2-h, E1.4-a, E3.2-i, las que «corrompen el mayor de una entidad
+      // viva» si salen mal), así que este job ES ese control ejecutándose.
+      //
+      // `lint` y `plan` siguen FUERA, y eso es deuda dicha en voz alta y no
+      // olvido: ver «Lo que la CI no cubre» en docs/wiki/Pruebas-y-CI.md.
+      const NOMBRES = ['typecheck', 'unit', 'integration', 'aislamiento', 'restauracion'];
       // Por el seam, no por fs: S2 exige que la única lectura directa de disco
       // en este archivo sea la de leer(), o el mutante de este criterio no lo
       // alcanzaría y su espejo mentiría en verde.
@@ -401,10 +415,25 @@ export const CRITERIOS: Criterio[] = [
           const otro = leer(path.join(dir, f));
           return PUERTAS.test(otro) || NOMBRES.some((j) => new RegExp(`^  ${j}:`, 'm').test(otro));
         });
+      // El número sale de la lista, no de la prosa: un conteo escrito a mano
+      // en la salida es el que se queda diciendo «cuatro» cuando ya son cinco.
       return intrusos.length === 0
-        ? ok(`ci.yml con los cuatro jobs${archivos.length > 1 ? `; ${archivos.length - 1} workflow(s) sin puertas` : ''}`)
+        ? ok(
+            `ci.yml con sus ${NOMBRES.length} jobs de puerta` +
+              (archivos.length > 1 ? `; ${archivos.length - 1} workflow(s) sin puertas` : '')
+          )
         : falla(`la CI de checks se reparte fuera de ci.yml: ${intrusos.join(', ')}`);
     },
+    mutantes: [
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '  restauracion:',
+        a: '  restauracion_retirada:',
+        porque:
+          'la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga ' +
+          'que lo borra— y el criterio que la nombraba tiene que acusarlo',
+      },
+    ],
   },
   {
     paquete: 'E0.0',
@@ -1917,10 +1946,14 @@ export const CRITERIOS: Criterio[] = [
       // permiso, de modo que un `viewer` posteaba al mayor y cerraba el
       // ejercicio en duro donde REST le habría dado 403.
       //
-      // Lo que se vigila aquí NO es que las cinco de hoy estén tapadas —eso lo
-      // prueban las pruebas—: es que la SEXTA no pueda nacer abierta. El
-      // esquema declara quince mutaciones y hay cinco; entre las diez ausentes
-      // están timbrar y cancelar un CFDI ante el SAT. Así que se lee el
+      // Lo que se vigila aquí NO es que las de hoy estén tapadas —eso lo
+      // prueban las pruebas—: es que la SIGUIENTE no pueda nacer abierta. El
+      // esquema declara quince mutaciones; cuando esto se escribió había cinco
+      // y entre las diez ausentes estaban timbrar y cancelar un CFDI ante el
+      // SAT. Hoy hay doce y TRES ausencias dichas: las dos del SAT se
+      // implementaron y se retiraron al ver que no hay servicio en el que
+      // delegar —copiarían una regla fiscal— y que por esta puerta el acto
+      // irreversible quedaría sin autor. Así que se lee el
       // ESQUEMA, que es el contrato, y se exige de cada mutación declarada una
       // de dos cosas: resolutor CON permiso declarado, o ausencia dicha con su
       // motivo. Y que la puerta siga siendo una, y siga lanzando.

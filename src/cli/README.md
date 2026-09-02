@@ -406,4 +406,9 @@ Two independent surfaces:
   `init --section identity|identidad`…) and the chat REPL (`/help|/ayuda`,
   `/new|/nueva`, `/exit|/salir`, `/provider|/proveedor`,
   `/pending|/pendientes`). Yes/no prompts display `[y/N]` and also accept
-  `s`/`si`/`sí`. Pinned by `tests/cli/bilingual-matrix.spec.ts`.
+  `s`/`si`/`sí`: every confirmation predicate lives in
+  `src/cli/kernel/confirmacion.ts` (anchored, accent-insensitive), an
+  unrecognized answer is re-asked once naming what was not understood, and
+  `close --hard` additionally requires typing the period name. Pinned by
+  `tests/cli/confirmacion-gramatica.spec.ts`, whose census also fails any new
+  confirmation predicate written outside the kernel.

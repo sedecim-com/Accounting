@@ -191,39 +191,51 @@ export async function getPeriodCloseStatus(
 
   // 2. Check bank reconciliations complete
   //
-  // LA SESIÓN TIENE QUE CUBRIR EL PERIODO, no simplemente terminar después.
+  // LA SESIÓN TIENE QUE CUBRIR EL PERIODO, no simplemente terminar después —
+  // Y EL CONTEO TIENE QUE TRAER SU UNIVERSO. Las dos mitades de este predicado
+  // vienen de arreglos distintos y las dos hacían falta:
   //
-  // El predicado era `rs.end_date >= periodo.end_date`, y con eso la sesión de
-  // SEPTIEMBRE tildaba la casilla de AGOSTO —30/09 es posterior a 31/08— aunque
-  // agosto no se hubiera conciliado nunca. La casilla decía «conciliado» sobre
-  // un mes que nadie miró.
+  // 1. El predicado era `rs.end_date >= periodo.end_date`, y con eso la sesión
+  //    de SEPTIEMBRE tildaba la casilla de AGOSTO —30/09 es posterior a 31/08—
+  //    aunque agosto no se hubiera conciliado nunca. «Cubrir» es empezar no
+  //    después del periodo y acabar no antes: para la conciliación mensual
+  //    normal es exactamente la sesión de ese mes.
+  // 2. El COUNT daba 0 también cuando no había NI UNA cuenta bancaria, y el
+  //    checklist firmaba «complete»: verde por vacuidad, nadie miró nada. Por
+  //    eso el conteo trae también el total.
   //
-  // Importa más desde F05c que antes. Hasta este tramo, `balanced` se ponía sin
-  // aritmética y la casilla mentía por su origen; ahora `balanced` se gana, así
-  // que lo único que puede hacerla mentir es leerlo mal. Una afirmación que se
-  // volvió cierta merece un lector que no la estropee.
-  //
-  // «Cubrir» es que la sesión empiece no después del periodo y acabe no antes:
-  // para la conciliación mensual normal es exactamente la sesión de ese mes.
-  const unreconciledAccounts = await q<{ count: string }>(
-    `SELECT COUNT(*) as count FROM bank_accounts ba
-     WHERE ba.entity_id = $1 AND ba.is_active = true
-     AND NOT EXISTS (
-       SELECT 1 FROM reconciliation_sessions rs
-       WHERE rs.bank_account_id = ba.id
-       AND rs.status IN ('balanced', 'approved', 'posted')
-       AND rs.start_date <= (SELECT start_date FROM fiscal_periods WHERE id = $2)
-       AND rs.end_date   >= (SELECT end_date   FROM fiscal_periods WHERE id = $2)
-     )`,
+  // Importa más desde F05c: hasta este tramo `balanced` se ponía sin aritmética
+  // y la casilla mentía por su origen; ahora `balanced` se gana, así que lo
+  // único que puede hacerla mentir es leerlo mal.
+  const unreconciledAccounts = await q<{ total: string; sin_conciliar: string }>(
+    `SELECT COUNT(*) as total,
+            COUNT(*) FILTER (WHERE NOT EXISTS (
+              SELECT 1 FROM reconciliation_sessions rs
+              WHERE rs.bank_account_id = ba.id
+              AND rs.status IN ('balanced', 'approved', 'posted')
+              AND rs.start_date <= (SELECT start_date FROM fiscal_periods WHERE id = $2)
+              AND rs.end_date   >= (SELECT end_date   FROM fiscal_periods WHERE id = $2)
+            )) as sin_conciliar
+     FROM bank_accounts ba
+     WHERE ba.entity_id = $1 AND ba.is_active = true`,
     [entityId, periodId]
   );
-  const unreconCount = parseInt(unreconciledAccounts.rows[0].count, 10);
+  const totalBancos = parseInt(unreconciledAccounts.rows[0].total, 10);
+  const unreconCount = parseInt(unreconciledAccounts.rows[0].sin_conciliar, 10);
   checklist.push({
     codigo: 'bank-reconciled',
     item: CLOSE_CHECK_ITEMS['bank-reconciled'],
-    is_complete: unreconCount === 0,
+    // `totalBancos > 0` no es adorno: sin él, cero cuentas bancarias firmaba
+    // «completo» por vacuidad. Revisado-y-bien y nada-que-revisar no son
+    // lo mismo, y en un checklist de cierre esa diferencia es el punto.
+    is_complete: totalBancos > 0 && unreconCount === 0,
     severity: 'warning',
-    details: unreconCount > 0 ? `${unreconCount} accounts not reconciled` : undefined,
+    details:
+      totalBancos === 0
+        ? '0 cuentas bancarias registradas: no se pudo comprobar'
+        : unreconCount > 0
+          ? `${unreconCount} accounts not reconciled`
+          : undefined,
   });
   if (unreconCount > 0) warnings.push(`${unreconCount} bank accounts not reconciled`);
 
@@ -398,22 +410,37 @@ export async function getPeriodCloseStatus(
   if (draftInvCount > 0) warnings.push(`${draftInvCount} draft invoices in period`);
 
   // 4. Check depreciation calculated
-  const undepreciatedAssets = await q<{ count: string }>(
-    `SELECT COUNT(*) as count FROM fixed_assets fa
-     WHERE fa.entity_id = $1 AND fa.status = 'active'
-     AND NOT EXISTS (
-       SELECT 1 FROM depreciation_schedules ds
-       WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ds.is_posted = true
-     )`,
+  //
+  // El gemelo del item bancario, con la misma mentira por vacuidad: cero
+  // activos daba «Depreciation calculated and posted» sin que existiera
+  // depreciación alguna que calcular. Mismo remedio: el universo viaja en el
+  // conteo y con cero activos el item confiesa que no comprobó nada.
+  const undepreciatedAssets = await q<{ total: string; sin_depreciar: string }>(
+    `SELECT COUNT(*) as total,
+            COUNT(*) FILTER (WHERE NOT EXISTS (
+              SELECT 1 FROM depreciation_schedules ds
+              WHERE ds.asset_id = fa.id AND ds.fiscal_period_id = $2 AND ds.is_posted = true
+            )) as sin_depreciar
+     FROM fixed_assets fa
+     WHERE fa.entity_id = $1 AND fa.status = 'active'`,
     [entityId, periodId]
   );
-  const undepCount = parseInt(undepreciatedAssets.rows[0].count, 10);
+  const totalActivos = parseInt(undepreciatedAssets.rows[0].total, 10);
+  const undepCount = parseInt(undepreciatedAssets.rows[0].sin_depreciar, 10);
   checklist.push({
     codigo: 'depreciation-posted',
     item: CLOSE_CHECK_ITEMS['depreciation-posted'],
-    is_complete: undepCount === 0,
+    // `totalActivos > 0` no es adorno: sin él, cero activos fijos firmaba
+    // «completo» por vacuidad. Revisado-y-bien y nada-que-revisar no son
+    // lo mismo, y en un checklist de cierre esa diferencia es el punto.
+    is_complete: totalActivos > 0 && undepCount === 0,
     severity: 'warning',
-    details: undepCount > 0 ? `${undepCount} assets without depreciation` : undefined,
+    details:
+      totalActivos === 0
+        ? '0 activos fijos registrados: no se pudo comprobar'
+        : undepCount > 0
+          ? `${undepCount} assets without depreciation`
+          : undefined,
   });
   if (undepCount > 0) warnings.push(`${undepCount} assets without depreciation posted`);
 

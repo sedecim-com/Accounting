@@ -353,7 +353,10 @@ describe('closing explain · la lente, no el veredicto', () => {
     mundo.explicacion = EXPLICACION;
     const r = await correr(['closing', 'explain', 'bank-items-overdue']);
     expect(r.out).toMatch(/RI-1/);
-    expect(r.out).toMatch(/120\.0000/);
+    // Dos decimales, no cuatro: la armonización del tronco unificó cómo se
+    // imprime un importe. La fila sigue siendo la misma —la base guarda cuatro
+    // por precisión cambiaria—; lo que cambió es cómo se enseña.
+    expect(r.out).toMatch(/RI-1\s+120\.00\b/);
     expect(r.out).toMatch(/fix with: mnemosine bank reconciling-item assign/);
     expect(r.exitCode, 'el código del hallazgo lo da `closing check`; mirar sale 0').toBe(ExitCode.OK);
   });

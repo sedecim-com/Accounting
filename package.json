@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Multi-country accounting core system (USA/Mexico) with multi-GAAP support",
   "main": "dist/index.js",
+  "bin": {
+    "mnemosine": "dist/cli/mnemosine.js"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "mnemosine": "tsx src/cli/mnemosine.ts",

@@ -30,7 +30,9 @@ import {
   blockedByState,
   abortedByUser,
   exitCodeFor,
+  dateOnly as day,
 } from './kernel/index.js';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 
 // ============================================================
 // mnemosine credit-note · nota-credito
@@ -79,10 +81,6 @@ interface CommonOpts {
 
 const MONEY = ['total_amount', 'subtotal', 'tax_amount', 'amount_applied', 'amount_available'];
 
-const day = (v: Date | string | null | undefined): string =>
-  v instanceof Date
-    ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
-    : v ?? '';
 
 export function registerCreditNoteCommand(program: Command, deps: CreditNoteCommandDeps): void {
   const creditNote = program
@@ -131,8 +129,16 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
-      const answer = (await rl.question(`${question} [y/N] `)).trim().toLowerCase();
-      if (answer !== 'y' && answer !== 'yes') throw abortedByUser();
+      const veredicto = await confirmarConReintento(
+        (p) => rl.question(p).catch(() => null),
+        `${question} [y/N] `
+      );
+      if (veredicto.si) return;
+      throw abortedByUser(
+        veredicto.incomprendida !== undefined
+          ? `Aborted — ${noEntendi(veredicto.incomprendida)}.`
+          : undefined
+      );
     } finally {
       rl.close();
     }

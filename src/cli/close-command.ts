@@ -10,6 +10,7 @@ import { resolveEntity, bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
 import { abortedByUser, exitCodeFor } from './kernel/index.js';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 
 // ============================================================
@@ -74,6 +75,46 @@ export function renderReadiness(r: CloseReadiness, c: CloseCliDeps['palette']): 
   );
   out.push('');
   return out;
+}
+
+/**
+ * La doble compuerta del cierre, extraída para poder probarla sin base de
+ * datos. Primero el sí/no por el kernel (aquí vivía la alternancia sin
+ * anclar que dejaba que «salir» cerrara el periodo); después, sólo para
+ * --hard, el listón de `terraform destroy`: un cierre duro no se deshace,
+ * así que el sí no basta y hay que teclear el NOMBRE del periodo que se va
+ * a cerrar. --yes salta ambas preguntas desde el action, nunca desde aquí.
+ */
+export async function confirmarCierre(
+  preguntar: (prompt: string) => Promise<string | null>,
+  c: CloseCliDeps['palette'],
+  kind: string,
+  destino: { hard: boolean; periodName: string }
+): Promise<{ procede: boolean; mensaje?: string }> {
+  const veredicto = await confirmarConReintento(preguntar, c.cyan(`Proceed with ${kind}? [y/N] `));
+  if (!veredicto.si) {
+    return {
+      procede: false,
+      mensaje:
+        veredicto.incomprendida !== undefined
+          ? `${noEntendi(veredicto.incomprendida)} — Cancelled.`
+          : 'Cancelled.',
+    };
+  }
+  if (destino.hard) {
+    const escrito = await preguntar(
+      c.cyan(
+        `A hard close cannot be undone. Type the period name (${destino.periodName}) to confirm: `
+      )
+    );
+    if ((escrito ?? '').trim() !== destino.periodName) {
+      return {
+        procede: false,
+        mensaje: `That does not match ${destino.periodName}: nothing was closed.`,
+      };
+    }
+  }
+  return { procede: true };
 }
 
 export function registerCloseCommand(program: Command, deps: CloseCliDeps): void {
@@ -173,11 +214,15 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
           }
           rl = readline.createInterface({ input: stdin, output: stdout });
           const askFn = deps.ask ?? (async (r: readline.Interface, q: string) => r.question(q).catch(() => null));
-          const answer = await askFn(rl, deps.palette.cyan(`Proceed with ${kind}? [y/N] `));
+          const r = rl;
+          const veredicto = await confirmarCierre((q) => askFn(r, q), deps.palette, kind, {
+            hard: opts.hard === true,
+            periodName: period.period_name,
+          });
           rl.close();
           rl = undefined;
-          if (!answer || !/^y|^s/i.test(answer.trim())) {
-            console.log('Cancelled.');
+          if (!veredicto.procede) {
+            console.log(veredicto.mensaje);
             await deps.shutdown(0);
           }
         }

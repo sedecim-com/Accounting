@@ -63,7 +63,12 @@ async function askHidden(prompt: string): Promise<string> {
 
 export function registerSatCommands(program: Command, deps: SatCommandDeps): void {
   const { color: c, colorErr: ce, shutdown, reportError, ask } = deps;
-  const sat = program.command('sat').description('SAT services (credentials and CFDI download)');
+  // La descripción decía «credentials and CFDI download» y la descarga masiva
+  // no existe (es E3.2 del tablero): sobre esa promesa se entregaban e.firmas
+  // que hoy no sirven para bajar nada. La ayuda dice lo que hay.
+  const sat = program
+    .command('sat')
+    .description('SAT services (e.firma credentials; the CFDI bulk download is not built yet)');
   const cred = sat.command('cred').description('Fiscal credentials (e.firma)');
 
   const add = cred

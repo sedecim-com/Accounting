@@ -47,6 +47,18 @@ que promete un paso inexistente es peor que no tener manual—.
 - **[[Seguridad-y-credenciales]]** — la bóveda cifrada, la bitácora de accesos, y por qué el proceso se niega a arrancar en producción con los secretos del repositorio.
 - **[[Glosario]]** — RFC, CFDI, PUE, PPD, REP, CSD, inquilino, entidad. En ese orden de necesidad.
 
+### Hacia dónde va
+
+Investigación con ligas verificadas (2026-09-02) y la dirección que tomaría cada frente. Son
+mapas de conexión y diseño, no capacidades: el lector no sale de aquí creyendo que ya puede
+conectar WhatsApp.
+
+- **[[Conectores-PAC]]** — los proveedores de timbrado investigados, la regla de custodia y el plan de precarga.
+- **[[Onboarding-de-contabilidad]]** — traer una contabilidad existente: el XML del SAT como formato universal.
+- **[[El-tablero-grafico]]** — la interfaz gráfica como gateway sobre la misma API, jamás un tercer motor.
+- **[[Canales-de-mensajeria]]** — WhatsApp, Telegram y correo como adaptadores con humano en la salida.
+- **[[La-contabilidad-como-centro]]** — experimental: cuentas públicas atestadas, subcuentas privadas.
+
 ### Quiero saber en qué estado está
 
 - **[[El-tablero-y-los-criterios]]** — el estado no se escribe: se pregunta. Cómo funcionan los criterios ejecutables y por qué un paquete con nueve verdes y un rojo está abierto, no «casi cerrado».
@@ -88,7 +100,7 @@ Se dice aquí, en la portada, porque descubrirlo leyendo el código sería peor.
 - **La descarga masiva del SAT no existe.** Ni cliente SOAP (`SolicitaDescarga` / `VerificaSolicitud`), ni lector de paquetes ZIP, ni comando `sat download`. La familia `sat` de hoy administra credenciales (`cred add`, `status`, `audit`, `revoke`) y nada más. Consecuencia directa: **un despacho no puede afirmar completitud de CFDI recibidos desde aquí**. El criterio E3.2 de `plan:status` está en rojo por esto, y lo está a propósito: su versión anterior pasaba en verde porque una expresión regular casaba con dos cadenas de prosa en un archivo de políticas.
 - **La nómina de EE. UU. reporta ceros al IRS.** Los generadores de las formas 940 y 941 suman `employer_tax_liabilities`, y ningún camino del repositorio escribe esa tabla; lo mismo con `paycheck_taxes` y `garnishments`. Una tabla vacía no rompe nada visible: hace que la forma declare cero impuesto patronal, que es un dato falso en una declaración presentada. `doctor` lo marca como `fail` —no como advertencia— cuando la entidad tiene empleados activos en Estados Unidos.
 - **El timbrado con PAC es real en un solo proveedor.** De los cuatro adaptadores, tres se declaran simulados y un cerrojo les impide timbrar fuera de sandbox. Los detalles, en [[Fiscal-mexicano]].
-- **GraphQL está desmontado por omisión.** Sus mutaciones ya piden el mismo permiso que su equivalente REST, con el mismo código, por un único punto de paso; y la compuerta que lo sostiene lee el esquema al cargar, de modo que una mutación nueva sin permiso declarado impide que los resolutores se carguen. Lo que queda para volver a encenderlo: vive fuera del prefijo auditado `/v1`, así que no deja la fila de PETICIÓN en `audit_log` —el rastro del hecho contable sí lo escriben los servicios dentro de su transacción— y diez de sus quince mutaciones están declaradas en el esquema y no existen.
+- **GraphQL está desmontado por omisión.** Sus mutaciones ya piden el mismo permiso que su equivalente REST, con el mismo código, por un único punto de paso; y la compuerta que lo sostiene lee el esquema al cargar, de modo que una mutación nueva sin permiso declarado impide que los resolutores se carguen. Lo que queda para volver a encenderlo: vive fuera del prefijo auditado `/v1`, así que no deja la fila de PETICIÓN en `audit_log` —el rastro del hecho contable sí lo escriben los servicios dentro de su transacción— De sus quince mutaciones ya existen catorce, cada una delegando en el mismo servicio que llama su ruta REST; la que falta es `sendInvoice`, y está declarada ausente a propósito —la ruta equivalente MARCA como enviada y no transmite, mientras el esquema pide asunto y mensaje y devuelve `Invoice!`, que no tiene dónde decir que no se transmitió—.
 - **De los 151 manejadores REST, 11 están retirados** y lanzan `NotImplementedError` en lugar de fingir que hicieron algo. Un 501 explícito es información; un 200 vacío es una mentira que alguien va a conciliar.
 
 Ninguno de estos huecos es un descuido pendiente de documentar: cada uno tiene su rojo en `plan:status` o su bandera de apagado en el código. La lista viva —con la razón de cada uno— está en [[Hoja-de-ruta]] y en [[Auditorias]].

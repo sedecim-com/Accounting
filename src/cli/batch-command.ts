@@ -1,4 +1,5 @@
 import * as readline from 'node:readline/promises';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
@@ -179,8 +180,17 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
     if (!process.stdin.isTTY) return false;
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
-      const answer = await rl.question(deps.palette.cyan(`${question} [y/N] `)).catch(() => '');
-      return /^y(es)?$/i.test((answer ?? '').trim());
+      // Por el kernel: la gramática de «sí» es una sola en todo el CLI y
+      // entiende los dos idiomas. La de aquí sólo aceptaba `y`/`yes`, de modo
+      // que un «sí» tecleado en español contaba como NO.
+      const veredicto = await confirmarConReintento(
+        (p) => rl.question(p).catch(() => null),
+        deps.palette.cyan(`${question} [y/N] `)
+      );
+      if (veredicto.incomprendida !== undefined) {
+        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+      }
+      return veredicto.si;
     } finally {
       rl.close();
     }

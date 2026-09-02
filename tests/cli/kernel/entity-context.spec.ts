@@ -11,6 +11,7 @@ vi.mock('../../../src/ai/context.js', () => ({
 import {
   resolveActiveEntity,
   requireExplicitEntity,
+  esFalloDeConexion,
   useEntity,
   readState,
   writeState,
@@ -74,33 +75,83 @@ describe('precedence: explicit beats stored beats the only one', () => {
   });
 });
 
-describe('a failed lookup must never destroy the pin', () => {
-  it('keeps the pin when the entity cannot be resolved, and says how to change it', async () => {
+describe('a failed lookup must never destroy the pin — and each cause gets ITS remedy', () => {
+  it('base caída: lanza UNA vez, remedia con doctor/DATABASE_URL y jamás sugiere entity use', async () => {
     writeState({ entityId: 'pinned', entityName: 'Cliente SA' }, home);
     mockResolve.mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
-    mockResolve.mockResolvedValueOnce(CTX); // the fallback call
 
-    const warnings: string[] = [];
-    await resolveActiveEntity({}, { home, warn: (m) => warnings.push(m) });
+    const fallo = await resolveActiveEntity({}, { home }).then(
+      () => null,
+      (e: unknown) => e as Error & { exitCode?: number }
+    );
 
+    expect(fallo).not.toBeNull();
+    expect(fallo!.name).toBe('CliError');
+    expect(fallo!.message).toMatch(/mnemosine doctor/);
+    expect(fallo!.message).toMatch(/DATABASE_URL/);
+    // `entity use` necesita la base: sugerirlo aquí mandaría al usuario a
+    // estrellarse con el mismo fallo otra vez.
+    expect(fallo!.message).not.toMatch(/entity use/);
     // The whole point: a transient failure is not a reason to lose user state.
     expect(readState(home).entityId).toBe('pinned');
-    expect(warnings[0]).toMatch(/connection terminated/);
-    expect(warnings[0]).toMatch(/entity unset/);
+    // Sin segundo intento contra resolveEntity(): así el error salía DOS veces.
+    expect(mockResolve).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the pin even when the entity is genuinely gone — the user clears it', async () => {
+  it('entidad desaparecida: remedio entity use / entity unset, pin conservado, sin fallback', async () => {
     writeState({ entityId: 'deleted-entity' }, home);
     mockResolve.mockRejectedValueOnce(new Error('No active entity exists with id deleted-entity'));
-    mockResolve.mockResolvedValueOnce(CTX);
-    await resolveActiveEntity({}, { home, warn: () => {} });
+
+    const fallo = await resolveActiveEntity({}, { home }).then(
+      () => null,
+      (e: unknown) => e as Error & { exitCode?: number }
+    );
+
+    expect(fallo).not.toBeNull();
+    expect(fallo!.name).toBe('CliError');
+    expect(fallo!.exitCode).toBe(3); // NOT_FOUND del contrato de salidas
+    expect(fallo!.message).toMatch(/entity use/);
+    expect(fallo!.message).toMatch(/entity unset/);
     expect(readState(home).entityId).toBe('deleted-entity');
+    expect(mockResolve).toHaveBeenCalledTimes(1);
   });
 
   it('clears only when asked to, explicitly', () => {
     writeState({ entityId: 'pinned', entityName: 'X' }, home);
     clearActiveEntity(home);
     expect(readState(home).entityId).toBeUndefined();
+  });
+});
+
+describe('esFalloDeConexion — la frontera entre «no hay base» y «no hay entidad»', () => {
+  it('reconoce los códigos de red y de pg aunque el mensaje no diga nada', () => {
+    for (const code of ['ECONNREFUSED', 'ETIMEDOUT', '08006', '28000', '57P01', '3D000']) {
+      const err = Object.assign(new Error('boom'), { code });
+      expect(esFalloDeConexion(err), `code ${code}`).toBe(true);
+    }
+  });
+
+  it('reconoce las firmas de texto del primer día (role postgres, terminated, tunnel)', () => {
+    for (const msg of [
+      'role "postgres" does not exist',
+      'connection terminated unexpectedly',
+      'connect ECONNREFUSED 127.0.0.1:5432',
+      'could not open SSH tunnel to bastion',
+      'timed out after 3000ms',
+    ]) {
+      expect(esFalloDeConexion(new Error(msg)), msg).toBe(true);
+    }
+  });
+
+  it('los errores de resolución de entidad NO son fallos de conexión', () => {
+    for (const msg of [
+      'No active entity exists with id deleted-entity',
+      'No active entity matches "Demmo"',
+      '"Demo" is ambiguous. Matches:',
+      'There are no active legal entities in this tenant. Create one first (POST /v1/entities or seed).',
+    ]) {
+      expect(esFalloDeConexion(new Error(msg)), msg).toBe(false);
+    }
   });
 });
 

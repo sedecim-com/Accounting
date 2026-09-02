@@ -32,6 +32,7 @@ import {
   usageError,
   notFound,
   exitCodeFor,
+  dateOnly as day,
 } from './kernel/index.js';
 
 // ============================================================
@@ -114,15 +115,6 @@ function summarize(row: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
-const pad = (n: number) => String(n).padStart(2, '0');
-
-/** A DATE column arrives as a local-midnight Date; print the calendar day. */
-export function day(value: unknown): string {
-  if (value instanceof Date) {
-    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
-  }
-  return value === null || value === undefined ? '' : String(value);
-}
 
 /** True when the output is a table meant for a person, not for a pipe. */
 function isHumanTable(opts: CommonOpts): boolean {

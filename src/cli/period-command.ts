@@ -1,4 +1,5 @@
 import * as readline from 'node:readline/promises';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { stdin, stdout } from 'node:process';
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
@@ -417,11 +418,19 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
             );
           }
           const rl = readline.createInterface({ input: stdin, output: stdout });
-          const answer = await rl.question(
+          // La comprobación anterior aceptaba como SÍ cualquier respuesta que
+          // empezara por «s», «salir» incluida: quien tecleaba salir para NO
+          // reabrir un periodo cerrado lo reabría. La gramática vive ahora en el
+          // kernel, que distingue el sí del salir y reintenta ante lo ambiguo.
+          const veredicto = await confirmarConReintento(
+            (p) => rl.question(p).catch(() => null),
             deps.palette.cyan(`Reopen ${target.period_name} (${target.status} → open)? [y/N] `)
-          ).catch(() => null);
+          );
           rl.close();
-          if (!answer || !/^y|^s/i.test(answer.trim())) {
+          if (veredicto.incomprendida !== undefined) {
+            process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+          }
+          if (!veredicto.si) {
             process.stdout.write('Cancelled.\n');
             return;
           }

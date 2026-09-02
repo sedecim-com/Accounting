@@ -40,7 +40,9 @@ import {
   blockedByState,
   abortedByUser,
   exitCodeFor,
+  dateOnly as day,
 } from './kernel/index.js';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 
 // ============================================================
 // mnemosine invoice · factura
@@ -103,15 +105,6 @@ const MONEY = ['total_amount', 'subtotal', 'tax_amount', 'amount_paid', 'amount_
 
 const INVOICE_STATUSES = Object.values(InvoiceStatus) as string[];
 
-const pad = (n: number) => String(n).padStart(2, '0');
-
-/** A DATE column arrives as a local-midnight Date; print the calendar day. */
-export function day(value: unknown): string {
-  if (value instanceof Date) {
-    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
-  }
-  return value === null || value === undefined ? '' : String(value);
-}
 
 function summarize(row: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -227,8 +220,16 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
-      const answer = (await rl.question(`${question} [y/N] `)).trim().toLowerCase();
-      if (answer !== 'y' && answer !== 'yes') throw abortedByUser();
+      const veredicto = await confirmarConReintento(
+        (p) => rl.question(p).catch(() => null),
+        `${question} [y/N] `
+      );
+      if (veredicto.si) return;
+      throw abortedByUser(
+        veredicto.incomprendida !== undefined
+          ? `Aborted — ${noEntendi(veredicto.incomprendida)}.`
+          : undefined
+      );
     } finally {
       rl.close();
     }
@@ -417,7 +418,10 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   withContext(create);
   create
     .requiredOption('--customer <ref>', 'customer number, name or id')
-    .option('--line <spec...>', 'a line: "account=4100;qty=2;price=1500;tax=16;description=…"')
+    .option(
+      '--line <spec...>',
+      'a line: "account=4100;qty=2;price=1500;tax=16;description=…". Here tax= is a RATE in % (16 means 16%), not an amount — unlike bill, where it is the amount'
+    )
     .option('--from-file <path>', 'JSON array of lines instead of repeated --line')
     .option('--date <date>', 'invoice date (YYYY-MM-DD); defaults to today')
     .option('--due-date <date>', "due date; defaults to the customer's payment terms")
@@ -456,7 +460,8 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
           );
         }
 
-        const invoiceDate = opts.date ?? new Date().toISOString().slice(0, 10);
+        // Hoy es el dia LOCAL del despacho: a las 20:00 en CDMX toISOString ya decia manana.
+        const invoiceDate = opts.date ?? day(new Date());
         const dueDate = opts.dueDate ?? dueDateFromTerms(customer.payment_terms, invoiceDate);
         if (!dueDate) {
           throw usageError(
@@ -696,7 +701,10 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     .description('Edit a DRAFT invoice: dates, memo or its lines (issued ones are voided or credited, never edited)');
   withContext(edit);
   edit
-    .option('--line <spec...>', 'REPLACE all lines: "account=4100;qty=2;price=1500;tax=16;…" (repeatable)')
+    .option(
+      '--line <spec...>',
+      'REPLACE all lines: "account=4100;qty=2;price=1500;tax=16;…" (repeatable). Here tax= is a RATE in %, not an amount'
+    )
     .option('--from-file <path>', 'JSON array of lines instead of repeated --line')
     .option('--date <date>', 'new invoice date (YYYY-MM-DD)')
     .option('--due-date <date>', 'new due date')
