@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { POLICY_CATALOG } from '../../services/policy/pending-catalog.js';
 
 // ============================================================
 // GOLDEN SET — el corpus con respuesta (A1)
@@ -11,6 +12,24 @@ import * as path from 'node:path';
 // 'determinista', los REP). El esperado es la definición operativa de
 // «clasificar bien»; el arnés (scripts/eval-clasificador.ts) lo compara
 // contra lo que el modelo hizo y src/ai/eval/puntuacion.ts pone el número.
+//
+// A7·2 · UN ESPERADO PUEDE DEPENDER DEL PANEL, Y ENTONCES LO DECLARA.
+//
+// «Clasificar bien» no siempre es una función del CFDI solo. El mismo
+// comprobante de equipo de cómputo tiene DOS respuestas correctas según lo
+// que el despacho haya contestado en el panel de políticas: con el umbral
+// de capitalización contestado, capitalizar y proponer el borrador; sin
+// contestar, PREGUNTAR — porque el defecto del sistema es un paliativo,
+// no el criterio de nadie. Hasta hoy el esquema no sabía decir esa
+// diferencia, así que el corpus bendecía la segunda respuesta como si
+// fuera la única, y con ella la ceguera del agente al panel.
+//
+// `precondicion.politicas` es esa declaración: clave → valor contestado,
+// o null para «el despacho NO la ha contestado». Ausente significa que el
+// caso no pende de ninguna respuesta del panel y corre bajo cualquiera.
+// El arnés siembra el panel declarado ANTES de correr el caso; un caso
+// que declara una clave que no existe en el catálogo rompe la carga, que
+// es la misma vara chueca que un asiento descuadrado.
 //
 // Este módulo VALIDA el corpus al cargarlo: un xml sin esperado, un
 // esperado sin xml, un lado inválido o un asiento descuadrado rompen la
@@ -27,12 +46,24 @@ export interface LineaEsperada {
   monto: string;
 }
 
+/**
+ * El estado del PANEL DE POLÍTICAS que el caso asume. Sin esto, un caso cuya
+ * respuesta correcta depende de un criterio del despacho es ambiguo: mediría
+ * al clasificador contra una respuesta que sólo vale bajo un panel concreto.
+ */
+export interface PrecondicionGolden {
+  /** clave del panel → valor contestado, o null = «nadie la ha contestado». */
+  politicas: Record<string, string | null>;
+}
+
 export interface EsperadoGolden {
   caso: string;
   resultado: ResultadoEsperado;
   tratamiento: 'PUE' | 'PPD' | null;
   sospecha: boolean;
   asiento: LineaEsperada[] | null;
+  /** Ausente = el caso no pende de ninguna respuesta del panel. */
+  precondicion?: PrecondicionGolden;
   nota: string;
 }
 
@@ -45,6 +76,7 @@ export interface CasoGolden {
 
 const RESULTADOS: ReadonlySet<string> = new Set(['draft', 'pregunta', 'determinista']);
 const LADOS: ReadonlySet<string> = new Set(['cargo', 'abono']);
+const CLAVES_DEL_PANEL: ReadonlySet<string> = new Set(POLICY_CATALOG.map((p) => p.key));
 
 function validarEsperado(nombre: string, e: EsperadoGolden): void {
   const falla = (msg: string): never => {
@@ -54,6 +86,30 @@ function validarEsperado(nombre: string, e: EsperadoGolden): void {
   if (!RESULTADOS.has(e.resultado)) falla(`resultado inválido "${e.resultado}"`);
   if (e.tratamiento !== null && e.tratamiento !== 'PUE' && e.tratamiento !== 'PPD') {
     falla(`tratamiento inválido "${e.tratamiento}"`);
+  }
+  if (e.precondicion !== undefined) {
+    const pol = e.precondicion.politicas;
+    if (pol === null || typeof pol !== 'object' || Array.isArray(pol)) {
+      falla('precondicion.politicas debe ser un objeto clave → valor');
+    }
+    const claves = Object.keys(pol);
+    if (claves.length === 0) {
+      // Una precondición vacía dice «declaro que dependo del panel» y no
+      // declara nada: se lee como si el caso estuviera cubierto y no lo está.
+      falla('precondicion sin ninguna política: o declara cuál, o quítala');
+    }
+    for (const clave of claves) {
+      if (!CLAVES_DEL_PANEL.has(clave)) {
+        // Un caso que asume una política inexistente NO se puede montar: el
+        // arnés sembraría una clave que nadie lee y mediría bajo un panel
+        // distinto del que el esperado cree declarar.
+        falla(`la precondición nombra "${clave}", que no está en el catálogo de políticas`);
+      }
+      const valor = pol[clave];
+      if (valor !== null && (typeof valor !== 'string' || valor.trim() === '')) {
+        falla(`el valor declarado para "${clave}" no es un texto ni null`);
+      }
+    }
   }
   if (e.resultado === 'draft') {
     if (!Array.isArray(e.asiento) || e.asiento.length < 2) {
@@ -112,4 +168,16 @@ export function cargarCasosGolden(dir: string, soloCasos?: string[]): CasoGolden
     validarEsperado(nombre, esperado);
     return { nombre, xmlPath, xml: fs.readFileSync(xmlPath, 'utf-8'), esperado };
   });
+}
+
+/**
+ * El panel que hay que montar antes de correr el caso, como pares listos para
+ * iterar: `[clave, valor]` con valor null = dejar la política SIN contestar.
+ *
+ * Vive aquí y no en el arnés a propósito: el corpus es quien sabe de qué panel
+ * depende cada caso, y un arnés que lo dedujera por su cuenta volvería a
+ * divergir del esperado — el defecto que este campo cierra.
+ */
+export function politicasRequeridas(caso: CasoGolden): Array<[string, string | null]> {
+  return Object.entries(caso.esperado.precondicion?.politicas ?? {});
 }

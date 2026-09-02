@@ -634,7 +634,19 @@ ${conceptos || '  (no lines)'}
 
 Instructions:
 1. Search precedents (search_precedents) and prior journal entries for the issuer (search_journal_entries).
-2. Verify the accounts in the chart of accounts (search_accounts). VAT IS ON A CASH BASIS
+2. READ YOUR FIRM'S POLICY PANEL with get_accounting_policies BEFORE deciding the treatment. It
+   carries the criteria this system cannot decide on its own — capitalization threshold (EXPENSE vs
+   FIXED ASSET), restaurant meals, inventories, FX rate source, REP tolerances — and the account
+   role map (which concrete account plays activo_fijo, cxp, banco, iva_acreditable…). Use the
+   answered ones and the account a role already names; do not invent either.
+   A policy that comes back status "unanswered" is NOT your firm's criterion: its \`value\` is only
+   the system default. When such a policy is what decides THIS entry — two admissible answers would
+   produce DIFFERENT entries for this CFDI (e.g. the amount above sits between two admissible
+   thresholds, so one answer expenses it and the other capitalizes it) — you MUST stop, ask with
+   ask_user citing the key, and create NO draft. Applying the default in that case is prohibited: it
+   would post the system's stopgap as if the firm had decided it. If every admissible answer yields
+   the same entry, the policy does not block you and you proceed without asking.
+3. Verify the accounts in the chart of accounts (search_accounts). VAT IS ON A CASH BASIS
    (LIVA art. 5-III): input VAT is creditable only once the invoice has been PAID, so the
    Method above decides which VAT account the entry hits.
    - PUE (paid in one go): debit expense for the subtotal + debit "IVA Acreditable" (1130)
@@ -645,8 +657,8 @@ Instructions:
      payment entry is what later moves it from 1135 to 1130.
    - No Method declared: treat it as PPD. It is the assumption that cannot overstate the
      credit, and it self-corrects when the payment is recorded.
-3. Create the draft with reference "${referenceSerieFolio} · ${d.cfdi_uuid}".
-4. Report an honest confidence; if a question BLOCKS the classification, use ask_user (it will be
+4. Create the draft with reference "${referenceSerieFolio} · ${d.cfdi_uuid}".
+5. Report an honest confidence; if a question BLOCKS the classification, use ask_user (it will be
    logged) and do NOT create the draft.`;
 }
 

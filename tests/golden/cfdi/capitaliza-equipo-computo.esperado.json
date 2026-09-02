@@ -1,0 +1,37 @@
+{
+  "caso": "capitaliza-equipo-computo",
+  "resultado": "draft",
+  "tratamiento": "PUE",
+  "sospecha": false,
+  "precondicion": {
+    "politicas": {
+      "umbral_capitalizacion_mxn": "5000"
+    }
+  },
+  "asiento": [
+    {
+      "cuenta": [
+        "1220",
+        "1210"
+      ],
+      "lado": "cargo",
+      "monto": "28000.00"
+    },
+    {
+      "cuenta": [
+        "1130"
+      ],
+      "lado": "cargo",
+      "monto": "4480.00"
+    },
+    {
+      "cuenta": [
+        "1110",
+        "1111"
+      ],
+      "lado": "abono",
+      "monto": "32480.00"
+    }
+  ],
+  "nota": "El GEMELO EXACTO de ask-equipo-computo: mismo emisor, mismo importe, mismo concepto. Lo unico que cambia es el panel. Con el umbral de capitalizacion CONTESTADO en 5000, el criterio del despacho existe y 28000 lo rebasa: la respuesta correcta ya no es preguntar sino capitalizar a activo fijo (1220, o 1210 si el despacho no separa computo) y proponer el borrador. IVA acreditable 1130 porque es PUE. Si el agente pregunta aqui, no leyo el panel."
+}

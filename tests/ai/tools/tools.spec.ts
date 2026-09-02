@@ -52,9 +52,9 @@ function getTool(name: string): ToolHandle {
 }
 
 describe('buildTools', () => {
-  it('exposes 24 uniquely named runnable tools', () => {
+  it('exposes 25 uniquely named runnable tools', () => {
     const tools = buildTools(CTX, { model: 'claude-opus-5' });
-    expect(tools).toHaveLength(24);
+    expect(tools).toHaveLength(25);
     const names = tools.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
     for (const t of tools) expect(typeof t.run).toBe('function');
@@ -68,6 +68,8 @@ describe('buildTools', () => {
         'ask_user', 'search_precedents', 'read_docs',
         'external_pull', 'get_entity_status', 'external_diff_trial_balance', 'external_push', 'list_external_ops',
         'skills_list', 'skill_view', 'session_search',
+        // A7·2 · el panel de políticas del despacho, legible por el agente.
+        'get_accounting_policies',
       ])
     );
   });

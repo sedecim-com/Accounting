@@ -2840,7 +2840,15 @@ export const CRITERIOS: Criterio[] = [
         return falla('el ledger de uso dejó de persistir la duración que los runners miden');
       }
       const cli = codigoDe('src/cli/mnemosine.ts');
-      if (!/registrarCorridaIngesta\(ctx/.test(cli)) {
+      // El criterio afirma la CONDUCTA —que la corrida quede registrada—, no
+      // el nombre de la función que la registra. Afirmaba
+      // `registrarCorridaIngesta(ctx` y se puso rojo el día que A7·3 partió
+      // esa función en abrir/cerrar para que la fila naciera ANTES del bucle:
+      // acusaba «la ingesta volvió a imprimir y evaporar» sobre una capacidad
+      // que acababa de mejorar. Un criterio que nombra un identificador
+      // castiga el refactor que lo cumple mejor — la lección de la casa que
+      // la cabecera de este archivo abre, cobrada otra vez.
+      if (!/conCorridaRegistrada\(|registrarCorridaIngesta\(ctx/.test(cli)) {
         return falla('la ingesta volvió a imprimir y evaporar: nadie registra la corrida');
       }
       if ((cli.match(/registrarEventoEnSegundoPlano\(ctx/g) ?? []).length < 3) {

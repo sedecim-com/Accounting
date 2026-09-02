@@ -55,7 +55,8 @@
       "src/ai/question-service.ts",
       "src/ai/budget.ts",
       "src/ai/floor.ts",
-      "src/services/policy/policy-service.ts"
+      "src/services/policy/policy-service.ts",
+      "src/ai/tools/policy-tools.ts"
     ],
     "playbooks.md": [
       "src/ai/doctor-service.ts",

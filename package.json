@@ -27,7 +27,8 @@
     "costo:por-fila": "tsx scripts/costo-por-fila.ts",
     "reclass:iva-ppd": "tsx scripts/reclasificar-iva-ppd.ts",
     "backfill:account-roles": "tsx scripts/rellenar-roles-de-cuenta.ts",
-    "corpus:estado": "tsx scripts/corpus-manifiesto.ts"
+    "corpus:estado": "tsx scripts/corpus-manifiesto.ts",
+    "eval": "tsx scripts/eval-clasificador.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

@@ -10,10 +10,15 @@ import {
   type OnboardingResult,
 } from '../../ai/onboarding-service.js';
 import { ingestCfdiFiles, type DraftCapture, type IngestReport } from '../../ai/ingest-service.js';
+import { conCorridaRegistrada } from '../../ai/ingest-runs.js';
+import { SUPERFICIE_INGESTA } from '../../ai/tools/superficie.js';
+import { clampTokenCount, estimateCostUsd } from '../../ai/usage-ledger.js';
 import {
   createLlmSession,
   resolveProfile,
   type LlmSession,
+  type ResolvedProfile,
+  type SessionCallbacks,
 } from '../../ai/providers/index.js';
 import { resolveIngestThresholds } from '../../ai/providers/config.js';
 import type { CheckResult } from '../../ai/doctor-service.js';
@@ -55,10 +60,21 @@ export interface ImportSectionDeps {
     opts?: { balanceAccountCode?: string; postNow?: boolean }
   ) => Promise<OnboardingResult>;
   ingest?: typeof ingestCfdiFiles;
-  /** Builds the LLM session the ingest pipeline classifies with. */
+  /** Resolves the provider profile the batch is classified with. */
+  resolveProfile?: (provider?: string, model?: string) => ResolvedProfile;
+  /**
+   * Builds the LLM session the ingest pipeline classifies with.
+   *
+   * Takes the RESOLVED profile rather than resolving one of its own: the run
+   * row of `ai_ingest_runs` opens with `provider` and `model` BEFORE the first
+   * file, so the wizard has to know which profile it is about to use — and a
+   * session built from a second, separately resolved profile would write a row
+   * naming a model that never classified anything.
+   */
   createSession?: (
+    profile: ResolvedProfile,
     ctx: AgentContext,
-    onDraftCreated: (info: DraftCapture['drafts'][number]) => void
+    callbacks: SessionCallbacks
   ) => Promise<LlmSession>;
   /** Environment to read CONTALINK_API_KEY from (injectable for tests). */
   env?: NodeJS.ProcessEnv;
@@ -74,14 +90,36 @@ function defaultListXmlFiles(dir: string): string[] {
     .map((f) => path.join(dir, f));
 }
 
-async function defaultCreateSession(
+/**
+ * B3 · LA MISMA SUPERFICIE RECORTADA QUE `mnemosine ingest`, EN EL ALTA.
+ *
+ * Esta fábrica construía la sesión sin pasar lista, así que el alta recibía
+ * las 25 herramientas —`external_pull`, `external_push` y
+ * `external_diff_trial_balance` incluidas, contra el sistema del cliente y con
+ * su credencial— por el mismo camino de clasificación por lotes que A7·3 ya
+ * había recortado en la hoja de `ingest`. Aquello arregló la INSTANCIA; la
+ * clase son los DOS caminos que clasifican carpetas enteras, y éste es el
+ * segundo.
+ *
+ * No hay lista propia: es la MISMA `SUPERFICIE_INGESTA`. Dos listas para el
+ * mismo trabajo divergirían, y la que se olvidara sería la que un día vuelva a
+ * llevarse el brazo externo puesto.
+ *
+ * Se exporta para que el guardián pueda ejercerla: comprobar el NOMBRE de la
+ * lista en el fuente es lo que dejó pasar un `.concat([...])` con la cola
+ * hacia fuera dentro.
+ */
+export async function defaultCreateSession(
+  profile: ResolvedProfile,
   ctx: AgentContext,
-  onDraftCreated: (info: DraftCapture['drafts'][number]) => void
+  callbacks: SessionCallbacks
 ): Promise<LlmSession> {
-  const profile = resolveProfile(undefined, undefined);
   // Batch classification pipeline: the grounding corrective turn is
   // harness-initiated and must not add drafts behind the wizard's back.
-  return createLlmSession(profile, ctx, { onDraftCreated }, { grounding: { enabled: false } });
+  return createLlmSession(profile, ctx, callbacks, {
+    grounding: { enabled: false },
+    herramientas: SUPERFICIE_INGESTA,
+  });
 }
 
 export class ImportSection implements SetupSection {
@@ -99,6 +137,7 @@ export class ImportSection implements SetupSection {
       planOnboarding: deps.planOnboarding ?? planOnboarding,
       executeOnboarding: deps.executeOnboarding ?? executeOnboarding,
       ingest: deps.ingest ?? ingestCfdiFiles,
+      resolveProfile: deps.resolveProfile ?? resolveProfile,
       createSession: deps.createSession ?? defaultCreateSession,
       env: deps.env ?? process.env,
       listXmlFiles: deps.listXmlFiles ?? defaultListXmlFiles,
@@ -293,17 +332,95 @@ export class ImportSection implements SetupSection {
     try {
       const reviewer = await this.deps.resolveReviewer(entity.tenantId, ctx.flags.user);
       const capture: DraftCapture = { drafts: [] };
-      const session = await this.deps.createSession(entity, (info) => capture.drafts.push(info));
+      // `capture.drafts` se REEMPLAZA en cada archivo (ingest-service lo pone a
+      // [] antes de cada turno), así que su longitud al final es la del ÚLTIMO
+      // archivo, no la de la corrida. Este contador sí cuenta la corrida
+      // entera, y sólo se usa en el camino de la MUERTE: el camino feliz
+      // cuenta sobre report.results, que es donde siempre se midió.
+      const borradoresCapturados = { n: 0 };
+      const consumo = { input: 0, output: 0, costo: 0, costoConocido: false };
+      const callbacks: SessionCallbacks = {
+        onDraftCreated: (info) => {
+          capture.drafts.push(info);
+          borradoresCapturados.n++;
+        },
+        onUsage: (usage) => {
+          // Mismas pinzas que recordUsage: un contador hostil o no-numérico se
+          // fija ANTES de estimar el costo, o un NaN envenena el total de la
+          // fila entera.
+          const fijado = {
+            ...usage,
+            inputTokens: clampTokenCount(usage.inputTokens),
+            outputTokens: clampTokenCount(usage.outputTokens),
+            cacheReadInputTokens: clampTokenCount(usage.cacheReadInputTokens ?? 0),
+            cacheCreationInputTokens: clampTokenCount(usage.cacheCreationInputTokens ?? 0),
+          };
+          consumo.input += fijado.inputTokens;
+          consumo.output += fijado.outputTokens;
+          const costo = estimateCostUsd(fijado);
+          if (costo !== null) {
+            consumo.costo += costo;
+            consumo.costoConocido = true;
+          }
+        },
+      };
+      const profile = this.deps.resolveProfile(undefined, undefined);
+      const session = await this.deps.createSession(profile, entity, callbacks);
       // Auto-post OFF regardless of config: the wizard never posts on its own.
       const thresholds = resolveIngestThresholds({ autoPost: false });
-      const report: IngestReport = await this.deps.ingest({
+
+      // B3 · Y LA CORRIDA DEL ALTA TAMBIÉN DEJA FILA.
+      //
+      // Este archivo no nombraba `ai_ingest_runs` ni una vez: una carpeta
+      // ingerida desde `mnemosine init` producía documentos, borradores y
+      // asientos, y CERO filas de corrida — y si moría a media carpeta, ni eso.
+      // A7·3 partió el registro en dos actos para la hoja de `ingest`; esto es
+      // el mismo envoltorio, no una copia: abre antes del primer archivo,
+      // cierra después, y cierra también por el camino de la excepción.
+      const inicioCorrida = Date.now();
+      const report: IngestReport = await conCorridaRegistrada({
         ctx: entity,
-        reviewer,
-        files: batch,
-        thresholds,
-        session,
-        capture,
-        onProgress: (msg) => ctx.print(`    ${msg}`),
+        apertura: {
+          provider: profile.name,
+          model: profile.model,
+          // Lo que de verdad se va a procesar, no lo que había en la carpeta:
+          // el tope de la primera corrida ya recortó, y una fila que dijera 60
+          // sobre 50 archivos haría de «costo por comprobante» una división
+          // chueca.
+          filesTotal: batch.length,
+          autoPostEnabled: thresholds.autoPost,
+          createdBy: reviewer.email,
+        },
+        cuerpo: () =>
+          this.deps.ingest({
+            ctx: entity,
+            reviewer,
+            files: batch,
+            thresholds,
+            session,
+            capture,
+            onProgress: (msg) => ctx.print(`    ${msg}`),
+          }),
+        // Si la corrida reventó (`resultado` null) NO se inventan counts: se
+        // omiten, las columnas conservan su DEFAULT 0 y el status 'failed' es
+        // lo que dice que esos ceros son «no se llegó a contar».
+        cierre: (resultado) => ({
+          counts: resultado?.counts,
+          sospechaCount: resultado
+            ? resultado.results.filter((r) => (r.sospechas?.length ?? 0) > 0).length
+            : 0,
+          draftsCreated: resultado
+            ? resultado.results.filter((r) => r.draftId).length
+            : borradoresCapturados.n,
+          inputTokens: consumo.input,
+          outputTokens: consumo.output,
+          estimatedCostUsd: consumo.costoConocido ? consumo.costo : null,
+          durationMs: Date.now() - inicioCorrida,
+        }),
+        // El registro es best-effort —los CFDI clasificados son verdad aunque
+        // la anotación falle— pero un registro fallido se VE, y en el asistente
+        // el sitio donde el humano mira es esta misma columna de texto.
+        onAviso: (mensaje) => ctx.print(`  ⚠ ${mensaje}`),
       });
       const c = report.counts;
       ctx.print(

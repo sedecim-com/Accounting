@@ -16,12 +16,102 @@ import type { ProviderProfile, ResolvedProfile } from './types.js';
 // Files: ./mnemosine.config.json (project) > ~/.mnemosine/config.json (user)
 // ============================================================
 
-export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
+// ============================================================
+// REPRODUCIBILIDAD DEL PERFIL — lo que hace COMPARABLES dos corridas
+//
+// El arnés de evaluación (scripts/eval-clasificador.ts) anexa cada corrida a
+// docs/evals/clasificador.jsonl y la compara contra la anterior del mismo
+// proveedor+modelo: imprime «mejoró/empeoró» por clase. Esa flecha sólo
+// significa algo si entre las dos corridas cambió el CLASIFICADOR y no el azar
+// del muestreo. Sin temperatura fija y sin un id de modelo que no se mueva bajo
+// los pies, dos corridas no son comparables NI EN PRINCIPIO, y la premisa del
+// arnés está rota antes de empezar.
+//
+// MEDIDO, NO ARGUMENTADO. Tres corridas del MISMO caso, el mismo perfil y el
+// mismo modelo (ollama · gemma4:26b, 2026-09-02, tests/golden/cfdi/pue-recibido)
+// dieron global 0.750, 0.750 y 0.000: las dos primeras clasificaron con
+// confianza 0.70 y 0.80, y la tercera ni siquiera clasificó — preguntó. No es
+// que la calibración oscile en el tercer decimal: el RESULTADO de clase cambia
+// entre corridas idénticas. Sobre eso el arnés estaba dispuesto a imprimir una
+// flecha de tendencia. Llevaba un año sin ejecutarse y ese ruido no lo había
+// visto nadie.
+//
+// Por eso cada perfil declara aquí su postura, y NINGUNO PUEDE CALLARSE: el
+// campo es obligatorio en el tipo, así que un perfil nuevo sin declarar no
+// compila. Un default silencioso sería justo el modo de fallo que esto viene a
+// cerrar — el que dejó once perfiles sin un solo `temperature` durante un año.
+// ============================================================
+
+/**
+ * `fijado`   — el muestreo se puede clavar; `temperature` dice en cuánto.
+ * `no-admite` — el proveedor RECHAZA fijarlo, o el perfil no es evaluable en
+ *               absoluto. `razon` dice cuál de las dos y por qué. No se finge
+ *               una temperatura que la API devolvería como 400.
+ */
+export type PosturaMuestreo = 'fijado' | 'no-admite';
+
+export interface Reproducibilidad {
+  muestreo: PosturaMuestreo;
+  /** Temperatura del clasificador. Presente si y sólo si muestreo === 'fijado'. */
+  temperature?: number;
+  /**
+   * Id FECHADO del modelo, para pedir la misma instantánea en cada corrida en
+   * vez de un alias que el proveedor repunta cuando quiere. `null` = este
+   * perfil no fija ninguna; `razon` dice si es porque el proveedor no publica
+   * instantáneas fechadas o porque nadie la ha establecido todavía.
+   */
+  instantanea: string | null;
+  /** Por qué. Obligatoria y sustantiva: una postura sin motivo es una opinión. */
+  razon: string;
+}
+
+export type PerfilReproducible = ProviderProfile & { reproducibilidad: Reproducibilidad };
+
+/**
+ * ¿ENVÍAN YA EL MUESTREO los constructores de petición?
+ *
+ * HOY NO. `src/ai/agent.ts` (camino Anthropic) y `src/ai/providers/openai-compat.ts`
+ * (camino OpenAI-compatible) arman el cuerpo de la petición sin `temperature`, y
+ * ninguno de los dos está en la partición del paquete que declaró esta tabla. La
+ * declaración de arriba es, por tanto, DECLARACIÓN: dice lo que cada proveedor
+ * admite, no lo que hoy viaja por el cable.
+ *
+ * Esta bandera existe para que esa diferencia no se pudra en un comentario. El
+ * arnés la lee y lo dice en voz alta en cada corrida, y
+ * tests/ai/eval/arnes-cableado.spec.ts la contrasta contra los dos archivos
+ * reales: si alguien cablea el muestreo y no la sube, rojo; si alguien la sube
+ * sin cablearlo, rojo. Una nota que se invalida sola en vez de envejecer.
+ *
+ * TIPADA `boolean` A PROPÓSITO, no como el literal `false` que el valor sugiere:
+ * con el literal, TypeScript da por muertas todas las ramas que dependen de que
+ * algún día valga `true` —incluida la comparación de la bitácora, que se quedó
+ * sin compilar— y el día que alguien la suba se encontraría con código que
+ * nadie ha comprobado nunca. El tipo mantiene vivo el camino que la bandera
+ * existe para abrir.
+ */
+export const MUESTREO_CABLEADO: boolean = false;
+
+export const BUILTIN_PROFILES: Record<string, PerfilReproducible> = {
   anthropic: {
     type: 'anthropic',
     model: 'claude-opus-5',
     api_key_env: 'ANTHROPIC_API_KEY',
     note: 'Claude via the Anthropic API (default)',
+    // El perfil POR DEFECTO —el que el eval mide si nadie pasa --provider— es
+    // el que menos puede fijarse. No es una omisión: es la API.
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'El SDK instalado lo dice en su propia deprecación de `temperature` ' +
+        '(node_modules/@anthropic-ai/sdk, BetaMessageCreateParams): los modelos posteriores a ' +
+        'Claude Opus 4.6 no admiten fijar la temperatura — se acepta 1.0 por compatibilidad y ' +
+        'cualquier otro valor vuelve como 400. claude-opus-5 es posterior, así que temperatura 0 ' +
+        'sería un error, no un ajuste. Tampoco hay instantánea que fijar: el id ya es exacto y ' +
+        'Anthropic no publica variantes fechadas de esta familia (añadirle un sufijo de fecha da ' +
+        'un modelo inexistente). Dos corridas de este perfil NO son comparables por construcción, ' +
+        'y el arnés tiene que decirlo en vez de dibujar flechas.',
+    },
   },
   hermes: {
     type: 'openai-compatible',
@@ -29,6 +119,15 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://inference-api.nousresearch.com/v1',
     api_key_env: 'NOUS_API_KEY',
     note: 'Hermes 4 via Nous Portal — standard function calling, the accounting tools work',
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'Endpoint Chat Completions clásico: `temperature` es parámetro del cuerpo y 0 es el ' +
+        'ajuste del clasificador. El alias del modelo nombra un peso fijo (405B), no un enrutador; ' +
+        'no hay instantánea fechada que establecer.',
+    },
   },
   'hermes-agent': {
     type: 'openai-compatible',
@@ -40,12 +139,30 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
       'Local Hermes Agent (hermes gateway). WARNING: it runs ITS OWN tools server-side and does not ' +
       'return tool calls to the client — mnemosine accounting tools are NOT invoked ' +
       'over this channel; it is generic chat/agent. For accounting with tools use "hermes".',
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'Antes que el muestreo falla el sujeto: `tools: false` porque la pasarela corre SUS ' +
+        'propias herramientas del lado del servidor y no devuelve llamadas al cliente. Las ' +
+        'herramientas contables nunca se invocan, así que este perfil no clasifica nada que el ' +
+        'golden set pueda puntuar. No es evaluable, y fijarle una temperatura sugeriría que sí.',
+    },
   },
   ollama: {
     type: 'openai-compatible',
     model: 'llama3.1',
     base_url: 'http://localhost:11434/v1',
     note: 'Local model via Ollama. Set "model" to an installed one that supports tools',
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'Servidor local con Chat Completions: acepta `temperature`, y al correr contra pesos ' +
+        'locales el modelo no se mueve bajo los pies. La instantánea es la etiqueta que el usuario ' +
+        'tenga instalada (`--model`), no algo que este perfil pueda fijar por él.',
+    },
   },
   openai: {
     type: 'openai-compatible',
@@ -54,6 +171,15 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     api_key_env: 'OPENAI_API_KEY',
     max_tokens_param: 'max_completion_tokens',
     note: 'OpenAI via API key (API equivalent of the ChatGPT/Codex subscription)',
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'Modelo de razonamiento — este mismo perfil ya lo delata con `max_tokens_param: ' +
+        'max_completion_tokens`. Con el razonamiento activo (el default) la API sólo acepta la ' +
+        'temperatura por omisión: cualquier otro valor vuelve como 400 «Unsupported value: ' +
+        "'temperature' … Only the default (1) value is supported». No se fija.",
+    },
   },
   grok: {
     type: 'openai-compatible',
@@ -61,6 +187,14 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://api.x.ai/v1',
     api_key_env: 'XAI_API_KEY',
     note: 'xAI Grok — OpenAI-compatible API',
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'xAI documenta `temperature` en 0–2 para grok-4 (lo que grok-4 sí rechaza es ' +
+        '`reasoning_effort`, que este arnés no envía). Sin instantánea fechada establecida.',
+    },
   },
   minimax: {
     type: 'openai-compatible',
@@ -68,6 +202,14 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://api.minimax.io/v1',
     api_key_env: 'MINIMAX_API_KEY',
     note: 'MiniMax (global endpoint; for China change base_url to api.minimaxi.com/v1)',
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'Endpoint Chat Completions: `temperature` es parámetro del cuerpo. El alias nombra una ' +
+        'versión concreta del modelo (M2); sin instantánea fechada establecida.',
+    },
   },
   qwen: {
     type: 'openai-compatible',
@@ -75,6 +217,16 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
     api_key_env: 'DASHSCOPE_API_KEY',
     note: 'Qwen via DashScope compatible-mode (the API route used by Qwen Code)',
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'DashScope en modo compatible acepta `temperature` en el cuerpo. `qwen3-max` es un alias ' +
+        'que DashScope repunta: la instantánea fechada existe del lado del proveedor y está SIN ' +
+        'ESTABLECER aquí — hasta que se fije, dos corridas separadas en el tiempo pueden estar ' +
+        'midiendo modelos distintos.',
+    },
   },
   gemini: {
     type: 'openai-compatible',
@@ -82,6 +234,15 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
     api_key_env: 'GEMINI_API_KEY',
     note: 'Google AI Studio (Gemini) — OpenAI-compatible endpoint; set "model" to the version your account has',
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'La capa compatible con OpenAI de AI Studio acepta `temperature`. El alias ya lleva ' +
+        'versión menor (2.5-pro), pero Google publica instantáneas fechadas por debajo: SIN ' +
+        'ESTABLECER aquí.',
+    },
   },
   openrouter: {
     type: 'openai-compatible',
@@ -89,6 +250,16 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://openrouter.ai/api/v1',
     api_key_env: 'OPENROUTER_API_KEY',
     note: 'OpenRouter — one key, hundreds of models; change "model" to whichever you prefer',
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'Aquí la comparabilidad se rompe UN ESCALÓN ANTES que el muestreo: `openrouter/auto` es un ' +
+        'enrutador que elige modelo por petición, así que dos corridas del «mismo proveedor+modelo» ' +
+        'pueden haber preguntado a dos modelos distintos — y la bitácora las compararía como si ' +
+        'fueran la misma. Fijar la temperatura no arreglaría eso. Para evaluar con OpenRouter hay ' +
+        'que pasar `--model` con un modelo concreto; el perfil por omisión no es evaluable.',
+    },
   },
   copilot: {
     type: 'openai-compatible',
@@ -98,6 +269,14 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     note:
       'GitHub Copilot. WARNING: it does not use a classic API key — the token comes from the GitHub OAuth flow ' +
       '(short-lived and renewable); useful behind a proxy like copilot-api that refreshes it.',
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'Mismo modelo de razonamiento que el perfil `openai` (gpt-5.1) y por tanto el mismo 400 al ' +
+        'fijar temperatura; encima, lo que Copilot sirve detrás de ese alias lo decide GitHub y no ' +
+        'se versiona hacia el cliente. Dos capas de deriva, ninguna fijable desde aquí.',
+    },
   },
   openclaw: {
     type: 'openai-compatible',
@@ -109,8 +288,28 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
       'Local OpenClaw gateway. Requires gateway.http.endpoints.chatCompletions.enabled=true ' +
       'in its config; the gateway token is an operator credential — loopback only. ' +
       'Like hermes-agent, it runs ITS OWN tools server-side: chat channel, no accounting tools.',
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'Como hermes-agent: `tools: false`, la pasarela corre sus propias herramientas del lado del ' +
+        'servidor y las contables nunca se invocan. No hay clasificación que puntuar, así que no ' +
+        'hay muestreo que fijar.',
+    },
   },
 };
+
+/**
+ * La reproducibilidad DECLARADA de un perfil, o `null` si no la declara.
+ *
+ * Sólo los perfiles de fábrica la traen. Un perfil definido por el usuario en
+ * mnemosine.config.json devuelve `null` a propósito: el archivo de configuración
+ * no tiene dónde declararla, y adivinarla por él sería inventar una garantía.
+ * El arnés trata ese `null` como «sin garantía de comparabilidad» y lo dice.
+ */
+export function reproducibilidadDe(nombre: string): Reproducibilidad | null {
+  return BUILTIN_PROFILES[nombre]?.reproducibilidad ?? null;
+}
 
 // Strict fail-closed schemas: an unknown key is ALWAYS a mistake (a typo like
 // "api_key_evn" would otherwise silently fall back to defaults — the worst

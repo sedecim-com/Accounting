@@ -32,7 +32,11 @@ import {
   type SessionRow,
 } from '../ai/session-store.js';
 import { ingestCfdiFiles, previewCfdiFiles, type DraftCapture } from '../ai/ingest-service.js';
-import { SUPERFICIE_DESATENDIDA, SUPERFICIE_DESATENDIDA_SANDBOX } from '../ai/tools/superficie.js';
+import {
+  SUPERFICIE_DESATENDIDA,
+  SUPERFICIE_DESATENDIDA_SANDBOX,
+  SUPERFICIE_INGESTA,
+} from '../ai/tools/superficie.js';
 import { resolverUmbralesConPanel } from '../ai/ingest-thresholds.js';
 import {
   declareRisk,
@@ -97,7 +101,7 @@ import { registerBackupCommand } from './backup-command.js';
 import { registerReportCommand } from './report-command.js';
 import { recordUsage, estimateCostUsd, clampTokenCount } from '../ai/usage-ledger.js';
 import { registrarEventoEnSegundoPlano } from '../ai/agent-events.js';
-import { registrarCorridaIngesta } from '../ai/ingest-runs.js';
+import { conCorridaRegistrada } from '../ai/ingest-runs.js';
 import type { TurnUsage } from '../ai/providers/types.js';
 import type { RunAgentTurn } from '../ai/jobs/runner.js';
 import {
@@ -1558,8 +1562,16 @@ ingest.action(async (files: string[], opts: {
 
       // No interactive channel: the AI's questions land in `mnemosine questions`.
       const capture: DraftCapture = { drafts: [] };
+      // `capture.drafts` se VACÍA en cada archivo (ingest-service lo reinicia
+      // antes de cada turno), así que no sirve para saber cuántos borradores
+      // lleva la corrida. Este contador sí: cuenta cada aviso de borrador
+      // creado desde que empezó. Sólo se usa en el camino de la MUERTE — el
+      // camino feliz sigue contando sobre report.results, que es la misma
+      // verdad medida donde siempre se midió.
+      const borradoresCapturados = { n: 0 };
       const callbacks = makeCallbacks(undefined, (info) => {
         capture.drafts.push(info);
+        borradoresCapturados.n++;
       });
       // A2: la ingesta acumula su consumo para la fila de ai_ingest_runs —
       // y de paso cierra un hueco: este camino no registraba NADA en
@@ -1590,6 +1602,17 @@ ingest.action(async (files: string[], opts: {
       // an unattended run — disabled here.
       const session = await createLlmSession(profile, ctx, callbacks, {
         grounding: { enabled: false },
+        // A7·3 · y con su superficie NOMBRADA. Esta hoja construía su sesión
+        // por su cuenta y no pasaba lista: recibía TODAS las herramientas
+        // porque nadie se lo impidió. Hoy no es una fuga —ninguna postea—,
+        // pero es propiedad por accidente en el ÚNICO camino que puede
+        // postear al mayor sin humano cuando el panel autoriza el auto-posteo.
+        // No es la desatendida: la ingesta clasifica comprobantes, no
+        // concilia ni reporta, y su lista propia (tools/superficie.ts) deja
+        // fuera el brazo externo entero y los estados financieros. Una
+        // herramienta nueva nace excluida de la ingesta hasta que alguien la
+        // añada a esa lista, y eso es una línea en un diff que se revisa.
+        herramientas: SUPERFICIE_INGESTA,
       });
 
       console.log(
@@ -1603,41 +1626,71 @@ ingest.action(async (files: string[], opts: {
       );
 
       const corridaInicio = Date.now();
-      const report = await ingestCfdiFiles({
-        ctx, reviewer, files, thresholds, session, capture,
-        onProgress: (msg) => stderr.write(ce.dim(`\n── ${msg}\n`)),
-      });
-
-      // A2: la corrida deja fila (counts, borradores, consumo) y cada CFDI
-      // sospechoso deja evento con sus campos marcados. El registro nunca
-      // tira la corrida: los resultados de ARRIBA ya son verdad aunque la
-      // anotación falle — se avisa y se sigue.
-      try {
-        const corridaId = await registrarCorridaIngesta(ctx, {
+      // A7·3: LA FILA SE ABRE ANTES DEL BUCLE Y SE CIERRA DESPUÉS — también
+      // por el camino de la excepción. Antes se insertaba al final, con los
+      // contadores ya finales: una corrida de 2 000 CFDI que moría en el
+      // archivo 1 500 dejaba mil quinientos borradores en la base y CERO
+      // filas de corrida, y a la mañana siguiente no había nada que dijera
+      // qué corrida los produjo. Ahora la fila nace en 'running' y muere
+      // diciendo cómo murió.
+      //
+      // El registro sigue siendo BEST-EFFORT: si la apertura falla, la
+      // ingesta corre igual. Lo que ya no pasa es que el fallo se pierda —
+      // sale en amarillo por la salida donde esta hoja avisa (no un stderr en
+      // gris que nadie lee) y se repite junto al Summary, que es lo último
+      // que el operador mira tras una corrida larga.
+      const fila = { id: null as string | null };
+      const avisosDeRegistro: string[] = [];
+      const report = await conCorridaRegistrada({
+        ctx,
+        apertura: {
           provider: profile.name,
           model: profile.model,
           filesTotal: files.length,
-          counts: report.counts,
-          sospechaCount: report.results.filter((r) => (r.sospechas?.length ?? 0) > 0).length,
-          draftsCreated: report.results.filter((r) => r.draftId).length,
+          autoPostEnabled: thresholds.autoPost,
+          createdBy: reviewer.email,
+        },
+        cuerpo: (corridaId) => {
+          fila.id = corridaId;
+          return ingestCfdiFiles({
+            ctx, reviewer, files, thresholds, session, capture,
+            onProgress: (msg) => stderr.write(ce.dim(`\n── ${msg}\n`)),
+          });
+        },
+        // Si la corrida reventó (`resultado` null) NO se inventan counts: se
+        // omiten, las columnas conservan su DEFAULT 0 y el status 'failed' es
+        // lo que dice que esos ceros son «no se llegó a contar». Lo que sí se
+        // escribe es lo que este proceso midió de verdad: el consumo del
+        // modelo y los borradores que alcanzó a crear.
+        cierre: (resultado) => ({
+          counts: resultado?.counts,
+          sospechaCount: resultado
+            ? resultado.results.filter((r) => (r.sospechas?.length ?? 0) > 0).length
+            : 0,
+          draftsCreated: resultado
+            ? resultado.results.filter((r) => r.draftId).length
+            : borradoresCapturados.n,
           inputTokens: consumo.input,
           outputTokens: consumo.output,
           estimatedCostUsd: consumo.costoConocido ? consumo.costo : null,
           durationMs: Date.now() - corridaInicio,
-          autoPostEnabled: thresholds.autoPost,
-          createdBy: reviewer.email,
-        });
-        for (const r of report.results) {
-          if ((r.sospechas?.length ?? 0) > 0) {
-            registrarEventoEnSegundoPlano(ctx, {
-              kind: 'sospecha',
-              provider: profile.name,
-              detail: { archivo: r.file, campos: r.sospechas, corrida: corridaId },
-            });
-          }
+        }),
+        onAviso: (mensaje) => {
+          avisosDeRegistro.push(mensaje);
+          console.error(c.yellow(`Aviso: ${mensaje}`));
+        },
+      });
+
+      // A2: cada CFDI sospechoso deja evento con sus campos marcados, ligado
+      // a la fila de su corrida (null si la apertura no llegó a escribirse).
+      for (const r of report.results) {
+        if ((r.sospechas?.length ?? 0) > 0) {
+          registrarEventoEnSegundoPlano(ctx, {
+            kind: 'sospecha',
+            provider: profile.name,
+            detail: { archivo: r.file, campos: r.sospechas, corrida: fila.id },
+          });
         }
-      } catch (err) {
-        stderr.write(ce.yellow(`  (aviso: la corrida no quedó registrada en ai_ingest_runs: ${(err as Error).message})\n`));
       }
 
       const icon: Record<string, string> = {
@@ -1658,6 +1711,12 @@ ingest.action(async (files: string[], opts: {
       );
       if (cnt.draft > 0) console.log(c.dim('Review the drafts with: mnemosine review'));
       if (cnt.blocked > 0) console.log(c.dim('Answer the questions with: mnemosine questions'));
+      // El registro es best-effort y NO cambia el código de salida — los CFDI
+      // clasificados son verdad aunque la anotación falle. Pero el operador se
+      // entera aquí, donde mira, y no sólo cuando pasó hace veinte minutos.
+      for (const aviso of avisosDeRegistro) {
+        console.error(c.yellow(`⚠ ${aviso}`));
+      }
 
       await shutdown(cnt.error + cnt.invalid > 0 ? 1 : 0);
     } catch (err) {
