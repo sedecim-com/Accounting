@@ -102,7 +102,7 @@ function de(cuenta: string): Linea | undefined {
 function cuadre(): void {
   const dr = lines().reduce((s, l) => s.plus(l.debit_amount ?? '0'), new Decimal(0));
   const cr = lines().reduce((s, l) => s.plus(l.credit_amount ?? '0'), new Decimal(0));
-  expect(dr.equals(cr), `descuadre: DR ${dr} vs CR ${cr}`).toBe(true);
+  expect(dr.equals(cr), `descuadre: DR ${dr.toFixed(4)} vs CR ${cr.toFixed(4)}`).toBe(true);
 }
 
 beforeEach(() => {
