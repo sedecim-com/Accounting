@@ -2,7 +2,7 @@
 
 ## Journal entries (journal_entries)
 - Types: standard, adjusting, closing, reversing, correction, auto_invoice, auto_payment, auto_depreciation, auto_reconciliation.
-- States: draft → pending_approval → approved → posted; void at any point (if it was posted, a reversing journal entry is generated automatically and auto-posted).
+- States: draft → pending_approval → approved → posted. A POSTED entry is IMMUTABLE and never flips state: "voiding" a posted entry means a HUMAN runs `entry void`, which creates a linked posted mirror (reversal) in the same transaction; the original STAYS 'posted' and its annulment is expressed by reversed_by_entry_id (NIF B-1: corrections by reversal, never by edit). Only draft/pending entries — which never touched the ledger — are simply marked 'void'. post/reverse/void are irreversible acts and are NEVER agent-invocable.
 - Golden rule: debits = credits EXACTLY (the DB enforces it with a CHECK at posting; there is no tolerance). Each line carries exactly one: debit_amount XOR credit_amount, both > 0. Minimum 2 lines.
 - Validations at posting (engine-enforced, not optional): exact balance, XOR-positive line, active account + allow_manual_entries + not a header, open fiscal period, foreign currency requires exchange_rate and consistent foreign_debit/credit.
 - Posting updates account_balances per (account, period) and triggers blockchain attestation (asynchronous, optional).

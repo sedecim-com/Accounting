@@ -11,6 +11,9 @@ import {
   archiveCustomer,
   restoreCustomer,
   customerLabel,
+  getCustomerTaxProfile,
+  setCustomerTaxProfile,
+  listCustomerTaxProfiles,
 } from '../services/ar/customer-service.js';
 import type { Palette } from './palette.js';
 import { entityScope } from '../database/scope.js';
@@ -489,6 +492,147 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
         audit: { userId: reviewer.userId, tenantId: ctx.tenantId, reason: opts.reason },
       });
       process.stdout.write(`${deps.palette.green('✔')} ${updated.customer_number} is active again.\n`);
+    })
+  );
+
+  // ============================================================
+  // customer tax · cliente fiscal (F03)
+  // El perfil que el CFDI 4.0 valida contra el padrón del SAT: RFC,
+  // régimen, CP y UsoCFDI. Sin él, el timbrado rechaza; con él, el
+  // control previo a facturar (`tax list --missing`) tiene qué medir.
+  // La validación contra el padrón VIVO (tax check, vía PAC) queda
+  // fuera hasta la decisión §5.
+  // ============================================================
+  const tax = customer
+    .command('tax')
+    .alias('fiscal')
+    .description('The fiscal profile CFDI 4.0 stamps against: RFC, regime, postal code, UsoCFDI');
+
+  // ---- customer tax show -------------------------------------------
+  const taxShow = tax
+    .command('show')
+    .alias('ver')
+    .argument('<ref>', 'customer number, name or id')
+    .description('Show the fiscal profile and what is missing before this customer can be stamped');
+  withOutput(withContext(taxShow));
+  declareRisk(taxShow, { risk: 'lectura', agent: true });
+  taxShow.action((ref: string, opts: CommonOpts) =>
+    run(async () => {
+      const ctx = await entityOf(opts);
+      const target = await resolveCustomer(ctx.entityId, ref);
+      const perfil = await getCustomerTaxProfile(
+        String(target.id),
+        entityScope(ctx.tenantId, ctx.entityId)
+      );
+      const p = deps.palette;
+      if (opts.json || opts.output || opts.format) {
+        render([perfil as unknown as Record<string, unknown>], { ...opts, idField: 'customer_number' });
+        return;
+      }
+      const out = process.stdout;
+      out.write(`\n${p.bold(perfil.customer_number)}  ${perfil.name ?? ''}\n`);
+      const fact = (label: string, value: string | null | undefined, extra?: string | null) => {
+        out.write(
+          `  ${p.dim(label.padEnd(16))}${value ? `${String(value)}${extra ? p.dim(` · ${extra}`) : ''}` : p.yellow('—')}\n`
+        );
+      };
+      fact('RFC', perfil.tax_id);
+      fact('Regime', perfil.tax_regime, perfil.tax_regime_name);
+      fact('Postal code', perfil.tax_postal_code);
+      fact('UsoCFDI', perfil.uso_cfdi, perfil.uso_cfdi_name);
+      out.write(
+        perfil.complete
+          ? `\n${p.green('✔')} Complete: stamping has what the SAT padrón will be matched against.\n`
+          : `\n${p.yellow('▲')} Missing ${perfil.missing.join(', ')}: a CFDI for this customer would be rejected.\n`
+      );
+    })
+  );
+
+  // ---- customer tax set --------------------------------------------
+  const taxSet = tax
+    .command('set')
+    .alias('fijar')
+    .argument('<ref>', 'customer number, name or id')
+    .description('Set RFC, regime, postal code or UsoCFDI, validated against the SAT catalogs before writing');
+  withContext(taxSet);
+  taxSet
+    .option('--rfc <rfc>', 'the RFC (form-validated: AAAA######XXX)')
+    .option('--tax-regime <code>', 'c_RegimenFiscal code: 601, 612, 626…')
+    .option('--postal-code <cp>', 'fiscal address postal code (5 digits)')
+    .option('--uso-cfdi <code>', 'default c_UsoCFDI: G01, G03, P01…')
+    .option('--reason <text>', 'justification recorded in the audit trail')
+    .option('--json', 'JSON output');
+  declareRisk(taxSet, { risk: 'escritura', agent: false, writes: 'customers.tax_regime/tax_postal_code/uso_cfdi' });
+  taxSet.action(
+    (
+      ref: string,
+      opts: CommonOpts & { rfc?: string; taxRegime?: string; postalCode?: string; usoCfdi?: string }
+    ) =>
+      run(async () => {
+        const ctx = await writeEntityOf(opts);
+        const target = await resolveCustomer(ctx.entityId, ref);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const perfil = await setCustomerTaxProfile(
+          String(target.id),
+          entityScope(ctx.tenantId, ctx.entityId),
+          {
+            taxId: opts.rfc,
+            taxRegime: opts.taxRegime,
+            postalCode: opts.postalCode,
+            usoCfdi: opts.usoCfdi,
+          },
+          { userId: reviewer.userId, tenantId: ctx.tenantId, reason: opts.reason }
+        );
+        if (opts.json) {
+          render([perfil as unknown as Record<string, unknown>], { json: true });
+          return;
+        }
+        const p = deps.palette;
+        process.stdout.write(
+          `${p.green('✔')} ${p.bold(perfil.customer_number)} fiscal profile updated` +
+            (perfil.complete
+              ? p.dim(' · complete\n')
+              : p.yellow(` · still missing ${perfil.missing.join(', ')}\n`))
+        );
+      })
+  );
+
+  // ---- customer tax list -------------------------------------------
+  const taxList = tax
+    .command('list')
+    .alias('listar')
+    .description('The pre-billing control: customers whose fiscal profile is incomplete or malformed');
+  withOutput(withSelection(withContext(taxList)));
+  taxList.option('--missing', 'only customers that could NOT be stamped today');
+  declareRisk(taxList, { risk: 'lectura', agent: true });
+  taxList.action((opts: CommonOpts & { missing?: boolean }) =>
+    run(async () => {
+      const ctx = await entityOf(opts);
+      if (opts.status?.length) {
+        throw usageError('`customer tax list` has no lifecycle filter: use --missing.');
+      }
+      const { rows, total } = await listCustomerTaxProfiles(
+        entityScope(ctx.tenantId, ctx.entityId),
+        { missing: opts.missing, limit: opts.all ? 500 : (opts.limit ?? 100) }
+      );
+      render(
+        rows.map((r) => ({
+          customer_number: r.customer_number,
+          name: r.name ?? '',
+          rfc: r.tax_id ?? '',
+          regime: r.tax_regime ?? '',
+          postal_code: r.tax_postal_code ?? '',
+          uso_cfdi: r.uso_cfdi ?? '',
+          complete: r.complete ? 'yes' : `missing: ${r.missing.join(',')}`,
+          id: r.id,
+        })),
+        {
+          ...opts,
+          total,
+          idField: 'customer_number',
+          fields: opts.fields ?? 'customer_number,name,rfc,regime,postal_code,uso_cfdi,complete',
+        }
+      );
     })
   );
 }

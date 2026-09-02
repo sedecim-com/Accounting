@@ -40,6 +40,18 @@ const TOP_LEVEL: Record<string, string> = {
   // docs/cli-command-catalog.md: 'payment create' y 'receipt record'.
   payment: 'pago',
   receipt: 'cobro',
+  // F03: la otra mitad del ciclo de cobro y los controles de la cartera.
+  'credit-note': 'nota-credito',
+  ar: 'cxc',
+  // F04: el gemelo de `ar` del lado del pasivo — cuadra el subdiario de
+  // proveedores contra su cuenta de control y enseña los asientos manuales
+  // posteados directo al control, que es con lo que se cierra CxP.
+  ap: 'cxp',
+  // F05a: la tesorería. `bank` es el sustantivo raíz; `account` y `statement`
+  // son calificadores suyos, no sustantivos de primer nivel.
+  bank: 'banco',
+  // S3: la vía de recuperación que el propio esquema nombra.
+  backup: 'respaldo',
   report: 'reporte',
   entities: 'entidades', // deprecated alias of `entity list`; kept working per R9
 
@@ -94,8 +106,30 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   year: { list: 'listar', show: 'ver', create: 'crear' },
   vendor: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', terms: 'terminos' },
   bill: { list: 'listar', show: 'ver', create: 'crear', line: 'linea', approve: 'aprobar' },
-  customer: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', archive: 'archivar', restore: 'restaurar' },
-  invoice: { list: 'listar', show: 'ver', create: 'crear', issue: 'emitir', void: 'anular', series: 'serie' },
+  customer: {
+    list: 'listar', show: 'ver', create: 'crear', edit: 'editar',
+    archive: 'archivar', restore: 'restaurar', tax: 'fiscal',
+  },
+  invoice: {
+    list: 'listar', show: 'ver', create: 'crear', edit: 'editar', delete: 'eliminar',
+    issue: 'emitir', void: 'anular', series: 'serie',
+  },
+  // F03: el cobro completo (su familia propia), la nota de crédito y los
+  // controles de la cartera.
+  receipt: {
+    record: 'registrar', show: 'ver', list: 'listar',
+    apply: 'aplicar', unapply: 'desaplicar', reverse: 'reversar',
+  },
+  'credit-note': { create: 'crear', show: 'ver', list: 'listar', issue: 'emitir', apply: 'aplicar' },
+  ar: { reconcile: 'conciliar', check: 'verificar' },
+  ap: { reconcile: 'conciliar' },
+  // F05b: los tres sustantivos del cotejo. `match` es OBJETO aquí (el cotejo),
+  // no acto: el verbo `cotejar` sigue reservado para `bank transaction match`.
+  bank: {
+    account: 'cuenta', statement: 'estado-cuenta',
+    transaction: 'movimiento', 'book-item': 'partida-libros', match: 'cotejo',
+  },
+  backup: { create: 'crear', list: 'listar', verify: 'comprobar', restore: 'restaurar' },
   report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },
   outbox: { list: 'listar', run: 'ejecutar' },
   question: { list: 'listar', answer: 'responder' },
@@ -183,7 +217,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

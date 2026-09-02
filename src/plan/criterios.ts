@@ -33,6 +33,29 @@ export interface Resultado {
   detalle: string;
 }
 
+/**
+ * Un mutante declarado: el cambio de fuente que este criterio EXISTE para
+ * acusar. tests/plan/mutacion.spec.ts lo aplica sobre el seam de lectura
+ * (jamás sobre el árbol real) y exige `falla` — el espejo que §7 prometía,
+ * convertido de disciplina manual en prueba que corre en cada CI (S2).
+ */
+export interface Mutante {
+  /** Ruta relativa a la raíz del archivo a mutar. */
+  archivo: string;
+  /** Literal a reemplazar (la primera aparición). Debe existir: un ancla ausente es un espejo roto. */
+  de: string;
+  /**
+   * El reemplazo, o `null` para que el archivo DESAPAREZCA. La segunda forma
+   * existe porque hay criterios cuyo modo de fallo no es que un texto cambie
+   * sino que un archivo se borre —el registro de una auditoría, una
+   * migración— y un espejo que no puede expresar el fallo que vigila no es
+   * un espejo.
+   */
+  a: string | null;
+  /** Qué clase de escape encarna (la familia de lecciones: sufijo, conteo, firma-como-llamada…). */
+  porque: string;
+}
+
 export interface Criterio {
   paquete: string;
   /** Qué se afirma, en términos de comportamiento observable. */
@@ -40,6 +63,13 @@ export interface Criterio {
   /** Precondición que el runner comprueba antes de evaluar. */
   necesita?: 'base-de-datos' | 'red';
   evaluar: () => Promise<Resultado> | Resultado;
+  /**
+   * Espejos: mutaciones que DEBEN poner este criterio en rojo. Sólo para
+   * criterios SIN `necesita` (los de conducta se juzgan contra la base, no
+   * contra el fuente). La línea base de criterios sin espejo sólo encoge
+   * (meta-criterio en E0.0).
+   */
+  mutantes?: Mutante[];
 }
 
 // ── Ayudas ──────────────────────────────────────────────────
@@ -50,7 +80,51 @@ export function rutaDe(...p: string[]): string {
   return path.join(RAIZ, ...p);
 }
 
+/**
+ * EL SEAM DE LECTURA (S2). Toda lectura de fuente que hacen los criterios
+ * pasa por aquí, para que tests/plan/mutacion.spec.ts pueda aplicar un
+ * mutante EN MEMORIA — sin tocar el árbol real jamás — y exigir el rojo.
+ * Fuera de esa prueba, el overlay es null y leer() es fs.readFileSync.
+ */
+let sobreescrituras: Map<string, string | null> | null = null;
+
+/**
+ * SOLO PRUEBAS: corre fn con los archivos del overlay sustituidos en memoria.
+ * Un valor `null` finge que el archivo NO EXISTE.
+ */
+export async function conFuenteMutada<T>(
+  overlay: Record<string, string | null>,
+  fn: () => Promise<T> | T
+): Promise<T> {
+  sobreescrituras = new Map(Object.entries(overlay));
+  try {
+    return await fn();
+  } finally {
+    sobreescrituras = null;
+  }
+}
+
+function leer(abs: string): string {
+  if (sobreescrituras) {
+    const rel = path.relative(RAIZ, abs);
+    if (sobreescrituras.has(rel)) {
+      const o = sobreescrituras.get(rel);
+      if (o === null) throw new Error(`ENOENT (mutante): ${rel}`);
+      return o as string;
+    }
+  }
+  return fs.readFileSync(abs, 'utf-8');
+}
+
+/** El contenido crudo (con comentarios) de un archivo, por el seam. */
+export function crudoDe(...p: string[]): string {
+  return leer(rutaDe(...p));
+}
+
 export function existe(rel: string): boolean {
+  // El overlay también gobierna la EXISTENCIA: así un espejo puede fingir
+  // que un registro de auditoría o una migración desaparecieron.
+  if (sobreescrituras?.get(rel) === null) return false;
   return fs.existsSync(rutaDe(rel));
 }
 
@@ -106,7 +180,7 @@ export function dondeAparece(
   const hits: string[] = [];
   for (const dir of dirs) {
     for (const f of fuentes(dir)) {
-      const bruto = fs.readFileSync(f, 'utf-8');
+      const bruto = leer(f);
       const texto = soloCodigo ? sinComentarios(bruto) : bruto;
       patron.lastIndex = 0;
       if (patron.test(texto)) hits.push(path.relative(RAIZ, f));
@@ -120,7 +194,7 @@ export function apariciones(patron: RegExp, dirs: string[] = ['src']): number {
   let n = 0;
   for (const dir of dirs) {
     for (const f of fuentes(dir)) {
-      const m = fs.readFileSync(f, 'utf-8').match(patron);
+      const m = leer(f).match(patron);
       n += m ? m.length : 0;
     }
   }
@@ -148,7 +222,95 @@ export function consumidoresDe(simbolo: string, definidoEn: string): string[] {
  * conducta es el error que este archivo existe para no cometer.
  */
 export function codigoDe(...p: string[]): string {
-  return sinComentarios(fs.readFileSync(rutaDe(...p), 'utf-8'));
+  return sinComentarios(leer(rutaDe(...p)));
+}
+
+/**
+ * PREGUNTARLE A LA BASE, no al fuente (S3).
+ *
+ * Los dos criterios que vigilaban la purga de la 040 y la siembra de la 043
+ * leían el `.sql` y daban verde por que el DML estuviera ESCRITO. Ninguno
+ * podía distinguir «la migración corrió» de «la migración no tocó nada» — y
+ * no tocó nada: bajo FORCE ROW LEVEL SECURITY el migrador afectaba cero
+ * filas en silencio. Un criterio que no distingue esas dos cosas informa de
+ * su propio texto.
+ *
+ * Se comparte el cliente por llamada y se cierra siempre: estos criterios
+ * corren dentro de `plan:status`, que no tiene el pool de la aplicación.
+ */
+async function conBase<T>(fn: (c: import('pg').Client) => Promise<T>): Promise<T | null> {
+  const url =
+    process.env.DATABASE_URL ?? process.env.MIGRATION_DATABASE_URL ?? process.env.BACKUP_DATABASE_URL;
+  if (!url) return null;
+  const { default: pg } = await import('pg');
+  const client = new pg.Client({ connectionString: url, connectionTimeoutMillis: 3000 });
+  try {
+    await client.connect();
+  } catch {
+    return null;
+  }
+  try {
+    return await fn(client);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+/** ¿Queda alguna atestación con el importe y el factor de apertura dentro? */
+export async function sinResiduoDelSecreto(): Promise<Resultado> {
+  const r = await conBase(async (c) => {
+    const q = await c.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM blockchain_attestations
+        WHERE (range_proof IS NOT NULL
+               AND position('\\x5f746573745f76616c7565'::bytea in range_proof) > 0)
+           OR (zkverify_proof IS NOT NULL
+               AND position('\\x5f746573745f76616c7565'::bytea in zkverify_proof) > 0)`
+    );
+    return Number(q.rows[0]?.n ?? 0);
+  });
+  if (r === null) {
+    return noEvaluable('sin base accesible: la purga sólo se puede comprobar contra los datos');
+  }
+  return r === 0
+    ? ok('el generador no escribe el valor, la 040 purga ambos blobs y NO QUEDA una sola fila con el secreto')
+    : falla(
+        `${r} atestación(es) siguen llevando el importe y el factor de apertura dentro del compromiso: ` +
+          'la purga está escrita y no surtió efecto (la clase que la 049 repara).'
+      );
+}
+
+/** ¿La siembra de contadores anuales llegó a escribir algo donde hay folios? */
+export async function contadoresAnualesSembrados(): Promise<Resultado> {
+  const r = await conBase(async (c) => {
+    const q = await c.query<{ con_folios: string; con_contador: string }>(
+      `WITH emisoras AS (
+         SELECT DISTINCT entity_id FROM journal_entries
+       ), sembradas AS (
+         SELECT DISTINCT entity_id FROM entity_sequences WHERE name ~ '_[0-9]{4}$'
+       )
+       SELECT (SELECT count(*)::text FROM emisoras)  AS con_folios,
+              (SELECT count(*)::text FROM emisoras e
+                WHERE EXISTS (SELECT 1 FROM sembradas s WHERE s.entity_id = e.entity_id)) AS con_contador`
+    );
+    return {
+      conFolios: Number(q.rows[0]?.con_folios ?? 0),
+      conContador: Number(q.rows[0]?.con_contador ?? 0),
+    };
+  });
+  if (r === null) {
+    return noEvaluable('sin base accesible: la siembra sólo se puede comprobar contra los datos');
+  }
+  if (r.conFolios === 0) {
+    return ok('la llave anual está escrita; no hay entidades con folios emitidos que sembrar todavía');
+  }
+  return r.conContador === r.conFolios
+    ? ok(
+        `la llave anual está escrita y las ${r.conFolios} entidad(es) con folios emitidos tienen su contador sembrado`
+      )
+    : falla(
+        `${r.conFolios - r.conContador} de ${r.conFolios} entidad(es) con folios emitidos NO tienen contador anual: ` +
+          'la serie del ejercicio arrancaría en 1 y chocaría con lo ya emitido (la colisión que este defecto ya provocó).'
+      );
 }
 
 export const ok = (detalle: string): Resultado => ({ estado: 'ok', detalle });
@@ -165,7 +327,7 @@ export const CRITERIOS: Criterio[] = [
     evaluar: () => {
       const cfg = rutaDe('.git', 'config');
       if (!fs.existsSync(cfg)) return falla('no hay .git');
-      const tiene = /\[remote /.test(fs.readFileSync(cfg, 'utf-8'));
+      const tiene = /\[remote /.test(leer(cfg));
       return tiene
         ? ok('remoto configurado')
         : falla('sin remoto: ci.yml existe pero nunca puede ejecutarse');
@@ -223,7 +385,10 @@ export const CRITERIOS: Criterio[] = [
         return falla(`no hay ci.yml: ${archivos.join(', ') || 'ningún workflow'}`);
       }
       const NOMBRES = ['typecheck', 'unit', 'integration', 'aislamiento'];
-      const y = fs.readFileSync(path.join(dir, 'ci.yml'), 'utf-8');
+      // Por el seam, no por fs: S2 exige que la única lectura directa de disco
+      // en este archivo sea la de leer(), o el mutante de este criterio no lo
+      // alcanzaría y su espejo mentiría en verde.
+      const y = leer(path.join(dir, 'ci.yml'));
       const faltan = NOMBRES.filter((j) => !new RegExp(`^  ${j}:`, 'm').test(y));
       if (faltan.length > 0) return falla(`faltan jobs en ci.yml: ${faltan.join(', ')}`);
 
@@ -233,7 +398,7 @@ export const CRITERIOS: Criterio[] = [
       const intrusos = archivos
         .filter((f) => f !== 'ci.yml')
         .filter((f) => {
-          const otro = fs.readFileSync(path.join(dir, f), 'utf-8');
+          const otro = leer(path.join(dir, f));
           return PUERTAS.test(otro) || NOMBRES.some((j) => new RegExp(`^  ${j}:`, 'm').test(otro));
         });
       return intrusos.length === 0
@@ -245,7 +410,7 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E0.0',
     enunciado: 'La aplicación conecta como rol NO privilegiado en el job que prueba el aislamiento',
     evaluar: () => {
-      const y = fs.readFileSync(rutaDe('.github', 'workflows', 'ci.yml'), 'utf-8');
+      const y = crudoDe('.github', 'workflows', 'ci.yml');
       const bloque = y.slice(y.indexOf('aislamiento:'));
       return /DATABASE_URL:\s*postgresql:\/\/mnemosine_app/.test(bloque)
         ? ok('DATABASE_URL usa mnemosine_app')
@@ -256,30 +421,97 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E0.0',
     enunciado: 'Un flujo no se declara cerrado sin su auditoría adversarial registrada',
     evaluar: () => {
-      // S1: la regla «la auditoría adversarial cierra cada tramo» era
-      // disciplina sin compuerta — AUD-5/AUD-6 existieron como práctica, pero
-      // nada impedía declarar cerrado un F0x sin auditarlo. Cerrar un flujo
-      // es AÑADIR su entrada aquí, con la ruta de su registro; una entrada
-      // cuyo archivo no existe se acusa. El piso de la práctica queda
-      // registrado: la auditoría integral del 2026-08-31.
-      const FLUJOS_CERRADOS: Record<string, string> = {
-        // 'F01': 'docs/auditorias/F01.md',
+      // S1 lo escribió como INVITACIÓN y por eso no acusó a nadie: la lista de
+      // flujos cerrados era un objeto que había que poblar a mano, su único
+      // renglón estaba comentado, y `[].filter(...).length === 0` es verdad
+      // constante. Con la compuerta en verde por vacía, F01, F02 y A3-A4 se
+      // declararon hechos sin un solo registro — la auditoría integral II lo
+      // nombró como la meta-brecha: el instrumento que juzga a todos era el
+      // único que nadie juzgaba.
+      //
+      // S2 la vuelve DERIVADA: lo cerrado no lo dice una lista que hay que
+      // acordarse de poblar, lo dice EL CATÁLOGO. Cada celda «hecha en F0x»
+      // es la declaración de que ese flujo cerró, y entonces su registro de
+      // auditoría DEBE existir. Ya no se puede cerrar un flujo sin auditarlo:
+      // habría que no reclamar ni una fila.
+      //
+      // Se derivó del catálogo y no del historial de git a propósito: el
+      // primer intento leía los asuntos de los commits y el clon de esta
+      // misma máquina resultó ser SUPERFICIAL —igual que el de
+      // `actions/checkout` por omisión—, así que la compuerta habría visto un
+      // solo commit y dado verde por no mirar. El catálogo está en el árbol,
+      // lo versiona el mismo commit que cierra el flujo, y el arnés de
+      // mutación puede tocarlo.
+      const REGISTROS: Record<string, string> = {
+        // Los tramos que la integral II verificó tarjeta por tarjeta.
+        F01: 'docs/auditorias/2026-09-01-integral-ii/maestro-vs-codigo.md',
+        F02: 'docs/auditorias/2026-09-01-integral-ii/maestro-vs-codigo.md',
+        'A3-A4': 'docs/auditorias/2026-09-01-integral-ii/a3a4-entregado.md',
+        // F03 se auditó por EJECUCIÓN contra la base (el abanico de escépticos
+        // murió dos veces contra el límite de la cuenta): su registro dice eso
+        // en su primera sección, porque el método es parte del veredicto.
+        F03: 'docs/auditorias/F03.md',
+        // F04 se auditó igual que F03 —por EJECUCIÓN contra la base— y además
+        // sometiendo sus propios criterios al arnés de mutación, que devolvió
+        // cinco anclas blandas antes de dar el verde. Las dos cosas están en
+        // su registro, porque el método es parte del veredicto.
+        F04: 'docs/auditorias/F04.md',
+        // F05 va por TRAMOS, y la compuerta los admite: su expresión acepta
+        // `F\d+[a-z]?`. Cada tramo cierra con su propio registro, y mientras
+        // ninguno escriba «hecha en F05» a secas el mutante de esta compuerta
+        // sigue matando sin reapuntarse.
+        F05a: 'docs/auditorias/F05a.md',
+        F05b: 'docs/auditorias/F05b.md',
       };
+
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
         return falla('el registro de auditorías desapareció: docs/auditorias/2026-08-31-integral');
       }
-      const sinRegistro = Object.entries(FLUJOS_CERRADOS).filter(([, doc]) => !existe(doc));
+
+      const catalogo = crudoDe('docs/cli-command-catalog.md');
+      const cerrados = [
+        ...new Set(
+          [...catalogo.matchAll(/hecha en (F\d+[a-z]?|A\d+(?:-A\d+)?|R\d+)\b/g)].map((m) => m[1])
+        ),
+      ].sort();
+
+      if (cerrados.length === 0) {
+        return falla(
+          'ninguna fila del catálogo se declara hecha en un flujo: o la convención se abandonó ' +
+            'y esta compuerta dejó de ver nada, o el catálogo perdió sus celdas.'
+        );
+      }
+
+      const sinRegistro = cerrados.filter((f) => !REGISTROS[f] || !existe(REGISTROS[f]));
       return sinRegistro.length === 0
         ? ok(
-            `${Object.keys(FLUJOS_CERRADOS).length} flujo(s) cerrados con registro; ` +
-              'la integral 2026-08-31 en el archivo'
+            `${cerrados.length} flujo(s) reclamados por el catálogo (${cerrados.join(', ')}), ` +
+              'cada uno con su registro de auditoría en el árbol'
           )
         : falla(
-            `flujo(s) declarados cerrados sin registro de auditoría: ${sinRegistro
-              .map(([f]) => f)
-              .join(', ')}`
+            `flujo(s) que el catálogo declara hechos SIN registro de auditoría: ${sinRegistro.join(', ')}. ` +
+              'Cerrar un flujo es auditarlo y archivar el registro bajo docs/auditorias/ en el mismo commit.'
           );
     },
+    mutantes: [
+      {
+        archivo: 'docs/auditorias/F03.md',
+        de: '# Auditoría adversarial de F03',
+        a: null,
+        porque: 'el registro de un flujo cerrado desaparece: la compuerta debe acusarlo, que es lo único que vino a hacer',
+      },
+      {
+        archivo: 'docs/cli-command-catalog.md',
+        de: 'hecha en F03',
+        // El destino tiene que ser un flujo que NO exista todavía. Este mutante
+        // apuntaba a F04 y dejó de matar el día que F04 se cerró con su
+        // registro: la mutación pasó a describir algo verdadero. Un mutante
+        // caduca cuando su «mentira» se vuelve cierta, y hay que reapuntarlo al
+        // siguiente flujo sin auditar — no borrarlo.
+        a: 'hecha en F05',
+        porque: 'el catálogo reclama un flujo NUEVO sin auditoría: cerrar sin registro es exactamente lo prohibido',
+      },
+    ],
   },
 
   // ---- E0.1 · Red de pruebas ----
@@ -304,7 +536,7 @@ export const CRITERIOS: Criterio[] = [
       const dirMigraciones = 'src/database/migrations';
       const sql = fs
         .readdirSync(rutaDe(dirMigraciones))
-        .map((m) => fs.readFileSync(rutaDe(dirMigraciones, m), 'utf-8'))
+        .map((m) => crudoDe(dirMigraciones, m))
         .join('\n');
       const creadas = new Set(
         [...sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?(\w+)/gi)].map((m) => m[1])
@@ -362,6 +594,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.2',
     enunciado: 'Una migración de datos que olvide la RLS truena en vez de correr filtrada',
+    mutantes: [
+      {
+        archivo: 'src/database/migrate.ts',
+        de: "await client.query('SET row_security = off');",
+        a: "await client.query('SET row_security = on');",
+        porque: 'apagar el piso es exactamente la regresión que costó cuatro siembras silenciosas',
+      },
+    ],
     evaluar: () => {
       // Tres veces una siembra corrió como dueño bajo FORCE RLS sin GUC de
       // inquilino y leyó cero filas «con éxito»: la 025 (confesada por la
@@ -387,7 +627,10 @@ export const CRITERIOS: Criterio[] = [
       const sinOptIn = fs.readdirSync(dir)
         .filter((f) => f.endsWith('.sql'))
         .filter((f) => {
-          const sql = fs.readFileSync(path.join(dir, f), 'utf-8');
+          // Por el seam (crudoDe), no por fs directo: una lectura que rodea
+          // el seam es un criterio que ningún espejo puede mutar — y el
+          // criterio E0.0 del arnés cuenta esas lecturas y las acusa.
+          const sql = crudoDe('src/database/migrations', f);
           return sql.includes("set_config('app.current_tenant'")
             && !/SET LOCAL row_security = on/.test(sql);
         });
@@ -515,7 +758,7 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.1',
     enunciado: 'El compromiso no persiste el valor que promete ocultar',
-    evaluar: () => {
+    evaluar: async () => {
       // S1 (E1.4-a rescatada): el range proof placeholder incluía
       // _test_value y _test_bf bajo el comentario «DO NOT store the value in
       // a real proof», y el orquestador lo persistía entero — el compromiso
@@ -529,14 +772,19 @@ export const CRITERIOS: Criterio[] = [
       if (!existe('src/database/migrations/040_el_secreto_que_el_compromiso_revelaba.sql')) {
         return falla('la migración de purga (040) desapareció: las filas históricas retendrían la fuga');
       }
-      const purga = fs.readFileSync(
-        rutaDe('src/database/migrations/040_el_secreto_que_el_compromiso_revelaba.sql'),
-        'utf-8'
-      );
-      return /range_proof\s*=\s*NULL/.test(purga) && /zkverify_proof\s*=\s*NULL/.test(purga)
-        ? ok('el generador no escribe el valor y la 040 purgó ambos blobs')
-        : falla('la 040 no purga los dos blobs (range_proof y zkverify_proof)');
+      const purga = crudoDe('src/database/migrations/040_el_secreto_que_el_compromiso_revelaba.sql');
+      if (!/range_proof\s*=\s*NULL/.test(purga) || !/zkverify_proof\s*=\s*NULL/.test(purga)) {
+        return falla('la 040 no purga los dos blobs (range_proof y zkverify_proof)');
+      }
+      // S3 · DE TEXTO A EFECTO. Este criterio leía el .sql y daba verde por
+      // que la purga ESTUVIERA ESCRITA — sin poder distinguir «corrió» de «no
+      // tocó nada». Y no tocó nada: bajo FORCE RLS el migrador afectaba cero
+      // filas en silencio. Un criterio que no distingue esas dos cosas es
+      // exactamente el falso verde que esta casa persigue, así que ahora se
+      // le pregunta A LA BASE.
+      return await sinResiduoDelSecreto();
     },
+    necesita: 'base-de-datos',
   },
   {
     paquete: 'E0.1',
@@ -550,7 +798,7 @@ export const CRITERIOS: Criterio[] = [
       // las DOS tablas, más el candado de TRUNCATE.
       const m = 'src/database/migrations/041_el_mayor_inviolable.sql';
       if (!existe(m)) return falla('la 041 desapareció: el mayor vuelve a ser reescribible');
-      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      const sql = crudoDe(m);
       const checks: Array<[boolean, string]> = [
         [/ON journal_entries\b[\s\S]{0,80}FOR EACH ROW/.test(sql) || /BEFORE UPDATE OR DELETE ON journal_entries/.test(sql), 'falta el disparador de journal_entries'],
         [/BEFORE UPDATE OR DELETE ON journal_entry_lines/.test(sql), 'falta el disparador de journal_entry_lines'],
@@ -590,6 +838,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.1',
     enunciado: 'El posteo y el cierre no se cruzan: el candado del periodo vive en ambas transacciones',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/posting.ts',
+        de: 'bloquearPeriodoParaPostear(client',
+        a: 'bloquearPeriodoParaPostearSin(client',
+        porque: 'una de las dos transacciones suelta el candado: el conteo ×2 debe acusarlo',
+      },
+    ],
     evaluar: () => {
       // R1 (TOCTOU): la validación leía el periodo FUERA de la transacción
       // del posteo, y el checklist del cierre suave se fotografiaba FUERA de
@@ -624,7 +880,7 @@ export const CRITERIOS: Criterio[] = [
       const sql = fs
         .readdirSync(rutaDe(dir))
         .sort()
-        .map((m) => fs.readFileSync(rutaDe(dir, m), 'utf-8'))
+        .map((m) => crudoDe(dir, m))
         .join('\n');
       const ultimaCreacion = sql.lastIndexOf('CREATE TRIGGER trg_refresh_materialized_views');
       const ultimoDrop = sql.lastIndexOf('DROP TRIGGER IF EXISTS trg_refresh_materialized_views');
@@ -644,7 +900,7 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.1',
     enunciado: 'La serie del folio la fija la fecha del documento, no el reloj',
-    evaluar: () => {
+    evaluar: async () => {
       // R3: «JE-2026-00042» insinuaba serie anual y el año lo ponía el
       // reloj, con un contador que jamás se reiniciaba — un asiento de
       // diciembre capturado en enero salía en la serie del año nuevo
@@ -668,12 +924,17 @@ export const CRITERIOS: Criterio[] = [
       }
       const m = 'src/database/migrations/043_la_serie_del_folio_por_ejercicio.sql';
       if (!existe(m)) return falla('la 043 desapareció: los contadores anuales arrancarían en 1 y colisionarían con lo emitido');
-      const siembra = fs.readFileSync(rutaDe(m), 'utf-8');
+      const siembra = crudoDe(m);
       const inserts = (siembra.match(/INSERT INTO entity_sequences/g) ?? []).length;
-      return inserts >= 5 && /GREATEST/.test(siembra)
-        ? ok('la fecha del documento fija año y contador (llave anual), con la siembra desde los folios reales')
-        : falla(`la siembra de la 043 no cubre las cinco series (${inserts}) o perdió el GREATEST`);
+      if (inserts < 5 || !/GREATEST/.test(siembra)) {
+        return falla(`la siembra de la 043 no cubre las cinco series (${inserts}) o perdió el GREATEST`);
+      }
+      // S3 · DE TEXTO A EFECTO, por la misma razón que la 040: la siembra
+      // estaba escrita y había sembrado CERO contadores, que es lo que
+      // provocó la colisión de folios real. Ahora se comprueba el estado.
+      return await contadoresAnualesSembrados();
     },
+    necesita: 'base-de-datos',
   },
 
   {
@@ -715,6 +976,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.1',
     enunciado: 'El maker-checker vive en el panel y muerde solo la póliza manual',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/posting.ts',
+        de: "politica.value === 'exigir'",
+        a: "politica.value === 'siempre'",
+        porque: 'el lector deja de comparar contra el literal del panel: la política existiría sin morder',
+      },
+    ],
     evaluar: () => {
       // F01: la decisión §5 no se difirió tácitamente ni se decidió en
       // código — es política del panel (segregacion_de_funciones) con
@@ -766,7 +1035,7 @@ export const CRITERIOS: Criterio[] = [
       // ningún bloqueo de E3.x le aplicó jamás), con apagado que LO DICE.
       const m = 'src/database/migrations/046_el_espejo_del_cfdi.sql';
       if (!existe(m)) return falla('la 046 desapareció: la unicidad fiscal vuelve a ser global');
-      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      const sql = crudoDe(m);
       if (!/DROP CONSTRAINT xml_documents_cfdi_uuid_key/.test(sql) ||
           // \b tras el nombre: un sufijo _x seguiría casando el regex desnudo
           // — quinta variante de la familia del ancla en estos sprints.
@@ -814,15 +1083,21 @@ export const CRITERIOS: Criterio[] = [
       //
       // Los huérfanos NUEVOS los barre doctor a nivel capacidad (nunca fail);
       // esta lista fija los conocidos para que cerrarlos sea visible y
-      // olvidarlos imposible. Destinos: earlyPaymentDiscount → F04;
-      // calculateBenefitsForPaycheck → F08; checkSoDViolations → decisión §5
-      // (maker-checker); autoApproveDraftByPolicy → A3 (un solo autorizador).
+      // olvidarlos imposible. Destinos: calculateBenefitsForPaycheck → F08;
+      // checkSoDViolations → decisión §5 (maker-checker);
+      // autoApproveDraftByPolicy → A3 (un solo autorizador).
+      //
+      // PAGADO EN F04: earlyPaymentDiscount. Llevaba sin llamador desde que se
+      // retiró el programador de pagos que lo usaba, mientras el descuento por
+      // pronto pago se aceptaba a ojo en el otro extremo del sistema. Ahora es
+      // quien decide cuánto descuento CONCEDEN las condiciones del gasto, y
+      // tomar más que eso se rechaza señalando `--mode residual`. Su línea se
+      // borra aquí, que es el registro de que la deuda se pagó.
       const HUERFANOS_CONGELADOS: Record<string, string> = {
         // El gemelo del que pagó en A3: mismo motor (matchApproval), brazo
         // external_op. Su consumidor llega con el ejecutor DESATENDIDO del
         // outbox (hoy `outbox run` es humano y no necesita política).
         autoExecuteOpByPolicy: 'external-service.ts',
-        earlyPaymentDiscount: 'bill-service.ts',
         calculateBenefitsForPaycheck: 'benefits-service.ts',
       };
       const conConsumidor = Object.entries(HUERFANOS_CONGELADOS)
@@ -881,7 +1156,7 @@ export const CRITERIOS: Criterio[] = [
       const dir = 'src/database/migrations';
       const enElEsquema = new Map<string, string[]>();
       for (const f of fs.readdirSync(rutaDe(dir)).filter((n) => n.endsWith('.sql')).sort()) {
-        const sql = fs.readFileSync(rutaDe(dir, f), 'utf-8').replace(/--[^\n]*/g, '');
+        const sql = crudoDe(dir, f).replace(/--[^\n]*/g, '');
         const anota = (tabla: string, columna: string, lista: string): void => {
           const valores = literales(lista);
           if (valores.length) enElEsquema.set(`${tabla.replace(/^public\./i, '')}.${columna}`, valores);
@@ -892,8 +1167,18 @@ export const CRITERIOS: Criterio[] = [
         // `[^;]*?` y no `[\s\S]*?`: con el segundo, un ALTER sin CHECK se
         // engancha al CHECK de otra tabla más abajo del archivo y le atribuye
         // un vocabulario ajeno. Costó tres atribuciones falsas descubrirlo.
+        //
+        // Y `ADD (CONSTRAINT|COLUMN)`, no sólo CONSTRAINT: un vocabulario
+        // puede nacer con su columna en el mismo ALTER —
+        // `ADD COLUMN account_type VARCHAR(20) ... CHECK (account_type IN (...))`—
+        // y ésa es la tercera forma de declarar un CHECK que este criterio no
+        // leía. El síntoma era el contrario del defecto: la 051 censó
+        // `bank_accounts.account_type` correctamente y el criterio la acusó de
+        // «vocabulario declarado sin decir de qué columna es», porque su
+        // columna no existía en el esquema QUE ÉL SABE LEER. Un criterio que
+        // no reconoce una sintaxis válida no protege menos: acusa en falso.
         for (const a of sql.matchAll(
-          /ALTER\s+TABLE\s+(?:ONLY\s+)?([\w.]+)[^;]*?ADD\s+CONSTRAINT[^;]*?CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi
+          /ALTER\s+TABLE\s+(?:ONLY\s+)?([\w.]+)[^;]*?ADD\s+(?:CONSTRAINT|COLUMN)[^;]*?CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi
         )) {
           anota(a[1], a[2], a[3]);
         }
@@ -990,7 +1275,7 @@ export const CRITERIOS: Criterio[] = [
     evaluar: () => {
       const migs = fs.readdirSync(rutaDe('src/database/migrations'));
       const protege = migs.some((m) => {
-        const s = fs.readFileSync(rutaDe('src/database/migrations', m), 'utf-8');
+        const s = crudoDe('src/database/migrations', m);
         return /audit_log/.test(s) && /(REVOKE|CREATE RULE|BEFORE UPDATE OR DELETE)/i.test(s);
       });
       return protege
@@ -1033,7 +1318,7 @@ export const CRITERIOS: Criterio[] = [
       const sql = sinComentariosSql(
         fs
           .readdirSync(rutaDe(dir))
-          .map((m) => fs.readFileSync(rutaDe(dir, m), 'utf-8'))
+          .map((m) => crudoDe(dir, m))
           .join('\n')
       );
 
@@ -1108,7 +1393,7 @@ export const CRITERIOS: Criterio[] = [
       }
 
       const arrayDe = (rel: string): Set<string> | null => {
-        const txt = sinComentariosSql(fs.readFileSync(rutaDe(rel), 'utf-8'));
+        const txt = sinComentariosSql(crudoDe(rel));
         const m = /append_only\s+text\[\]\s*:=\s*ARRAY\[([^\]]*)\]/.exec(txt);
         if (!m) return null;
         return new Set([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]));
@@ -1213,15 +1498,138 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.1',
-    enunciado: 'Las cuatro cuentas de IVA se siembran siempre, también sobre catálogo importado',
-    evaluar: () => {
+    enunciado:
+      'Las cuatro cuentas de IVA se siembran en toda entidad MEXICANA, también sobre catálogo importado',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: "code: '1135', name: 'IVA Pendiente de Acreditar'",
+        a: "code: '1136', name: 'IVA Pendiente de Acreditar'",
+        porque:
+          'el IVA de una factura PPD se queda sin cuenta donde esperar al pago; el mutante ' +
+          'renumera en vez de borrar porque borrar el renglón entero también movería otras ' +
+          'anclas, y un espejo debe fallar por la razón que dice',
+      },
+    ],
+    evaluar: async () => {
+      // El enunciado decía «siempre» y se volvió falso el día que la siembra
+      // empezó a ramificar por país: una entidad estadounidense ya no recibe
+      // cuentas de IVA, y debe ser así. Pero el criterio no se relaja, se
+      // AFINA — lo que protegía sigue protegido y ahora además se comprueba
+      // que la ramificación no se lleve por delante el caso mexicano, que es
+      // el 100% de los clientes de este producto.
       const s = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
       const faltan = ['1130', '1135', '2120', '2125'].filter(
         (c) => !new RegExp(`code:\\s*'${c}'`).test(s)
       );
-      return faltan.length === 0
-        ? ok('1130, 1135, 2120 y 2125 en REQUIRED_ACCOUNTS')
-        : falla(`no se siembran: ${faltan.join(', ')} — una entidad onboardeada revienta con MISSING_ROLE_ACCOUNT`);
+      if (faltan.length > 0) {
+        return falla(
+          `no se siembran: ${faltan.join(', ')} — una entidad onboardeada revienta con MISSING_ROLE_ACCOUNT`
+        );
+      }
+      // Y que sigan llegando a una entidad mexicana pese al filtro por país.
+      // Sin esto, marcar los cuatro códigos como fiscales-mexicanos-y-fuera
+      // dejaría el criterio en verde con las cuentas fuera del catálogo.
+      const { cuentasRequeridasPara } = await import(
+        '../services/xml-ingestion/account-roles-seed.js'
+      );
+      const mexicanas = new Set(cuentasRequeridasPara(true).map((a) => a.code));
+      const perdidas = ['1130', '1135', '2120', '2125'].filter((c) => !mexicanas.has(c));
+      return perdidas.length === 0
+        ? ok('1130, 1135, 2120 y 2125 declaradas y entregadas a toda entidad mexicana')
+        : falla(
+            `${perdidas.join(', ')} están declaradas pero el filtro por país no se las entrega ` +
+              'a una entidad mexicana: el IVA dejaría de acreditarse'
+          );
+    },
+  },
+
+  {
+    paquete: 'E1.1',
+    enunciado: 'Un código de cuenta significa UNA cuenta en todas las semillas',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/common/payroll-account-mapping-seed.ts',
+        de: "code: '6110', name: 'Sueldos y Salarios'",
+        a: "code: '5200', name: 'Sueldos y Salarios'",
+        porque:
+          'devolver la nómina al código de las devoluciones sobre compras es EL fallo que ' +
+          'este criterio vino a impedir: el sueldo bruto cargado a un contra-costo acreedor',
+      },
+      {
+        archivo: 'src/services/accounting/chart-seed.ts',
+        de: "code: '6110', name: 'Sueldos y Salarios'",
+        a: "code: '6110', name: 'Nomina'",
+        porque:
+          'la colisión tiene dos lados y el criterio debe morder por los dos: renombrar la ' +
+          'cuenta del catálogo base sin tocar las otras semillas es la mitad que un espejo ' +
+          'de un solo sentido bendeciría',
+      },
+    ],
+    evaluar: () => {
+      // EL FALLO QUE ESTE CRITERIO PERSIGUE. Cuatro semillas escriben en el
+      // catálogo de la MISMA entidad —el catálogo base, los roles del CFDI, el
+      // mapeo de nómina y el sembrador de `npm run seed`— y las tres que
+      // corren después se guardan de pisar a la anterior COMPARANDO CÓDIGOS:
+      // `if (byCode.has(spec.code)) continue`. La guarda funciona; lo que no
+      // vigila nadie es que dos semillas llamen cosas distintas al mismo
+      // número. Cuando pasa, la segunda no crea su cuenta, hereda la ajena, y
+      // el error es de SIGNIFICADO: no hay excepción, no hay fila de más, y
+      // UNIQUE(code, entity_id) tampoco puede acusarlo porque desde la base
+      // sólo hay una cuenta con ese código, que es justo lo que exige.
+      //
+      // Ocurrió con seis códigos a la vez: 5200 mandaba el sueldo bruto a
+      // «Devoluciones y Descuentos sobre Compras», y 2150/2160/2170/2180
+      // repartían los pasivos de nómina entre anticipos de clientes, sueldos
+      // por pagar e IEPS.
+      //
+      // El criterio DESCUBRE los catálogos en vez de enumerarlos: la lección
+      // que este archivo ya pagó una vez es que un detector de clases
+      // enumeradas sólo ve las clases que enumeró, y una quinta semilla
+      // añadida mañana tiene que quedar vigilada sin tocar esto.
+      const decl = /code:\s*'([^']+)'\s*,\s*name:\s*'([^']*)'/g;
+      const porCodigo = new Map<string, Map<string, string[]>>();
+      for (const f of fuentes('src')) {
+        // Por el seam (crudoDe) y no por fs directo: una lectura que lo rodea
+        // deja el criterio fuera del arnés de mutación, y un criterio que
+        // ningún mutante puede matar es prosa con forma de compuerta.
+        const rel = path.relative(RAIZ, f);
+        const texto = sinComentarios(crudoDe(rel));
+        decl.lastIndex = 0;
+        for (const m of texto.matchAll(decl)) {
+          const [, codigo, nombre] = m;
+          const nombres = porCodigo.get(codigo) ?? new Map<string, string[]>();
+          nombres.set(nombre, [...(nombres.get(nombre) ?? []), rel]);
+          porCodigo.set(codigo, nombres);
+        }
+      }
+      if (porCodigo.size === 0) {
+        return noEvaluable('ninguna fuente declara pares código/nombre de cuenta');
+      }
+
+      // La comparación es TOTAL, también entre el catálogo mexicano y el
+      // estadounidense, que hoy no coexisten en una misma entidad. Es a
+      // propósito y tiene precio: obliga a que MX y EE. UU. no compartan
+      // número aunque podrían. A cambio, el criterio no necesita un modelo de
+      // qué semillas son mutuamente excluyentes —el modelo que estaba mal era
+      // justamente ése: `ensureEntityAccounting` siembra el catálogo base
+      // mexicano en TODA entidad, país incluido o no— y la regla que enuncia
+      // se puede leer sin saberse el pipeline: un número, un nombre.
+      const choques = [...porCodigo.entries()]
+        .filter(([, nombres]) => nombres.size > 1)
+        .map(([codigo, nombres]) => {
+          const partes = [...nombres.entries()].map(
+            ([nombre, archivos]) => `«${nombre}» (${[...new Set(archivos)].join(', ')})`
+          );
+          return `${codigo}: ${partes.join(' vs ')}`;
+        });
+
+      return choques.length === 0
+        ? ok(`${porCodigo.size} códigos de cuenta declarados, cada uno con un solo nombre`)
+        : falla(
+            `${choques.length} código(s) con dos significados — la semilla que corre después ` +
+              `no crea su cuenta y hereda la ajena, sin error: ${choques.join(' · ')}`
+          );
     },
   },
 
@@ -1285,7 +1693,7 @@ export const CRITERIOS: Criterio[] = [
     evaluar: () => {
       const catalogo = rutaDe('src', 'services', 'policy', 'pending-catalog.ts');
       if (!fs.existsSync(catalogo)) return noEvaluable('no existe el catálogo de políticas');
-      const claves = [...fs.readFileSync(catalogo, 'utf-8').matchAll(/key:\s*'([a-z0-9_]+)'/g)]
+      const claves = [...leer(catalogo).matchAll(/key:\s*'([a-z0-9_]+)'/g)]
         .map((m) => m[1]);
       if (claves.length === 0) return noEvaluable('el catálogo no declara ninguna clave legible');
 
@@ -1403,7 +1811,7 @@ export const CRITERIOS: Criterio[] = [
       let revisadas = 0;
 
       for (const f of archivos) {
-        const texto = sinComentarios(fs.readFileSync(f, 'utf-8'));
+        const texto = sinComentarios(leer(f));
         for (const m of texto.matchAll(ROUTER)) {
           revisadas += 1;
           const cuerpo = m[3];
@@ -1561,7 +1969,7 @@ export const CRITERIOS: Criterio[] = [
       if (/from '..\/..\/..\/database\/connection.js'/.test(router)) {
         return falla('el router público volvió a consultar por el pool directo, fuera del camino sancionado');
       }
-      const politicas = fs.readFileSync(rutaDe('src/database/rls-policies.sql'), 'utf-8');
+      const politicas = crudoDe('src/database/rls-policies.sql');
       const n = (politicas.match(/CREATE POLICY verificacion_publica/g) ?? []).length;
       if (n < 5) {
         return falla(`las políticas del verificador no cubren las cinco tablas (hay ${n})`);
@@ -1569,7 +1977,7 @@ export const CRITERIOS: Criterio[] = [
       if (!/GRANT SELECT \(id, name, entity_type/.test(politicas)) {
         return falla('legal_entities perdió el GRANT de columnas enumeradas: un SELECT * nuevo expondría en vez de tronar');
       }
-      return /mnemosine_verifier/.test(fs.readFileSync(rutaDe('scripts/provision-roles.sql'), 'utf-8'))
+      return /mnemosine_verifier/.test(crudoDe('scripts/provision-roles.sql'))
         ? ok('rol verificador aprovisionado, políticas en el reconciliador y el router por SET LOCAL ROLE')
         : falla('provision-roles.sql no crea mnemosine_verifier: el camino existe sólo donde alguien lo creó a mano');
     },
@@ -1590,7 +1998,7 @@ export const CRITERIOS: Criterio[] = [
       // Derivarlo de otro —lo que hace hoy middleware/auth.ts— no cuenta:
       // eso es un consumidor con otra forma, no una segunda verdad.
       const declaran = fuentes('src')
-        .map((f) => ({ rel: path.relative(rutaDe(), f), texto: sinComentarios(fs.readFileSync(f, 'utf-8')) }))
+        .map((f) => ({ rel: path.relative(rutaDe(), f), texto: sinComentarios(leer(f)) }))
         .filter(({ texto }) => /^\s*[a-z_]+:\s*\{[\s\S]{0,400}?permissions:\s*\[/m.test(texto))
         .map(({ rel }) => rel);
 
@@ -1986,6 +2394,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E5.1',
     enunciado: 'Ninguna herramienta del agente alcanza el mayor ni ejecuta hacia fuera',
+    mutantes: [
+      {
+        archivo: 'src/ai/tools/ledger-tools.ts',
+        de: 'envolverDatosDeTerceros(',
+        a: 'envolverDatosDeTerceros(postJournalEntry, ',
+        porque: 'una herramienta que NOMBRA una puerta de dinero debe enrojecer, aunque no la llame (la lección del import)',
+      },
+    ],
     evaluar: () => {
       // ESTE CRITERIO ESTABA EN ROJO POR UNA AFIRMACIÓN FALSA.
       //
@@ -2039,7 +2455,7 @@ export const CRITERIOS: Criterio[] = [
         /from\s+'[^']*(accounting\/posting|payments\/payment-service|xml-ingestion\/rep-linkage|accounting\/period-close|xml-ingestion\/pre-registration-service)/;
       const culpables: string[] = [];
       for (const f of archivos) {
-        const codigo = sinComentarios(fs.readFileSync(f, 'utf-8'));
+        const codigo = sinComentarios(leer(f));
         const rel = path.relative(rutaDe(), f);
         for (const nombre of PROHIBIDOS) {
           if (new RegExp(`\\b${nombre}\\b`).test(codigo)) culpables.push(`${rel} → ${nombre}`);
@@ -2147,7 +2563,7 @@ export const CRITERIOS: Criterio[] = [
       // menor deja rastro ANTES de discutir la autonomía mayor.
       const m = 'src/database/migrations/044_el_agente_medible.sql';
       if (!existe(m)) return falla('la 044 desapareció: sin tablas no hay rastro');
-      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      const sql = crudoDe(m);
       if (!/ADD COLUMN duration_ms/.test(sql) || !/CREATE TABLE ai_ingest_runs/.test(sql) || !/CREATE TABLE ai_agent_events/.test(sql)) {
         return falla('la 044 perdió una de sus tres piezas (duration_ms, ai_ingest_runs, ai_agent_events)');
       }
@@ -2187,6 +2603,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E5.1',
     enunciado: 'Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre',
+    mutantes: [
+      {
+        archivo: 'src/ai/ingest-service.ts',
+        de: 'opts.deps?.autoApproveByPolicy ?? autoApproveDraftByPolicy',
+        a: 'opts.deps!.autoApproveByPolicy',
+        porque: 'el seam de pruebas se vuelve el camino de producción: el default al autorizador real desaparece',
+      },
+    ],
     evaluar: () => {
       // A3: había DOS autorizadores — matchApprovalPolicy con toda la
       // jurisprudencia (tope del operador vía Math.min, revocación,
@@ -2223,6 +2647,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E5.1',
     enunciado: 'El presupuesto corta donde nacen las sesiones, y desatendido el tope es tope',
+    mutantes: [
+      {
+        archivo: 'src/ai/budget.ts',
+        de: "opts.unattended ? 'block' : 'warn'",
+        a: "'warn'",
+        porque: 'la ruta desatendida pierde su default block: «solo avisa» significa que no hay tope',
+      },
+    ],
     evaluar: () => {
       // A3 (spec E5.1-e): presupuesto opt-in por archivo de config, pero con
       // un default que distingue rutas: con humano enfrente, warn; en ruta
@@ -2265,6 +2697,14 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E5.1',
     enunciado: 'La sombra opina sin postear, y encender el auto-posteo exige su historial',
+    mutantes: [
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: 'c.decididos < FLOOR_SOMBRA_VEREDICTOS ||',
+        a: '',
+        porque: 'el piso pierde la vara del volumen decidido: tres comparaciones, cada una con ancla propia',
+      },
+    ],
     evaluar: () => {
       // A4: autoPost 'shadow' corre TODAS las compuertas, registra el
       // veredicto y no postea nada. La concordancia cruza esos veredictos
@@ -2273,7 +2713,7 @@ export const CRITERIOS: Criterio[] = [
       // 'on': el encendido es una decisión con evidencia, no una casilla.
       const m = 'src/database/migrations/047_el_veredicto_de_la_sombra.sql';
       if (!existe(m)) return falla('la 047 desapareció: la sombra no tendría dónde opinar');
-      const sql = fs.readFileSync(rutaDe(m), 'utf-8');
+      const sql = crudoDe(m);
       if (!/CREATE TABLE ai_shadow_verdicts/.test(sql) || !/UNIQUE \(draft_id\)/.test(sql)) {
         return falla('ai_shadow_verdicts perdió la unicidad por borrador: una sombra que opina dos veces infla su propia concordancia');
       }
@@ -2283,8 +2723,19 @@ export const CRITERIOS: Criterio[] = [
       }
       // El MISMO evaluador para el modo real y la sombra: el veredicto
       // registrado sale de evaluarAutoPost, no de una copia que diverge.
-      if (!/wouldAutoPost: veredicto\.procede/.test(ing)) {
-        return falla('la sombra dejó de registrar el veredicto del evaluador compartido: mediría un clasificador que no es el real');
+      //
+      // EL ANCLA CAMBIÓ EN A7, Y ES LA MITAD DE LA HISTORIA. Pedía
+      // literalmente `wouldAutoPost: veredicto.procede`, y eso era exacto
+      // mientras el modo encendido tuviera UNA sola vía. A3 le añadió la
+      // segunda —la política otorgada, cuando una compuerta discrecional no
+      // basta— y entonces la fidelidad exigía lo contrario de lo que el
+      // criterio pedía: registrar sólo el umbral mide un clasificador MÁS
+      // CONSERVADOR que el que se enciende. El piso por criterio (S2) cazó
+      // este cambio en el mismo commit, que es exactamente para lo que se
+      // construyó. Se sigue exigiendo que el veredicto salga del evaluador
+      // compartido, ahora componiéndolo con la vía de política.
+      if (!/const habriaPosteado = veredicto\.procede \|\| porPolitica !== null/.test(ing)) {
+        return falla('la sombra dejó de componer su veredicto con el evaluador compartido y la vía de política: mediría un clasificador que no es el real');
       }
       const sv = codigoDe('src/ai/shadow-verdicts.ts');
       if (!/ON CONFLICT \(draft_id\) DO NOTHING/.test(sv)) {
@@ -2317,6 +2768,1335 @@ export const CRITERIOS: Criterio[] = [
       return /value: 'shadow'/.test(codigoDe('src/services/policy/pending-catalog.ts'))
         ? ok('sombra panel-only con veredicto único por borrador, concordancia sobre humanos y encendido con peaje de evidencia')
         : falla('el panel perdió la opción shadow: el camino al encendido quedaría sin puerta');
+    },
+  },
+
+  // ---- F03 · Cobrar ----
+
+  {
+    paquete: 'E0.1',
+    enunciado: 'La nota de crédito postea al emitir por la vía única, y su aplicación no toca efectivo',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: "sourceType: 'credit_note'",
+        a: "sourceType: 'nota'",
+        porque: 'la nota pierde su source_type: el asiento quedaría sin documento',
+      },
+    ],
+    evaluar: () => {
+      // F03: la nota es documento con folio (CN), posteada por el MISMO
+      // motor AR→GL que la factura (ar-ap-posting), idempotente tras su
+      // journal_entry_id. La aplicación reparte en el auxiliar SIN asiento
+      // (el mayor se movió al emitir) y SIN tocar amount_paid — una nota no
+      // es efectivo, y confundirlos infla el cobrado que el REP reporta.
+      const posting = codigoDe('src/services/accounting/ar-ap-posting.ts');
+      if (!/sourceType: 'credit_note'/.test(posting)) {
+        return falla('la nota dejó de postear por la vía única con su source_type: el asiento perdería su documento');
+      }
+      if (!/if \(note\.journal_entry_id\) return null/.test(posting)) {
+        return falla('postCreditNoteEntry perdió la idempotencia: reemitir duplicaría el crédito contra CxC');
+      }
+      if (!/requireRole\(roles, 'devolucion_ventas'\)/.test(posting)) {
+        return falla('la nota dejó de cargar al contra-ingreso por rol: caería a una cuenta adivinada');
+      }
+      const svc = codigoDe('src/services/ar/credit-note-service.ts');
+      // La forma EXACTA del UPDATE de aplicación: baja amount_due, conserva
+      // el status salvo saldado, y NO nombra amount_paid. Un mutante que
+      // sume amount_paid ahí rompe este regex por construcción.
+      if (!/amount_due = amount_due - \$1,\s*\n\s*status = CASE WHEN amount_due - \$1 <= 0 THEN 'paid' ELSE status END/.test(svc)) {
+        return falla('la aplicación de la nota cambió su UPDATE: o toca amount_paid (una nota no es efectivo) o perdió el estado saldado');
+      }
+      // La liga fiscal, con sus dos guardas: ligada→sólo su factura, y
+      // suelta→jamás a una PPD (el IVA quedaría varado en la 2125).
+      if (!/nota\.invoice_id && nota\.invoice_id !== factura\.id/.test(svc)) {
+        return falla('una nota ligada volvería a aplicarse a cualquier factura: el IVA por método de pago se descuadraría');
+      }
+      if (!/metodo\.metodo === 'PPD'/.test(svc)) {
+        return falla('la nota suelta dejó de rechazar facturas PPD: aplicarla dejaría IVA aparcado para siempre');
+      }
+      return /SUM\(total_amount - amount_applied\)/.test(codigoDe('src/services/ar/ar-controls.ts'))
+        ? ok('vía única con idempotencia, aplicación sin efectivo con liga fiscal, y la conciliación resta las notas por aplicar')
+        : falla('ar reconcile dejó de restar las notas emitidas por aplicar: el descuadre legítimo se volvería hallazgo falso');
+    },
+  },
+  {
+    paquete: 'E0.1',
+    enunciado: 'El folio eliminado deja hueco explicado, y el perfil fiscal se valida contra catálogo antes de escribir',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/049_cobrar.sql',
+        de: 'ADD COLUMN tax_regime VARCHAR(3),',
+        a: 'ADD COLUMN tax_regimen VARCHAR(3),',
+        porque: 'el mutante-sufijo: «tax_regimen» CONTIENE «tax_regime» y solo \\b lo mata',
+      },
+    ],
+    evaluar: () => {
+      // F03: borrar un borrador es legal; borrar su rastro no. El DELETE
+      // guarda el documento completo en audit_log y la serie cruza sus
+      // huecos contra ese rastro: hueco con motivo = explicado; sin motivo
+      // = hallazgo. Y el perfil fiscal (régimen/CP/UsoCFDI, 049) valida
+      // contra los catálogos del SAT ANTES del UPDATE: un código inventado
+      // fallaría el timbrado semanas después, donde ya nadie recuerda.
+      const inv = codigoDe('src/services/ar/invoice-service.ts');
+      // Conteo ×2: el folio del muerto se escribe en el audit (delete) Y se
+      // busca desde la serie — mutar uno deja al otro y un chequeo de
+      // presencia lo bendice.
+      const rastroFolio = (inv.match(/invoice_number/g) ?? []).length;
+      if (!/action: 'delete',\s*\n\s*entityType: 'invoices'/.test(inv)) {
+        return falla('deleteDraftInvoice dejó de auditar el DELETE: el hueco de la serie quedaría sin explicación posible');
+      }
+      // Conteo ×2: el folio del audit se LEE (SELECT) y se CRUZA (WHERE);
+      // mutar uno deja al otro y la presencia lo bendice.
+      if ((inv.match(/old_values->>'invoice_number'/g) ?? []).length < 2) {
+        return falla('checkInvoiceSeries dejó de cruzar los huecos contra el audit_log: todo hueco sería hallazgo, o peor, ninguno');
+      }
+      if (rastroFolio < 10) {
+        return falla(`invoice_number aparece ×${rastroFolio} en invoice-service: la serie o el rastro perdieron piezas`);
+      }
+      // Las TRES guardas del DELETE, cada una con su ancla propia (una
+      // alternativa compartida bendeciría al mutante que borre una sola).
+      if (!/if \(factura\.journal_entry_id\)/.test(inv)) {
+        return falla('deleteDraftInvoice perdió la guarda del asiento: se podría borrar un documento que tocó el mayor');
+      }
+      if (!/if \(factura\.cfdi_uuid\)/.test(inv)) {
+        return falla('deleteDraftInvoice perdió la guarda del CFDI: un timbrado se cancela ante el SAT, no se borra');
+      }
+      if (!/FROM payment_allocations WHERE invoice_id = \$1/.test(inv)) {
+        return falla('deleteDraftInvoice perdió la guarda de cobros: se borraría una factura con dinero aplicado');
+      }
+      const cust = codigoDe('src/services/ar/customer-service.ts');
+      // Conteo ×2 por catálogo: se usa al MOSTRAR (nombre legible) y al
+      // ESCRIBIR (validación) — la validación es la que salva el timbrado.
+      if (
+        (cust.match(/SAT_CATALOGS\.REGIMEN_FISCAL/g) ?? []).length < 2 ||
+        (cust.match(/SAT_CATALOGS\.USO_CFDI/g) ?? []).length < 2
+      ) {
+        return falla('el perfil fiscal dejó de validar contra los catálogos del SAT: un código inventado se guardaría y fallaría al timbrar');
+      }
+      if (!/RFC_CLIENTE_RE\.test\(rfc\)/.test(cust)) {
+        return falla('el RFC del cliente dejó de validarse en forma antes de escribirse');
+      }
+      // \b: la lección del mutante-sufijo — «tax_regimen» CONTIENE
+      // «tax_regime» y un regex sin frontera lo bendice.
+      return /ADD COLUMN tax_regime\b/.test(
+        crudoDe('src/database/migrations/049_cobrar.sql')
+      )
+        ? ok('DELETE con rastro completo y serie que lo lee; perfil fiscal validado contra catálogo antes del UPDATE')
+        : falla('la 049 perdió las columnas del perfil fiscal: el control previo a facturar no tendría dónde vivir');
+    },
+  },
+  {
+    paquete: 'E1.2',
+    enunciado: 'El cobro es historia: la aplicación se clausura, su IVA viaja en la fila y la reversa es por espejos',
+    mutantes: [
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: "SET status = 'reversed', reversed_at = NOW()",
+        a: "SET status = 'void', reversed_at = NOW()",
+        porque: "«reversed» degradado a «void»: ocurrió-y-rebotó es otra afirmación ante un auditor",
+      },
+    ],
+    evaluar: () => {
+      // F03: tres propiedades que mantienen el IVA de flujo de efectivo
+      // verdadero cuando el cobro deja de ser una instantánea:
+      // 1. SÓLO las aplicaciones VIVAS cuentan — una clausurada que siguiera
+      //    contando re-liberaría el IVA que su desaplicación ya re-aparcó;
+      // 2. el IVA liberado se guarda POR APLICACIÓN, para desaplicar el
+      //    importe EXACTO y no re-derivarlo bajo otro contexto;
+      // 3. la reversa NSF refleja CADA asiento del cobro (espejo NIF B-1) y
+      //    el estado queda 'reversed' — ocurrió y rebotó, no 'void'.
+      const iva = codigoDe('src/services/accounting/iva-cash-basis.ts');
+      // Los DOS filtros de vida (pa y pa2): mutar uno deja al otro.
+      if (!/pa\.unapplied_at IS NULL/.test(iva) || !/pa2\.unapplied_at IS NULL/.test(iva)) {
+        return falla('invoicesAppliedBy volvió a contar aplicaciones clausuradas: el IVA se liberaría dos veces');
+      }
+      // Las DOS vías persisten el IVA de la fila, cada una donde vive: el
+      // registro (posting escribe tras armar sus líneas) y la aplicación
+      // posterior (el servicio, sobre las filas recién insertadas).
+      const posting = codigoDe('src/services/accounting/ar-ap-posting.ts');
+      const pagosSvc = codigoDe('src/services/payments/payment-service.ts');
+      if (
+        !/SET iva_reclass_amount = \$1/.test(posting) ||
+        !/SET iva_reclass_amount = \$1 WHERE id = \$2/.test(pagosSvc)
+      ) {
+        return falla('el IVA por aplicación dejó de persistirse en las DOS vías (registro y aplicación posterior): desaplicar volvería a adivinar');
+      }
+      // El rol de anticipos se EXIGE en las tres vías (registro con
+      // remanente, aplicación posterior, desaplicación): conteo de la forma
+      // de llamada, no presencia — quitar una vía deja las otras dos y un
+      // chequeo laxo lo bendice.
+      if ((posting.match(/requireRole\(roles, 'anticipo_clientes'\)/g) ?? []).length < 3) {
+        return falla('el remanente a cuenta perdió una de sus tres vías: lo no aplicado volvería a colgar de la cuenta de control');
+      }
+      const pagos = pagosSvc;
+      if (!/voidJournalEntryInTx\(client, je\.id, userId, `NSF: /.test(pagos)) {
+        return falla('la reversa NSF dejó de reflejar los asientos por la vía NIF B-1: quedaría dinero contado sin espejo');
+      }
+      if (!/SET status = 'reversed', reversed_at = NOW\(\)/.test(pagos)) {
+        return falla("el cobro devuelto dejó de quedar 'reversed': se confundiría con 'void', que es otra afirmación ante un auditor");
+      }
+      // Conteo ×2: la clausura con motivo vive en DOS vías (desaplicar y
+      // reversa NSF); mutar una deja la otra y la presencia lo bendice.
+      return (pagos.match(/SET unapplied_at = NOW\(\), unapplied_by = \$1, unapply_reason = \$2/g) ?? []).length >= 2
+        ? ok('aplicaciones con clausura (nunca DELETE), IVA exacto por fila, remanente en anticipos y reversa por espejos')
+        : falla('la desaplicación dejó de clausurar con rastro: borraría historia en lugar de cerrarla');
+    },
+  },
+  {
+    paquete: 'E3.1',
+    enunciado: 'Lo que no envía no existe: el adaptador de correo simulado está retirado',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/routes/invoices.ts',
+        de: 'transmitted: false',
+        a: 'transmitted: true',
+        porque: 'la ruta vuelve a mentir que transmite: el «sent:true sin envío» que CLI-5 purgó',
+      },
+    ],
+    evaluar: () => {
+      // F03: el plan preguntaba «¿cablear invoice send al adaptador SendGrid
+      // o retirar la promesa?» y el reconocimiento volteó la premisa: el
+      // adaptador era simulación doble — send() fabricaba el messageId con
+      // crypto.randomBytes sin llamar a la API, healthCheck() devolvía sano
+      // fijo, y los adjuntos se descartaban. Cablearlo habría recreado el
+      // «sent:true sin envío» que CLI-5 purgó y que el cerrojo
+      // antisimulación del timbrado existe para impedir. Se retiró entero;
+      // la ruta REST conserva su contrato honesto: marca, no transmite.
+      if (existe('src/services/integrations/email/sendgrid-adapter.ts')) {
+        return falla('el adaptador simulado volvió: un send() que fabrica messageId sin llamar a la API es la mentira que este criterio veta');
+      }
+      if (/sendGrid/i.test(codigoDe('src/services/integrations/index.ts'))) {
+        return falla('el registro de integraciones volvió a anunciar un correo que no existe: el panel aceptaría credenciales para nada');
+      }
+      const rutas = codigoDe('src/api/rest/routes/invoices.ts');
+      // El contrato honesto de /send, con sus dos mitades: marca Y confiesa.
+      if (!/transmitted: false/.test(rutas)) {
+        return falla('POST /:id/send dejó de confesar que no transmite: volvería el «sent» que no envió nada');
+      }
+      return /marked_sent: true/.test(rutas)
+        ? ok('adaptador retirado, registro limpio y la ruta de envío marca confesando que no transmite')
+        : falla('la ruta de envío perdió su mitad honesta: marcar sin decir qué significó');
+    },
+  },
+
+  // ---- S2 · El instrumento se somete al instrumento ----
+
+  {
+    paquete: 'E0.0',
+    enunciado: 'Los criterios tienen espejo ejecutable: un mutante declarado los pone en rojo',
+    evaluar: () => {
+      // S2: §7 prometía desde el principio que «cada criterio llega con su
+      // espejo que neutraliza la conducta medida y afirma el rojo». Era verdad
+      // a medias — los espejos existían como PASE MANUAL, corrido a mano cada
+      // fase, cuyo resultado vivía en el mensaje del commit. Nada impedía que
+      // un criterio naciera sin ninguno ni que uno viejo dejara de morder.
+      //
+      // Ahora el espejo es una prueba: cada `mutante` se aplica sobre el seam
+      // de lectura (overlay en memoria, el árbol jamás se toca) y se exige
+      // `falla`. Este criterio vigila que el arnés siga existiendo, que el
+      // seam siga siendo la única puerta de lectura, y que la deuda encoja.
+      if (!existe('tests/plan/mutacion.spec.ts')) {
+        return falla('el arnés de mutación desapareció: los espejos volverían a ser un pase manual');
+      }
+      const arnes = codigoDe('tests/plan/mutacion.spec.ts');
+      if (!/conFuenteMutada\(overlay, \(\) => criterio\.evaluar\(\)\)/.test(arnes)) {
+        return falla('el arnés dejó de evaluar el criterio BAJO la mutación: mediría el árbol limpio');
+      }
+      if (!/\.toBe\('falla'\)/.test(arnes)) {
+        return falla('el arnés dejó de EXIGIR el rojo: un mutante que sobrevive pasaría inadvertido');
+      }
+      // El seam es la única puerta: si un criterio vuelve a leer el disco
+      // directo, su mutante no lo toca y el espejo miente en verde. Se cuenta
+      // sobre el fuente CRUDO porque el comentario que lo explica también
+      // nombra fs.readFileSync — y aquí importa el conteo, no la presencia.
+      const cru = crudoDe('src/plan/criterios.ts');
+      const lecturasDirectas = (cru.match(/fs\.readFileSync\(/g) ?? []).length;
+      if (lecturasDirectas > 1) {
+        return falla(
+          `${lecturasDirectas} lectura(s) directa(s) de disco en los criterios: sólo puede quedar la ` +
+            'de leer() (el seam). Una lectura que rodea el seam es un criterio que ningún espejo puede mutar.'
+        );
+      }
+      // La línea base sólo SUBE: S2 nace con catorce espejos y ninguno se
+      // retira sin bajar este número a la vista, en el mismo commit.
+      const conEspejo = CRITERIOS.filter((c) => (c.mutantes?.length ?? 0) > 0).length;
+      return conEspejo >= 14
+        ? ok(`${conEspejo} criterios con espejo ejecutable; toda lectura de fuente pasa por el seam`)
+        : falla(`sólo ${conEspejo} criterios con espejo declarado: la línea base de S2 eran 14 y sólo sube`);
+    },
+    mutantes: [
+      {
+        archivo: 'tests/plan/mutacion.spec.ts',
+        de: ".toBe('falla')",
+        a: ".toBe('ok')",
+        porque: 'el arnés deja de exigir el rojo: los espejos pasarían a bendecir a los mutantes vivos',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    enunciado: 'El corpus que instruye al agente tiene compuerta de caducidad',
+    evaluar: () => {
+      // S2: el agente lee src/ai/docs como VERDAD —grounding.ts incluso lo
+      // manda a leerlos para *verificar*— y la auditoría II encontró dos
+      // páginas que le enseñaban lo que el sistema tiene módulos para
+      // corregir: el IVA acreditado de inmediato (el defecto que
+      // iva-ppd-reclass repara) y una anulación con auto-posteo que R1 hizo
+      // imposible. No estaban desactualizadas: MAL-INSTRUÍAN, y su lector no
+      // puede dudar como dudaría una persona.
+      if (!existe('src/ai/docs/manifiesto.json') || !existe('scripts/corpus-manifiesto.ts')) {
+        return falla('el manifiesto del corpus desapareció: los manuales del agente volverían a caducar en silencio');
+      }
+      const script = codigoDe('scripts/corpus-manifiesto.ts');
+      if (!/sellado !== hoy/.test(script)) {
+        return falla('el manifiesto dejó de comparar hashes: no detectaría que una fuente cambió');
+      }
+      if (!/m\.sin_revisar\.length > SIN_REVISAR_MAXIMO/.test(script)) {
+        return falla('la deuda de manuales sin revisar dejó de tener trinquete: podría crecer en silencio');
+      }
+      // La compuerta corre en CI o es un comando que nadie teclea.
+      if (!/corpus-manifiesto\.ts --check/.test(crudoDe('.github', 'workflows', 'ci.yml'))) {
+        return falla('la compuerta del corpus no está en CI: sería una comprobación optativa');
+      }
+      // Y los dos pasajes que mal-instruían quedaron corregidos: el manual
+      // debe NOMBRAR la cuenta donde el IVA de un PPD aparca, y decir que un
+      // asiento posteado no cambia de estado.
+      const cfdi = crudoDe('src/ai/docs/mexico-cfdi.md');
+      if (!/1135/.test(cfdi) || !/2125/.test(cfdi)) {
+        return falla('mexico-cfdi.md volvió a enseñar el IVA sin las cuentas de aparcado (1135/2125)');
+      }
+      return /IMMUTABLE|inmutable/i.test(crudoDe('src/ai/docs/accounting.md'))
+        ? ok('manifiesto con hashes y deuda que sólo encoge, en CI, y los dos manuales que mal-instruían corregidos')
+        : falla('accounting.md volvió a prometer que un asiento posteado cambia de estado');
+    },
+    mutantes: [
+      {
+        archivo: 'src/ai/docs/mexico-cfdi.md',
+        de: '1135',
+        a: '1130',
+        porque: 'el manual vuelve a enseñar que el IVA de un PPD se acredita de inmediato: el defecto que iva-ppd-reclass existe para reparar',
+      },
+      {
+        archivo: 'scripts/corpus-manifiesto.ts',
+        de: 'sellado !== hoy',
+        a: 'sellado === hoy',
+        porque: 'la comparación de hashes se invierte: la compuerta pasaría a acusar lo que NO cambió',
+      },
+    ],
+  },
+  // ---- S3 · Respaldo, restauración y el corredor que no rellenaba ----
+
+  {
+    paquete: 'E0.0',
+    enunciado: 'El migrador no puede rellenar cero filas en silencio: Postgres se lo impide',
+    evaluar: () => {
+      // EL DEFECTO. Las migraciones corren como un rol NOBYPASSRLS que además
+      // es DUEÑO de tablas con FORCE ROW LEVEL SECURITY — lo que le quita su
+      // exención implícita. Sin contexto de inquilino, todo DML de migración
+      // sobre una tabla acotada afecta CERO FILAS, sin error, y la migración
+      // se registra como aplicada. Reproducido: el rol ve 0 de 4 entidades.
+      // Tres migraciones lo sufrieron (037, 040, 043) y una ya provocó una
+      // colisión de folios en un despliegue real.
+      //
+      // POR QUÉ NO BASTA DOCUMENTARLO: la 026 ya había escrito el patrón
+      // correcto —el bucle por inquilino— y la 043 lo repitió sin él
+      // dieciocho migraciones después. Es reincidencia, no descuido.
+      //
+      // LA GUARDA ES DE POSTGRES, NO NUESTRA, y esa es su virtud. Con
+      // `row_security = off` el motor no desactiva RLS: LANZA 42501 cuando
+      // una consulta habría sido filtrada. El cuarto olvido no podrá callar,
+      // porque quien se niega es el motor y no un regex sobre el .sql. Una
+      // migración que SÍ maneja inquilinos hace opt-in explícito con
+      // `SET LOCAL row_security = on` y su bucle.
+      const m = codigoDe('src/database/migrate.ts');
+      if (!/SET row_security = off/.test(m)) {
+        return falla(
+          'el migrador dejó de correr con row_security=off: el filtrado silencioso volvería a ser ' +
+            'silencioso, y la clase que ya costó una colisión de folios podría repetirse'
+        );
+      }
+      // Y la reparación de lo que se perdió, con el patrón que la 026
+      // consagró: iterar inquilinos fijando el contexto.
+      const reparacion = 'src/database/migrations/048_reparar_lo_que_rls_filtro_en_silencio.sql';
+      if (!existe(reparacion)) {
+        return falla('la migración de reparación desapareció: las tres siembras mudas seguirían mudas');
+      }
+      const r = crudoDe(reparacion);
+      const cubre =
+        /range_proof = NULL/.test(r) &&
+        /zkverify_proof = NULL/.test(r) &&
+        (r.match(/INSERT INTO entity_sequences/g) ?? []).length >= 5 &&
+        /UPDATE bills/.test(r);
+      if (!cubre) {
+        return falla('la reparación dejó de cubrir las tres migraciones (037 etiquetado, 040 purga, 043 siembra)');
+      }
+      return /SET LOCAL row_security = on/.test(r) && /set_config\('app\.current_tenant'/.test(r)
+        ? ok('el motor lanza 42501 ante el filtrado silencioso, y la reparación re-corre las tres con el bucle por inquilino')
+        : falla('la reparación no declara su opt-in ni fija contexto: correría bajo el piso y fallaría, o volvería a rellenar cero');
+    },
+    mutantes: [
+      {
+        archivo: 'src/database/migrate.ts',
+        de: "await client.query('SET row_security = off');",
+        a: "await client.query('SELECT 1');",
+        porque: 'el piso desaparece y el filtrado silencioso vuelve a ser silencioso: la clase que ya costó una colisión de folios',
+      },
+      {
+        archivo: 'src/database/migrations/048_reparar_lo_que_rls_filtro_en_silencio.sql',
+        de: 'SET LOCAL row_security = on',
+        a: 'SET LOCAL row_security = off',
+        porque: 'la reparación pierde su opt-in: correría bajo el piso y ni siquiera podría leer lo que viene a reparar',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    enunciado: 'Un respaldo se prueba restaurándolo, y dice lo que no lleva',
+    evaluar: () => {
+      // S3: el mayor es inmutable a propósito (041 no admite UPDATE ni
+      // DELETE sobre lo posteado; 033 deja la bitácora en sólo-agregar), y
+      // esa misma inmutabilidad impide repararlo a mano — la 041 llega a
+      // prescribir «bórrala entera y vuelve a migrar». La vía de recuperación
+      // que el esquema NOMBRA es la restauración, y no existía ni una línea
+      // sobre ella en todo el árbol.
+      if (!existe('src/services/backup/backup-service.ts')) {
+        return falla('no hay camino de respaldo: la inmutabilidad del mayor deja de ser una garantía y pasa a ser una trampa');
+      }
+      const b = codigoDe('src/services/backup/backup-service.ts');
+      // La verificación que importa RESTAURA. Un verificador que sólo mira el
+      // archivo comprueba que existe, no que sirva.
+      // Forma de LLAMADA, no el símbolo: el nombre también aparece en el
+      // import, y un regex laxo bendice al mutante que deja el import y
+      // desconecta la llamada — la lección de AUD-6, cometida aquí mismo al
+      // escribir este criterio y cazada por su propio espejo.
+      if (!/pg_restore/.test(b) || !/await runLedgerChecksEn\(/.test(b)) {
+        return falla('la verificación dejó de restaurar y de correr los chequeos: un respaldo no probado no es un respaldo');
+      }
+      // Y falla cerrado si el rol no puede volcar: se descubrió construyéndolo
+      // que pg_dump como dueño REVIENTA por FORCE RLS — la misma clase que
+      // silenciaba el DML, ahora sobre la recuperación.
+      // El ANCLA ES LA NEGATIVA, no la existencia del comprobador: dejar la
+      // función y borrar el `throw` es exactamente el mutante que sobrevivió
+      // a la primera versión de este criterio.
+      if (!/if \(!capacidad\.puede\) throw new ValidationError/.test(b) || !/rolbypassrls/.test(b)) {
+        return falla('el respaldo dejó de NEGARSE cuando el rol no puede volcar: produciría un volcado parcial con nombre de respaldo');
+      }
+      // Lo que el volcado NO lleva se declara SIEMPRE: el material
+      // criptográfico vive fuera de la base y sin él lo restaurado queda
+      // ilegible.
+      if (!/noIncluye/.test(b) || !/ENCRYPTION_KEY/.test(b)) {
+        return falla('el manifiesto dejó de declarar lo que el volcado no lleva: prometería un respaldo completo que no lo es');
+      }
+      return /restaurar encima de una viva|ya existe/.test(b)
+        ? ok('respaldo con manifiesto, verificación que restaura y corre los chequeos, y lo que no lleva declarado')
+        : falla('la restauración dejó de exigir base NUEVA: sobrescribir una viva destruye lo que se intenta salvar');
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/backup/backup-service.ts',
+        de: 'if (!capacidad.puede) throw new ValidationError(capacidad.motivo);',
+        a: 'void capacidad;',
+        porque: 'el respaldo deja de fallar cerrado y produce un volcado parcial con nombre de respaldo',
+      },
+      {
+        // Sobre la LLAMADA, no sobre el import: mutar el import deja la
+        // llamada viva y el criterio la sigue viendo — lo comprobó este mismo
+        // espejo, que en su primera versión declaró el mutante flojo.
+        archivo: 'src/services/backup/backup-service.ts',
+        de: 'await runLedgerChecksEn(',
+        a: 'await noVerificarNada(',
+        porque: 'la verificación deja de correr los chequeos del mayor: comprobaría que el archivo existe, no que sirva',
+      },
+    ],
+  },
+
+  // ---- A7 · Una sola puerta al auto-posteo ----
+
+  {
+    paquete: 'E1.3',
+    enunciado: 'Encender el auto-posteo es del panel: la bandera y el archivo sólo pueden ser más estrictos',
+    evaluar: () => {
+      // A7: el piso de evidencia (A4) vive en el panel, así que cualquier capa
+      // que encienda por su cuenta lo rodea ENTERO. La auditoría integral II
+      // lo ejecutó: panel en 'shadow' + archivo en true = posteo real, sin un
+      // solo veredicto de sombra registrado. Contestar «mídelo primero»
+      // producía posteo con cero evidencia, en silencio.
+      //
+      // La regla ya existía para el tope de monto y ahora rige las tres
+      // decisiones: apagar y apretar son de cualquiera; encender y aflojar,
+      // sólo del despacho.
+      const t = codigoDe('src/ai/ingest-thresholds.ts');
+      // La forma exacta de la asimetría: encender exige que el panel ya lo
+      // hubiera autorizado. Un `autoPost = valor` suelto la rompe.
+      if (!/const autorizado = polAuto\.defined/.test(t)) {
+        return falla('el interruptor dejó de derivarse del panel: la capa local volvería a poder encender');
+      }
+      if (!/if \(valor === false\) \{/.test(t) || !/if \(autorizado\) \{/.test(t)) {
+        return falla('la asimetría perdió su forma: apagar y encender volverían a tratarse igual');
+      }
+      // Y el intento ignorado no desaparece: el operador tiene que poder
+      // entender por qué su `true` no hizo nada.
+      if (!/encendidoIgnorado/.test(t) || !/encendidoIgnorado/.test(codigoDe('src/cli/mnemosine.ts'))) {
+        return falla('un encendido ignorado volvería a ser silencioso: el operador no sabría por qué su archivo no hace nada');
+      }
+      // El tope: la bandera vivía FUERA de la regla que el archivo ya
+      // respetaba, así que --max-amount subía el techo del panel.
+      return /const tope = maxPolitica \?\? Infinity/.test(t)
+        ? ok('encender y aflojar el tope son del panel; apagar y apretar, de cualquier capa, y lo ignorado se dice')
+        : falla('la bandera puede volver a aflojar el tope por encima de lo que el despacho contestó');
+    },
+    mutantes: [
+      {
+        archivo: 'src/ai/ingest-thresholds.ts',
+        de: 'if (autorizado) {',
+        a: 'if (true) {',
+        porque: 'la capa local vuelve a encender sobre un panel que no lo autorizó: la puerta que A7 cerró',
+      },
+      {
+        archivo: 'src/ai/ingest-thresholds.ts',
+        de: 'const tope = maxPolitica ?? Infinity;',
+        a: 'const tope = Infinity;',
+        porque: 'la bandera vuelve a aflojar el tope por encima del panel',
+      },
+    ],
+  },
+  {
+    paquete: 'E1.3',
+    enunciado: 'La sombra mide el modo que se va a encender, y la decisión se escribe donde se midió',
+    evaluar: () => {
+      // A7, dos mitades de la misma idea: la evidencia sólo autoriza si mide
+      // LO MISMO que se enciende, y en el MISMO alcance.
+      //
+      // (1) Desde A3 el modo encendido tiene dos vías: el umbral y, cuando una
+      //     compuerta discrecional no basta, la política otorgada. Una sombra
+      //     ciega a la segunda acumula evidencia sobre un clasificador más
+      //     conservador que el real.
+      const ing = codigoDe('src/ai/ingest-service.ts');
+      if (!/wouldMatchApproval\(/.test(ing)) {
+        return falla('la sombra volvió a medir sólo el umbral: la evidencia validaría un clasificador que no es el que se enciende');
+      }
+      if (!/wouldAutoPost: habriaPosteado/.test(ing)) {
+        return falla('el veredicto registrado dejó de incluir la vía de política');
+      }
+      // La sombra NO puede gastar políticas: el emparejador de solo lectura
+      // existe justo para eso, y debe seguir sin tocar last_used_at.
+      const ap = codigoDe('src/ai/approval-policy.ts');
+      const iWould = ap.indexOf('export async function wouldMatchApproval');
+      const cuerpo = iWould >= 0 ? ap.slice(iWould, ap.indexOf('export async function matchApproval')) : '';
+      if (!cuerpo || /UPDATE ai_approval_policies/.test(cuerpo)) {
+        return falla('el emparejador de sombra escribe: una sombra con efectos gasta las políticas que dice sólo observar');
+      }
+      // (2) El alcance: la evidencia se mide por entidad y la decisión se
+      //     escribía sin acotar, así que siete días de sombra en UNA entidad
+      //     encendían el auto-posteo de todas.
+      const ps = codigoDe('src/services/policy/policy-service.ts');
+      return /AND entity_id IS NOT DISTINCT FROM \$6::uuid/.test(ps)
+        ? ok('la sombra consulta la vía de política sin consumirla, y la decisión se resuelve en el alcance que se midió')
+        : falla('resolvePolicy volvió a escribir sin acotar por entidad: la evidencia de una entidad encendería a todas');
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: 'AND entity_id IS NOT DISTINCT FROM $6::uuid',
+        a: '',
+        porque: 'la decisión vuelve a escribirse sin alcance: la evidencia de una entidad enciende a todas (pilar 6 del plan)',
+      },
+      {
+        archivo: 'src/ai/ingest-service.ts',
+        de: 'wouldAutoPost: habriaPosteado',
+        a: 'wouldAutoPost: veredicto.procede',
+        porque: 'la sombra vuelve a registrar sólo el umbral y la evidencia mide un modo distinto del que se enciende',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    enunciado: 'El costo por fila publica su banda y separa entrega de garantía',
+    evaluar: () => {
+      // S2: el instrumento publicaba 0,7 % de cola correctiva —y bajando,
+      // porque su regex sobre el asunto sólo casaba uno de cada dieciocho
+      // commits correctivos— donde la medición a mano de la auditoría II da
+      // entre 11,8 % y 51,7 %. Subestimaba por un factor de 17× a 74× y lo
+      // hacía dos líneas encima de la referencia fundacional del 12,3 %, como
+      // invitando a concluir que la cola se había resuelto sola.
+      const s = codigoDe('scripts/costo-por-fila.ts');
+      // La banda son DOS convenciones publicadas juntas: una sola volvería a
+      // cerrar la pregunta con un número.
+      if (!/estricta/.test(s) || !/amplia/.test(s)) {
+        return falla('la cola volvió a publicarse como un número solo: cerraría la pregunta con la cifra equivocada');
+      }
+      if (!/TRAILER_CORRIGE/.test(s)) {
+        return falla('el clasificador perdió el trailer declarado y volvería a depender sólo de adivinar el asunto');
+      }
+      // Entrega y garantía MEDIDAS por ruta, no derivadas de un porcentaje.
+      if (!/export function entregaYGarantia/.test(s) || !/insercionesEn\(a, b, 'tests', 'scripts'\)/.test(s)) {
+        return falla('entrega y garantía dejaron de medirse por ruta: volverían a ser una estimación de una estimación');
+      }
+      return /ENTREGA/.test(s) && /GARANTÍA/.test(s)
+        ? ok('la cola se publica como banda con su trailer, y entrega/garantía salen medidas por ruta')
+        : falla('la salida dejó de separar entrega de garantía: presupuestar una fase con el número junto la presupuesta mal');
+    },
+    mutantes: [
+      {
+        archivo: 'scripts/costo-por-fila.ts',
+        de: "insercionesEn(a, b, 'tests', 'scripts')",
+        a: 'insercionesEn(a, b)',
+        porque: 'la garantía deja de medirse por ruta y se cuenta el árbol entero: la separación se vuelve ruido',
+      },
+    ],
+  },
+
+
+
+  // ---- F05b · Los dos lados y el cotejo ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Ningún cotejo se aplica solo cuando su única señal es el parecido del texto',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: '  if (!result.auto_applicable) return false;',
+        a: '  if (false) return false;',
+        porque: 'la compuerta deja de mirar el veto de la regla: un desempate decidido por la descripción vuelve a aplicarse en firme y a sellar la partida de libros',
+      },
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: '        auto_applicable: importeExacto && empatanEnImporte === 1,',
+        a: '        auto_applicable: true,',
+        porque: 'la regla que desempata por texto se autoriza a sí misma: es exactamente lo que el catálogo prohíbe en la fila 1225',
+      },
+    ],
+    evaluar: () => {
+      // «Nunca aplica un cotejo cuya única señal sea similitud de descripción»
+      // es una promesa LITERAL del catálogo (fila 1225), y estaba viva al
+      // revés: la regla marcaba su hallazgo como no-aplicable y el servicio
+      // NUNCA LEÍA esa marca. Medido: dos facturas del mismo importe y la
+      // misma fecha, desempatadas por el texto, se aplicaban en firme y
+      // sellaban la partida.
+      //
+      // Por eso el veto se ancla en las DOS mitades: quien lo pone y quien lo
+      // obedece. Anclar sólo una deja pasar el defecto original, que era
+      // exactamente una mitad sin la otra.
+      const motor = codigoDe('src/services/banking/matching.ts');
+      const svc = codigoDe('src/services/banking/match-service.ts');
+
+      // 1. La regla que desempata por texto NO se autoriza: su `auto_applicable`
+      //    depende de que el importe sea exacto y de que nadie más empate.
+      if (!/auto_applicable: importeExacto && empatanEnImporte === 1,/.test(motor)) {
+        return falla('la regla de similitud dejó de vetarse: puede volver a decidir sola un desempate que las reglas duras rechazaron');
+      }
+      // 2. Y la compuerta lo OBEDECE. Es la mitad que faltaba.
+      if (!/if \(!result\.auto_applicable\) return false;/.test(motor)) {
+        return falla('la compuerta de aplicación dejó de leer el veto de la regla: el motor lo pone y nadie lo mira, que es el defecto original');
+      }
+      // 3. Y la omisión tiene MOTIVO CONTABLE, no un silencio: una causa que no
+      //    se puede contar no se puede corregir.
+      const motivo = /'solo-similitud',/.test(svc);
+      return motivo
+        ? ok('la regla de texto se veta a sí misma, la compuerta obedece el veto y la omisión se cuenta con su motivo')
+        : falla('desapareció el motivo «solo-similitud»: la omisión ocurriría en silencio y nadie podría contarla');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Una partida de libros sólo se coteja si es de la cuenta de mayor del banco',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: '       AND jel.account_id = $4',
+        a: '       AND jel.account_id IS NOT NULL',
+        porque: 'el motor vuelve a proponer CUALQUIER línea posteada de la entidad: sellaría un gasto de renta como conciliado contra un banco que nunca lo vio, y esa línea queda inservible para la conciliación que sí le tocaba',
+      },
+    ],
+    evaluar: () => {
+      // `getCandidates` no filtraba por `jel.account_id`: devolvía cualquier
+      // línea posteada sin sellar de la entidad que cayera en la banda de
+      // importe. Medido: un depósito de 300 sellaba la línea de RENTA de una
+      // póliza que no tocaba el banco. Y el sello es irreversible en la
+      // práctica —esa línea ya no volvería a ofrecerse a su conciliación real—.
+      //
+      // Lo que lo delata como defecto y no como criterio: `bank book-item list`
+      // SÍ unía por `ba.gl_account_id` desde el primer día. Los dos lados del
+      // mismo tramo discrepaban sobre qué es una partida de libros.
+      const motor = codigoDe('src/services/banking/matching.ts');
+      const libros = codigoDe('src/services/banking/book-items.ts');
+
+      if (!/AND jel\.account_id = \$\d/.test(motor)) {
+        return falla('el motor volvió a proponer líneas de póliza ajenas a la cuenta del banco: sellarlas las inutiliza para su conciliación real');
+      }
+      // Y EL OTRO LADO USA LA MISMA DEFINICIÓN. Que las dos superficies
+      // coincidan es lo que hace que el cotejo signifique algo.
+      const mismoLado = /ba\.gl_account_id/.test(libros);
+      return mismoLado
+        ? ok('el motor y el listado de partidas de libros coinciden en qué es una partida: la cuenta de mayor del banco')
+        : falla('el listado de partidas de libros dejó de unir por la cuenta de mayor del banco: los dos lados del cotejo volverían a discrepar');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Una factura cobrada a medias puede casar, porque el candidato se compara contra su saldo',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: "`SELECT id, 'invoice' as type, amount_due as amount, invoice_date as date,",
+        a: "`SELECT id, 'invoice' as type, total_amount as amount, invoice_date as date,",
+        porque: 'vuelve el defecto: se filtra por el saldo y se compara contra el total, así que una factura parcialmente cobrada no puede casar jamás — y es el caso más común de una conciliación real',
+      },
+    ],
+    evaluar: () => {
+      // `getCandidates` FILTRABA por `ABS(amount_due) BETWEEN $2 AND $3` y
+      // PROYECTABA `total_amount as amount`: una factura con saldo 500 y total
+      // 1160 entraba en el rango por su saldo y después el motor la comparaba
+      // contra 1160. El resultado no era que casara mal — es que **no podía
+      // casar nunca**, en silencio y para siempre.
+      const motor = codigoDe('src/services/banking/matching.ts');
+      const proyecta = (motor.match(/amount_due as amount/g) ?? []).length;
+      // DOS: la factura y el gasto. Son gemelos y el mutante muta el primero;
+      // buscar «alguna» ocurrencia encontraría el otro y daría verde.
+      return proyecta === 2
+        ? ok('los dos candidatos —factura y gasto— se comparan contra su saldo, que es por lo que se los filtró')
+        : falla(
+            `${proyecta} de 2 candidatos se proyectan por su saldo: el que se filtre por saldo y se compare contra el total no podrá casar nunca`
+          );
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'El sello de una partida es todo o nada, y desaplicar lo libera sin borrar el cotejo',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/052_el_cotejo.sql',
+        de: '            (is_reconciled = true AND reconciled_at IS NOT NULL AND reconciliation_id IS NOT NULL)',
+        a: '            (is_reconciled = true)',
+        porque: 'una partida puede quedar marcada como conciliada sin decir cuándo ni por quién: el sello deja de ser rastreable y nadie puede deshacerlo',
+      },
+      {
+        archivo: 'src/services/banking/match-service.ts',
+        de: '          SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = $2',
+        a: '          SET unapplied_by = $1, unapply_reason = $2',
+        porque: 'la clausura pierde su fecha y el cotejo deshecho sigue contando como vivo en todo índice que filtre por unapplied_at IS NULL',
+      },
+    ],
+    evaluar: () => {
+      // El esquema lleva desde 001 reservando `is_reconciled`, `reconciled_at`
+      // y `reconciliation_id`, y la 041 las declara el ÚNICO hueco de escritura
+      // sobre una línea posteada. Nadie las había escrito nunca. Al escribirlas
+      // por primera vez, lo que importa es que vayan JUNTAS: una marca sin
+      // fecha ni dueño es una conciliación que no se puede auditar ni deshacer.
+      const sql = crudoDe('src/database/migrations/052_el_cotejo.sql');
+      const svc = codigoDe('src/services/banking/match-service.ts');
+
+      if (!/CONSTRAINT jel_sello_coherente/.test(sql)) {
+        return falla('desapareció el CHECK del sello: una partida podría quedar «conciliada» sin decir cuándo ni por quién');
+      }
+      if (!/\(is_reconciled = true AND reconciled_at IS NOT NULL AND reconciliation_id IS NOT NULL\)/.test(sql)) {
+        return falla('el CHECK dejó de exigir las tres columnas juntas: vuelve a caber el sello a medias');
+      }
+      // Desaplicar CLAUSURA, no borra — la misma decisión que la 049 tomó para
+      // la aplicación de un cobro. Un cotejo deshecho es historia: el auditor
+      // pregunta por qué se deshizo y una fila borrada no contesta.
+      if (/DELETE FROM reconciliation_matches/.test(svc)) {
+        return falla('desaplicar volvió a borrar el cotejo: la pregunta «por qué se deshizo» se queda sin respuesta');
+      }
+      const clausura = /SET unapplied_at = NOW\(\), unapplied_by = \$\d, unapply_reason = \$\d/.test(svc);
+      return clausura
+        ? ok('el sello va con fecha y dueño o no va, y desaplicar clausura el cotejo en vez de borrarlo')
+        : falla('la clausura del cotejo perdió su fecha: un cotejo deshecho seguiría contando como vivo');
+    },
+  },
+
+  // ---- F05a · La cuenta y el extracto ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El extracto es un documento con sus dos saldos, y el mismo archivo no entra dos veces',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: '    UNIQUE (bank_account_id, file_sha256)',
+        a: '    CHECK (line_count >= 0)',
+        porque: 'el mismo archivo del banco vuelve a poder importarse entero: el extracto se duplica y el saldo de banco deja de ser el del banco',
+      },
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: '    opening_balance DECIMAL(19,4) NOT NULL,',
+        a: '    opening_balance DECIMAL(19,4),',
+        porque: 'el saldo inicial vuelve a poder faltar, que es exactamente por lo que la sesión de conciliación llevaba un cero fijo en su lugar',
+      },
+    ],
+    evaluar: () => {
+      // Hasta F05a el módulo bancario tenía movimientos sueltos colgando de un
+      // `import_batch_id` que era un UUID sin tabla, y una sesión que insertaba
+      // su `beginning_balance` FIJO EN CERO porque no tenía de dónde sacarlo.
+      // Las siete pruebas de integridad son preguntas sobre un DOCUMENTO con
+      // saldo inicial y final; sin él no hay ninguna que se pueda formular.
+      const sql = crudoDe('src/database/migrations/051_la_cuenta_y_el_extracto.sql');
+
+      if (!/CREATE TABLE bank_statements/.test(sql)) {
+        return falla('no existe la tabla del estado de cuenta: sin documento no hay conciliación posible');
+      }
+      // Los dos saldos, OBLIGATORIOS. Un saldo que puede faltar reproduce el
+      // cero-que-significa-nada del que venimos.
+      const obligatorias = ['opening_balance', 'closing_balance'].filter(
+        (c) => !new RegExp(`${c} DECIMAL\\(19,4\\) NOT NULL`).test(sql)
+      );
+      if (obligatorias.length > 0) {
+        return falla(`el estado de cuenta admite saldo ausente en: ${obligatorias.join(', ')}`);
+      }
+      // El hash del archivo ORIGINAL: el extracto es evidencia fiscal y quien
+      // lo audite tiene que poder atar el PDF del banco con lo que entró.
+      if (!/file_sha256 CHAR\(64\) NOT NULL/.test(sql)) {
+        return falla('el estado de cuenta no guarda el hash de su archivo: deja de ser evidencia atable');
+      }
+      const dedupe = /UNIQUE \(bank_account_id, file_sha256\)/.test(sql);
+      return dedupe
+        ? ok('el estado de cuenta lleva sus dos saldos obligatorios y el hash de su archivo, y el mismo archivo no entra dos veces')
+        : falla('desapareció el dedupe por archivo: reimportar el mismo extracto volvería a duplicarlo entero');
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'La deduplicación de movimientos la calcula la base, no quien escribe',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: '  NEW.content_hash := encode(',
+        a: '  NEW.content_hash := COALESCE(NEW.content_hash, encode(',
+        porque: 'el llamador recupera el control del hash: mandando uno inventado en cada fila, el índice único deja de reconocer el duplicado y el dedupe se apaga desde fuera',
+      },
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: 'CREATE UNIQUE INDEX uq_bank_tx_contenido ON bank_transactions(bank_account_id, content_hash);',
+        a: 'CREATE INDEX uq_bank_tx_contenido ON bank_transactions(bank_account_id, content_hash);',
+        porque: 'el índice deja de ser único y vuelve el defecto de la 003: se calcula un hash que a nadie le impide nada',
+      },
+    ],
+    evaluar: () => {
+      // EL DEDUPE QUE NO DEDUPLICABA. La 003 declaraba
+      // `UNIQUE(bank_account_id, bank_transaction_id)` sobre una columna
+      // NULLABLE, y en Postgres dos NULL no colisionan: no impedía nada en
+      // cuanto el banco no publicaba id nativo, que es el caso de todo CSV. Y
+      // el guardia de aplicación fallaba por el otro lado —
+      // `WHERE bank_transaction_id = $1` con $1 nulo no casa nunca—. Dos
+      // capas, el mismo agujero: reimportar duplicaba el extracto entero.
+      //
+      // Se reparó donde no se puede rodear. Un hash que el llamador PROVEE es
+      // un hash que el llamador puede equivocar o falsear, y entonces el
+      // índice único deja de significar «esta línea ya está».
+      const sql = crudoDe('src/database/migrations/051_la_cuenta_y_el_extracto.sql');
+
+      if (!/CREATE TRIGGER bank_transactions_content_hash/.test(sql)) {
+        return falla('el hash de contenido dejó de calcularlo la base: vuelve a depender de que cada superficie lo mande bien');
+      }
+      // Y lo IMPONE: una asignación directa, no un COALESCE que respetaría lo
+      // que venga de fuera. Es la diferencia entre calcularlo y aceptarlo.
+      if (!/NEW\.content_hash := encode\(/.test(sql)) {
+        return falla('el disparador dejó de imponer el hash: si respeta el que manda el llamador, el dedupe se apaga desde fuera');
+      }
+      if (!/ALTER COLUMN content_hash SET NOT NULL/.test(sql)) {
+        return falla('content_hash volvió a admitir NULL, que es la forma exacta del defecto que se venía a reparar');
+      }
+      const unico = /CREATE UNIQUE INDEX uq_bank_tx_contenido/.test(sql);
+      return unico
+        ? ok('el hash lo impone un disparador y el índice único lo hace valer: el dedupe no se puede rodear desde ninguna superficie')
+        : falla('el índice de contenido dejó de ser único: se calcularía un hash que no impide ningún duplicado');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Las siete pruebas del extracto existen todas y su hallazgo bloqueante sale 4',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/statement-checks.ts',
+        de: "      check: 'continuidad',",
+        a: "      check: 'cadena-de-saldos',",
+        porque: 'la prueba que detecta un estado FALTANTE se disfraza de otra: el hueco entre el saldo final de un mes y el inicial del siguiente dejaría de tener nombre propio',
+      },
+      {
+        archivo: 'src/cli/bank-command.ts',
+        de: 'return checkExitCode(',
+        a: 'return 0 || checkExitCode(',
+        porque: 'un extracto con hallazgo bloqueante sale 0 y cualquier guion de cierre lo da por bueno: el §4.1 del catálogo exige 4',
+      },
+    ],
+    evaluar: () => {
+      // El catálogo las nombra una por una (fila 1165) y exige salida 4. Son
+      // el producto entero de este tramo: importar un extracto sin poder
+      // comprobarlo es volver a creerle al archivo.
+      const checks = codigoDe('src/services/banking/statement-checks.ts');
+      const LAS_SIETE = [
+        'cadena-de-saldos',
+        'continuidad',
+        'huecos-y-traslapes',
+        'identidad',
+        'moneda',
+        'secuencia',
+        'reversos',
+      ];
+      const faltan = LAS_SIETE.filter((c) => !new RegExp(`check: '${c}'`).test(checks));
+      if (faltan.length > 0) {
+        return falla(`de las siete pruebas de integridad del extracto faltan: ${faltan.join(', ')}`);
+      }
+
+      // Y VIVEN SEPARADAS DE LA BASE. Una comprobación que sólo se puede
+      // ejercitar con Postgres detrás es una comprobación que nadie prueba, y
+      // acaba siendo la que miente.
+      if (/\bfrom '\.\.\/\.\.\/database\/connection\.js'/.test(checks)) {
+        return falla('las siete pruebas se ataron a la base: dejan de poder ejercitarse sobre datos en memoria');
+      }
+
+      // El 4 se ancla en la LLAMADA, no en el import: importar checkExitCode y
+      // no usar su resultado es el falso verde clásico de esta familia.
+      const sale4 = /return checkExitCode\(\s*\n?\s*\{ blocking:/.test(codigoDe('src/cli/bank-command.ts'));
+      return sale4
+        ? ok('las siete pruebas están, viven fuera de la base y el hallazgo bloqueante sale 4')
+        : falla('`bank statement check` dejó de devolver el código de checkExitCode: un extracto roto saldría 0');
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'Importar un extracto no alcanza el mayor, que es lo único que se lo permite al agente',
+    mutantes: [
+      {
+        // El mutante inserta CÓDIGO, no un comentario. La primera versión
+        // metía `/* createJournalEntry( */` y sobrevivía con razón:
+        // `codigoDe` quita los comentarios antes de mirar, y un comentario
+        // que nombra el mayor no es un camino al mayor. El mutante estaba
+        // mal, no el ancla.
+        archivo: 'src/services/banking/bank-statement-service.ts',
+        de: '    await client.query(',
+        a: '    await createJournalEntry(); await client.query(',
+        porque: 'basta un camino al mayor dentro del importador para que su `draftOnly` sea falso, y con él la única razón por la que el agente puede invocarlo',
+      },
+      {
+        archivo: 'src/cli/bank-command.ts',
+        de: '    draftOnly: true,',
+        a: '    draftOnly: false,',
+        porque: 'el agente conservaría la escritura sin la afirmación que la justifica — es la combinación que declareRisk existe para negar',
+      },
+    ],
+    evaluar: () => {
+      // `bank statement import` es la ÚNICA fila de esta familia con IA ✓
+      // sobre un verbo que escribe, y `declareRisk` sólo lo admite con
+      // `draftOnly: true` (kernel/risk.ts:103). Esa afirmación no se cree: se
+      // comprueba. Lo que la sostiene es que el importador escribe staging
+      // bancario —la afirmación de un tercero sobre nuestro dinero, esperando
+      // cotejo— y no tiene camino al mayor por ninguna bandera.
+      const cli = codigoDe('src/cli/bank-command.ts');
+      const svc = codigoDe('src/services/banking/bank-statement-service.ts');
+
+      const declara = /declareRisk\(importar, \{[\s\S]{0,200}?risk: 'escritura',[\s\S]{0,120}?agent: true,[\s\S]{0,120}?draftOnly: true,/.test(cli);
+      if (!declara) {
+        return falla('`bank statement import` dejó de declararse escritura+agente+draftOnly: o el agente perdió la fila, o la ganó sin la afirmación que la justifica');
+      }
+
+      // Y LA AFIRMACIÓN SE VERIFICA CONTRA EL SERVICIO. Un `draftOnly: true`
+      // es una promesa sobre lo que el código hace; anclarlo sin mirar el
+      // servicio sería creerle a la declaración.
+      const alMayor = /createJournalEntry|postJournalEntry|INSERT INTO journal_entries/.exec(svc);
+      return alMayor === null
+        ? ok('el importador declara draftOnly y lo cumple: no hay un solo camino desde él al mayor')
+        : falla(
+            `el importador alcanza el mayor ("${alMayor[0]}"): su draftOnly es falso y con él la razón por la que el agente puede llamarlo`
+          );
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'La CLABE se guarda cifrada, como el número de cuenta que es',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/bank-account-service.ts',
+        de: '            clabe ? encrypt(clabe.clabe) : null,',
+        a: '            clabe ? clabe.clabe : null,',
+        porque: 'la CLABE vuelve a la base en claro, que es exactamente el defecto de la 003 que este tramo repara',
+      },
+    ],
+    evaluar: () => {
+      // La 003 cifraba el número de cuenta y el routing y dejaba la CLABE en
+      // `VARCHAR(18)` a la vista, al lado de las otras dos. La CLABE ES el
+      // número de cuenta en México: era el mismo dato que las columnas
+      // vecinas protegían, guardado sin protección. El criterio E0.3 de la
+      // bitácora ya la nombraba entre «los campos que los servicios cifran
+      // hoy» — daba por hecho un cifrado que no existía.
+      const sql = crudoDe('src/database/migrations/051_la_cuenta_y_el_extracto.sql');
+      if (!/ALTER TABLE bank_accounts DROP COLUMN clabe;/.test(sql)) {
+        return falla('la columna clabe en claro sigue en pie');
+      }
+      const svc = codigoDe('src/services/banking/bank-account-service.ts');
+      if (!/encrypt\(clabe\.clabe\)/.test(svc)) {
+        return falla('la CLABE se escribe sin cifrar: vuelve a estar en claro en la base');
+      }
+      // Y NO SALE ENTERA POR NINGUNA SUPERFICIE: lo que se muestra son los
+      // últimos cuatro. Cifrarla y luego imprimirla no protege nada.
+      const enmascara = /clabe: enmascarar\(fila\.clabe_last4\)/.test(svc);
+      return enmascara
+        ? ok('la CLABE se cifra al escribir y sólo salen sus últimos cuatro dígitos al leer')
+        : falla('la ficha de la cuenta dejó de enmascarar la CLABE: cifrarla y luego imprimirla no protege nada');
+    },
+  },
+
+  // ---- F04 · Pagar ----
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'Un CFDI de fuera no da de alta a su propio emisor: el alta de contraparte la autoriza quien llama',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: '} else if (!opciones.permitirProveedorNuevo) {',
+        a: '} else if (false) {',
+        porque: 'la puerta se abre de par en par: cualquier XML volvería a fabricar la contraparte y su pasivo sin que nadie lo apruebe',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/pre-registration-service.ts',
+        de: 'await this.processToAccounting(preReg, userId, { permitirProveedorNuevo: false });',
+        a: 'await this.processToAccounting(preReg, userId, { permitirProveedorNuevo: true });',
+        porque: 'el lote programado —que corre desatendido sobre N documentos— se autoconcede crear proveedores: quien lanzó el lote aprobó el lote, no al emisor de cada comprobante',
+      },
+    ],
+    evaluar: () => {
+      // EL HUECO QUE EL PROPIO CATÁLOGO TENÍA ESCRITO. `createBillFromPreReg`
+      // daba de alta al emisor del comprobante con el nombre y el RFC que
+      // venían DENTRO del XML —dato maestro redactado por un tercero— y en la
+      // misma llamada reconocía el pasivo a su favor y posteaba su póliza.
+      // Bastaba con que un CFDI llegara, por cualquier vía, para que el
+      // catálogo de proveedores creciera solo. Es el ejemplo de manual de por
+      // qué un control interno existe.
+      const svc = codigoDe('src/services/xml-ingestion/pre-registration-service.ts');
+
+      // 1. La puerta existe y es FAIL-CLOSED: se ancla el throw, no el `if`.
+      //    Un guardia que comprueba y no actúa es la fuga clásica.
+      if (!/else if \(!opciones\.permitirProveedorNuevo\) \{[\s\S]{0,400}?throw new ProveedorNuevoSinAutorizar\(/.test(svc)) {
+        return falla(
+          'el alta del emisor del CFDI ya no exige autorización del llamador: un XML de fuera ' +
+            'volvería a crear la contraparte y su pasivo sin que nadie lo apruebe'
+        );
+      }
+
+      // 2. El defecto es NO. Una opción cuyo tipo admite `undefined` y que se
+      //    lee sin `?? false` sería fail-open el día que alguien pase `{}`.
+      if (!/permitirProveedorNuevo\?: boolean;/.test(svc)) {
+        return falla('la autorización dejó de ser opcional-negativa: el que no dice nada tiene que NO crear proveedores');
+      }
+
+      // 3. NINGÚN camino automático la concede. Se listan por ruta y se exige
+      //    que todos pasen `false` literal: el motor de reglas (que un renglón
+      //    antes pudo ponerse processing_mode='auto' él mismo), el lote
+      //    programado, la ingesta del agente y el barrido de REP pendientes.
+      const AUTOMATICOS: Record<string, string> = {
+        'src/ai/ingest-service.ts': 'la ingesta del agente',
+        'src/services/xml-ingestion/rep-pendientes.ts': 'el barrido de REP pendientes',
+      };
+      const concedidos = Object.entries(AUTOMATICOS)
+        .filter(([archivo]) => {
+          const f = codigoDe(archivo);
+          return (
+            /processToAccounting\(/.test(f) &&
+            !/permitirProveedorNuevo:\s*false/.test(f)
+          );
+        })
+        .map(([, quien]) => quien);
+      if (concedidos.length > 0) {
+        return falla(
+          `camino(s) automático(s) que contabilizan sin negar el alta de proveedor: ${concedidos.join(', ')}`
+        );
+      }
+
+      // Y dentro del propio servicio, las DOS ramas desatendidas —la del motor
+      // de reglas y la del lote programado— la niegan. Se CUENTAN: son gemelas
+      // textuales, y un ancla de presencia se conforma con encontrar la otra.
+      const negaciones = (svc.match(/permitirProveedorNuevo:\s*false/g) ?? []).length;
+      return negaciones >= 2
+        ? ok(
+            'el alta del emisor exige autorización explícita del llamador, el defecto es negarla ' +
+              'y ningún camino desatendido la concede'
+          )
+        : falla(
+            `sólo ${negaciones} de las 2 ramas desatendidas del servicio niegan el alta de proveedor ` +
+              '(el motor de reglas y el lote programado)'
+          );
+    },
+  },
+
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El descuento por pronto pago tiene cuenta, asiento y un techo que las condiciones fijan',
+    mutantes: [
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'if (derecho.applied && descuento.greaterThan(derecho.discountAmount)) {',
+        a: 'if (false) {',
+        porque: 'el techo del descuento se apaga: tomar más de lo pactado volvería a pasar por pronto pago en vez de por pago corto',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: "account_id: requireRole(roles, 'devolucion_compras'),",
+        a: "account_id: requireRole(roles, 'cxp'),",
+        porque: 'el contra-costo se convierte en la propia cuenta de control: el descuento dejaría de reducir la compra y el pasivo se cancelaría solo',
+      },
+    ],
+    evaluar: () => {
+      // El descuento se INSERTABA en payment_applications y no participaba en
+      // nada más: ni bajaba el saldo ni entraba en el asiento, así que el
+      // proveedor quedaba debiendo el descuento para siempre. Se rechazaba en
+      // voz alta alegando que faltaba «una cuenta de ingreso por descuentos en
+      // la capa de roles» — y la cuenta llevaba sembrada desde el principio
+      // (5200, contra-costo, espejo del 4400 de las ventas). Lo que faltaba no
+      // era la cuenta: era atarla.
+      const svc = codigoDe('src/services/payments/payment-service.ts');
+      const post = codigoDe('src/services/accounting/ar-ap-posting.ts');
+
+      // 1. La cuenta existe en el mapa de roles, que es de donde el asiento la saca.
+      if (!/devolucion_compras:\s*'5200'/.test(codigoDe('src/services/xml-ingestion/account-roles-seed.ts'))) {
+        return falla('el rol devolucion_compras perdió su cuenta: el descuento no tendría dónde abonarse');
+      }
+
+      // 2. Los DOS asientos lo abonan de verdad: el del pago directo y el de
+      //    la aplicación posterior. Se CUENTAN, no se busca «alguna»
+      //    ocurrencia — son gemelos textuales, y un ancla de presencia se
+      //    conforma con encontrar el otro. El arnés lo cobró: mutar la línea
+      //    del primero dejaba el criterio en verde señalando al segundo.
+      const abonos = (
+        post.match(
+          /account_id: requireRole\(roles, 'devolucion_compras'\),\s*\n\s*debit_amount: null,\s*\n\s*credit_amount: descuento/g
+        ) ?? []
+      ).length;
+      if (abonos !== 2) {
+        return falla(
+          `el descuento se abona a devolucion_compras en ${abonos} de los 2 asientos que lo admiten ` +
+            '(el del pago y el de la aplicación posterior)'
+        );
+      }
+
+      // 3. El pasivo se extingue por efectivo + descuento (+ condonación): si
+      //    el cargo a cxp fuera sólo del efectivo, el asiento cuadraría igual
+      //    y el gasto quedaría abierto por el descuento — mudo.
+      if (!/debit_amount: total\.plus\(descuento\)\.plus\(condonado\)\.toFixed\(4\)/.test(post)) {
+        return falla('el cargo a la cuenta de control dejó de cubrir todo lo que deja de deberse');
+      }
+
+      // 4. Y EL TECHO. `earlyPaymentDiscount` sabe cuánto conceden unas
+      //    condiciones «2/10 net 30»; sin este guardia, tomar 500 sobre un
+      //    descuento de 20 pasaría por pronto pago en vez de por el pago corto
+      //    que es —el que exige motivo escrito. Se ancla el `throw`, no la
+      //    llamada: comprobar y no actuar es la fuga clásica.
+      const techo = /if \(derecho\.applied && descuento\.greaterThan\(derecho\.discountAmount\)\) \{[\s\S]{0,400}?throw new ValidationError\(/.test(svc);
+      return techo
+        ? ok('5200 recibe el descuento en el asiento, el pasivo se extingue entero y el techo lo fijan las condiciones del gasto')
+        : falla('el descuento ya no se topa contra lo que las condiciones conceden: tomar de más volvería a pasar por pronto pago');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Un gasto cerrado con pago corto no deja IVA vivo en la cuenta de pendientes',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: 'ivaNoAcreditablePorGasto.set(app.invoiceId, ivaCondonado.toFixed(4));',
+        a: 'ivaCondonado = new Decimal(0);',
+        porque: 'el IVA de la parte condonada deja de salir de 1135: un gasto CERRADO conservaría impuesto aparcado que nadie podrá vaciar nunca',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: 'const costoCondonado = condonado.minus(ivaYaSalido);',
+        a: 'const costoCondonado = condonado;',
+        porque: 'la parte de IVA se abonaría DOS veces —a 1135 y a la cuenta del pago corto— y el asiento saldría descuadrado por el importe del impuesto',
+      },
+    ],
+    evaluar: () => {
+      // Bajo flujo de efectivo el IVA acreditable espera en 1135 hasta que se
+      // paga. Cerrar un gasto pagando de menos crea un caso que el sistema no
+      // tenía: el impuesto de la parte que NO se pagó nunca va a ser
+      // acreditable, y si sólo se libera la parte pagada queda un resto vivo
+      // en 1135 de un documento sin saldo — un residuo que ningún informe
+      // sabe explicar y que ya no se puede vaciar, porque el gasto que lo
+      // justificaba está cerrado. Sale en el mismo asiento, y NO hacia 1130:
+      // no se acredita lo que no se pagó.
+      const post = codigoDe('src/services/accounting/ar-ap-posting.ts');
+
+      // El reparto es proporcional al peso del IVA en el total del gasto...
+      if (!/condonadoAqui\s*\n?\s*\.times\(app\.taxAmount\)\s*\n?\s*\.dividedBy\(app\.totalAmount\)/.test(post)) {
+        return falla('el IVA condonado dejó de repartirse en proporción al impuesto del gasto');
+      }
+      // ...y se topa con lo que de verdad queda aparcado tras la liberación:
+      // sacar de 1135 más de lo que hay dejaría la cuenta en negativo.
+      if (!/const restaAparcado = new Decimal\(parked\)\.minus\(liberable\);/.test(post)) {
+        return falla('el IVA condonado ya no se topa contra lo que queda aparcado: podría vaciar 1135 por debajo de cero');
+      }
+      // Va contra `from` (1135), no contra `to` (1130): acreditarlo sería
+      // deducir un impuesto que nadie pagó.
+      if (!/account_id: requireRole\(ivaRoles, from\),\s*\n\s*debit_amount: null,\s*\n\s*credit_amount: ivaCondonado\.toFixed\(4\)/.test(post)) {
+        return falla('el IVA de la parte condonada ya no sale de la cuenta de pendientes');
+      }
+
+      // Y SE ANOTA POR GASTO. Sin esta línea el importe sigue posteándose,
+      // pero en CERO —el arnés lo demostró: anular ivaCondonado justo antes
+      // del push dejaba las tres anclas anteriores intactas y el criterio en
+      // verde—. El mapa no es contabilidad de adorno: es lo que el llamador
+      // resta del costo condonado para no abonar el impuesto dos veces.
+      if (!/ivaNoAcreditablePorGasto\.set\(app\.invoiceId, ivaCondonado\.toFixed\(4\)\);/.test(post)) {
+        return falla('el IVA condonado ya no se anota por gasto: el asiento lo abonaría en cero y el residuo volvería a 1135');
+      }
+
+      // Y ESE RESTO se descuenta del abono al pago corto. Si no, la parte de
+      // impuesto se abonaría dos veces —a 1135 y a la cuenta de condonación—
+      // y el asiento saldría descuadrado justo por el IVA.
+      const resta = /const costoCondonado = condonado\.minus\(ivaYaSalido\);/.test(post);
+      return resta
+        ? ok('el IVA de lo condonado sale de 1135 proporcional, topado y anotado, y no se abona dos veces')
+        : falla('el abono del pago corto dejó de restar el IVA que ya salió de 1135: el asiento se descuadraría por el impuesto');
+    },
+  },
+
+  {
+    paquete: 'E1.3',
+    enunciado: 'A qué cuenta va un saldo condonado lo decide el panel, y sin motivo escrito no se condona',
+    mutantes: [
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: "if (residual && !opts.shortPayReason?.trim()) {",
+        a: 'if (false) {',
+        porque: 'un pasivo podría desaparecer sin una línea que explique por qué: es lo único que el auditor tiene',
+      },
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: "      ? await getPolicy({ tenantId, entityId }, 'pago_corto_residual')",
+        a: "      ? { key: 'x', value: 'descuento_compras', defined: true, question: '', rationale: null }",
+        porque: 'la cuenta se cablea en el código y el panel deja de gobernarla: la opción «prohibir» del despacho no se aplicaría nunca',
+      },
+    ],
+    evaluar: () => {
+      // Una bifurcación de criterio contable no se pregunta por chat ni se
+      // elige en el código: se añade al panel. Aquí la bifurcación es a dónde
+      // va el saldo que deja de deberse —menos costo (5200) u otro ingreso
+      // (4200)—, y hasta puede estar prohibido cerrar corto. El código postea
+      // lo que el panel dicte.
+      const cat = codigoDe('src/services/policy/pending-catalog.ts');
+      const svc = codigoDe('src/services/payments/payment-service.ts');
+      const post = codigoDe('src/services/accounting/ar-ap-posting.ts');
+
+      // 1. La decisión está en el panel, con sus tres salidas.
+      //
+      // El recorte va de SU clave a la siguiente entrada del catálogo (o al
+      // final), no por una ventana de N caracteres: la primera versión usaba
+      // 1400 y la prosa de `whyAsking`/`whatIDo` empujaba `priority:` más
+      // allá, así que el criterio fallaba por la longitud del texto y no por
+      // lo que mide. Una ventana fija es una ancla que caduca cuando alguien
+      // escribe de más.
+      const desde = cat.indexOf("key: 'pago_corto_residual'");
+      if (desde < 0) {
+        return falla('la decisión pago_corto_residual desapareció del panel');
+      }
+      const siguiente = cat.indexOf("\n    key: '", desde);
+      const spec = cat.slice(desde, siguiente < 0 ? cat.length : siguiente);
+      const opciones = ['descuento_compras', 'otros_ingresos', 'prohibir'].filter(
+        (o) => !new RegExp(`value: '${o}'`).test(spec)
+      );
+      if (opciones.length > 0) {
+        return falla(
+          `la decisión pago_corto_residual perdió opciones del panel: ${opciones.join(', ')}`
+        );
+      }
+
+      // 2. Y TIENE LECTOR. Un panel sin lector es decoración: la regla de la
+      //    casa es que la decisión y quien la obedece viajan en el mismo
+      //    commit.
+      if (!/getPolicy\([\s\S]{0,80}?'pago_corto_residual'\)/.test(svc)) {
+        return falla('pago_corto_residual no se lee en ninguna parte: sería una pregunta sin consecuencia');
+      }
+
+      // 3. «prohibir» PROHÍBE de verdad. Se ancla el throw, no el `if`.
+      if (!/politica\?\.value === 'prohibir'[\s\S]{0,300}?throw new ValidationError\(/.test(svc)) {
+        return falla('la opción «prohibir» del panel ya no impide cerrar un gasto pagando de menos');
+      }
+
+      // 4. La capa de asiento NO decide: recibe la cuenta y se niega a postear
+      //    sin ella, en vez de suponer una.
+      if (!/writeOffRole\?: 'devolucion_compras' \| 'otros_ingresos'/.test(post)) {
+        return falla('el asiento dejó de recibir la cuenta del pago corto como parámetro: la estaría eligiendo él');
+      }
+      if (!/condonado\.greaterThan\(0\) && !writeOffRole[\s\S]{0,300}?throw new AccountingError\(/.test(post)) {
+        return falla('el asiento postearía un pago corto sin saber a qué cuenta: elegiría una por su cuenta o descuadraría');
+      }
+
+      // 5. Sin motivo escrito no se condona.
+      const motivo = /if \(residual && !opts\.shortPayReason\?\.trim\(\)\) \{[\s\S]{0,300}?throw new ValidationError\(/.test(svc);
+      return motivo
+        ? ok('la cuenta del pago corto la dicta el panel (con «prohibir» que prohíbe), el asiento la recibe y sin motivo escrito no se condona')
+        : falla('cerrar un gasto pagando de menos ya no exige motivo: el pasivo desaparecería sin explicación');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Un pago ya hecho se puede repartir después, sin volver a mover el efectivo',
+    mutantes: [
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'if (total.greaterThan(remanente)) {',
+        a: 'if (false) {',
+        porque: 'se podría aplicar más de lo que el pago tiene sin repartir: el anticipo quedaría en negativo y el auxiliar dejaría de cuadrar',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: "sourceType: 'vendor_application'",
+        a: "sourceType: 'vendor_payment'",
+        porque: 'la aplicación se disfraza del pago que la originó: la conciliación contaría dos veces el mismo movimiento de efectivo',
+      },
+    ],
+    evaluar: () => {
+      // Una tesorería real transfiere PRIMERO —un importe global al proveedor,
+      // cerrando la semana— y decide DESPUÉS contra cuáles de sus facturas
+      // abiertas iba. Hasta F04 el único instante en que un pago podía tocar
+      // un gasto era el de registrarlo, así que ese dinero quedaba en 1150 sin
+      // forma de repartirlo nunca.
+      const svc = codigoDe('src/services/payments/payment-service.ts');
+      const post = codigoDe('src/services/accounting/ar-ap-posting.ts');
+
+      if (!/export async function applyVendorPayment\(/.test(svc)) {
+        return falla('no existe applyVendorPayment: un pago global seguiría sin poder repartirse');
+      }
+      // El efectivo NO se vuelve a mover: el asiento de la aplicación cambia
+      // anticipo por cuenta de control, y nada más. Si tocara el banco,
+      // contaría dos veces una salida que ya se posteó.
+      const cuerpo = /export async function postVendorApplicationEntry\(([\s\S]*?)\n\}/.exec(post)?.[1] ?? '';
+      if (/requireRole\((?:roles|[a-zA-Z]+), 'banco'\)/.test(cuerpo)) {
+        return falla('el asiento de la aplicación toca el banco: el efectivo ya salió con el pago y se estaría contando dos veces');
+      }
+      // Y la lectura del pago va ACOTADA POR ENTIDAD dentro del SQL: un pago
+      // de otro inquilino no se aplica ni conociendo su id.
+      if (!/FROM vendor_payments WHERE id = \$1 AND entity_id = \$2 FOR UPDATE/.test(svc)) {
+        return falla('el pago se lee sin acotar por entidad o sin candado: la frontera del inquilino se cruzaría por id');
+      }
+      // La aplicación lleva su PROPIO source_type. Disfrazarla del pago que
+      // la originó haría que cualquier conciliación que agrupe por origen
+      // contara dos veces el mismo movimiento de efectivo.
+      if (!/sourceType: 'vendor_application'/.test(post)) {
+        return falla('el asiento de la aplicación perdió su source_type propio: se confundiría con el del pago');
+      }
+
+      // El tope contra el remanente, CONTADO en los dos eventos que reparten
+      // saldo a cuenta (cobro y pago). Son gemelos textuales: buscar «alguno»
+      // deja vivo al mutante que rompe el otro, y el arnés lo cobró.
+      const topes = (svc.match(/if \(total\.greaterThan\(remanente\)\) \{\s*\n\s*throw new ValidationError\(/g) ?? []).length;
+      return topes === 2
+        ? ok('applyVendorPayment reparte un pago vivo sin tocar el banco, acotado por entidad, con source_type propio y topado en los dos eventos')
+        : falla(
+            `el tope contra el remanente sobrevive en ${topes} de los 2 eventos que reparten saldo a cuenta: ` +
+              'sin él se repartiría dinero que el pago no tiene'
+          );
     },
   },
 

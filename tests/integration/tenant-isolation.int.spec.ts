@@ -173,3 +173,64 @@ describe('aislamiento por inquilino con RLS', () => {
     expect(vistos.has(b.tenantId)).toBe(true);
   });
 });
+
+/**
+ * LA POLÍTICA DE UNA TABLA HIJA TIENE QUE DEJAR ESCRIBIR, NO SÓLO FILTRAR.
+ *
+ * `reconciliation_matches` colgaba de `reconciliation_session_id`, y esa
+ * columna sus dos únicos escritores la insertan SIEMPRE en NULL. La política
+ * de hijos es `FOR ALL USING (...)` sin `WITH CHECK`, y en Postgres eso
+ * significa que el USING hace también de comprobación del INSERT: con la clave
+ * ajena nula, el EXISTS es falso y **ningún cotejo se podía insertar** bajo un
+ * rol sin BYPASSRLS.
+ *
+ * No lo cazó nadie porque toda la suite de integración corre como
+ * superusuario, donde la política es inerte, y la prueba de cobertura sólo
+ * pregunta si la tabla TIENE política — no si esa política deja trabajar. Una
+ * política que filtra bien y no deja escribir pasa las dos comprobaciones que
+ * había.
+ *
+ * Estas dos afirman lo que faltaba: que el camino legítimo escribe, y que el
+ * ajeno no. Valen para cualquier tabla hija; se ejercen sobre la que se rompió.
+ */
+describe('la política de hijos deja escribir por el camino legítimo', () => {
+  async function movimientoDe(f: Fixture): Promise<string> {
+    const cuenta = (await admin.query<{ id: string }>(
+      `INSERT INTO bank_accounts (entity_id, account_name, bank_name, gl_account_id, currency_code)
+       VALUES ($1, 'Operativa RLS', 'Banco', $2, 'MXN') RETURNING id`,
+      [f.entityId, Object.values(f.cuentas)[0]]
+    )).rows[0].id;
+    return (await admin.query<{ id: string }>(
+      `INSERT INTO bank_transactions (bank_account_id, transaction_date, amount, transaction_type, description)
+       VALUES ($1, '2026-08-15', 1160.00, 'credit', 'Depósito RLS') RETURNING id`,
+      [cuenta]
+    )).rows[0].id;
+  }
+
+  it('un cotejo SIN sesión se inserta: la sesión es opcional por diseño', async () => {
+    const tx = await movimientoDe(a);
+    // Se cotea antes de abrir la sesión —ése es el orden normal del mes—, así
+    // que exigir sesión para poder escribir el cotejo invertía el flujo.
+    const r = await comoInquilino(
+      a.tenantId,
+      `INSERT INTO reconciliation_matches
+         (bank_transaction_id, match_type, matched_entity_type, matched_entity_id, matched_amount)
+       VALUES ($1, 'manual', 'invoice', gen_random_uuid(), 1160.00) RETURNING id`,
+      [tx]
+    );
+    expect(r.rowCount, 'la política tiene que dejar pasar el INSERT legítimo').toBe(1);
+  });
+
+  it('y el del inquilino ajeno no', async () => {
+    const txDeB = await movimientoDe(b);
+    await expect(
+      comoInquilino(
+        a.tenantId,
+        `INSERT INTO reconciliation_matches
+           (bank_transaction_id, match_type, matched_entity_type, matched_entity_id, matched_amount)
+         VALUES ($1, 'manual', 'invoice', gen_random_uuid(), 1160.00)`,
+        [txDeB]
+      )
+    ).rejects.toThrow();
+  });
+});

@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { CRITERIOS, type Criterio, type Resultado } from './criterios.js';
 import { palette } from '../cli/palette.js';
 
@@ -134,6 +136,66 @@ export const exigiblesAbiertos = (paquetes: Paquete[]): string[] =>
     })
     .map((p) => p.id);
 
+// ============================================================
+// EL TRINQUETE POR CRITERIO (S2)
+//
+// `--exigir` protege PAQUETES, y el estado de un paquete es el peor de sus
+// criterios. La consecuencia, demostrada por la auditoría II con un archivo
+// de prueba: un paquete YA abierto absorbe cualquier regresión interna sin
+// mover el veredicto de CI. Diecisiete criterios verdes vivían así — entre
+// ellos «ninguna herramienta del agente alcanza el mayor», que es una regla
+// de la casa: la auditoría añadió un archivo que nombraba postJournalEntry,
+// el criterio se puso rojo, y la misma línea de CI siguió saliendo con 0.
+//
+// El piso los nombra uno a uno. Tres direcciones, porque un trinquete que
+// sólo mira una se vacía por las otras dos:
+//   1. un criterio del piso que se pone rojo → falla (la regresión);
+//   2. un criterio del piso cuyo enunciado ya no existe → falla (el
+//      renombre que vaciaría la lista en silencio, la misma fuga que
+//      `--exigir` ya tapó para paquetes);
+//   3. un criterio verde de un paquete ABIERTO que no está en el piso →
+//      falla (el piso sube en el mismo commit que gana el terreno, como el
+//      suelo del catálogo).
+//
+// Los criterios de paquetes resueltos NO se listan: `--exigir` ya los cubre
+// entero, y duplicarlos sería dos listas que se desincronizan.
+// ============================================================
+
+/** La identidad de un criterio: no hay id, así que es paquete + enunciado. */
+export const identidadDe = (c: Criterio): string => `${c.paquete} · ${c.enunciado}`;
+
+export interface VeredictoPiso {
+  regresados: string[];
+  desaparecidos: string[];
+  sinProteger: string[];
+}
+
+export function compararConPiso(paquetes: Paquete[], piso: string[]): VeredictoPiso {
+  const evaluaciones = paquetes.flatMap((p) => p.evaluaciones.map((e) => ({ paquete: p, ...e })));
+  const porIdentidad = new Map(evaluaciones.map((e) => [identidadDe(e.criterio), e]));
+
+  const regresados: string[] = [];
+  const desaparecidos: string[] = [];
+  for (const id of piso) {
+    const e = porIdentidad.get(id);
+    if (!e) {
+      desaparecidos.push(id);
+      continue;
+    }
+    // Un criterio bloqueado por el entorno no es una regresión del código:
+    // misma semántica que --exigir, o la compuerta dependería de dónde corre.
+    if (e.resultado.estado !== 'ok' && !bloqueadoPorEntorno(e)) regresados.push(id);
+  }
+
+  const enPiso = new Set(piso);
+  const sinProteger = evaluaciones
+    .filter((e) => e.resultado.estado === 'ok' && e.paquete.estado !== 'resuelto')
+    .map((e) => identidadDe(e.criterio))
+    .filter((id) => !enPiso.has(id));
+
+  return { regresados, desaparecidos, sinProteger };
+}
+
 export function formatear(paquetes: Paquete[], stream: NodeJS.WriteStream): Salida {
   const p = palette(stream);
   const lineas: string[] = [];
@@ -181,6 +243,46 @@ export function formatear(paquetes: Paquete[], stream: NodeJS.WriteStream): Sali
   return { lineas, abiertos: abiertosDe(paquetes) };
 }
 
+const RUTA_PISO = 'docs/criterios-minimos.json';
+
+function comprobarPiso(todos: Paquete[]): number {
+  const ruta = path.resolve(__dirname, '..', '..', RUTA_PISO);
+  if (!fs.existsSync(ruta)) {
+    process.stderr.write(
+      `\nNo existe ${RUTA_PISO}: el piso de criterios es el trinquete de los verdes que viven ` +
+        'en paquetes abiertos, y sin archivo no protege a nadie.\n'
+    );
+    return 1;
+  }
+  const piso = (JSON.parse(fs.readFileSync(ruta, 'utf-8')) as { verdes?: string[] }).verdes ?? [];
+  const { regresados, desaparecidos, sinProteger } = compararConPiso(todos, piso);
+
+  if (desaparecidos.length > 0) {
+    process.stderr.write(
+      `\nEl piso nombra criterios que ya no existen:\n${desaparecidos.map((d) => `  · ${d}`).join('\n')}\n` +
+        `Si reescribiste un enunciado, actualiza ${RUTA_PISO} en el MISMO commit: ` +
+        'un renombre silencioso vacía el trinquete, que es la fuga que este piso viene a tapar.\n'
+    );
+    return 1;
+  }
+  if (regresados.length > 0) {
+    process.stderr.write(
+      `\nCriterios del piso que dejaron de estar en verde:\n${regresados.map((d) => `  · ${d}`).join('\n')}\n` +
+        'Viven en paquetes abiertos, así que --exigir no los cubre: por eso el piso los nombra uno a uno.\n'
+    );
+    return 1;
+  }
+  if (sinProteger.length > 0) {
+    process.stderr.write(
+      `\nCriterios verdes en paquetes abiertos que el piso no protege:\n${sinProteger.map((d) => `  · ${d}`).join('\n')}\n` +
+        `Añádelos a ${RUTA_PISO} en el MISMO commit que los pone en verde: el piso sólo sube, ` +
+        'igual que el suelo del catálogo.\n'
+    );
+    return 1;
+  }
+  return 0;
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   // Un argumento suelto filtra por prefijo de paquete: `plan:status E0` o
   // `plan:status E2.1`. Es lo que hace citable un paquete desde el documento
@@ -200,6 +302,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   const { lineas } = formatear(paquetes, process.stdout);
   process.stdout.write(lineas.join('\n') + '\n');
+
+  if (argv.includes('--piso')) {
+    const codigo = comprobarPiso(todos);
+    if (codigo !== 0) return codigo;
+  }
 
   const exigir = argv
     .filter((a) => a.startsWith('--exigir='))

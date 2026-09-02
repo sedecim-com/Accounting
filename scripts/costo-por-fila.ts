@@ -20,9 +20,13 @@
  *   src/tests/scripts) son el costo del segmento. Invocable ≠ fila cerrada con
  *   motor ✅ — es un PROXY, más duro que el original (exige que el comando se
  *   teclee), y lo decimos en vez de fingir equivalencia.
- * · La cola correctiva se aproxima por los commits cuyo asunto se declara
- *   correctivo (AUD-*, «falso verde», «corrig», «repara»). Subestima la cola
- *   dispersa en commits mixtos; también se dice.
+ * · La cola correctiva se publica como BANDA con dos convenciones (estricta y
+ *   amplia), no como un número. La versión anterior imprimía 0.7% con una regex
+ *   sobre el asunto y la auditoría II lo midió a mano entre 11.8% y 51.7%: el
+ *   instrumento subestimaba entre 17× y 74%. Un instrumento que publica un
+ *   falso verde es peor que no tenerlo, porque cierra la pregunta.
+ * · Entrega y garantía se publican como DOS renglones, medidos por ruta
+ *   (src/ contra tests/+scripts/+src/plan), no derivados de un porcentaje.
  * · El suelo existe desde S0.1: lo anterior (las 50 filas del documento) queda
  *   como la medición fundacional, no re-medible por esta vía.
  */
@@ -59,27 +63,92 @@ export function puntosDeSuelo(): Punto[] {
   return puntos;
 }
 
-export function lineasEntre(a: string, b: string): number {
-  const stat = git('diff', '--shortstat', a, b, '--', 'src', 'tests', 'scripts');
+function insercionesEn(a: string, b: string, ...rutas: string[]): number {
+  const stat = git('diff', '--shortstat', a, b, '--', ...rutas);
   const m = stat.match(/(\d+) insertions?/);
   return m ? Number(m[1]) : 0;
 }
 
-const CORRECTIVO_RE = /^AUD-|falso verde|corrig|repara/i;
+export function lineasEntre(a: string, b: string): number {
+  return insercionesEn(a, b, 'src', 'tests', 'scripts');
+}
 
-export function colaCorrectiva(desde: string, hasta: string): { lineas: number; total: number } {
-  const commits = git('log', '--format=%H%x09%s', `${desde}..${hasta}`).split('\n').filter(Boolean);
-  let lineas = 0;
+/**
+ * ENTREGA vs GARANTÍA, medidas y no derivadas.
+ *
+ * `src/` es lo que el despacho puede usar; `tests/` y `scripts/` es lo que
+ * demuestra que sirve y lo mantiene medible. Publicarlas juntas como «420
+ * líneas/fila» esconde el dato que cambia un presupuesto: cuánto de esa cifra
+ * se reutiliza en la fila siguiente. `src/plan` cuenta como garantía aunque
+ * viva bajo src: es el instrumento, no el producto.
+ */
+export function entregaYGarantia(a: string, b: string): { entrega: number; garantia: number } {
+  const instrumento = insercionesEn(a, b, 'src/plan');
+  const enSrc = insercionesEn(a, b, 'src');
+  return {
+    entrega: Math.max(0, enSrc - instrumento),
+    garantia: insercionesEn(a, b, 'tests', 'scripts') + instrumento,
+  };
+}
+
+// ============================================================
+// LA COLA CORRECTIVA, COMO BANDA Y NO COMO NÚMERO (S2)
+//
+// La versión anterior imprimía UN porcentaje —0,7 % y bajando— clasificando
+// por una regex sobre el asunto del commit. La auditoría integral II lo midió
+// a mano: bajo cualquier convención razonable la cola está entre 11,8 % y
+// 51,7 %, así que el instrumento la subestimaba por un factor de 17× a 74×.
+// La causa no era «la cola dispersa en commits mixtos» como el propio script
+// declaraba: eran COMMITS CORRECTIVOS ENTEROS cuyo asunto es narrativo. De
+// dieciocho commits de su ventana, la regex casaba uno.
+//
+// Un instrumento que publica un falso verde es peor que no tenerlo, porque
+// cierra la pregunta. Ahora publica una BANDA con sus dos convenciones:
+//
+//   ESTRICTA — sólo lo que se declara correctivo sin ambigüedad: el trailer
+//     `Corrige:` del commit (la convención nueva) o la etiqueta AUD-* en el
+//     asunto (la vieja).
+//   AMPLIA — todo commit cuyo asunto delata trabajo sobre lo ya entregado:
+//     tramos de garantía (S*, R*), reparaciones, auditorías, falsos verdes.
+//
+// La verdad está entre las dos, y decirlo así es lo honesto mientras el
+// trailer no tenga historia suficiente para ser la única vara.
+// ============================================================
+
+const CORRECTIVO_ESTRICTO = /^AUD-/i;
+const TRAILER_CORRIGE = /^Corrige:/im;
+const CORRECTIVO_AMPLIO =
+  /^(AUD-|S\d|R\d)|falso verde|corrig|repara|auditor|endurec|hueco|deuda/i;
+
+export interface Cola {
+  estricta: number;
+  amplia: number;
+  total: number;
+  commits: number;
+  conTrailer: number;
+}
+
+export function colaCorrectiva(desde: string, hasta: string): Cola {
+  // %B (cuerpo entero) para poder leer el trailer, con separador propio.
+  const crudo = git('log', '--format=%H%x09%s%x1f%B%x1e', `${desde}..${hasta}`);
+  const registros = crudo.split('\x1e').map((r) => r.trim()).filter(Boolean);
+  let estricta = 0;
+  let amplia = 0;
   let total = 0;
-  for (const linea of commits) {
-    const [hash, asunto] = linea.split('\t');
-    const stat = git('show', '--shortstat', '--format=', hash);
+  let conTrailer = 0;
+  for (const registro of registros) {
+    const [cabecera, cuerpo = ''] = registro.split('\x1f');
+    const [hash, asunto = ''] = cabecera.split('\t');
+    const stat = git('show', '--shortstat', '--format=', hash.trim());
     const m = stat.match(/(\d+) insertions?/);
     const ins = m ? Number(m[1]) : 0;
     total += ins;
-    if (CORRECTIVO_RE.test(asunto ?? '')) lineas += ins;
+    const declarado = TRAILER_CORRIGE.test(cuerpo);
+    if (declarado) conTrailer += 1;
+    if (declarado || CORRECTIVO_ESTRICTO.test(asunto)) estricta += ins;
+    if (declarado || CORRECTIVO_AMPLIO.test(asunto)) amplia += ins;
   }
-  return { lineas, total };
+  return { estricta, amplia, total, commits: registros.length, conTrailer };
 }
 
 function main(): number {
@@ -112,17 +181,37 @@ function main(): number {
   const primera = puntos[0];
   const ultima = puntos[puntos.length - 1];
   const cola = colaCorrectiva(primera.commit, ultima.commit);
-  const pctCola = cola.total > 0 ? ((100 * cola.lineas) / cola.total).toFixed(1) : '—';
+  const pct = (n: number) => (cola.total > 0 ? ((100 * n) / cola.total).toFixed(1) : '—');
+  const porFila = totFilas > 0 ? Math.round(totLineas / totFilas) : 0;
+
+  // ENTREGA Y GARANTÍA, DOS RENGLONES. Publicar «420 líneas/fila» como un solo
+  // número esconde el dato accionable: buena parte de esa cifra es garantía, y
+  // la garantía se reutiliza en la fila siguiente. Presupuestar una fase con el
+  // número junto es presupuestarla mal en las dos direcciones.
+  const partes = entregaYGarantia(primera.commit, ultima.commit);
+  const entregaPorFila = totFilas > 0 ? Math.round(partes.entrega / totFilas) : 0;
+  const garantiaPorFila = totFilas > 0 ? Math.round(partes.garantia / totFilas) : 0;
 
   process.stdout.write(
     `\nAgregado desde S0.1: ${totFilas} fila(s) invocable(s) ganadas · ${totLineas} líneas · ` +
-      `${totFilas > 0 ? Math.round(totLineas / totFilas) : '—'} líneas/fila\n` +
-      `Cola correctiva declarada (asuntos AUD-*/correctivos): ${cola.lineas} de ${cola.total} ` +
-      `líneas = ${pctCola}%\n\n` +
+      `${porFila || '—'} líneas/fila\n` +
+      `  ENTREGA  ${String(entregaPorFila).padStart(4)} líneas/fila  (src/, sin src/plan)\n` +
+      `  GARANTÍA ${String(garantiaPorFila).padStart(4)} líneas/fila  (tests/, scripts/ y el instrumento src/plan)\n` +
+      `  razón ${entregaPorFila > 0 ? (garantiaPorFila / entregaPorFila).toFixed(2) : '—'} ` +
+      'líneas de garantía por línea entregada — y la garantía se reutiliza en la fila siguiente\n\n' +
+      `Cola correctiva, como BANDA sobre ${cola.commits} commits (${cola.total} líneas):\n` +
+      `  estricta  ${String(cola.estricta).padStart(6)} líneas = ${pct(cola.estricta).padStart(5)}%  ` +
+      '(trailer `Corrige:` o etiqueta AUD-*)\n' +
+      `  amplia    ${String(cola.amplia).padStart(6)} líneas = ${pct(cola.amplia).padStart(5)}%  ` +
+      '(además: tramos de garantía S*/R*, reparaciones, auditorías)\n' +
+      `  ${cola.conTrailer} de ${cola.commits} commits declaran el trailer \`Corrige:\`\n\n` +
       'Referencia fundacional («Doce sprints», medida una vez sobre 50 filas): ~390 líneas/fila, 12.3% de cola.\n' +
-      'Límites del método: invocable ≈ fila (proxy duro), la cola dispersa en commits mixtos se subestima,\n' +
-      'y los segmentos con Δinv=0 (garantías puras) cargan sus líneas al agregado sin filas — a propósito:\n' +
-      'las garantías también son costo del catálogo.\n'
+      'Por qué una banda y no un número: la versión anterior clasificaba por regex sobre el asunto y\n' +
+      'publicaba 0.7%, subestimando entre 17× y 74× — de dieciocho commits correctivos casaba uno. La\n' +
+      'verdad vive entre las dos convenciones hasta que el trailer tenga historia; publicar una sola\n' +
+      'cifra cerraría la pregunta con el número equivocado.\n' +
+      'Límites del método: invocable ≈ fila (proxy duro), y los segmentos con Δinv=0 (garantías puras)\n' +
+      'cargan sus líneas al agregado sin filas — a propósito: las garantías también son costo.\n'
   );
   return 0;
 }

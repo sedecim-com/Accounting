@@ -1,3 +1,4 @@
+import type pg from 'pg';
 import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
@@ -102,8 +103,24 @@ export interface EffectivePolicy {
  * Never throws for lack of definition: the system keeps operating and
  * the decision remains visible in `/pendientes`.
  */
-export async function getPolicy(ctx: PolicyContext, key: string): Promise<EffectivePolicy> {
-  const r = await query<PolicyRow>(
+export async function getPolicy(
+  ctx: PolicyContext,
+  key: string,
+  /**
+   * Cliente del llamador, para leer DENTRO de su transacción.
+   *
+   * Sin esto, `query` toma una segunda conexión del pool, y el primer lector
+   * de una política resultó ser la siembra de una entidad —que ya tiene una
+   * conexión abierta y en transacción—. Dos conexiones simultáneas por alta no
+   * es un detalle de estilo: con el pool pequeño, la segunda espera a que la
+   * primera termine, y la primera espera a la segunda.
+   */
+  client?: pg.PoolClient
+): Promise<EffectivePolicy> {
+  const ejecutar = client
+    ? <T extends pg.QueryResultRow>(sql: string, params: unknown[]) => client.query<T>(sql, params)
+    : query;
+  const r = await ejecutar<PolicyRow>(
     // El alcance por entidad se ACOTA, no sólo se ordena.
     //
     // Antes era `WHERE tenant_id AND key ORDER BY entity_id IS NULL ASC`, y
@@ -191,15 +208,33 @@ export async function resolvePolicy(
   const known = spec?.options.some((o) => o.value === value) ?? true;
   const finalNotes = known ? notes ?? null : `${notes ?? ''} [value outside the catalog]`.trim();
 
+  // A7 · LA DECISIÓN SE ESCRIBE EN EL MISMO ALCANCE QUE SE MIDIÓ.
+  //
+  // El UPDATE no acotaba por entidad: resolvía CUALQUIER fila pendiente del
+  // inquilino con esa clave. Con la compuerta de evidencia justo encima
+  // —que sí mide por entidad— eso producía el defecto que el plan nombra en
+  // su pilar 6: siete días de sombra en UNA entidad encendían el auto-posteo
+  // de todas las demás, porque la fila que acababa en 'resolved' podía ser la
+  // del inquilino (entity_id NULL, que gobierna a todos) o la de otra
+  // entidad. La evidencia y la decisión tienen que ser el mismo alcance, o la
+  // evidencia no autoriza lo que se enciende.
+  //
+  // IS NOT DISTINCT FROM: `entity_id = NULL` nunca casa en SQL, y el alcance
+  // de inquilino es exactamente entity_id NULL.
   const r = await query(
     `UPDATE policy_decisions
      SET status = 'resolved', resolved_value = $1, resolved_by = $2,
          resolved_at = NOW(), resolution_notes = $3, updated_at = NOW()
-     WHERE tenant_id = $4 AND key = $5 AND status = 'pending'`,
-    [value, resolvedBy, finalNotes, ctx.tenantId, key]
+     WHERE tenant_id = $4 AND key = $5 AND status = 'pending'
+       AND entity_id IS NOT DISTINCT FROM $6::uuid`,
+    [value, resolvedBy, finalNotes, ctx.tenantId, key, ctx.entityId ?? null]
   );
   if (r.rowCount === 0) {
-    throw new Error(`There is no pending decision with key "${key}" in this tenant`);
+    throw new Error(
+      `There is no pending decision with key "${key}" in this ` +
+        (ctx.entityId ? `entity (${ctx.entityId})` : 'tenant scope (entity_id NULL)') +
+        '. A decision is resolved in the SAME scope its evidence was measured.'
+    );
   }
 }
 

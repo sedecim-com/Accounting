@@ -80,9 +80,6 @@ Commands:
   payment|pago                          Vendor payments: record cash that
                                         already left the bank and settle the
                                         bill it pays
-  receipt|cobro                         Customer collections: record cash
-                                        received and recognize the IVA it was
-                                        holding
   account|cuenta                        Chart of accounts: inspect, create and
                                         retire accounts
   entry|poliza                          Journal entries: draft, inspect,
@@ -100,6 +97,23 @@ Commands:
   invoice|factura                       Customer invoices: draft, inspect, issue
                                         to the ledger and void (never stamped
                                         here)
+  receipt|cobro                         Customer collections: record cash, apply
+                                        on-account balance, unapply, and reverse
+                                        bounced checks
+  credit-note|nota-credito              Credit notes: returns, discounts and
+                                        corrections against the receivable
+                                        (never stamped here)
+  ar|cxc                                Receivables controls: reconcile the
+                                        subledger against the control account,
+                                        run named diagnostics
+  ap|cxp                                Payables controls: reconcile the vendor
+                                        subledger against the control account
+  bank|banco                            Bank accounts and bank statements:
+                                        master data and imported statements
+  backup|respaldo                       Logical backups of the whole
+                                        installation (create, list, verify by
+                                        rehearsing the restore, restore) and
+                                        per-tenant logical exports (export)
   report|reporte                        Financial statements, trial balance,
                                         general ledger and ageing
   ledger|mayor                          The general ledger itself: integrity
@@ -766,7 +780,7 @@ Dry-run compaction report for a session transcript (no API calls)
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -t, --tenant <id>        Tenant
-  -s, --session <id>       Session id (default: the most recent session)
+  --session <id>           Session id (default: the most recent session)
   --keep <tokens>          Recent tail to keep intact, in tokens (default:
                            "20000")
   --json                   JSON output
@@ -994,12 +1008,15 @@ Vendor payments: record cash that already left the bank and settle the bill it
 pays
 
 Options:
-  -h, --help                     display help for command
+  -h, --help                         display help for command
 
 Commands:
-  create|crear [options] <bill>  Record a payment made against a bill and
-                                 recognize the IVA it was holding
-  help [command]                 display help for command
+  create|crear [options] <bill>      Record a payment made against a bill and
+                                     recognize the IVA it was holding
+  apply|aplicar [options] <payment>  Apply an existing payment to specific
+                                     bills: partial, with discount, or
+                                     short-paid
+  help [command]                     display help for command
 ```
 
 ### `mnemosine payment create` (alias: crear)
@@ -1034,51 +1051,40 @@ Options:
   -h, --help               display help for command
 ```
 
-## `mnemosine receipt` (alias: cobro)
+### `mnemosine payment apply` (alias: aplicar)
 
 ```
-Usage: mnemosine receipt|cobro [options] [command]
+Usage: mnemosine payment apply|aplicar [options] <payment>
 
-Customer collections: record cash received and recognize the IVA it was holding
-
-Options:
-  -h, --help                            display help for command
-
-Commands:
-  record|registrar [options] <invoice>  Record cash received against an invoice
-                                        and recognize the IVA it was holding
-  help [command]                        display help for command
-```
-
-### `mnemosine receipt record` (alias: registrar)
-
-```
-Usage: mnemosine receipt record|registrar [options] <invoice>
-
-Record cash received against an invoice and recognize the IVA it was holding
+Apply an existing payment to specific bills: partial, with discount, or
+short-paid
 
 Arguments:
-  invoice                  invoice number or id
+  payment                    payment number or id whose on-account balance is to
+                             be applied
 
 Options:
-  --amount <amount>        amount, in the document currency
-  --date <date>            value date (YYYY-MM-DD); defaults to today
-  --method <method>        cash, check, ach, wire, spei, credit_card or other
-                           (default: "spei")
-  --bank <account>         bank account id; without it the entity's `banco` role
-                           is used
-  --json                   JSON output
-  --reference <text>       bank reference or transfer number
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --dry-run                compute and show the full effect; write nothing and
-                           call nothing external
-  -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
-  -h, --help               display help for command
+  --bill <ref...>            bill to apply to; repeat it, paired in order with
+                             --amount
+  --amount <amount...>       amount applied to the bill in the same position
+  --discount <amount...>     early-payment discount for the bill in the same
+                             position
+  --mode <mode>              partial (leave the rest open) or residual (close it
+                             short) (default: "partial")
+  --short-pay-reason <text>  why the unpaid balance is being written off;
+                             required by --mode residual
+  --json                     JSON output
+  -e, --entity <idOrName>    legal entity to operate on (defaults to the active
+                             one)
+  -t, --tenant <id>          tenant (firm) whose data to scope to
+  -u, --user <email>         acting user, for attribution and permissions
+  --dry-run                  compute and show the full effect; write nothing and
+                             call nothing external
+  -y, --yes                  skip the confirmation prompt
+  --idempotency-key <key>    client dedupe key, stored on success: a retry with
+                             the same key and payload returns the recorded
+                             result
+  -h, --help                 display help for command
 ```
 
 ## `mnemosine account` (alias: cuenta)
@@ -2227,6 +2233,8 @@ Commands:
   approve|aprobar [options] <bill>  Approve a bill and recognize the liability
                                     in the ledger (DR expense + IVA / CR
                                     payables)
+  inbox|bandeja                     CFDI inbox: pre-registrations waiting to
+                                    become vendor bills
   help [command]                    display help for command
 ```
 
@@ -2387,6 +2395,79 @@ Options:
   -h, --help               display help for command
 ```
 
+### `mnemosine bill inbox` (alias: bandeja)
+
+```
+Usage: mnemosine bill inbox|bandeja [options] [command]
+
+CFDI inbox: pre-registrations waiting to become vendor bills
+
+Options:
+  -h, --help                   display help for command
+
+Commands:
+  list|listar [options]        The CFDI queue: what arrived, whose it is, and
+                               what is holding it up
+  run|ejecutar [options] [id]  Turn pre-registrations into vendor bills, or
+                               approve, reject and schedule them in bulk
+  help [command]               display help for command
+```
+
+#### `mnemosine bill inbox list` (alias: listar)
+
+```
+Usage: mnemosine bill inbox list|listar [options]
+
+The CFDI queue: what arrived, whose it is, and what is holding it up
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --processing-mode <mode>                 how it is meant to be processed: auto, batch, manual, hold
+  --requires-approval                      only the ones held for a prior approval
+  --vendor <ref>                           only this vendor (number, name or id)
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bill inbox run` (alias: ejecutar)
+
+```
+Usage: mnemosine bill inbox run|ejecutar [options] [id]
+
+Turn pre-registrations into vendor bills, or approve, reject and schedule them
+in bulk
+
+Arguments:
+  id                                           one pre-registration, by id
+
+Options:
+  -e, --entity <idOrName>                      legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                            tenant (firm) whose data to scope to
+  -u, --user <email>                           acting user, for attribution and permissions
+  --action <process|approve|reject|set-batch>  what to do with the selection (default: "process")
+  --bulk                                       act on everything --query selects, instead of a single id
+  --query <expr>                               selection for --bulk, comma-separated key=value: status, mode, requires-approval, vendor, since, until, search
+  --batch <ref>                                processing batch to schedule into; required by --action set-batch
+  --allow-new-vendor                           authorize creating the CFDI issuer as a vendor when the catalog does not have it; without it, those are refused
+  --reason <text>                              why it is rejected; required by --action reject
+  --note <text>                                annotation stored with the approval
+  --dry-run                                    compute and show the full effect; write nothing
+  -y, --yes                                    skip the confirmation prompt
+  --idempotency-key <key>                      client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
+  --json                                       JSON output
+  -h, --help                                   display help for command
+```
+
 ## `mnemosine customer` (alias: cliente)
 
 ```
@@ -2409,6 +2490,8 @@ Commands:
   archive|archivar [options] <ref>   Deactivate a customer; refused while they
                                      still owe something
   restore|restaurar [options] <ref>  Put an archived customer back in service
+  tax|fiscal                         The fiscal profile CFDI 4.0 stamps against:
+                                     RFC, regime, postal code, UsoCFDI
   help [command]                     display help for command
 ```
 
@@ -2560,6 +2643,98 @@ Options:
   -h, --help               display help for command
 ```
 
+### `mnemosine customer tax` (alias: fiscal)
+
+```
+Usage: mnemosine customer tax|fiscal [options] [command]
+
+The fiscal profile CFDI 4.0 stamps against: RFC, regime, postal code, UsoCFDI
+
+Options:
+  -h, --help                 display help for command
+
+Commands:
+  show|ver [options] <ref>   Show the fiscal profile and what is missing before
+                             this customer can be stamped
+  set|fijar [options] <ref>  Set RFC, regime, postal code or UsoCFDI, validated
+                             against the SAT catalogs before writing
+  list|listar [options]      The pre-billing control: customers whose fiscal
+                             profile is incomplete or malformed
+  help [command]             display help for command
+```
+
+#### `mnemosine customer tax show` (alias: ver)
+
+```
+Usage: mnemosine customer tax show|ver [options] <ref>
+
+Show the fiscal profile and what is missing before this customer can be stamped
+
+Arguments:
+  ref                                      customer number, name or id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+#### `mnemosine customer tax set` (alias: fijar)
+
+```
+Usage: mnemosine customer tax set|fijar [options] <ref>
+
+Set RFC, regime, postal code or UsoCFDI, validated against the SAT catalogs
+before writing
+
+Arguments:
+  ref                      customer number, name or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --rfc <rfc>              the RFC (form-validated: AAAA######XXX)
+  --tax-regime <code>      c_RegimenFiscal code: 601, 612, 626…
+  --postal-code <cp>       fiscal address postal code (5 digits)
+  --uso-cfdi <code>        default c_UsoCFDI: G01, G03, P01…
+  --reason <text>          justification recorded in the audit trail
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+#### `mnemosine customer tax list` (alias: listar)
+
+```
+Usage: mnemosine customer tax list|listar [options]
+
+The pre-billing control: customers whose fiscal profile is incomplete or
+malformed
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --missing                                only customers that could NOT be stamped today
+  -h, --help                               display help for command
+```
+
 ## `mnemosine invoice` (alias: factura)
 
 ```
@@ -2569,22 +2744,27 @@ Customer invoices: draft, inspect, issue to the ledger and void (never stamped
 here)
 
 Options:
-  -h, --help                      display help for command
+  -h, --help                       display help for command
 
 Commands:
-  list|listar [options] [search]  List invoices by customer, state, period or
-                                  days past due
-  show|ver [options] <ref>        Show one invoice with its lines, the cash
-                                  applied and its ledger entry
-  create|crear [options]          Create a DRAFT invoice from scratch: a local
-                                  document, neither posted nor stamped
-  issue|emitir [options] <ref>    Issue an invoice: post DR receivable / CR
-                                  revenue / CR VAT. Does not stamp or send
-  void|anular [options] <ref>     Void a local invoice and reverse its ledger
-                                  entry; refuses a stamped or paid one
-  series|serie                    Folio series: the counters this entity draws
-                                  document numbers from
-  help [command]                  display help for command
+  list|listar [options] [search]   List invoices by customer, state, period or
+                                   days past due
+  show|ver [options] <ref>         Show one invoice with its lines, the cash
+                                   applied and its ledger entry
+  create|crear [options]           Create a DRAFT invoice from scratch: a local
+                                   document, neither posted nor stamped
+  issue|emitir [options] <ref>     Issue an invoice: post DR receivable / CR
+                                   revenue / CR VAT. Does not stamp or send
+  void|anular [options] <ref>      Void a local invoice and reverse its ledger
+                                   entry; refuses a stamped or paid one
+  edit|editar [options] <ref>      Edit a DRAFT invoice: dates, memo or its
+                                   lines (issued ones are voided or credited,
+                                   never edited)
+  delete|eliminar [options] <ref>  Delete a DRAFT that never touched the ledger;
+                                   its folio stays as a documented gap
+  series|serie                     Folio series: the counters this entity draws
+                                   document numbers from
+  help [command]                   display help for command
 ```
 
 ### `mnemosine invoice list` (alias: listar)
@@ -2719,6 +2899,59 @@ Options:
   -h, --help               display help for command
 ```
 
+### `mnemosine invoice edit` (alias: editar)
+
+```
+Usage: mnemosine invoice edit|editar [options] <ref>
+
+Edit a DRAFT invoice: dates, memo or its lines (issued ones are voided or
+credited, never edited)
+
+Arguments:
+  ref                      invoice number or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --line <spec...>         REPLACE all lines:
+                           "account=4100;qty=2;price=1500;tax=16;…" (repeatable)
+  --from-file <path>       JSON array of lines instead of repeated --line
+  --date <date>            new invoice date (YYYY-MM-DD)
+  --due-date <date>        new due date
+  --memo <text>            new memo
+  --po-number <text>       new purchase order reference
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+### `mnemosine invoice delete` (alias: eliminar)
+
+```
+Usage: mnemosine invoice delete|eliminar [options] <ref>
+
+Delete a DRAFT that never touched the ledger; its folio stays as a documented
+gap
+
+Arguments:
+  ref                      invoice number or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --reason <text>          justification recorded in the audit trail (required)
+  -h, --help               display help for command
+```
+
 ### `mnemosine invoice series` (alias: serie)
 
 ```
@@ -2727,12 +2960,15 @@ Usage: mnemosine invoice series|serie [options] [command]
 Folio series: the counters this entity draws document numbers from
 
 Options:
-  -h, --help             display help for command
+  -h, --help                 display help for command
 
 Commands:
-  list|listar [options]  List the folio counters, the last number issued and the
-                         next one
-  help [command]         display help for command
+  list|listar [options]      List the folio counters, the last number issued and
+                             the next one
+  check|verificar [options]  Report gaps in the invoice folio series; a gap with
+                             an audit trail is explained, one without is a
+                             finding
+  help [command]             display help for command
 ```
 
 #### `mnemosine invoice series list` (alias: listar)
@@ -2756,6 +2992,1237 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   -h, --help                               display help for command
+```
+
+#### `mnemosine invoice series check` (alias: verificar)
+
+```
+Usage: mnemosine invoice series check|verificar [options]
+
+Report gaps in the invoice folio series; a gap with an audit trail is explained,
+one without is a finding
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --year <year>                            only this fiscal year of the series
+  --strict                                 exit 4 even when every gap is explained
+  -h, --help                               display help for command
+```
+
+## `mnemosine receipt` (alias: cobro)
+
+```
+Usage: mnemosine receipt|cobro [options] [command]
+
+Customer collections: record cash, apply on-account balance, unapply, and
+reverse bounced checks
+
+Options:
+  -h, --help                            display help for command
+
+Commands:
+  record|registrar [options] <invoice>  Record cash received against an invoice
+                                        and recognize the IVA it was holding
+  show|ver [options] <ref>              Show one collection: its applications
+                                        (live and history), REP status and
+                                        ledger entry
+  list|listar [options]                 List collections by customer, date,
+                                        application state or missing REP
+  apply|aplicar [options] <ref>         Apply the on-account balance of a
+                                        collection to one or more invoices
+                                        (releases PPD IVA)
+  unapply|desaplicar [options] <ref>    Unapply a collection from an invoice as
+                                        a NEW event: reopens it and re-parks the
+                                        PPD IVA
+  reverse|reversar [options] <ref>      Reverse a bounced collection (NSF):
+                                        mirrors every entry, reopens invoices,
+                                        re-parks IVA
+  help [command]                        display help for command
+```
+
+### `mnemosine receipt record` (alias: registrar)
+
+```
+Usage: mnemosine receipt record|registrar [options] <invoice>
+
+Record cash received against an invoice and recognize the IVA it was holding
+
+Arguments:
+  invoice                  invoice number or id
+
+Options:
+  --amount <amount>        amount, in the document currency
+  --date <date>            value date (YYYY-MM-DD); defaults to today
+  --method <method>        cash, check, ach, wire, spei, credit_card or other
+                           (default: "spei")
+  --bank <account>         bank account id; without it the entity's `banco` role
+                           is used
+  --reference <text>       bank reference or transfer number
+  --on-account             let the amount exceed the invoice due; the excess
+                           stays on account (anticipo)
+  --json                   JSON output
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+### `mnemosine receipt show` (alias: ver)
+
+```
+Usage: mnemosine receipt show|ver [options] <ref>
+
+Show one collection: its applications (live and history), REP status and ledger
+entry
+
+Arguments:
+  ref                                      payment number (PMT-2026-00042) or id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine receipt list` (alias: listar)
+
+```
+Usage: mnemosine receipt list|listar [options]
+
+List collections by customer, date, application state or missing REP
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --customer <ref>                         only this customer (number, name or id)
+  --unapplied                              only collections with an on-account remainder
+  --needs-rep                              only completed collections with no REP linked
+  -h, --help                               display help for command
+```
+
+### `mnemosine receipt apply` (alias: aplicar)
+
+```
+Usage: mnemosine receipt apply|aplicar [options] <ref>
+
+Apply the on-account balance of a collection to one or more invoices (releases
+PPD IVA)
+
+Arguments:
+  ref                      payment number or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --invoice <spec...>      invoice with amount: "INV-2026-00042:2500"
+                           (repeatable), or a bare ref with --amount
+  --amount <amount>        amount for a single --invoice without an inline
+                           amount
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+### `mnemosine receipt unapply` (alias: desaplicar)
+
+```
+Usage: mnemosine receipt unapply|desaplicar [options] <ref>
+
+Unapply a collection from an invoice as a NEW event: reopens it and re-parks the
+PPD IVA
+
+Arguments:
+  ref                      payment number or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --invoice <ref>          the invoice to unapply from
+  --reason <text>          why: it lands in the audit trail and the ledger
+                           description
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+### `mnemosine receipt reverse` (alias: reversar)
+
+```
+Usage: mnemosine receipt reverse|reversar [options] <ref>
+
+Reverse a bounced collection (NSF): mirrors every entry, reopens invoices,
+re-parks IVA
+
+Arguments:
+  ref                      payment number or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --fee <amount>           bank fee charged for the return (not yet supported:
+                           needs a fee role account)
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --reason <text>          justification recorded in the audit trail (required)
+  -h, --help               display help for command
+```
+
+## `mnemosine credit-note` (alias: nota-credito)
+
+```
+Usage: mnemosine credit-note|nota-credito [options] [command]
+
+Credit notes: returns, discounts and corrections against the receivable (never
+stamped here)
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  create|crear [options]         Create a DRAFT credit note, linked to its
+                                 invoice (fiscal tie) or standalone with an
+                                 explicit customer
+  show|ver [options] <ref>       Show one credit note with its applications,
+                                 available balance and ledger entry
+  list|listar [options]          List credit notes by customer, type, state or
+                                 unapplied balance
+  issue|emitir [options] <ref>   Issue the note: post DR returns + DR VAT / CR
+                                 receivable. Does not stamp
+  apply|aplicar [options] <ref>  Apply an issued note to invoices; what is not
+                                 applied stays as customer credit
+  help [command]                 display help for command
+```
+
+### `mnemosine credit-note create` (alias: crear)
+
+```
+Usage: mnemosine credit-note create|crear [options]
+
+Create a DRAFT credit note, linked to its invoice (fiscal tie) or standalone
+with an explicit customer
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --type <type>            one of: devolucion, descuento, correccion, anticipo
+  --amount <amount>        subtotal of the credit, before tax
+  --tax <amount>           tax (IVA) portion of the credit (default: "0")
+  --invoice <ref>          the invoice this note credits (recommended: it drives
+                           the IVA side)
+  --customer <ref>         customer, when there is no linked invoice
+  --relates-to <uuid>      UUID of the original CFDI, when the invoice is not in
+                           the system
+  --date <date>            credit date (YYYY-MM-DD); defaults to today
+  --memo <text>            memo
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+### `mnemosine credit-note show` (alias: ver)
+
+```
+Usage: mnemosine credit-note show|ver [options] <ref>
+
+Show one credit note with its applications, available balance and ledger entry
+
+Arguments:
+  ref                                      credit note number (CN-2026-00042) or id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine credit-note list` (alias: listar)
+
+```
+Usage: mnemosine credit-note list|listar [options]
+
+List credit notes by customer, type, state or unapplied balance
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --customer <ref>                         only this customer (number, name or id)
+  --type <type>                            only this type: devolucion, descuento, correccion, anticipo
+  --open                                   only issued notes with balance left to apply (the live customer credit)
+  -h, --help                               display help for command
+```
+
+### `mnemosine credit-note issue` (alias: emitir)
+
+```
+Usage: mnemosine credit-note issue|emitir [options] <ref>
+
+Issue the note: post DR returns + DR VAT / CR receivable. Does not stamp
+
+Arguments:
+  ref                      credit note number or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+### `mnemosine credit-note apply` (alias: aplicar)
+
+```
+Usage: mnemosine credit-note apply|aplicar [options] <ref>
+
+Apply an issued note to invoices; what is not applied stays as customer credit
+
+Arguments:
+  ref                      credit note number or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --invoice <spec...>      invoice with amount: "INV-2026-00042:2500"
+                           (repeatable), or a bare ref with --amount
+  --amount <amount>        amount for a single --invoice without an inline
+                           amount
+  --dry-run                run the real path and roll back
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+## `mnemosine ar` (alias: cxc)
+
+```
+Usage: mnemosine ar|cxc [options] [command]
+
+Receivables controls: reconcile the subledger against the control account, run
+named diagnostics
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  reconcile|conciliar [options]  Subledger (open invoices − unapplied credit
+                                 notes) vs the cxc control account, naming
+                                 manual entries
+  check|verificar [options]      Named receivables diagnostics; `--check` with
+                                 no value lists them, `--check a,b` selects
+  help [command]                 display help for command
+```
+
+### `mnemosine ar reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine ar reconcile|conciliar [options]
+
+Subledger (open invoices − unapplied credit notes) vs the cxc control account,
+naming manual entries
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 exit 4 on any delta, however small the list of suspects
+  -h, --help                               display help for command
+```
+
+### `mnemosine ar check` (alias: verificar)
+
+```
+Usage: mnemosine ar check|verificar [options]
+
+Named receivables diagnostics; `--check` with no value lists them, `--check a,b`
+selects
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --check [names]                          comma-separated diagnostics to run; bare --check lists the battery
+  --strict                                 exit 4 on warnings too, not only blocking findings
+  -h, --help                               display help for command
+```
+
+## `mnemosine ap` (alias: cxp)
+
+```
+Usage: mnemosine ap|cxp [options] [command]
+
+Payables controls: reconcile the vendor subledger against the control account
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  reconcile|conciliar [options]  Vendor subledger (open bills) vs the cxp
+                                 control account, naming the reconciling items
+  help [command]                 display help for command
+```
+
+### `mnemosine ap reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine ap reconcile|conciliar [options]
+
+Vendor subledger (open bills) vs the cxp control account, naming the reconciling
+items
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --as-of <date>                           cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)
+  --explain                                spell out every reconciling item in prose, not just the table
+  -h, --help                               display help for command
+```
+
+## `mnemosine bank` (alias: banco)
+
+```
+Usage: mnemosine bank|banco [options] [command]
+
+Bank accounts and bank statements: master data and imported statements
+
+Options:
+  -h, --help                display help for command
+
+Commands:
+  account|cuenta            Bank accounts as master data: identifiers, currency
+                            and the 1:1 GL mapping
+  statement|estado-cuenta   Bank statements as documents: import, inspect and
+                            check their integrity
+  transaction|movimiento    Bank transactions: what the bank says happened,
+                            before anyone explains it
+  book-item|partida-libros  The other side: posted journal lines against the
+                            bank GL account, still unsealed
+  match|cotejo              Matching a bank transaction to what the books
+                            already say about it
+  help [command]            display help for command
+```
+
+### `mnemosine bank account` (alias: cuenta)
+
+```
+Usage: mnemosine bank account|cuenta [options] [command]
+
+Bank accounts as master data: identifiers, currency and the 1:1 GL mapping
+
+Options:
+  -h, --help                       display help for command
+
+Commands:
+  create|crear [options] <name>    Register a bank account, validating the CLABE
+                                   check digit, the ABA routing checksum, the
+                                   currency against the GL account and the 1:1
+                                   mapping
+  list|listar [options] [query]    List the accounts with currency, type, GL
+                                   account, book balance and the last approved
+                                   reconciliation
+  show|ver [options] <account>     Show one account: masked identifiers, SAT
+                                   bank key, book vs bank balance and the
+                                   reconciliation anchor
+  edit|editar [options] <account>  Change master data, recording the before and
+                                   after field by field
+  set|fijar [options] <account>    Write the 1:1 GL mapping, refusing the change
+                                   when the old account has posted entries
+  help [command]                   display help for command
+```
+
+#### `mnemosine bank account create` (alias: crear)
+
+```
+Usage: mnemosine bank account create|crear [options] <name>
+
+Register a bank account, validating the CLABE check digit, the ABA routing
+checksum, the currency against the GL account and the 1:1 mapping
+
+Arguments:
+  name                                                     name this account is known by inside the books
+
+Options:
+  -e, --entity <idOrName>                                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                        tenant (firm) whose data to scope to
+  -u, --user <email>                                       acting user, for attribution and permissions
+  --bank <name>                                            name of the institution
+  --gl-account <code>                                      GL account this bank account maps to, 1:1 (code or id)
+  --currency <code>                                        3-letter ISO code; must equal the GL account currency
+  --type <checking|savings|petty-cash|credit-card|escrow>  account nature; credit-card is a LIABILITY and maps to a liability GL account (default: "checking")
+  --clabe <18 digits>                                      CLABE; stored encrypted, only the last 4 are ever shown
+  --account-number <number>                                account number; stored encrypted
+  --routing-ach <9 digits>                                 ABA routing number for ACH
+  --routing-wire <9 digits>                                ABA routing number for wires
+  --sat-bank-code <ccc>                                    SAT c_Banco key; derived from the CLABE when omitted
+  --branch <text>                                          branch
+  --swift <code>                                           SWIFT/BIC
+  --iban <code>                                            IBAN
+  --dry-run                                                run every validation and the insert, then roll it back
+  --json                                                   JSON output
+  -h, --help                                               display help for command
+```
+
+#### `mnemosine bank account list` (alias: listar)
+
+```
+Usage: mnemosine bank account list|listar [options] [query]
+
+List the accounts with currency, type, GL account, book balance and the last
+approved reconciliation
+
+Arguments:
+  query                                                    match against the account name or the bank name
+
+Options:
+  -e, --entity <idOrName>                                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                        tenant (firm) whose data to scope to
+  -u, --user <email>                                       acting user, for attribution and permissions
+  -n, --limit <n>                                          maximum rows to return
+  --offset <n>                                             skip this many rows
+  -s, --status <state...>                                  filter by lifecycle state (repeatable)
+  -a, --all                                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>                  output format (default: "table")
+  --json                                                   shorthand for --format json
+  -o, --output <path>                                      write to a file instead of stdout
+  --fields [names]                                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                              identifiers only, one per line, for piping
+  --type <checking|savings|petty-cash|credit-card|escrow>  only accounts of this nature
+  --currency <code>                                        only accounts in this currency
+  --all-entities                                           every entity of the tenant, for a firm's overview; still bounded inside the SQL
+  -h, --help                                               display help for command
+```
+
+#### `mnemosine bank account show` (alias: ver)
+
+```
+Usage: mnemosine bank account show|ver [options] <account>
+
+Show one account: masked identifiers, SAT bank key, book vs bank balance and the
+reconciliation anchor
+
+Arguments:
+  account                                  account name or id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --redacted                               drop even the last 4 digits of the identifiers, for a shared screen
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank account edit` (alias: editar)
+
+```
+Usage: mnemosine bank account edit|editar [options] <account>
+
+Change master data, recording the before and after field by field
+
+Arguments:
+  account                                                  account name or id
+
+Options:
+  -e, --entity <idOrName>                                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                        tenant (firm) whose data to scope to
+  -u, --user <email>                                       acting user, for attribution and permissions
+  --name <text>                                            new account name
+  --bank <name>                                            new institution name
+  --branch <text>                                          branch; empty clears it
+  --type <checking|savings|petty-cash|credit-card|escrow>  account nature
+  --currency <code>                                        currency; re-checked against the GL account
+  --clabe <18 digits>                                      CLABE; requires --reason. Empty clears it
+  --account-number <number>                                account number; requires --reason. Empty clears it
+  --routing-ach <9 digits>                                 ABA routing for ACH; requires --reason. Empty clears it
+  --routing-wire <9 digits>                                ABA routing for wires; requires --reason. Empty clears it
+  --sat-bank-code <ccc>                                    SAT c_Banco key; empty clears it
+  --swift <code>                                           SWIFT/BIC; empty clears it
+  --iban <code>                                            IBAN; empty clears it
+  --reason <text>                                          justification recorded in the audit trail; required for identifiers
+  --dry-run                                                apply the change and roll it back, showing what would differ
+  -y, --yes                                                skip the confirmation prompt
+  --json                                                   JSON output
+  -h, --help                                               display help for command
+```
+
+#### `mnemosine bank account set` (alias: fijar)
+
+```
+Usage: mnemosine bank account set|fijar [options] <account>
+
+Write the 1:1 GL mapping, refusing the change when the old account has posted
+entries
+
+Arguments:
+  account                  account name or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --force                  override a blocking validation (closed period, lock
+                           date, duplicate); requires --reason
+  --gl-account <code>      GL account to map to (code or id)
+  --reason <text>          justification recorded in the audit trail; required
+                           by --force
+  --dry-run                apply the remap and roll it back
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+### `mnemosine bank statement` (alias: estado-cuenta)
+
+```
+Usage: mnemosine bank statement|estado-cuenta [options] [command]
+
+Bank statements as documents: import, inspect and check their integrity
+
+Options:
+  -h, --help                           display help for command
+
+Commands:
+  import|importar [options] <file...>  Parse, normalize and stage a bank
+                                       statement, deduplicating by native id or
+                                       content hash; posts NOTHING to the ledger
+  list|listar [options]                List imported statements by account and
+                                       period, with opening and closing balance,
+                                       line count and the balance chain
+  show|ver [options] <id>              Show one statement: electronic sequence
+                                       number, date range, hash of the original
+                                       file and the profile applied
+  check|verificar [options] [id]       Run the seven integrity checks and EXIT 4
+                                       naming which one broke
+  help [command]                       display help for command
+```
+
+#### `mnemosine bank statement import` (alias: importar)
+
+```
+Usage: mnemosine bank statement import|importar [options] <file...>
+
+Parse, normalize and stage a bank statement, deduplicating by native id or
+content hash; posts NOTHING to the ledger
+
+Arguments:
+  file                                                          statement files; combine with --dir to take a whole folder
+
+Options:
+  -e, --entity <idOrName>                                       legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                             tenant (firm) whose data to scope to
+  -u, --user <email>                                            acting user, for attribution and permissions
+  --account <ref>                                               bank account these statements belong to (name or id)
+  --format <csv|camt053|mt940|ofx|qfx|mt942|camt054|bai2|xlsx>  format of the FILE (not of the output; use --json for that); sniffed from the content when omitted
+  --profile <name>                                              CSV column profile to read the file with
+  --dir <path>                                                  import every file in this folder as well
+  --closing-balance <amount>                                    closing balance you assert, for a format that carries none (a CSV); refused if the file says otherwise
+  --dry-run                                                     parse, run the seven checks and roll the write back
+  --json                                                        JSON output
+  -h, --help                                                    display help for command
+```
+
+#### `mnemosine bank statement list` (alias: listar)
+
+```
+Usage: mnemosine bank statement list|listar [options]
+
+List imported statements by account and period, with opening and closing
+balance, line count and the balance chain
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --account <ref>                          only this bank account (name or id)
+  --since <date>                           statements whose period ENDS on or after this date (YYYY-MM-DD)
+  --until <date>                           statements whose period STARTS on or before this date (YYYY-MM-DD)
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank statement show` (alias: ver)
+
+```
+Usage: mnemosine bank statement show|ver [options] <id>
+
+Show one statement: electronic sequence number, date range, hash of the original
+file and the profile applied
+
+Arguments:
+  id                                       statement id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --lines                                  include the statement lines
+  -n, --limit <n>                          maximum lines to list with --lines (default 500)
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank statement check` (alias: verificar)
+
+```
+Usage: mnemosine bank statement check|verificar [options] [id]
+
+Run the seven integrity checks and EXIT 4 naming which one broke
+
+Arguments:
+  id                                       one statement; without it, the latest of each account
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --check [names]                          comma-separated checks to run; bare --check lists them (cadena-de-saldos, continuidad, huecos-y-traslapes, identidad, moneda, secuencia, reversos)
+  -a, --all                                every statement of the entity, not just the latest per account
+  --account <ref>                          every statement of this bank account (name or id)
+  --since <date>                           only statements whose period ends on or after this date (YYYY-MM-DD)
+  -h, --help                               display help for command
+```
+
+### `mnemosine bank transaction` (alias: movimiento)
+
+```
+Usage: mnemosine bank transaction|movimiento [options] [command]
+
+Bank transactions: what the bank says happened, before anyone explains it
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  list|listar [options] [query]  List bank transactions filtered by account,
+                                 date range, direction, amount, text, type and
+                                 match state
+  show|ver [options] <id>        Show one transaction: the normalized line, the
+                                 statement it came from and the live matches
+                                 that explain it
+  help [command]                 display help for command
+```
+
+#### `mnemosine bank transaction list` (alias: listar)
+
+```
+Usage: mnemosine bank transaction list|listar [options] [query]
+
+List bank transactions filtered by account, date range, direction, amount, text,
+type and match state
+
+Arguments:
+  query                                          hledger-style terms: desc:<text>, amt:[>|<|>=|<=]<amount>; a bare word means desc:
+
+Options:
+  -e, --entity <idOrName>                        legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                              tenant (firm) whose data to scope to
+  -u, --user <email>                             acting user, for attribution and permissions
+  -n, --limit <n>                                maximum rows to return
+  --offset <n>                                   skip this many rows
+  -s, --status <state...>                        filter by lifecycle state (repeatable)
+  -a, --all                                      no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>        output format (default: "table")
+  --json                                         shorthand for --format json
+  -o, --output <path>                            write to a file instead of stdout
+  --fields [names]                               comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                    identifiers only, one per line, for piping
+  --account <ref>                                only this bank account (name or id)
+  --since <date>                                 transactions on or after this date (YYYY-MM-DD)
+  --until <date>                                 transactions on or before this date (YYYY-MM-DD)
+  --unmatched                                    only transactions with no live match; shorthand for -s unmatched
+  --direction <in|out>                           money in (positive amount) or out (negative amount)
+  --type <debit|credit|fee|interest|adjustment>  transaction nature as the bank classified it (not its direction)
+  -h, --help                                     display help for command
+```
+
+#### `mnemosine bank transaction show` (alias: ver)
+
+```
+Usage: mnemosine bank transaction show|ver [options] <id>
+
+Show one transaction: the normalized line, the statement it came from and the
+live matches that explain it
+
+Arguments:
+  id                                       transaction id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --raw                                    include raw_data exactly as the bank published it; it can carry the counterparty in the clear
+  -h, --help                               display help for command
+```
+
+### `mnemosine bank book-item` (alias: partida-libros)
+
+```
+Usage: mnemosine bank book-item|partida-libros [options] [command]
+
+The other side: posted journal lines against the bank GL account, still unsealed
+
+Options:
+  -h, --help                       display help for command
+
+Commands:
+  list|listar [options] <account>  List posted journal lines against the bank GL
+                                   account that are still unsealed, oldest
+                                   first, with their age
+  help [command]                   display help for command
+```
+
+#### `mnemosine bank book-item list` (alias: listar)
+
+```
+Usage: mnemosine bank book-item list|listar [options] <account>
+
+List posted journal lines against the bank GL account that are still unsealed,
+oldest first, with their age
+
+Arguments:
+  account                                  bank account whose GL account the entries were posted to (name or id)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --since <date>                           entries on or after this entry date (YYYY-MM-DD)
+  --until <date>                           entries on or before this entry date (YYYY-MM-DD)
+  --over-days <n>                          only what has gone MORE than this many days without showing up at the bank
+  -h, --help                               display help for command
+```
+
+### `mnemosine bank match` (alias: cotejo)
+
+```
+Usage: mnemosine bank match|cotejo [options] [command]
+
+Matching a bank transaction to what the books already say about it
+
+Options:
+  -h, --help                               display help for command
+
+Commands:
+  preview|previsualizar [options] [tx-id]  Show what the engine would propose, with the score broken into its signals and every gate’s verdict, WITHOUT applying anything
+  run|ejecutar [options]                   Run the engine over one account and period, applying ONLY what clears the confidence threshold, the amount floor, an open period and an exact-amount hard signal
+  apply|aplicar [options] [id...]          Apply the engine’s proposal for the named transactions in ONE transaction, idempotently, linked to the session
+  create|crear [options]                   Build an explicit match group of N bank transactions against M book items plus adjustments, requiring Σbank = Σbooks + Σadjustments
+  unapply|desaplicar [options] <match-id>  Undo a match with a typed reason, releasing the book-item seal; refuses if the session is already approved or posted, and touches no posted journal entry
+  help [command]                           display help for command
+```
+
+#### `mnemosine bank match preview` (alias: previsualizar)
+
+```
+Usage: mnemosine bank match preview|previsualizar [options] [tx-id]
+
+Show what the engine would propose, with the score broken into its signals and
+every gate’s verdict, WITHOUT applying anything
+
+Arguments:
+  tx-id                                    one transaction; without it, every unmatched one of --account
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --account <ref>                          bank account to sweep when no transaction id is given
+  --since <date>                           transactions on or after this date (YYYY-MM-DD)
+  --until <date>                           transactions on or before this date (YYYY-MM-DD)
+  --top <n>                                maximum TRANSACTIONS to preview (not candidates per transaction)
+  --min-confidence <n>                     engine confidence a proposal needs before `run` would apply it (0..1)
+  --max-amount <amount>                    ceiling for an automatic match; the hard floor still wins
+  --rules-only                             a proposal outside the date window counts as not applicable
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank match run` (alias: ejecutar)
+
+```
+Usage: mnemosine bank match run|ejecutar [options]
+
+Run the engine over one account and period, applying ONLY what clears the
+confidence threshold, the amount floor, an open period and an exact-amount hard
+signal
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --account <ref>          bank account to sweep (name or id)
+  --since <date>           transactions on or after this date (YYYY-MM-DD)
+  --until <date>           transactions on or before this date (YYYY-MM-DD)
+  --min-confidence <n>     engine confidence a proposal needs to be applied
+                           (0..1)
+  --max-amount <amount>    ceiling for an automatic match; the hard floor still
+                           wins
+  --rules-only             refuse a proposal outside the date window
+  --top <n>                maximum transactions to evaluate in this run
+  --session <id>           reconciliation session these matches belong to
+  --dry-run                do the whole thing and roll it back
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank match apply` (alias: aplicar)
+
+```
+Usage: mnemosine bank match apply|aplicar [options] [id...]
+
+Apply the engine’s proposal for the named transactions in ONE transaction,
+idempotently, linked to the session
+
+Arguments:
+  id                       bank transaction ids; or feed them through --stdin
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --stdin                  read the ids from standard input, whitespace
+                           separated
+  --session <id>           reconciliation session these matches belong to
+  --dry-run                do the whole thing and roll it back
+  -y, --yes                skip the grouped confirmation
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank match create` (alias: crear)
+
+```
+Usage: mnemosine bank match create|crear [options]
+
+Build an explicit match group of N bank transactions against M book items plus
+adjustments, requiring Σbank = Σbooks + Σadjustments
+
+Options:
+  -e, --entity <idOrName>        legal entity to operate on (defaults to the
+                                 active one)
+  -t, --tenant <id>              tenant (firm) whose data to scope to
+  -u, --user <email>             acting user, for attribution and permissions
+  --account <ref>                bank account the whole group belongs to (name
+                                 or id)
+  --transaction <ids>            comma-separated bank transaction ids: the bank
+                                 side
+  --book-item <ids>              comma-separated book side: <id> for a journal
+                                 line, or <type>:<id> (journal_entry_line,
+                                 invoice, bill, customer_payment,
+                                 vendor_payment)
+  --adjust <concept=amount>      declared adjustment (bank fee, FX difference);
+                                 repeatable (default: [])
+  --residual <keep|write-off>    what happens to what is left over: keep it
+                                 live, or write it off against an account
+  --write-off-account <account>  GL account the residual is written off against
+  --session <id>                 reconciliation session this group belongs to
+  --dry-run                      do the whole thing and roll it back
+  --json                         JSON output
+  -h, --help                     display help for command
+```
+
+#### `mnemosine bank match unapply` (alias: desaplicar)
+
+```
+Usage: mnemosine bank match unapply|desaplicar [options] <match-id>
+
+Undo a match with a typed reason, releasing the book-item seal; refuses if the
+session is already approved or posted, and touches no posted journal entry
+
+Arguments:
+  match-id                 the match to undo; its whole group goes with it
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --reason <code>          typed reason, required: cotejo-erroneo |
+                           monto-incorrecto | duplicado | movimiento-reversado |
+                           documento-cancelado | reclasificacion |
+                           error-de-captura
+  --dry-run                do the whole thing and roll it back
+  -y, --yes                skip the confirmation
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+## `mnemosine backup` (alias: respaldo)
+
+```
+Usage: mnemosine backup|respaldo [options] [command]
+
+Logical backups of the whole installation (create, list, verify by rehearsing
+the restore, restore) and per-tenant logical exports (export)
+
+Options:
+  -h, --help                          display help for command
+
+Commands:
+  create|crear [options]              Take a logical dump of the WHOLE
+                                      installation with its schema-version
+                                      manifest
+  export|exportar [options]           Logical EXPORT of ONE tenant (or one
+                                      entity): consistent, scoped by the
+                                      database's own RLS, with a manifest. NOT a
+                                      restorable backup
+  list|listar [options]               List known backups and exports with their
+                                      date, scope, size, schema version and
+                                      whether their hash still matches
+  verify|comprobar [options] <file>   Verify a backup against its manifest; with
+                                      --restore, rehearse the restore and run
+                                      the ledger checks
+  restore|restaurar [options] <file>  Restore a backup into a NEW database;
+                                      never over an existing one
+  help [command]                      display help for command
+```
+
+### `mnemosine backup create` (alias: crear)
+
+```
+Usage: mnemosine backup create|crear [options]
+
+Take a logical dump of the WHOLE installation with its schema-version manifest
+
+Options:
+  -t, --tenant <id>        NOT here: this dump is not scoped. A per-tenant
+                           archive is `mnemosine backup export --tenant <id>`
+  -e, --entity <idOrName>  NOT here: a per-entity archive is `mnemosine backup
+                           export --entity <idOrName>`
+  --target <dir>           directory to write into (default: ./respaldos)
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+### `mnemosine backup export` (alias: exportar)
+
+```
+Usage: mnemosine backup export|exportar [options]
+
+Logical EXPORT of ONE tenant (or one entity): consistent, scoped by the
+database's own RLS, with a manifest. NOT a restorable backup
+
+Options:
+  -t, --tenant <id>        tenant (firm) to export (defaults to --tenant /
+                           MNEMOSINE_TENANT)
+  -e, --entity <idOrName>  narrow it further to one legal entity of that tenant
+  --target <dir>           directory to write into (default: ./respaldos)
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+### `mnemosine backup list` (alias: listar)
+
+```
+Usage: mnemosine backup list|listar [options]
+
+List known backups and exports with their date, scope, size, schema version and
+whether their hash still matches
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --target <dir>                           directory to read (default: ./respaldos)
+  -h, --help                               display help for command
+```
+
+### `mnemosine backup verify` (alias: comprobar)
+
+```
+Usage: mnemosine backup verify|comprobar [options] <file>
+
+Verify a backup against its manifest; with --restore, rehearse the restore and
+run the ledger checks
+
+Arguments:
+  file                                     backup file to verify
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --restore                                RESTORE it into a throwaway database and run the ledger checks (the only real proof)
+  --strict                                 exit 4 on warnings too
+  -h, --help                               display help for command
+```
+
+### `mnemosine backup restore` (alias: restaurar)
+
+```
+Usage: mnemosine backup restore|restaurar [options] <file>
+
+Restore a backup into a NEW database; never over an existing one
+
+Arguments:
+  file                     backup file to restore
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --target <database>      name of the NEW database to create and restore into
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
 ```
 
 ## `mnemosine report` (alias: reporte)
