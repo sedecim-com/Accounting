@@ -852,6 +852,25 @@ function invocadoComoPrograma(): boolean {
 
 if (invocadoComoPrograma()) {
   main().catch((err) => {
+    // `js/clear-text-logging` (alerta #24) marca ESTA línea y no se puede
+    // cerrar con código: CodeQL sigue la ruta `api_key_env` → `process.env` →
+    // mensaje del error → registro, y no tiene manera de reconocer
+    // `sinSecretos` como saneador. Igual que con la #22, el descarte va al
+    // panel de seguridad y no a un comentario `// codeql[regla]` aquí: el
+    // escaneo por omisión de GitHub no los honra, y uno puesto aquí
+    // aparentaría una supresión que no ocurre.
+    //
+    // Lo que sí hizo falta, porque la alerta llevaba razón dos veces y ninguna
+    // era la que enunciaba:
+    //   · el registro de la credencial iba DESPUÉS de `resolveProfile`, que es
+    //     la llamada que la lee del entorno: un fallo ahí la imprimía con sólo
+    //     el patrón `sk-` armado, y una llave de Google o Azure no lo lleva;
+    //   · la clase del redactor era `[A-Za-z0-9._-]`, que PARTE una llave
+    //     base64 con relleno, así que su huella no casaba y salía íntegra.
+    // Las dos están cerradas y probadas por conducta en
+    // tests/ai/eval/redactor-de-credenciales.spec.ts, que ejerce el redactor
+    // con las cinco formas que los proveedores emiten de verdad. Lo que queda
+    // es el límite de la herramienta, no del código.
     console.error(sinSecretos(`\neval-clasificador: ${(err as Error).message}`));
     // «No pude medir» por el instrumento (8, reintentable) contra «me rompí»
     // (1). Ninguno de los dos es 0, que es lo que este arnés hacía antes.
