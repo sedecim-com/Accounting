@@ -3,21 +3,93 @@ import { query, withTransaction, currentTenant } from '../../database/connection
 import { getPolicy } from '../policy/policy-service.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync } from './posting.js';
-import { AccountingError } from '../../utils/errors.js';
+import { runLedgerChecks } from './ledger-checks.js';
+import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { FiscalPeriodStatus } from '../../types/index.js';
 import type { FiscalPeriod, JournalEntryType } from '../../types/index.js';
 
-interface PeriodCloseChecklist {
+// ============================================================
+// EL CHECKLIST DEL CIERRE — casillas con NOMBRE ESTABLE
+//
+// Cada casilla lleva un `codigo` kebab-case además de su `item` en prosa:
+// `closing check --check <codigo>`, `closing explain <codigo>` y cualquier
+// script filtran por el código sin parsear inglés. La prosa puede afinarse;
+// el código, una vez publicado, no cambia — es el contrato.
+//
+// La lista es también el REGISTRO de verificaciones que el catálogo pide
+// para `closing check` (sin valor, `--check` imprime estos nombres).
+// ============================================================
+
+export const CLOSE_CHECK_CODES = [
+  'previous-period-closed',
+  'entries-posted',
+  'bank-reconciled',
+  'bank-variance-frozen',
+  'bank-items-overdue',
+  'bank-lines-unexplained',
+  'invoices-reviewed',
+  'depreciation-posted',
+  'trial-balance',
+  'ledger-integrity',
+  'rep-parked',
+  'rep-missing',
+] as const;
+export type CloseCheckCode = (typeof CLOSE_CHECK_CODES)[number];
+
+/**
+ * La prosa de cada casilla, UNA vez. Los textos existentes se conservan
+ * literales: hay pruebas y renderizadores que los buscan por `item`.
+ */
+export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
+  'previous-period-closed': 'Previous period closed',
+  'entries-posted': 'All journal entries posted',
+  'bank-reconciled': 'Bank reconciliations complete',
+  'bank-variance-frozen': 'Reconciliation variance frozen at zero',
+  'bank-items-overdue': 'Reconciling items within their expected dates',
+  'bank-lines-unexplained': 'Bank statement lines explained',
+  'invoices-reviewed': 'All invoices reviewed',
+  'depreciation-posted': 'Depreciation calculated and posted',
+  'trial-balance': 'Trial balance balanced',
+  'ledger-integrity': 'Ledger passes its blocking checks',
+  'rep-parked': 'Parked payment receipts (REP) resolved',
+  'rep-missing': 'Payments in period have their REP',
+};
+
+export type CloseCheckSeverity = 'blocking' | 'warning';
+
+/**
+ * Qué peso tiene una línea de banco sin explicar al cierre, según el panel.
+ *
+ * SOLO el literal 'bloquear_cierre' bloquea: 'partida_conciliatoria' y
+ * 'suspenso' dicen «arrástrala» o «apárcala», así que si al cierre sigue sin
+ * explicar es trabajo incompleto que se AVISA con su remedio — y un valor
+ * desconocido del panel también avisa, por el mismo criterio defensivo de
+ * rep_faltante_*: un valor raro no puede congelar el cierre de un despacho.
+ */
+export function severidadDeLineaSinPartida(valorDelPanel: string): CloseCheckSeverity {
+  return valorDelPanel === 'bloquear_cierre' ? 'blocking' : 'warning';
+}
+
+export interface PeriodCloseChecklistItem {
+  /** Nombre estable kebab-case; el contrato de `closing check|explain`. */
+  codigo: CloseCheckCode;
   item: string;
   is_complete: boolean;
+  /**
+   * El peso de la casilla EN SU ESTADO ACTUAL: las gobernadas por política se
+   * resuelven contra el panel al evaluar. Incompleta y 'blocking' detiene el
+   * cierre; incompleta y 'warning' sólo avisa. En una casilla completa el
+   * campo dice qué pasaría si dejara de estarlo.
+   */
+  severity: CloseCheckSeverity;
   details?: string;
 }
 
-interface PeriodCloseStatus {
+export interface PeriodCloseStatus {
   can_close: boolean;
   blocking_issues: string[];
   warnings: string[];
-  checklist: PeriodCloseChecklist[];
+  checklist: PeriodCloseChecklistItem[];
 }
 
 export async function getPeriodCloseStatus(
@@ -32,7 +104,74 @@ export async function getPeriodCloseStatus(
     client ? client.query<T>(sql, params) : query<T>(sql, params);
   const blocking_issues: string[] = [];
   const warnings: string[] = [];
-  const checklist: PeriodCloseChecklist[] = [];
+  const checklist: PeriodCloseChecklistItem[] = [];
+
+  // LA PERTENENCIA SE COMPRUEBA ANTES DE CONTAR NADA. Cada detector filtra
+  // por entidad, así que sobre un periodo ajeno (o inexistente) todos
+  // contarían cero y el resultado sería un «todo limpio» FABRICADO — la ruta
+  // REST lo servía como can_close: true incluso sobre un UUID inventado. 404
+  // por pertenencia, como toda la serie TEN. La misma consulta resuelve el
+  // inquilino, que varias casillas leen del panel de políticas (línea de
+  // banco sin explicar, REP) y todas comparten.
+  const dueno = await q<{ tenant_id: string }>(
+    `SELECT le.tenant_id
+       FROM fiscal_periods fp
+       JOIN legal_entities le ON le.id = fp.entity_id
+      WHERE fp.id = $2 AND fp.entity_id = $1`,
+    [entityId, periodId]
+  );
+  if (dueno.rows.length === 0) {
+    throw new NotFoundError('Fiscal period', periodId);
+  }
+  const ctxPanel = { tenantId: dueno.rows[0].tenant_id, entityId };
+
+  // 0. NINGÚN PERIODO ANTERIOR SIGUE SIN CERRAR.
+  //
+  // Nada lo comprobaba: cerrar octubre antes que septiembre deja huecos — el
+  // arrastre de saldos siembra el periodo siguiente con finales que después
+  // cambian, y el checklist de septiembre se evalúa cuando octubre ya congeló
+  // su verdad. `close` sin `--period` ya elige el más viejo, pero `--period`
+  // permitía saltárselo sin que ninguna casilla lo dijera.
+  //
+  // SE BUSCA EL MÁS VIEJO SIN CERRAR, no el inmediato anterior. Mirar sólo al
+  // inmediato descansa en una inducción —«si el anterior cerró, los de antes
+  // también»— que `period reopen` rompe a propósito: un enero reabierto
+  // detrás de un febrero cerrado sería invisible al cerrar marzo, y los
+  // huecos que la reapertura deja son exactamente lo que esta casilla
+  // persigue. 'future' tampoco cuenta como cerrado: un mes que nunca se abrió
+  // no es un mes revisado, y el posteo no lo rechaza (sólo hard_close/locked).
+  //
+  // ¿BLOQUEA O AVISA? Es una bifurcación de criterio contable (hay despachos
+  // que cierran estrictamente en orden y despachos que adelantan un mes con
+  // ajuste posterior) y NINGUNA política del panel la gobierna hoy: este
+  // código no la decide. Avisa —lo único que no congela a nadie— y la
+  // bifurcación queda reportada para añadirse al panel, que es donde un
+  // criterio contable se elige (no aquí, no con una bandera).
+  const periodoAnterior = await q<{ period_name: string; status: string }>(
+    `SELECT period_name, status FROM fiscal_periods
+      WHERE entity_id = $1
+        AND start_date < (SELECT start_date FROM fiscal_periods WHERE id = $2 AND entity_id = $1)
+        AND status NOT IN ('soft_close', 'hard_close', 'locked')
+      ORDER BY start_date ASC LIMIT 1`,
+    [entityId, periodId]
+  );
+  const anterior = periodoAnterior.rows[0];
+  const anteriorCerrado = !anterior;
+  checklist.push({
+    codigo: 'previous-period-closed',
+    item: CLOSE_CHECK_ITEMS['previous-period-closed'],
+    is_complete: anteriorCerrado,
+    severity: 'warning',
+    details: anteriorCerrado
+      ? undefined
+      : `${anterior.period_name} sigue '${anterior.status}': cerrar fuera de orden deja huecos`,
+  });
+  if (!anteriorCerrado) {
+    warnings.push(
+      `hay un periodo anterior sin cerrar (${anterior.period_name}, '${anterior.status}'): ` +
+        `cerrarlo primero evita huecos en el arrastre de saldos`
+    );
+  }
 
   // 1. Check all journal entries are posted
   const draftEntries = await q<{ count: string }>(
@@ -42,8 +181,10 @@ export async function getPeriodCloseStatus(
   );
   const draftCount = parseInt(draftEntries.rows[0].count, 10);
   checklist.push({
-    item: 'All journal entries posted',
+    codigo: 'entries-posted',
+    item: CLOSE_CHECK_ITEMS['entries-posted'],
     is_complete: draftCount === 0,
+    severity: 'blocking',
     details: draftCount > 0 ? `${draftCount} entries still in draft/pending` : undefined,
   });
   if (draftCount > 0) blocking_issues.push(`${draftCount} unposted journal entries`);
@@ -78,11 +219,164 @@ export async function getPeriodCloseStatus(
   );
   const unreconCount = parseInt(unreconciledAccounts.rows[0].count, 10);
   checklist.push({
-    item: 'Bank reconciliations complete',
+    codigo: 'bank-reconciled',
+    item: CLOSE_CHECK_ITEMS['bank-reconciled'],
     is_complete: unreconCount === 0,
+    severity: 'warning',
     details: unreconCount > 0 ? `${unreconCount} accounts not reconciled` : undefined,
   });
   if (unreconCount > 0) warnings.push(`${unreconCount} bank accounts not reconciled`);
+
+  // 2b. LA VARIACIÓN CONGELADA (054). La casilla anterior mira el ESTADO de
+  // la sesión; ésta mira el DATO que ese estado afirma: `variance` con su
+  // `arithmetic_computed_at`. Una sesión balanceada SIN aritmética es el
+  // defecto histórico de F05c en persona —un cero por DEFAULT leído como
+  // cuadre— y el CHECK de la 054 lo impide hacia adelante, pero el cierre no
+  // puede citar como evidencia una fila que lo viole: eso BLOQUEA. Una
+  // variación congelada distinta de cero es legal (la política de tolerancia
+  // la admitió y mandó arrastrar el residual como partida nombrada), así que
+  // sólo AVISA — y la casilla de partidas vencidas es la que persigue ese
+  // residual si envejece.
+  //
+  // LAS DOS ENTIDADES, la de la cuenta y la de la sesión, como en
+  // `listarPartidas` y por lo mismo: una sesión bien sellada colgada de una
+  // cuenta ajena no puede tildar nada aquí.
+  //
+  // El predicado de cobertura va como JOIN a fiscal_periods y NO con la
+  // grafía `(SELECT start_date FROM ...)` de la casilla anterior, adrede: el
+  // espejo de mutación de E1.2 ancla en ESA línea literal y la exige única —
+  // una segunda copia idéntica dejaría vivo al mutante que ablanda la
+  // primera. Mismo significado, otra letra.
+  const sesionesSospechosas = await q<{
+    account_name: string;
+    variance: string;
+    sin_aritmetica: boolean;
+  }>(
+    `SELECT ba.account_name, rs.variance::text AS variance,
+            (rs.arithmetic_computed_at IS NULL) AS sin_aritmetica
+       FROM reconciliation_sessions rs
+       JOIN bank_accounts ba ON ba.id = rs.bank_account_id
+       JOIN fiscal_periods fp ON fp.id = $2 AND fp.entity_id = $1
+      WHERE ba.entity_id = $1 AND rs.entity_id = $1 AND ba.is_active = true
+        AND rs.status IN ('balanced', 'approved', 'posted')
+        AND rs.start_date <= fp.start_date
+        AND rs.end_date >= fp.end_date
+        AND (rs.variance <> 0 OR rs.arithmetic_computed_at IS NULL)
+      ORDER BY ba.account_name`,
+    [entityId, periodId]
+  );
+  const sinAritmetica = sesionesSospechosas.rows.filter((r) => r.sin_aritmetica);
+  const conResidual = sesionesSospechosas.rows.filter((r) => !r.sin_aritmetica);
+  checklist.push({
+    codigo: 'bank-variance-frozen',
+    item: CLOSE_CHECK_ITEMS['bank-variance-frozen'],
+    is_complete: sesionesSospechosas.rows.length === 0,
+    severity: sinAritmetica.length > 0 ? 'blocking' : 'warning',
+    details:
+      sesionesSospechosas.rows.length > 0
+        ? sesionesSospechosas.rows
+            // La variación viaja como CADENA tal cual la guarda la columna
+            // (DECIMAL 19,4): recortarla a dos decimales al mostrarla es el
+            // defecto que F05a cazó tres veces.
+            .map((r) => `${r.account_name}: ${r.sin_aritmetica ? 'sin aritmética' : `variance ${r.variance}`}`)
+            .join('; ')
+        : undefined,
+  });
+  if (sinAritmetica.length > 0) {
+    blocking_issues.push(
+      `${sinAritmetica.length} sesión(es) de conciliación en 'balanced' sin aritmética calculada: ` +
+        `su cuadre es un cero por omisión, no una verificación (054)`
+    );
+  }
+  if (conResidual.length > 0) {
+    warnings.push(
+      `${conResidual.length} sesión(es) cerraron con variación congelada distinta de cero: ` +
+        `el residual debe vivir como partida conciliatoria con responsable y fecha`
+    );
+  }
+
+  // 2c. LAS PARTIDAS CONCILIATORIAS VENCIDAS. El criterio es el de
+  // `derivarEscalamiento` (reconciling-items.ts), literal: 'vencido' lo dice
+  // EL CALENDARIO —el día después de `fecha_esperada`— y lo derivado gana a
+  // lo guardado; sin fecha esperada se respeta lo escrito en la columna. Se
+  // mide contra CURRENT_DATE y no contra el fin del periodo porque el
+  // escalamiento es del reloj de quien persigue, no del mes que se cierra:
+  // una partida vencida se persigue HOY, la cierre quien la cierre.
+  //
+  // SUM(ABS(...)) y no la suma firmada: el signo de `importe` es su
+  // aportación a la conciliación, y sumar firmado dejaría que un cheque en
+  // circulación tape a un depósito en tránsito — la magnitud perseguida es
+  // la suma de magnitudes.
+  const partidasVencidas = await q<{ count: string; importe: string }>(
+    `SELECT COUNT(*)::text AS count, COALESCE(SUM(ABS(ri.importe)), 0)::text AS importe
+       FROM reconciling_items ri
+      WHERE ri.entity_id = $1
+        AND ri.resuelta_at IS NULL
+        AND ((ri.fecha_esperada IS NOT NULL AND ri.fecha_esperada < CURRENT_DATE)
+          OR (ri.fecha_esperada IS NULL AND ri.escalamiento = 'vencido'))`,
+    [entityId]
+  );
+  const vencidas = parseInt(partidasVencidas.rows[0].count, 10);
+  checklist.push({
+    codigo: 'bank-items-overdue',
+    item: CLOSE_CHECK_ITEMS['bank-items-overdue'],
+    is_complete: vencidas === 0,
+    severity: 'warning',
+    details:
+      vencidas > 0
+        ? `${vencidas} partida(s) vencida(s) por ${partidasVencidas.rows[0].importe} en total (bank reconciling-item list)`
+        : undefined,
+  });
+  if (vencidas > 0) {
+    warnings.push(
+      `${vencidas} partida(s) conciliatoria(s) pasaron su fecha esperada sin resolverse: ` +
+        `una partida que envejece es donde una diferencia se esconde`
+    );
+  }
+
+  // 2d. LOS MOVIMIENTOS QUE NADIE EXPLICA. Mismo criterio literal que
+  // `movimientosSinExplicar` (reconciliation-service.ts): el cotejo VIVO se
+  // le pregunta a `reconciliation_matches` (unapplied_at IS NULL), nunca a la
+  // caché `is_matched`, y una partida conciliatoria que cite el movimiento
+  // también lo explica. ACUMULADO hasta el fin del periodo y no acotado a él,
+  // porque los saldos que la conciliación compara son acumulados: un cargo de
+  // marzo sin registrar en agosto sigue dentro del saldo que el banco publica
+  // en agosto. `bank_transactions` no tiene entity_id: la frontera es el JOIN
+  // a `bank_accounts`, DENTRO del SQL.
+  const sinExplicar = await q<{ count: string; importe: string }>(
+    `SELECT COUNT(*)::text AS count, COALESCE(SUM(ABS(bt.amount)), 0)::text AS importe
+       FROM bank_transactions bt
+       JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+      WHERE ba.entity_id = $1 AND ba.is_active = true
+        AND bt.transaction_date <= (SELECT end_date FROM fiscal_periods WHERE id = $2)
+        AND NOT EXISTS (
+              SELECT 1 FROM reconciliation_matches rm
+               WHERE rm.bank_transaction_id = bt.id AND rm.unapplied_at IS NULL)
+        AND NOT EXISTS (
+              SELECT 1 FROM reconciling_items ri
+               WHERE ri.bank_transaction_id = bt.id AND ri.entity_id = ba.entity_id)`,
+    [entityId, periodId]
+  );
+  const lineasSinExplicar = parseInt(sinExplicar.rows[0].count, 10);
+  // La política que F05c dejó en el panel decide si esto avisa o bloquea.
+  const polLinea = await getPolicy(ctxPanel, 'linea_banco_sin_partida_al_cierre');
+  const severidadLinea = severidadDeLineaSinPartida(polLinea.value);
+  checklist.push({
+    codigo: 'bank-lines-unexplained',
+    item: CLOSE_CHECK_ITEMS['bank-lines-unexplained'],
+    is_complete: lineasSinExplicar === 0,
+    severity: severidadLinea,
+    details:
+      lineasSinExplicar > 0
+        ? `${lineasSinExplicar} movimiento(s) por ${sinExplicar.rows[0].importe} sin cotejo ni partida (bank reconciliation run)`
+        : undefined,
+  });
+  if (lineasSinExplicar > 0) {
+    (severidadLinea === 'blocking' ? blocking_issues : warnings).push(
+      `${lineasSinExplicar} movimiento(s) del extracto sin explicar al cierre: ` +
+        `ni cotejo vivo ni partida conciliatoria los reclama`
+    );
+  }
 
   // 3. Check invoices reviewed
   const draftInvoices = await q<{ count: string }>(
@@ -95,8 +389,10 @@ export async function getPeriodCloseStatus(
   );
   const draftInvCount = parseInt(draftInvoices.rows[0].count, 10);
   checklist.push({
-    item: 'All invoices reviewed',
+    codigo: 'invoices-reviewed',
+    item: CLOSE_CHECK_ITEMS['invoices-reviewed'],
     is_complete: draftInvCount === 0,
+    severity: 'warning',
     details: draftInvCount > 0 ? `${draftInvCount} draft invoices` : undefined,
   });
   if (draftInvCount > 0) warnings.push(`${draftInvCount} draft invoices in period`);
@@ -113,8 +409,10 @@ export async function getPeriodCloseStatus(
   );
   const undepCount = parseInt(undepreciatedAssets.rows[0].count, 10);
   checklist.push({
-    item: 'Depreciation calculated and posted',
+    codigo: 'depreciation-posted',
+    item: CLOSE_CHECK_ITEMS['depreciation-posted'],
     is_complete: undepCount === 0,
+    severity: 'warning',
     details: undepCount > 0 ? `${undepCount} assets without depreciation` : undefined,
   });
   if (undepCount > 0) warnings.push(`${undepCount} assets without depreciation posted`);
@@ -128,11 +426,52 @@ export async function getPeriodCloseStatus(
   );
   const tbDiff = new Decimal(trialBalance.rows[0]?.diff || '0');
   checklist.push({
-    item: 'Trial balance balanced',
+    codigo: 'trial-balance',
+    item: CLOSE_CHECK_ITEMS['trial-balance'],
     is_complete: tbDiff.lessThanOrEqualTo('0.01'),
+    severity: 'blocking',
     details: tbDiff.greaterThan('0.01') ? `Out of balance by ${tbDiff.toFixed(4)}` : undefined,
   });
   if (tbDiff.greaterThan('0.01')) blocking_issues.push(`Trial balance out of balance by ${tbDiff.toFixed(4)}`);
+
+  // 5b. EL MAYOR PASA SUS VERIFICACIONES BLOQUEANTES. `runLedgerChecks`
+  // existía desde F01 y el cierre NO lo consumía: sólo lo llamaban
+  // `ledger check` y el verificador de respaldo, así que un periodo podía
+  // cerrarse con `account_balances` desviado de las líneas posteadas o con
+  // posteos sin autor en la bitácora. La balanza de arriba no lo cubre: suma
+  // débitos contra créditos y un descuadre SIMÉTRICO (la caché mintiendo
+  // igual en los dos lados) le pasa de largo.
+  //
+  // Va por el POOL y no por `client`, y es deliberado: `runLedgerChecks` no
+  // acepta cliente y son lecturas de datos confirmados. Dentro del cierre
+  // (R1) la fila del periodo ya está bajo FOR UPDATE, que se cruza con el
+  // FOR SHARE de todo posteo, así que ningún posteo en vuelo puede colarse
+  // entre esta foto y el UPDATE — la segunda conexión es el mismo costo que
+  // ya paga getPolicy aquí mismo. Sin nombres corre las BLOQUEANTES
+  // (balance, audit-trail), que es el contrato del catálogo; `balance` se
+  // acota a este periodo, `audit-trail` es del mayor entero a propósito: un
+  // posteo sin autor es un hecho sin autor, esté en el mes que esté.
+  const hallazgosMayor = await runLedgerChecks(entityId, undefined, { period: periodId });
+  const bloqueantesMayor = hallazgosMayor.filter((h) => h.severity === 'blocking');
+  checklist.push({
+    codigo: 'ledger-integrity',
+    item: CLOSE_CHECK_ITEMS['ledger-integrity'],
+    is_complete: bloqueantesMayor.length === 0,
+    severity: 'blocking',
+    details:
+      bloqueantesMayor.length > 0
+        ? bloqueantesMayor
+            .slice(0, 3)
+            .map((h) => `${h.check}: ${h.referencia}`)
+            .join('; ') + (bloqueantesMayor.length > 3 ? ` (+${bloqueantesMayor.length - 3})` : '')
+        : undefined,
+  });
+  if (bloqueantesMayor.length > 0) {
+    blocking_issues.push(
+      `el mayor no pasa ${bloqueantesMayor.length} verificación(es) bloqueante(s): ` +
+        `ledger check las lista renglón por renglón`
+    );
+  }
 
   // 6. F02 · REP-2: el checklist del IVA aparcado. Dos conteos que el cierre
   // no miraba: los REP que llegaron y quedaron aparcados (needs_review), y
@@ -142,23 +481,31 @@ export async function getPeriodCloseStatus(
   // rep_faltante_emitido: SOLO el literal 'bloquear' bloquea (cerrado al
   // declarar); 'avisar' o un valor desconocido avisan — un valor raro del
   // panel no puede congelar el cierre de un despacho.
-  const tenantRow = await q<{ tenant_id: string }>(
-    `SELECT tenant_id FROM legal_entities WHERE id = $1`,
-    [entityId]
-  );
-  const ctxPanel = { tenantId: tenantRow.rows[0]?.tenant_id, entityId };
-
+  //
+  // ACOTADO POR `document_date` DENTRO DEL PERIODO. Esta casilla tenía el
+  // vicio de F05c en su forma pura: contaba pre_registrations SIN ningún
+  // filtro de periodo, así que un REP de noviembre aparcado avisaba sobre el
+  // cierre de AGOSTO — la casilla hablaba de otro mes, igual que la sesión
+  // de septiembre tildaba la conciliación de agosto. Lo que el cierre
+  // pregunta es si EL PERIODO tiene pendientes, no si el buzón está vacío:
+  // un REP fechado después del periodo se atiende en el cierre de SU mes, y
+  // uno fechado antes era asunto del cierre anterior (la casilla 0 es la que
+  // vigila que ese cierre haya ocurrido).
   const repAparcados = await q<{ count: string }>(
     `SELECT COUNT(*) as count FROM pre_registrations
       WHERE entity_id = $1 AND document_type = 'payment'
         AND validation_status = 'needs_review'
-        AND status NOT IN ('completed', 'rejected', 'duplicate')`,
-    [entityId]
+        AND status NOT IN ('completed', 'rejected', 'duplicate')
+        AND document_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)
+                              AND (SELECT end_date   FROM fiscal_periods WHERE id = $2)`,
+    [entityId, periodId]
   );
   const aparcados = parseInt(repAparcados.rows[0].count, 10);
   checklist.push({
-    item: 'Parked payment receipts (REP) resolved',
+    codigo: 'rep-parked',
+    item: CLOSE_CHECK_ITEMS['rep-parked'],
     is_complete: aparcados === 0,
+    severity: 'warning',
     details: aparcados > 0 ? `${aparcados} REP(s) esperando decisión: rep reconcile los reintenta` : undefined,
   });
   if (aparcados > 0) warnings.push(`${aparcados} REP(s) aparcados en needs_review`);
@@ -177,23 +524,38 @@ export async function getPeriodCloseStatus(
   );
   const pagosSinRepRecibidos = parseInt(sinRep.rows[0].recibidos, 10);
   const pagosSinRepEmitidos = parseInt(sinRep.rows[0].emitidos, 10);
+  // Las dos políticas se leen SIEMPRE (no sólo con conteo > 0): la casilla
+  // publica su `severity` también cuando está completa, para que
+  // `closing check` pueda decir con qué peso vigila cada verificación.
+  const [polRecibido, polEmitido] = await Promise.all([
+    getPolicy(ctxPanel, 'rep_faltante_recibido'),
+    getPolicy(ctxPanel, 'rep_faltante_emitido'),
+  ]);
+  // Con pendientes, la severidad es la del pendiente que HAY (un cobro sin
+  // REP bajo 'avisar' no puede volverse bloqueante porque la otra política
+  // sea estricta); completa, es la más grave de las dos configuradas.
+  const repFaltanteBloquea =
+    pagosSinRepRecibidos + pagosSinRepEmitidos > 0
+      ? (pagosSinRepRecibidos > 0 && polRecibido.value === 'bloquear') ||
+        (pagosSinRepEmitidos > 0 && polEmitido.value === 'bloquear')
+      : polRecibido.value === 'bloquear' || polEmitido.value === 'bloquear';
   checklist.push({
-    item: 'Payments in period have their REP',
+    codigo: 'rep-missing',
+    item: CLOSE_CHECK_ITEMS['rep-missing'],
     is_complete: pagosSinRepRecibidos + pagosSinRepEmitidos === 0,
+    severity: repFaltanteBloquea ? 'blocking' : 'warning',
     details:
       pagosSinRepRecibidos + pagosSinRepEmitidos > 0
         ? `${pagosSinRepRecibidos} pago(s) sin REP del proveedor, ${pagosSinRepEmitidos} cobro(s) sin REP emitido (rep missing list)`
         : undefined,
   });
   if (pagosSinRepRecibidos > 0) {
-    const pol = await getPolicy(ctxPanel, 'rep_faltante_recibido');
-    (pol.value === 'bloquear' ? blocking_issues : warnings).push(
+    (polRecibido.value === 'bloquear' ? blocking_issues : warnings).push(
       `${pagosSinRepRecibidos} pago(s) a proveedor sin REP: el IVA sigue aparcado en 1135`
     );
   }
   if (pagosSinRepEmitidos > 0) {
-    const pol = await getPolicy(ctxPanel, 'rep_faltante_emitido');
-    (pol.value === 'bloquear' ? blocking_issues : warnings).push(
+    (polEmitido.value === 'bloquear' ? blocking_issues : warnings).push(
       `${pagosSinRepEmitidos} cobro(s) sin REP emitido: obligación fiscal propia con plazo`
     );
   }

@@ -117,6 +117,9 @@ Commands:
   batch|lote                            Staged entry batches: list, inspect,
                                         check, post transactionally and reverse
                                         as a unit
+  closing|cierre-proceso                The close as a process: its read-only
+                                        surface — readiness, named checks,
+                                        offenders
   backup|respaldo                       Logical backups of the whole
                                         installation (create, list, verify by
                                         rehearsing the restore, restore) and
@@ -1888,16 +1891,18 @@ Usage: mnemosine period|periodo [options] [command]
 Fiscal periods: what exists, what state it is in, and opening a future one
 
 Options:
-  -h, --help                   display help for command
+  -h, --help                       display help for command
 
 Commands:
-  list|listar [options]        List every period with its state, dates and
-                               overdue mark
-  show|ver [options] <name>    Show a period: state, who closed it, the
-                               checklist it closed with, its entries
-  open|abrir [options] <name>  Open a future period so work can be captured in
-                               it
-  help [command]               display help for command
+  list|listar [options]            List every period with its state, dates and
+                                   overdue mark
+  show|ver [options] <name>        Show a period: state, who closed it, the
+                                   checklist it closed with, its entries
+  open|abrir [options] <name>      Open a future period so work can be captured
+                                   in it
+  reopen|reabrir [options] <name>  Reopen a closed period so a correction can
+                                   land in the month it belongs to
+  help [command]                   display help for command
 ```
 
 ### `mnemosine period list` (alias: listar)
@@ -1963,6 +1968,32 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --reason <text>          why it is being opened; recorded in the audit trail
   --dry-run                show the transition without performing it
+  -h, --help               display help for command
+```
+
+### `mnemosine period reopen` (alias: reabrir)
+
+```
+Usage: mnemosine period reopen|reabrir [options] <name>
+
+Reopen a closed period so a correction can land in the month it belongs to
+
+Arguments:
+  name                     period name, YYYY-MM, or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --force                  override a blocking validation (closed period, lock
+                           date, duplicate); requires --reason
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
 
@@ -4911,6 +4942,96 @@ Options:
                            the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
+```
+
+## `mnemosine closing` (alias: cierre-proceso)
+
+```
+Usage: mnemosine closing|cierre-proceso [options] [command]
+
+The close as a process: its read-only surface — readiness, named checks,
+offenders
+
+Options:
+  -h, --help                                display help for command
+
+Commands:
+  preview|previsualizar [options] [period]  Read-only twin of closing start: says whether the period can enter close and what is missing
+  check|verificar [options]                 Run the close verification catalog, or only the named checks; bare --check lists the names
+  explain|explicar [options] <code>         Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it
+  help [command]                            display help for command
+```
+
+### `mnemosine closing preview` (alias: previsualizar)
+
+```
+Usage: mnemosine closing preview|previsualizar [options] [period]
+
+Read-only twin of closing start: says whether the period can enter close and
+what is missing
+
+Arguments:
+  period                                   period name, YYYY-MM, or id (default: the oldest open one)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  -h, --help                               display help for command
+```
+
+### `mnemosine closing check` (alias: verificar)
+
+```
+Usage: mnemosine closing check|verificar [options]
+
+Run the close verification catalog, or only the named checks; bare --check lists
+the names
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --check [codes]                          comma-separated check codes; with no value, prints the available ones
+  --period <name>                          period to check (default: the oldest open one)
+  -h, --help                               display help for command
+```
+
+### `mnemosine closing explain` (alias: explicar)
+
+```
+Usage: mnemosine closing explain|explicar [options] <code>
+
+Print the offending rows of one check (ids, amounts, dates) and the exact
+command that fixes it
+
+Arguments:
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, trial-balance, ledger-integrity, rep-parked, rep-missing
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -n, --limit <n>                          maximum offending rows to print
+  --period <name>                          period to explain (default: the oldest open one)
+  -h, --help                               display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)

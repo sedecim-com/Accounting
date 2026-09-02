@@ -465,6 +465,7 @@ export const CRITERIOS: Criterio[] = [
         F05c: 'docs/auditorias/F05c.md',
         F05d: 'docs/auditorias/F05d.md',
         F06a: 'docs/auditorias/F06a.md',
+        F06b: 'docs/auditorias/F06b.md',
         F06c: 'docs/auditorias/F06c.md',
       };
 
@@ -4012,6 +4013,64 @@ export const CRITERIOS: Criterio[] = [
   },
 
 
+
+
+  // ---- F06b · El cierre deja de mirar por la ventana equivocada ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El checklist del cierre mira su propio periodo, consume el mayor y no fabrica veredictos ajenos',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/period-close.ts',
+        de: '        AND document_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)',
+        a: '        AND document_date IS NOT NULL',
+        porque: 'vuelve el vicio de F05c en su forma pura: un CFDI pendiente de NOVIEMBRE bloquearía el cierre de AGOSTO, porque la casilla contaría sin filtro de periodo',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerClosingCommand(program, { palette: c, shutdown, reportError });',
+        a: '// registerClosingCommand fuera del binario',
+        porque: 'cuarta repetición del defecto de la casa: la lectura del cierre pasa sus pruebas sobre un programa que sólo construye el spec, y el binario no la carga',
+      },
+    ],
+    evaluar: () => {
+      // TRES MENTIRAS DEL CHECKLIST, cerradas en F06b y ancladas aquí:
+      const pc = codigoDe('src/services/accounting/period-close.ts');
+
+      // 1. Cada casilla mira SU periodo. La de pre-registros contaba sin
+      //    filtro de fecha — el vicio que F05c cazó en la de banco, en su
+      //    forma pura: lo pendiente de noviembre ensuciaba el cierre de agosto.
+      if (!/AND document_date BETWEEN \(SELECT start_date FROM fiscal_periods WHERE id = \$2\)/.test(pc)) {
+        return falla('la casilla de pre-registros volvió a contar sin filtro de periodo: lo pendiente de otro mes ensuciaría este cierre');
+      }
+      // 2. El cierre CONSUME el mayor. runLedgerChecks existía y sólo lo
+      //    llamaban el comando de ledger y el verificador de respaldo: un
+      //    periodo podía cerrarse con el mayor descuadrado sin que ninguna
+      //    casilla lo mirara.
+      if (!/runLedgerChecks/.test(pc)) {
+        return falla('el checklist dejó de correr los chequeos del mayor: un periodo podría cerrarse descuadrado');
+      }
+      // 3. La secuencia: el hueco más viejo, no sólo el vecino. Mirar sólo el
+      //    inmediato anterior hacía invisible reabrir enero detrás de un
+      //    febrero cerrado — el hueco quedaba tapado al cerrar marzo.
+      if (!/'previous-period-closed'/.test(pc)) {
+        return falla('desapareció la casilla de secuencia: cerrar octubre con septiembre abierto volvería a pasar en silencio');
+      }
+      // 4. Y NO SE FABRICAN VEREDICTOS AJENOS: el periodo se resuelve por
+      //    PERTENENCIA (serie TEN) antes de contestar. `explainCloseCheck` de
+      //    la entidad A sobre el periodo de B devolvía «0 ofensores» limpio, y
+      //    la ruta REST servía can_close:true sobre un UUID inventado.
+      const guard = /throw new NotFoundError\('Fiscal period', periodId\)/.test(pc);
+      const entregada = /registerClosingCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'));
+      if (!guard) {
+        return falla('el checklist volvió a contestar sobre periodos que no son de la entidad: un UUID inventado recibiría can_close verdadero');
+      }
+      return entregada
+        ? ok('cada casilla mira su periodo, el mayor se consume, la secuencia se vigila desde el hueco más viejo, la pertenencia se exige y la familia está en el binario')
+        : falla('registerClosingCommand no está en el binario: la lectura del cierre quedó verificada y no entregada');
+    },
+  },
 
   // ---- F06c · El lote importado por fin se puede aplicar ----
 

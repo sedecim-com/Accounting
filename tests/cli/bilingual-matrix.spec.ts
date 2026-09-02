@@ -57,6 +57,9 @@ const TOP_LEVEL: Record<string, string> = {
   depreciation: 'depreciacion',
   // F06c: el lote que F01 dejaba en un staging sin salida.
   batch: 'lote',
+  // F06b: la lectura del cierre. `closing` es el proceso; `close` (que ya
+  // existía) es el acto. El alias compuesto viene del catálogo.
+  closing: 'cierre-proceso',
   // S3: la vía de recuperación que el propio esquema nombra.
   backup: 'respaldo',
   report: 'reporte',
@@ -109,7 +112,8 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
     balance: 'saldo', role: 'rol', map: 'mapeo',
   },
   entry: { list: 'listar', show: 'ver', create: 'crear', check: 'verificar', post: 'contabilizar', reverse: 'reversar', void: 'anular' },
-  period: { list: 'listar', show: 'ver', open: 'abrir' },
+  // F06b: la reapertura auditada del periodo cerrado gana su hoja.
+  period: { list: 'listar', show: 'ver', open: 'abrir', reopen: 'reabrir' },
   year: { list: 'listar', show: 'ver', create: 'crear' },
   vendor: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', terms: 'terminos' },
   bill: { list: 'listar', show: 'ver', create: 'crear', line: 'linea', approve: 'aprobar' },
