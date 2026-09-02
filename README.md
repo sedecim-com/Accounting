@@ -84,8 +84,19 @@ Se dice aquí porque descubrirlo leyendo el código sería peor:
   implementada-con-permiso o listada como ausente impide cargar los
   resolutores. Sigue apagado por lo que falta: vive fuera del prefijo auditado
   `/v1` —no deja la fila de PETICIÓN en `audit_log`, aunque el hecho contable
-  sí queda registrado por los servicios— y diez de sus quince mutaciones son
-  contrato sin código.
+  sí queda registrado por los servicios en las vías que pasan por ellos—. De
+  sus quince mutaciones hay doce, delegando en los mismos servicios que usa
+  REST. Las tres que faltan no faltan por descuido:
+
+  - `sendInvoice` — la ruta que sirve ese acto MARCA la factura como enviada y
+    no transmite nada; el esquema pide asunto y mensaje y devuelve un tipo sin
+    sitio para decirlo, así que servirla devolvería la mentira que se purgó.
+  - `stampCfdi` y `cancelCfdi` — timbrar y cancelar ante el SAT. No hay servicio
+    en el que delegar: la lógica del comprobante vive DENTRO de la ruta REST, y
+    copiarla aquí daría dos versiones de una regla fiscal. Por esta puerta el
+    acto irreversible quedaría además sin autor, porque `auditLogMiddleware`
+    sólo cuelga de `/v1`. Vuelven cuando el timbrado viva en un servicio que las
+    dos puertas llamen y que audite.
 - De los 151 manejadores REST, **7 están retirados** y lanzan
   `NotImplementedError` en vez de fingir que hicieron algo.
 - **No hay respaldo ni restauración.** Ni una línea en todo el árbol. Y lo que

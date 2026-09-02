@@ -17,9 +17,15 @@ import type { Permission } from '../../auth/roles.js';
 //
 // Aquí no se arregla mutación por mutación, y esa es la parte que importa.
 // Cinco comprobaciones repartidas se cierran hoy y se olvidan mañana: el
-// esquema declara QUINCE mutaciones y sólo cinco existen, y entre las diez
-// ausentes están TIMBRAR y CANCELAR un CFDI ante el SAT. La que se implemente
-// mañana sin acordarse del permiso nos devuelve al punto de partida.
+// esquema declara QUINCE mutaciones y cuando esto se escribió existían cinco,
+// y entre las diez ausentes estaban TIMBRAR y CANCELAR un CFDI ante el SAT. La
+// que se implemente mañana sin acordarse del permiso nos devuelve al punto de
+// partida.
+//
+// Nueve de aquellas diez ya entraron, y entraron POR AQUÍ: mover su línea de
+// SIN_RESOLUTOR a PERMISOS fue el primer paso de cada una, porque mientras no
+// se mueve los resolutores no cargan. Queda `sendInvoice`, declarada ausente a
+// propósito; su motivo dice por qué, y no es que falte tiempo.
 //
 // Así que la puerta es una sola —`blindar`— y viene con una compuerta que se
 // alimenta del ESQUEMA, no de una lista escrita a mano:
@@ -68,12 +74,34 @@ export const PERMISOS = {
     fiscalPeriods: ['accounts:read'],
   },
   Mutation: {
+    // POST /v1/accounts → accounts:create
+    createAccount: ['accounts:create'],
+    // PATCH /v1/accounts/:id → accounts:update
+    updateAccount: ['accounts:update'],
+    // DELETE /v1/accounts/:id → accounts:delete. La ruta REST NO borra: llama a
+    // `deactivateAccount`, que pone is_active=false y se niega si la cuenta
+    // tiene renglones. El nombre del esquema promete otra cosa; el permiso es
+    // el de la ruta que sirve el acto REAL, no el que sugiere el nombre.
+    deleteAccount: ['accounts:delete'],
     // POST /v1/journal-entries → journal_entries:create
     createJournalEntry: ['journal_entries:create'],
     // POST /v1/journal-entries/:id/post → journal_entries:post
     postJournalEntry: ['journal_entries:post'],
     // POST /v1/journal-entries/:id/void → journal_entries:void
     voidJournalEntry: ['journal_entries:void'],
+    // POST /v1/journal-entries/:id/reverse → journal_entries:create. No es
+    // :void ni una acción propia: revertir CREA un asiento espejo, y ese es el
+    // permiso que exige la ruta.
+    reverseJournalEntry: ['journal_entries:create'],
+    // POST /v1/invoices → invoices:create
+    createInvoice: ['invoices:create'],
+    // POST /v1/invoices/:id/void → invoices:void
+    voidInvoice: ['invoices:void'],
+    // POST /v1/invoices/:id/payments → invoices:create. Es el permiso que exige
+    // hoy la ruta: aplicar efectivo CREA un pago y su asiento.
+    recordInvoicePayment: ['invoices:create'],
+    // POST /v1/invoices/:id/cfdi/stamp → invoices:create
+    // POST /v1/invoices/:id/cfdi/cancel → invoices:void
     // POST /v1/fiscal-periods/:id/soft-close y /hard-close → periods:close
     softClosePeriod: ['periods:close'],
     hardClosePeriod: ['periods:close'],
@@ -106,27 +134,49 @@ export const SIN_RESOLUTOR = {
       'Declarada y sin resolutor. El informe lo sirve GET /v1/reports/income-statement con reports:read.',
   },
   Mutation: {
-    createAccount:
-      'Declarada y sin resolutor. El alta de cuenta la sirve POST /v1/accounts con accounts:create.',
-    updateAccount:
-      'Declarada y sin resolutor. La edición la sirve PUT /v1/accounts/:id con accounts:update.',
-    deleteAccount:
-      'Declarada y sin resolutor. La baja la sirve DELETE /v1/accounts/:id con accounts:delete.',
-    reverseJournalEntry:
-      'Declarada y sin resolutor. La reversión la sirve POST /v1/journal-entries/:id/reverse con journal_entries:create.',
-    createInvoice:
-      'Declarada y sin resolutor. La emisión la sirve POST /v1/invoices con invoices:create.',
-    sendInvoice:
-      'Declarada y sin resolutor. El envío lo sirve POST /v1/invoices/:id/send con invoices:send.',
-    voidInvoice:
-      'Declarada y sin resolutor. La anulación la sirve POST /v1/invoices/:id/void con invoices:void.',
-    recordInvoicePayment:
-      'Declarada y sin resolutor. El cobro lo sirve POST /v1/invoices/:id/payments con invoices:create.',
+    // LA ÚNICA QUE QUEDA, Y NO POR FALTA DE TIEMPO.
+    //
+    // POST /v1/invoices/:id/send MARCA la factura como enviada y NO TRANSMITE:
+    // no hay transporte de correo en el árbol —sendgrid-adapter.ts fabrica un
+    // messageId sin abrir conexión—, así que esa ruta retiró `cc`, `subject` y
+    // `message` de su esquema (se validaban y se tiraban) y hoy contesta
+    // `transmitted: false` con la nota de que el envío es del usuario.
+    //
+    // El esquema de GraphQL declara otra cosa:
+    //     sendInvoice(id: ID!, to: String!, subject: String, message: String): Invoice!
+    // Pide ASUNTO y MENSAJE —que sólo tienen sentido si alguien COMPONE un
+    // correo— y devuelve `Invoice!`, un tipo sin ningún campo donde quepa
+    // «no se transmitió»: `sentAt` y `sentTo` dicen lo contrario. Servirla tal
+    // como está declarada devuelve exactamente la mentira que se purgó, y por
+    // una puerta donde además el cliente eligió el asunto.
+    //
+    // Que se implemente no depende de escribir el resolutor, sino de una de
+    // dos decisiones que son de CONTRATO PÚBLICO y no de quien implementa:
+    // conectar un transporte de correo de verdad, o cambiar el esquema
+    // —renombrarla a `markInvoiceSent`, quitarle `subject`/`message` y darle un
+    // tipo de retorno con sitio para el aviso—. Hasta entonces se queda aquí.
     stampCfdi:
-      'Declarada y sin resolutor. TIMBRA ANTE EL SAT: lo sirve POST /v1/invoices/:id/cfdi/stamp con ' +
-      'invoices:create. Es el acto externo e irreversible de esta lista; si vuelve, vuelve por la puerta.',
+      'Declarada y sin resolutor, A PROPÓSITO. TIMBRA ANTE EL SAT: acto externo e irreversible. No ' +
+      'hay servicio en el que delegar — la lógica del comprobante vive DENTRO de POST ' +
+      '/v1/invoices/:id/cfdi/stamp—, así que servirla aquí obliga a copiarla, y dos copias de una ' +
+      'regla fiscal divergen: la que diverge timbra de más. Peor: por esta puerta no habría rastro ' +
+      'de quién lo pidió (auditLogMiddleware sólo cuelga de /v1, y la ruta no llama a ' +
+      'registrarAuditoria), de modo que el acto irreversible quedaría sin autor. Vuelve cuando el ' +
+      'timbrado viva en un servicio que las dos puertas llamen y que audite.',
     cancelCfdi:
-      'Declarada y sin resolutor. CANCELA ANTE EL SAT: lo sirve POST /v1/invoices/:id/cfdi/cancel con invoices:void.',
+      'Declarada y sin resolutor, por lo mismo que stampCfdi y con un agravante: POST ' +
+      '/v1/invoices/:id/cfdi/cancel fue RETIRADA porque marcaba la factura como cancelada en la ' +
+      'base sin cancelar ante el SAT. Servir una segunda puerta a un acto que el sistema no realiza ' +
+      'es la mentira que este repositorio purgó.',
+    sendInvoice:
+      'Declarada y NO implementada A PROPÓSITO, y no es que falte tiempo. POST /v1/invoices/:id/send, ' +
+      'que es quien sirve el acto, MARCA como enviada y NO TRANSMITE —no hay integración de correo—, y ' +
+      'por eso responde transmitted:false con su nota. Pero el esquema declara ' +
+      'sendInvoice(id, to, subject, message): Invoice!: pide ASUNTO y MENSAJE, que sólo tienen sentido si ' +
+      'se compone un correo, y devuelve Invoice!, que no tiene dónde decir que no se transmitió. ' +
+      'Implementarla como está declarada reintroduce la mentira que este repositorio purgó. Antes de que ' +
+      'exista hace falta una decisión de contrato público —transporte real, o renombrarla y cambiar su ' +
+      'tipo de retorno—, y esa no la toma quien escribe el resolutor.',
   },
   Subscription: {
     journalEntryPosted:

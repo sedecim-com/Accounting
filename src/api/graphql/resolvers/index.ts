@@ -1,15 +1,38 @@
 import { query } from '../../../database/connection.js';
 import { assertEntityAccess } from '../../rest/middleware/auth.js';
 import { findByIdInScope, requireByIdInScope, entityScope } from '../../../database/scope.js';
-import { ForbiddenError, ValidationError } from '../../../utils/errors.js';
+import {
+  ForbiddenError,
+  ValidationError,
+} from '../../../utils/errors.js';
 import { blindar, blindarCampos } from '../permisos.js';
 import {
+  attestEntryAsync,
   createJournalEntry,
   postJournalEntry,
+  reverseJournalEntry,
   voidJournalEntry,
   softClosePeriod,
   hardClosePeriod,
 } from '../../../services/accounting/index.js';
+// LOS MISMOS SERVICIOS QUE LLAMA REST, no una segunda implementación.
+//
+// Una mutación de GraphQL es otra puerta al mismo motor: aquí no se decide
+// cuándo una cuenta puede darse de baja, ni cómo se contra-asienta una factura
+// anulada, ni qué asiento arma un cobro. Todo eso vive en services/ y lo llaman
+// también los routers REST, la terminal y las herramientas del agente. Lo único
+// que añade este archivo es traducir el vocabulario del esquema (camelCase,
+// enums en MAYÚSCULAS) al de los servicios, y acotar por entidad.
+import {
+  createAccount,
+  updateAccount,
+  deactivateAccount,
+  type AccountPatch,
+  type AccountType as TipoDeCuenta,
+  type NormalBalance as SaldoNormal,
+} from '../../../services/accounting/account-service.js';
+import { createInvoice, voidInvoice } from '../../../services/ar/invoice-service.js';
+import { recordCustomerPayment } from '../../../services/payments/payment-service.js';
 import type { Account, JournalEntry, JournalEntryLine, Invoice, FiscalPeriod } from '../../../types/index.js';
 import { JournalEntryType } from '../../../types/index.js';
 
@@ -57,14 +80,56 @@ interface Ctx {
  * ajenos aunque no deje tocarlos.
  *
  * Un token sin inquilino o sin entidad no puede acotarse; no se sigue.
+ *
+ * Son dos funciones y no una porque `Scope` es una UNIÓN: un alcance de
+ * inquilino no tiene entidad, así que leerle `entityId` a lo que devuelve
+ * `alcanceDe` no compila —y hace bien—. Varios servicios exigen la entidad
+ * suelta en su firma (`voidInvoice`, `recordCustomerPayment`) y la atestación
+ * exige el inquilino, así que `inquilinoYEntidad` los entrega ya comprobados
+ * en vez de repartir `ctx.entityId!` por los resolutores.
  */
-function alcanceDe(ctx: Ctx) {
+function inquilinoYEntidad(ctx: Ctx): { tenantId: string; entityId: string } {
   if (!ctx.tenantId || !ctx.entityId) {
     throw new ForbiddenError(
       'La petición no identifica inquilino y entidad: no puede acotarse y se rechaza.'
     );
   }
-  return entityScope(ctx.tenantId, ctx.entityId);
+  return { tenantId: ctx.tenantId, entityId: ctx.entityId };
+}
+
+/**
+ * LAS CLAVES FORÁNEAS DEL INPUT TAMBIÉN SE ACOTAN.
+ *
+ * Acotar la entidad SOBRE la que se crea y dejar sueltos los ids que el cliente
+ * mete DENTRO deja abierto el eje que RLS no defiende: RLS acota por INQUILINO,
+ * así que dentro de un despacho con dos sociedades un token de la entidad A
+ * podía crear en A una factura con el `customerId` y el `revenueAccountId` de la
+ * hermana B — y a partir de ahí el grafo se los devolvía: la ficha fiscal de B
+ * (RFC, correo, razón social) y la LISTA de facturas de B con folios e importes.
+ * `createAccount` era peor: colgaba una cuenta de A del catálogo de B y el
+ * `full_code` salía con el código de B dentro.
+ *
+ * El contraste lo decide: al MISMO usuario, el camino sancionado
+ * —`GET /v1/customers/:id`, que va por `findByIdInScope`— le devuelve null. REST
+ * cierra esa lectura; esta puerta la abría por escritura.
+ */
+async function exigirEnAlcance(
+  ctx: Ctx,
+  entityId: string,
+  refs: Array<{ tabla: string; id: string | null | undefined }>
+): Promise<void> {
+  const { tenantId } = inquilinoYEntidad(ctx);
+  const alcance = entityScope(tenantId, entityId);
+  for (const { tabla, id } of refs) {
+    if (typeof id === 'string' && id !== '') {
+      await requireByIdInScope(tabla, id, alcance, { columns: 'id' });
+    }
+  }
+}
+
+function alcanceDe(ctx: Ctx) {
+  const { tenantId, entityId } = inquilinoYEntidad(ctx);
+  return entityScope(tenantId, entityId);
 }
 
 /**
@@ -115,6 +180,67 @@ function entidadPedida(ctx: Ctx, entityId: unknown): string {
     );
   }
   return entityId;
+}
+
+// ============================================================
+// LAS ENTRADAS DEL ESQUEMA, ESCRITAS.
+//
+// Se declaran en vez de recibir `Record<string, unknown>` y castear campo a
+// campo: los servicios que hay debajo tienen firmas estrictas —`account_type`
+// es una unión cerrada, `lines` no admite un renglón sin cuenta de ingreso— y
+// escribir la entrada aquí es lo que hace que una traducción mal hecha la cace
+// el compilador y no Postgres. Los nombres son los del ESQUEMA (camelCase); la
+// traducción a los de la base va en cada resolutor.
+// ============================================================
+
+/** input CreateAccountInput. Los enums llegan en MAYÚSCULAS. */
+interface EntradaCrearCuenta {
+  code: string;
+  name: string;
+  accountType: string;
+  normalBalance: string;
+  parentId?: string | null;
+  entityId: string;
+  currencyCode?: string | null;
+  allowManualEntries?: boolean | null;
+  description?: string | null;
+  fsCategory?: string | null;
+}
+
+/** input UpdateAccountInput. Todos opcionales: es un parche. */
+interface EntradaEditarCuenta {
+  name?: string | null;
+  description?: string | null;
+  isActive?: boolean | null;
+  fsCategory?: string | null;
+  tags?: unknown;
+}
+
+/** input InvoiceLineInput. */
+interface EntradaRenglonFactura {
+  itemId?: string | null;
+  description?: string | null;
+  quantity?: string | number | null;
+  unitPrice: string | number;
+  revenueAccountId: string;
+  taxCode?: string | null;
+  taxRate?: string | number | null;
+  projectId?: string | null;
+  cfdiProductCode?: string | null;
+  cfdiUnitCode?: string | null;
+}
+
+/** input CreateInvoiceInput. */
+interface EntradaCrearFactura {
+  entityId: string;
+  customerId: string;
+  invoiceDate: string;
+  dueDate: string;
+  currencyCode?: string | null;
+  lines: EntradaRenglonFactura[];
+  terms?: string | null;
+  memo?: string | null;
+  poNumber?: string | null;
 }
 
 // `blindarCampos` envuelve además los resolutores de CAMPO. Sin él la puerta
@@ -234,6 +360,81 @@ export const resolvers = blindarCampos({
   }),
 
   Mutation: blindar('Mutation', {
+    // POST /v1/accounts, el mismo `createAccount` del servicio. Lo único que
+    // hace de más esta puerta es traducir vocabulario: los enums del esquema
+    // viajan en MAYÚSCULAS (ASSET, DEBIT, CURRENT_ASSETS) y las columnas los
+    // guardan en minúsculas — es la misma traducción que hacen ya al revés los
+    // resolutores de campo (`accountType: (a) => a.account_type?.toUpperCase()`).
+    // La regla de la cuenta de agrupación, el choque de códigos y el resto de
+    // reglas del catálogo se quedan donde estaban.
+    async createAccount(_: unknown, { input }: { input: EntradaCrearCuenta }, ctx: Ctx) {
+      const entityId = entidadPedida(ctx, input.entityId);
+      await exigirEnAlcance(ctx, entityId, [{ tabla: 'accounts', id: input.parentId }]);
+      return createAccount({
+        code: input.code,
+        name: input.name,
+        account_type: input.accountType.toLowerCase() as TipoDeCuenta,
+        normal_balance: input.normalBalance.toLowerCase() as SaldoNormal,
+        fs_category: input.fsCategory ? input.fsCategory.toLowerCase() : null,
+        parent_id: input.parentId ?? null,
+        entity_id: entityId,
+        currency_code: input.currencyCode ?? null,
+        allow_manual_entries: input.allowManualEntries ?? undefined,
+        description: input.description ?? null,
+        created_by: ctx.user.user_id,
+      });
+    },
+
+    async updateAccount(
+      _: unknown,
+      { id, input }: { id: string; input: EntradaEditarCuenta },
+      ctx: Ctx
+    ) {
+      // PATCH /v1/accounts/:id NO acota por entidad: pide accounts:update y
+      // luego hace `UPDATE accounts ... WHERE id = $n` a secas, así que
+      // conocer un UUID basta para renombrar o desactivar la cuenta de otra
+      // sociedad del mismo inquilino. Ese hueco de REST no se copia: el filtro
+      // va dentro del SQL, como en `account(id)`, y por eso «no existe» y «no
+      // es de tu entidad» salen los dos por NotFoundError.
+      await requireByIdInScope('accounts', id, alcanceDe(ctx), { columns: 'id' });
+
+      // Sólo los cinco campos que el esquema declara. `updateAccount` vuelve a
+      // filtrar por UPDATABLE_FIELDS y exige al menos uno: si no llega
+      // ninguno, la negativa la da el servicio con su mensaje, no una copia.
+      const patch: AccountPatch = {};
+      if (input.name != null) patch.name = input.name;
+      if (input.description !== undefined) patch.description = input.description;
+      if (input.isActive != null) patch.is_active = input.isActive;
+      if (input.fsCategory != null) patch.fs_category = input.fsCategory.toLowerCase();
+      if (input.tags !== undefined) patch.tags = input.tags;
+
+      return updateAccount(id, patch, ctx.user.user_id);
+    },
+
+    // `deleteAccount` NO BORRA, y el nombre viene del esquema.
+    //
+    // DELETE /v1/accounts/:id llama a `deactivateAccount`: pone is_active =
+    // false y SE NIEGA si la cuenta tiene un solo renglón en el mayor. No
+    // podría ser otra cosa — borrar una cuenta con historia rompe la partida
+    // doble de los asientos que la nombran—, y la convención R9 de esta casa
+    // llama ARCHIVAR a ese acto (`mnemosine account archive`).
+    //
+    // Aquí se hace EXACTAMENTE eso y nada más: las opciones se pasan por
+    // omisión, igual que la ruta, así que sigue sin permitirse la baja de una
+    // cuenta con movimientos. Ni se borra de verdad para que el nombre encaje,
+    // ni se renombra la mutación: el nombre de un campo del esquema es
+    // contrato público y cambiarlo no es decisión de quien lo implementa.
+    // Queda dicho aquí porque un lector del esquema no puede saberlo.
+    //
+    // Devuelve `true` porque el esquema declara `Boolean!`, y llegar a esa
+    // línea significa que la baja lógica ocurrió: toda negativa sale antes por
+    // excepción (ValidationError si hay historia, NotFoundError si no alcanza).
+    async deleteAccount(_: unknown, { id }: { id: string }, ctx: Ctx) {
+      await requireByIdInScope('accounts', id, alcanceDe(ctx), { columns: 'id' });
+      await deactivateAccount(id, ctx.user.user_id);
+      return true;
+    },
+
     async createJournalEntry(_: unknown, { input }: { input: Record<string, unknown> }, ctx: Ctx) {
       assertEntityAccess(ctx.user, input.entityId as string);
       const lines = (input.lines as Array<Record<string, unknown>>).map((l) => ({
@@ -266,6 +467,129 @@ export const resolvers = blindarCampos({
     async voidJournalEntry(_: unknown, { id, reason }: { id: string; reason: string }, ctx: Ctx) {
       await requireByIdInScope('journal_entries', id, alcanceDe(ctx), { columns: 'id' });
       return voidJournalEntry(id, ctx.user.user_id, reason);
+    },
+
+    async reverseJournalEntry(
+      _: unknown,
+      { id, reversalDate }: { id: string; reversalDate?: string | null },
+      ctx: Ctx
+    ) {
+      await requireByIdInScope('journal_entries', id, alcanceDe(ctx), { columns: 'id' });
+      // Las guardas —sólo asientos posteados, una sola reversión por asiento,
+      // enlace y espejo en la misma transacción— viven en el servicio, que es
+      // el que llama también POST /v1/journal-entries/:id/reverse. Reversar
+      // CREA un asiento, y por eso el permiso es journal_entries:create.
+      return reverseJournalEntry(id, ctx.user.user_id, {
+        reversalDate: reversalDate ? new Date(reversalDate) : undefined,
+      });
+    },
+
+    async createInvoice(_: unknown, { input }: { input: EntradaCrearFactura }, ctx: Ctx) {
+      const entityId = entidadPedida(ctx, input.entityId);
+      // Sólo `customerId` y `revenueAccountId`: `itemId` y `projectId` son
+      // columnas UUID SIN `REFERENCES` en 002_ap_ar_schema.sql —y `projects` no
+      // existe como tabla en ninguna migración—, así que acotarlas sería
+      // inventar una restricción que el esquema no tiene.
+      await exigirEnAlcance(ctx, entityId, [
+        { tabla: 'customers', id: input.customerId },
+        ...input.lines.map((l) => ({ tabla: 'accounts', id: l.revenueAccountId })),
+      ]);
+      // `lineNumber` llega en el esquema y NO se reenvía: `createInvoice`
+      // numera los renglones por su posición, igual que cuando la llama REST.
+      // Reenviarlo daría a entender que el cliente elige la numeración.
+      return createInvoice({
+        entity_id: entityId,
+        customer_id: input.customerId,
+        invoice_date: String(input.invoiceDate),
+        due_date: String(input.dueDate),
+        currency_code: input.currencyCode ?? null,
+        terms: input.terms ?? null,
+        memo: input.memo ?? null,
+        po_number: input.poNumber ?? null,
+        lines: input.lines.map((l) => ({
+          item_id: l.itemId ?? null,
+          description: l.description ?? null,
+          quantity: l.quantity ?? null,
+          unit_price: l.unitPrice,
+          revenue_account_id: l.revenueAccountId,
+          tax_code: l.taxCode ?? null,
+          tax_rate: l.taxRate ?? null,
+          project_id: l.projectId ?? null,
+          cfdi_product_code: l.cfdiProductCode ?? null,
+          cfdi_unit_code: l.cfdiUnitCode ?? null,
+        })),
+        created_by: ctx.user.user_id,
+      });
+    },
+
+    async voidInvoice(_: unknown, { id }: { id: string }, ctx: Ctx) {
+      const { tenantId, entityId } = inquilinoYEntidad(ctx);
+      await requireByIdInScope('invoices', id, entityScope(tenantId, entityId), { columns: 'id' });
+
+      // LA RAZÓN QUE ESTA PUERTA NO PUEDE RECIBIR.
+      //
+      // POST /v1/invoices/:id/void EXIGE `reason` y no es cosmética:
+      // `voidInvoice` la persiste en la descripción de la reversión, en las
+      // notas del asiento original y en la bitácora, así que es el único
+      // relato de POR QUÉ se anuló un ingreso. El esquema declara
+      // `voidInvoice(id: ID!): Invoice!` y no tiene dónde recibirla, de modo
+      // que por aquí un ingreso se anula sin que quede escrito el motivo.
+      //
+      // No se inventa una razón de relleno —«anulada vía GraphQL» sería una
+      // explicación falsa metida en el rastro de auditoría, que es peor que la
+      // ausencia— y no se toca el esquema: añadirle un argumento obligatorio
+      // es un cambio de contrato público. Queda dicho aquí y en los riesgos.
+      //
+      // `allowStamped` y `allowApplied` en true es lo que pasa la ruta, cuyo
+      // contrato no ha cambiado nunca; se copia esa decisión, no se elige otra.
+      const { invoice, attest } = await voidInvoice(id, ctx.user.user_id, {
+        entityId,
+        allowStamped: true,
+        allowApplied: true,
+      });
+      if (attest) attestEntryAsync(tenantId, attest.entityId, attest.entryId);
+      return invoice;
+    },
+
+    async recordInvoicePayment(
+      _: unknown,
+      args: {
+        invoiceId: string;
+        paymentDate: string;
+        paymentAmount: string | number;
+        paymentMethod: string;
+      },
+      ctx: Ctx
+    ) {
+      const { tenantId, entityId } = inquilinoYEntidad(ctx);
+      const alcance = entityScope(tenantId, entityId);
+      await requireByIdInScope('invoices', args.invoiceId, alcance, { columns: 'id' });
+
+      const monto = String(args.paymentAmount);
+      const resultado = await recordCustomerPayment(
+        {
+          entityId,
+          paymentAmount: monto,
+          paymentDate: String(args.paymentDate),
+          paymentMethod: args.paymentMethod,
+          referenceNumber: null,
+          bankAccountId: null,
+          // Un solo documento, con el importe entero aplicado a él: es lo que
+          // arma POST /v1/invoices/:id/payments, y el esquema no declara ni
+          // varias facturas ni remanente a cuenta.
+          applications: [{ documentId: args.invoiceId, amountApplied: monto }],
+        },
+        ctx.user.user_id
+      );
+      if (resultado.attestation) {
+        attestEntryAsync(tenantId, resultado.attestation.entityId, resultado.attestation.entryId);
+      }
+
+      // El esquema devuelve `Invoice!` donde la ruta devuelve el recibo del
+      // cobro —número de pago, asiento generado, aplicaciones—. Se relee la
+      // factura ACOTADA, que es la misma fila ya con el cobro aplicado; el
+      // número de pago no cabe en `Invoice` y por esta puerta no sale.
+      return requireByIdInScope<Invoice>('invoices', args.invoiceId, alcance);
     },
 
     async softClosePeriod(_: unknown, args: { periodId: string; entityId: string }, ctx: Ctx) {

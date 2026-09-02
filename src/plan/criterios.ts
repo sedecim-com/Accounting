@@ -1873,10 +1873,14 @@ export const CRITERIOS: Criterio[] = [
       // permiso, de modo que un `viewer` posteaba al mayor y cerraba el
       // ejercicio en duro donde REST le habría dado 403.
       //
-      // Lo que se vigila aquí NO es que las cinco de hoy estén tapadas —eso lo
-      // prueban las pruebas—: es que la SEXTA no pueda nacer abierta. El
-      // esquema declara quince mutaciones y hay cinco; entre las diez ausentes
-      // están timbrar y cancelar un CFDI ante el SAT. Así que se lee el
+      // Lo que se vigila aquí NO es que las de hoy estén tapadas —eso lo
+      // prueban las pruebas—: es que la SIGUIENTE no pueda nacer abierta. El
+      // esquema declara quince mutaciones; cuando esto se escribió había cinco
+      // y entre las diez ausentes estaban timbrar y cancelar un CFDI ante el
+      // SAT. Hoy hay doce y TRES ausencias dichas: las dos del SAT se
+      // implementaron y se retiraron al ver que no hay servicio en el que
+      // delegar —copiarían una regla fiscal— y que por esta puerta el acto
+      // irreversible quedaría sin autor. Así que se lee el
       // ESQUEMA, que es el contrato, y se exige de cada mutación declarada una
       // de dos cosas: resolutor CON permiso declarado, o ausencia dicha con su
       // motivo. Y que la puerta siga siendo una, y siga lanzando.
