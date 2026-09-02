@@ -45,6 +45,7 @@ import {
   notFound,
   exitCodeFor,
 } from './kernel/index.js';
+import { esAfirmativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import { registerSatCommands } from './sat-commands.js';
 import { registerPendingCommands, renderAll } from './pending-command.js';
@@ -391,9 +392,9 @@ function makeAskUser(rl: () => readline.Interface | undefined): AskUserFn {
  */
 export function isAffirmative(raw: string | null, defaultYes = true): boolean {
   if (raw === null) return false;
-  const t = raw.trim().toLowerCase();
-  if (t === '') return defaultYes;
-  return t === 'y' || t === 'yes' || t === 's' || t === 'si' || t === 'sí';
+  if (raw.trim() === '') return defaultYes;
+  // La gramática del sí vive en el kernel: aquí sólo se decide el default.
+  return esAfirmativa(raw);
 }
 
 /**
@@ -1454,9 +1455,19 @@ onboard.action(async (opts: {
         }
         rl = readline.createInterface({ input: stdin, output: stdout });
         rl.on('SIGINT', () => { stdout.write(c.dim('\nInterrupted.\n')); rl?.close(); void shutdown(130); });
-        const confirm = await ask(rl, c.cyan(`\n${pregunta} [y/N] > `));
-        if (!confirm || !/^(y|yes|s|si|sí)$/i.test(confirm.trim())) {
-          console.log(c.dim('Cancelled.'));
+        const rlOnboard = rl;
+        const veredicto = await confirmarConReintento(
+          (q) => ask(rlOnboard, q),
+          c.cyan(`\n${pregunta} [y/N] > `)
+        );
+        if (!veredicto.si) {
+          console.log(
+            c.dim(
+              veredicto.incomprendida !== undefined
+                ? `${noEntendi(veredicto.incomprendida)} — Cancelled.`
+                : 'Cancelled.'
+            )
+          );
           rl.close();
           await shutdown(0);
         }
@@ -1647,11 +1658,21 @@ async function correrOutboxImpl(
             );
           }
           rl = readline.createInterface({ input: stdin, output: stdout });
-          const raw = await ask(rl, c.cyan('\nExecute in the external system? [y/N] > '));
+          const rlOutbox = rl;
+          const veredicto = await confirmarConReintento(
+            (q) => ask(rlOutbox, q),
+            c.cyan('\nExecute in the external system? [y/N] > ')
+          );
           rl.close();
           rl = undefined;
-          if (!raw || !/^(y|yes|s|si|sí)$/i.test(raw.trim())) {
-            console.log(c.dim('Skipped.'));
+          if (!veredicto.si) {
+            console.log(
+              c.dim(
+                veredicto.incomprendida !== undefined
+                  ? `${noEntendi(veredicto.incomprendida)} — Skipped.`
+                  : 'Skipped.'
+              )
+            );
             continue;
           }
         }

@@ -60,6 +60,7 @@ import {
   ExitCode,
   type ExitCodeValue,
 } from './kernel/index.js';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 
 // ============================================================
 // mnemosine entry · poliza
@@ -257,8 +258,16 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
-      const answer = (await rl.question(`${question} [y/N] `)).trim().toLowerCase();
-      if (answer !== 'y' && answer !== 'yes') throw abortedByUser();
+      const veredicto = await confirmarConReintento(
+        (p) => rl.question(p).catch(() => null),
+        `${question} [y/N] `
+      );
+      if (veredicto.si) return;
+      throw abortedByUser(
+        veredicto.incomprendida !== undefined
+          ? `Aborted — ${noEntendi(veredicto.incomprendida)}.`
+          : undefined
+      );
     } finally {
       rl.close();
     }

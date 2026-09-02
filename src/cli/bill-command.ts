@@ -46,6 +46,7 @@ import {
   ExitCode,
   type ExitCodeValue,
 } from './kernel/index.js';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 
 // ============================================================
 // mnemosine bill
@@ -300,8 +301,15 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     if (!stdin.isTTY) return false;
     const rl = readline.createInterface({ input: stdin, output: stdout });
     try {
-      const answer = await rl.question(deps.palette.cyan(`${question} [y/N] `)).catch(() => '');
-      return /^y(es)?$/i.test((answer ?? '').trim());
+      const veredicto = await confirmarConReintento(
+        (p) => rl.question(p).catch(() => null),
+        deps.palette.cyan(`${question} [y/N] `)
+      );
+      if (veredicto.incomprendida !== undefined) {
+        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.
+`);
+      }
+      return veredicto.si;
     } finally {
       rl.close();
     }
