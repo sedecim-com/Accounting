@@ -165,7 +165,52 @@ export function fuentes(rel = 'src'): string[] {
  * rojo, que es el lado seguro.
  */
 export function sinComentarios(texto: string): string {
-  return texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  // Recorrido con estado en vez de dos regex. La versión anterior las usaba
+  // y se quedó CIEGA el día que un ejemplo de ayuda citó un glob de shell:
+  // `./cfdi/julio/*.xml` contiene `/*`, que abría un comentario de bloque
+  // cerrado 94 499 bytes después — el 80 % de mnemosine.ts desaparecía y
+  // `plan:status` acusaba SIETE rojos falsos sobre familias que sí estaban
+  // en el binario. Un instrumento que decide no puede cegarse con una
+  // cadena, así que las cadenas se saltan en vez de mirarse.
+  //
+  // Sirve para TypeScript y para SQL (`codigoDe` se usa sobre los dos): las
+  // comillas simples que SQL duplica para escapar cierran y reabren, que
+  // deja el mismo resultado. Las expresiones regulares de TS se tratan como
+  // división —no se intenta desambiguar—, así que un `/*` dentro de un
+  // literal de regex seguiría cegando; no hay ninguno hoy y el criterio de
+  // más abajo lo vigila.
+  let fuera = '';
+  let i = 0;
+  while (i < texto.length) {
+    const c = texto[i];
+    const d = texto[i + 1];
+    if (c === '/' && d === '*') {
+      const fin = texto.indexOf('*/', i + 2);
+      i = fin === -1 ? texto.length : fin + 2;
+      continue;
+    }
+    if ((c === '/' && d === '/') || (c === '-' && d === '-')) {
+      const fin = texto.indexOf('\n', i);
+      i = fin === -1 ? texto.length : fin;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      // La cadena se CONSERVA: quitarla rompería los criterios que buscan
+      // un literal («status = 'posted'»), que son casi todos.
+      const abre = c;
+      let j = i + 1;
+      while (j < texto.length && texto[j] !== abre) {
+        if (texto[j] === '\\') j++;
+        j++;
+      }
+      fuera += texto.slice(i, Math.min(j + 1, texto.length));
+      i = j + 1;
+      continue;
+    }
+    fuera += c;
+    i++;
+  }
+  return fuera;
 }
 
 /**
@@ -5100,15 +5145,20 @@ export const CRITERIOS: Criterio[] = [
       if (!/previewFor\(/.test(cli)) {
         return falla('pending dejó de pedir la vista previa: el contador vería la pregunta sin sus propios datos debajo');
       }
-      // Envoltura en las DOS pantallas. Arreglar el listado y no el
+      // Envoltura en las DOS pantallas, cada una con su ancla PROPIA.
+      // Contar llamadas con un umbral era holgura: sobran sitios
+      // envueltos, así que quitar uno dejaba el conteo por encima del
+      // tope y el mutante pasaba en verde. Arreglar el listado y no el
       // prompt de define es reparar la instancia: son la misma decisión
       // vista dos veces, y el prompt es el instante en que se toma.
+      if (!/wrapLines\('   ', '   ', p\.question\)/.test(cli)) {
+        return falla('el listado de pending dejó de envolver la pregunta: la prosa del catálogo saldría a columna cero, sin la sangría que dice a qué clave pertenece');
+      }
+      if (!/for \(const l of wrapLines\('', '', p\.question\)\)/.test(cli)) {
+        return falla('el prompt de «pending define» dejó de envolver la pregunta: la mitad de la envoltura volvería a llegar a una sola de las dos pantallas');
+      }
       const envueltos = (cli.match(/wrapLines\(/g) ?? []).length;
-      return envueltos >= 4
-        ? ok(`la capa explicativa vive en pending con su preview y ${envueltos} campos envueltos en las dos pantallas`)
-        : falla(
-            `sólo ${envueltos} campo(s) pasan por wrapLines: la prosa larga del catálogo volvería a salir a columna cero en alguna de las dos pantallas`
-          );
+      return ok(`la capa explicativa vive en pending con su preview y ${envueltos - 1} campos envueltos en las dos pantallas`);
     },
   },
   {
@@ -5126,7 +5176,11 @@ export const CRITERIOS: Criterio[] = [
     ],
     evaluar: () => {
       const ci = crudoDe('.github/workflows/ci.yml');
-      if (!/ux-status\.ts --check/.test(ci)) {
+      // Ancla al PASO, no al texto: el modo de fallo natural de un paso de
+      // CI es que alguien lo comente, y `# - run: … --check` contiene la
+      // cadena entera. El primer intento de este criterio casaba su propio
+      // comentario y bendecía al mutante que lo apagaba.
+      if (!/^\s*- run: npx tsx scripts\/ux-status\.ts --check\s*$/m.test(ci)) {
         return falla('el censo de superficie salió de CI: la degradación de usabilidad volvería a entrar sin que nada la detenga en la fusión');
       }
       // Y las seis líneas base existen. Un censo sin línea base mide y

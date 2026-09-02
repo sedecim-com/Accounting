@@ -188,6 +188,18 @@ Examples:
   # The same as CSV.
   mnemosine year show 2026 --format csv
 `,
+  periodReopen: `
+Examples:
+  # Reopen a soft-closed month so a correction lands in the month it belongs to.
+  # --reason is required, and the audit trail keeps who, why and the previous state.
+  mnemosine period reopen "July 2026" --reason "Llego un CFDI de CFE con fecha de julio"
+  # See the transition first: nothing is written and nothing is recorded.
+  mnemosine period reopen 2026-07 --dry-run
+  # A hard-closed month keeps its closing entries and its carry-forward when it
+  # reopens, so it also takes --force. A 'locked' month never reopens, not even
+  # with it: the information already left the system.
+  mnemosine period reopen "December 2026" --force --reason "Ajuste pedido por el auditor externo"
+`,
   yearCreate: `
 Examples:
   # Create a fiscal year and its twelve monthly periods.
@@ -395,6 +407,7 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
     risk: 'irreversible',
     writes: "fiscal_periods.status (cerrado → open); audit_log acción 'reopen' con motivo",
   });
+  reopen.addHelpText('after', EJEMPLOS.periodReopen);
   reopen.action(
     (
       name: string,

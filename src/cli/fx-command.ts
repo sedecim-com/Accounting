@@ -151,6 +151,58 @@ const FUENTES_DE_DESCARGA: Record<string, { fuente: FuenteDeTipo; editor: string
   ecb: { fuente: 'ecb', editor: 'Banco Central Europeo, tipos de referencia' },
 };
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// El par se escribe como lo escribe una mesa de cambios —USD/MXN— y la FUENTE
+// nunca se omite: desde la 057 el DOF y el FIX del mismo día son dos filas
+// distintas, y son dos números distintos. El que tiene efecto fiscal en México
+// es el del Diario Oficial (art. 20 CFF), que es también el defecto de la
+// política `fuente_tipo_cambio`; la columna `policy` de `list` marca cuál usa
+// ESTE despacho.
+//
+// Prosa en inglés (idioma del nodo); los datos son mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  rateList: `
+Examples:
+  # Every USD/MXN rate stored for July 2026, whoever published it. The policy
+  # column marks the source this firm actually converts with.
+  mnemosine fx rate list --pair USD/MXN --since 2026-07-01 --until 2026-07-31
+  # Only what the DOF published, which is the rate art. 20 CFF gives legal effect to.
+  mnemosine fx rate list --pair USD/MXN --source dof --rate-type spot
+`,
+  rateShow: `
+Examples:
+  # The rate a document dated 2026-07-08 converts at. Resolution is direct, then
+  # inverse, then crossed through USD, and it says out loud when it had to carry
+  # a rate forward from an earlier day.
+  mnemosine fx rate show USD/MXN 2026-07-08
+  # Another rate type, as JSON for a script.
+  mnemosine fx rate show EUR/MXN 2026-07-08 --rate-type average --json
+`,
+  rateSet: `
+Examples:
+  # The DOF rate for the day. A vendor bill in USD dated 2026-07-08 converts at
+  # this number, so it has to exist BEFORE the expense is captured: without the
+  # rate of the source the policy names, the conversion stops instead of guessing.
+  mnemosine fx rate set USD/MXN 2026-07-08 18.4231 --source dof
+  # The Banxico FIX of the SAME day, which is a different number and lives beside
+  # it. --dry-run says what would be recorded and writes nothing.
+  mnemosine fx rate set USD/MXN 2026-07-08 18.3975 --source banco_mexico --dry-run
+`,
+  rateDownload: `
+Examples:
+  # What the download would fetch and where it would land. There is no connector
+  # yet, so running it FAILS CLOSED instead of inventing a rate: today the honest
+  # path is fx rate set with the number the publisher actually printed.
+  mnemosine fx rate download --source dof --as-of 2026-07-08 --dry-run
+  # A whole month of the Banxico FIX, which additionally needs a SIE token that
+  # no credential store here governs yet.
+  mnemosine fx rate download --source banxico-fix --since 2026-07-01 --until 2026-07-31 --dry-run
+`,
+} as const;
+
 export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
   const fx = program
     .command('fx')
@@ -177,6 +229,7 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
     .option(`--rate-type <${TIPOS_DE_TASA.join('|')}>`, 'only rates of this type')
     .option(`--source <${FUENTES_DE_TIPO.join('|')}>`, 'only rates from this source');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.rateList);
   list.action(
     (opts: CommonOpts & { pair?: string; since?: string; until?: string; rateType?: string; source?: string }) =>
       run(async () => {
@@ -256,6 +309,7 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
   withOutput(withContext(show));
   show.option(`--rate-type <${TIPOS_DE_TASA.join('|')}>`, 'rate type to resolve', 'spot');
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.rateShow);
   show.action((pairArg: string, dateArg: string, opts: CommonOpts & { rateType: string }) =>
     run(async () => {
       bootstrapTenant(opts.tenant);
@@ -333,6 +387,7 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
     .option('--until <date>', 'last date the rate remains effective (YYYY-MM-DD)')
     .option('--dry-run', 'show what would be recorded without writing');
   declareRisk(set, { risk: 'escritura', agent: false, writes: 'exchange_rates' });
+  set.addHelpText('after', EJEMPLOS.rateSet);
   set.action(
     (
       pairArg: string,
@@ -431,6 +486,7 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
     agent: false,
     writes: 'exchange_rates — hoy nada: falla cerrado por falta de conector',
   });
+  download.addHelpText('after', EJEMPLOS.rateDownload);
   download.action(
     (opts: CommonOpts & { source?: string; asOf?: string; since?: string; until?: string; dryRun?: boolean; live?: boolean }) =>
       run(async () => {

@@ -208,6 +208,39 @@ class EnsayoDeAlta extends Error {
   }
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// La clase se nombra por el nombre que la siembra escribió —«Equipo de
+// Transporte», «Equipo de Cómputo»— y no por un uuid: `asset_categories` no
+// tiene código (la 003 no se lo puso) y `resolverCategoriaDeActivo` acepta un
+// trozo del nombre que case con UNA sola. De la clase salen la vida útil de la
+// LISR y las tres cuentas por omisión.
+//
+// `--capitalized` NO tiene valor por omisión y va en los tres ejemplos: es la
+// única pregunta que el alta no puede deducir, y suponerla duplica el activo
+// (si el CFDI ya se capitalizó a la 1210) o lo deja fuera del mayor.
+//
+// Prosa en inglés (idioma del nodo); los datos son mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  create: `
+Examples:
+  # Rehearse the REAL path and undo it: the three accounts get resolved against
+  # this entity's chart, the folio series is checked and the panel policies are
+  # read, then the transaction is rolled back. Nothing is left behind.
+  mnemosine asset create "Camioneta Nissan NP300 2026" --category "Equipo de Transporte" --cost 489000.00 --acquired 2026-07-08 --capitalized yes --dry-run
+  # The cost is ALREADY charged to the asset account, because the CFDI was
+  # capitalised: --capitalized yes, and the entry it sits in when it is known.
+  # No journal entry is written here — a second one would double the asset.
+  mnemosine asset create "Camioneta Nissan NP300 2026" --category "Equipo de Transporte" --cost 489000.00 --acquired 2026-07-08 --capitalized yes --source-entry 3c9a71e8-52d4-4f0b-9c17-8ab6d2540f31 --serial 3N6AD33A9SK812004
+  # Not in the ledger yet: the register takes the asset and says in yellow the
+  # exact amount still to be posted, because the credit side (bank, payables or
+  # capital) is not something the register can guess.
+  mnemosine asset create "Servidor Dell PowerEdge T360" --category "Equipo de Cómputo" --cost 62500.00 --acquired 2026-07-15 --capitalized no --life-years 4 --salvage 6250.00
+`,
+} as const;
+
 export function registerAssetCommand(program: Command, deps: AssetCommandDeps): void {
   const asset = program
     .command('asset')
@@ -284,6 +317,7 @@ export function registerAssetCommand(program: Command, deps: AssetCommandDeps): 
     agent: false,
     writes: 'fixed_assets (alta) + entity_sequences (folio) + audit_log; ninguna póliza',
   });
+  create.addHelpText('after', EJEMPLOS.create);
   create.action((nombre: string, opts: CreateOpts, cmd: Command) =>
     run(async () => {
       const { dryRun } = gateMutation(cmd, opts as unknown as Record<string, unknown>);

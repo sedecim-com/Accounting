@@ -247,6 +247,55 @@ export function filasDelAsiento(plan: PlanDeDepreciacion): Row[] {
   return filas;
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// `--period` NO se adivina del reloj y por eso va en todos: correr «el periodo
+// actual» un día 1 a las 00:05 depreciaría el mes que acaba de empezar. Se
+// admite 2026-08 o un trozo inequívoco del nombre que el calendario acuñó.
+//
+// `--book` DECLARA, no elige: cuál de las dos depreciaciones llega al mayor es
+// la política `base_depreciacion` del panel, y la bandera sólo sirve para que
+// el comando pueda contradecir a quien creía estar corriendo la otra. Los
+// ejemplos escriben `--book book`, que es lo que rige con el defecto declarado
+// (vida útil NIF C-6); un despacho que contestó `tasa_lisr` escribe `tax`.
+//
+// El plan de `--file` sale de la corrida POR ACTIVO —la de por omisión—,
+// porque lo que se compara son pares (activo, importe): un resumen por clase
+// no trae `asset_id` y no aprueba nada.
+//
+// Prosa en inglés (idioma del nodo); los datos son mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  run: `
+Examples:
+  # August, asset by asset: what each one charges this month, and which ones are
+  # left out and why. This leaf writes nothing and posts nothing — the whole leaf
+  # is the rehearsal, which is why it carries no --dry-run.
+  mnemosine depreciation run --period 2026-08
+  # The same month as JSON. THIS is the approved plan that depreciation post
+  # --file compares against, so it is left per asset (the default --by).
+  mnemosine depreciation run --period 2026-08 --format json -o plan-depreciacion-2026-08.json
+  # Summarised by asset class, and with the missing-asset warning turned into a
+  # blocker: --strict can only tighten, never loosen.
+  mnemosine depreciation run --period 2026-08 --by class --strict
+`,
+  post: `
+Examples:
+  # What would land in the ledger: ONE journal entry per asset (DR 6140 expense /
+  # CR 1290 accumulated), with the total in front. Run this first — a month
+  # posted twice cannot be edited away, only reversed, entry by entry.
+  mnemosine depreciation post --period 2026-08 --dry-run
+  # Post it, declaring the book you believe you are on. --book has to agree with
+  # \`base_depreciacion\` on the panel; it does not override it.
+  mnemosine depreciation post --period 2026-08 --book book
+  # Unattended and against the plan that was approved: if an asset moved since
+  # then, it refuses and names the asset and both amounts. The same key replayed
+  # returns the recorded result instead of posting again.
+  mnemosine depreciation post --period 2026-08 --file plan-depreciacion-2026-08.json --yes --idempotency-key depreciacion-2026-08
+`,
+} as const;
+
 export function registerDepreciationCommand(
   program: Command,
   deps: DepreciationCommandDeps
@@ -401,6 +450,7 @@ export function registerDepreciationCommand(
   // escritura sería declarar de más, y una declaración que no corresponde al
   // código es justo lo que hace inútil al registro de riesgo.
   declareRisk(correr, { risk: 'lectura', agent: true });
+  correr.addHelpText('after', EJEMPLOS.run);
   correr.action((opts: CommonOpts & { period?: string; book?: string; by: string; strict?: boolean }) =>
     run(async () => {
       const por = exigirDimension(opts.by);
@@ -469,6 +519,7 @@ export function registerDepreciationCommand(
     agent: false,
     writes: 'journal_entries + journal_entry_lines (una póliza por activo), depreciation_schedules, fixed_assets',
   });
+  contabilizar.addHelpText('after', EJEMPLOS.post);
   contabilizar.action((
     opts: CommonOpts & {
       period?: string;

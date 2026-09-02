@@ -3,6 +3,7 @@ import type { Command, OutputConfiguration } from 'commander';
 import { program } from '../../src/cli/mnemosine.js';
 import { riskOf } from '../../src/cli/kernel/risk.js';
 import { catalogoBasePara } from '../../src/services/accounting/chart-seed.js';
+import { cuentasRequeridasPara } from '../../src/services/xml-ingestion/account-roles-seed.js';
 import { parseLineSpec, resolveLineTaxAmount } from '../../src/cli/bill-command.js';
 import { parseInvoiceLine } from '../../src/cli/invoice-command.js';
 
@@ -123,6 +124,70 @@ function banderasDe(cmd: Command): Set<string> {
   return fuera;
 }
 
+/**
+ * Las banderas de una hoja que reciben un CÓDIGO de cuenta de mayor.
+ *
+ * Era una lista escrita a mano —`--account`, `--parent`, `--default-account`—
+ * y se equivocó en cuanto el árbol creció. En la familia `bank`, `--account`
+ * NO nombra una cuenta del catálogo: nombra la cuenta BANCARIA («BBVA
+ * Operativa MXN», un nombre o un uuid), y su cuenta de mayor se llama
+ * `--gl-account`. Con la lista a mano, comprobar el valor de `bank statement
+ * import --account` contra el catálogo acusaba en falso a un ejemplo
+ * perfectamente tecleable —y, como esa bandera es OBLIGATORIA en tres hojas de
+ * banca, la única salida habría sido dejarlas sin documentar.
+ *
+ * Así que la distinción se DERIVA del programa embarcado, donde ya está
+ * escrita: el MARCADOR de la opción. `--account <code>` (entry, ledger,
+ * report, bill), `--parent <code>`, `--default-account <code>`,
+ * `--gl-account <code>` y `--write-off-account <account>` reciben un código
+ * del catálogo; `--account <ref>` recibe otra cosa. Derivarlo además CIERRA
+ * dos huecos que la lista tenía: nadie comprobaba `--gl-account` ni
+ * `--write-off-account`, que son cuentas de mayor de pleno derecho.
+ */
+function banderasDeCuenta(cmd: Command): Set<string> {
+  const fuera = new Set<string>();
+  for (let nodo: Command | null = cmd; nodo; nodo = nodo.parent) {
+    for (const o of nodo.options) {
+      if (!o.long || !/account|parent/.test(o.long)) continue;
+      if (!/<code>|<account>/.test(o.flags)) continue;
+      fuera.add(o.long);
+    }
+  }
+  return fuera;
+}
+
+/**
+ * El vocabulario CERRADO que una bandera acepta, cuando el marcador lo
+ * deletrea: `--stop-at <extracto|cotejo|sesion|partidas|estado>`,
+ * `--residual <keep|write-off>`, `--source <dof|banco_mexico>`.
+ *
+ * Existe porque el guardián comprobaba NOMBRES de bandera y la gramática de
+ * Commander, y jamás el VALOR. Medido: `--source banco_mexico` cambiado a
+ * `--source banxico-fix` dejaba la suite entera en verde, y el ejemplo pegado
+ * en una terminal moría en `exigirFuente` antes de mirar siquiera `--dry-run`.
+ * El dedazo es de los que ocurren solos: en el MISMO archivo, doscientas
+ * ochenta líneas más abajo, otra hoja de la misma familia usa el otro nombre.
+ *
+ * No se escribe la lista: se DERIVA del marcador que el programa embarca, que
+ * es donde el propio binario ya la tiene escrita. Un marcador de una sola
+ * palabra (`<code>`, `<id>`, `<amount>`) no es vocabulario y no restringe nada.
+ */
+function vocabularioDe(cmd: Command): Map<string, Set<string>> {
+  const fuera = new Map<string, Set<string>>();
+  for (let nodo: Command | null = cmd; nodo; nodo = nodo.parent) {
+    for (const o of nodo.options) {
+      if (!o.long) continue;
+      const m = /[<[]([^<>[\]]+)[>\]]/.exec(o.flags);
+      if (!m || !m[1].includes('|')) continue;
+      const valores = m[1].split('|').map((v) => v.trim()).filter(Boolean);
+      // Un marcador con espacios es prosa, no vocabulario.
+      if (valores.some((v) => /\s/.test(v))) continue;
+      if (!fuera.has(o.long)) fuera.set(o.long, new Set(valores));
+    }
+  }
+  return fuera;
+}
+
 /** La hoja que un ejemplo invoca, resolviendo nombres y alias como Commander. */
 function resolver(tokens: string[]): { cmd: Command; posicionales: string[] } | null {
   if (tokens[0] !== 'mnemosine') return null;
@@ -164,16 +229,51 @@ const MUTANTES = new Set(['escritura', 'irreversible', 'externo']);
  *
  * Puesto en el valor MEDIDO hoy, cualquier borrado —una familia, una hoja, un
  * bloque— baja el número y muere aquí.
+ *
+ * 115 → 163 al documentar `bank` ENTERA: sus treinta y dos hojas —de
+ * `bank account create` a `bank check reconcile`— pasaron de cero
+ * invocaciones a setenta y ocho. Era el hueco más grande del árbol y el que
+ * más se teclea: conciliación bancaria es trabajo de todos los meses.
  */
-const SUELO_HOJAS_CON_EJEMPLOS = 115;
+const SUELO_HOJAS_CON_EJEMPLOS = 163;
+
+/**
+ * LOS TRES SUELOS SE VOLVIERON A MEDIR AL CERRAR EL LOTE, Y CONTRA EL ÁRBOL
+ * TERMINADO.
+ *
+ * Los números de arriba y el de abajo se sembraron con el trabajo de otras
+ * manos EN VUELO: mientras se escribían, otras familias estaban ganando y
+ * perdiendo ejemplos, y un suelo sembrado a media faena nace caduco por los dos
+ * lados —queda inalcanzable si algo se revierte, y queda con holgura si algo
+ * más se documenta—. Apretar es un acto de FINAL de lote.
+ *
+ * Medidos de nuevo sobre el árbol ya quieto, los tres salieron EXACTOS y no
+ * hubo que mover ninguno: 210 hojas, 163 con ejemplos, 364 invocaciones. Cero
+ * puntos de holgura en los tres. La medición se reproduce con las funciones de
+ * este mismo archivo —`hojas(program).length`, `CON_EJEMPLOS.length` y la suma
+ * de `h.ejemplos.length`— y se cruza con `npm run ux:status`, que cuenta las
+ * hojas por su lado y dice 210 hojas y 47 sin ejemplo: 210 − 47 = 163, los dos
+ * instrumentos por caminos distintos sobre el mismo árbol.
+ *
+ * Que el cruce dé lo mismo NO es una tautología: `ux:status` mide con
+ * `prosaQueEnsena` (¿esta ayuda invoca el binario?) y esto de aquí con las
+ * líneas de `addHelpText` que empiezan por `mnemosine `. Son dos definiciones
+ * distintas de «tiene ejemplo», y coinciden hoja por hoja.
+ */
+
 
 /**
  * Y el mismo trinquete para el árbol: `toBeGreaterThan(80)` sobre 179 hojas era
  * la misma holgura, en el sitio donde más duele, porque TODO lo de abajo
  * itera sobre `TODAS`. Un árbol que se lee a medias hace pasar en verde las
  * cinco pruebas que siguen sobre las hojas que sí se leyeron.
+ *
+ * 179 → 210 con la fusión de F05 (banco), F06 (cierre, activos, lotes) y R4
+ * (moneda extranjera): treinta y una hojas nuevas. El suelo se aprieta contra
+ * el árbol de hoy porque treinta y un puntos de holgura son treinta y una
+ * hojas que se pueden borrar sin que nadie proteste.
  */
-const SUELO_HOJAS = 179;
+const SUELO_HOJAS = 210;
 
 describe('la ayuda enseña invocaciones que se pueden teclear', () => {
   it('el árbol embarcado se lee entero: si no, nada de lo de abajo prueba nada', () => {
@@ -218,6 +318,45 @@ describe('la ayuda enseña invocaciones que se pueden teclear', () => {
     ).toEqual([]);
   });
 
+  it('todo valor de un vocabulario cerrado sale del vocabulario, no de la memoria de quien escribió el ejemplo', () => {
+    const inventados: string[] = [];
+    let comprobados = 0;
+    for (const hoja of CON_EJEMPLOS) {
+      for (const ejemplo of hoja.ejemplos) {
+        const destino = resolver(tokenizar(ejemplo));
+        if (!destino) continue;
+        const vocabulario = vocabularioDe(destino.cmd);
+        const tokens = tokenizar(ejemplo);
+        for (let i = 0; i < tokens.length; i++) {
+          const [nombre, pegado] = tokens[i].split('=');
+          const permitidos = vocabulario.get(nombre);
+          if (!permitidos) continue;
+          const valor = pegado ?? tokens[i + 1];
+          if (valor === undefined || valor.startsWith('-')) continue;
+          comprobados++;
+          // Una lista separada por comas es legítima donde el marcador la
+          // documenta: cada elemento se juzga por su cuenta.
+          for (const parte of valor.split(',').map((v) => v.trim()).filter(Boolean)) {
+            if (!permitidos.has(parte)) {
+              inventados.push(
+                `${hoja.ruta}: ${nombre} ${parte} — el programa sólo acepta ${[...permitidos].join('|')} — ${ejemplo}`
+              );
+            }
+          }
+        }
+      }
+    }
+    // La prueba de la prueba: si la derivación se queda muda, el caso pasaría
+    // sobre cero valores y parecería que vigila.
+    expect(comprobados, 'ningún valor de vocabulario cerrado llegó a comprobarse: la derivación se quedó muda').toBeGreaterThan(10);
+    expect(
+      inventados,
+      'Un valor fuera del vocabulario cerrado PARSEA en Commander y muere en el validador del ' +
+        'servicio, después de que el usuario lo pegó en su terminal. El programa deletrea la lista ' +
+        'en el marcador de la opción: cópiala de ahí.'
+    ).toEqual([]);
+  });
+
   it('cada ejemplo invoca la hoja en cuya ayuda vive, no otra', () => {
     const desviados: string[] = [];
     for (const hoja of CON_EJEMPLOS) {
@@ -257,8 +396,21 @@ describe('la ayuda enseña invocaciones que se pueden teclear', () => {
 
   // ── Los datos de los ejemplos son los del repositorio ───────────────
   it('toda cuenta citada en un ejemplo existe en el catálogo que el repo siembra', () => {
+    // EL CATÁLOGO QUE EL REPO SIEMBRA SON DOS SEMBRADORES, NO UNO.
+    // `ensureEntityAccounting` crea el catálogo base Y las cuentas requeridas
+    // de account-roles-seed.ts en la MISMA transacción, así que toda entidad
+    // nace con las dos listas. Mirando sólo chart-seed.ts, 6310 «Comisiones y
+    // Gastos Bancarios» y 4310 «Productos Financieros» —las dos que F05d
+    // separó a propósito de 6300 y 4300— quedaban fuera, y un ejemplo de
+    // `bank adjustment create` que mandara la comisión bancaria a 6300 para
+    // contentar a esta prueba enseñaría exactamente el error que F05d arregló.
     const catalogo = new Set(
-      [...catalogoBasePara(true), ...catalogoBasePara(false)].map((c) => c.code)
+      [
+        ...catalogoBasePara(true),
+        ...catalogoBasePara(false),
+        ...cuentasRequeridasPara(true),
+        ...cuentasRequeridasPara(false),
+      ].map((c) => c.code)
     );
     // Una cuenta que un ejemplo CREA no puede estar en el catálogo base: es
     // justo lo que `account create` hace. Se admiten, y sólo ésas.
@@ -275,14 +427,35 @@ describe('la ayuda enseña invocaciones que se pueden teclear', () => {
     }
     const admisible = (codigo: string): boolean => catalogo.has(codigo) || creadas.has(codigo);
 
-    const CON_CUENTA = ['--account', '--parent', '--default-account'];
+    // LA PRUEBA DE LA PRUEBA. `banderasDeCuenta` DERIVA del árbol, y una
+    // derivación que se quedara vacía dejaría este caso pasando sobre cero
+    // cuentas citadas —el mismo verde sobre nada que los tres suelos de arriba
+    // existen para impedir—. Se afirman las dos mitades, y sobre las hojas
+    // donde las dos grafías conviven: `bank adjustment create` recibe la
+    // cuenta de MAYOR por `--gl-account`; `bank statement import` declara
+    // `--account <ref>`, que es una cuenta BANCARIA y no un código; y
+    // `entry list` declara `--account <code>`, que sí lo es.
+    const hojaDe = (ruta: string): Command => {
+      const h = TODAS.find((x) => x.ruta === ruta);
+      if (!h) throw new Error(`el árbol embarcado ya no tiene «${ruta}»`);
+      return h.cmd;
+    };
+    expect([...banderasDeCuenta(hojaDe('bank adjustment create'))]).toContain('--gl-account');
+    expect([...banderasDeCuenta(hojaDe('bank match create'))]).toContain('--write-off-account');
+    expect([...banderasDeCuenta(hojaDe('bank statement import'))]).not.toContain('--account');
+    expect([...banderasDeCuenta(hojaDe('entry list'))]).toContain('--account');
+
     const inventadas: string[] = [];
     for (const hoja of CON_EJEMPLOS) {
       for (const ejemplo of hoja.ejemplos) {
         const tokens = tokenizar(ejemplo);
+        const destino = resolver(tokens);
+        // Cuáles de las banderas de ESTA hoja reciben un código de mayor lo
+        // dice la hoja, no una lista de este archivo (ver `banderasDeCuenta`).
+        const conCuenta = destino ? banderasDeCuenta(destino.cmd) : new Set<string>();
         const citadas: string[] = [];
         tokens.forEach((t, i) => {
-          if (CON_CUENTA.includes(t) && tokens[i + 1]) citadas.push(tokens[i + 1]);
+          if (conCuenta.has(t) && tokens[i + 1]) citadas.push(tokens[i + 1]);
           // `--line "account=6100,price=…"` (bill) y `account=4200;…` (invoice)
           for (const m of t.matchAll(/(?:^|[,;])account=([^,;]+)/g)) citadas.push(m[1]);
           // `--line "6120:debit:45000.00"` (entry)
@@ -290,7 +463,6 @@ describe('la ayuda enseña invocaciones que se pueden teclear', () => {
           if (linea) citadas.push(linea[1]);
         });
         // El posicional que la propia hoja declara como <code> es una cuenta.
-        const destino = resolver(tokens);
         (destino?.cmd.registeredArguments ?? []).forEach((arg, i) => {
           const valor = destino?.posicionales[i];
           if (arg.name() === 'code' && valor && /^\d{3,6}$/.test(valor)) citadas.push(valor);
@@ -305,7 +477,9 @@ describe('la ayuda enseña invocaciones que se pueden teclear', () => {
     expect(
       inventadas,
       'Un ejemplo que cita una cuenta inventada no se puede pegar en una terminal: el comando ' +
-        'muere resolviéndola. Usa códigos del catálogo base (src/services/accounting/chart-seed.ts).'
+        'muere resolviéndola. Usa códigos de lo que el repo siembra de verdad: el catálogo base ' +
+        '(src/services/accounting/chart-seed.ts) y las cuentas requeridas ' +
+        '(src/services/xml-ingestion/account-roles-seed.ts).'
     ).toEqual([]);
   });
 });
@@ -417,8 +591,13 @@ function clavesDocumentadasDeLinea(cmd: Command): Set<string> | null {
   return claves;
 }
 
-/** Cuántas invocaciones hay que parsear. Trinquete, como los otros dos. */
-const SUELO_EJEMPLOS = 244;
+/**
+ * Cuántas invocaciones hay que parsear. Trinquete, como los otros dos.
+ *
+ * 244 → 364: las setenta y ocho de `bank` y las que ya había ganadas por
+ * encima del suelo anterior. Sube con el terreno, nunca por delante de él.
+ */
+const SUELO_EJEMPLOS = 364;
 
 describe('los ejemplos pasan por el commander de verdad', () => {
   const NODOS = nodosDe(program);

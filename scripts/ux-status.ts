@@ -69,6 +69,27 @@
  * arreglos de este lote: `hojas-sin-ejemplo` bajó de 116 a 64 —los dos falsos
  * positivos incluidos, que SUBEN el número honesto— con `--apretar` corriendo
  * sobre este mismo archivo.
+ *
+ * EL ÁRBOL CRECIÓ Y EL CENSO LO VIO: 179 → 210 HOJAS, LA MISMA TARDE
+ *
+ * La fusión de F05 (banco), F06 (cierre, activos, lotes) y R4 (moneda
+ * extranjera) trajo treinta y una hojas nuevas, y `hojas-sin-ejemplo` subió de
+ * 64 a 94 sin que nadie borrara un solo ejemplo: las que llegaron venían sin
+ * ellos. Ése es el instrumento haciendo su trabajo. La lista escrita a mano que
+ * este censo vino a sustituir habría seguido en verde, porque treinta y una
+ * hojas que no están en la lista no existen para ella.
+ *
+ * Se cerró DOCUMENTANDO, no subiendo la línea base: 94 → 47 (ver
+ * `LINEAS_BASE`, que dice qué se documentó y qué no). El árbol de hoy mide 210
+ * hojas y 280 nodos, y las seis líneas base están pegadas a lo medido, sin un
+ * punto de holgura.
+ *
+ * De las seis, UNA subió: `nodos-fuera-del-idioma-canonico`, de 6 a 7, porque
+ * la fusión trajo un nodo más fuera del idioma y el arreglo no es de este
+ * tramo (es un valor de bandera, y su idioma es la decisión §5.1, abierta y del
+ * dueño). Está escrito entero en `LINEAS_BASE` con su porqué: subir es un acto
+ * manual —`--apretar` se niega— y ésta es la única forma en que un +1 deja
+ * rastro legible en vez de esconderse en un diff.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -105,7 +126,8 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
 });
 
 /**
- * LO MEDIDO EL DÍA QUE ESTO SE ENCENDIÓ (2026-09-02, 178 hojas, 235 nodos).
+ * LO MEDIDO HOY (2026-09-02, 210 hojas y 280 nodos: el árbol DESPUÉS de la
+ * fusión de F05, F06 y R4).
  *
  * Sólo puede encoger. Si arreglas hojas, aprieta el trinquete en el mismo
  * commit —`npm run ux:status -- --apretar` reescribe estos números— porque la
@@ -113,16 +135,83 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
  * registrada y se vuelve un permiso permanente. SUBIR uno de estos números
  * sigue siendo un acto manual; `--apretar` se niega a hacerlo.
  *
- * `hojas-graves-sin-las-tres-banderas` está en CERO y así se queda: hoy
- * `declareRisk` inyecta las tres banderas a toda hoja irreversible o externa,
- * y el criterio es que eso NO se rompa el día que alguien registre una hoja
- * grave por fuera del núcleo.
+ * ── `hojas-sin-ejemplo` = 47 ──────────────────────────────────────────────
+ *
+ * QUÉ SE DOCUMENTÓ Y QUÉ NO, ESCRITO AQUÍ PARA QUE EL NÚMERO SIGUIENTE SEPA
+ * CONTRA QUÉ COMPARA. 64 era el número de un árbol de 179 hojas; la fusión lo
+ * llevó a 94 y este lote lo bajó a 47 escribiendo ejemplos, que es la única
+ * forma de bajarlo que no es maquillaje.
+ *
+ * Lo documentado es CONTABILIDAD DIARIA —lo que un contador teclea todos los
+ * meses—: la familia `bank` entera (32 hojas, de `bank account create` a
+ * `bank check reconcile`: conciliación bancaria, el hueco más grande y el más
+ * tecleado), y `fx`, `batch`, `closing`, `depreciation`, `asset` y `period`
+ * de lo que trajo la fusión.
+ *
+ * Los 47 que quedan NO son un descuido ni un resto: son PLOMERÍA, y quedan
+ * ENTERAS. Diecisiete familias sin una sola hoja documentada —ninguna a
+ * medias, que es la forma que sí engaña al usuario y que la regla de «familia
+ * a medias» de tests/cli/ejemplos-de-ayuda.spec.ts vigila aparte—:
+ *
+ *   entity 6 · jobs 6 · backup 5 · sat 4 · memory 4 · webhooks 4 · pending 3 ·
+ *   approvals 3 · skills 3 · rep 2 · doctor · prompt-size · compact · ai ·
+ *   usage · status · init
+ *
+ * Ninguna se teclea en el cierre de un mes: son administración de la
+ * instalación (entity, backup, init), del agente (memory, skills, ai,
+ * prompt-size, compact), de la automatización (jobs, webhooks, approvals,
+ * pending) y del diagnóstico (doctor, status, usage, rep, sat cred). Bajar de
+ * 47 es documentar plomería, y eso es un lote con su propio alcance, no el
+ * efecto secundario de que alguien toque la hoja de al lado.
+ *
+ * ── `nodos-fuera-del-idioma-canonico` = 7, SUBIDO A MANO ──────────────────
+ *
+ * Es el único de los seis que SUBE en este lote, y sube porque el árbol creció
+ * con un nodo más fuera del idioma. Los seis de siempre son `account map
+ * import`, `entry import`, `cfdi list`, `cfdi status show`, `ai` y `ai stats`
+ * —prosa de autor escrita en castellano, deuda vieja y arreglable—. El séptimo
+ * lo trajo la fusión y NO es de esa clase: `batch check` enumera en su
+ * `--check` las cinco categorías de hallazgo que el servicio acepta, y una se
+ * llama `cuenta`. El censo la ve como castellano dentro de una frase inglesa,
+ * y tiene razón en lo que ve: está en pantalla y está en castellano.
+ *
+ * POR QUÉ SUBE LA LÍNEA BASE EN VEZ DE ARREGLARSE. `cuenta` no es una palabra
+ * que el autor eligió al redactar: es un VALOR QUE EL USUARIO TECLEA, superficie
+ * con el mismo estatus que el nombre de un comando. Renombrarlo para bajar un
+ * número rompería a quien ya escribe `--check cuenta` y, sobre todo, decidiría
+ * por su cuenta la §5.1 —el idioma de la interfaz—, que es del DUEÑO y está
+ * ABIERTA. Un trinquete no toma decisiones de producto; las registra hasta que
+ * alguien las toma. Así que aquí queda registrada, con nombre y sitio, y sale
+ * también en los pendientes del lote para que el dueño la vea al decidir.
+ *
+ * SUBIR ES UN ACTO MANUAL Y ÉSTE ES SU RASTRO. `--apretar` se niega a subir una
+ * línea base justamente para que un +1 no pueda colarse como efecto secundario
+ * de correr un comando; esta línea se escribió a mano y este párrafo es la razón
+ * que la acompaña, que es lo que el mensaje del trinquete pide («sube la línea
+ * base a mano en scripts/ux-status.ts y dilo en el commit»).
+ *
+ * LO QUE SE MIRÓ Y NO SE HIZO. `fueraDeIdioma` descuenta lo entrecomillado y lo
+ * marcado entre acentos graves —por eso la descripción de `lang`, con su literal
+ * 'es', no cuenta—, así que marcar las cinco categorías bajaría el número a 6 y
+ * además le diría al lector que son valores literales. Es defendible, pero es
+ * una edición de la ayuda de `batch check` (src/cli/batch-command.ts), no de
+ * este censo, y hoy NO está hecha: ese archivo lleva un comentario que dice que
+ * las cinco «van entre acentos graves» y la cadena que se imprime no los tiene.
+ * Este 7 es la medición del árbol tal como está, no la del árbol que el
+ * comentario describe; si alguien termina esa edición, el número baja a 6 y el
+ * trinquete lo va a pedir por holgura.
+ *
+ * ── `hojas-graves-sin-las-tres-banderas` = 0 ──────────────────────────────
+ *
+ * Está en CERO y así se queda: hoy `declareRisk` inyecta las tres banderas a
+ * toda hoja irreversible o externa, y el criterio es que eso NO se rompa el
+ * día que alguien registre una hoja grave por fuera del núcleo.
  */
 export const LINEAS_BASE: Readonly<Record<Clave, number>> = Object.freeze({
-  'hojas-sin-ejemplo': 64,
+  'hojas-sin-ejemplo': 47,
   'hojas-sin-contrato-de-salida': 21,
   'hojas-sin-alias-castellano': 17,
-  'nodos-fuera-del-idioma-canonico': 6,
+  'nodos-fuera-del-idioma-canonico': 7,
   'hojas-graves-sin-las-tres-banderas': 0,
   'banderas-del-diccionario-sin-hoja': 11,
 });
@@ -255,7 +344,7 @@ export function fueraDeIdioma(prosa: string): string | null {
  *
  * Se emiten sólo los eventos del propio nodo, no los `beforeAllHelp` /
  * `afterAllHelp` de sus ancestros: un pie de página puesto en la raíz sale en
- * las 179 pantallas y dejaría las 179 hojas «con ejemplo» sin que ninguna
+ * las 210 pantallas y dejaría las 210 hojas «con ejemplo» sin que ninguna
  * enseñe a usarse.
  *
  * LO QUE QUEDA FUERA, Y POR QUÉ NO ES UN DETALLE: las columnas `Arguments:` y
@@ -348,7 +437,7 @@ export function tieneEjemplo(cmd: Command, binario: string): boolean {
  * El hueco está ACOTADO, y no por buena voluntad: el vocabulario es CERRADO, y
  * toda hoja cuyo verbo esté fuera de él ya está registrada en otro sitio —o en
  * `OBJECTLESS_COMMANDS`, o nombrada una a una en la `LINEA_BASE` de
- * src/cli/kernel/audit.ts, que también sólo puede encoger. Son 25 hojas de 179
+ * src/cli/kernel/audit.ts, que también sólo puede encoger. Son 25 hojas de 210
  * el 2026-09-02, ninguna sin registrar, y hay prueba que lo ancla. El día que
  * un verbo entra en `VERBS`, esta función pasa sola a exigirle la palabra
  * exacta: el hueco se cierra por donde tiene que cerrarse, que es la lista de
@@ -515,8 +604,8 @@ export function censar(
    * `banderas-del-diccionario-sin-hoja` gracias a ella— pero su prosa no
    * entraba en ninguna cuenta: el censo la veía para un número y no para el
    * otro. La descripción del programa y la ayuda de sus banderas globales
-   * salen en las 179 pantallas; si están fuera del idioma canónico, están mal
-   * en las 179. Se comprobó con una raíz sintética escrita entera en
+   * salen en las 210 pantallas; si están fuera del idioma canónico, están mal
+   * en las 210. Se comprobó con una raíz sintética escrita entera en
    * castellano: el censo daba 0.
    *
    * Se cuenta como NODO y nunca como HOJA, aunque no tenga hijos: la raíz no

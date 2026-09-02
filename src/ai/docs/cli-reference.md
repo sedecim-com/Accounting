@@ -2311,6 +2311,17 @@ Options:
                            the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
+
+Examples:
+  # Reopen a soft-closed month so a correction lands in the month it belongs to.
+  # --reason is required, and the audit trail keeps who, why and the previous state.
+  mnemosine period reopen "July 2026" --reason "Llego un CFDI de CFE con fecha de julio"
+  # See the transition first: nothing is written and nothing is recorded.
+  mnemosine period reopen 2026-07 --dry-run
+  # A hard-closed month keeps its closing entries and its carry-forward when it
+  # reopens, so it also takes --force. A 'locked' month never reopens, not even
+  # with it: the information already left the system.
+  mnemosine period reopen "December 2026" --force --reason "Ajuste pedido por el auditor externo"
 ```
 
 ## `mnemosine year` (alias: ejercicio)
@@ -4218,6 +4229,23 @@ Options:
   --dry-run                                                run every validation and the insert, then roll it back
   --json                                                   JSON output
   -h, --help                                               display help for command
+
+Examples:
+  # The peso operating account, mapped 1:1 to the cash account of the chart.
+  # The CLABE is 18 digits and its check digit is verified before anything is written.
+  mnemosine bank account create "BBVA Operativa MXN" --bank "BBVA Mexico" --gl-account 1111 --currency MXN --clabe 012180001234567899
+  # A second peso account on its own GL account. --currency is re-checked
+  # against the GL account, so a mismatch is refused and never converted.
+  # OJO, medido: el catalogo siembra 1112 «Banco Nacional - USD» SIN
+  # currency_code, y COALESCE(a.currency_code, le.functional_currency) la
+  # resuelve como MXN. Un ejemplo con --currency USD sobre 1112 parsea y el
+  # servicio lo RECHAZA. Hasta que la siembra le ponga su moneda, aqui no se
+  # escribe una cuenta en dolares: un ejemplo copiable que no corre es peor
+  # que ninguno.
+  mnemosine bank account create "Santander Operativa MXN" --bank "Santander Mexico" --gl-account 1115 --currency MXN --clabe 014180011223344558
+  # A company card is a LIABILITY and maps to a liability account. --dry-run
+  # runs the real insert, unique 1:1 index included, and rolls it back.
+  mnemosine bank account create "Banorte Empresarial" --bank "Banorte" --gl-account 2110 --currency MXN --type credit-card --dry-run
 ```
 
 #### `mnemosine bank account list` (alias: listar)
@@ -4248,6 +4276,14 @@ Options:
   --currency <code>                                        only accounts in this currency
   --all-entities                                           every entity of the tenant, for a firm's overview; still bounded inside the SQL
   -h, --help                                               display help for command
+
+Examples:
+  # Every account of the active entity, with its GL mapping and both balances.
+  mnemosine bank account list
+  # Only the dollar ones, as JSON.
+  mnemosine bank account list --currency USD --json
+  # Every entity of the firm at once; the tenant bound stays inside the SQL.
+  mnemosine bank account list --all-entities --format csv
 ```
 
 #### `mnemosine bank account show` (alias: ver)
@@ -4272,6 +4308,12 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --redacted                               drop even the last 4 digits of the identifiers, for a shared screen
   -h, --help                               display help for command
+
+Examples:
+  # One account: masked identifiers, SAT bank key and the reconciliation anchor.
+  mnemosine bank account show "BBVA Operativa MXN"
+  # For a screen somebody else can see: not even the last four digits.
+  mnemosine bank account show "BBVA Operativa MXN" --redacted
 ```
 
 #### `mnemosine bank account edit` (alias: editar)
@@ -4305,6 +4347,16 @@ Options:
   -y, --yes                                                skip the confirmation prompt
   --json                                                   JSON output
   -h, --help                                               display help for command
+
+Examples:
+  # Rename it and record the branch: nothing sensitive changes here.
+  mnemosine bank account edit "BBVA Operativa MXN" --name "BBVA Operativa Principal" --branch "Polanco"
+  # The CLABE is the identifier the money leaves by, so --reason is required,
+  # the before and after land MASKED in the append-only audit trail, and it
+  # asks before writing. -y skips the question, never the reason.
+  mnemosine bank account edit "BBVA Operativa MXN" --clabe 012180001234567899 --reason "Cambio de CLABE notificado por el banco el 2026-07-01"
+  # An empty value CLEARS the field; omitting the flag leaves it alone.
+  mnemosine bank account edit "Santander Operativa MXN" --swift ""
 ```
 
 #### `mnemosine bank account set` (alias: fijar)
@@ -4331,6 +4383,14 @@ Options:
   --dry-run                apply the remap and roll it back
   --json                   JSON output
   -h, --help               display help for command
+
+Examples:
+  # Point the account at the GL account it really is; refused when the old one
+  # already carries posted entries.
+  mnemosine bank account set "BBVA Operativa MXN" --gl-account 1111
+  # Remap over an account that DOES have posted entries: --force, and --force
+  # is what makes --reason mandatory.
+  mnemosine bank account set "Santander Operativa MXN" --gl-account 1115 --force --reason "El mayor quedo mal asignado en la migracion de abril"
 ```
 
 ### `mnemosine bank statement` (alias: estado-cuenta)
@@ -4381,6 +4441,17 @@ Options:
   --dry-run                                                     parse, run the seven checks and roll the write back
   --json                                                        JSON output
   -h, --help                                                    display help for command
+
+Examples:
+  # A CAMT.053 the bank publishes: the format is sniffed and both balances come
+  # inside it. Re-importing the same file adds nothing, because the dedupe is by
+  # the content hash a trigger computes and not by an id the bank may not publish.
+  mnemosine bank statement import ./extractos/bbva-2026-07.xml --account "BBVA Operativa MXN"
+  # A CSV carries no closing balance: assert it. If the file does carry one and
+  # they differ the import is refused, which is what catches a truncated download.
+  mnemosine bank statement import ./extractos/santander-2026-07.csv --account "Santander Operativa MXN" --format csv --profile santander-mx --closing-balance 184320.55
+  # A whole folder, parsed and run through the seven checks, writing nothing.
+  mnemosine bank statement import ./extractos/julio/bbva-01.csv --dir ./extractos/julio --account "BBVA Operativa MXN" --dry-run
 ```
 
 #### `mnemosine bank statement list` (alias: listar)
@@ -4408,6 +4479,12 @@ Options:
   --since <date>                           statements whose period ENDS on or after this date (YYYY-MM-DD)
   --until <date>                           statements whose period STARTS on or before this date (YYYY-MM-DD)
   -h, --help                               display help for command
+
+Examples:
+  # Every statement imported for one account, with opening and closing balance.
+  mnemosine bank statement list --account "BBVA Operativa MXN"
+  # The third quarter across every account, as CSV for the audit file.
+  mnemosine bank statement list --since 2026-07-01 --until 2026-09-30 --format csv
 ```
 
 #### `mnemosine bank statement show` (alias: ver)
@@ -4433,6 +4510,12 @@ Options:
   --lines                                  include the statement lines
   -n, --limit <n>                          maximum lines to list with --lines (default 500)
   -h, --help                               display help for command
+
+Examples:
+  # The document: sequence number, date range, hash of the file and the profile used.
+  mnemosine bank statement show 9d3f1c26-5a4b-4f77-9c1e-2b7d84a6e510
+  # With its lines, capped so a four-thousand-line statement does not fill the screen.
+  mnemosine bank statement show 9d3f1c26-5a4b-4f77-9c1e-2b7d84a6e510 --lines --limit 200
 ```
 
 #### `mnemosine bank statement check` (alias: verificar)
@@ -4460,6 +4543,14 @@ Options:
   --account <ref>                          every statement of this bank account (name or id)
   --since <date>                           only statements whose period ends on or after this date (YYYY-MM-DD)
   -h, --help                               display help for command
+
+Examples:
+  # Bare --check lists the seven checks and touches no database.
+  mnemosine bank statement check --check
+  # The latest statement of every account; exit 4 NAMES the check that broke.
+  mnemosine bank statement check
+  # One statement, balance chain only, with warnings blocking as well.
+  mnemosine bank statement check 9d3f1c26-5a4b-4f77-9c1e-2b7d84a6e510 --check cadena-de-saldos --strict
 ```
 
 ### `mnemosine bank transaction` (alias: movimiento)
@@ -4513,6 +4604,15 @@ Options:
   --direction <in|out>                           money in (positive amount) or out (negative amount)
   --type <debit|credit|fee|interest|adjustment>  transaction nature as the bank classified it (not its direction)
   -h, --help                                     display help for command
+
+Examples:
+  # What the bank says happened in July and nobody has explained yet.
+  mnemosine bank transaction list --account "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --unmatched
+  # hledger-style terms in one quoted argument: a bare word searches the
+  # description, amt: compares the amount. Money out, over 10,000.
+  mnemosine bank transaction list "desc:CFE amt:>10000" --direction out --account "BBVA Operativa MXN"
+  # Only what the BANK classified as a fee, which is its nature and not its direction.
+  mnemosine bank transaction list --type fee --account "BBVA Operativa MXN" --json
 ```
 
 #### `mnemosine bank transaction show` (alias: ver)
@@ -4537,6 +4637,13 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --raw                                    include raw_data exactly as the bank published it; it can carry the counterparty in the clear
   -h, --help                               display help for command
+
+Examples:
+  # One movement, the statement it came from and the live matches that explain it.
+  mnemosine bank transaction show 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4
+  # With raw_data exactly as the bank published it: it can carry the
+  # counterparty in the clear, so it is opt-in.
+  mnemosine bank transaction show 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --raw
 ```
 
 ### `mnemosine bank book-item` (alias: partida-libros)
@@ -4584,6 +4691,13 @@ Options:
   --until <date>                           entries on or before this entry date (YYYY-MM-DD)
   --over-days <n>                          only what has gone MORE than this many days without showing up at the bank
   -h, --help                               display help for command
+
+Examples:
+  # What the books say went through the bank and the bank has not shown yet,
+  # oldest first. The argument is the BANK account, not its GL code.
+  mnemosine bank book-item list "BBVA Operativa MXN"
+  # Only what has been waiting more than 30 days: the outstanding-check candidates.
+  mnemosine bank book-item list "BBVA Operativa MXN" --over-days 30 --format csv
 ```
 
 ### `mnemosine bank match` (alias: cotejo)
@@ -4633,6 +4747,14 @@ Options:
   --max-amount <amount>                    ceiling for an automatic match; the hard floor still wins
   --rules-only                             a proposal outside the date window counts as not applicable
   -h, --help                               display help for command
+
+Examples:
+  # What the engine would propose for one movement, signal by signal and gate
+  # by gate, applying nothing.
+  mnemosine bank match preview 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4
+  # Sweep July with the SAME gates run would use. Write them identically or the
+  # preview stops predicting what the write will do.
+  mnemosine bank match preview --account "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --min-confidence 0.9 --max-amount 50000
 ```
 
 #### `mnemosine bank match run` (alias: ejecutar)
@@ -4662,6 +4784,15 @@ Options:
   --dry-run                do the whole thing and roll it back
   --json                   JSON output
   -h, --help               display help for command
+
+Examples:
+  # Apply only what clears every gate. A proposal decided by description
+  # similarity alone is never applied, however high it scores.
+  mnemosine bank match run --account "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --min-confidence 0.9
+  # The same run, rolled back, to read what it would seal before sealing it.
+  mnemosine bank match run --account "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --dry-run
+  # Tie the matches to the open session so the arithmetic of the month counts them.
+  mnemosine bank match run --account "BBVA Operativa MXN" --session 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --max-amount 25000
 ```
 
 #### `mnemosine bank match apply` (alias: aplicar)
@@ -4687,6 +4818,15 @@ Options:
   -y, --yes                skip the grouped confirmation
   --json                   JSON output
   -h, --help               display help for command
+
+Examples:
+  # Apply the engine proposal for two movements, in ONE database transaction.
+  mnemosine bank match apply 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 7a1d09f4-6b28-4c31-8e05-9f42d7c1a63b
+  # The whole effect, rolled back.
+  mnemosine bank match apply 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --dry-run
+  # Ids from a file: --stdin eats standard input, so no TTY is left to ask on
+  # and the confirmation has to be given by name with -y.
+  mnemosine bank match apply --stdin -y < movimientos-julio.txt
 ```
 
 #### `mnemosine bank match create` (alias: crear)
@@ -4719,6 +4859,14 @@ Options:
   --dry-run                      do the whole thing and roll it back
   --json                         JSON output
   -h, --help                     display help for command
+
+Examples:
+  # One deposit that settles two invoices. The group is refused unless
+  # the bank side, the book side and the adjustments add up to each other.
+  mnemosine bank match create --account "BBVA Operativa MXN" --transaction 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --book-item invoice:2e6c94b1-7d05-4f83-a219-64bd8c30f7a5,invoice:3d91e7a5-24bf-4c68-9013-8ad5f6207e4c
+  # A short payment: the wire fee the bank kept is DECLARED as an adjustment and
+  # written off. Declaring it is not posting it: no journal entry is created here.
+  mnemosine bank match create --account "BBVA Operativa MXN" --transaction 7a1d09f4-6b28-4c31-8e05-9f42d7c1a63b --book-item 2e6c94b1-7d05-4f83-a219-64bd8c30f7a5 --adjust "comision por transferencia=-35.00" --residual write-off --write-off-account 6310
 ```
 
 #### `mnemosine bank match unapply` (alias: desaplicar)
@@ -4745,6 +4893,13 @@ Options:
   -y, --yes                skip the confirmation
   --json                   JSON output
   -h, --help               display help for command
+
+Examples:
+  # Undo a match with its typed reason: the whole group goes with it and the
+  # book-item seal is released. It refuses once the session is approved or posted.
+  mnemosine bank match unapply 1f8b47c9-90d2-4e35-b6a1-c73f025d8e91 --reason cotejo-erroneo
+  # A movement the bank published twice, without the confirmation prompt.
+  mnemosine bank match unapply 1f8b47c9-90d2-4e35-b6a1-c73f025d8e91 --reason duplicado -y
 ```
 
 ### `mnemosine bank reconciliation` (alias: conciliacion)
@@ -4800,6 +4955,16 @@ Options:
   --dry-run                                                     walk the real path and roll it back
   --json                                                        JSON output
   -h, --help                                                    display help for command
+
+Examples:
+  # The guided monthly pass over one account: statement, matching engine,
+  # session and reconciling items. It ALWAYS stops before approve and post,
+  # and prints what is still missing.
+  mnemosine bank reconciliation run "BBVA Operativa MXN" --period 2026-07 --file ./extractos/bbva-2026-07.xml
+  # Stop after the matching step to look before anything is opened, and roll back.
+  mnemosine bank reconciliation run "BBVA Operativa MXN" --period 2026-07 --stop-at cotejo --dry-run
+  # Continue the session already open for the period instead of refusing.
+  mnemosine bank reconciliation run "BBVA Operativa MXN" --period 2026-07 --resume --min-confidence 0.9
 ```
 
 #### `mnemosine bank reconciliation open` (alias: abrir)
@@ -4830,6 +4995,14 @@ Options:
   --dry-run                   do the whole thing and roll it back
   --json                      JSON output
   -h, --help                  display help for command
+
+Examples:
+  # Open July: the opening balance must equal the previous session closing, and
+  # a gap or an overlap of dates is refused.
+  mnemosine bank reconciliation open "BBVA Operativa MXN" --period 2026-07
+  # Assert the closing balance you were given: it is COMPARED against the
+  # statement, never substituted for it.
+  mnemosine bank reconciliation open "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --closing-balance 1284730.18
 ```
 
 #### `mnemosine bank reconciliation list` (alias: listar)
@@ -4859,6 +5032,13 @@ Options:
   --until <date>                           sessions starting on or before this date (YYYY-MM-DD)
   --all-entities                           every entity of the tenant, for a firm's overview; still bounded inside the SQL
   -h, --help                               display help for command
+
+Examples:
+  # The sessions of one account with their FROZEN variance and open items.
+  mnemosine bank reconciliation list --account "BBVA Operativa MXN"
+  # The quarter, still open ones only. An EMPTY variance column means nobody
+  # computed the arithmetic; it is never printed as a zero.
+  mnemosine bank reconciliation list --since 2026-07-01 --until 2026-09-30 --status in_progress --format csv
 ```
 
 #### `mnemosine bank reconciliation status` (alias: estado)
@@ -4885,6 +5065,13 @@ Options:
   --account <ref>                          bank account whose in-progress session to read (name or id)
   --tolerance <amount>                     residual the close may absorb; only valid where the tolerance policy admits one
   -h, --help                               display help for command
+
+Examples:
+  # Recompute the variance LIVE and print both sides item by item. The frozen
+  # column is shown apart and labelled: it is never the answer.
+  mnemosine bank reconciliation status --account "BBVA Operativa MXN"
+  # One session by id, as JSON, with the residual a close could absorb.
+  mnemosine bank reconciliation status 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --tolerance 0.50 --json
 ```
 
 #### `mnemosine bank reconciliation close` (alias: cerrar)
@@ -4911,6 +5098,19 @@ Options:
   -y, --yes                skip the confirmation
   --json                   JSON output
   -h, --help               display help for command
+
+Examples:
+  # Recompute the whole arithmetic and move the session to balanced ONLY if it
+  # really balances. balanced is what the period-close checklist reads as the
+  # evidence that this account was verified against the bank: it is not a word
+  # that gets written, it is one that gets earned.
+  mnemosine bank reconciliation close 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7
+  # Read the arithmetic and roll it back, before answering the question it asks.
+  mnemosine bank reconciliation close 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
+  # Absorb a residual of half a peso, only where the tolerance policy admits
+  # one. The tolerance is stored with the session, so the signature later reads
+  # the tolerance it was closed with and not today's.
+  mnemosine bank reconciliation close 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --tolerance 0.50 --note "Diferencia de redondeo del extracto"
 ```
 
 #### `mnemosine bank reconciliation approve` (alias: aprobar)
@@ -4938,6 +5138,13 @@ Options:
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
+
+Examples:
+  # Sign the balanced session: the approver may not be the preparer, and the
+  # snapshot freezes with a hash of its members and its balances.
+  mnemosine bank reconciliation approve 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "Revisada contra el estado de cuenta de julio"
+  # A signature is not withdrawn: read what would be frozen before freezing it.
+  mnemosine bank reconciliation approve 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
 ```
 
 #### `mnemosine bank reconciliation post` (alias: contabilizar)
@@ -4964,6 +5171,17 @@ Options:
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
+
+Examples:
+  # Post the adjustment entries the signature froze and seal the book lines
+  # they produced. This is the only leaf of the family that moves the ledger.
+  mnemosine bank reconciliation post 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7
+  # Rehearsed: the real act runs and is rolled back, so what it prints is the
+  # entry that would exist and not a description of it.
+  mnemosine bank reconciliation post 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
+  # A retry with the same key and the same payload returns the RECORDED result
+  # instead of posting a second time.
+  mnemosine bank reconciliation post 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --idempotency-key conciliacion-bbva-2026-07
 ```
 
 #### `mnemosine bank reconciliation generate` (alias: generar)
@@ -4988,6 +5206,14 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   -h, --help                               display help for command
+
+Examples:
+  # The two-sided reconciliation statement for the audit file, as text to print.
+  mnemosine bank reconciliation generate 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7
+  # The whole document as json. There is no pdf and no xlsx: this leaf refuses
+  # them by name instead of writing a file that would sit in an audit file
+  # pretending to be one.
+  mnemosine bank reconciliation generate 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --json --output conciliacion-bbva-2026-07.json
 ```
 
 ### `mnemosine bank reconciling-item` (alias: partida-conciliatoria)
@@ -5036,6 +5262,12 @@ Options:
   --type <name>                            only items of this type: cheque-en-circulacion, deposito-en-transito, cargo-del-banco, abono-del-banco, error-del-banco, error-de-libros
   --over-days <n>                          only what has gone MORE than this many days since its date
   -h, --help                               display help for command
+
+Examples:
+  # Everything that explains the difference, with age, owner and escalation.
+  mnemosine bank reconciling-item list 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7
+  # Outstanding checks that have been waiting more than 30 days.
+  mnemosine bank reconciling-item list 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --type cheque-en-circulacion --over-days 30
 ```
 
 #### `mnemosine bank reconciling-item assign` (alias: asignar)
@@ -5061,6 +5293,14 @@ Options:
   --note <text>            note stored with the item
   --json                   JSON output
   -h, --help               display help for command
+
+Examples:
+  # Give it an owner and the date it is expected to settle. close refuses to
+  # sign while a single item has no expected date, and nothing invents one:
+  # neither the statement nor the ledger knows when a check will be cashed.
+  mnemosine bank reconciling-item assign 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 3d91e7a5-24bf-4c68-9013-8ad5f6207e4c --owner "Tesoreria" --expected 2026-08-15
+  # Mark one that already went past its date, with the note that goes with it.
+  mnemosine bank reconciling-item assign 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 3d91e7a5-24bf-4c68-9013-8ad5f6207e4c --escalation vencido --note "Segundo aviso al proveedor"
 ```
 
 #### `mnemosine bank reconciling-item correct` (alias: corregir)
@@ -5086,6 +5326,13 @@ Options:
                            when the type changes side
   --json                   JSON output
   -h, --help               display help for command
+
+Examples:
+  # The automatic classification proposes by SIGN, and a sign cannot tell a
+  # bank charge from a bank ERROR. That is what decides who gets billed.
+  mnemosine bank reconciling-item correct 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 3d91e7a5-24bf-4c68-9013-8ad5f6207e4c --type error-del-banco
+  # Moving it to the other side needs its new contribution, signed.
+  mnemosine bank reconciling-item correct 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 3d91e7a5-24bf-4c68-9013-8ad5f6207e4c --type error-de-libros --amount "-1250.00"
 ```
 
 ### `mnemosine bank adjustment` (alias: ajuste)
@@ -5130,6 +5377,18 @@ Options:
   --item <id>                                                the reconciling item this adjustment explains
   --json                                                     JSON output
   -h, --help                                                 display help for command
+
+Examples:
+  # The fee the reconciliation uncovered, created AS A DRAFT for review: this
+  # leaf posts nothing and exits 11 because it is waiting for a person.
+  # --amount is SIGNED by its effect on the bank account, so a charge is negative.
+  mnemosine bank adjustment create 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --type comision --amount "-348.00" --gl-account 6310
+  # The interest the statement credited: 4310 and not 4300, so the only income
+  # line a treasurer reads does not get mixed with the occasional.
+  mnemosine bank adjustment create 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --type interes --amount 1275.40 --gl-account 4310
+  # The ISR the bank withheld on that interest is a SEPARATE adjustment, it
+  # LEAVES the account, and it needs no account: its role is already seeded.
+  mnemosine bank adjustment create 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --type isr-retenido --amount "-15.94" --item 3d91e7a5-24bf-4c68-9013-8ad5f6207e4c
 ```
 
 ### `mnemosine bank fee` (alias: comision)
@@ -5179,6 +5438,17 @@ Options:
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
+
+Examples:
+  # July's bank fees, one entry per charge, with their VAT parked as pending
+  # until the bank issues the CFDI. --iva-rate is the VAT the charge already
+  # carries INSIDE it, as a fraction, and it has no default: a rate written
+  # into the code is a tax decision nobody takes and nobody sees.
+  mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0.16
+  # An exempt fee: 0 is a legitimate answer, and it has to be typed.
+  mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0
+  # Leave the unusually large charges for human eyes, and rehearse first.
+  mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0.16 --max-amount 5000 --dry-run
 ```
 
 ### `mnemosine bank interest` (alias: interes)
@@ -5225,6 +5495,15 @@ Options:
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
+
+Examples:
+  # July's interest as income at its GROSS amount, and the ISR the bank
+  # withheld as a payment in the entity's favour, never as an expense.
+  # --rate is the WITHHOLDING rate, not the interest rate: the interest is
+  # whatever the statement says it was.
+  mnemosine bank interest post "BBVA Operativa MXN" --period 2026-07 --rate 0.0125
+  # A month in which the bank withheld nothing, rehearsed first.
+  mnemosine bank interest post "BBVA Operativa MXN" --period 2026-07 --rate 0 --dry-run
 ```
 
 ### `mnemosine bank check` (alias: cheque)
@@ -5274,6 +5553,18 @@ Options:
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
+
+Examples:
+  # Prove the check against the movement that cleared it. Under the VAT law the
+  # payment counts when the bank actually paid, so the reclassification posts IN
+  # THE MONTH IT CLEARED: a check signed in January and cashed in March belongs
+  # to March, and to March's return.
+  mnemosine bank check reconcile 8f27d3e6-1a94-4b50-9c83-fe6120a75d38
+  # Name the movement by hand when several charges of the account could be it.
+  mnemosine bank check reconcile 8f27d3e6-1a94-4b50-9c83-fe6120a75d38 --transaction 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4
+  # Assert the clearing date: it is CONTRASTED against the movement and never
+  # imposed on it. The bank dates the clearing.
+  mnemosine bank check reconcile 8f27d3e6-1a94-4b50-9c83-fe6120a75d38 --as-of 2026-03-10 --dry-run
 ```
 
 ## `mnemosine asset` (alias: activo)
@@ -5335,6 +5626,20 @@ Options:
   --location <text>                        where it is
   --dry-run                                run the real path and undo it: shows the asset that would be created
   -h, --help                               display help for command
+
+Examples:
+  # Rehearse the REAL path and undo it: the three accounts get resolved against
+  # this entity's chart, the folio series is checked and the panel policies are
+  # read, then the transaction is rolled back. Nothing is left behind.
+  mnemosine asset create "Camioneta Nissan NP300 2026" --category "Equipo de Transporte" --cost 489000.00 --acquired 2026-07-08 --capitalized yes --dry-run
+  # The cost is ALREADY charged to the asset account, because the CFDI was
+  # capitalised: --capitalized yes, and the entry it sits in when it is known.
+  # No journal entry is written here — a second one would double the asset.
+  mnemosine asset create "Camioneta Nissan NP300 2026" --category "Equipo de Transporte" --cost 489000.00 --acquired 2026-07-08 --capitalized yes --source-entry 3c9a71e8-52d4-4f0b-9c17-8ab6d2540f31 --serial 3N6AD33A9SK812004
+  # Not in the ledger yet: the register takes the asset and says in yellow the
+  # exact amount still to be posted, because the credit side (bank, payables or
+  # capital) is not something the register can guess.
+  mnemosine asset create "Servidor Dell PowerEdge T360" --category "Equipo de Cómputo" --cost 62500.00 --acquired 2026-07-15 --capitalized no --life-years 4 --salvage 6250.00
 ```
 
 ## `mnemosine depreciation` (alias: depreciacion)
@@ -5377,6 +5682,18 @@ Options:
   --book <book|tax>                        the depreciation book you believe you are running; checked against the panel
   --by <dimension>                         detail or summary: asset, class, account, method (asset is the per-asset detail) (default: "asset")
   -h, --help                               display help for command
+
+Examples:
+  # August, asset by asset: what each one charges this month, and which ones are
+  # left out and why. This leaf writes nothing and posts nothing — the whole leaf
+  # is the rehearsal, which is why it carries no --dry-run.
+  mnemosine depreciation run --period 2026-08
+  # The same month as JSON. THIS is the approved plan that depreciation post
+  # --file compares against, so it is left per asset (the default --by).
+  mnemosine depreciation run --period 2026-08 --format json -o plan-depreciacion-2026-08.json
+  # Summarised by asset class, and with the missing-asset warning turned into a
+  # blocker: --strict can only tighten, never loosen.
+  mnemosine depreciation run --period 2026-08 --by class --strict
 ```
 
 ### `mnemosine depreciation post` (alias: contabilizar)
@@ -5402,6 +5719,19 @@ Options:
   -y, --yes                                skip the confirmation prompt
   --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
   -h, --help                               display help for command
+
+Examples:
+  # What would land in the ledger: ONE journal entry per asset (DR 6140 expense /
+  # CR 1290 accumulated), with the total in front. Run this first — a month
+  # posted twice cannot be edited away, only reversed, entry by entry.
+  mnemosine depreciation post --period 2026-08 --dry-run
+  # Post it, declaring the book you believe you are on. --book has to agree with
+  # `base_depreciacion` on the panel; it does not override it.
+  mnemosine depreciation post --period 2026-08 --book book
+  # Unattended and against the plan that was approved: if an asset moved since
+  # then, it refuses and names the asset and both amounts. The same key replayed
+  # returns the recorded result instead of posting again.
+  mnemosine depreciation post --period 2026-08 --file plan-depreciacion-2026-08.json --yes --idempotency-key depreciacion-2026-08
 ```
 
 ## `mnemosine batch` (alias: lote)
@@ -5460,6 +5790,13 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --kind <kind>                            batch class (available: import)
   -h, --help                               display help for command
+
+Examples:
+  # Everything entry import left staged and nobody has applied yet.
+  mnemosine batch list --status staged
+  # What was prepared since the first of July. This family filters by WHEN THE
+  # BATCH WAS PREPARED: --since only; there is no upper bound and no date basis.
+  mnemosine batch list --since 2026-07-01 --kind import --limit 20
 ```
 
 ### `mnemosine batch show` (alias: ver)
@@ -5484,6 +5821,12 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --errors-only                            only the rows whose parser rejected them
   -h, --help                               display help for command
+
+Examples:
+  # One batch in full: every row, the entry each one produced, and the file hash.
+  mnemosine batch show 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13
+  # Only the rows the parser rejected, as CSV, to send back to whoever built the file.
+  mnemosine batch show 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --errors-only --format csv
 ```
 
 ### `mnemosine batch check` (alias: verificar)
@@ -5509,6 +5852,16 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --check <names>                          finding categories to display, comma-separated (available: parse, forma, cuenta, periodo, validacion); the full battery always runs
   -h, --help                               display help for command
+
+Examples:
+  # Run the whole battery over every row. Exit 4 means it found something.
+  mnemosine batch check 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13
+  # Narrow the REPORT to two of the five finding categories. The battery still
+  # runs whole, and a blocking finding left outside the filter still counts
+  # towards the exit code (it says so on stderr).
+  mnemosine batch check 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --check cuenta,periodo
+  # Warnings block too, for a scripted gate before the close.
+  mnemosine batch check 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --strict
 ```
 
 ### `mnemosine batch post` (alias: contabilizar)
@@ -5536,6 +5889,17 @@ Options:
   --idempotency-key <key>  client dedupe key, stored on success: a retry with
                            the same key and payload returns the recorded result
   -h, --help               display help for command
+
+Examples:
+  # See the whole effect first: every entry the batch would post, with its total.
+  # Do this before the real one — the ledger has no UPDATE and no DELETE.
+  mnemosine batch post 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --dry-run
+  # Apply the batch in ONE transaction: all the rows or none of them. A batch
+  # that has not passed check is refused.
+  mnemosine batch post 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13
+  # Apply what is valid and leave the invalid rows staged, unattended. Replaying
+  # the same key returns the recorded result instead of posting a second time.
+  mnemosine batch post 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --partial --yes --idempotency-key lote-julio-2026
 ```
 
 ### `mnemosine batch reverse` (alias: reversar)
@@ -5564,6 +5928,16 @@ Options:
                            the same key and payload returns the recorded result
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
+
+Examples:
+  # Mirror every entry the batch posted, as the unit it always was. --reason is
+  # required: an import error is batch-shaped, not entry-shaped.
+  mnemosine batch reverse 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --reason "El archivo traia el mes equivocado"
+  # Which entries would be mirrored, without keeping anything. One entry already
+  # reversed by hand stops the whole thing, naming its folio.
+  mnemosine batch reverse 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --dry-run
+  # Date every mirror into the month being closed instead of today.
+  mnemosine batch reverse 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --as-of 2026-07-31 --reason "Reversa del lote de julio"
 ```
 
 ## `mnemosine closing` (alias: cierre-proceso)
@@ -5593,7 +5967,7 @@ Read-only twin of closing start: says whether the period can enter close and
 what is missing
 
 Arguments:
-  period                                   period name, YYYY-MM, or id (default: the oldest open one)
+  period                                   open period name or id (default: the oldest open one)
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -5606,6 +5980,15 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --strict                                 treat warnings as blocking (exit 4)
   -h, --help                               display help for command
+
+Examples:
+  # Can the oldest open period enter close, and what is missing?
+  mnemosine closing preview
+  # A named month. Blocking items come from the engine AND from the AI queues:
+  # a draft dated inside the period stops the close like a red checkbox does.
+  mnemosine closing preview "July 2026"
+  # Warnings block too, for a scripted gate: exit 4 where it would have been 0.
+  mnemosine closing preview "July 2026" --strict
 ```
 
 ### `mnemosine closing check` (alias: verificar)
@@ -5629,6 +6012,15 @@ Options:
   --check [codes]                          comma-separated check codes; with no value, prints the available ones
   --period <name>                          period to check (default: the oldest open one)
   -h, --help                               display help for command
+
+Examples:
+  # The whole catalog over the oldest open period.
+  mnemosine closing check
+  # What can be verified at all, without touching the database.
+  mnemosine closing check --check
+  # Two checks only, on a named month. Filtered, the verdict is about WHAT WAS
+  # ASKED and nothing else; unfiltered it also weighs the AI blockers.
+  mnemosine closing check --period "July 2026" --check trial-balance,ledger-integrity
 ```
 
 ### `mnemosine closing explain` (alias: explicar)
@@ -5654,6 +6046,15 @@ Options:
   -n, --limit <n>                          maximum offending rows to print
   --period <name>                          period to explain (default: the oldest open one)
   -h, --help                               display help for command
+
+Examples:
+  # The rows keeping one check red, and the exact command that clears them.
+  mnemosine closing explain entries-posted
+  # Bank lines nobody explained, on a named month, ten rows at most.
+  mnemosine closing explain bank-lines-unexplained --period "July 2026" -n 10
+  # The offenders as CSV, which is the annex an auditor asks for. The real total
+  # travels with the rows, so the --limit cut never passes in silence.
+  mnemosine closing explain depreciation-posted --format csv -o cierre-julio-depreciacion.csv
 ```
 
 ## `mnemosine fx` (alias: cambio)
@@ -5715,6 +6116,13 @@ Options:
   --rate-type <spot|average|budget|historical>                     only rates of this type
   --source <manual|dof|banco_mexico|ecb|fed|xe|openexchangerates>  only rates from this source
   -h, --help                                                       display help for command
+
+Examples:
+  # Every USD/MXN rate stored for July 2026, whoever published it. The policy
+  # column marks the source this firm actually converts with.
+  mnemosine fx rate list --pair USD/MXN --since 2026-07-01 --until 2026-07-31
+  # Only what the DOF published, which is the rate art. 20 CFF gives legal effect to.
+  mnemosine fx rate list --pair USD/MXN --source dof --rate-type spot
 ```
 
 #### `mnemosine fx rate show` (alias: ver)
@@ -5739,6 +6147,14 @@ Options:
   -q, --quiet                                   identifiers only, one per line, for piping
   --rate-type <spot|average|budget|historical>  rate type to resolve (default: "spot")
   -h, --help                                    display help for command
+
+Examples:
+  # The rate a document dated 2026-07-08 converts at. Resolution is direct, then
+  # inverse, then crossed through USD, and it says out loud when it had to carry
+  # a rate forward from an earlier day.
+  mnemosine fx rate show USD/MXN 2026-07-08
+  # Another rate type, as JSON for a script.
+  mnemosine fx rate show EUR/MXN 2026-07-08 --rate-type average --json
 ```
 
 #### `mnemosine fx rate set` (alias: fijar)
@@ -5762,6 +6178,15 @@ Options:
   --until <date>                                                   last date the rate remains effective (YYYY-MM-DD)
   --dry-run                                                        show what would be recorded without writing
   -h, --help                                                       display help for command
+
+Examples:
+  # The DOF rate for the day. A vendor bill in USD dated 2026-07-08 converts at
+  # this number, so it has to exist BEFORE the expense is captured: without the
+  # rate of the source the policy names, the conversion stops instead of guessing.
+  mnemosine fx rate set USD/MXN 2026-07-08 18.4231 --source dof
+  # The Banxico FIX of the SAME day, which is a different number and lives beside
+  # it. --dry-run says what would be recorded and writes nothing.
+  mnemosine fx rate set USD/MXN 2026-07-08 18.3975 --source banco_mexico --dry-run
 ```
 
 #### `mnemosine fx rate download` (alias: descargar)
@@ -5792,6 +6217,15 @@ Options:
   --live                              perform the real external effect (default
                                       is the sandbox endpoint)
   -h, --help                          display help for command
+
+Examples:
+  # What the download would fetch and where it would land. There is no connector
+  # yet, so running it FAILS CLOSED instead of inventing a rate: today the honest
+  # path is fx rate set with the number the publisher actually printed.
+  mnemosine fx rate download --source dof --as-of 2026-07-08 --dry-run
+  # A whole month of the Banxico FIX, which additionally needs a SIE token that
+  # no credential store here governs yet.
+  mnemosine fx rate download --source banxico-fix --since 2026-07-01 --until 2026-07-31 --dry-run
 ```
 
 ## `mnemosine backup` (alias: respaldo)
@@ -6593,18 +7027,18 @@ One CFDI: header, lines, taxes and SAT status; --format xml prints the exact
 bytes
 
 Arguments:
-  uuid                                     CFDI UUID (timbre fiscal)
+  uuid                                         CFDI UUID (timbre fiscal)
 
 Options:
-  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
-  -t, --tenant <id>                        tenant (firm) whose data to scope to
-  -u, --user <email>                       acting user, for attribution and permissions
-  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
-  --json                                   shorthand for --format json
-  -o, --output <path>                      write to a file instead of stdout
-  --fields [names]                         comma-separated columns; with no value, lists the available ones
-  -q, --quiet                              identifiers only, one per line, for piping
-  -h, --help                               display help for command
+  -e, --entity <idOrName>                      legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                            tenant (firm) whose data to scope to
+  -u, --user <email>                           acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md|xml>  output format (default: "table")
+  --json                                       shorthand for --format json
+  -o, --output <path>                          write to a file instead of stdout
+  --fields [names]                             comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                  identifiers only, one per line, for piping
+  -h, --help                                   display help for command
 
 Examples:
   # Header, lines, taxes and the SAT status held in the mirror.

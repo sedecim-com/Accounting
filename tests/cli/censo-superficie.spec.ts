@@ -24,6 +24,40 @@ import {
 } from '../../scripts/ux-status.js';
 
 /**
+ * EL TAMAÑO DEL ÁRBOL DE HOY, PEGADO A LO MEDIDO.
+ *
+ * Los dos sitios que comprueban «se censó el binario entero» decían
+ * `toBeGreaterThan(150)` y `toBeGreaterThan(20)` sobre un árbol de 210 hojas y
+ * 56 familias de primer nivel. Sesenta puntos de holgura no son un margen de
+ * seguridad: son la misma forma de permiso que `SUELO_HOJAS` de
+ * tests/cli/ejemplos-de-ayuda.spec.ts corrigió al pasar de
+ * `toBeGreaterThan(80)` a 210, y la misma que este archivo le reprocha a la
+ * lista escrita a mano.
+ *
+ * QUÉ AVERÍA TAPABA, MEDIDO Y NO SUPUESTO. Se le puso a `andar` un `return`
+ * para la familia `bank` —un recorrido que deja de ver una rama entera, 32
+ * hojas— y el censo salió con 178 hojas y CINCO de las seis medidas idénticas:
+ * `bank` está documentada entera, así que perderla de vista no sube
+ * `hojas-sin-ejemplo` ni ninguna otra salvo `banderas-del-diccionario-sin-hoja`.
+ * `holguras` quedó VACÍA: el trinquete de encoger no vio nada que apretar, y
+ * `toBeGreaterThan(150)` pasaba en verde con 178. Pegado a 210 falla, y falla
+ * diciendo el número: «expected 178 to be greater than or equal to 210».
+ *
+ * NO ES EL ÚNICO GUARDIÁN Y NO SE VENDE COMO TAL. El cruce derivado de más
+ * arriba —`censar(program).nodos` contra `contarNodos(program)`, una recursión
+ * independiente— también cazó ese mutante, y es de mejor forma que un número
+ * escrito: no envejece. Éste es su equivalente por el lado de las HOJAS, donde
+ * no hay cruce derivado, y sobre todo es la diferencia entre afirmar «el árbol
+ * tiene 210 hojas» y afirmar «más de 150», que es afirmar casi nada.
+ *
+ * Son SUELOS: un árbol que crece nunca los rompe, así que no hay que
+ * mantenerlos al día; sólo suben cuando alguien quiera volver a apretarlos,
+ * como los tres de ejemplos-de-ayuda.spec.ts.
+ */
+const HOJAS_DE_HOY = 210;
+const FAMILIAS_DE_HOY = 56;
+
+/**
  * EL CENSO CUENTA SOBRE EL ÁRBOL, NO SOBRE UNA LISTA.
  *
  * El guardián que ya había (bilingual-matrix.spec.ts) mide contra un mapa
@@ -211,7 +245,7 @@ describe('la raíz también es un nodo', () => {
    * `banderas-del-diccionario-sin-hoja`— pero su prosa no entraba en ninguna
    * cuenta. El censo veía la raíz para un número y no para el otro, y la
    * descripción del programa y la ayuda de sus banderas globales salen en las
-   * 179 pantallas: si están fuera del idioma, están mal en las 179.
+   * 210 pantallas: si están fuera del idioma, están mal en las 210.
    */
   it('la prosa de la raíz entra en el idioma canónico, con el binario por ruta', () => {
     const raiz = new Command('juguete')
@@ -437,8 +471,8 @@ describe('el trinquete: la línea base sólo puede encoger', () => {
   const censo = censar(program);
 
   it('se censa el binario entero: si no, esto no prueba nada', () => {
-    expect(program.commands.length).toBeGreaterThan(20);
-    expect(censo.hojas).toBeGreaterThan(150);
+    expect(program.commands.length).toBeGreaterThanOrEqual(FAMILIAS_DE_HOY);
+    expect(censo.hojas).toBeGreaterThanOrEqual(HOJAS_DE_HOY);
   });
 
   it('ningún número CRECIÓ sobre su línea base', () => {
@@ -631,7 +665,7 @@ describe('stdout es el contrato de máquina y nada más', () => {
     // La aserción que muere si la prosa vuelve a stdout:
     const censoLeido = JSON.parse(crudo) as { ok: boolean; hojas: number };
     expect(censoLeido.ok).toBe(true);
-    expect(censoLeido.hojas).toBeGreaterThan(150);
+    expect(censoLeido.hojas).toBeGreaterThanOrEqual(HOJAS_DE_HOY);
     // Y la prosa está donde tiene que estar.
     expect(conApretar.queja.join('')).toContain('No hay holgura que apretar.');
     expect(conApretar.escrito, 'sin holgura no se reescribe el archivo').toEqual([]);

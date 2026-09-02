@@ -169,6 +169,14 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
     .argument('<uuid>', 'CFDI UUID (timbre fiscal)')
     .description('One CFDI: header, lines, taxes and SAT status; --format xml prints the exact bytes');
   withOutput(withContext(show));
+  // El SÉPTIMO formato, declarado donde el usuario lo lee. `withOutput` deletrea
+  // los seis del kernel y esta hoja acepta uno más —`--format xml` imprime los
+  // bytes tal como llegaron, para verificar el sello fuera de este sistema—, y
+  // hasta ahora sólo lo decía la descripción en prosa. La superficie declarada
+  // tiene que casar con la real: el guardián de ejemplos lo cazó comparando el
+  // valor de una invocación contra el vocabulario del propio marcador.
+  const formato = show.options.find((o) => o.long === '--format');
+  if (formato) formato.flags = formato.flags.replace('|md>', '|md|xml>');
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.show);
   show.action((uuid: string, opts: CommonOpts) =>

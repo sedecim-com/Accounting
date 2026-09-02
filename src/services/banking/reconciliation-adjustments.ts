@@ -102,15 +102,19 @@ export const ROLES_QUE_FALTAN: ReadonlyArray<{ tipo: TipoDeAjuste; rol: string; 
     tipo: 'comision' as const,
     rol: 'comision_bancaria',
     porque:
-      'ROLE_MAP no tiene un rol de gasto bancario; el vecino sería `gasto` (6100), donde la ' +
-      'comisión se mezcla con todo lo demás y deja de poder contarse.',
+      'el rol `comision_bancaria` (6310) ya existe y `treasury-posting` lo consume, pero esta ' +
+      'ruta de ajuste todavía no lo resuelve sola: hasta que ROL_DE_AJUSTE lo mapee, la cuenta ' +
+      'se indica a mano. El vecino que hay que NO usar es `gasto` (6100), donde la comisión se ' +
+      'mezcla con todo lo demás y deja de poder contarse.',
   }),
   Object.freeze({
     tipo: 'interes' as const,
-    rol: 'interes_ganado',
+    rol: 'producto_financiero',
     porque:
-      'ROLE_MAP no tiene un rol de interés ganado; el vecino sería `otros_ingresos` (4200), ' +
-      'reservado a propósito al remanente de un pago corto.',
+      'el rol `producto_financiero` (4310) ya existe y `treasury-posting` lo consume, pero esta ' +
+      'ruta de ajuste todavía no lo resuelve sola: hasta que ROL_DE_AJUSTE lo mapee, la cuenta ' +
+      'se indica a mano. El vecino que hay que NO usar es `otros_ingresos` (4200), reservado a ' +
+      'propósito al remanente de un pago corto.',
   }),
 ]);
 

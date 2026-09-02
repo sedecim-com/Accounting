@@ -135,6 +135,70 @@ const dia = (v: Date | string | null | undefined): string => {
   return (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
 };
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// El identificador de un lote es el UUID que `entry import` imprimió al
+// dejarlo en el almacén; no hay folio corto que teclear. Los estados son los
+// de la 045 —staged, checked, posted, discarded— y NO el vocabulario de colas
+// (pending/running/…), que es de otra tabla. Las categorías de hallazgo de
+// `check` son las cinco cerradas del servicio: la batería corre entera
+// siempre, `--check` sólo acota EL INFORME.
+//
+// Prosa en inglés (idioma del nodo); los datos son mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  list: `
+Examples:
+  # Everything entry import left staged and nobody has applied yet.
+  mnemosine batch list --status staged
+  # What was prepared since the first of July. This family filters by WHEN THE
+  # BATCH WAS PREPARED: --since only; there is no upper bound and no date basis.
+  mnemosine batch list --since 2026-07-01 --kind import --limit 20
+`,
+  show: `
+Examples:
+  # One batch in full: every row, the entry each one produced, and the file hash.
+  mnemosine batch show 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13
+  # Only the rows the parser rejected, as CSV, to send back to whoever built the file.
+  mnemosine batch show 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --errors-only --format csv
+`,
+  check: `
+Examples:
+  # Run the whole battery over every row. Exit 4 means it found something.
+  mnemosine batch check 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13
+  # Narrow the REPORT to two of the five finding categories. The battery still
+  # runs whole, and a blocking finding left outside the filter still counts
+  # towards the exit code (it says so on stderr).
+  mnemosine batch check 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --check cuenta,periodo
+  # Warnings block too, for a scripted gate before the close.
+  mnemosine batch check 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --strict
+`,
+  post: `
+Examples:
+  # See the whole effect first: every entry the batch would post, with its total.
+  # Do this before the real one — the ledger has no UPDATE and no DELETE.
+  mnemosine batch post 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --dry-run
+  # Apply the batch in ONE transaction: all the rows or none of them. A batch
+  # that has not passed check is refused.
+  mnemosine batch post 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13
+  # Apply what is valid and leave the invalid rows staged, unattended. Replaying
+  # the same key returns the recorded result instead of posting a second time.
+  mnemosine batch post 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --partial --yes --idempotency-key lote-julio-2026
+`,
+  reverse: `
+Examples:
+  # Mirror every entry the batch posted, as the unit it always was. --reason is
+  # required: an import error is batch-shaped, not entry-shaped.
+  mnemosine batch reverse 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --reason "El archivo traia el mes equivocado"
+  # Which entries would be mirrored, without keeping anything. One entry already
+  # reversed by hand stops the whole thing, naming its folio.
+  mnemosine batch reverse 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --dry-run
+  # Date every mirror into the month being closed instead of today.
+  mnemosine batch reverse 8f14c2a6-3b57-4d90-9e21-5c7ab0d64e13 --as-of 2026-07-31 --reason "Reversa del lote de julio"
+`,
+} as const;
+
 export function registerBatchCommand(program: Command, deps: BatchCommandDeps): void {
   const batch = program
     .command('batch')
@@ -277,6 +341,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
   withReadFlags(list);
   list.option('--kind <kind>', `batch class (available: ${CLASES_DE_LOTE.join(', ')})`);
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action((opts: CommonOpts & { kind?: string }, cmd: Command) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -350,6 +415,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
   withOutput(withContext(show));
   show.option('--errors-only', 'only the rows whose parser rejected them');
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((id: string, opts: CommonOpts & { errorsOnly?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -431,10 +497,23 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
   withOutput(withStrict(withContext(check)));
   check.option(
     '--check <names>',
+    // OJO, y está medido: `cuenta`, `periodo` y `forma` son VALORES que el
+    // usuario teclea —vocabulario cerrado del servicio—, pero salen aquí
+    // desnudos dentro de una frase inglesa, así que el censo de superficie
+    // (`npm run ux:status`) cuenta esta hoja como prosa fuera del idioma
+    // canónico y tiene razón. Los acentos graves de la línea de abajo son los
+    // delimitadores de la plantilla, no marcas del valor: un comentario
+    // anterior afirmaba que sí lo eran, y era falso.
+    //
+    // No se renombran aquí a propósito: el idioma de un VALOR de bandera es
+    // superficie visible y pertenece a la decisión §5.1 del plan maestro, que
+    // sigue abierta y es del dueño. La línea base del censo queda en 7 con
+    // esta razón escrita, no maquillada a 6.
     `finding categories to display, comma-separated (available: ${CATEGORIAS_DE_HALLAZGO.join(', ')}); ` +
       'the full battery always runs'
   );
   declareRisk(check, { risk: 'lectura', agent: true });
+  check.addHelpText('after', EJEMPLOS.check);
   check.action((id: string, opts: CommonOpts & { check?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -538,6 +617,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       'journal_entries + journal_entry_lines POSTEADOS (source_type=import_batch, source_id=fila) ' +
       'y el encabezado del lote (status, rows_invalid)',
   });
+  post.addHelpText('after', EJEMPLOS.post);
   post.action((id: string, opts: CommonOpts & { partial?: boolean }) =>
     run(async () => {
       const ctx = await entityForWrite(opts);
@@ -684,6 +764,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
       'journal_entries espejo POSTEADOS (sin source_type, como toda reversa) + ' +
       'reversed_by_entry_id de cada póliza del lote',
   });
+  reverse.addHelpText('after', EJEMPLOS.reverse);
   reverse.action((id: string, opts: CommonOpts & { asOf?: string }) =>
     run(async () => {
       const ctx = await entityForWrite(opts);
