@@ -35,12 +35,47 @@ const MAX_BODY = '1mb';
 
 export interface AiWebhooksRouterDeps {
   /**
-   * LLM wiring (RunAgentTurn pattern). When absent, deliveries are recorded
-   * as 'received' and left for a worker/CLI to process — the HTTP path never
-   * fails open into an unrestricted agent.
+   * LLM wiring (RunAgentTurn pattern). When absent, the delivery is recorded
+   * as 'received' and the payload is DROPPED — the HTTP path never fails open
+   * into an unrestricted agent, but neither does it park the document
+   * anywhere. See NO_RETENIDO: nothing reprocesses a 'received' row.
    */
   runReaderTurn?: RunReaderTurn;
 }
+
+// ============================================================
+// LO QUE EL 200 NO PUEDE PROMETER
+//
+// El cuerpo se lee (express.raw), se le deriva la clave, se le
+// pasa el escáner de sospecha… y se tira. ai_webhook_deliveries
+// guarda la clave, las RAZONES de sospecha y los contadores; el
+// payload no tiene columna. Nos quedamos con la acusación y no
+// con la prueba.
+//
+// Y 'received' es un estado TERMINAL disfrazado de intermedio:
+//   · processDelivery() tiene un solo llamador — esta petición.
+//     No hay worker ni comando que retome un 'received' (`webhooks
+//     deliveries` es de lectura).
+//   · un reenvío del mismo documento choca contra
+//     UNIQUE(token_id, document_key): recordDelivery lo devuelve
+//     como duplicate y la ruta sale por esa rama SIN despertar al
+//     lector. El reintento que arreglaría el fallo se traga.
+// O sea que contestar 200 «received» a un banco promete una
+// segunda oportunidad que no existe.
+//
+// Persistir el cuerpo antes del 200 exige columna o tabla nueva
+// (migración) y retirar la superficie es decisión de producto:
+// ninguna de las dos se toma aquí. Lo que sí se puede hacer sin
+// decidir nada es dejar de prometerlo — quien reciba este 200 lee
+// en la misma respuesta que no quedó guardado nada y que reenviar
+// no lo arregla. El campo es aditivo: no rompe a ningún cliente.
+// ============================================================
+
+const NO_RETENIDO =
+  'Delivery logged, but NOT processed and the payload was NOT stored: only the document ' +
+  'key and the suspicion flags are kept. Nothing reprocesses it later, and re-sending the ' +
+  'same document returns "duplicate" without processing it. Recover the document from the ' +
+  'source system.';
 
 function unauthorized(res: Response): void {
   res.status(401).json({ error: 'Unknown or disabled webhook token' });
@@ -117,8 +152,9 @@ export function createAiWebhooksRouter(deps: AiWebhooksRouterDeps = {}): Router 
           rawBody,
           runReaderTurn: deps.runReaderTurn,
         });
-        // An agent error still acknowledges receipt: the delivery is stored
-        // ('received') and a retry resumes the same session transcript.
+        // Un fallo del lector deja la fila en 'received' y ahí se queda: el
+        // reenvío que la resucitaría sale antes por la rama duplicate. El 200
+        // acusa recibo del AVISO, no del trabajo — lo dice NO_RETENIDO.
         return {
           status: processed.status === 'processed' ? ('processed' as const) : ('received' as const),
           deliveryId: processed.deliveryId,
@@ -128,6 +164,9 @@ export function createAiWebhooksRouter(deps: AiWebhooksRouterDeps = {}): Router 
       res.json({
         status: outcome.status,
         deliveryId: outcome.deliveryId,
+        // 'processed' dejó borradores; 'duplicate' informa de una fila previa
+        // real. 'received' es el único que no cumple nada: se avisa.
+        ...(outcome.status === 'received' ? { warning: NO_RETENIDO } : {}),
         meta: {
           request_id: req.headers['x-request-id'],
           timestamp: new Date().toISOString(),

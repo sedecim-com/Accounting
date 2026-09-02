@@ -499,6 +499,7 @@ export const CRITERIOS: Criterio[] = [
         R4: 'docs/auditorias/R4.md',
         G1a: 'docs/auditorias/G1a.md',
         G1b: 'docs/auditorias/G1b.md',
+        G0: 'docs/auditorias/G0.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -4237,6 +4238,67 @@ export const CRITERIOS: Criterio[] = [
       return vigilado
         ? ok(`las ${declarados.length} garantías del esquema están selladas, y doctor falla si alguna deja de estarlo`)
         : falla('doctor dejó de leer pg_trigger.tgenabled: apagar una garantía volvería a ser indetectable');
+    },
+  },
+
+  // ---- G0 · La tarde que se paga sola ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El candado del cierre bloquea sin reescribir la tabla, y el perímetro no confía en una cabecera que escribe quien llama',
+    mutantes: [
+      {
+        // Volver al UPDATE. El diente exacto: la sentencia que asignaba a cada
+        // fila el valor que ya tenía.
+        archivo: 'src/services/accounting/period-close.ts',
+        de: '      `SELECT id FROM journal_entries\n       WHERE fiscal_period_id = $1 AND entity_id = $2\n       FOR UPDATE`,',
+        a: "      `UPDATE journal_entries SET status = CASE WHEN status = 'posted' THEN 'posted' ELSE status END\n       WHERE fiscal_period_id = $1 AND entity_id = $2`,",
+        porque: 'el candado vuelve a reescribir cada fila para no cambiar nada: Postgres versiona, rehace los índices y dispara el guardián de inmutabilidad una vez POR FILA, y con 800 000 asientos el cierre de mes muere contra su propio statement_timeout',
+      },
+      {
+        archivo: 'src/api/rest/trust-proxy.ts',
+        de: "export function resolverTrustProxy(",
+        a: "export function resolverTrustProxy_desactivado(",
+        porque: 'el perímetro se queda sin resolutor de proxy: o se confía en todo —y entonces req.ip lo escribe quien llama y el freno deja de existir— o se confía en nada y todos los inquilinos comparten un cubo',
+      },
+    ],
+    evaluar: () => {
+      const pc = codigoDe('src/services/accounting/period-close.ts');
+      const tp = codigoDe('src/api/rest/trust-proxy.ts');
+      const cx = codigoDe('src/database/connection.ts');
+
+      // 1. EL CANDADO PIDE EL CANDADO, no lo consigue de rebote. El cierre
+      //    duro bloqueaba los asientos del periodo con un UPDATE que asignaba
+      //    a cada fila el valor que ya tenía: cero filas cambiadas de
+      //    1 500 000, y aun así Postgres versiona cada una, rehace sus doce
+      //    índices —`status` está indexado tres veces, así que no hay
+      //    actualización HOT que lo salve— y dispara el guardián de
+      //    inmutabilidad por fila. Medido: 87 s contra un tope de 60. El
+      //    tramo que puso el tope encontró lo que el tope mataba.
+      //    Se ancla la consulta ENTERA y no las dos palabras `FOR UPDATE`:
+      //    el archivo tiene otros candados legítimos, y un ancla que casa con
+      //    cualquiera de ellos sobrevive al mutante que devuelve el UPDATE.
+      if (!/SELECT id FROM journal_entries\s+WHERE fiscal_period_id = \$1 AND entity_id = \$2\s+FOR UPDATE/.test(pc)) {
+        return falla('el candado del cierre dejó de pedirse directo: si vuelve a lograrse con un UPDATE que no escribe nada, el cierre de un ejercicio grande muere contra su propio tope de sentencia');
+      }
+      // 2. EL PERÍMETRO NO CONFÍA A CIEGAS. `trust proxy` en true hace que
+      //    req.ip sea la entrada más a la izquierda de X-Forwarded-For, que
+      //    la escribe quien llama: cada petición estrena cubo y el freno de
+      //    /public/v1 deja de existir. El defecto es `false` porque es el
+      //    único valor NO ELUDIBLE: su coste —un cubo compartido— es ruidoso
+      //    y se nota; un limitador que no limita, no.
+      //    Con el paréntesis: sin él, el ancla casa igual con un
+      //    `resolverTrustProxy_desactivado` y el mutante que lo renombra
+      //    sobrevive. Es la lección que el arnés cobró en F06a.
+      if (!/export function resolverTrustProxy\(/.test(tp)) {
+        return falla('desapareció el resolutor de trust proxy: el perímetro vuelve a confiar en la cabecera o a meter a todos los inquilinos en un cubo');
+      }
+      // 3. Y EL POOL TIENE LOS TRES TOPES. Sin ellos la petición 21 del día de
+      //    cierre espera para siempre.
+      const topes = ['statement_timeout', 'lock_timeout', 'connectionTimeoutMillis'].filter((t) => cx.includes(t));
+      return topes.length === 3
+        ? ok('el candado del cierre se pide directo, el perímetro declara en quién confía, y el pool tiene sus tres topes')
+        : falla(`al pool le faltan topes (${3 - topes.length} de 3): la petición 21 del día de cierre vuelve a esperar para siempre`);
     },
   },
 

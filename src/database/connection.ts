@@ -39,6 +39,85 @@ export async function initDatabase(): Promise<{ tunneled: boolean; warning?: str
   return { tunneled: true };
 }
 
+// ============================================================
+// TOPES DE ESPERA
+//
+// El pool no tenía ninguno: una consulta bloqueada esperaba hasta que alguien
+// matara el proceso, y con `max` conexiones ocupadas la petición siguiente se
+// formaba en una cola sin fondo. En el día de cierre —cuando más peticiones
+// hay y más largas son— eso no se manifiesta como un error sino como un
+// sistema que dejó de responder sin decir por qué.
+//
+// La operación más larga y LEGÍTIMA del sistema es el cierre de periodo, y
+// después la exportación por inquilino (exportacion-inquilino.ts vuelca tablas
+// enteras en una transacción REPEATABLE READ). Las cifras de abajo están
+// elegidas pensando en ésas, no en la consulta media:
+//
+//  · El cierre es una TRANSACCIÓN larga hecha de consultas cortas.
+//    statement_timeout se aplica por SENTENCIA, no por transacción, así que
+//    acotar la sentencia no acorta el cierre: sólo impide que una de sus
+//    sentencias se quede colgada para siempre dentro de él.
+//  · El runner de migraciones tiene su PROPIO pool (database/migrate.ts, con
+//    max: 1), así que nada de esto puede abortar un backfill a la mitad. Es
+//    deliberado: una migración larga es correcta, una consulta de la API que
+//    dura un minuto no.
+// ============================================================
+
+/**
+ * Interpreta un tope en milisegundos venido del entorno; 0 lo desactiva.
+ *
+ * Recibe el VALOR, no el nombre de la variable. Leerlo aquí dentro con
+ * `process.env[nombre]` funcionaba igual y escondía los nombres: no salían en
+ * un grep ni en el censo que compara el código contra .env.example
+ * (tests/config/env-example.spec.ts), así que las tres variables quedaban
+ * indocumentadas sin que nada se quejara. Con el acceso literal en cada
+ * llamada, el nombre se ve desde fuera.
+ */
+function topeMs(crudo: string | undefined, omision: number): number {
+  if (crudo === undefined || crudo.trim() === '') return omision;
+  const n = Number(crudo);
+  // Un valor ilegible NO cae al 0 silencioso —que en Postgres significa «sin
+  // tope»— porque sería justo el defecto que esto viene a cerrar.
+  if (!Number.isFinite(n) || n < 0) return omision;
+  return Math.floor(n);
+}
+
+/** Exportada para que la relación entre los tres topes se pueda afirmar en una
+ *  prueba: que lock_timeout quede por debajo de statement_timeout no es un
+ *  detalle de estilo, es lo que hace distinguible un candado de una lentitud. */
+export function timeouts(): Pick<
+  pg.PoolConfig,
+  'statement_timeout' | 'lock_timeout' | 'connectionTimeoutMillis'
+> {
+  return {
+    // 60 s. Ninguna sentencia de este sistema tarda un minuto por trabajar: el
+    // agregado más pesado de un informe anual y el volcado de una tabla en la
+    // exportación se miden en segundos, así que el minuto deja un orden de
+    // magnitud de holgura. Pasado ese punto lo que hay es un índice que falta o
+    // un bloqueo, y conviene más un error con nombre que una espera indefinida.
+    // Para un volcado excepcionalmente grande, DATABASE_STATEMENT_TIMEOUT_MS=0
+    // lo desactiva para esa corrida.
+    statement_timeout: topeMs(process.env.DATABASE_STATEMENT_TIMEOUT_MS, 60_000),
+
+    // 10 s, y DEBAJO del anterior a propósito. Sin lock_timeout, una sentencia
+    // que espera un candado consume el minuto entero de statement_timeout y
+    // termina reportando «tardó demasiado», que es cierto y no dice nada. Con
+    // este tope el bloqueo se distingue de la lentitud a los diez segundos: el
+    // cierre de periodo toma candado sobre el ejercicio, y un segundo cierre
+    // simultáneo debe enterarse de que está ocupado, no agonizar un minuto.
+    lock_timeout: topeMs(process.env.DATABASE_LOCK_TIMEOUT_MS, 10_000),
+
+    // 10 s. En pg-pool esta cifra acota DOS esperas distintas: el saludo de una
+    // conexión nueva, y —lo que importa aquí— el tiempo que una petición pasa
+    // en la cola cuando las `max` conexiones están ocupadas. Ésa es la petición
+    // 21 del día de cierre: hoy espera para siempre, y con esto recibe un fallo
+    // a los diez segundos que el cliente puede reintentar y el balanceador
+    // puede contar. Diez y no dos porque una conexión fría a través del túnel
+    // SSH o con verify-full tarda más que una local.
+    connectionTimeoutMillis: topeMs(process.env.DATABASE_CONNECT_TIMEOUT_MS, 10_000),
+  };
+}
+
 function getPool(): pg.Pool {
   if (pool) return pool;
 
@@ -56,6 +135,7 @@ function getPool(): pg.Pool {
     min: config.database.poolMin,
     max: config.database.poolMax,
     ...(ssl === undefined ? {} : { ssl }),
+    ...timeouts(),
   });
 
   pool.on('error', (err) => {

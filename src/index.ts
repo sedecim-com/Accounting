@@ -17,6 +17,7 @@ import { auditLogMiddleware } from './api/rest/middleware/audit.js';
 import { tenantContext } from './api/rest/middleware/tenant-context.js';
 import { errorHandler } from './api/rest/middleware/error-handler.js';
 import { rateLimiter, preAuthRateLimiter } from './api/rest/middleware/rate-limiter.js';
+import { resolverTrustProxy } from './api/rest/trust-proxy.js';
 import { metricsMiddleware, metricsHandler } from './api/rest/middleware/metrics.js';
 import { correlationIdMiddleware, enrichLogContextMiddleware } from './api/rest/middleware/correlation.js';
 import { logger } from './utils/logger.js';
@@ -56,6 +57,27 @@ async function bootstrap() {
   await verificarRolSujetoARls();
 
   const app = express();
+
+  // `trust proxy` EXPLÍCITO. Sin él Express deja `req.ip` en la dirección del
+  // socket, que detrás de un balanceador es la del balanceador para todos: el
+  // limitador previo a autenticar —único freno de /public/v1 y de los webhooks
+  // de IA, que sirven sin JWT— reparte un solo cubo entre todos los que llaman.
+  // El valor correcto depende del despliegue y no se adivina desde aquí; el por
+  // qué de cada forma está en api/rest/trust-proxy.ts.
+  const trustProxy = resolverTrustProxy(process.env.TRUST_PROXY, config.env);
+  try {
+    app.set('trust proxy', trustProxy.valor);
+  } catch (err) {
+    // Express compila la lista de confianza aquí mismo, así que un CIDR mal
+    // escrito aborta el arranque. Se reescribe el error para que diga QUÉ
+    // variable revisar: el de proxy-addr no la nombra.
+    throw new Error(
+      `TRUST_PROXY no es un valor válido (${JSON.stringify(process.env.TRUST_PROXY)}): ` +
+        `${err instanceof Error ? err.message : String(err)}. Usa un número de saltos, ` +
+        'una lista de IPs o redes CIDR separadas por comas, o false.'
+    );
+  }
+  if (trustProxy.aviso) logger.warn('trust_proxy', { detail: trustProxy.aviso });
 
   // ============================================================
   // Middleware

@@ -768,11 +768,31 @@ export async function hardClosePeriod(
       reason,
     });
 
-    // Lock all journal entries in this period
+    // Candado sobre los asientos del periodo. Era un UPDATE, y el UPDATE no
+    // escribía nada: `SET status = CASE WHEN status='posted' THEN 'posted'
+    // ELSE status END` asigna a cada fila el valor que ya tenía. Medido sobre
+    // un periodo de 1.5 M asientos, cambiaba 0 filas de 1 500 000.
+    //
+    // No escribir el dato no significa no pagarlo. Postgres versiona igual
+    // cada fila «actualizada», rehace sus doce índices —`status` está indexado
+    // tres veces, así que no hay actualización HOT que lo salve— y dispara
+    // `journal_entries_posteado_inmutable` (041, ENABLE ALWAYS desde la 058)
+    // una vez POR FILA, que a su vez arma dos JSONB para compararlos. Medido:
+    // 400 k asientos → 36 s; 800 k → 87 s. Con el statement_timeout de 60 s
+    // que el pool ya aplica, el cierre duro de un inquilino grande moría en
+    // esta sentencia con 57014 y `withTransaction` revertía TODO lo anterior
+    // —arrastre de saldos, sello de hard_close y su renglón de auditoría—,
+    // así que el periodo no cerraba nunca y el motivo aparecía como «tardó
+    // demasiado» en la sentencia que menos hacía de todo el cierre.
+    //
+    // El candado sí se quería, y es lo único que el UPDATE conseguía: se pide
+    // directamente. FOR UPDATE toma exactamente la misma fuerza de bloqueo
+    // sobre las mismas filas, sin versionarlas ni tocar índices ni despertar
+    // el disparador. Los mismos 1.5 M de asientos: 2 s en vez de 87 s.
     await client.query(
-      `UPDATE journal_entries
-       SET status = CASE WHEN status = 'posted' THEN 'posted' ELSE status END
-       WHERE fiscal_period_id = $1 AND entity_id = $2`,
+      `SELECT id FROM journal_entries
+       WHERE fiscal_period_id = $1 AND entity_id = $2
+       FOR UPDATE`,
       [periodId, entityId]
     );
 

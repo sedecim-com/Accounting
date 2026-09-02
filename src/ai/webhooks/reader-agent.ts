@@ -32,6 +32,9 @@ import { markDeliveryOutcome, type WebhookTokenRow, type WebhookDeliveryRow } fr
 // session key derives from the document id, so a retried
 // delivery resumes the SAME transcript instead of forking one
 // (ai_sessions.terminal_key = 'webhook:' + document_key).
+//
+// OJO: esa pieza está puesta pero hoy no la usa nadie — ningún
+// reintento vuelve a entrar aquí. Ver el catch de processDelivery.
 // ============================================================
 
 /**
@@ -237,8 +240,12 @@ export async function processDelivery(deps: ProcessDeliveryDeps): Promise<Proces
       capture,
     });
   } catch (err) {
-    // The delivery stays 'received': a retry of the same document resumes the
-    // same transcript and can finish the job.
+    // La fila queda en 'received'. El sessionKey haría que un segundo intento
+    // retomara la MISMA transcripción… pero hoy nadie vuelve a llamar aquí: el
+    // único llamador es la ruta HTTP, y allí el reenvío del mismo documento se
+    // resuelve como duplicate antes de llegar a processDelivery. Reanudar el
+    // hilo sigue siendo correcto el día que exista quien reintente; mientras
+    // tanto, 'received' no es un estado intermedio sino el final del camino.
     return {
       deliveryId: delivery.id,
       status: 'error',
