@@ -43,6 +43,7 @@ import {
   blockedByState,
   abortedByUser,
   exitCodeFor,
+  dateOnly,
   ExitCode,
   type ExitCodeValue,
 } from './kernel/index.js';
@@ -116,19 +117,6 @@ function summarize(row: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
-/**
- * A calendar date as YYYY-MM-DD. `node-postgres` hands a DATE back as a
- * Date at LOCAL midnight, so `toISOString()` would move it a day west of
- * Greenwich; the local getters are the ones that agree with the column.
- */
-function dateOnly(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (value instanceof Date) {
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
-  }
-  return String(value).slice(0, 10);
-}
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -547,7 +535,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
 
         const billDate = opts.billDate
           ? requireDate('--bill-date', opts.billDate)
-          : ((fromFile.bill_date as string | undefined) ?? new Date().toISOString().slice(0, 10));
+          : ((fromFile.bill_date as string | undefined) ?? dateOnly(new Date()));
         const terms = opts.terms ?? (fromFile.terms as string | undefined) ?? vendorRow.payment_terms;
         const dueDate =
           (opts.dueDate ? requireDate('--due-date', opts.dueDate) : undefined) ??

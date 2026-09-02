@@ -32,6 +32,8 @@ export {
   render,
   resolveFormat,
   fieldNames,
+  dateOnly,
+  formatMoneyMx,
   FORMATS,
   SCHEMA_VERSION,
   type Format,

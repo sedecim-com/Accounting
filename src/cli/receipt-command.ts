@@ -32,6 +32,7 @@ import {
   blockedByState,
   abortedByUser,
   exitCodeFor,
+  dateOnly,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 
@@ -88,7 +89,8 @@ const COBRABLES = ['sent', 'viewed', 'partially_paid', 'overdue'] as const;
 
 const MONEY = ['payment_amount', 'applied_amount', 'unapplied_amount', 'amount_applied'];
 
-const hoy = (): string => new Date().toISOString().slice(0, 10);
+// El dia LOCAL: a las 20:00 en CDMX, toISOString ya cobraba con fecha de manana.
+const hoy = (): string => dateOnly(new Date());
 
 export function registerReceiptCommand(program: Command, deps: ReceiptCommandDeps): void {
   const receipt = program
@@ -298,7 +300,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         if (value === null || value === undefined || value === '') return;
         out.write(`  ${p.dim(label.padEnd(18))}${String(value)}\n`);
       };
-      fact('Date', cobro.payment_date instanceof Date ? cobro.payment_date.toISOString().slice(0, 10) : cobro.payment_date);
+      fact('Date', dateOnly(cobro.payment_date));
       fact('Amount', `${cobro.payment_amount} ${cobro.currency_code}`);
       fact('Method', cobro.payment_method);
       fact('Reference', cobro.reference_number);
@@ -366,7 +368,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         render(
           rows.map((r) => ({
             payment_number: r.payment_number,
-            payment_date: r.payment_date instanceof Date ? r.payment_date.toISOString().slice(0, 10) : r.payment_date,
+            payment_date: dateOnly(r.payment_date),
             customer_name: r.customer_name ?? '',
             payment_amount: r.payment_amount,
             applied_amount: r.applied_amount,

@@ -10,6 +10,7 @@ import {
   resolveActiveEntity,
   checkExitCode,
   exitCodeFor,
+  dateOnly,
 } from './kernel/index.js';
 
 // ============================================================
@@ -111,7 +112,7 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
           render(
             r.manual_entries.map((m) => ({
               entry: m.entry_number,
-              date: m.entry_date instanceof Date ? m.entry_date.toISOString().slice(0, 10) : m.entry_date,
+              date: dateOnly(m.entry_date),
               amount: m.amount,
               description: m.description,
             })),

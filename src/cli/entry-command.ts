@@ -57,6 +57,7 @@ import {
   blockedByState,
   abortedByUser,
   exitCodeFor,
+  dateOnly as day,
   ExitCode,
   type ExitCodeValue,
 } from './kernel/index.js';
@@ -146,15 +147,9 @@ export function translateDomainError(err: unknown): unknown {
   return err;
 }
 
-const pad = (n: number) => String(n).padStart(2, '0');
-
-/** A DATE column comes back as a local-midnight Date; print the calendar day. */
-export function day(value: unknown): string {
-  if (value instanceof Date) {
-    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
-  }
-  return value === null || value === undefined ? '' : String(value);
-}
+// La regla de fecha vive en el kernel; el alias se conserva porque
+// period-command la importa de aqui.
+export { dateOnly as day } from './kernel/index.js';
 
 function summarize(row: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -368,6 +363,8 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       const detail = await getJournalEntryDetail(ctx.entityId, number);
       const header = {
         ...summarize(detail),
+        // posted_date es TIMESTAMPTZ (001_core_schema.sql): un instante de bitacora, no
+        // una fecha contable — se conserva como instante, a diferencia de entry_date.
         posted_date: detail.posted_date ? new Date(detail.posted_date).toISOString() : '',
         is_reversal: detail.is_reversal,
         reverses: detail.reverses_entry_number ?? '',
