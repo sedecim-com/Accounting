@@ -351,6 +351,11 @@ Dentro del repositorio:
   modelo de coste por fila y el orden por flujos.
 - [`docs/plan-cierre-brechas.md`](docs/plan-cierre-brechas.md) — las garantías
   heredadas, dispuestas partida por partida.
+- [`docs/investigacion/2026-09-02-mejores-practicas/`](docs/investigacion/2026-09-02-mejores-practicas/)
+  — la investigación de conectores y dirección: PACs, proveedores de IA, onboarding, tablero
+  gráfico, canales de mensajería y la arquitectura experimental de cuentas públicas/privadas.
+  Toda liga verificada con fetch; las muertas se dicen. En la wiki: cinco páginas de «Hacia
+  dónde va» derivadas de ella.
 - [`docs/auditorias/`](docs/auditorias/) — las auditorías adversariales. La de
   agosto abrió con siete lentes; la de septiembre subió a doce y cada hallazgo
   mayor pasó por un escéptico con el encargo de refutarlo.

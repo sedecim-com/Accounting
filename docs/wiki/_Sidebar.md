@@ -30,6 +30,14 @@
 - [[Seguridad-y-credenciales]]
 - [[Glosario]]
 
+**Hacia dónde va**
+
+- [[Conectores-PAC]]
+- [[Onboarding-de-contabilidad]]
+- [[El-tablero-grafico]]
+- [[Canales-de-mensajeria]]
+- [[La-contabilidad-como-centro]]
+
 **Su estado**
 
 - [[El-tablero-y-los-criterios]]
