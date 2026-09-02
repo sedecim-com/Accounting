@@ -9,7 +9,7 @@
     "E0.0 · El migrador no puede rellenar cero filas en silencio: Postgres se lo impide",
     "E0.0 · El repositorio tiene remoto, así que la CI puede dispararse",
     "E0.0 · La aplicación conecta como rol NO privilegiado en el job que prueba el aislamiento",
-    "E0.0 · Los checks viven en un solo ci.yml, que declara sus cuatro jobs",
+    "E0.0 · Los checks viven en un solo ci.yml, que declara sus cinco jobs",
     "E0.0 · Los criterios tienen espejo ejecutable: un mutante declarado los pone en rojo",
     "E0.0 · Ninguna variante de .env se puede versionar, salvo el ejemplo",
     "E0.0 · Un respaldo se prueba restaurándolo, y dice lo que no lleva",
