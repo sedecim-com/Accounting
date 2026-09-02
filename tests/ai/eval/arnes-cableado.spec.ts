@@ -1015,3 +1015,56 @@ describe('la nota sobre el cableado no puede envejecer hasta mentir', () => {
     expect(arnes).toMatch(/if \(comparable && fs\.existsSync\(BITACORA\)\)/);
   });
 });
+
+// ============================================================
+// EL REDACTOR SE ARMA ANTES DE QUE ALGO PUEDA ROMPERSE.
+//
+// CodeQL marcó el catch de la entrada por registro en claro (alerta #24) y
+// tenía razón sobre la ventana, aunque no pueda ver el redactor: el registro
+// de la llave iba DESPUÉS de `resolveProfile`, que es justo la llamada que la
+// lee de `process.env`. Si esa resolución reventaba citando el valor, la única
+// defensa armada era el patrón `sk-`/`Bearer`, y una llave de Google o de
+// Azure no lleva ese prefijo: salía entera al registro de CI.
+//
+// El aserto compara POSICIONES, no busca un token: mover el registro una línea
+// por debajo de `resolveProfile(` lo pone rojo, que es el único mutante que
+// importa aquí.
+// ============================================================
+describe('la ventana de la credencial en claro', () => {
+  // SIN COMENTARIOS, y la razón es que este bloque ya cayó en la trampa: la
+  // prosa que explica el arreglo NOMBRA `recordarSecreto(profile.apiKey)`, así
+  // que un indexOf sobre el texto crudo encontraba la explicación antes que el
+  // código y el aserto de orden salía al revés. Es la misma forma que este
+  // repositorio lleva cinco rondas cazando —el ancla que casa su propio
+  // comentario—, cobrada aquí en la primera corrida.
+  const FUENTE = leer('scripts', 'eval-clasificador.ts')
+    .split('\n')
+    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .join('\n');
+
+  it('las llaves de los perfiles se registran ANTES de resolver el perfil', () => {
+    const registroDeVariables = FUENTE.indexOf('recordarSecreto(process.env[');
+    const resolucion = FUENTE.indexOf('resolveProfile(args.provider');
+    expect(registroDeVariables, 'el arnés dejó de registrar las llaves que los perfiles declaran').toBeGreaterThan(-1);
+    expect(resolucion, 'no se encontró la resolución del perfil: el aserto de abajo pasaría sobre nada').toBeGreaterThan(-1);
+    expect(
+      registroDeVariables,
+      'el redactor se arma DESPUÉS de resolveProfile: si esa llamada revienta citando la llave, ' +
+        'sólo queda el patrón `sk-` y una credencial sin ese prefijo sale entera al registro'
+    ).toBeLessThan(resolucion);
+  });
+
+  it('y la de esta corrida también, porque puede venir de api_key_cmd y no de una variable', () => {
+    const porVariable = FUENTE.indexOf('recordarSecreto(process.env[');
+    const delPerfil = FUENTE.indexOf('recordarSecreto(profile.apiKey)');
+    expect(delPerfil, 'se perdió el registro de la llave resuelta: api_key_cmd no pasa por process.env').toBeGreaterThan(-1);
+    expect(delPerfil).toBeGreaterThan(porVariable);
+  });
+
+  it('todo lo que sale por el catch de la entrada pasa por el redactor', () => {
+    // Un `console.error` crudo en esa puerta es la forma en que esto vuelve.
+    const entrada = FUENTE.slice(FUENTE.indexOf('if (invocadoComoPrograma())'));
+    const crudos = entrada.match(/console\.error\((?!sinSecretos)/g) ?? [];
+    expect(crudos, 'la puerta de entrada imprime sin pasar por sinSecretos()').toEqual([]);
+  });
+});

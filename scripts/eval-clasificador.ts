@@ -447,8 +447,28 @@ async function main(): Promise<void> {
     const modeloPedido = args.model || repro?.instantanea || undefined;
     const modeloPerfil =
       modeloPedido || perfilesDeclarados[nombrePerfil]?.model || '(sin modelo declarado)';
+    // EL REDACTOR SE ARMA ANTES DE QUE ALGO PUEDA ROMPERSE, no después.
+    //
+    // `recordarSecreto(profile.apiKey)` iba DESPUÉS de `resolveProfile`, y ésa
+    // es la llamada que lee `process.env[profile.api_key_env]`. Si reventaba
+    // con la llave dentro del mensaje —una URL mal formada, una validación del
+    // proveedor que cita el valor— el catch de la entrada la imprimía con la
+    // única defensa que quedaba armada: el patrón `sk-`/`Bearer`. Una llave de
+    // Google, de Azure o de un compatible no lleva ese prefijo y salía entera
+    // al registro de CI. CodeQL lo marcó por la ruta correcta (alerta #24) y
+    // tenía razón sobre la ventana, aunque no pueda ver el redactor.
+    //
+    // Se registran TODAS las que los perfiles declaran, no la de esta corrida:
+    // la que se filtre en un mensaje puede ser la de un perfil que ni se pidió
+    // —el failover, un mensaje de configuración que las enumera— y tacharlas
+    // todas cuesta un HMAC por variable de entorno.
+    for (const p of Object.values(perfilesDeclarados)) {
+      const nombreDeVariable = (p as { api_key_env?: string }).api_key_env;
+      if (nombreDeVariable) recordarSecreto(process.env[nombreDeVariable]);
+    }
     const profile = resolveProfile(args.provider, modeloPedido);
-    // La llave de ESTA corrida, para tacharla si algún mensaje la trae.
+    // Y la de ESTA corrida, que puede venir de `api_key_cmd` y no de una
+    // variable: el bucle de arriba no la habría visto.
     recordarSecreto(profile.apiKey);
     const capture: DraftCapture = { drafts: [] };
     let base: LlmSession;
