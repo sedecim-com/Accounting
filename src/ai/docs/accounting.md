@@ -14,6 +14,7 @@
 
 ## What the human does (REST /v1)
 - POST /journal-entries (create), POST /journal-entries/:id/post, /void, /reverse.
+- Imported batches (F06c): `entry import` stages rows; `batch check` validates each row with the SAME rules as a manual entry and moves staged→checked; `batch post` applies the valid rows transactionally (--partial keeps the invalid ones staged, with counts); `batch reverse` mirrors ALL the batch's entries as one unit and refuses if any was already reversed by hand, naming it. Batch entries carry source_type='import_batch' with the ROW as source_id. post/reverse are irreversible → never yours to run; list/show/check you may read and run.
 - Approve your drafts: `mnemosine review`; view them: `mnemosine drafts`.
 
 ## Fiscal periods

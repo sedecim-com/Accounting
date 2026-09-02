@@ -296,6 +296,27 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   '--serial': null,
   '--location': null,
   '--description': null,
+
+  // ── F06c · la familia `batch` ─────────────────────────────────────────
+  //
+  // Ninguna lleva forma corta. `--kind` es la que más trabajo hace: ya la
+  // hablaban `approvals grant` y `jobs create` sin que nadie la hubiera
+  // congelado, y el catálogo la promete en tres filas más (`batch list`,
+  // `period adjustment create`, `ap accrue`). Cuatro familias con la misma
+  // pregunta —¿de qué clase es esto?— tienen que hacerla con la misma grafía,
+  // y sin esta entrada la próxima sesión le inventa un -k o un --type que ya
+  // significa otra cosa (la naturaleza de una cuenta bancaria, F05a).
+  '--kind': null,
+  // `batch post --partial`: aplicar lo válido y DEJAR lo inválido en staging.
+  // El catálogo la escribe también en `payment-run edit` (fase 2): se congela
+  // ahora para que las dos digan lo mismo con la misma palabra.
+  '--partial': null,
+  // `batch show --errors-only`: sólo las filas que el parser rechazó. No es
+  // `--status` (las filas del staging no tienen estado propio) ni `--strict`
+  // (no endurece nada): acota una ficha, y se escribe con el guion completo
+  // porque `--errors` a secas leería como «enséñame los errores», que es otra
+  // promesa.
+  '--errors-only': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

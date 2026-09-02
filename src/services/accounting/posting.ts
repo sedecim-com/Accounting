@@ -491,8 +491,14 @@ async function resolveTenantId(
  * - only posted entries reverse — a draft never touched account_balances,
  *   so its mirror would inject a one-sided movement into the ledger;
  * - one reversal per entry — each extra mirror would hit balances again.
+ *
+ * Se exporta PARA batch-service.ts (`batch reverse`) y para nadie más:
+ * reversar un lote importado exige N espejos bajo UNA transacción del
+ * llamador —todo o nada—, que es exactamente lo que esta función sabe hacer.
+ * Los actos unitarios siguen entrando por reverseJournalEntry / voidJournalEntry,
+ * que abren su propia transacción y disparan la atestación tras el commit.
  */
-async function reverseWithinTransaction(
+export async function reverseWithinTransaction(
   client: pg.PoolClient,
   entry: JournalEntry,
   userId: string,

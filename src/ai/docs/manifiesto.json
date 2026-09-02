@@ -90,7 +90,7 @@
     "system.md"
   ],
   "hashes": {
-    "src/services/accounting/posting.ts": "efc8459cd780d094acd3e3788c11048f310d655a",
+    "src/services/accounting/posting.ts": "109953d341e5f1486797a1a33988074771b10be1",
     "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
     "src/services/accounting/fiscal-calendar-service.ts": "d5d7a785b11a533a34c39d5d1c4568f2c4122930",
     "src/cli/entry-command.ts": "bda3af4169e96a2548f52512dfc5415ed5f6ae42",

@@ -465,6 +465,7 @@ export const CRITERIOS: Criterio[] = [
         F05c: 'docs/auditorias/F05c.md',
         F05d: 'docs/auditorias/F05d.md',
         F06a: 'docs/auditorias/F06a.md',
+        F06c: 'docs/auditorias/F06c.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -4010,6 +4011,70 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+
+
+  // ---- F06c · El lote importado por fin se puede aplicar ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El lote respeta su flujo —staged, checked, posted— y se reversa como unidad',
+    mutantes: [
+      {
+        // El diente, no la boca. La primera versión mutaba la APERTURA de la
+        // función añadiendo `return;` — el throw quedaba como código muerto y
+        // toda ancla textual seguía encontrándolo. Un criterio de texto no ve
+        // código muerto: hay que mutar lo que se ancla.
+        archivo: 'src/services/accounting/batch-service.ts',
+        de: '  if (permitidos.includes(lote.status)) return;',
+        a: '  return;',
+        porque: 'la guarda deja pasar TODO estado: un lote staged se postearía sin verificar, que es exactamente lo que el flujo de la 045 existe para impedir',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerBatchCommand(program, { palette: c, shutdown, reportError });',
+        a: '// registerBatchCommand fuera del binario',
+        porque: 'tercera repetición del defecto de la casa: la familia pasa sus 72 pruebas sobre un programa que sólo construye el spec, y el staging de F01 vuelve a no tener salida',
+      },
+    ],
+    evaluar: () => {
+      // F01 dejó una puerta de entrada a un almacén sin salida: `entry import`
+      // deposita pólizas en el staging de la 045 y hasta F06c ningún comando
+      // podía aplicarlas, verificarlas ni reversarlas. El flujo
+      // staged→checked→posted del CHECK de la 045 era un dibujo.
+      const svc = codigoDe('src/services/accounting/batch-service.ts');
+
+      // 1. La guarda de estado existe y es ÚNICA: cada verbo la llama en vez de
+      //    comparar por su cuenta, que es como las máquinas de estados se
+      //    desincronizan.
+      // Se ancla el CUERPO de la guarda —la condición Y el throw—, no su
+      // nombre: una guarda que existe y no muerde es la forma exacta del
+      // mutante que sobrevivió a la primera versión de este criterio.
+      if (!/if \(permitidos\.includes\(lote\.status\)\) return;[\s\S]{0,200}?throw new ConflictError\(/.test(svc)) {
+        return falla('la guarda de estado del lote perdió su diente: existe pero deja pasar, y un lote staged se postearía sin verificar');
+      }
+      const usos = (svc.match(/exigirEstado\(/g) ?? []).length;
+      if (usos < 4) {
+        return falla(`sólo ${usos - 1} verbos pasan por la guarda de estado: el que no pase podrá saltarse el flujo`);
+      }
+      // 2. El origen propio: las pólizas del lote se distinguen de las
+      //    manuales, y la reversa encuentra EXACTAMENTE las suyas.
+      if (!/ORIGEN_LOTE_IMPORTADO = 'import_batch'/.test(svc)) {
+        return falla('las pólizas del lote perdieron su origen propio: la reversa no sabría cuáles son suyas y los informes las contarían como manuales');
+      }
+      // 3. La reversa en bloque usa la transacción del llamador — N espejos,
+      //    todo o nada — y no N transacciones sueltas.
+      const enBloque = /await reverseWithinTransaction\(/.test(svc);
+      // 4. Y está en el binario: tercera vez que una familia entera pasa sus
+      //    pruebas sin que mnemosine la cargue.
+      const entregada = /registerBatchCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'));
+      if (!enBloque) {
+        return falla('la reversa del lote dejó de usar la transacción compartida: N espejos en N transacciones puede dejar medio lote reversado');
+      }
+      return entregada
+        ? ok('la guarda de estado es única y la usan todos los verbos, el origen es propio, la reversa es todo-o-nada y la familia está en el binario')
+        : falla('registerBatchCommand no está en el binario: el staging de F01 vuelve a ser un almacén sin salida');
+    },
+  },
 
   // ---- F06a · El activo y su corrida ----
 

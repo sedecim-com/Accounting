@@ -49,11 +49,11 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **196 comandos** repartidos en **52 familias** de primer nivel. De las **1627** filas del catálogo, **181** (11.1 %) ya se pueden invocar.
+El binario ejecuta hoy **201 comandos** repartidos en **53 familias** de primer nivel. De las **1627** filas del catálogo, **186** (11.4 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **243** filas lo declaran completo, **398** a medias y **986** inexistente.
+Del motor que cada comando necesita, **248** filas lo declaran completo, **395** a medias y **984** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **386** filas, de las que **170** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **386** filas, de las que **175** ya se teclean.
 
 **El objetivo comprometible son 1384 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
@@ -74,9 +74,9 @@ Contadas por COMANDO, las 1627 filas son **1606 rutas únicas**: **16 rutas** es
 | `close` | 9 | 6 |
 | `vendor` | 23 | 5 |
 | `period` | 15 | 5 |
+| `batch` | 7 | 5 |
 | `credit-note` | 7 | 5 |
 | `backup` | 5 | 5 |
-| `sat` | 22 | 4 |
 
 **1 de 617** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
@@ -481,12 +481,12 @@ Cierra el único hueco estructural del catálogo: 27 filas de comando aceptan `-
 | Comando | Qué hace | Flags clave | Backend | Riesgo | IA | Fase |
 |---|---|---|---|---|---|---|
 | `mnemosine entry import <file>` · `poliza importar` | Prepara (stage) un archivo de pólizas en una tabla de paso y devuelve un `batch_id`, sin tocar el mayor | `--layout <csv\|ndjson\|contpaqi\|aspel\|iif\|sat-polizas>`, `--map`, `--dry-run`, `--idempotency-key` | ✅ **hecha en F01**: staging 045 (batches+rows con batch_id), layouts csv y ndjson reales; contpaqi/aspel/iif/sat-polizas rechazan con mensaje. Antes ❌: no existe tabla de staging ni `batch_id`; `createJournalEntry` es póliza por póliza (posting.ts:60) | escritura | ✓ | 1 |
-| `mnemosine batch list` · `lote listar` | Lista los lotes (importaciones, corridas recurrentes, revaluaciones, cierres) con su estado y totales | `--kind`, `--status <pending\|running\|completed\|failed\|cancelled>`, `--since`, `--json` | ❌ `batch` es sustantivo raíz y no `entry batch` porque un lote también lo produce una corrida recurrente, una revaluación o un cierre | lectura | ✓ | 1 |
-| `mnemosine batch show <id>` · `lote ver` | Detalle del lote: filas, errores por categoría, pólizas generadas y hash de contenido | `--errors-only`, `--json` | ❌ | lectura | ✓ | 1 |
-| `mnemosine batch check <id>` · `lote verificar` | Corre las validaciones de aplicación sobre todo el lote y reporta error por fila y por póliza; sale 4 si alguna bloquea | `--check <name,…>`, `--strict`, `--json` | 🟡 `validateJournalEntry` (validation.ts:307) da las reglas por póliza; falta el recorrido por lote y el reporte por fila | lectura | ✓ | 1 |
+| `mnemosine batch list` · `lote listar` | Lista los lotes (importaciones, corridas recurrentes, revaluaciones, cierres) con su estado y totales | `--kind`, `--status <pending\|running\|completed\|failed\|cancelled>`, `--since`, `--json` | ✅ **hecha en F06c** — y la celda vieja era anterior a la 045: `journal_entry_import_batches` existe con el flujo staged→checked→posted→discarded, y `entry import` (F01) lo llenaba SIN que ningún comando pudiera vaciarlo. Lista por estado y clase, acotada por entidad | lectura | ✓ | 1 |
+| `mnemosine batch show <id>` · `lote ver` | Detalle del lote: filas, errores por categoría, pólizas generadas y hash de contenido | `--errors-only`, `--json` | ✅ **hecha en F06c**: filas, errores por categoría, pólizas generadas y el hash del archivo original | lectura | ✓ | 1 |
+| `mnemosine batch check <id>` · `lote verificar` | Corre las validaciones de aplicación sobre todo el lote y reporta error por fila y por póliza; sale 4 si alguna bloquea | `--check <name,…>`, `--strict`, `--json` | ✅ **hecha en F06c**: valida CADA fila con las MISMAS reglas que un asiento manual (reusa validateJournalEntry, no las reimplementa), acumula errores por fila con su número, y sólo si todas pasan mueve staged→checked. Sale 4 con hallazgos bloqueantes. El payload JSONB se trata como input NO confiable aunque lo haya escrito entry import | lectura | ✓ | 1 |
 | `mnemosine batch preview <id>` · `lote previsualizar` | Muestra el delta de balanza que produciría el lote y qué cuentas cambiarían de signo | `--by-account`, `--json` | ❌ | lectura | ✓ | 2 |
-| `mnemosine batch post <id>` · `lote contabilizar` | Aplica el lote de forma transaccional; `--partial` aplica lo válido y deja el resto en staging | `--partial`, `--dry-run`, `--yes`, `--idempotency-key` | 🟡 la aplicación por póliza existe (posting.ts:229) y `withTransaction` acepta un `client` compartido (posting.ts:78); falta la transacción de lote y el modo parcial | irreversible | ✗ | 1 |
-| `mnemosine batch reverse <id> --reason` · `lote reversar` | Reversa todas las pólizas del lote como unidad — los errores de importación son de forma de lote, no de póliza | `--reason`, `--as-of`, `--dry-run`, `--yes`, `--idempotency-key` | 🟡 `reverseWithinTransaction` (posting.ts:324) ya corre sobre el cliente del llamador, que es exactamente lo que hace falta para revertir en bloque | irreversible | ✗ | 1 |
+| `mnemosine batch post <id>` · `lote contabilizar` | Aplica el lote de forma transaccional; `--partial` aplica lo válido y deja el resto en staging | `--partial`, `--dry-run`, `--yes`, `--idempotency-key` | ✅ **hecha en F06c**: postea las filas válidas EN UNA transacción con `source_type='import_batch'` y la FILA como source_id — la reversa encuentra exactamente las suyas y los informes no las confunden con manuales. `--partial` aplica lo válido, deja lo inválido en staging y dice cuánto quedó. Idempotente: postear dos veces no postea dos veces. Sólo desde 'checked': postear sin verificar es lo que el flujo existe para impedir | irreversible | ✗ | 1 |
+| `mnemosine batch reverse <id> --reason` · `lote reversar` | Reversa todas las pólizas del lote como unidad — los errores de importación son de forma de lote, no de póliza | `--reason`, `--as-of`, `--dry-run`, `--yes`, `--idempotency-key` | ✅ **hecha en F06c**: espejos de TODAS las pólizas del lote bajo UNA transacción —todo o nada, vía `reverseWithinTransaction` exportada con ese único propósito— y se niega nombrando el folio si alguna ya fue reversada a mano | irreversible | ✗ | 1 |
 | `mnemosine batch map set <profile>` · `lote mapeo fijar` | Guarda el perfil de mapeo de códigos de cuenta del sistema origen, para que el siguiente mes sea un solo comando | `--file`, `--layout`, `--dry-run` | ❌ | escritura | ✗ | 2 |
 | `mnemosine entry template create <name>` · `poliza plantilla crear` | Guarda una póliza modelo (cuentas fijas, importes opcionales) a partir de una póliza existente o de un archivo | `--source <number>`, `--file`, `--description` | ❌ tabla de pólizas modelo con sustitución por línea | escritura | ✓ | 2 |
 | `mnemosine entry template list` · `poliza plantilla listar` · `mnemosine entry template show <name>` · `poliza plantilla ver` | Enumera e inspecciona las pólizas modelo de la entidad | `--json` | ❌ | lectura | ✓ | 2 |

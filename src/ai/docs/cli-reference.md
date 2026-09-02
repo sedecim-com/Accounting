@@ -114,6 +114,9 @@ Commands:
                                         the company owns and depreciates
   depreciation|depreciacion             The monthly depreciation run: compute
                                         it, look at it, then post it
+  batch|lote                            Staged entry batches: list, inspect,
+                                        check, post transactionally and reverse
+                                        as a unit
   backup|respaldo                       Logical backups of the whole
                                         installation (create, list, verify by
                                         rehearsing the restore, restore) and
@@ -4746,6 +4749,168 @@ Options:
   -y, --yes                                skip the confirmation prompt
   --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
   -h, --help                               display help for command
+```
+
+## `mnemosine batch` (alias: lote)
+
+```
+Usage: mnemosine batch|lote [options] [command]
+
+Staged entry batches: list, inspect, check, post transactionally and reverse as
+a unit
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  list|listar [options]             List batches with their state, row counts,
+                                    posted entries and content hash
+  show|ver [options] <id>           One batch in full: rows with their generated
+                                    entries, stored parse errors by category,
+                                    and the file hash
+  check|verificar [options] <id>    Run the posting validations over every row
+                                    and report each finding; exits 4 when any
+                                    blocks
+  post|contabilizar [options] <id>  Post the whole batch in one transaction;
+                                    --partial applies the valid rows and leaves
+                                    the rest staged
+  reverse|reversar [options] <id>   Mirror every entry the batch posted, as one
+                                    unit in one transaction — import errors are
+                                    batch-shaped, not entry-shaped
+  help [command]                    display help for command
+```
+
+### `mnemosine batch list` (alias: listar)
+
+```
+Usage: mnemosine batch list|listar [options]
+
+List batches with their state, row counts, posted entries and content hash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --kind <kind>                            batch class (available: import)
+  -h, --help                               display help for command
+```
+
+### `mnemosine batch show` (alias: ver)
+
+```
+Usage: mnemosine batch show|ver [options] <id>
+
+One batch in full: rows with their generated entries, stored parse errors by
+category, and the file hash
+
+Arguments:
+  id                                       batch id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --errors-only                            only the rows whose parser rejected them
+  -h, --help                               display help for command
+```
+
+### `mnemosine batch check` (alias: verificar)
+
+```
+Usage: mnemosine batch check|verificar [options] <id>
+
+Run the posting validations over every row and report each finding; exits 4 when
+any blocks
+
+Arguments:
+  id                                       batch id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --strict                                 treat warnings as blocking (exit 4)
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --check <names>                          finding categories to display, comma-separated (available: parse, forma, cuenta, periodo, validacion); the full battery always runs
+  -h, --help                               display help for command
+```
+
+### `mnemosine batch post` (alias: contabilizar)
+
+```
+Usage: mnemosine batch post|contabilizar [options] <id>
+
+Post the whole batch in one transaction; --partial applies the valid rows and
+leaves the rest staged
+
+Arguments:
+  id                       batch id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --partial                apply the valid rows and leave the invalid ones in
+                           staging (accepts an unchecked batch)
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+### `mnemosine batch reverse` (alias: reversar)
+
+```
+Usage: mnemosine batch reverse|reversar [options] <id>
+
+Mirror every entry the batch posted, as one unit in one transaction — import
+errors are batch-shaped, not entry-shaped
+
+Arguments:
+  id                       batch id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --as-of <date>           date for every mirror entry (YYYY-MM-DD); defaults to
+                           today
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --reason <text>          justification recorded in the audit trail (required)
+  -h, --help               display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)

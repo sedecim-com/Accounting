@@ -55,6 +55,8 @@ const TOP_LEVEL: Record<string, string> = {
   // a `reconciliation` genérica.
   asset: 'activo',
   depreciation: 'depreciacion',
+  // F06c: el lote que F01 dejaba en un staging sin salida.
+  batch: 'lote',
   // S3: la vía de recuperación que el propio esquema nombra.
   backup: 'respaldo',
   report: 'reporte',
