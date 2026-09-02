@@ -42,7 +42,9 @@ const conMutantes = CRITERIOS.filter((c) => (c.mutantes?.length ?? 0) > 0);
 // llegan con espejo, y el criterio de colisión pasó a leer por el seam para que
 // su mutante pueda morderlo. Uno de los dos criterios es NUEVO en este commit,
 // así que su espejo es requisito, no pago: el otro es la deuda que se salda.
-const SIN_ESPEJO_MAXIMO = 61;
+// 61 → 60: el criterio del único ci.yml gana su espejo al añadir `restauracion`
+// a la lista de jobs — deuda vieja saldada en el commit que la toca.
+const SIN_ESPEJO_MAXIMO = 60;
 
 describe('el arnés de mutación — un criterio sin mordida es prosa', () => {
   it('la línea base de criterios sin espejo sólo encoge', () => {
