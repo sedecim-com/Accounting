@@ -25,7 +25,9 @@ import {
   abortedByUser,
   usageError,
   exitCodeFor,
+  dateOnly,
 } from './kernel/index.js';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 
 // ============================================================
 // mnemosine payment
@@ -126,8 +128,16 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     }
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     try {
-      const answer = (await rl.question(`${question} [y/N] `)).trim().toLowerCase();
-      if (answer !== 'y' && answer !== 'yes') throw abortedByUser();
+      const veredicto = await confirmarConReintento(
+        (p) => rl.question(p).catch(() => null),
+        `${question} [y/N] `
+      );
+      if (veredicto.si) return;
+      throw abortedByUser(
+        veredicto.incomprendida !== undefined
+          ? `Aborted — ${noEntendi(veredicto.incomprendida)}.`
+          : undefined
+      );
     } finally {
       rl.close();
     }
@@ -337,7 +347,8 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
 
 }
 
-const hoy = (): string => new Date().toISOString().slice(0, 10);
+// El dia LOCAL del despacho, no el de Greenwich: de noche ya era "manana" en UTC.
+const hoy = (): string => dateOnly(new Date());
 
 /**
  * El camino común de los dos comandos: ensayo, confirmación, escritura.

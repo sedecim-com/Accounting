@@ -78,7 +78,7 @@ Contadas por COMANDO, las 1625 filas son **1604 rutas únicas**: **16 rutas** es
 | `backup` | 5 | 5 |
 | `sat` | 22 | 4 |
 
-**1 de 620** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
+**2 de 620** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts) y 1 a líneas fuera del archivo.
 
 _Que una cita resuelva no prueba que siga apuntando a lo mismo: sólo que el archivo existe y tiene esa línea. El juicio ✅/🟡/❌ de cada fila es humano y se revisa a mano._
 

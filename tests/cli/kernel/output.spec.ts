@@ -127,8 +127,10 @@ describe('formats', () => {
     const lines = s.stdoutText.trim().split('\n');
     // header, rule, two rows
     expect(lines).toHaveLength(4);
-    // "1000.51" and "-400.00" are both 7 and 7 wide; the shorter one pads left
-    expect(lines[2]).toMatch(/1000\.51/);
+    // balance es columna de dinero: en la tabla (y solo ahi) va vestida
+    // de presentacion es-MX, con separador de miles y dos decimales.
+    expect(lines[2]).toMatch(/1,000\.51/);
+    expect(lines[3]).toMatch(/-400\.00/);
     expect(lines[0]).toMatch(/^code\s+name\s+balance\s+type$/);
   });
 

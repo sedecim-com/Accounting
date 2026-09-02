@@ -56,8 +56,8 @@ Commands:
                                         execute
   question|duda [options]               The agent's pending questions: list,
                                         answer (saved as a precedent) or dismiss
-  sat                                   SAT services (credentials and CFDI
-                                        download)
+  sat                                   SAT services (e.firma credentials; the
+                                        CFDI bulk download is not built yet)
   pending|pendientes [options]          What you need to do: work to resolve and
                                         policy decisions to define
   login|entrar [options]                Signs in with your identity provider
@@ -462,7 +462,7 @@ Options:
 ```
 Usage: mnemosine sat [options] [command]
 
-SAT services (credentials and CFDI download)
+SAT services (e.firma credentials; the CFDI bulk download is not built yet)
 
 Options:
   -h, --help      display help for command
@@ -2319,8 +2319,8 @@ Options:
   --due-date <date>               due date (YYYY-MM-DD); defaults to the
                                   vendor's terms
   --line <spec...>                one line, repeatable:
-                                  "account=…,qty=…,quantity=…,price=…,unit-price=…".
-                                  Account is a code from the chart
+                                  "account=5100,qty=1,price=1000,tax-amount=160".
+                                  See the key list below
   --currency <code>               3-letter ISO code; defaults to the vendor's
                                   currency
   --terms <text>                  payment terms recorded on the bill; defaults
@@ -2837,7 +2837,9 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --customer <ref>         customer number, name or id
   --line <spec...>         a line:
-                           "account=4100;qty=2;price=1500;tax=16;description=…"
+                           "account=4100;qty=2;price=1500;tax=16;description=…".
+                           Here tax= is a RATE in % (16 means 16%), not an
+                           amount — unlike bill, where it is the amount
   --from-file <path>       JSON array of lines instead of repeated --line
   --date <date>            invoice date (YYYY-MM-DD); defaults to today
   --due-date <date>        due date; defaults to the customer's payment terms
@@ -2916,7 +2918,8 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --line <spec...>         REPLACE all lines:
-                           "account=4100;qty=2;price=1500;tax=16;…" (repeatable)
+                           "account=4100;qty=2;price=1500;tax=16;…"
+                           (repeatable). Here tax= is a RATE in %, not an amount
   --from-file <path>       JSON array of lines instead of repeated --line
   --date <date>            new invoice date (YYYY-MM-DD)
   --due-date <date>        new due date

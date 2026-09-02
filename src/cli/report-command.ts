@@ -30,6 +30,7 @@ import {
   usageError,
   validationFailed,
   exitCodeFor,
+  dateOnly as isoDate,
   type Row,
 } from './kernel/index.js';
 
@@ -93,20 +94,6 @@ interface CommonOpts {
   dateBasis?: string;
 }
 
-/**
- * Postgres hands a DATE back as a Date at LOCAL midnight, so the local
- * getters are the ones that give the day the database actually stored.
- * toISOString() would shift it a day west of Greenwich.
- */
-function isoDate(value: unknown): string {
-  if (value instanceof Date) {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  return value === null || value === undefined ? '' : String(value);
-}
 
 function today(): string {
   return isoDate(new Date());

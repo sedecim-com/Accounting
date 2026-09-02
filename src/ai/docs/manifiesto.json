@@ -85,7 +85,7 @@
     "src/services/accounting/posting.ts": "efc8459cd780d094acd3e3788c11048f310d655a",
     "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
     "src/services/accounting/fiscal-calendar-service.ts": "d5d7a785b11a533a34c39d5d1c4568f2c4122930",
-    "src/cli/entry-command.ts": "bda3af4169e96a2548f52512dfc5415ed5f6ae42",
+    "src/cli/entry-command.ts": "acd3adffdfdec732345f909d78ef085c1a5544fa",
     "src/services/accounting/iva-cash-basis.ts": "0fa82412b57e1c26a8164a80fa757aec80e46fc0",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "54de95c63d0fd4d6fd51cad38a8dae654e0eead4",
     "src/services/integrations/mexico/pac/pac-router.ts": "adb8d8fde1a2bd9ae22817492682b4c480351d48",
