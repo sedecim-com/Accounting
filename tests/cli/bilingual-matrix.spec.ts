@@ -60,6 +60,9 @@ const TOP_LEVEL: Record<string, string> = {
   // F06b: la lectura del cierre. `closing` es el proceso; `close` (que ya
   // existía) es el acto. El alias compuesto viene del catálogo.
   closing: 'cierre-proceso',
+  // R4: el tipo de cambio como sustantivo raíz. `fx` no se traduce a
+  // «divisa»: el catálogo fijó `cambio`, que es como el despacho lo dice.
+  fx: 'cambio',
   // S3: la vía de recuperación que el propio esquema nombra.
   backup: 'respaldo',
   report: 'reporte',
@@ -134,6 +137,8 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   'credit-note': { create: 'crear', show: 'ver', list: 'listar', issue: 'emitir', apply: 'aplicar' },
   ar: { reconcile: 'conciliar', check: 'verificar' },
   ap: { reconcile: 'conciliar' },
+  // R4: `rate` es calificador de `fx`, como `statement` lo es de `bank`.
+  fx: { rate: 'tipo' },
   // F05b: los tres sustantivos del cotejo. `match` es OBJETO aquí (el cotejo),
   // no acto: el verbo `cotejar` sigue reservado para `bank transaction match`.
   bank: {

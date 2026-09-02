@@ -467,6 +467,7 @@ export const CRITERIOS: Criterio[] = [
         F06a: 'docs/auditorias/F06a.md',
         F06b: 'docs/auditorias/F06b.md',
         F06c: 'docs/auditorias/F06c.md',
+        R4: 'docs/auditorias/R4.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -4132,6 +4133,64 @@ export const CRITERIOS: Criterio[] = [
       return entregada
         ? ok('la guarda de estado es única y la usan todos los verbos, el origen es propio, la reversa es todo-o-nada y la familia está en el binario')
         : falla('registerBatchCommand no está en el binario: el staging de F01 vuelve a ser un almacén sin salida');
+    },
+  },
+
+  // ---- R4 · La moneda extranjera, convertida en el origen ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El asiento en moneda extranjera nace con su origen, la conversión se verifica y la reversa lo conserva cruzado',
+    mutantes: [
+      {
+        // El diente: la reversa de un asiento USD construía el espejo sólo en
+        // funcional — la pérdida de origen que R4 existe para matar,
+        // reintroducida por la puerta de la reversión (afecta reverse, void y
+        // batch reverse). El adversarial la cazó con prueba que fallaba.
+        archivo: 'src/services/accounting/posting.ts',
+        de: '    foreign_debit: line.foreign_credit ?? undefined,',
+        a: '    foreign_debit: undefined,',
+        porque: 'el espejo pierde el lado extranjero: reversar un asiento en dólares vuelve a parir un asiento sólo-funcional, y el importe original muere en silencio por la puerta de atrás',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerFxCommand(program, { palette: c, shutdown, reportError });',
+        a: '// registerFxCommand fuera del binario',
+        porque: 'quinta repetición del defecto de la casa: fx-command.ts pasa su spec sobre un Command propio mientras el binario no lo carga — el segundo verificador de R4 lo encontró exactamente así',
+      },
+    ],
+    evaluar: () => {
+      const post = codigoDe('src/services/accounting/posting.ts');
+
+      // 1. Las cuatro columnas FX de la 001 POR FIN se escriben. Antes el
+      //    INSERT escribía nueve columnas y todo asiento en dólares perdía su
+      //    origen al nacer — currencyRule no podía dispararse jamás.
+      if (!/currency_code, foreign_debit, foreign_credit, exchange_rate/.test(post)) {
+        return falla('el INSERT de createJournalEntry dejó de escribir las columnas FX: el asiento en moneda extranjera vuelve a nacer sin origen');
+      }
+      // 2. La conversión se VERIFICA, no se confía: cada línea pasa por
+      //    verificarOrigenFx (funcional = extranjero × tasa, half-up a 4) y el
+      //    rechazo trae los tres números. Sin esto, un llamador puede declarar
+      //    un origen que no casa y el mayor archiva la mentira con CHECK verde.
+      if (!/verificarOrigenFx\(line, monedaFuncional, i \+ 1\)/.test(post)) {
+        return falla('createJournalEntry dejó de verificar el origen contra la conversión: una línea podría declarar un extranjero que no casa con su funcional');
+      }
+      // 3. La reversa CRUZA los lados extranjeros igual que los funcionales.
+      if (!/foreign_debit: line\.foreign_credit \?\? undefined,/.test(post)) {
+        return falla('la reversa dejó de cruzar el origen: el espejo de un asiento en dólares nacería sólo-funcional');
+      }
+      // 4. La fluctuación se identifica (B-15): utilidad y pérdida cambiaria
+      //    tienen cuenta PROPIA — compartir la 4300/6300 con otros ingresos y
+      //    gastos financieros las hacía invisibles, y el neteo es del reporte,
+      //    no de las cuentas.
+      const seed = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
+      if (!/utilidad_cambiaria: '4320'/.test(seed) || !/perdida_cambiaria: '6320'/.test(seed)) {
+        return falla('los roles cambiarios volvieron a compartir cuenta: la fluctuación deja de poder identificarse (NIF B-15)');
+      }
+      const entregada = /registerFxCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'));
+      return entregada
+        ? ok('las cuatro columnas se escriben, la conversión se verifica con los tres números, la reversa cruza el origen, la fluctuación tiene cuenta propia y la familia está en el binario')
+        : falla('registerFxCommand no está en el binario: R4 quedó verificada y no entregada');
     },
   },
 

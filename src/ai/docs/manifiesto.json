@@ -90,11 +90,11 @@
     "system.md"
   ],
   "hashes": {
-    "src/services/accounting/posting.ts": "109953d341e5f1486797a1a33988074771b10be1",
+    "src/services/accounting/posting.ts": "1e0f611c0d85f9902f0333b41c7e2402f0e3144a",
     "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
     "src/services/accounting/fiscal-calendar-service.ts": "d5d7a785b11a533a34c39d5d1c4568f2c4122930",
     "src/cli/entry-command.ts": "bda3af4169e96a2548f52512dfc5415ed5f6ae42",
-    "src/services/accounting/iva-cash-basis.ts": "0fa82412b57e1c26a8164a80fa757aec80e46fc0",
+    "src/services/accounting/iva-cash-basis.ts": "0a9c6cc57c218f765e65b46cb9238c8127917153",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "9a79011ea89f79fa2f19ccacad6c7114dbfba3f3",
     "src/services/integrations/mexico/pac/pac-router.ts": "adb8d8fde1a2bd9ae22817492682b4c480351d48",
     "src/api/rest/routes/invoices.ts": "852a2b050a60044e8c1b1d6e38f6582ff70653fc",
@@ -107,7 +107,7 @@
     "src/services/integrations/accounting/contalink-adapter.ts": "26f1f237d951a438adfc9e3d0430c316ff762f2b",
     "src/services/ap/bill-service.ts": "28d1ab2eaf5c8a2c30be2f073b450b60d0f2ded6",
     "src/services/ap/vendor-service.ts": "266636a0d6b50c28994e3f2a373cca5b1f628361",
-    "src/services/payments/payment-service.ts": "fe90ca9452cfd192ab0b9610ba6accecbb3e8486",
+    "src/services/payments/payment-service.ts": "1e4bfe07dd9e487b10a44da38ca68cce130a73f7",
     "src/services/banking/bank-statement-service.ts": "703ef03b34cb02c17980761ee25e3cd0b9ad9aa5",
     "src/services/banking/statement-checks.ts": "54a4b54f11f557740ccda5c25f5cef304ba8415e",
     "src/services/banking/match-service.ts": "52b731c828d115c9323215e225ae95a4827c92d3",

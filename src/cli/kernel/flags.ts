@@ -317,6 +317,26 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // porque `--errors` a secas leería como «enséñame los errores», que es otra
   // promesa.
   '--errors-only': null,
+
+  // ── R4 · la familia `fx` (NIF B-15) ───────────────────────────────────
+  //
+  // Ninguna lleva forma corta. `--source` es la que más trabajo hace: ya la
+  // hablaban `entry list` (el subdiario de origen) y `webhooks` (la clase de
+  // emisor) con esta misma grafía y sin forma corta, y en `fx rate set` y
+  // `fx rate download` nombra QUIÉN publicó el tipo — el concepto es siempre
+  // «de dónde salió esto». Se congela ahora porque desde la 057 la fuente es
+  // parte de la CLAVE de un tipo de cambio (DOF y FIX del mismo día conviven
+  // como filas distintas), y una bandera que es clave no puede cambiar de
+  // grafía entre la hoja que escribe y la que lee.
+  '--source': null,
+  // El par de monedas, «USD/MXN». No se parte en --from-currency/--to-currency:
+  // --from y --to están PROHIBIDAS arriba justo porque no dicen de qué son.
+  '--pair': null,
+  // Cuál de los cuatro tipos del CHECK de la 001 (`spot`, `average`, `budget`,
+  // `historical`). No es `--type` —la naturaleza de una cuenta bancaria, F05a—
+  // ni `--rate` —la tasa de IVA/ISR de tesorería, F05d—: tres conceptos, tres
+  // grafías, y ésta se escribe con las dos palabras para no rozar ninguna.
+  '--rate-type': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

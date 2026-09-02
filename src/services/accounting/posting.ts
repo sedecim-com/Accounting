@@ -3,6 +3,7 @@ import { registrarAuditoria } from '../audit/audit-log.js';
 import { getPolicy } from '../policy/policy-service.js';
 import type pg from 'pg';
 import { withTransaction, currentTenant } from '../../database/connection.js';
+import { traeCamposFx, verificarOrigenFx } from '../fx/conversion.js';
 import { validateJournalEntry } from './validation.js';
 import { nextEntityNumber } from '../../utils/sequence.js';
 import { AccountingError, ErrorCodes } from '../../utils/errors.js';
@@ -29,6 +30,14 @@ interface JournalEntryLineInput {
   description: string;
   cost_center_id?: string;
   project_id?: string;
+  // R4 · NIF B-15: el origen en moneda extranjera. Los cuatro viajan JUNTOS
+  // (CHECK de la 001) y la conversión se VERIFICA contra ellos antes del
+  // INSERT — ver verificarOrigenFx. Una línea en la moneda funcional no los
+  // trae; una en moneda extranjera no puede no traerlos.
+  currency_code?: string | null;
+  foreign_debit?: string | null;
+  foreign_credit?: string | null;
+  exchange_rate?: string | null;
 }
 
 // Attestations are fire-and-forget but must survive process shutdown: the
@@ -108,6 +117,30 @@ export async function createJournalEntry(
 
     const fiscalPeriodId = periodResult.rows[0].id;
 
+    // R4 · LA MONEDA EXTRANJERA, CONVERTIDA EN EL ORIGEN (NIF B-15).
+    //
+    // Durante un año este INSERT escribió nueve columnas e ignoró las cuatro
+    // de moneda extranjera que la 001 trae desde el día uno: todo asiento en
+    // dólares perdía su origen al nacer. Ahora las escribe — pero antes las
+    // VERIFICA, porque el CHECK de la 001 solo exige que viajen juntas, no
+    // que digan la verdad: el importe funcional debe SER foreign × rate
+    // redondeado half-up a 4 decimales, y una moneda declarada sin su origen
+    // completo se rechaza aquí con un error legible en vez de dejar salir el
+    // error crudo del CHECK. La moneda funcional se lee una sola vez y solo
+    // si alguna línea trae campos FX: el asiento 100% en moneda funcional no
+    // paga la consulta.
+    if (lines.some(traeCamposFx)) {
+      const monedaR = await client.query<{ functional_currency: string }>(
+        'SELECT functional_currency FROM legal_entities WHERE id = $1',
+        [entityId]
+      );
+      if (monedaR.rows.length === 0) {
+        throw new AccountingError('ENTITY_NOT_FOUND', `La entidad ${entityId} no existe o no es visible.`);
+      }
+      const monedaFuncional = monedaR.rows[0].functional_currency;
+      lines.forEach((line, i) => verificarOrigenFx(line, monedaFuncional, i + 1));
+    }
+
     // Generate entry number (atomic per-entity counter; the row lock it
     // takes lives until this transaction commits, so concurrent posts can
     // never draw the same number — COUNT(*) here used to collide).
@@ -136,12 +169,15 @@ export async function createJournalEntry(
         `INSERT INTO journal_entry_lines (
           id, journal_entry_id, line_number, account_id,
           debit_amount, credit_amount, description,
-          cost_center_id, project_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          cost_center_id, project_id,
+          currency_code, foreign_debit, foreign_credit, exchange_rate
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
           uuidv4(), entryId, i + 1, line.account_id,
           line.debit_amount, line.credit_amount, line.description,
           line.cost_center_id || null, line.project_id || null,
+          line.currency_code ?? null, line.foreign_debit ?? null,
+          line.foreign_credit ?? null, line.exchange_rate ?? null,
         ]
       );
     }
@@ -530,6 +566,15 @@ export async function reverseWithinTransaction(
     description: `Reversal: ${line.description || ''}`,
     cost_center_id: line.cost_center_id || undefined,
     project_id: line.project_id || undefined,
+    // R4 · NIF B-15: el espejo espeja TAMBIÉN el origen. Sin estas cuatro,
+    // la reversa de un asiento en dólares nacía sólo en funcional — la
+    // pérdida de origen de siempre, reintroducida por la puerta de la
+    // reversión. Los lados extranjeros se cruzan igual que los funcionales,
+    // y la verificación del motor vuelve a pasar porque el original ya pasó.
+    currency_code: line.currency_code ?? undefined,
+    foreign_debit: line.foreign_credit ?? undefined,
+    foreign_credit: line.foreign_debit ?? undefined,
+    exchange_rate: line.exchange_rate ?? undefined,
   }));
 
   const reversal = await createJournalEntry(

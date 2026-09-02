@@ -400,20 +400,46 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 50,
   },
   {
+    key: 'fuente_tipo_cambio',
+    category: 'contable',
+    question: 'When I need an exchange rate for a date, which published source do I use?',
+    impact:
+      'Every foreign-currency conversion reads the rate of this source for the operation date. If that ' +
+      'source has no rate for that date, the conversion STOPS and says so — it never silently borrows a ' +
+      'rate from another source, because that would be choosing tax criteria for you.',
+    options: [
+      { value: 'dof', label: 'DOF (Diario Oficial; the tax rate under art. 20 CFF)' },
+      { value: 'fix_banxico', label: 'Banxico FIX (the reference rate, published as banco_mexico)' },
+      { value: 'manual', label: 'Rates I set by hand with `fx rate set`' },
+    ],
+    defaultValue: 'dof',
+    defaultRationale:
+      'In Mexico the rate with legal effect is the one published in the Diario Oficial (art. 20 CFF): VAT ' +
+      'creditable on a foreign-currency payment converts at the DOF rate, and the FIX is a different ' +
+      'number for the same day. A Mexican books-first system defaults to the source the SAT will measure ' +
+      'it against; firms with treasury reasons to prefer the FIX can say so here.',
+    whyAsking:
+      'DOF and FIX for the same day are different numbers, and which one your books use is a criterion, not a preference.',
+    whatIDo: 'I convert with the rate of the chosen source for the operation date, and stop if it is missing.',
+    ifSkipped: 'I use the DOF rate.',
+    priority: 55,
+  },
+  {
     key: 'rep_moneda_extranjera',
     category: 'contable',
     question: 'A receipt in a currency other than the functional one: what do we do with the exchange difference?',
     impact:
-      'Decides whether foreign-currency receipts are matched at all. The system does not compute exchange ' +
-      'differences today, so anything other than stopping would post an invented figure.',
+      'Decides whether foreign-currency receipts are matched at all. Vendor payments now compute the ' +
+      'realised difference (R4), but the REP matcher still does not, so matching here would post an ' +
+      'invented figure.',
     options: [
       { value: 'no_casar', label: 'Do not match: leave it for review with a multi-currency warning' },
       { value: 'tc_documento', label: "Match at the document's rate and recognise no difference" },
     ],
     defaultValue: 'no_casar',
     defaultRationale:
-      'It is the only one that is currently true: nothing posts to the exchange gain/loss accounts, and ' +
-      'the payment service requires payment and document to share a currency. The problem is also double, ' +
+      'Since R4 the vendor-payment path DOES post realised differences to the exchange gain/loss ' +
+      'accounts, but the REP matcher does not share that engine yet. The problem is also double, ' +
       'not single: NIF B-15 wants the fluctuation in the period it occurs, while for VAT the creditable ' +
       'amount is the one actually paid converted at the DOF rate of the payment date — two different ' +
       'rates the system does not yet tell apart. Stopping and saying so is honest.',

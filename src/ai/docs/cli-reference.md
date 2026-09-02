@@ -120,6 +120,8 @@ Commands:
   closing|cierre-proceso                The close as a process: its read-only
                                         surface — readiness, named checks,
                                         offenders
+  fx|cambio                             Exchange rates: the origin every
+                                        foreign-currency amount converts from
   backup|respaldo                       Logical backups of the whole
                                         installation (create, list, verify by
                                         rehearsing the restore, restore) and
@@ -5032,6 +5034,144 @@ Options:
   -n, --limit <n>                          maximum offending rows to print
   --period <name>                          period to explain (default: the oldest open one)
   -h, --help                               display help for command
+```
+
+## `mnemosine fx` (alias: cambio)
+
+```
+Usage: mnemosine fx|cambio [options] [command]
+
+Exchange rates: the origin every foreign-currency amount converts from
+
+Options:
+  -h, --help      display help for command
+
+Commands:
+  rate|tipo       Published exchange rates by pair, date, type and source
+  help [command]  display help for command
+```
+
+### `mnemosine fx rate` (alias: tipo)
+
+```
+Usage: mnemosine fx rate|tipo [options] [command]
+
+Published exchange rates by pair, date, type and source
+
+Options:
+  -h, --help                                display help for command
+
+Commands:
+  list|listar [options]                     List stored exchange rates by pair, date, type and source
+  show|ver [options] <pair> <date>          Resolve the applicable rate: direct, then inverse, then crossed through USD
+  set|fijar [options] <pair> <date> <rate>  Record an exchange rate, naming its source
+  download|descargar [options]              Download the DOF or Banxico FIX rate, stored per source (they differ on the same day)
+  help [command]                            display help for command
+```
+
+#### `mnemosine fx rate list` (alias: listar)
+
+```
+Usage: mnemosine fx rate list|listar [options]
+
+List stored exchange rates by pair, date, type and source
+
+Options:
+  -e, --entity <idOrName>                                          legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                                tenant (firm) whose data to scope to
+  -u, --user <email>                                               acting user, for attribution and permissions
+  -n, --limit <n>                                                  maximum rows to return
+  --offset <n>                                                     skip this many rows
+  -s, --status <state...>                                          filter by lifecycle state (repeatable)
+  -a, --all                                                        no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>                          output format (default: "table")
+  --json                                                           shorthand for --format json
+  -o, --output <path>                                              write to a file instead of stdout
+  --fields [names]                                                 comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                                      identifiers only, one per line, for piping
+  --pair <pair>                                                    currency pair, e.g. USD/MXN
+  --since <date>                                                   inclusive lower bound (YYYY-MM-DD)
+  --until <date>                                                   inclusive upper bound (YYYY-MM-DD)
+  --rate-type <spot|average|budget|historical>                     only rates of this type
+  --source <manual|dof|banco_mexico|ecb|fed|xe|openexchangerates>  only rates from this source
+  -h, --help                                                       display help for command
+```
+
+#### `mnemosine fx rate show` (alias: ver)
+
+```
+Usage: mnemosine fx rate show|ver [options] <pair> <date>
+
+Resolve the applicable rate: direct, then inverse, then crossed through USD
+
+Arguments:
+  pair                                          currency pair, e.g. USD/MXN
+  date                                          date the rate applies to (YYYY-MM-DD)
+
+Options:
+  -e, --entity <idOrName>                       legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                             tenant (firm) whose data to scope to
+  -u, --user <email>                            acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>       output format (default: "table")
+  --json                                        shorthand for --format json
+  -o, --output <path>                           write to a file instead of stdout
+  --fields [names]                              comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                   identifiers only, one per line, for piping
+  --rate-type <spot|average|budget|historical>  rate type to resolve (default: "spot")
+  -h, --help                                    display help for command
+```
+
+#### `mnemosine fx rate set` (alias: fijar)
+
+```
+Usage: mnemosine fx rate set|fijar [options] <pair> <date> <rate>
+
+Record an exchange rate, naming its source
+
+Arguments:
+  pair                                                             currency pair, e.g. USD/MXN
+  date                                                             effective date (YYYY-MM-DD)
+  rate                                                             the rate, up to 10 decimals
+
+Options:
+  -e, --entity <idOrName>                                          legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                                tenant (firm) whose data to scope to
+  -u, --user <email>                                               acting user, for attribution and permissions
+  --source <manual|dof|banco_mexico|ecb|fed|xe|openexchangerates>  who published the rate (required)
+  --rate-type <spot|average|budget|historical>                     rate type (default: "spot")
+  --until <date>                                                   last date the rate remains effective (YYYY-MM-DD)
+  --dry-run                                                        show what would be recorded without writing
+  -h, --help                                                       display help for command
+```
+
+#### `mnemosine fx rate download` (alias: descargar)
+
+```
+Usage: mnemosine fx rate download|descargar [options]
+
+Download the DOF or Banxico FIX rate, stored per source (they differ on the same
+day)
+
+Options:
+  -e, --entity <idOrName>             legal entity to operate on (defaults to
+                                      the active one)
+  -t, --tenant <id>                   tenant (firm) whose data to scope to
+  -u, --user <email>                  acting user, for attribution and
+                                      permissions
+  --source <dof|banxico-fix|fed|ecb>  which publisher to download from
+                                      (required)
+  --as-of <date>                      single date to download (YYYY-MM-DD)
+  --since <date>                      inclusive lower bound (YYYY-MM-DD)
+  --until <date>                      inclusive upper bound (YYYY-MM-DD)
+  --dry-run                           compute and show the full effect; write
+                                      nothing and call nothing external
+  -y, --yes                           skip the confirmation prompt
+  --idempotency-key <key>             client dedupe key, stored on success: a
+                                      retry with the same key and payload
+                                      returns the recorded result
+  --live                              perform the real external effect (default
+                                      is the sandbox endpoint)
+  -h, --help                          display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)
