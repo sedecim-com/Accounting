@@ -14,7 +14,10 @@ import { resolveAccount } from './account-service.js';
 // alcance por entidad ni detalle por cuenta). Aquí las verificaciones
 // son POR ENTIDAD y devuelven filas señalables, no un conteo.
 //
-//   balance      (bloqueante)  account_balances ≠ Σ líneas posteadas
+//   balance      (bloqueante)  tres contrastes sobre account_balances:
+//                debit/credit ≠ Σ líneas posteadas, el invariante que la
+//                tabla declara (ending = beginning + cargos − abonos) y el
+//                encadenamiento ending(N) = beginning(N+1) tras un cierre duro
 //   audit-trail  (bloqueante)  posteados sin fila 'post' en audit_log
 //   continuity   (advertencia) huecos en la serie anual del folio —
 //                desde R3 el contador solo se consume si la transacción
@@ -61,18 +64,32 @@ export interface LedgerCheckFilters {
  * sistema— en vez de estrenar un universo vacío y llamarlo limpio.
  */
 async function checkBalance(entityId: string, f: LedgerCheckFilters): Promise<LedgerFinding[]> {
+  const accountId = f.account ? (await resolveAccount(entityId, f.account)).id : null;
+  const periodId = f.period ? (await resolvePeriod(entityId, f.period)).id : null;
+
+  return [
+    ...(await balanceContraLineas(entityId, accountId, periodId)),
+    ...(await balanceInvarianteDeclarado(entityId, accountId, periodId)),
+    ...(await balanceEncadenamiento(entityId, accountId, periodId)),
+  ];
+}
+
+/** account_balances.debit_total/credit_total contra la suma de líneas posteadas. */
+async function balanceContraLineas(
+  entityId: string,
+  accountId: string | null,
+  periodId: string | null
+): Promise<LedgerFinding[]> {
   const cond: string[] = [];
   const params: unknown[] = [entityId];
   let i = 2;
-  if (f.account) {
-    const cuenta = await resolveAccount(entityId, f.account);
+  if (accountId) {
     cond.push(`a.id = $${i++}`);
-    params.push(cuenta.id);
+    params.push(accountId);
   }
-  if (f.period) {
-    const periodo = await resolvePeriod(entityId, f.period);
+  if (periodId) {
     cond.push(`fp.id = $${i++}`);
-    params.push(periodo.id);
+    params.push(periodId);
   }
   const extra = cond.length > 0 ? ` AND ${cond.join(' AND ')}` : '';
   const result = await query<{
@@ -105,6 +122,140 @@ async function checkBalance(entityId: string, f: LedgerCheckFilters): Promise<Le
     severity: 'blocking' as const,
     referencia: `${r.code} · ${r.period_name}`,
     detalle: `account_balances dice ${r.ab_d}/${r.ab_c}; las líneas posteadas suman ${r.l_d}/${r.l_c}`,
+  }));
+}
+
+/**
+ * EL INVARIANTE QUE LA TABLA DECLARA Y NADIE COMPROBABA.
+ *
+ * `account_balances` promete —en el comentario de carryForwardBalances, y en
+ * todo el código que la lee— que ending = beginning + debit − credit, en signo
+ * deudor-positivo. `balance` sólo contrastaba debit_total/credit_total contra
+ * las líneas, así que inyectar 99 999 en `ending_balance` devolvía CERO
+ * hallazgos. No es una columna de adorno: es la que el cierre escribe y la que
+ * el ejercicio siguiente HEREDA como saldo inicial, de modo que una mentira
+ * aquí sale por el saldo inicial del año que viene, ya con los estados
+ * firmados.
+ *
+ * (F06b cerró la deriva SIMÉTRICA en debit/credit —sumar lo mismo a los dos
+ * lados no descuadra el par—. Ésta es otra columna y otro invariante.)
+ */
+async function balanceInvarianteDeclarado(
+  entityId: string,
+  accountId: string | null,
+  periodId: string | null
+): Promise<LedgerFinding[]> {
+  const cond: string[] = [];
+  const params: unknown[] = [entityId];
+  let i = 2;
+  if (accountId) {
+    cond.push(`a.id = $${i++}`);
+    params.push(accountId);
+  }
+  if (periodId) {
+    cond.push(`fp.id = $${i++}`);
+    params.push(periodId);
+  }
+  const extra = cond.length > 0 ? ` AND ${cond.join(' AND ')}` : '';
+  const result = await query<{
+    code: string; period_name: string; b: string; d: string; c: string; e: string; esperado: string;
+  }>(
+    `SELECT a.code, fp.period_name,
+            ab.beginning_balance::text AS b, ab.debit_total::text AS d,
+            ab.credit_total::text AS c, ab.ending_balance::text AS e,
+            (ab.beginning_balance + ab.debit_total - ab.credit_total)::text AS esperado
+       FROM account_balances ab
+       JOIN accounts a ON a.id = ab.account_id
+       JOIN fiscal_periods fp ON fp.id = ab.fiscal_period_id
+      WHERE a.entity_id = $1 AND fp.entity_id = $1${extra}
+        AND ab.ending_balance IS DISTINCT FROM
+            (ab.beginning_balance + ab.debit_total - ab.credit_total)
+      ORDER BY a.code, fp.start_date
+      LIMIT 100`,
+    params
+  );
+  return result.rows.map((r) => ({
+    check: 'balance',
+    severity: 'blocking' as const,
+    referencia: `${r.code} · ${r.period_name}`,
+    detalle:
+      `ending_balance dice ${r.e}; inicial ${r.b} + cargos ${r.d} − abonos ${r.c} ` +
+      `da ${r.esperado} — el saldo final no es el que declara la tabla`,
+  }));
+}
+
+/**
+ * EL ENCADENAMIENTO ENTRE PERIODOS: ending(N) = beginning(N+1).
+ *
+ * Es el arrastre lo que se está verificando, y por eso el alcance es exacto:
+ *
+ *  - sólo desde un periodo con cierre DURO ('hard_close' o 'locked'), porque
+ *    es el cierre duro el que corre carryForwardBalances. Exigirlo en un
+ *    periodo abierto marcaría como rota una cadena que todavía no se ha
+ *    tendido;
+ *  - sólo cuentas de balance, porque las de resultados NO arrastran: guardan
+ *    actividad del periodo y el cierre del ejercicio las barre. Pedirles
+ *    encadenamiento produciría un hallazgo por cada cuenta de resultados con
+ *    movimiento, que es ruido, no un descuadre.
+ *
+ * El siguiente periodo puede no tener renglón (el arrastre no siembra los
+ * finales en cero): ausencia se lee como inicial 0, que es lo que el auxiliar
+ * también muestra.
+ */
+async function balanceEncadenamiento(
+  entityId: string,
+  accountId: string | null,
+  periodId: string | null
+): Promise<LedgerFinding[]> {
+  const cond: string[] = [];
+  const params: unknown[] = [entityId];
+  let i = 2;
+  if (accountId) {
+    cond.push(`a.id = $${i++}`);
+    params.push(accountId);
+  }
+  if (periodId) {
+    // Cualquiera de los dos extremos: quien filtra por «2026-08» quiere ver
+    // tanto el eslabón que sale de agosto como el que debía llegar a agosto.
+    cond.push(`(fp.id = $${i} OR sig.id = $${i})`);
+    i++;
+    params.push(periodId);
+  }
+  const extra = cond.length > 0 ? ` AND ${cond.join(' AND ')}` : '';
+  const result = await query<{
+    code: string; period_name: string; sig_name: string; e: string; b: string;
+  }>(
+    `SELECT a.code, fp.period_name, sig.period_name AS sig_name,
+            ab.ending_balance::text AS e,
+            COALESCE(sab.beginning_balance, 0)::text AS b
+       FROM account_balances ab
+       JOIN accounts a ON a.id = ab.account_id
+       JOIN fiscal_periods fp ON fp.id = ab.fiscal_period_id
+       JOIN LATERAL (
+         SELECT x.id, x.period_name
+           FROM fiscal_periods x
+          WHERE x.entity_id = fp.entity_id AND x.start_date > fp.end_date
+          ORDER BY x.start_date ASC, x.id ASC
+          LIMIT 1
+       ) sig ON true
+       LEFT JOIN account_balances sab
+         ON sab.account_id = ab.account_id AND sab.fiscal_period_id = sig.id
+      WHERE a.entity_id = $1 AND fp.entity_id = $1${extra}
+        AND fp.status IN ('hard_close', 'locked')
+        AND a.account_type IN ('asset', 'liability', 'equity',
+                               'contra_asset', 'contra_liability', 'contra_equity')
+        AND ab.ending_balance IS DISTINCT FROM COALESCE(sab.beginning_balance, 0)
+      ORDER BY a.code, fp.start_date
+      LIMIT 100`,
+    params
+  );
+  return result.rows.map((r) => ({
+    check: 'balance',
+    severity: 'blocking' as const,
+    referencia: `${r.code} · ${r.period_name} → ${r.sig_name}`,
+    detalle:
+      `${r.period_name} cierra en ${r.e} y ${r.sig_name} abre en ${r.b}: ` +
+      `el arrastre no encadena, y el ejercicio siguiente parte de un inicial falso`,
   }));
 }
 

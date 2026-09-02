@@ -170,9 +170,15 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
         limit: opts.all ? undefined : opts.limit,
         offset: opts.offset,
       });
+      // Quien firma el Anexo 24 necesita saber POR QUÉ el inicial no es de
+      // fiar, y el motivo está siempre en el periodo anterior: es de ahí de
+      // donde el cierre duro arrastra el acumulado.
+      const sinArrastre = aux.periodo_anterior
+        ? `sin arrastre: ${aux.periodo_anterior.period_name} está '${aux.periodo_anterior.status}'`
+        : 'sin periodo anterior: no hay acumulado que arrastrar';
       note(
         `${aux.account_code} ${aux.account_name} · ${aux.period_name} (${aux.period_status}) · ` +
-          `inicial ${aux.inicial}${aux.inicial_confiable ? '' : ' (sin cierre duro: es actividad, no acumulado)'}`
+          `inicial ${aux.inicial}${aux.inicial_confiable ? '' : ` (${sinArrastre})`}`
       );
       render(aux.movimientos as unknown as Row[], {
         ...opts,

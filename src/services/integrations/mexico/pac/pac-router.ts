@@ -17,17 +17,34 @@ import { edicomAdapter } from './edicom-adapter.js';
 //   primary → secondary → tertiary
 // ============================================================
 
-// Register all PAC adapters
-integrationRegistry.register(finkokAdapter);
-integrationRegistry.register(swSapienAdapter);
-integrationRegistry.register(edicomAdapter);
-
-const PAC_ADAPTERS: Record<string, IPacAdapter> = {
+/**
+ * Los PAC que el enrutador puede elegir. Se EXPORTA para que una prueba pueda
+ * cotejarlo contra el registry: la divergencia entre esta lista y la de
+ * registro vivió meses precisamente porque nada podía compararlas.
+ */
+export const PAC_ADAPTERS: Record<string, IPacAdapter> = {
   sovos_reachcore: sovosReachcoreAdapter,
   finkok: finkokAdapter,
   sw_sapien: swSapienAdapter,
   edicom: edicomAdapter,
 };
+
+// EL ENRUTADOR Y EL REGISTRY SE ALIMENTAN DE LA MISMA LISTA, Y POR ESO.
+//
+// Eran dos listas escritas a mano y divergieron: `sovos_reachcore` estaba en
+// el diccionario de arriba —enrutable, con failover y con cerrojo— y NO en el
+// registry, que es de donde salen `GET /v1/admin/integrations` y el
+// `registry.get(:provider)` de las cuatro rutas de administración. El efecto
+// medido: `PUT /v1/admin/integrations/sovos_reachcore` moría en
+// PROVIDER_NOT_FOUND, así que el ÚNICO adaptador que no fabrica el folio
+// (`simulado = false`) era el único que no se podía dar de alta por la API, y
+// el listado enseñaba tres PACs, los tres simuladores.
+//
+// Recorrer el diccionario en vez de repetir sus llaves no es economía de
+// líneas: es que un adaptador nuevo ya no puede quedarse a medio cablear.
+for (const adaptador of Object.values(PAC_ADAPTERS)) {
+  integrationRegistry.register(adaptador);
+}
 
 interface PacPreferences {
   pac_primary: string;

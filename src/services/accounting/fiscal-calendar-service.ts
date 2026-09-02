@@ -1,6 +1,13 @@
 import pg from 'pg';
 import { query, withTransaction, currentTenant } from '../../database/connection.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
+// El arrastre vive en period-close, el único orquestador del cierre. Se
+// importa en vez de copiarse: dos INSERT ... ON CONFLICT que siembran el
+// mismo saldo inicial son dos saldos iniciales en cuanto uno de los dos se
+// corrija. (El ciclo con period-close → ledger-checks → este módulo se
+// resuelve en tiempo de llamada, no de carga: nadie usa el otro módulo
+// mientras se evalúa el suyo.)
+import { carryForwardBalances } from './period-close.js';
 import {
   NotFoundError,
   ValidationError,
@@ -277,6 +284,20 @@ export async function reopenClosedPeriod(
  * Devuelve el periodo al estado del que se le sacó. Se usa en pareja con
  * reopenClosedPeriod: reabrir sin volver a cerrar deja el ejercicio abierto
  * sin que nadie lo haya decidido.
+ *
+ * VOLVER A CERRAR NO ES UN UPDATE DE LA COLUMNA `status`.
+ *
+ * Se reabre para ESCRIBIR —la reclasificación del IVA PPD es el llamador
+ * vivo, y postea un asiento en el periodo reabierto—, así que al restaurar,
+ * los saldos finales de ese periodo ya no son los que se arrastraron cuando
+ * se cerró la primera vez. Un `UPDATE ... SET status` devolvía la etiqueta y
+ * dejaba el saldo INICIAL del periodo siguiente exactamente como estaba: la
+ * corrección quedaba dentro del mes reabierto y desaparecía en el siguiente,
+ * que seguía partiendo del acumulado viejo. Y ese inicial es el que el
+ * auxiliar publica y el XML del Anexo 24 atesta.
+ *
+ * El arrastre se rehace sólo al restaurar a 'hard_close' porque es el cierre
+ * duro el que lo genera; un 'soft_close' nunca sembró nada que rehacer.
  */
 export async function restorePeriodStatus(
   entityId: string,
@@ -303,6 +324,12 @@ export async function restorePeriodStatus(
         `No se pudo restaurar el periodo ${periodId}: ya no estaba abierto.`
       );
     }
+
+    // Mismo cliente que el UPDATE: o el periodo vuelve a estar cerrado CON su
+    // arrastre rehecho, o no vuelve a estar cerrado.
+    const arrastradas =
+      status === 'hard_close' ? await carryForwardBalances(client, entityId, periodId) : 0;
+
     await registrarAuditoria(client, {
       tenantId: await inquilinoDeEntidad(client, entityId),
       userId,
@@ -310,7 +337,7 @@ export async function restorePeriodStatus(
       entityType: 'fiscal_period',
       entityId: periodId,
       oldValues: { status: 'open' },
-      newValues: { status },
+      newValues: { status, carried_accounts: arrastradas },
       reason,
     });
     return r.rows[0];

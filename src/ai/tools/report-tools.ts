@@ -15,6 +15,7 @@ import {
   queryLedgerRows,
   type BalanceSheetQueryRow,
 } from '../../services/reporting/report-service.js';
+import { avisoDeCierreEnRango } from '../../services/reporting/criterio-cierre.js';
 
 // ============================================================
 // REPORT TOOLS (read-only)
@@ -69,11 +70,21 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         ending_balance: r.ending_balance,
       }));
 
+      // El agente ve la misma nota que la CLI y el REST: sin ella explicaría
+      // como discrepancia la diferencia normal entre una balanza que cuenta el
+      // cierre del ejercicio y un estado de resultados que no lo cuenta.
+      const closing = await avisoDeCierreEnRango(
+        ctx.entityId,
+        { asOfDate: input.as_of_date },
+        'trial-balance'
+      );
+
       return JSON.stringify({
         as_of_date: input.as_of_date ?? null,
         currency: ctx.currency,
         accounts: rows,
         totals: totalTrialBalance(kept, AGENT_SCALE),
+        ...(closing ? { closing_entries: closing } : {}),
       });
     },
   });
@@ -152,6 +163,12 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
       const totalRevenue = revenueRows.reduce((s, r) => s.plus(r.amount), new Decimal(0));
       const totalExpenses = expenseRows.reduce((s, r) => s.plus(r.amount), new Decimal(0));
 
+      const closing = await avisoDeCierreEnRango(
+        ctx.entityId,
+        { sinceDate: input.start_date, untilDate: input.end_date },
+        'income-statement'
+      );
+
       return JSON.stringify({
         start_date: input.start_date,
         end_date: input.end_date,
@@ -159,6 +176,7 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         revenue: { total: totalRevenue.toFixed(AGENT_SCALE), accounts: revenueRows },
         expenses: { total: totalExpenses.toFixed(AGENT_SCALE), accounts: expenseRows },
         net_income: totalRevenue.minus(totalExpenses).toFixed(AGENT_SCALE),
+        ...(closing ? { closing_entries: closing } : {}),
       });
     },
   });

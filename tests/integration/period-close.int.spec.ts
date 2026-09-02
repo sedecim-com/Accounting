@@ -116,10 +116,11 @@ describe('arrastre de saldos', () => {
 });
 
 describe('asientos de cierre anual', () => {
-  it('barre el resultado a Resultados Acumulados (3200), NUNCA a Capital Social (3100)', async () => {
-    // El catálogo base debe traer las tres cuentas del cierre.
+  it('barre el resultado al Resultado del Ejercicio (3300), NUNCA a Capital Social (3100)', async () => {
+    // El catálogo base debe traer las cuatro cuentas del cierre.
     expect(f.cuentas['3900'], 'falta Resumen de Ingresos y Gastos').toBeTruthy();
     expect(f.cuentas['3200'], 'falta Resultado de Ejercicios Anteriores').toBeTruthy();
+    expect(f.cuentas['3300'], 'falta Resultado del Ejercicio').toBeTruthy();
     expect(f.cuentas['3100'], 'falta Capital Social').toBeTruthy();
 
     const capitalSocialAntes = await saldoDe(f.cuentas['3100'], f.periodos[12]);
@@ -139,8 +140,12 @@ describe('asientos de cierre anual', () => {
     // Capital Social no se mueve por un cierre: solo por acto formal (NIF C-11).
     expect(await saldoDe(f.cuentas['3100'], f.periodos[12])).toBeCloseTo(capitalSocialAntes, 4);
 
-    // El resultado sí llegó a Resultados Acumulados.
-    const acumulados = await saldoDe(f.cuentas['3200'], f.periodos[12]);
-    expect(acumulados).not.toBe(0);
+    // El resultado llegó a la 3300 «Resultado del Ejercicio», que es el destino
+    // por omisión del panel (destino_del_resultado_del_ejercicio =
+    // dos_pasos_hasta_asamblea): el año se mantiene identificable hasta que la
+    // asamblea resuelva, y sólo entonces se reclasifica a 3200.
+    const resultadoDelEjercicio = await saldoDe(f.cuentas['3300'], f.periodos[12]);
+    expect(resultadoDelEjercicio).not.toBe(0);
+    expect(await saldoDe(f.cuentas['3200'], f.periodos[12])).toBe(0);
   });
 });

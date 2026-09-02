@@ -122,6 +122,10 @@ Commands:
                                         offenders
   fx|cambio                             Exchange rates: the origin every
                                         foreign-currency amount converts from
+  prepaid|pago-anticipado               Prepaid expenses: the schedule that
+                                        takes them out of 1160, month by month
+  cashflow|flujo                        Statement of cash flows (NIF B-2 / ASC
+                                        230): build it, and tie it to real cash
   backup|respaldo                       Logical backups of the whole
                                         installation (create, list, verify by
                                         rehearsing the restore, restore) and
@@ -5175,6 +5179,208 @@ Options:
   --live                              perform the real external effect (default
                                       is the sandbox endpoint)
   -h, --help                          display help for command
+```
+
+## `mnemosine prepaid` (alias: pago-anticipado)
+
+```
+Usage: mnemosine prepaid|pago-anticipado [options] [command]
+
+Prepaid expenses: the schedule that takes them out of 1160, month by month
+
+Options:
+  -h, --help                            display help for command
+
+Commands:
+  create|crear [options] <description>  Register the amortisation schedule of a
+                                        charge already sitting in prepaid
+                                        expenses — posts nothing
+  list|listar [options]                 Live schedules with their remaining
+                                        balance and how many periods are left
+  show|ver [options] <idOrDescription>  One schedule with its period-by-period
+                                        table
+  run|ejecutar [options]                Post the month accrual — one adjusting
+                                        entry per schedule, irreversible
+  help [command]                        display help for command
+```
+
+### `mnemosine prepaid create` (alias: crear)
+
+```
+Usage: mnemosine prepaid create|crear [options] <description>
+
+Register the amortisation schedule of a charge already sitting in prepaid
+expenses — posts nothing
+
+Arguments:
+  description                                what the prepayment covers, as it will read in the entries
+
+Options:
+  -e, --entity <idOrName>                    legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                          tenant (firm) whose data to scope to
+  -u, --user <email>                         acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>    output format (default: "table")
+  --json                                     shorthand for --format json
+  -o, --output <path>                        write to a file instead of stdout
+  --fields [names]                           comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                identifiers only, one per line, for piping
+  --note <text>                              free annotation stored with the record
+  --force                                    override a blocking validation (closed period, lock date, duplicate); requires --reason
+  --amount <amount>                          amount to accrue, as a decimal
+  --start <date>                             first day the coverage runs (YYYY-MM-DD)
+  --end <date>                               last day the coverage runs, inclusive (YYYY-MM-DD)
+  --origin <cfdi|manual|saldo_preexistente>  where the charge already in the account came from — no default
+  --source-entry <id>                        the journal entry that charged the account; required with --origin cfdi
+  --cfdi-uuid <uuid>                         the CFDI this prepayment came in on, for the trail
+  --vendor <name>                            vendor name kept on the schedule
+  --reference <text>                         the document this points at: policy number, contract, order
+  --convention <convention>                  the convention you believe you are registering (proporcional_dias|meses_completos); checked against the panel
+  --prepaid-account <idOrCode>               prepaid-expenses account the charge sits in (defaults to the `gasto_anticipado` role)
+  --expense-account <idOrCode>               account the accrual will charge each month (defaults to the `gasto` role)
+  --reason <text>                            why the threshold is being overridden; required with --force
+  --dry-run                                  show the schedule that would be registered; write nothing
+  -h, --help                                 display help for command
+```
+
+### `mnemosine prepaid list` (alias: listar)
+
+```
+Usage: mnemosine prepaid list|listar [options]
+
+Live schedules with their remaining balance and how many periods are left
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -a, --all                                every live schedule, including those not started yet and already ended
+  --as-of <date>                           only schedules whose coverage is open on this date (YYYY-MM-DD; default today)
+  -h, --help                               display help for command
+```
+
+### `mnemosine prepaid show` (alias: ver)
+
+```
+Usage: mnemosine prepaid show|ver [options] <idOrDescription>
+
+One schedule with its period-by-period table
+
+Arguments:
+  idOrDescription                          the schedule: its id, or enough of its description to be unambiguous
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine prepaid run` (alias: ejecutar)
+
+```
+Usage: mnemosine prepaid run|ejecutar [options]
+
+Post the month accrual — one adjusting entry per schedule, irreversible
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to accrue: 2026-08, or any unambiguous part of its name
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
+  -h, --help                               display help for command
+```
+
+## `mnemosine cashflow` (alias: flujo)
+
+```
+Usage: mnemosine cashflow|flujo [options] [command]
+
+Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  generate|generar [options]     Build the statement of cash flows for a period,
+                                 with the tie-out to real cash
+  reconcile|conciliar [options]  Reconcile the derived statement of cash flows
+                                 against the real movement of cash and
+                                 equivalents, and print the residue instead of
+                                 absorbing it
+  help [command]                 display help for command
+```
+
+### `mnemosine cashflow generate` (alias: generar)
+
+```
+Usage: mnemosine cashflow generate|generar [options]
+
+Build the statement of cash flows for a period, with the tie-out to real cash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --method <indirect|direct>               method to build the statement with (default: the `flujo_efectivo_metodo` policy)
+  --gross                                  present gross receipts and payments instead of net (NIF B-2 §40 / ASC 230-10-45-7); refused with a reason — these books cannot support it
+  -h, --help                               display help for command
+```
+
+### `mnemosine cashflow reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine cashflow reconcile|conciliar [options]
+
+Reconcile the derived statement of cash flows against the real movement of cash
+and equivalents, and print the residue instead of absorbing it
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  --strict                                 treat warnings as blocking (exit 4)
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --show-candidates                        list the journal lines that most likely explain the residue (suspects, not a verdict)
+  -h, --help                               display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)

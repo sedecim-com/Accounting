@@ -319,55 +319,25 @@ export const typeDefs = `#graphql
     isBalanced: Boolean!
   }
 
-  type BalanceSheet {
-    entityId: ID!
-    asOfDate: Date!
-    assets: BalanceSheetSection!
-    liabilities: BalanceSheetSection!
-    equity: BalanceSheetSection!
-    totalLiabilitiesAndEquity: Decimal!
-  }
-
-  type BalanceSheetSection {
-    name: String!
-    total: Decimal!
-    subsections: [BalanceSheetSubsection!]!
-  }
-
-  type BalanceSheetSubsection {
-    name: String!
-    total: Decimal!
-    accounts: [BalanceSheetAccount!]!
-  }
-
-  type BalanceSheetAccount {
-    id: ID!
-    code: String!
-    name: String!
-    balance: Decimal!
-  }
-
-  type IncomeStatement {
-    entityId: ID!
-    startDate: Date!
-    endDate: Date!
-    revenue: IncomeStatementSection!
-    expenses: IncomeStatementSection!
-    netIncome: Decimal!
-  }
-
-  type IncomeStatementSection {
-    name: String!
-    total: Decimal!
-    accounts: [IncomeStatementAccount!]!
-  }
-
-  type IncomeStatementAccount {
-    id: ID!
-    code: String!
-    name: String!
-    amount: Decimal!
-  }
+  # EL BALANCE Y EL ESTADO DE RESULTADOS NO SE DECLARAN AQUÍ, Y NO ES UN OLVIDO.
+  #
+  # balanceSheet e incomeStatement estuvieron declarados sin resolutor: el mapa
+  # Query nunca los tuvo, así que un campo NO NULO caía en el resolutor por
+  # omisión, devolvía undefined y reventaba con "Cannot return null for
+  # non-nullable field". La introspección publicaba dos estados financieros que
+  # ninguna consulta podía obtener, y el argumento consolidate prometía además
+  # una consolidación que nadie calcula.
+  #
+  # Los sirve REST hoy: GET /v1/reports/balance-sheet y
+  # /v1/reports/income-statement, los dos con reports:read, sobre
+  # report-service.ts. Cuando esta puerta los sirva vuelven con su resolutor y
+  # con su permiso en PERMISOS.Query, y sus siete tipos con ellos: se retiraron
+  # por lo mismo, porque un tipo al que ningún campo lleva es contrato que nadie
+  # puede ejercer.
+  #
+  # Ojo al escribir aquí: esto vive DENTRO de una plantilla de JavaScript, así
+  # que una comilla invertida cierra el esquema entero. Los acentos no estorban;
+  # las comillas invertidas y las interpolaciones sí.
 
   # ============================================================
   # CONNECTION TYPES (Pagination)
@@ -480,8 +450,6 @@ export const typeDefs = `#graphql
     invoices(entityId: ID!, customerId: ID, status: InvoiceStatus, startDate: Date, endDate: Date, first: Int): [Invoice!]!
 
     trialBalance(entityId: ID!, fiscalPeriodId: ID, asOfDate: Date, accountLevel: Int): TrialBalance!
-    balanceSheet(entityId: ID!, asOfDate: Date!, consolidate: Boolean): BalanceSheet!
-    incomeStatement(entityId: ID!, startDate: Date!, endDate: Date!, consolidate: Boolean): IncomeStatement!
 
     fiscalPeriods(entityId: ID!, status: FiscalPeriodStatus): [FiscalPeriod!]!
   }

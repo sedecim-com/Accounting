@@ -54,6 +54,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(await checkConsistenciaCli());
     checks.push(await checkTenantIsolation());
     checks.push(await checkLedgerIntegrity());
+    checks.push(await checkSelloDeGarantias());
     checks.push(await checkPermisosEnConflicto());
     checks.push(await checkReopenedPeriods());
     checks.push(await checkPendingWork());
@@ -898,5 +899,66 @@ export async function checkPermisosEnConflicto(): Promise<CheckResult> {
     fix:
       'Reparte los permisos en conflicto entre usuarios distintos, o acepta el riesgo a sabiendas ' +
       '(en un despacho unipersonal es inevitable; el maker-checker por póliza vive en el panel: segregacion_de_funciones).',
+  };
+}
+
+/**
+ * EL SELLO DE LAS GARANTÍAS (S3·sello).
+ *
+ * Las garantías de este esquema son disparadores, y un disparador ordinario
+ * se apaga de dos maneras: `ALTER TABLE ... DISABLE TRIGGER`, que es visible
+ * y deliberada, y `SET session_replication_role = 'replica'`, que es UNA
+ * LÍNEA de sesión, apaga todos a la vez y no deja rastro en el esquema. La
+ * 058 los pasa a ENABLE ALWAYS, que cierra la segunda vía. Contra la primera
+ * no hay candado posible dentro del esquema —el dueño manda—, así que lo que
+ * queda es VIGILARLA: un break-glass es legítimo; que nada lo detecte, no.
+ *
+ * No lleva inventario escrito a mano de qué debe estar sellado: le pregunta a
+ * la base por los disparadores que la 058 COMENTÓ como garantía. Una lista
+ * paralela se desincroniza el día que alguien añade la garantía número diez
+ * y no la apunta.
+ */
+export async function checkSelloDeGarantias(): Promise<CheckResult> {
+  const r = await query<{ tgname: string; relname: string; tgenabled: string }>(
+    `SELECT t.tgname, c.relname, t.tgenabled
+       FROM pg_trigger t
+       JOIN pg_class c ON c.oid = t.tgrelid
+       JOIN pg_description d ON d.objoid = t.oid
+        AND d.classoid = 'pg_trigger'::regclass
+      WHERE d.description LIKE 'garantia-sellada:%'
+        AND NOT t.tgisinternal
+      ORDER BY c.relname, t.tgname`
+  );
+
+  if (r.rows.length === 0) {
+    return {
+      name: 'Guarantee triggers sealed',
+      level: 'warn',
+      detail: 'no sealed guarantee trigger found: migration 058 has not run on this database',
+      fix: 'npm run migrate',
+    };
+  }
+
+  // 'A' = ALWAYS. 'O' = origin (se calla bajo session_replication_role),
+  // 'D' = disabled, 'R' = sólo réplica. Cualquiera menos 'A' es un hueco.
+  const flojos = r.rows.filter((t) => t.tgenabled !== 'A');
+  if (flojos.length > 0) {
+    const apagados = flojos.filter((t) => t.tgenabled === 'D');
+    return {
+      name: 'Guarantee triggers sealed',
+      level: 'fail',
+      detail:
+        `${flojos.length} de ${r.rows.length} garantías sin sellar` +
+        (apagados.length > 0 ? ` (${apagados.length} APAGADAS)` : '') +
+        ': ' +
+        flojos.map((t) => `${t.relname}.${t.tgname}=${t.tgenabled}`).join(', '),
+      fix: 'ALTER TABLE <tabla> ENABLE ALWAYS TRIGGER <disparador>  — y averigua QUIÉN lo apagó y por qué',
+    };
+  }
+
+  return {
+    name: 'Guarantee triggers sealed',
+    level: 'ok',
+    detail: `${r.rows.length} garantías en ENABLE ALWAYS: ni session_replication_role las calla`,
   };
 }

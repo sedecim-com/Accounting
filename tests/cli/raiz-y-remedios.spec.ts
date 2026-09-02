@@ -38,15 +38,26 @@ const CLI = path.join(RAIZ_REPO, 'src', 'cli', 'mnemosine.ts');
  * Lanza el CLI real con HOME vacío y base inalcanzable: lo que ve un usuario
  * el primer día. stdin cerrado para que nada interactivo pueda colgar.
  */
-function corre(args: string[]) {
+function corre(args: string[], opciones: { virgen?: boolean } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemo-raiz-'));
+  // `virgen` corre además desde un directorio TEMPORAL en vez de la raíz del
+  // repo. Sin eso la simulación era incompleta y el instrumento cambiaba de
+  // respuesta según la máquina: el binario carga el `.env` del cwd, así que en
+  // CI —que no tiene `.env`— decía «Not configured. Run: mnemosine init», y en
+  // cualquier escritorio de desarrollo —que sí lo tiene— decía «database
+  // unreachable → doctor». La prueba pasaba en CI y fallaba donde se escribió.
+  // Una prueba que sólo dice la verdad en un entorno miente en el otro, y lo
+  // que ésta afirma exige que la máquina sea virgen de verdad.
+  const cwd = opciones.virgen
+    ? fs.mkdtempSync(path.join(os.tmpdir(), 'mnemo-cwd-'))
+    : RAIZ_REPO;
   try {
     const env = { ...process.env };
     delete env.MNEMOSINE_TENANT;
     delete env.MNEMOSINE_ENTITY;
     return spawnSync(TSX, [CLI, ...args], {
       encoding: 'utf-8',
-      cwd: RAIZ_REPO,
+      cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 60_000,
       env: {
@@ -135,7 +146,7 @@ describe('la raíz de verdad (proceso completo)', () => {
   }, 90_000);
 
   it('sin argumentos, chat sigue siendo el default: nunca «unknown command» ni código 2', () => {
-    const r = corre([]);
+    const r = corre([], { virgen: true });
     expect(r.status).not.toBe(2);
     expect(String(r.stderr)).not.toContain('unknown command');
     // En una máquina virgen el default (chat) diagnostica y apunta a init.
