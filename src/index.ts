@@ -20,6 +20,7 @@ import { rateLimiter, preAuthRateLimiter } from './api/rest/middleware/rate-limi
 import { metricsMiddleware, metricsHandler } from './api/rest/middleware/metrics.js';
 import { correlationIdMiddleware, enrichLogContextMiddleware } from './api/rest/middleware/correlation.js';
 import { logger } from './utils/logger.js';
+import { formatearError } from './api/graphql/errores.js';
 import { typeDefs } from './api/graphql/schemas/schema.js';
 import { resolvers } from './api/graphql/resolvers/index.js';
 
@@ -222,35 +223,51 @@ async function bootstrap() {
   // less safe one:
   //   · it is mounted at /graphql, OUTSIDE the /v1 prefix, so it bypasses the
   //     AUDIT middleware every REST route carries: lo que pasa por aquí no deja
-  //     fila en `audit_log`. Los dos frenos —por IP y por inquilino— sí los
+  //     la fila de PETICIÓN —la que lleva IP, agente y request_id—. La fila del
+  //     HECHO contable sí queda: la escriben los servicios dentro de su propia
+  //     transacción. Los dos frenos —por IP y por inquilino— sí los
   //     lleva ya, uno a cada lado de `authenticate`, igual que /v1;
   //     y hasta TEN-2 también se saltaba `tenantContext`, que es el que abre
   //     el contexto que leen las políticas de RLS. Sin él la consulta viaja
   //     directa al pool SIN inquilino: con el rol mnemosine_app habría
   //     devuelto cero filas y con un rol dueño o superusuario —que ignora
   //     RLS— las de TODOS los inquilinos. Ya va montado;
-  //   · `createJournalEntry` and `postJournalEntry` reach the posting engine
-  //     with `authenticate` only — there is no permission check anywhere in
-  //     the resolvers, so any authenticated principal can post to any ledger
-  //     the tenant context lets it see, leaving no audit row;
+  //   · sus mutaciones llegaban al motor de posteo con `authenticate` y nada
+  //     más: ni un `requirePermission` en los 393 renglones de resolutores, de
+  //     modo que un `viewer` posteaba al mayor y cerraba el ejercicio. YA NO:
+  //     todos los campos de Query y Mutation entran por `blindar`
+  //     (api/graphql/permisos.ts), que exige el MISMO permiso que la ruta REST
+  //     equivalente con el MISMO código (`assertPermissions`), y que al cargar
+  //     contrasta el esquema contra el catálogo: una mutación declarada que no
+  //     esté implementada-con-permiso o listada como ausente impide que los
+  //     resolutores se carguen. Lo que sigue faltando aquí es la fila de
+  //     `audit_log` que escribe `auditLogMiddleware` con IP y agente; el rastro
+  //     CONTABLE no falta, porque posting.ts y period-close.ts escriben su
+  //     renglón dentro de la misma transacción del hecho;
   //   · nothing in this repository consumes it. There is no web, ui, client
   //     or frontend directory; the only importer is this file.
   //
   // It is gated rather than deleted because this repository has no version
   // control, and 891 lines are not recoverable once removed. Set
-  // GRAPHQL_ENABLED=true to bring it back exactly as it was — and if it is
-  // ever brought back for real, the mutations need permission checks and the
-  // mount needs to move inside the audited prefix first.
+  // GRAPHQL_ENABLED=true to bring it back — ya no «exactly as it was»: las
+  // mutaciones ya piden permiso. Lo que falta antes de exponerlo de verdad es
+  // mover el montaje dentro del prefijo auditado y tapar los campos del
+  // esquema que no existen (están inventariados, uno por uno, en
+  // api/graphql/permisos.ts).
   // ============================================================
   const graphqlEnabled = process.env.GRAPHQL_ENABLED === 'true';
   type GraphqlContext = {
     user: import('./types/index.js').JwtPayload | undefined;
     tenantId: string | undefined;
     entityId: string | undefined;
+    entidadDeCabecera: string | undefined;
   };
   const apolloServer = new ApolloServer<GraphqlContext>({
     typeDefs,
     resolvers,
+    // La traducción vive en su propio módulo para poder probarla: aquí
+    // dentro de bootstrap() no la alcanza ninguna prueba.
+    formatError: formatearError,
   });
 
   await apolloServer.start();
@@ -282,12 +299,19 @@ async function bootstrap() {
           user: req.user,
           tenantId: req.tenantId,
           entityId: req.entityId,
+          // La cabecera CRUDA, aparte de `entityId`. `authenticate` deja
+          // `req.entityId = cabecera || entities[0]`, así que ese campo no dice
+          // si el cliente pidió algo o se le puso de relleno — y la regla de
+          // «una petición nombra una sola entidad» distingue justo eso.
+          entidadDeCabecera:
+            typeof req.headers['x-entity-id'] === 'string' ? req.headers['x-entity-id'] : undefined,
         }),
       })
     );
     logger.warn(
-      'GraphQL is mounted at /graphql. It sits outside the audited /v1 prefix and its ' +
-        'ledger mutations carry no permission check — do not expose it publicly.'
+      'GraphQL is mounted at /graphql. Its mutations now demand the same permissions as their REST ' +
+        'equivalents, but it still sits outside the audited /v1 prefix: no audit_log row with IP and ' +
+        'user agent (the ledger trail written by the services is unaffected).'
     );
   }
 

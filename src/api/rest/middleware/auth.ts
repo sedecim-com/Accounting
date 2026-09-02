@@ -138,26 +138,51 @@ async function verifyExternal(token: string): Promise<JwtPayload> {
   }
 }
 
+/**
+ * LA COMPROBACIÓN DE PERMISOS, SIN EXPRESS.
+ *
+ * `requirePermission` era la única forma de hacer esta pregunta y sólo se
+ * podía hacer desde un middleware. GraphQL no tiene middlewares por campo: por
+ * eso sus cinco mutaciones —crear, postear y anular asientos, cerrar periodos
+ * en blando y en duro— llegaban al motor comprobando únicamente PERTENENCIA de
+ * entidad, y un `viewer` (accounts:read, journal_entries:read, invoices:read,
+ * bills:read, reports:read) podía postear al mayor y cerrar el ejercicio.
+ *
+ * Se extrae el núcleo en vez de copiarlo en la otra puerta: dos
+ * implementaciones de «¿tiene permiso?» divergen —una aprende el comodín, la
+ * otra no— y la que diverge es siempre la que no se mira. El middleware de
+ * abajo es ahora una envoltura de tres renglones sobre esto, así que REST y
+ * GraphQL contestan por el mismo código y con el mismo error.
+ *
+ * La semántica no cambia: el comodín pasa; sin él, TODOS los permisos pedidos
+ * tienen que estar; si falta alguno, ForbiddenError con required/missing/current.
+ */
+export function assertPermissions(
+  user: { permissions: string[] } | undefined,
+  permissions: readonly string[]
+): void {
+  if (!user) {
+    throw new UnauthorizedError();
+  }
+
+  // Wildcard admin
+  if (user.permissions.includes('*')) {
+    return;
+  }
+
+  const missing = permissions.filter((p) => !user.permissions.includes(p));
+  if (missing.length > 0) {
+    throw new ForbiddenError('Insufficient permissions', {
+      required: permissions,
+      missing,
+      current: user.permissions,
+    });
+  }
+}
+
 export function requirePermission(...permissions: string[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      throw new UnauthorizedError();
-    }
-
-    // Wildcard admin
-    if (req.user.permissions.includes('*')) {
-      return next();
-    }
-
-    const missing = permissions.filter((p) => !req.user!.permissions.includes(p));
-    if (missing.length > 0) {
-      throw new ForbiddenError('Insufficient permissions', {
-        required: permissions,
-        missing,
-        current: req.user.permissions,
-      });
-    }
-
+    assertPermissions(req.user, permissions);
     next();
   };
 }

@@ -1,7 +1,8 @@
 import { query } from '../../../database/connection.js';
 import { assertEntityAccess } from '../../rest/middleware/auth.js';
 import { findByIdInScope, requireByIdInScope, entityScope } from '../../../database/scope.js';
-import { ForbiddenError } from '../../../utils/errors.js';
+import { ForbiddenError, ValidationError } from '../../../utils/errors.js';
+import { blindar, blindarCampos } from '../permisos.js';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -12,7 +13,17 @@ import {
 import type { Account, JournalEntry, JournalEntryLine, Invoice, FiscalPeriod } from '../../../types/index.js';
 import { JournalEntryType } from '../../../types/index.js';
 
-/** GraphQL context user: the full JWT payload (see src/index.ts context). */
+/**
+ * GraphQL context user: the full JWT payload (see src/index.ts context).
+ *
+ * `permissions` estaba declarado aquí desde el principio y NO SE LEÍA NUNCA.
+ * Las cinco mutaciones comprobaban pertenencia de entidad y nada más, de modo
+ * que con GRAPHQL_ENABLED=true cualquier principal con acceso a la entidad
+ * posteaba al mayor y cerraba periodos sin el permiso que REST le habría
+ * exigido. Ahora lo lee UNA sola cosa —`blindar`, en ../permisos.ts— por la
+ * que entran todos los campos de Query y Mutation; ningún resolutor de este
+ * archivo vuelve a preguntar por su cuenta, que es como se olvida la sexta.
+ */
 interface CtxUser {
   user_id: string;
   entities: string[];
@@ -29,6 +40,8 @@ interface Ctx {
   user: CtxUser;
   tenantId?: string;
   entityId?: string;
+  /** La cabecera x-entity-id tal cual vino, o undefined si no vino. */
+  entidadDeCabecera?: string;
 }
 
 /**
@@ -54,16 +67,69 @@ function alcanceDe(ctx: Ctx) {
   return entityScope(ctx.tenantId, ctx.entityId);
 }
 
-export const resolvers = {
-  Query: {
+/**
+ * LA PERTENENCIA EN LAS CONSULTAS QUE RECIBEN LA ENTIDAD DEL CLIENTE.
+ *
+ * Cinco consultas —accounts, journalEntries, invoices, trialBalance y
+ * fiscalPeriods— metían `args.entityId` en el WHERE sin `ctx` siquiera en la
+ * firma. RLS acota por INQUILINO, así que en un despacho con dos clientes en
+ * el mismo inquilino bastaba pedir la otra entidad:
+ * `trialBalance(entityId: "<B>")` devolvía el balance completo de B a un
+ * usuario con acceso sólo a A. La auditoría III lo midió y lo dejó por
+ * escrito; esto lo cierra.
+ *
+ * Se comprueba PERTENENCIA (lo que el token concede), igual que `assertEntityAccess`
+ * en REST, y no igualdad con la entidad activa: un token con dos entidades
+ * legítimas tiene que poder consultar la segunda sin cambiar de cabecera, que
+ * es exactamente lo que hace `requireEntityAccess` cuando la petición NOMBRA
+ * una entidad. Las consultas por id no pasan por aquí: ésas se acotan dentro
+ * del SQL con `alcanceDe`, que además no distingue «no existe» de «no es tuyo».
+ */
+function entidadPedida(ctx: Ctx, entityId: unknown): string {
+  if (typeof entityId !== 'string' || entityId === '') {
+    throw new ForbiddenError(
+      'La consulta no nombra la entidad sobre la que actúa: no puede acotarse y se rechaza.'
+    );
+  }
+  assertEntityAccess(ctx.user, entityId);
+
+  // UNA PETICIÓN NOMBRA UNA SOLA ENTIDAD, también aquí.
+  //
+  // `requireEntityAccess` rechaza en REST la combinación cabecera A + argumento
+  // B AUNQUE LAS DOS SEAN SUYAS, y no por acceso: el contexto de la bitácora se
+  // arma siempre con la cabecera, así que el trabajo ocurre sobre B y todo lo
+  // registrado dice A. Es atribución falsa, y no se repara después porque el
+  // rastro ya se escribió así. La razón vale igual para esta puerta.
+  //
+  // Se compara contra la cabecera CRUDA y no contra `ctx.entityId`, que
+  // `authenticate` rellena con la primera entidad del token cuando no hay
+  // cabecera: mezclarlos haría chocar un `entityId:` legítimo contra un relleno
+  // que el cliente nunca pidió.
+  const cabecera = ctx.entidadDeCabecera;
+  if (cabecera && cabecera !== entityId) {
+    throw new ValidationError(
+      `La petición nombra 2 entidades distintas (la cabecera x-entity-id: ${cabecera}; ` +
+        `el argumento entityId: ${entityId}). La bitácora registra la de la cabecera, así que ` +
+        'con dos no se puede saber sobre cuál se trabajó. Manda una sola.',
+      'entityId'
+    );
+  }
+  return entityId;
+}
+
+// `blindarCampos` envuelve además los resolutores de CAMPO. Sin él la puerta
+// cubre sólo las raíces y se rodea por el grafo: se entra por una factura que
+// sí se tiene y se sale a su asiento, sus renglones y el catálogo de cuentas.
+export const resolvers = blindarCampos({
+  Query: blindar('Query', {
     async account(_: unknown, { id }: { id: string }, ctx: Ctx) {
       // Cerrar la mutación y dejar la lectura suelta sería cerrar media puerta.
       return findByIdInScope<Account>('accounts', id, alcanceDe(ctx));
     },
 
-    async accounts(_: unknown, args: { entityId: string; accountType?: string; isActive?: boolean; search?: string; first?: number }) {
+    async accounts(_: unknown, args: { entityId: string; accountType?: string; isActive?: boolean; search?: string; first?: number }, ctx: Ctx) {
       let where = 'WHERE entity_id = $1';
-      const params: unknown[] = [args.entityId];
+      const params: unknown[] = [entidadPedida(ctx, args.entityId)];
       let idx = 2;
 
       if (args.accountType) { where += ` AND account_type = $${idx++}`; params.push(args.accountType.toLowerCase()); }
@@ -87,9 +153,9 @@ export const resolvers = {
       return findByIdInScope<JournalEntry>('journal_entries', id, alcanceDe(ctx));
     },
 
-    async journalEntries(_: unknown, args: Record<string, unknown>) {
+    async journalEntries(_: unknown, args: Record<string, unknown>, ctx: Ctx) {
       let where = 'WHERE entity_id = $1';
-      const params: unknown[] = [args.entityId];
+      const params: unknown[] = [entidadPedida(ctx, args.entityId)];
       let idx = 2;
 
       if (args.fiscalPeriodId) { where += ` AND fiscal_period_id = $${idx++}`; params.push(args.fiscalPeriodId); }
@@ -104,14 +170,17 @@ export const resolvers = {
       return result.rows;
     },
 
-    async invoice(_: unknown, { id }: { id: string }) {
-      const result = await query<Invoice>('SELECT * FROM invoices WHERE id = $1', [id]);
-      return result.rows[0] || null;
+    async invoice(_: unknown, { id }: { id: string }, ctx: Ctx) {
+      // Era `SELECT * FROM invoices WHERE id = $1` a secas: con el UUID a la
+      // vista —y aquí los identificadores circulan— se leía la factura de otra
+      // entidad del mismo inquilino, con su cliente, su total y su UUID fiscal.
+      // El filtro va dentro del SQL, como en journalEntry y account.
+      return findByIdInScope<Invoice>('invoices', id, alcanceDe(ctx));
     },
 
-    async invoices(_: unknown, args: Record<string, unknown>) {
+    async invoices(_: unknown, args: Record<string, unknown>, ctx: Ctx) {
       let where = 'WHERE entity_id = $1';
-      const params: unknown[] = [args.entityId];
+      const params: unknown[] = [entidadPedida(ctx, args.entityId)];
       let idx = 2;
 
       if (args.customerId) { where += ` AND customer_id = $${idx++}`; params.push(args.customerId); }
@@ -124,7 +193,8 @@ export const resolvers = {
       return result.rows;
     },
 
-    async trialBalance(_: unknown, args: Record<string, unknown>) {
+    async trialBalance(_: unknown, args: Record<string, unknown>, ctx: Ctx) {
+      const entityId = entidadPedida(ctx, args.entityId);
       // Delegate to report service logic
       const result = await query(
         `SELECT a.id as account_id, a.code as account_code, a.name as account_name, a.account_type,
@@ -136,11 +206,11 @@ export const resolvers = {
          LEFT JOIN journal_entries je ON je.id = jel.journal_entry_id AND je.status = 'posted'
          WHERE a.entity_id = $1 AND a.is_active = true
          GROUP BY a.id, a.code, a.name, a.account_type ORDER BY a.code`,
-        [args.entityId]
+        [entityId]
       );
 
       return {
-        entityId: args.entityId,
+        entityId,
         accounts: result.rows,
         totals: {
           totalDebits: result.rows.reduce((s: number, r: Record<string, unknown>) => s + parseFloat(r.debit_total as string), 0),
@@ -150,9 +220,9 @@ export const resolvers = {
       };
     },
 
-    async fiscalPeriods(_: unknown, args: { entityId: string; status?: string }) {
+    async fiscalPeriods(_: unknown, args: { entityId: string; status?: string }, ctx: Ctx) {
       let where = 'WHERE entity_id = $1';
-      const params: unknown[] = [args.entityId];
+      const params: unknown[] = [entidadPedida(ctx, args.entityId)];
       if (args.status) { where += ' AND status = $2'; params.push(args.status.toLowerCase()); }
 
       const result = await query<FiscalPeriod>(
@@ -161,9 +231,9 @@ export const resolvers = {
       );
       return result.rows;
     },
-  },
+  }),
 
-  Mutation: {
+  Mutation: blindar('Mutation', {
     async createJournalEntry(_: unknown, { input }: { input: Record<string, unknown> }, ctx: Ctx) {
       assertEntityAccess(ctx.user, input.entityId as string);
       const lines = (input.lines as Array<Record<string, unknown>>).map((l) => ({
@@ -207,7 +277,7 @@ export const resolvers = {
       assertEntityAccess(ctx.user, args.entityId);
       return hardClosePeriod(args.periodId, args.entityId, ctx.user.user_id);
     },
-  },
+  }),
 
   // Field resolvers
   Account: {
@@ -390,4 +460,4 @@ export const resolvers = {
     cfdiUnitCode: (l: Record<string, unknown>) => l.cfdi_unit_code,
     itemId: (l: Record<string, unknown>) => l.item_id,
   },
-};
+});

@@ -1864,6 +1864,136 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.1',
+    enunciado: 'Ninguna mutación de GraphQL entra al motor sin permiso, y una nueva no puede nacer sin él',
+    evaluar: () => {
+      // La bandera del criterio anterior compra tiempo, no seguridad: el día
+      // que alguien la encienda, lo que decide es esto. Los resolutores
+      // declaraban `permissions` en su contexto y NO LO LEÍAN: las cinco
+      // mutaciones comprobaban pertenencia de entidad y ninguna comprobaba
+      // permiso, de modo que un `viewer` posteaba al mayor y cerraba el
+      // ejercicio en duro donde REST le habría dado 403.
+      //
+      // Lo que se vigila aquí NO es que las cinco de hoy estén tapadas —eso lo
+      // prueban las pruebas—: es que la SEXTA no pueda nacer abierta. El
+      // esquema declara quince mutaciones y hay cinco; entre las diez ausentes
+      // están timbrar y cancelar un CFDI ante el SAT. Así que se lee el
+      // ESQUEMA, que es el contrato, y se exige de cada mutación declarada una
+      // de dos cosas: resolutor CON permiso declarado, o ausencia dicha con su
+      // motivo. Y que la puerta siga siendo una, y siga lanzando.
+      const esquema = crudoDe('src/api/graphql/schemas/schema.ts');
+      const bloque = /type Mutation \{([\s\S]*?)\n {2}\}/.exec(esquema);
+      if (!bloque) {
+        return falla('no se pudo leer `type Mutation` del esquema: sin contrato que leer, la compuerta no juzga nada');
+      }
+      const declaradas = [...bloque[1].matchAll(/^\s+(\w+)\s*[(:]/gm)].map((m) => m[1]);
+      if (declaradas.length === 0) return falla('el esquema no declara ninguna mutación: el bloque se leyó vacío');
+
+      const puerta = codigoDe('src/api/graphql/permisos.ts');
+      const resolutores = codigoDe('src/api/graphql/resolvers/index.ts');
+
+      // UNA sola puerta, no cinco comprobaciones repartidas: las raíces
+      // enteras entran por ella, o el resto de este criterio no significa nada.
+      // Se miran las TRES —Subscription incluida, que hoy no tiene resolutores
+      // y declara cuatro campos en el esquema—: una suscripción es una lectura
+      // continua, y el día que alguien escriba `Subscription: {` por fuera,
+      // esto es lo que lo acusa.
+      const sueltas = ['Query', 'Mutation', 'Subscription'].filter(
+        (r) =>
+          new RegExp(`^ {2}${r}:`, 'm').test(resolutores) &&
+          !new RegExp(`${r}:\\s*blindar\\(\\s*'${r}'`).test(resolutores)
+      );
+      if (sueltas.length > 0) {
+        return falla(
+          `${sueltas.join(', ')}: raíz de GraphQL servida por fuera de la puerta única. Cada resolutor vuelve ` +
+            'a decidir por su cuenta, que es como se olvidó el permiso en las cinco primeras'
+        );
+      }
+      if (!/Mutation:\s*blindar\(\s*'Mutation'/.test(resolutores) ||
+          !/Query:\s*blindar\(\s*'Query'/.test(resolutores)) {
+        return falla(
+          'las dos raíces que hoy se sirven dejaron de pasar por la puerta única de permisos'
+        );
+      }
+
+      // Y la compuerta se alimenta del esquema y LANZA. Si sólo avisara, la
+      // mutación nueva sin permiso se montaría igual.
+      // El ancla nombra la llamada EXACTA que audita la raíz y lanza. Bastaba
+      // con «hay un throw de CompuertaAbiertaError en el archivo» hasta que
+      // `blindarCampos` añadió el suyo para los resolutores de campo: entonces
+      // desarmar el de la raíz dejaba el criterio en verde porque seguía viendo
+      // el otro. Un criterio que se satisface con el guardia de al lado no
+      // vigila al suyo.
+      const raizAuditaYLanza =
+        /auditarRaiz\(\s*typeDefs/.test(puerta) &&
+        /throw new CompuertaAbiertaError\(huecos\);/.test(puerta);
+      const camposLanzan = /sinCatalogo\.length > 0[\s\S]{0,200}?throw new CompuertaAbiertaError/.test(
+        puerta
+      );
+      if (!raizAuditaYLanza || !camposLanzan) {
+        return falla(
+          'la compuerta dejó de contrastar el esquema o de lanzar al cargar: una mutación sin permiso volvería ' +
+            'a poder montarse'
+        );
+      }
+
+      const implementada = (n: string): boolean => new RegExp(`\\basync ${n}\\s*\\(`).test(resolutores);
+      // Un permiso declarado es una lista con al menos un `recurso:accion`
+      // dentro: `n: []` es una puerta que pregunta por nada.
+      const conPermiso = (n: string): boolean => new RegExp(`\\b${n}:\\s*\\['[a-z_]+:[a-z_*]+'`).test(puerta);
+      // Una ausencia declarada es el nombre seguido de su motivo en prosa.
+      const ausenciaDicha = (n: string): boolean => new RegExp(`\\b${n}:\\s*'`).test(puerta);
+
+      const sinPuerta = declaradas.filter((n) => implementada(n) && !conPermiso(n));
+      if (sinPuerta.length > 0) {
+        return falla(
+          `${sinPuerta.join(', ')}: tienen resolutor y ningún permiso declarado. Llegan al motor con sólo ` +
+            'pertenencia de entidad, igual que antes'
+        );
+      }
+
+      const huerfanas = declaradas.filter((n) => !implementada(n) && !ausenciaDicha(n));
+      if (huerfanas.length > 0) {
+        return falla(
+          `${huerfanas.join(', ')}: el esquema las declara y no están ni implementadas con permiso ni ` +
+            'declaradas ausentes con su motivo. La siguiente se implementa sin puerta'
+        );
+      }
+
+      const conResolutor = declaradas.filter(implementada).length;
+      return ok(
+        `${declaradas.length} mutaciones declaradas: ${conResolutor} con permiso exigido por la puerta única y ` +
+          `${declaradas.length - conResolutor} con su ausencia dicha`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/api/graphql/resolvers/index.ts',
+        de: "Mutation: blindar('Mutation', {",
+        a: 'Mutation: ({',
+        porque: 'la puerta se desmonta y cada resolutor vuelve a decidir solo: el criterio no puede medir el catálogo y bendecirlo',
+      },
+      {
+        archivo: 'src/api/graphql/permisos.ts',
+        de: 'throw new CompuertaAbiertaError(huecos);',
+        a: 'void huecos;',
+        porque: 'la compuerta pasa de lanzar a callar: un aviso que nadie lee no impide montar la mutación nueva',
+      },
+      {
+        archivo: 'src/api/graphql/permisos.ts',
+        de: "postJournalEntry: ['journal_entries:post'],",
+        a: 'postJournalEntry: [],',
+        porque: 'el permiso se vacía sin quitar la entrada: la puerta sigue puesta y no pregunta nada (presencia donde hacía falta contenido)',
+      },
+      {
+        archivo: 'src/api/graphql/schemas/schema.ts',
+        de: '    hardClosePeriod(periodId: ID!, entityId: ID!): FiscalPeriod!',
+        a: '    hardClosePeriod(periodId: ID!, entityId: ID!): FiscalPeriod!\n    approveBill(id: ID!): Boolean!',
+        porque: 'la mutación nueva que nadie declaró en el catálogo: es el escape que este criterio existe para acusar',
+      },
+    ],
+  },
+  {
+    paquete: 'E2.1',
     enunciado: 'El arranque falla cerrado ante un rol que ignora RLS',
     evaluar: () => {
       // S1 (E2.1-e rescatada): el aislamiento entero cuelga de que el rol de

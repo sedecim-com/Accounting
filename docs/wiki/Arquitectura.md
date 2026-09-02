@@ -177,7 +177,7 @@ El repositorio se llama `Accounting` y el paquete `accounting-core` por su orige
 
 Donde los dos contratos se encuentran es un solo sitio: `exitCodeFor` en [`kernel/index.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/cli/kernel/index.ts), que traduce el `statusCode` de un error de dominio al código de salida del CLI. Está tipado por pato sobre `statusCode`, para que el núcleo no dependa de la jerarquía de errores.
 
-Lo que sí falta decir: **GraphQL está desmontado por omisión**, vive fuera del prefijo auditado `/v1` y sus mutaciones no comprueban permisos. Ver el README para el inventario completo de lo retirado.
+Lo que sí falta decir: **GraphQL está desmontado por omisión** y vive fuera del prefijo auditado `/v1`. Sus mutaciones sí comprueban permisos desde que existe `src/api/graphql/permisos.ts`: un solo punto de paso, el mismo permiso que la ruta REST equivalente y una compuerta que contrasta el esquema al cargar. Ver el README para el inventario completo de lo retirado.
 
 ## El camino de un CFDI hasta el mayor
 

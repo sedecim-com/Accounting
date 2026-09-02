@@ -79,8 +79,13 @@ Se dice aquí porque descubrirlo leyendo el código sería peor:
   `employer_tax_liabilities` y `garnishments` se leen y ningún camino las
   escribe.
 - **GraphQL está desmontado por omisión** (`GRAPHQL_ENABLED=true` lo devuelve).
-  Vive fuera del prefijo auditado `/v1` y sus mutaciones no comprueban permisos:
-  quedó apagado hasta que eso se arregle.
+  Sus mutaciones ya exigen el mismo permiso que su ruta REST, y una compuerta
+  contrasta el esquema al cargar: una mutación declarada que no esté
+  implementada-con-permiso o listada como ausente impide cargar los
+  resolutores. Sigue apagado por lo que falta: vive fuera del prefijo auditado
+  `/v1` —no deja la fila de PETICIÓN en `audit_log`, aunque el hecho contable
+  sí queda registrado por los servicios— y diez de sus quince mutaciones son
+  contrato sin código.
 - De los 151 manejadores REST, **7 están retirados** y lanzan
   `NotImplementedError` en vez de fingir que hicieron algo.
 - **No hay respaldo ni restauración.** Ni una línea en todo el árbol. Y lo que

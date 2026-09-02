@@ -14,6 +14,7 @@ import { validateJournalEntry } from '../../src/services/accounting/validation.j
 import { findBestMatch } from '../../src/services/banking/matching.js';
 import { entityScope } from '../../src/database/scope.js';
 import { resolvers } from '../../src/api/graphql/resolvers/index.js';
+import { permissionsOf } from '../../src/auth/roles.js';
 import bankReconciliationRouter from '../../src/api/rest/routes/bank-reconciliation.js';
 import blockchainRouter from '../../src/api/rest/routes/blockchain.js';
 import xmlIngestionRouter from '../../src/api/rest/routes/xml-ingestion.js';
@@ -350,6 +351,88 @@ describe('camino 3 — las mutaciones de GraphQL', () => {
     const propio = await asientoBorrador(a);
     const leido = await resolvers.Query.journalEntry(null, { id: propio }, ctxDe(a));
     expect((leido as { id: string } | null)?.id).toBe(propio);
+  });
+
+  // ── El otro eje: PERMISO, no pertenencia ────────────────────────────────
+  //
+  // Los casos de arriba prueban la frontera de ENTIDAD sobre su propio
+  // asiento. Lo que faltaba era el eje perpendicular: los resolutores
+  // declaraban `permissions` en el contexto y no lo leían jamás, así que un
+  // rol de sólo lectura sobre SU PROPIA entidad —donde la pertenencia no
+  // objeta nada— posteaba al mayor. Aquí se prueba contra Postgres lo que la
+  // prueba unitaria no puede: que el asiento sigue en borrador después del
+  // 403. Un 403 concedido después de escribir no es un 403.
+  const ctxLector = (f: Fixture) => ({
+    ...ctxDe(f),
+    user: { user_id: f.userId, entities: [f.entityId], permissions: [...permissionsOf('viewer')] },
+  });
+
+  it('un lector no postea su propio asiento, y el asiento no se mueve', async () => {
+    const propio = await asientoBorrador(a);
+    await expect(
+      resolvers.Mutation.postJournalEntry(null, { id: propio }, ctxLector(a))
+    ).rejects.toThrow(/Insufficient permissions/);
+
+    const bd = await query<{ status: string }>(
+      'SELECT status FROM journal_entries WHERE id = $1',
+      [propio]
+    );
+    expect(bd.rows[0].status).toBe('draft');
+  });
+
+  it('ni lo anula, ni cierra el periodo', async () => {
+    const propio = await asientoBorrador(a);
+    await expect(
+      resolvers.Mutation.voidJournalEntry(null, { id: propio, reason: 'x' }, ctxLector(a))
+    ).rejects.toThrow(/Insufficient permissions/);
+    await expect(
+      resolvers.Mutation.hardClosePeriod(
+        null,
+        { periodId: a.periodos[8], entityId: a.entityId },
+        ctxLector(a)
+      )
+    ).rejects.toThrow(/Insufficient permissions/);
+
+    const bd = await query<{ status: string }>(
+      'SELECT status FROM fiscal_periods WHERE id = $1',
+      [a.periodos[8]]
+    );
+    expect(bd.rows[0].status).not.toBe('hard_close');
+  });
+
+  it('y sí lee lo que su rol concede, sobre lo suyo', async () => {
+    const propio = await asientoBorrador(a);
+    const leido = await resolvers.Query.journalEntry(null, { id: propio }, ctxLector(a));
+    expect((leido as { id: string } | null)?.id).toBe(propio);
+  });
+
+  // Las consultas de lista recibían `entityId` del cliente y lo metían en el
+  // WHERE sin mirar nada: RLS acota por INQUILINO, así que pedir la entidad
+  // hermana devolvía su mayor entero. Es el escenario que midió la auditoría
+  // III, palabra por palabra.
+  it('el balance de comprobación de la entidad hermana ya no se sirve por pedirlo', async () => {
+    await expect(
+      resolvers.Query.trialBalance(null, { entityId: b.entityId }, ctxDe(a))
+    ).rejects.toThrow(/Access denied to this entity/);
+  });
+
+  it('tampoco su libro diario ni su catálogo de cuentas', async () => {
+    await expect(
+      resolvers.Query.journalEntries(null, { entityId: b.entityId }, ctxDe(a))
+    ).rejects.toThrow(/Access denied to this entity/);
+    await expect(
+      resolvers.Query.accounts(null, { entityId: b.entityId }, ctxDe(a))
+    ).rejects.toThrow(/Access denied to this entity/);
+  });
+
+  it('sobre la suya, la lista sigue respondiendo', async () => {
+    const propio = await asientoBorrador(a);
+    const filas = (await resolvers.Query.journalEntries(
+      null,
+      { entityId: a.entityId },
+      ctxDe(a)
+    )) as Array<{ id: string }>;
+    expect(filas.some((f) => f.id === propio)).toBe(true);
   });
 });
 
