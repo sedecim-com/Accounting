@@ -110,6 +110,18 @@ Commands:
                                         subledger against the control account
   bank|banco                            Bank accounts and bank statements:
                                         master data and imported statements
+  asset|activo                          Fixed asset register: the ledger of what
+                                        the company owns and depreciates
+  depreciation|depreciacion             The monthly depreciation run: compute
+                                        it, look at it, then post it
+  batch|lote                            Staged entry batches: list, inspect,
+                                        check, post transactionally and reverse
+                                        as a unit
+  closing|cierre-proceso                The close as a process: its read-only
+                                        surface — readiness, named checks,
+                                        offenders
+  fx|cambio                             Exchange rates: the origin every
+                                        foreign-currency amount converts from
   backup|respaldo                       Logical backups of the whole
                                         installation (create, list, verify by
                                         rehearsing the restore, restore) and
@@ -1355,8 +1367,8 @@ Repoint a role to another account, or create a qualified variant
 
 Arguments:
   role                     one of: activo_fijo, anticipo_clientes,
-                           anticipo_proveedores, banco, cxc, cxp… (see role
-                           list)
+                           anticipo_proveedores, banco, comision_bancaria, cxc…
+                           (see role list)
   code                     account code the role should point to
 
 Options:
@@ -1881,16 +1893,18 @@ Usage: mnemosine period|periodo [options] [command]
 Fiscal periods: what exists, what state it is in, and opening a future one
 
 Options:
-  -h, --help                   display help for command
+  -h, --help                       display help for command
 
 Commands:
-  list|listar [options]        List every period with its state, dates and
-                               overdue mark
-  show|ver [options] <name>    Show a period: state, who closed it, the
-                               checklist it closed with, its entries
-  open|abrir [options] <name>  Open a future period so work can be captured in
-                               it
-  help [command]               display help for command
+  list|listar [options]            List every period with its state, dates and
+                                   overdue mark
+  show|ver [options] <name>        Show a period: state, who closed it, the
+                                   checklist it closed with, its entries
+  open|abrir [options] <name>      Open a future period so work can be captured
+                                   in it
+  reopen|reabrir [options] <name>  Reopen a closed period so a correction can
+                                   land in the month it belongs to
+  help [command]                   display help for command
 ```
 
 ### `mnemosine period list` (alias: listar)
@@ -1956,6 +1970,32 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --reason <text>          why it is being opened; recorded in the audit trail
   --dry-run                show the transition without performing it
+  -h, --help               display help for command
+```
+
+### `mnemosine period reopen` (alias: reabrir)
+
+```
+Usage: mnemosine period reopen|reabrir [options] <name>
+
+Reopen a closed period so a correction can land in the month it belongs to
+
+Arguments:
+  name                     period name, YYYY-MM, or id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --force                  override a blocking validation (closed period, lock
+                           date, duplicate); requires --reason
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
 
@@ -3486,20 +3526,21 @@ Usage: mnemosine bank|banco [options] [command]
 Bank accounts and bank statements: master data and imported statements
 
 Options:
-  -h, --help                display help for command
+  -h, --help                              display help for command
 
 Commands:
-  account|cuenta            Bank accounts as master data: identifiers, currency
-                            and the 1:1 GL mapping
-  statement|estado-cuenta   Bank statements as documents: import, inspect and
-                            check their integrity
-  transaction|movimiento    Bank transactions: what the bank says happened,
-                            before anyone explains it
-  book-item|partida-libros  The other side: posted journal lines against the
-                            bank GL account, still unsealed
-  match|cotejo              Matching a bank transaction to what the books
-                            already say about it
-  help [command]            display help for command
+  account|cuenta                          Bank accounts as master data: identifiers, currency and the 1:1 GL mapping
+  statement|estado-cuenta                 Bank statements as documents: import, inspect and check their integrity
+  transaction|movimiento                  Bank transactions: what the bank says happened, before anyone explains it
+  book-item|partida-libros                The other side: posted journal lines against the bank GL account, still unsealed
+  match|cotejo                            Matching a bank transaction to what the books already say about it
+  reconciliation|conciliacion             The reconciliation session: the two-sided arithmetic that makes `balanced` mean something
+  reconciling-item|partida-conciliatoria  Reconciling items as rows: what explains the difference, with age, owner, due date and escalation
+  adjustment|ajuste                       The fees, VAT, interest and withholdings a reconciliation uncovers, created as DRAFTS
+  fee|comision                            Bank fees as an accounting act: the charge as an expense and its VAT parked until the bank issues the CFDI
+  interest|interes                        Interest earned on bank balances: income at its GROSS amount and the tax the bank withheld as a prepayment in the entity’s favour
+  check|cheque                            Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law is when the payment counts
+  help [command]                          display help for command
 ```
 
 ### `mnemosine bank account` (alias: cuenta)
@@ -4087,6 +4128,1053 @@ Options:
   -y, --yes                skip the confirmation
   --json                   JSON output
   -h, --help               display help for command
+```
+
+### `mnemosine bank reconciliation` (alias: conciliacion)
+
+```
+Usage: mnemosine bank reconciliation|conciliacion [options] [command]
+
+The reconciliation session: the two-sided arithmetic that makes `balanced` mean
+something
+
+Options:
+  -h, --help                             display help for command
+
+Commands:
+  run|ejecutar [options] <account>       Guided monthly pass over one account: statement, matching engine, session and reconciling items; it ALWAYS stops before approve and post, and prints what is missing
+  open|abrir [options] <account>         Open the period session, asserting the opening balance equals the previous session closing and refusing date gaps and overlaps
+  list|listar [options]                  List sessions by account, state and period, with the FROZEN variance and how many items are still open
+  status|estado [options] [session]      Recompute the variance LIVE and print the two-sided breakdown: bank balance, its items one by one, adjusted; books balance, its items, adjusted; and the difference
+  close|cerrar [options] <session>       Recompute the whole arithmetic and move the session to `balanced` ONLY if the variance is exactly zero (or within the policy tolerance) and every item is classified and dated
+  approve|aprobar [options] <session>    Sign the session, requiring that the approver is not the preparer, and freeze an immutable snapshot with a hash of its members and its balances
+  post|contabilizar [options] <session>  Post the approved adjustment entries and seal the session’s book lines as reconciled, blocking their edit, their void and their date change
+  generate|generar [options] <session>   Produce the two-sided bank reconciliation statement for the audit file: json for the whole document, md/csv/tsv for the line-by-line statement, plain text to print
+  help [command]                         display help for command
+```
+
+#### `mnemosine bank reconciliation run` (alias: ejecutar)
+
+```
+Usage: mnemosine bank reconciliation run|ejecutar [options] <account>
+
+Guided monthly pass over one account: statement, matching engine, session and
+reconciling items; it ALWAYS stops before approve and post, and prints what is
+missing
+
+Arguments:
+  account                                                       bank account to reconcile (name or id)
+
+Options:
+  -e, --entity <idOrName>                                       legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                             tenant (firm) whose data to scope to
+  -u, --user <email>                                            acting user, for attribution and permissions
+  --note <text>                                                 free annotation stored with the record
+  --period <yyyy-mm>                                            period to reconcile; or give --since and --until together
+  --since <date>                                                first day of the period (YYYY-MM-DD)
+  --until <date>                                                last day of the period (YYYY-MM-DD)
+  --file <path>                                                 statement to import first; without it, the one already imported for the period is used
+  --format <csv|camt053|mt940|ofx|qfx|mt942|camt054|bai2|xlsx>  format of the FILE given in --file (not of the output; use --json for that), as in `bank statement import`
+  --profile <name>                                              CSV column profile to read --file with
+  --min-confidence <n>                                          engine confidence a proposal needs to be applied (0..1)
+  --max-amount <amount>                                         ceiling for an automatic match; the hard floor still wins
+  --stop-at <extracto|cotejo|sesion|partidas|estado>            stop after this step; it never goes past `estado`, and never reaches approve or post
+  --resume                                                      continue the session already open for this period instead of refusing
+  --dry-run                                                     walk the real path and roll it back
+  --json                                                        JSON output
+  -h, --help                                                    display help for command
+```
+
+#### `mnemosine bank reconciliation open` (alias: abrir)
+
+```
+Usage: mnemosine bank reconciliation open|abrir [options] <account>
+
+Open the period session, asserting the opening balance equals the previous
+session closing and refusing date gaps and overlaps
+
+Arguments:
+  account                     bank account to open the session on (name or id)
+
+Options:
+  -e, --entity <idOrName>     legal entity to operate on (defaults to the active
+                              one)
+  -t, --tenant <id>           tenant (firm) whose data to scope to
+  -u, --user <email>          acting user, for attribution and permissions
+  --note <text>               free annotation stored with the record
+  --period <yyyy-mm>          period of the session; or give --since and --until
+                              together
+  --since <date>              first day of the period (YYYY-MM-DD)
+  --until <date>              last day of the period (YYYY-MM-DD)
+  --closing-balance <amount>  closing balance you assert; it is COMPARED against
+                              the statement, never substituted for it
+  --statement <id>            the statement to tie the session to, when the
+                              period has more than one
+  --dry-run                   do the whole thing and roll it back
+  --json                      JSON output
+  -h, --help                  display help for command
+```
+
+#### `mnemosine bank reconciliation list` (alias: listar)
+
+```
+Usage: mnemosine bank reconciliation list|listar [options]
+
+List sessions by account, state and period, with the FROZEN variance and how
+many items are still open
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --account <ref>                          only sessions of this bank account (name or id)
+  --period <yyyy-mm>                       sessions that overlap this period
+  --since <date>                           sessions ending on or after this date (YYYY-MM-DD)
+  --until <date>                           sessions starting on or before this date (YYYY-MM-DD)
+  --all-entities                           every entity of the tenant, for a firm's overview; still bounded inside the SQL
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank reconciliation status` (alias: estado)
+
+```
+Usage: mnemosine bank reconciliation status|estado [options] [session]
+
+Recompute the variance LIVE and print the two-sided breakdown: bank balance, its
+items one by one, adjusted; books balance, its items, adjusted; and the
+difference
+
+Arguments:
+  session                                  session id; without it, the one in progress for --account
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --account <ref>                          bank account whose in-progress session to read (name or id)
+  --tolerance <amount>                     residual the close may absorb; only valid where the tolerance policy admits one
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank reconciliation close` (alias: cerrar)
+
+```
+Usage: mnemosine bank reconciliation close|cerrar [options] <session>
+
+Recompute the whole arithmetic and move the session to `balanced` ONLY if the
+variance is exactly zero (or within the policy tolerance) and every item is
+classified and dated
+
+Arguments:
+  session                  session to close
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --note <text>            free annotation stored with the record
+  --tolerance <amount>     residual this close may absorb; refused unless the
+                           tolerance policy admits one
+  --dry-run                do the whole thing and roll it back
+  -y, --yes                skip the confirmation
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank reconciliation approve` (alias: aprobar)
+
+```
+Usage: mnemosine bank reconciliation approve|aprobar [options] <session>
+
+Sign the session, requiring that the approver is not the preparer, and freeze an
+immutable snapshot with a hash of its members and its balances
+
+Arguments:
+  session                  balanced session to sign
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --reason <text>          why it is being signed; stored on the session and in
+                           the audit trail
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank reconciliation post` (alias: contabilizar)
+
+```
+Usage: mnemosine bank reconciliation post|contabilizar [options] <session>
+
+Post the approved adjustment entries and seal the session’s book lines as
+reconciled, blocking their edit, their void and their date change
+
+Arguments:
+  session                  approved session to post
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --note <text>            free annotation stored with the record
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank reconciliation generate` (alias: generar)
+
+```
+Usage: mnemosine bank reconciliation generate|generar [options] <session>
+
+Produce the two-sided bank reconciliation statement for the audit file: json for
+the whole document, md/csv/tsv for the line-by-line statement, plain text to
+print
+
+Arguments:
+  session                                  session to write the statement for
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine bank reconciling-item` (alias: partida-conciliatoria)
+
+```
+Usage: mnemosine bank reconciling-item|partida-conciliatoria [options] [command]
+
+Reconciling items as rows: what explains the difference, with age, owner, due
+date and escalation
+
+Options:
+  -h, --help                                   display help for command
+
+Commands:
+  list|listar [options] <session>              List the typed reconciling items of a session — outstanding checks, deposits in transit, bank charges, errors — with age, owner, expected settlement date and escalation
+  assign|asignar [options] <session> <item>    Give a reconciling item an owner, an expected settlement date and notes
+  correct|corregir [options] <session> <item>  Say what a reconciling item really was, when the automatic proposal got it wrong
+  help [command]                               display help for command
+```
+
+#### `mnemosine bank reconciling-item list` (alias: listar)
+
+```
+Usage: mnemosine bank reconciling-item list|listar [options] <session>
+
+List the typed reconciling items of a session — outstanding checks, deposits in
+transit, bank charges, errors — with age, owner, expected settlement date and
+escalation
+
+Arguments:
+  session                                  reconciliation session id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --type <name>                            only items of this type: cheque-en-circulacion, deposito-en-transito, cargo-del-banco, abono-del-banco, error-del-banco, error-de-libros
+  --over-days <n>                          only what has gone MORE than this many days since its date
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank reconciling-item assign` (alias: asignar)
+
+```
+Usage: mnemosine bank reconciling-item assign|asignar [options] <session> <item>
+
+Give a reconciling item an owner, an expected settlement date and notes
+
+Arguments:
+  session                  reconciliation session id
+  item                     reconciling item id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --owner <name>           who is chasing this item
+  --expected <date>        expected settlement date (YYYY-MM-DD)
+  --clear-expected         remove the expected date instead of setting one
+  --escalation <level>     escalation state: ninguno, avisado, vencido
+  --note <text>            note stored with the item
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank reconciling-item correct` (alias: corregir)
+
+```
+Usage: mnemosine bank reconciling-item correct|corregir [options] <session> <item>
+
+Say what a reconciling item really was, when the automatic proposal got it wrong
+
+Arguments:
+  session                  reconciliation session id
+  item                     reconciling item id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --type <name>            what it really is: cheque-en-circulacion,
+                           deposito-en-transito, cargo-del-banco,
+                           abono-del-banco, error-del-banco, error-de-libros
+  --amount <amount>        its new contribution to the reconciliation; required
+                           when the type changes side
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+### `mnemosine bank adjustment` (alias: ajuste)
+
+```
+Usage: mnemosine bank adjustment|ajuste [options] [command]
+
+The fees, VAT, interest and withholdings a reconciliation uncovers, created as
+DRAFTS
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  create|crear [options] <session>  Create the fee, VAT, interest, ISR
+                                    withholding or error correction found in the
+                                    session AS A DRAFT waiting for `mnemosine
+                                    review`; it never posts anything itself
+  help [command]                    display help for command
+```
+
+#### `mnemosine bank adjustment create` (alias: crear)
+
+```
+Usage: mnemosine bank adjustment create|crear [options] <session>
+
+Create the fee, VAT, interest, ISR withholding or error correction found in the
+session AS A DRAFT waiting for `mnemosine review`; it never posts anything
+itself
+
+Arguments:
+  session                                                    reconciliation session the adjustment belongs to
+
+Options:
+  -e, --entity <idOrName>                                    legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                          tenant (firm) whose data to scope to
+  -u, --user <email>                                         acting user, for attribution and permissions
+  --note <text>                                              free annotation stored with the record
+  --type <comision|iva-comision|interes|isr-retenido|error>  what the adjustment is
+  --amount <amount>                                          SIGNED by its effect on the bank account: negative leaves the account, positive enters it
+  --gl-account <code>                                        counterparty GL account; required for the types whose accounting role is not seeded yet (comision, interes)
+  --item <id>                                                the reconciling item this adjustment explains
+  --json                                                     JSON output
+  -h, --help                                                 display help for command
+```
+
+### `mnemosine bank fee` (alias: comision)
+
+```
+Usage: mnemosine bank fee|comision [options] [command]
+
+Bank fees as an accounting act: the charge as an expense and its VAT parked
+until the bank issues the CFDI
+
+Options:
+  -h, --help                             display help for command
+
+Commands:
+  post|contabilizar [options] <account>  Post the period’s bank fees from the statement, one entry per charge, leaving their VAT in pending-creditable until the bank’s CFDI arrives
+  help [command]                         display help for command
+```
+
+#### `mnemosine bank fee post` (alias: contabilizar)
+
+```
+Usage: mnemosine bank fee post|contabilizar [options] <account>
+
+Post the period’s bank fees from the statement, one entry per charge, leaving
+their VAT in pending-creditable until the bank’s CFDI arrives
+
+Arguments:
+  account                  bank account whose fees to post (name or id)
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --period <YYYY-MM>       month whose fees to post
+  --iva-rate <rate>        VAT rate the charge already carries INSIDE it, as a
+                           fraction (0.16 for 16%); 0 for an exempt fee. No
+                           default: a default here is a tax decision nobody
+                           takes and nobody sees
+  --max-amount <amount>    above this magnitude the charge is skipped and left
+                           for human eyes; it is a confidence gate, not a
+                           validation
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+### `mnemosine bank interest` (alias: interes)
+
+```
+Usage: mnemosine bank interest|interes [options] [command]
+
+Interest earned on bank balances: income at its GROSS amount and the tax the
+bank withheld as a prepayment in the entity’s favour
+
+Options:
+  -h, --help                             display help for command
+
+Commands:
+  post|contabilizar [options] <account>  Post the period’s interest as income and the ISR the bank withheld as a provisional payment in the entity’s favour, never as an expense
+  help [command]                         display help for command
+```
+
+#### `mnemosine bank interest post` (alias: contabilizar)
+
+```
+Usage: mnemosine bank interest post|contabilizar [options] <account>
+
+Post the period’s interest as income and the ISR the bank withheld as a
+provisional payment in the entity’s favour, never as an expense
+
+Arguments:
+  account                  bank account whose interest to post (name or id)
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --period <YYYY-MM>       month whose interest to post
+  --rate <rate>            ISR WITHHOLDING rate the bank applied, as a fraction
+                           (0.0125 for 1.25%); 0 when it withheld nothing. This
+                           is NOT the interest rate: the interest is what the
+                           statement says
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+### `mnemosine bank check` (alias: cheque)
+
+```
+Usage: mnemosine bank check|cheque [options] [command]
+
+Paper checks as a fiscal fact: when the bank actually paid one, which under the
+VAT law is when the payment counts
+
+Options:
+  -h, --help                          display help for command
+
+Commands:
+  reconcile|conciliar [options] <id>  Prove the check against the bank movement
+                                      that cleared it and post the VAT
+                                      reclassification from pending to
+                                      creditable IN THE MONTH IT CLEARED
+  help [command]                      display help for command
+```
+
+#### `mnemosine bank check reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine bank check reconcile|conciliar [options] <id>
+
+Prove the check against the bank movement that cleared it and post the VAT
+reclassification from pending to creditable IN THE MONTH IT CLEARED
+
+Arguments:
+  id                       vendor payment made by check
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --transaction <id>       the bank movement that paid it, named by hand;
+                           required when several charges match
+  --as-of <date>           the clearing date you assert (YYYY-MM-DD); it is
+                           CONTRASTED against the movement, never imposed — the
+                           bank dates the clearing
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+## `mnemosine asset` (alias: activo)
+
+```
+Usage: mnemosine asset|activo [options] [command]
+
+Fixed asset register: the ledger of what the company owns and depreciates
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  create|crear [options] <name>  Register a fixed asset with its class, dates,
+                                 cost and accounts — writes no journal entry
+  help [command]                 display help for command
+```
+
+### `mnemosine asset create` (alias: crear)
+
+```
+Usage: mnemosine asset create|crear [options] <name>
+
+Register a fixed asset with its class, dates, cost and accounts — writes no
+journal entry
+
+Arguments:
+  name                                     what the asset is called in the register
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --note <text>                            free annotation stored with the record
+  --category <idOrName>                    asset class: its id, or enough of its name to be unambiguous
+  --cost <amount>                          original cost of the investment (MOI), as a decimal
+  --acquired <date>                        acquisition date (YYYY-MM-DD)
+  --in-service <date>                      date depreciation starts (YYYY-MM-DD); defaults from the first-month convention on the panel
+  --book <book|tax>                        the depreciation book you believe you are working on; checked against the panel
+  --capitalized <yes|no>                   whether the cost is ALREADY charged to the asset account in the ledger — no default
+  --source-entry <id>                      the journal entry the cost already sits in, when it is known
+  --salvage <amount>                       residual value at the end of its life (default 0)
+  --life-years <n>                         useful life in years
+  --life-months <n>                        useful life in months; years are the ceiling of months over twelve
+  --method <method>                        BOOK depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, units_of_production, macrs
+  --tax-method <method>                    TAX depreciation method: straight_line, declining_balance_150, declining_balance_200, sum_of_years_digits, units_of_production, macrs
+  --asset-account <id>                     GL account the cost sits in (defaults from the class)
+  --accum-account <id>                     accumulated depreciation account (defaults from the class)
+  --expense-account <id>                   depreciation expense account (defaults from the class)
+  --number <folio>                         asset number; generated from the entity series when omitted
+  --description <text>                     what the asset is
+  --vendor <id>                            vendor it was bought from
+  --serial <text>                          serial number, so the register can find the physical thing
+  --location <text>                        where it is
+  --dry-run                                run the real path and undo it: shows the asset that would be created
+  -h, --help                               display help for command
+```
+
+## `mnemosine depreciation` (alias: depreciacion)
+
+```
+Usage: mnemosine depreciation|depreciacion [options] [command]
+
+The monthly depreciation run: compute it, look at it, then post it
+
+Options:
+  -h, --help                   display help for command
+
+Commands:
+  run|ejecutar [options]       Compute the period run and show it asset by asset
+                               — writes nothing, posts nothing
+  post|contabilizar [options]  Post the period run to the ledger — one journal
+                               entry per asset, irreversible
+  help [command]               display help for command
+```
+
+### `mnemosine depreciation run` (alias: ejecutar)
+
+```
+Usage: mnemosine depreciation run|ejecutar [options]
+
+Compute the period run and show it asset by asset — writes nothing, posts
+nothing
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --period <expr>                          period to compute: 2026-08, or any unambiguous part of its name
+  --book <book|tax>                        the depreciation book you believe you are running; checked against the panel
+  --by <dimension>                         detail or summary: asset, class, account, method (asset is the per-asset detail) (default: "asset")
+  -h, --help                               display help for command
+```
+
+### `mnemosine depreciation post` (alias: contabilizar)
+
+```
+Usage: mnemosine depreciation post|contabilizar [options]
+
+Post the period run to the ledger — one journal entry per asset, irreversible
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to post: 2026-08, or any unambiguous part of its name
+  --book <book|tax>                        the depreciation book you believe you are posting; checked against the panel
+  --file <path>                            the approved plan (JSON from `depreciation run --format json`); refuses if the numbers moved
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
+  -h, --help                               display help for command
+```
+
+## `mnemosine batch` (alias: lote)
+
+```
+Usage: mnemosine batch|lote [options] [command]
+
+Staged entry batches: list, inspect, check, post transactionally and reverse as
+a unit
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  list|listar [options]             List batches with their state, row counts,
+                                    posted entries and content hash
+  show|ver [options] <id>           One batch in full: rows with their generated
+                                    entries, stored parse errors by category,
+                                    and the file hash
+  check|verificar [options] <id>    Run the posting validations over every row
+                                    and report each finding; exits 4 when any
+                                    blocks
+  post|contabilizar [options] <id>  Post the whole batch in one transaction;
+                                    --partial applies the valid rows and leaves
+                                    the rest staged
+  reverse|reversar [options] <id>   Mirror every entry the batch posted, as one
+                                    unit in one transaction — import errors are
+                                    batch-shaped, not entry-shaped
+  help [command]                    display help for command
+```
+
+### `mnemosine batch list` (alias: listar)
+
+```
+Usage: mnemosine batch list|listar [options]
+
+List batches with their state, row counts, posted entries and content hash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --kind <kind>                            batch class (available: import)
+  -h, --help                               display help for command
+```
+
+### `mnemosine batch show` (alias: ver)
+
+```
+Usage: mnemosine batch show|ver [options] <id>
+
+One batch in full: rows with their generated entries, stored parse errors by
+category, and the file hash
+
+Arguments:
+  id                                       batch id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --errors-only                            only the rows whose parser rejected them
+  -h, --help                               display help for command
+```
+
+### `mnemosine batch check` (alias: verificar)
+
+```
+Usage: mnemosine batch check|verificar [options] <id>
+
+Run the posting validations over every row and report each finding; exits 4 when
+any blocks
+
+Arguments:
+  id                                       batch id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --strict                                 treat warnings as blocking (exit 4)
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --check <names>                          finding categories to display, comma-separated (available: parse, forma, cuenta, periodo, validacion); the full battery always runs
+  -h, --help                               display help for command
+```
+
+### `mnemosine batch post` (alias: contabilizar)
+
+```
+Usage: mnemosine batch post|contabilizar [options] <id>
+
+Post the whole batch in one transaction; --partial applies the valid rows and
+leaves the rest staged
+
+Arguments:
+  id                       batch id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --partial                apply the valid rows and leave the invalid ones in
+                           staging (accepts an unchecked batch)
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+### `mnemosine batch reverse` (alias: reversar)
+
+```
+Usage: mnemosine batch reverse|reversar [options] <id>
+
+Mirror every entry the batch posted, as one unit in one transaction — import
+errors are batch-shaped, not entry-shaped
+
+Arguments:
+  id                       batch id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --as-of <date>           date for every mirror entry (YYYY-MM-DD); defaults to
+                           today
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --reason <text>          justification recorded in the audit trail (required)
+  -h, --help               display help for command
+```
+
+## `mnemosine closing` (alias: cierre-proceso)
+
+```
+Usage: mnemosine closing|cierre-proceso [options] [command]
+
+The close as a process: its read-only surface — readiness, named checks,
+offenders
+
+Options:
+  -h, --help                                display help for command
+
+Commands:
+  preview|previsualizar [options] [period]  Read-only twin of closing start: says whether the period can enter close and what is missing
+  check|verificar [options]                 Run the close verification catalog, or only the named checks; bare --check lists the names
+  explain|explicar [options] <code>         Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it
+  help [command]                            display help for command
+```
+
+### `mnemosine closing preview` (alias: previsualizar)
+
+```
+Usage: mnemosine closing preview|previsualizar [options] [period]
+
+Read-only twin of closing start: says whether the period can enter close and
+what is missing
+
+Arguments:
+  period                                   period name, YYYY-MM, or id (default: the oldest open one)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  -h, --help                               display help for command
+```
+
+### `mnemosine closing check` (alias: verificar)
+
+```
+Usage: mnemosine closing check|verificar [options]
+
+Run the close verification catalog, or only the named checks; bare --check lists
+the names
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --check [codes]                          comma-separated check codes; with no value, prints the available ones
+  --period <name>                          period to check (default: the oldest open one)
+  -h, --help                               display help for command
+```
+
+### `mnemosine closing explain` (alias: explicar)
+
+```
+Usage: mnemosine closing explain|explicar [options] <code>
+
+Print the offending rows of one check (ids, amounts, dates) and the exact
+command that fixes it
+
+Arguments:
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, trial-balance, ledger-integrity, rep-parked, rep-missing
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -n, --limit <n>                          maximum offending rows to print
+  --period <name>                          period to explain (default: the oldest open one)
+  -h, --help                               display help for command
+```
+
+## `mnemosine fx` (alias: cambio)
+
+```
+Usage: mnemosine fx|cambio [options] [command]
+
+Exchange rates: the origin every foreign-currency amount converts from
+
+Options:
+  -h, --help      display help for command
+
+Commands:
+  rate|tipo       Published exchange rates by pair, date, type and source
+  help [command]  display help for command
+```
+
+### `mnemosine fx rate` (alias: tipo)
+
+```
+Usage: mnemosine fx rate|tipo [options] [command]
+
+Published exchange rates by pair, date, type and source
+
+Options:
+  -h, --help                                display help for command
+
+Commands:
+  list|listar [options]                     List stored exchange rates by pair, date, type and source
+  show|ver [options] <pair> <date>          Resolve the applicable rate: direct, then inverse, then crossed through USD
+  set|fijar [options] <pair> <date> <rate>  Record an exchange rate, naming its source
+  download|descargar [options]              Download the DOF or Banxico FIX rate, stored per source (they differ on the same day)
+  help [command]                            display help for command
+```
+
+#### `mnemosine fx rate list` (alias: listar)
+
+```
+Usage: mnemosine fx rate list|listar [options]
+
+List stored exchange rates by pair, date, type and source
+
+Options:
+  -e, --entity <idOrName>                                          legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                                tenant (firm) whose data to scope to
+  -u, --user <email>                                               acting user, for attribution and permissions
+  -n, --limit <n>                                                  maximum rows to return
+  --offset <n>                                                     skip this many rows
+  -s, --status <state...>                                          filter by lifecycle state (repeatable)
+  -a, --all                                                        no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>                          output format (default: "table")
+  --json                                                           shorthand for --format json
+  -o, --output <path>                                              write to a file instead of stdout
+  --fields [names]                                                 comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                                      identifiers only, one per line, for piping
+  --pair <pair>                                                    currency pair, e.g. USD/MXN
+  --since <date>                                                   inclusive lower bound (YYYY-MM-DD)
+  --until <date>                                                   inclusive upper bound (YYYY-MM-DD)
+  --rate-type <spot|average|budget|historical>                     only rates of this type
+  --source <manual|dof|banco_mexico|ecb|fed|xe|openexchangerates>  only rates from this source
+  -h, --help                                                       display help for command
+```
+
+#### `mnemosine fx rate show` (alias: ver)
+
+```
+Usage: mnemosine fx rate show|ver [options] <pair> <date>
+
+Resolve the applicable rate: direct, then inverse, then crossed through USD
+
+Arguments:
+  pair                                          currency pair, e.g. USD/MXN
+  date                                          date the rate applies to (YYYY-MM-DD)
+
+Options:
+  -e, --entity <idOrName>                       legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                             tenant (firm) whose data to scope to
+  -u, --user <email>                            acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>       output format (default: "table")
+  --json                                        shorthand for --format json
+  -o, --output <path>                           write to a file instead of stdout
+  --fields [names]                              comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                   identifiers only, one per line, for piping
+  --rate-type <spot|average|budget|historical>  rate type to resolve (default: "spot")
+  -h, --help                                    display help for command
+```
+
+#### `mnemosine fx rate set` (alias: fijar)
+
+```
+Usage: mnemosine fx rate set|fijar [options] <pair> <date> <rate>
+
+Record an exchange rate, naming its source
+
+Arguments:
+  pair                                                             currency pair, e.g. USD/MXN
+  date                                                             effective date (YYYY-MM-DD)
+  rate                                                             the rate, up to 10 decimals
+
+Options:
+  -e, --entity <idOrName>                                          legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                                tenant (firm) whose data to scope to
+  -u, --user <email>                                               acting user, for attribution and permissions
+  --source <manual|dof|banco_mexico|ecb|fed|xe|openexchangerates>  who published the rate (required)
+  --rate-type <spot|average|budget|historical>                     rate type (default: "spot")
+  --until <date>                                                   last date the rate remains effective (YYYY-MM-DD)
+  --dry-run                                                        show what would be recorded without writing
+  -h, --help                                                       display help for command
+```
+
+#### `mnemosine fx rate download` (alias: descargar)
+
+```
+Usage: mnemosine fx rate download|descargar [options]
+
+Download the DOF or Banxico FIX rate, stored per source (they differ on the same
+day)
+
+Options:
+  -e, --entity <idOrName>             legal entity to operate on (defaults to
+                                      the active one)
+  -t, --tenant <id>                   tenant (firm) whose data to scope to
+  -u, --user <email>                  acting user, for attribution and
+                                      permissions
+  --source <dof|banxico-fix|fed|ecb>  which publisher to download from
+                                      (required)
+  --as-of <date>                      single date to download (YYYY-MM-DD)
+  --since <date>                      inclusive lower bound (YYYY-MM-DD)
+  --until <date>                      inclusive upper bound (YYYY-MM-DD)
+  --dry-run                           compute and show the full effect; write
+                                      nothing and call nothing external
+  -y, --yes                           skip the confirmation prompt
+  --idempotency-key <key>             client dedupe key, stored on success: a
+                                      retry with the same key and payload
+                                      returns the recorded result
+  --live                              perform the real external effect (default
+                                      is the sandbox endpoint)
+  -h, --help                          display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)

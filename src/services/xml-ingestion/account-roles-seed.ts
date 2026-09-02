@@ -51,7 +51,12 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
   {
     code: '1145', name: 'ISR Retenido a Favor', account_type: 'asset',
     normal_balance: 'debit', fs_category: 'current_assets',
-    description: 'ISR que los clientes retuvieron a la empresa; se acredita contra el impuesto propio.',
+    description:
+      'ISR que terceros retuvieron a la empresa —clientes sobre honorarios y arrendamiento, y el ' +
+      'banco sobre los intereses que paga— y que se acredita contra el impuesto propio. La ' +
+      'descripción decía sólo «clientes» y por eso parecía que la retención bancaria necesitaba ' +
+      'cuenta aparte: no la necesita, porque las dos son créditos contra el MISMO impuesto anual. ' +
+      'Separarlas sería una cuenta más sin una pregunta detrás.',
   },
   {
     code: '1146', name: 'IVA Retenido a Favor', account_type: 'asset',
@@ -146,11 +151,82 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
       'ensuciar 4100: las ventas se comparan contra los CFDI emitidos.',
   },
   {
+    // F05d. Las comisiones NO van a 6300 «Gastos Financieros» aunque quepan:
+    // mezclar el costo de mover dinero con el costo de pedirlo empobrece el
+    // estado de resultados justo en la línea donde un despacho mira si el
+    // banco le está saliendo caro. (La pérdida cambiaria, que también vivió
+    // en 6300, salió a su propia 6320 por el mismo argumento — R4.)
+    code: '6310', name: 'Comisiones y Gastos Bancarios', account_type: 'expense',
+    normal_balance: 'debit', fs_category: 'other_expenses',
+    description:
+      'Comisiones de manejo de cuenta, transferencias y devoluciones que cobra el banco. ' +
+      'Su IVA se aparca en 1135 hasta que llega el CFDI del banco: sin comprobante no hay ' +
+      'acreditamiento, por mucho que el cargo esté en el extracto.',
+  },
+  {
+    // F05d. Separado de 4300 «Otros Ingresos» por la misma razón: el interés
+    // que paga el banco es un producto financiero recurrente, y confundirlo con
+    // lo esporádico esconde la única partida de ingreso que un tesorero mira.
+    code: '4310', name: 'Productos Financieros', account_type: 'revenue',
+    normal_balance: 'credit', fs_category: 'other_income',
+    description:
+      'Intereses ganados sobre saldos e inversiones. El ISR que el banco retiene sobre ellos ' +
+      'NO es gasto: es pago provisional a favor (1145), y tratarlo como gasto lo pierde.',
+  },
+  {
+    // F06a. La ficha del activo necesita a dónde mandar el gasto y el
+    // acumulado, y una entidad que IMPORTÓ su catálogo puede no traer 1290 ni
+    // 6140 — el mismo argumento que metió aquí a las cuatro cuentas de IVA.
+    // La primera versión venía SIN rol «para no crear capacidad huérfana», y
+    // la prueba de la casa la rechazó: toda cuenta de esta lista lleva su rol,
+    // porque una cuenta sembrada que ningún rol nombra es exactamente la que
+    // alguien cablea después a mano y por código.
+    code: '1290', name: 'Depreciación Acumulada', account_type: 'contra_asset',
+    normal_balance: 'credit', fs_category: 'non_current_assets',
+    description: 'Contra-activo: el costo ya consumido de los activos fijos. La abona cada corrida mensual.',
+  },
+  {
+    code: '6140', name: 'Depreciación', account_type: 'expense',
+    normal_balance: 'debit', fs_category: 'operating_expenses',
+    description: 'El gasto mensual por depreciación. Lo carga la corrida contra 1290.',
+  },
+  {
     code: '6900', name: 'Gastos No Deducibles', account_type: 'expense',
     normal_balance: 'debit', fs_category: 'operating_expenses',
     description:
       'Consumos no deducibles, pagos en efectivo sobre el límite y demás partidas que no ' +
       'cumplen requisitos fiscales. Separarlas simplifica la conciliación fiscal-contable.',
+  },
+  {
+    // R4 · NIF B-15. La utilidad cambiaria compartía la 4300 con
+    // otros_ingresos y eso las hacía INDISTINGUIBLES: B-15 exige identificar
+    // la fluctuación cambiaria, y una cifra fundida con el pago corto
+    // residual no se identifica. Cuenta propia, mismo fs_category que 4300
+    // (other_income es categoría legal del CHECK de la 001): que la mitad
+    // ganadora y la perdedora (6320) vivan en secciones opuestas del estado
+    // de resultados NO es el defecto — el neteo de la fluctuación que pide
+    // B-3 es de la PRESENTACIÓN (lo hace el reporte), no de las cuentas.
+    code: '4320', name: 'Utilidad Cambiaria', account_type: 'revenue',
+    normal_balance: 'credit', fs_category: 'other_income',
+    description:
+      'Fluctuación cambiaria a favor: la diferencia entre el tipo del origen y el del cobro, ' +
+      'pago o cierre. Separada de 4300 porque NIF B-15 exige identificarla, y fundida con ' +
+      'otros ingresos no se puede ni netear en la presentación.',
+  },
+  {
+    // R4 · NIF B-15. La pérdida cambiaria apuntaba a la 6300 «Gastos
+    // Financieros», que el catálogo base trae pero esta lista NO sembraba:
+    // sobre un catálogo importado sin 6300, requireRole reventaba en el
+    // primer asiento con fluctuación. Y aunque existiera, repartir la pérdida
+    // cambiaria DENTRO de los gastos financieros la hacía invisible — la 6300
+    // se queda como genérica del costo financiero y la fluctuación tiene
+    // cuenta propia, igual que 6310 sacó de ahí las comisiones bancarias.
+    code: '6320', name: 'Pérdida Cambiaria', account_type: 'expense',
+    normal_balance: 'debit', fs_category: 'other_expenses',
+    description:
+      'Fluctuación cambiaria en contra: el peso se movió entre el origen y el cobro, pago o ' +
+      'cierre. No va dentro de 6300 «Gastos Financieros»: el costo de pedir dinero y el efecto ' +
+      'de que la moneda se moviera son preguntas distintas del mismo estado de resultados.',
   },
 ];
 
@@ -174,6 +250,8 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   gasto_anticipado: '1160',
   inventario: '1140',
   activo_fijo: '1210',
+  depreciacion_acumulada: '1290',
+  depreciacion_gasto: '6140',
   devolucion_compras: '5200',
   anticipo_proveedores: '1150',
   cxp: '2110',
@@ -194,9 +272,13 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   sueldos_por_pagar: '2160',
   isr_nomina_por_pagar: '2140',
   imss_por_pagar: '2170',
-  // FX differences
-  utilidad_cambiaria: '4300',
-  perdida_cambiaria: '6300',
+  // FX differences — cuentas PROPIAS (R4): en 4300/6300 la fluctuación se
+  // fundía con otros ingresos y con los gastos financieros, y NIF B-15 exige
+  // poder identificarla. El neteo que pide B-3 lo hace la presentación.
+  comision_bancaria: '6310',
+  producto_financiero: '4310',
+  utilidad_cambiaria: '4320',
+  perdida_cambiaria: '6320',
 };
 
 // ── Qué de todo esto es mexicano ─────────────────────────────

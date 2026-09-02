@@ -32,7 +32,16 @@ export type AccountRole =
   // Payroll
   | 'sueldos_gasto' | 'sueldos_por_pagar' | 'isr_nomina_por_pagar' | 'imss_por_pagar'
   // Exchange differences
-  | 'utilidad_cambiaria' | 'perdida_cambiaria';
+  | 'utilidad_cambiaria' | 'perdida_cambiaria'
+  // Tesorería (F05d): lo que cuesta mover el dinero y lo que el dinero produce.
+  // Ninguno de los dos va a la cuenta genérica que le quedaría cerca —6300 es
+  // pérdida cambiaria y 4300 es «otros ingresos»—: mezclarlos esconde
+  // exactamente las dos líneas que un tesorero mira.
+  | 'comision_bancaria' | 'producto_financiero'
+  // Activos (F06a): el gasto mensual y su contra-activo. El consumidor es la
+  // siembra de categorías del alta, que los resuelve para dar cuentas por
+  // omisión a cada categoría.
+  | 'depreciacion_gasto' | 'depreciacion_acumulada';
 
 export interface PostingLine {
   role: AccountRole;

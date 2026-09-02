@@ -162,11 +162,14 @@ describe('postJournalEntry · candados', () => {
 
 describe('reverseJournalEntry · NIF B-1', () => {
   /** El espejo lo crea createJournalEntry, que corre sobre el MISMO cliente. */
-  function reglasReversa(original: JournalEntry) {
+  function reglasReversa(original: JournalEntry, lineas = LINEAS_BD) {
     return clienteFalso([
       AUDITORIA,
       { cuando: /SELECT \* FROM journal_entries WHERE id = \$1 FOR UPDATE/, responde: { rows: [original] } },
-      { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: LINEAS_BD } },
+      { cuando: /SELECT \* FROM journal_entry_lines WHERE journal_entry_id/, responde: { rows: lineas } },
+      // R4: si el original trae líneas FX, el espejo pasa por la
+      // verificación de origen y necesita la moneda funcional.
+      { cuando: /SELECT functional_currency FROM legal_entities/, responde: { rows: [{ functional_currency: 'MXN' }] } },
       { cuando: /FROM fiscal_periods/, responde: { rows: [{ id: ID.periodo }] } },
       { cuando: /INSERT INTO entity_sequences/, responde: { rows: [{ value: '8' }] } },
       { cuando: /INSERT INTO journal_entries/, responde: {} },
@@ -212,6 +215,33 @@ describe('reverseJournalEntry · NIF B-1', () => {
     const cab = cf.coincidencias(/INSERT INTO journal_entries/)[0].params;
     expect(cab[11]).toBe(true);            // is_reversal
     expect(cab[12]).toBe(ID.asiento);      // reverses_entry_id
+  });
+
+  it('el espejo CRUZA los lados extranjeros: el origen sobrevive a la reversión (R4)', async () => {
+    // La primera versión del espejo nacía sólo-funcional — la pérdida de
+    // origen que R4 existe para matar, reintroducida por la puerta de la
+    // reversión. El adversarial la cazó con una prueba que fallaba; ésta
+    // la ancla en unitario: cargo USD → abono USD con foreign CRUZADO y la
+    // MISMA tasa, y la verificación del motor pasa porque el original pasó.
+    const lineasFx = [
+      lineaFalsa({
+        line_number: 1, account_id: ID.cuentaA, debit_amount: '1712.3400',
+        currency_code: 'USD', foreign_debit: '100.00', exchange_rate: '17.1234',
+      } as never),
+      lineaFalsa({
+        line_number: 2, account_id: ID.cuentaB, credit_amount: '1712.3400',
+        currency_code: 'USD', foreign_credit: '100.00', exchange_rate: '17.1234',
+      } as never),
+    ];
+    const cf = (arnes.actual = reglasReversa(asientoFalso({ status: 'posted' } as Partial<JournalEntry>), lineasFx));
+    await reverseJournalEntry(ID.asiento, ID.usuario);
+
+    const espejo = cf.coincidencias(/INSERT INTO journal_entry_lines/);
+    expect(espejo).toHaveLength(2);
+    // Original línea 1: DR 1712.34, foreign_debit 100. Espejo: CR 1712.34
+    // y el extranjero cruzado a foreign_credit, misma moneda, misma tasa.
+    expect(espejo[0].params.slice(9)).toEqual(['USD', null, '100.00', '17.1234']);
+    expect(espejo[1].params.slice(9)).toEqual(['USD', '100.00', null, '17.1234']);
   });
 
   it('enlaza el original con su espejo en la misma transacción', async () => {

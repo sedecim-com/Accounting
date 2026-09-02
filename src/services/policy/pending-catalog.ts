@@ -97,6 +97,92 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 35,
   },
   {
+    // F06a · Qué depreciación rige el gasto que se postea. El esquema ya tenía
+    // la dualidad desde la 003 —`book_depreciation_method` y
+    // `tax_depreciation_method`— y nadie la leía: el motor usaba la columna
+    // única y clavaba `schedule_type: 'book'`.
+    key: 'base_depreciacion',
+    category: 'contable',
+    question: 'Which depreciation drives the expense you post: book life or the tax rate?',
+    impact:
+      'Governs `depreciation run`. With "vida_util_nif" the monthly expense follows the useful ' +
+      'life you set per asset (NIF C-6). With "tasa_lisr" it follows the maximum rate the income ' +
+      'tax law allows for that asset class (arts. 31-38 LISR), which is what most Mexican SMEs ' +
+      'book so that the accounting and the deduction do not diverge. Either way BOTH schedules ' +
+      'can be computed; this decides which one reaches the ledger.',
+    options: [
+      { value: 'vida_util_nif', label: 'Book: the useful life you assigned to the asset (NIF C-6)' },
+      { value: 'tasa_lisr', label: 'Tax: the maximum LISR rate for its class, so books and deduction agree' },
+    ],
+    defaultValue: 'vida_util_nif',
+    defaultRationale:
+      'It is what the financial statements are supposed to show, and it is the column the engine ' +
+      'already used. Choosing the tax rate is a legitimate simplification, but it has to be chosen.',
+    whyAsking:
+      'A machine you expect to use for ten years can be deducted faster than that, or slower, depending on which rule you follow. Both answers are defensible and they post different amounts every month — so this is your firm\'s criterion, not something I can look up.',
+    whatIDo:
+      'I compute the monthly expense on the basis you pick and record which one I used on every schedule row, so a later run can prove it kept the same criterion. If you ever switch, the rows already posted keep saying what they were.',
+    ifSkipped:
+      'I use the book useful life. Your deduction may then differ from your booked expense, which is normal but means a reconciliation at year end.',
+    priority: 25,
+  },
+  {
+    // F06a · El primer y el último mes de cada activo. El motor no tenía
+    // convención: indexaba filas de un calendario.
+    key: 'convencion_primer_mes',
+    category: 'contable',
+    question: 'An asset bought mid-month: does it depreciate that whole month, or only the days it was owned?',
+    impact:
+      'Governs the first and last amount of every asset. "mes_completo" charges the full month of ' +
+      'the in-service date; "proporcional_dias" charges only the days owned and pushes the ' +
+      'remainder to the final month. Over the life of the asset the total is identical — what ' +
+      'changes is which period carries it, and therefore every monthly result in between.',
+    options: [
+      { value: 'mes_completo', label: 'Whole month from the month it entered service (LISR counts whole months)' },
+      { value: 'proporcional_dias', label: 'Pro rata by days owned in the first and last month' },
+    ],
+    defaultValue: 'mes_completo',
+    defaultRationale:
+      'It is what the income tax law counts, it is simpler to audit, and it avoids a partial ' +
+      'amount that no one can reproduce a year later without knowing the exact purchase day.',
+    whyAsking:
+      'You buy a machine on the 20th. Charging the whole month overstates that month slightly; charging eleven days understates it and leaves a stub at the end. Neither is wrong — your firm picks one and stays with it.',
+    whatIDo:
+      'I apply the convention you pick to the first and last month of every asset, and I record it on the schedule row so the amount can be reproduced.',
+    ifSkipped:
+      'I charge the whole month, which matches how the tax law counts and is the easier of the two to defend.',
+    priority: 26,
+  },
+  {
+    // F06a · ¿La casilla del cierre bloquea? Precedente exacto en este mismo
+    // archivo: `rep_faltante_recibido` y `rep_faltante_emitido` preguntan lo
+    // mismo y las lee `getPeriodCloseStatus`.
+    key: 'depreciacion_faltante_al_cierre',
+    category: 'operativa',
+    question: 'Closing a month with assets whose depreciation was never run: warn, or refuse?',
+    impact:
+      'Governs the "Depreciation calculated and posted" item on the close checklist. With ' +
+      '"avisar" the month closes and the checklist says what is missing; with "bloquear" it ' +
+      'refuses until the run happens. A month closed without depreciation overstates profit and ' +
+      'the asset, and the error compounds because next month starts from the wrong book value.',
+    options: [
+      { value: 'avisar', label: 'Warn: the month closes and the checklist names what is missing' },
+      { value: 'bloquear', label: 'Refuse: no month closes with depreciation pending' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'Same default as the other two close gates in this panel, and for the same reason: a hard ' +
+      'block on a control that has just started producing data would stall the first close after ' +
+      'this feature ships. Turn it on once the run is part of your routine.',
+    whyAsking:
+      'Forgetting the depreciation run is the easiest way to close a month that looks better than it was — and unlike most mistakes it does not correct itself: next month starts from a book value that is too high.',
+    whatIDo:
+      'I count the active assets with no posted depreciation for the period and either warn you or refuse to close, as you choose. Either way the checklist names them.',
+    ifSkipped:
+      'I warn but let the month close, so the first month after this ships does not get stuck.',
+    priority: 27,
+  },
+  {
     key: 'umbral_capitalizacion_mxn',
     category: 'contable',
     question: 'From what amount is an item capitalized as a fixed asset instead of expensed?',
@@ -314,20 +400,46 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 50,
   },
   {
+    key: 'fuente_tipo_cambio',
+    category: 'contable',
+    question: 'When I need an exchange rate for a date, which published source do I use?',
+    impact:
+      'Every foreign-currency conversion reads the rate of this source for the operation date. If that ' +
+      'source has no rate for that date, the conversion STOPS and says so — it never silently borrows a ' +
+      'rate from another source, because that would be choosing tax criteria for you.',
+    options: [
+      { value: 'dof', label: 'DOF (Diario Oficial; the tax rate under art. 20 CFF)' },
+      { value: 'fix_banxico', label: 'Banxico FIX (the reference rate, published as banco_mexico)' },
+      { value: 'manual', label: 'Rates I set by hand with `fx rate set`' },
+    ],
+    defaultValue: 'dof',
+    defaultRationale:
+      'In Mexico the rate with legal effect is the one published in the Diario Oficial (art. 20 CFF): VAT ' +
+      'creditable on a foreign-currency payment converts at the DOF rate, and the FIX is a different ' +
+      'number for the same day. A Mexican books-first system defaults to the source the SAT will measure ' +
+      'it against; firms with treasury reasons to prefer the FIX can say so here.',
+    whyAsking:
+      'DOF and FIX for the same day are different numbers, and which one your books use is a criterion, not a preference.',
+    whatIDo: 'I convert with the rate of the chosen source for the operation date, and stop if it is missing.',
+    ifSkipped: 'I use the DOF rate.',
+    priority: 55,
+  },
+  {
     key: 'rep_moneda_extranjera',
     category: 'contable',
     question: 'A receipt in a currency other than the functional one: what do we do with the exchange difference?',
     impact:
-      'Decides whether foreign-currency receipts are matched at all. The system does not compute exchange ' +
-      'differences today, so anything other than stopping would post an invented figure.',
+      'Decides whether foreign-currency receipts are matched at all. Vendor payments now compute the ' +
+      'realised difference (R4), but the REP matcher still does not, so matching here would post an ' +
+      'invented figure.',
     options: [
       { value: 'no_casar', label: 'Do not match: leave it for review with a multi-currency warning' },
       { value: 'tc_documento', label: "Match at the document's rate and recognise no difference" },
     ],
     defaultValue: 'no_casar',
     defaultRationale:
-      'It is the only one that is currently true: nothing posts to the exchange gain/loss accounts, and ' +
-      'the payment service requires payment and document to share a currency. The problem is also double, ' +
+      'Since R4 the vendor-payment path DOES post realised differences to the exchange gain/loss ' +
+      'accounts, but the REP matcher does not share that engine yet. The problem is also double, ' +
       'not single: NIF B-15 wants the fluctuation in the period it occurs, while for VAT the creditable ' +
       'amount is the one actually paid converted at the DOF rate of the payment date — two different ' +
       'rates the system does not yet tell apart. Stopping and saying so is honest.',
@@ -495,10 +607,13 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // es intencional y el maker real queda trazado por source_type/source_id.
     key: 'segregacion_de_funciones',
     category: 'seguridad',
-    question: 'May the person who drafted a manual journal entry also post it?',
+    question: 'May the person who did the work also sign it off?',
     impact:
-      'Four-eyes control on the manual path: with "exigir", entry post rejects the drafter posting ' +
-      'their own entry; with "alertar" it posts but the audit row says so; off means no check.',
+      'Four-eyes control, on TWO acts that ask the same question. On the manual path: with "exigir", ' +
+      'entry post rejects the drafter posting their own entry. On the bank path: it rejects the ' +
+      'person who closed a reconciliation session also approving it. With "alertar" both go through ' +
+      'and the audit row records the coincidence; off means no check. One key and not two on purpose ' +
+      "— it is one decision about the firm's hands, and two keys for it would drift apart.",
     options: [
       { value: 'off', label: 'Off: anyone may post what they drafted (single-person firm)' },
       { value: 'alertar', label: 'Warn: post succeeds, the audit trail records the coincidence' },
@@ -511,10 +626,66 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whyAsking:
       'Separation of duties is the classic control against a single person inventing and applying an entry. Whether your firm can afford it depends on how many hands it has.',
     whatIDo:
-      'With "exigir", `entry post` refuses when the poster created the draft (system flows are exempt: they are traced by source). With "alertar", it posts and leaves the fact in the audit log.',
+      'With "exigir", `entry post` refuses when the poster created the draft, and `bank reconciliation approve` refuses when the approver is the one who closed the session (system flows are exempt: they are traced by source). With "alertar", both go through and leave the fact in the audit log.',
     ifSkipped:
-      'It stays off: no separation check, which is the only workable default for a single-user tenant.',
+      'It stays off: no separation check, which is the only workable default for a single-user tenant — a one-person firm that had to find a second signer would never close a month.',
     priority: 30,
+  },
+  {
+    // F05c · Lo que «cuadra» significa. La fila 1247 del catálogo exige
+    // variación EXACTAMENTE cero; la familia genérica de certificación habla
+    // de tolerancia. El criterio es del despacho, no del programa.
+    key: 'conciliacion_tolerancia',
+    category: 'contable',
+    question: 'Must a bank reconciliation come to exactly zero, or may a small residual be carried?',
+    impact:
+      'Governs `bank reconciliation close`. With "cero_exacto" the session only reaches `balanced` ' +
+      'when the two sides agree to the cent, and the close checklist can be read as proof the cash ' +
+      'was verified. With a tolerance, anything under it is carried as a named reconciling item ' +
+      'instead of blocking — faster to close, and the residual has to be chased later or it ages.',
+    options: [
+      { value: 'cero_exacto', label: 'Exactly zero: nothing closes until the two sides agree to the cent' },
+      { value: 'tolerancia_con_residual', label: 'Allow a residual under the tolerance, carried as a named item' },
+    ],
+    defaultValue: 'cero_exacto',
+    defaultRationale:
+      'The close checklist reads a balanced session as evidence the cash balance was verified. A ' +
+      'tolerance makes that evidence weaker than it looks, so it has to be asked for, never assumed.',
+    whyAsking:
+      'A bank reconciliation that "almost" agrees is the oldest place for an error to hide: the residual is small every month and never the same small thing. Whether your firm closes on an exact zero is a real policy — some do, some carry a tolerance and chase it.',
+    whatIDo:
+      'With "cero_exacto" I refuse to close a session whose two sides differ by a cent, and tell you what is unexplained. With a tolerance I close it and leave the residual as a reconciling item with an owner and a date, so it cannot quietly age.',
+    ifSkipped:
+      'I demand an exact zero. Nothing breaks; some months you will have to chase a cent before I close.',
+    priority: 36,
+  },
+  {
+    // F05c · La línea de banco que nadie explica al cerrar.
+    key: 'linea_banco_sin_partida_al_cierre',
+    category: 'contable',
+    question: 'At close, what happens to a bank line with no book entry to explain it?',
+    impact:
+      'Governs `bank reconciliation close` when the statement shows a movement the books never ' +
+      'recorded and nobody has classified. "partida_conciliatoria" carries it as a named, owned, ' +
+      'dated item; "bloquear_cierre" refuses to close until a person says what it is; "suspenso" ' +
+      'parks it in a suspense account, which is a real practice and also the classic place for a ' +
+      'difference to go to die.',
+    options: [
+      { value: 'partida_conciliatoria', label: 'Carry it as a reconciling item, with owner and expected date' },
+      { value: 'bloquear_cierre', label: 'Refuse to close until someone classifies it' },
+      { value: 'suspenso', label: 'Post it to a suspense account and clear it later' },
+    ],
+    defaultValue: 'partida_conciliatoria',
+    defaultRationale:
+      'Keeps the movement visible and chaseable without stopping the close. Blocking is stricter ' +
+      'but stalls the month on one unknown line; suspense hides it behind a balance.',
+    whyAsking:
+      'Sooner or later the bank shows a movement your books never recorded and nobody recognises. What you do with it on closing day is a choice between stopping the month, carrying it in the open, or parking it — and the third one is how differences disappear.',
+    whatIDo:
+      'By default I carry it as a reconciling item, so it appears in `bank reconciling-item list` with its age until somebody resolves it. If you choose "suspenso" I will still name it every month it stays there — a suspense account is not a place to stop looking.',
+    ifSkipped:
+      'I carry it in the open as a reconciling item, which is the option that keeps it visible.',
+    priority: 37,
   },
   {
     // F05b · El cotejo automático. `confidence >= 0.85` estaba escrito a mano

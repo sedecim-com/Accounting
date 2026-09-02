@@ -1,5 +1,6 @@
 import { query } from '../database/connection.js';
 import { getPeriodCloseStatus } from '../services/accounting/period-close.js';
+import type { PeriodCloseChecklistItem } from '../services/accounting/period-close.js';
 import type { AgentContext } from './context.js';
 
 // ============================================================
@@ -36,7 +37,8 @@ export interface CloseReadiness {
   canClose: boolean;
   blockingIssues: string[];
   warnings: string[];
-  checklist: Array<{ item: string; is_complete: boolean; details?: string }>;
+  /** Las casillas del motor, con su `codigo` estable y su severidad. */
+  checklist: PeriodCloseChecklistItem[];
   ai: AiBlockers;
 }
 

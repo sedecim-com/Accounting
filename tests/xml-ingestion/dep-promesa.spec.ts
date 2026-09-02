@@ -36,8 +36,16 @@ describe('la opción de activo fijo dice lo que de verdad ocurre', () => {
     ).not.toMatch(/\band depreciated\b/i);
   });
 
-  it('y dice explícitamente que la depreciación no se calcula', () => {
-    expect(opcion.label.toLowerCase()).toMatch(/not computed|no computa|sin depreciaci/);
+  it('y dice el paso que falta: capitalizar no da de alta la ficha', () => {
+    // Esta prueba fijó la etiqueta DEGRADADA («depreciation NOT computed»)
+    // cuando el sistema capitalizaba sin depreciar. F06a entregó el alta y la
+    // corrida, y la etiqueta subió — pero sólo hasta donde es verdad: la
+    // deducción sigue sin aparecer sola, porque capitalizar no registra la
+    // ficha. Lo que se fija ahora es que la etiqueta NOMBRE el paso que falta
+    // en vez de volver a prometer «capitalized and depreciated» a secas, que
+    // fue la mentira original.
+    expect(opcion.label.toLowerCase()).toMatch(/asset create/);
+    expect(opcion.label.toLowerCase()).not.toMatch(/^fixed asset \(capitalized and depreciated\)$/);
   });
 
   it('el contexto que se muestra al decidir lo repite, no sólo la etiqueta', () => {
@@ -47,7 +55,11 @@ describe('la opción de activo fijo dice lo que de verdad ocurre', () => {
       emisorNombre: 'X', subtotal: 100000, moneda: 'MXN',
       conceptosDescripcion: 'Servidor', clavesProdServ: [],
     } as never);
-    expect(ctx).toMatch(/does not yet register the asset|depreciation/i);
+    // El contexto también subió con F06a: ya no advierte que nada deprecia,
+    // sino que nombra el alta de la ficha como el paso sin el cual la
+    // deducción no aparece.
+    expect(ctx).toMatch(/asset create/);
+    expect(ctx).toMatch(/does not appear without the card/i);
   });
 
   it('el fundamento nombra por qué, para quien vaya a arreglarlo', () => {

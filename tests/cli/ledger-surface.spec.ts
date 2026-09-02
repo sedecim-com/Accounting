@@ -84,7 +84,9 @@ describe('the surface obeys the kernel', () => {
 
 describe('what the agent may and may not do with the ledger', () => {
   const reads = ['entry list', 'entry show', 'entry check', 'period list', 'period show', 'year list', 'year show'];
-  const forbidden = ['entry post', 'entry reverse', 'entry void', 'period open', 'year create'];
+  // F06b: `period reopen` entra directo a la lista negra — el catálogo la
+  // marca irreversible e IA ✗ sin excepción, como toda reapertura.
+  const forbidden = ['entry post', 'entry reverse', 'entry void', 'period open', 'year create', 'period reopen'];
 
   it.each(reads)('%s is a read the agent may run', (path) => {
     const risk = riskOf(find(path));
@@ -125,5 +127,21 @@ describe('what the agent may and may not do with the ledger', () => {
 
   it('has no `period close`: `close` is the single close orchestrator', () => {
     expect(find('period').commands.map((c) => c.name())).not.toContain('close');
+  });
+
+  // F06b · `period reopen` — la otra puerta del calendario, y la que un
+  // auditor más pregunta: irreversible por catálogo, con las tres banderas
+  // del núcleo, el --reason que el verbo exige y el --force para hard_close.
+  it('declares `period reopen` irreversible, with every safety flag it promises', () => {
+    const reopen = find('period reopen');
+    expect(riskOf(reopen)?.risk).toBe('irreversible');
+    const longs = reopen.options.map((o) => o.long);
+    expect(longs).toEqual(
+      expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key', '--reason', '--force'])
+    );
+  });
+
+  it('gives `period reopen` the vocabulary alias `reabrir`', () => {
+    expect(find('period reopen').aliases()).toEqual([VERBS.reopen]);
   });
 });

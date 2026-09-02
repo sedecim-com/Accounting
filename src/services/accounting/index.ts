@@ -39,6 +39,13 @@ export {
   getPeriodCloseStatus,
   softClosePeriod,
   hardClosePeriod,
+  CLOSE_CHECK_CODES,
+  CLOSE_CHECK_ITEMS,
+  severidadDeLineaSinPartida,
+  type CloseCheckCode,
+  type CloseCheckSeverity,
+  type PeriodCloseChecklistItem,
+  type PeriodCloseStatus,
 } from './period-close.js';
 export {
   listJournalEntries,
