@@ -93,7 +93,7 @@
     "src/services/accounting/posting.ts": "1e0f611c0d85f9902f0333b41c7e2402f0e3144a",
     "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
     "src/services/accounting/fiscal-calendar-service.ts": "d5d7a785b11a533a34c39d5d1c4568f2c4122930",
-    "src/cli/entry-command.ts": "acd3adffdfdec732345f909d78ef085c1a5544fa",
+    "src/cli/entry-command.ts": "a7b13b80de842d0ac6c79655f41f80c648af0093",
     "src/services/accounting/iva-cash-basis.ts": "0a9c6cc57c218f765e65b46cb9238c8127917153",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "9a79011ea89f79fa2f19ccacad6c7114dbfba3f3",
     "src/services/integrations/mexico/pac/pac-router.ts": "adb8d8fde1a2bd9ae22817492682b4c480351d48",
@@ -114,7 +114,7 @@
     "src/services/banking/book-items.ts": "e6a4453810d68c32571e3eea87f334f45e073ce6",
     "src/services/banking/reconciliation-service.ts": "3ab76e68024ac61bdc39e99afaf2874dd3330bfe",
     "src/services/banking/reconciling-items.ts": "a9ad36f020258bd8ef66f0e8b873704d16b066cc",
-    "src/services/banking/reconciliation-adjustments.ts": "e627489ed40cb7cb1c37010015cd7033f30bb852",
-    "src/cli/bank-command.ts": "19ba0b74d0a0564e62834bcf5915250c56eba223"
+    "src/services/banking/reconciliation-adjustments.ts": "05f7dc904f77c9a6fa4b187b5a93b8b4274f10c8",
+    "src/cli/bank-command.ts": "15cf590cd2fec3dec8bc702e66ffaf60c2d11a44"
   }
 }
