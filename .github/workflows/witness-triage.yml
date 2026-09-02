@@ -77,7 +77,12 @@ jobs:
           # está cerrado por una compuerta de arranque documentada, y como
           # aparece citado en informes de auditoría, sin esta excepción el aviso
           # rojo de secretos se dispara cada vez que alguien escribe sobre él.
-          SECRET_HITS=$(printf '%s' "$DIFF" | grep -inE '^\+.*(BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|api[_-]?key["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9_\-]{16,}|password\s*[:=]\s*["'"'"'][^"'"'"']+|secret\s*[:=]\s*["'"'"'][^"'"'"']+)' | grep -ivE 'example|placeholder|dummy|test|fake|sample|\.env\.example|redacted|\*\*\*|dev-secret-change-me|change-me' | cut -d: -f1 | sort -u | wc -l)
+          #
+          # Se ignora la cadena COMPLETA y no `change-me` a secas: eso último es
+          # una regla de subcadena —el mismo defecto que este archivo arregla en
+          # el detector de marcadores— y callaría secretos de verdad como
+          # `password: 'change-me-later-but-this-is-live'`.
+          SECRET_HITS=$(printf '%s' "$DIFF" | grep -inE '^\+.*(BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|api[_-]?key["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9_\-]{16,}|password\s*[:=]\s*["'"'"'][^"'"'"']+|secret\s*[:=]\s*["'"'"'][^"'"'"']+)' | grep -ivE 'example|placeholder|dummy|test|fake|sample|\.env\.example|redacted|\*\*\*|dev-secret-change-me' | cut -d: -f1 | sort -u | wc -l)
           if [ "$SECRET_HITS" -gt 0 ]; then
             echo "- 🔴 **$SECRET_HITS línea(s) con posible secreto** en el diff (patrón de clave/password/key material). Verificar antes de merge; NO imprimir el valor." >> "$OUT"
           fi
@@ -103,9 +108,14 @@ jobs:
           #
           # `debugger;` no tiene uso legítimo en ninguna zona, pero va en el
           # mismo barrido por simplicidad: en `src/cli` no aparece.
+          # `scripts/**` NO entra, y por eso tampoco se incluye: cinco de sus
+          # ocho .ts usan console.log como SALIDA —son herramientas de línea de
+          # órdenes, igual que src/cli—. Antes se incluía y se excluía en la
+          # misma orden, con lo que el include era letra muerta; se quita el
+          # include en vez del exclude para que la intención se lea.
           DIFF_CODIGO=$(git diff "$BASE...$HEAD" -- \
-            ':(glob)src/**/*.ts' ':(glob)tests/**/*.ts' ':(glob)scripts/**/*.ts' \
-            ':(glob,exclude)src/cli/**' ':(glob,exclude)scripts/**' || true)
+            ':(glob)src/**/*.ts' ':(glob)tests/**/*.ts' \
+            ':(glob,exclude)src/cli/**' || true)
 
           DBG=$(printf '%s' "$DIFF_CODIGO" | grep -cE '^\+.*(console\.log\(|debugger;|print\(f?["'"'"'])' || true)
 
@@ -136,11 +146,16 @@ jobs:
           # sus siete formas, y 0 de 7 frases en español que antes disparaban —
           # incluida la del JSDoc, que es la que obligó a apretar.
           #
-          # `XXX` sale de la lista: en un sistema contable mexicano es la
-          # homoclave de la máscara del RFC (`AAAA######XXX`) y vive en los RFC
-          # genéricos que publica el SAT (`XAXX010101000`). Un marcador que
-          # colisiona con el vocabulario del dominio no lo va a poder leer nadie.
-          TODO=$(printf '%s' "$DIFF_CODIGO" | grep -cE '^\+.*(//|/\*|\*|#|--)[[:space:]]*(TODO|FIXME|HACK)\b[[:space:]]*[:(]' || true)
+          # `XXX` SE QUEDA. Salió de la lista porque en un sistema contable
+          # mexicano es la homoclave de la máscara del RFC (`AAAA######XXX`) y
+          # vive en los RFC genéricos del SAT (`XAXX010101000`) — pero eso era
+          # cierto de la regex VIEJA, la de subcadena. Con el anclaje de arriba
+          # hace falta un abridor de comentario delante y `:` o `(` detrás, así
+          # que ni la máscara ni `XAXX010101000` casan. Sacarlo era arreglar dos
+          # veces el mismo problema, y el precio era perder una clase entera:
+          # un `// XXX: esta consulta no filtra por tenant_id` pasaría en
+          # silencio. Medido sobre el árbol en alcance: 0 falsos positivos.
+          TODO=$(printf '%s' "$DIFF_CODIGO" | grep -cE '^\+.*(//|/\*|\*|#|--)[[:space:]]*(TODO|FIXME|HACK|XXX)\b[[:space:]]*[:(]' || true)
           [ "$DBG" -gt 0 ] && echo "- ⚠️ **$DBG posible(s) statement(s) de depuración** nuevos (console.log/debugger/print)." >> "$OUT"
           [ "$TODO" -gt 0 ] && echo "- 💡 **$TODO TODO/FIXME** nuevo(s) introducido(s)." >> "$OUT"
 
