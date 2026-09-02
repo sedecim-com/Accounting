@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 import { stdin, stdout, stderr } from 'node:process';
 import { Command, InvalidArgumentError } from 'commander';
@@ -44,6 +46,8 @@ import {
   usageError,
   notFound,
   exitCodeFor,
+  CliError,
+  ExitCode,
 } from './kernel/index.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import { registerSatCommands } from './sat-commands.js';
@@ -129,8 +133,24 @@ import type { SessionCallbacks } from '../ai/providers/types.js';
 const c = palette(stdout);
 const ce = palette(stderr);
 
-/** Single source of truth for the version shown by --version and the banner. */
-const CLI_VERSION = '0.1.0';
+/**
+ * Única fuente de versión: package.json. Antes convivían dos números
+ * (package.json decía 1.0.0 y aquí había un 0.1.0 a mano) y cada release
+ * iba a tener que acordarse de tocar los dos. __dirname resuelve igual
+ * desde src/cli (tsx) que desde dist/cli (compilado): ../../package.json.
+ */
+function versionDelPaquete(): string {
+  try {
+    const crudo = fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf-8');
+    const version = (JSON.parse(crudo) as { version?: unknown }).version;
+    if (typeof version === 'string' && version.length > 0) return version;
+  } catch {
+    // Sin package.json legible (instalación rota) el número de respaldo
+    // delata el problema en vez de inventar una versión plausible.
+  }
+  return '0.0.0';
+}
+export const CLI_VERSION = versionDelPaquete();
 
 // Usage rows are written fire-and-forget so a turn never blocks on
 // accounting; the chain lets shutdown drain in-flight inserts (bounded)
@@ -244,7 +264,7 @@ function isInterrupt(err: unknown): boolean {
   return code === 'ABORT_ERR' || code === 'ERR_USE_AFTER_CLOSE';
 }
 
-function reportError(err: unknown): void {
+export function reportError(err: unknown): void {
   if (err instanceof Anthropic.AuthenticationError) {
     console.error(ce.red('\nAuthentication error with the Anthropic API.'));
     console.error('Set ANTHROPIC_API_KEY in your environment or .env, or run `ant auth login`.');
@@ -257,7 +277,18 @@ function reportError(err: unknown): void {
   } else if (err instanceof Anthropic.APIError || err instanceof OpenAI.APIError) {
     console.error(ce.red(`\nProvider API error (${err.status}): ${err.message}`));
   } else {
-    console.error(ce.red(`\n${err instanceof Error ? err.message : String(err)}`));
+    const mensaje = err instanceof Error ? err.message : String(err);
+    console.error(ce.red(`\n${mensaje}`));
+    // El redactor de remedios existía y solo lo veía el arranque desnudo
+    // (renderBrokenFlow): cualquier otra hoja escupía «role postgres does
+    // not exist» pelado. Aquí se cierra ese hueco: si el mensaje cae en una
+    // categoría con remedio inequívoco, el comando que lo arregla sale en la
+    // línea siguiente. Un CliError del kernel ya viene redactado con su
+    // propio remedio — añadirle otro sería aconsejar dos veces.
+    if (!(err instanceof CliError)) {
+      const remedio = remedioParaMensaje(mensaje);
+      if (remedio) console.error(`  → ${remedio}`);
+    }
   }
 }
 
@@ -400,17 +431,46 @@ export function isAffirmative(raw: string | null, defaultYes = true): boolean {
  * Categorized failure → action: every broken-state reason maps to the exact
  * command that repairs it. Database problems win — with the DB down, the
  * other diagnoses are unreliable.
+ *
+ * `enReporteDeError` marca qué categorías puede citar reportError ante un
+ * error ARBITRARIO en cualquier hoja: la de base de datos sí (con la base
+ * caída el remedio es siempre el mismo), pero «entidad» y «proveedor» no —
+ * un «No active entity matches "Demmo"» es un dedazo, y mandarlo a
+ * `init --section identity` sería aconsejar reconfigurar por un typo.
  */
+const REMEDIOS: ReadonlyArray<{ patron: RegExp; comando: string; enReporteDeError: boolean }> = [
+  {
+    // Además de las palabras del arranque (databas/tunnel/migrat…), las
+    // firmas crudas de pg y de la red: es lo que un error de conexión trae
+    // en el mensaje cuando ninguna capa lo ha redactado todavía.
+    patron:
+      /databas|\bdb\b|connect|conexi|econn|tunnel|postgres|migrat|ssl|etimedout|enotfound|timed out|terminat|role "?[^"\s]+"? does not exist|password authentication/,
+    comando: 'mnemosine doctor   (and check DATABASE_URL in .env)',
+    enReporteDeError: true,
+  },
+  { patron: /entit|identity|rfc|tenant/, comando: 'mnemosine init --section identity', enReporteDeError: false },
+  {
+    patron: /provider|api.?key|model|credential|anthropic|ollama|hermes/,
+    comando: 'mnemosine init --section ai',
+    enReporteDeError: false,
+  },
+];
+
 export function repairCommandFor(reason: string): string {
   const r = reason.toLowerCase();
-  if (/databas|\bdb\b|connect|tunnel|postgres|migrat|ssl/.test(r)) {
-    return 'mnemosine doctor   (and check DATABASE_URL in .env)';
-  }
-  if (/entit|identity|rfc|tenant/.test(r)) return 'mnemosine init --section identity';
-  if (/provider|api.?key|model|credential|anthropic|ollama|hermes/.test(r)) {
-    return 'mnemosine init --section ai';
-  }
-  return 'mnemosine doctor';
+  return REMEDIOS.find(({ patron }) => patron.test(r))?.comando ?? 'mnemosine doctor';
+}
+
+/**
+ * El remedio que reportError puede añadir bajo un mensaje cualquiera, o null
+ * cuando no hay categoría segura. A diferencia de repairCommandFor no tiene
+ * respaldo genérico: rematar cada error desconocido con «mnemosine doctor»
+ * sería ruido, no ayuda.
+ */
+export function remedioParaMensaje(mensaje: string): string | null {
+  const r = mensaje.toLowerCase();
+  const categoria = REMEDIOS.find(({ patron }) => patron.test(r));
+  return categoria && categoria.enReporteDeError ? categoria.comando : null;
 }
 
 /** Banner gating: rich chrome only on a real terminal, and it can always
@@ -2175,6 +2235,114 @@ registerCloseCommand(program, { palette: c, shutdown, reportError });
 // compuerta. Respeta lo que ya declaró junto a su comando.
 declararPendientes(program);
 
+// ============================================================
+// LA RAÍZ NO SE TRAGA EL TECLEO
+// chat es isDefault, así que commander le entrega CUALQUIER token
+// desconocido de la raíz: `mnemosine balanza` moría con «too many
+// arguments for chat» aunque balanza sea un alias real un nivel
+// abajo, y el sugeridor de commander (que sí corre en los
+// subniveles: `entity lst` → Did you mean list?) nunca veía la
+// raíz. Esta compuerta decide ANTES de parsear:
+//   · token registrado en la raíz          → pasa intacto
+//   · registrado salvo por los acentos     → se reescribe al
+//     canónico («póliza» ejecuta poliza: un contador teclea la
+//     palabra como se escribe, no como la registró el programador)
+//   · desconocido                          → comando desconocido +
+//     la sugerencia más cercana (raíz y un nivel abajo, para que
+//     balanza apunte a `report balanza`) y USAGE (2), nunca chat
+// ============================================================
+
+/**
+ * NFD separa la letra de su marca y sin marcas «póliza» y «poliza» son la
+ * misma palabra. Cubre también el otro sentido: una terminal que emite NFD
+ * (macOS) produce bytes distintos para el mismo tecleo compuesto.
+ */
+export function normalizarToken(token: string): string {
+  return token.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
+/** Levenshtein corta (sin transposición): basta para dedazos de comando. */
+export function distanciaDeEdicion(a: string, b: string): number {
+  const previa: number[] = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let diagonal = previa[0];
+    previa[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const costo = a[i - 1] === b[j - 1] ? 0 : 1;
+      const sustituir = diagonal + costo;
+      diagonal = previa[j];
+      previa[j] = Math.min(previa[j] + 1, previa[j - 1] + 1, sustituir);
+    }
+  }
+  return previa[b.length];
+}
+
+export interface ComandoRegistrado {
+  /** El nombre o alias tal como se teclea. */
+  clave: string;
+  /** Cómo invocarlo desde la raíz (para un subcomando: `padre hijo`). */
+  invocacion: string;
+}
+
+/**
+ * La raíz y un nivel abajo. El segundo nivel entra solo como material de
+ * SUGERENCIA: los alias en español viven ahí (`report balanza`) y son
+ * exactamente lo que un contador teclea suelto en la raíz.
+ */
+export function comandosRegistrados(programa: Command): ComandoRegistrado[] {
+  const lista: ComandoRegistrado[] = [];
+  for (const cmd of programa.commands) {
+    for (const clave of [cmd.name(), ...cmd.aliases()]) {
+      lista.push({ clave, invocacion: clave });
+    }
+    for (const sub of cmd.commands) {
+      for (const clave of [sub.name(), ...sub.aliases()]) {
+        lista.push({ clave, invocacion: `${cmd.name()} ${clave}` });
+      }
+    }
+  }
+  return lista;
+}
+
+export type VeredictoDeRaiz =
+  | { tipo: 'pasa' }
+  | { tipo: 'canonico'; nombre: string }
+  | { tipo: 'desconocido'; sugerencia: string | null };
+
+export function veredictoDeRaiz(
+  token: string | undefined,
+  comandos: ComandoRegistrado[]
+): VeredictoDeRaiz {
+  // Sin token o con flag, los flujos legales de chat no cambian: el desnudo
+  // sigue cayendo en chat y las opciones globales las juzga commander.
+  // `help` es el comando implícito de commander y no figura en .commands.
+  if (!token || token.startsWith('-') || token === 'help') return { tipo: 'pasa' };
+  const raices = comandos.filter((c) => c.clave === c.invocacion);
+  if (raices.some((c) => c.clave === token)) return { tipo: 'pasa' };
+  const normal = normalizarToken(token);
+  const porAcentos = raices.find((c) => normalizarToken(c.clave) === normal);
+  if (porAcentos) return { tipo: 'canonico', nombre: porAcentos.clave };
+
+  // Umbral de commander (suggestSimilar): a lo más 3 ediciones y similitud
+  // mayor a 0.4; empates al orden alfabético para que la salida sea estable.
+  let mejor: { invocacion: string; distancia: number } | null = null;
+  for (const candidato of comandos) {
+    if (candidato.clave.length <= 1) continue;
+    const claveNormal = normalizarToken(candidato.clave);
+    const distancia = distanciaDeEdicion(normal, claveNormal);
+    const largo = Math.max(normal.length, claveNormal.length);
+    if (distancia > 3 || (largo - distancia) / largo <= 0.4) continue;
+    if (
+      !mejor ||
+      distancia < mejor.distancia ||
+      (distancia === mejor.distancia && candidato.invocacion < mejor.invocacion)
+    ) {
+      mejor = { invocacion: candidato.invocacion, distancia };
+    }
+  }
+  return { tipo: 'desconocido', sugerencia: mejor?.invocacion ?? null };
+}
+
 // Exported for scripts/generate-cli-reference.ts, which walks the command
 // tree to emit the agent-facing CLI reference without spawning the binary.
 export { program };
@@ -2183,7 +2351,20 @@ export { program };
 // require.main identifies it). Importing this module — the entry-flow spec
 // pulls the exported pure helpers — must not launch the CLI.
 if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
-  program.parseAsync(process.argv).catch(async (err) => {
+  const argv = [...process.argv];
+  const veredicto = veredictoDeRaiz(argv[2], comandosRegistrados(program));
+  if (veredicto.tipo === 'desconocido') {
+    // Antes de abrir base o túnel alguno: un tecleo desconocido termina aquí
+    // con el contrato de USAGE, en vez de viajar hasta chat y morir con un
+    // «too many arguments for chat» que no nombra el problema.
+    stderr.write(ce.red(`error: unknown command '${argv[2]}'\n`));
+    if (veredicto.sugerencia) {
+      stderr.write(`(Did you mean ${veredicto.sugerencia}?)\n`);
+    }
+    process.exit(ExitCode.USAGE);
+  }
+  if (veredicto.tipo === 'canonico') argv[2] = veredicto.nombre;
+  program.parseAsync(argv).catch(async (err) => {
     reportError(err);
     await shutdown(1);
   });
