@@ -87,6 +87,19 @@ verificadores adversariales. El adversarial escribió 17 ataques y confirmó
   del saldo tiene DOS gemelas textuales —ingresos y gastos— y mutar una deja
   la otra en pie: se cuentan las dos, no se comprueba que haya una.
 
+## Límites de esta auditoría
+
+**Lo que G1a NO cubre, dicho aquí para que nadie lo dé por auditado.** G1a es
+la PRIMERA MITAD de G1; un auditor futuro que lea este registro debe saber que
+lo siguiente quedó fuera del alcance, no fuera de existencia:
+
+| Fuera de alcance | Dónde vive ahora |
+|---|---|
+| El estado de flujos de efectivo entero | G1b — su propio tramo y su propio registro |
+| `--level N` y las 29 de 61 cuentas sin padre en la semilla | sin tramo asignado; nombrado abajo |
+| La deuda de prueba de `report-service` (88 % contra un mock) | S4 |
+| Las seis implementaciones del universo de cuentas | sin tramo asignado |
+
 ## Lo reportado y NO hecho, con domicilio
 
 - **El flujo de efectivo entero**, que es la otra mitad de G1: no se amarra

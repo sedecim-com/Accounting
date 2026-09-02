@@ -962,8 +962,33 @@ export function barrerCuentasDeResultados(
  * conserva identificable lo que ESTE ejercicio ganó hasta que la asamblea
  * resuelva, que es el único camino reversible de los dos.
  */
+/**
+ * UN VALOR QUE EL PANEL NO CONOCE NO PASA EN SILENCIO.
+ *
+ * Los tres mapeadores de política del cierre caen, por diseño, en la opción
+ * más conservadora cuando el valor no es ninguno de los literales — y eso
+ * está bien: un dedazo en el panel no debe congelar el cierre de un despacho.
+ * Lo que NO está bien es que no se entere nadie: el despacho creería haber
+ * elegido una cosa y el sistema estaría haciendo otra, para siempre y sin
+ * rastro. Se avisa una vez, con la clave y el valor recibido.
+ *
+ * Se escribe UNA sola función y la usan los tres, porque el defecto es de
+ * clase: revisar sólo el que la revisión nombró habría dejado los otros dos
+ * mudos con aspecto de resueltos.
+ */
+function avisarValorDesconocido(clave: string, valor: string, elegido: string): void {
+  logger.warn(
+    `La política ${clave} tiene el valor "${valor}", que no es ninguna de sus opciones. ` +
+      `Uso "${elegido}", la opción conservadora. Revisa el panel: mnemosine pending define ${clave}`
+  );
+}
+
 export function codigoDestinoDelResultado(valorDelPanel: string): '3200' | '3300' {
-  return valorDelPanel === 'directo_a_acumulados' ? '3200' : '3300';
+  if (valorDelPanel === 'directo_a_acumulados') return '3200';
+  if (valorDelPanel !== 'dos_pasos_hasta_asamblea') {
+    avisarValorDesconocido('destino_del_resultado_del_ejercicio', valorDelPanel, 'dos_pasos_hasta_asamblea');
+  }
+  return '3300';
 }
 
 export type AccionDeRecierre = 'reversar' | 'incremental' | 'prohibir';
@@ -980,6 +1005,9 @@ export type AccionDeRecierre = 'reversar' | 'incremental' | 'prohibir';
 export function accionDeRecierre(valorDelPanel: string): AccionDeRecierre {
   if (valorDelPanel === 'reversar_y_reemitir') return 'reversar';
   if (valorDelPanel === 'prohibir') return 'prohibir';
+  if (valorDelPanel !== 'incremental') {
+    avisarValorDesconocido('cierre_recierre_de_periodo_reabierto', valorDelPanel, 'incremental');
+  }
   return 'incremental';
 }
 
@@ -994,9 +1022,11 @@ export function accionDeRecierre(valorDelPanel: string): AccionDeRecierre {
  * el cierre de un despacho.
  */
 export function severidadDeResultadoSinBarrer(valorDelPanel: string): 'bloquear' | 'avisar' {
-  return valorDelPanel === 'bloquear_cierre' || valorDelPanel === 'tolerancia'
-    ? 'bloquear'
-    : 'avisar';
+  if (valorDelPanel === 'bloquear_cierre' || valorDelPanel === 'tolerancia') return 'bloquear';
+  if (valorDelPanel !== 'avisar') {
+    avisarValorDesconocido('severidad_resultado_sin_barrer', valorDelPanel, 'avisar');
+  }
+  return 'avisar';
 }
 
 /** Lo que el cierre anual dejó, para atestar y para el rastro. */
