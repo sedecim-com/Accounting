@@ -417,7 +417,10 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   withContext(create);
   create
     .requiredOption('--customer <ref>', 'customer number, name or id')
-    .option('--line <spec...>', 'a line: "account=4100;qty=2;price=1500;tax=16;description=…"')
+    .option(
+      '--line <spec...>',
+      'a line: "account=4100;qty=2;price=1500;tax=16;description=…". Here tax= is a RATE in % (16 means 16%), not an amount — unlike bill, where it is the amount'
+    )
     .option('--from-file <path>', 'JSON array of lines instead of repeated --line')
     .option('--date <date>', 'invoice date (YYYY-MM-DD); defaults to today')
     .option('--due-date <date>', "due date; defaults to the customer's payment terms")
@@ -696,7 +699,10 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     .description('Edit a DRAFT invoice: dates, memo or its lines (issued ones are voided or credited, never edited)');
   withContext(edit);
   edit
-    .option('--line <spec...>', 'REPLACE all lines: "account=4100;qty=2;price=1500;tax=16;…" (repeatable)')
+    .option(
+      '--line <spec...>',
+      'REPLACE all lines: "account=4100;qty=2;price=1500;tax=16;…" (repeatable). Here tax= is a RATE in %, not an amount'
+    )
     .option('--from-file <path>', 'JSON array of lines instead of repeated --line')
     .option('--date <date>', 'new invoice date (YYYY-MM-DD)')
     .option('--due-date <date>', 'new due date')
