@@ -105,7 +105,14 @@ export interface ReportingViewStatus {
  * which is itself worth knowing.
  */
 export async function getReportingViewStatus(entityId: string): Promise<ReportingViewStatus[]> {
-  const ledger = totalTrialBalance(await queryTrialBalanceRows(entityId), LEDGER_SCALE);
+  // EN CRUDO: este cotejo no es un informe. Las vistas materializan TODO lo
+  // posteado, así que si la balanza obedeciera aquí al criterio del panel
+  // —que puede dejar fuera los asientos de cierre— el cotejo denunciaría una
+  // deriva inventada por la política, no por las vistas.
+  const ledger = totalTrialBalance(
+    await queryTrialBalanceRows(entityId, { ignoreClosingPolicy: true }),
+    LEDGER_SCALE
+  );
 
   const perView: Record<ReportingView, string> = {
     mv_trial_balance: `SELECT COUNT(*)::text AS rows,

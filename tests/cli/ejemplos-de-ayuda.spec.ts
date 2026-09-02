@@ -235,7 +235,12 @@ const MUTANTES = new Set(['escritura', 'irreversible', 'externo']);
  * invocaciones a setenta y ocho. Era el hueco más grande del árbol y el que
  * más se teclea: conciliación bancaria es trabajo de todos los meses.
  */
-const SUELO_HOJAS_CON_EJEMPLOS = 163;
+// 163 → 169: la fusión de G1a trajo `prepaid` (4 hojas, el motor de
+// amortización de la 1160) y `cashflow` (2, el estado de flujo de efectivo),
+// seis hojas de contabilidad diaria que llegaron sin una sola invocación. Se
+// documentan en vez de subir la línea base del censo: ceder la primera vez que
+// resulta incómodo convierte el trinquete en permiso.
+const SUELO_HOJAS_CON_EJEMPLOS = 169;
 
 /**
  * LOS TRES SUELOS SE VOLVIERON A MEDIR AL CERRAR EL LOTE, Y CONTRA EL ÁRBOL
@@ -273,7 +278,8 @@ const SUELO_HOJAS_CON_EJEMPLOS = 163;
  * el árbol de hoy porque treinta y un puntos de holgura son treinta y una
  * hojas que se pueden borrar sin que nadie proteste.
  */
-const SUELO_HOJAS = 210;
+// 210 → 216 por las seis hojas que G1a añadió al árbol embarcado.
+const SUELO_HOJAS = 216;
 
 describe('la ayuda enseña invocaciones que se pueden teclear', () => {
   it('el árbol embarcado se lee entero: si no, nada de lo de abajo prueba nada', () => {
@@ -597,7 +603,10 @@ function clavesDocumentadasDeLinea(cmd: Command): Set<string> | null {
  * 244 → 364: las setenta y ocho de `bank` y las que ya había ganadas por
  * encima del suelo anterior. Sube con el terreno, nunca por delante de él.
  */
-const SUELO_EJEMPLOS = 364;
+// 364 → 376: doce invocaciones nuevas, dos por hoja — la corriente y la que
+// evita el error caro (para `prepaid run`, que el devengo del mes es
+// IRREVERSIBLE y por eso el primer ejemplo es --dry-run).
+const SUELO_EJEMPLOS = 376;
 
 describe('los ejemplos pasan por el commander de verdad', () => {
   const NODOS = nodosDe(program);

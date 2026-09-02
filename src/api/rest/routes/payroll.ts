@@ -267,8 +267,23 @@ router.post('/sua', requirePermission('payroll:approve'), requireEntityAccess, a
 }));
 
 // ---------- MX Finiquito (severance settlement) ----------
-router.post('/finiquito', requirePermission('payroll:create'), asyncHandler(async (req: Request, res: Response) => {
-  const result = await calculateFiniquito(req.body);
+// `requireEntityAccess` NO es adorno: D1a hizo que el finiquito se calcule
+// con el contexto {tenantId, entityId} para poder leer el panel (los días de
+// aguinaldo y la prima vacacional son de la entidad), y en cuanto una ruta
+// acota su trabajo por la entidad de la PETICIÓN, la cabecera x-entity-id
+// pasa a elegir sobre qué libros se opera. Sin la guarda bastaba con
+// cambiarla para liquidar a alguien de otra entidad del mismo inquilino.
+// Es la sexta vez que esta frontera aparece en el proyecto y la primera en
+// nómina: la puerta la abrió el propio arreglo de este tramo.
+router.post('/finiquito', requirePermission('payroll:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  // El inquilino y la entidad viajan APARTE del cuerpo: el finiquito lee el
+  // panel de políticas (`dias_aguinaldo`, `prima_vacacional_pct`) y acota el
+  // empleado por inquilino dentro del SQL, y ninguna de las dos cosas puede
+  // salir de un JSON que manda el cliente.
+  const result = await calculateFiniquito(req.body, {
+    tenantId: req.tenantId!,
+    entityId: req.entityId,
+  });
   res.json({ data: result, meta: meta(req) });
 }));
 

@@ -163,7 +163,9 @@ export async function classifyParsed(
       id: d.id,
       severity: d.severity,
       question: d.question,
-      context: d.context(facts),
+      // Los umbrales efectivos viajan al contexto y no sólo a `applies`: la
+      // cifra que decide si la pregunta se hace es parte de la pregunta.
+      context: d.context(facts, effectiveThresholds),
       // F02 · lleva_inventarios (E1.3): solo el literal 'perpetuos' habilita
       // la opción de inventario — un despacho a costo directo no puede
       // acabar con compras capitalizadas en 1140 por un click distraído.
@@ -223,6 +225,21 @@ export async function classifyParsed(
       'Capitalized as a fixed asset: the amount is booked to the fixed-asset account, but the ' +
         'system does NOT register the asset nor compute its monthly depreciation. That deduction ' +
         'has to be recorded by hand until the depreciation engine has a way in.'
+    );
+  }
+  // Diferir sin calendario deja el gasto fuera del resultado y el importe
+  // parado en un activo para siempre: es el mismo defecto que el de arriba,
+  // sin el consuelo de que al menos el bien exista. Hasta D1a NADA devengaba
+  // la 1160, así que este aviso no se podía dar; ahora el paso que falta tiene
+  // nombre y se dice con el documento delante, cuando el asiento de origen
+  // todavía se sabe cuál es.
+  if (lines.some((l) => l.role === 'gasto_anticipado')) {
+    warnings.push(
+      'Deferred to prepaid expenses: the amount is booked to the prepaid-expenses account (1160), ' +
+        'but NO schedule accrues it on its own. Register it with `mnemosine prepaid create ' +
+        '--origin cfdi --source-entry <this entry> --start <date> --end <date>` and post it month ' +
+        'by month with `mnemosine prepaid run`. Without the schedule the expense never reaches ' +
+        'the income statement and the asset stays on the balance sheet for good.'
     );
   }
   if (facts.importeExento > 0) {

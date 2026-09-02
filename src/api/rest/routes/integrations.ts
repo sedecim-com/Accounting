@@ -4,8 +4,27 @@ import { query } from '../../../database/connection.js';
 import { requirePermission } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { integrationRegistry, pacRouter } from '../../../services/integrations/index.js';
+import type { IIntegrationAdapter } from '../../../services/integrations/base/adapter.interface.js';
 
 const router = Router();
+
+/**
+ * SI EL ADAPTADOR FABRICA EL FOLIO, EL LISTADO TIENE QUE DECIRLO.
+ *
+ * Tres de los cuatro PACs (`finkok`, `sw_sapien`, `edicom`) inventan el UUID y
+ * el sello con `crypto.randomBytes`, y el cerrojo de `simulacion.ts` les
+ * prohíbe timbrar. Hasta hoy ninguno se registraba junto al único real, así
+ * que el listado enseñaba tres simuladores y punto. Ahora que
+ * `sovos_reachcore` también está registrado, los cuatro salen por la misma
+ * respuesta con los mismos campos: sin esta bandera, un operador elige un
+ * proveedor que no emite nada y sólo se entera al intentar timbrar.
+ *
+ * `undefined` en lo que no es PAC — `JSON.stringify` no serializa la llave, y
+ * un `simulado: false` sobre Stripe afirmaría algo que nadie ha comprobado.
+ */
+function esSimulado(adapter: IIntegrationAdapter): boolean | undefined {
+  return 'simulado' in adapter ? Boolean(adapter.simulado) : undefined;
+}
 
 const configureProviderSchema = z.record(z.unknown());
 
@@ -31,6 +50,7 @@ router.get('/', requirePermission('settings:manage'), asyncHandler(async (req: R
         displayName: adapter.displayName,
         category: adapter.category,
         regions: adapter.regions,
+        simulado: esSimulado(adapter),
         configured: !!info,
         status: info?.status || 'not_configured',
         lastSyncAt: info?.last_sync_at,
@@ -68,6 +88,7 @@ router.get('/:provider', requirePermission('settings:manage'), asyncHandler(asyn
       displayName: adapter.displayName,
       category: adapter.category,
       regions: adapter.regions,
+      simulado: esSimulado(adapter),
       ...info,
     },
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },

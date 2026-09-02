@@ -12,7 +12,7 @@
 - Identifiers: UUID (fiscal stamp), series/folio, issuer/receiver RFC. The UUID is the system's dedupe key.
 
 ## Multi-PAC stamping (issued invoices)
-- Failover chain with per-provider circuit breaker and per-tenant preferences. Three adapters are SIMULATED (Finkok, SW Sapien, Edicom): an anti-simulation lock guarantees a simulated folio is NEVER persisted as 'stamped' (it lands as 'failed' with a note). Stamping is de facto off until a real PAC is configured (§5 decision).
+- Failover chain with per-provider circuit breaker and per-tenant preferences. FOUR adapters are registered (G0 put them all through `integrationRegistry.register()` from one list — before, Sovos was in the router's dictionary only, so configuring it through the API died). THREE are SIMULATED (Finkok, SW Sapien, Edicom): they fabricate UUID and seal with `crypto.randomBytes`, and an anti-simulation lock guarantees a simulated folio is NEVER persisted as 'stamped' (it lands as 'failed' with a note). SOVOS is NOT simulated: it has a real SOAP implementation, injectable transport, and it THROWS rather than inventing a folio — but it has no credentials configured, so it cannot stamp either. `GET /v1/admin/integrations` now publishes the `simulado` flag per provider, so the difference is visible instead of assumed. Stamping is de facto off until a real PAC is contracted (§5 decision).
 - Human: POST /v1/invoices/:id/cfdi/stamp. CANCELLATION IS WITHDRAWN: /cfdi/cancel answers 501 — the human cancels at the PAC/SAT portal and reverses the entry with `mnemosine entry reverse`. Never tell a user the system cancels CFDIs.
 
 ## Ingestion of received CFDIs (expenses)

@@ -331,6 +331,11 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
 
       // The footing goes to stderr so a piped csv stays importable, and it is
       // computed over every matched account, not over the page above.
+      // La balanza cuenta el cierre del ejercicio y LO DICE. Es lo que
+      // permite atarla con el estado de resultados —que lo deja fuera— sin
+      // que los dos documentos parezcan contradecirse.
+      if (tb.closing) note(tb.closing.note);
+
       const { total_debits, total_credits, is_balanced } = tb.totals;
       const line = `Debits ${total_debits}   Credits ${total_credits}   (${tb.total} accounts)`;
       if (is_balanced) note(`${line}   balanced`);
@@ -469,6 +474,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
 
       header(ctx, 'Income statement', `${startDate} → ${endDate}`);
       render(pageOf(rows, opts), { ...opts, total: rows.length, idField: 'code' });
+      if (is.closing) note(is.closing.note);
       note(
         `Revenue ${is.revenue.total}   Expenses ${is.expenses.total}   Net income ${is.net_income}`
       );

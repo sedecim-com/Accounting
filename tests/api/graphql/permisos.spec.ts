@@ -628,6 +628,27 @@ describe('la compuerta lee el esquema, no una lista escrita a mano', () => {
     expect(auditarRaiz(typeDefs, 'Query', Object.keys(resolvers.Query))).toEqual([]);
   });
 
+  it('toda consulta declarada tiene resolutor: ya no queda ninguna que reviente al invocarse', () => {
+    // `balanceSheet` e `incomeStatement` estaban declaradas y sin resolutor.
+    // Campos NO NULOS: caían en el resolutor por omisión, devolvían `undefined`
+    // y reventaban con «Cannot return null for non-nullable field». Estar
+    // listadas en SIN_RESOLUTOR dejaba constancia de que reventaban a
+    // propósito, pero la introspección las publicaba igual y `consolidate`
+    // prometía además una consolidación que nadie calcula. Se retiraron del
+    // esquema; los informes los sirve REST con reports:read.
+    //
+    // Lo que fija esta prueba es el invariante, no la retirada: en Query, todo
+    // lo declarado se sirve. Si vuelven, vuelven con su resolutor.
+    const declaradas = camposDeclarados(typeDefs, 'Query');
+    expect(declaradas.sort()).toEqual(Object.keys(resolvers.Query).sort());
+    expect(SIN_RESOLUTOR.Query).toEqual({});
+    expect(declaradas).not.toContain('balanceSheet');
+    expect(declaradas).not.toContain('incomeStatement');
+    // Y sus siete tipos se fueron con ellas: un tipo al que ningún campo lleva
+    // sigue saliendo por introspección como contrato que nadie puede ejercer.
+    expect(typeDefs).not.toMatch(/type (BalanceSheet|IncomeStatement)\b/);
+  });
+
   it('el esquema declara quince mutaciones: doce servidas y tres ausencias dichas', () => {
     // Si este reparto cambia sin que nadie toque el catálogo, los casos de
     // abajo pierden su sujeto — y la auditoría III llegó a contar 17.

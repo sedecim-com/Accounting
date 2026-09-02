@@ -24,7 +24,21 @@ mnemosine.config.json
 *.pem
 *.p12
 *.pfx
+# El SAT entrega el CSD y la e.firma como PAR: un .cer y un .key. Sólo la mitad
+# .key estaba bloqueada, así que el certificado —que lleva el RFC, el número de
+# serie y la vigencia del contribuyente— podía entrar en un commit sin que nada
+# se quejara. No es la llave privada, pero identifica al titular y es la mitad
+# que permite reconocer para qué sirve la otra. .crt y .der son el mismo objeto
+# con otra extensión y otra codificación.
+*.cer
+*.crt
+*.der
 !tests/fixtures/certs/*.key
+# Misma excepción que arriba, y por la misma razón: los .cer de fixtures son
+# autofirmados (emisor == sujeto, RFC AAA010101AAA / XAXX010101000) y las
+# pruebas los necesitan. Sin esta línea, regenerarlos y volver a agregarlos
+# fallaría en silencio.
+!tests/fixtures/certs/*.cer
 
 # Bóveda local de desarrollo (material cifrado de e.firma/CSD)
 .mnemosine/

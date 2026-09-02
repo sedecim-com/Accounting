@@ -2,6 +2,25 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
 
+// El criterio de los asientos de cierre lo decide una política, y leerla es un
+// viaje a la base. Se sustituye por su valor POR OMISIÓN —el estado de
+// resultados los excluye, la balanza los incluye— para que estas pruebas sigan
+// contando consultas de informe y no de panel. `predicadoSinCierre` se deja
+// REAL: es el SQL que las aserciones de abajo comprueban.
+vi.mock('../../../src/services/reporting/criterio-cierre.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../src/services/reporting/criterio-cierre.js')>();
+  return {
+    ...actual,
+    criterioDeCierreEnInformes: vi.fn(async () => ({
+      valor: 'estado_sin_cierre_balanza_con_cierre',
+      enEstadoDeResultados: false,
+      enBalanza: true,
+    })),
+    avisoDeCierreEnRango: vi.fn(async () => null),
+  };
+});
+
 import {
   resolvePeriodRange,
   queryTrialBalanceRows,

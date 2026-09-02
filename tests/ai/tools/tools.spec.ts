@@ -4,6 +4,24 @@ vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
 }));
 
+// El criterio de los asientos de cierre se resuelve contra el panel, y estas
+// pruebas cuentan consultas de informe. Se fija en su valor por omisión —el
+// estado de resultados los excluye, la balanza los cuenta— y el aviso se
+// silencia: aquí no hay ningún cierre que anunciar.
+vi.mock('../../../src/services/reporting/criterio-cierre.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../src/services/reporting/criterio-cierre.js')>();
+  return {
+    ...actual,
+    criterioDeCierreEnInformes: vi.fn(async () => ({
+      valor: 'estado_sin_cierre_balanza_con_cierre',
+      enEstadoDeResultados: false,
+      enBalanza: true,
+    })),
+    avisoDeCierreEnRango: vi.fn(async () => null),
+  };
+});
+
 import { buildTools, MAX_TOOL_RESULT_CHARS } from '../../../src/ai/tools/index.js';
 import { query } from '../../../src/database/connection.js';
 import type { AgentContext } from '../../../src/ai/context.js';
