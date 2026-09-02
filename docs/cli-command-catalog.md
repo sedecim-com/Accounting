@@ -49,7 +49,7 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **209 comandos** repartidos en **55 familias** de primer nivel. De las **1627** filas del catálogo, **194** (11.9 %) ya se pueden invocar.
+El binario ejecuta hoy **210 comandos** repartidos en **56 familias** de primer nivel. De las **1627** filas del catálogo, **194** (11.9 %) ya se pueden invocar.
 
 Del motor que cada comando necesita, **253** filas lo declaran completo, **391** a medias y **983** inexistente.
 
@@ -78,7 +78,7 @@ Contadas por COMANDO, las 1627 filas son **1606 rutas únicas**: **16 rutas** es
 | `credit-note` | 7 | 5 |
 | `backup` | 5 | 5 |
 
-**2 de 616** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts) y 1 a líneas fuera del archivo.
+**1 de 616** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
 _Que una cita resuelva no prueba que siga apuntando a lo mismo: sólo que el archivo existe y tiene esa línea. El juicio ✅/🟡/❌ de cada fila es humano y se revisa a mano._
 

@@ -84,6 +84,13 @@ export const FUERA_DEL_CATALOGO = new Set([
   // A2: métricas y calibración del agente (ai stats) — instrumentación del
   // propio agente, no capacidad contable; misma razón que usage/providers.
   'ai',
+  // S-UX: `completion bash|zsh` emite un guion de autocompletado para el shell.
+  // No es capacidad contable ni la va a ser: no toca la base, no tiene entidad,
+  // no produce un asiento ni un reporte — su salida se redirige a un archivo del
+  // shell y se olvida. Darle fila en el catálogo inflaría el denominador con la
+  // que nunca cerrará un flujo del despacho, que es exactamente lo que el
+  // catálogo existe para no hacer. Va aquí por la misma razón que prompt-size.
+  'completion',
 ]);
 
 /**
