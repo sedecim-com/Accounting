@@ -1498,15 +1498,138 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.1',
-    enunciado: 'Las cuatro cuentas de IVA se siembran siempre, también sobre catálogo importado',
-    evaluar: () => {
+    enunciado:
+      'Las cuatro cuentas de IVA se siembran en toda entidad MEXICANA, también sobre catálogo importado',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: "code: '1135', name: 'IVA Pendiente de Acreditar'",
+        a: "code: '1136', name: 'IVA Pendiente de Acreditar'",
+        porque:
+          'el IVA de una factura PPD se queda sin cuenta donde esperar al pago; el mutante ' +
+          'renumera en vez de borrar porque borrar el renglón entero también movería otras ' +
+          'anclas, y un espejo debe fallar por la razón que dice',
+      },
+    ],
+    evaluar: async () => {
+      // El enunciado decía «siempre» y se volvió falso el día que la siembra
+      // empezó a ramificar por país: una entidad estadounidense ya no recibe
+      // cuentas de IVA, y debe ser así. Pero el criterio no se relaja, se
+      // AFINA — lo que protegía sigue protegido y ahora además se comprueba
+      // que la ramificación no se lleve por delante el caso mexicano, que es
+      // el 100% de los clientes de este producto.
       const s = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
       const faltan = ['1130', '1135', '2120', '2125'].filter(
         (c) => !new RegExp(`code:\\s*'${c}'`).test(s)
       );
-      return faltan.length === 0
-        ? ok('1130, 1135, 2120 y 2125 en REQUIRED_ACCOUNTS')
-        : falla(`no se siembran: ${faltan.join(', ')} — una entidad onboardeada revienta con MISSING_ROLE_ACCOUNT`);
+      if (faltan.length > 0) {
+        return falla(
+          `no se siembran: ${faltan.join(', ')} — una entidad onboardeada revienta con MISSING_ROLE_ACCOUNT`
+        );
+      }
+      // Y que sigan llegando a una entidad mexicana pese al filtro por país.
+      // Sin esto, marcar los cuatro códigos como fiscales-mexicanos-y-fuera
+      // dejaría el criterio en verde con las cuentas fuera del catálogo.
+      const { cuentasRequeridasPara } = await import(
+        '../services/xml-ingestion/account-roles-seed.js'
+      );
+      const mexicanas = new Set(cuentasRequeridasPara(true).map((a) => a.code));
+      const perdidas = ['1130', '1135', '2120', '2125'].filter((c) => !mexicanas.has(c));
+      return perdidas.length === 0
+        ? ok('1130, 1135, 2120 y 2125 declaradas y entregadas a toda entidad mexicana')
+        : falla(
+            `${perdidas.join(', ')} están declaradas pero el filtro por país no se las entrega ` +
+              'a una entidad mexicana: el IVA dejaría de acreditarse'
+          );
+    },
+  },
+
+  {
+    paquete: 'E1.1',
+    enunciado: 'Un código de cuenta significa UNA cuenta en todas las semillas',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/common/payroll-account-mapping-seed.ts',
+        de: "code: '6110', name: 'Sueldos y Salarios'",
+        a: "code: '5200', name: 'Sueldos y Salarios'",
+        porque:
+          'devolver la nómina al código de las devoluciones sobre compras es EL fallo que ' +
+          'este criterio vino a impedir: el sueldo bruto cargado a un contra-costo acreedor',
+      },
+      {
+        archivo: 'src/services/accounting/chart-seed.ts',
+        de: "code: '6110', name: 'Sueldos y Salarios'",
+        a: "code: '6110', name: 'Nomina'",
+        porque:
+          'la colisión tiene dos lados y el criterio debe morder por los dos: renombrar la ' +
+          'cuenta del catálogo base sin tocar las otras semillas es la mitad que un espejo ' +
+          'de un solo sentido bendeciría',
+      },
+    ],
+    evaluar: () => {
+      // EL FALLO QUE ESTE CRITERIO PERSIGUE. Cuatro semillas escriben en el
+      // catálogo de la MISMA entidad —el catálogo base, los roles del CFDI, el
+      // mapeo de nómina y el sembrador de `npm run seed`— y las tres que
+      // corren después se guardan de pisar a la anterior COMPARANDO CÓDIGOS:
+      // `if (byCode.has(spec.code)) continue`. La guarda funciona; lo que no
+      // vigila nadie es que dos semillas llamen cosas distintas al mismo
+      // número. Cuando pasa, la segunda no crea su cuenta, hereda la ajena, y
+      // el error es de SIGNIFICADO: no hay excepción, no hay fila de más, y
+      // UNIQUE(code, entity_id) tampoco puede acusarlo porque desde la base
+      // sólo hay una cuenta con ese código, que es justo lo que exige.
+      //
+      // Ocurrió con seis códigos a la vez: 5200 mandaba el sueldo bruto a
+      // «Devoluciones y Descuentos sobre Compras», y 2150/2160/2170/2180
+      // repartían los pasivos de nómina entre anticipos de clientes, sueldos
+      // por pagar e IEPS.
+      //
+      // El criterio DESCUBRE los catálogos en vez de enumerarlos: la lección
+      // que este archivo ya pagó una vez es que un detector de clases
+      // enumeradas sólo ve las clases que enumeró, y una quinta semilla
+      // añadida mañana tiene que quedar vigilada sin tocar esto.
+      const decl = /code:\s*'([^']+)'\s*,\s*name:\s*'([^']*)'/g;
+      const porCodigo = new Map<string, Map<string, string[]>>();
+      for (const f of fuentes('src')) {
+        // Por el seam (crudoDe) y no por fs directo: una lectura que lo rodea
+        // deja el criterio fuera del arnés de mutación, y un criterio que
+        // ningún mutante puede matar es prosa con forma de compuerta.
+        const rel = path.relative(RAIZ, f);
+        const texto = sinComentarios(crudoDe(rel));
+        decl.lastIndex = 0;
+        for (const m of texto.matchAll(decl)) {
+          const [, codigo, nombre] = m;
+          const nombres = porCodigo.get(codigo) ?? new Map<string, string[]>();
+          nombres.set(nombre, [...(nombres.get(nombre) ?? []), rel]);
+          porCodigo.set(codigo, nombres);
+        }
+      }
+      if (porCodigo.size === 0) {
+        return noEvaluable('ninguna fuente declara pares código/nombre de cuenta');
+      }
+
+      // La comparación es TOTAL, también entre el catálogo mexicano y el
+      // estadounidense, que hoy no coexisten en una misma entidad. Es a
+      // propósito y tiene precio: obliga a que MX y EE. UU. no compartan
+      // número aunque podrían. A cambio, el criterio no necesita un modelo de
+      // qué semillas son mutuamente excluyentes —el modelo que estaba mal era
+      // justamente ése: `ensureEntityAccounting` siembra el catálogo base
+      // mexicano en TODA entidad, país incluido o no— y la regla que enuncia
+      // se puede leer sin saberse el pipeline: un número, un nombre.
+      const choques = [...porCodigo.entries()]
+        .filter(([, nombres]) => nombres.size > 1)
+        .map(([codigo, nombres]) => {
+          const partes = [...nombres.entries()].map(
+            ([nombre, archivos]) => `«${nombre}» (${[...new Set(archivos)].join(', ')})`
+          );
+          return `${codigo}: ${partes.join(' vs ')}`;
+        });
+
+      return choques.length === 0
+        ? ok(`${porCodigo.size} códigos de cuenta declarados, cada uno con un solo nombre`)
+        : falla(
+            `${choques.length} código(s) con dos significados — la semilla que corre después ` +
+              `no crea su cuenta y hereda la ajena, sin error: ${choques.join(' · ')}`
+          );
     },
   },
 

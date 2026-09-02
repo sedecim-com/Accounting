@@ -2,6 +2,8 @@ import type pg from 'pg';
 import { withTransaction } from '../../database/connection.js';
 import { ensureBaseChart } from './chart-seed.js';
 import { seedAccountRoles, type SeedResult } from '../xml-ingestion/account-roles-seed.js';
+import { esContabilidadMexicana } from './pais-contable.js';
+import { getPolicy } from '../policy/policy-service.js';
 import {
   seedPayrollAccountMapping,
   type PayrollSeedResult,
@@ -55,29 +57,80 @@ export async function ensureEntityAccounting(
     );
     const teniaCatalogo = Number(rows[0]?.n ?? '0') > 0;
 
+    // El PAÍS se lee ANTES de sembrar nada, no al final para la nómina.
+    //
+    // Se leía aquí abajo y sólo para escoger el catálogo de nómina, de modo
+    // que el catálogo base y los roles del CFDI ya habían pasado: una entidad
+    // estadounidense recibía el plan de cuentas mexicano completo —IVA
+    // Acreditable, IVA Trasladado, ISR por Pagar, un banco en pesos— y los
+    // diecisiete renglones de la taxonomía del CFDI, que no puede usar.
+    const { rows: datos } = await client.query<{
+      incorporation_country: string | null;
+      accounting_standard: string | null;
+    }>(
+      'SELECT incorporation_country, accounting_standard FROM legal_entities WHERE id = $1',
+      [entityId]
+    );
+    const pais = datos[0]?.incorporation_country ?? 'MX';
+    const esMexicana = esContabilidadMexicana(pais, datos[0]?.accounting_standard);
+
+    // QUÉ recibe una entidad no mexicana es criterio del despacho, no del
+    // código: puede querer el catálogo de la casa para que postee desde el
+    // primer día, o dejarla vacía porque va a importar el suyo. La política lo
+    // decide; el default siembra, porque una entidad que no puede postear es
+    // peor que una con cuatro renglones que no usa.
+    const catalogoExtranjero = esMexicana
+      ? 'base_neutro'
+      : (await getPolicy({ tenantId, entityId }, 'catalogo_entidad_no_mexicana', client)).value;
+
+    // EL INTERRUPTOR LLEGA AL CATÁLOGO BASE Y A NADA MÁS, A PROPÓSITO.
+    //
+    // Con 'ninguno' la entidad NO nace vacía: nace con dieciséis cuentas
+    // —siete de los roles y nueve de la nómina estadounidense— porque las dos
+    // semillas de abajo corren igual. Extenderles el interruptor sonaría más
+    // fiel a la palabra «ninguno» y dejaría payroll_account_mapping sin una
+    // sola fila: esa tabla no tiene otro escritor en tiempo de ejecución —sólo
+    // esta semilla y la migración 053 que la sembró de golpe—, así que la
+    // primera corrida moriría con «Missing payroll_account_mapping for bucket:
+    // wages_expense» en vez de con el bucket que sí falta. Porque falta uno:
+    // bajo 'ninguno', `cash_payroll` —obligatorio junto a wages_expense y
+    // payroll_tax_expense, ver gl-posting-service— apunta a 1111/1115, que las
+    // crea el catálogo base y sólo él. La primera nómina falla igual; lo que
+    // cambia es que falla nombrando UN bucket en vez de todos, y `entity
+    // create` ya lo avisa por su nombre al sembrar.
+    //
+    // account_roles sí tiene otro escritor —account-roles-service, detrás de
+    // `account map`—, así que ahí el argumento no es que nadie más escriba,
+    // sino que sin la semilla la primera factura muere con MISSING_ROLE_ACCOUNT
+    // antes de que nadie llegue a mapear a mano.
+    //
+    // Lo que se corrigió es el TEXTO de la opción, que prometía «no chart» y
+    // «I seed nothing»: quien la escoge ha de saber que importará el catálogo
+    // sobre una entidad que ya trae esas dieciséis. Ver pending-catalog.ts.
     const crearBase =
-      estrategia === 'siempre' || (estrategia === 'auto' && !teniaCatalogo);
+      catalogoExtranjero !== 'ninguno' &&
+      (estrategia === 'siempre' || (estrategia === 'auto' && !teniaCatalogo));
 
     const cuentasBaseCreadas = crearBase
-      ? await ensureBaseChart(client, entityId, createdBy)
+      ? await ensureBaseChart(client, entityId, createdBy, esMexicana)
       : [];
 
     // Los roles se siembran SIEMPRE: es lo que traduce semántica a códigos, y
     // sobre un catálogo ajeno al menos mapea lo que sí exista y reporta el resto.
-    const roles = await seedAccountRoles(entityId, tenantId, createdBy, { client });
+    // Lo que ramifica por país es CUÁLES, no si se siembran: catorce de los
+    // treinta y un roles apuntan a códigos del catálogo base y ar-ap-posting
+    // los exige en toda factura, así que quitárselos a una entidad extranjera
+    // la dejaría sin postear.
+    const roles = await seedAccountRoles(entityId, tenantId, createdBy, { client, esMexicana });
 
     // El mapeo de nómina se siembra en el mismo acto y por la misma razón: la
     // tabla tenía lector y ningún escritor, así que la primera corrida de
     // nómina de cualquier entidad moría con «Missing payroll_account_mapping».
     // Va aquí, no en el asistente, para que TODA ruta de alta lo obtenga.
-    const { rows: pais } = await client.query<{ incorporation_country: string }>(
-      'SELECT incorporation_country FROM legal_entities WHERE id = $1',
-      [entityId]
-    );
     const nomina = await seedPayrollAccountMapping(
       entityId,
       tenantId,
-      pais[0]?.incorporation_country ?? 'MX',
+      pais,
       createdBy,
       { client }
     );
@@ -102,16 +155,31 @@ export async function ensureEntityAccounting(
 export async function rolesSinMapear(
   entityId: string
 ): Promise<Array<{ role: string; code: string }>> {
-  const { REQUIRED_ACCOUNTS, ROLE_MAP } = await import('../xml-ingestion/account-roles-seed.js');
-  void REQUIRED_ACCOUNTS;
+  const { rolesPara } = await import('../xml-ingestion/account-roles-seed.js');
   const { query } = await import('../../database/connection.js');
+
+  // El diagnóstico tiene que preguntar por los roles que a ESTA entidad le
+  // tocan. Con ROLE_MAP a secas, una entidad estadounidense aparecía con doce
+  // roles «sin mapear» —IEPS, retenciones, IMSS— que no debe tener: un
+  // reporte que exige lo que no aplica enseña a ignorar el reporte.
+  const { rows: datos } = await query<{
+    incorporation_country: string | null;
+    accounting_standard: string | null;
+  }>(
+    'SELECT incorporation_country, accounting_standard FROM legal_entities WHERE id = $1',
+    [entityId]
+  );
+  const esMexicana = esContabilidadMexicana(
+    datos[0]?.incorporation_country,
+    datos[0]?.accounting_standard
+  );
 
   const mapeados = await query<{ role: string }>(
     'SELECT role FROM account_roles WHERE entity_id = $1 AND qualifier IS NULL',
     [entityId]
   );
   const yaEstan = new Set(mapeados.rows.map((r) => r.role));
-  return Object.entries(ROLE_MAP)
+  return Object.entries(rolesPara(esMexicana))
     .filter(([role]) => !yaEstan.has(role))
     .map(([role, code]) => ({ role, code: String(code) }));
 }

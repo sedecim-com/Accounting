@@ -128,7 +128,16 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     description: 'Contra-costo: reduce las compras.',
   },
   {
-    code: '4200', name: 'Otros Ingresos', account_type: 'revenue',
+    // 4300 y no 4200. El razonamiento de arriba es correcto y el número que
+    // eligió lo contradecía: 4200 es «Ingresos por Servicios» en el catálogo
+    // base, que corre ANTES, así que la guarda por código se saltaba esta
+    // cuenta y el rol acababa apuntando a ingresos de operación — igual de
+    // cotejables contra los CFDI emitidos que 4100, que es justo lo que la
+    // descripción quería evitar. 4300 «Otros Ingresos» ya existe en el
+    // catálogo base con este nombre exacto y este mismo fs_category; se
+    // declara aquí ADEMÁS porque el catálogo base es condicional y sobre uno
+    // importado la cuenta tiene que existir igual.
+    code: '4300', name: 'Otros Ingresos', account_type: 'revenue',
     normal_balance: 'credit', fs_category: 'other_income',
     description:
       'Ingresos que no provienen de una venta. Existe porque la política ' +
@@ -152,7 +161,7 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
 export const ROLE_MAP: Record<AccountRole, string> = {
   // Income and collection
   ingreso: '4100',
-  otros_ingresos: '4200',
+  otros_ingresos: '4300',
   devolucion_ventas: '4400',
   anticipo_clientes: '2150',
   cxc: '1120',
@@ -190,6 +199,87 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   perdida_cambiaria: '6300',
 };
 
+// ── Qué de todo esto es mexicano ─────────────────────────────
+//
+// REQUIRED_ACCOUNTS y ROLE_MAP se sembraban ENTEROS en toda entidad, sin mirar
+// el país, porque esta capa nació para el CFDI y el CFDI es mexicano por
+// definición. Pero la lista mezcla dos cosas: impuestos mexicanos (IVA, IEPS,
+// retenciones, IMSS) y contabilidad general que cualquier país necesita
+// (anticipos de clientes y proveedores, pagos anticipados, sueldos por pagar,
+// devoluciones sobre ventas y sobre compras).
+//
+// Separarlas no es cosmética: catorce de los treinta y un roles apuntan a
+// códigos que sólo trae el catálogo base, y `ar-ap-posting.ts` exige cxc, cxp,
+// banco, ingreso y gasto con requireRole en toda factura. Quitarle los roles a
+// una entidad no mexicana la dejaría sin postear nada; quitarle sólo el
+// estrato fiscal mexicano le quita exactamente lo que no puede usar.
+
+/** Códigos de REQUIRED_ACCOUNTS que sólo existen en una contabilidad mexicana. */
+const CODIGOS_FISCALES_MX = new Set([
+  '1130', // IVA Acreditable
+  '1135', // IVA Pendiente de Acreditar
+  '1145', // ISR Retenido a Favor
+  '1146', // IVA Retenido a Favor
+  '1165', // IEPS Acreditable
+  '2120', // IVA Trasladado
+  '2125', // IVA Trasladado No Cobrado
+  '2170', // IMSS por Pagar
+  '2180', // IEPS por Pagar
+  '2190', // Impuestos Locales por Pagar
+]);
+
+/**
+ * Roles que no significan nada fuera de México. Los dos genéricos de impuesto
+ * —iva_trasladado e iva_acreditable— NO están aquí a propósito: el motor los
+ * pide en cuanto una factura trae impuesto, venga de donde venga, así que una
+ * entidad no mexicana los conserva apuntando al estrato fiscal neutro.
+ */
+const ROLES_FISCALES_MX: readonly AccountRole[] = [
+  'iva_trasladado_no_cobrado',
+  'iva_pendiente_acreditar',
+  'isr_retenido_por_pagar',
+  'iva_retenido_por_pagar',
+  'isr_retenido_a_favor',
+  'iva_retenido_a_favor',
+  'ieps_acreditable',
+  'ieps_por_pagar',
+  'impuestos_locales_gasto',
+  'impuestos_locales_por_pagar',
+  'isr_nomina_por_pagar',
+  'imss_por_pagar',
+];
+
+/** Dónde caen los dos roles genéricos de impuesto en una entidad no mexicana. */
+const ROLES_NEUTROS: Partial<Record<AccountRole, string>> = {
+  iva_trasladado: '2135',   // Impuesto sobre Ventas por Pagar
+  iva_acreditable: '1136',  // Impuesto Acreditable sobre Compras
+};
+
+/** Las cuentas que le tocan a la entidad según lleve o no libros mexicanos. */
+export function cuentasRequeridasPara(esMexicana: boolean): AccountSpec[] {
+  return esMexicana
+    ? REQUIRED_ACCOUNTS
+    : REQUIRED_ACCOUNTS.filter((a) => !CODIGOS_FISCALES_MX.has(a.code));
+}
+
+/**
+ * Los roles que le tocan a la entidad.
+ *
+ * Se DERIVA de ROLE_MAP en vez de escribirse aparte: ROLE_MAP está tipado
+ * `Record<AccountRole, string>`, así que el compilador obliga a mapear todo rol
+ * nuevo de la taxonomía. Una segunda lista escrita a mano perdería esa
+ * garantía y se desincronizaría en el primer rol que alguien añada.
+ */
+export function rolesPara(esMexicana: boolean): Partial<Record<AccountRole, string>> {
+  if (esMexicana) return ROLE_MAP;
+  const salida: Partial<Record<AccountRole, string>> = {};
+  for (const [rol, codigo] of Object.entries(ROLE_MAP) as [AccountRole, string][]) {
+    if (ROLES_FISCALES_MX.includes(rol)) continue;
+    salida[rol] = ROLES_NEUTROS[rol] ?? codigo;
+  }
+  return salida;
+}
+
 export interface SeedResult {
   accountsCreated: string[];
   rolesMapped: number;
@@ -206,9 +296,11 @@ export async function seedAccountRoles(
   tenantId: string,
   createdBy: string,
   /** Corre dentro de la transacción del llamador en vez de abrir una propia:
-   *  el alta de entidad siembra catálogo y roles en un solo acto. */
-  options?: { client?: pg.PoolClient }
+   *  el alta de entidad siembra catálogo y roles en un solo acto.
+   *  `esMexicana` por omisión true: ante la duda, contabilidad mexicana. */
+  options?: { client?: pg.PoolClient; esMexicana?: boolean }
 ): Promise<SeedResult> {
+  const esMexicana = options?.esMexicana ?? true;
   const run = async (client: pg.PoolClient): Promise<SeedResult> => {
     const existing = await client.query<{ code: string; id: string }>(
       'SELECT code, id FROM accounts WHERE entity_id = $1',
@@ -217,7 +309,7 @@ export async function seedAccountRoles(
     const byCode = new Map(existing.rows.map((r) => [r.code, r.id]));
     const accountsCreated: string[] = [];
 
-    for (const spec of REQUIRED_ACCOUNTS) {
+    for (const spec of cuentasRequeridasPara(esMexicana)) {
       if (byCode.has(spec.code)) continue;
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO accounts (
@@ -236,7 +328,7 @@ export async function seedAccountRoles(
 
     let rolesMapped = 0;
     const unmapped: SeedResult['unmapped'] = [];
-    for (const [role, code] of Object.entries(ROLE_MAP)) {
+    for (const [role, code] of Object.entries(rolesPara(esMexicana))) {
       const accountId = byCode.get(code);
       if (!accountId) {
         unmapped.push({ role, code });

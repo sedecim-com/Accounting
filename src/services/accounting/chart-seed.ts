@@ -26,15 +26,27 @@ export interface ChartAccountSpec {
   system?: boolean;
 }
 
-export const BASE_CHART_MX: ChartAccountSpec[] = [
+// ── El catálogo, en tres estratos ────────────────────────────
+//
+// Vivía como una sola lista de 38 renglones llamada BASE_CHART_MX, y ese
+// nombre escondía que sólo SEIS de sus cuentas son mexicanas. Las otras 32 son
+// partida doble: activo, pasivo, capital, ingresos, costos y gastos, con los
+// nombres en español porque el producto se usa en español, no porque el país
+// las determine.
+//
+// Importaba porque `ensureEntityAccounting` sembraba la lista entera en TODA
+// entidad sin mirar el país: una sociedad estadounidense nacía con «IVA
+// Acreditable», «IVA Trasladado», «ISR por Pagar» y una cuenta de banco
+// denominada en pesos. No estorbaban en silencio: son renglones del balance
+// que se presentan, y el catálogo es lo primero que un contador revisa.
+
+/** Partida doble. Lo que necesita cualquier entidad, sea del país que sea. */
+export const CATALOGO_UNIVERSAL: ChartAccountSpec[] = [
     // Assets
     { code: '1000', name: 'Activo', type: 'asset', sub: null, fs: 'current_assets', balance: 'debit', header: true },
     { code: '1100', name: 'Activo Circulante', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', header: true, parent: '1000' },
     { code: '1110', name: 'Caja y Bancos', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1100' },
-    { code: '1111', name: 'Banco Nacional - MXN', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1110' },
-    { code: '1112', name: 'Banco Nacional - USD', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1110' },
     { code: '1120', name: 'Cuentas por Cobrar', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1100' },
-    { code: '1130', name: 'IVA Acreditable', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1100' },
     { code: '1140', name: 'Inventarios', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1100' },
     { code: '1200', name: 'Activo Fijo', type: 'asset', sub: 'fixed_asset', fs: 'non_current_assets', balance: 'debit', header: true, parent: '1000' },
     { code: '1210', name: 'Mobiliario y Equipo', type: 'asset', sub: 'fixed_asset', fs: 'non_current_assets', balance: 'debit', parent: '1200' },
@@ -45,9 +57,6 @@ export const BASE_CHART_MX: ChartAccountSpec[] = [
     { code: '2000', name: 'Pasivo', type: 'liability', sub: null, fs: 'current_liabilities', balance: 'credit', header: true },
     { code: '2100', name: 'Pasivo Circulante', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', header: true, parent: '2000' },
     { code: '2110', name: 'Cuentas por Pagar', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2100' },
-    { code: '2120', name: 'IVA Trasladado', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2100' },
-    { code: '2130', name: 'ISR por Pagar', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2100' },
-    { code: '2140', name: 'Retenciones por Pagar', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2100' },
     // Equity
     { code: '3000', name: 'Capital Contable', type: 'equity', sub: null, fs: 'equity', balance: 'credit', header: true },
     { code: '3100', name: 'Capital Social', type: 'equity', sub: 'common_stock', fs: 'equity', balance: 'credit', parent: '3000', system: true },
@@ -73,17 +82,87 @@ export const BASE_CHART_MX: ChartAccountSpec[] = [
 ];
 
 /**
+ * Lo que sólo tiene sentido en una contabilidad mexicana.
+ *
+ * Las dos cuentas de banco están aquí y no en el estrato universal porque
+ * llevan la moneda en el nombre: «Banco Nacional - MXN» en el catálogo de una
+ * sociedad de Delaware es un renglón que nadie va a usar y que además miente
+ * sobre la moneda funcional de la entidad.
+ */
+export const ESTRATO_FISCAL_MX: ChartAccountSpec[] = [
+    { code: '1111', name: 'Banco Nacional - MXN', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1110' },
+    { code: '1112', name: 'Banco Nacional - USD', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1110' },
+    { code: '1130', name: 'IVA Acreditable', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1100' },
+    { code: '2120', name: 'IVA Trasladado', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2100' },
+    { code: '2130', name: 'ISR por Pagar', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2100' },
+    { code: '2140', name: 'Retenciones por Pagar', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2100' },
+];
+
+/**
+ * El mínimo fiscal de una entidad NO mexicana.
+ *
+ * No es un plan de cuentas estadounidense: el plan de cierre declara el carril
+ * de EE. UU. «deliberadamente somero», y un catálogo US GAAP completo es
+ * justamente lo que corta del alcance. Son las tres cuentas sin las cuales el
+ * motor que YA existe no puede postear:
+ *
+ *   · el banco, porque el rol `banco` y el bucket `cash_payroll` lo exigen;
+ *   · las dos de impuesto, porque postInvoiceEntry y postBillEntry piden los
+ *     roles iva_trasladado / iva_acreditable en cuanto `tax_amount > 0`
+ *     (ar-ap-posting.ts). Una factura estadounidense CON impuesto sobre ventas
+ *     reventaría con MISSING_ROLE_ACCOUNT si no hubiera dónde ponerlo.
+ *
+ * Los nombres son genéricos a propósito: «Impuesto sobre Ventas» sirve para el
+ * sales tax estadounidense y para cualquier otro impuesto trasladado, y no
+ * promete un tratamiento fiscal que este motor no implementa.
+ *
+ * Códigos propios y no los mexicanos: dos semillas no pueden declarar el mismo
+ * código con nombres distintos (criterio E1.1), y además reusar 1130 para algo
+ * que no es IVA acreditable haría ilegible el catálogo de las dos.
+ */
+export const ESTRATO_FISCAL_NEUTRO: ChartAccountSpec[] = [
+    { code: '1115', name: 'Cuenta Bancaria Operativa', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1110' },
+    { code: '1136', name: 'Impuesto Acreditable sobre Compras', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1100' },
+    { code: '2135', name: 'Impuesto sobre Ventas por Pagar', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2100' },
+];
+
+/**
+ * El catálogo mexicano completo, que es lo que este nombre significó siempre.
+ * Se conserva porque hay código y pruebas que lo nombran, y porque una entidad
+ * mexicana tiene que recibir EXACTAMENTE lo mismo que antes de partir la lista.
+ *
+ * El orden importa: `ensureBaseChart` resuelve parent_id leyendo lo que ya
+ * insertó, así que el padre tiene que preceder al hijo. Todos los padres viven
+ * en el estrato universal, de modo que concatenarlo primero lo garantiza.
+ */
+export const BASE_CHART_MX: ChartAccountSpec[] = [...CATALOGO_UNIVERSAL, ...ESTRATO_FISCAL_MX];
+
+/** El catálogo que le toca a una entidad según lleve o no libros mexicanos. */
+export function catalogoBasePara(esMexicana: boolean): ChartAccountSpec[] {
+  return esMexicana
+    ? BASE_CHART_MX
+    : [...CATALOGO_UNIVERSAL, ...ESTRATO_FISCAL_NEUTRO];
+}
+
+/**
  * Crea las cuentas del catálogo base que falten en la entidad. Idempotente:
  * ON CONFLICT (code, entity_id) DO NOTHING y devuelve solo los códigos que
  * realmente creó. El arreglo está ordenado topológicamente (el padre siempre
  * precede al hijo), así que parent_id se resuelve leyendo lo ya insertado.
+ *
+ * `esMexicana` decide QUÉ catálogo se siembra, no si se siembra: una entidad
+ * no mexicana recibe el mismo andamiaje de partida doble y, en lugar del
+ * estrato fiscal mexicano, el neutro. Por omisión true, que es la regla de la
+ * casa ante la duda (ver pais-contable.ts) y deja intacto a todo llamador que
+ * no se entere de este parámetro.
  *
  * No abre transacción propia: trabaja sobre el cliente que recibe.
  */
 export async function ensureBaseChart(
   client: pg.PoolClient,
   entityId: string,
-  createdBy: string
+  createdBy: string,
+  esMexicana = true
 ): Promise<string[]> {
   const existentes = await client.query<{ code: string; id: string }>(
     'SELECT code, id FROM accounts WHERE entity_id = $1',
@@ -92,7 +171,7 @@ export async function ensureBaseChart(
   const porCodigo = new Map(existentes.rows.map((r) => [r.code, r.id]));
   const creadas: string[] = [];
 
-  for (const c of BASE_CHART_MX) {
+  for (const c of catalogoBasePara(esMexicana)) {
     if (porCodigo.has(c.code)) continue;
     const parentId = c.parent ? porCodigo.get(c.parent) ?? null : null;
     const id = uuidv4();
