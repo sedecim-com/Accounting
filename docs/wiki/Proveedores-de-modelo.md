@@ -2,7 +2,7 @@
 
 mnemosine no está casado con un proveedor. Hay dos motores de sesión —el nativo de Anthropic, con caché de prompt y bloques de razonamiento, y un adaptador OpenAI-compatible que sirve a todo lo demás— y encima de ellos un catálogo de perfiles predefinidos que se extiende desde un archivo de configuración.
 
-El README ya cuenta [cómo arrancar con un modelo local](https://github.com/sedecim-com/Accounting/blob/main/README.md). Esta página cubre lo que viene después: la precedencia exacta, por qué el esquema del archivo es estricto, dónde vive la llave, y cómo saber cuál de todos está respondiendo de verdad.
+El README ya cuenta [cómo arrancar con un modelo local](https://github.com/sedecim-com/Accounting/blob/main/README.md). Esta página cubre lo que viene después: la precedencia exacta, por qué el esquema del archivo es estricto, dónde vive la llave, cómo saber cuál de todos está respondiendo de verdad — y, al final, lo que la investigación de septiembre de 2026 encontró: qué defaults del catálogo ya derivaron, qué proveedores faltan y qué se planea hacer al respecto. Esa última parte es dirección, no capacidad.
 
 ---
 
@@ -18,13 +18,13 @@ mnemosine providers
 |---|---|---|---|---|
 | `anthropic` | nativo | `claude-opus-5` | `ANTHROPIC_API_KEY` | El proveedor por omisión |
 | `openai` | OpenAI-compatible | `gpt-5.1` | `OPENAI_API_KEY` | Usa `max_completion_tokens` |
-| `gemini` | OpenAI-compatible | `gemini-2.5-pro` | `GEMINI_API_KEY` | Endpoint compatible de Google AI Studio |
-| `grok` | OpenAI-compatible | `grok-4` | `XAI_API_KEY` | |
-| `qwen` | OpenAI-compatible | `qwen3-max` | `DASHSCOPE_API_KEY` | DashScope en modo compatible |
+| `gemini` | OpenAI-compatible | `gemini-2.5-pro` | `GEMINI_API_KEY` | Endpoint compatible de Google AI Studio (capa aún en beta; ver deriva) |
+| `grok` | OpenAI-compatible | `grok-4` | `XAI_API_KEY` | Modelo derivado; ver abajo |
+| `qwen` | OpenAI-compatible | `qwen3-max` | `DASHSCOPE_API_KEY` | DashScope en modo compatible; URL en ruta de deprecación (ver deriva) |
 | `minimax` | OpenAI-compatible | `MiniMax-M2` | `MINIMAX_API_KEY` | Endpoint global; para China se cambia `base_url` |
-| `openrouter` | OpenAI-compatible | `openrouter/auto` | `OPENROUTER_API_KEY` | Una llave, muchos modelos |
-| `copilot` | OpenAI-compatible | `gpt-5.1` | `COPILOT_API_TOKEN` | El token sale del flujo OAuth de GitHub, no es una llave clásica |
-| `hermes` | OpenAI-compatible | `Hermes-4-405B` | `NOUS_API_KEY` | *Function calling* estándar: las herramientas contables funcionan |
+| `openrouter` | OpenAI-compatible | `openrouter/auto` | `OPENROUTER_API_KEY` | Una llave, muchos modelos. El alias `auto` es deriva garantizada por diseño |
+| `copilot` | OpenAI-compatible | `gpt-5.1` | `COPILOT_API_TOKEN` | El token sale del flujo OAuth de GitHub y es corto: útil solo detrás de un intermediario que lo refresque |
+| `hermes` | OpenAI-compatible | `Hermes-4-405B` | `NOUS_API_KEY` | *Function calling* estándar; la propia doc de Nous advierte que Hermes 4 está afinado para chat y razonamiento, no para bucles intensivos de herramientas |
 | `hermes-agent` | OpenAI-compatible | `hermes-agent` | `HERMES_AGENT_KEY` | Pasarela local. **`tools: false`** |
 | `ollama` | OpenAI-compatible | `llama3.1` | ninguna | Local, sin llave |
 | `openclaw` | OpenAI-compatible | `openclaw:main` | `OPENCLAW_GATEWAY_TOKEN` | Pasarela local. **`tools: false`** |
@@ -41,7 +41,7 @@ El catálogo no se cuenta a mano: `mnemosine providers` imprime la lista efectiv
 
 La bandera es la elección explícita de quien está tecleando; la variable de entorno es de la sesión de la terminal; `default_provider` es del proyecto o del usuario; y si nada dice otra cosa, `anthropic`. La resuelve `listProfiles` y la consume `resolveProfile`.
 
-El modelo se elige aparte: `--model` sobrescribe el `model` del perfil sin cambiar de perfil, que es lo que quieres cuando tu cuenta tiene otra versión disponible del mismo proveedor.
+El modelo se elige aparte: `--model` sobrescribe el `model` del perfil sin cambiar de perfil, que es lo que quieres cuando tu cuenta tiene otra versión disponible del mismo proveedor — y es el remedio inmediato para cualquier default derivado de la tabla de arriba, sin esperar a que el catálogo se actualice.
 
 Los comandos que hablan con un modelo (`chat`, `ask`, `ingest`) aceptan las dos banderas.
 
@@ -94,7 +94,7 @@ Y los campos de un perfil:
 
 Ésta es la regla dura de la página, y está aplicada en tres lugares distintos.
 
-**El perfil sólo nombra de dónde sale la llave.** `api_key_env` lleva el *nombre* de una variable de entorno (`"NOUS_API_KEY"`), no su valor. `api_key_cmd` lleva un comando que imprime la credencial: un gestor de secretos, una bóveda, o el token de una suscripción ya autenticada. `api_key_cmd` se intenta **sólo si el entorno no resolvió**, corre con un tiempo límite de diez segundos, y si no imprime nada, falla ruidosamente en vez de seguir sin credencial.
+**El perfil sólo nombra de dónde sale la llave.** `api_key_env` lleva el *nombre* de una variable de entorno (`"NOUS_API_KEY"`), no su valor. `api_key_cmd` lleva un comando que imprime la credencial: un gestor de secretos, una bóveda, o el token de una suscripción ya autenticada. `api_key_cmd` se intenta **sólo si el entorno no resolvió**, corre con un tiempo límite de diez segundos, y si no imprime nada, falla ruidosamente en vez de seguir sin credencial. Una limitación conocida: el comando se ejecuta **una vez por resolución** —en la práctica, una vez por corrida del CLI— sin noción de caducidad; para tokens que expiran en una hora (el caso de Google Cloud, abajo) una sesión muy larga puede sobrevivir a su token. Suficiente hoy; documentado para que no sorprenda.
 
 **El escritor de configuración se niega a guardar secretos.** `writeConfigPatch` pasa todo por `assertNoSecrets` antes de tocar el disco, y rechaza dos formas: un valor que **parece** credencial por su prefijo (`sk-`, `ghp_`, `xoxb-`, `AKIA`, `eyJ`), y una llave con nombre de credencial (`key`, `token`, `secret`, `password`) cuyo valor no tiene forma de nombre de variable de entorno. La excepción son las llaves `*_cmd`, que legítimamente llevan comandos — aunque a esas les sigue aplicando la revisión por prefijo, por si alguien pegó ahí la llave de verdad. El mensaje de error dice el porqué: los archivos de configuración se comparten y acaban en git.
 
@@ -103,6 +103,68 @@ Y los campos de un perfil:
 Y cuando truena, no se pierde la evidencia: `quarantineInvalidConfig` copia el archivo rechazado a `<archivo>.rejected-<hash>` antes de lanzar la excepción. El nombre lleva el hash del contenido, así que reintentar es idempotente —el mismo archivo inválido produce siempre el mismo respaldo, sin basura por corrida— y un archivo roto de otra manera obtiene su propia copia. Un archivo que **existe** pero es inválido nunca se reemplaza en silencio por valores por omisión.
 
 Más sobre credenciales del sistema (las fiscales, que son otra cosa) en [[Seguridad-y-credenciales]].
+
+---
+
+## El asistente de conexión: probar antes de guardar
+
+La sección de IA del `init` ([`src/cli/init/s3-ai.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/cli/init/s3-ai.ts)) ya trabaja con una disciplina que conviene conocer porque el plan de abajo se apoya en ella:
+
+- **Deep-links por credencial** (`KEY_URLS`): para cada proveedor, la URL exacta de la consola donde se genera la llave. Menos búsqueda, menos llaves pegadas en el lugar equivocado.
+- **Sonda viva doble antes de persistir**: una llamada de chat y una de *tool calling*. No basta con que el endpoint conteste; tiene que devolver llamadas de herramienta, porque sin eso el agente contable no es agente. Las fallas se categorizan (autenticación, conexión, otro) para que el mensaje diga qué hacer, no solo que falló.
+- **Persistir solo tras prueba**: la configuración se escribe vía `writeConfigPatch` —con sus dos compuertas— únicamente cuando la sonda pasó. Un perfil que nunca respondió no queda guardado como si sirviera.
+
+Esa sonda es, en la práctica, la verificación que ningún catálogo estático puede dar: la tabla de perfiles dice lo que se espera del proveedor; la sonda dice lo que el proveedor hace hoy con tu llave.
+
+---
+
+## La deriva: lo que la investigación de septiembre de 2026 encontró
+
+Los defaults de un catálogo estático envejecen. La verificación con fuentes vivas del 2-sep-2026 encontró estas derivas en los perfiles ya cableados — ninguna rompe el perfil hoy (la sonda del init sigue siendo el árbitro), pero conviene saberlas antes de extrañarse:
+
+| Perfil | Lo cableado | Lo encontrado |
+|---|---|---|
+| `grok` | `grok-4` | La [doc de xAI](https://docs.x.ai/docs/api-reference) ya lista la familia 4.x posterior (`grok-4.6`, `grok-4.3`, …). El endpoint y la autenticación siguen correctos. |
+| `gemini` | `gemini-2.5-pro` | Los modelos citados hoy son familia 3.x; además la [capa OpenAI-compatible de Google](https://ai.google.dev/gemini-api/docs/openai) sigue declarándose **en beta**. |
+| `minimax` | `MiniMax-M2` | Sigue listado, pero el vigente es M3; la [doc de MiniMax](https://platform.minimax.io/docs/guides/text-generation) además recomienda ya su endpoint Anthropic-compatible (irrelevante mientras el perfil sea OpenAI-compatible). Letra chica verificada del modo compatible: `n` solo 1, penalizaciones ignoradas ([referencia](https://platform.minimax.io/docs/api-reference/text-openai-api)). |
+| `qwen` | `dashscope-intl.aliyuncs.com/compatible-mode/v1` | **La deriva más seria.** La [doc oficial de Model Studio](https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope) ya empuja URLs por región y por *workspace*; la URL cableada sigue funcionando según terceros activos, pero está en ruta de deprecación. La misma doc acota el *function calling* a ciertos modelos. Existen snapshots fechados (`qwen3-max-2026-01-23`) útiles para fijar la deriva. |
+| `anthropic` | — | El endpoint no cambió, pero la documentación se mudó: docs.anthropic.com redirige a [platform.claude.com](https://platform.claude.com/docs/en/api/overview). Referencias internas por actualizar. |
+| `openai` | `gpt-5.1`, `max_completion_tokens` | Consistente con todo lo observado, pero la doc profunda no es verificable por máquina (la consola responde 403 a fetch automatizado); la [referencia nueva](https://developers.openai.com/api/reference/chat-completions/overview) confirma chat completions como API viva. La sonda es la verificación real. |
+| `ollama` | — | Vigente; [su doc](https://docs.ollama.com/api/openai-compatibility) confirma tools en `/v1/chat/completions` y que `tool_choice` **no** está soportado (la sonda no lo usa, así que no afecta). |
+| `hermes` | `Hermes-4-405B` | Vigente en [Nous Portal](https://hermes-agent.nousresearch.com/docs/integrations/nous-portal), con el matiz ya incorporado a la tabla: afinado para chat y razonamiento, no para bucles intensivos de herramientas. El Portal ahora rutea además cientos de modelos de terceros bajo una suscripción. |
+| `copilot` | — | `api.githubcopilot.com` sigue sin documentación oficial como API pública; la ruta oficial es el SDK con *device flow* OAuth. La advertencia del perfil sigue siendo exacta. |
+
+La moraleja no es «actualiza a mano cada tres meses». Es doble: a corto plazo, `--model` corrige cualquier default viejo sin tocar el catálogo; a mediano plazo, el plan de abajo prefiere ids **fechados** donde el proveedor los ofrezca y marca los alias tipo `latest` como deriva garantizada.
+
+---
+
+## Los proveedores que faltan (plan de la matriz v2 — todavía no existen)
+
+La misma investigación verificó, en documentación oficial, seis proveedores OpenAI-compatibles con *tool calling* serio que hoy no tienen perfil, más tres nubes que piden trato especial. **Ninguno de estos perfiles está en el catálogo todavía**; esto es lo que se planea precargar:
+
+| Candidato | base_url verificada | Credencial | Nota |
+|---|---|---|---|
+| Mistral | `https://api.mistral.ai/v1` | `MISTRAL_API_KEY` | `tools` y `tool_choice` plenos ([doc](https://docs.mistral.ai/api/)) |
+| DeepSeek | `https://api.deepseek.com` | `DEEPSEEK_API_KEY` | Compatibilidad declarada; [guía oficial de tool calls](https://api-docs.deepseek.com/guides/function_calling); modelos vigentes familia v4 |
+| Groq | `https://api.groq.com/openai/v1` | `GROQ_API_KEY` | Tools en todos sus modelos ([doc](https://console.groq.com/docs/tool-use)); [exclusiones conocidas](https://console.groq.com/docs/openai). **Peligro de teclado: `groq` y `grok` difieren en una letra** — las notas de ambos perfiles se nombrarán mutuamente |
+| Together | `https://api.together.ai/v1` | `TOGETHER_API_KEY` | Ids de modelo con namespace (`meta-llama/...`); [doc](https://docs.together.ai/docs/openai-api-compatibility) |
+| Fireworks | `https://api.fireworks.ai/inference/v1` | llave simple | Tools **por modelo** ([guía](https://docs.fireworks.ai/guides/function-calling)); ids largos `accounts/fireworks/models/...` |
+| Cerebras | `https://api.cerebras.ai/v1` | `CEREBRAS_API_KEY` | Tools soportado ([doc](https://inference-docs.cerebras.ai/resources/openai)), con un caveat que no nos toca |
+| Azure OpenAI | `https://{RECURSO}.openai.azure.com/openai/v1/` | llave o token Entra | [API v1 GA desde ago-2025](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/api-version-lifecycle), cliente OpenAI plano sin `api-version`. No precargable con URL fija: irá como **plantilla del init** que pregunta el recurso |
+| AWS Bedrock | `https://bedrock-runtime.{region}.amazonaws.com/openai/v1` | `AWS_BEARER_TOKEN_BEDROCK` | [Chat completions compatibles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html); tool calling por esa capa **no verificado** — exactamente el caso para el que la sonda existe. Plantilla del init con región |
+| Vertex AI | patrón por proyecto/región, verificado solo en terceros | token de `gcloud` (~1 h) vía `api_key_cmd` | El peor ajuste para un contador: token que expira contra un `api_key_cmd` sin TTL. Irá como **receta documentada, no como perfil precargado** |
+
+---
+
+## La conexión del contador (dirección, no capacidad)
+
+Hoy la única ruta de conexión es la del init actual: elegir proveedor, abrir el deep-link, pegar la llave, sonda doble, persistir tras prueba. Funciona, pero exige abrir una cuenta por proveedor. El plan investigado propone tres rutas, en lenguaje de despacho:
+
+- **Ruta A (la recomendada del plan): una sola llave para todo.** OpenRouter ofrece [OAuth con PKCE](https://openrouter.ai/docs/use-cases/oauth-pkce) con modo *headless*: mnemosine imprimiría la URL, el contador la abre, aprueba con un click y pega el código que ve en pantalla; mnemosine lo canjea por una llave que va a `.env` — jamás al config, que solo diría `api_key_env: OPENROUTER_API_KEY`. Luego la sonda doble de siempre. Cero registro por proveedor.
+- **Ruta B: ya tengo proveedor y llave.** El flujo actual, tal cual; solo crece la lista de perfiles y de deep-links.
+- **Ruta C: suscripción.** Copilot sigue detrás de un intermediario que refresque el token (`api_key_cmd`); si algún día se implementa el *device flow* propio ([RFC 8628](https://datatracker.ietf.org/doc/html/rfc8628)), el token irá a `.env` o a un helper, nunca al config. La e.firma y el CSD ni se mencionan en este flujo: esto es solo credencial de modelo.
+
+Y la pieza contra la deriva silenciosa, también plan: una **instantánea fechada del modelo** — al pasar la primera sonda se guardaría el modelo pedido, el modelo que el proveedor **reporta** en la respuesta, su *fingerprint* cuando exista, y el hash de un muestreo fijo de prompts contables a temperatura 0. Un chequeo en `doctor` compararía después y reportaría `warn` cuando algo cambió: «el modelo que responde hoy no es el que probaste el día X». Nunca `fail` por sí solo — el agente propone, el humano dispone — y la reacción (avisar, o congelar el auto-posteo de la ingesta mientras haya deriva sin reconocer) sería una bifurcación de criterio en el panel, con su lector y su fila de catálogo. Ver [[El-agente-y-sus-limites]].
 
 ---
 
@@ -133,7 +195,7 @@ Un archivo mínimo apuntando a un modelo local:
 
 Dos perfiles predefinidos llevan `tools: false`, y su `note` lo dice en mayúsculas: `hermes-agent` y `openclaw`. No es una limitación de mnemosine, es lo que son esas pasarelas: **corren sus propias herramientas del lado del servidor y no devuelven llamadas de herramienta al cliente.** Por ese canal las herramientas contables de mnemosine **no se invocan nunca**. Es chat genérico.
 
-Para contabilidad con herramientas sobre Hermes, el perfil es `hermes` (el de Nous Portal), que usa *function calling* estándar.
+Para contabilidad con herramientas sobre Hermes, el perfil es `hermes` (el de Nous Portal), que usa *function calling* estándar — con el matiz honesto de que Hermes 4 está afinado para chat y razonamiento antes que para bucles intensivos de herramientas.
 
 El canal `tools: false` no se queda callado sobre lo que es. En [`openai-compat.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/ai/providers/openai-compat.ts) pasan dos cosas al construir la sesión:
 
@@ -205,3 +267,4 @@ Si algo no responde, el diagnóstico paso a paso está en [[Solucion-de-problema
 - [[Seguridad-y-credenciales]] — credenciales fiscales y qué queda registrado.
 - [[Solucion-de-problemas]] — sondas en rojo, llaves faltantes y canales sin herramientas.
 - [[Arquitectura]] — dónde encajan los dos motores de sesión.
+- [[Hoja-de-ruta]] — dónde cae la matriz v2 y la conexión del contador.

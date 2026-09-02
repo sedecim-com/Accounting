@@ -47,6 +47,18 @@ que promete un paso inexistente es peor que no tener manual—.
 - **[[Seguridad-y-credenciales]]** — la bóveda cifrada, la bitácora de accesos, y por qué el proceso se niega a arrancar en producción con los secretos del repositorio.
 - **[[Glosario]]** — RFC, CFDI, PUE, PPD, REP, CSD, inquilino, entidad. En ese orden de necesidad.
 
+### Hacia dónde va
+
+Investigación con ligas verificadas (2026-09-02) y la dirección que tomaría cada frente. Son
+mapas de conexión y diseño, no capacidades: el lector no sale de aquí creyendo que ya puede
+conectar WhatsApp.
+
+- **[[Conectores-PAC]]** — los proveedores de timbrado investigados, la regla de custodia y el plan de precarga.
+- **[[Onboarding-de-contabilidad]]** — traer una contabilidad existente: el XML del SAT como formato universal.
+- **[[El-tablero-grafico]]** — la interfaz gráfica como gateway sobre la misma API, jamás un tercer motor.
+- **[[Canales-de-mensajeria]]** — WhatsApp, Telegram y correo como adaptadores con humano en la salida.
+- **[[La-contabilidad-como-centro]]** — experimental: cuentas públicas atestadas, subcuentas privadas.
+
 ### Quiero saber en qué estado está
 
 - **[[El-tablero-y-los-criterios]]** — el estado no se escribe: se pregunta. Cómo funcionan los criterios ejecutables y por qué un paquete con nueve verdes y un rojo está abierto, no «casi cerrado».
