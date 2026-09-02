@@ -470,7 +470,10 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'Refusing would leave the firm without a statement it may need for a filing deadline, and ' +
       'silence is how a wrong statement gets signed. Naming the residue keeps the document usable ' +
       'and puts the discrepancy where the preparer — and the auditor — will see it.',
-    whyAsking: 'The derived statement and the real bank movement can disagree, and what I do then is your call.',
+    whyAsking:
+      'The derived statement and the real movement of cash can disagree. This is the one financial '
+      + 'statement anybody can check against your bank, so whether the difference is stated or '
+      + 'buried is your call, not mine.',
     whatIDo: 'I publish the statement and state the difference against real cash, with its amount.',
     ifSkipped: 'I publish it and name the difference.',
     priority: 30,
