@@ -156,6 +156,16 @@ jobs:
       # cuando cambia una fuente de un manual ya revisado — no verifica el
       # contenido (eso sería medir prosa), detecta caducidad y nombra qué releer.
       - run: npx tsx scripts/corpus-manifiesto.ts --check
+      # EL CENSO DE SUPERFICIE. Seis números medidos sobre el `program` que se
+      # embarca —hojas sin ejemplo, sin contrato de salida, sin alias
+      # castellano, nodos fuera del idioma canónico, hojas graves sin sus tres
+      # banderas, banderas del diccionario sin hoja— cada uno con su línea base
+      # que SÓLO PUEDE ENCOGER. Falla cuando un número crece sobre su línea
+      # base, y cuando una excepción de SALIDA_NO_TABULAR deja de tapar algo.
+      # El guardián que ya había medía contra una lista escrita a mano y pasaba
+      # en verde con trece hojas incumpliendo: lo que no estaba en la lista no
+      # existía para él. Éste no puede tener ese defecto porque no tiene lista.
+      - run: npx tsx scripts/ux-status.ts --check
 
   # EL ENSAYO DE LA RESTAURACIÓN (S3).
   #

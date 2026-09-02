@@ -13,6 +13,7 @@ import {
   type CompactableMessage,
   type CompactionPlan,
 } from '../ai/compaction.js';
+import { exitCodeFor, ExitCode } from './kernel/index.js';
 
 // ============================================================
 // mnemosine compact (OFFLINE — zero API calls)
@@ -138,7 +139,11 @@ export function registerCompactCommand(program: Command, deps: CompactDeps): voi
             : await latestSession(ctx);
           if (!session) {
             console.log(opts.session ? 'Session not found for this entity.' : 'No sessions yet for this entity.');
-            await deps.shutdown(1);
+            // Las dos ramas dicen lo mismo con distinto texto: la sesión que
+            // se iba a compactar NO ESTÁ. Ese es el 3 del contrato, no el 1
+            // genérico — un guion que encadena `compact` necesita distinguir
+            // «no había nada que compactar» de «la compactación reventó».
+            await deps.shutdown(ExitCode.NOT_FOUND);
             return;
           }
           const keepParsed = Number.parseInt(opts.keep ?? '', 10);
@@ -153,7 +158,7 @@ export function registerCompactCommand(program: Command, deps: CompactDeps): voi
           await deps.shutdown(0);
         } catch (err) {
           deps.reportError(err);
-          await deps.shutdown(1);
+          await deps.shutdown(exitCodeFor(err));
         }
       }
     );

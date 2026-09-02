@@ -11,6 +11,7 @@ import {
   type ApprovalPattern,
   type ApprovalScope,
 } from '../ai/approval-policy.js';
+import { exitCodeFor, usageError } from './kernel/index.js';
 
 // ============================================================
 // mnemosine approvals — graduated approval policies
@@ -31,12 +32,12 @@ export interface ApprovalsDeps {
 
 function parseScope(value: string): ApprovalScope {
   if ((SCOPES as string[]).includes(value)) return value as ApprovalScope;
-  throw new Error(`Invalid --scope "${value}"; expected one of: ${SCOPES.join(', ')}`);
+  throw usageError(`Invalid --scope "${value}"; expected one of: ${SCOPES.join(', ')}`);
 }
 
 function parseMode(value: string): ApprovalMode {
   if ((MODES as string[]).includes(value)) return value as ApprovalMode;
-  throw new Error(`Invalid --mode "${value}"; expected one of: ${MODES.join(', ')}`);
+  throw usageError(`Invalid --mode "${value}"; expected one of: ${MODES.join(', ')}`);
 }
 
 interface GrantOpts {
@@ -59,7 +60,7 @@ function buildPattern(opts: GrantOpts): ApprovalPattern {
   if (opts.provider !== undefined) pattern.provider = opts.provider;
   if (opts.operation !== undefined) pattern.operation = opts.operation;
   if (Object.keys(pattern).length === 0) {
-    throw new Error(
+    throw usageError(
       'The pattern is empty; specify at least one of --kind, --max-amount, --provider, --operation'
     );
   }
@@ -106,7 +107,7 @@ export function registerApprovalsCommand(program: Command, deps: ApprovalsDeps):
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 
@@ -163,7 +164,7 @@ export function registerApprovalsCommand(program: Command, deps: ApprovalsDeps):
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 
@@ -181,7 +182,7 @@ export function registerApprovalsCommand(program: Command, deps: ApprovalsDeps):
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 }

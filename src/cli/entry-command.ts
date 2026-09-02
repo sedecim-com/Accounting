@@ -178,6 +178,117 @@ function lineRow(line: JournalEntryLineWithAccount): Record<string, unknown> {
   };
 }
 
+// ============================================================
+// EJEMPLOS · lo que `--help` no decía
+//
+// `entry create --help` enumeraba doce banderas y ni una póliza escrita: el
+// usuario salía sin saber si <account> es el código, el nombre o un uuid, si
+// el importe lleva coma de millares, ni cuál de standard|adjusting|correction
+// es una póliza de ajuste. Cada bloque de abajo es COPIABLE tal cual: las
+// cuentas son códigos del catálogo base real (chart-seed.ts), los importes
+// van en pesos sin separador de millares —AMOUNT_RE no lo admite— y las
+// fechas en ISO.
+//
+// La prosa va en inglés porque el nodo que la aloja habla inglés (§5.1 del
+// plan maestro sigue abierta); los DATOS son mexicanos.
+//
+// Las líneas que empiezan con # son comentarios de shell: el bloque entero se
+// puede pegar en una terminal sin editar nada.
+// ============================================================
+const EJEMPLOS = {
+  list: `
+Examples:
+  # Every posted entry that touched payables (2110) in July 2026.
+  mnemosine entry list --period 2026-07 --account 2110 --status posted
+  # July's bill postings over 50,000 MXN, as CSV for the auditor.
+  mnemosine entry list --source bill --period 2026-07 --min-amount 50000 --format csv
+`,
+  show: `
+Examples:
+  # The entry with its lines, totals and period.
+  mnemosine entry show JE-2026-00042
+  # Header only, as JSON, for a script.
+  mnemosine entry show JE-2026-00042 --no-lines --json
+`,
+  create: `
+Examples:
+  # Accrue July office rent: 45,000.00 charged to 6120, owed on 2110.
+  # Each --line is <account>:<debit|credit>:<amount> — <account> is the CODE
+  # from the chart of accounts, and the amount carries no thousands separator.
+  mnemosine entry create --date 2026-07-31 --type adjusting --description "Renta de oficina julio 2026" --line "6120:debit:45000.00" --line "2110:credit:45000.00"
+  # Reclassify a misposted expense. A fourth field is the line's own text.
+  mnemosine entry create --type correction --description "Reclasificacion de energia electrica" --line "6130:debit:8700.50:CFE julio" --line "6100:credit:8700.50:Sale de gastos de administracion"
+  # See exactly what would be drafted, writing nothing.
+  mnemosine entry create --description "Honorarios cobrados en efectivo" --line "1110:debit:12000.00" --line "4200:credit:12000.00" --dry-run
+`,
+  check: `
+Examples:
+  # Run the seven NIF rules over a draft that already exists.
+  mnemosine entry check --entry JE-2026-00042
+  # Validate a document that has not been created yet; warnings block (exit 4).
+  mnemosine entry check --file ./polizas/ajuste-julio.json --strict
+`,
+  lineList: `
+Examples:
+  # Every posted line on the peso bank account during July 2026.
+  # This leaf filters by DATE RANGE; --period is not the flag it reads.
+  mnemosine entry line list 1111 --since 2026-07-01 --until 2026-07-31
+  # The receivables control account over a quarter, newest 50 rows.
+  mnemosine entry line list 1120 --since 2026-07-01 --until 2026-09-30 --limit 50
+`,
+  preview: `
+Examples:
+  # The exact account_balances delta this draft would produce, before posting.
+  mnemosine entry preview JE-2026-00042
+  # The same, as JSON, to diff two candidate drafts in a script.
+  mnemosine entry preview JE-2026-00042 --json
+`,
+  edit: `
+Examples:
+  # Correct the description and the external reference of a draft.
+  mnemosine entry edit JE-2026-00042 --description "Renta de oficina julio 2026" --reference "Contrato ARR-2024-11"
+  # Replace ALL the lines: what you pass IS the entry, not an addition to it.
+  mnemosine entry edit JE-2026-00042 --line "6120:debit:46500.00" --line "2110:credit:46500.00"
+`,
+  export: `
+Examples:
+  # Every entry of July 2026 with its lines, flat, for the auditor.
+  mnemosine entry export --period 2026-07 --format csv --output polizas-2026-07.csv
+  # A date range as NDJSON, one line per row, to pipe into another tool.
+  mnemosine entry export --since 2026-07-01 --until 2026-07-31 --format ndjson
+`,
+  import: `
+Examples:
+  # Read the file and report what it holds; stage nothing.
+  mnemosine entry import ./polizas-julio.csv --dry-run
+  # Stage it into a batch. Replaying the same key and file returns that batch.
+  mnemosine entry import ./polizas-julio.csv --layout csv --idempotency-key cierre-julio-2026
+`,
+  post: `
+Examples:
+  # Post one draft to the ledger, after the confirmation prompt.
+  mnemosine entry post JE-2026-00042
+  # Validate and show the effect without moving a balance.
+  mnemosine entry post JE-2026-00042 --dry-run
+  # Unattended, replay-safe: the same key returns the first run's result.
+  mnemosine entry post JE-2026-00042 --yes --idempotency-key cierre-julio-2026-je42
+`,
+  reverse: `
+Examples:
+  # NIF B-1: correct a posted entry by its mirror, dated today. --reason is required.
+  mnemosine entry reverse JE-2026-00042 --reason "Cuenta de gasto equivocada"
+  # Date the mirror into the period being closed instead of today.
+  mnemosine entry reverse JE-2026-00042 --date 2026-07-31 --reason "Reclasificacion del cierre de julio"
+`,
+  void: `
+Examples:
+  # A DRAFT is simply marked void.
+  mnemosine entry void JE-2026-00043 --reason "Capturada por duplicado"
+  # A POSTED one gets its linked mirror instead; --dry-run says which of the two happens.
+  mnemosine entry void JE-2026-00042 --dry-run
+`,
+} as const;
+
 export function registerEntryCommand(program: Command, deps: EntryCommandDeps): void {
   const entry = program
     .command('entry')
@@ -282,6 +393,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     .option('--min-amount <amount>', 'minimum total debits')
     .option('--max-amount <amount>', 'maximum total debits');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action((
     search: string | undefined,
     opts: CommonOpts & {
@@ -357,6 +469,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   withOutput(withContext(show));
   show.option('--no-lines', 'header only, without the lines');
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((number: string, opts: CommonOpts & { lines?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -442,6 +555,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     draftOnly: true,
     writes: 'journal_entries (draft) + journal_entry_lines',
   });
+  create.addHelpText('after', EJEMPLOS.create);
   create.action((
     opts: CommonOpts & {
       line?: string[]; file?: string; date?: string; type?: string;
@@ -527,6 +641,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     .option('--entry <number>', 'an existing entry, by number or id')
     .option('--file <path>', 'a JSON entry document that does not exist yet');
   declareRisk(check, { risk: 'lectura', agent: true });
+  check.addHelpText('after', EJEMPLOS.check);
   check.action((opts: CommonOpts & { entry?: string; file?: string; strict?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -567,6 +682,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     .description('Posted lines of one account, each with the entry it belongs to');
   withOutput(withSelection(withTime(withContext(lineList))));
   declareRisk(lineList, { risk: 'lectura', agent: true });
+  lineList.addHelpText('after', EJEMPLOS.lineList);
   lineList.action((code: string, opts: CommonOpts & { since?: string; until?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -600,6 +716,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     .description('The exact account_balances delta this entry would produce, without touching anything');
   withOutput(withContext(preview));
   declareRisk(preview, { risk: 'lectura', agent: true });
+  preview.addHelpText('after', EJEMPLOS.preview);
   preview.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -634,6 +751,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     draftOnly: true,
     writes: 'journal_entries (draft) + journal_entry_lines',
   });
+  edit.addHelpText('after', EJEMPLOS.edit);
   edit.action((
     ref: string,
     opts: CommonOpts & {
@@ -679,6 +797,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   // withTime ya aporta --period/--since/--until: no se re-declaran.
   withOutput(withTime(withContext(exportar)));
   declareRisk(exportar, { risk: 'lectura', agent: true });
+  exportar.addHelpText('after', EJEMPLOS.export);
   exportar.action((opts: CommonOpts & { since?: string; until?: string; period?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -721,6 +840,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     draftOnly: true,
     writes: 'journal_entry_import_batches + journal_entry_import_rows (staging; jamás el mayor)',
   });
+  importar.addHelpText('after', EJEMPLOS.import);
   importar.action((file: string, opts: CommonOpts & { layout: string; dryRun?: boolean; idempotencyKey?: string }) =>
     run(async () => {
       bootstrapTenant(opts.tenant);
@@ -773,6 +893,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   // Irreversible: declareRisk adds --dry-run, --yes and --idempotency-key,
   // and refuses to let the agent anywhere near this command.
   declareRisk(post, { risk: 'irreversible', writes: 'journal_entries.status + account_balances' });
+  post.addHelpText('after', EJEMPLOS.post);
   post.action((number: string, opts: CommonOpts & { idempotencyKey?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -841,6 +962,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   reverse.option('--date <date>', 'date of the mirror entry (YYYY-MM-DD); defaults to today');
   // declareRisk adds --reason for an undo verb, and gateMutation requires it.
   declareRisk(reverse, { risk: 'irreversible', writes: 'a new posted journal_entry + account_balances' });
+  reverse.addHelpText('after', EJEMPLOS.reverse);
   reverse.action((number: string, opts: CommonOpts & { date?: string; idempotencyKey?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -928,6 +1050,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     .description('Annul an entry: a draft is marked void, a posted one gets its linked mirror');
   withContext(voidCmd);
   declareRisk(voidCmd, { risk: 'irreversible', writes: 'journal_entries.status or a mirror entry' });
+  voidCmd.addHelpText('after', EJEMPLOS.void);
   voidCmd.action((number: string, opts: CommonOpts & { idempotencyKey?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);

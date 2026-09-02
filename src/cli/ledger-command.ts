@@ -60,6 +60,48 @@ interface CommonOpts {
   all?: boolean;
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// `--period` de esta familia es el NOMBRE del periodo fiscal (o un fragmento
+// suyo), no el selector de `report`: los nombres se acuñan en inglés
+// ("July 2026", fiscal-calendar-service.ts). El auxiliar es la forma que pide
+// el XC del Anexo 24, y por eso su ejemplo lo saca en CSV.
+// Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  check: `
+Examples:
+  # The blocking checks; exit 4 if anything is found.
+  mnemosine ledger check
+  # One named check, scoped to a single account and period.
+  mnemosine ledger check --check balance --account 1120 --period "July 2026"
+  # Every check, with warnings blocking too.
+  mnemosine ledger check --check balance,audit-trail,continuity --strict
+`,
+  staleDraftList: `
+Examples:
+  # Drafts sitting unposted for more than 30 days.
+  mnemosine ledger stale-draft list
+  # Older than a week and dated into one period, as CSV.
+  mnemosine ledger stale-draft list --days 7 --period "July 2026" --format csv
+`,
+  auxiliaryShow: `
+Examples:
+  # One account, one period: beginning balance, every movement, ending balance.
+  mnemosine ledger auxiliary show --account 1120 --period "July 2026"
+  # The payables account in the same shape, as CSV for the auditor.
+  mnemosine ledger auxiliary show --account 2110 --period "July 2026" --format csv
+`,
+  balanceShow: `
+Examples:
+  # One account decomposed by period, with each period's status.
+  mnemosine ledger balance show --account 1111
+  # Only the period that contains a date.
+  mnemosine ledger balance show --account 1111 --as-of 2026-07-31
+`,
+} as const;
+
 export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps): void {
   const ledger = program
     .command('ledger')
@@ -98,6 +140,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
     .option('--account <code>', 'scope the balance check to one account')
     .option('--period <name>', 'scope the balance check to one fiscal period');
   declareRisk(check, { risk: 'lectura', agent: true });
+  check.addHelpText('after', EJEMPLOS.check);
   check.action((opts: CommonOpts & { check?: string; account?: string; period?: string; strict?: boolean }) =>
     run(async () => {
       if (opts.check === '') {
@@ -136,6 +179,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
     .option('--days <n>', 'minimum age in days', '30')
     .option('--period <name>', 'only drafts dated into this fiscal period');
   declareRisk(staleList, { risk: 'lectura', agent: true });
+  staleList.addHelpText('after', EJEMPLOS.staleDraftList);
   staleList.action((opts: CommonOpts & { days: string; period?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -163,6 +207,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
     .requiredOption('--account <code>', 'account code')
     .requiredOption('--period <name>', 'fiscal period name (or unambiguous fragment)');
   declareRisk(auxShow, { risk: 'lectura', agent: true });
+  auxShow.addHelpText('after', EJEMPLOS.auxiliaryShow);
   auxShow.action((opts: CommonOpts & { account: string; period: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -204,6 +249,7 @@ export function registerLedgerCommand(program: Command, deps: LedgerCommandDeps)
     .option('--period <name>', 'only the periods whose name matches')
     .option('--dim <name>', 'per-dimension breakdown (not available: the dimension family does not exist yet)');
   declareRisk(balShow, { risk: 'lectura', agent: true });
+  balShow.addHelpText('after', EJEMPLOS.balanceShow);
   balShow.action((opts: CommonOpts & { account: string; asOf?: string; period?: string; dim?: string }) =>
     run(async () => {
       if (opts.dim) {

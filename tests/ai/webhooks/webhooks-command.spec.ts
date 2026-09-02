@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vite
 import type { MockInstance } from 'vitest';
 import { Command } from 'commander';
 
+import { ExitCode } from '../../../src/cli/kernel/exit.js';
+
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
   withTenant: vi.fn(),
@@ -96,11 +98,15 @@ describe('webhooks create', () => {
     expect(shutdownCodes).toEqual([0]);
   });
 
-  it('rejects an invalid --source before touching anything', async () => {
+  it('rejects an invalid --source with USAGE, before touching anything', async () => {
     await run('webhooks', 'create', 'x', '--source', 'carrier-pigeon');
     expect(logs.join('\n')).toContain('ERROR: Invalid --source');
     expect(mockIssue).not.toHaveBeenCalled();
-    expect(shutdownCodes).toEqual([1]);
+    // Era [1]. Un valor de bandera fuera del vocabulario es USAGE (2) por el
+    // contrato de exit.ts, y la familia webhooks entera lo aplastaba a 1: ni
+    // este rechazo ni el `catch` de la hoja pasaban por exitCodeFor. El 1 que
+    // esta línea fijaba ERA el fallo, no la referencia.
+    expect(shutdownCodes).toEqual([ExitCode.USAGE]);
   });
 });
 
@@ -129,10 +135,13 @@ describe('webhooks disable', () => {
     expect(shutdownCodes).toEqual([0]);
   });
 
-  it('exits 1 when no enabled token matches', async () => {
+  it('exits NOT_FOUND when no enabled token matches', async () => {
     mockDisable.mockResolvedValueOnce(false);
     await run('webhooks', 'disable', 'ghost');
-    expect(shutdownCodes).toEqual([1]);
+    // Era [1], y el propio título de la prueba lo decía. «No hay token
+    // habilitado con ese nombre» es exactamente el 3 del contrato: un guion
+    // que deshabilita en lote necesita distinguirlo de «la base no respondió».
+    expect(shutdownCodes).toEqual([ExitCode.NOT_FOUND]);
   });
 });
 

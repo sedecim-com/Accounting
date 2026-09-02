@@ -46,6 +46,30 @@ interface CommonOpts {
   check?: string | boolean;
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables
+//
+// `--check` sin valor ENUMERA la batería en vez de correrla, que es la forma
+// de descubrir los nombres sin salir del comando. Prosa en inglés (idioma del
+// nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  reconcile: `
+Examples:
+  # The subledger against the cxc control account, naming the manual entries.
+  mnemosine ar reconcile
+  # Exit 4 on any delta, however small, so CI can block on it.
+  mnemosine ar reconcile --strict
+`,
+  check: `
+Examples:
+  # List the diagnostics this battery can run, and run none of them.
+  mnemosine ar check --check
+  # Run two of them, failing on warnings too.
+  mnemosine ar check --check duplicate-invoice,stale-unapplied-cash --strict
+`,
+} as const;
+
 export function registerArCommand(program: Command, deps: ArCommandDeps): void {
   const ar = program
     .command('ar')
@@ -79,6 +103,7 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
   withOutput(withContext(reconcile));
   reconcile.option('--strict', 'exit 4 on any delta, however small the list of suspects');
   declareRisk(reconcile, { risk: 'lectura', agent: true });
+  reconcile.addHelpText('after', EJEMPLOS.reconcile);
   reconcile.action((opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -138,6 +163,7 @@ export function registerArCommand(program: Command, deps: ArCommandDeps): void {
     .option('--check [names]', 'comma-separated diagnostics to run; bare --check lists the battery')
     .option('--strict', 'exit 4 on warnings too, not only blocking findings');
   declareRisk(check, { risk: 'lectura', agent: true });
+  check.addHelpText('after', EJEMPLOS.check);
   check.action((opts: CommonOpts) =>
     run(async () => {
       const p = deps.palette;

@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 import { stdin, stdout, stderr } from 'node:process';
-import { Command, InvalidArgumentError } from 'commander';
+import { Command, InvalidArgumentError, type CommanderError } from 'commander';
 import { declararPendientes } from './kernel/riesgos-retrofit.js';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
@@ -48,6 +48,7 @@ import {
   exitCodeFor,
   CliError,
   ExitCode,
+  type ExitCodeValue,
 } from './kernel/index.js';
 import { esAfirmativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
@@ -65,6 +66,7 @@ import { palette } from './palette.js';
 import { detectSetupState, type SetupState } from './first-run.js';
 import { renderBanner, type BannerInfo } from './banner.js';
 import { registerCloseCommand } from './close-command.js';
+import { registerCompletionCommand } from './completion-command.js';
 import { registerCompactCommand } from './compact-command.js';
 import { registerApprovalsCommand } from './approvals-command.js';
 import { registerUsageCommand } from './usage-command.js';
@@ -556,6 +558,233 @@ async function runFreshRescue(state: SetupState): Promise<InitWizardResult | 'de
 
 const program = new Command();
 
+// ============================================================
+// EL CONTRATO DE SALIDA TAMBIÉN CUBRE LOS ERRORES DE COMMANDER
+//
+// Sin `exitOverride`, todo error de USO —subcomando inexistente, bandera
+// mal escrita, argumento faltante— muere en el `process.exit(1)` que
+// commander lleva dentro (`_exit`, command.js:534). Dos daños, y el
+// segundo es el caro:
+//   · el código es 1 donde exit.ts promete 2 (USAGE), así que un guion
+//     no puede distinguir un dedazo del usuario de un fallo del sistema; y
+//   · el proceso muere SIN pasar por shutdown(), o sea sin drenar las
+//     atestaciones en vuelo ni cerrar el pool. Las trece filas de la tabla
+//     de exit.ts existían y la puerta de salida se saltaba doce.
+//
+// `exitOverride` convierte cada `_exit` de commander en una excepción que
+// el catch de la entrada recoge y pasa por shutdown().
+//
+// EL DETALLE QUE MUERDE: exitOverride TAMBIÉN dispara en `--help` y en
+// `--version`, que son salidas de ÉXITO. Mandarlas a 2 rompería todo
+// guion que pida ayuda antes de decidir, así que el traductor las mira
+// por `err.code` —el identificador estable que commander adjunta— y
+// nunca por el texto del mensaje.
+//
+// LA INSTALACIÓN VA AQUÍ, pegada al constructor y antes del primer
+// `.command()`: commander copia `_exitCallback` en el momento de CREAR
+// cada subcomando (copyInheritedSettings, command.js:105) y nunca
+// después. Instalarlo al final del archivo dejaría el árbol entero sin
+// cubrir y sólo la raíz traduciría — que es justo el caso que menos
+// duele, porque la raíz ya tiene su propia compuerta más abajo.
+// ============================================================
+
+/** Los `err.code` de commander que NO son un error: la ayuda y la versión. */
+const SALIDAS_DE_COMMANDER_QUE_SON_EXITO = new Set([
+  'commander.help', // `mnemosine help`, `mnemosine help report`
+  'commander.helpDisplayed', // -h / --help en cualquier nivel
+  'commander.version', // -V / --version
+]);
+
+/**
+ * El código del contrato (exit.ts) para una salida de commander.
+ *
+ * Todo lo que no es ayuda ni versión es un error de USO: bandera
+ * desconocida, subcomando inexistente, argumento faltante, argumento
+ * inválido, opción obligatoria sin valor, opciones en conflicto,
+ * demasiados argumentos. Los ocho tienen el mismo remedio —el usuario
+ * vuelve a teclear— y por eso comparten código.
+ *
+ * Queda un noveno `err.code`, `commander.executeSubCommandAsync`, que no
+ * es una salida sino el cierre de un subcomando EJECUTABLE lanzado con
+ * spawn. En este árbol no puede dispararse: no hay una sola hoja de esa
+ * forma, y hay prueba que lo fija (si alguien añade la primera, la prueba
+ * se pone roja y este comentario deja de ser una promesa).
+ */
+export function codigoDeSalidaDeCommander(err: {
+  code?: string;
+  exitCode?: number;
+}): ExitCodeValue {
+  if (SALIDAS_DE_COMMANDER_QUE_SON_EXITO.has(err.code ?? '')) {
+    // `help({ error: true })` imprime la ayuda A RAÍZ de un fallo y sale
+    // con código distinto de cero: eso sigue siendo un uso mal escrito.
+    return err.exitCode === 0 ? ExitCode.OK : ExitCode.USAGE;
+  }
+  return ExitCode.USAGE;
+}
+
+/**
+ * Lo que commander iba a hacer con process.exit, convertido en algo que
+ * el cierre ordenado pueda atender. Lleva el código YA traducido porque
+ * quien la recoge (el catch de la entrada) no debe volver a decidir.
+ *
+ * No es un CliError a propósito: un CliError significa «un comando falló
+ * y hay que reportarlo», y aquí no hay nada que reportar — commander ya
+ * escribió su línea en stderr antes de salir (`error()`, command.js:1953)
+ * y --help/--version ya volcaron lo suyo en stdout.
+ */
+export class SalidaDeCommander extends Error {
+  constructor(
+    readonly codigo: ExitCodeValue,
+    readonly origen: string
+  ) {
+    super(`commander exit (${origen})`);
+    this.name = 'SalidaDeCommander';
+  }
+}
+
+program.exitOverride((err: CommanderError) => {
+  throw new SalidaDeCommander(codigoDeSalidaDeCommander(err), err.code);
+});
+
+// ============================================================
+// LOS EJEMPLOS DE LAS HOJAS QUE VIVEN EN ESTE ARCHIVO
+//
+// Mismo trato que en report-command.ts y compañía: prosa en el idioma
+// del nodo —estas hojas están en inglés— y datos mexicanos de verdad,
+// el mismo reparto que ya usan los ejemplos de las otras familias
+// (Molinos del Bajio como entidad, Papeleria del Centro como proveedor,
+// cuentas del catálogo que chart-seed.ts siembra).
+//
+// Ninguna bandera de aquí está inventada: tests/cli/ejemplos-de-ayuda
+// resuelve cada línea contra el árbol embarcado y falla si una hoja
+// enseña una bandera que no declara.
+// ============================================================
+const EJEMPLOS = {
+  entities: `
+Examples:
+  # The active legal entities of this tenant (\`entity list\` supersedes this).
+  mnemosine entities
+`,
+  providers: `
+Examples:
+  # Which model providers are configured, and whether their API key is present.
+  mnemosine providers
+`,
+  ask: `
+Examples:
+  # One question, one answer, no interactive session.
+  mnemosine ask "Cuanto IVA acreditable acumule en julio"
+  # Ask about one client, on a named provider.
+  mnemosine ask "Saldo de la cuenta 1111 al cierre de julio" --entity "Molinos del Bajio" --provider anthropic
+`,
+  chat: `
+Examples:
+  # Open a session against the entity you last worked on.
+  mnemosine chat
+  # Pick up the transcript of this terminal's last session.
+  mnemosine chat --continue
+  # Resume one session by id (list them with \`mnemosine sessions\`).
+  mnemosine chat --resume 6f1b0c2e-6d3a-4a8e-9a4c-2a3b4c5d6e7f
+`,
+  sessions: `
+Examples:
+  # The most recent chat sessions of the active entity.
+  mnemosine sessions
+  # The last five, for one client.
+  mnemosine sessions --entity "Molinos del Bajio" --limit 5
+`,
+  drafts: `
+Examples:
+  # Every draft the AI created that nobody has looked at yet.
+  mnemosine drafts --status pending_review
+  # The rejected ones, for a named entity.
+  mnemosine drafts --status rejected --entity "Molinos del Bajio SA de CV"
+`,
+  review: `
+Examples:
+  # Walk the pending drafts one by one; approving POSTS to the ledger.
+  mnemosine review
+  # See what would be posted without moving a balance.
+  mnemosine review --dry-run
+  # Attribute the review to a named reviewer and skip the prompt.
+  mnemosine review --user contador@despacho.mx --yes
+`,
+  ingest: `
+Examples:
+  # Read a month of received CFDIs; everything lands as a draft to review.
+  mnemosine ingest ./cfdi/julio/*.xml
+  # See what it would classify, writing nothing and posting nothing.
+  mnemosine ingest ./cfdi/julio/PCE180412TF4_A4471.xml --dry-run
+  # Turn auto-posting OFF for this run, even if the firm's panel allows it.
+  mnemosine ingest ./cfdi/julio/*.xml --no-auto-post --user contador@despacho.mx
+  # Confirm the auto-posting the panel already authorized, with your own ceiling.
+  mnemosine ingest ./cfdi/julio/*.xml --auto-post --min-confidence 0.95 --max-amount 20000
+`,
+  lang: `
+Examples:
+  # Which language the agent answers in right now.
+  mnemosine lang
+  # Make it answer in Spanish. The CLI interface stays English either way.
+  mnemosine lang es
+`,
+  onboard: `
+Examples:
+  # Plan the import from the client's current system, writing nothing.
+  mnemosine onboard --provider contalink --cutoff 2026-06-30 --dry-run
+  # Bring in the chart and the opening balances; they wait as a draft.
+  mnemosine onboard --provider contalink --cutoff 2026-06-30 --entity "Molinos del Bajio"
+  # Post the opening entry now, balancing the remainder to prior-year results.
+  mnemosine onboard --provider contalink --cutoff 2026-06-30 --balance-account 3200 --post --yes
+`,
+  outboxList: `
+Examples:
+  # The operations queued for the client's external system.
+  mnemosine outbox list
+  # Everything that failed, as JSON to attach to a ticket.
+  mnemosine outbox list --status failed --json
+`,
+  outboxRun: `
+Examples:
+  # Work the queue interactively; nothing reaches the client's system yet.
+  mnemosine outbox run --dry-run
+  # Execute two operations FOR REAL against the client's system.
+  mnemosine outbox run 3f2a9c14-8b0e-4d55-9c31-77a0d2f4b8e6 8a1c5d90-2b47-4e6f-b0d3-91e2a7c4f5b6 --live --yes
+`,
+  questionList: `
+Examples:
+  # The questions the agent is waiting on.
+  mnemosine question list
+  # The ones already answered, as CSV for the file.
+  mnemosine question list --status answered --format csv
+`,
+  questionAnswer: `
+Examples:
+  # Work the pending queue one question at a time.
+  mnemosine question answer
+  # Answer one by id; the answer is stored as a precedent.
+  mnemosine question answer 5d2e7a10-93cf-4b62-8a71-0c4e6f8b2d19 "Va a gastos: mantenimiento menor, no capitaliza"
+  # Pick option 2 of the ones the question offers.
+  mnemosine question answer 5d2e7a10-93cf-4b62-8a71-0c4e6f8b2d19 2
+`,
+  login: `
+Examples:
+  # Sign in with a browser.
+  mnemosine login
+  # On a server reached over SSH, with no browser to open.
+  mnemosine login --device
+`,
+  logout: `
+Examples:
+  # Delete the credential stored on this machine.
+  mnemosine logout
+`,
+  whoami: `
+Examples:
+  # Which credential is active, and how long it is good for.
+  mnemosine whoami
+`,
+};
+
 program
   .name('mnemosine')
   .description('AI accounting assistant — converse with your accounting from the terminal')
@@ -596,6 +825,7 @@ program
   .command('entities')
   .alias('entidades')
   .description('Lists the active legal entities (deprecated: use `mnemosine entity list`)')
+  .addHelpText('after', EJEMPLOS.entities)
   .action(async () => {
     try {
       // R9 deprecation protocol: the old name keeps working and says so on
@@ -619,7 +849,7 @@ program
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -627,6 +857,7 @@ program
   .command('providers')
   .alias('proveedores')
   .description('Lists the configured model providers (built-in + mnemosine.config.json)')
+  .addHelpText('after', EJEMPLOS.providers)
   .action(async () => {
     try {
       const { profiles, defaultName, source } = listProfiles();
@@ -652,7 +883,7 @@ program
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -664,6 +895,7 @@ program
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
   .option('-m, --model <model>', 'Override the profile model')
+  .addHelpText('after', EJEMPLOS.ask)
   .action(async (questionParts: string[], opts: { entity?: string; provider?: string; model?: string }) => {
     try {
       const callbacks = makeCallbacks();
@@ -676,7 +908,7 @@ program
     } catch (err) {
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -689,6 +921,7 @@ program
   .option('--continue', 'Resume the latest session of this terminal/entity (transcript continuity; the model context starts fresh)')
   .option('--resume <id>', 'Resume a specific session by id (see: mnemosine sessions)')
   .option('--no-banner', 'Suppress the startup banner (also: MNEMOSINE_NO_BANNER=1)')
+  .addHelpText('after', EJEMPLOS.chat)
   .action(async (opts: {
     entity?: string; provider?: string; model?: string;
     continue?: boolean; resume?: string; banner?: boolean;
@@ -755,14 +988,20 @@ program
         if (state.state === 'ready') throw startupErr;
         if (state.state === 'broken') {
           // Repair mode: name the problem, print the fix, change nothing.
+          // FAILURE y no un código fino a propósito: `state.broken` agrupa
+          // causas de máquina (no hay base, no hay credencial de modelo, las
+          // migraciones no han corrido) que no comparten remedio ni familia.
+          // Inventarles un 2 o un 5 sería mentir con más precisión.
           renderBrokenFlow(state);
-          return shutdown(1);
+          return shutdown(ExitCode.FAILURE);
         }
         // Fresh machine → inline rescue. A pipe cannot answer a wizard:
         // point at init and exit instead of hanging.
         if (!stdin.isTTY || !stdout.isTTY) {
           stderr.write('Not configured. Run: mnemosine init\n');
-          return shutdown(1);
+          // Misma razón: la máquina está sin configurar, que es un fallo
+          // genérico del entorno y no un error de uso del que invoca.
+          return shutdown(ExitCode.FAILURE);
         }
         const rescue = await runFreshRescue(state);
         if (rescue === 'declined' || !rescue.completed) {
@@ -809,7 +1048,7 @@ program
         let resumed: SessionRow | null = null;
         if (opts.resume) {
           resumed = await getSession(ctx, opts.resume);
-          if (!resumed) throw new Error(`Session ${opts.resume} does not exist in this entity.`);
+          if (!resumed) throw notFound(`Session ${opts.resume} does not exist in this entity.`);
         } else if (opts.continue) {
           resumed = await latestSession(ctx, terminalKey ?? undefined);
           if (!resumed) console.log(c.dim('No previous session for this entity; starting a new one.\n'));
@@ -1011,7 +1250,7 @@ program
       rl?.close();
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1025,6 +1264,7 @@ program
     if (!Number.isFinite(n)) throw new InvalidArgumentError('Expected a number.');
     return n;
   }, 20)
+  .addHelpText('after', EJEMPLOS.sessions)
   .action(async (opts: { entity?: string; limit?: number }) => {
     try {
       const ctx = await resolveEntity(opts.entity);
@@ -1046,7 +1286,7 @@ program
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1082,6 +1322,7 @@ program
   .description('Lists the journal entry drafts created by the AI')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-s, --status <status>', 'pending_review | approved | rejected')
+  .addHelpText('after', EJEMPLOS.drafts)
   .action(async (opts: { entity?: string; status?: 'pending_review' | 'approved' | 'rejected' }) => {
     try {
       const ctx = await resolveEntity(opts.entity);
@@ -1100,7 +1341,7 @@ program
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1109,7 +1350,8 @@ const review = program
   .alias('revisar')
   .description('Reviews pending drafts: approve (creates and posts the journal entry) or reject')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Reviewer email (default: first active user of the tenant)');
+  .option('-u, --user <email>', 'Reviewer email (default: first active user of the tenant)')
+  .addHelpText('after', EJEMPLOS.review);
 // Aprobar POSTEA al mayor: irreversible, declarado junto a su registro (S0.6;
 // antes vivía en la tabla de retrofit). El kernel añade --dry-run, --yes e
 // --idempotency-key y le niega el comando al agente.
@@ -1210,7 +1452,7 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
       rl?.close();
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1226,7 +1468,8 @@ const ingest = program
   .option('--auto-post', 'Enables threshold-based auto-posting (default: everything stays as draft)')
   .option('--no-auto-post', 'Disables auto-posting even if the config has it turned on')
   .option('--min-confidence <n>', 'Minimum confidence for auto-post (0-1)', parseFloat)
-  .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat);
+  .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat)
+  .addHelpText('after', EJEMPLOS.ingest);
 // Irreversible por su camino más grave (el auto-posteo), declarado junto a su
 // registro (S0.6). El plan de cierre proponía partirlo por bandera, pero S0.3
 // lo dejó atrás: el auto-posteo no lo decide una bandera sino el panel del
@@ -1415,7 +1658,7 @@ ingest.action(async (files: string[], opts: {
     } catch (err) {
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1424,6 +1667,7 @@ program
   .alias('idioma')
   .description("Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)")
   .argument('[language]', "'en' or 'es'; omit to show the current setting")
+  .addHelpText('after', EJEMPLOS.lang)
   .action(async (language?: string) => {
     try {
       if (!language) {
@@ -1438,12 +1682,12 @@ program
           console.log(c.dim(`  ⚠ MNEMOSINE_LANG=${env} is set and takes precedence — unset it for this change to apply.`));
         }
       } else {
-        throw new Error(`Unsupported language "${language}". Options: en, es`);
+        throw usageError(`Unsupported language "${language}". Options: en, es`);
       }
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1458,7 +1702,8 @@ const onboard = program
   .option('-u, --user <email>', 'Who runs it (default: sole active user of the tenant)')
   .option('--balance-account <code>', 'Balancing account if the remote trial balance does not sum to zero (e.g. 3200)')
   .option('--post', 'Post the opening balance immediately (default: stays as a draft for mnemosine review)')
-  .option('--dry-run', 'Only show the plan, without executing anything');
+  .option('--dry-run', 'Only show the plan, without executing anything')
+  .addHelpText('after', EJEMPLOS.onboard);
 // Irreversible por su camino más grave (--post postea el asiento de apertura),
 // declarado junto a su registro (S0.6). Su --dry-run existía desde antes del
 // kernel y ya era honesta (sólo el plan); el kernel añade --yes e
@@ -1474,7 +1719,7 @@ onboard.action(async (opts: {
   }) => {
     let rl: readline.Interface | undefined;
     try {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(opts.cutoff)) throw new Error('--cutoff must be YYYY-MM-DD');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(opts.cutoff)) throw usageError('--cutoff must be YYYY-MM-DD');
       const startDate = opts.from ?? `${opts.cutoff.slice(0, 4)}-01-01`;
       const ctx = await resolveEntity(opts.entity);
       const { dryRun } = gateMutation(onboard, opts);
@@ -1867,7 +2112,8 @@ const outbox = program
 const outboxList = outbox
   .command('list')
   .alias('listar')
-  .description('List queued external operations (default: pending)');
+  .description('List queued external operations (default: pending)')
+  .addHelpText('after', EJEMPLOS.outboxList);
 withOutput(withSelection(withContext(outboxList)));
 declareRisk(outboxList, { risk: 'lectura', agent: true });
 outboxList.action(async (_opts: unknown, cmdArg: Command) => {
@@ -1889,7 +2135,8 @@ const outboxRun = outbox
   .argument('[id...]', 'operation ids to execute; omit to review the whole queue interactively')
   .description("Execute queued operations against the client's external system (the real effect requires --live)")
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)');
+  .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)')
+  .addHelpText('after', EJEMPLOS.outboxRun);
 declareRisk(outboxRun, {
   risk: 'externo',
   agent: false,
@@ -2042,7 +2289,8 @@ const question = program
 const questionList = question
   .command('list')
   .alias('listar')
-  .description("List the agent's questions (default: pending)");
+  .description("List the agent's questions (default: pending)")
+  .addHelpText('after', EJEMPLOS.questionList);
 withOutput(withSelection(withContext(questionList)));
 declareRisk(questionList, { risk: 'lectura', agent: true });
 questionList.action(async (_opts: unknown, cmdArg: Command) => {
@@ -2064,7 +2312,8 @@ const questionAnswer = question
   .argument('[answer...]', 'the answer text, or the number of an option (requires <id>)')
   .description('Answer a question (the answer is saved as a precedent), or work the pending queue')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)');
+  .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)')
+  .addHelpText('after', EJEMPLOS.questionAnswer);
 declareRisk(questionAnswer, {
   risk: 'escritura',
   agent: false,
@@ -2138,12 +2387,14 @@ program
   .alias('entrar')
   .description('Signs in with your identity provider (OIDC)')
   .option('--device', 'Use the device-code flow (SSH, server without a browser)')
+  .addHelpText('after', EJEMPLOS.login)
   .action(async (opts: { device?: boolean }) => {
     try {
       if (!config.auth.enabled) {
         console.error(ce.red('OIDC is not configured.'));
         console.error('Set AUTH_OIDC_ISSUER, AUTH_OIDC_CLIENT_ID and AUTH_OIDC_AUDIENCE in your .env.');
-        await shutdown(1);
+        // Entorno sin configurar, igual que los dos de arriba: FAILURE.
+        await shutdown(ExitCode.FAILURE);
       }
       const cfg = {
         issuer: config.auth.issuer,
@@ -2174,7 +2425,7 @@ program
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -2182,6 +2433,7 @@ program
   .command('logout')
   .alias('salir')
   .description('Deletes the stored credential')
+  .addHelpText('after', EJEMPLOS.logout)
   .action(async () => {
     await clearToken();
     console.log('Signed out.');
@@ -2192,6 +2444,7 @@ program
   .command('whoami')
   .alias('quien')
   .description('Shows the active credential and its validity')
+  .addHelpText('after', EJEMPLOS.whoami)
   .action(async () => {
     const token = await loadToken();
     if (!token) {
@@ -2248,6 +2501,21 @@ registerSkillsCommand(program, { palette: c, shutdown, reportError });
 registerWebhooksCommand(program, { palette: c, shutdown, reportError });
 registerInitCommand(program, { palette: c, shutdown, reportError });
 registerCloseCommand(program, { palette: c, shutdown, reportError });
+// Va el ÚLTIMO a propósito: su guion se genera del árbol vivo en tiempo de
+// acción, así que el orden de registro no lo condiciona, pero registrarlo al
+// final deja escrito que completa todo lo de arriba y no un árbol a medias.
+registerCompletionCommand(program, { palette: c, shutdown, reportError });
+// Lectura pura: recorre el árbol EN MEMORIA y escribe un guion en stdout, sin
+// abrir la base ni tocar nada de fuera. Toda hoja declara —a lo que no declara
+// no se le aplica ninguna compuerta y el auditor no puede decir nada de ello—
+// y una hoja NUEVA declara junto a su registro, no en la tabla de retrofit.
+//
+// DEUDA ANOTADA: el sitio de la casa es junto al `.command('completion')`,
+// dentro de completion-command.ts. Está aquí porque registerCompletionCommand
+// no devuelve el comando y ese archivo lo escribe otra mano; migrarla es mover
+// la declaración y borrar la búsqueda.
+const completionCmd = (program.commands as Command[]).find((cmd) => cmd.name() === 'completion');
+if (completionCmd) declareRisk(completionCmd, { risk: 'lectura', agent: true });
 
 // Las declaraciones de riesgo que faltaban, sobre el árbol ya completo.
 //
@@ -2372,21 +2640,39 @@ export { program };
 // require.main identifies it). Importing this module — the entry-flow spec
 // pulls the exported pure helpers — must not launch the CLI.
 if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
-  const argv = [...process.argv];
-  const veredicto = veredictoDeRaiz(argv[2], comandosRegistrados(program));
-  if (veredicto.tipo === 'desconocido') {
-    // Antes de abrir base o túnel alguno: un tecleo desconocido termina aquí
-    // con el contrato de USAGE, en vez de viajar hasta chat y morir con un
-    // «too many arguments for chat» que no nombra el problema.
-    stderr.write(ce.red(`error: unknown command '${argv[2]}'\n`));
-    if (veredicto.sugerencia) {
-      stderr.write(`(Did you mean ${veredicto.sugerencia}?)\n`);
+  void (async () => {
+    const argv = [...process.argv];
+    const veredicto = veredictoDeRaiz(argv[2], comandosRegistrados(program));
+    if (veredicto.tipo === 'desconocido') {
+      // Antes de abrir base o túnel alguno: un tecleo desconocido termina aquí
+      // con el contrato de USAGE, en vez de viajar hasta chat y morir con un
+      // «too many arguments for chat» que no nombra el problema.
+      stderr.write(ce.red(`error: unknown command '${argv[2]}'\n`));
+      if (veredicto.sugerencia) {
+        stderr.write(`(Did you mean ${veredicto.sugerencia}?)\n`);
+      }
+      // Por shutdown como todo el resto. Aquí todavía no hay base abierta y
+      // el cierre no tiene nada que drenar, pero la salida del proceso tiene
+      // UNA puerta: dejar una excepción a la vista es cómo vuelve el bicho.
+      await shutdown(ExitCode.USAGE);
+      return;
     }
-    process.exit(ExitCode.USAGE);
-  }
-  if (veredicto.tipo === 'canonico') argv[2] = veredicto.nombre;
-  program.parseAsync(argv).catch(async (err) => {
-    reportError(err);
-    await shutdown(1);
-  });
+    if (veredicto.tipo === 'canonico') argv[2] = veredicto.nombre;
+    try {
+      await program.parseAsync(argv);
+    } catch (err) {
+      if (err instanceof SalidaDeCommander) {
+        // Ya está todo escrito: `error()` vuelca su línea en stderr ANTES de
+        // salir, y --help/--version imprimieron lo suyo. reportError aquí
+        // duplicaría el mensaje y encima le colgaría un remedio inventado.
+        await shutdown(err.codigo);
+        return;
+      }
+      reportError(err);
+      // exitCodeFor y no un 1 fijo: un CliError que se escapa de su acción
+      // trae su código puesto, y perderlo justo en la puerta es el mismo
+      // daño que arriba, sólo que un piso más abajo.
+      await shutdown(exitCodeFor(err));
+    }
+  })();
 }

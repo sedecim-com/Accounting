@@ -93,6 +93,53 @@ function summarize(row: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// El identificador fiscal se valida por FORMA según el país: RFC mexicano
+// (3 o 4 letras, AAMMDD y homoclave) o EIN estadounidense NN-NNNNNNN. Los de
+// abajo son inventados y bien formados. `--default-account` es un CÓDIGO del
+// catálogo, no un nombre: 6100 Gastos de Administración.
+// Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  list: `
+Examples:
+  # Vendors with no tax id on file — the DIOT and 1099 blockers.
+  mnemosine vendor list --no-tax-id
+  # Archived vendors, as CSV.
+  mnemosine vendor list --inactive --format csv
+`,
+  show: `
+Examples:
+  # Identity, terms, currency and flags.
+  mnemosine vendor show "Papeleria del Centro"
+  # Add the activity section.
+  mnemosine vendor show "Papeleria del Centro" --include activity
+`,
+  create: `
+Examples:
+  # A Mexican vendor, with its RFC, terms and default expense account.
+  mnemosine vendor create "Papeleria del Centro SA de CV" --tax-id PCE180412TF4 --terms "Net 30" --currency MXN --default-account 6100
+  # A US vendor flagged for an information return.
+  mnemosine vendor create "Northwind Supplies LLC" --tax-id 47-1234567 --tax-id-type ein --currency USD --1099
+`,
+  edit: `
+Examples:
+  # Contact data, with the reason that lands in the audit row.
+  mnemosine vendor edit "Papeleria del Centro" --email cobranza@papeleriadelcentro.mx --reason "Aviso de cambio del proveedor"
+  # Change who to talk to and how to reach them.
+  mnemosine vendor edit "Papeleria del Centro" --contact "Laura Zepeda" --phone "5555123344"
+`,
+  termsSet: `
+Examples:
+  # Early-payment terms a due date can actually be computed from.
+  mnemosine vendor terms set "Papeleria del Centro" --terms "2/10 Net 30" --reason "Renegociacion de julio"
+  # Settle in dollars from now on.
+  mnemosine vendor terms set "Northwind Supplies LLC" --terms "Net 45" --currency USD --reason "Contrato 2026"
+`,
+} as const;
+
 export function registerVendorCommand(program: Command, deps: VendorCommandDeps): void {
   const vendor = program
     .command('vendor')
@@ -130,6 +177,7 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
     .option('--1099', 'only vendors flagged for a US information return')
     .option('--no-tax-id', 'only vendors with no tax id on file (the DIOT/1099 blockers)');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action((search: string | undefined, opts: CommonOpts & { inactive?: boolean; taxId?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -168,6 +216,7 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
   withOutput(withContext(show));
   show.option('--include <parts>', `extra sections, comma-separated: ${INCLUDABLE.join(', ')}`);
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((ref: string, opts: CommonOpts & { include?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -211,6 +260,7 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
     .option('--1099', 'flag the vendor for a US information return')
     .option('--json', 'JSON output');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'vendors' });
+  create.addHelpText('after', EJEMPLOS.create);
   create.action(
     (
       name: string,
@@ -316,6 +366,7 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
     .option('--notes <text>', 'replace the notes')
     .option('--reason <text>', 'why the change was made; recorded in the audit trail');
   declareRisk(edit, { risk: 'escritura', agent: false, writes: 'vendors' });
+  edit.addHelpText('after', EJEMPLOS.edit);
   edit.action(
     (
       ref: string,
@@ -365,6 +416,7 @@ export function registerVendorCommand(program: Command, deps: VendorCommandDeps)
     .option('--currency <code>', '3-letter ISO code')
     .option('--reason <text>', 'why the change was made; recorded in the audit trail');
   declareRisk(termsSet, { risk: 'escritura', agent: false, writes: 'vendors.payment_terms' });
+  termsSet.addHelpText('after', EJEMPLOS.termsSet);
   termsSet.action(
     (ref: string, opts: CommonOpts & { terms?: string; currency?: string; reason?: string }) =>
       run(async () => {

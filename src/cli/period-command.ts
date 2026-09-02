@@ -133,6 +133,60 @@ function makeEntityResolver(deps: PeriodCommandDeps) {
   };
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// El nombre del periodo se acuña en inglés y se GUARDA así ("July 2026",
+// fiscal-calendar-service.ts), y estas hojas también aceptan AAAA-MM. Un año
+// fiscal nace con sus doce periodos: los ya vencidos y el corriente abiertos,
+// el resto en 'future' hasta que alguien los abra a propósito.
+// Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  periodList: `
+Examples:
+  # Every period of the entity with its state.
+  mnemosine period list
+  # One fiscal year only, as CSV.
+  mnemosine period list --year 2026 --format csv
+`,
+  periodShow: `
+Examples:
+  # By the name the calendar minted.
+  mnemosine period show "July 2026"
+  # By year and month, which resolves to the same period.
+  mnemosine period show 2026-07
+`,
+  periodOpen: `
+Examples:
+  # Open a future period so work can be captured in it.
+  mnemosine period open "January 2027" --reason "Se anticipa la facturacion de enero"
+  # See the transition without performing it.
+  mnemosine period open 2027-01 --dry-run
+`,
+  yearList: `
+Examples:
+  # Every fiscal year with its state and close progress.
+  mnemosine year list
+  # As JSON, for a script.
+  mnemosine year list --json
+`,
+  yearShow: `
+Examples:
+  # One fiscal year with each of its twelve periods and their states.
+  mnemosine year show 2026
+  # The same as CSV.
+  mnemosine year show 2026 --format csv
+`,
+  yearCreate: `
+Examples:
+  # Create a fiscal year and its twelve monthly periods.
+  mnemosine year create 2027
+  # See the calendar it would create, writing nothing.
+  mnemosine year create 2027 --dry-run
+`,
+} as const;
+
 export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps): void {
   const period = program
     .command('period')
@@ -150,6 +204,7 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
   withOutput(withSelection(withContext(list)));
   list.option('--year <year>', 'only periods of this fiscal year');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.periodList);
   list.action((opts: CommonOpts & { year?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -193,6 +248,7 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
     .description('Show a period: state, who closed it, the checklist it closed with, its entries');
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.periodShow);
   show.action((name: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -275,6 +331,7 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
     .option('--reason <text>', 'why it is being opened; recorded in the audit trail')
     .option('--dry-run', 'show the transition without performing it');
   declareRisk(open, { risk: 'escritura', agent: false, writes: 'fiscal_periods.status' });
+  open.addHelpText('after', EJEMPLOS.periodOpen);
   open.action((name: string, opts: CommonOpts & { reason?: string; dryRun?: boolean }) =>
     run(async () => {
       // Tenant FIRST: resolving the entity is itself a query, and under RLS a
@@ -320,6 +377,7 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
     .description('List the fiscal years of the entity with their state and close progress');
   withOutput(withSelection(withContext(list)));
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.yearList);
   list.action((opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -349,6 +407,7 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
     .description('Show a fiscal year with each of its periods and their states');
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.yearShow);
   show.action((yearArg: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -396,6 +455,7 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
     .option('--dry-run', 'show the calendar that would be created; write nothing')
     .option('--json', 'JSON output');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'fiscal_years + fiscal_periods' });
+  create.addHelpText('after', EJEMPLOS.yearCreate);
   create.action((yearArg: string, opts: CommonOpts & { dryRun?: boolean }) =>
     run(async () => {
       // Tenant FIRST: resolving the entity is itself a query, and under RLS a

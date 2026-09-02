@@ -5,6 +5,7 @@ import {
 } from '../ai/memory-service.js';
 import { resolveEntity, bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
+import { exitCodeFor } from './kernel/index.js';
 
 // ============================================================
 // mnemosine memory
@@ -97,7 +98,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 
@@ -128,7 +129,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 
@@ -147,7 +148,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 
@@ -165,7 +166,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 
@@ -184,7 +185,7 @@ export function registerMemoryCommand(program: Command, deps: MemoryCliDeps): vo
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 }

@@ -4263,4 +4263,241 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  // ══════════════════════════════════════════════════════════
+  // S-UX · lote 2. Seis criterios que nacen de una lección repetida:
+  // el guardián se deriva del ÁRBOL, nunca de una lista paralela. Los
+  // cinco entregables de este tramo pasaron por un adversario con el
+  // encargo de tumbarlos, y los cinco tenían el mismo defecto de
+  // familia — la prueba miraba un árbol de juguete, una sola fila, o
+  // un suelo con holgura. Cada criterio de abajo cita el mutante que
+  // SOBREVIVÍA antes de armarlo.
+  // ══════════════════════════════════════════════════════════
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'El guion de completado se genera del árbol embarcado entero, y su cuerpo no le devuelve la lista al shell para que la expanda',
+    mutantes: [
+      {
+        archivo: 'src/cli/completion-command.ts',
+        de: '      visit(child, childPath);',
+        a: '      if (childPath.length < 3) visit(child, childPath);',
+        porque:
+          'profundidad-truncada: un generador que se detiene un nivel antes pierde las 53 tablas de tercer nivel (el guion cae de 597 a 544 líneas) y una prueba sobre un árbol sintético de dos niveles no tiene tercer nivel que perder',
+      },
+    ],
+    evaluar: () => {
+      const gen = codigoDe('src/cli/completion-command.ts');
+      // El recorrido no se topa: un tope de profundidad es el modo de
+      // fallo que deja `sat cred add --<TAB>` sin ofrecer --dry-run.
+      if (/childPath\.length\s*<\s*\d/.test(gen)) {
+        return falla('el generador de completado topó la profundidad del recorrido: las hojas de tercer nivel perderían su tabla de banderas');
+      }
+      // Escape con bandera GLOBAL. Sin /g sólo se escapa la primera
+      // comilla, y un nombre con dos deja el resto del texto donde el
+      // shell lo expande. Demostrado en bash 3.2: se ejecuta.
+      if (!/\.replace\(\/'\/g,/.test(gen)) {
+        return falla('shellQuote perdió la bandera global del escape: un nombre con dos comillas deja carga ejecutable en el guion');
+      }
+      // El cuerpo consumidor lee palabra a palabra. `compgen -W` EXPANDE
+      // la lista, así que devuelve al shell justo lo que las tablas
+      // habían entrecomillado bien. OJO al ancla: el módulo NOMBRA
+      // «compgen -W» dentro del comentario BASH que lo prohíbe, y ese
+      // comentario viaja en una cadena de TypeScript, así que
+      // codigoDe() no lo quita. Buscar el nombre acusaría a la frase
+      // que previene el defecto — el primer intento de este criterio
+      // hizo justo eso. Se ancla en la CONDUCTA: ninguna línea que
+      // abra `candidates=(` puede continuar con una expansión.
+      if (/candidates=\(\s*\$\(/.test(gen)) {
+        return falla('el consumidor del guion volvió a construir la lista con una expansión: un alias hostil ejecuta código al pulsar TAB');
+      }
+      if (!/while IFS= read -r word/.test(gen)) {
+        return falla('el cuerpo del guion perdió el lector línea a línea: es la pieza que impide que el shell expanda lo que se le ofrece');
+      }
+      // Y el guardián mira el objeto que la pieza produce: el program
+      // EMBARCADO, no un árbol inventado. Ésta es la lección entera.
+      const spec = codigoDe('tests/cli/completion-command.spec.ts');
+      return /from '\.\.\/\.\.\/src\/cli\/mnemosine\.js'/.test(spec)
+        ? ok('el completado se genera del árbol embarcado, con escape global y sin reexpansión en el consumidor')
+        : falla('la prueba del completado dejó de importar el program embarcado: volvería a certificar un árbol de juguete');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'El documento que el agente lee como «el binario exacto» reproduce la ayuda real, con los ejemplos incluidos',
+    mutantes: [
+      {
+        archivo: 'scripts/generate-cli-reference.ts',
+        de: "  emitir(cmd, 'afterHelp', contexto);",
+        a: '  // emitir(cmd, contexto);',
+        porque:
+          'ayuda-a-medias: helpInformation() no dispara afterHelp, así que las 244 invocaciones de ejemplo desaparecen del documento mientras el generador sigue prometiendo fidelidad byte a byte',
+      },
+    ],
+    evaluar: () => {
+      const gen = codigoDe('scripts/generate-cli-reference.ts');
+      if (!/emitir\(cmd, 'afterHelp', contexto\)/.test(gen)) {
+        return falla('el generador volvió a la ayuda sin afterHelp: los ejemplos no llegarían al documento que el agente lee como el binario');
+      }
+      // Conteo sobre el ARTEFACTO, no sobre el generador: un generador
+      // correcto con un documento sin regenerar es el mismo hueco.
+      const doc = crudoDe('src/ai/docs/cli-reference.md');
+      const ejemplos = (doc.match(/Examples:/g) ?? []).length;
+      if (ejemplos < 100) {
+        return falla(
+          `cli-reference.md sólo trae ${ejemplos} bloques de ejemplos: el documento está sin regenerar y el agente no ve la mitad visible de la ayuda`
+        );
+      }
+      return ok(`el documento del agente reproduce la ayuda real: ${ejemplos} bloques de ejemplos`);
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'Todo ejemplo de la ayuda lo acepta el Commander embarcado, en la hoja en cuya ayuda vive, y ninguno enseña la clave legada tax=',
+    mutantes: [
+      {
+        archivo: 'src/cli/bill-command.ts',
+        de: 'tax-amount=2000.00',
+        a: 'tax=16',
+        porque:
+          'ejemplo-que-miente: tax= es TASA en invoice y MONTO en bill, así que el ejemplo copiable registraría 16 pesos de IVA donde van 2 000 — la confusión H3 que este tramo existe para curar, en el propio texto que la cura',
+      },
+    ],
+    evaluar: () => {
+      const spec = codigoDe('tests/cli/ejemplos-de-ayuda.spec.ts');
+      // La prueba PARSEA con el Commander real: comprobar que la bandera
+      // existe deja pasar el ejemplo al que le falta el argumento
+      // posicional, y ése muere en el parser del usuario, no en CI.
+      if (!/\.parse\(argv, \{ from: 'user' \}\)/.test(spec)) {
+        return falla('el guardián de ejemplos dejó de pasar las invocaciones por el Commander real: un ejemplo sin su argumento posicional volvería a pasar en verde');
+      }
+      // Los suelos van en el valor MEDIDO. Un suelo con holgura no es un
+      // trinquete: es un permiso — con 97 sobre 115 se podía borrar una
+      // familia documentada entera sin un solo rojo.
+      const suelos = spec.match(/(?:SUELO|MINIMO)_[A-Z_]+\s*=\s*(\d+)/g) ?? [];
+      if (suelos.length < 2) {
+        return falla('el guardián de ejemplos perdió sus suelos medidos: sin ellos un revert parcial pasa en verde');
+      }
+      const bill = codigoDe('src/cli/bill-command.ts');
+      const ejemplosDeBill = bill.slice(bill.indexOf('EJEMPLOS'));
+      return /tax-amount=/.test(ejemplosDeBill) && !/--line "[^"]*[,"]tax=/.test(ejemplosDeBill)
+        ? ok('los ejemplos parsean contra el Commander embarcado y bill enseña tax-amount, no la clave legada')
+        : falla('un ejemplo de bill volvió a la clave legada tax=: registraría el IVA con un factor de diez');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'Ninguna hoja del CLI aplasta su código de salida: el catch devuelve el código del contrato, y el error de uso de Commander pasa por la puerta que cierra el pool',
+    mutantes: [
+      {
+        archivo: 'src/cli/memory-command.ts',
+        de: '        await deps.shutdown(exitCodeFor(err));',
+        a: '        await deps.shutdown(1);',
+        porque:
+          'código-aplastado: una hoja que ninguna fila conductual visita, con un texto que ningún grep de «shutdown(1)» esperaba encontrar de vuelta — 39 de 179 hojas vivían así y el contrato de trece códigos era papel',
+      },
+    ],
+    evaluar: () => {
+      // Barrido de la clase entera, no de la instancia: el defecto que
+      // este criterio vigila vivía en 14 archivos a la vez.
+      const archivos = fs
+        .readdirSync(rutaDe('src/cli'))
+        .filter((n) => n.endsWith('.ts'))
+        .sort();
+      const aplastan: string[] = [];
+      for (const nombre of archivos) {
+        if (/shutdown\(1\)/.test(codigoDe('src/cli', nombre))) aplastan.push(nombre);
+      }
+      if (aplastan.length > 0) {
+        return falla(
+          `${aplastan.length} archivo(s) del CLI vuelven a aplastar el código de salida a 1: ${aplastan.slice(0, 4).join(', ')} — el contrato de trece códigos vuelve a ser papel`
+        );
+      }
+      // Y la capa de Commander: sin exitOverride, un error de uso sale
+      // por el process.exit() propio de Commander, con código 1 y sin
+      // drenar las atestaciones ni cerrar el pool.
+      const raiz = codigoDe('src/cli/mnemosine.ts');
+      return /exitOverride/.test(raiz)
+        ? ok(`ninguna hoja aplasta su código de salida (${archivos.length} archivos barridos) y Commander pasa por la puerta del kernel`)
+        : falla('el program perdió exitOverride: los errores de uso saldrían con 1 y sin cerrar el pool');
+    },
+  },
+  {
+    paquete: 'E1.3',
+    enunciado:
+      'La capa explicativa vive donde se decide, no sólo en el alta: pending imprime los tres campos del catálogo, pide el preview con el contexto de la entidad y no enseña prosa sin envolver',
+    mutantes: [
+      {
+        archivo: 'src/cli/pending-command.ts',
+        de: "    out.push(...wrapLines('   ', '   ', p.question));",
+        a: '    out.push(`   ${p.question}`);',
+        porque:
+          'prosa-sin-envolver: las 21 políticas del catálogo tienen impact de más de 72 caracteres (la más larga, 406) y el terminal las reflowa a columna cero, perdiendo la sangría que dice a qué clave pertenece cada cosa',
+      },
+    ],
+    evaluar: () => {
+      const cli = codigoDe('src/cli/pending-command.ts');
+      // Del CATÁLOGO, no de la fila sembrada: el texto congelado al
+      // sembrar caduca en cuanto alguien reescribe el catálogo.
+      if (!/getPolicySpec\(/.test(cli)) {
+        return falla('pending dejó de leer el catálogo: imprimiría el texto congelado al sembrar, que caduca sin avisar');
+      }
+      for (const campo of ['whyAsking', 'whatIDo', 'ifSkipped']) {
+        if (!new RegExp(`spec\\??\\.${campo}`).test(cli)) {
+          return falla(
+            `pending dejó de imprimir ${campo}: la capa explicativa volvería a existir sólo en el alta, el único momento en que no tiene datos que enseñar`
+          );
+        }
+      }
+      // El preview, con el contexto de la ENTIDAD: sin él el ejemplo
+      // deja de ser el del cliente, que es lo único que lo hace valer.
+      if (!/previewFor\(/.test(cli)) {
+        return falla('pending dejó de pedir la vista previa: el contador vería la pregunta sin sus propios datos debajo');
+      }
+      // Envoltura en las DOS pantallas. Arreglar el listado y no el
+      // prompt de define es reparar la instancia: son la misma decisión
+      // vista dos veces, y el prompt es el instante en que se toma.
+      const envueltos = (cli.match(/wrapLines\(/g) ?? []).length;
+      return envueltos >= 4
+        ? ok(`la capa explicativa vive en pending con su preview y ${envueltos} campos envueltos en las dos pantallas`)
+        : falla(
+            `sólo ${envueltos} campo(s) pasan por wrapLines: la prosa larga del catálogo volvería a salir a columna cero en alguna de las dos pantallas`
+          );
+    },
+  },
+  {
+    paquete: 'E0.0',
+    enunciado:
+      'El censo de superficie corre en CI, y su trinquete está apretado contra lo medido',
+    mutantes: [
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '      - run: npx tsx scripts/ux-status.ts --check',
+        a: '      # - run: npx tsx scripts/ux-status.ts --check',
+        porque:
+          'puerta-declarada-y-no-cableada: el instrumento existía, la prueba lo importaba, y la degradación de superficie entraba igual porque nada lo corría en el único sitio que decide una fusión',
+      },
+    ],
+    evaluar: () => {
+      const ci = crudoDe('.github/workflows/ci.yml');
+      if (!/ux-status\.ts --check/.test(ci)) {
+        return falla('el censo de superficie salió de CI: la degradación de usabilidad volvería a entrar sin que nada la detenga en la fusión');
+      }
+      // Y las seis líneas base existen. Un censo sin línea base mide y
+      // no acusa; el trinquete es la mitad que sirve.
+      const censo = codigoDe('scripts/ux-status.ts');
+      const base = censo.match(/LINEAS_BASE[^=]*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/);
+      if (!base) {
+        return falla('el censo perdió sus líneas base: mediría sin acusar, que es la mitad que no sirve');
+      }
+      const cuantas = (base[1].match(/:\s*\d+/g) ?? []).length;
+      return cuantas === 6
+        ? ok('el censo de superficie corre en CI con sus seis líneas base sembradas en lo medido')
+        : falla(`el censo declara ${cuantas} líneas base de las 6 medidas: una medida sin trinquete no frena nada`);
+    },
+  },
+
+
 ];

@@ -121,6 +121,85 @@ function isHumanTable(opts: CommonOpts): boolean {
   return !opts.quiet && !opts.output && resolveFormat(opts) === 'table';
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// Los RFC de abajo son inventados pero con la FORMA que exige el validador
+// (3 letras para persona moral, 4 para física; luego AAMMDD y homoclave de
+// tres). El régimen y el UsoCFDI salen de los catálogos del SAT que el repo
+// copia en sat-catalogs.ts: 601 General de Ley Personas Morales, G03 Gastos
+// en general.
+//
+// `customer show` NO acepta un rango de fechas —lo rechaza y remite a
+// `invoice list`—; lo que sí toma es `--as-of`.
+// Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  list: `
+Examples:
+  # Customers with something past due.
+  mnemosine customer list --overdue
+  # Those owing more than 100,000, as CSV.
+  mnemosine customer list --balance-gt 100000 --format csv
+`,
+  show: `
+Examples:
+  # Profile, tax id, credit, balance and open documents.
+  mnemosine customer show "Grupo Alameda"
+  # The balance as it stood at the close date. A date RANGE belongs to invoice list.
+  mnemosine customer show "Grupo Alameda" --as-of 2026-07-31
+`,
+  create: `
+Examples:
+  # A company: RFC of a persona moral (3 letters), terms and billing currency.
+  mnemosine customer create --name "Grupo Alameda SA de CV" --tax-id GAL150623QK8 --terms "Net 30" --currency MXN --email cobranza@grupoalameda.mx
+  # An individual: given and family name, and a persona fisica RFC (4 letters).
+  mnemosine customer create --first-name "Maria" --last-name "Robledo Cruz" --tax-id ROCM850214J78 --tax-id-type rfc
+`,
+  edit: `
+Examples:
+  # Commercial and contact data. The tax profile is NOT edited here.
+  mnemosine customer edit "Grupo Alameda" --email pagos@grupoalameda.mx --terms "Net 45" --reason "Convenio comercial 2026"
+  # Leave a note on the customer file.
+  mnemosine customer edit "Grupo Alameda" --notes "Exige orden de compra en cada factura"
+`,
+  archive: `
+Examples:
+  # Deactivate a customer. It is an undo verb, so --reason is required.
+  mnemosine customer archive "Grupo Alameda" --reason "Cliente inactivo desde 2025"
+  # Archive one that still shows a balance: --force overrides the check, never the reason.
+  mnemosine customer archive "Grupo Alameda" --force --reason "Saldo incobrable ya castigado"
+`,
+  restore: `
+Examples:
+  # Put an archived customer back in service.
+  mnemosine customer restore "Grupo Alameda"
+  # With the justification that lands in the audit trail.
+  mnemosine customer restore "Grupo Alameda" --reason "Reactivado con contrato 2026"
+`,
+  taxShow: `
+Examples:
+  # The fiscal profile, and what is missing before this customer can be stamped.
+  mnemosine customer tax show "Grupo Alameda"
+  # As JSON, for a pre-billing gate.
+  mnemosine customer tax show "Grupo Alameda" --json
+`,
+  taxSet: `
+Examples:
+  # The four fields CFDI 4.0 stamps against, validated against the SAT catalogs.
+  mnemosine customer tax set "Grupo Alameda" --rfc GAL150623QK8 --tax-regime 601 --postal-code 06600 --uso-cfdi G03 --reason "Constancia de situacion fiscal de julio"
+  # Only the default UsoCFDI.
+  mnemosine customer tax set "Grupo Alameda" --uso-cfdi G01 --reason "Solicitud del cliente"
+`,
+  taxList: `
+Examples:
+  # The whole pre-billing control, as CSV.
+  mnemosine customer tax list --format csv
+  # Only the customers that could NOT be stamped today.
+  mnemosine customer tax list --missing
+`,
+} as const;
+
 export function registerCustomerCommand(program: Command, deps: CustomerCommandDeps): void {
   const customer = program
     .command('customer')
@@ -169,6 +248,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
     .option('--balance-gt <amount>', 'only customers owing more than this')
     .option('--inactive', 'show archived customers instead of active ones');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action((query: string | undefined, opts: CommonOpts & { overdue?: boolean; balanceGt?: string; inactive?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -218,6 +298,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
     .description('Show one customer: profile, tax id, credit, balance and open documents');
   withOutput(withTime(withContext(show)));
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -327,6 +408,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
     .option('--currency <code>', 'billing currency (3 letters)')
     .option('--json', 'JSON output');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'customers' });
+  create.addHelpText('after', EJEMPLOS.create);
   create.action(
     (
       opts: CommonOpts & {
@@ -394,6 +476,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
     // and supplying it is what writes the audit row with old and new values.
     .option('--reason <text>', 'justification recorded in the audit trail');
   declareRisk(edit, { risk: 'escritura', agent: false, writes: 'customers' });
+  edit.addHelpText('after', EJEMPLOS.edit);
   edit.action(
     (
       ref: string,
@@ -442,6 +525,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   withForce(archive);
   // 'archive' is an undo verb: declareRisk adds --reason and gateMutation requires it.
   declareRisk(archive, { risk: 'escritura', agent: false, writes: 'customers.is_active' });
+  archive.addHelpText('after', EJEMPLOS.archive);
   archive.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await writeEntityOf(opts);
@@ -475,6 +559,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   withContext(restore);
   restore.option('--reason <text>', 'justification recorded in the audit trail');
   declareRisk(restore, { risk: 'escritura', agent: false, writes: 'customers.is_active' });
+  restore.addHelpText('after', EJEMPLOS.restore);
   restore.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await writeEntityOf(opts);
@@ -508,6 +593,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
     .description('Show the fiscal profile and what is missing before this customer can be stamped');
   withOutput(withContext(taxShow));
   declareRisk(taxShow, { risk: 'lectura', agent: true });
+  taxShow.addHelpText('after', EJEMPLOS.taxShow);
   taxShow.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -555,6 +641,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
     .option('--reason <text>', 'justification recorded in the audit trail')
     .option('--json', 'JSON output');
   declareRisk(taxSet, { risk: 'escritura', agent: false, writes: 'customers.tax_regime/tax_postal_code/uso_cfdi' });
+  taxSet.addHelpText('after', EJEMPLOS.taxSet);
   taxSet.action(
     (
       ref: string,
@@ -597,6 +684,7 @@ export function registerCustomerCommand(program: Command, deps: CustomerCommandD
   withOutput(withSelection(withContext(taxList)));
   taxList.option('--missing', 'only customers that could NOT be stamped today');
   declareRisk(taxList, { risk: 'lectura', agent: true });
+  taxList.addHelpText('after', EJEMPLOS.taxList);
   taxList.action((opts: CommonOpts & { missing?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);

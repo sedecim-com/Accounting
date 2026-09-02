@@ -3,6 +3,7 @@ import { resolveEntity, bootstrapTenant } from '../ai/context.js';
 import { buildSystemBlocks } from '../ai/system-prompt.js';
 import { buildTools } from '../ai/tools/index.js';
 import { docsIndex } from '../ai/tools/docs-tools.js';
+import { exitCodeFor } from './kernel/index.js';
 
 // ============================================================
 // mnemosine prompt-size (OFFLINE — zero API calls)
@@ -177,7 +178,7 @@ export function registerPromptSizeCommand(program: Command, deps: PromptSizeDeps
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 }
