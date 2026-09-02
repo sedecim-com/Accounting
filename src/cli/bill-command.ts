@@ -128,7 +128,7 @@ function requireDate(flag: string, value: string): string {
 }
 
 /**
- * `--line "account=5100,qty=2,price=350.00,tax=112,description=Papelería"`.
+ * `--line "account=5100,qty=2,price=350.00,tax-amount=112,description=Papelería"`.
  * Keys are spelled the way the flags are, not the way the columns are: a
  * person typing a bill is not reading the schema.
  */
@@ -139,7 +139,7 @@ export function parseLineSpec(spec: string): Record<string, string> {
     if (eq < 0) {
       throw usageError(
         `Cannot read the line "${spec}". Each part is key=value, comma-separated: ` +
-          '--line "account=5100,qty=2,price=350.00,tax=112,description=Text".'
+          '--line "account=5100,qty=2,price=350.00,tax-amount=112,description=Text".'
       );
     }
     out[part.slice(0, eq).trim().toLowerCase()] = part.slice(eq + 1).trim();
@@ -147,7 +147,56 @@ export function parseLineSpec(spec: string): Record<string, string> {
   return out;
 }
 
-const LINE_KEYS = ['account', 'qty', 'quantity', 'price', 'unit-price', 'tax', 'description', 'cost-center', 'project'];
+const LINE_KEYS = [
+  'account', 'qty', 'quantity', 'price', 'unit-price', 'tax-amount', 'tax',
+  'description', 'cost-center', 'project',
+];
+
+/**
+ * El IVA de la línea de un bill, resuelto desde las claves que el operador
+ * tecleó.
+ *
+ * `tax=` aquí siempre significó MONTO, mientras que el `tax=` de invoice
+ * significa TASA; quien cruza de un comando al otro y pone `tax=16` creyendo
+ * que es tasa registra 16 pesos de IVA donde iban 160, y lo descubre en la
+ * declaración. La semántica NO cambia —sigue siendo monto—, pero el nombre
+ * canónico pasa a ser `tax-amount=`, que no deja lugar a la confusión, y el
+ * sinónimo viejo dispara un aviso.
+ */
+export function resolveLineTaxAmount(parsed: Record<string, string>): {
+  tax_amount: string;
+  usedLegacyTaxKey: boolean;
+} {
+  const explicit = parsed['tax-amount'];
+  const legacy = parsed.tax;
+  return {
+    tax_amount: explicit ?? legacy ?? '0',
+    usedLegacyTaxKey: explicit === undefined && legacy !== undefined,
+  };
+}
+
+/** Una sola línea de aviso, por invocación, cuando alguien escribe `tax=`. */
+export const LEGACY_TAX_KEY_WARNING =
+  'tax= es el MONTO del IVA de la línea, no la tasa; usa tax-amount= para que quede explícito.';
+
+/**
+ * La ayuda de --line, una clave por renglón. El help enumeraba cinco claves de
+ * las que el comando acepta, y justo la que faltaba documentar (tax) era la
+ * que se prestaba a registrar el IVA equivocado.
+ */
+const LINE_KEYS_HELP = `
+Keys accepted in --line (key=value, comma-separated):
+  account      chart account code the line is coded to (required)
+  qty          quantity; defaults to 1
+  quantity     same as qty
+  price        unit price before tax (required)
+  unit-price   same as price
+  tax-amount   IVA of the line as an AMOUNT in the bill currency — NOT a rate
+  tax          same as tax-amount: an AMOUNT, never a rate (invoice's tax= IS a rate)
+  description  free text for the line
+  cost-center  cost center id
+  project      project id
+`;
 
 // ---- la bandeja de CFDI ---------------------------------------------
 //
@@ -473,8 +522,9 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     .option('--due-date <date>', "due date (YYYY-MM-DD); defaults to the vendor's terms")
     .option(
       '--line <spec...>',
-      `one line, repeatable: "${LINE_KEYS.slice(0, 5).join('=…,')}=…". Account is a code from the chart`
+      'one line, repeatable: "account=5100,qty=1,price=1000,tax-amount=160". See the key list below'
     )
+    .addHelpText('after', LINE_KEYS_HELP)
     .option('--currency <code>', "3-letter ISO code; defaults to the vendor's currency")
     .option('--terms <text>', 'payment terms recorded on the bill; defaults to the vendor terms')
     .option('--description <text>', 'what this bill is for')
@@ -503,11 +553,12 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
         const specs = [...(opts.line ?? []), ...((fromFile.lines as unknown[] | undefined) ?? [])];
         if (specs.length === 0) {
           throw usageError(
-            'A bill needs at least one line: --line "account=5100,qty=1,price=1000,tax=160".'
+            'A bill needs at least one line: --line "account=5100,qty=1,price=1000,tax-amount=160".'
           );
         }
 
         const lines: BillLineInput[] = [];
+        let someLineUsedLegacyTaxKey = false;
         for (const spec of specs) {
           const parsed = typeof spec === 'string' ? parseLineSpec(spec) : (spec as Record<string, string>);
           const unknown = Object.keys(parsed).filter((k) => !LINE_KEYS.includes(k));
@@ -521,16 +572,23 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
           const price = parsed.price ?? parsed['unit-price'];
           if (price === undefined) throw usageError(`Line "account=${accountRef}" has no price=<amount>.`);
 
+          const tax = resolveLineTaxAmount(parsed);
+          someLineUsedLegacyTaxKey ||= tax.usedLegacyTaxKey;
           const account = await resolveAccount(ctx.entityId, accountRef);
           lines.push({
             account_id: account.id,
             description: parsed.description ?? null,
             quantity: parsed.qty ?? parsed.quantity ?? '1',
             unit_price: price,
-            tax_amount: parsed.tax ?? '0',
+            tax_amount: tax.tax_amount,
             cost_center_id: parsed['cost-center'] ?? null,
             project_id: parsed.project ?? null,
           });
+        }
+        // Un aviso por invocación, no por línea: quien tecleó tax= tres veces
+        // ya entendió a la primera.
+        if (someLineUsedLegacyTaxKey) {
+          process.stderr.write(deps.palette.dim(`  ${LEGACY_TAX_KEY_WARNING}\n`));
         }
 
         const billDate = opts.billDate
