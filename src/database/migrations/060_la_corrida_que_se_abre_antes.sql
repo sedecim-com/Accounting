@@ -1,5 +1,5 @@
 -- ============================================================
--- 058 · LA CORRIDA QUE SE ABRE ANTES DEL BUCLE
+-- 060 · LA CORRIDA QUE SE ABRE ANTES DEL BUCLE
 --
 -- `ai_ingest_runs` (044) guarda UNA fila por corrida de `mnemosine ingest`, y
 -- la escribe DESPUÉS del bucle, con todos los contadores ya finales. Una

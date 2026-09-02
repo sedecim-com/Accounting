@@ -272,10 +272,20 @@ const TOPE_DEL_PANEL = 30000;
 
 const ESCALONES_DE_NOTA = [400, 150, 0] as const;
 
+/** El marcador cuenta DENTRO del tope, no encima. */
+const MARCA_DE_RECORTE = ' […trimmed]';
+
 function recortarNota(nota: string | null, tope: number): string | null {
   if (nota === null) return null;
   if (tope === 0) return null;
-  return nota.length <= tope ? nota : `${nota.slice(0, tope)} […trimmed]`;
+  if (nota.length <= tope) return nota;
+  // El marcador se restaba del corte, no se sumaba al resultado: antes esto
+  // devolvía `tope + 11` caracteres mientras `notes_trimmed` anunciaba `tope`,
+  // así que el aviso mentía sobre su propio corte —y el presupuesto del panel
+  // se pasaba en once caracteres por cada nota recortada, veintisiete veces—.
+  // Un aviso que no describe lo que hizo es peor que no avisar.
+  const util = Math.max(0, tope - MARCA_DE_RECORTE.length);
+  return `${nota.slice(0, util)}${MARCA_DE_RECORTE}`;
 }
 
 /** Serializa el panel dentro del presupuesto, recortando SÓLO notas. */

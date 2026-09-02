@@ -574,8 +574,26 @@ describe('el instructivo no puede perderse por el tope, y el panel tampoco', () 
     expect(panel.policies).toHaveLength(POLICY_CATALOG.length);
     expect(panel.policies.map((p) => p.key)).toEqual(POLICY_CATALOG.map((c) => c.key));
     for (const p of panel.policies) expect(p.value.length).toBeGreaterThan(0);
-    // Lo que se recortó son las NOTAS —la justificación, no el criterio— y se dice.
-    expect(panel.notes_trimmed).toMatch(/notes were trimmed to 400 characters/);
+    // Lo que se recortó son las NOTAS —la justificación, no el criterio— y se
+    // DICE con el número que de verdad aplicó.
+    //
+    // El aserto fijaba «400» y se puso rojo al crecer el catálogo: el recorte
+    // es ADAPTATIVO —baja hasta que el panel entero quepa— así que el número
+    // depende de cuántas políticas haya, y clavarlo convertía una propiedad en
+    // una fotografía. Lo que importa no es cuánto se recortó sino que lo
+    // recortado sean las notas, que se anuncie, y que el número anunciado sea
+    // el que de verdad se aplicó: un aviso que miente sobre su propio corte es
+    // peor que no avisar.
+    const anunciado = /notes were trimmed to (\d+) characters/.exec(panel.notes_trimmed ?? '');
+    expect(anunciado, 'el panel no anuncia el recorte de sus notas').not.toBeNull();
+    const tope = Number(anunciado![1]);
+    expect(tope).toBeGreaterThan(0);
+    for (const p of panel.policies) {
+      expect(
+        (p.notes ?? '').length,
+        `la nota de ${p.key} pasa del recorte que el propio aviso anuncia`
+      ).toBeLessThanOrEqual(tope);
+    }
   });
 
   it('el mandato ABRE el resultado: es lo único que un corte no puede llevarse', async () => {

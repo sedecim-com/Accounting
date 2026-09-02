@@ -776,7 +776,7 @@ describe('cerrar una fila que no está abierta no escribe, y lo dice', () => {
 // ============================================================
 
 describe('la 058 distingue «murió a medias» de «corrió y no encontró nada»', () => {
-  const RUTA = path.join(RAIZ, 'src', 'database', 'migrations', '058_la_corrida_que_se_abre_antes.sql');
+  const RUTA = path.join(RAIZ, 'src', 'database', 'migrations', '060_la_corrida_que_se_abre_antes.sql');
   const sql = () => fs.readFileSync(RUTA, 'utf-8');
 
   it('añade el estado, la fecha de cierre y la razón', () => {

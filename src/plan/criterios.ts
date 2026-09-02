@@ -5573,4 +5573,157 @@ export const CRITERIOS: Criterio[] = [
   },
 
 
+  // ══════════════════════════════════════════════════════════
+  // A7·remate. Las tres ganancias que A7 dejó nombradas, más la que
+  // apareció mirándolas: el panel se podía contestar en blanco.
+  // ══════════════════════════════════════════════════════════
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'El arnés del eval mide la superficie que se embarca, y no puede salir en verde sin haber medido',
+    mutantes: [
+      {
+        archivo: 'scripts/eval-clasificador.ts',
+        de: '          herramientas: SUPERFICIE_INGESTA,',
+        a: '          // herramientas: sin lista',
+        porque:
+          'clasificador-más-ancho: buildTools sin lista devuelve las 25 herramientas mientras la ingesta embarca 11, así que el arnés juzgaría a un agente que nadie corre — y la cabecera del propio arnés lo prohíbe por escrito',
+      },
+    ],
+    evaluar: () => {
+      const arnes = codigoDe('scripts/eval-clasificador.ts');
+      const hoja = codigoDe('src/cli/mnemosine.ts');
+      // La MISMA constante en los dos sitios: el arnés no puede medir una
+      // superficie que la hoja no embarca, ni al revés.
+      if (!/herramientas: SUPERFICIE_INGESTA/.test(arnes)) {
+        return falla('el arnés del eval abre sesión sin superficie nombrada: buildTools le daría las 25 y mediría un clasificador que la ingesta no embarca');
+      }
+      if (!/herramientas: SUPERFICIE_INGESTA/.test(hoja)) {
+        return falla('la hoja de ingest dejó de pasar su superficie: el arnés mediría una cosa y el contador correría otra');
+      }
+      // El código de salida distingue «medí y salió mal» de «NO PUDE MEDIR».
+      // Es la doctrina que kernel/exit.ts publica en su cabecera, y el arnés
+      // salía 0 con el proveedor caído al cien por cien.
+      if (!/process\.exitCode = codigoDeSalida\(/.test(arnes)) {
+        return falla('el arnés dejó de fijar su salida con el veredicto: una llave caducada volvería a producir casilla verde');
+      }
+      if (!/EXTERNAL_FAILED/.test(arnes)) {
+        return falla('el arnés perdió la rama del fallo del proveedor: «no pude mirar» volvería a contarse como «no encontré nada»');
+      }
+      // Y siembra el panel que el corpus declara: puntuar un caso bajo un
+      // panel distinto del declarado es medir con una vara chueca.
+      return /politicasRequeridas\(/.test(arnes)
+        ? ok('el arnés mide la superficie embarcada, siembra el panel declarado y su salida dice si midió')
+        : falla('el arnés dejó de leer las precondiciones de política del corpus: puntuaría los casos bajo el panel por omisión');
+    },
+  },
+  {
+    paquete: 'E1.3',
+    enunciado:
+      'El panel del despacho llega al turno que decide, y una política sin contestar se pregunta en vez de aplicarse el defecto',
+    mutantes: [
+      {
+        archivo: 'src/ai/ingest-service.ts',
+        de: "2. READ YOUR FIRM'S POLICY PANEL with get_accounting_policies BEFORE deciding the treatment.",
+        a: '2. Decide the accounting treatment with your own judgement.',
+        porque:
+          'la-herramienta-que-nadie-pide: la pieza correcta a una llamada de función de donde hace falta — el panel existe, la herramienta existe, y el turno que clasifica el CFDI decide sin mirarlo',
+      },
+    ],
+    evaluar: () => {
+      // La herramienta existe Y el turno la pide. Lo primero sin lo segundo es
+      // exactamente la tesis que la auditoría III le puso al producto.
+      if (!existe('src/ai/tools/policy-tools.ts')) {
+        return falla('la herramienta del panel desapareció: el agente vuelve a decidir sin ver lo que el despacho contestó');
+      }
+      const prompt = codigoDe('src/ai/ingest-service.ts');
+      if (!/get_accounting_policies/.test(prompt)) {
+        return falla('el prompt de la ingesta dejó de pedir el panel: el CFDI de 12 000 se clasifica sin que el umbral del despacho exista en el contexto');
+      }
+      // Y la superficie la lleva: una herramienta fuera de la lista nombrada
+      // no llega al turno aunque esté registrada.
+      const sup = codigoDe('src/ai/tools/superficie.ts');
+      return /get_accounting_policies/.test(sup)
+        ? ok('el panel llega al turno que decide, por prompt y por superficie')
+        : falla('get_accounting_policies salió de la superficie nombrada: existiría sin llegar a la corrida que la necesita');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'Todo camino que clasifica CFDI por lotes corre con superficie recortada y deja su fila de corrida',
+    mutantes: [
+      {
+        archivo: 'src/cli/init/s5-import.ts',
+        // El ancla es el USO, no el import: quitar la línea 14 rompe la
+        // compilación pero deja el nombre en la línea 121, y un criterio que
+        // busca el texto lo bendecía igual. El espejo tiene que quitar la
+        // CONDUCTA, no el símbolo — y este mutante lo cobró en su primera
+        // corrida, que es exactamente para lo que sirve.
+        de: '    herramientas: SUPERFICIE_INGESTA,',
+        a: '    // sin superficie: buildTools devuelve las 25',
+        porque:
+          'la-clase-a-medias: se reparó la hoja de `ingest` y quedó vivo el segundo camino — el alta clasifica una carpeta entera con las 25 herramientas, brazo externo incluido, y sin dejar una sola fila de corrida',
+      },
+    ],
+    evaluar: () => {
+      // Los DOS caminos, contados. Reparar uno y dejar el otro es la instancia,
+      // no la clase: `mnemosine init` clasifica por lotes igual que `ingest`.
+      const caminos = [
+        { rel: 'src/cli/mnemosine.ts', nombre: 'la hoja de ingest' },
+        { rel: 'src/cli/init/s5-import.ts', nombre: 'el alta (init)' },
+      ];
+      for (const c of caminos) {
+        const src = codigoDe(c.rel);
+        // El CABLEADO, no el nombre. La primera versión buscaba
+        // «SUPERFICIE_INGESTA» a secas y el import solo ya la satisfacía: se
+        // podía borrar la línea que la PASA y el criterio seguía verde. Lo
+        // cazó su propio espejo en la primera corrida, que es para lo que el
+        // arnés de mutación existe.
+        if (!/herramientas:\s*SUPERFICIE_INGESTA/.test(src)) {
+          return falla(`${c.nombre} clasifica por lotes sin pasar su superficie: buildTools le devolvería las 25 herramientas, con el brazo externo dentro`);
+        }
+        if (!/conCorridaRegistrada\(/.test(src)) {
+          return falla(`${c.nombre} no envuelve su bucle: una corrida que muera a media lista dejaría los borradores y cero filas de corrida`);
+        }
+      }
+      // Y la fila se abre ANTES del bucle, que es la mitad que la 044 no tenía:
+      // sin estado no se distingue «murió a medias» de «no encontró nada».
+      const m = crudoDe('src/database/migrations/060_la_corrida_que_se_abre_antes.sql');
+      return /status/.test(m) && /closed_at/.test(m)
+        ? ok('los dos caminos de lote corren recortados y su corrida se abre antes del bucle, con estado y cierre')
+        : falla('la 058 perdió el estado o el cierre de la corrida: una fila abierta para siempre es indistinguible de una corrida vacía');
+    },
+  },
+  {
+    paquete: 'E1.3',
+    enunciado:
+      'Una política contestada en blanco no está contestada, y el motor no la lee como cero',
+    mutantes: [
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: "  if (value.trim() === '') {",
+        a: '  if (false) {',
+        porque:
+          'respuesta-en-blanco: la fila entra como «resolved» con el valor vacío y el sistema se la presenta al agente bajo el sello «tu despacho decidió esto» — y un piso más abajo Number("  ") es 0, así que el umbral de capitalización del motor queda en CERO',
+      },
+    ],
+    evaluar: () => {
+      const svc = codigoDe('src/services/policy/policy-service.ts');
+      // La ESCRITURA: se corta donde entra, que es el único sitio que cubre a
+      // los dos llamadores (pending define y el asistente del alta). La ruta
+      // interactiva recortaba; la ruta por ARGUMENTO no.
+      if (!/value\.trim\(\) === ''/.test(svc)) {
+        return falla('resolvePolicy volvió a admitir una respuesta en blanco: la política quedaría marcada como decidida por el despacho con un valor vacío');
+      }
+      // La LECTURA: el cinturón, porque una fila anterior a la guarda sigue en
+      // la base. `Number('')` es 0 y `Number.isFinite(0)` es true, así que sin
+      // el recorte el respaldo al default declarado no se dispara nunca.
+      return /crudo === '' \? Number\.NaN : Number\(crudo\)/.test(svc)
+        ? ok('el blanco se rechaza al escribirse y no se confunde con cero al leerse')
+        : falla('getPolicyNumber volvió a Number(p.value) a secas: un valor en blanco heredado pondría el umbral de capitalización en cero — «capitalízalo todo», en silencio');
+    },
+  },
+
+
 ];
