@@ -155,18 +155,27 @@ function huella(valor: string): string {
 }
 
 /** Registra una credencial por su huella. La credencial no se conserva. */
-function recordarSecreto(valor: string | undefined): void {
+// Exportados para que su conducta se pueda probar: un redactor que sólo se
+// comprueba leyendo su regex es un redactor sin prueba.
+export function recordarSecreto(valor: string | undefined): void {
   if (valor && valor.length >= 8) HUELLAS.add(huella(valor));
 }
 
-function sinSecretos(texto: string): string {
+export function sinSecretos(texto: string): string {
   const porPatron = texto
     .replace(/\b(?:sk|rk|pk)-[A-Za-z0-9_-]{8,}/g, OCULTO)
-    .replace(/\bBearer\s+[A-Za-z0-9._-]{8,}/gi, `Bearer ${OCULTO}`);
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, `Bearer ${OCULTO}`);
   if (HUELLAS.size === 0) return porPatron;
   // Sólo los trozos con pinta de token se hashean: barrer cada palabra del
   // mensaje sería caro y no aportaría — una credencial no tiene 4 caracteres.
-  return porPatron.replace(/[A-Za-z0-9._-]{12,}/g, (t) => (HUELLAS.has(huella(t)) ? OCULTO : t));
+  // LA CLASE INCLUYE base64 CON RELLENO, y hasta hoy no. Era
+  // `[A-Za-z0-9._-]`, que parte una llave con `+`, `/` o `=` en trozos: la
+  // huella de un trozo no casa la del valor entero, así que la credencial
+  // salía SIN TACHAR. Medido: una llave estilo OpenAI o Google se tachaba
+  // entera, y una base64 con relleno —las de varios compatibles y las de
+  // portador— no. Ensanchar no cuesta falsos positivos: lo que decide es el
+  // HMAC, no el parecido, así que una ruta con barras se mira y se deja pasar.
+  return porPatron.replace(/[A-Za-z0-9._~+/=-]{12,}/g, (t) => (HUELLAS.has(huella(t)) ? OCULTO : t));
 }
 
 const tasa = (m: { aciertos: number; total: number }): string =>
