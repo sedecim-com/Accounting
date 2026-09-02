@@ -40,6 +40,7 @@ export function assertNumeracionUnica(files: string[]): void {
   }
 }
 
+
 async function runMigrations() {
   const client = await pool.connect();
   let fallo = false;
@@ -89,6 +90,7 @@ async function runMigrations() {
 
       console.log(`  Executing ${file}...`);
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
+
 
       // Ejecutar el .sql y anotarlo en public.migrations son UN acto, no
       // dos. Antes eran dos transacciones implícitas: un fallo entre ambas

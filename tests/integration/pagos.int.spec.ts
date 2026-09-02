@@ -4,7 +4,10 @@ import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, fechaEnPeriodo, saldoDe, type Fixture } from './helpers/tenant-fixture.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { approveBill } from '../../src/services/ap/bill-service.js';
-import { recordVendorPayment } from '../../src/services/payments/payment-service.js';
+import {
+  recordVendorPayment,
+  recordCustomerPayment,
+} from '../../src/services/payments/payment-service.js';
 
 /**
  * EL PAGO DESDE LA TERMINAL.
@@ -182,7 +185,10 @@ describe('lo que el servicio se niega a hacer', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/debe 116\.00 y se intentan aplicar 500\.00/);
+    // El mensaje desglosa efectivo y descuento desde F04: extinguir pasivo
+    // dejó de ser sólo aplicar efectivo, así que decir «se intentan aplicar»
+    // ya no describiría lo que se rechaza.
+    ).rejects.toThrow(/debe 116\.00 y se intentan extinguir 500\.00/);
   });
 
   it('las aplicaciones no pueden sumar más que el pago', async () => {
@@ -341,13 +347,38 @@ describe('defectos de dinero que la auditoría destapó', () => {
     ).rejects.toThrow(/está en USD y el pago en MXN/);
   });
 
-  it('un descuento por pronto pago se rechaza en voz alta, no se traga', async () => {
-    // Se insertaba en payment_applications y no participaba en nada más: ni
-    // reducía el saldo ni entraba en el asiento, así que el proveedor quedaba
-    // debiendo el descuento para siempre.
+  it('un descuento por pronto pago YA no se rechaza: extingue pasivo y va al contra-costo', async () => {
+    // Esta prueba afirmaba el rechazo, y el rechazo se justificaba diciendo
+    // que faltaba «una cuenta de ingreso por descuentos en la capa de roles».
+    // La cuenta llevaba sembrada desde el principio (5200, contra-costo). Lo
+    // que faltaba era atarla, y F04 la ató: el descuento extingue pasivo sin
+    // salir del banco.
+    const gasto = await gastoAprobado(f, '1000.00', '160.00');
+    const r = await recordVendorPayment(
+      {
+        entityId: f.entityId, paymentAmount: '1100.00', paymentDate: fechaEnPeriodo(),
+        paymentMethod: 'spei',
+        applications: [{ documentId: gasto.billId, amountApplied: '1100.00', discountAmount: '60.00' }],
+      },
+      f.userId
+    );
+    expect(r.documentos[0].saldoNuevo, '1100 de efectivo + 60 de descuento saldan 1160').toBe('0.00');
+    expect(r.documentos[0].estado).toBe('paid');
+
+    const bd = await query<{ amount_paid: string; status: string }>(
+      `SELECT amount_paid, status FROM bills WHERE id = $1`, [gasto.billId]
+    );
+    // Y el descuento NO cuenta como dinero recibido: contarlo inflaría lo que
+    // salió del banco y descuadraría la conciliación bancaria.
+    expect(bd.rows[0].amount_paid).toBe('1100.0000');
+  });
+
+  it('del lado del CLIENTE el descuento sigue rechazado, y manda a la nota de crédito', async () => {
+    // No es simetría perezosa: un descuento que NOSOTROS concedemos es un
+    // documento fiscal con su CFDI de egreso, no una línea suelta del cobro.
     const gasto = await gastoAprobado(f, '1000.00', '160.00');
     await expect(
-      recordVendorPayment(
+      recordCustomerPayment(
         {
           entityId: f.entityId, paymentAmount: '1100.00', paymentDate: fechaEnPeriodo(),
           paymentMethod: 'spei',
@@ -355,7 +386,7 @@ describe('defectos de dinero que la auditoría destapó', () => {
         },
         f.userId
       )
-    ).rejects.toThrow(/descuento por pronto pago todavía no se puede registrar/);
+    ).rejects.toThrow(/NOTA DE CRÉDITO/);
   });
 
   it('un gasto en borrador no se paga: su pasivo no está en el mayor', async () => {

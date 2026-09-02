@@ -11,7 +11,7 @@ The system publishes events with retries: invoice.*, bill.*, payment.*, payroll.
 
 ## Integrations (admin)
 - Mexico PACs: Finkok/SW Sapien/Edicom with failover and preferences (/v1/admin/integrations/pac/preferences/all).
-- Payments: Stripe/Conekta. Banks: Plaid/Belvo. Email: SendGrid. Files: S3.
+- Payments: Stripe/Conekta. Banks: Plaid/Belvo. Files: S3. (Email fue retirado en F03: el adaptador simulaba el envío.)
 - Per-provider health with circuit breaker: GET /v1/admin/integrations/health/all.
 
 ## Blockchain attestation (optional)

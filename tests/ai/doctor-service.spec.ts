@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -340,6 +340,18 @@ describe('checkLookupTables', () => {
 });
 
 describe('checkOrphanedCapability', () => {
+  // El escaneo recorre src/ entero: ~2,5 s por llamada. Seis pruebas lo pedían
+  // sobre el mismo árbol inmutable, así que se recorría seis veces, y en CI una
+  // sola llamada ya se comía los 5 s de presupuesto de su prueba. Se escanea
+  // una vez, en el setup, donde el costo es visible y su tope explícito.
+  // No depende del beforeEach: lee el disco, no el entorno ni la base. La
+  // prueba de tmpDir queda fuera a propósito — necesita un árbol vacío nuevo
+  // en cada corrida, y ahí el escaneo es barato porque no hay nada que leer.
+  let repo: ReturnType<typeof checkOrphanedCapability>;
+  beforeAll(() => {
+    repo = checkOrphanedCapability({ cwd: process.cwd() });
+  }, 30_000);
+
   it('says so when there is no source tree instead of passing on nothing', () => {
     // A packaged install runs from dist/. A green tick that checked nothing is
     // the failure mode this whole check exists to remove.
@@ -349,20 +361,19 @@ describe('checkOrphanedCapability', () => {
   });
 
   it('reports the repository it is run from, with its denominators', () => {
-    const r = checkOrphanedCapability({ cwd: process.cwd() });
-    expect(r.name).toBe('Orphaned capability');
-    expect(r.detail).toMatch(/of \d+ tables and \d+ exports/);
+    expect(repo.name).toBe('Orphaned capability');
+    expect(repo.detail).toMatch(/of \d+ tables and \d+ exports/);
   });
 
   it('never fails the run, and that is structural rather than pending', () => {
     // La gravedad de un huérfano depende de si ESTA instalación usa la
     // capacidad, y esto lee src/, no la base. Lo que merece 'fail' se gradúa a
     // LOOKUP_TABLES, donde appliesWhen sí puede preguntarlo.
-    expect(checkOrphanedCapability({ cwd: process.cwd() }).level).not.toBe('fail');
+    expect(repo.level).not.toBe('fail');
   });
 
   it('ordena por consecuencia: primero lo que puede falsear una cifra', () => {
-    const detalle = checkOrphanedCapability({ cwd: process.cwd() }).detail;
+    const detalle = repo.detail;
     const cifra = detalle.indexOf('figure');
     const muerto = detalle.indexOf('unreferenced');
     expect(cifra).toBeGreaterThanOrEqual(0);
@@ -372,7 +383,7 @@ describe('checkOrphanedCapability', () => {
   it('cuenta el peso muerto en vez de enumerarlo', () => {
     // Dieciocho nombres detrás de los dos que importan es lo que hace que se
     // deje de leer el renglón.
-    const detalle = checkOrphanedCapability({ cwd: process.cwd() }).detail;
+    const detalle = repo.detail;
     expect(detalle).not.toContain('getCachedAccounts');
     expect(detalle).toMatch(/\d+ unreferenced export\(s\)/);
   });
@@ -380,7 +391,7 @@ describe('checkOrphanedCapability', () => {
   it('no repite lo que checkLookupTables ya vigila con nivel propio', () => {
     // employer_tax_liabilities se graduó allí: decirlo dos veces con dos
     // niveles distintos enseña a leer el más suave.
-    const detalle = checkOrphanedCapability({ cwd: process.cwd() }).detail;
+    const detalle = repo.detail;
     for (const spec of LOOKUP_TABLES) expect(detalle).not.toContain(spec.table);
   });
 
@@ -391,8 +402,7 @@ describe('checkOrphanedCapability', () => {
   });
 
   it('offers a fix that names the two ways out', () => {
-    const r = checkOrphanedCapability({ cwd: process.cwd() });
-    expect(r.fix).toMatch(/delete/i);
+    expect(repo.fix).toMatch(/delete/i);
   });
 });
 

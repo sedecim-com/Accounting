@@ -48,7 +48,7 @@ beforeEach(() => {
   fileValuesMock.mockReturnValue({});
 });
 
-describe('la precedencia: bandera > archivo > política > omisión', () => {
+describe('la asimetría (A7): apagar es de cualquiera, encender es del panel', () => {
   it('sin nada, la omisión es conservadora y lo dice', async () => {
     politica({
       ingest_auto_post: { value: 'off', defined: false },
@@ -74,7 +74,7 @@ describe('la precedencia: bandera > archivo > política > omisión', () => {
     expect(r.fuentes?.maxAmount).toBe('politica');
   });
 
-  it('el archivo del operador gana a la política en el interruptor', async () => {
+  it('el archivo del operador APAGA sobre la política, porque apagar es local', async () => {
     // Apagar siempre puede ser más local que encender: un operador que apagó
     // el auto-posteo en su máquina no debe verlo encendido por el panel.
     politica({
@@ -87,15 +87,58 @@ describe('la precedencia: bandera > archivo > política > omisión', () => {
     expect(r.fuentes?.autoPost).toBe('archivo');
   });
 
-  it('la bandera explícita gana a todos', async () => {
+  it('la bandera APAGA sobre un panel encendido', async () => {
+    politica({
+      ingest_auto_post: { value: 'on', defined: true },
+      ingest_auto_post_max_monto: { value: '5000', defined: true },
+    });
+    const r = await resolverUmbralesConPanel({ autoPost: false }, CTX);
+    expect(r.autoPost).toBe(false);
+    expect(r.fuentes?.autoPost).toBe('bandera');
+  });
+
+  // ESTA PRUEBA AFIRMABA LO CONTRARIO, Y ERA EL AGUJERO.
+  //
+  // Decía «la bandera explícita gana a todos» y pasaba: --auto-post encendía
+  // sobre un panel en 'off'. Era una de las tres puertas al auto-posteo con
+  // una sola custodiada. La compuerta de evidencia (A4) vive en el panel, así
+  // que cualquier capa que encienda por su cuenta la rodea entera.
+  it('la bandera NO enciende sobre un panel que no lo autorizó', async () => {
     politica({
       ingest_auto_post: { value: 'off', defined: true },
       ingest_auto_post_max_monto: { value: '5000', defined: true },
     });
-    fileValuesMock.mockReturnValue({ autoPost: false });
     const r = await resolverUmbralesConPanel({ autoPost: true }, CTX);
+    expect(r.autoPost, 'la bandera rodearía el peaje de la evidencia').toBe(false);
+    expect(r.fuentes?.autoPost).toBe('politica');
+    expect(r.encendidoIgnorado, 'y el intento no desaparece en silencio').toBe(true);
+  });
+
+  it('el archivo NO enciende sobre un panel en sombra, y la sombra sigue viva', async () => {
+    // El escenario exacto que la auditoría integral II ejecutó: panel en
+    // 'shadow' (el despacho contestó «mídelo primero») + archivo en true.
+    // Antes: posteaba de verdad y no registraba ni un veredicto de sombra.
+    politica({
+      ingest_auto_post: { value: 'shadow', defined: true },
+      ingest_auto_post_max_monto: { value: '5000', defined: true },
+    });
+    fileValuesMock.mockReturnValue({ autoPost: true });
+    const r = await resolverUmbralesConPanel({}, CTX);
+    expect(r.autoPost, 'el archivo rodeaba el peaje de la evidencia').toBe(false);
+    expect(r.sombra, 'y la sombra dejaba de medir justo cuando más importaba').toBe(true);
+    expect(r.encendidoIgnorado).toBe(true);
+  });
+
+  it('cuando el panel SÍ autoriza, la capa local puede confirmarlo y se le atribuye', async () => {
+    politica({
+      ingest_auto_post: { value: 'on', defined: true },
+      ingest_auto_post_max_monto: { value: '5000', defined: true },
+    });
+    fileValuesMock.mockReturnValue({ autoPost: true });
+    const r = await resolverUmbralesConPanel({}, CTX);
     expect(r.autoPost).toBe(true);
-    expect(r.fuentes?.autoPost).toBe('bandera');
+    expect(r.fuentes?.autoPost).toBe('archivo');
+    expect(r.encendidoIgnorado).toBe(false);
   });
 
   it('un valor desconocido en el panel NO enciende nada', async () => {
@@ -110,7 +153,7 @@ describe('la precedencia: bandera > archivo > política > omisión', () => {
   });
 });
 
-describe('el tope del archivo sólo gana si es MÁS estricto', () => {
+describe('el tope: apretar es de cualquiera, aflojar es del panel', () => {
   it('el operador puede bajar la exposición de su máquina', async () => {
     politica({
       ingest_auto_post: { value: 'on', defined: true },
@@ -133,6 +176,28 @@ describe('el tope del archivo sólo gana si es MÁS estricto', () => {
     const r = await resolverUmbralesConPanel({}, CTX);
     expect(r.maxAmount, 'el tope laxo del json no debe pisar el estricto del panel').toBe(5000);
     expect(r.fuentes?.maxAmount).toBe('politica');
+  });
+
+  it('la bandera tampoco puede aflojar el tope (A7: vivía fuera de la regla)', async () => {
+    // El archivo ya respetaba la asimetría; la bandera no, así que
+    // `--max-amount 999999` subía el tope por encima del panel.
+    politica({
+      ingest_auto_post: { value: 'on', defined: true },
+      ingest_auto_post_max_monto: { value: '5000', defined: true },
+    });
+    const r = await resolverUmbralesConPanel({ maxAmount: 999999 }, CTX);
+    expect(r.maxAmount).toBe(5000);
+    expect(r.fuentes?.maxAmount).toBe('politica');
+  });
+
+  it('pero sí puede apretarlo', async () => {
+    politica({
+      ingest_auto_post: { value: 'on', defined: true },
+      ingest_auto_post_max_monto: { value: '5000', defined: true },
+    });
+    const r = await resolverUmbralesConPanel({ maxAmount: 100 }, CTX);
+    expect(r.maxAmount).toBe(100);
+    expect(r.fuentes?.maxAmount).toBe('bandera');
   });
 });
 

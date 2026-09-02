@@ -381,7 +381,16 @@ router.post('/pre-registrations/:id/process', requirePermission('bills:create'),
     }
   }
 
-  const result = await service.processToAccounting(preReg, req.user!.user_id);
+  // El alta del emisor como proveedor es opt-in y por petición. Ésta es una
+  // ruta INTERACTIVA —hay una persona autenticada detrás de cada llamada— así
+  // que puede autorizarla, pero tiene que escribirlo: sin el campo, el
+  // servicio rechaza y dice qué proveedor se iba a crear.
+  const permitirProveedorNuevo =
+    (req.body as { allow_new_vendor?: unknown } | undefined)?.allow_new_vendor === true;
+
+  const result = await service.processToAccounting(preReg, req.user!.user_id, {
+    permitirProveedorNuevo,
+  });
 
   res.json({
     data: {
@@ -457,7 +466,15 @@ router.post('/pre-registrations/bulk', requirePermission('bills:create'), requir
             id,
             alcance(req)
           );
-          await service.processToAccounting(preReg, req.user!.user_id);
+          // Igual que la ruta individual: interactiva, así que el alta de
+          // proveedor puede autorizarse, pero hay que escribirla en
+          // `params.allow_new_vendor`. Vale para TODO el lote porque el lote
+          // es una sola orden de una sola persona; el que no la escribe no
+          // crea contrapartes y recibe el motivo por id.
+          await service.processToAccounting(preReg, req.user!.user_id, {
+            permitirProveedorNuevo:
+              (params as { allow_new_vendor?: unknown }).allow_new_vendor === true,
+          });
           results.push({ id, status: 'success' });
           break;
         }
