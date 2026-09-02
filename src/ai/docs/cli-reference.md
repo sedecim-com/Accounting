@@ -780,7 +780,7 @@ Dry-run compaction report for a session transcript (no API calls)
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
   -t, --tenant <id>        Tenant
-  -s, --session <id>       Session id (default: the most recent session)
+  --session <id>           Session id (default: the most recent session)
   --keep <tokens>          Recent tail to keep intact, in tokens (default:
                            "20000")
   --json                   JSON output
@@ -3483,14 +3483,20 @@ Usage: mnemosine bank|banco [options] [command]
 Bank accounts and bank statements: master data and imported statements
 
 Options:
-  -h, --help               display help for command
+  -h, --help                display help for command
 
 Commands:
-  account|cuenta           Bank accounts as master data: identifiers, currency
-                           and the 1:1 GL mapping
-  statement|estado-cuenta  Bank statements as documents: import, inspect and
-                           check their integrity
-  help [command]           display help for command
+  account|cuenta            Bank accounts as master data: identifiers, currency
+                            and the 1:1 GL mapping
+  statement|estado-cuenta   Bank statements as documents: import, inspect and
+                            check their integrity
+  transaction|movimiento    Bank transactions: what the bank says happened,
+                            before anyone explains it
+  book-item|partida-libros  The other side: posted journal lines against the
+                            bank GL account, still unsealed
+  match|cotejo              Matching a bank transaction to what the books
+                            already say about it
+  help [command]            display help for command
 ```
 
 ### `mnemosine bank account` (alias: cuenta)
@@ -3793,6 +3799,291 @@ Options:
   --account <ref>                          every statement of this bank account (name or id)
   --since <date>                           only statements whose period ends on or after this date (YYYY-MM-DD)
   -h, --help                               display help for command
+```
+
+### `mnemosine bank transaction` (alias: movimiento)
+
+```
+Usage: mnemosine bank transaction|movimiento [options] [command]
+
+Bank transactions: what the bank says happened, before anyone explains it
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  list|listar [options] [query]  List bank transactions filtered by account,
+                                 date range, direction, amount, text, type and
+                                 match state
+  show|ver [options] <id>        Show one transaction: the normalized line, the
+                                 statement it came from and the live matches
+                                 that explain it
+  help [command]                 display help for command
+```
+
+#### `mnemosine bank transaction list` (alias: listar)
+
+```
+Usage: mnemosine bank transaction list|listar [options] [query]
+
+List bank transactions filtered by account, date range, direction, amount, text,
+type and match state
+
+Arguments:
+  query                                          hledger-style terms: desc:<text>, amt:[>|<|>=|<=]<amount>; a bare word means desc:
+
+Options:
+  -e, --entity <idOrName>                        legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                              tenant (firm) whose data to scope to
+  -u, --user <email>                             acting user, for attribution and permissions
+  -n, --limit <n>                                maximum rows to return
+  --offset <n>                                   skip this many rows
+  -s, --status <state...>                        filter by lifecycle state (repeatable)
+  -a, --all                                      no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>        output format (default: "table")
+  --json                                         shorthand for --format json
+  -o, --output <path>                            write to a file instead of stdout
+  --fields [names]                               comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                    identifiers only, one per line, for piping
+  --account <ref>                                only this bank account (name or id)
+  --since <date>                                 transactions on or after this date (YYYY-MM-DD)
+  --until <date>                                 transactions on or before this date (YYYY-MM-DD)
+  --unmatched                                    only transactions with no live match; shorthand for -s unmatched
+  --direction <in|out>                           money in (positive amount) or out (negative amount)
+  --type <debit|credit|fee|interest|adjustment>  transaction nature as the bank classified it (not its direction)
+  -h, --help                                     display help for command
+```
+
+#### `mnemosine bank transaction show` (alias: ver)
+
+```
+Usage: mnemosine bank transaction show|ver [options] <id>
+
+Show one transaction: the normalized line, the statement it came from and the
+live matches that explain it
+
+Arguments:
+  id                                       transaction id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --raw                                    include raw_data exactly as the bank published it; it can carry the counterparty in the clear
+  -h, --help                               display help for command
+```
+
+### `mnemosine bank book-item` (alias: partida-libros)
+
+```
+Usage: mnemosine bank book-item|partida-libros [options] [command]
+
+The other side: posted journal lines against the bank GL account, still unsealed
+
+Options:
+  -h, --help                       display help for command
+
+Commands:
+  list|listar [options] <account>  List posted journal lines against the bank GL
+                                   account that are still unsealed, oldest
+                                   first, with their age
+  help [command]                   display help for command
+```
+
+#### `mnemosine bank book-item list` (alias: listar)
+
+```
+Usage: mnemosine bank book-item list|listar [options] <account>
+
+List posted journal lines against the bank GL account that are still unsealed,
+oldest first, with their age
+
+Arguments:
+  account                                  bank account whose GL account the entries were posted to (name or id)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --since <date>                           entries on or after this entry date (YYYY-MM-DD)
+  --until <date>                           entries on or before this entry date (YYYY-MM-DD)
+  --over-days <n>                          only what has gone MORE than this many days without showing up at the bank
+  -h, --help                               display help for command
+```
+
+### `mnemosine bank match` (alias: cotejo)
+
+```
+Usage: mnemosine bank match|cotejo [options] [command]
+
+Matching a bank transaction to what the books already say about it
+
+Options:
+  -h, --help                               display help for command
+
+Commands:
+  preview|previsualizar [options] [tx-id]  Show what the engine would propose, with the score broken into its signals and every gate’s verdict, WITHOUT applying anything
+  run|ejecutar [options]                   Run the engine over one account and period, applying ONLY what clears the confidence threshold, the amount floor, an open period and an exact-amount hard signal
+  apply|aplicar [options] [id...]          Apply the engine’s proposal for the named transactions in ONE transaction, idempotently, linked to the session
+  create|crear [options]                   Build an explicit match group of N bank transactions against M book items plus adjustments, requiring Σbank = Σbooks + Σadjustments
+  unapply|desaplicar [options] <match-id>  Undo a match with a typed reason, releasing the book-item seal; refuses if the session is already approved or posted, and touches no posted journal entry
+  help [command]                           display help for command
+```
+
+#### `mnemosine bank match preview` (alias: previsualizar)
+
+```
+Usage: mnemosine bank match preview|previsualizar [options] [tx-id]
+
+Show what the engine would propose, with the score broken into its signals and
+every gate’s verdict, WITHOUT applying anything
+
+Arguments:
+  tx-id                                    one transaction; without it, every unmatched one of --account
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --account <ref>                          bank account to sweep when no transaction id is given
+  --since <date>                           transactions on or after this date (YYYY-MM-DD)
+  --until <date>                           transactions on or before this date (YYYY-MM-DD)
+  --top <n>                                maximum TRANSACTIONS to preview (not candidates per transaction)
+  --min-confidence <n>                     engine confidence a proposal needs before `run` would apply it (0..1)
+  --max-amount <amount>                    ceiling for an automatic match; the hard floor still wins
+  --rules-only                             a proposal outside the date window counts as not applicable
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank match run` (alias: ejecutar)
+
+```
+Usage: mnemosine bank match run|ejecutar [options]
+
+Run the engine over one account and period, applying ONLY what clears the
+confidence threshold, the amount floor, an open period and an exact-amount hard
+signal
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --account <ref>          bank account to sweep (name or id)
+  --since <date>           transactions on or after this date (YYYY-MM-DD)
+  --until <date>           transactions on or before this date (YYYY-MM-DD)
+  --min-confidence <n>     engine confidence a proposal needs to be applied
+                           (0..1)
+  --max-amount <amount>    ceiling for an automatic match; the hard floor still
+                           wins
+  --rules-only             refuse a proposal outside the date window
+  --top <n>                maximum transactions to evaluate in this run
+  --session <id>           reconciliation session these matches belong to
+  --dry-run                do the whole thing and roll it back
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank match apply` (alias: aplicar)
+
+```
+Usage: mnemosine bank match apply|aplicar [options] [id...]
+
+Apply the engine’s proposal for the named transactions in ONE transaction,
+idempotently, linked to the session
+
+Arguments:
+  id                       bank transaction ids; or feed them through --stdin
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --stdin                  read the ids from standard input, whitespace
+                           separated
+  --session <id>           reconciliation session these matches belong to
+  --dry-run                do the whole thing and roll it back
+  -y, --yes                skip the grouped confirmation
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank match create` (alias: crear)
+
+```
+Usage: mnemosine bank match create|crear [options]
+
+Build an explicit match group of N bank transactions against M book items plus
+adjustments, requiring Σbank = Σbooks + Σadjustments
+
+Options:
+  -e, --entity <idOrName>        legal entity to operate on (defaults to the
+                                 active one)
+  -t, --tenant <id>              tenant (firm) whose data to scope to
+  -u, --user <email>             acting user, for attribution and permissions
+  --account <ref>                bank account the whole group belongs to (name
+                                 or id)
+  --transaction <ids>            comma-separated bank transaction ids: the bank
+                                 side
+  --book-item <ids>              comma-separated book side: <id> for a journal
+                                 line, or <type>:<id> (journal_entry_line,
+                                 invoice, bill, customer_payment,
+                                 vendor_payment)
+  --adjust <concept=amount>      declared adjustment (bank fee, FX difference);
+                                 repeatable (default: [])
+  --residual <keep|write-off>    what happens to what is left over: keep it
+                                 live, or write it off against an account
+  --write-off-account <account>  GL account the residual is written off against
+  --session <id>                 reconciliation session this group belongs to
+  --dry-run                      do the whole thing and roll it back
+  --json                         JSON output
+  -h, --help                     display help for command
+```
+
+#### `mnemosine bank match unapply` (alias: desaplicar)
+
+```
+Usage: mnemosine bank match unapply|desaplicar [options] <match-id>
+
+Undo a match with a typed reason, releasing the book-item seal; refuses if the
+session is already approved or posted, and touches no posted journal entry
+
+Arguments:
+  match-id                 the match to undo; its whole group goes with it
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --reason <code>          typed reason, required: cotejo-erroneo |
+                           monto-incorrecto | duplicado | movimiento-reversado |
+                           documento-cancelado | reclasificacion |
+                           error-de-captura
+  --dry-run                do the whole thing and roll it back
+  -y, --yes                skip the confirmation
+  --json                   JSON output
+  -h, --help               display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)

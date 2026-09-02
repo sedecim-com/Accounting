@@ -34,6 +34,39 @@ import {
   type HallazgoEstado,
 } from '../services/banking/statement-checks.js';
 import { FORMATOS_DEL_CATALOGO, leerExtracto } from '../services/banking/parsers/index.js';
+import {
+  CAMPOS_SIN_EXTRACTOR,
+  DIRECCIONES,
+  TIPOS_DE_MOVIMIENTO,
+  exigirTipoDeMovimiento,
+  listarMovimientos,
+  obtenerMovimiento,
+  type CriterioImporte,
+  type Direccion,
+  type FichaMovimiento,
+  type RenglonMovimiento,
+} from '../services/banking/transactions.js';
+import {
+  listarPartidasDeLibros,
+  type PartidaDeLibros,
+} from '../services/banking/book-items.js';
+import {
+  MODOS_RESIDUAL,
+  MOTIVOS_DESAPLICACION,
+  aplicarCotejos,
+  correrCotejo,
+  crearGrupoDeCotejo,
+  desaplicarCotejo,
+  previsualizarCotejo,
+  type AjusteDeGrupo,
+  type ModoResidual,
+  type MotivoDesaplicacion,
+  type MovimientoPrevisto,
+  type ReferenciaDeLibros,
+  type ResultadoAplicacion,
+  type TipoCotejable,
+} from '../services/banking/match-service.js';
+import { MATCHED_ENTITY_TYPES } from '../database/enums.js';
 import type { Palette } from './palette.js';
 import {
   checkExitCode,
@@ -57,10 +90,15 @@ import {
 // ============================================================
 // mnemosine bank · banco
 //
-// Dos objetos y nueve hojas: la CUENTA como dato maestro y el ESTADO DE CUENTA
-// como documento. Toda la aritmética, la frontera de entidad y el cifrado
-// viven en `services/banking/`; aquí se decide lo que sólo la terminal puede
-// decidir — qué se imprime, qué se pregunta y con qué código se sale.
+// Cinco objetos y diecisiete hojas. F05a trajo dos: la CUENTA como dato
+// maestro y el ESTADO DE CUENTA como documento. F05b trae los otros tres, que
+// son los dos lados del cotejo y el cotejo mismo — el MOVIMIENTO (lo que el
+// banco dice), la PARTIDA DE LIBROS (lo que nosotros dijimos) y el COTEJO (la
+// aseveración de que hablan del mismo dinero).
+//
+// Toda la aritmética, la frontera de entidad y el cifrado viven en
+// `services/banking/`; aquí se decide lo que sólo la terminal puede decidir —
+// qué se imprime, qué se pregunta y con qué código se sale.
 //
 // TRES DECISIONES QUE NO SON DE ESTILO.
 //
@@ -94,6 +132,36 @@ import {
 // texto escrito a mano, no una tabla— cede el paso a `render` en cuanto llega
 // un `--fields`: una bandera declarada que sólo se lee en json es una promesa
 // incumplida, y ya cazaron esa exacta mentira en `ap reconcile`.
+//
+// Y TRES MÁS, DE F05b.
+//
+// LA CUARTA · `preview` Y `run` SON DOS HOJAS Y NO UNA CON BANDERA. Hacen la
+// misma pregunta al mismo motor con las mismas cuatro compuertas; la única
+// diferencia es que una escribe. Podrían ser `bank match run --dry-run`, y
+// entonces el permiso del agente dependería del valor de una bandera:
+// imposible de decidir al registrar y de hacer cumplir en ningún sitio. Por
+// eso están partidas, `declareRisk` las declara ✓ y ✗ por separado, y las
+// banderas de compuerta se escriben IGUAL en las dos (`--min-confidence`,
+// `--max-amount`, `--rules-only`) para que la mitad de lectura siga prediciendo
+// lo que hará la de escritura. Es literalmente lo que dice el catálogo en su
+// nota sobre la columna IA, y la razón por la que `bank match preview` es la
+// única hoja de cotejo que un agente puede invocar.
+//
+// LA QUINTA · `--bank` Y `--book` DEL CATÁLOGO SE LLAMAN AQUÍ `--transaction`
+// Y `--book-item`. La fila 1227 escribe `--bank <ids>` para el lado de banco de
+// un grupo, pero `--bank` YA existe en esta familia y significa la institución
+// (`bank account create --bank BBVA`). Una grafía con dos significados en el
+// mismo binario es exactamente lo que el diccionario de banderas existe para
+// impedir, así que los dos lados se nombran por el sustantivo de su hoja:
+// `bank transaction list` y `bank book-item list`. Es la única desviación de
+// nombre de este tramo y está dicha aquí para que se pueda revertir a
+// propósito, no descubrir por un error.
+//
+// LA SEXTA · LA CONFIRMACIÓN NO SE SALTA POR VENIR DE UNA TUBERÍA. `apply
+// --stdin` consume la entrada estándar, así que no queda por dónde preguntar:
+// `ask` devuelve `false` sin TTY y el acto se aborta pidiendo `-y` por su
+// nombre. La alternativa —dar por buena la confirmación cuando nadie puede
+// contestarla— convertiría la ausencia de humano en el permiso de escribir.
 // ============================================================
 
 export interface BankCommandDeps {
@@ -103,6 +171,13 @@ export interface BankCommandDeps {
   home?: string;
   /** Costura de prueba: responde la confirmación de `bank account edit`. */
   confirm?: (question: string) => Promise<boolean>;
+  /**
+   * Costura de prueba: la entrada estándar de `bank match apply --stdin`.
+   *
+   * Existe porque la alternativa es que una prueba escriba en el stdin del
+   * proceso de vitest, que es del corredor y no del caso.
+   */
+  readStdin?: () => Promise<string>;
 }
 
 interface CommonOpts {
@@ -197,6 +272,286 @@ function estadoDeCuenta(status: string[] | undefined, all: boolean | undefined):
 function opcionalNulo(valor: string | undefined): string | null | undefined {
   if (valor === undefined) return undefined;
   return valor.trim() === '' ? null : valor.trim();
+}
+
+/**
+ * Un entero que admite el cero, para `--over-days 0` («sin antigüedad mínima»).
+ * `enteroPositivo` rechazaría ese caso, que es legítimo y no un typo.
+ */
+function enteroDesdeCero(nombre: string) {
+  return (valor: string): number => {
+    const n = Number(valor);
+    if (!Number.isSafeInteger(n) || n < 0) {
+      throw new InvalidArgumentError(`${nombre} must be a whole number of 0 or more; got "${valor}".`);
+    }
+    return n;
+  };
+}
+
+/**
+ * La confianza del motor es un DECIMAL(3,2) entre 0 y 1, no dinero: se compara
+ * como número a propósito y `matching.ts` lo dice en su sitio. Lo que sí hay
+ * que impedir es un 85 tecleado por 0.85, que abriría la compuerta del todo en
+ * vez de cerrarla.
+ */
+function confianzaCero1(nombre: string) {
+  return (valor: string): number => {
+    const n = Number(valor);
+    if (!Number.isFinite(n) || n < 0 || n > 1) {
+      throw new InvalidArgumentError(
+        `${nombre} must be a confidence between 0 and 1 (0.85, not 85); got "${valor}".`
+      );
+    }
+    return n;
+  };
+}
+
+/**
+ * El estado de cotejo de un movimiento, que sí es un estado de ciclo de vida y
+ * por eso `-s` significa algo aquí (a diferencia de `bank statement list`).
+ *
+ * `--unmatched` es el atajo que nombra el catálogo, no un filtro paralelo: si
+ * los dos llegan y se contradicen se rechaza en voz alta, porque obedecer a
+ * uno de los dos en silencio devolvería un listado que no es el que se pidió.
+ */
+function estadoDeCotejo(status: string[] | undefined, unmatched: boolean | undefined): boolean | undefined {
+  const pedidos = new Set((status ?? []).map((s) => s.trim().toLowerCase()));
+  const desconocidos = [...pedidos].filter((s) => s !== 'matched' && s !== 'unmatched');
+  if (desconocidos.length) {
+    throw usageError(
+      `-s ${desconocidos.join(', ')} no existe para un movimiento bancario: sólo matched y unmatched. ` +
+        'El resto de su estado —de qué estado de cuenta vino, qué lo explica— se lee con ' +
+        '`bank transaction show`.'
+    );
+  }
+  if (unmatched) {
+    if (pedidos.has('matched')) {
+      throw usageError(
+        '--unmatched y `-s matched` piden lo contrario. --unmatched es el atajo de `-s unmatched`: ' +
+          'pasa uno de los dos.'
+      );
+    }
+    return false;
+  }
+  if (pedidos.size !== 1) return undefined;
+  return pedidos.has('matched');
+}
+
+function exigirDireccion(valor: string): Direccion {
+  const d = valor.trim().toLowerCase();
+  if (!(DIRECCIONES as readonly string[]).includes(d)) {
+    throw usageError(
+      `--direction "${valor}" no existe: in es dinero que entra (importe positivo) y out el que sale.`
+    );
+  }
+  return d as Direccion;
+}
+
+// ── LA CONSULTA POSICIONAL ──────────────────────────────────────────────
+//
+// La fila 1198 pide `desc:` y `amt:` en un argumento posicional, con la
+// sintaxis estilo hledger que el catálogo fija para TODOS los `list` (§4). La
+// forma se copia del único precedente que hay en el repositorio,
+// `bill inbox run --query`: lista de claves CERRADA, una clave desconocida se
+// rechaza nombrando las que existen, y una consulta que no acota nada se
+// rechaza en vez de significar «todo».
+//
+// La diferencia con aquel precedente es dónde vive: aquél es una bandera con
+// pares `clave=valor` separados por comas; éste es el posicional con `clave:`
+// separado por espacios, que es lo que el catálogo escribe para los listados.
+
+/** Las dos claves que la fila 1198 nombra. Cerrada: una nueva se añade aquí. */
+const CLAVES_DE_CONSULTA = ['desc', 'amt'] as const;
+
+const AMT_RE = /^(>=|<=|>|<|=)?([+-]?\d+(?:\.\d+)?)$/;
+
+export interface ConsultaDeMovimientos {
+  texto: string[];
+  importes: CriterioImporte[];
+}
+
+/**
+ * Parte la consulta en términos respetando las comillas dobles.
+ *
+ * Sin esto, `desc:"pago de nomina"` se rompería en tres términos y los dos
+ * últimos se leerían como búsquedas de texto sueltas: la consulta devolvería
+ * de menos y nadie sabría por qué.
+ */
+function terminosDe(consulta: string): string[] {
+  const terminos: string[] = [];
+  let actual = '';
+  let entreComillas = false;
+  for (const ch of consulta) {
+    if (ch === '"') {
+      entreComillas = !entreComillas;
+      continue;
+    }
+    if (!entreComillas && /\s/.test(ch)) {
+      if (actual) terminos.push(actual);
+      actual = '';
+      continue;
+    }
+    actual += ch;
+  }
+  if (entreComillas) {
+    throw usageError(`La consulta "${consulta}" abre una comilla y no la cierra.`);
+  }
+  if (actual) terminos.push(actual);
+  return terminos;
+}
+
+export function consultaDeMovimientos(consulta: string): ConsultaDeMovimientos {
+  const salida: ConsultaDeMovimientos = { texto: [], importes: [] };
+
+  for (const termino of terminosDe(consulta)) {
+    const corte = termino.indexOf(':');
+    // Una palabra suelta es una búsqueda de texto. Es lo que cualquiera teclea
+    // primero, y obligarla a llevar prefijo sólo enseña a nadie.
+    const clave = corte === -1 ? 'desc' : termino.slice(0, corte).toLowerCase();
+    const valor = corte === -1 ? termino : termino.slice(corte + 1);
+
+    if (!(CLAVES_DE_CONSULTA as readonly string[]).includes(clave)) {
+      throw usageError(
+        `La consulta no conoce el término "${clave}:". Los que hay son ` +
+          `${CLAVES_DE_CONSULTA.map((c) => `${c}:`).join(', ')}, y una palabra sin prefijo busca en ` +
+          'la descripción. El resto se acota con banderas (--account, --since, --until, ' +
+          '--direction, --type).'
+      );
+    }
+    if (!valor) {
+      throw usageError(`El término "${termino}" no trae valor: escribe ${clave}:<valor>.`);
+    }
+
+    if (clave === 'desc') {
+      salida.texto.push(valor);
+      continue;
+    }
+
+    const m = AMT_RE.exec(valor.replace(/,/g, ''));
+    if (!m) {
+      throw usageError(
+        `"amt:${valor}" no es un importe. La forma es amt:250, amt:>1000, amt:<=99.99 o ` +
+          'amt:-250 (con signo compara el importe tal cual; sin signo, la magnitud).'
+      );
+    }
+    salida.importes.push({
+      comparador: (m[1] ?? '=') as CriterioImporte['comparador'],
+      // Dinero como CADENA de punta a punta: entra al SQL como texto y se
+      // castea a numeric allí. Un Number() aquí es el redondeo que después
+      // nadie encuentra.
+      valor: m[2].replace(/^\+/, ''),
+      firmado: /^[+-]/.test(m[2]),
+    });
+  }
+
+  if (salida.texto.length === 0 && salida.importes.length === 0) {
+    throw usageError(
+      `La consulta "${consulta}" no acota nada. Nombra al menos un término ` +
+        `(${CLAVES_DE_CONSULTA.map((c) => `${c}:`).join(', ')}), o quítala para listar todo.`
+    );
+  }
+  return salida;
+}
+
+// ── LOS IDS QUE ENTRAN POR BANDERA ──────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Una lista de uuid separados por comas.
+ *
+ * Se valida la FORMA aquí, antes de abrir transacción, porque un id mal
+ * tecleado dentro del acto abortaría un grupo a medio armar y el operador
+ * tendría que volver a escribir los otros nueve. Los repetidos NO se filtran:
+ * los rechaza el servicio nombrando cuál, y silenciarlos aquí haría que un
+ * grupo que el usuario cree de tres patas se escribiera con dos.
+ */
+function idsDeBandera(flag: string, valor: string): string[] {
+  const ids = valor.split(',').map((s) => s.trim()).filter(Boolean);
+  if (ids.length === 0) throw usageError(`${flag} llegó vacía: nombra al menos un identificador.`);
+  const malos = ids.filter((id) => !UUID_RE.test(id));
+  if (malos.length) {
+    throw usageError(
+      `${flag} ${malos.join(', ')} no es un identificador: se esperan uuid separados por comas, ` +
+        'como los que imprime `bank transaction list -q`.'
+    );
+  }
+  return ids;
+}
+
+/** Un solo identificador, comprobado antes de gastar una conexión en él. */
+function uuidDeBandera(flag: string, valor: string): string {
+  const id = valor.trim();
+  if (!UUID_RE.test(id)) {
+    throw usageError(`${flag} "${valor}" no es un identificador: se espera un uuid.`);
+  }
+  return id;
+}
+
+/**
+ * El lado de libros: `<id>` o `<tipo>:<id>`.
+ *
+ * Sin tipo se asume `journal_entry_line`, que es lo que «M partidas de libros»
+ * significa y lo que el servicio ya toma por omisión. Los otros cuatro tipos
+ * existen porque el mismo grupo puede cotejar contra una factura o un pago.
+ */
+function referenciasDeLibros(valor: string): ReferenciaDeLibros[] {
+  return valor.split(',').map((s) => s.trim()).filter(Boolean).map((parte) => {
+    const corte = parte.lastIndexOf(':');
+    const tipo = corte === -1 ? 'journal_entry_line' : parte.slice(0, corte).toLowerCase();
+    const id = corte === -1 ? parte : parte.slice(corte + 1);
+    if (!(MATCHED_ENTITY_TYPES as readonly string[]).includes(tipo)) {
+      throw usageError(
+        `"${tipo}" no es un tipo cotejable. Los cinco son: ${MATCHED_ENTITY_TYPES.join(', ')}. ` +
+          'Escribe <tipo>:<id>, o sólo <id> para una partida de póliza.'
+      );
+    }
+    if (!UUID_RE.test(id)) {
+      throw usageError(`--book-item "${parte}" no trae un identificador válido después del tipo.`);
+    }
+    return { tipo: tipo as TipoCotejable, id };
+  });
+}
+
+/** `--adjust "comision bancaria=-35.00"`, repetible. */
+function ajusteDeGrupo(valor: string, previos: AjusteDeGrupo[]): AjusteDeGrupo[] {
+  const corte = valor.lastIndexOf('=');
+  if (corte <= 0) {
+    throw new InvalidArgumentError(
+      `--adjust must be "<concept>=<amount>", e.g. --adjust "bank fee=-35.00"; got "${valor}".`
+    );
+  }
+  const concepto = valor.slice(0, corte).trim();
+  const importe = valor.slice(corte + 1).trim().replace(/,/g, '');
+  if (!concepto || !IMPORTE_RE.test(importe)) {
+    throw new InvalidArgumentError(
+      `--adjust must be "<concept>=<amount>", e.g. --adjust "bank fee=-35.00"; got "${valor}".`
+    );
+  }
+  return [...previos, { concepto, importe }];
+}
+
+function exigirResidual(valor: string): ModoResidual {
+  const m = valor.trim().toLowerCase();
+  if (!(MODOS_RESIDUAL as readonly string[]).includes(m)) {
+    throw usageError(
+      `--residual "${valor}" no existe. keep deja el residual vivo como partida conciliatoria; ` +
+        'write-off lo cancela contra la cuenta que diga --write-off-account.'
+    );
+  }
+  return m as ModoResidual;
+}
+
+function exigirMotivo(valor: string | undefined): MotivoDesaplicacion {
+  const codigo = (valor ?? '').trim().toLowerCase();
+  if (!(MOTIVOS_DESAPLICACION as readonly string[]).includes(codigo)) {
+    throw usageError(
+      `--reason es obligatorio y es un CÓDIGO, no prosa: ${MOTIVOS_DESAPLICACION.join(', ')}. ` +
+        'Una taxonomía cerrada es lo que permite preguntar cuántos cotejos se deshicieron por ' +
+        'documento cancelado este trimestre; un campo libre contesta eso con un grep.'
+    );
+  }
+  return codigo as MotivoDesaplicacion;
 }
 
 const COLUMNAS_CUENTA = [
@@ -303,6 +658,149 @@ function hallazgoComoFila(h: HallazgoEstado, estado: string, cuenta: string): Ro
   };
 }
 
+const COLUMNAS_MOVIMIENTO = [
+  'date', 'amount', 'currency', 'type', 'description', 'counterparty', 'matched',
+] as const;
+
+function movimientoComoFila(m: RenglonMovimiento): Row {
+  return {
+    date: m.fecha,
+    value_date: m.fechaValor ?? '',
+    // El importe sale con los cuatro decimales de la columna. Recortarlo a dos
+    // aquí es el defecto que F05a cazó tres veces.
+    amount: m.importe,
+    currency: m.moneda,
+    type: m.tipo,
+    description: m.descripcion ?? '',
+    counterparty: m.contraparte ?? '',
+    category: m.categoria ?? '',
+    reference: m.referencia ?? '',
+    account: m.cuenta,
+    matched: m.cotejada,
+    confidence: m.confianza ?? '',
+    statement_id: m.statementId ?? '',
+    imported: m.importadoEl,
+    id: m.id,
+  };
+}
+
+function fichaMovimientoComoFila(f: FichaMovimiento, crudo: boolean): Row {
+  return {
+    ...movimientoComoFila(f),
+    entity_id: f.entityId,
+    content_hash: f.contentHash,
+    matched_at: f.cotejadoEl ?? '',
+    matched_by: f.cotejadoPor ?? '',
+    import_batch_id: f.loteId ?? '',
+    statement_number: f.estadoDeCuenta?.numero ?? '',
+    statement_period: f.estadoDeCuenta?.periodo ?? '',
+    // Los campos que el catálogo promete normalizados y que nadie extrae aún.
+    // Van como lista de nombres y no como cuatro columnas vacías: «no lo trae»
+    // y «nadie lo ha buscado» son hechos distintos.
+    unextracted_fields: [...CAMPOS_SIN_EXTRACTOR],
+    // Anidados y no en un segundo `render`: un documento por invocación.
+    matches: f.cotejos,
+    ...(crudo ? { raw: f.crudo } : {}),
+    id: f.id,
+  };
+}
+
+const COLUMNAS_PARTIDA = ['date', 'entry', 'amount', 'description', 'age_days'] as const;
+
+function partidaComoFila(p: PartidaDeLibros): Row {
+  return {
+    date: p.fecha,
+    entry: p.entryNumber,
+    amount: p.importe,
+    description: p.descripcion,
+    age_days: p.antiguedadDias,
+    sealed: p.sellada,
+    entry_id: p.entryId,
+    id: p.lineId,
+  };
+}
+
+/**
+ * La descomposición, en columnas.
+ *
+ * NO es el desglose interno del puntaje: `findBestMatch` devuelve un escalar y
+ * los pesos .45/.25/.30 se quedan dentro del motor. Lo que sí se puede afirmar
+ * son los HECHOS de la pareja que el motor mira —cuánto difiere el importe,
+ * cuántos días hay entre las fechas, cuánto se parecen los textos— más la
+ * regla que disparó y el veredicto de cada compuerta. Es lo que hace revisable
+ * una propuesta: quien la lee puede rehacer el juicio sin creerle al número.
+ */
+function previstoComoFila(p: MovimientoPrevisto): Row {
+  const s = p.senales;
+  const c = p.propuesta;
+  return {
+    date: p.fecha,
+    amount: p.importe,
+    description: p.descripcion ?? '',
+    candidate_type: c?.tipo ?? '',
+    candidate: c?.referencia ?? c?.id ?? '',
+    candidate_amount: c?.importe ?? '',
+    candidate_date: c?.fecha ?? '',
+    // La confianza es un DECIMAL(3,2), no dinero: dos decimales es su
+    // precisión completa y no un recorte.
+    confidence: c ? c.confianza.toFixed(2) : '',
+    rule: c?.regla ?? '',
+    amount_diff: s?.diferenciaImporte ?? '',
+    exact_amount: s ? s.importeExacto : '',
+    same_direction: s ? s.mismaDireccion : '',
+    days_apart: s ? s.diasDeDiferencia : '',
+    within_window: s ? s.dentroDeVentana : '',
+    description_similarity: s ? s.similitudDescripcion.toFixed(2) : '',
+    period: p.periodo ? `${p.periodo.nombre} (${p.periodo.estado})` : '',
+    applicable: p.aplicable,
+    reason: p.motivo ?? '',
+    id: p.txId,
+  };
+}
+
+function aplicacionComoFilas(r: ResultadoAplicacion): Row[] {
+  return [
+    ...r.aplicados.map((a) => ({
+      outcome: 'applied',
+      transaction: a.txId,
+      match: a.matchId,
+      group: a.groupId,
+      type: a.tipo,
+      matched_entity: a.entidadId,
+      amount: a.importe,
+      confidence: a.confianza === null ? '' : a.confianza.toFixed(2),
+      sealed: a.selloEscrito,
+      id: a.matchId,
+    })),
+    // Un reintento tiene que poder ver que NO hizo falta, y con qué cotejo.
+    ...r.yaAplicados.map((y) => ({
+      outcome: 'already-applied',
+      transaction: y.txId,
+      match: y.matchId,
+      group: '',
+      type: '',
+      matched_entity: '',
+      amount: '',
+      confidence: '',
+      sealed: false,
+      id: y.matchId,
+    })),
+    ...r.omitidos.map((o) => ({
+      outcome: 'skipped',
+      transaction: o.txId,
+      match: '',
+      group: '',
+      type: '',
+      matched_entity: '',
+      amount: '',
+      confidence: '',
+      sealed: false,
+      reason: o.motivo,
+      id: o.txId,
+    })),
+  ];
+}
+
 /**
  * El puerto del lector, cableado.
  *
@@ -339,6 +837,26 @@ function archivosAImportar(posicionales: string[], dir: string | undefined): str
   // el UNIQUE(bank_account_id, file_sha256) de la 051 — un conflicto inventado
   // por la línea de órdenes que el operador tendría que ir a entender.
   return [...new Set(candidatos.map((c) => path.resolve(c)))];
+}
+
+/**
+ * La entrada estándar, entera, como texto.
+ *
+ * Se escribe con eventos y no con `for await (const trozo of stdin)` porque
+ * ahí el trozo llega tipado `any` y el archivo entero dejaría de compilar
+ * limpio bajo las reglas de tipos; con `setEncoding` el manejador recibe
+ * `string` y no hay ninguna aserción que revisar.
+ */
+function leerEntradaEstandar(): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let texto = '';
+    stdin.setEncoding('utf8');
+    stdin.on('data', (trozo: string) => {
+      texto += trozo;
+    });
+    stdin.on('end', () => resolve(texto));
+    stdin.on('error', (err: Error) => reject(err));
+  });
 }
 
 export function registerBankCommand(program: Command, deps: BankCommandDeps): void {
@@ -1247,6 +1765,777 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           { blocking: r.bloqueantes, warning: r.advertencias },
           { strict: opts.strict === true }
         );
+      })
+  );
+
+  // ============================================================
+  // F05b · LOS DOS LADOS Y EL COTEJO
+  // ============================================================
+
+  const transaction = bank
+    .command('transaction')
+    .alias('movimiento')
+    .description('Bank transactions: what the bank says happened, before anyone explains it');
+
+  const bookItem = bank
+    .command('book-item')
+    .alias('partida-libros')
+    .description('The other side: posted journal lines against the bank GL account, still unsealed');
+
+  const match = bank
+    .command('match')
+    .alias('cotejo')
+    .description('Matching a bank transaction to what the books already say about it');
+
+  // ---- bank transaction list ---------------------------------------
+  const txList = transaction
+    .command('list')
+    .alias('listar')
+    .argument(
+      '[query]',
+      'hledger-style terms: desc:<text>, amt:[>|<|>=|<=]<amount>; a bare word means desc:'
+    )
+    .description(
+      'List bank transactions filtered by account, date range, direction, amount, text, type and match state'
+    );
+  withOutput(withSelection(withContext(txList)));
+  txList
+    .option('--account <ref>', 'only this bank account (name or id)')
+    .option('--since <date>', 'transactions on or after this date (YYYY-MM-DD)')
+    .option('--until <date>', 'transactions on or before this date (YYYY-MM-DD)')
+    .option('--unmatched', 'only transactions with no live match; shorthand for -s unmatched')
+    .option('--direction <in|out>', 'money in (positive amount) or out (negative amount)')
+    .option(
+      `--type <${TIPOS_DE_MOVIMIENTO.join('|')}>`,
+      'transaction nature as the bank classified it (not its direction)'
+    );
+  declareRisk(txList, { risk: 'lectura', agent: true });
+  txList.action(
+    (
+      consulta: string | undefined,
+      opts: CommonOpts & { account?: string; since?: string; until?: string; unmatched?: boolean; direction?: string; type?: string }
+    ) =>
+      run(async () => {
+        const ctx = await entityOf(opts);
+        // A diferencia de las otras dos listas de la familia, ésta SÍ pagina por
+        // desplazamiento: su consulta la escribe este tramo y ordena por fecha
+        // con el id de desempate, así que `--offset` significa algo y no hay
+        // razón para rechazarlo.
+        const q = consulta ? consultaDeMovimientos(consulta) : undefined;
+        const tope = opts.all ? 1000 : (opts.limit ?? 50);
+
+        const filas = await listarMovimientos(ctx.entityId, {
+          account: opts.account,
+          since: opts.since ? exigirFecha('--since', opts.since) : undefined,
+          until: opts.until ? exigirFecha('--until', opts.until) : undefined,
+          cotejada: estadoDeCotejo(opts.status, opts.unmatched),
+          direccion: opts.direction ? exigirDireccion(opts.direction) : undefined,
+          tipo: opts.type ? exigirTipoDeMovimiento(opts.type) : undefined,
+          texto: q?.texto,
+          importes: q?.importes,
+          limit: tope,
+          offset: opts.offset,
+        });
+
+        render(filas.map(movimientoComoFila), {
+          ...opts,
+          idField: 'id',
+          numeric: ['amount', 'confidence'],
+          fields: opts.fields ?? (filas.length ? COLUMNAS_MOVIMIENTO.join(',') : undefined),
+        });
+        avisarTope(filas.length, tope, 'bank transaction list');
+      })
+  );
+
+  // ---- bank transaction show ---------------------------------------
+  const txShow = transaction
+    .command('show')
+    .alias('ver')
+    .argument('<id>', 'transaction id')
+    .description(
+      'Show one transaction: the normalized line, the statement it came from and the live matches that explain it'
+    );
+  withOutput(withContext(txShow));
+  txShow.option(
+    '--raw',
+    'include raw_data exactly as the bank published it; it can carry the counterparty in the clear'
+  );
+  declareRisk(txShow, { risk: 'lectura', agent: true });
+  txShow.action((id: string, opts: CommonOpts & { raw?: boolean }) =>
+    run(async () => {
+      const ctx = await entityOf(opts);
+      const crudo = opts.raw === true;
+      const m = await obtenerMovimiento(ctx.entityId, id, { crudo });
+
+      if (!legible(opts)) {
+        render([fichaMovimientoComoFila(m, crudo)], { ...opts, idField: 'id' });
+      } else {
+        const p = deps.palette;
+        const out = process.stdout;
+        out.write(
+          `\n${p.bold(m.importe)} ${p.dim(
+            `${m.moneda} · ${m.fecha} · ${m.cuenta} · ${m.tipo}` +
+              (m.cotejada ? '' : ` · ${p.yellow('sin cotejar')}`)
+          )}\n\n`
+        );
+        const linea = (etiqueta: string, valor: string) => {
+          if (valor !== '') out.write(`  ${p.dim(etiqueta.padEnd(22))}${valor}\n`);
+        };
+        linea('Description', m.descripcion ?? '');
+        linea('Counterparty', m.contraparte ?? '');
+        linea('Category', m.categoria ?? '');
+        linea('Bank reference', m.referencia ?? '');
+        linea('Value date', m.fechaValor ?? '');
+        linea(
+          'Statement',
+          m.estadoDeCuenta ? `${m.estadoDeCuenta.numero ?? m.estadoDeCuenta.id} · ${m.estadoDeCuenta.periodo}` : ''
+        );
+        linea('content_hash', m.contentHash);
+        linea('Imported', m.importadoEl);
+        out.write('\n');
+
+        if (m.cotejos.length === 0) {
+          out.write(`  ${p.dim('No live match. `bank match preview` says what the engine would propose.')}\n`);
+        } else {
+          out.write(`  ${p.bold('Matches')} ${p.dim(`(${m.cotejos.length})`)}\n`);
+          for (const c of m.cotejos) {
+            out.write(
+              `    ${p.green('✔')} ${c.tipo} ${c.entidadId} ${p.dim(
+                `· ${c.importe}${c.parcial ? ' (partial)' : ''} · ${c.origen}` +
+                  (c.groupId ? ` · group ${c.groupId}` : '')
+              )}\n`
+            );
+          }
+        }
+        if (crudo) {
+          out.write(`\n  ${p.bold('raw_data')}\n${JSON.stringify(m.crudo, null, 2)}\n`);
+        }
+        // La fila 1199 promete además clave de rastreo, CLABE y RFC de la
+        // contraparte y número de cheque. No existen: `raw_data` está ahí desde
+        // la 003 y no hay extractores ni columnas donde poner lo extraído.
+        // Decirlo es más honesto que enseñar cuatro renglones vacíos, que se
+        // leerían como «este movimiento no los trae».
+        process.stderr.write(
+          p.dim(
+            `  Sin extractores todavía (${CAMPOS_SIN_EXTRACTOR.join(', ')}): lo que el banco escribió ` +
+              'está en --raw. Los poblará `bank transaction apply`.\n'
+          )
+        );
+      }
+    })
+  );
+
+  // ---- bank book-item list -----------------------------------------
+  const bookList = bookItem
+    .command('list')
+    .alias('listar')
+    .argument('<account>', 'bank account whose GL account the entries were posted to (name or id)')
+    .description(
+      'List posted journal lines against the bank GL account that are still unsealed, oldest first, with their age'
+    );
+  withOutput(withSelection(withContext(bookList)));
+  bookList
+    .option('--since <date>', 'entries on or after this entry date (YYYY-MM-DD)')
+    .option('--until <date>', 'entries on or before this entry date (YYYY-MM-DD)')
+    .option(
+      '--over-days <n>',
+      'only what has gone MORE than this many days without showing up at the bank',
+      enteroDesdeCero('--over-days')
+    );
+  declareRisk(bookList, { risk: 'lectura', agent: true });
+  bookList.action(
+    (ref: string, opts: CommonOpts & { since?: string; until?: string; overDays?: number }) =>
+      run(async () => {
+        const ctx = await entityOf(opts);
+        const cuenta = await resolverCuentaBancaria(ctx.entityId, ref);
+        const todas = await listarPartidasDeLibros(ctx.entityId, cuenta.id, {
+          since: opts.since ? exigirFecha('--since', opts.since) : undefined,
+          until: opts.until ? exigirFecha('--until', opts.until) : undefined,
+          overDays: opts.overDays,
+        });
+
+        // EL TOPE SE APLICA AQUÍ Y SE DICE. `listarPartidasDeLibros` no pagina:
+        // devuelve las partidas sin sellar de UNA cuenta, que es un conjunto
+        // acotado por construcción —lo que no se ha conciliado— y no la tabla
+        // de pólizas entera. Recortar en JS sería una mentira si no se
+        // reportara el total; como sí se conoce, `render` anuncia el truncado
+        // en las tres formas de salida y `--offset` significa algo.
+        const desde = opts.offset ?? 0;
+        const tope = opts.all ? todas.length : (opts.limit ?? 50);
+        const filas = todas.slice(desde, desde + tope);
+
+        render(filas.map(partidaComoFila), {
+          ...opts,
+          idField: 'id',
+          numeric: ['amount', 'age_days'],
+          total: todas.length,
+          fields: opts.fields ?? (filas.length ? COLUMNAS_PARTIDA.join(',') : undefined),
+        });
+
+        if (todas.length && legible(opts)) {
+          const vieja = todas[0];
+          process.stderr.write(
+            deps.palette.dim(
+              `  La más antigua lleva ${vieja.antiguedadDias} día(s) sin aparecer en el banco ` +
+                `(${vieja.entryNumber}). Un cheque expedido y no cobrado vive aquí y nunca en el extracto.\n`
+            )
+          );
+        }
+      })
+  );
+
+  // ---- bank match preview ------------------------------------------
+  const preview = match
+    .command('preview')
+    .alias('previsualizar')
+    .argument('[tx-id]', 'one transaction; without it, every unmatched one of --account')
+    .description(
+      'Show what the engine would propose, with the score broken into its signals and every gate’s verdict, WITHOUT applying anything'
+    );
+  withOutput(withContext(preview));
+  preview
+    .option('--account <ref>', 'bank account to sweep when no transaction id is given')
+    .option('--since <date>', 'transactions on or after this date (YYYY-MM-DD)')
+    .option('--until <date>', 'transactions on or before this date (YYYY-MM-DD)')
+    .option(
+      '--top <n>',
+      'maximum TRANSACTIONS to preview (not candidates per transaction)',
+      enteroPositivo('--top')
+    )
+    .option(
+      '--min-confidence <n>',
+      'engine confidence a proposal needs before `run` would apply it (0..1)',
+      confianzaCero1('--min-confidence')
+    )
+    .option('--max-amount <amount>', 'ceiling for an automatic match; the hard floor still wins')
+    .option('--rules-only', 'a proposal outside the date window counts as not applicable');
+  // LA MITAD DE LECTURA. Es ✓ mientras `run` es ✗ y las dos hacen la misma
+  // pregunta: por eso son dos hojas y no una con bandera (regla R11).
+  declareRisk(preview, { risk: 'lectura', agent: true });
+  preview.action(
+    (
+      txId: string | undefined,
+      opts: CommonOpts & {
+        account?: string; since?: string; until?: string; top?: number;
+        minConfidence?: number; maxAmount?: string; rulesOnly?: boolean;
+      }
+    ) =>
+      run(async () => {
+        if (!txId && !opts.account) {
+          throw usageError(
+            'Previsualizar necesita saber sobre qué: pasa el id de un movimiento, o --account ' +
+              'para recorrer los no cotejados de una cuenta.'
+          );
+        }
+        const ctx = await entityOf(opts);
+        const cuenta = opts.account
+          ? await resolverCuentaBancaria(ctx.entityId, opts.account)
+          : null;
+
+        const previstos = await previsualizarCotejo(entityScope(ctx.tenantId, ctx.entityId), {
+          cuentaId: cuenta?.id,
+          txId,
+          desde: opts.since ? exigirFecha('--since', opts.since) : undefined,
+          hasta: opts.until ? exigirFecha('--until', opts.until) : undefined,
+          top: opts.top,
+          minConfianza: opts.minConfidence,
+          maxMonto: opts.maxAmount ? exigirImporte('--max-amount', opts.maxAmount) : undefined,
+          soloReglas: opts.rulesOnly === true,
+        });
+
+        if (!legible(opts)) {
+          // SIN JUEGO DE COLUMNAS POR OMISIÓN, a diferencia de las tres listas
+          // de esta familia. Aquí sólo se llega pidiendo una forma de máquina
+          // (o `--fields` a mano), y lo que hace valer a esta hoja es
+          // justamente la descomposición: recortarla a las ocho columnas
+          // «bonitas» le quitaría al agente exactamente lo que vino a leer.
+          render(previstos.map(previstoComoFila), {
+            ...opts,
+            idField: 'id',
+            numeric: ['amount', 'candidate_amount', 'confidence', 'amount_diff', 'days_apart'],
+          });
+          return;
+        }
+
+        const p = deps.palette;
+        const out = process.stdout;
+        for (const m of previstos) {
+          out.write(
+            `\n${p.bold(m.importe)} ${p.dim(`· ${m.fecha} · ${m.descripcion ?? ''}`)}\n`
+          );
+          const c = m.propuesta;
+          const s = m.senales;
+          if (!c || !s) {
+            out.write(`  ${p.dim('—')} sin propuesta ${p.dim(`(${m.motivo ?? 'sin-candidato'})`)}\n`);
+            continue;
+          }
+          out.write(
+            `  ${m.aplicable ? p.green('✔') : p.yellow('◑')} ${c.tipo} ` +
+              `${p.bold(c.referencia ?? c.id)} ${p.dim(
+                `· ${c.importe} · ${c.fecha} · confianza ${c.confianza.toFixed(2)} · regla ${c.regla}`
+              )}\n`
+          );
+          // LA DESCOMPOSICIÓN. No son los pesos internos del motor —devuelve un
+          // escalar y los .45/.25/.30 se quedan dentro—: son los tres hechos
+          // que las cuatro reglas miran, cada uno con su veredicto. Con esto
+          // quien lee puede rehacer el juicio sin creerle al número.
+          const marca = (ok: boolean) => (ok ? p.green('✔') : p.red('✘'));
+          out.write(
+            `      ${p.dim('importe    ')} ${s.importeBanco} vs ${s.importeCandidato} · ` +
+              `diferencia ${s.diferenciaImporte} · exacto ${marca(s.importeExacto)} · ` +
+              `misma dirección ${marca(s.mismaDireccion)}\n`
+          );
+          out.write(
+            `      ${p.dim('fecha      ')} ${s.diasDeDiferencia} día(s) · ` +
+              `dentro de ventana ${marca(s.dentroDeVentana)}\n`
+          );
+          out.write(
+            `      ${p.dim('descripción')} similitud ${s.similitudDescripcion.toFixed(2)} ` +
+              `${p.dim('(señal blanda: nunca aplica sola)')}\n`
+          );
+          if (m.periodo) {
+            out.write(`      ${p.dim('periodo    ')} ${m.periodo.nombre} (${m.periodo.estado})\n`);
+          }
+          out.write(
+            `      ${p.dim('veredicto  ')} ${
+              m.aplicable ? p.green('`run` lo aplicaría') : `${p.yellow('no se aplica')} — ${m.motivo ?? ''}`
+            }\n`
+          );
+        }
+
+        const aplicables = previstos.filter((m) => m.aplicable).length;
+        out.write(
+          `\n${p.bold(String(previstos.length))} movimiento(s) · ` +
+            `${aplicables} que \`bank match run\` aplicaría.\n`
+        );
+        if (opts.top !== undefined && previstos.length >= opts.top) {
+          process.stderr.write(
+            p.yellow(
+              `  Se previsualizaron ${previstos.length}, que es el tope de --top: puede haber más.\n`
+            )
+          );
+        }
+      })
+  );
+
+  // ---- bank match run ----------------------------------------------
+  const matchRun = match
+    .command('run')
+    .alias('ejecutar')
+    .description(
+      'Run the engine over one account and period, applying ONLY what clears the confidence threshold, ' +
+        'the amount floor, an open period and an exact-amount hard signal'
+    );
+  withContext(matchRun);
+  matchRun
+    .requiredOption('--account <ref>', 'bank account to sweep (name or id)')
+    .option('--since <date>', 'transactions on or after this date (YYYY-MM-DD)')
+    .option('--until <date>', 'transactions on or before this date (YYYY-MM-DD)')
+    .option(
+      '--min-confidence <n>',
+      'engine confidence a proposal needs to be applied (0..1)',
+      confianzaCero1('--min-confidence')
+    )
+    .option('--max-amount <amount>', 'ceiling for an automatic match; the hard floor still wins')
+    .option('--rules-only', 'refuse a proposal outside the date window')
+    .option('--top <n>', 'maximum transactions to evaluate in this run', enteroPositivo('--top'))
+    .option('--session <id>', 'reconciliation session these matches belong to')
+    .option('--dry-run', 'do the whole thing and roll it back')
+    .option('--json', 'JSON output');
+  // ESCRITURA Y ✗. Escribe una aseveración sobre el dinero de un tercero y
+  // SELLA la línea de póliza, que es la única mutación que la 041 admite sobre
+  // un asiento contabilizado. No es `irreversible` porque `bank match unapply`
+  // la deshace por diseño, y por eso tampoco lleva --idempotency-key: la
+  // idempotencia aquí es del acto (no crea un segundo cotejo vivo) y no de una
+  // clave de cliente.
+  declareRisk(matchRun, {
+    risk: 'escritura',
+    agent: false,
+    writes:
+      'reconciliation_match_groups + reconciliation_matches + el sello de journal_entry_lines ' +
+      '(is_reconciled/reconciled_at/reconciliation_id); NUNCA una póliza',
+  });
+  matchRun.action(
+    (
+      opts: CommonOpts & {
+        account: string; since?: string; until?: string; top?: number;
+        minConfidence?: number; maxAmount?: string; rulesOnly?: boolean;
+        session?: string; dryRun?: boolean;
+      }
+    ) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        const { dryRun } = gateMutation(matchRun, opts as unknown as Record<string, unknown>);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const cuenta = await resolverCuentaBancaria(ctx.entityId, opts.account);
+
+        const r = await correrCotejo(
+          entityScope(ctx.tenantId, ctx.entityId),
+          {
+            cuentaId: cuenta.id,
+            desde: opts.since ? exigirFecha('--since', opts.since) : undefined,
+            hasta: opts.until ? exigirFecha('--until', opts.until) : undefined,
+            top: opts.top,
+            minConfianza: opts.minConfidence,
+            maxMonto: opts.maxAmount ? exigirImporte('--max-amount', opts.maxAmount) : undefined,
+            soloReglas: opts.rulesOnly === true,
+            sesionId: opts.session ? uuidDeBandera('--session', opts.session) : undefined,
+          },
+          { userId: reviewer.userId, dryRun }
+        );
+
+        const p = deps.palette;
+        if (opts.json) {
+          render(aplicacionComoFilas(r), { json: true, idField: 'id' });
+        } else {
+          render(
+            aplicacionComoFilas(r).filter((f) => f.outcome === 'applied'),
+            { format: 'table', idField: 'id', numeric: ['amount', 'confidence'] }
+          );
+          process.stdout.write(
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(String(r.aplicados.length))} aplicado(s) ` +
+              `${p.dim(
+                `· ${r.yaAplicados.length} ya lo estaba(n) · ${r.omitidos.length} omitido(s) ` +
+                  `· ${r.evaluados} evaluado(s)`
+              )}\n`
+          );
+        }
+
+        // POR QUÉ NO SE APLICÓ, AGRUPADO. Una corrida que dice «3 de 200» y
+        // calla las 197 obliga a previsualizar de nuevo para enterarse; los
+        // motivos son una taxonomía cerrada justamente para poder contarse.
+        const porMotivo = new Map<string, number>();
+        for (const o of r.omitidos) porMotivo.set(o.motivo, (porMotivo.get(o.motivo) ?? 0) + 1);
+        for (const [motivo, n] of [...porMotivo].sort((a, b) => b[1] - a[1])) {
+          process.stderr.write(p.dim(`  ${String(n).padStart(5)}  ${motivo}\n`));
+        }
+        if (r.truncado) {
+          process.stderr.write(
+            p.yellow('  La corrida llegó a su tope: quedan movimientos sin evaluar. Vuelve a correrla.\n')
+          );
+        }
+        if (dryRun) {
+          process.stderr.write(p.yellow('  Ensayo: se escribió de verdad y se deshizo.\n'));
+        }
+      })
+  );
+
+  // ---- bank match apply --------------------------------------------
+  const matchApply = match
+    .command('apply')
+    .alias('aplicar')
+    .argument('[id...]', 'bank transaction ids; or feed them through --stdin')
+    .description(
+      'Apply the engine’s proposal for the named transactions in ONE transaction, idempotently, ' +
+        'linked to the session'
+    );
+  withContext(matchApply);
+  matchApply
+    .option('--stdin', 'read the ids from standard input, whitespace separated')
+    .option('--session <id>', 'reconciliation session these matches belong to')
+    .option('--dry-run', 'do the whole thing and roll it back')
+    .option('-y, --yes', 'skip the grouped confirmation')
+    .option('--json', 'JSON output');
+  declareRisk(matchApply, {
+    risk: 'escritura',
+    agent: false,
+    writes:
+      'reconciliation_match_groups + reconciliation_matches + el sello de journal_entry_lines; ' +
+      'NUNCA una póliza',
+  });
+  matchApply.action(
+    (
+      ids: string[],
+      opts: CommonOpts & { stdin?: boolean; session?: string; dryRun?: boolean; yes?: boolean }
+    ) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        const { dryRun } = gateMutation(matchApply, opts as unknown as Record<string, unknown>);
+
+        // Los dos orígenes se SUMAN en vez de excluirse: `preview -q | apply
+        // --stdin <uno-más>` es una corrección normal y prohibirla no protege
+        // de nada. Lo que no se admite es ninguno de los dos.
+        const desdeStdin = opts.stdin
+          ? (deps.readStdin ? await deps.readStdin() : await leerEntradaEstandar())
+            .split(/\s+/)
+            .filter(Boolean)
+          : [];
+        const todos = [...ids, ...desdeStdin];
+        if (todos.length === 0) {
+          throw usageError(
+            opts.stdin
+              ? 'La entrada estándar no trajo ningún id. `bank match preview -q` los escupe uno por línea.'
+              : 'Qué movimientos. Pásalos como argumento, o encadena `bank match preview -q | ' +
+                'mnemosine bank match apply --stdin`.'
+          );
+        }
+        for (const id of todos) uuidDeBandera('<id>', id);
+
+        if (!dryRun && opts.yes !== true) {
+          const ok = await ask(
+            `Vas a aplicar el cotejo que el motor propone para ${todos.length} movimiento(s). ¿Continuar?`
+          );
+          if (!ok) {
+            // Sin TTY —que es justo el caso de `--stdin`— `ask` contesta que
+            // no. Se nombra `-y` en vez de dejar un «abortado» que parece un
+            // fallo del guion.
+            throw abortedByUser(
+              stdin.isTTY
+                ? 'Sin cambios.'
+                : 'Sin cambios: no hay terminal donde confirmar (la entrada estándar es la tubería). ' +
+                  'Añade -y para aplicar sin preguntar.'
+            );
+          }
+        }
+
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const r = await aplicarCotejos(
+          entityScope(ctx.tenantId, ctx.entityId),
+          todos,
+          { userId: reviewer.userId, dryRun },
+          { sesionId: opts.session ? uuidDeBandera('--session', opts.session) : undefined }
+        );
+
+        const p = deps.palette;
+        const filas = aplicacionComoFilas(r);
+        if (opts.json) {
+          render(filas, { json: true, idField: 'id' });
+        } else {
+          render(filas, { format: 'table', idField: 'id', numeric: ['amount', 'confidence'] });
+          process.stdout.write(
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(String(r.aplicados.length))} aplicado(s) ` +
+              `${p.dim(`· ${r.yaAplicados.length} ya lo estaba(n) · ${r.omitidos.length} omitido(s)`)}\n`
+          );
+        }
+        if (dryRun) {
+          process.stderr.write(p.yellow('  Ensayo: se escribió de verdad y se deshizo.\n'));
+        }
+        // Un `apply` que pide diez y aplica tres no puede salir 0 en silencio:
+        // el guion que lo llama tiene que poder notarlo. 4 es «encontré algo
+        // que mirar», el mismo código con el que `statement check` informa.
+        if (r.omitidos.length > 0 && r.aplicados.length === 0) {
+          return exitCodeFor({ statusCode: 422 });
+        }
+      })
+  );
+
+  // ---- bank match create -------------------------------------------
+  const matchCreate = match
+    .command('create')
+    .alias('crear')
+    .description(
+      'Build an explicit match group of N bank transactions against M book items plus adjustments, ' +
+        'requiring Σbank = Σbooks + Σadjustments'
+    );
+  withContext(matchCreate);
+  matchCreate
+    .requiredOption('--account <ref>', 'bank account the whole group belongs to (name or id)')
+    .requiredOption('--transaction <ids>', 'comma-separated bank transaction ids: the bank side')
+    .requiredOption(
+      '--book-item <ids>',
+      'comma-separated book side: <id> for a journal line, or <type>:<id> ' +
+        `(${MATCHED_ENTITY_TYPES.join(', ')})`
+    )
+    .option(
+      '--adjust <concept=amount>',
+      'declared adjustment (bank fee, FX difference); repeatable',
+      ajusteDeGrupo,
+      [] as AjusteDeGrupo[]
+    )
+    .option(
+      `--residual <${MODOS_RESIDUAL.join('|')}>`,
+      'what happens to what is left over: keep it live, or write it off against an account'
+    )
+    .option('--write-off-account <account>', 'GL account the residual is written off against')
+    .option('--session <id>', 'reconciliation session this group belongs to')
+    .option('--dry-run', 'do the whole thing and roll it back')
+    .option('--json', 'JSON output');
+  // Sin `-y`: aquí no hay nada que confirmar que el operador no haya escrito ya
+  // —los ids de los dos lados, los ajustes y qué hacer con el residual—, y
+  // `--dry-run` enseña el cuadre antes de comprometerlo. La confirmación existe
+  // donde la orden es corta y el efecto largo, que es `apply` y `unapply`.
+  declareRisk(matchCreate, {
+    risk: 'escritura',
+    agent: false,
+    writes:
+      'reconciliation_match_groups + reconciliation_matches + el sello de journal_entry_lines; ' +
+      'NUNCA una póliza (el write-off se DECLARA y no se contabiliza)',
+  });
+  matchCreate.action(
+    (
+      opts: CommonOpts & {
+        account: string; transaction: string; bookItem: string; adjust: AjusteDeGrupo[];
+        residual?: string; writeOffAccount?: string; session?: string; dryRun?: boolean;
+      }
+    ) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        const { dryRun } = gateMutation(matchCreate, opts as unknown as Record<string, unknown>);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const cuenta = await resolverCuentaBancaria(ctx.entityId, opts.account);
+
+        const r = await crearGrupoDeCotejo(
+          entityScope(ctx.tenantId, ctx.entityId),
+          {
+            cuentaId: cuenta.id,
+            banco: idsDeBandera('--transaction', opts.transaction),
+            libros: referenciasDeLibros(opts.bookItem),
+            ajustes: opts.adjust,
+            residual: opts.residual ? exigirResidual(opts.residual) : undefined,
+            cuentaWriteOff: opts.writeOffAccount
+              ? uuidDeBandera('--write-off-account', opts.writeOffAccount)
+              : undefined,
+            sesionId: opts.session ? uuidDeBandera('--session', opts.session) : undefined,
+          },
+          { userId: reviewer.userId, dryRun }
+        );
+
+        const p = deps.palette;
+        if (opts.json) {
+          render(
+            [
+              {
+                group: r.groupId,
+                total_bank: r.cuadre.totalBanco,
+                total_books: r.cuadre.totalLibros,
+                total_adjustments: r.cuadre.totalAjustes,
+                residual: r.residual,
+                residual_mode: r.residualMode,
+                write_off_account: r.cuentaWriteOff ?? '',
+                matches: r.cotejos,
+                sealed_lines: r.partidasSelladas,
+                dry_run: r.dryRun,
+                id: r.groupId,
+              },
+            ],
+            { json: true, idField: 'id' }
+          );
+        } else {
+          process.stdout.write(
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.groupId)} ` +
+              `${p.dim(
+                `· banco ${r.cuadre.totalBanco} = libros ${r.cuadre.totalLibros} + ` +
+                  `ajustes ${r.cuadre.totalAjustes} · residual ${r.residual} (${r.residualMode}) ` +
+                  `· ${r.cotejos.length} cotejo(s) · ${r.partidasSelladas.length} partida(s) sellada(s)`
+              )}\n`
+          );
+          render(
+            r.cotejos.map((c) => ({
+              transaction: c.txId,
+              type: c.tipo,
+              matched_entity: c.entidadId,
+              amount: c.importe,
+              partial: c.parcial,
+              id: c.matchId,
+            })),
+            { format: 'table', idField: 'id', numeric: ['amount'] }
+          );
+        }
+        if (r.residualMode === 'write-off') {
+          // La 052 guarda `write_off_account_id` y no hay póliza detrás. Un
+          // residual cancelado que nunca toca el mayor es media promesa, y
+          // callarla la volvería una mentira.
+          process.stderr.write(
+            p.yellow(
+              `  El residual de ${r.residual} queda DECLARADO como cancelado contra la cuenta, ` +
+                'pero no se contabiliza: no hay póliza detrás todavía. Regístrala a mano o espera a F05c.\n'
+            )
+          );
+        }
+        if (dryRun) {
+          process.stderr.write(p.yellow('  Ensayo: el grupo se escribió de verdad y se deshizo.\n'));
+        }
+      })
+  );
+
+  // ---- bank match unapply ------------------------------------------
+  const matchUnapply = match
+    .command('unapply')
+    .alias('desaplicar')
+    .argument('<match-id>', 'the match to undo; its whole group goes with it')
+    .description(
+      'Undo a match with a typed reason, releasing the book-item seal; refuses if the session is ' +
+        'already approved or posted, and touches no posted journal entry'
+    );
+  withContext(matchUnapply);
+  matchUnapply
+    .option(
+      '--reason <code>',
+      `typed reason, required: ${MOTIVOS_DESAPLICACION.join(' | ')}`
+    )
+    .option('--dry-run', 'do the whole thing and roll it back')
+    .option('-y, --yes', 'skip the confirmation')
+    .option('--json', 'JSON output');
+  declareRisk(matchUnapply, {
+    risk: 'escritura',
+    agent: false,
+    writes:
+      'reconciliation_matches (CLAUSURA: unapplied_at/by/reason, ninguna fila se borra) + ' +
+      'libera el sello de journal_entry_lines',
+  });
+  matchUnapply.action(
+    (matchId: string, opts: CommonOpts & { reason?: string; dryRun?: boolean; yes?: boolean }) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        gateMutation(matchUnapply, opts as unknown as Record<string, unknown>);
+        const dryRun = opts.dryRun === true;
+        // `unapply` no está en los REASON_VERBS del núcleo, así que la
+        // compuerta no exige el motivo por él: se exige aquí, y además
+        // TIPIFICADO, que es lo que la 052 pide y lo que su columna de 40
+        // caracteres admite.
+        const motivo = exigirMotivo(opts.reason);
+        const id = uuidDeBandera('<match-id>', matchId);
+
+        if (!dryRun && opts.yes !== true) {
+          const ok = await ask(
+            `Vas a desaplicar el cotejo ${id} y todos los de su grupo (la igualdad ` +
+              `Σbanco = Σlibros + Σajustes no sobrevive a que le quiten una pata). ¿Continuar?`
+          );
+          if (!ok) throw abortedByUser('Sin cambios.');
+        }
+
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const r = await desaplicarCotejo(entityScope(ctx.tenantId, ctx.entityId), id, {
+          userId: reviewer.userId,
+          motivo,
+          dryRun,
+        });
+
+        const p = deps.palette;
+        if (opts.json) {
+          render(
+            [
+              {
+                group: r.groupId ?? '',
+                closed_matches: r.cotejos,
+                released_transactions: r.movimientosLiberados,
+                released_book_items: r.partidasLiberadas,
+                reason: r.motivo,
+                dry_run: r.dryRun,
+                id,
+              },
+            ],
+            { json: true, idField: 'id' }
+          );
+        } else {
+          process.stdout.write(
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(String(r.cotejos.length))} cotejo(s) clausurado(s) ` +
+              `${p.dim(
+                `· ${r.movimientosLiberados.length} movimiento(s) y ${r.partidasLiberadas.length} ` +
+                  `partida(s) de vuelta al flujo · motivo ${r.motivo}` +
+                  (r.groupId ? ` · grupo ${r.groupId}` : '')
+              )}\n`
+          );
+        }
+        process.stderr.write(
+          p.dim(
+            '  Clausura, no borrado: la fila se queda en el expediente con su motivo, porque el ' +
+              'auditor pregunta por qué se deshizo y una fila borrada no contesta.\n'
+          )
+        );
+        if (dryRun) {
+          process.stderr.write(p.yellow('  Ensayo: se clausuró de verdad y se deshizo.\n'));
+        }
       })
   );
 }

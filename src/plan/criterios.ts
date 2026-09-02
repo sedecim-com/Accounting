@@ -461,6 +461,7 @@ export const CRITERIOS: Criterio[] = [
         // ninguno escriba «hecha en F05» a secas el mutante de esta compuerta
         // sigue matando sin reapuntarse.
         F05a: 'docs/auditorias/F05a.md',
+        F05b: 'docs/auditorias/F05b.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -3223,6 +3224,168 @@ export const CRITERIOS: Criterio[] = [
     ],
   },
 
+
+
+  // ---- F05b · Los dos lados y el cotejo ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Ningún cotejo se aplica solo cuando su única señal es el parecido del texto',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: '  if (!result.auto_applicable) return false;',
+        a: '  if (false) return false;',
+        porque: 'la compuerta deja de mirar el veto de la regla: un desempate decidido por la descripción vuelve a aplicarse en firme y a sellar la partida de libros',
+      },
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: '        auto_applicable: importeExacto && empatanEnImporte === 1,',
+        a: '        auto_applicable: true,',
+        porque: 'la regla que desempata por texto se autoriza a sí misma: es exactamente lo que el catálogo prohíbe en la fila 1225',
+      },
+    ],
+    evaluar: () => {
+      // «Nunca aplica un cotejo cuya única señal sea similitud de descripción»
+      // es una promesa LITERAL del catálogo (fila 1225), y estaba viva al
+      // revés: la regla marcaba su hallazgo como no-aplicable y el servicio
+      // NUNCA LEÍA esa marca. Medido: dos facturas del mismo importe y la
+      // misma fecha, desempatadas por el texto, se aplicaban en firme y
+      // sellaban la partida.
+      //
+      // Por eso el veto se ancla en las DOS mitades: quien lo pone y quien lo
+      // obedece. Anclar sólo una deja pasar el defecto original, que era
+      // exactamente una mitad sin la otra.
+      const motor = codigoDe('src/services/banking/matching.ts');
+      const svc = codigoDe('src/services/banking/match-service.ts');
+
+      // 1. La regla que desempata por texto NO se autoriza: su `auto_applicable`
+      //    depende de que el importe sea exacto y de que nadie más empate.
+      if (!/auto_applicable: importeExacto && empatanEnImporte === 1,/.test(motor)) {
+        return falla('la regla de similitud dejó de vetarse: puede volver a decidir sola un desempate que las reglas duras rechazaron');
+      }
+      // 2. Y la compuerta lo OBEDECE. Es la mitad que faltaba.
+      if (!/if \(!result\.auto_applicable\) return false;/.test(motor)) {
+        return falla('la compuerta de aplicación dejó de leer el veto de la regla: el motor lo pone y nadie lo mira, que es el defecto original');
+      }
+      // 3. Y la omisión tiene MOTIVO CONTABLE, no un silencio: una causa que no
+      //    se puede contar no se puede corregir.
+      const motivo = /'solo-similitud',/.test(svc);
+      return motivo
+        ? ok('la regla de texto se veta a sí misma, la compuerta obedece el veto y la omisión se cuenta con su motivo')
+        : falla('desapareció el motivo «solo-similitud»: la omisión ocurriría en silencio y nadie podría contarla');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Una partida de libros sólo se coteja si es de la cuenta de mayor del banco',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: '       AND jel.account_id = $4',
+        a: '       AND jel.account_id IS NOT NULL',
+        porque: 'el motor vuelve a proponer CUALQUIER línea posteada de la entidad: sellaría un gasto de renta como conciliado contra un banco que nunca lo vio, y esa línea queda inservible para la conciliación que sí le tocaba',
+      },
+    ],
+    evaluar: () => {
+      // `getCandidates` no filtraba por `jel.account_id`: devolvía cualquier
+      // línea posteada sin sellar de la entidad que cayera en la banda de
+      // importe. Medido: un depósito de 300 sellaba la línea de RENTA de una
+      // póliza que no tocaba el banco. Y el sello es irreversible en la
+      // práctica —esa línea ya no volvería a ofrecerse a su conciliación real—.
+      //
+      // Lo que lo delata como defecto y no como criterio: `bank book-item list`
+      // SÍ unía por `ba.gl_account_id` desde el primer día. Los dos lados del
+      // mismo tramo discrepaban sobre qué es una partida de libros.
+      const motor = codigoDe('src/services/banking/matching.ts');
+      const libros = codigoDe('src/services/banking/book-items.ts');
+
+      if (!/AND jel\.account_id = \$\d/.test(motor)) {
+        return falla('el motor volvió a proponer líneas de póliza ajenas a la cuenta del banco: sellarlas las inutiliza para su conciliación real');
+      }
+      // Y EL OTRO LADO USA LA MISMA DEFINICIÓN. Que las dos superficies
+      // coincidan es lo que hace que el cotejo signifique algo.
+      const mismoLado = /ba\.gl_account_id/.test(libros);
+      return mismoLado
+        ? ok('el motor y el listado de partidas de libros coinciden en qué es una partida: la cuenta de mayor del banco')
+        : falla('el listado de partidas de libros dejó de unir por la cuenta de mayor del banco: los dos lados del cotejo volverían a discrepar');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Una factura cobrada a medias puede casar, porque el candidato se compara contra su saldo',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: "`SELECT id, 'invoice' as type, amount_due as amount, invoice_date as date,",
+        a: "`SELECT id, 'invoice' as type, total_amount as amount, invoice_date as date,",
+        porque: 'vuelve el defecto: se filtra por el saldo y se compara contra el total, así que una factura parcialmente cobrada no puede casar jamás — y es el caso más común de una conciliación real',
+      },
+    ],
+    evaluar: () => {
+      // `getCandidates` FILTRABA por `ABS(amount_due) BETWEEN $2 AND $3` y
+      // PROYECTABA `total_amount as amount`: una factura con saldo 500 y total
+      // 1160 entraba en el rango por su saldo y después el motor la comparaba
+      // contra 1160. El resultado no era que casara mal — es que **no podía
+      // casar nunca**, en silencio y para siempre.
+      const motor = codigoDe('src/services/banking/matching.ts');
+      const proyecta = (motor.match(/amount_due as amount/g) ?? []).length;
+      // DOS: la factura y el gasto. Son gemelos y el mutante muta el primero;
+      // buscar «alguna» ocurrencia encontraría el otro y daría verde.
+      return proyecta === 2
+        ? ok('los dos candidatos —factura y gasto— se comparan contra su saldo, que es por lo que se los filtró')
+        : falla(
+            `${proyecta} de 2 candidatos se proyectan por su saldo: el que se filtre por saldo y se compare contra el total no podrá casar nunca`
+          );
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'El sello de una partida es todo o nada, y desaplicar lo libera sin borrar el cotejo',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/052_el_cotejo.sql',
+        de: '            (is_reconciled = true AND reconciled_at IS NOT NULL AND reconciliation_id IS NOT NULL)',
+        a: '            (is_reconciled = true)',
+        porque: 'una partida puede quedar marcada como conciliada sin decir cuándo ni por quién: el sello deja de ser rastreable y nadie puede deshacerlo',
+      },
+      {
+        archivo: 'src/services/banking/match-service.ts',
+        de: '          SET unapplied_at = NOW(), unapplied_by = $1, unapply_reason = $2',
+        a: '          SET unapplied_by = $1, unapply_reason = $2',
+        porque: 'la clausura pierde su fecha y el cotejo deshecho sigue contando como vivo en todo índice que filtre por unapplied_at IS NULL',
+      },
+    ],
+    evaluar: () => {
+      // El esquema lleva desde 001 reservando `is_reconciled`, `reconciled_at`
+      // y `reconciliation_id`, y la 041 las declara el ÚNICO hueco de escritura
+      // sobre una línea posteada. Nadie las había escrito nunca. Al escribirlas
+      // por primera vez, lo que importa es que vayan JUNTAS: una marca sin
+      // fecha ni dueño es una conciliación que no se puede auditar ni deshacer.
+      const sql = crudoDe('src/database/migrations/052_el_cotejo.sql');
+      const svc = codigoDe('src/services/banking/match-service.ts');
+
+      if (!/CONSTRAINT jel_sello_coherente/.test(sql)) {
+        return falla('desapareció el CHECK del sello: una partida podría quedar «conciliada» sin decir cuándo ni por quién');
+      }
+      if (!/\(is_reconciled = true AND reconciled_at IS NOT NULL AND reconciliation_id IS NOT NULL\)/.test(sql)) {
+        return falla('el CHECK dejó de exigir las tres columnas juntas: vuelve a caber el sello a medias');
+      }
+      // Desaplicar CLAUSURA, no borra — la misma decisión que la 049 tomó para
+      // la aplicación de un cobro. Un cotejo deshecho es historia: el auditor
+      // pregunta por qué se deshizo y una fila borrada no contesta.
+      if (/DELETE FROM reconciliation_matches/.test(svc)) {
+        return falla('desaplicar volvió a borrar el cotejo: la pregunta «por qué se deshizo» se queda sin respuesta');
+      }
+      const clausura = /SET unapplied_at = NOW\(\), unapplied_by = \$\d, unapply_reason = \$\d/.test(svc);
+      return clausura
+        ? ok('el sello va con fecha y dueño o no va, y desaplicar clausura el cotejo en vez de borrarlo')
+        : falla('la clausura del cotejo perdió su fecha: un cotejo deshecho seguiría contando como vivo');
+    },
+  },
 
   // ---- F05a · La cuenta y el extracto ----
 

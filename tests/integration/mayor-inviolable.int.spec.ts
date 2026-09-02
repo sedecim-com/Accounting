@@ -95,12 +95,42 @@ describe('la lista blanca deja pasar a los escritores legítimos', () => {
     await expect(
       query(`UPDATE journal_entries SET notes = COALESCE(notes, '') || ' [anotado]' WHERE id = $1`, [posteadoId])
     ).resolves.toBeTruthy();
+    // LAS TRES COLUMNAS DEL SELLO, JUNTAS. La 041 abre las tres —y sólo las
+    // tres— sobre una línea posteada; la 052 añadió el CHECK
+    // `jel_sello_coherente`, que además exige que se muevan A LA VEZ. Esta
+    // prueba escribía dos y pasaba porque nadie había escrito nunca el sello:
+    // el día que F05b lo escribió de verdad, la mitad de sello que afirmaba
+    // aquí dejó de ser válida.
     await expect(
       query(
-        `UPDATE journal_entry_lines SET is_reconciled = true, reconciled_at = NOW() WHERE id = $1`,
+        `UPDATE journal_entry_lines
+            SET is_reconciled = true, reconciled_at = NOW(), reconciliation_id = uuid_generate_v4()
+          WHERE id = $1`,
         [lineaId]
       )
     ).resolves.toBeTruthy();
+  });
+
+  it('media marca de conciliación NO pasa: el sello es de tres columnas o de ninguna', async () => {
+    // La lista blanca de la 041 dice QUÉ columnas se pueden tocar; el CHECK de
+    // la 052 dice que no se tocan por separado. Sin esta segunda mitad, una
+    // línea podría quedar `is_reconciled = true` sin fecha ni dueño, que es
+    // exactamente la marca que nadie puede explicar después.
+    //
+    // Sobre una línea SIN SELLAR: la de arriba ya quedó con las tres puestas, y
+    // ahí volver a poner una sola no rompe nada porque las otras dos siguen.
+    const otro = await asiento('77.00', true);
+    const virgen = (await query<{ id: string }>(
+      `SELECT id FROM journal_entry_lines WHERE journal_entry_id = $1 ORDER BY line_number LIMIT 1`,
+      [otro.id]
+    )).rows[0].id;
+
+    await expect(
+      query(`UPDATE journal_entry_lines SET is_reconciled = true WHERE id = $1`, [virgen])
+    ).rejects.toThrow(/jel_sello_coherente/);
+    await expect(
+      query(`UPDATE journal_entry_lines SET reconciled_at = NOW() WHERE id = $1`, [virgen])
+    ).rejects.toThrow(/jel_sello_coherente/);
   });
 
   it('la reversa completa sigue funcionando: liga el espejo sobre el original posteado', async () => {

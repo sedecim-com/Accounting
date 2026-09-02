@@ -123,7 +123,12 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   'credit-note': { create: 'crear', show: 'ver', list: 'listar', issue: 'emitir', apply: 'aplicar' },
   ar: { reconcile: 'conciliar', check: 'verificar' },
   ap: { reconcile: 'conciliar' },
-  bank: { account: 'cuenta', statement: 'estado-cuenta' },
+  // F05b: los tres sustantivos del cotejo. `match` es OBJETO aquí (el cotejo),
+  // no acto: el verbo `cotejar` sigue reservado para `bank transaction match`.
+  bank: {
+    account: 'cuenta', statement: 'estado-cuenta',
+    transaction: 'movimiento', 'book-item': 'partida-libros', match: 'cotejo',
+  },
   backup: { create: 'crear', list: 'listar', verify: 'comprobar', restore: 'restaurar' },
   report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },
   outbox: { list: 'listar', run: 'ejecutar' },

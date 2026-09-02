@@ -6,9 +6,14 @@ import path from 'node:path';
  *
  * Alcance deliberadamente acotado a lo que se puede afirmar con certeza sin
  * escribir un parser de SQL: nombres de tabla en FROM/JOIN/INSERT INTO/UPDATE,
- * con una exclusión aprendida en R1: `IS DISTINCT FROM COALESCE(...)` no
- * nombra una tabla `coalesce` — el lookbehind de DISTINCT lo descarta,
- * y las listas de columnas de INSERT INTO tabla (...). Ese subconjunto es
+ * con dos exclusiones aprendidas de dos falsos positivos reales. La de R1:
+ * `IS DISTINCT FROM COALESCE(...)` no nombra una tabla `coalesce` — el
+ * lookbehind de DISTINCT lo descarta. La de F05b: `FOR UPDATE OF jel` no
+ * nombra una tabla `of` — el candado por alias es la primera vez que este
+ * código escribe `UPDATE` sin que sea el verbo de una sentencia, y sin el
+ * lookbehind de FOR el escáner denunciaba cuatro tablas inexistentes.
+ * También se descartan las listas de columnas de INSERT INTO tabla (...).
+ * Ese subconjunto es
  * justo el que produjo las divergencias reales del sistema (una tabla
  * `entities` que no existe, columnas inventadas en garnishments, `slug` en
  * tenants). Lo que NO cubre —columnas en SELECT, WHERE o SET— queda anotado
@@ -99,7 +104,7 @@ function nombresLocales(sql: string): Set<string> {
   }
   // `FROM tabla alias` / `JOIN tabla alias` (con o sin AS)
   for (const n of sql.matchAll(
-    /\b(?:(?<!DISTINCT\s)FROM|JOIN|UPDATE)\s+(?:public\.)?[a-z_][a-z0-9_]*\s+(?:AS\s+)?([a-z_][a-z0-9_]*)/gi
+    /\b(?:(?<!DISTINCT\s)FROM|JOIN|(?<!FOR\s)UPDATE)\s+(?:public\.)?[a-z_][a-z0-9_]*\s+(?:AS\s+)?([a-z_][a-z0-9_]*)/gi
   )) {
     const alias = n[1].toLowerCase();
     if (!PALABRAS_SQL.has(alias)) locales.add(alias);
@@ -178,7 +183,7 @@ export function columnasCalificadas(
   // alias → tabla, y también tabla → tabla para las referencias sin alias.
   const porAlias = new Map<string, string>();
   const reFuente =
-    /\b(?:(?<!DISTINCT\s)FROM|JOIN|UPDATE)\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)(?:\s+(?:AS\s+)?([a-z_][a-z0-9_]*))?/gi;
+    /\b(?:(?<!DISTINCT\s)FROM|JOIN|(?<!FOR\s)UPDATE)\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)(?:\s+(?:AS\s+)?([a-z_][a-z0-9_]*))?/gi;
   let f: RegExpExecArray | null;
   while ((f = reFuente.exec(sql))) {
     const tabla = f[1].toLowerCase();
@@ -235,7 +240,7 @@ export function escanearArchivo(archivo: string): {
     const locales = nombresLocales(sql);
 
     const reTabla =
-      /\b(?:(?<!DISTINCT\s)FROM|JOIN|INSERT\s+INTO|UPDATE)\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)/gi;
+      /\b(?:(?<!DISTINCT\s)FROM|JOIN|INSERT\s+INTO|(?<!FOR\s)UPDATE)\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)/gi;
     let m: RegExpExecArray | null;
     while ((m = reTabla.exec(sql))) {
       const t = m[1].toLowerCase();

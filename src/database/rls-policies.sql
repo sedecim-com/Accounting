@@ -156,7 +156,21 @@ BEGIN
       ('inventory_layer_consumption',  'item_id',                    'inventory_items'),
       ('depreciation_schedules',       'asset_id',                   'fixed_assets'),
       ('bank_transactions',            'bank_account_id',            'bank_accounts'),
-      ('reconciliation_matches',       'reconciliation_session_id',  'reconciliation_sessions'),
+      -- POR EL MOVIMIENTO, NO POR LA SESIÓN.
+      --
+      -- Colgaba de `reconciliation_session_id`, y esa columna la insertan sus
+      -- dos únicos escritores SIEMPRE EN NULL. La política es `FOR ALL USING`
+      -- sin `WITH CHECK`, así que en Postgres el USING hace también de check de
+      -- INSERT: con la FK nula el EXISTS es falso y **ningún cotejo se puede
+      -- insertar** bajo mnemosine_app. No se notaba porque la suite de
+      -- integración corre como superusuario, con RLS inerte.
+      --
+      -- El padre correcto es el movimiento: `bank_transaction_id` es NOT NULL y
+      -- existe siempre, mientras que la sesión es opcional por diseño (se cotea
+      -- antes de abrirla). Y encadena bien: `bank_transactions` tiene su propia
+      -- política por `bank_account_id`, así que el inquilino se deriva en dos
+      -- saltos sin duplicar el predicado.
+      ('reconciliation_matches',       'bank_transaction_id',        'bank_transactions'),
       ('paycheck_earnings',            'paycheck_id',                'paychecks'),
       ('paycheck_deductions',          'paycheck_id',                'paychecks'),
       ('paycheck_taxes',               'paycheck_id',                'paychecks'),

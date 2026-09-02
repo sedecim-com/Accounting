@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
-import { registerBankCommand } from '../../src/cli/bank-command.js';
+import { registerBankCommand, type BankCommandDeps } from '../../src/cli/bank-command.js';
 import { riskOf, declareRisk } from '../../src/cli/kernel/risk.js';
 import { VERBS } from '../../src/cli/kernel/vocabulary.js';
 
@@ -74,6 +74,18 @@ const LEAVES = [
   'bank account edit', 'bank account set',
   'bank statement import', 'bank statement list', 'bank statement show',
   'bank statement check',
+  // F05b · los dos lados y el cotejo.
+  'bank transaction list', 'bank transaction show',
+  'bank book-item list',
+  'bank match preview', 'bank match run', 'bank match apply',
+  'bank match create', 'bank match unapply',
+];
+
+/** Las ocho de F05b, para no repetir la lista en cada aserción. */
+const F05B = [
+  'bank transaction list', 'bank transaction show', 'bank book-item list',
+  'bank match preview', 'bank match run', 'bank match apply',
+  'bank match create', 'bank match unapply',
 ];
 
 beforeAll(() => {
@@ -102,7 +114,7 @@ describe('the rulebook', () => {
     expect(violations).toEqual([]);
   });
 
-  it('ships exactly the nine leaves, each ending in a verb from the closed list', () => {
+  it('ships exactly the seventeen leaves, each ending in a verb from the closed list', () => {
     const leaves: string[] = [];
     const walk = (cmd: Command, prefix: string[]) => {
       const path = [...prefix, cmd.name()];
@@ -131,6 +143,20 @@ describe('the bilingual surface', () => {
     'bank statement list': 'listar',
     'bank statement show': 'ver',
     'bank statement check': 'verificar',
+    // Los tres sustantivos nuevos y sus ocho hojas. `match`·`cotejar` y
+    // `reconcile`·`conciliar` son disjuntos por decreto del registro (§5 #25):
+    // el sustantivo de esta familia es `cotejo`, nunca `conciliacion`.
+    'bank transaction': 'movimiento',
+    'bank transaction list': 'listar',
+    'bank transaction show': 'ver',
+    'bank book-item': 'partida-libros',
+    'bank book-item list': 'listar',
+    'bank match': 'cotejo',
+    'bank match preview': 'previsualizar',
+    'bank match run': 'ejecutar',
+    'bank match apply': 'aplicar',
+    'bank match create': 'crear',
+    'bank match unapply': 'desaplicar',
   };
 
   it('gives every command exactly one Spanish alias', () => {
@@ -141,9 +167,24 @@ describe('the bilingual surface', () => {
 
   it('uses the vocabulary’s Spanish verb for every verb command', () => {
     for (const [path, alias] of Object.entries(ALIASES)) {
+      // Sólo las HOJAS ocupan la posición de verbo. Un nodo con hijos es un
+      // sustantivo, aunque su palabra también exista como verbo.
+      if (find(path).commands.length > 0) continue;
       const verb = path.split(' ').pop() as string;
       if (VERBS[verb]) expect(alias, path).toBe(VERBS[verb]);
     }
+  });
+
+  it('`match` es SUSTANTIVO aquí, y por eso su alias es cotejo y no cotejar', () => {
+    // `match`·`cotejar` y `reconcile`·`conciliar` son disjuntos por decreto del
+    // registro (§5 #25): cotejar es emparejar dos renglones, conciliar es
+    // cerrar un periodo contra un extracto. En `bank match preview` la palabra
+    // ocupa la posición de OBJETO —el cotejo—, no la de acto; el verbo
+    // `cotejar` sigue libre para `bank transaction match <id>` (fila 1207),
+    // que es otra cosa: guardar el precedente de una contraparte.
+    expect(find('bank match').commands.length).toBeGreaterThan(0);
+    expect(find('bank match').aliases()).toEqual(['cotejo']);
+    expect(VERBS.match, 'el verbo no se toca').toBe('cotejar');
   });
 });
 
@@ -158,6 +199,38 @@ describe('safety declarations', () => {
     }
     for (const path of ['bank account create', 'bank account edit', 'bank account set']) {
       expect(risks.get(path)?.agentAllowed, path).toBe(false);
+    }
+  });
+
+  it('splits the matching engine into a ✓ half and a ✗ half, never one flag', () => {
+    // La propiedad que sostiene el diseño del agente: el permiso NO puede
+    // depender del valor de una bandera. `preview` y `run` hacen la misma
+    // pregunta al mismo motor; por eso son dos hojas con dos declaraciones y
+    // no `run --dry-run`.
+    expect(risks.get('bank match preview')?.risk).toBe('lectura');
+    expect(risks.get('bank match preview')?.agentAllowed).toBe(true);
+    for (const path of ['bank match run', 'bank match apply', 'bank match create', 'bank match unapply']) {
+      expect(risks.get(path)?.risk, path).toBe('escritura');
+      expect(risks.get(path)?.agentAllowed, path).toBe(false);
+    }
+  });
+
+  it('las cuatro escrituras de cotejo dicen que sellan la póliza y que no la escriben', () => {
+    // El sello es la ÚNICA mutación que la 041 admite sobre una línea
+    // contabilizada. Declararlo es lo que hace que un auditor pueda leer del
+    // binario qué toca cada hoja sin abrir el servicio.
+    for (const path of ['bank match run', 'bank match apply', 'bank match create']) {
+      expect(risks.get(path)?.writes, path).toMatch(/journal_entry_lines/);
+      expect(risks.get(path)?.writes, path).toMatch(/NUNCA una póliza/);
+    }
+    expect(risks.get('bank match unapply')?.writes).toMatch(/CLAUSURA/);
+  });
+
+  it('las tres lecturas nuevas son ✓ y ninguna declara escritura', () => {
+    for (const path of ['bank transaction list', 'bank transaction show', 'bank book-item list']) {
+      expect(risks.get(path)?.risk, path).toBe('lectura');
+      expect(risks.get(path)?.agentAllowed, path).toBe(true);
+      expect(risks.get(path)?.writes, path).toBeUndefined();
     }
   });
 
@@ -191,12 +264,56 @@ describe('safety declarations', () => {
 
 describe('list commands can be paged and formatted', () => {
   it('carries the full read group, not just --json', () => {
-    for (const path of ['bank account list', 'bank statement list']) {
+    for (const path of [
+      'bank account list', 'bank statement list',
+      'bank transaction list', 'bank book-item list',
+    ]) {
       const longs = find(path).options.map((o) => o.long);
       expect(longs, path).toEqual(
         expect.arrayContaining(['--limit', '--format', '--json', '--fields', '--offset', '--all'])
       );
     }
+  });
+
+  it('las dos hojas `show` y `preview` también salen en máquina y por campos', () => {
+    // Una hoja de lectura que sólo sabe imprimir para humanos no sirve al
+    // agente ni a un guion, y `--fields` es además el descubrimiento de
+    // esquema gratis que el contrato de salida promete.
+    for (const path of ['bank transaction show', 'bank match preview']) {
+      const longs = find(path).options.map((o) => o.long);
+      expect(longs, path).toEqual(
+        expect.arrayContaining(['--format', '--json', '--fields', '--quiet', '--output'])
+      );
+    }
+  });
+
+  it('preview y run hacen la misma pregunta con las mismas palabras', () => {
+    // Si las compuertas se deletrearan distinto en las dos hojas, la mitad de
+    // lectura dejaría de predecir lo que hace la de escritura, que es lo único
+    // que la hace valer para algo.
+    const compuertas = ['--min-confidence', '--max-amount', '--rules-only', '--top', '--account'];
+    for (const path of ['bank match preview', 'bank match run']) {
+      expect(find(path).options.map((o) => o.long), path).toEqual(
+        expect.arrayContaining(compuertas)
+      );
+    }
+  });
+
+  it('ninguna hoja de F05b inventa una grafía fuera del diccionario', () => {
+    // El auditor ya lo comprueba sobre el programa entero; esto lo fija sobre
+    // las ocho, que es donde entraron quince banderas nuevas de un golpe.
+    for (const path of F05B) {
+      const largas = find(path).options.map((o) => o.long ?? '');
+      // `--bank` significa la INSTITUCIÓN en esta familia. Que reaparezca en
+      // `match create` con otro significado es la deriva que el diccionario
+      // existe para impedir, y por eso los dos lados del grupo se llaman por
+      // el sustantivo de su hoja.
+      expect(largas, path).not.toContain('--bank');
+      expect(largas, path).not.toContain('--book');
+    }
+    expect(find('bank match create').options.map((o) => o.long)).toEqual(
+      expect.arrayContaining(['--transaction', '--book-item'])
+    );
   });
 
   it('reads the FILE format on import, and says so, because --format is taken', () => {
@@ -220,7 +337,11 @@ const behaviorDeps = {
   confirm: () => Promise.resolve(true),
 };
 
-async function run(argv: string[], resp: typeof responder) {
+async function run(
+  argv: string[],
+  resp: typeof responder,
+  extra: Partial<BankCommandDeps> = {}
+) {
   sql.length = 0;
   errs = [];
   salida = [];
@@ -233,7 +354,7 @@ async function run(argv: string[], resp: typeof responder) {
   }) as typeof process.stdout.write;
   try {
     const p = new Command('mnemosine').exitOverride();
-    registerBankCommand(p, behaviorDeps);
+    registerBankCommand(p, { ...behaviorDeps, ...extra });
     await p.parseAsync(['node', 'mnemosine', ...argv]);
   } finally {
     process.stdout.write = original;
@@ -648,5 +769,734 @@ describe('bank statement import', () => {
       respImport
     );
     expect(r.exitCode, 'ENOENT del lector de archivo, no un 0 silencioso').not.toBe(0);
+  });
+});
+
+// ============================================================
+// F05b · LOS DOS LADOS Y EL COTEJO
+//
+// Las tres promesas caras de este tramo, y una prueba por cada una:
+//   · la frontera va por JOIN, porque ni `bank_transactions` ni
+//     `reconciliation_matches` tienen entity_id;
+//   · una previsualización enseña la DESCOMPOSICIÓN, no sólo el número;
+//   · desaplicar CLAUSURA y no borra.
+// ============================================================
+
+const TX = '33333333-3333-3333-3333-333333333333';
+const JEL = '44444444-4444-4444-4444-444444444444';
+const MATCH = '55555555-5555-5555-5555-555555555555';
+const GRUPO = '66666666-6666-6666-6666-666666666666';
+const SESION = '77777777-7777-7777-7777-777777777777';
+/** La cuenta de mayor 1:1 de la cuenta bancaria (051): la que hace de frontera
+ *  del lado de libros. */
+const GL = '88888888-8888-8888-8888-888888888888';
+
+/** La fila que devuelve el lector de `bank transaction list`. */
+function movimientoFila(over: Record<string, unknown> = {}) {
+  return {
+    id: TX, bank_account_id: ACC, account_name: 'BBVA MXN', currency_code: 'MXN',
+    fecha: '2026-07-15', fecha_valor: null, importe: '-250.0000', tipo: 'debit',
+    description: 'PAGO CFE 0424', merchant_name: 'CFE', category: null,
+    referencia: null, statement_id: ST, is_matched: false, confianza: null,
+    importado_el: '2026-08-01 10:00:00',
+    ...over,
+  };
+}
+
+const lectorMovimientos =
+  (rows: Array<Record<string, unknown>> = [movimientoFila()]) =>
+  (text: string) => {
+    if (/LEFT JOIN bank_statements s/.test(text)) {
+      return filas([{
+        ...movimientoFila(), entity_id: 'E1', content_hash: 'cc'.repeat(32),
+        matched_at: null, matched_by: null, import_batch_id: null,
+        raw_data: /bt\.raw_data/.test(text) ? { clabe: '012180012345678901' } : null,
+        statement_number: '2026-07', period_start: '2026-07-01', period_end: '2026-07-31',
+      }]);
+    }
+    if (/ORDER BY bt\.transaction_date DESC/.test(text)) return filas(rows);
+    if (/FROM reconciliation_matches rm/.test(text)) return filas([]);
+    if (/SELECT id, account_name FROM bank_accounts/.test(text)) {
+      return filas([{ id: ACC, account_name: 'BBVA MXN' }]);
+    }
+    return filas([]);
+  };
+
+describe('bank transaction list · la consulta posicional', () => {
+  it('la frontera va por JOIN, porque la tabla no tiene entity_id', async () => {
+    const r = await run(['bank', 'transaction', 'list'], lectorMovimientos());
+    const sel = r.sql.find((s) => /ORDER BY bt\.transaction_date DESC/.test(s.text));
+    const texto = sel!.text.replace(/\s+/g, ' ');
+    expect(texto).toMatch(/JOIN bank_accounts ba ON ba\.id = bt\.bank_account_id/);
+    expect(texto).toMatch(/WHERE ba\.entity_id = \$1/);
+    expect(sel!.params[0]).toBe('E1');
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('`desc:` busca en descripción Y en contraparte, con un solo parámetro', async () => {
+    const r = await run(['bank', 'transaction', 'list', 'desc:CFE'], lectorMovimientos());
+    const sel = r.sql.find((s) => /ORDER BY bt\.transaction_date DESC/.test(s.text));
+    // Los bancos reparten el mismo dato entre las dos columnas según el
+    // formato: buscar sólo en una hace que «no aparece» dependa del importador.
+    expect(sel!.text.replace(/\s+/g, ' ')).toMatch(
+      /\(bt\.description ILIKE \$2 OR bt\.merchant_name ILIKE \$2\)/
+    );
+    expect(sel!.params).toContain('%CFE%');
+  });
+
+  it('`amt:` sin signo compara la MAGNITUD; con signo, el importe tal cual', async () => {
+    const magnitud = await run(['bank', 'transaction', 'list', 'amt:250'], lectorMovimientos());
+    const a = magnitud.sql.find((s) => /ORDER BY bt\.transaction_date DESC/.test(s.text));
+    expect(a!.text.replace(/\s+/g, ' ')).toMatch(/ABS\(bt\.amount\) = \$2::numeric/);
+    // Dinero como CADENA de punta a punta: nunca un Number en el camino.
+    expect(a!.params[1]).toBe('250');
+
+    const firmado = await run(['bank', 'transaction', 'list', 'amt:-250'], lectorMovimientos());
+    const b = firmado.sql.find((s) => /ORDER BY bt\.transaction_date DESC/.test(s.text));
+    expect(b!.text.replace(/\s+/g, ' ')).toMatch(/bt\.amount = \$2::numeric/);
+    expect(b!.params[1]).toBe('-250');
+  });
+
+  it('`amt:>1000` traduce el comparador, y `amt:mil` se rechaza como uso', async () => {
+    const ok = await run(['bank', 'transaction', 'list', 'amt:>1000'], lectorMovimientos());
+    const sel = ok.sql.find((s) => /ORDER BY bt\.transaction_date DESC/.test(s.text));
+    expect(sel!.text.replace(/\s+/g, ' ')).toMatch(/ABS\(bt\.amount\) > \$2::numeric/);
+
+    const malo = await run(['bank', 'transaction', 'list', 'amt:mil'], lectorMovimientos());
+    expect(malo.exitCode, 'un typo es error de USO, no una validación fallida').toBe(2);
+    expect((malo.errs[0] as Error).message).toMatch(/no es un importe/);
+    expect(malo.sql, 'y no cuesta una conexión').toEqual([]);
+  });
+
+  it('un término desconocido se rechaza nombrando los que existen', async () => {
+    const r = await run(['bank', 'transaction', 'list', 'payee:CFE'], lectorMovimientos());
+    expect(r.exitCode).toBe(2);
+    expect((r.errs[0] as Error).message).toMatch(/desc:, amt:/);
+  });
+
+  it('una palabra suelta significa desc:, que es lo que cualquiera teclea', async () => {
+    const r = await run(['bank', 'transaction', 'list', 'CFE'], lectorMovimientos());
+    const sel = r.sql.find((s) => /ORDER BY bt\.transaction_date DESC/.test(s.text));
+    expect(sel!.params).toContain('%CFE%');
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('las comillas mantienen unido un texto con espacios', async () => {
+    const r = await run(
+      ['bank', 'transaction', 'list', 'desc:"PAGO CFE" amt:>100'],
+      lectorMovimientos()
+    );
+    const sel = r.sql.find((s) => /ORDER BY bt\.transaction_date DESC/.test(s.text));
+    expect(sel!.params, 'un solo término de texto, no dos').toContain('%PAGO CFE%');
+    expect(sel!.params).toContain('100');
+  });
+
+  it('--unmatched es el atajo de -s unmatched, y contradecirlo se dice', async () => {
+    const corto = await run(['bank', 'transaction', 'list', '--unmatched'], lectorMovimientos());
+    const sel = corto.sql.find((s) => /ORDER BY bt\.transaction_date DESC/.test(s.text));
+    expect(sel!.text.replace(/\s+/g, ' ')).toMatch(/bt\.is_matched = \$2/);
+    expect(sel!.params).toContain(false);
+
+    const choque = await run(
+      ['bank', 'transaction', 'list', '--unmatched', '-s', 'matched'],
+      lectorMovimientos()
+    );
+    expect(choque.exitCode).toBe(2);
+    expect((choque.errs[0] as Error).message).toMatch(/piden lo contrario/);
+  });
+
+  it('--direction es el SIGNO del importe y no transaction_type', async () => {
+    const r = await run(['bank', 'transaction', 'list', '--direction', 'out'], lectorMovimientos());
+    const sel = r.sql.find((s) => /ORDER BY bt\.transaction_date DESC/.test(s.text));
+    // `transaction_type` dice de qué CLASE es el movimiento (comisión,
+    // interés); confundirlo con el sentido del dinero es toda una clase de
+    // respuestas equivocadas.
+    expect(sel!.text.replace(/\s+/g, ' ')).toMatch(/bt\.amount < 0/);
+    expect(sel!.text).not.toMatch(/transaction_type = /);
+  });
+
+  it('--offset SÍ se honra aquí, a diferencia del resto de la familia', async () => {
+    // Las otras dos listas lo rechazan porque sus servicios no paginan; esta
+    // consulta la escribe este tramo y ordena con desempate estable, así que
+    // el desplazamiento significa algo.
+    const r = await run(['bank', 'transaction', 'list', '--offset', '10'], lectorMovimientos());
+    const sel = r.sql.find((s) => /ORDER BY bt\.transaction_date DESC/.test(s.text));
+    expect(sel!.text.replace(/\s+/g, ' ')).toMatch(/ORDER BY bt\.transaction_date DESC, bt\.id LIMIT/);
+    expect(sel!.params.slice(-2)).toEqual([50, 10]);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('--fields manda también en la salida por omisión', async () => {
+    const r = await run(
+      ['bank', 'transaction', 'list', '--fields', 'date,amount'],
+      lectorMovimientos()
+    );
+    const cabecera = r.out.split('\n')[0];
+    expect(cabecera).toMatch(/^date\s+amount$/);
+    expect(cabecera).not.toContain('description');
+  });
+
+  it('el importe sale con los CUATRO decimales de la columna', async () => {
+    const r = await run(['bank', 'transaction', 'list', '--json'], lectorMovimientos());
+    const payload = JSON.parse(r.out) as { rows: Array<Record<string, unknown>> };
+    // Recortar a dos aquí es el defecto que F05a cazó tres veces: convierte un
+    // descuadre de medio centavo en un cuadre perfecto.
+    expect(payload.rows[0].amount).toBe('-250.0000');
+    expect(typeof payload.rows[0].amount, 'y nunca un número JSON').toBe('string');
+  });
+});
+
+describe('bank transaction show', () => {
+  it('sin --raw la consulta ni siquiera pide raw_data', async () => {
+    const r = await run(['bank', 'transaction', 'show', TX], lectorMovimientos());
+    const sel = r.sql.find((s) => /LEFT JOIN bank_statements s/.test(s.text));
+    // `raw_data` trae el nombre y la cuenta de la contraparte en claro. Que la
+    // ficha lo imprima por omisión convierte cada `show` en una fuga por
+    // pantalla compartida.
+    expect(sel!.text).toMatch(/NULL::jsonb AS raw_data/);
+    expect(r.out).not.toContain('012180012345678901');
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('con --raw lo trae y lo enseña, porque es una decisión de quien mira', async () => {
+    const r = await run(['bank', 'transaction', 'show', TX, '--raw'], lectorMovimientos());
+    const sel = r.sql.find((s) => /LEFT JOIN bank_statements s/.test(s.text));
+    expect(sel!.text).toMatch(/bt\.raw_data/);
+    expect(r.out).toContain('012180012345678901');
+  });
+
+  it('sólo cuenta como explicación un cotejo VIVO', async () => {
+    const r = await run(['bank', 'transaction', 'show', TX], lectorMovimientos());
+    const cotejos = r.sql.find((s) => /FROM reconciliation_matches rm/.test(s.text));
+    const texto = cotejos!.text.replace(/\s+/g, ' ');
+    // La 052 clausura en vez de borrar: sin este predicado la ficha mostraría
+    // como explicación un cotejo que alguien deshizo.
+    expect(texto).toMatch(/rm\.unapplied_at IS NULL/);
+    expect(texto).toMatch(/JOIN bank_accounts ba ON ba\.id = bt\.bank_account_id/);
+    expect(cotejos!.params).toEqual([TX, 'E1']);
+  });
+
+  it('un id que no es uuid es 404 y no llega a la base', async () => {
+    const r = await run(['bank', 'transaction', 'show', 'no-soy-un-uuid'], lectorMovimientos());
+    expect(r.exitCode, 'y no un 22P02 disfrazado de fallo genérico').toBe(3);
+    expect(r.sql).toEqual([]);
+  });
+
+  it('--fields desarma la ficha escrita a mano, y no sólo en json', async () => {
+    const r = await run(
+      ['bank', 'transaction', 'show', TX, '--fields', 'date,amount'],
+      lectorMovimientos()
+    );
+    // Una bandera declarada que sólo se lee en json es una promesa incumplida,
+    // y ya cazaron esa exacta mentira en `ap reconcile`. La ficha en prosa es
+    // la comodidad por omisión, no un formato que gane a lo que se pidió.
+    expect(r.out.split('\n')[0]).toMatch(/^date\s+amount$/);
+    expect(r.out, 'la prosa cede el paso entera').not.toContain('Bank reference');
+  });
+
+  it('emite UN solo documento json, con los cotejos anidados', async () => {
+    const r = await run(['bank', 'transaction', 'show', TX, '--json'], lectorMovimientos());
+    const payload = JSON.parse(r.out) as { count: number; rows: Array<Record<string, unknown>> };
+    expect(payload.count).toBe(1);
+    expect(payload.rows[0].matches).toEqual([]);
+    // Los cuatro campos que el catálogo promete normalizados y que nadie
+    // extrae todavía se NOMBRAN, en vez de salir como columnas vacías que se
+    // leerían como «este movimiento no los trae».
+    expect(payload.rows[0].unextracted_fields).toContain('clave-de-rastreo');
+  });
+});
+
+describe('bank book-item list · el otro lado', () => {
+  const PARTIDAS = [
+    {
+      line_id: JEL, entry_id: 'JE1', entry_number: 'P-0042', fecha: '2026-04-02',
+      importe: '-8000.0000', descripcion: 'Cheque 1201 a proveedor',
+      antiguedad_dias: 120, sellada: false,
+    },
+    {
+      line_id: 'L9', entry_id: 'JE2', entry_number: 'P-0100', fecha: '2026-07-01',
+      importe: '1500.0000', descripcion: 'Deposito en transito',
+      antiguedad_dias: 30, sellada: false,
+    },
+  ];
+
+  const lectorPartidas = (text: string) => {
+    if (/AS line_id/.test(text)) return filas(PARTIDAS);
+    if (/SELECT id, account_name FROM bank_accounts/.test(text)) {
+      return filas([{ id: ACC, account_name: 'BBVA MXN' }]);
+    }
+    return filas([]);
+  };
+
+  it('la entidad acota los DOS extremos del JOIN, no uno', async () => {
+    const r = await run(['bank', 'book-item', 'list', ACC], lectorPartidas);
+    const sel = r.sql.find((s) => /AS line_id/.test(s.text));
+    const texto = sel!.text.replace(/\s+/g, ' ');
+    // El vínculo entre cuenta bancaria y póliza es `gl_account_id`. Una cuenta
+    // de mayor mal capturada —apuntando al plan de otra entidad del despacho—
+    // convertiría este lector en una ventana a los libros ajenos.
+    expect(texto).toMatch(/WHERE je\.entity_id = \$1 AND ba\.entity_id = \$1 AND ba\.id = \$2/);
+    expect(texto).toMatch(/jel\.is_reconciled = false/);
+    expect(sel!.params).toEqual(['E1', ACC]);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('--over-days pregunta por la antigüedad, que es el hallazgo', async () => {
+    const r = await run(['bank', 'book-item', 'list', ACC, '--over-days', '90'], lectorPartidas);
+    const sel = r.sql.find((s) => /AS line_id/.test(s.text));
+    expect(sel!.text.replace(/\s+/g, ' ')).toMatch(/\(CURRENT_DATE - je\.entry_date\) > \$3::int/);
+    expect(sel!.params).toEqual(['E1', ACC, 90]);
+  });
+
+  it('--over-days 0 es legítimo y no un typo', async () => {
+    const r = await run(['bank', 'book-item', 'list', ACC, '--over-days', '0'], lectorPartidas);
+    expect(r.exitCode).toBe(0);
+    const sel = r.sql.find((s) => /AS line_id/.test(s.text));
+    expect(sel!.params).toEqual(['E1', ACC, 0]);
+  });
+
+  it('el tope recorta en JS pero DICE el total, que es lo que lo hace honesto', async () => {
+    const r = await run(['bank', 'book-item', 'list', ACC, '-n', '1', '--json'], lectorPartidas);
+    const payload = JSON.parse(r.out) as { count: number; total: number; truncated: boolean };
+    expect(payload.count).toBe(1);
+    expect(payload.total, 'un --limit que esconde filas produce un estado incompleto').toBe(2);
+    expect(payload.truncated).toBe(true);
+  });
+
+  it('el signo del importe se conserva: un cheque en circulación no es un depósito', async () => {
+    const r = await run(['bank', 'book-item', 'list', ACC, '--json'], lectorPartidas);
+    const payload = JSON.parse(r.out) as { rows: Array<Record<string, unknown>> };
+    expect(payload.rows[0].amount).toBe('-8000.0000');
+    expect(payload.rows[1].amount).toBe('1500.0000');
+  });
+});
+
+// ---- el motor, cableado de punta a punta ---------------------------
+
+/**
+ * El mundo mínimo en el que el motor propone y aplica: un cargo de 250 el 15
+ * de julio y una línea de póliza que lo abona el mismo día. Con eso dispara la
+ * regla 1 (importe idéntico + misma fecha, candidato único), que es la única
+ * que `run` puede aplicar sin humano.
+ */
+const bancoTx = {
+  id: TX, bank_account_id: ACC, entity_id: 'E1',
+  transaction_date: '2026-07-15', amount: '-250.0000',
+  description: 'PAGO CFE 0424', merchant_name: 'CFE', is_matched: false,
+};
+
+const lectorCotejo =
+  (over: {
+    periodo?: string;
+    /** El importe del candidato, en las DOS lecturas que lo tocan. */
+    candidato?: string;
+    ocupado?: boolean;
+  } = {}) =>
+  (text: string) => {
+    const importeCandidato = over.candidato ?? '250.0000';
+    if (/FROM information_schema\.columns/.test(text)) {
+      return filas([
+        { table_name: 'bank_accounts', column_name: 'entity_id' },
+        { table_name: 'accounts', column_name: 'entity_id' },
+      ]);
+    }
+    if (/SELECT id, account_name FROM bank_accounts/.test(text)) {
+      return filas([{ id: ACC, account_name: 'BBVA MXN' }]);
+    }
+    // El motor pide TAMBIÉN la cuenta de mayor: una partida de libros sólo es
+    // candidata si es de la cuenta de mayor de ESTA cuenta bancaria.
+    if (/SELECT entity_id, gl_account_id FROM bank_accounts/.test(text)) {
+      return filas([{ entity_id: 'E1', gl_account_id: GL }]);
+    }
+    if (/SELECT entity_id FROM bank_accounts/.test(text)) return filas([{ entity_id: 'E1' }]);
+    if (/SELECT bt\.\*, ba\.entity_id/.test(text)) return filas([bancoTx]);
+    if (/SELECT bt\.\*\s+FROM bank_transactions/.test(text)) return filas([bancoTx]);
+    if (/FOR UPDATE OF bt/.test(text)) return filas([bancoTx]);
+    if (/FROM invoices/.test(text) || /FROM bills/.test(text)) return filas([]);
+    if (/'journal_entry_line' as type/.test(text)) {
+      return filas([{
+        id: JEL, type: 'journal_entry_line', amount: importeCandidato,
+        date: '2026-07-15', description: 'PAGO CFE 0424',
+      }]);
+    }
+    if (/jel\.debit_amount, jel\.credit_amount, je\.entry_date AS fecha/.test(text)) {
+      // El MISMO importe que vio el motor. Un doble que enseñe una cifra al
+      // proponer y otra al releer probaría un mundo que no existe.
+      return filas([{
+        debit_amount: null, credit_amount: importeCandidato, fecha: '2026-07-15',
+        descripcion: 'PAGO CFE 0424', referencia: 'P-0042', estado: 'posted',
+      }]);
+    }
+    if (/FROM fiscal_periods/.test(text)) {
+      return filas([{ id: 'P1', status: over.periodo ?? 'open', period_name: '2026-07' }]);
+    }
+    if (/FROM reconciliation_matches rm/.test(text)) {
+      return over.ocupado ? filas([{ id: MATCH }]) : filas([]);
+    }
+    if (/FOR UPDATE OF jel/.test(text)) {
+      return filas([{ id: JEL, reconciliation_id: null }]);
+    }
+    if (/UPDATE journal_entry_lines/.test(text)) return filas([{ id: JEL }]);
+    return filas([]);
+  };
+
+describe('bank match preview · la mitad de lectura', () => {
+  it('NO escribe nada: ni un INSERT, ni un UPDATE, ni un candado', async () => {
+    const r = await run(['bank', 'match', 'preview', TX], lectorCotejo());
+    // La propiedad tiene que ser evidente en lo que sale a la base, no en el
+    // nombre del comando: es lo único que hace legítimo que un agente lo llame.
+    expect(r.sql.filter((s) => /INSERT|UPDATE|DELETE|FOR UPDATE/.test(s.text))).toEqual([]);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('imprime la DESCOMPOSICIÓN y la regla, no sólo el número', async () => {
+    const r = await run(['bank', 'match', 'preview', TX], lectorCotejo());
+    expect(r.out, 'qué aportó el importe').toMatch(/importe.*-250\.0000 vs -250\.0000/);
+    expect(r.out, 'la diferencia, a cuatro decimales').toMatch(/diferencia 0\.0000/);
+    expect(r.out, 'qué aportó la fecha').toMatch(/fecha\s+0 día\(s\)/);
+    expect(r.out, 'y qué la descripción').toMatch(/descripción.*similitud 1\.00/);
+    // La regla que disparó es la mitad del porqué: sin ella «confianza 1.00»
+    // es un número que nadie puede revisar.
+    expect(r.out).toMatch(/regla exact_amount_date/);
+    expect(r.out).toMatch(/`run` lo aplicaría/);
+  });
+
+  it('cuando una compuerta cierra, dice CUÁL con su código', async () => {
+    const r = await run(
+      ['bank', 'match', 'preview', TX],
+      lectorCotejo({ periodo: 'hard_close' })
+    );
+    expect(r.out).toMatch(/no se aplica — periodo-cerrado/);
+    expect(r.out).toMatch(/2026-07 \(hard_close\)/);
+  });
+
+  it('sin importe exacto propone pero NO aplica: el texto no sostiene un cotejo', async () => {
+    const r = await run(['bank', 'match', 'preview', TX], lectorCotejo({ candidato: '245.0000' }));
+    // El candidato entra por la banda del 5 % de la regla difusa. Es una
+    // propuesta razonable y una aseveración inadmisible.
+    expect(r.out).toMatch(/no se aplica/);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('en json la descomposición es columnas, no prosa', async () => {
+    const r = await run(['bank', 'match', 'preview', TX, '--json'], lectorCotejo());
+    const payload = JSON.parse(r.out) as { rows: Array<Record<string, unknown>> };
+    const fila = payload.rows[0];
+    expect(fila.rule).toBe('exact_amount_date');
+    expect(fila.amount_diff).toBe('0.0000');
+    expect(fila.days_apart).toBe(0);
+    expect(fila.exact_amount).toBe(true);
+    expect(fila.applicable).toBe(true);
+  });
+
+  it('sin id y sin --account no adivina sobre qué', async () => {
+    const r = await run(['bank', 'match', 'preview'], lectorCotejo());
+    expect(r.exitCode).toBe(2);
+    expect((r.errs[0] as Error).message).toMatch(/--account/);
+    expect(r.sql).toEqual([]);
+  });
+
+  it('con -q escupe el id del MOVIMIENTO, que es lo que `apply --stdin` come', async () => {
+    const r = await run(['bank', 'match', 'preview', TX, '-q'], lectorCotejo());
+    // La mitad de lectura sólo predice a la de escritura si las dos hablan del
+    // mismo identificador. `-q` imprime el del movimiento —no el del candidato,
+    // que es lo que la fila de la tabla enseña primero—, porque es el que
+    // `bank match apply` acepta: si aquí saliera el `journal_entry_line`, la
+    // tubería que el catálogo promete moriría con un 404 por cada línea.
+    expect(r.out).toBe(`${TX}\n`);
+    expect(r.exitCode).toBe(0);
+  });
+});
+
+describe('bank match run · la mitad de escritura', () => {
+  it('escribe grupo, cotejo, marca el movimiento y SELLA la partida', async () => {
+    const r = await run(['bank', 'match', 'run', '--account', ACC], lectorCotejo());
+    expect(r.errs).toEqual([]);
+    expect(r.exitCode).toBe(0);
+
+    const grupo = r.sql.find((s) => /INSERT INTO reconciliation_match_groups/.test(s.text));
+    // Cada aplicación crea SU grupo aunque sea 1:1: `reconciliation_id` de la
+    // línea apunta al grupo, así que un cotejo sin grupo dejaría el sello
+    // apuntando a nada. Y el grupo guarda las tres sumas, con lo que la
+    // igualdad queda comprobada también en el camino automático.
+    expect(grupo, 'un cotejo sin grupo deja el sello apuntando a nada').toBeDefined();
+    expect(grupo!.params).toEqual(
+      expect.arrayContaining(['E1', ACC, '-250.0000', '-250.0000', '0.0000', '0.0000', 'keep', 'motor'])
+    );
+
+    const cotejo = r.sql.find((s) => /INSERT INTO reconciliation_matches/.test(s.text));
+    expect(cotejo!.params).toEqual(expect.arrayContaining(['automatic', 'journal_entry_line', JEL, '250.0000']));
+
+    const marca = r.sql.find((s) => /UPDATE bank_transactions/.test(s.text));
+    expect(marca!.text.replace(/\s+/g, ' '), 'atado a la cuenta, no sólo al id')
+      .toMatch(/WHERE id = ANY\(\$3::uuid\[\]\) AND bank_account_id = \$4/);
+
+    const sello = r.sql.find((s) => /UPDATE journal_entry_lines/.test(s.text));
+    // Las tres columnas JUNTAS: el CHECK `jel_sello_coherente` de la 052 no
+    // admite término medio.
+    expect(sello!.text.replace(/\s+/g, ' ')).toMatch(
+      /SET is_reconciled = true, reconciled_at = NOW\(\), reconciliation_id = \$1/
+    );
+    expect(r.out).toMatch(/1 aplicado\(s\)/);
+  });
+
+  it('un periodo que no está `open` omite en vez de escribir', async () => {
+    const r = await run(
+      ['bank', 'match', 'run', '--account', ACC],
+      lectorCotejo({ periodo: 'soft_close' })
+    );
+    // El camino automático exige `open` y nada más: un periodo en cierre suave
+    // está justo en el momento en que nadie quiere que una máquina le añada
+    // aseveraciones sola.
+    expect(r.sql.filter((s) => /INSERT INTO reconciliation_match/.test(s.text))).toEqual([]);
+    expect(r.out).toMatch(/0 aplicado\(s\)/);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('--dry-run recorre el camino real y lo deshace', async () => {
+    const r = await run(['bank', 'match', 'run', '--account', ACC, '--dry-run'], lectorCotejo());
+    // El INSERT sí corre —es lo que prueba que la base lo aceptaría—; lo que
+    // esta prueba fija es que el resultado se reporta como ENSAYO.
+    expect(r.sql.some((s) => /INSERT INTO reconciliation_match_groups/.test(s.text))).toBe(true);
+    expect(r.out).toMatch(/^◑/m);
+    expect(r.out).not.toMatch(/^✔/m);
+  });
+
+  it('sin --account no corre: una escritura no barre «lo que haya»', async () => {
+    responder = lectorCotejo();
+    const p = new Command('mnemosine').exitOverride();
+    registerBankCommand(p, behaviorDeps);
+    await expect(
+      p.parseAsync(['node', 'mnemosine', 'bank', 'match', 'run'])
+    ).rejects.toThrow(/--account/);
+  });
+
+  it('--session que no es uuid se para antes de abrir transacción', async () => {
+    const r = await run(
+      ['bank', 'match', 'run', '--account', ACC, '--session', 'la-de-julio'],
+      lectorCotejo()
+    );
+    expect(r.exitCode).toBe(2);
+    expect(r.sql.filter((s) => /INSERT/.test(s.text))).toEqual([]);
+  });
+});
+
+describe('bank match apply', () => {
+  it('toma los ids de la tubería con --stdin', async () => {
+    const r = await run(
+      ['bank', 'match', 'apply', '--stdin', '-y'],
+      lectorCotejo(),
+      { readStdin: () => Promise.resolve(`${TX}\n`) }
+    );
+    // Es lo que hace existir `bank match preview -q | mnemosine bank match apply --stdin`.
+    expect(r.errs).toEqual([]);
+    expect(r.sql.some((s) => /INSERT INTO reconciliation_matches/.test(s.text))).toBe(true);
+    expect(r.out).toMatch(/1 aplicado\(s\)/);
+  });
+
+  it('los dos orígenes se SUMAN: la tubería más la corrección tecleada', async () => {
+    let pregunta = '';
+    await run(
+      ['bank', 'match', 'apply', TX, '--stdin'],
+      lectorCotejo(),
+      {
+        readStdin: () => Promise.resolve(`${JEL}\n`),
+        confirm: (q: string) => {
+          pregunta = q;
+          return Promise.resolve(false);
+        },
+      }
+    );
+    // Excluirlos entre sí prohibiría `preview -q | apply --stdin <uno-más>`,
+    // que es una corrección normal, y no protegería de nada: los repetidos los
+    // rehúsa el servicio nombrando cuál.
+    expect(pregunta).toMatch(/2 movimiento\(s\)/);
+  });
+
+  it('sin ids y sin --stdin no adivina', async () => {
+    const r = await run(['bank', 'match', 'apply'], lectorCotejo());
+    expect(r.exitCode).toBe(2);
+    expect((r.errs[0] as Error).message).toMatch(/--stdin/);
+    expect(r.sql).toEqual([]);
+  });
+
+  it('sin confirmación no escribe, y nombra -y en vez de decir «abortado»', async () => {
+    const r = await run(
+      ['bank', 'match', 'apply', TX],
+      lectorCotejo(),
+      { confirm: () => Promise.resolve(false) }
+    );
+    // La ausencia de humano no es el permiso de escribir: sin TTY `ask` dice
+    // que no, y ahí es donde `--stdin` necesita `-y` explícito.
+    expect(r.sql.filter((s) => /INSERT/.test(s.text))).toEqual([]);
+    expect(r.exitCode).not.toBe(0);
+  });
+
+  it('lo ya cotejado se informa con el id del cotejo vivo, no como fallo', async () => {
+    const r = await run(
+      ['bank', 'match', 'apply', TX, '-y', '--json'],
+      lectorCotejo({ ocupado: true })
+    );
+    const payload = JSON.parse(r.out) as { rows: Array<Record<string, unknown>> };
+    // Un reintento automático necesita saber que no hizo falta, y contra qué.
+    expect(payload.rows[0].outcome).toBe('already-applied');
+    expect(payload.rows[0].match).toBe(MATCH);
+  });
+
+  it('pedir diez y aplicar cero no sale 0 en silencio', async () => {
+    const r = await run(
+      ['bank', 'match', 'apply', TX, '-y'],
+      lectorCotejo({ periodo: 'locked' })
+    );
+    expect(r.exitCode, '4 es «hay algo que mirar», como en statement check').toBe(4);
+  });
+});
+
+describe('bank match create · el grupo explícito', () => {
+  it('cuadra Σbanco = Σlibros + Σajustes ANTES de escribir', async () => {
+    const r = await run(
+      ['bank', 'match', 'create', '--account', ACC, '--transaction', TX, '--book-item', JEL],
+      lectorCotejo()
+    );
+    expect(r.errs).toEqual([]);
+    const grupo = r.sql.find((s) => /INSERT INTO reconciliation_match_groups/.test(s.text));
+    expect(grupo!.params).toEqual(
+      expect.arrayContaining(['-250.0000', '-250.0000', '0.0000', '0.0000', 'keep', 'manual'])
+    );
+    expect(r.out).toMatch(/banco -250\.0000 = libros -250\.0000/);
+  });
+
+  it('un descuadre sin declarar se rehúsa NOMBRANDO los tres números', async () => {
+    const r = await run(
+      [
+        'bank', 'match', 'create', '--account', ACC, '--transaction', TX,
+        '--book-item', JEL, '--adjust', 'comision=-35.00',
+      ],
+      lectorCotejo()
+    );
+    expect(r.exitCode, 'es una validación del dominio, no un typo').toBe(4);
+    const mensaje = (r.errs[0] as Error).message;
+    expect(mensaje).toMatch(/-250\.0000/);
+    expect(mensaje).toMatch(/-35\.0000/);
+    expect(mensaje, 'con la diferencia dentro, para no rehacer la resta a mano').toMatch(/35\.0000/);
+    expect(r.sql.filter((s) => /INSERT INTO reconciliation_match_groups/.test(s.text))).toEqual([]);
+  });
+
+  it('--adjust mal escrito es error de USO y no llega a la base', async () => {
+    responder = lectorCotejo();
+    const p = new Command('mnemosine').exitOverride();
+    registerBankCommand(p, behaviorDeps);
+    await expect(
+      p.parseAsync([
+        'node', 'mnemosine', 'bank', 'match', 'create', '--account', ACC,
+        '--transaction', TX, '--book-item', JEL, '--adjust', 'comision',
+      ])
+    ).rejects.toThrow(/<concept>=<amount>/);
+  });
+
+  it('--book-item admite <tipo>:<id> y rechaza un tipo inventado', async () => {
+    const r = await run(
+      [
+        'bank', 'match', 'create', '--account', ACC, '--transaction', TX,
+        '--book-item', `contrato:${JEL}`,
+      ],
+      lectorCotejo()
+    );
+    expect(r.exitCode).toBe(2);
+    expect((r.errs[0] as Error).message).toMatch(/journal_entry_line/);
+  });
+
+  it('un id de banco repetido se rehúsa: contaría doble y el grupo cuadraría de más', async () => {
+    const r = await run(
+      ['bank', 'match', 'create', '--account', ACC, '--transaction', `${TX},${TX}`, '--book-item', JEL],
+      lectorCotejo()
+    );
+    expect(r.exitCode).toBe(4);
+    expect((r.errs[0] as Error).message).toMatch(/dos veces/);
+  });
+});
+
+describe('bank match unapply · clausura, no borra', () => {
+  const lectorDesaplicar = (over: { sesion?: string } = {}) => (text: string) => {
+    if (/rm\.id, rm\.group_id, rm\.reconciliation_session_id/.test(text)) {
+      return filas([{
+        id: MATCH, group_id: GRUPO, reconciliation_session_id: over.sesion ? SESION : null,
+        bank_transaction_id: TX, bank_account_id: ACC, entity_id: 'E1', unapplied_at: null,
+      }]);
+    }
+    if (/FROM reconciliation_sessions/.test(text)) {
+      return filas([{ status: over.sesion ?? 'in_progress' }]);
+    }
+    if (/SELECT reconciliation_session_id FROM reconciliation_match_groups/.test(text)) {
+      return filas([{ reconciliation_session_id: over.sesion ? SESION : null }]);
+    }
+    if (/WHERE rm\.group_id = \$1/.test(text)) {
+      return filas([{ id: MATCH, bank_transaction_id: TX }]);
+    }
+    if (/UPDATE journal_entry_lines/.test(text)) return filas([{ id: JEL }]);
+    if (/UPDATE bank_transactions bt/.test(text)) return filas([{ id: TX }]);
+    return filas([]);
+  };
+
+  it('marca la fila con motivo y NO la borra', async () => {
+    const r = await run(
+      ['bank', 'match', 'unapply', MATCH, '--reason', 'cotejo-erroneo', '-y'],
+      lectorDesaplicar()
+    );
+    expect(r.errs).toEqual([]);
+    expect(r.sql.filter((s) => /DELETE/.test(s.text)), 'el auditor pregunta por qué se deshizo').toEqual([]);
+    const clausura = r.sql.find((s) => /SET unapplied_at = NOW\(\)/.test(s.text));
+    expect(clausura!.params).toEqual(expect.arrayContaining(['U1', 'cotejo-erroneo']));
+    // El sello del lado de libros se libera con las tres columnas juntas.
+    const libera = r.sql.find((s) => /UPDATE journal_entry_lines/.test(s.text));
+    expect(libera!.text.replace(/\s+/g, ' ')).toMatch(
+      /SET is_reconciled = false, reconciled_at = NULL, reconciliation_id = NULL/
+    );
+    expect(r.out).toMatch(/1 cotejo\(s\) clausurado\(s\)/);
+  });
+
+  it('sin --reason no corre, y el motivo es un CÓDIGO y no prosa', async () => {
+    const falta = await run(['bank', 'match', 'unapply', MATCH, '-y'], lectorDesaplicar());
+    expect(falta.exitCode).toBe(2);
+    expect((falta.errs[0] as Error).message).toMatch(/documento-cancelado/);
+    expect(falta.sql, 'ni siquiera abre conexión').toEqual([]);
+
+    const prosa = await run(
+      ['bank', 'match', 'unapply', MATCH, '--reason', 'me equivoqué', '-y'],
+      lectorDesaplicar()
+    );
+    // Una taxonomía cerrada es lo que permite CONTAR las causas; un campo
+    // libre contesta «¿cuántos por documento cancelado?» con un grep.
+    expect(prosa.exitCode).toBe(2);
+    expect(prosa.sql).toEqual([]);
+  });
+
+  it('arrastra al grupo entero: la igualdad no sobrevive a que le quiten una pata', async () => {
+    const r = await run(
+      ['bank', 'match', 'unapply', MATCH, '--reason', 'duplicado', '-y'],
+      lectorDesaplicar()
+    );
+    const alcanzados = r.sql.find((s) => /WHERE rm\.group_id = \$1/.test(s.text));
+    expect(alcanzados, 'se buscan los hermanos vivos del grupo').toBeDefined();
+    expect(alcanzados!.text.replace(/\s+/g, ' ')).toMatch(/rm\.unapplied_at IS NULL AND ba\.entity_id = \$2/);
+  });
+
+  it('se rehúsa si la sesión ya está firmada', async () => {
+    const r = await run(
+      ['bank', 'match', 'unapply', MATCH, '--reason', 'duplicado', '-y'],
+      lectorDesaplicar({ sesion: 'approved' })
+    );
+    expect(r.exitCode, 'conflicto: reescribiría una aseveración ya firmada').toBe(6);
+    expect(r.sql.filter((s) => /SET unapplied_at/.test(s.text))).toEqual([]);
+  });
+
+  it('sin confirmar no toca nada', async () => {
+    const r = await run(
+      ['bank', 'match', 'unapply', MATCH, '--reason', 'duplicado'],
+      lectorDesaplicar(),
+      { confirm: () => Promise.resolve(false) }
+    );
+    expect(r.sql.filter((s) => /SET unapplied_at/.test(s.text))).toEqual([]);
+    expect(r.exitCode).not.toBe(0);
   });
 });
