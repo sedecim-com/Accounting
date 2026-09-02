@@ -3483,20 +3483,18 @@ Usage: mnemosine bank|banco [options] [command]
 Bank accounts and bank statements: master data and imported statements
 
 Options:
-  -h, --help                display help for command
+  -h, --help                              display help for command
 
 Commands:
-  account|cuenta            Bank accounts as master data: identifiers, currency
-                            and the 1:1 GL mapping
-  statement|estado-cuenta   Bank statements as documents: import, inspect and
-                            check their integrity
-  transaction|movimiento    Bank transactions: what the bank says happened,
-                            before anyone explains it
-  book-item|partida-libros  The other side: posted journal lines against the
-                            bank GL account, still unsealed
-  match|cotejo              Matching a bank transaction to what the books
-                            already say about it
-  help [command]            display help for command
+  account|cuenta                          Bank accounts as master data: identifiers, currency and the 1:1 GL mapping
+  statement|estado-cuenta                 Bank statements as documents: import, inspect and check their integrity
+  transaction|movimiento                  Bank transactions: what the bank says happened, before anyone explains it
+  book-item|partida-libros                The other side: posted journal lines against the bank GL account, still unsealed
+  match|cotejo                            Matching a bank transaction to what the books already say about it
+  reconciliation|conciliacion             The reconciliation session: the two-sided arithmetic that makes `balanced` mean something
+  reconciling-item|partida-conciliatoria  Reconciling items as rows: what explains the difference, with age, owner, due date and escalation
+  adjustment|ajuste                       The fees, VAT, interest and withholdings a reconciliation uncovers, created as DRAFTS
+  help [command]                          display help for command
 ```
 
 ### `mnemosine bank account` (alias: cuenta)
@@ -4084,6 +4082,357 @@ Options:
   -y, --yes                skip the confirmation
   --json                   JSON output
   -h, --help               display help for command
+```
+
+### `mnemosine bank reconciliation` (alias: conciliacion)
+
+```
+Usage: mnemosine bank reconciliation|conciliacion [options] [command]
+
+The reconciliation session: the two-sided arithmetic that makes `balanced` mean
+something
+
+Options:
+  -h, --help                            display help for command
+
+Commands:
+  run|ejecutar [options] <account>      Guided monthly pass over one account:
+                                        statement, matching engine, session and
+                                        reconciling items; it ALWAYS stops
+                                        before approve and post, and prints what
+                                        is missing
+  open|abrir [options] <account>        Open the period session, asserting the
+                                        opening balance equals the previous
+                                        session closing and refusing date gaps
+                                        and overlaps
+  list|listar [options]                 List sessions by account, state and
+                                        period, with the FROZEN variance and how
+                                        many items are still open
+  status|estado [options] [session]     Recompute the variance LIVE and print
+                                        the two-sided breakdown: bank balance,
+                                        its items one by one, adjusted; books
+                                        balance, its items, adjusted; and the
+                                        difference
+  close|cerrar [options] <session>      Recompute the whole arithmetic and move
+                                        the session to `balanced` ONLY if the
+                                        variance is exactly zero (or within the
+                                        policy tolerance) and every item is
+                                        classified and dated
+  generate|generar [options] <session>  Produce the two-sided bank
+                                        reconciliation statement for the audit
+                                        file: json for the whole document,
+                                        md/csv/tsv for the line-by-line
+                                        statement, plain text to print
+  help [command]                        display help for command
+```
+
+#### `mnemosine bank reconciliation run` (alias: ejecutar)
+
+```
+Usage: mnemosine bank reconciliation run|ejecutar [options] <account>
+
+Guided monthly pass over one account: statement, matching engine, session and
+reconciling items; it ALWAYS stops before approve and post, and prints what is
+missing
+
+Arguments:
+  account                                                       bank account to reconcile (name or id)
+
+Options:
+  -e, --entity <idOrName>                                       legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                             tenant (firm) whose data to scope to
+  -u, --user <email>                                            acting user, for attribution and permissions
+  --note <text>                                                 free annotation stored with the record
+  --period <yyyy-mm>                                            period to reconcile; or give --since and --until together
+  --since <date>                                                first day of the period (YYYY-MM-DD)
+  --until <date>                                                last day of the period (YYYY-MM-DD)
+  --file <path>                                                 statement to import first; without it, the one already imported for the period is used
+  --format <csv|camt053|mt940|ofx|qfx|mt942|camt054|bai2|xlsx>  format of the FILE given in --file (not of the output; use --json for that), as in `bank statement import`
+  --profile <name>                                              CSV column profile to read --file with
+  --min-confidence <n>                                          engine confidence a proposal needs to be applied (0..1)
+  --max-amount <amount>                                         ceiling for an automatic match; the hard floor still wins
+  --stop-at <extracto|cotejo|sesion|partidas|estado>            stop after this step; it never goes past `estado`, and never reaches approve or post
+  --resume                                                      continue the session already open for this period instead of refusing
+  --dry-run                                                     walk the real path and roll it back
+  --json                                                        JSON output
+  -h, --help                                                    display help for command
+```
+
+#### `mnemosine bank reconciliation open` (alias: abrir)
+
+```
+Usage: mnemosine bank reconciliation open|abrir [options] <account>
+
+Open the period session, asserting the opening balance equals the previous
+session closing and refusing date gaps and overlaps
+
+Arguments:
+  account                     bank account to open the session on (name or id)
+
+Options:
+  -e, --entity <idOrName>     legal entity to operate on (defaults to the active
+                              one)
+  -t, --tenant <id>           tenant (firm) whose data to scope to
+  -u, --user <email>          acting user, for attribution and permissions
+  --note <text>               free annotation stored with the record
+  --period <yyyy-mm>          period of the session; or give --since and --until
+                              together
+  --since <date>              first day of the period (YYYY-MM-DD)
+  --until <date>              last day of the period (YYYY-MM-DD)
+  --closing-balance <amount>  closing balance you assert; it is COMPARED against
+                              the statement, never substituted for it
+  --statement <id>            the statement to tie the session to, when the
+                              period has more than one
+  --dry-run                   do the whole thing and roll it back
+  --json                      JSON output
+  -h, --help                  display help for command
+```
+
+#### `mnemosine bank reconciliation list` (alias: listar)
+
+```
+Usage: mnemosine bank reconciliation list|listar [options]
+
+List sessions by account, state and period, with the FROZEN variance and how
+many items are still open
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --account <ref>                          only sessions of this bank account (name or id)
+  --period <yyyy-mm>                       sessions that overlap this period
+  --since <date>                           sessions ending on or after this date (YYYY-MM-DD)
+  --until <date>                           sessions starting on or before this date (YYYY-MM-DD)
+  --all-entities                           every entity of the tenant, for a firm's overview; still bounded inside the SQL
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank reconciliation status` (alias: estado)
+
+```
+Usage: mnemosine bank reconciliation status|estado [options] [session]
+
+Recompute the variance LIVE and print the two-sided breakdown: bank balance, its
+items one by one, adjusted; books balance, its items, adjusted; and the
+difference
+
+Arguments:
+  session                                  session id; without it, the one in progress for --account
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --account <ref>                          bank account whose in-progress session to read (name or id)
+  --tolerance <amount>                     residual the close may absorb; only valid where the tolerance policy admits one
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank reconciliation close` (alias: cerrar)
+
+```
+Usage: mnemosine bank reconciliation close|cerrar [options] <session>
+
+Recompute the whole arithmetic and move the session to `balanced` ONLY if the
+variance is exactly zero (or within the policy tolerance) and every item is
+classified and dated
+
+Arguments:
+  session                  session to close
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --note <text>            free annotation stored with the record
+  --tolerance <amount>     residual this close may absorb; refused unless the
+                           tolerance policy admits one
+  --dry-run                do the whole thing and roll it back
+  -y, --yes                skip the confirmation
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank reconciliation generate` (alias: generar)
+
+```
+Usage: mnemosine bank reconciliation generate|generar [options] <session>
+
+Produce the two-sided bank reconciliation statement for the audit file: json for
+the whole document, md/csv/tsv for the line-by-line statement, plain text to
+print
+
+Arguments:
+  session                                  session to write the statement for
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+```
+
+### `mnemosine bank reconciling-item` (alias: partida-conciliatoria)
+
+```
+Usage: mnemosine bank reconciling-item|partida-conciliatoria [options] [command]
+
+Reconciling items as rows: what explains the difference, with age, owner, due
+date and escalation
+
+Options:
+  -h, --help                                   display help for command
+
+Commands:
+  list|listar [options] <session>              List the typed reconciling items of a session — outstanding checks, deposits in transit, bank charges, errors — with age, owner, expected settlement date and escalation
+  assign|asignar [options] <session> <item>    Give a reconciling item an owner, an expected settlement date and notes
+  correct|corregir [options] <session> <item>  Say what a reconciling item really was, when the automatic proposal got it wrong
+  help [command]                               display help for command
+```
+
+#### `mnemosine bank reconciling-item list` (alias: listar)
+
+```
+Usage: mnemosine bank reconciling-item list|listar [options] <session>
+
+List the typed reconciling items of a session — outstanding checks, deposits in
+transit, bank charges, errors — with age, owner, expected settlement date and
+escalation
+
+Arguments:
+  session                                  reconciliation session id
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by lifecycle state (repeatable)
+  -a, --all                                no default limit; include archived and closed
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --type <name>                            only items of this type: cheque-en-circulacion, deposito-en-transito, cargo-del-banco, abono-del-banco, error-del-banco, error-de-libros
+  --over-days <n>                          only what has gone MORE than this many days since its date
+  -h, --help                               display help for command
+```
+
+#### `mnemosine bank reconciling-item assign` (alias: asignar)
+
+```
+Usage: mnemosine bank reconciling-item assign|asignar [options] <session> <item>
+
+Give a reconciling item an owner, an expected settlement date and notes
+
+Arguments:
+  session                  reconciliation session id
+  item                     reconciling item id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --owner <name>           who is chasing this item
+  --expected <date>        expected settlement date (YYYY-MM-DD)
+  --clear-expected         remove the expected date instead of setting one
+  --escalation <level>     escalation state: ninguno, avisado, vencido
+  --note <text>            note stored with the item
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank reconciling-item correct` (alias: corregir)
+
+```
+Usage: mnemosine bank reconciling-item correct|corregir [options] <session> <item>
+
+Say what a reconciling item really was, when the automatic proposal got it wrong
+
+Arguments:
+  session                  reconciliation session id
+  item                     reconciling item id
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --type <name>            what it really is: cheque-en-circulacion,
+                           deposito-en-transito, cargo-del-banco,
+                           abono-del-banco, error-del-banco, error-de-libros
+  --amount <amount>        its new contribution to the reconciliation; required
+                           when the type changes side
+  --json                   JSON output
+  -h, --help               display help for command
+```
+
+### `mnemosine bank adjustment` (alias: ajuste)
+
+```
+Usage: mnemosine bank adjustment|ajuste [options] [command]
+
+The fees, VAT, interest and withholdings a reconciliation uncovers, created as
+DRAFTS
+
+Options:
+  -h, --help                        display help for command
+
+Commands:
+  create|crear [options] <session>  Create the fee, VAT, interest, ISR
+                                    withholding or error correction found in the
+                                    session AS A DRAFT waiting for `mnemosine
+                                    review`; it never posts anything itself
+  help [command]                    display help for command
+```
+
+#### `mnemosine bank adjustment create` (alias: crear)
+
+```
+Usage: mnemosine bank adjustment create|crear [options] <session>
+
+Create the fee, VAT, interest, ISR withholding or error correction found in the
+session AS A DRAFT waiting for `mnemosine review`; it never posts anything
+itself
+
+Arguments:
+  session                                                    reconciliation session the adjustment belongs to
+
+Options:
+  -e, --entity <idOrName>                                    legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                          tenant (firm) whose data to scope to
+  -u, --user <email>                                         acting user, for attribution and permissions
+  --note <text>                                              free annotation stored with the record
+  --type <comision|iva-comision|interes|isr-retenido|error>  what the adjustment is
+  --amount <amount>                                          SIGNED by its effect on the bank account: negative leaves the account, positive enters it
+  --gl-account <code>                                        counterparty GL account; required for the types whose accounting role is not seeded yet (comision, interes)
+  --item <id>                                                the reconciling item this adjustment explains
+  --json                                                     JSON output
+  -h, --help                                                 display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)

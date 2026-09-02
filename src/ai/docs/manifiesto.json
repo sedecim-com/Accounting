@@ -32,7 +32,15 @@
     "banking.md": [
       "src/services/banking/matching.ts",
       "src/api/rest/routes/bank-reconciliation.ts",
-      "src/database/enums.ts"
+      "src/database/enums.ts",
+      "src/services/banking/bank-statement-service.ts",
+      "src/services/banking/statement-checks.ts",
+      "src/services/banking/match-service.ts",
+      "src/services/banking/book-items.ts",
+      "src/services/banking/reconciliation-service.ts",
+      "src/services/banking/reconciling-items.ts",
+      "src/services/banking/reconciliation-adjustments.ts",
+      "src/cli/bank-command.ts"
     ],
     "payroll.md": [
       "src/services/payroll/common/pay-run-service.ts",
@@ -99,6 +107,14 @@
     "src/services/integrations/accounting/contalink-adapter.ts": "26f1f237d951a438adfc9e3d0430c316ff762f2b",
     "src/services/ap/bill-service.ts": "28d1ab2eaf5c8a2c30be2f073b450b60d0f2ded6",
     "src/services/ap/vendor-service.ts": "266636a0d6b50c28994e3f2a373cca5b1f628361",
-    "src/services/payments/payment-service.ts": "fe90ca9452cfd192ab0b9610ba6accecbb3e8486"
+    "src/services/payments/payment-service.ts": "fe90ca9452cfd192ab0b9610ba6accecbb3e8486",
+    "src/services/banking/bank-statement-service.ts": "703ef03b34cb02c17980761ee25e3cd0b9ad9aa5",
+    "src/services/banking/statement-checks.ts": "54a4b54f11f557740ccda5c25f5cef304ba8415e",
+    "src/services/banking/match-service.ts": "52b731c828d115c9323215e225ae95a4827c92d3",
+    "src/services/banking/book-items.ts": "e6a4453810d68c32571e3eea87f334f45e073ce6",
+    "src/services/banking/reconciliation-service.ts": "ebccb08b6ea18f9d6917e4d01f3a8adca386f0e2",
+    "src/services/banking/reconciling-items.ts": "5df424458d702cfd8595d86463a5f08594aec8a2",
+    "src/services/banking/reconciliation-adjustments.ts": "e627489ed40cb7cb1c37010015cd7033f30bb852",
+    "src/cli/bank-command.ts": "abaab23836220dd9f0ba2da3588341f1fda1df32"
   }
 }

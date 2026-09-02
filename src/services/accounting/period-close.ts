@@ -49,6 +49,21 @@ export async function getPeriodCloseStatus(
   if (draftCount > 0) blocking_issues.push(`${draftCount} unposted journal entries`);
 
   // 2. Check bank reconciliations complete
+  //
+  // LA SESIÓN TIENE QUE CUBRIR EL PERIODO, no simplemente terminar después.
+  //
+  // El predicado era `rs.end_date >= periodo.end_date`, y con eso la sesión de
+  // SEPTIEMBRE tildaba la casilla de AGOSTO —30/09 es posterior a 31/08— aunque
+  // agosto no se hubiera conciliado nunca. La casilla decía «conciliado» sobre
+  // un mes que nadie miró.
+  //
+  // Importa más desde F05c que antes. Hasta este tramo, `balanced` se ponía sin
+  // aritmética y la casilla mentía por su origen; ahora `balanced` se gana, así
+  // que lo único que puede hacerla mentir es leerlo mal. Una afirmación que se
+  // volvió cierta merece un lector que no la estropee.
+  //
+  // «Cubrir» es que la sesión empiece no después del periodo y acabe no antes:
+  // para la conciliación mensual normal es exactamente la sesión de ese mes.
   const unreconciledAccounts = await q<{ count: string }>(
     `SELECT COUNT(*) as count FROM bank_accounts ba
      WHERE ba.entity_id = $1 AND ba.is_active = true
@@ -56,7 +71,8 @@ export async function getPeriodCloseStatus(
        SELECT 1 FROM reconciliation_sessions rs
        WHERE rs.bank_account_id = ba.id
        AND rs.status IN ('balanced', 'approved', 'posted')
-       AND rs.end_date >= (SELECT end_date FROM fiscal_periods WHERE id = $2)
+       AND rs.start_date <= (SELECT start_date FROM fiscal_periods WHERE id = $2)
+       AND rs.end_date   >= (SELECT end_date   FROM fiscal_periods WHERE id = $2)
      )`,
     [entityId, periodId]
   );

@@ -462,6 +462,7 @@ export const CRITERIOS: Criterio[] = [
         // sigue matando sin reapuntarse.
         F05a: 'docs/auditorias/F05a.md',
         F05b: 'docs/auditorias/F05b.md',
+        F05c: 'docs/auditorias/F05c.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -3478,6 +3479,172 @@ export const CRITERIOS: Criterio[] = [
   },
 
 
+
+
+  // ---- F05c · La sesión que cuadra ----
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'Una sesión no puede declararse cuadrada sin que la aritmética conste',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/054_la_sesion_que_cuadra.sql',
+        de: '            OR arithmetic_computed_at IS NOT NULL',
+        a: '            OR true',
+        porque: 'vuelve a caber el defecto histórico: un UPDATE poniendo balanced sin haber calculado nada, que el cierre de periodo lee como prueba de que la cuenta se verificó',
+      },
+      {
+        archivo: 'src/services/banking/reconciliation-service.ts',
+        de: '              arithmetic_computed_at = NOW(),',
+        a: '              beginning_balance = beginning_balance,',
+        porque: 'el único escritor legítimo deja de dejar constancia: la base rechazaría el cierre y `close` quedaría roto, que es mejor que cerrar en falso pero sigue siendo un fallo',
+      },
+    ],
+    evaluar: () => {
+      // EL DEFECTO HISTÓRICO DE ESTE MÓDULO, escrito por su propio código:
+      // `POST /reconciliations/:id/complete` era un UPDATE poniendo
+      // status='balanced' y nada más. Nunca calculó el saldo de libros, nunca
+      // lo comparó con el del banco, nunca miró si quedaba un movimiento sin
+      // cotejar. Las columnas conservaban su DEFAULT 0 y la sesión reportaba
+      // «variance 0» — un cero que significa «nadie restó nada», mostrado como
+      // «la cuenta cuadra». Y period-close lo lee como evidencia de cierre.
+      //
+      // POR ESO EL INVARIANTE NO ES «VARIACIÓN CERO». La variación valía cero,
+      // y valía cero por DEFAULT, que es justo lo contrario de haberla
+      // calculado: un CHECK sobre ella habría dejado pasar el defecto entero.
+      // Lo que se exige es que la aritmética CONSTE.
+      const sql = crudoDe('src/database/migrations/054_la_sesion_que_cuadra.sql');
+
+      if (!/CONSTRAINT sesion_balanceada_con_aritmetica/.test(sql)) {
+        return falla('desapareció el guardia del cuadre: vuelve a poderse declarar balanceada una sesión que nadie calculó');
+      }
+      if (!/OR arithmetic_computed_at IS NOT NULL/.test(sql)) {
+        return falla('el CHECK dejó de exigir constancia de la aritmética: es exactamente el hueco por el que pasó el defecto histórico');
+      }
+      // Y VIVE EN LA BASE, no en el servicio. Un guardia que sólo vive en el
+      // servicio protege el camino que alguien recordó, no la tabla — y lo que
+      // impidió esto durante un año fue exactamente nada.
+      const svc = codigoDe('src/services/banking/reconciliation-service.ts');
+      const escribe = /SET status = 'balanced',\s*\n\s*arithmetic_computed_at = NOW\(\),/.test(svc);
+      return escribe
+        ? ok('«balanceada» exige constancia de la aritmética, y el guardia vive en la base y no en el camino que alguien recuerde')
+        : falla('el cierre dejó de dejar constancia de la aritmética al marcar balanced');
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'Crear un ajuste de conciliación no alcanza el mayor: nace borrador',
+    mutantes: [
+      {
+        // Inserta CÓDIGO, no un comentario. La primera versión metía
+        // `/* createJournalEntry */` y sobrevivía con razón —`codigoDe` quita
+        // los comentarios, y un comentario que nombra el mayor no es un camino
+        // al mayor—, pero el arnés exige que TODO mutante mate: un control
+        // negativo deliberado no cabe en su contrato, así que se sustituye.
+        archivo: 'src/services/banking/reconciliation-adjustments.ts',
+        de: '    await query(',
+        a: '    await createJournalEntry(); await query(',
+        porque: 'basta un camino al mayor dentro del creador de ajustes para que su promesa de «nunca contabiliza por su cuenta» sea falsa',
+      },
+    ],
+    evaluar: () => {
+      // «Crea COMO BORRADORES … nunca contabiliza por su cuenta» es la promesa
+      // literal de la fila 1246. Contabilizar es de F05d, detrás de una firma.
+      // La promesa se verifica contra el SERVICIO, no contra la declaración:
+      // en F05a la misma comprobación destapó que una familia entera estaba
+      // probada y no entregada.
+      const svc = codigoDe('src/services/banking/reconciliation-adjustments.ts');
+      const alMayor = /createJournalEntry|postJournalEntry|INSERT INTO journal_entries/.exec(svc);
+      if (alMayor !== null) {
+        return falla(
+          `el creador de ajustes alcanza el mayor ("${alMayor[0]}"): la fila promete que nunca contabiliza por su cuenta`
+        );
+      }
+      // Y la columna que lo demuestra queda vacía hasta F05d.
+      const sql = crudoDe('src/database/migrations/054_la_sesion_que_cuadra.sql');
+      const nace = /journal_entry_id UUID REFERENCES journal_entries\(id\)/.test(sql);
+      return nace
+        ? ok('el ajuste nace borrador y su asiento queda en NULL hasta que F05d lo contabilice tras una firma')
+        : falla('el ajuste perdió el vínculo con su asiento: no se podría saber cuál contabilizó cuál');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'La partida conciliatoria se puede fechar y corregir, o `close` es inalcanzable',
+    mutantes: [
+      {
+        archivo: 'src/cli/bank-command.ts',
+        de: "    .command('assign')",
+        a: "    .command('assign-x')",
+        porque: 'sin la hoja que fecha una partida, `close` exige una fecha que nadie puede escribir y la primera sesión con una partida queda bloqueada para siempre',
+      },
+    ],
+    evaluar: () => {
+      // EL HUECO QUE F05C TUVO QUE CERRAR AÑADIENDO FILAS AL CATÁLOGO.
+      // `close` exige toda partida CLASIFICADA Y FECHADA;
+      // `clasificarPartidas` levanta toda partida sin fecha —a propósito: nada
+      // en el extracto sabe cuándo se cobrará un cheque—; y el catálogo
+      // publicaba «responsable, fecha esperada y escalamiento» en el listado
+      // sin dar forma de fijar ninguno. La primera sesión con una sola partida
+      // se quedaba bloqueada para siempre, y cuatro de los seis tipos —los dos
+      // errores entre ellos— eran inalcanzables, porque el signo no distingue
+      // una comisión de un error del banco.
+      const cli = codigoDe('src/cli/bank-command.ts');
+      const svc = codigoDe('src/services/banking/reconciling-items.ts');
+
+      const faltan = ['asignarPartida', 'reclasificarPartida'].filter(
+        (f) => !new RegExp(`export async function ${f}\\(`).test(svc)
+      );
+      if (faltan.length > 0) {
+        return falla(`el servicio perdió ${faltan.join(', ')}: no habría con qué fechar ni corregir una partida`);
+      }
+      // Y CON PUERTA. Los dos existían, estaban probados, y ninguno tenía
+      // comando: es la forma exacta de «verde no es entregado».
+      const conPuerta = ['assign', 'correct'].filter((v) =>
+        new RegExp(`\\.command\\('${v}'\\)`).test(cli)
+      );
+      return conPuerta.length === 2
+        ? ok('fechar y corregir una partida tienen servicio Y hoja: `close` es alcanzable desde el binario')
+        : falla(
+            `de las dos hojas que desbloquean \`close\` sólo hay ${conPuerta.length}: sin ellas, la primera sesión con una partida no se cierra nunca`
+          );
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'La casilla del cierre exige que la sesión CUBRA el periodo, no que termine después',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/period-close.ts',
+        de: '       AND rs.start_date <= (SELECT start_date FROM fiscal_periods WHERE id = $2)',
+        a: '       AND true',
+        porque: 'la sesión de septiembre volvería a tildar la casilla de agosto: la casilla diría «conciliado» sobre un mes que nadie miró',
+      },
+    ],
+    evaluar: () => {
+      // `period-close.ts` lee una sesión balanceada como la evidencia de que la
+      // cuenta se verificó contra el banco. Su predicado era «alguna sesión
+      // balanceada que TERMINE después del cierre», y con eso la de septiembre
+      // tildaba la de agosto —30/09 es posterior a 31/08— aunque agosto no se
+      // hubiera conciliado nunca.
+      //
+      // Importa más desde F05c que antes: hasta este tramo la casilla mentía
+      // por su ORIGEN, porque `balanced` se ponía sin aritmética. Ahora
+      // `balanced` se gana, así que lo único que puede estropearla es leerla
+      // mal. Una afirmación que se vuelve cierta merece un lector que no la
+      // arruine.
+      const pc = codigoDe('src/services/accounting/period-close.ts');
+      const cubre =
+        /AND rs\.start_date <= \(SELECT start_date FROM fiscal_periods WHERE id = \$2\)/.test(pc) &&
+        /AND rs\.end_date\s+>= \(SELECT end_date\s+FROM fiscal_periods WHERE id = \$2\)/.test(pc);
+      return cubre
+        ? ok('la casilla exige una sesión que cubra el periodo por los dos extremos')
+        : falla('la casilla del cierre volvió a conformarse con una sesión que termine después: un mes sin conciliar se tildaría con la conciliación del siguiente');
+    },
+  },
 
   // ---- F05b · Los dos lados y el cotejo ----
 

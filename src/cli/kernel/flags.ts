@@ -173,6 +173,36 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // van juntos por CHECK en la 052.
   '--residual': null,
   '--write-off-account': null,
+
+  // ── F05c · la sesión de conciliación ──────────────────────────────────
+  //
+  // Ninguna lleva forma corta. Se congelan aquí por lo mismo que las de F05a y
+  // F05b: para que la grafía se decida UNA vez. Tres de ellas ya existían
+  // sueltas en otras familias con esta misma escritura (`--file` en `entry
+  // create`, `--amount` en `payment`/`ap`, `--resume` en `chat`), así que lo
+  // que hace esta entrada es impedir que la próxima sesión les invente una
+  // forma corta o una variante.
+  '--file': null,
+  '--amount': null,
+  // El extracto concreto al que se ata la sesión, cuando el periodo tiene más
+  // de uno. Es un documento, no un formato: `bank statement` es su familia.
+  '--statement': null,
+  // La MAGNITUD del residual que un cierre puede absorber. El criterio de si
+  // se admite residual vive en el panel (`conciliacion_tolerancia`) y esta
+  // bandera NO lo afloja: con `cero_exacto` se rechaza en voz alta. Existe
+  // porque el panel fija el criterio y no el número.
+  '--tolerance': null,
+  // Hasta qué paso llega el pase guiado. Nunca más allá de `estado`: `approve`
+  // y `post` no son pasos de un pase automático.
+  '--stop-at': null,
+  // Continuar donde se detuvo, en vez de abrir otra sesión que explicaría el
+  // mismo movimiento dos veces. Convive con el VERBO `resume`·`reanudar`, como
+  // `--explain` convive con el verbo `explain`.
+  '--resume': null,
+  // La partida conciliatoria que un ajuste explica. Se llama por el objeto que
+  // nombra —`bank reconciling-item`— y no `--reconciling-item`, que sería la
+  // bandera más larga del binario.
+  '--item': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
