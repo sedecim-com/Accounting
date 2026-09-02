@@ -128,6 +128,11 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   bank: {
     account: 'cuenta', statement: 'estado-cuenta',
     transaction: 'movimiento', 'book-item': 'partida-libros', match: 'cotejo',
+    // F05c · la sesión. `conciliacion` es de la SESIÓN y `cotejo` del
+    // emparejamiento de dos renglones: el registro los declara disjuntos, así
+    // que los dos sustantivos conviven aquí sin compartir alias.
+    reconciliation: 'conciliacion', 'reconciling-item': 'partida-conciliatoria',
+    adjustment: 'ajuste',
   },
   backup: { create: 'crear', list: 'listar', verify: 'comprobar', restore: 'restaurar' },
   report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },
@@ -217,7 +222,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

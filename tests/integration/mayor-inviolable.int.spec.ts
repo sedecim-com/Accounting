@@ -85,7 +85,22 @@ describe('lo posteado rechaza, incluso al superusuario', () => {
   });
 
   it('TRUNCATE del libro revienta a nivel sentencia', async () => {
-    await expect(query('TRUNCATE journal_entry_lines', [])).rejects.toThrow(/no se trunca/);
+    // LAS TRES FORMAS, Y LA DEL MEDIO ES LA QUE IMPORTA.
+    //
+    // `TRUNCATE journal_entry_lines` a secas dejó de llegar al trigger cuando
+    // la 053 le colgó una clave foránea (`reconciling_items.journal_entry_line_id`):
+    // Postgres rechaza antes, con «cannot truncate a table referenced in a
+    // foreign key constraint». El libro sigue sin poder vaciarse, pero quien
+    // lo impide ya no es el guardia sino un accidente del esquema — y un
+    // accidente se puede quitar mañana con un `DROP CONSTRAINT` que nadie
+    // relacione con el mayor.
+    //
+    // Por eso la aserción fuerte va con CASCADE, que aparta la objeción de la
+    // foránea y deja hablar a `ledger_sin_truncate`. Si esta prueba sólo
+    // afirmara la primera línea, el día que la foránea desapareciera seguiría
+    // en verde por la razón equivocada.
+    await expect(query('TRUNCATE journal_entry_lines', [])).rejects.toThrow();
+    await expect(query('TRUNCATE journal_entry_lines CASCADE', [])).rejects.toThrow(/no se trunca/);
     await expect(query('TRUNCATE journal_entries CASCADE', [])).rejects.toThrow(/no se trunca/);
   });
 });

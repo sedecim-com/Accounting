@@ -517,6 +517,62 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 30,
   },
   {
+    // F05c · Lo que «cuadra» significa. La fila 1247 del catálogo exige
+    // variación EXACTAMENTE cero; la familia genérica de certificación habla
+    // de tolerancia. El criterio es del despacho, no del programa.
+    key: 'conciliacion_tolerancia',
+    category: 'contable',
+    question: 'Must a bank reconciliation come to exactly zero, or may a small residual be carried?',
+    impact:
+      'Governs `bank reconciliation close`. With "cero_exacto" the session only reaches `balanced` ' +
+      'when the two sides agree to the cent, and the close checklist can be read as proof the cash ' +
+      'was verified. With a tolerance, anything under it is carried as a named reconciling item ' +
+      'instead of blocking — faster to close, and the residual has to be chased later or it ages.',
+    options: [
+      { value: 'cero_exacto', label: 'Exactly zero: nothing closes until the two sides agree to the cent' },
+      { value: 'tolerancia_con_residual', label: 'Allow a residual under the tolerance, carried as a named item' },
+    ],
+    defaultValue: 'cero_exacto',
+    defaultRationale:
+      'The close checklist reads a balanced session as evidence the cash balance was verified. A ' +
+      'tolerance makes that evidence weaker than it looks, so it has to be asked for, never assumed.',
+    whyAsking:
+      'A bank reconciliation that "almost" agrees is the oldest place for an error to hide: the residual is small every month and never the same small thing. Whether your firm closes on an exact zero is a real policy — some do, some carry a tolerance and chase it.',
+    whatIDo:
+      'With "cero_exacto" I refuse to close a session whose two sides differ by a cent, and tell you what is unexplained. With a tolerance I close it and leave the residual as a reconciling item with an owner and a date, so it cannot quietly age.',
+    ifSkipped:
+      'I demand an exact zero. Nothing breaks; some months you will have to chase a cent before I close.',
+    priority: 36,
+  },
+  {
+    // F05c · La línea de banco que nadie explica al cerrar.
+    key: 'linea_banco_sin_partida_al_cierre',
+    category: 'contable',
+    question: 'At close, what happens to a bank line with no book entry to explain it?',
+    impact:
+      'Governs `bank reconciliation close` when the statement shows a movement the books never ' +
+      'recorded and nobody has classified. "partida_conciliatoria" carries it as a named, owned, ' +
+      'dated item; "bloquear_cierre" refuses to close until a person says what it is; "suspenso" ' +
+      'parks it in a suspense account, which is a real practice and also the classic place for a ' +
+      'difference to go to die.',
+    options: [
+      { value: 'partida_conciliatoria', label: 'Carry it as a reconciling item, with owner and expected date' },
+      { value: 'bloquear_cierre', label: 'Refuse to close until someone classifies it' },
+      { value: 'suspenso', label: 'Post it to a suspense account and clear it later' },
+    ],
+    defaultValue: 'partida_conciliatoria',
+    defaultRationale:
+      'Keeps the movement visible and chaseable without stopping the close. Blocking is stricter ' +
+      'but stalls the month on one unknown line; suspense hides it behind a balance.',
+    whyAsking:
+      'Sooner or later the bank shows a movement your books never recorded and nobody recognises. What you do with it on closing day is a choice between stopping the month, carrying it in the open, or parking it — and the third one is how differences disappear.',
+    whatIDo:
+      'By default I carry it as a reconciling item, so it appears in `bank reconciling-item list` with its age until somebody resolves it. If you choose "suspenso" I will still name it every month it stays there — a suspense account is not a place to stop looking.',
+    ifSkipped:
+      'I carry it in the open as a reconciling item, which is the option that keeps it visible.',
+    priority: 37,
+  },
+  {
     // F05b · El cotejo automático. `confidence >= 0.85` estaba escrito a mano
     // en el motor, sin bandera y sin que nadie lo hubiera elegido.
     key: 'cotejo_umbral_confianza',
