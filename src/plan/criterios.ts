@@ -164,52 +164,73 @@ export function fuentes(rel = 'src'): string[] {
  * que puede recortar de más — un criterio que se calla de más falla hacia el
  * rojo, que es el lado seguro.
  */
+/**
+ * Memoria por CONTENIDO, no por ruta. Los 161 sitios de llamada releen los
+ * mismos archivos una y otra vez, y el seam de mutación cambia el contenido sin
+ * cambiar la ruta: cachear por ruta serviría el archivo sano a un mutante y el
+ * espejo dejaría de morder. Con la clave en el propio texto, un mutante es
+ * simplemente otra entrada.
+ */
+const CACHE_SIN_COMENTARIOS = new Map<string, string>();
+
 export function sinComentarios(texto: string): string {
-  // Recorrido con estado en vez de dos regex. La versión anterior las usaba
-  // y se quedó CIEGA el día que un ejemplo de ayuda citó un glob de shell:
-  // `./cfdi/julio/*.xml` contiene `/*`, que abría un comentario de bloque
-  // cerrado 94 499 bytes después — el 80 % de mnemosine.ts desaparecía y
-  // `plan:status` acusaba SIETE rojos falsos sobre familias que sí estaban
-  // en el binario. Un instrumento que decide no puede cegarse con una
-  // cadena, así que las cadenas se saltan en vez de mirarse.
+  // Recorrido con estado en vez de dos regex. Las regex se quedaron CIEGAS el
+  // día que un ejemplo de ayuda citó un glob de shell: `./cfdi/julio/*.xml`
+  // contiene `/*`, que abría un comentario de bloque cerrado 94 499 bytes
+  // después — el 80 % de mnemosine.ts desaparecía del criterio y `plan:status`
+  // acusaba SIETE rojos falsos sobre familias que sí estaban en el binario. Un
+  // instrumento que decide no puede cegarse con una cadena, así que las
+  // cadenas se saltan en vez de mirarse.
+  //
+  // Se copia POR TRAMOS, no carácter a carácter: la primera versión de este
+  // arreglo concatenaba de uno en uno y salía 8× más lenta, y con 161 sitios
+  // de llamada eso llevó las pruebas de `main()` a agotar su presupuesto de
+  // 30 s en CI. Correcto y lento sigue siendo un defecto cuando el instrumento
+  // corre en cada empuje.
   //
   // Sirve para TypeScript y para SQL (`codigoDe` se usa sobre los dos): las
-  // comillas simples que SQL duplica para escapar cierran y reabren, que
-  // deja el mismo resultado. Las expresiones regulares de TS se tratan como
-  // división —no se intenta desambiguar—, así que un `/*` dentro de un
-  // literal de regex seguiría cegando; no hay ninguno hoy y el criterio de
-  // más abajo lo vigila.
-  let fuera = '';
+  // comillas simples que SQL duplica para escapar cierran y reabren, que deja
+  // el mismo resultado. Las expresiones regulares de TS se tratan como
+  // división —no se intenta desambiguar—, así que un `/*` dentro de un literal
+  // de regex seguiría cegando; hoy no hay ninguno.
+  const memo = CACHE_SIN_COMENTARIOS.get(texto);
+  if (memo !== undefined) return memo;
+
+  const trozos: string[] = [];
   let i = 0;
+  let copiadoDesde = 0;
   while (i < texto.length) {
-    const c = texto[i];
-    const d = texto[i + 1];
-    if (c === '/' && d === '*') {
-      const fin = texto.indexOf('*/', i + 2);
-      i = fin === -1 ? texto.length : fin + 2;
-      continue;
+    const c = texto.charCodeAt(i);
+    // 0x2f '/'  0x2a '*'  0x2d '-'  0x27 "'"  0x22 '"'  0x60 '`'  0x5c '\\'
+    if (c === 0x2f || c === 0x2d) {
+      const d = texto.charCodeAt(i + 1);
+      const bloque = c === 0x2f && d === 0x2a;
+      const linea = (c === 0x2f && d === 0x2f) || (c === 0x2d && d === 0x2d);
+      if (bloque || linea) {
+        trozos.push(texto.slice(copiadoDesde, i));
+        const fin = bloque ? texto.indexOf('*/', i + 2) : texto.indexOf('\n', i);
+        i = fin === -1 ? texto.length : bloque ? fin + 2 : fin;
+        copiadoDesde = i;
+        continue;
+      }
     }
-    if ((c === '/' && d === '/') || (c === '-' && d === '-')) {
-      const fin = texto.indexOf('\n', i);
-      i = fin === -1 ? texto.length : fin;
-      continue;
-    }
-    if (c === "'" || c === '"' || c === '`') {
-      // La cadena se CONSERVA: quitarla rompería los criterios que buscan
-      // un literal («status = 'posted'»), que son casi todos.
-      const abre = c;
+    if (c === 0x27 || c === 0x22 || c === 0x60) {
+      // La cadena se CONSERVA: quitarla rompería los criterios que buscan un
+      // literal («status = 'posted'»), que son casi todos. Sólo se salta, para
+      // que un `/*` de su interior no abra un comentario.
       let j = i + 1;
-      while (j < texto.length && texto[j] !== abre) {
-        if (texto[j] === '\\') j++;
+      while (j < texto.length && texto.charCodeAt(j) !== c) {
+        if (texto.charCodeAt(j) === 0x5c) j++;
         j++;
       }
-      fuera += texto.slice(i, Math.min(j + 1, texto.length));
-      i = j + 1;
+      i = Math.min(j + 1, texto.length);
       continue;
     }
-    fuera += c;
     i++;
   }
+  trozos.push(texto.slice(copiadoDesde));
+  const fuera = trozos.join('');
+  CACHE_SIN_COMENTARIOS.set(texto, fuera);
   return fuera;
 }
 
