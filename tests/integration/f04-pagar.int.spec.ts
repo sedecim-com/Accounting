@@ -57,7 +57,14 @@ beforeAll(async () => {
   cuentaCxp = await cuentaPorCodigo(f.entityId, '2110');
   cuentaAnticipo = await cuentaPorCodigo(f.entityId, '1150');
   cuentaDescuento = await cuentaPorCodigo(f.entityId, '5200');
-  cuentaOtrosIngresos = await cuentaPorCodigo(f.entityId, '4200');
+  // 4300 y no 4200. Esta línea decía 4200 y la prueba pasaba POR la colisión,
+  // no a pesar de ella: en el catálogo base 4200 es «Ingresos por Servicios»,
+  // así que la semilla de roles se saltaba su propia cuenta y el rol
+  // `otros_ingresos` resolvía a ingresos de operación. La prueba pedía ese
+  // mismo id y lo llamaba «otros ingresos», de modo que el ✅ describía el
+  // defecto. Por eso ahora también se afirma el NOMBRE: un código acertado con
+  // la cuenta equivocada es exactamente lo que no se ve.
+  cuentaOtrosIngresos = await cuentaPorCodigo(f.entityId, '4300');
   // El panel se siembra a nivel de INQUILINO (entity_id NULL), y ahí es donde
   // se resuelve: `resolvePolicy` exige el mismo alcance en que la decisión
   // está pendiente.
@@ -409,6 +416,11 @@ describe('la cuenta del pago corto la decide el PANEL, no el código', () => {
     const lineas = await lineasDelAsiento(r.journalEntry!.id);
     expect(lineas.get(cuentaOtrosIngresos)?.credito).toBe('137.9310');
     expect(lineas.get(cuentaDescuento), 'el contra-costo ya no participa').toBeUndefined();
+    const nombre = await query<{ name: string }>(
+      'SELECT name FROM accounts WHERE id = $1', [cuentaOtrosIngresos]
+    );
+    expect(nombre.rows[0].name, 'la condonación no puede caer en ingresos de operación')
+      .toBe('Otros Ingresos');
   });
 
   it('resuelta a `prohibir`, el modo residual se niega y dice qué hacer en su lugar', async () => {

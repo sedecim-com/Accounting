@@ -1,5 +1,5 @@
 -- ============================================================
--- 049: la nómina deja de cargarse a «Devoluciones sobre Compras»
+-- 053: la nómina deja de cargarse a «Devoluciones sobre Compras»
 --
 -- Cuatro semillas escriben en el catálogo de la misma entidad y las que corren
 -- después se guardan de pisar a la anterior COMPARANDO CÓDIGOS. El catálogo de

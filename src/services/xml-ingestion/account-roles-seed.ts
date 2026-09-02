@@ -128,7 +128,16 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     description: 'Contra-costo: reduce las compras.',
   },
   {
-    code: '4200', name: 'Otros Ingresos', account_type: 'revenue',
+    // 4300 y no 4200. El razonamiento de arriba es correcto y el número que
+    // eligió lo contradecía: 4200 es «Ingresos por Servicios» en el catálogo
+    // base, que corre ANTES, así que la guarda por código se saltaba esta
+    // cuenta y el rol acababa apuntando a ingresos de operación — igual de
+    // cotejables contra los CFDI emitidos que 4100, que es justo lo que la
+    // descripción quería evitar. 4300 «Otros Ingresos» ya existe en el
+    // catálogo base con este nombre exacto y este mismo fs_category; se
+    // declara aquí ADEMÁS porque el catálogo base es condicional y sobre uno
+    // importado la cuenta tiene que existir igual.
+    code: '4300', name: 'Otros Ingresos', account_type: 'revenue',
     normal_balance: 'credit', fs_category: 'other_income',
     description:
       'Ingresos que no provienen de una venta. Existe porque la política ' +
@@ -152,7 +161,7 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
 export const ROLE_MAP: Record<AccountRole, string> = {
   // Income and collection
   ingreso: '4100',
-  otros_ingresos: '4200',
+  otros_ingresos: '4300',
   devolucion_ventas: '4400',
   anticipo_clientes: '2150',
   cxc: '1120',
