@@ -120,16 +120,32 @@ describe('rep-parked se acota al periodo que se cierra', () => {
 // ============================================================
 
 describe('un descuadre inyectado por SQL no pasa de largo', () => {
+  // La cuenta que se infla se captura UNA vez y sirve para inyectar Y para
+  // reparar. La primera versión resolvía la fila con un subquery `LIMIT 1`
+  // sin ORDER BY en los dos UPDATE — y un UPDATE reescribe la tupla en otra
+  // posición del heap, así que la reparación podía elegir OTRA fila: la
+  // inyección quedaba viva en la cuenta X y la resta caía en la Y
+  // (100 + 50.1234 = el 150.1234 exacto que tumbó mayor-inviolable y
+  // s3-respaldo en CI, invisible en local por orden de heap).
+  const cuentaInflada = async (): Promise<string> =>
+    (
+      await query<{ account_id: string }>(
+        `SELECT account_id FROM account_balances
+          WHERE entity_id = $1 AND fiscal_period_id = $2
+          ORDER BY account_id LIMIT 1`,
+        [A.entityId, A.periodos[8]]
+      )
+    ).rows[0].account_id;
+
   it('descuadre SIMÉTRICO (la caché miente igual en los dos lados): la balanza calla y ledger-integrity lo caza', async () => {
     // La balanza suma débitos contra créditos: inflar los dos lados de la
     // MISMA cuenta la deja en paz. Sólo el contraste caché-contra-líneas
     // (runLedgerChecks · balance) puede verlo.
+    const cuenta = await cuentaInflada();
     await query(
       `UPDATE account_balances SET debit_total = debit_total + 100, credit_total = credit_total + 100
-        WHERE entity_id = $1 AND fiscal_period_id = $2
-          AND account_id = (SELECT account_id FROM account_balances
-                             WHERE entity_id = $1 AND fiscal_period_id = $2 LIMIT 1)`,
-      [A.entityId, A.periodos[8]]
+        WHERE entity_id = $1 AND fiscal_period_id = $2 AND account_id = $3`,
+      [A.entityId, A.periodos[8], cuenta]
     );
     try {
       const status = await getPeriodCloseStatus(A.periodos[8], A.entityId);
@@ -146,21 +162,18 @@ describe('un descuadre inyectado por SQL no pasa de largo', () => {
     } finally {
       await query(
         `UPDATE account_balances SET debit_total = debit_total - 100, credit_total = credit_total - 100
-          WHERE entity_id = $1 AND fiscal_period_id = $2
-            AND account_id = (SELECT account_id FROM account_balances
-                               WHERE entity_id = $1 AND fiscal_period_id = $2 LIMIT 1)`,
-        [A.entityId, A.periodos[8]]
+          WHERE entity_id = $1 AND fiscal_period_id = $2 AND account_id = $3`,
+        [A.entityId, A.periodos[8], cuenta]
       );
     }
   });
 
   it('descuadre ASIMÉTRICO: trial-balance bloquea y publica la diferencia con cuatro decimales', async () => {
+    const cuenta = await cuentaInflada();
     await query(
       `UPDATE account_balances SET debit_total = debit_total + 50.1234
-        WHERE entity_id = $1 AND fiscal_period_id = $2
-          AND account_id = (SELECT account_id FROM account_balances
-                             WHERE entity_id = $1 AND fiscal_period_id = $2 LIMIT 1)`,
-      [A.entityId, A.periodos[8]]
+        WHERE entity_id = $1 AND fiscal_period_id = $2 AND account_id = $3`,
+      [A.entityId, A.periodos[8], cuenta]
     );
     try {
       const status = await getPeriodCloseStatus(A.periodos[8], A.entityId);
@@ -173,10 +186,8 @@ describe('un descuadre inyectado por SQL no pasa de largo', () => {
     } finally {
       await query(
         `UPDATE account_balances SET debit_total = debit_total - 50.1234
-          WHERE entity_id = $1 AND fiscal_period_id = $2
-            AND account_id = (SELECT account_id FROM account_balances
-                               WHERE entity_id = $1 AND fiscal_period_id = $2 LIMIT 1)`,
-        [A.entityId, A.periodos[8]]
+          WHERE entity_id = $1 AND fiscal_period_id = $2 AND account_id = $3`,
+        [A.entityId, A.periodos[8], cuenta]
       );
     }
   });

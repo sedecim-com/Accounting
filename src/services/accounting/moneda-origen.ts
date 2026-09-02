@@ -254,9 +254,13 @@ export async function resolverTipoCambio(
         `${Object.keys(FUENTE_POR_POLITICA).join(', ')}. Corrige la política en mnemosine pending.`
     );
   }
+  // La fecha se formatea con las partes LOCALES, jamás con toISOString():
+  // una medianoche local en México (UTC−6) es el día ANTERIOR en UTC, y
+  // pedir el DOF del día equivocado es la familia de bugs de fecha de la
+  // casa (la misma que corría pólizas de mes en el renderizador).
   const fecha =
     args.fecha instanceof Date
-      ? args.fecha.toISOString().slice(0, 10)
+      ? `${args.fecha.getFullYear()}-${String(args.fecha.getMonth() + 1).padStart(2, '0')}-${String(args.fecha.getDate()).padStart(2, '0')}`
       : String(args.fecha).slice(0, 10);
 
   const directo = await client.query<{ rate: string }>(
