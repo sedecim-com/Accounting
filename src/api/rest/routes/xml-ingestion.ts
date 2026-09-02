@@ -133,8 +133,28 @@ router.post('/upload', requirePermission('bills:create'), requireEntityAccess, v
 
   if (!entityId) throw new ValidationError('entity_id is required');
 
-  // Support single or batch upload
-  const xmls: string[] = xml_contents || (xml_content ? [xml_content] : []);
+  // Support single or batch upload.
+  //
+  // LA FORMA SE VUELVE A AFIRMAR AQUÍ, y no porque el esquema no la garantice.
+  // `uploadXmlSchema` ya acota `xml_contents` a MAX_XML_POR_LOTE y `validateBody`
+  // lo rechaza con 422 antes de que este manejador corra, así que estas guardas
+  // no se ejecutan nunca: se midieron con once formas hostiles —objeto con
+  // `length` gigante, array-like, string, number, null, __proto__, arreglos de
+  // 101 a 50 000— y ninguna las alcanzó.
+  //
+  // Existen porque el análisis estático no tiene modelo de zod. `js/loop-bound-injection`
+  // marca el bucle de abajo como acotado por entrada del usuario, y la única
+  // barrera que su consulta reconoce es una llamada a `Array.isArray`. El tope
+  // se escribe con la MISMA constante que el esquema —no con una cifra propia—
+  // porque una guarda muerta que anuncia un límite distinto del real es peor
+  // que no tenerla: se lee como el contrato y no lo es.
+  const recibidos: unknown = xml_contents ?? (xml_content ? [xml_content] : []);
+  if (!Array.isArray(recibidos) || recibidos.length > MAX_XML_POR_LOTE) {
+    throw new ValidationError(
+      `xml_contents debe ser un arreglo de a lo más ${MAX_XML_POR_LOTE} documentos.`
+    );
+  }
+  const xmls: string[] = recibidos as string[];
 
   const results: Array<Record<string, unknown>> = [];
   const errors: Array<Record<string, unknown>> = [];

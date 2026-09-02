@@ -220,8 +220,10 @@ async function bootstrap() {
   //
   // This is a second door into the same engine, and it is measurably the
   // less safe one:
-  //   · it is mounted at /graphql, OUTSIDE the /v1 prefix, so it bypasses
-  //     the audit and rate-limiting middleware every REST route carries —
+  //   · it is mounted at /graphql, OUTSIDE the /v1 prefix, so it bypasses the
+  //     AUDIT middleware every REST route carries: lo que pasa por aquí no deja
+  //     fila en `audit_log`. Los dos frenos —por IP y por inquilino— sí los
+  //     lleva ya, uno a cada lado de `authenticate`, igual que /v1;
   //     y hasta TEN-2 también se saltaba `tenantContext`, que es el que abre
   //     el contexto que leen las políticas de RLS. Sin él la consulta viaja
   //     directa al pool SIN inquilino: con el rol mnemosine_app habría
@@ -262,6 +264,19 @@ async function bootstrap() {
       // toque la base. Que esta puerta esté fuera del prefijo auditado no es
       // razón para que además corra sin inquilino.
       tenantContext,
+      // EL SEGUNDO FRENO, el que acota POR INQUILINO. `preAuthRateLimiter` va
+      // arriba y cuenta por IP, que es lo que impide que verificar un JWT sea
+      // trabajo gratis para el no autenticado; éste cuenta por inquilino y por
+      // eso va DESPUÉS de authenticate, que es quien dice de quién es la
+      // petición. /v1 lleva los dos desde siempre y esta puerta sólo llevaba el
+      // primero: medido, un principal autenticado que rota de IP pasaba las
+      // ocho peticiones por aquí y ninguna por /v1.
+      //
+      // No se pone para callar a `js/missing-rate-limiting`: esa regla no
+      // reconoce estos middlewares —modela cinco paquetes que este repo no usa—
+      // y sigue abierta sobre /v1, que ya los tiene ambos. Se pone porque el
+      // hueco es real.
+      rateLimiter,
       expressMiddleware(apolloServer, {
         context: async ({ req }) => ({
           user: req.user,
