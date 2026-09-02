@@ -497,6 +497,7 @@ export const CRITERIOS: Criterio[] = [
         F06b: 'docs/auditorias/F06b.md',
         F06c: 'docs/auditorias/F06c.md',
         R4: 'docs/auditorias/R4.md',
+        D1a: 'docs/auditorias/D1a.md',
         G1a: 'docs/auditorias/G1a.md',
         G1b: 'docs/auditorias/G1b.md',
         G0: 'docs/auditorias/G0.md',
@@ -4169,6 +4170,62 @@ export const CRITERIOS: Criterio[] = [
       return entregada
         ? ok('la guarda de estado es única y la usan todos los verbos, el origen es propio, la reversa es todo-o-nada y la familia está en el binario')
         : falla('registerBatchCommand no está en el binario: el staging de F01 vuelve a ser un almacén sin salida');
+    },
+  },
+
+  // ---- D1a · El devengo existe, y lo que ya se pagaba se paga bien ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'La amortización vale lo que el mayor respalda, y las prestaciones se calculan como manda la ley',
+    mutantes: [
+      {
+        // El defecto de gravedad 1 que el adversarial cazó: reversar el
+        // asiento de una amortización devolvía el importe a la 1160, pero el
+        // renglón seguía contando como posteado. Cuatro instrumentos mentían
+        // a la vez y el gasto no volvía NUNCA, porque el freno de doble
+        // corrida lo daba por hecho.
+        archivo: 'src/services/accruals/prepaid-service.ts',
+        de: 'export const RENGLON_VIGENTE = `s.is_posted = true AND EXISTS (',
+        a: 'export const RENGLON_VIGENTE = `s.is_posted = true AND NOT EXISTS (',
+        porque: 'un renglón dejaría de exigir respaldo en el mayor: la ficha afirmaría gasto devengado que una reversa ya deshizo, y el saldo revertido se ofrecería otra vez como libre',
+      },
+      {
+        // La tabla del art. 76 tras la reforma de 2023 sube DOS DÍAS CADA
+        // QUINQUENIO a partir del sexto año, no cada año. Contarlo por año
+        // pagaba de menos en cuatro de cada cinco ejercicios.
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: '  const quinquenios = Math.ceil((anio - 5) / 5);',
+        a: '  const quinquenios = Math.floor((anio - 5) / 5);',
+        porque: 'devuelve la tabla del art. 76 al defecto que D1a reparó: paga dos días de vacaciones DE MENOS en cuatro de cada cinco años de antigüedad a partir del sexto, en el finiquito de una persona',
+      },
+    ],
+    evaluar: () => {
+      const svc = codigoDe('src/services/accruals/prepaid-service.ts');
+      const mate = codigoDe('src/services/payroll/mx/finiquito-math.ts');
+
+      // 1. UN RENGLÓN VALE MIENTRAS EL MAYOR LO RESPALDE. El mayor es
+      //    inmutable (041) y sólo se corrige por reversa, así que la reversa
+      //    es un camino NORMAL, no una excepción: cualquier caché que no la
+      //    mire acaba afirmando un gasto que ya se deshizo.
+      if (!/RENGLON_VIGENTE/.test(svc) || !/is_posted = true AND EXISTS \(/.test(svc)) {
+        return falla('la amortización volvió a fiarse de is_posted sin mirar el mayor: una reversa dejaría la ficha, el respaldo disponible y la casilla del cierre afirmando un gasto que ya no existe');
+      }
+      // 2. Y EL RESPALDO SE MIDE Y SE CONSUME EN LA MISMA TRANSACCIÓN. Sin el
+      //    cerrojo, dos altas simultáneas sobre el mismo cargo pasaban las
+      //    dos: 48 000 amortizables sobre 24 000 pagados, la 1160 en negativo
+      //    —un activo con saldo acreedor— y el balance cuadrando.
+      if (!/FOR UPDATE/.test(svc)) {
+        return falla('desapareció el cerrojo del respaldo: dos altas concurrentes sobre el mismo cargo volverían a pasar las dos y la 1160 quedaría en negativo');
+      }
+      // 3. LA LEY, COMO ESTÁ ESCRITA. El art. 76 reformado sube dos días por
+      //    QUINQUENIO desde el sexto año; el aguinaldo se prorratea por días
+      //    trabajados (art. 87); y la base es el salario diario, no el
+      //    integrado, que ya lleva dentro el factor de estas prestaciones.
+      const quinquenios = /Math\.ceil\(\(anio - 5\) \/ 5\)/.test(mate);
+      return quinquenios
+        ? ok('la amortización se apoya en el mayor y se serializa, y la tabla del art. 76 sube por quinquenio como la ley dice')
+        : falla('la tabla del art. 76 volvió a contar por año en vez de por quinquenio: paga de menos a partir del sexto año de antigüedad');
     },
   },
 

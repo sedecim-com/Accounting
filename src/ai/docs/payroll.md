@@ -11,6 +11,7 @@ draft → calculating → calculated → approved → paid (also voided). Each t
 - ISR (SAT brackets), IMSS (employee-employer), INFONAVIT. Caps in UMA.
 - Payroll CFDI 1.2: POST /paychecks/:id/cfdi-nomina (stamps via multi-PAC).
 - SUA (POST /sua), severance/settlement (POST /finiquito — year-end bonus, vacation premium, TipoNomina E).
+  The finiquito computes on the SALARIO DIARIO, never on the SBC (the SBC is the integrated salary and is for IMSS contributions only); it reads `dias_aguinaldo` and `prima_vacacional_pct` from the policy panel, applies the LFT art. 76 vacation table (12 days year 1, +2/year to 20 at year 5, then +2 every five years), prorates the aguinaldo from the hire date when the employee joined mid-year (art. 87), and returns every amount as a STRING with four decimals plus a `basis` block saying which seniority, table row and daily wage produced it.
 - IMSS IDSE: /imss-idse/batch produces the fixed-width .txt. There is NO submit: /imss-idse/submit answers 501. A human uploads the file at idse.imss.gob.mx with the patron FIEL and keeps the acuse.
 
 ## USA

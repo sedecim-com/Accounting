@@ -400,6 +400,119 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 50,
   },
   {
+    key: 'amortizacion_anticipados_convencion',
+    category: 'contable',
+    question: 'A prepayment that starts mid-month: does the first month accrue in full, or only for the days it covers?',
+    impact:
+      'Sets every month of the schedule. An insurance policy running 20 March to 19 March accrues over 12 ' +
+      'months by one convention and 13 by the other, and the last month of the fiscal year differs.',
+    options: [
+      { value: 'proporcional_dias', label: 'By days: the first and last months accrue only the days covered' },
+      { value: 'meses_completos', label: 'Whole months: the starting month accrues in full and the last one does not' },
+    ],
+    defaultValue: 'proporcional_dias',
+    defaultRationale:
+      'It is what the NIF A-2 accrual postulate actually says — the expense belongs to the period that ' +
+      'consumed the service — and it is the only convention that keeps the schedule tied to the ' +
+      'contract dates rather than to the calendar. Firms that prefer whole months for simplicity can ' +
+      'say so here, but the default should be the one that is right rather than the one that is easy.',
+    whyAsking:
+      'Your insurance starts on the 20th, not on the 1st. By days it spreads over thirteen calendar '
+      + 'months and by whole months over twelve, so the choice changes which month carries the '
+      + 'expense and what the last month of the year shows.',
+    whatIDo: 'I accrue the days each month actually covers.',
+    ifSkipped: 'I accrue by days.',
+    priority: 35,
+  },
+  {
+    key: 'amortizacion_faltante_al_cierre',
+    category: 'contable',
+    question: 'Closing a month with prepayment schedules whose amortisation was never run: warn, or refuse?',
+    impact:
+      'An unrun schedule means the expense of that month is missing and the asset is overstated by the ' +
+      'same amount. It is the exact shape of the defect this system already fixed for depreciation.',
+    options: [
+      { value: 'avisar', label: 'Warn: the checklist item goes red and the close continues' },
+      { value: 'bloquear', label: 'Refuse: the period does not close until every schedule is run' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'It is the same answer the firm already gets for depreciation, and consistency between two ' +
+      'identical situations matters more here than the choice itself: a checklist where one accrual ' +
+      'blocks and the other warns teaches nobody anything.',
+    whyAsking:
+      'If a schedule was never run, the month you are closing is missing that expense and the '
+      + 'prepaid asset is overstated by the same amount — and you would be signing it either way.',
+    whatIDo: 'I flag it in the close checklist and let you decide.',
+    ifSkipped: 'I warn.',
+    priority: 35,
+  },
+  {
+    key: 'umbral_anticipado_mxn',
+    category: 'contable',
+    question: 'Above what amount is a multi-period expense deferred to prepayments instead of expensed at once?',
+    impact:
+      'Below the threshold the whole amount hits the month it was paid; above it, a schedule is created ' +
+      'and the expense spreads. Today the CFDI classifier offers the deferral on ANY amount whose ' +
+      'description matches a pattern, with no floor at all.',
+    options: [
+      { value: '0', label: 'No threshold: defer every multi-period expense' },
+      { value: '5000', label: '5,000 MXN' },
+      { value: '20000', label: '20,000 MXN' },
+    ],
+    defaultValue: '5000',
+    defaultRationale:
+      'Materiality (NIF A-4): a 900-peso annual subscription split into twelve entries of 75 costs more ' +
+      'in bookkeeping than the precision it buys, and clutters the schedule with rows nobody will ' +
+      'check. Five thousand is the order of magnitude where the split starts paying for itself.',
+    whyAsking: 'Not every yearly subscription is worth spreading over twelve months; you decide where the line is.',
+    whatIDo: 'I defer multi-period expenses of 5,000 MXN or more and expense the rest as they come.',
+    ifSkipped: 'I use 5,000 MXN.',
+    priority: 40,
+  },
+  {
+    key: 'dias_aguinaldo',
+    category: 'contable',
+    question: 'How many days of aguinaldo does the firm grant per year of service?',
+    impact:
+      'Drives both the settlement calculation and the monthly provision. The engine currently hardcodes ' +
+      'a value and never reads it from anywhere.',
+    options: [
+      { value: '15', label: '15 days — the legal minimum (LFT art. 87)' },
+      { value: '20', label: '20 days' },
+      { value: '30', label: '30 days (one month)' },
+    ],
+    defaultValue: '15',
+    defaultRationale:
+      'LFT art. 87 sets fifteen days as the floor, and a floor is the only number the system can assume ' +
+      'without knowing the contract. Anything above it is a benefit the employer granted and must be ' +
+      'declared, never guessed.',
+    whyAsking: 'The law sets a minimum of fifteen days; many firms pay more, and I cannot know which yours is.',
+    whatIDo: 'I compute aguinaldo on fifteen days per year, accrued in proportion to time served.',
+    ifSkipped: 'I use the legal minimum of fifteen days.',
+    priority: 40,
+  },
+  {
+    key: 'prima_vacacional_pct',
+    category: 'contable',
+    question: 'What vacation premium does the firm pay over the vacation days earned?',
+    impact: 'Applies to the settlement and to the monthly vacation provision alike.',
+    options: [
+      { value: '0.25', label: '25 % — the legal minimum (LFT art. 80)' },
+      { value: '0.50', label: '50 %' },
+      { value: '1.00', label: '100 %' },
+    ],
+    defaultValue: '0.25',
+    defaultRationale:
+      'Same reasoning as the aguinaldo: LFT art. 80 sets 25 % as the floor, and the floor is the only ' +
+      'figure that is safe to assume. A firm paying more is granting a benefit, and a benefit is ' +
+      'declared, not inferred.',
+    whyAsking: 'The law sets 25 % as the minimum vacation premium; yours may be higher.',
+    whatIDo: 'I apply 25 % over the vacation days earned.',
+    ifSkipped: 'I use the legal minimum of 25 %.',
+    priority: 40,
+  },
+  {
     key: 'flujo_efectivo_metodo',
     category: 'contable',
     question: 'Is the statement of cash flows presented by the indirect or the direct method?',
@@ -476,6 +589,104 @@ export const POLICY_CATALOG: PolicySpec[] = [
       + 'buried is your call, not mine.',
     whatIDo: 'I publish the statement and state the difference against real cash, with its amount.',
     ifSkipped: 'I publish it and name the difference.',
+    priority: 30,
+  },
+  {
+    key: 'agrupador_alcance_de_la_compuerta',
+    category: 'contable',
+    question: 'Which accounts must carry a SAT grouping code before the books can be filed?',
+    impact:
+      'Decides who the gate accuses. It currently filters by account_level <= 2, which on a real ' +
+      'chart reported 43 gaps of which 42 were accounts with no movement at all — while the one ' +
+      'account that HAD moved without a grouping code was not reported. It fails in both directions.',
+    options: [
+      { value: 'cuentas_con_movimientos', label: 'Only accounts with posted movement in the period' },
+      { value: 'todas_las_de_detalle', label: 'Every detail account, moved or not' },
+      { value: 'todas', label: 'Every account in the chart' },
+    ],
+    defaultValue: 'cuentas_con_movimientos',
+    defaultRationale:
+      'What the SAT reads is the balance and the entries, so an account that never moved cannot ' +
+      'misgroup anything. Accusing the whole chart buries the one account that matters under dozens ' +
+      'that do not, which is exactly how a gate stops being read.',
+    whyAsking:
+      'A chart of accounts always has rows nobody ever posts to. Telling you about those is noise, and noise is how a warning stops being read — but the account that DID move and has no grouping code is a filing you cannot make.',
+    whatIDo: 'I only flag accounts that actually moved in the period being filed.',
+    ifSkipped: 'I flag accounts with movement.',
+    priority: 30,
+  },
+  {
+    key: 'agrupador_faltante_al_cierre',
+    category: 'contable',
+    question: 'Closing a month with accounts that moved and have no SAT grouping code: warn, or refuse?',
+    impact:
+      'Without a grouping code those accounts cannot go into the Anexo 24 catalogue, so the filing ' +
+      'for that month is impossible until someone maps them.',
+    options: [
+      { value: 'avisar', label: 'Warn: the checklist item goes red and the close continues' },
+      { value: 'bloquear', label: 'Refuse to close until every moved account is mapped' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'The close is an accounting act and the grouping code is a filing requirement: blocking the ' +
+      'books because of a tax catalogue confuses two obligations with different deadlines. The ' +
+      'warning is what gives you the days between closing and filing to fix it.',
+    whyAsking:
+      'Closing the month and filing it with the SAT are two different deadlines, and an unmapped account only breaks the second one — so you may reasonably want to close anyway and map before you file.',
+    whatIDo: 'I put the item in red on the close checklist, naming the accounts, and let the close proceed.',
+    ifSkipped: 'I warn and name them.',
+    priority: 30,
+  },
+  {
+    key: 'agrupador_valor_fuera_de_catalogo',
+    category: 'contable',
+    question: 'A grouping code that is not in the official SAT catalogue for that year: accept or reject?',
+    impact:
+      'The c_CodAgrup catalogue is revised by the authority, so a code valid in 2022 may not be in ' +
+      '2026, and a filing is validated against the catalogue in force for its fiscal year.',
+    options: [
+      { value: 'rechazar', label: 'Reject: the code must exist in the catalogue in force' },
+      { value: 'avisar', label: 'Accept it and warn' },
+    ],
+    defaultValue: 'rechazar',
+    defaultRationale:
+      'An invalid grouping code does not fail here: it fails at the SAT, after the file was sealed ' +
+      'with the e.firma and transmitted, when the deadline has already run. Catching it at capture ' +
+      'costs one message; catching it at the tax authority costs a rejected filing.',
+    whyAsking:
+      'The SAT publishes and revises this catalogue, so a code that was right two years ago can be wrong today — and the file only gets rejected after you have already sealed and sent it.',
+    whatIDo: 'I refuse a grouping code that is not in the catalogue in force for that year, and say which one it is.',
+    ifSkipped: 'I reject codes outside the catalogue.',
+    priority: 35,
+  },
+  {
+    key: 'anexo24_balanza_saldo_inicial',
+    category: 'contable',
+    question: 'Where does the opening balance of the Anexo 24 trial balance come from?',
+    impact:
+      'The SAT recomputes SaldoIni + Debe − Haber = SaldoFin on the filed balance. Today the opening ' +
+      'balance is only seeded by the HARD close, so an entity that only soft-closes would file zeros ' +
+      'in every account — a sealed declaration that the company opened the month at nothing.',
+    options: [
+      {
+        value: 'derivar_del_mayor',
+        label: 'Derive it from the ledger: sum everything posted before the period starts',
+      },
+      {
+        value: 'exigir_cierre_duro',
+        label: 'Require a hard close: refuse to build the balance without a seeded opening balance',
+      },
+    ],
+    defaultValue: 'derivar_del_mayor',
+    defaultRationale:
+      'The ledger already holds the answer and the reporting layer already knows how to ask for it, ' +
+      'so deriving costs one query and is true whatever the period status. Requiring a hard close ' +
+      'would make a filing obligation depend on an internal bookkeeping ceremony that the law does ' +
+      'not mention.',
+    whyAsking:
+      'Your opening balance is only stored when a period is closed hard, and the filing needs it every month — so I either take it from the ledger or refuse to build the balance at all.',
+    whatIDo: 'I derive the opening balance from everything posted before the period, whatever its close status.',
+    ifSkipped: 'I derive it from the ledger.',
     priority: 30,
   },
   {

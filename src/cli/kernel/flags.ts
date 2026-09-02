@@ -365,6 +365,53 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // ahora para que la próxima conciliación que ofrezca pistas —`statement
   // check`, `cashflow explain` de fase 3— las ofrezca con esta misma palabra.
   '--show-candidates': null,
+
+  // ── D1a · el devengo de los pagos anticipados (NIF A-2) ───────────────
+  //
+  // Ninguna lleva forma corta. Seis grafías nuevas para la familia
+  // `prepaid`·`pago-anticipado`, y dos que el catálogo escribe de otra manera
+  // en su fila de `prepaid create` (docs/cli-command-catalog.md) y que aquí se
+  // apartan a propósito:
+  //
+  // `--method` NO entra en esta familia, aunque el catálogo la nombre. Está
+  // congelada desde F06a como el método CONTABLE de depreciación, con su
+  // vocabulario propio (`straight_line`, `units_of_production`…). La
+  // convención del devengo tiene OTRO vocabulario —el que la 059 puso en un
+  // CHECK— y los tres valores que el catálogo imagina para ella
+  // (`straight-line-day|month|usage`) no existen en el motor: `usage` ni
+  // siquiera es imaginable sin captura de producción para un seguro. Una
+  // grafía con dos vocabularios de valores es peor que una con dos
+  // significados, porque el error no se ve al teclear sino al postear.
+  //
+  // `--asset-account` TAMPOCO, por lo mismo: en F06a es la cuenta del ACTIVO
+  // FIJO (`asset create`, `asset category create`), y la 1160 no es esa
+  // cuenta. `--prepaid-account` la nombra por lo que es. `--expense-account`
+  // sí se reutiliza tal cual: significa lo mismo en las dos familias —dónde
+  // aterriza el gasto del mes—.
+  //
+  // La convención, que DECLARA y no elige, igual que `--book`: cuál de los dos
+  // recortes del calendario rige es la política `amortizacion_anticipados_convencion`.
+  '--convention': null,
+  '--prepaid-account': null,
+  // La ventana de cobertura de un contrato. NO son `--since`/`--until`, que
+  // son los límites de un FILTRO, ni `--from`/`--to`, que están prohibidas
+  // arriba por no decir de qué son. Un seguro que corre del 20 de marzo al 19
+  // de marzo tiene un principio y un fin propios, y son un dato de la fila.
+  '--start': null,
+  '--end': null,
+  // DE DÓNDE SALIÓ EL CARGO que ya está en la cuenta. No es `--source` —quién
+  // publicó un tipo de cambio, R4— ni `--kind` —de qué clase es esto, F06c—:
+  // es el hecho que explica por qué hay un saldo que adoptar, y de él depende
+  // que `--source-entry` sea obligatoria.
+  '--origin': null,
+  // El documento al que apunta la fila: número de póliza, contrato, pedido.
+  // `bank`, `ar` y `ap` la van a querer con esta misma escritura; se congela
+  // ahora para que no reaparezca como `--ref` o `--document`.
+  '--reference': null,
+  // El UUID del CFDI del que nace el registro. `--uuid` a secas no dice de qué
+  // documento, y en este binario hay tres cosas con UUID (el CFDI, el asiento
+  // y la entidad).
+  '--cfdi-uuid': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

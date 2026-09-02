@@ -268,7 +268,14 @@ router.post('/sua', requirePermission('payroll:approve'), requireEntityAccess, a
 
 // ---------- MX Finiquito (severance settlement) ----------
 router.post('/finiquito', requirePermission('payroll:create'), asyncHandler(async (req: Request, res: Response) => {
-  const result = await calculateFiniquito(req.body);
+  // El inquilino y la entidad viajan APARTE del cuerpo: el finiquito lee el
+  // panel de políticas (`dias_aguinaldo`, `prima_vacacional_pct`) y acota el
+  // empleado por inquilino dentro del SQL, y ninguna de las dos cosas puede
+  // salir de un JSON que manda el cliente.
+  const result = await calculateFiniquito(req.body, {
+    tenantId: req.tenantId!,
+    entityId: req.entityId,
+  });
   res.json({ data: result, meta: meta(req) });
 }));
 
