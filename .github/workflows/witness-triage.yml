@@ -70,14 +70,92 @@ jobs:
           fi
 
           # 2. Posibles secretos (patrones comunes, sin imprimir valores)
-          SECRET_HITS=$(printf '%s' "$DIFF" | grep -inE '^\+.*(BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|api[_-]?key["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9_\-]{16,}|password\s*[:=]\s*["'"'"'][^"'"'"']+|secret\s*[:=]\s*["'"'"'][^"'"'"']+)' | grep -ivE 'example|placeholder|dummy|test|fake|sample|\.env\.example|redacted|\*\*\*' | cut -d: -f1 | sort -u | wc -l)
+          #
+          # `dev-secret-change-me` va a la lista de ignorados a propósito: es el
+          # marcador de desarrollo que este repositorio publica adrede, y
+          # SECURITY.md lo nombra entre lo que NO hace falta reportar. Su peligro
+          # está cerrado por una compuerta de arranque documentada, y como
+          # aparece citado en informes de auditoría, sin esta excepción el aviso
+          # rojo de secretos se dispara cada vez que alguien escribe sobre él.
+          #
+          # Se ignora la cadena COMPLETA y no `change-me` a secas: eso último es
+          # una regla de subcadena —el mismo defecto que este archivo arregla en
+          # el detector de marcadores— y callaría secretos de verdad como
+          # `password: 'change-me-later-but-this-is-live'`.
+          SECRET_HITS=$(printf '%s' "$DIFF" | grep -inE '^\+.*(BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|api[_-]?key["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9_\-]{16,}|password\s*[:=]\s*["'"'"'][^"'"'"']+|secret\s*[:=]\s*["'"'"'][^"'"'"']+)' | grep -ivE 'example|placeholder|dummy|test|fake|sample|\.env\.example|redacted|\*\*\*|dev-secret-change-me' | cut -d: -f1 | sort -u | wc -l)
           if [ "$SECRET_HITS" -gt 0 ]; then
             echo "- 🔴 **$SECRET_HITS línea(s) con posible secreto** en el diff (patrón de clave/password/key material). Verificar antes de merge; NO imprimir el valor." >> "$OUT"
           fi
 
           # 3. Debug statements / TODOs nuevos
-          DBG=$(printf '%s' "$DIFF" | grep -cE '^\+.*(console\.log\(|debugger;|print\(f?["'"'"'])' || true)
-          TODO=$(printf '%s' "$DIFF" | grep -cE '^\+.*(TODO|FIXME|HACK|XXX)' || true)
+          #
+          # ESTOS DOS SE MIRAN SÓLO SOBRE CÓDIGO, Y NO SOBRE TODO EL CÓDIGO.
+          #
+          # Sobre el diff entero los dos gritaban siempre, y por razones que no
+          # eran defectos:
+          #
+          #   · `console.log` es la forma en que el CLI ESCRIBE SU SALIDA — 312
+          #     en `src/cli` y 39 en `scripts` —, así que marcarlos es marcar el
+          #     producto funcionando. Se excluyen esas dos zonas; en servicios,
+          #     API, agente, base y pruebas un `console.log` sí es andamio, y
+          #     ahí se siguen contando. Esa regla ya pagó: encontró ocho en un
+          #     archivo de pruebas cuyos siete casos, además, no afirmaban nada.
+          #
+          #   · Los informes de auditoría de `docs/` CITAN código dentro de
+          #     bloques markdown. Limitar a `*.ts` deja fuera esas citas sin
+          #     analizar cercas de código, y de paso `src/ai/docs/`, que es
+          #     markdown viviendo bajo `src/`.
+          #
+          # `debugger;` no tiene uso legítimo en ninguna zona, pero va en el
+          # mismo barrido por simplicidad: en `src/cli` no aparece.
+          # `scripts/**` NO entra, y por eso tampoco se incluye: cinco de sus
+          # ocho .ts usan console.log como SALIDA —son herramientas de línea de
+          # órdenes, igual que src/cli—. Antes se incluía y se excluía en la
+          # misma orden, con lo que el include era letra muerta; se quita el
+          # include en vez del exclude para que la intención se lea.
+          DIFF_CODIGO=$(git diff "$BASE...$HEAD" -- \
+            ':(glob)src/**/*.ts' ':(glob)tests/**/*.ts' \
+            ':(glob,exclude)src/cli/**' || true)
+
+          DBG=$(printf '%s' "$DIFF_CODIGO" | grep -cE '^\+.*(console\.log\(|debugger;|print\(f?["'"'"'])' || true)
+
+          # EL MARCADOR TIENE QUE ESTAR EN POSICIÓN DE COMENTARIO.
+          #
+          # `TODO` sin anclar es inservible en un repositorio cuyo código y
+          # documentación están EN ESPAÑOL: casaba `MÉTODO`, `TODOS`, «escapaba
+          # a TODO conteo», «TODO se deshace por espejo NIF B-1»… Medido sobre
+          # un PR real: 64 coincidencias de subcadena contra UNA palabra
+          # completa, y esa una era un adverbio. Un aviso que siempre grita deja
+          # de leerse, que es peor que no tenerlo.
+          #
+          # Se exigen DOS cosas: que el marcador venga tras un abridor de
+          # comentario, y que traiga su DELIMITADOR — dos puntos o paréntesis.
+          #
+          # El abridor solo no basta, y esto costó una segunda vuelta: en un
+          # bloque JSDoc el `*` de continuación abre renglón, así que
+          # « * TODO lo que se ignoró, se adivinó o se derivó» pasaba la primera
+          # versión de esta guarda. En español un TODO desnudo es el adverbio y
+          # no hay forma de distinguirlo; con `:` o `(` detrás, sí. Además es la
+          # convención dominante de todos modos (`// TODO:`, `// TODO(dueño):`).
+          #
+          # El costo declarado: un `// TODO arréglalo` sin dos puntos no se
+          # marca. En un repositorio en español es el intercambio correcto, y el
+          # que escribe el marcador controla su forma.
+          #
+          # Verificado en las dos direcciones: caza 7 de 7 marcadores reales en
+          # sus siete formas, y 0 de 7 frases en español que antes disparaban —
+          # incluida la del JSDoc, que es la que obligó a apretar.
+          #
+          # `XXX` SE QUEDA. Salió de la lista porque en un sistema contable
+          # mexicano es la homoclave de la máscara del RFC (`AAAA######XXX`) y
+          # vive en los RFC genéricos del SAT (`XAXX010101000`) — pero eso era
+          # cierto de la regex VIEJA, la de subcadena. Con el anclaje de arriba
+          # hace falta un abridor de comentario delante y `:` o `(` detrás, así
+          # que ni la máscara ni `XAXX010101000` casan. Sacarlo era arreglar dos
+          # veces el mismo problema, y el precio era perder una clase entera:
+          # un `// XXX: esta consulta no filtra por tenant_id` pasaría en
+          # silencio. Medido sobre el árbol en alcance: 0 falsos positivos.
+          TODO=$(printf '%s' "$DIFF_CODIGO" | grep -cE '^\+.*(//|/\*|\*|#|--)[[:space:]]*(TODO|FIXME|HACK|XXX)\b[[:space:]]*[:(]' || true)
           [ "$DBG" -gt 0 ] && echo "- ⚠️ **$DBG posible(s) statement(s) de depuración** nuevos (console.log/debugger/print)." >> "$OUT"
           [ "$TODO" -gt 0 ] && echo "- 💡 **$TODO TODO/FIXME** nuevo(s) introducido(s)." >> "$OUT"
 
