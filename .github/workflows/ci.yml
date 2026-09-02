@@ -76,6 +76,31 @@ jobs:
   plan:
     name: Estado del plan
     runs-on: ubuntu-latest
+    # POSTGRES AQUÍ, Y NO ES UN EXTRA (S3).
+    #
+    # `Criterio.necesita: 'base-de-datos'` existía desde el principio y NUNCA
+    # había juzgado nada: este job no tenía base, así que el único criterio que
+    # lo declaraba salía siempre `no-evaluable` y el trinquete pasaba igual —
+    # un campo declarado que nadie honra promete una semántica y entrega otra.
+    # S3 convirtió en criterios DE EFECTO los dos que vigilaban la purga de la
+    # 040 y la siembra de la 043 (leían el .sql y no podían distinguir «corrió»
+    # de «no tocó nada»), y sin base aquí seguirían sin juzgar.
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mnemosine_plan
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_plan
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_plan
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -83,6 +108,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - run: npm run migrate
       # TRINQUETE, NO INFORME.
       #
       # La salida completa se imprime siempre —un paquete abierto es
@@ -106,7 +132,17 @@ jobs:
       # dos cadenas de prosa en una pregunta de política, no código. La
       # descarga masiva del SAT no existe (11 tareas de motor). Vuelve cuando
       # el motor exista de verdad.
-      - run: npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1
+      # --piso: EL TRINQUETE POR CRITERIO (S2).
+      #
+      # --exigir protege paquetes, y el estado de un paquete es el peor de sus
+      # criterios: uno YA abierto absorbe cualquier regresión interna sin mover
+      # el veredicto. La auditoría II lo demostró creando un archivo que sólo
+      # NOMBRABA postJournalEntry — la cerca del agente se puso roja y esta
+      # misma línea siguió saliendo con 0. El piso nombra uno a uno los verdes
+      # que viven en paquetes abiertos, y falla en tres direcciones: si uno
+      # regresa, si un enunciado se renombró sin actualizar la lista, y si un
+      # verde nuevo no se añadió al piso en el commit que lo ganó.
+      - run: npm run plan:status -- --piso --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1
       # El catálogo de comandos publica cuánto de su superficie existe ya. Ese
       # número estaba escrito a mano y duró 42 commits: decía «~30 comandos»
       # con 106 que el binario ejecuta. Ahora se genera, y esto falla ante tres
@@ -115,6 +151,62 @@ jobs:
       # comando vivo sin fila — el desajuste que hacía que `report` entregara
       # ocho comandos y cerrara cero filas.
       - run: npx tsx scripts/catalogo-estado.ts --check
+      # El corpus que el agente lee como VERDAD. Un manual desfasado no lo
+      # desinforma: lo mal-instruye, y su lector no puede dudar. Esto falla
+      # cuando cambia una fuente de un manual ya revisado — no verifica el
+      # contenido (eso sería medir prosa), detecta caducidad y nombra qué releer.
+      - run: npx tsx scripts/corpus-manifiesto.ts --check
+
+  # EL ENSAYO DE LA RESTAURACIÓN (S3).
+  #
+  # Un respaldo no probado no es un respaldo. Este job siembra, respalda,
+  # RESTAURA en otra base y le corre los chequeos del mayor: es la única
+  # forma de que «se pueden recuperar los libros» deje de ser una promesa.
+  # Va aparte del job de integración porque necesita las herramientas de
+  # cliente de Postgres (pg_dump/pg_restore) y un rol que pueda volcar.
+  restauracion:
+    name: Ensayo de restauración
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mnemosine_restore
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_restore
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_restore
+      BACKUP_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_restore
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      # pg_dump/pg_restore del cliente 15: el respaldo lo hacen las
+      # herramientas de Postgres, no este proceso.
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client-15 || sudo apt-get install -y postgresql-client
+      - run: npm ci
+      - run: npm run migrate
+      # Un PREFIJO, no una lista de archivos. `s3-corredor.int.spec.ts` se
+      # retiró al quitar la mitad duplicada del corredor y la lista se quedó
+      # nombrándolo: vitest ignora en silencio una ruta que no existe, así que
+      # el trabajo llevaba corriendo la mitad de lo que su propia línea decía,
+      # en verde. El argumento posicional de vitest es un filtro de SUBCADENA
+      # sobre la ruta —no un glob; un glob no casa nada y aquí eso sería otro
+      # modo de mentir—. Con el prefijo, un `s3-*` nuevo entra solo, y si algún
+      # día no queda ninguno vitest sale 1 con «No test files found» en vez de
+      # dar verde por no mirar.
+      - run: npx vitest run --config vitest.integration.config.ts tests/integration/s3-
+        env:
+          TEST_ADMIN_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
 
   integration:
     name: Integración contra Postgres

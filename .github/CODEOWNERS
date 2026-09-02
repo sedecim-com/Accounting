@@ -3,23 +3,23 @@
 # archivo la regla existía y no pedía nada, porque ninguna ruta tenía dueño.
 
 # Todo, por omisión.
-*                                   @vic2099 @github-advanced-security[bot]
+*                                   @vic2099 @witness-vic[bot] @github-advanced-security[bot]
 
 # ─── Rutas donde un error no se corrige con un parche ───
 # No es que valgan más: es que su falla es silenciosa y su daño, retroactivo.
 
 # Custodia de credenciales fiscales (e.firma/CSD) y la bóveda que las cifra.
-/src/services/fiscal-credentials/   @vic2099 @github-advanced-security[bot]
-/src/services/vault/                @vic2099 @github-advanced-security[bot]
+/src/services/fiscal-credentials/   @vic2099 @witness-vic[bot] @github-advanced-security[bot]
+/src/services/vault/                @vic2099 @witness-vic[bot] @github-advanced-security[bot]
 
 # El esquema y el aislamiento entre inquilinos. Una migración mal hecha se
 # aplica sola en cada despliegue; una política RLS ausente no avisa.
-/src/database/migrations/           @vic2099 @github-advanced-security[bot]
-/src/database/rls-policies.sql      @vic2099 @github-advanced-security[bot]
+/src/database/migrations/           @vic2099 @witness-vic[bot] @github-advanced-security[bot]
+/src/database/rls-policies.sql      @vic2099 @witness-vic[bot] @github-advanced-security[bot]
 
 # Los límites que ninguna configuración puede levantar (sólo Math.min).
-/src/ai/floor.ts                    @vic2099 @github-advanced-security[bot]
+/src/ai/floor.ts                    @vic2099 @witness-vic[bot] @github-advanced-security[bot]
 
 # La CI es la única puerta automática: quien la edita, edita la puerta.
-/.github/workflows/                 @vic2099 @github-advanced-security[bot]
-/.github/CODEOWNERS                 @vic2099 @github-advanced-security[bot]
+/.github/workflows/                 @vic2099 @witness-vic[bot] @github-advanced-security[bot]
+/.github/CODEOWNERS                 @vic2099 @witness-vic[bot] @github-advanced-security[bot]

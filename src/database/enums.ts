@@ -79,6 +79,43 @@ export const VENDOR_PAYMENT_STATUSES = [
 ] as const;
 
 /**
+ * 'reversed' (049): el cobro OCURRIÓ y rebotó (NSF). Distinto de 'void' —
+ * que nunca debió existir. El lado del proveedor no lo tiene: un pago
+ * nuestro devuelto es otra historia, con su propia fase.
+ */
+export const CUSTOMER_PAYMENT_STATUSES = [
+  'draft', 'pending', 'processing', 'completed', 'failed', 'void', 'reversed',
+] as const;
+
+// ── Notas de crédito (049) ──
+
+export const CREDIT_NOTE_TYPES = ['devolucion', 'descuento', 'correccion', 'anticipo'] as const;
+export const CREDIT_NOTE_STATUSES = ['draft', 'issued', 'applied', 'void'] as const;
+
+// ── Banco (051) ──
+
+/**
+ * No son cinco sinónimos de «cuenta»: el tipo decide cómo se LEE el saldo y
+ * contra qué se concilia. `credit-card` es un PASIVO —su saldo va con el signo
+ * contrario al de las demás— y `petty-cash` no se concilia contra un extracto
+ * sino contra un arqueo, así que un tipo mal escrito no produce un error de
+ * validación sino un saldo con el signo cambiado.
+ */
+export const BANK_ACCOUNT_TYPES = [
+  'checking', 'savings', 'petty-cash', 'credit-card', 'escrow',
+] as const;
+
+/**
+ * El formato del archivo del que salió el extracto. Sólo tres de los diez
+ * tienen lector hoy (csv, mt940, camt053) y `manual` no tiene archivo: el
+ * CHECK admite los diez porque la columna registra la PROCEDENCIA del
+ * documento, que es dato de auditoría, y no la capacidad de leerlo.
+ */
+export const STATEMENT_SOURCE_FORMATS = [
+  'csv', 'ofx', 'qfx', 'mt940', 'mt942', 'camt053', 'camt054', 'bai2', 'xlsx', 'manual',
+] as const;
+
+/**
  * El censo que la prueba de contrato recorre. Añadir una fila aquí es lo que
  * pone el vocabulario bajo vigilancia; declararlo arriba sin registrarlo lo
  * deja fuera y vuelve a permitir que se separe en silencio.
@@ -95,4 +132,9 @@ export const VOCABULARIOS: readonly Vocabulario[] = [
   v('fiscal_periods', 'status', FISCAL_PERIOD_STATUSES),
   v('invoices', 'cfdi_status', CFDI_STATUSES),
   v('vendor_payments', 'status', VENDOR_PAYMENT_STATUSES),
+  v('customer_payments', 'status', CUSTOMER_PAYMENT_STATUSES),
+  v('credit_notes', 'type', CREDIT_NOTE_TYPES),
+  v('credit_notes', 'status', CREDIT_NOTE_STATUSES),
+  v('bank_accounts', 'account_type', BANK_ACCOUNT_TYPES),
+  v('bank_statements', 'source_format', STATEMENT_SOURCE_FORMATS),
 ];

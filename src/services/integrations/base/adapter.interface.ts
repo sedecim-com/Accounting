@@ -1,6 +1,6 @@
 // ============================================================
 // INTEGRATION ADAPTER INTERFACE
-// Every external integration (PAC, Stripe, Plaid, SendGrid, etc.)
+// Every external integration (PAC, Stripe, Plaid, etc.)
 // implements IIntegrationAdapter<C, R> with a common contract.
 // ============================================================
 

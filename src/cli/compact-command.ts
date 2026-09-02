@@ -118,7 +118,14 @@ export function registerCompactCommand(program: Command, deps: CompactDeps): voi
     .description('Dry-run compaction report for a session transcript (no API calls)')
     .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
     .option('-t, --tenant <id>', 'Tenant')
-    .option('-s, --session <id>', 'Session id (default: the most recent session)')
+    // SIN `-s`. La letra la tiene `--status` en el diccionario único, y esta
+    // hoja se la había quedado para otra cosa. Se retira al congelar
+    // `--session` en el diccionario (F05b la necesita en tres hojas de cotejo):
+    // dejarla obligaría a que `bank match run --session` también llevara `-s`,
+    // y entonces la misma letra significaría «estado» en un comando y «sesión»
+    // en otro. Es el mismo canje que hizo `close` con `-p` en S0.6, y el
+    // catálogo ya escribía esta bandera sin forma corta (fila de `compact`).
+    .option('--session <id>', 'Session id (default: the most recent session)')
     .option('--keep <tokens>', 'Recent tail to keep intact, in tokens', String(DEFAULT_KEEP_RECENT_TOKENS))
     .option('--json', 'JSON output')
     .action(

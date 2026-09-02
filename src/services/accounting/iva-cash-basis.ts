@@ -444,6 +444,8 @@ async function invoicesAppliedBy(
   paymentId: string
 ): Promise<AppliedDocumentRow[]> {
   const { rows } = await client.query<AppliedDocumentRow>(
+    // Sólo aplicaciones VIVAS (049): una desaplicada es historia, y contarla
+    // aquí re-liberaría el IVA que su desaplicación ya re-aparcó.
     `SELECT pa.invoice_id                       AS document_id,
             i.invoice_number                    AS document_number,
             i.tax_amount::text                  AS tax_amount,
@@ -451,11 +453,13 @@ async function invoicesAppliedBy(
             SUM(pa.amount_applied)::text        AS applied_now,
             (SELECT COALESCE(SUM(pa2.amount_applied), 0)
                FROM payment_allocations pa2
-              WHERE pa2.invoice_id = pa.invoice_id)::text AS applied_total,
+              WHERE pa2.invoice_id = pa.invoice_id
+                AND pa2.unapplied_at IS NULL)::text AS applied_total,
             i.terms, i.memo, i.cfdi_uuid
        FROM payment_allocations pa
        JOIN invoices i ON i.id = pa.invoice_id
       WHERE pa.payment_id = $1 AND i.entity_id = $2
+        AND pa.unapplied_at IS NULL
       GROUP BY pa.invoice_id, i.invoice_number, i.tax_amount, i.total_amount,
                i.terms, i.memo, i.cfdi_uuid`,
     [paymentId, entityId]

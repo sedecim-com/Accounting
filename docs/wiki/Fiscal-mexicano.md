@@ -224,7 +224,7 @@ mnemosine account map check --scheme sat-agrupador --level 2
 La otra pieza es el **auxiliar**, con la forma que pide el XML XC: por cuenta y periodo, el saldo inicial, cada movimiento y el final.
 
 ```bash
-mnemosine ledger auxiliary show --account 1130 --period "2026-03"
+mnemosine ledger auxiliary show --account 1130 --period March
 ```
 
 Y aquí hay un rojo que un despacho tiene que conocer antes de firmar nada: el saldo inicial sale de `account_balances.beginning_balance`, que **sólo lo siembra el cierre duro**. En un periodo abierto ese campo dice cero, y eso es ausencia de arrastre, no un saldo. La vista lo dice con `period_status` y con `inicial_confiable` en vez de fingir — pero si marzo está cerrado en duro con febrero abierto, el inicial de marzo es cero por ausencia de arrastre y la marca de confianza no lo advierte. Ese es el número que saldría en el XC.

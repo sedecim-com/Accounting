@@ -7,6 +7,7 @@ import { nextEntityNumber, formatDocumentNumber } from '../../utils/sequence.js'
 import { postInvoiceEntry } from '../accounting/ar-ap-posting.js';
 import { voidJournalEntryInTx } from '../accounting/posting.js';
 import { OPEN_INVOICE_STATUSES } from './customer-service.js';
+import { InvoiceStatus } from '../../types/index.js';
 import type { Invoice, InvoiceLine, JournalEntry } from '../../types/index.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 
@@ -689,6 +690,7 @@ export const SEQUENCE_PREFIXES: Readonly<Record<string, string>> = Object.freeze
   bill: 'BILL',
   vendor_payment: 'VPMT',
   journal_entry: 'JE',
+  credit_note: 'CN',
 });
 
 export interface SequenceRow {
@@ -720,4 +722,296 @@ export async function listEntitySequences(entityId: string): Promise<SequenceRow
       updated_at: row.updated_at ?? null,
     };
   });
+}
+
+// ============================================================
+// EL BORRADOR SE EDITA Y SE ELIMINA; LO EMITIDO, JAMÁS (F03)
+//
+// Una factura en borrador no tocó el mayor ni consumió folio timbrado: es
+// papel de trabajo, y el papel de trabajo se corrige y se tira. La frontera
+// exacta la fijan tres hechos, no el status a secas: sin asiento
+// (journal_entry_id IS NULL), sin CFDI (cfdi_uuid IS NULL) y sin cobros
+// aplicados. Después de emitir, el camino es void (reversa NIF B-1) o nota
+// de crédito — nunca la edición en sitio.
+// ============================================================
+
+export interface EditDraftInvoiceInput {
+  entityId: string;
+  invoice_date?: string;
+  due_date?: string;
+  memo?: string | null;
+  po_number?: string | null;
+  /** Reemplaza TODAS las líneas y recalcula los totales. */
+  lines?: InvoiceLineInput[];
+}
+
+export async function updateDraftInvoice(
+  invoiceId: string,
+  input: EditDraftInvoiceInput,
+  userId: string
+): Promise<Invoice> {
+  return withTransaction(async (client) => {
+    const r = await client.query<Invoice>(
+      `SELECT * FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+      [invoiceId, input.entityId]
+    );
+    if (r.rows.length === 0) throw new NotFoundError('Invoice', invoiceId);
+    const factura = r.rows[0];
+    if (factura.status !== InvoiceStatus.DRAFT) {
+      throw new ConflictError(
+        `${factura.invoice_number} is "${factura.status}". Only a draft can be edited: ` +
+          'an issued invoice is corrected by voiding it or by a credit note, never in place.'
+      );
+    }
+
+    const cambios: Record<string, unknown> = {};
+    if (input.invoice_date !== undefined) cambios.invoice_date = input.invoice_date;
+    if (input.due_date !== undefined) cambios.due_date = input.due_date;
+    if (input.memo !== undefined) cambios.memo = input.memo;
+    if (input.po_number !== undefined) cambios.po_number = input.po_number;
+
+    if (input.lines) {
+      if (input.lines.length === 0) throw new ValidationError('At least 1 line required');
+      let subtotal = new Decimal(0);
+      let taxAmount = new Decimal(0);
+      const procesadas = input.lines.map((line, i) => {
+        const qty = new Decimal(line.quantity || 1);
+        const price = new Decimal(line.unit_price);
+        const lineAmount = qty.times(price);
+        const lineTax = line.tax_rate
+          ? lineAmount.times(new Decimal(line.tax_rate).dividedBy(100))
+          : new Decimal(0);
+        subtotal = subtotal.plus(lineAmount);
+        taxAmount = taxAmount.plus(lineTax);
+        return {
+          line_number: i + 1,
+          item_id: line.item_id || null,
+          description: line.description || '',
+          quantity: qty.toFixed(4),
+          unit_price: price.toFixed(4),
+          revenue_account_id: line.revenue_account_id,
+          tax_code: line.tax_code || null,
+          tax_rate: line.tax_rate || null,
+          tax_amount: lineTax.toFixed(4),
+          line_amount: lineAmount.toFixed(4),
+          total_amount: lineAmount.plus(lineTax).toFixed(4),
+          cost_center_id: line.cost_center_id || null,
+          project_id: line.project_id || null,
+          cfdi_product_code: line.cfdi_product_code || null,
+          cfdi_unit_code: line.cfdi_unit_code || null,
+        };
+      });
+
+      await client.query(`DELETE FROM invoice_lines WHERE invoice_id = $1`, [invoiceId]);
+      for (const line of procesadas) {
+        await client.query(
+          `INSERT INTO invoice_lines (
+            id, invoice_id, line_number, item_id, description,
+            quantity, unit_price, revenue_account_id,
+            tax_code, tax_rate, tax_amount, line_amount, total_amount,
+            cost_center_id, project_id, cfdi_product_code, cfdi_unit_code
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+          [
+            uuidv4(), invoiceId, line.line_number, line.item_id, line.description,
+            line.quantity, line.unit_price, line.revenue_account_id,
+            line.tax_code, line.tax_rate, line.tax_amount, line.line_amount, line.total_amount,
+            line.cost_center_id, line.project_id, line.cfdi_product_code, line.cfdi_unit_code,
+          ]
+        );
+      }
+      const total = subtotal.plus(taxAmount);
+      cambios.subtotal = subtotal.toFixed(4);
+      cambios.tax_amount = taxAmount.toFixed(4);
+      cambios.total_amount = total.toFixed(4);
+      cambios.amount_due = total.toFixed(4);
+    }
+
+    if (Object.keys(cambios).length === 0) {
+      throw new ValidationError('Nothing to edit: pass dates, memo or lines.');
+    }
+
+    const columnas = Object.keys(cambios);
+    const valores = Object.values(cambios);
+    const sets = columnas.map((c, i) => `${c} = $${i + 3}`).join(', ');
+    await client.query(
+      `UPDATE invoices SET ${sets}, updated_at = NOW() WHERE id = $1 AND entity_id = $2`,
+      [invoiceId, input.entityId, ...valores]
+    );
+
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, input.entityId),
+      userId,
+      action: 'update',
+      entityType: 'invoices',
+      entityId: invoiceId,
+      oldValues: {
+        subtotal: factura.subtotal, tax_amount: factura.tax_amount,
+        total_amount: factura.total_amount, due_date: factura.due_date,
+      },
+      newValues: cambios,
+    });
+
+    const actualizada = await client.query<Invoice>(
+      `SELECT * FROM invoices WHERE id = $1`, [invoiceId]
+    );
+    return actualizada.rows[0];
+  });
+}
+
+export interface DeleteDraftResult {
+  invoiceNumber: string;
+  folioGap: string;
+}
+
+/**
+ * Elimina un borrador que nunca tocó nada: sin asiento, sin CFDI, sin
+ * cobros. El folio interno que consumió queda como hueco DOCUMENTADO — el
+ * audit_log guarda qué número era y por qué se fue, y `invoice series
+ * check` lo reportará; eso es lo correcto: los folios no se reciclan.
+ */
+export async function deleteDraftInvoice(
+  invoiceId: string,
+  opts: { entityId: string; reason: string },
+  userId: string
+): Promise<DeleteDraftResult> {
+  return withTransaction(async (client) => {
+    const r = await client.query<Invoice>(
+      `SELECT * FROM invoices WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
+      [invoiceId, opts.entityId]
+    );
+    if (r.rows.length === 0) throw new NotFoundError('Invoice', invoiceId);
+    const factura = r.rows[0];
+    if (factura.status !== InvoiceStatus.DRAFT) {
+      throw new ConflictError(
+        `${factura.invoice_number} is "${factura.status}". Only a draft can be deleted; ` +
+          'an issued invoice is voided (reversal), never erased.'
+      );
+    }
+    if (factura.journal_entry_id) {
+      throw new ConflictError(
+        `${factura.invoice_number} has a journal entry: it touched the ledger and cannot be erased.`
+      );
+    }
+    if (factura.cfdi_uuid) {
+      throw new ConflictError(
+        `${factura.invoice_number} carries CFDI ${factura.cfdi_uuid}: a stamped document is cancelled before the SAT, never erased.`
+      );
+    }
+    const cobros = await client.query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM payment_allocations WHERE invoice_id = $1`,
+      [invoiceId]
+    );
+    if (cobros.rows[0].n !== '0') {
+      throw new ConflictError(
+        `${factura.invoice_number} has payment applications: unapply them first.`
+      );
+    }
+
+    await client.query(`DELETE FROM invoice_lines WHERE invoice_id = $1`, [invoiceId]);
+    await client.query(`DELETE FROM invoices WHERE id = $1 AND entity_id = $2`, [invoiceId, opts.entityId]);
+
+    // El rastro de un DELETE es lo ÚNICO que queda del documento: completo.
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, opts.entityId),
+      userId,
+      action: 'delete',
+      entityType: 'invoices',
+      entityId: invoiceId,
+      oldValues: {
+        invoice_number: factura.invoice_number,
+        customer_id: factura.customer_id,
+        total_amount: factura.total_amount,
+        invoice_date: factura.invoice_date,
+        status: factura.status,
+      },
+      reason: opts.reason,
+    });
+
+    return { invoiceNumber: factura.invoice_number, folioGap: factura.invoice_number };
+  });
+}
+
+export interface SerieGap {
+  year: number;
+  prefix: string;
+  missing: string[];
+  /** Números usados vs contador: el contador puede ir adelante por ensayos revertidos. */
+  used: number;
+  counterAt: number;
+  /** Huecos con rastro en audit_log (borradores eliminados con motivo). */
+  explained: { folio: string; reason: string | null; deleted_at: Date }[];
+}
+
+/**
+ * Huecos y saltos en la serie de folios internos de factura, por ejercicio.
+ * Un hueco con rastro (borrador eliminado, con motivo en el audit_log) se
+ * reporta EXPLICADO; uno sin rastro es un hallazgo — una transacción
+ * revertida a media emisión, o algo peor.
+ */
+export async function checkInvoiceSeries(
+  entityId: string,
+  opts: { year?: number } = {}
+): Promise<SerieGap[]> {
+  const r = await query<{ invoice_number: string }>(
+    `SELECT invoice_number FROM invoices WHERE entity_id = $1 ORDER BY invoice_number`,
+    [entityId]
+  );
+  const porAño = new Map<number, Set<number>>();
+  for (const row of r.rows) {
+    const m = /^INV-(\d{4})-(\d+)$/.exec(row.invoice_number);
+    if (!m) continue;
+    const año = Number(m[1]);
+    if (opts.year && año !== opts.year) continue;
+    if (!porAño.has(año)) porAño.set(año, new Set());
+    porAño.get(año)!.add(Number(m[2]));
+  }
+
+  const contadores = await query<{ name: string; value: string }>(
+    `SELECT name, value FROM entity_sequences WHERE entity_id = $1 AND name LIKE 'invoice_%'`,
+    [entityId]
+  );
+  const contadorDe = new Map<number, number>();
+  for (const c of contadores.rows) {
+    const m = /^invoice_(\d{4})$/.exec(c.name);
+    if (m) contadorDe.set(Number(m[1]), parseInt(c.value, 10));
+  }
+
+  const resultados: SerieGap[] = [];
+  const años = new Set([...porAño.keys(), ...contadorDe.keys()]);
+  for (const año of [...años].sort()) {
+    if (opts.year && año !== opts.year) continue;
+    const usados = porAño.get(año) ?? new Set<number>();
+    const tope = Math.max(contadorDe.get(año) ?? 0, ...(usados.size ? [Math.max(...usados)] : [0]));
+    const faltantes: string[] = [];
+    for (let n = 1; n <= tope; n++) {
+      if (!usados.has(n)) faltantes.push(formatDocumentNumber('INV', año, n));
+    }
+    if (faltantes.length === 0 && usados.size === 0) continue;
+
+    // Los huecos con rastro: borradores eliminados cuyo folio quedó en el
+    // audit_log (old_values.invoice_number del DELETE).
+    let explicados: SerieGap['explained'] = [];
+    if (faltantes.length > 0) {
+      const audit = await query<{ folio: string; reason: string | null; ts: Date }>(
+        `SELECT old_values->>'invoice_number' AS folio, reason, "timestamp" AS ts
+           FROM audit_log
+          WHERE action = 'delete' AND entity_type = 'invoices'
+            AND old_values->>'invoice_number' = ANY($1)`,
+        [faltantes]
+      );
+      explicados = audit.rows.map((a) => ({
+        folio: a.folio, reason: a.reason, deleted_at: a.ts,
+      }));
+    }
+
+    resultados.push({
+      year: año,
+      prefix: 'INV',
+      missing: faltantes,
+      used: usados.size,
+      counterAt: contadorDe.get(año) ?? 0,
+      explained: explicados,
+    });
+  }
+  return resultados;
 }
