@@ -49,11 +49,11 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **210 comandos** repartidos en **56 familias** de primer nivel. De las **1627** filas del catálogo, **194** (11.9 %) ya se pueden invocar.
+El binario ejecuta hoy **216 comandos** repartidos en **58 familias** de primer nivel. De las **1627** filas del catálogo, **200** (12.3 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **253** filas lo declaran completo, **391** a medias y **983** inexistente.
+Del motor que cada comando necesita, **257** filas lo declaran completo, **390** a medias y **980** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **386** filas, de las que **183** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **386** filas, de las que **185** ya se teclean.
 
 **El objetivo comprometible son 1384 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
@@ -78,7 +78,7 @@ Contadas por COMANDO, las 1627 filas son **1606 rutas únicas**: **16 rutas** es
 | `credit-note` | 7 | 5 |
 | `backup` | 5 | 5 |
 
-**1 de 616** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
+**2 de 616** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts) y 1 a líneas fuera del archivo.
 
 _Que una cita resuelva no prueba que siga apuntando a lo mismo: sólo que el archivo existe y tiene esa línea. El juicio ✅/🟡/❌ de cada fila es humano y se revisa a mano._
 
@@ -991,10 +991,10 @@ Cuentas por pagar es el subdiario que *debe dinero*: cada objeto crea una obliga
 | `mnemosine ap accrual reverse <id>` · `cxp devengo reversar` | Reversa un devengo antes de su reversión automática, con asiento espejo | `--reason`, `--dry-run`, `-y/--yes`, `--idempotency-key` | 🟡 `reverseJournalEntry` (src/services/accounting/posting.ts:497) sin envoltura de documento | irreversible | ✗ | 2 |
 | `mnemosine grni list` · `grni listar` | Antigüedad de recibido-no-facturado y facturado-no-recibido, en ambas direcciones | `--older-than`, `--direction`, `--by vendor\|account`, `--json` | ❌ depende por completo de `receipts` (§2.4 admite `grni` en la lista de abreviaturas de R2 y **mata el alias `rnf`**: el alias es `grni` en los dos idiomas, como `cfdi`) | lectura | ✓ | 2 |
 | `mnemosine grni write-off run` · `grni castigo ejecutar` | Castiga residuales de RNI que ya no se van a resolver (equivalente de MR11) | `--older-than 90d`, `--max-amount`, `--account`, `--reason`, `--dry-run`, `--idempotency-key` | ❌ | escritura | ✗ | 2 |
-| `mnemosine prepaid create` · `pago-anticipado crear` | Crea el calendario de amortización desde una línea de factura que cubre varios periodos | `--from-bill <id>`, `--start`, `--end`, `--method straight-line-day\|month\|usage`, `--asset-account`, `--expense-account` | ❌ requiere `prepaid_schedules`/`prepaid_entries` | escritura | ✗ | 2 |
-| `mnemosine prepaid list` · `pago-anticipado listar` | Lista los calendarios vigentes con saldo remanente y periodos restantes | `-a/--all`, `--as-of`, `--json` | ❌ | lectura | ✓ | 2 |
-| `mnemosine prepaid show <id>` · `pago-anticipado ver` | Detalle de un calendario con su tabla periodo a periodo | `--json` | ❌ | lectura | ✓ | 2 |
-| `mnemosine prepaid run` · `pago-anticipado ejecutar` | Postea la amortización del mes, idempotente por `(ente, periodo)`; `--dry-run` imprime el asiento | `--period`, `--dry-run`, `--idempotency-key` | 🟡 sólo el motor de asientos (src/services/accounting/posting.ts:60); no hay motor de amortización ni calendario del que leer | escritura | ✗ | 2 |
+| `mnemosine prepaid create` · `pago-anticipado crear` | Crea el calendario de amortización desde una línea de factura que cubre varios periodos | `--from-bill <id>`, `--start`, `--end`, `--method straight-line-day\|month\|usage`, `--asset-account`, `--expense-account` | ✅ **hecha en D1a**: la 059 trae `prepaid_expenses` (cabecera) y `prepaid_amortization_schedules` (renglones) — dos tablas y no una, porque el hueco se cuenta ANTES de que exista renglón: la 1160 ya podía tener saldo posteado sin calendario, y con renglones solos un anticipo recién dado de alta y uno inexistente son indistinguibles. No postea: sólo declara el calendario | escritura | ✗ | 2 |
+| `mnemosine prepaid list` · `pago-anticipado listar` | Lista los calendarios vigentes con saldo remanente y periodos restantes | `-a/--all`, `--as-of`, `--json` | ✅ **hecha en D1a** | lectura | ✓ | 2 |
+| `mnemosine prepaid show <id>` · `pago-anticipado ver` | Detalle de un calendario con su tabla periodo a periodo | `--json` | ✅ **hecha en D1a**: la ficha se arma con lo que el MAYOR respalda, no con la caché del calendario — reversar la amortización devuelve el renglón a pendiente | lectura | ✓ | 2 |
+| `mnemosine prepaid run` · `pago-anticipado ejecutar` | Postea la amortización del mes, idempotente por `(ente, periodo)`; `--dry-run` imprime el asiento | `--period`, `--dry-run`, `--idempotency-key` | ✅ **hecha en D1a**: corrida idempotente por (entidad, periodo) con freno de doble posteo, tapón del último renglón para que la suma dé el importe EXACTO, y la convención por política (`amortizacion_anticipados_convencion`) | escritura | ✗ | 2 |
 | `mnemosine prepaid rollforward show` · `pago-anticipado movimiento ver` | El rollforward que pide el auditor: inicial + altas − amortización − castigos = final, cuadrado contra la cuenta | `--period`, `--tie-to-gl`, `--format xlsx` | ❌ | lectura | ✓ | 2 |
 | `mnemosine prepaid edit <id>` · `pago-anticipado editar` | Re-distribuye el saldo remanente ante una modificación de contrato | `--end`, `--amount`, `--reason`, `--dry-run` | ❌ | escritura | ✗ | 3 |
 | `mnemosine prepaid write-off run <id>` · `pago-anticipado castigo ejecutar` | Terminación anticipada: castiga el remanente en un solo asiento (`close` es operación de periodo o de libro, §1.3, no de un calendario de amortización) | `--reason`, `--dry-run`, `--idempotency-key` | ❌ | escritura | ✗ | 2 |

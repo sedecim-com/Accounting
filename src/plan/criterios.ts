@@ -542,6 +542,10 @@ export const CRITERIOS: Criterio[] = [
         F06b: 'docs/auditorias/F06b.md',
         F06c: 'docs/auditorias/F06c.md',
         R4: 'docs/auditorias/R4.md',
+        D1a: 'docs/auditorias/D1a.md',
+        G1a: 'docs/auditorias/G1a.md',
+        G1b: 'docs/auditorias/G1b.md',
+        G0: 'docs/auditorias/G0.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -4211,6 +4215,348 @@ export const CRITERIOS: Criterio[] = [
       return entregada
         ? ok('la guarda de estado es única y la usan todos los verbos, el origen es propio, la reversa es todo-o-nada y la familia está en el binario')
         : falla('registerBatchCommand no está en el binario: el staging de F01 vuelve a ser un almacén sin salida');
+    },
+  },
+
+  // ---- D1a · El devengo existe, y lo que ya se pagaba se paga bien ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'La amortización vale lo que el mayor respalda, y las prestaciones se calculan como manda la ley',
+    mutantes: [
+      {
+        // El defecto de gravedad 1 que el adversarial cazó: reversar el
+        // asiento de una amortización devolvía el importe a la 1160, pero el
+        // renglón seguía contando como posteado. Cuatro instrumentos mentían
+        // a la vez y el gasto no volvía NUNCA, porque el freno de doble
+        // corrida lo daba por hecho.
+        archivo: 'src/services/accruals/prepaid-service.ts',
+        de: 'export const RENGLON_VIGENTE = `s.is_posted = true AND EXISTS (',
+        a: 'export const RENGLON_VIGENTE = `s.is_posted = true AND NOT EXISTS (',
+        porque: 'un renglón dejaría de exigir respaldo en el mayor: la ficha afirmaría gasto devengado que una reversa ya deshizo, y el saldo revertido se ofrecería otra vez como libre',
+      },
+      {
+        // La tabla del art. 76 tras la reforma de 2023 sube DOS DÍAS CADA
+        // QUINQUENIO a partir del sexto año, no cada año. Contarlo por año
+        // pagaba de menos en cuatro de cada cinco ejercicios.
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: '  const quinquenios = Math.ceil((anio - 5) / 5);',
+        a: '  const quinquenios = Math.floor((anio - 5) / 5);',
+        porque: 'devuelve la tabla del art. 76 al defecto que D1a reparó: paga dos días de vacaciones DE MENOS en cuatro de cada cinco años de antigüedad a partir del sexto, en el finiquito de una persona',
+      },
+    ],
+    evaluar: () => {
+      const svc = codigoDe('src/services/accruals/prepaid-service.ts');
+      const mate = codigoDe('src/services/payroll/mx/finiquito-math.ts');
+
+      // 1. UN RENGLÓN VALE MIENTRAS EL MAYOR LO RESPALDE. El mayor es
+      //    inmutable (041) y sólo se corrige por reversa, así que la reversa
+      //    es un camino NORMAL, no una excepción: cualquier caché que no la
+      //    mire acaba afirmando un gasto que ya se deshizo.
+      if (!/RENGLON_VIGENTE/.test(svc) || !/is_posted = true AND EXISTS \(/.test(svc)) {
+        return falla('la amortización volvió a fiarse de is_posted sin mirar el mayor: una reversa dejaría la ficha, el respaldo disponible y la casilla del cierre afirmando un gasto que ya no existe');
+      }
+      // 2. Y EL RESPALDO SE MIDE Y SE CONSUME EN LA MISMA TRANSACCIÓN. Sin el
+      //    cerrojo, dos altas simultáneas sobre el mismo cargo pasaban las
+      //    dos: 48 000 amortizables sobre 24 000 pagados, la 1160 en negativo
+      //    —un activo con saldo acreedor— y el balance cuadrando.
+      if (!/FOR UPDATE/.test(svc)) {
+        return falla('desapareció el cerrojo del respaldo: dos altas concurrentes sobre el mismo cargo volverían a pasar las dos y la 1160 quedaría en negativo');
+      }
+      // 3. LA LEY, COMO ESTÁ ESCRITA. El art. 76 reformado sube dos días por
+      //    QUINQUENIO desde el sexto año; el aguinaldo se prorratea por días
+      //    trabajados (art. 87); y la base es el salario diario, no el
+      //    integrado, que ya lleva dentro el factor de estas prestaciones.
+      const quinquenios = /Math\.ceil\(\(anio - 5\) \/ 5\)/.test(mate);
+      return quinquenios
+        ? ok('la amortización se apoya en el mayor y se serializa, y la tabla del art. 76 sube por quinquenio como la ley dice')
+        : falla('la tabla del art. 76 volvió a contar por año en vez de por quinquenio: paga de menos a partir del sexto año de antigüedad');
+    },
+  },
+
+  // ---- S3·sello · El libro que no se puede apagar en silencio ----
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'Toda garantía del esquema está sellada con ENABLE ALWAYS, y doctor vigila que siga estándolo',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/058_el_sello_de_las_garantias.sql',
+        de: 'ALTER TABLE journal_entry_lines ENABLE ALWAYS TRIGGER journal_entry_lines_posteada_inmutable;',
+        a: '-- (sin sellar)',
+        porque: 'deja una garantía del mayor en disparador ordinario: una línea de SET session_replication_role la apagaría con las demás y la inmutabilidad de la línea posteada se evapora sin dejar rastro',
+      },
+      {
+        archivo: 'src/ai/doctor-service.ts',
+        de: "    checks.push(await checkSelloDeGarantias());",
+        a: '    // sin vigilancia del sello',
+        porque: 'el sello deja de vigilarse: ENABLE ALWAYS no impide DISABLE TRIGGER, así que sin este chequeo un break-glass no se distingue de un sabotaje y doctor sigue diciendo ok',
+      },
+    ],
+    evaluar: () => {
+      const sello = crudoDe('src/database/migrations/058_el_sello_de_las_garantias.sql');
+      const doctor = codigoDe('src/ai/doctor-service.ts');
+
+      // LA LISTA SE DERIVA, NO SE ESCRIBE. Los disparadores de garantía se
+      // leen de las migraciones que los crean; si mañana alguien añade la
+      // garantía número diez y no la sella, este criterio la echa en falta
+      // sin que nadie tenga que acordarse de apuntarla. Una lista paralela
+      // es justo lo que este proyecto ha pagado ya varias veces.
+      const DE_GARANTIA = [
+        '033_audit_log_append_only.sql',
+        '035_fiscal_credential_log_append_only.sql',
+        '041_el_mayor_inviolable.sql',
+        '051_la_cuenta_y_el_extracto.sql',
+      ];
+      const declarados: string[] = [];
+      for (const archivo of DE_GARANTIA) {
+        const sql = crudoDe(`src/database/migrations/${archivo}`);
+        for (const m of sql.matchAll(/CREATE TRIGGER\s+(\w+)/g)) declarados.push(m[1]);
+      }
+      if (declarados.length === 0) {
+        return falla('no se encontró ni un disparador de garantía en las migraciones: el criterio quedó ciego, revisa los nombres de archivo');
+      }
+
+      const sinSellar = declarados.filter(
+        (t) => !new RegExp(`ENABLE ALWAYS TRIGGER ${t}\\b`).test(sello)
+      );
+      if (sinSellar.length > 0) {
+        return falla(
+          `${sinSellar.length} de ${declarados.length} garantías sin ENABLE ALWAYS (${sinSellar.join(', ')}): ` +
+            'una línea de SET session_replication_role las apagaría sin tocar el esquema y sin dejar rastro'
+        );
+      }
+      // Y el sello se VIGILA: ENABLE ALWAYS no impide DISABLE TRIGGER, que es
+      // legítimo como break-glass. Lo que no puede ser es que no se note.
+      // Se ancla la LLAMADA, no el nombre: la afirmación es que doctor lo
+      // CORRE, y buscar `checkSelloDeGarantias` a secas la da por cierta con
+      // sólo que la función exista definida y sin llamador — que es capacidad
+      // huérfana disfrazada de garantía. Tercera vez en este proyecto que la
+      // presencia se hace pasar por conducta.
+      const vigilado =
+        /checks\.push\(await checkSelloDeGarantias\(\)\)/.test(doctor) &&
+        /garantia-sellada/.test(doctor) &&
+        /tgenabled/.test(doctor);
+      return vigilado
+        ? ok(`las ${declarados.length} garantías del esquema están selladas, y doctor falla si alguna deja de estarlo`)
+        : falla('doctor dejó de leer pg_trigger.tgenabled: apagar una garantía volvería a ser indetectable');
+    },
+  },
+
+  // ---- G0 · La tarde que se paga sola ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El candado del cierre bloquea sin reescribir la tabla, y el perímetro no confía en una cabecera que escribe quien llama',
+    mutantes: [
+      {
+        // Volver al UPDATE. El diente exacto: la sentencia que asignaba a cada
+        // fila el valor que ya tenía.
+        archivo: 'src/services/accounting/period-close.ts',
+        de: '      `SELECT id FROM journal_entries\n       WHERE fiscal_period_id = $1 AND entity_id = $2\n       FOR UPDATE`,',
+        a: "      `UPDATE journal_entries SET status = CASE WHEN status = 'posted' THEN 'posted' ELSE status END\n       WHERE fiscal_period_id = $1 AND entity_id = $2`,",
+        porque: 'el candado vuelve a reescribir cada fila para no cambiar nada: Postgres versiona, rehace los índices y dispara el guardián de inmutabilidad una vez POR FILA, y con 800 000 asientos el cierre de mes muere contra su propio statement_timeout',
+      },
+      {
+        archivo: 'src/api/rest/trust-proxy.ts',
+        de: "export function resolverTrustProxy(",
+        a: "export function resolverTrustProxy_desactivado(",
+        porque: 'el perímetro se queda sin resolutor de proxy: o se confía en todo —y entonces req.ip lo escribe quien llama y el freno deja de existir— o se confía en nada y todos los inquilinos comparten un cubo',
+      },
+    ],
+    evaluar: () => {
+      const pc = codigoDe('src/services/accounting/period-close.ts');
+      const tp = codigoDe('src/api/rest/trust-proxy.ts');
+      const cx = codigoDe('src/database/connection.ts');
+
+      // 1. EL CANDADO PIDE EL CANDADO, no lo consigue de rebote. El cierre
+      //    duro bloqueaba los asientos del periodo con un UPDATE que asignaba
+      //    a cada fila el valor que ya tenía: cero filas cambiadas de
+      //    1 500 000, y aun así Postgres versiona cada una, rehace sus doce
+      //    índices —`status` está indexado tres veces, así que no hay
+      //    actualización HOT que lo salve— y dispara el guardián de
+      //    inmutabilidad por fila. Medido: 87 s contra un tope de 60. El
+      //    tramo que puso el tope encontró lo que el tope mataba.
+      //    Se ancla la consulta ENTERA y no las dos palabras `FOR UPDATE`:
+      //    el archivo tiene otros candados legítimos, y un ancla que casa con
+      //    cualquiera de ellos sobrevive al mutante que devuelve el UPDATE.
+      if (!/SELECT id FROM journal_entries\s+WHERE fiscal_period_id = \$1 AND entity_id = \$2\s+FOR UPDATE/.test(pc)) {
+        return falla('el candado del cierre dejó de pedirse directo: si vuelve a lograrse con un UPDATE que no escribe nada, el cierre de un ejercicio grande muere contra su propio tope de sentencia');
+      }
+      // 2. EL PERÍMETRO NO CONFÍA A CIEGAS. `trust proxy` en true hace que
+      //    req.ip sea la entrada más a la izquierda de X-Forwarded-For, que
+      //    la escribe quien llama: cada petición estrena cubo y el freno de
+      //    /public/v1 deja de existir. El defecto es `false` porque es el
+      //    único valor NO ELUDIBLE: su coste —un cubo compartido— es ruidoso
+      //    y se nota; un limitador que no limita, no.
+      //    Con el paréntesis: sin él, el ancla casa igual con un
+      //    `resolverTrustProxy_desactivado` y el mutante que lo renombra
+      //    sobrevive. Es la lección que el arnés cobró en F06a.
+      if (!/export function resolverTrustProxy\(/.test(tp)) {
+        return falla('desapareció el resolutor de trust proxy: el perímetro vuelve a confiar en la cabecera o a meter a todos los inquilinos en un cubo');
+      }
+      // 3. Y EL POOL TIENE LOS TRES TOPES. Sin ellos la petición 21 del día de
+      //    cierre espera para siempre.
+      const topes = ['statement_timeout', 'lock_timeout', 'connectionTimeoutMillis'].filter((t) => cx.includes(t));
+      return topes.length === 3
+        ? ok('el candado del cierre se pide directo, el perímetro declara en quién confía, y el pool tiene sus tres topes')
+        : falla(`al pool le faltan topes (${3 - topes.length} de 3): la petición 21 del día de cierre vuelve a esperar para siempre`);
+    },
+  },
+
+  // ---- G1b · El flujo de efectivo, amarrado al efectivo ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El estado de flujos clasifica por ROL, no por el nombre en inglés de la cuenta, y se amarra contra el efectivo real',
+    mutantes: [
+      {
+        // El diente exacto del tramo: volver a preguntar por el NOMBRE. El
+        // motor viejo hacía `name ILIKE '%receivable%'` contra un catálogo
+        // que este mismo producto siembra en español, así que no casaba nada
+        // y el capital de trabajo salía en cero — sin que ninguna prueba lo
+        // notara, porque cero es un número perfectamente presentable.
+        archivo: 'src/services/reporting/cash-flow-service.ts',
+        de: '               FROM account_roles ar',
+        a: '               FROM accounts ar_por_nombre',
+        porque: 'la clasificación vuelve a colgar del NOMBRE de la cuenta en vez del rol, que es el defecto histórico exacto: contra un catálogo sembrado en español no casa nada y el capital de trabajo sale en cero, que es un número perfectamente presentable',
+      },
+    ],
+    evaluar: () => {
+      const cf = codigoDe('src/services/reporting/cash-flow-service.ts');
+      const rc = codigoDe('src/services/reporting/cash-flow-reconcile.ts');
+
+      // 1. EL MOTOR SALIÓ DE LA RUTA. Era el ÚNICO informe que nunca se
+      //    extrajo a la capa de servicios: vivía dentro de src/api/rest, así
+      //    que el CLI y el agente no lo tenían y REST era un segundo motor.
+      if (!/export async function politicasDeFlujo/.test(cf)) {
+        return falla('el estado de flujos volvió a vivir sólo en la ruta REST: el CLI y el agente se quedan sin él, y REST vuelve a ser un motor aparte');
+      }
+      // 2. SE CLASIFICA POR ROL, NO POR NOMBRE. El mapa de roles sobrevive a
+      //    renombres, traducciones y catálogos importados; los nombres no.
+      if (!/FROM account_roles ar/.test(cf)) {
+        return falla('la clasificación del flujo dejó de pasar por el mapa de roles: si vuelve a preguntar por el nombre, el capital de trabajo saldrá en cero contra cualquier catálogo en español');
+      }
+      // 3. Y EL RESIDUO SE IMPRIME, NO SE ABSORBE. Es el único estado
+      //    financiero cuyo error se comprueba desde fuera: cualquiera lo
+      //    contrasta contra su banco. Meterlo dentro de un renglón esconde
+      //    justo lo que el lector habría cazado.
+      const amarre = /export async function conciliarFlujoDeEfectivo/.test(rc);
+      return amarre
+        ? ok('el flujo vive en la capa compartida, clasifica por rol y se contrasta contra el efectivo real con el residuo a la vista')
+        : falla('desapareció el amarre contra el efectivo real: el estado de flujos vuelve a poder no tener ninguna relación con el banco sin que nadie lo diga');
+    },
+  },
+
+  // ---- G1a · Los estados que ya se firman, y que hoy mentían ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El cierre barre por el SIGNO del saldo, comprueba que barrió, y los informes no cuentan el cierre como actividad',
+    mutantes: [
+      {
+        // El signo del saldo, no la forma de la consulta. El banco unitario
+        // FABRICA ending_balance recomponiendo la resta que la consulta
+        // declara (report-service.spec.ts:62), así que invertirla pasaba las
+        // 3 500 pruebas en verde y sólo la acusaba un regex sobre el TEXTO
+        // del SQL. La prueba de conducta de G1a es la que ahora la mata.
+        archivo: 'src/services/reporting/report-service.ts',
+        de: 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0) AS ending_balance',
+        a: 'COALESCE(SUM(COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)), 0) AS ending_balance',
+        porque: 'invierte el signo de TODO saldo publicado: la balanza, el estado de resultados y el balance general dirían lo contrario de lo que los libros dicen, y hasta G1a ninguna prueba de cifras lo notaba',
+      },
+      {
+        // La línea que el reconocimiento de S4 demostró desprotegida: invirtió
+        // ÉSTA —la del balance general, no la anclada— y el arnés, el plan y
+        // las 3 435 unitarias siguieron en verde. Una utilidad de 3 000
+        // publicada como pérdida de 2 000, otra vez, por la puerta de al lado.
+        archivo: 'src/services/reporting/report-service.ts',
+        de: 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0) as balance',
+        a: 'COALESCE(SUM(COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)), 0) as balance',
+        porque: 'invierte el signo en la consulta del BALANCE GENERAL: el capital contable se publica del revés y ninguna prueba de la vía rápida lo nota',
+      },
+      {
+        // El diente, no la boca: el saldo se consulta DOS veces (ingresos y
+        // gastos) y mutar una sola basta, porque el barrido de esa mitad cae
+        // del lado contrario y el ejercicio queda sin barrer.
+        archivo: 'src/services/accounting/period-close.ts',
+        de: 'SUM(ab.debit_total - ab.credit_total) as balance',
+        a: 'SUM(ab.credit_total - ab.debit_total) as balance',
+        porque: 'el cierre barrería los ingresos por el lado equivocado: las cuentas quedan al doble en vez de en cero y el resultado entra invertido al capital, que es el defecto exacto que este tramo vino a matar',
+      },
+    ],
+    evaluar: () => {
+      const pc = codigoDe('src/services/accounting/period-close.ts');
+      const cc = codigoDe('src/services/reporting/criterio-cierre.ts');
+      const lc = codigoDe('src/services/accounting/ledger-checks.ts');
+      const rs = codigoDe('src/services/reporting/report-service.ts');
+
+      // 0. EL ORDEN DE LA RESTA ES LA AFIRMACIÓN, y por eso se ancla literal:
+      //    un saldo es cargos MENOS abonos, en ese orden, y al revés todo lo
+      //    publicado dice lo contrario de lo que los libros dicen. Se ancla
+      //    aquí —y no sólo en la prueba de conducta— porque un criterio sólo
+      //    mata lo que inspecciona: la primera versión de este bloque no
+      //    leía report-service, y sus dos mutantes sobrevivieron.
+      // SE CUENTAN LAS CINCO. La primera versión ancló sólo la de
+      // `AS ending_balance` y dejó fuera las otras cuatro —entre ellas la del
+      // BALANCE GENERAL (:445)—, así que invertir el signo una línea más abajo
+      // pasaba el arnés, el plan y las 3 435 unitarias: sólo lo acusaba un job
+      // de integración de cuatro minutos que nadie corre antes de empujar. Es
+      // la lección que este mismo criterio aplica a period-close doce líneas
+      // más abajo, y que no se aplicó al archivo que acababa de añadir.
+      const saldosPublicados = (
+        rs.match(/COALESCE\(SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\)/g) ?? []
+      ).length;
+      if (saldosPublicados !== 5) {
+        return falla(
+          `${5 - saldosPublicados} de las cinco consultas del saldo publicado tienen la resta invertida: ` +
+            'la balanza, el estado de resultados o el balance general dirían lo contrario de lo que dicen los libros'
+        );
+      }
+      // Se CUENTAN las dos apariciones —ingresos y gastos— en vez de
+      //    comprobar que haya una: son gemelas textuales, y un mutante que
+      //    invierta sólo la primera deja la segunda en pie, así que la
+      //    presencia seguiría siendo cierta mientras el cierre barre medio
+      //    ejercicio del revés. Es la trampa que ya cobró piezas en F04.
+      const consultasDelSaldo = (pc.match(/SUM\(ab\.debit_total - ab\.credit_total\) as balance/g) ?? []).length;
+      if (consultasDelSaldo !== 2) {
+        return falla(
+          `el cierre consulta el saldo con la resta invertida en ${2 - consultasDelSaldo} de sus dos mitades: ` +
+            'barrería por el lado equivocado y el resultado entraría invertido al capital'
+        );
+      }
+
+      // 1. EL LADO LO DECIDE EL SIGNO. Durante un año el emisor usó abs(),
+      //    que acierta por casualidad en la cuenta de naturaleza normal y
+      //    DUPLICA la contra-natural: la 4400 (revenue deudora) recibía otro
+      //    cargo y la 5200 (expense acreedora) otro abono. Con ventas 10 000,
+      //    devolución 2 000, costo 6 000 y devolución de compras 1 000, una
+      //    utilidad de 3 000 se publicaba como PÉRDIDA de 2 000 — y el
+      //    balance decía is_balanced true, porque el renglón del resultado
+      //    cancelaba exactamente el exceso.
+      if (!/function lineaQueBarre/.test(pc) || !/balance\.greaterThan\(0\)/.test(pc)) {
+        return falla('el barrido del cierre dejó de decidir el lado por el signo: las cuentas contra-naturales volverían a duplicarse en vez de barrerse');
+      }
+      // 2. Y SE COMPRUEBA QUE BARRIÓ. Nada lo comprobaba, que es por lo que
+      //    el defecto anterior vivió tanto: el asiento cuadraba.
+      if (!/verificarQueElEjercicioBarrio/.test(pc)) {
+        return falla('nadie comprueba que el ejercicio cerrado quede en cero: un cierre que no barre volvería a pasar inadvertido');
+      }
+      // 3. EL INFORME NO CUENTA EL CIERRE COMO ACTIVIDAD. El asiento se fecha
+      //    al final del periodo que cierra —dentro del rango que el propio
+      //    informe consulta—, así que un ejercicio cerrado imprimía «Net
+      //    income 0.0000» en las TRES superficies, que comparten la consulta.
+      if (!/export function predicadoSinCierre/.test(cc)) {
+        return falla('desapareció el criterio compartido del cierre: el estado de resultados de un ejercicio cerrado volvería a salir en ceros');
+      }
+      // 4. LOS SALDOS MATERIALIZADOS SE VERIFICAN CONTRA SU PROPIO
+      //    INVARIANTE. checkBalance sólo miraba debit_total/credit_total:
+      //    inyectar 99 999 en ending_balance —la columna que el cierre
+      //    escribe y el ejercicio siguiente HEREDA— devolvía cero hallazgos.
+      const invariante = /ab\.beginning_balance \+ ab\.debit_total - ab\.credit_total/.test(lc);
+      return invariante
+        ? ok('el cierre barre por el signo y se comprueba, los informes no cuentan el cierre como actividad, y ending_balance ya no es una columna que nadie verifica')
+        : falla('ending_balance volvió a ser invisible para el chequeo del mayor: inyectarle una cifra falsa no daría hallazgo');
     },
   },
 

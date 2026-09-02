@@ -60,6 +60,15 @@ const TOP_LEVEL: Record<string, string> = {
   // F06b: la lectura del cierre. `closing` es el proceso; `close` (que ya
   // existía) es el acto. El alias compuesto viene del catálogo.
   closing: 'cierre-proceso',
+  // G1b: el estado de flujos. `cashflow` es UNA palabra en inglés y su alias
+  // español es `flujo` a secas — «efectivo» no se repite porque en español el
+  // flujo contable ya es de efectivo; el catálogo lo fijó así.
+  cashflow: 'flujo',
+  // D1a: el gasto que cubre periodos futuros. El alias es «pago-anticipado»
+  // y no «anticipo»: un anticipo A PROVEEDOR (1150) es otra cosa —dinero que
+  // sale antes de recibir— y confundirlos en la terminal sería confundirlos
+  // en los libros.
+  prepaid: 'pago-anticipado',
   // R4: el tipo de cambio como sustantivo raíz. `fx` no se traduce a
   // «divisa»: el catálogo fijó `cambio`, que es como el despacho lo dice.
   fx: 'cambio',
@@ -144,6 +153,9 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   ap: { reconcile: 'conciliar' },
   // R4: `rate` es calificador de `fx`, como `statement` lo es de `bank`.
   fx: { rate: 'tipo' },
+  prepaid: { create: 'crear', list: 'listar', show: 'ver', run: 'ejecutar' },
+  // G1b: las dos hojas de fase 1 del catálogo.
+  cashflow: { generate: 'generar', reconcile: 'conciliar' },
   // F05b: los tres sustantivos del cotejo. `match` es OBJETO aquí (el cotejo),
   // no acto: el verbo `cotejar` sigue reservado para `bank transaction match`.
   bank: {

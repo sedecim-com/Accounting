@@ -1,4 +1,5 @@
 import { query } from '../database/connection.js';
+import { UNTRUSTED_OPEN, UNTRUSTED_CLOSE, neutralizarEscalar } from './untrusted.js';
 import type { AgentContext } from './context.js';
 
 // ============================================================
@@ -160,6 +161,23 @@ export async function teachMemory(
 // Hard char budget (~tokens*4): the digest must never grow
 // unbounded with the precedent table, and it must never mutate
 // mid-session (that would invalidate the prompt cache).
+//
+// EL DIGEST VA ENVUELTO, igual que el índice de skills. `topic` y
+// `question` de ai_questions NO los escribe un humano: los redacta el
+// modelo con ask_user desde el contexto que tiene delante — y ese
+// contexto incluye el CFDI o el payload de webhook del tercero.
+// recordAnsweredQuestion los inserta ya como 'answered' + precedente,
+// así que una cadena llegada en un CFDI hostil podía acabar viviendo
+// SIN VALLA en la posición de máxima confianza del prompt: el bloque
+// estable, cacheado, por encima de las reglas del sistema. Y la línea
+// del digest empieza precisamente por `topic ?? question`.
+//
+// Tratamiento idéntico al de skillsPromptIndex(): cada campo se
+// neutraliza a UNA línea (marcadores + controles: un «\n» en un campo
+// forjaba una fila entera que nadie escribió) y el bloque entero viaja
+// entre los marcadores que el prompt ya declara como datos de tercero
+// — no se inventa un vocabulario nuevo; el preámbulo lo pone el
+// llamador (system-prompt.ts), que es sistema, no tercero.
 // ============================================================
 
 /** Newest precedents fetched for the digest before the char budget cuts in. */
@@ -172,6 +190,9 @@ const DIGEST_TRUNCATION_NOTE =
  * Compact digest of the most recent active precedents, newest first, one per
  * line: 'topic: answer (by, date)'. Cut at `maxChars` with an explicit note so
  * the model knows older criteria exist and how to reach them.
+ *
+ * `maxChars` acota el CONTENIDO; los marcadores de la valla van aparte, para
+ * que endurecer la envoltura no eche precedentes fuera del presupuesto.
  */
 export async function buildMemoryDigest(ctx: AgentContext, maxChars = 3000): Promise<string> {
   const r = await query<{
@@ -194,7 +215,11 @@ export async function buildMemoryDigest(ctx: AgentContext, maxChars = 3000): Pro
   const budget = maxChars - (DIGEST_TRUNCATION_NOTE.length + 1);
   for (const row of r.rows) {
     const date = new Date(row.answered_at).toISOString().split('T')[0];
-    const line = `${row.topic ?? row.question}: ${row.answer} (${row.answered_by}, ${date})`;
+    // Campo a campo: los cuatro son texto de fila, y `topic`/`question` los
+    // redactó el modelo desde datos de tercero.
+    const line =
+      `${neutralizarEscalar(row.topic ?? row.question)}: ${neutralizarEscalar(row.answer)} ` +
+      `(${neutralizarEscalar(row.answered_by)}, ${date})`;
     if (used + line.length + 1 > budget) {
       truncated = true;
       break;
@@ -206,7 +231,8 @@ export async function buildMemoryDigest(ctx: AgentContext, maxChars = 3000): Pro
   if (truncated || r.rows.length === DIGEST_MAX_ENTRIES) {
     lines.push(DIGEST_TRUNCATION_NOTE);
   }
-  return lines.join('\n');
+  if (lines.length === 0) return '';
+  return `${UNTRUSTED_OPEN}\n${lines.join('\n')}\n${UNTRUSTED_CLOSE}`;
 }
 
 export interface MemoryStats {

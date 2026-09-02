@@ -400,6 +400,311 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 50,
   },
   {
+    key: 'amortizacion_anticipados_convencion',
+    category: 'contable',
+    question: 'A prepayment that starts mid-month: does the first month accrue in full, or only for the days it covers?',
+    impact:
+      'Sets every month of the schedule. An insurance policy running 20 March to 19 March accrues over 12 ' +
+      'months by one convention and 13 by the other, and the last month of the fiscal year differs.',
+    options: [
+      { value: 'proporcional_dias', label: 'By days: the first and last months accrue only the days covered' },
+      { value: 'meses_completos', label: 'Whole months: the starting month accrues in full and the last one does not' },
+    ],
+    defaultValue: 'proporcional_dias',
+    defaultRationale:
+      'It is what the NIF A-2 accrual postulate actually says — the expense belongs to the period that ' +
+      'consumed the service — and it is the only convention that keeps the schedule tied to the ' +
+      'contract dates rather than to the calendar. Firms that prefer whole months for simplicity can ' +
+      'say so here, but the default should be the one that is right rather than the one that is easy.',
+    whyAsking:
+      'Your insurance starts on the 20th, not on the 1st. By days it spreads over thirteen calendar '
+      + 'months and by whole months over twelve, so the choice changes which month carries the '
+      + 'expense and what the last month of the year shows.',
+    whatIDo: 'I accrue the days each month actually covers.',
+    ifSkipped: 'I accrue by days.',
+    priority: 35,
+  },
+  {
+    key: 'amortizacion_faltante_al_cierre',
+    category: 'contable',
+    question: 'Closing a month with prepayment schedules whose amortisation was never run: warn, or refuse?',
+    impact:
+      'An unrun schedule means the expense of that month is missing and the asset is overstated by the ' +
+      'same amount. It is the exact shape of the defect this system already fixed for depreciation.',
+    options: [
+      { value: 'avisar', label: 'Warn: the checklist item goes red and the close continues' },
+      { value: 'bloquear', label: 'Refuse: the period does not close until every schedule is run' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'It is the same answer the firm already gets for depreciation, and consistency between two ' +
+      'identical situations matters more here than the choice itself: a checklist where one accrual ' +
+      'blocks and the other warns teaches nobody anything.',
+    whyAsking:
+      'If a schedule was never run, the month you are closing is missing that expense and the '
+      + 'prepaid asset is overstated by the same amount — and you would be signing it either way.',
+    whatIDo: 'I flag it in the close checklist and let you decide.',
+    ifSkipped: 'I warn.',
+    priority: 35,
+  },
+  {
+    key: 'umbral_anticipado_mxn',
+    category: 'contable',
+    question: 'Above what amount is a multi-period expense deferred to prepayments instead of expensed at once?',
+    impact:
+      'Below the threshold the whole amount hits the month it was paid; above it, a schedule is created ' +
+      'and the expense spreads. Today the CFDI classifier offers the deferral on ANY amount whose ' +
+      'description matches a pattern, with no floor at all.',
+    options: [
+      { value: '0', label: 'No threshold: defer every multi-period expense' },
+      { value: '5000', label: '5,000 MXN' },
+      { value: '20000', label: '20,000 MXN' },
+    ],
+    defaultValue: '5000',
+    defaultRationale:
+      'Materiality (NIF A-4): a 900-peso annual subscription split into twelve entries of 75 costs more ' +
+      'in bookkeeping than the precision it buys, and clutters the schedule with rows nobody will ' +
+      'check. Five thousand is the order of magnitude where the split starts paying for itself.',
+    whyAsking: 'Not every yearly subscription is worth spreading over twelve months; you decide where the line is.',
+    whatIDo: 'I defer multi-period expenses of 5,000 MXN or more and expense the rest as they come.',
+    ifSkipped: 'I use 5,000 MXN.',
+    priority: 40,
+  },
+  {
+    key: 'dias_aguinaldo',
+    category: 'contable',
+    question: 'How many days of aguinaldo does the firm grant per year of service?',
+    impact:
+      'Drives both the settlement calculation and the monthly provision. The engine currently hardcodes ' +
+      'a value and never reads it from anywhere.',
+    options: [
+      { value: '15', label: '15 days — the legal minimum (LFT art. 87)' },
+      { value: '20', label: '20 days' },
+      { value: '30', label: '30 days (one month)' },
+    ],
+    defaultValue: '15',
+    defaultRationale:
+      'LFT art. 87 sets fifteen days as the floor, and a floor is the only number the system can assume ' +
+      'without knowing the contract. Anything above it is a benefit the employer granted and must be ' +
+      'declared, never guessed.',
+    whyAsking: 'The law sets a minimum of fifteen days; many firms pay more, and I cannot know which yours is.',
+    whatIDo: 'I compute aguinaldo on fifteen days per year, accrued in proportion to time served.',
+    ifSkipped: 'I use the legal minimum of fifteen days.',
+    priority: 40,
+  },
+  {
+    key: 'prima_vacacional_pct',
+    category: 'contable',
+    question: 'What vacation premium does the firm pay over the vacation days earned?',
+    impact: 'Applies to the settlement and to the monthly vacation provision alike.',
+    options: [
+      { value: '0.25', label: '25 % — the legal minimum (LFT art. 80)' },
+      { value: '0.50', label: '50 %' },
+      { value: '1.00', label: '100 %' },
+    ],
+    defaultValue: '0.25',
+    defaultRationale:
+      'Same reasoning as the aguinaldo: LFT art. 80 sets 25 % as the floor, and the floor is the only ' +
+      'figure that is safe to assume. A firm paying more is granting a benefit, and a benefit is ' +
+      'declared, not inferred.',
+    whyAsking: 'The law sets 25 % as the minimum vacation premium; yours may be higher.',
+    whatIDo: 'I apply 25 % over the vacation days earned.',
+    ifSkipped: 'I use the legal minimum of 25 %.',
+    priority: 40,
+  },
+  {
+    key: 'flujo_efectivo_metodo',
+    category: 'contable',
+    question: 'Is the statement of cash flows presented by the indirect or the direct method?',
+    impact:
+      'Decides the whole face of the statement. Before G1b the engine accepted a `method` parameter, ' +
+      'echoed it back in the response and NEVER changed a number — every caller that asked for the ' +
+      'direct method got the indirect one, labelled as direct.',
+    options: [
+      {
+        value: 'indirecto',
+        label: 'Indirect: start from net income and adjust for non-cash items and working-capital movements',
+      },
+      {
+        value: 'directo',
+        label: 'Direct: gross collections and payments by concept (customers, suppliers, employees, taxes)',
+      },
+    ],
+    defaultValue: 'indirecto',
+    defaultRationale:
+      'NIF B-2 allows both and Mexican practice overwhelmingly files the indirect one: it derives from ' +
+      'the same balances the trial balance already has, while the direct method needs every cash ' +
+      'movement classified by concept at the moment it is recorded. Offering «direct» over data that ' +
+      'was never classified for it would produce a statement that looks right and is not.',
+    whyAsking: 'The two methods present the same cash differently, and the presentation is a firm decision, not a calculation.',
+    whatIDo: 'I build the statement by the indirect method and label it as such.',
+    ifSkipped: 'I use the indirect method.',
+    priority: 30,
+  },
+  {
+    key: 'flujo_efectivo_cuentas_de_efectivo',
+    category: 'contable',
+    question: 'Which accounts count as «cash and cash equivalents» when the statement of cash flows is squared?',
+    impact:
+      'The statement only means anything if its net movement equals the real change in cash, and that ' +
+      'requires knowing which accounts ARE cash. Before G1b classification ran on account names ' +
+      'matched with ILIKE «%receivable%» and «%payable%» — in English, against a chart of accounts ' +
+      'this product itself seeds in Spanish, so it matched nothing and working capital came out zero.',
+    options: [
+      { value: 'rol', label: 'By role: the accounts account_roles marks as bank and cash' },
+      { value: 'subtipo', label: 'By subtype: current-asset accounts explicitly flagged as cash' },
+      { value: 'lista', label: 'A list of account codes the firm declares' },
+    ],
+    defaultValue: 'rol',
+    defaultRationale:
+      'The role map is the semantic layer this system already uses everywhere else to answer «which ' +
+      'account is this» — it survives renamings, translations and imported charts, which is exactly ' +
+      'what account names do not. Matching by name is how that defect got here.',
+    whyAsking: 'To square the cash flow statement I have to know which accounts hold the cash it is talking about.',
+    whatIDo: 'I take the accounts mapped to the bank and cash roles.',
+    ifSkipped: 'I use the role map.',
+    priority: 30,
+  },
+  {
+    key: 'flujo_efectivo_descuadre',
+    category: 'contable',
+    question: 'When the cash flow statement does not equal the real movement of cash, do I publish it, name it, or refuse?',
+    impact:
+      'A statement of cash flows that does not tie to cash is the one financial statement whose error ' +
+      'is provable from the outside — anyone can compare it against the bank. Absorbing the residue ' +
+      'into a line item hides exactly what the reader would have caught.',
+    options: [
+      { value: 'avisar', label: 'Publish it with the difference stated and quantified' },
+      { value: 'bloquear', label: 'Refuse to emit the statement until it ties' },
+      { value: 'silencio', label: 'Publish the computed net without contrasting it' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'Refusing would leave the firm without a statement it may need for a filing deadline, and ' +
+      'silence is how a wrong statement gets signed. Naming the residue keeps the document usable ' +
+      'and puts the discrepancy where the preparer — and the auditor — will see it.',
+    whyAsking:
+      'The derived statement and the real movement of cash can disagree. This is the one financial '
+      + 'statement anybody can check against your bank, so whether the difference is stated or '
+      + 'buried is your call, not mine.',
+    whatIDo: 'I publish the statement and state the difference against real cash, with its amount.',
+    ifSkipped: 'I publish it and name the difference.',
+    priority: 30,
+  },
+  {
+    key: 'informes_asientos_de_cierre',
+    category: 'contable',
+    question:
+      'When a report covers the date the year was closed, do its closing entries count as activity?',
+    impact:
+      'The closing entry is dated at the END of the period it closes — inside the range the income ' +
+      'statement queries. Counting it zeroes the year out: a company with 10,000 in sales prints ' +
+      '«Net income 0.0000». Excluding it from the statement while keeping it in the trial balance is ' +
+      'the only combination where both documents are true at once.',
+    options: [
+      {
+        value: 'estado_sin_cierre_balanza_con_cierre',
+        label: 'Income statement excludes them; the trial balance includes them and says so',
+      },
+      { value: 'excluir_siempre', label: 'No report ever counts them' },
+      { value: 'incluir_siempre_y_advertir', label: 'Every report counts them and warns the range contains a close' },
+    ],
+    defaultValue: 'estado_sin_cierre_balanza_con_cierre',
+    defaultRationale:
+      'The income statement answers «what did the business earn», and the closing entry is not ' +
+      'earnings: it is the act of putting earnings away. The trial balance answers «what do the ' +
+      'books say», and there the entry IS part of the books — hiding it would break the tie with ' +
+      'the general ledger that the Anexo 24 is checked against.',
+    whyAsking:
+      'The entry that closes your year falls inside the range your year-end reports ask for, so I have to know whether to count it.',
+    whatIDo: 'I leave closing entries out of the income statement and keep them in the trial balance.',
+    ifSkipped: 'I exclude them from the statement and include them in the trial balance.',
+    priority: 20,
+  },
+  {
+    key: 'destino_del_resultado_del_ejercicio',
+    category: 'contable',
+    question: 'At year-end close, where does the result go: straight to retained earnings, or through «Result of the Period» first?',
+    impact:
+      'Decides whether the balance sheet can still show what THIS year earned after the close. Sweeping ' +
+      'straight to 3200 merges it with every prior year on the day of the close, before the shareholders ' +
+      'have approved anything.',
+    options: [
+      {
+        value: 'dos_pasos_hasta_asamblea',
+        label: 'Close to «Result of the Period» (3300); a later audited reclassification moves it to Retained Earnings (3200)',
+      },
+      { value: 'directo_a_acumulados', label: 'Close straight to Retained Earnings (3200)' },
+    ],
+    defaultValue: 'dos_pasos_hasta_asamblea',
+    defaultRationale:
+      'Mexican practice keeps the year result separate until the asamblea resolves what to do with it ' +
+      '(dividends, reserva legal, capitalisation) — LGSM art. 19 forbids distributing profits until ' +
+      'losses are absorbed, and that argument needs the year to still be identifiable. The account ' +
+      '3300 already exists in the seeded chart and nothing writes to it.',
+    whyAsking:
+      'After closing December, your balance sheet either still shows what this year earned or folds it into the accumulated total. That is a presentation decision, and it is yours.',
+    whatIDo: 'I close the year into 3300 and leave the move to 3200 as a separate, audited act.',
+    ifSkipped: 'I use the two-step route through «Result of the Period».',
+    priority: 25,
+  },
+  {
+    key: 'cierre_recierre_de_periodo_reabierto',
+    category: 'contable',
+    question: 'If a year-end period that already emitted its closing entry is reopened and closed again, what happens to the first one?',
+    impact:
+      'Today the second close emits a COMPLETE second set of closing entries and nothing removes the ' +
+      'first: retained earnings takes the result twice. `period reopen` made this reachable from the ' +
+      'terminal, so the answer stopped being hypothetical.',
+    options: [
+      {
+        value: 'reversar_y_reemitir',
+        label: 'Reverse the previous closing entry (own folio, audited reason) and emit the close again in full',
+      },
+      { value: 'incremental', label: 'Leave the first close standing; the new one sweeps only what is left' },
+      { value: 'prohibir', label: 'Refuse: a period whose close was emitted is corrected by explicit reclassification, not by closing again' },
+    ],
+    defaultValue: 'reversar_y_reemitir',
+    defaultRationale:
+      'It is the only option that leaves the books stating one truth and shows how they got there: ' +
+      'NIF B-1 corrects by reversal, never by edit, and the reversal is the evidence that the first ' +
+      'close was undone on purpose. «Incremental» would depend on the first close having been right, ' +
+      'which is precisely what a reopening puts in doubt.',
+    whyAsking:
+      'Reopening a closed year means its closing entry is already sitting in the books, and closing again will write a second one. I need to know whether to undo the first or leave it standing.',
+    whatIDo: 'I reverse the previous closing entry with its reason recorded, then close again from scratch.',
+    ifSkipped: 'I reverse and re-emit.',
+    priority: 25,
+  },
+  {
+    key: 'severidad_resultado_sin_barrer',
+    category: 'contable',
+    question: 'If the year-end close finishes and some revenue or expense account still carries a balance, is that a warning or a failure?',
+    impact:
+      'A close that leaves accounts unswept has not closed the year, and the very defect this check ' +
+      'exists to catch —the abs() that doubled returns instead of sweeping them— produced exactly ' +
+      'that: accounts left at twice their balance while the entry itself balanced and every other ' +
+      'indicator read green.',
+    options: [
+      { value: 'bloquear_cierre', label: 'Fail: the hard close rolls back and the period stays open' },
+      { value: 'avisar', label: 'Warn: the close completes and the residue is reported with its remedy' },
+      {
+        value: 'tolerancia',
+        label: "Accept up to the entity's closing tolerance and fail above it",
+      },
+    ],
+    defaultValue: 'bloquear_cierre',
+    defaultRationale:
+      'The close is what makes the year final; a close that half-worked leaves the next year seeded ' +
+      'from wrong opening balances, and by the time anyone notices the statements are signed. ' +
+      'Stopping is recoverable — a wrong opening balance carried forward is not.',
+    whyAsking:
+      'When the close cannot sweep an account to zero, either it stops and tells you or it finishes and hopes you read the warning.',
+    whatIDo: 'I roll the close back and name the accounts that would not sweep.',
+    ifSkipped: 'I refuse to complete a close that leaves results unswept.',
+    priority: 20,
+  },
+  {
     key: 'fuente_tipo_cambio',
     category: 'contable',
     question: 'When I need an exchange rate for a date, which published source do I use?',

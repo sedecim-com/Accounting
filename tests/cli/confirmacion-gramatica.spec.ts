@@ -216,12 +216,36 @@ describe('censo: ningún predicado de confirmación fuera del kernel', () => {
     },
   ];
 
+  /**
+   * EL CENSO MIRA CÓDIGO, NO PROSA.
+   *
+   * Leía la línea cruda, así que un COMENTARIO que citara el predicado viejo
+   * —para explicar qué se arregló y por qué— se acusaba a sí mismo. El efecto
+   * perverso: documentar el defecto quedaba prohibido, y la salida honesta era
+   * borrar la explicación. Se vio al migrar las compuertas de F06 al kernel.
+   *
+   * Es la misma lección que el arnés de mutación aprendió al revés: allí
+   * `codigoDe` despoja los comentarios (src/plan/criterios.ts:167) porque un
+   * mutante plantado en prosa no cambia la conducta. Aquí, un predicado
+   * escrito en prosa tampoco confirma nada.
+   *
+   * Se salta la línea de comentario ENTERA en vez de despojar el archivo,
+   * porque el reporte dice «archivo:línea» y despojar descuadraría la cuenta.
+   * Una línea con código Y comentario al final NO se salta: su código sigue
+   * censado, que es lo que importa.
+   */
+  const esLineaDeComentario = (linea: string): boolean => {
+    const t = linea.trim();
+    return t.startsWith('//') || t.startsWith('*') || t.startsWith('/*');
+  };
+
   it('src/cli/**/*.ts sólo confirma a través del kernel', () => {
     const acusaciones: string[] = [];
     for (const file of listarTs(CLI_DIR)) {
       if (path.resolve(file) === path.resolve(KERNEL)) continue;
       const lineas = fs.readFileSync(file, 'utf8').split('\n');
       lineas.forEach((linea, i) => {
+        if (esLineaDeComentario(linea)) return;
         for (const { nombre, regex } of PATRONES) {
           if (regex.test(linea)) {
             acusaciones.push(`${path.relative(CLI_DIR, file)}:${i + 1} — ${nombre}`);
@@ -230,6 +254,22 @@ describe('censo: ningún predicado de confirmación fuera del kernel', () => {
       });
     }
     expect(acusaciones).toEqual([]);
+  });
+
+  it('despojar la prosa no ciega al censo: el mismo texto acusa en código y calla en comentario', () => {
+    // La verificación en las DOS direcciones que la casa exige. Sin la primera
+    // mitad, «saltar comentarios» podría convertirse en «saltarlo todo» y
+    // nadie lo notaría hasta que un predicado real pasara de largo.
+    const predicado = "      return /^y(es)?$/i.test((answer ?? '').trim());";
+    expect(esLineaDeComentario(predicado)).toBe(false);
+    expect(PATRONES.some(({ regex }) => regex.test(predicado))).toBe(true);
+
+    for (const prosa of [
+      '      // nació con /^y(es)?$/ —sólo inglés— en un producto mexicano',
+      '   * el predicado era /^y|^s/i, una alternancia sin anclar',
+    ]) {
+      expect(esLineaDeComentario(prosa), `debería leerse como prosa: ${prosa}`).toBe(true);
+    }
   });
 
   it('el censo se vigila a sí mismo: reconoce las formas viejas', () => {

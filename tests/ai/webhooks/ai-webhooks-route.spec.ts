@@ -105,6 +105,8 @@ function post(path: string, body: string, headers: Record<string, string> = {}):
 interface WebhookResponseBody {
   status?: string;
   deliveryId?: string;
+  /** Sólo en 'received': el aviso de que no se guardó ni se procesará nada. */
+  warning?: string;
   error?: string;
   meta?: { request_id?: string; timestamp?: string; version?: string };
 }
@@ -162,6 +164,8 @@ describe('POST /v1/ai/webhooks/:tokenName', () => {
     const body = await readBody(res);
     expect(body.status).toBe('processed');
     expect(body.deliveryId).toBe('del-1');
+    // El camino honesto no lleva aviso: hubo borradores de verdad.
+    expect(body.warning).toBeUndefined();
     // Tenant scoping: everything after auth ran inside withTenant(tenant-a).
     expect(tenantsEntered).toEqual(['tenant-a']);
     expect(runReaderTurn).toHaveBeenCalledTimes(1);
@@ -184,6 +188,28 @@ describe('POST /v1/ai/webhooks/:tokenName', () => {
     expect(body.status).toBe('duplicate');
     expect(body.deliveryId).toBe('del-1');
     expect(runReaderTurn).not.toHaveBeenCalled();
+    // 'duplicate' informa de una fila previa REAL: tampoco promete de más.
+    expect(body.warning).toBeUndefined();
+  });
+
+  // El caso más caro: el lector revienta, la fila se queda en 'received' y el
+  // banco recibe 200. El cuerpo ya se tiró y el reenvío saldrá por la rama
+  // duplicate sin despertar a nadie, así que ese 200 no puede prometer una
+  // segunda pasada. Ancla el aviso justo donde más se parecía a una promesa.
+  it('200 {status: received} + aviso cuando el lector falla: el cuerpo no se guardó', async () => {
+    primeQueries({ tokenRows: [TOKEN], insertRows: [DELIVERY] });
+    runReaderTurn.mockRejectedValueOnce(new Error('provider 503'));
+    const res = await post(
+      '/v1/ai/webhooks/bank-bbva',
+      JSON.stringify({ transaction_id: 'tx-777', amount: 100 }),
+      AUTH
+    );
+    expect(res.status).toBe(200);
+    const body = await readBody(res);
+    expect(body.status).toBe('received');
+    expect(runReaderTurn).toHaveBeenCalledTimes(1);
+    expect(body.warning).toMatch(/NOT processed/);
+    expect(body.warning).toMatch(/payload was NOT stored/);
   });
 
   it('415 for a non-JSON content type', async () => {
@@ -348,8 +374,15 @@ describe('POST /v1/ai/webhooks/:tokenName', () => {
         body: JSON.stringify({ transaction_id: 'tx-777' }),
       });
       expect(res.status).toBe(200);
-      expect((await readBody(res)).status).toBe('received');
+      const body = await readBody(res);
+      expect(body.status).toBe('received');
       expect(runReaderTurn).not.toHaveBeenCalled();
+      // El 200 no promete lo que no cumple: sin lector cableado el cuerpo se
+      // tiró, nadie lo retoma, y reenviarlo sale como duplicate. Si alguien
+      // borra el aviso sin darle al payload una columna, esto se cae.
+      expect(body.warning).toBeDefined();
+      expect(body.warning).toMatch(/payload was NOT stored/);
+      expect(body.warning).toMatch(/duplicate/);
     } finally {
       await new Promise<void>((resolve, reject) =>
         bare.close((err) => (err ? reject(err) : resolve()))

@@ -127,12 +127,16 @@ export const PERMISOS = {
  * constancia de que pasa a propósito.
  */
 export const SIN_RESOLUTOR = {
-  Query: {
-    balanceSheet:
-      'Declarada y sin resolutor. El informe lo sirve GET /v1/reports/balance-sheet con reports:read.',
-    incomeStatement:
-      'Declarada y sin resolutor. El informe lo sirve GET /v1/reports/income-statement con reports:read.',
-  },
+  // Vacío, y por una vez eso es la noticia. Aquí estaban `balanceSheet` e
+  // `incomeStatement`: declaradas en el esquema, sin resolutor, y por tanto dos
+  // campos NO NULOS que reventaban al invocarse. Declararlas ausentes dejaba
+  // constancia de que reventaban a propósito, que es mejor que el olvido y
+  // sigue siendo un contrato que nadie puede ejercer — la introspección las
+  // publicaba igual. Se RETIRARON del esquema, con sus siete tipos, y por eso
+  // salen también de aquí: la compuerta acusa como hueco toda entrada del
+  // catálogo que el esquema no declare, así que las dos mitades se mueven
+  // juntas o no se mueven. Los informes los sirve REST con reports:read.
+  Query: {},
   Mutation: {
     // LA ÚNICA QUE QUEDA, Y NO POR FALTA DE TIEMPO.
     //

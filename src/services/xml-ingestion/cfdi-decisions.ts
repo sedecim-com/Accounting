@@ -25,8 +25,13 @@ export interface DecisionPoint {
   id: string;
   severity: DecisionSeverity;
   question: string;
-  /** Context shown to the human so they can decide. */
-  context: (f: CfdiFacts) => string;
+  /**
+   * Context shown to the human so they can decide. It takes the effective
+   * thresholds for the same reason `applies` does: a floor or a rate that
+   * decides whether the question is asked has to be visible in the text of
+   * the question, or the human is deciding against a number they cannot see.
+   */
+  context: (f: CfdiFacts, thresholds?: PolicyThresholds) => string;
   options: DecisionOption[];
   /** Default option when the decision is advisory. */
   default?: string;
@@ -49,6 +54,19 @@ const money = (n: number, moneda = 'MXN') =>
 export const CAPITALIZATION_THRESHOLD_MXN = 20_000;
 
 /**
+ * DEFAULT floor for deferring a multi-period expense. The effective value
+ * comes from the 'umbral_anticipado_mxn' policy (see `mnemosine pending`);
+ * this constant only applies when evaluating without tenant context.
+ *
+ * It exists because the deferral used to be offered on ANY amount whose
+ * description matched a pattern: a 900-peso annual subscription got the same
+ * question as a 60,000-peso insurance policy, and answering it the wrong way
+ * bought twelve entries of 75 pesos each. Materiality is NIF A-4, and the
+ * firm sets the line.
+ */
+export const PREPAID_THRESHOLD_MXN = 5_000;
+
+/**
  * Policy-resolved thresholds injected by the classifier. Without them the
  * defaults are used, and the decision stays visible as pending.
  */
@@ -57,6 +75,12 @@ export interface PolicyThresholds {
   restaurantPolicy: string;
   iepsTreatment: string;
   inventoryPolicy: string;
+  /**
+   * Floor below which a multi-period expense is NOT deferred. Optional so the
+   * existing builder keeps compiling; when it is missing the declared default
+   * applies, which is the same number the panel defaults to.
+   */
+  prepaidThreshold?: number;
 }
 
 export const DEFAULT_THRESHOLDS: PolicyThresholds = {
@@ -64,6 +88,7 @@ export const DEFAULT_THRESHOLDS: PolicyThresholds = {
   restaurantPolicy: 'split_85',
   iepsTreatment: 'costo',
   inventoryPolicy: 'directo',
+  prepaidThreshold: PREPAID_THRESHOLD_MXN,
 };
 /** Cash payments above this amount are not deductible (LISR 27-III). */
 export const CASH_DEDUCTION_LIMIT_MXN = 2_000;
@@ -122,23 +147,62 @@ export const DECISIONS: DecisionPoint[] = [
     id: 'gasto_vs_anticipado',
     severity: 'advisory',
     question: 'Does the expense cover several periods? Is it accrued, or recorded in full this month?',
-    context: (f) =>
+    context: (f, t = DEFAULT_THRESHOLDS) =>
       `${f.emisorNombre} · ${money(f.subtotal, f.moneda)} · "${f.conceptosDescripcion.slice(0, 160)}"\n` +
-      `The description suggests a service with annual or multi-year coverage (insurance, subscription, prepaid rent).`,
+      `The description suggests a service with annual or multi-year coverage (insurance, subscription, prepaid rent), ` +
+      `and the amount reaches the effective deferral floor of ` +
+      `${money(t.prepaidThreshold ?? PREPAID_THRESHOLD_MXN)}.\n` +
+      `Note: deferring books the amount to the prepaid-expenses account (1160) and nothing takes it ` +
+      `out of there on its own. To accrue it, register the schedule afterwards ` +
+      `(mnemosine prepaid create --origin cfdi --source-entry <id> --start <date> --end <date>) and ` +
+      `the monthly run (mnemosine prepaid run) will do the rest: the expense does not reach the ` +
+      `income statement without the schedule.`,
     options: [
       { value: 'gasto', label: 'Full period expense', role: 'gasto' },
-      { value: 'gasto_anticipado', label: 'Prepaid expenses (accrued month by month)', role: 'gasto_anticipado' },
+      // HISTORIA DE ESTA ETIQUETA, y es la peor variante del defecto que la
+      // hermana de arriba ya corrigió dos veces. Decía «Prepaid expenses
+      // (accrued month by month)» y su fundamento citaba la NIF A-2 cuando en
+      // el sistema NADA devengaba: ni tabla, ni migración, ni motor, ni
+      // comando — cero menciones de prepaid/accrual en todo `src` fuera de la
+      // descripción sembrada de la 1160. El importe entraba al activo y se
+      // quedaba ahí para siempre: el gasto no llegaba nunca al resultado, el
+      // balance cuadraba todos los meses y sólo lo delataba un saldo que
+      // crecía. Citar la norma como respaldo de un acto que no ocurre es peor
+      // que no ofrecer la opción, porque el usuario elige contando con un
+      // devengo que nadie iba a calcular. D1a entregó la 059, el alta y la
+      // corrida, y la etiqueta vuelve a subir — pero sólo hasta donde es
+      // verdad: elegir esto NO da de alta el calendario. El paso que falta se
+      // nombra, aquí y en el contexto, porque sin él el devengo no aparece.
+      {
+        value: 'gasto_anticipado',
+        label:
+          'Prepaid expenses (booked to 1160; register the schedule with `prepaid create` so the monthly run accrues it)',
+        role: 'gasto_anticipado',
+      },
     ],
     default: 'gasto',
     topic: (f) => `devengo:${f.emisorRfc}`,
-    applies: (f) =>
+    // EL PISO DE IMPORTE, QUE NO EXISTÍA. La opción se ofrecía por la sola
+    // expresión regular, así que una suscripción de 900 pesos recibía la misma
+    // pregunta que una póliza de 60.000 y podía acabar partida en doce
+    // asientos de 75. El piso es materialidad (NIF A-4) y lo fija el despacho
+    // en `umbral_anticipado_mxn`; el servicio del devengo lee esa misma
+    // política en el alta (prepaid-service.ts), de modo que ofrecer aquí lo
+    // que allí se rechazaría era además una pregunta sin salida.
+    applies: (f, t = DEFAULT_THRESHOLDS) =>
       f.direction === 'recibido' &&
       f.tipo === 'I' &&
+      f.subtotal >= (t.prepaidThreshold ?? PREPAID_THRESHOLD_MXN) &&
       // Matches Spanish wording in real invoice descriptions — do not translate.
       /\b(seguro|p[oó]liza|anual|suscripci[oó]n|licencia|mantenimiento anual|renta anticipada|prima)\b/i.test(
         f.conceptosDescripcion
       ),
-    basis: 'NIF A-2 (accrual accounting).',
+    basis:
+      'NIF A-2 (accrual accounting), and it is now an act and not only a norm: the schedule is ' +
+      'registered with `mnemosine prepaid create` and posted month by month by `mnemosine prepaid ' +
+      'run` (services/accruals, migration 059). Choosing this option only books the amount to ' +
+      '1160; without the schedule nothing accrues it. The floor comes from the ' +
+      '`umbral_anticipado_mxn` policy.',
   },
 
   // ── Deductibility ──
