@@ -37,7 +37,7 @@ const LINEAS = [
 
 /** Reglas mínimas para un alta completa. `postead` decide qué devuelve la
  *  relectura del asiento tras el UPDATE a 'posted'. */
-function reglasAlta(opts: { periodo?: boolean; siguienteFolio?: string } = {}) {
+function reglasAlta(opts: { periodo?: boolean; siguienteFolio?: string; moneda?: string | null } = {}) {
   const draft = asientoFalso({ entry_number: 'JE-2026-00007' });
   const posted = asientoFalso({ entry_number: 'JE-2026-00007', status: 'posted' } as Partial<JournalEntry>);
   const lineas = [
@@ -48,6 +48,12 @@ function reglasAlta(opts: { periodo?: boolean; siguienteFolio?: string } = {}) {
     {
       cuando: /FROM fiscal_periods/,
       responde: opts.periodo === false ? { rows: [] } : { rows: [{ id: ID.periodo }] },
+    },
+    // R4: la moneda funcional sólo se consulta si alguna línea trae FX.
+    // `moneda: null` simula la entidad invisible (cero filas).
+    {
+      cuando: /SELECT functional_currency FROM legal_entities/,
+      responde: { rows: opts.moneda === null ? [] : [{ functional_currency: opts.moneda ?? 'MXN' }] },
     },
     { cuando: /INSERT INTO entity_sequences/, responde: { rows: [{ value: opts.siguienteFolio ?? '7' }] } },
     { cuando: /INSERT INTO journal_entries/, responde: {} },
@@ -216,3 +222,73 @@ describe('createJournalEntry · transacción del llamador', () => {
     expect(attest).not.toHaveBeenCalled();
   });
 });
+
+// ============================================================
+// R4 · EL ORIGEN EN MONEDA EXTRANJERA (posting.ts:117-141)
+//
+// El CHECK de la 001 sólo exige que las cuatro columnas viajen juntas; que
+// DIGAN LA VERDAD lo exige este bloque: funcional = extranjero × tasa,
+// half-up a 4. Estas pruebas cubren las cuatro salidas del bloque — pasa,
+// no casa, incompleto, entidad invisible — y la garantía de que el asiento
+// 100 % funcional no paga la consulta de moneda.
+// ============================================================
+
+const LINEAS_FX = [
+  {
+    account_id: ID.cuentaA, debit_amount: '1712.3400', credit_amount: null, description: 'cargo',
+    currency_code: 'USD', foreign_debit: '100.00', foreign_credit: null, exchange_rate: '17.1234',
+  },
+  {
+    account_id: ID.cuentaB, debit_amount: null, credit_amount: '1712.3400', description: 'abono',
+    currency_code: 'USD', foreign_debit: null, foreign_credit: '100.00', exchange_rate: '17.1234',
+  },
+];
+
+describe('createJournalEntry · R4: el origen en moneda extranjera', () => {
+  it('las cuatro columnas FX viajan al INSERT y la moneda funcional se consulta UNA vez', async () => {
+    const cf = (arnes.actual = reglasAlta());
+    await createJournalEntry(ID.entidad, new Date('2026-08-15'), 'standard' as never, 'USD', LINEAS_FX, ID.usuario);
+
+    expect(cf.coincidencias(/SELECT functional_currency FROM legal_entities/)).toHaveLength(1);
+    const insertos = cf.coincidencias(/INSERT INTO journal_entry_lines/);
+    expect(insertos).toHaveLength(2);
+    // Posiciones 10-13 del INSERT de 13 columnas: moneda, foreign_debit,
+    // foreign_credit, tasa. El origen entra al mayor TAL CUAL se declaró.
+    expect(insertos[0].params.slice(9)).toEqual(['USD', '100.00', null, '17.1234']);
+    expect(insertos[1].params.slice(9)).toEqual(['USD', null, '100.00', '17.1234']);
+  });
+
+  it('el funcional que no casa se rechaza con LOS TRES NÚMEROS y no llega al INSERT', async () => {
+    const cf = (arnes.actual = reglasAlta());
+    const mentira = [{ ...LINEAS_FX[0], debit_amount: '1712.3500' }, LINEAS_FX[1]];
+    await expect(
+      createJournalEntry(ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', mentira, ID.usuario)
+    ).rejects.toThrow(/100\.00[\s\S]*17\.1234[\s\S]*1712\.3400[\s\S]*1712\.3500/);
+    expect(cf.coincidencias(/INSERT INTO journal_entry_lines/)).toHaveLength(0);
+  });
+
+  it('una línea en USD sin sus columnas completas se rechaza nombrando lo que falta', async () => {
+    arnes.actual = reglasAlta();
+    const aMedias = [
+      { account_id: ID.cuentaA, debit_amount: '1000.0000', credit_amount: null, description: 'x', currency_code: 'USD' },
+      LINEAS_FX[1],
+    ];
+    await expect(
+      createJournalEntry(ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', aMedias, ID.usuario)
+    ).rejects.toThrow(/foreign|origen|falta/i);
+  });
+
+  it('la entidad que no devuelve moneda es ENTITY_NOT_FOUND, no un TypeError', async () => {
+    arnes.actual = reglasAlta({ moneda: null });
+    await expect(
+      createJournalEntry(ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', LINEAS_FX, ID.usuario)
+    ).rejects.toThrow(/no existe o no es visible/);
+  });
+
+  it('el asiento 100 % en moneda funcional NO paga la consulta de moneda', async () => {
+    const cf = (arnes.actual = reglasAlta());
+    await createJournalEntry(ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', LINEAS, ID.usuario);
+    expect(cf.coincidencias(/SELECT functional_currency FROM legal_entities/)).toHaveLength(0);
+  });
+});
+

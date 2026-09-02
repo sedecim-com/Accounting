@@ -17,6 +17,12 @@ import {
   ivaTreatmentNote,
   type MetodoPagoDecision,
 } from './iva-cash-basis.js';
+import {
+  convertirAFuncional,
+  desgloseCambiarioDelPago,
+  monedaFuncionalDe,
+  type ContextoCambiario,
+} from './moneda-origen.js';
 
 // ============================================================
 // AR/AP → GL POSTING
@@ -63,6 +69,16 @@ interface JeLine {
   description: string;
   cost_center_id?: string;
   project_id?: string;
+  /**
+   * R4 · B-15: las cuatro columnas FX viajan juntas (CHECK de la 001). Una
+   * línea nacida de un documento en otra moneda lleva su importe original y
+   * el tipo con el que se convirtió a funcional; una línea funcional no
+   * lleva ninguna. Strings, como todo el dinero de este sistema.
+   */
+  currency_code?: string;
+  foreign_debit?: string;
+  foreign_credit?: string;
+  exchange_rate?: string;
 }
 
 function requireRole(map: Map<string, string>, role: string): string {
@@ -104,6 +120,26 @@ export async function postInvoiceEntry(
   const ivaRole = metodo ? ivaRoleFor('issued', metodo.metodo) : 'iva_trasladado';
 
   const roles = await roleAccounts(client, invoice.entity_id, ['cxc', ivaRole, 'ingreso']);
+
+  // ── R4 · la guarda espejo del lado AR ─────────────────────────────────
+  //
+  // El cableado FX de cobros es fase 2, pero la REGLA de R4 no espera:
+  // ninguna línea pierde su origen en silencio. Antes, una factura de
+  // USD 1000 se posteaba como MXN 1000 sin guarda ni columnas — el pecado
+  // original vivo en el lado que factura. Hasta que el cobro convierta como
+  // ya convierte el gasto, la factura en moneda extranjera SE NIEGA a
+  // postearse: un ingreso subvaluado 18× con veredicto limpio es peor que
+  // un posteo detenido que dice por qué.
+  const funcionalAr = await monedaFuncionalDe(client, invoice.entity_id);
+  if (invoice.currency_code && invoice.currency_code !== funcionalAr) {
+    throw new AccountingError(
+      'FX_AR_NOT_WIRED',
+      `${invoice.invoice_number} está en ${invoice.currency_code} y los libros en ${funcionalAr}. ` +
+        `El posteo de ingresos aún no convierte moneda extranjera (es fase 2 de R4): postearla hoy ` +
+        `asentaría ${invoice.currency_code} como si fueran ${funcionalAr}, sin rastro del importe ` +
+        `original. El gasto ya convierte; el ingreso se detiene hasta tener el mismo motor.`
+    );
+  }
 
   const jeLines: JeLine[] = [
     {
@@ -165,32 +201,98 @@ export async function postBillEntry(
 
   const roles = await roleAccounts(client, bill.entity_id, ['cxp', ivaRole, 'gasto']);
 
-  const jeLines: JeLine[] = [
-    {
-      account_id: requireRole(roles, 'cxp'),
-      debit_amount: null,
-      credit_amount: bill.total_amount,
-      description: `Bill ${bill.bill_number}`,
-    },
-    ...lines.map((line) => ({
-      account_id: line.account_id || requireRole(roles, 'gasto'),
-      debit_amount: line.line_amount,
-      credit_amount: null,
-      description: line.description || `Bill ${bill.bill_number} - line ${line.line_number}`,
-      cost_center_id: line.cost_center_id || undefined,
-      project_id: line.project_id || undefined,
-    })),
-  ];
+  // ── R4 · B-15: EL GASTO EN MONEDA EXTRANJERA SE CONVIERTE AL NACER ────
+  //
+  // El mayor se lleva en la moneda funcional; lo que el documento dice en
+  // la suya viaja en las cuatro columnas FX de cada línea. La tasa es la
+  // DEL DOCUMENTO: el pasivo vale lo que valía el día que nació, y lo que
+  // pase después es diferencia cambiaria del pago (realizada, abajo) o del
+  // cierre (fase 2), nunca un re-valor retroactivo de este asiento.
+  const funcional = await monedaFuncionalDe(client, bill.entity_id);
+  const enExtranjera = Boolean(bill.currency_code) && bill.currency_code !== funcional;
+  if (enExtranjera) {
+    const tasa = new Decimal(bill.exchange_rate || '0');
+    // El 1.0 exacto es el DEFAULT de la columna, no una tasa capturada:
+    // convertir con él asentaría dólares como si fueran pesos — la pérdida
+    // de origen de siempre, ahora con columnas FX jurando lo contrario.
+    if (!tasa.greaterThan(0) || tasa.equals(1)) {
+      throw new AccountingError(
+        'FX_RATE_MISSING',
+        `${bill.bill_number} está en ${bill.currency_code} y los libros en ${funcional}, ` +
+          `pero su exchange_rate es ${bill.exchange_rate ?? 'nulo'} (el default de captura). ` +
+          `Registra el tipo de cambio del documento antes de aprobarlo: sin él el pasivo se ` +
+          `asentaría sin convertir y perdería su origen (NIF B-15).`
+      );
+    }
+  }
+  const conv = (importe: string): string =>
+    enExtranjera ? convertirAFuncional(importe, bill.exchange_rate) : importe;
+  const fxCargo = (
+    importe: string
+  ): Pick<JeLine, 'currency_code' | 'foreign_debit' | 'exchange_rate'> =>
+    enExtranjera
+      ? {
+          currency_code: bill.currency_code,
+          foreign_debit: importe,
+          exchange_rate: bill.exchange_rate,
+        }
+      : {};
+
+  const cargos: JeLine[] = lines.map((line) => ({
+    account_id: line.account_id || requireRole(roles, 'gasto'),
+    debit_amount: conv(line.line_amount),
+    credit_amount: null,
+    description: line.description || `Bill ${bill.bill_number} - line ${line.line_number}`,
+    cost_center_id: line.cost_center_id || undefined,
+    project_id: line.project_id || undefined,
+    ...fxCargo(line.line_amount),
+  }));
   if (new Decimal(bill.tax_amount || '0').greaterThan(0)) {
-    jeLines.push({
+    cargos.push({
       account_id: requireRole(roles, ivaRole),
-      debit_amount: bill.tax_amount,
+      debit_amount: conv(bill.tax_amount),
       credit_amount: null,
       description: metodo
         ? `IVA ${describeMetodo(metodo)} - Bill ${bill.bill_number} · ${ivaTreatmentNote('received', metodo)}`
         : `Creditable IVA - Bill ${bill.bill_number}`,
+      ...fxCargo(bill.tax_amount),
     });
   }
+
+  // El abono a cxp: en funcional es el total del documento, como siempre.
+  // En extranjera es la SUMA de los cargos YA convertidos, no total × tasa:
+  // cada cargo se redondeó a 4 decimales por separado y el asiento cuadra
+  // contra lo que de verdad se asentó, no contra la multiplicación teórica.
+  const abonoCxp = enExtranjera
+    ? cargos.reduce((s, l) => s.plus(l.debit_amount ?? '0'), new Decimal(0)).toFixed(4)
+    : bill.total_amount;
+  // Las columnas FX del abono, sólo cuando dicen la verdad: si la suma de
+  // los cargos redondeados coincide con total × tasa (el caso normal), el
+  // pasivo lleva su origen completo. Cuando difieren por el redondeo por
+  // línea —construible: dos líneas cuyos productos redondean hacia arriba—
+  // NINGÚN par (importe, tasa) honesto reproduce la suma, y declarar
+  // total × tasa hacía que verificarOrigenFx tumbara el asiento ENTERO:
+  // el gasto legítimo no se podía postear. El origen del documento queda en
+  // bills (currency_code, exchange_rate), que es de donde lee el pago.
+  const fxAbonoCxp =
+    enExtranjera &&
+    new Decimal(abonoCxp).equals(convertirAFuncional(bill.total_amount, bill.exchange_rate))
+      ? {
+          currency_code: bill.currency_code,
+          foreign_credit: bill.total_amount,
+          exchange_rate: bill.exchange_rate,
+        }
+      : {};
+  const jeLines: JeLine[] = [
+    {
+      account_id: requireRole(roles, 'cxp'),
+      debit_amount: null,
+      credit_amount: abonoCxp,
+      description: `Bill ${bill.bill_number}`,
+      ...fxAbonoCxp,
+    },
+    ...cargos,
+  ];
 
   const entry = await createJournalEntry(
     bill.entity_id,
@@ -338,13 +440,26 @@ interface PaymentRow {
 async function ivaReclassLines(
   client: pg.PoolClient,
   side: 'issued' | 'received',
-  payment: PaymentRow
+  payment: PaymentRow,
+  /**
+   * R4 · sólo lado proveedor por ahora: la tasa HISTÓRICA de cada gasto en
+   * moneda extranjera, para que el IVA aparcado se libere valuado igual que
+   * se aparcó (a la tasa del documento). Sin esto, el pro-rata en moneda del
+   * documento se compararía crudo contra un saldo aparcado en funcional.
+   */
+  fx?: { moneda: string; tasasPorDocumento: Map<string, string> }
 ): Promise<{ lines: JeLine[]; documents: string[]; items: { documentId: string; amount: string }[] }> {
   if (!(await entityUsesCashBasisIva(client, payment.entity_id))) {
     return { lines: [], documents: [], items: [] };
   }
 
-  const items = await ivaReclassificationsFor(client, side, payment.entity_id, payment.id);
+  const items = await ivaReclassificationsFor(
+    client,
+    side,
+    payment.entity_id,
+    payment.id,
+    fx?.tasasPorDocumento
+  );
   if (items.length === 0) return { lines: [], documents: [], items: [] };
 
   const { from, to } = reclassRoles(side);
@@ -369,17 +484,25 @@ async function ivaReclassLines(
       r === pending
         ? `IVA released from ${r.role} on ${event} - ${tail}`
         : `IVA now in ${r.role} (PPD ${event}) - ${tail}`;
+    // La pareja es autocuadrante también en extranjera: mismo importe
+    // funcional en las dos líneas, y las columnas FX dicen de qué importe
+    // original y a qué tasa salió.
+    const conFx = fx && item.tasa && item.importeOriginal
+      ? { currency_code: fx.moneda, exchange_rate: item.tasa }
+      : null;
     lines.push({
       account_id: debited.id,
       debit_amount: item.amount,
       credit_amount: null,
       description: note(debited),
+      ...(conFx && item.importeOriginal ? { ...conFx, foreign_debit: item.importeOriginal } : {}),
     });
     lines.push({
       account_id: credited.id,
       debit_amount: null,
       credit_amount: item.amount,
       description: note(credited),
+      ...(conFx && item.importeOriginal ? { ...conFx, foreign_credit: item.importeOriginal } : {}),
     });
   }
   return {
@@ -854,17 +977,140 @@ export async function postReceiptUnapplicationEntry(
  * DR iva_acreditable · CR iva_pendiente_acreditar for the paid share. Under
  * LIVA art. 5 the input IVA becomes creditable here, not when the bill
  * arrived.
+ *
+ * R4 · Con `fx` (el pago está en otra moneda que la funcional): cada pasivo
+ * se extingue al tipo al que NACIÓ y el efectivo sale al tipo de HOY; la
+ * brecha es la diferencia cambiaria REALIZADA y va a perdida_cambiaria /
+ * utilidad_cambiaria — la mitad realizada de NIF B-15. La NO realizada
+ * (revaluar saldos vivos al cierre) es fase 2 y no pasa por aquí.
  */
 export async function postVendorPaymentEntry(
   client: pg.PoolClient,
   payment: PaymentRow,
-  userId: string
+  userId: string,
+  fx?: ContextoCambiario
 ): Promise<JournalEntry | null> {
   if (payment.journal_entry_id) return null;
   if (!new Decimal(payment.payment_amount).greaterThan(0)) return null;
 
   const bankId = await bankGlAccount(client, payment.entity_id, payment.bank_account_id);
-  const iva = await ivaReclassLines(client, 'received', payment);
+  const iva = await ivaReclassLines(
+    client,
+    'received',
+    payment,
+    fx
+      ? {
+          moneda: fx.moneda,
+          tasasPorDocumento: new Map(fx.aplicaciones.map((a) => [a.billId, a.tasaHistorica])),
+        }
+      : undefined
+  );
+
+  if (fx) {
+    const desglose = desgloseCambiarioDelPago(payment.payment_amount, fx);
+    const dif = desglose.diferencia;
+    const hayAnticipo = new Decimal(desglose.anticipoFuncional).greaterThan(0);
+    const rolesPedidos = [
+      'cxp',
+      ...(desglose.descuentos.length > 0 ? ['devolucion_compras'] : []),
+      ...(hayAnticipo ? ['anticipo_proveedores'] : []),
+      // Los dos roles que llevaban años sembrados sin un solo consumidor:
+      // éste es su primer escritor. Sólo se piden si la diferencia existe.
+      ...(dif.tipo === 'perdida' ? ['perdida_cambiaria'] : []),
+      ...(dif.tipo === 'utilidad' ? ['utilidad_cambiaria'] : []),
+    ];
+    const roles = await roleAccounts(client, payment.entity_id, rolesPedidos);
+
+    const jeLines: JeLine[] = [];
+    // El pasivo, POR DOCUMENTO y no agregado: cada gasto nació con su tasa
+    // y se extingue con ella; agregarlos borraría el origen que la línea
+    // FX existe para conservar.
+    for (const pas of desglose.pasivos) {
+      jeLines.push({
+        account_id: requireRole(roles, 'cxp'),
+        debit_amount: pas.montoFuncional,
+        credit_amount: null,
+        description: `AP settlement ${payment.payment_number} - Bill ${pas.numero}`,
+        currency_code: fx.moneda,
+        foreign_debit: pas.extranjero,
+        exchange_rate: pas.tasa,
+      });
+    }
+    if (hayAnticipo) {
+      // El anticipo es efectivo que salió HOY: va a la tasa del pago.
+      jeLines.push({
+        account_id: requireRole(roles, 'anticipo_proveedores'),
+        debit_amount: desglose.anticipoFuncional,
+        credit_amount: null,
+        description: `On-account advance ${payment.payment_number}`,
+        currency_code: fx.moneda,
+        foreign_debit: desglose.anticipoExtranjero,
+        exchange_rate: fx.tasaPago,
+      });
+    }
+    jeLines.push({
+      account_id: bankId,
+      debit_amount: null,
+      credit_amount: desglose.bancoFuncional,
+      description: `Payment made ${payment.payment_number}`,
+      currency_code: fx.moneda,
+      foreign_credit: new Decimal(payment.payment_amount).toFixed(4),
+      exchange_rate: fx.tasaPago,
+    });
+    for (const desc of desglose.descuentos) {
+      jeLines.push({
+        account_id: requireRole(roles, 'devolucion_compras'),
+        debit_amount: null,
+        credit_amount: desc.montoFuncional,
+        description: `Early-payment discount taken ${payment.payment_number} - Bill ${desc.numero}`,
+        currency_code: fx.moneda,
+        foreign_credit: desc.extranjero,
+        exchange_rate: desc.tasa,
+      });
+    }
+    // La diferencia realizada NO lleva columnas FX: es un resultado que
+    // sólo existe en funcional — su neto en la moneda del documento es
+    // cero, porque se pagaron exactamente los mismos dólares que se debían.
+    if (dif.tipo === 'perdida') {
+      jeLines.push({
+        account_id: requireRole(roles, 'perdida_cambiaria'),
+        debit_amount: dif.montoFuncional,
+        credit_amount: null,
+        description: `Realized FX loss ${payment.payment_number} (${fx.moneda} @ ${fx.tasaPago})`,
+      });
+    } else if (dif.tipo === 'utilidad') {
+      jeLines.push({
+        account_id: requireRole(roles, 'utilidad_cambiaria'),
+        debit_amount: null,
+        credit_amount: dif.montoFuncional,
+        description: `Realized FX gain ${payment.payment_number} (${fx.moneda} @ ${fx.tasaPago})`,
+      });
+    }
+    jeLines.push(...iva.lines);
+
+    const descuentoTotal = desglose.descuentos.reduce(
+      (s2, d) => s2.plus(d.montoFuncional),
+      new Decimal(0)
+    );
+    const entry = await createJournalEntry(
+      payment.entity_id,
+      new Date(payment.payment_date),
+      JournalEntryType.AUTO_PAYMENT,
+      (iva.documents.length
+        ? `Vendor payment ${payment.payment_number} · IVA creditable on payment: ${iva.documents.join(', ')}`
+        : `Vendor payment ${payment.payment_number}`) +
+        (descuentoTotal.greaterThan(0) ? ` · early-payment discount ${descuentoTotal.toFixed(2)}` : '') +
+        (dif.tipo !== 'ninguna'
+          ? ` · realized FX ${dif.tipo === 'perdida' ? 'loss' : 'gain'} ${dif.montoFuncional} ${fx.monedaFuncional}`
+          : ''),
+      jeLines,
+      userId,
+      { autoPost: true, client, sourceType: 'vendor_payment', sourceId: payment.id, reference: payment.payment_number }
+    );
+
+    await client.query('UPDATE vendor_payments SET journal_entry_id = $1 WHERE id = $2', [entry.id, payment.id]);
+    return entry;
+  }
 
   // F04 · EL DESGLOSE DEL PAGO, en tres partes que no siempre coinciden.
   //

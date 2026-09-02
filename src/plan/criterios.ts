@@ -491,6 +491,12 @@ export const CRITERIOS: Criterio[] = [
         // sigue matando sin reapuntarse.
         F05a: 'docs/auditorias/F05a.md',
         F05b: 'docs/auditorias/F05b.md',
+        F05c: 'docs/auditorias/F05c.md',
+        F05d: 'docs/auditorias/F05d.md',
+        F06a: 'docs/auditorias/F06a.md',
+        F06b: 'docs/auditorias/F06b.md',
+        F06c: 'docs/auditorias/F06c.md',
+        R4: 'docs/auditorias/R4.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -556,8 +562,7 @@ export const CRITERIOS: Criterio[] = [
       // entrada reclamada cuya tabla gane escritor sobra: se reporta para
       // borrarla, como la línea base del auditor.
       const RECLAMADAS: Record<string, string> = {
-        asset_categories: 'F06/DEP-2: el alta de activo la necesita (fixed_assets.category_id NOT NULL)',
-            inventory_items: 'familia inventario: el esquema es el diseñado; el motor es neto nuevo (S0.4)',
+        inventory_items: 'familia inventario: el esquema es el diseñado; el motor es neto nuevo (S0.4)',
         inventory_layers: 'familia inventario: capas de costeo',
         inventory_layer_consumption: 'familia inventario: consumo de capas',
         scheduled_payments: 'F04: la programación de pagos retirada con 501 escribe aquí cuando exista',
@@ -1773,12 +1778,51 @@ export const CRITERIOS: Criterio[] = [
   // ---- E1.4 · Módulos sin puerta ----
   {
     paquete: 'E1.4',
-    enunciado: 'La depreciación mensual tiene por dónde invocarse',
+    enunciado: 'La depreciación mensual tiene por dónde invocarse, y la puerta llega al binario',
+    mutantes: [
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerDepreciationCommand(program, { palette: c, shutdown, reportError });',
+        a: '// registerDepreciationCommand fuera del binario',
+        porque: 'la familia entera vuelve a estar verificada y no entregada: 76 pruebas verdes sobre un programa que sólo construye el spec, y una puerta que nadie puede empujar',
+      },
+      {
+        archivo: 'src/services/assets/depreciation-math.ts',
+        de: 'export function indiceDeCalendario(',
+        a: 'export function indiceDeCalendario_(',
+        porque: 'el índice de calendario desaparece del módulo puro: el motor volvería a indexar por su cuenta, que es como marzo repetía la fila de febrero',
+      },
+    ],
     evaluar: () => {
+      // LA HISTORIA DE ESTE CRITERIO ES LA DE SU PROPIA DEBILIDAD. Su primera
+      // versión sólo pedía «un llamador», y F06a lo demostró en vivo: el
+      // llamador existió en depreciation-command.ts, E1.4 se puso VERDE, y el
+      // binario no cargaba ese archivo — una puerta que nadie podía empujar,
+      // exactamente el «verde no es entregado» que F05a ya había enseñado.
+      // consumidoresDe hace grep sobre src/ y no distingue código alcanzable
+      // de código muerto, ni motor correcto de motor roto.
       const cons = consumidoresDe('runMonthlyDepreciation', 'depreciation.ts');
-      return cons.length > 0
-        ? ok(`invocable desde ${cons.join(', ')}`)
-        : falla('runMonthlyDepreciation no tiene llamador: el motor existe y no hay puerta');
+      if (cons.length === 0) {
+        return falla('runMonthlyDepreciation no tiene llamador: el motor existe y no hay puerta');
+      }
+      // 1 · ALCANZABLE: la puerta está registrada en el binario de verdad.
+      if (!/registerDepreciationCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'))) {
+        return falla('registerDepreciationCommand no está en el binario: el llamador vive en un archivo que mnemosine.ts no carga');
+      }
+      // 2 · EL ÍNDICE ES CALENDARIO, NO PROMEDIO. Dividir por 30,44 días
+      // —la longitud MEDIA de un mes— hacía que marzo repitiera la fila de
+      // febrero y que la última no se consumiera nunca: once filas en doce
+      // meses, y la suma posteada jamás daba costo menos salvamento.
+      const math = codigoDe('src/services/assets/depreciation-math.ts');
+      if (!/export function indiceDeCalendario\(/.test(math) || /30\.44/.test(math)) {
+        return falla('la aritmética volvió a medir meses con un promedio (30,44 d): marzo repite febrero y la última fila no se consume nunca');
+      }
+      // 3 · Y EL MOTOR LA USA. Que la función correcta exista no basta si
+      // runMonthlyDepreciation sigue indexando por su cuenta.
+      if (!/indiceDeCalendario\(/.test(codigoDe('src/services/assets/depreciation.ts'))) {
+        return falla('runMonthlyDepreciation dejó de indexar por calendario: el motor no consume la aritmética que sí está bien');
+      }
+      return ok(`invocable desde ${cons.join(', ')}, registrado en el binario, e indexando por calendario`);
     },
   },
   {
@@ -3226,7 +3270,13 @@ export const CRITERIOS: Criterio[] = [
       // debe NOMBRAR la cuenta donde el IVA de un PPD aparca, y decir que un
       // asiento posteado no cambia de estado.
       const cfdi = crudoDe('src/ai/docs/mexico-cfdi.md');
-      if (!/1135/.test(cfdi) || !/2125/.test(cfdi)) {
+      // La FRASE, no el número. Bastaba con que «1135» apareciera en alguna
+      // parte, y F05d añadió una segunda mención (la regla del cheque
+      // cobrado): mutar la del PPD dejaba la otra en pie y el criterio seguía
+      // en verde mientras el manual enseñaba justo lo contrario de lo que
+      // vigila. Un número suelto no es una lección; la lección es a qué cuenta
+      // va el IVA de un PPD.
+      if (!/PPD received → DR 1135/.test(cfdi) || !/2125/.test(cfdi)) {
         return falla('mexico-cfdi.md volvió a enseñar el IVA sin las cuentas de aparcado (1135/2125)');
       }
       return /IMMUTABLE|inmutable/i.test(crudoDe('src/ai/docs/accounting.md'))
@@ -3235,9 +3285,13 @@ export const CRITERIOS: Criterio[] = [
     },
     mutantes: [
       {
+        // Anclado en la FRASE del PPD y no en el número suelto. Con `de: '1135'`
+        // el mutante cambiaba la primera aparición del documento, y F05d añadió
+        // otra antes (la regla del cheque cobrado): el criterio encontraba la
+        // que quedaba y el mutante sobrevivía. El gemelo de siempre.
         archivo: 'src/ai/docs/mexico-cfdi.md',
-        de: '1135',
-        a: '1130',
+        de: 'PPD received → DR 1135',
+        a: 'PPD received → DR 1130',
         porque: 'el manual vuelve a enseñar que el IVA de un PPD se acredita de inmediato: el defecto que iva-ppd-reclass existe para reparar',
       },
       {
@@ -3512,6 +3566,325 @@ export const CRITERIOS: Criterio[] = [
 
 
 
+
+
+  // ---- F05d · La firma y el sello ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El asiento de tesorería cae en el día que ocurrió, no en la víspera',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/treasury-posting.ts',
+        de: "  return new Date(`${iso}T00:00:00`);",
+        a: "  return new Date(`${iso}T00:00:00Z`);",
+        porque: 'vuelve la medianoche UTC: en México el asiento se fecha el día ANTERIOR, y el día 1 de mes eso lo manda al mes anterior con su IVA a otra declaración, cuadrando igual de bien',
+      },
+    ],
+    evaluar: () => {
+      // EL DEFECTO QUE CASI SE VA VIVO, y el único de F05d que era de
+      // gravedad 1. `new Date('2026-06-01T00:00:00Z')` es medianoche UTC, y
+      // `createJournalEntry` pasa ese Date al driver, que lo serializa en la
+      // zona del PROCESO: en México (UTC−6) esa medianoche es el 31 de mayo a
+      // las 18:00. El asiento se guardaba fechado un día antes Y colgado del
+      // periodo fiscal de ese día.
+      //
+      // Medido: un cheque cobrado el 1 de junio posteaba su reclasificación de
+      // IVA en MAYO — es decir, en otra declaración mensual—, y el 1 de enero
+      // se lleva además el folio al ejercicio anterior. Y cuadra igual de
+      // bien, que es lo que lo hacía invisible.
+      //
+      // Afectaba a los TRES verbos de tesorería. `treasury-posting.ts` era el
+      // único de los cuatro sitios del sistema que crean asientos desde una
+      // fecha ISO que lo hacía en UTC.
+      const t = codigoDe('src/services/banking/treasury-posting.ts');
+      if (!/function fechaDelAsiento\(/.test(t)) {
+        return falla('desapareció el constructor único de la fecha del asiento: cada verbo volvería a fabricarla por su cuenta');
+      }
+      if (/new Date\(`\$\{[a-zA-Z.]+\}T00:00:00Z`\)/.test(t)) {
+        return falla('volvió la medianoche UTC: el asiento se fecharía un día antes, y el día 1 de mes eso es el mes anterior');
+      }
+      // Y LO USAN LOS TRES. Que exista el helper no sirve si un verbo se lo
+      // salta: el defecto original era exactamente un sitio de cuatro.
+      const usos = (t.match(/fechaDelAsiento\(/g) ?? []).length;
+      return usos >= 4
+        ? ok('la fecha del asiento la construye un solo sitio, en medianoche local, y los tres verbos la usan')
+        : falla(
+            `sólo ${usos - 1} verbo(s) de tesorería usan el constructor de fecha: el que se lo salte volverá a fechar en la víspera`
+          );
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'La firma congela lo que se firmó, y su hash no depende del orden',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/055_la_firma_y_el_sello.sql',
+        de: "CHECK (status <> 'posted' OR (posted_at IS NOT NULL AND posted_by IS NOT NULL))",
+        a: 'CHECK (true)',
+        porque: 'una sesión podría quedar contabilizada sin decir cuándo ni por quién',
+      },
+      {
+        archivo: 'src/database/migrations/055_la_firma_y_el_sello.sql',
+        de: "CHECK (status NOT IN ('approved', 'posted') OR approval_hash IS NOT NULL)",
+        a: 'CHECK (true)',
+        porque: 'se llegaría a approved sin instantánea sellada: la firma vuelve a ser una palabra que alguien escribe, que es de lo que este módulo viene',
+      },
+    ],
+    evaluar: () => {
+      // Una aprobación sin fecha, sin firmante y sin instantánea es
+      // indistinguible de un UPDATE — que es la forma exacta del defecto
+      // histórico de este módulo. Y la instantánea es lo que permite que un
+      // auditor pregunte «¿esto es lo que se aprobó?» seis meses después, en
+      // vez de mirar el estado de HOY con las partidas ya reclasificadas.
+      const sql = crudoDe('src/database/migrations/055_la_firma_y_el_sello.sql');
+      const svc = codigoDe('src/services/banking/reconciliation-service.ts');
+
+      // Se ancla el CUERPO de cada guardia y no su nombre. Un CHECK puede
+      // conservar el nombre y quedarse en `CHECK (true)`, que es exactamente
+      // el mutante que sobrevivió a la primera versión de este criterio.
+      const guardias: Array<[string, RegExp]> = [
+        ['sesion_firma_coherente', /approved_by IS NOT NULL AND approved_at IS NOT NULL/],
+        ['sesion_aprobada_con_firma', /status NOT IN \('approved', 'posted'\) OR approval_hash IS NOT NULL/],
+        ['sesion_contabilizada_con_rastro', /status <> 'posted' OR \(posted_at IS NOT NULL AND posted_by IS NOT NULL\)/],
+      ];
+      const faltan = guardias
+        .filter(([nombre, cuerpo]) => !new RegExp(`CONSTRAINT ${nombre}`).test(sql) || !cuerpo.test(sql))
+        .map(([nombre]) => nombre);
+      if (faltan.length > 0) {
+        return falla(`la firma perdió guardias en la base (o quedaron vacíos de contenido): ${faltan.join(', ')}`);
+      }
+      // EL HASH TIENE QUE SER DETERMINISTA o la pregunta no se puede
+      // contestar: el mismo contenido serializado en otro orden daría otro
+      // hash, y «no casa» dejaría de significar «alguien lo cambió».
+      if (!/export function hashDeInstantanea\(/.test(svc)) {
+        return falla('no hay una función única que selle la instantánea: dos llamadores producirían dos hashes del mismo contenido');
+      }
+      // Y LA TOLERANCIA CON LA QUE SE CERRÓ SE PERSISTE. Sin ella, la firma
+      // reevaluaba el cuadre con la de hoy y la instantánea sellada de un
+      // cierre legítimo con residual decía que la cuenta NO cuadraba: el único
+      // documento cuyo trabajo es no contradecir al cierre lo contradecía.
+      const persiste = /closing_tolerance DECIMAL\(19,4\)/.test(sql) && /closing_tolerance = \$\d+/.test(svc);
+      return persiste
+        ? ok('la firma va entera o no va, su hash es determinista, y reevalúa con la tolerancia del cierre y no con la de hoy')
+        : falla('la tolerancia del cierre no se persiste o no se escribe: la instantánea firmada volvería a contradecir al cierre que firma');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Contabilizar una comisión ata su movimiento, o el mismo cargo se cuenta dos veces',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/treasury-posting.ts',
+        de: '      await cotejarMovimientoConSuLinea(client, {',
+        a: '      await Promise.resolve({',
+        porque: 'el cargo contabilizado vuelve a levantar DOS partidas conciliatorias que se anulan entre sí: la sesión informa que cuadra y la comisión se puede contabilizar otra vez',
+      },
+    ],
+    evaluar: () => {
+      // `clasificarPartidas` y `movimientosSinExplicar` preguntan por COTEJOS
+      // VIVOS, no por la caché `is_matched`. Un cargo contabilizado sin cotejo
+      // levantaba `cargo-del-banco` del lado del banco y su gemela del lado de
+      // libros: el MISMO hecho contado dos veces, anulándose. Medido, un cargo
+      // de −348 daba dos partidas por −696 y la sesión decía `cuadra: true` —
+      // y sobre esa base la comisión se podía contabilizar por segunda vez,
+      // porque la segunda partida absorbía el desvío.
+      //
+      // La única defensa era acordarse de correr el motor de cotejo antes de
+      // clasificar. Un invariante que depende de que alguien recuerde un paso
+      // no es un invariante.
+      const t = codigoDe('src/services/banking/treasury-posting.ts');
+      if (!/async function cotejarMovimientoConSuLinea\(/.test(t)) {
+        return falla('desapareció el cotejo que ata el movimiento a la línea que lo explica');
+      }
+      // LOS DOS VERBOS que crean línea contra el banco lo llaman: la comisión y
+      // el interés. Se CUENTAN porque son gemelos y anclar «alguna» llamada
+      // dejaría vivo al que rompa el otro.
+      const llamadas = (t.match(/await cotejarMovimientoConSuLinea\(/g) ?? []).length;
+      if (llamadas < 2) {
+        return falla(
+          `sólo ${llamadas} de los 2 verbos que crean línea de banco atan su movimiento: el que no lo ate lo levantará dos veces`
+        );
+      }
+      // Y EL OTRO LADO LO RESPETA: una línea con cotejo vivo está explicada
+      // aunque el sello aún no esté puesto. Sin esto, la línea de la comisión
+      // seguía saliendo como partida hasta contabilizar la sesión.
+      const libros = /rm\.matched_entity_type = 'journal_entry_line'[\s\S]{0,200}?rm\.unapplied_at IS NULL/.test(
+        codigoDe('src/services/banking/reconciling-items.ts')
+      );
+      return libros
+        ? ok('los dos verbos atan su movimiento y un cotejo vivo explica la línea aunque el sello llegue después')
+        : falla('el clasificador volvió a juzgar la partida de libros sólo por el sello: la línea ya cotejada seguiría levantándose');
+    },
+  },
+
+  // ---- F05c · La sesión que cuadra ----
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'Una sesión no puede declararse cuadrada sin que la aritmética conste',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/054_la_sesion_que_cuadra.sql',
+        de: '            OR arithmetic_computed_at IS NOT NULL',
+        a: '            OR true',
+        porque: 'vuelve a caber el defecto histórico: un UPDATE poniendo balanced sin haber calculado nada, que el cierre de periodo lee como prueba de que la cuenta se verificó',
+      },
+      {
+        archivo: 'src/services/banking/reconciliation-service.ts',
+        de: '              arithmetic_computed_at = NOW(),',
+        a: '              beginning_balance = beginning_balance,',
+        porque: 'el único escritor legítimo deja de dejar constancia: la base rechazaría el cierre y `close` quedaría roto, que es mejor que cerrar en falso pero sigue siendo un fallo',
+      },
+    ],
+    evaluar: () => {
+      // EL DEFECTO HISTÓRICO DE ESTE MÓDULO, escrito por su propio código:
+      // `POST /reconciliations/:id/complete` era un UPDATE poniendo
+      // status='balanced' y nada más. Nunca calculó el saldo de libros, nunca
+      // lo comparó con el del banco, nunca miró si quedaba un movimiento sin
+      // cotejar. Las columnas conservaban su DEFAULT 0 y la sesión reportaba
+      // «variance 0» — un cero que significa «nadie restó nada», mostrado como
+      // «la cuenta cuadra». Y period-close lo lee como evidencia de cierre.
+      //
+      // POR ESO EL INVARIANTE NO ES «VARIACIÓN CERO». La variación valía cero,
+      // y valía cero por DEFAULT, que es justo lo contrario de haberla
+      // calculado: un CHECK sobre ella habría dejado pasar el defecto entero.
+      // Lo que se exige es que la aritmética CONSTE.
+      const sql = crudoDe('src/database/migrations/054_la_sesion_que_cuadra.sql');
+
+      if (!/CONSTRAINT sesion_balanceada_con_aritmetica/.test(sql)) {
+        return falla('desapareció el guardia del cuadre: vuelve a poderse declarar balanceada una sesión que nadie calculó');
+      }
+      if (!/OR arithmetic_computed_at IS NOT NULL/.test(sql)) {
+        return falla('el CHECK dejó de exigir constancia de la aritmética: es exactamente el hueco por el que pasó el defecto histórico');
+      }
+      // Y VIVE EN LA BASE, no en el servicio. Un guardia que sólo vive en el
+      // servicio protege el camino que alguien recordó, no la tabla — y lo que
+      // impidió esto durante un año fue exactamente nada.
+      const svc = codigoDe('src/services/banking/reconciliation-service.ts');
+      const escribe = /SET status = 'balanced',\s*\n\s*arithmetic_computed_at = NOW\(\),/.test(svc);
+      return escribe
+        ? ok('«balanceada» exige constancia de la aritmética, y el guardia vive en la base y no en el camino que alguien recuerde')
+        : falla('el cierre dejó de dejar constancia de la aritmética al marcar balanced');
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'Crear un ajuste de conciliación no alcanza el mayor: nace borrador',
+    mutantes: [
+      {
+        // Inserta CÓDIGO, no un comentario. La primera versión metía
+        // `/* createJournalEntry */` y sobrevivía con razón —`codigoDe` quita
+        // los comentarios, y un comentario que nombra el mayor no es un camino
+        // al mayor—, pero el arnés exige que TODO mutante mate: un control
+        // negativo deliberado no cabe en su contrato, así que se sustituye.
+        archivo: 'src/services/banking/reconciliation-adjustments.ts',
+        de: '    await query(',
+        a: '    await createJournalEntry(); await query(',
+        porque: 'basta un camino al mayor dentro del creador de ajustes para que su promesa de «nunca contabiliza por su cuenta» sea falsa',
+      },
+    ],
+    evaluar: () => {
+      // «Crea COMO BORRADORES … nunca contabiliza por su cuenta» es la promesa
+      // literal de la fila 1246. Contabilizar es de F05d, detrás de una firma.
+      // La promesa se verifica contra el SERVICIO, no contra la declaración:
+      // en F05a la misma comprobación destapó que una familia entera estaba
+      // probada y no entregada.
+      const svc = codigoDe('src/services/banking/reconciliation-adjustments.ts');
+      const alMayor = /createJournalEntry|postJournalEntry|INSERT INTO journal_entries/.exec(svc);
+      if (alMayor !== null) {
+        return falla(
+          `el creador de ajustes alcanza el mayor ("${alMayor[0]}"): la fila promete que nunca contabiliza por su cuenta`
+        );
+      }
+      // Y la columna que lo demuestra queda vacía hasta F05d.
+      const sql = crudoDe('src/database/migrations/054_la_sesion_que_cuadra.sql');
+      const nace = /journal_entry_id UUID REFERENCES journal_entries\(id\)/.test(sql);
+      return nace
+        ? ok('el ajuste nace borrador y su asiento queda en NULL hasta que F05d lo contabilice tras una firma')
+        : falla('el ajuste perdió el vínculo con su asiento: no se podría saber cuál contabilizó cuál');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'La partida conciliatoria se puede fechar y corregir, o `close` es inalcanzable',
+    mutantes: [
+      {
+        archivo: 'src/cli/bank-command.ts',
+        de: "    .command('assign')",
+        a: "    .command('assign-x')",
+        porque: 'sin la hoja que fecha una partida, `close` exige una fecha que nadie puede escribir y la primera sesión con una partida queda bloqueada para siempre',
+      },
+    ],
+    evaluar: () => {
+      // EL HUECO QUE F05C TUVO QUE CERRAR AÑADIENDO FILAS AL CATÁLOGO.
+      // `close` exige toda partida CLASIFICADA Y FECHADA;
+      // `clasificarPartidas` levanta toda partida sin fecha —a propósito: nada
+      // en el extracto sabe cuándo se cobrará un cheque—; y el catálogo
+      // publicaba «responsable, fecha esperada y escalamiento» en el listado
+      // sin dar forma de fijar ninguno. La primera sesión con una sola partida
+      // se quedaba bloqueada para siempre, y cuatro de los seis tipos —los dos
+      // errores entre ellos— eran inalcanzables, porque el signo no distingue
+      // una comisión de un error del banco.
+      const cli = codigoDe('src/cli/bank-command.ts');
+      const svc = codigoDe('src/services/banking/reconciling-items.ts');
+
+      const faltan = ['asignarPartida', 'reclasificarPartida'].filter(
+        (f) => !new RegExp(`export async function ${f}\\(`).test(svc)
+      );
+      if (faltan.length > 0) {
+        return falla(`el servicio perdió ${faltan.join(', ')}: no habría con qué fechar ni corregir una partida`);
+      }
+      // Y CON PUERTA. Los dos existían, estaban probados, y ninguno tenía
+      // comando: es la forma exacta de «verde no es entregado».
+      const conPuerta = ['assign', 'correct'].filter((v) =>
+        new RegExp(`\\.command\\('${v}'\\)`).test(cli)
+      );
+      return conPuerta.length === 2
+        ? ok('fechar y corregir una partida tienen servicio Y hoja: `close` es alcanzable desde el binario')
+        : falla(
+            `de las dos hojas que desbloquean \`close\` sólo hay ${conPuerta.length}: sin ellas, la primera sesión con una partida no se cierra nunca`
+          );
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'La casilla del cierre exige que la sesión CUBRA el periodo, no que termine después',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/period-close.ts',
+        de: '       AND rs.start_date <= (SELECT start_date FROM fiscal_periods WHERE id = $2)',
+        a: '       AND true',
+        porque: 'la sesión de septiembre volvería a tildar la casilla de agosto: la casilla diría «conciliado» sobre un mes que nadie miró',
+      },
+    ],
+    evaluar: () => {
+      // `period-close.ts` lee una sesión balanceada como la evidencia de que la
+      // cuenta se verificó contra el banco. Su predicado era «alguna sesión
+      // balanceada que TERMINE después del cierre», y con eso la de septiembre
+      // tildaba la de agosto —30/09 es posterior a 31/08— aunque agosto no se
+      // hubiera conciliado nunca.
+      //
+      // Importa más desde F05c que antes: hasta este tramo la casilla mentía
+      // por su ORIGEN, porque `balanced` se ponía sin aritmética. Ahora
+      // `balanced` se gana, así que lo único que puede estropearla es leerla
+      // mal. Una afirmación que se vuelve cierta merece un lector que no la
+      // arruine.
+      const pc = codigoDe('src/services/accounting/period-close.ts');
+      const cubre =
+        /AND rs\.start_date <= \(SELECT start_date FROM fiscal_periods WHERE id = \$2\)/.test(pc) &&
+        /AND rs\.end_date\s+>= \(SELECT end_date\s+FROM fiscal_periods WHERE id = \$2\)/.test(pc);
+      return cubre
+        ? ok('la casilla exige una sesión que cubra el periodo por los dos extremos')
+        : falla('la casilla del cierre volvió a conformarse con una sesión que termine después: un mes sin conciliar se tildaría con la conciliación del siguiente');
+    },
+  },
+
   // ---- F05b · Los dos lados y el cotejo ----
 
   {
@@ -3670,6 +4043,277 @@ export const CRITERIOS: Criterio[] = [
       return clausura
         ? ok('el sello va con fecha y dueño o no va, y desaplicar clausura el cotejo en vez de borrarlo')
         : falla('la clausura del cotejo perdió su fecha: un cotejo deshecho seguiría contando como vivo');
+    },
+  },
+
+
+
+
+  // ---- F06b · El cierre deja de mirar por la ventana equivocada ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El checklist del cierre mira su propio periodo, consume el mayor y no fabrica veredictos ajenos',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/period-close.ts',
+        de: '        AND document_date BETWEEN (SELECT start_date FROM fiscal_periods WHERE id = $2)',
+        a: '        AND document_date IS NOT NULL',
+        porque: 'vuelve el vicio de F05c en su forma pura: un CFDI pendiente de NOVIEMBRE bloquearía el cierre de AGOSTO, porque la casilla contaría sin filtro de periodo',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerClosingCommand(program, { palette: c, shutdown, reportError });',
+        a: '// registerClosingCommand fuera del binario',
+        porque: 'cuarta repetición del defecto de la casa: la lectura del cierre pasa sus pruebas sobre un programa que sólo construye el spec, y el binario no la carga',
+      },
+    ],
+    evaluar: () => {
+      // TRES MENTIRAS DEL CHECKLIST, cerradas en F06b y ancladas aquí:
+      const pc = codigoDe('src/services/accounting/period-close.ts');
+
+      // 1. Cada casilla mira SU periodo. La de pre-registros contaba sin
+      //    filtro de fecha — el vicio que F05c cazó en la de banco, en su
+      //    forma pura: lo pendiente de noviembre ensuciaba el cierre de agosto.
+      if (!/AND document_date BETWEEN \(SELECT start_date FROM fiscal_periods WHERE id = \$2\)/.test(pc)) {
+        return falla('la casilla de pre-registros volvió a contar sin filtro de periodo: lo pendiente de otro mes ensuciaría este cierre');
+      }
+      // 2. El cierre CONSUME el mayor. runLedgerChecks existía y sólo lo
+      //    llamaban el comando de ledger y el verificador de respaldo: un
+      //    periodo podía cerrarse con el mayor descuadrado sin que ninguna
+      //    casilla lo mirara.
+      if (!/runLedgerChecks/.test(pc)) {
+        return falla('el checklist dejó de correr los chequeos del mayor: un periodo podría cerrarse descuadrado');
+      }
+      // 3. La secuencia: el hueco más viejo, no sólo el vecino. Mirar sólo el
+      //    inmediato anterior hacía invisible reabrir enero detrás de un
+      //    febrero cerrado — el hueco quedaba tapado al cerrar marzo.
+      if (!/'previous-period-closed'/.test(pc)) {
+        return falla('desapareció la casilla de secuencia: cerrar octubre con septiembre abierto volvería a pasar en silencio');
+      }
+      // 4. Y NO SE FABRICAN VEREDICTOS AJENOS: el periodo se resuelve por
+      //    PERTENENCIA (serie TEN) antes de contestar. `explainCloseCheck` de
+      //    la entidad A sobre el periodo de B devolvía «0 ofensores» limpio, y
+      //    la ruta REST servía can_close:true sobre un UUID inventado.
+      const guard = /throw new NotFoundError\('Fiscal period', periodId\)/.test(pc);
+      const entregada = /registerClosingCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'));
+      if (!guard) {
+        return falla('el checklist volvió a contestar sobre periodos que no son de la entidad: un UUID inventado recibiría can_close verdadero');
+      }
+      return entregada
+        ? ok('cada casilla mira su periodo, el mayor se consume, la secuencia se vigila desde el hueco más viejo, la pertenencia se exige y la familia está en el binario')
+        : falla('registerClosingCommand no está en el binario: la lectura del cierre quedó verificada y no entregada');
+    },
+  },
+
+  // ---- F06c · El lote importado por fin se puede aplicar ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El lote respeta su flujo —staged, checked, posted— y se reversa como unidad',
+    mutantes: [
+      {
+        // El diente, no la boca. La primera versión mutaba la APERTURA de la
+        // función añadiendo `return;` — el throw quedaba como código muerto y
+        // toda ancla textual seguía encontrándolo. Un criterio de texto no ve
+        // código muerto: hay que mutar lo que se ancla.
+        archivo: 'src/services/accounting/batch-service.ts',
+        de: '  if (permitidos.includes(lote.status)) return;',
+        a: '  return;',
+        porque: 'la guarda deja pasar TODO estado: un lote staged se postearía sin verificar, que es exactamente lo que el flujo de la 045 existe para impedir',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerBatchCommand(program, { palette: c, shutdown, reportError });',
+        a: '// registerBatchCommand fuera del binario',
+        porque: 'tercera repetición del defecto de la casa: la familia pasa sus 72 pruebas sobre un programa que sólo construye el spec, y el staging de F01 vuelve a no tener salida',
+      },
+    ],
+    evaluar: () => {
+      // F01 dejó una puerta de entrada a un almacén sin salida: `entry import`
+      // deposita pólizas en el staging de la 045 y hasta F06c ningún comando
+      // podía aplicarlas, verificarlas ni reversarlas. El flujo
+      // staged→checked→posted del CHECK de la 045 era un dibujo.
+      const svc = codigoDe('src/services/accounting/batch-service.ts');
+
+      // 1. La guarda de estado existe y es ÚNICA: cada verbo la llama en vez de
+      //    comparar por su cuenta, que es como las máquinas de estados se
+      //    desincronizan.
+      // Se ancla el CUERPO de la guarda —la condición Y el throw—, no su
+      // nombre: una guarda que existe y no muerde es la forma exacta del
+      // mutante que sobrevivió a la primera versión de este criterio.
+      if (!/if \(permitidos\.includes\(lote\.status\)\) return;[\s\S]{0,200}?throw new ConflictError\(/.test(svc)) {
+        return falla('la guarda de estado del lote perdió su diente: existe pero deja pasar, y un lote staged se postearía sin verificar');
+      }
+      const usos = (svc.match(/exigirEstado\(/g) ?? []).length;
+      if (usos < 4) {
+        return falla(`sólo ${usos - 1} verbos pasan por la guarda de estado: el que no pase podrá saltarse el flujo`);
+      }
+      // 2. El origen propio: las pólizas del lote se distinguen de las
+      //    manuales, y la reversa encuentra EXACTAMENTE las suyas.
+      if (!/ORIGEN_LOTE_IMPORTADO = 'import_batch'/.test(svc)) {
+        return falla('las pólizas del lote perdieron su origen propio: la reversa no sabría cuáles son suyas y los informes las contarían como manuales');
+      }
+      // 3. La reversa en bloque usa la transacción del llamador — N espejos,
+      //    todo o nada — y no N transacciones sueltas.
+      const enBloque = /await reverseWithinTransaction\(/.test(svc);
+      // 4. Y está en el binario: tercera vez que una familia entera pasa sus
+      //    pruebas sin que mnemosine la cargue.
+      const entregada = /registerBatchCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'));
+      if (!enBloque) {
+        return falla('la reversa del lote dejó de usar la transacción compartida: N espejos en N transacciones puede dejar medio lote reversado');
+      }
+      return entregada
+        ? ok('la guarda de estado es única y la usan todos los verbos, el origen es propio, la reversa es todo-o-nada y la familia está en el binario')
+        : falla('registerBatchCommand no está en el binario: el staging de F01 vuelve a ser un almacén sin salida');
+    },
+  },
+
+  // ---- R4 · La moneda extranjera, convertida en el origen ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El asiento en moneda extranjera nace con su origen, la conversión se verifica y la reversa lo conserva cruzado',
+    mutantes: [
+      {
+        // El diente: la reversa de un asiento USD construía el espejo sólo en
+        // funcional — la pérdida de origen que R4 existe para matar,
+        // reintroducida por la puerta de la reversión (afecta reverse, void y
+        // batch reverse). El adversarial la cazó con prueba que fallaba.
+        archivo: 'src/services/accounting/posting.ts',
+        de: '    foreign_debit: line.foreign_credit ?? undefined,',
+        a: '    foreign_debit: undefined,',
+        porque: 'el espejo pierde el lado extranjero: reversar un asiento en dólares vuelve a parir un asiento sólo-funcional, y el importe original muere en silencio por la puerta de atrás',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerFxCommand(program, { palette: c, shutdown, reportError });',
+        a: '// registerFxCommand fuera del binario',
+        porque: 'quinta repetición del defecto de la casa: fx-command.ts pasa su spec sobre un Command propio mientras el binario no lo carga — el segundo verificador de R4 lo encontró exactamente así',
+      },
+    ],
+    evaluar: () => {
+      const post = codigoDe('src/services/accounting/posting.ts');
+
+      // 1. Las cuatro columnas FX de la 001 POR FIN se escriben. Antes el
+      //    INSERT escribía nueve columnas y todo asiento en dólares perdía su
+      //    origen al nacer — currencyRule no podía dispararse jamás.
+      if (!/currency_code, foreign_debit, foreign_credit, exchange_rate/.test(post)) {
+        return falla('el INSERT de createJournalEntry dejó de escribir las columnas FX: el asiento en moneda extranjera vuelve a nacer sin origen');
+      }
+      // 2. La conversión se VERIFICA, no se confía: cada línea pasa por
+      //    verificarOrigenFx (funcional = extranjero × tasa, half-up a 4) y el
+      //    rechazo trae los tres números. Sin esto, un llamador puede declarar
+      //    un origen que no casa y el mayor archiva la mentira con CHECK verde.
+      if (!/verificarOrigenFx\(line, monedaFuncional, i \+ 1\)/.test(post)) {
+        return falla('createJournalEntry dejó de verificar el origen contra la conversión: una línea podría declarar un extranjero que no casa con su funcional');
+      }
+      // 3. La reversa CRUZA los lados extranjeros igual que los funcionales.
+      if (!/foreign_debit: line\.foreign_credit \?\? undefined,/.test(post)) {
+        return falla('la reversa dejó de cruzar el origen: el espejo de un asiento en dólares nacería sólo-funcional');
+      }
+      // 4. La fluctuación se identifica (B-15): utilidad y pérdida cambiaria
+      //    tienen cuenta PROPIA — compartir la 4300/6300 con otros ingresos y
+      //    gastos financieros las hacía invisibles, y el neteo es del reporte,
+      //    no de las cuentas.
+      const seed = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
+      if (!/utilidad_cambiaria: '4320'/.test(seed) || !/perdida_cambiaria: '6320'/.test(seed)) {
+        return falla('los roles cambiarios volvieron a compartir cuenta: la fluctuación deja de poder identificarse (NIF B-15)');
+      }
+      const entregada = /registerFxCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'));
+      return entregada
+        ? ok('las cuatro columnas se escriben, la conversión se verifica con los tres números, la reversa cruza el origen, la fluctuación tiene cuenta propia y la familia está en el binario')
+        : falla('registerFxCommand no está en el binario: R4 quedó verificada y no entregada');
+    },
+  },
+
+  // ---- F06a · El activo y su corrida ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El mismo mes no se carga dos veces al mayor, ni cambiando la política entre corridas',
+    mutantes: [
+      {
+        archivo: 'src/services/assets/depreciation.ts',
+        de: "            AND (ds.is_posted = true OR ds.schedule_type = $3)",
+        a: "            AND ds.schedule_type = $3",
+        porque: 'el freno vuelve a acotarse por libro: correr marzo, contestar el panel con la otra base y correr marzo otra vez postea un SEGUNDO asiento — 20.000 en el mayor para un mes que vale 10.000, y con la 041 eso son reversas, no ediciones',
+      },
+    ],
+    evaluar: () => {
+      // MEDIDO por el verificador adversarial, y la secuencia es la que el
+      // propio sistema invita a hacer: correr el mes con `vida_util_nif`,
+      // contestar el panel con `tasa_lisr` —literalmente lo que sugiere el
+      // mensaje de criteriosDeLaCorrida— y correr otra vez. El freno estaba
+      // acotado por `schedule_type`, así que la segunda corrida no encontraba
+      // fila `tax` y debitaba la misma cuenta de gasto por segunda vez.
+      //
+      // Por eso el freno tiene dos mitades: un renglón `is_posted` de
+      // CUALQUIER libro cierra el mayor para ese mes, y el tipo sigue cerrando
+      // la UNIQUE para el calendario.
+      const svc = codigoDe('src/services/assets/depreciation.ts');
+      if (!/AND \(ds\.is_posted = true OR ds\.schedule_type = \$\d\)/.test(svc)) {
+        return falla('el freno de la corrida volvió a acotarse por libro: cambiar la política entre corridas cargaría el mismo mes dos veces');
+      }
+      // Y LA FICHA SE DERIVA DE LO POSTEADO, no del calendario teórico. Los
+      // meses no tienen por qué correrse en orden: con el acumulado teórico,
+      // correr marzo→enero→febrero dejaba la ficha un mes por debajo PARA
+      // SIEMPRE y last_depreciation_date retrocedía. Derivada de la suma de
+      // renglones posteados —que la 056 garantiza con asiento detrás—, ficha
+      // y mayor coinciden por construcción en cualquier orden.
+      const derivada = /current_book_value = fa\.acquisition_cost - p\.acumulada,/.test(svc) &&
+        /SELECT COALESCE\(SUM\(ds\.depreciation_expense\), 0\) AS acumulada,/.test(svc);
+      return derivada
+        ? ok('el freno mira lo posteado de cualquier libro y la ficha es la suma de lo posteado: mayor y ficha no pueden separarse')
+        : falla('la ficha volvió a copiar el renglón teórico del calendario: correr los meses en desorden la separa del mayor para siempre');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'La vida del activo suma exacta: doce filas en doce meses y el tapón cierra al peso',
+    mutantes: [
+      {
+        archivo: 'src/services/assets/depreciation-math.ts',
+        de: '    const restante = base.minus(acumulado);',
+        a: '    const restante = base.dividedBy(2);',
+        porque: 'el último renglón deja de absorber la diferencia de redondeo: 100.000 a 36 meses vuelve a acumular 100.000,0008 y el activo nunca llega a cero exacto',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerAssetCommand(program, { palette: c, shutdown, reportError });',
+        a: '// registerAssetCommand fuera del binario',
+        porque: 'el alta se queda verificada y no entregada: sin ficha no hay activo, y sin activo toda la aritmética de este criterio es letra muerta',
+      },
+    ],
+    evaluar: () => {
+      // El defecto original: el índice del calendario dividía milisegundos
+      // entre 30,44 días —la longitud MEDIA de un mes—, así que marzo repetía
+      // la fila de febrero y la última no se consumía nunca: once filas en
+      // doce meses, y la suma posteada jamás daba costo menos salvamento.
+      // E1.4 ancla el índice; aquí se ancla LO OTRO que hace exacta la vida.
+      const math = codigoDe('src/services/assets/depreciation-math.ts');
+      // El tapón: el último renglón es base − acumulado, no una división más.
+      // Aparece en dos series (línea recta y decrecientes); se CUENTAN porque
+      // son gemelos y un ancla de presencia se conforma con encontrar el otro.
+      const tapones = (math.match(/const restante = base\.minus\(acumulado\);/g) ?? []).length;
+      if (tapones < 2) {
+        return falla(
+          `el tapón del último renglón sobrevive en ${tapones} de las 2 series que agotan la base: la que lo pierda dejará residuo de redondeo para siempre`
+        );
+      }
+      // Y el dinero entra como STRING: el motor viejo pasaba DECIMAL(19,4) por
+      // parseFloat, que es por donde se cuelan los centavos.
+      if (!/acquisition_cost: string;[\s\S]{0,80}?salvage_value: string;/.test(math)) {
+        return falla('el costo o el salvamento volvieron a ser number: los centavos se pierden en el parseFloat de entrada');
+      }
+      // Y EL ALTA ESTÁ EN EL BINARIO. Sin ficha no hay activo, y sin activo
+      // toda la aritmética de arriba es letra muerta — el «verde no es
+      // entregado» que F05a enseñó y F06a repitió con la otra familia.
+      const entregada = /registerAssetCommand\(program/.test(codigoDe('src/cli/mnemosine.ts'));
+      return entregada
+        ? ok('el tapón cierra las dos series al peso, el dinero viaja como cadena y el alta está en el binario')
+        : falla('registerAssetCommand no está en el binario: el alta quedó verificada y no entregada, y nadie puede crear la ficha');
     },
   },
 

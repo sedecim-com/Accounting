@@ -87,21 +87,21 @@ export const DECISIONS: DecisionPoint[] = [
       `${f.emisorNombre} · ${money(f.subtotal, f.moneda)} · "${f.conceptosDescripcion.slice(0, 160)}"\n` +
       `The amount exceeds the effective capitalization threshold ` +
       `or the product key suggests a fixed-asset good.\n` +
-      `Note: capitalizing books the amount to the fixed-asset account and nothing else. ` +
-      `The system does not yet register the asset nor compute its monthly depreciation, ` +
-      `so that deduction will not appear on its own.`,
+      `Note: capitalizing books the amount to the fixed-asset account. To depreciate it, ` +
+      `register the asset card afterwards (mnemosine asset create --contabilizacion ya_contabilizado) ` +
+      `and the monthly run will pick it up: the deduction does not appear without the card.`,
     options: [
-      // La etiqueta decía «capitalized and depreciated». El sistema capitaliza
-      // y NO deprecia: `runMonthlyDepreciation` no tiene un solo llamador y no
-      // existe un INSERT INTO fixed_assets en todo src, así que ni siquiera
-      // hay activo que depreciar. Prometerlo en la pantalla donde el usuario
-      // decide es peor que no ofrecerlo: elige contando con una deducción
-      // mensual que nadie va a calcular, y el activo queda sobrevaluado
-      // creciendo cada mes. Es el mismo acto que CLI-5 — borrar la
-      // declaración de algo que no se realiza.
+      // HISTORIA DE ESTA ETIQUETA, porque cambió dos veces y las dos por
+      // honestidad. Decía «capitalized and depreciated» cuando nada depreciaba
+      // —runMonthlyDepreciation sin llamador y ni un INSERT INTO fixed_assets
+      // en todo src—, así que se degradó a «depreciation NOT computed yet»:
+      // prometer una deducción que nadie calcula es peor que no ofrecerla.
+      // F06a entregó el alta y la corrida, y la etiqueta vuelve a subir — pero
+      // sólo hasta donde es verdad: capitalizar NO da de alta la ficha. El
+      // paso que falta se nombra, porque la deducción sigue sin aparecer sola.
       {
         value: 'activo_fijo',
-        label: 'Fixed asset (capitalized; depreciation NOT computed by the system yet)',
+        label: 'Fixed asset (capitalized; register the card with `asset create` so the monthly run depreciates it)',
         role: 'activo_fijo',
       },
       { value: 'gasto', label: 'Period expense (immediate deduction)', role: 'gasto' },

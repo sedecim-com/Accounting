@@ -1,3 +1,6 @@
+import * as readline from 'node:readline/promises';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { stdin, stdout } from 'node:process';
 import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
@@ -6,25 +9,32 @@ import {
   resolvePeriod,
   getPeriodDetail,
   openPeriod,
+  reopenClosedPeriod,
   listFiscalYears,
   getFiscalYear,
   createFiscalYear,
   assertFiscalYearNumber,
   PERIOD_STATUSES,
 } from '../services/accounting/fiscal-calendar-service.js';
+import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
+import { AccountingError } from '../utils/errors.js';
 import { day, translateDomainError } from './entry-command.js';
 import type { Palette } from './palette.js';
 import {
   declareRisk,
+  gateMutation,
   render,
   resolveFormat,
   withContext,
+  withForce,
   withOutput,
   withSelection,
   resolveActiveEntity,
   requireExplicitEntity,
   usageError,
   conflict,
+  blockedByState,
+  abortedByUser,
   exitCodeFor,
   ExitCode,
   type ExitCodeValue,
@@ -358,6 +368,170 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
           `${deps.palette.dim(`(${day(opened.start_date)} → ${day(opened.end_date)})`)}\n`
       );
     })
+  );
+
+  // ---- period reopen -----------------------------------------------
+  //
+  // La otra puerta del calendario: `open` es future → open; ESTA es
+  // cerrado → open, la operación aparte y auditada a la que openPeriod
+  // remite. El servicio existe desde antes que el comando
+  // (reopenClosedPeriod): exige motivo, se niega sobre 'locked' —la
+  // información ya salió del sistema— y escribe en audit_log la acción
+  // 'reopen' con el estado anterior. Reabrir es el acto que un auditor más
+  // pregunta, así que el rastro no es opcional y no se duplica aquí: lo
+  // escribe el servicio, dentro de su misma transacción.
+  const reopen = period
+    .command('reopen')
+    .alias('reabrir')
+    .argument('<name>', 'period name, YYYY-MM, or id')
+    .description('Reopen a closed period so a correction can land in the month it belongs to');
+  withContext(reopen);
+  withForce(reopen);
+  // Irreversible por CATÁLOGO, no por capricho: técnicamente se vuelve a
+  // cerrar, pero mientras está abierto acepta posteos que cambian lo que el
+  // cierre anterior afirmó — y el kernel añade --dry-run, --yes,
+  // --idempotency-key y (por el verbo) --reason obligatorio.
+  declareRisk(reopen, {
+    risk: 'irreversible',
+    writes: "fiscal_periods.status (cerrado → open); audit_log acción 'reopen' con motivo",
+  });
+  reopen.action(
+    (
+      name: string,
+      opts: CommonOpts & {
+        reason?: string;
+        dryRun?: boolean;
+        yes?: boolean;
+        force?: boolean;
+        idempotencyKey?: string;
+      }
+    ) =>
+      run(async () => {
+        // Tenant FIRST — la misma trampa de RLS que `open` y `create`.
+        bootstrapTenant(opts.tenant);
+        // La copia plana es por tipos: CommonOpts es interface y no lleva la
+        // firma de índice que gateMutation pide.
+        const { dryRun, reason } = gateMutation(reopen, { ...opts });
+        const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+        announceTarget(deps, opts, ctx);
+        const target = await resolvePeriod(ctx.entityId, name);
+
+        // EL MISMO VEREDICTO QUE EL ACTO (el precedente de `year create
+        // --dry-run`): estos guardas replican los del servicio para que la
+        // marcha seca falle exactamente donde fallaría la real, con los
+        // mismos códigos. El servicio los re-comprueba bajo FOR UPDATE, así
+        // que replicarlos aquí no abre ninguna carrera — sólo adelanta la
+        // respuesta. (`as string` como en el servicio: la columna habla en
+        // literales y el tipo en enum.)
+        const estado = target.status as string;
+        if (estado === 'open') {
+          throw new AccountingError('PERIOD_ALREADY_OPEN', `${target.period_name} ya está abierto.`);
+        }
+        if (estado === 'locked') {
+          throw new AccountingError(
+            'PERIOD_LOCKED',
+            `${target.period_name} está 'locked': su información ya salió del sistema y no se ` +
+              'reabre — ni con --force. La corrección va en el periodo abierto más próximo.'
+          );
+        }
+        if (estado !== 'soft_close' && estado !== 'hard_close') {
+          throw new AccountingError(
+            'PERIOD_NOT_CLOSED',
+            `${target.period_name} está '${target.status}': reabrir es sólo para periodos cerrados.`
+          );
+        }
+
+        // El cierre DURO generó asientos de cierre (si fue fin de ejercicio)
+        // y arrastró saldos, y NADA de eso se deshace al reabrir: el mayor es
+        // inmutable (041). Reabrirlo deja esos derivados diciendo lo que el
+        // periodo ya no dice, así que pide la pareja --force + --reason en
+        // vez de pasar como si fuera un soft_close.
+        if (estado === 'hard_close' && opts.force !== true) {
+          throw blockedByState(
+            `${target.period_name} está en hard_close: sus asientos de cierre y el arrastre de ` +
+              'saldos quedan en pie al reabrir (el mayor no se toca). Si de verdad quieres ' +
+              'reabrirlo, repite con --force --reason "<por qué>".'
+          );
+        }
+
+        if (dryRun) {
+          process.stdout.write(
+            `\n${deps.palette.bold(`Would reopen ${target.period_name}`)} ` +
+              `${deps.palette.dim(`(${target.status} → open, ${day(target.start_date)} → ${day(target.end_date)})`)}\n` +
+              deps.palette.dim(
+                '  (dry-run: nothing was written; the reopen would be recorded in the audit trail)\n\n'
+              )
+          );
+          return;
+        }
+
+        // Reabrir cambia lo que un cierre ya afirmó: siempre se confirma, y
+        // sin terminal el comando se niega en vez de suponer consentimiento.
+        if (!opts.yes) {
+          if (!stdin.isTTY) {
+            throw abortedByUser(
+              `Reopen ${target.period_name} (${target.status} → open)? — there is no terminal to ask on. ` +
+                'Re-run with --yes once you are sure, or with --dry-run to see the effect first.'
+            );
+          }
+          const rl = readline.createInterface({ input: stdin, output: stdout });
+          // La comprobación anterior aceptaba como SÍ cualquier respuesta que
+          // empezara por «s», «salir» incluida: quien tecleaba salir para NO
+          // reabrir un periodo cerrado lo reabría. La gramática vive ahora en el
+          // kernel, que distingue el sí del salir y reintenta ante lo ambiguo.
+          const veredicto = await confirmarConReintento(
+            (p) => rl.question(p).catch(() => null),
+            deps.palette.cyan(`Reopen ${target.period_name} (${target.status} → open)? [y/N] `)
+          );
+          rl.close();
+          if (veredicto.incomprendida !== undefined) {
+            process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+          }
+          if (!veredicto.si) {
+            process.stdout.write('Cancelled.\n');
+            return;
+          }
+        }
+
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const acto = await conLlave(
+          { tenantId: ctx.tenantId, entityId: ctx.entityId },
+          {
+            scope: 'period-reopen',
+            clave: opts.idempotencyKey,
+            payloadHash: hashDeCarga(target.id),
+          },
+          async () => {
+            const { period: reabierto, previousStatus } = await reopenClosedPeriod(
+              ctx.entityId,
+              target.id,
+              reviewer.userId,
+              // gateMutation ya exigió el motivo (verbo 'reopen'); el
+              // servicio lo vuelve a exigir por su cuenta — dos cerrojos, un
+              // solo mensaje posible sin motivo.
+              reason ?? ''
+            );
+            return { period_name: reabierto.period_name, previous_status: previousStatus };
+          }
+        );
+
+        if (acto.repetido) {
+          process.stdout.write(
+            `↩ Idempotency hit: key "${opts.idempotencyKey}" already reopened ` +
+              `${acto.resultado.period_name} (was ${acto.resultado.previous_status}). Nothing was executed again.\n`
+          );
+          return;
+        }
+
+        process.stdout.write(
+          `${deps.palette.green('✔')} ${deps.palette.bold(acto.resultado.period_name)} is open again ` +
+            `${deps.palette.dim(`(was ${acto.resultado.previous_status}, by ${reviewer.email}; reason recorded)`)}\n` +
+            deps.palette.dim(
+              '  Statements or filings derived from this period are now stale: regenerate them after re-closing.\n' +
+              '  Close it again with: mnemosine close --period ' + acto.resultado.period_name + '\n'
+            )
+        );
+      })
   );
 }
 

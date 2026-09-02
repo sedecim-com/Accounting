@@ -17,9 +17,15 @@ const BASE: CloseReadiness = {
   canClose: true,
   blockingIssues: [],
   warnings: [],
+  // Desde F06b cada casilla lleva su código estable y su severidad; el
+  // render de `close` sigue mostrando la prosa — los campos nuevos son para
+  // `closing check|explain` y los scripts.
   checklist: [
-    { item: 'All journal entries posted', is_complete: true },
-    { item: 'Bank reconciliations complete', is_complete: false, details: '1 account pending' },
+    { codigo: 'entries-posted', item: 'All journal entries posted', is_complete: true, severity: 'blocking' },
+    {
+      codigo: 'bank-reconciled', item: 'Bank reconciliations complete',
+      is_complete: false, severity: 'warning', details: '1 account pending',
+    },
   ],
   ai: { pendingDrafts: 0, pendingQuestions: 0, pendingExternalOps: 0 },
 };

@@ -50,6 +50,19 @@ const TOP_LEVEL: Record<string, string> = {
   // F05a: la tesorería. `bank` es el sustantivo raíz; `account` y `statement`
   // son calificadores suyos, no sustantivos de primer nivel.
   bank: 'banco',
+  // F06a: el activo y su corrida. Dos familias y no una: `asset` es el
+  // maestro, `depreciation` es el ACTO mensual — igual que `bank` no absorbe
+  // a `reconciliation` genérica.
+  asset: 'activo',
+  depreciation: 'depreciacion',
+  // F06c: el lote que F01 dejaba en un staging sin salida.
+  batch: 'lote',
+  // F06b: la lectura del cierre. `closing` es el proceso; `close` (que ya
+  // existía) es el acto. El alias compuesto viene del catálogo.
+  closing: 'cierre-proceso',
+  // R4: el tipo de cambio como sustantivo raíz. `fx` no se traduce a
+  // «divisa»: el catálogo fijó `cambio`, que es como el despacho lo dice.
+  fx: 'cambio',
   // S3: la vía de recuperación que el propio esquema nombra.
   backup: 'respaldo',
   report: 'reporte',
@@ -107,7 +120,8 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
     balance: 'saldo', role: 'rol', map: 'mapeo',
   },
   entry: { list: 'listar', show: 'ver', create: 'crear', check: 'verificar', post: 'contabilizar', reverse: 'reversar', void: 'anular' },
-  period: { list: 'listar', show: 'ver', open: 'abrir' },
+  // F06b: la reapertura auditada del periodo cerrado gana su hoja.
+  period: { list: 'listar', show: 'ver', open: 'abrir', reopen: 'reabrir' },
   year: { list: 'listar', show: 'ver', create: 'crear' },
   vendor: { list: 'listar', show: 'ver', create: 'crear', edit: 'editar', terms: 'terminos' },
   bill: { list: 'listar', show: 'ver', create: 'crear', line: 'linea', approve: 'aprobar' },
@@ -128,11 +142,23 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   'credit-note': { create: 'crear', show: 'ver', list: 'listar', issue: 'emitir', apply: 'aplicar' },
   ar: { reconcile: 'conciliar', check: 'verificar' },
   ap: { reconcile: 'conciliar' },
+  // R4: `rate` es calificador de `fx`, como `statement` lo es de `bank`.
+  fx: { rate: 'tipo' },
   // F05b: los tres sustantivos del cotejo. `match` es OBJETO aquí (el cotejo),
   // no acto: el verbo `cotejar` sigue reservado para `bank transaction match`.
   bank: {
     account: 'cuenta', statement: 'estado-cuenta',
     transaction: 'movimiento', 'book-item': 'partida-libros', match: 'cotejo',
+    // F05c · la sesión. `conciliacion` es de la SESIÓN y `cotejo` del
+    // emparejamiento de dos renglones: el registro los declara disjuntos, así
+    // que los dos sustantivos conviven aquí sin compartir alias.
+    reconciliation: 'conciliacion', 'reconciling-item': 'partida-conciliatoria',
+    adjustment: 'ajuste',
+    // F05d · los tres sustantivos de tesorería. `check` vive a profundidad 3 a
+    // propósito: la palabra ya es el VERBO de `bank statement check`, y a nivel
+    // raíz una de las dos dejaría de ser aprendible. Por eso su alias es el
+    // sustantivo `cheque` y no el verbo `verificar`.
+    fee: 'comision', interest: 'interes', check: 'cheque',
   },
   backup: { create: 'crear', list: 'listar', verify: 'comprobar', restore: 'restaurar' },
   report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },
@@ -222,7 +248,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

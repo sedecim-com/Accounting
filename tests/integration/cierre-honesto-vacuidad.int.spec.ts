@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { getPeriodCloseStatus, softClosePeriod } from '../../src/services/accounting/period-close.js';
+import { createJournalEntry } from '../../src/services/accounting/posting.js';
 
 // ============================================================
 // El checklist del cierre daba verde por VACUIDAD: con cero
@@ -120,16 +121,36 @@ describe('universo poblado: la semántica de siempre sigue intacta', () => {
 
   it('conciliado y depreciado, los items dan verde DE VERDAD: hubo algo que mirar y se miró', async () => {
     await query(
+      // `arithmetic_computed_at` no es adorno del fixture: F05c añadió el CHECK
+      // `sesion_balanceada_con_aritmetica`, que impide marcar una sesión como
+      // «balanced» sin haber recalculado los dos lados. Esta prueba afirma que
+      // «hubo algo que mirar y SE MIRÓ», así que su sesión tiene que haberse
+      // mirado de verdad — antes se firmaba el cuadre con dos ceros.
       `INSERT INTO reconciliation_sessions (bank_account_id, entity_id, start_date, end_date,
-         beginning_balance, ending_balance_per_bank, status)
-       VALUES ($1, $2, '2026-02-01', '2026-12-31', '0', '0', 'balanced')`,
+         beginning_balance, ending_balance_per_bank, status, arithmetic_computed_at)
+       VALUES ($1, $2, '2026-02-01', '2026-12-31', '0', '0', 'balanced', NOW())`,
       [cuentaBancaria, f.entityId]
     );
+    const asiento = await createJournalEntry(
+      f.entityId,
+      new Date('2026-02-28'),
+      'standard' as never,
+      'Depreciación de febrero',
+      [
+        { account_id: f.cuentas['6100'], debit_amount: '555.5600', credit_amount: null, description: 'gasto' },
+        { account_id: f.cuentas['1110'], debit_amount: null, credit_amount: '555.5600', description: 'contra' },
+      ] as never,
+      f.userId
+    );
     await query(
+      // Y el renglón posteado necesita SU asiento: F06a añadió el CHECK
+      // `depreciacion_posteada_con_asiento`, que impide marcar `is_posted` sin
+      // decir con qué se posteó. Antes bastaba con el booleano, y un renglón
+      // podía declararse en el mayor sin estar en el mayor.
       `INSERT INTO depreciation_schedules (asset_id, fiscal_period_id, depreciation_date,
-         depreciation_expense, accumulated_depreciation, book_value, is_posted)
-       VALUES ($1, $2, '2026-02-28', '555.5600', '555.5600', '19444.4400', true)`,
-      [activo, f.periodos[2]]
+         depreciation_expense, accumulated_depreciation, book_value, is_posted, journal_entry_id)
+       VALUES ($1, $2, '2026-02-28', '555.5600', '555.5600', '19444.4400', true, $3)`,
+      [activo, f.periodos[2], asiento.id]
     );
 
     const { items } = await checklistDe(2);

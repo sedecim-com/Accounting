@@ -115,6 +115,66 @@ export const STATEMENT_SOURCE_FORMATS = [
   'csv', 'ofx', 'qfx', 'mt940', 'mt942', 'camt053', 'camt054', 'bai2', 'xlsx', 'manual',
 ] as const;
 
+// ── Sesión de conciliación (003, 054, 055) ──
+
+/**
+ * El CHECK vive en la 003 y la lista a mano vivía en `reconciliation-service.ts`
+ * con un comentario que decía «los estados del CHECK de la 003» — una promesa de
+ * fidelidad que nada comprobaba. Se censa ahora porque hasta F05d los dos
+ * últimos valores eran decorativos: NADIE escribía 'approved' ni 'posted', así
+ * que una divergencia en esa mitad de la lista no tenía cómo doler. La firma y
+ * el sello los vuelven alcanzables, y con ellos el filtro de
+ * `bank reconciliation list --state` empieza a decidir sobre valores que de
+ * verdad existen en la tabla.
+ *
+ * La 054 y la 055 añaden más CHECK sobre esta misma columna (los que exigen
+ * aritmética, firma y rastro), y sus literales son SUBCONJUNTOS de éstos: la
+ * prueba de contrato acumula por columna y deduplica, así que el vocabulario
+ * que compara sigue siendo exactamente estos cuatro.
+ */
+export const RECONCILIATION_SESSION_STATUSES = [
+  'in_progress', 'balanced', 'approved', 'posted',
+] as const;
+
+// ── Activo fijo y su corrida (003, 056) ──
+
+/**
+ * LOS SEIS MÉTODOS, QUE VIVEN EN CUATRO COLUMNAS A LA VEZ.
+ *
+ * La 003 puso el CHECK sobre `fixed_assets.depreciation_method` y sobre
+ * `asset_categories.default_depreciation_method`, y dejó
+ * `book_depreciation_method` y `tax_depreciation_method` como VARCHAR(50)
+ * SIN CHECK: nadie las escribía ni las leía, así que la divergencia no tenía
+ * dónde doler. La 056 les pone el CHECK que les faltaba, con los mismos seis
+ * literales, porque F06a es lo que las vuelve alcanzables.
+ *
+ * Se censan las CUATRO y no sólo las dos nuevas. Que el par contable/fiscal
+ * quedara vigilado y su hermana `depreciation_method` —la que de verdad rige
+ * el importe posteado— siguiera fuera del censo repetiría el defecto que este
+ * archivo existe para cerrar, y encima en la misma sentencia: el alta de
+ * activo escribe las tres en un solo INSERT.
+ *
+ * Que sean dos columnas y no una es deliberado: la depreciación contable
+ * sigue la vida útil de la NIF C-6 y la fiscal las tasas máximas de los
+ * artículos 31-38 de la LISR, y dan números distintos sobre el mismo activo.
+ * La política `base_depreciacion` decide cuál de las dos llega al mayor.
+ */
+export const DEPRECIATION_METHODS = [
+  'straight_line', 'declining_balance_150', 'declining_balance_200',
+  'sum_of_years_digits', 'units_of_production', 'macrs',
+] as const;
+
+/**
+ * El CHECK es de la 003 y hasta F06a no había un solo activo que pudiera
+ * estar en ninguno de estos cuatro estados. Se censa ahora porque la corrida
+ * filtra por `status = 'active'` dentro del SQL: un quinto valor que entrara
+ * al esquema sin entrar aquí dejaría activos vivos fuera de la corrida sin
+ * que nada lo dijera, y eso no se ve en el mayor, se ve en su ausencia.
+ */
+export const ASSET_STATUSES = [
+  'active', 'inactive', 'disposed', 'fully_depreciated',
+] as const;
+
 /**
  * El censo que la prueba de contrato recorre. Añadir una fila aquí es lo que
  * pone el vocabulario bajo vigilancia; declararlo arriba sin registrarlo lo
@@ -137,4 +197,10 @@ export const VOCABULARIOS: readonly Vocabulario[] = [
   v('credit_notes', 'status', CREDIT_NOTE_STATUSES),
   v('bank_accounts', 'account_type', BANK_ACCOUNT_TYPES),
   v('bank_statements', 'source_format', STATEMENT_SOURCE_FORMATS),
+  v('reconciliation_sessions', 'status', RECONCILIATION_SESSION_STATUSES),
+  v('fixed_assets', 'depreciation_method', DEPRECIATION_METHODS),
+  v('fixed_assets', 'book_depreciation_method', DEPRECIATION_METHODS),
+  v('fixed_assets', 'tax_depreciation_method', DEPRECIATION_METHODS),
+  v('fixed_assets', 'status', ASSET_STATUSES),
+  v('asset_categories', 'default_depreciation_method', DEPRECIATION_METHODS),
 ];

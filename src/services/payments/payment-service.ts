@@ -13,6 +13,14 @@ import {
 } from '../accounting/ar-ap-posting.js';
 import { voidJournalEntryInTx } from '../accounting/posting.js';
 import { earlyPaymentDiscount } from '../ap/bill-service.js';
+import {
+  desgloseCambiarioDelPago,
+  monedaFuncionalDe,
+  resolverTipoCambio,
+  type AplicacionCambiaria,
+  type ContextoCambiario,
+  type DiferenciaCambiaria,
+} from '../accounting/moneda-origen.js';
 import { ivaToReclassify } from '../accounting/iva-cash-basis.js';
 import { NotFoundError, ValidationError, AccountingError } from '../../utils/errors.js';
 import type { JournalEntry } from '../../types/index.js';
@@ -66,6 +74,15 @@ export interface EntradaPago {
   applications: AplicacionPago[];
   /** Cualquier valor distinto de 'completed' se rechaza. */
   status?: string;
+  /**
+   * R4 · Tipo de cambio del DÍA DEL PAGO, cuando el pago está en otra moneda
+   * que la funcional de la entidad. Si se omite, se resuelve de
+   * `exchange_rates` con la fuente que dicte la política
+   * `fuente_tipo_cambio`; si esa fuente no tiene tasa para la fecha, el
+   * registro SE DETIENE y lo dice — nunca toma otra fuente en silencio.
+   * DECIMAL(19,10) como string, igual que todo tipo de cambio del sistema.
+   */
+  exchangeRate?: string;
   /** Moneda del pago. Si se omite, se toma la del documento y se exige que
    *  todos coincidan. */
   currencyCode?: string;
@@ -99,6 +116,11 @@ export interface ResultadoPago {
   /** Para disparar la atestación DESPUÉS del commit. */
   attestation: { entityId: string; entryId: string } | null;
   documentos: DocumentoAplicado[];
+  /**
+   * R4 · sólo pagos en moneda extranjera (hoy, sólo lado proveedor): la
+   * diferencia cambiaria REALIZADA que el pago asentó, y con qué tasa.
+   */
+  diferenciaCambiaria?: (DiferenciaCambiaria & { tasaPago: string; fuente: string }) | null;
 }
 
 export interface OpcionesPago {
@@ -234,6 +256,10 @@ export async function recordVendorPayment(
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     const documentos: DocumentoAplicado[] = [];
+    // R4 · lo que el desglose cambiario necesita de cada gasto: su tasa
+    // histórica viaja junto a lo aplicado, porque cada pasivo se extingue
+    // al tipo al que nació.
+    const fxApps: AplicacionCambiaria[] = [];
 
     // Las facturas se leen ACOTADAS POR ENTIDAD y con FOR UPDATE: sin el
     // filtro, conocer el UUID bastaría para pagar el gasto de otra entidad;
@@ -241,9 +267,10 @@ export async function recordVendorPayment(
     for (const app of entrada.applications) {
       const r = await client.query<{
         id: string; bill_number: string; amount_due: string; vendor_id: string;
-        status: string; currency_code: string;
+        status: string; currency_code: string; exchange_rate: string;
       }>(
-        `SELECT id, bill_number, amount_due, vendor_id, status, currency_code
+        `SELECT id, bill_number, amount_due, vendor_id, status, currency_code,
+                exchange_rate::text AS exchange_rate
            FROM bills WHERE id = $1 AND entity_id = $2 FOR UPDATE`,
         [app.documentId, entrada.entityId]
       );
@@ -288,6 +315,63 @@ export async function recordVendorPayment(
         saldoAnterior: saldo.toFixed(2), saldoNuevo: nuevo.toFixed(2), estado,
         moneda: bill.currency_code,
       });
+      fxApps.push({
+        billId: bill.id,
+        numero: bill.bill_number,
+        aplicado: aplicado.toFixed(4),
+        descuento: descuento.toFixed(4),
+        tasaHistorica: bill.exchange_rate,
+      });
+    }
+
+    // ── R4 · ¿EL PAGO ESTÁ EN OTRA MONEDA QUE LOS LIBROS? ──────────────
+    //
+    // assertMoneda ya garantizó que pago y documentos comparten moneda; lo
+    // que falta saber es si esa moneda es la funcional. Si no lo es, el
+    // asiento necesita la tasa del DÍA DEL PAGO: explícita del llamador, o
+    // resuelta de exchange_rates con la fuente que dicta la política
+    // `fuente_tipo_cambio` (su primer lector real).
+    let fx: ContextoCambiario | null = null;
+    if (documentos.length > 0) {
+      const funcional = await monedaFuncionalDe(client, entrada.entityId);
+      const moneda = monedaDe(documentos);
+      if (moneda !== funcional) {
+        for (const a of fxApps) {
+          const th = new Decimal(a.tasaHistorica || '0');
+          // Un gasto extranjero con tasa 1.0 (el default de captura) o nula
+          // se asentó sin convertir — anterior a R4 o capturado a medias.
+          // Pagarlo por este camino fabricaría una «diferencia cambiaria»
+          // que es en realidad la conversión que nunca ocurrió.
+          if (!th.greaterThan(0) || th.equals(1)) {
+            throw new ValidationError(
+              `${a.numero} está en ${moneda} pero su exchange_rate es ` +
+                `${a.tasaHistorica} (el default de captura): su pasivo se asentó sin ` +
+                `convertir. Corrige el documento antes de pagarlo — la diferencia ` +
+                `cambiaria se mide contra la tasa a la que el pasivo nació (NIF B-15).`
+            );
+          }
+        }
+        let tasaPago: string;
+        let fuenteTasa: string;
+        if (entrada.exchangeRate !== undefined) {
+          if (!new Decimal(entrada.exchangeRate).greaterThan(0)) {
+            throw new ValidationError(
+              `El tipo de cambio del pago (${entrada.exchangeRate}) tiene que ser mayor que cero.`
+            );
+          }
+          tasaPago = entrada.exchangeRate;
+          fuenteTasa = 'parametro';
+        } else {
+          const resuelto = await resolverTipoCambio(
+            client,
+            { tenantId: await tenantDe(client, entrada.entityId), entityId: entrada.entityId },
+            { de: moneda, a: funcional, fecha: entrada.paymentDate }
+          );
+          tasaPago = resuelto.tasa;
+          fuenteTasa = resuelto.fuente;
+        }
+        fx = { moneda, monedaFuncional: funcional, tasaPago, fuenteTasa, aplicaciones: fxApps };
+      }
     }
 
     const vendorId = entrada.counterpartyId
@@ -305,16 +389,20 @@ export async function recordVendorPayment(
       // conciliar—; lo segundo es peor: la columna tiene DEFAULT 'USD', así
       // que todo pago a proveedor en pesos quedaba registrado como dólares.
       // El lado AR siempre los escribió; éste no, y nadie lo leía.
+      // R4: exchange_rate se escribe SIEMPRE — la tasa del día en extranjera,
+      // 1.0 explícito en funcional. Dejarlo al DEFAULT era indistinguible de
+      // «nadie lo pensó», que es exactamente lo que era.
       `INSERT INTO vendor_payments (
          id, entity_id, payment_number, vendor_id, payment_amount, currency_code,
          payment_method, reference_number, bank_account_id, payment_date, status, memo, created_by,
-         cfdi_uuid, cfdi_pago_indice
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+         cfdi_uuid, cfdi_pago_indice, exchange_rate
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
       [paymentId, entrada.entityId, paymentNumber, vendorId, entrada.paymentAmount,
        monedaDe(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
        entrada.bankAccountId ?? null, entrada.paymentDate,
        ESTADO, entrada.memo ?? null, userId,
-       entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null]
+       entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null,
+       fx?.tasaPago ?? '1.0']
     );
 
     for (const app of entrada.applications) {
@@ -341,7 +429,8 @@ export async function recordVendorPayment(
       );
     }
 
-    // Aquí es donde se libera el IVA aparcado de los CFDI a crédito.
+    // Aquí es donde se libera el IVA aparcado de los CFDI a crédito — y,
+    // desde R4, donde la diferencia cambiaria realizada encuentra su cuenta.
     const entry = await postVendorPaymentEntry(
       client,
       {
@@ -353,8 +442,19 @@ export async function recordVendorPayment(
         bank_account_id: entrada.bankAccountId ?? null,
         journal_entry_id: null,
       },
-      userId
+      userId,
+      fx ?? undefined
     );
+
+    // La misma aritmética pura que usó el asiento: determinista, así que
+    // bitácora y mayor no pueden contar historias distintas.
+    const diferencia = fx
+      ? {
+          ...desgloseCambiarioDelPago(entrada.paymentAmount, fx).diferencia,
+          tasaPago: fx.tasaPago,
+          fuente: fx.fuenteTasa,
+        }
+      : null;
 
     // R1: el pago deja su rastro propio — antes sólo el asiento derivado
     // quedaba auditado, y «quién registró el pago» no estaba en el rastro.
@@ -369,6 +469,18 @@ export async function recordVendorPayment(
         payment_amount: entrada.paymentAmount,
         journal_entry_id: entry?.id ?? null,
         documentos: documentos.length,
+        // R4 · el pago en extranjera deja en su rastro la diferencia que
+        // realizó y la tasa con la que la midió: es la única huella de por
+        // qué el efectivo en funcional no coincide con el pasivo extinguido.
+        ...(fx && diferencia
+          ? {
+              moneda: fx.moneda,
+              tipo_cambio_pago: fx.tasaPago,
+              fuente_tipo_cambio: fx.fuenteTasa,
+              diferencia_cambiaria: diferencia.montoFuncional,
+              diferencia_cambiaria_tipo: diferencia.tipo,
+            }
+          : {}),
       },
     });
 
@@ -377,6 +489,7 @@ export async function recordVendorPayment(
         paymentId, paymentNumber, journalEntry: entry,
         attestation: entry ? { entityId: entrada.entityId, entryId: entry.id } : null,
         documentos,
+        diferenciaCambiaria: diferencia,
       });
     }
 
@@ -384,6 +497,7 @@ export async function recordVendorPayment(
       paymentId, paymentNumber, journalEntry: entry,
       attestation: entry ? { entityId: entrada.entityId, entryId: entry.id } : null,
       documentos,
+      diferenciaCambiaria: diferencia,
     };
   };
 

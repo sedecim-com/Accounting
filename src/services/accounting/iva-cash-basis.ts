@@ -416,8 +416,17 @@ export interface ReclassItem {
   documentId: string;
   documentNumber: string;
   metodo: MetodoPagoDecision;
-  /** IVA to move out of the pending role and into the due one. 4 dp string. */
+  /**
+   * IVA to move out of the pending role and into the due one. 4 dp string.
+   * R4: si el documento está en moneda extranjera y el llamador dio su tasa,
+   * este importe YA viene en moneda funcional (convertido a la tasa del
+   * documento — la misma con la que se aparcó).
+   */
   amount: string;
+  /** R4 · el importe original en la moneda del documento, cuando aplica. */
+  importeOriginal?: string;
+  /** R4 · la tasa histórica con la que `amount` se convirtió, cuando aplica. */
+  tasa?: string;
 }
 
 interface AppliedDocumentRow {
@@ -585,7 +594,14 @@ export async function ivaReclassificationsFor(
   client: pg.PoolClient,
   side: DocumentSide,
   entityId: string,
-  paymentId: string
+  paymentId: string,
+  /**
+   * R4 · tasa histórica (bills.exchange_rate) por id de documento, para los
+   * documentos en moneda extranjera. El pro-rata sale en la moneda del
+   * documento y el saldo aparcado vive en funcional: sin convertir ANTES del
+   * tope, la comparación sería entre monedas distintas y el tope mentiría.
+   */
+  tasasPorDocumento?: Map<string, string>
 ): Promise<ReclassItem[]> {
   const rows =
     side === 'issued'
@@ -627,11 +643,43 @@ export async function ivaReclassificationsFor(
     });
     if (new Decimal(amount).lessThanOrEqualTo(0)) continue;
 
+    // R4: el pro-rata está en la moneda del documento; si hay tasa, pasa a
+    // funcional AQUÍ, antes del tope, porque el saldo aparcado (que se lee
+    // del mayor) ya vive en funcional desde que postBillEntry convierte.
+    //
+    // Y SE CONVIERTEN LOS ACUMULADOS, NO EL TRAMO: la liberación funcional
+    // del tramo es q4(acumulado_con_este × tasa) − q4(acumulado_previo ×
+    // tasa), que TELESCOPA — la suma de todos los tramos reproduce exacto
+    // lo aparcado q4(iva × tasa). Convertir el pro-rata del tramo y
+    // redondearlo por separado sumaba medio diezmilésimo de más por pago y
+    // dejaba la 1135 del documento en NEGATIVO, porque el tope de abajo no
+    // ve las liberaciones de pagos anteriores (su consulta no alcanza los
+    // asientos de vendor_payment — ver el informe R4).
+    const tasa = tasasPorDocumento?.get(row.document_id);
+    let enFuncional: Decimal;
+    if (tasa) {
+      const acumulado = (aplicado: Decimal): Decimal =>
+        new Decimal(
+          ivaToReclassify({
+            ivaTotal: row.tax_amount,
+            documentTotal: row.total_amount,
+            priorApplied: '0',
+            appliedNow: aplicado.toFixed(SCALE),
+          })
+        )
+          .times(tasa)
+          .toDecimalPlaces(SCALE);
+      enFuncional = acumulado(priorApplied.plus(appliedNow)).minus(acumulado(priorApplied));
+    } else {
+      enFuncional = new Decimal(amount);
+    }
+    if (enFuncional.lessThanOrEqualTo(0)) continue;
+
     // Never release more than this document actually parked. A bill posted
     // before cash-basis IVA existed parked nothing, so its cap is zero and
     // the payment correctly moves no IVA at all.
     const parked = await ivaStillParked(client, side, entityId, row.document_id);
-    const releasable = Decimal.min(new Decimal(amount), new Decimal(parked));
+    const releasable = Decimal.min(enFuncional, new Decimal(parked));
     if (releasable.lessThanOrEqualTo(0)) continue;
 
     items.push({
@@ -639,6 +687,17 @@ export async function ivaReclassificationsFor(
       documentNumber: row.document_number,
       metodo,
       amount: releasable.toFixed(SCALE),
+      // Las columnas FX sólo cuando dicen la verdad: si lo liberado ES el
+      // pro-rata del tramo × tasa (half-up, 4 decimales), el origen viaja
+      // completo. Cuando el telescopio o el tope lo movieron un
+      // diezmilésimo, NINGÚN importe original honesto reproduce la cifra
+      // (re-derivarlo dividiendo y redondeando daba un «origen» cuyo
+      // producto no casaba, y el motor —con razón— tumbaba el pago entero
+      // con FX_CONVERSION_NO_CASA). Esa línea va sin columnas FX: funcional
+      // por declaración, y cuadra.
+      ...(tasa && releasable.equals(new Decimal(amount).times(tasa).toDecimalPlaces(SCALE))
+        ? { importeOriginal: amount, tasa }
+        : {}),
     });
   }
   return items;

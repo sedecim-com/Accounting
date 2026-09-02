@@ -138,10 +138,10 @@ dependencias de esquema y lo que hace falta para cerrar un mes.
 |---|---|---|---|
 | 1 | Catálogo y asiento manual | account, entry, ledger | Cerrado (`a6932b1`) |
 | 2 | Ingesta fiscal MX | cfdi, sat, rep | Parcial (`a149e62`): timbrado y descarga siguen bloqueados |
-| 3 | Cobrar | customer, invoice, credit-note, receipt, ar | |
-| 4 | Pagar | vendor, bill, ap, payment | |
-| 5 | Banco | bank, reconciliation | |
-| 6 | Cerrar el mes | closing, period, batch | |
+| 3 | Cobrar | customer, invoice, credit-note, receipt, ar | Cerrado (F03) |
+| 4 | Pagar | vendor, bill, ap, payment | Cerrado (F04) |
+| 5 | Banco | bank, reconciliation | `bank` cerrado en cuatro tramos (F05a–d); `reconciliation` genérica diferida al cierre |
+| 6 | Cerrar el mes | closing, period, batch | En tramos: F06a adelanta `asset create` y `depreciation run\|post` DESDE LA COLA LARGA — el motor calculaba mal y la ventana de arreglarlo gratis se cerraba con la primera alta; F06c aplica el lote que F01 dejó sin salida; F06d (el cierre como proceso) se difiere y compite contra F07 |
 | 7 | Contabilidad electrónica | e-accounting | |
 | 8 | Nómina | pay-run, payslip, employee | |
 | 9–12 | La cola larga de fase 1 | ~190 familias pequeñas | |
