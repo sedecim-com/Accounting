@@ -27,9 +27,16 @@
 --
 -- No hay REVOKE aquí: el GRANT general de rls-policies.sql y el
 -- reprovisionado lo devolverían en silencio — la lección exacta que parió a
--- E0.3. El disparador es la capa que aguanta, incluso ante el dueño del
--- esquema. TRUNCATE se bloquea aparte (statement-level: no dispara triggers
--- de fila).
+-- E0.3. El disparador es la capa que aguanta donde un GRANT no. TRUNCATE se
+-- bloquea aparte (statement-level: no dispara triggers de fila).
+--
+-- CORRECCIÓN (058): este comentario decía «aguanta INCLUSO ANTE EL DUEÑO DEL
+-- ESQUEMA», y era falso por dos vías. El dueño puede `DISABLE TRIGGER`, y
+-- cualquiera con la sesión puede `SET session_replication_role = 'replica'`,
+-- que apaga de golpe todos los disparadores ordinarios sin tocar el esquema.
+-- La 058 sella éstos con ENABLE ALWAYS —que cierra la segunda vía— y `doctor`
+-- vigila la primera leyendo pg_trigger.tgenabled. Contra el dueño no hay
+-- candado dentro del esquema; lo que hay es una sola puerta y un testigo.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION ledger_posteado_inmutable() RETURNS trigger AS $$

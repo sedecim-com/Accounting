@@ -4170,6 +4170,75 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  // ---- S3·sello · El libro que no se puede apagar en silencio ----
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'Toda garantía del esquema está sellada con ENABLE ALWAYS, y doctor vigila que siga estándolo',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/058_el_sello_de_las_garantias.sql',
+        de: 'ALTER TABLE journal_entry_lines ENABLE ALWAYS TRIGGER journal_entry_lines_posteada_inmutable;',
+        a: '-- (sin sellar)',
+        porque: 'deja una garantía del mayor en disparador ordinario: una línea de SET session_replication_role la apagaría con las demás y la inmutabilidad de la línea posteada se evapora sin dejar rastro',
+      },
+      {
+        archivo: 'src/ai/doctor-service.ts',
+        de: "    checks.push(await checkSelloDeGarantias());",
+        a: '    // sin vigilancia del sello',
+        porque: 'el sello deja de vigilarse: ENABLE ALWAYS no impide DISABLE TRIGGER, así que sin este chequeo un break-glass no se distingue de un sabotaje y doctor sigue diciendo ok',
+      },
+    ],
+    evaluar: () => {
+      const sello = crudoDe('src/database/migrations/058_el_sello_de_las_garantias.sql');
+      const doctor = codigoDe('src/ai/doctor-service.ts');
+
+      // LA LISTA SE DERIVA, NO SE ESCRIBE. Los disparadores de garantía se
+      // leen de las migraciones que los crean; si mañana alguien añade la
+      // garantía número diez y no la sella, este criterio la echa en falta
+      // sin que nadie tenga que acordarse de apuntarla. Una lista paralela
+      // es justo lo que este proyecto ha pagado ya varias veces.
+      const DE_GARANTIA = [
+        '033_audit_log_append_only.sql',
+        '035_fiscal_credential_log_append_only.sql',
+        '041_el_mayor_inviolable.sql',
+        '051_la_cuenta_y_el_extracto.sql',
+      ];
+      const declarados: string[] = [];
+      for (const archivo of DE_GARANTIA) {
+        const sql = crudoDe(`src/database/migrations/${archivo}`);
+        for (const m of sql.matchAll(/CREATE TRIGGER\s+(\w+)/g)) declarados.push(m[1]);
+      }
+      if (declarados.length === 0) {
+        return falla('no se encontró ni un disparador de garantía en las migraciones: el criterio quedó ciego, revisa los nombres de archivo');
+      }
+
+      const sinSellar = declarados.filter(
+        (t) => !new RegExp(`ENABLE ALWAYS TRIGGER ${t}\\b`).test(sello)
+      );
+      if (sinSellar.length > 0) {
+        return falla(
+          `${sinSellar.length} de ${declarados.length} garantías sin ENABLE ALWAYS (${sinSellar.join(', ')}): ` +
+            'una línea de SET session_replication_role las apagaría sin tocar el esquema y sin dejar rastro'
+        );
+      }
+      // Y el sello se VIGILA: ENABLE ALWAYS no impide DISABLE TRIGGER, que es
+      // legítimo como break-glass. Lo que no puede ser es que no se note.
+      // Se ancla la LLAMADA, no el nombre: la afirmación es que doctor lo
+      // CORRE, y buscar `checkSelloDeGarantias` a secas la da por cierta con
+      // sólo que la función exista definida y sin llamador — que es capacidad
+      // huérfana disfrazada de garantía. Tercera vez en este proyecto que la
+      // presencia se hace pasar por conducta.
+      const vigilado =
+        /checks\.push\(await checkSelloDeGarantias\(\)\)/.test(doctor) &&
+        /garantia-sellada/.test(doctor) &&
+        /tgenabled/.test(doctor);
+      return vigilado
+        ? ok(`las ${declarados.length} garantías del esquema están selladas, y doctor falla si alguna deja de estarlo`)
+        : falla('doctor dejó de leer pg_trigger.tgenabled: apagar una garantía volvería a ser indetectable');
+    },
+  },
+
   // ---- G1a · Los estados que ya se firman, y que hoy mentían ----
 
   {
