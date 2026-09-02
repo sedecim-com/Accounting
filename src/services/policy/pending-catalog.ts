@@ -516,6 +516,102 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'It stays off: no separation check, which is the only workable default for a single-user tenant.',
     priority: 30,
   },
+  {
+    // F05b · El cotejo automático. `confidence >= 0.85` estaba escrito a mano
+    // en el motor, sin bandera y sin que nadie lo hubiera elegido.
+    key: 'cotejo_umbral_confianza',
+    category: 'operativa',
+    question: 'How sure must the matching engine be before it pairs a bank line on its own?',
+    impact:
+      'Governs `bank match run`. Lower means fewer lines left for a human and more wrong pairs to undo; ' +
+      'higher means the engine hands you more work but almost never guesses. A wrong match is not ' +
+      'silent — `bank match unapply` undoes it and leaves the reason — but it costs the review it ' +
+      'was meant to save.',
+    options: [
+      { value: '0.75', label: 'Loose: pairs more on its own, expect to undo some' },
+      { value: '0.85', label: 'Balanced: only pairs when amount and date agree closely' },
+      { value: '0.95', label: 'Strict: the engine barely decides anything alone' },
+    ],
+    defaultValue: '0.85',
+    defaultRationale:
+      'What the engine already used before anyone was asked. Named here so it stops being an ' +
+      'accident of the code.',
+    whyAsking:
+      'Every bank line has to end up paired with something in your books. I can do that for you when the amount and the date line up, but "how close is close enough" is a judgement about your own tolerance for undoing my mistakes, not a fact I can look up.',
+    whatIDo:
+      'Above this number I pair the line and record how sure I was. Below it I leave it for you with my best candidate and the reason it fell short. Description similarity alone NEVER pairs anything, at any threshold.',
+    ifSkipped:
+      'I use 0.85, which pairs on a close amount-and-date agreement and leaves the rest to you.',
+    priority: 40,
+  },
+  {
+    // F05b · El techo por importe. El catálogo manda engancharse al piso
+    // existente y no inventar una compuerta paralela.
+    key: 'cotejo_monto_maximo_auto',
+    category: 'operativa',
+    question: 'Above what amount must a human confirm a match, however sure the engine is?',
+    impact:
+      'A second gate on `bank match run`, independent of confidence: over this amount the line is ' +
+      'left for a person even at 0.99. Combined with the unbreakable floor by Math.min, so the ' +
+      'stricter of the two always wins and no setting here can raise it.',
+    options: [
+      { value: '10000', label: '$10,000 — a person sees every material movement' },
+      { value: '50000', label: '$50,000 — same ceiling the auto-posting floor uses' },
+      { value: '0', label: 'No amount gate: confidence alone decides' },
+    ],
+    defaultValue: '50000',
+    defaultRationale:
+      'Aligns with FLOOR_MAX_AUTO_POST so there is one number to reason about, not two. It is a ' +
+      'ceiling on the engine, never a permission: the floor still clamps it.',
+    whyAsking:
+      'Confidence measures how well two records resemble each other, not how much it costs to be wrong. A big transfer that looks exactly like an invoice is still the one you would want to see with your own eyes.',
+    whatIDo:
+      'Over this amount I stop and show you the candidate instead of pairing it, no matter how sure I am. Under it, the confidence threshold decides.',
+    ifSkipped:
+      'I stop at $50,000, the same ceiling that governs automatic posting.',
+    priority: 41,
+  },
+  {
+    // F04 · El pago corto. `payment apply --mode residual` cierra un gasto
+    // pagando MENOS de lo que debía: la diferencia deja de deberse y tiene que
+    // ir a alguna cuenta. Cuál, es criterio del despacho — no del programa —
+    // y por eso se pregunta aquí en vez de decidirse en el código.
+    key: 'pago_corto_residual',
+    category: 'contable',
+    question: 'When a bill is closed paying less than it owed, where does the shortfall go?',
+    impact:
+      'Governs `payment apply --mode residual`. With "descuento_compras" the shortfall lands in ' +
+      '5200 (contra-cost), the same account as an early-payment discount, so the cost of the ' +
+      'purchase drops. With "otros_ingresos" it is income of the period instead, leaving the cost ' +
+      'untouched. With "prohibir" the mode is refused outright and the bill stays open until the ' +
+      'vendor issues a credit note.',
+    options: [
+      {
+        value: 'descuento_compras',
+        label: 'Contra-cost (5200): it reduces what the purchase cost, like a discount',
+      },
+      {
+        value: 'otros_ingresos',
+        label: 'Other income: the cost stands and the shortfall is a gain of the period',
+      },
+      {
+        value: 'prohibir',
+        label: 'Refuse: no bill closes short — demand the vendor credit note',
+      },
+    ],
+    defaultValue: 'descuento_compras',
+    defaultRationale:
+      'It keeps a short payment and an early-payment discount in the same account, which is what ' +
+      'they economically are: less paid for the same purchase. It also avoids inflating revenue ' +
+      'with something that was never a sale.',
+    whyAsking:
+      'Sometimes a bill is settled for less than its balance — a disputed freight charge, a few pesos of rounding, an agreed deduction — and the remainder is never going to be paid. That remainder has to stop being a liability, and where you send it changes your cost of sales and your income. It is a criterion of your firm, not a rule of the SAT.',
+    whatIDo:
+      'When you close a bill short with `payment apply --mode residual --short-pay-reason "..."`, I post the shortfall to the account you choose here and write your reason into the entry, so the auditor reads why the liability disappeared. If you choose "prohibir", I refuse the operation and tell you to ask the vendor for a credit note.',
+    ifSkipped:
+      'Shortfalls go to purchase discounts (5200). Nothing breaks, but if your criterion is to treat them as income, the cost of sales will be understated until you say so.',
+    priority: 35,
+  },
 ];
 
 export function getPolicySpec(key: string): PolicySpec | undefined {

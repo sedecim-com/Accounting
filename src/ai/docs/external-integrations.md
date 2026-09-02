@@ -7,8 +7,10 @@ in .env; the human requests it in Contalink → API Configuration).
 
 ## Safety rule
 Direct READS with your tools; WRITES to the external system ALWAYS
-queued (external_push → outbox) — the human executes them with `mnemosine
-outbox`. Never claim something was already applied over there: it was "queued".
+queued (external_push → outbox) — the human reviews with `mnemosine outbox
+list` and executes with `mnemosine outbox run --live` (no sandbox exists, so
+the real effect is opt-in). Never claim something was already applied over
+there: it was "queued".
 
 ## Your tools
 - external_pull {provider, resource}: trial_balance (start/end), account_balance
@@ -28,7 +30,7 @@ outbox`. Never claim something was already applied over there: it was "queued".
   external_pull trial_balance, not with the local chart).
 - upload_xml: { xml_base64, name? } — uploads a CFDI to Contalink (asynchronous load).
 - bank_transaction: { bank, date, deposit, withdrawal, reference, description? }
-  (deposit XOR withdrawal > 0).
+  (BOTH fields present; exactly one > 0, the other 0 — omitting one fails closed).
 - reconcile_invoice: { invoice_id: UUID of the CFDI, amount, bank_account,
   payment_date ISO8601, payment_form SAT key e.g. "03" }.
 

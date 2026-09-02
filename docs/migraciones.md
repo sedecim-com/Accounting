@@ -31,7 +31,8 @@ coordina: desinforma, porque promete un orden que el historial ya contradice.
 La regla vigente es la simple:
 
 - **Secuencial estricto.** El siguiente número es `max + 1` sobre lo que hay
-  en `src/database/migrations/`. Hoy: **048** (la 047 es la última en el árbol).
+  en `src/database/migrations/`. Este número no se escribe aquí: se pregunta
+  al directorio, que es el único que no se desincroniza.
 - **La guarda decide, no este documento.** `assertNumeracionUnica` falla ante
   cualquier duplicado nuevo; los cuatro históricos de arriba son los únicos
   tolerados.
@@ -120,3 +121,21 @@ base de desarrollo ya reparada a mano. La 025/026/043 quedaron además
 enmendadas en el árbol (el precedente de enmendar en sitio es la propia 025)
 para que una base rezagada que llegue a ellas con RLS y datos siembre de
 verdad en vez de errar contra el piso. Reparar una base = `npm run migrate`.
+
+## Migraciones deliberadamente incompletas
+
+Una migración que entrega MENOS de lo que su tabla espejo tendría no siempre
+es un descuido. A veces es la regla de la casa aplicada: una columna que
+ningún código escribe es capacidad declarada sin entregar, y `doctor` la marca
+como huérfana. La alternativa —añadirla «para cuando llegue»— convierte el
+esquema en una lista de intenciones.
+
+Se registran aquí para que una auditoría futura no las cuente como huecos. Si
+mañana alguien mira la 050 y ve medio espejo, la respuesta está escrita.
+
+| Migración | Qué deja fuera | Por qué, y cuándo llega |
+|---|---|---|
+| **050** · `pagar` (F04) | `unapplied_at`, `unapplied_by` y `unapply_reason` en `payment_applications` — el espejo completo de `payment_allocations` sí las tiene. | `payment unapply` y `payment void` son de la fase 2 del catálogo. La clausura de una aplicación llegará en la migración que traiga el comando que la clausura, no antes. **Consecuencia deliberada mientras tanto**: las sumas de `payment_applications` NO filtran por `unapplied_at IS NULL`, porque no hay nada que filtrar. Son **tres** sitios: `postVendorPaymentEntry` (`ar-ap-posting.ts`), `remanenteDeVendorPago` y `applyVendorPayment` (`payment-service.ts`) — este último alimenta el objetivo acumulado del IVA, así que es el que peor derivaría. La fase 2 tiene que añadir el filtro en los tres el mismo día que añada la columna. |
+
+La cabecera de cada una de estas migraciones lleva su propio razonamiento
+completo. Esta tabla es el índice, no el argumento.

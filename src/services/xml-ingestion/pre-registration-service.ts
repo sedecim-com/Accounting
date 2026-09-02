@@ -41,6 +41,61 @@ export class DuplicateError extends Error {
   }
 }
 
+/**
+ * El código del rechazo por proveedor no autorizado.
+ *
+ * Va aparte del mensaje porque `processToAccounting` lo MIRA: un pre-registro
+ * rechazado por esto no es un documento roto, es un documento que espera a una
+ * persona, y tiene que quedar en 'draft'/'needs_review' como el que pide una
+ * decisión contable. Si cayera en 'error'/'invalid', un lote lanzado sin la
+ * autorización dejaría la bandeja entera marcada como defectuosa cuando lo
+ * único que falta es que alguien diga que sí.
+ */
+export const PROVEEDOR_NUEVO_SIN_AUTORIZAR = 'PROVEEDOR_NUEVO_SIN_AUTORIZAR';
+
+/**
+ * Se intentó dar de alta al emisor de un CFDI sin que el llamador lo autorizara.
+ *
+ * Es un `ValidationError` (422 → salida 3 en el CLI) con código propio, para
+ * que el manejador pueda distinguirlo de «este documento está mal».
+ */
+export class ProveedorNuevoSinAutorizar extends ValidationError {
+  constructor(nombre: string, rfc: string) {
+    super(
+      `El CFDI lo emite "${nombre}" (RFC ${rfc}), que no existe en el catálogo de proveedores de ` +
+        'esta entidad. Contabilizarlo aquí daría de alta la contraparte con el nombre y el RFC que ' +
+        'trae el XML —dato maestro escrito por un tercero, sin que ninguna persona lo apruebe— y ' +
+        'acto seguido reconocería el pasivo en el mayor. Dos salidas: da de alta al proveedor tú, ' +
+        `con \`mnemosine vendor create --tax-id ${rfc}\`, y vuelve a ejecutar (el pre-registro lo ` +
+        'encontrará por RFC); o repite la orden con --allow-new-vendor si aceptas crearlo tal como ' +
+        'viene en el comprobante.',
+      'vendor_id',
+      { suggested_vendor: { company_name: nombre, tax_id: rfc } }
+    );
+    this.name = 'ProveedorNuevoSinAutorizar';
+    this.code = PROVEEDOR_NUEVO_SIN_AUTORIZAR;
+  }
+}
+
+/**
+ * Lo que el LLAMADOR autoriza, que no es lo mismo que lo que el documento pide.
+ *
+ * Viaja con la orden de contabilizar, nunca con la fila: dos llamadas sobre el
+ * mismo pre-registro pueden legítimamente decidir distinto según quién las
+ * haga. Por omisión todo es `false` — el que no dice nada no crea contrapartes.
+ */
+export interface OpcionesDeProceso {
+  /**
+   * Autoriza dar de alta al emisor del CFDI cuando no está en el catálogo.
+   *
+   * Sólo lo pone un camino INTERACTIVO donde una persona escribió la
+   * autorización (`bill inbox run --allow-new-vendor`, o `allow_new_vendor`
+   * en el cuerpo de la petición REST). Ningún camino automático —reglas del
+   * despacho, lote programado, agente, webhook— lo pone jamás.
+   */
+  permitirProveedorNuevo?: boolean;
+}
+
 export interface LineWithSuggestion {
   line_number: number;
   clave_prod_serv: string;
@@ -186,7 +241,15 @@ export class PreRegistrationService {
       updated.status === 'ready'
     ) {
       try {
-        const result = await this.processToAccounting(updated, uploadedBy);
+        // NUNCA crea proveedores. Esta rama no la decide una persona: la
+        // decide el motor de reglas del inquilino, que un renglón antes pudo
+        // haber puesto processing_mode='auto' él mismo (applyRuleActions).
+        // Una regla que se autoconcede el modo automático no puede además
+        // fabricar contrapartes desde el XML. El CFDI cuyo emisor no está en
+        // el catálogo queda en la bandeja, que es donde una persona lo ve.
+        const result = await this.processToAccounting(updated, uploadedBy, {
+          permitirProveedorNuevo: false,
+        });
         autoProcessed = true;
         bill = result.bill;
         journalEntry = result.journalEntry ?? undefined;
@@ -466,7 +529,8 @@ export class PreRegistrationService {
    */
   async processToAccounting(
     preReg: Record<string, unknown>,
-    userId: string
+    userId: string,
+    opciones: OpcionesDeProceso = {}
   ): Promise<{
     bill?: Record<string, unknown>;
     journalEntry?: Record<string, unknown> | null;
@@ -486,7 +550,7 @@ export class PreRegistrationService {
 
       switch (preReg.document_type) {
         case 'bill':
-          result = await this.createBillFromPreReg(preReg, userId);
+          result = await this.createBillFromPreReg(preReg, userId, opciones);
           break;
         case 'payment':
           result = await this.procesarREP(preReg, userId);
@@ -530,8 +594,11 @@ export class PreRegistrationService {
       // Un CFDI que necesita una decisión no es un error del sistema: es un
       // documento que espera a una persona. Se distingue para que no se
       // pierda entre fallos reales y para que la razón quede legible.
+      // Un proveedor sin autorizar cae en el mismo cajón por la misma razón:
+      // el documento está bien, lo que falta es el sí de una persona.
+      const codigo = (error as { code?: string }).code;
       const requiereDecision =
-        (error as { code?: string }).code === 'CFDI_REQUIERE_DECISION';
+        codigo === 'CFDI_REQUIERE_DECISION' || codigo === PROVEEDOR_NUEVO_SIN_AUTORIZAR;
 
       await query(
         `UPDATE pre_registrations SET
@@ -966,11 +1033,26 @@ export class PreRegistrationService {
 
   private async createBillFromPreReg(
     preReg: Record<string, unknown>,
-    userId: string
+    userId: string,
+    opciones: OpcionesDeProceso = {}
   ): Promise<{ bill: Record<string, unknown>; journalEntry: Record<string, unknown> }> {
     let vendorId = preReg.vendor_id as string | null;
 
-    // Auto-create vendor if new
+    // ── EL ALTA DE PROVEEDOR ES UNA DECISIÓN, NO UN EFECTO COLATERAL.
+    //
+    // Aquí nacía una CONTRAPARTE con el nombre y el RFC que venían dentro de
+    // un XML de un tercero, y en la misma llamada nacía el pasivo a su favor
+    // y su póliza posteada. Nadie aprobaba nada: bastaba con que un CFDI
+    // llegara —por la subida REST, por el agente, o porque una regla del
+    // despacho puso processing_mode='auto'— para que el catálogo de
+    // proveedores creciera solo. Un dato maestro que ningún humano miró es
+    // exactamente lo que un control interno existe para impedir.
+    //
+    // Ahora el alta sólo ocurre si QUIEN LLAMA la autorizó. El default es no,
+    // y el no es un rechazo que dice qué proveedor se iba a crear y cómo
+    // seguir. La BÚSQUEDA por RFC se queda fuera de la puerta a propósito:
+    // encontrar un proveedor que ya existe no crea nada, y es justo lo que
+    // hace que «dalo de alta y vuelve a ejecutar» funcione.
     if (!vendorId && preReg.is_new_vendor && preReg.suggested_vendor_data) {
       const data = preReg.suggested_vendor_data as Record<string, unknown>;
       const vendorResult = await query<{ id: string }>(
@@ -979,6 +1061,13 @@ export class PreRegistrationService {
       );
       if (vendorResult.rows.length > 0) {
         vendorId = vendorResult.rows[0].id;
+      } else if (!opciones.permitirProveedorNuevo) {
+        const texto = (v: unknown, alterno: string): string =>
+          typeof v === 'string' && v.trim() ? v : alterno;
+        throw new ProveedorNuevoSinAutorizar(
+          texto(data.company_name, 'emisor sin nombre'),
+          texto(data.tax_id, 'sin RFC')
+        );
       } else {
         const newId = uuidv4();
         const vendorCount = await query<{ count: string }>(
@@ -1115,7 +1204,11 @@ export class PreRegistrationService {
           results.failed++;
           continue;
         }
-        await this.processToAccounting(preReg, userId);
+        // NUNCA crea proveedores. Un lote programado corre desatendido sobre
+        // N documentos: quien pulsó «ejecutar» aprobó el lote, no el emisor de
+        // cada comprobante que hay dentro. El que traiga proveedor nuevo se
+        // queda en la bandeja con su motivo y no detiene a los demás.
+        await this.processToAccounting(preReg, userId, { permitirProveedorNuevo: false });
         results.successful++;
       } catch (error) {
         results.failed++;

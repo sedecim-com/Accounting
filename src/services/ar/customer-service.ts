@@ -5,6 +5,7 @@ import { registrarAuditoria } from '../audit/audit-log.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
 import { generateEntryNumber } from '../../utils/sequence.js';
 import type { Customer } from '../../types/index.js';
+import { SAT_CATALOGS } from '../xml-ingestion/sat-catalogs.js';
 
 // ============================================================
 // CUSTOMERS (AR master data) — domain service
@@ -566,4 +567,210 @@ export function customerLabel(row: {
 }): string {
   if (row.company_name) return row.company_name;
   return [row.first_name, row.last_name].filter(Boolean).join(' ').trim();
+}
+
+// ============================================================
+// EL PERFIL FISCAL DEL CLIENTE (049 · F03)
+//
+// RFC, régimen, CP y UsoCFDI: los cuatro datos que el timbrado CFDI 4.0
+// valida contra el padrón del SAT — si no casan, el PAC rechaza. Vivían en
+// ninguna parte (tax_id crudo y sin validar), así que el control previo a
+// facturar era imposible. La validación usa los catálogos de código
+// (sat-catalogs.ts): un código nuevo del SAT es un cambio de código, no
+// una migración.
+// ============================================================
+
+const RFC_CLIENTE_RE = /^([A-ZÑ&]{3,4})(\d{2})(\d{2})(\d{2})([A-Z0-9]{3})$/;
+
+export interface TaxProfilePatch {
+  taxId?: string;
+  taxRegime?: string;
+  postalCode?: string;
+  usoCfdi?: string;
+}
+
+export interface TaxProfile {
+  id: string;
+  customer_number: string;
+  name: string | null;
+  tax_id: string | null;
+  tax_id_type: string | null;
+  tax_regime: string | null;
+  tax_regime_name: string | null;
+  tax_postal_code: string | null;
+  uso_cfdi: string | null;
+  uso_cfdi_name: string | null;
+  complete: boolean;
+  missing: string[];
+}
+
+function perfilDe(row: {
+  id: string; customer_number: string; company_name: string | null;
+  first_name: string | null; last_name: string | null;
+  tax_id: string | null; tax_id_type: string | null; tax_regime: string | null;
+  tax_postal_code: string | null; uso_cfdi: string | null;
+}): TaxProfile {
+  const missing: string[] = [];
+  if (!row.tax_id) missing.push('tax_id');
+  if (!row.tax_regime) missing.push('tax_regime');
+  if (!row.tax_postal_code) missing.push('postal_code');
+  if (!row.uso_cfdi) missing.push('uso_cfdi');
+  const regimenes = SAT_CATALOGS.REGIMEN_FISCAL as Record<string, string>;
+  const usos = SAT_CATALOGS.USO_CFDI as Record<string, string>;
+  return {
+    id: row.id,
+    customer_number: row.customer_number,
+    name: row.company_name ?? [row.first_name, row.last_name].filter(Boolean).join(' ') ?? null,
+    tax_id: row.tax_id,
+    tax_id_type: row.tax_id_type,
+    tax_regime: row.tax_regime,
+    tax_regime_name: row.tax_regime ? (regimenes[row.tax_regime] ?? null) : null,
+    tax_postal_code: row.tax_postal_code,
+    uso_cfdi: row.uso_cfdi,
+    uso_cfdi_name: row.uso_cfdi ? (usos[row.uso_cfdi] ?? null) : null,
+    complete: missing.length === 0,
+    missing,
+  };
+}
+
+export async function getCustomerTaxProfile(id: string, scope: Scope): Promise<TaxProfile> {
+  const alcance = await condicionDeAlcance('customers', scope, 2);
+  const r = await query<{
+    id: string; customer_number: string; company_name: string | null;
+    first_name: string | null; last_name: string | null;
+    tax_id: string | null; tax_id_type: string | null; tax_regime: string | null;
+    tax_postal_code: string | null; uso_cfdi: string | null;
+  }>(
+    `SELECT c.id, c.customer_number, c.company_name, c.first_name, c.last_name,
+            c.tax_id, c.tax_id_type, c.tax_regime, c.tax_postal_code, c.uso_cfdi
+       FROM customers c
+      WHERE c.id = $1 AND ${alcance.sql}`,
+    [id, alcance.valor]
+  );
+  if (r.rows.length === 0) throw new NotFoundError('Customer', id);
+  return perfilDe(r.rows[0]);
+}
+
+/**
+ * Fija el perfil fiscal, validando contra los catálogos del SAT ANTES de
+ * escribir: un RFC malformado, un régimen inexistente o un UsoCFDI inventado
+ * fallarían el timbrado semanas después, donde ya nadie recuerda el alta.
+ */
+export async function setCustomerTaxProfile(
+  id: string,
+  scope: Scope,
+  patch: TaxProfilePatch,
+  audit: AuditContext
+): Promise<TaxProfile> {
+  const cambios: Record<string, string> = {};
+  if (patch.taxId !== undefined) {
+    const rfc = patch.taxId.trim().toUpperCase();
+    if (!RFC_CLIENTE_RE.test(rfc)) {
+      throw new ValidationError(
+        `"${patch.taxId}" no tiene forma de RFC (AAAA######XXX): revisa homoclave y fecha.`
+      );
+    }
+    cambios.tax_id = rfc;
+    cambios.tax_id_type = 'rfc';
+  }
+  if (patch.taxRegime !== undefined) {
+    const regimenes = SAT_CATALOGS.REGIMEN_FISCAL as Record<string, string>;
+    if (!regimenes[patch.taxRegime]) {
+      throw new ValidationError(
+        `El régimen '${patch.taxRegime}' no está en c_RegimenFiscal: usa un código del catálogo (601, 612, 626…).`
+      );
+    }
+    cambios.tax_regime = patch.taxRegime;
+  }
+  if (patch.postalCode !== undefined) {
+    if (!/^\d{5}$/.test(patch.postalCode)) {
+      throw new ValidationError(`El CP '${patch.postalCode}' no es un código postal de 5 dígitos.`);
+    }
+    cambios.tax_postal_code = patch.postalCode;
+  }
+  if (patch.usoCfdi !== undefined) {
+    const usos = SAT_CATALOGS.USO_CFDI as Record<string, string>;
+    if (!usos[patch.usoCfdi]) {
+      throw new ValidationError(
+        `El UsoCFDI '${patch.usoCfdi}' no está en c_UsoCFDI: usa un código del catálogo (G01, G03, P01…).`
+      );
+    }
+    cambios.uso_cfdi = patch.usoCfdi;
+  }
+  if (Object.keys(cambios).length === 0) {
+    throw new ValidationError('Nothing to set: pass --rfc, --tax-regime, --postal-code or --uso-cfdi.');
+  }
+
+  const alcance = await condicionDeAlcance('customers', scope, 2);
+  return withTransaction(async (client) => {
+    const previo = await client.query<{
+      id: string; customer_number: string; company_name: string | null;
+      first_name: string | null; last_name: string | null;
+      tax_id: string | null; tax_id_type: string | null; tax_regime: string | null;
+      tax_postal_code: string | null; uso_cfdi: string | null;
+    }>(
+      `SELECT id, customer_number, company_name, first_name, last_name,
+              tax_id, tax_id_type, tax_regime, tax_postal_code, uso_cfdi
+         FROM customers WHERE id = $1 AND ${alcance.sql} FOR UPDATE`,
+      [id, alcance.valor]
+    );
+    if (previo.rows.length === 0) throw new NotFoundError('Customer', id);
+    const antes = previo.rows[0];
+
+    const columnas = Object.keys(cambios);
+    const sets = columnas.map((c, i) => `${c} = $${i + 3}`).join(', ');
+    await client.query(
+      `UPDATE customers SET ${sets}, updated_at = NOW()
+        WHERE id = $1 AND ${alcance.sql}`,
+      [id, alcance.valor, ...Object.values(cambios)]
+    );
+
+    await registrarAuditoria(client, {
+      tenantId: audit.tenantId,
+      userId: audit.userId,
+      action: 'update',
+      entityType: 'customers',
+      entityId: id,
+      oldValues: {
+        tax_id: antes.tax_id, tax_regime: antes.tax_regime,
+        tax_postal_code: antes.tax_postal_code, uso_cfdi: antes.uso_cfdi,
+      },
+      newValues: cambios,
+      reason: audit.reason,
+    });
+
+    return perfilDe({ ...antes, ...cambios });
+  });
+}
+
+/**
+ * El control previo a facturar: clientes activos con el perfil incompleto o
+ * con RFC que no pasa la forma. Con --missing sólo los incompletos.
+ */
+export async function listCustomerTaxProfiles(
+  scope: Scope,
+  opts: { missing?: boolean; limit?: number } = {}
+): Promise<{ rows: TaxProfile[]; total: number }> {
+  const alcance = await condicionDeAlcance('customers', scope, 1);
+  const r = await query<{
+    id: string; customer_number: string; company_name: string | null;
+    first_name: string | null; last_name: string | null;
+    tax_id: string | null; tax_id_type: string | null; tax_regime: string | null;
+    tax_postal_code: string | null; uso_cfdi: string | null;
+  }>(
+    `SELECT c.id, c.customer_number, c.company_name, c.first_name, c.last_name,
+            c.tax_id, c.tax_id_type, c.tax_regime, c.tax_postal_code, c.uso_cfdi
+       FROM customers c
+      WHERE c.is_active = true AND ${alcance.sql}
+      ORDER BY c.customer_number`,
+    [alcance.valor]
+  );
+  let perfiles = r.rows.map(perfilDe);
+  if (opts.missing) {
+    perfiles = perfiles.filter(
+      (p) => !p.complete || (p.tax_id !== null && !RFC_CLIENTE_RE.test(p.tax_id))
+    );
+  }
+  const total = perfiles.length;
+  return { rows: perfiles.slice(0, Math.max(1, Math.min(opts.limit ?? 100, 500))), total };
 }

@@ -111,6 +111,32 @@ describe('formatear — la salida sirve para actuar', () => {
 });
 
 describe('main — la compuerta de CI', () => {
+  /**
+   * CADA CASO DE ESTE BLOQUE EVALÚA EL ÁRBOL ENTERO.
+   *
+   * `main` no simula nada: corre los quince paquetes de criterios de verdad
+   * sobre el repositorio —subproceso y socket incluidos—, que es lo que les da
+   * valor: un trinquete probado contra un doble no prueba el trinquete. El
+   * precio es que su costo CRECE CON EL PROYECTO, y el timeout por omisión de
+   * vitest (5 s) nunca se eligió pensando en ellos.
+   *
+   * El primero de los seis ya llevaba su propio `{ timeout: 30_000 }` con esta
+   * misma razón escrita al lado. Le faltaban las cinco hermanas: el arreglo se
+   * aplicó al caso que falló y no a su clase, así que el problema volvió por el
+   * siguiente que cruzara los cinco segundos. Ahora el presupuesto es del
+   * bloque y no de un caso.
+   *
+   * Ya alcanzó: en CI un caso tardó 5 042 ms y rompió el build por 42
+   * milisegundos, sin que nada estuviera mal. Medido en local hoy: entre 2,5 y
+   * 3,6 s por caso; CI es del orden del doble de lento.
+   *
+   * El presupuesto va explícito y holgado, no ajustado a la medición de hoy:
+   * un margen corto vuelve a caducar con el siguiente tramo y el rojo que
+   * produce no dice nada del código. Sigue siendo un tope, no una barra libre
+   * — si uno de éstos llega a 30 s, algo se colgó de verdad y hay que mirarlo.
+   */
+  const PRESUPUESTO = 30_000;
+
   const callar = () => {
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -119,13 +145,10 @@ describe('main — la compuerta de CI', () => {
     vi.restoreAllMocks();
   });
 
-  // Mismo motivo que en criterios.spec.ts: `main()` evalúa los quince paquetes,
-  // con subproceso y socket incluidos. El timeout por omisión es demasiado
-  // corto para lo que esta prueba hace de verdad.
-  it('sin --exigir informa y no rompe el build: un paquete abierto es información', { timeout: 30_000 }, async () => {
+  it('sin --exigir informa y no rompe el build: un paquete abierto es información', async () => {
     callar();
     expect(await main([])).toBe(0);
-  });
+  }, PRESUPUESTO);
 
   it('rompe cuando se exige cerrado un paquete que está abierto', async () => {
     callar();
@@ -133,7 +156,7 @@ describe('main — la compuerta de CI', () => {
     // de guardia pasa a E3.2 — la descarga masiva del SAT, bloqueada por la
     // e.firma real, el rojo más longevo del tablero.
     expect(await main(['--exigir=E3.2'])).toBe(1);
-  });
+  }, PRESUPUESTO);
 
   it('el filtro no puede blanquear lo exigido', async () => {
     // `plan:status E0 --exigir=E3.2` miraba sólo E0, no encontraba E3.2 entre
@@ -141,7 +164,7 @@ describe('main — la compuerta de CI', () => {
     // un trinquete.
     callar();
     expect(await main(['E0', '--exigir=E3.2'])).toBe(1);
-  });
+  }, PRESUPUESTO);
 
   it('un paquete exigido que NO EXISTE rompe, en vez de pasar en silencio', async () => {
     // El trinquete se podía vaciar sin ponerse rojo: bastaba borrar o
@@ -150,17 +173,17 @@ describe('main — la compuerta de CI', () => {
     // commit que el cambio que juzga, y nada lo protegía de eso.
     callar();
     expect(await main(['--exigir=E9.9'])).toBe(1);
-  });
+  }, PRESUPUESTO);
 
   it('lo detecta aunque venga mezclado con paquetes que sí existen y están verdes', async () => {
     callar();
     expect(await main(['--exigir=E0.0,E9.9'])).toBe(1);
-  });
+  }, PRESUPUESTO);
 
   it('avisa cuando el filtro no coincide con nada, en vez de imprimir vacío', async () => {
     callar();
     expect(await main(['E9'])).toBe(1);
-  });
+  }, PRESUPUESTO);
 });
 
 describe('abiertosDe', () => {

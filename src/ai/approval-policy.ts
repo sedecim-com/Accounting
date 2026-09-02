@@ -249,6 +249,73 @@ const MODE_PREFERENCE: Record<ApprovalMode, number> = { always: 0, session: 1, o
  *   on revoked_at IS NULL so a concurrent revoke voids the match.
  * Returns null when nothing authorizes the candidate.
  */
+/**
+ * Las candidatas vivas de esta entidad y alcance, en el orden en que se
+ * intentan: no consumidoras primero (always < session < once), y dentro del
+ * mismo modo la más antigua. Compartida por el emparejador REAL y el de sólo
+ * lectura, para que la sombra no pueda medir un orden distinto del que se
+ * aplicará (A7: la evidencia mide el modo que se va a encender).
+ */
+async function candidatasOrdenadas(
+  ctx: AgentContext,
+  scope: ApprovalScope
+): Promise<ApprovalPolicyRow[]> {
+  const result = await query<ApprovalPolicyRow>(
+    `SELECT ${POLICY_COLUMNS}
+     FROM ai_approval_policies
+     WHERE entity_id = $1 AND scope = $2 AND revoked_at IS NULL
+     ORDER BY created_at ASC`,
+    [ctx.entityId, scope]
+  );
+  return [...result.rows].sort(
+    (a, b) =>
+      MODE_PREFERENCE[a.mode] - MODE_PREFERENCE[b.mode] ||
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+}
+
+/** ¿Esta política autoriza al candidato? Pura: sin base y sin efectos. */
+function autoriza(
+  policy: ApprovalPolicyRow,
+  candidate: ApprovalCandidate,
+  opts?: MatchApprovalOpts
+): boolean {
+  if (policy.mode === 'session' && (!opts?.sessionId || policy.session_id !== opts.sessionId)) {
+    return false;
+  }
+  if (!patternMatches(policy.pattern, candidate)) return false;
+  return amountAllowed(policy.pattern, candidate, opts?.configuredMaxAmount);
+}
+
+/**
+ * ¿HABRÍA autorizado alguna política? Sin consumir nada (A7).
+ *
+ * La sombra necesita saber si el modo real habría posteado, y el modo real
+ * incluye la vía de política que A3 añadió: medir sólo el umbral haría que la
+ * evidencia validara un clasificador MÁS CONSERVADOR que el que se enciende —
+ * exactamente el defecto que la auditoría II nombró.
+ *
+ * Pero la sombra no puede llamar a `matchApproval`: ése toca `last_used_at` y
+ * GASTA las políticas 'once'. Una sombra con efectos deja de ser sombra.
+ *
+ * Límite declarado: una política 'once' que aquí «habría autorizado» podría
+ * estar gastada cuando el modo real llegue. La sombra es optimista en ese
+ * caso concreto, y sobre-declarar «habría posteado» empuja la concordancia
+ * hacia abajo cuando el humano rechaza — que es el lado seguro para una
+ * medición cuyo propósito es autorizar el encendido.
+ */
+export async function wouldMatchApproval(
+  ctx: AgentContext,
+  scope: ApprovalScope,
+  candidate: ApprovalCandidate,
+  opts?: MatchApprovalOpts
+): Promise<ApprovalPolicyRow | null> {
+  const candidateAmount = toDecimal(candidate.amount);
+  if (candidateAmount === null || candidateAmount.isNegative()) return null;
+  const ordered = await candidatasOrdenadas(ctx, scope);
+  return ordered.find((p) => autoriza(p, candidate, opts)) ?? null;
+}
+
 export async function matchApproval(
   ctx: AgentContext,
   scope: ApprovalScope,
@@ -261,27 +328,10 @@ export async function matchApproval(
   const candidateAmount = toDecimal(candidate.amount);
   if (candidateAmount === null || candidateAmount.isNegative()) return null;
 
-  const result = await query<ApprovalPolicyRow>(
-    `SELECT ${POLICY_COLUMNS}
-     FROM ai_approval_policies
-     WHERE entity_id = $1 AND scope = $2 AND revoked_at IS NULL
-     ORDER BY created_at ASC`,
-    [ctx.entityId, scope]
-  );
-
-  // Non-consuming policies first (always < session < once), then oldest.
-  const ordered = [...result.rows].sort(
-    (a, b) =>
-      MODE_PREFERENCE[a.mode] - MODE_PREFERENCE[b.mode] ||
-      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+  const ordered = await candidatasOrdenadas(ctx, scope);
 
   for (const policy of ordered) {
-    if (policy.mode === 'session' && (!opts?.sessionId || policy.session_id !== opts.sessionId)) {
-      continue;
-    }
-    if (!patternMatches(policy.pattern, candidate)) continue;
-    if (!amountAllowed(policy.pattern, candidate, opts?.configuredMaxAmount)) continue;
+    if (!autoriza(policy, candidate, opts)) continue;
 
     const claimed =
       policy.mode === 'once'

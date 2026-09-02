@@ -45,6 +45,134 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   '--reason': null, '--note': null, '--idempotency-key': null, '--live': null,
   '--strict': null, '--no-input': null, '--watch': null,
   '--provider': '-p', '--model': '-m',
+  // S3: el destino de un respaldo (directorio) o de una restauración (base).
+  // Lo nombra el catálogo en las filas de `backup` desde antes de existir.
+  '--target': null,
+  // S3: `backup verify` comprueba hash y manifiesto sin restaurar (lo que el
+  // catálogo promete); con --restore ENSAYA la restauración de verdad, que es
+  // lo único que demuestra que un respaldo sirve.
+  '--restore': null,
+  // F04 · la bandeja de CFDI (`bill inbox list|run`). El catálogo las nombra
+  // desde antes de que existieran. Entran aquí para congelar la grafía: sin
+  // esto `--query` reaparece como --filter o --where en la próxima sesión, y
+  // `--vendor` —que `bill list` y `bill create` ya declaraban a mano— podría
+  // ganar una forma corta en un comando y no en otro.
+  '--vendor': null,
+  '--processing-mode': null,
+  '--requires-approval': null,
+  '--bulk': null,
+  '--query': null,
+  '--action': null,
+  // El lote programado al que `--action set-batch` engancha el pre-registro.
+  '--batch': null,
+  // F04 · la autorización explícita de alta de proveedor desde un CFDI. Es
+  // control interno, no criterio contable: no se pregunta al panel de
+  // políticas, se escribe en la orden o no ocurre.
+  '--allow-new-vendor': null,
+  // F04 · el desglose en prosa de un resultado que la tabla sólo enumera: el
+  // porqué de cada partida, no sólo su importe. El catálogo la promete en
+  // `ap reconcile` y la reclamarán las demás conciliaciones; entra al
+  // diccionario para que las tres se escriban igual. `explain` ya existía como
+  // VERBO (`cfdi explain`): son cosas distintas y conviven sin estorbarse,
+  // igual que `--diff` convive con el verbo `diff`.
+  '--explain': null,
+
+  // ── F05a · la familia `bank` ──────────────────────────────────────────
+  //
+  // Ninguna de estas lleva forma corta, así que estrictamente el auditor no
+  // las exigía aquí. Entran igual porque el diccionario existe para que una
+  // grafía se decida UNA vez: `bank account edit --clabe` y el
+  // `payment dispatch --clabe` de F05b tienen que ser la misma bandera, y el
+  // día que alguien le ponga `-c` a una de las dos el auditor lo dirá en vez
+  // de dejarlo pasar. Cuatro de ellas —`--type`, `--currency`, `--name`,
+  // `--check`— las hablan ya cuatro familias cada una (account, entry,
+  // credit-note, cfdi; ledger, ar, close) sin que nadie las hubiera
+  // congelado; se congelan ahora, con la forma que ya tenían.
+  '--name': null,
+  '--type': null,
+  '--currency': null,
+  '--check': null,
+  '--bank': null,
+  '--branch': null,
+  '--gl-account': null,
+  // Los tres identificadores por los que sale el dinero. Su edición exige
+  // --reason y nunca se devuelven en claro (051 · cifrado de la CLABE).
+  '--clabe': null,
+  '--account-number': null,
+  '--routing-ach': null,
+  '--routing-wire': null,
+  '--swift': null,
+  '--iban': null,
+  '--sat-bank-code': null,
+  // `bank account show --redacted`: oculta hasta los últimos 4, para la
+  // pantalla que se comparte. No es lo mismo que enmascarar, que es siempre.
+  '--redacted': null,
+  // Lecturas de despacho: la misma pregunta sobre todas las entidades del
+  // inquilino. Sólo lecturas — un alta necesita saber en cuál entidad ocurre.
+  '--all-entities': null,
+  // `bank statement import --dir`: el directorio del que se toman los
+  // archivos, complementario a los posicionales.
+  '--dir': null,
+  // El saldo final que el operador AFIRMA, cuando el archivo no lo trae (un
+  // CSV no tiene saldos). Si el archivo sí lo trae y no coinciden, se rechaza.
+  '--closing-balance': null,
+  // `bank statement show --lines`: trae las líneas, no sólo la cabecera.
+  '--lines': null,
+
+  // ── F05b · los dos lados y el cotejo ──────────────────────────────────
+  //
+  // Ninguna lleva forma corta. Las que más importa congelar son las tres
+  // últimas del bloque de compuertas: `--min-confidence`, `--max-amount` y
+  // `--rules-only` las hablan `bank match preview` y `bank match run`, que son
+  // deliberadamente DOS hojas —una ✓ y otra ✗— porque el permiso del agente no
+  // puede depender del valor de una bandera. Dos hojas que hacen la misma
+  // pregunta tienen que hacerla con las mismas palabras, o la mitad de lectura
+  // deja de predecir lo que hará la de escritura, que es lo único que la hace
+  // valer para algo.
+  //
+  // `--unmatched`: el estado de cotejo de un movimiento. Es un atajo de
+  // `-s unmatched` y no un filtro paralelo; el catálogo lo nombra así.
+  '--unmatched': null,
+  // Hacia dónde fue el dinero. Es el SIGNO del importe, no `transaction_type`,
+  // que dice de qué clase es el movimiento (comisión, interés) y no su sentido.
+  '--direction': null,
+  // `bank transaction show --raw`: el `raw_data` como lo publicó el banco.
+  // Se pide, no se imprime siempre: suele traer nombre y cuenta de la
+  // contraparte, y una ficha que lo enseña por omisión es una fuga por
+  // pantalla compartida.
+  '--raw': null,
+  // `bank book-item list --over-days`: antigüedad mínima. Es la bandera que
+  // convierte una lista en un hallazgo —el cheque que lleva ochenta días
+  // expedido y que el banco nunca mostró—.
+  '--over-days': null,
+  // `bank match preview --top`: cuántos MOVIMIENTOS previsualizar. No es
+  // `--limit` porque no lista filas de una tabla: recorre movimientos y por
+  // cada uno consulta candidatos, así que su costo es el del motor y no el de
+  // un SELECT. El catálogo lo escribe así en la fila 1224.
+  '--top': null,
+  '--min-confidence': null,
+  '--max-amount': null,
+  '--rules-only': null,
+  // La sesión de conciliación a la que se liga el cotejo. Sus dos escritores
+  // anteriores la dejaban en NULL mientras su único lector filtraba por ella.
+  '--session': null,
+  // `bank match apply --stdin`: los ids llegan por tubería, que es lo que hace
+  // que `bank match preview -q | mnemosine bank match apply --stdin` exista.
+  '--stdin': null,
+  // Los dos lados de un grupo de cotejo explícito. El catálogo los escribe
+  // `--bank` y `--book`; aquí se llaman por el sustantivo de su hoja
+  // (`bank transaction list`, `bank book-item list`) porque `--bank` YA
+  // significa otra cosa en esta misma familia —la institución, en
+  // `bank account create`— y una grafía con dos significados es exactamente lo
+  // que este diccionario existe para impedir.
+  '--transaction': null,
+  '--book-item': null,
+  // Un ajuste declarado del grupo: comisión, diferencia cambiaria. Repetible.
+  '--adjust': null,
+  // Qué se hace con lo que sobra, y contra qué cuenta si se cancela. Los dos
+  // van juntos por CHECK en la 052.
+  '--residual': null,
+  '--write-off-account': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
