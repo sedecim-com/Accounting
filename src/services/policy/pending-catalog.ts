@@ -45,23 +45,30 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // pesos. Que NO reciba el estrato fiscal mexicano es un hecho, no una
     // opinión: no hay despacho para el que eso sea correcto, y se arregló en
     // el código. Lo que sí es criterio del despacho es lo otro — si a esa
-    // entidad se le siembra el catálogo de la casa o se le deja vacío para
+    // entidad se le siembra el catálogo de la casa o se le deja sin él para
     // traer el suyo—, y por eso vive aquí y no en un `if`.
     key: 'catalogo_entidad_no_mexicana',
     category: 'contable',
     question: 'What chart of accounts does an entity that does not keep Mexican books receive?',
     impact:
       'Decides what a foreign entity is born with. The house chart keeps it posting from day one; ' +
-      'no chart leaves it empty until its own is imported, and until then every invoice fails with ' +
-      'MISSING_ROLE_ACCOUNT because the roles have no account to point at.',
+      'no base chart leaves it with the CFDI role accounts and the payroll mapping rows and nothing ' +
+      'else, and until its own is imported every invoice fails with MISSING_ROLE_ACCOUNT and the ' +
+      'first pay run fails too, because the roles and buckets that want bank, receivables, payables ' +
+      'or revenue have no account to point at.',
     options: [
       {
         value: 'base_neutro',
         label: 'The house chart without the Mexican tax layer (generic bank and sales tax instead)',
       },
       {
+        // El texto decía «No chart» y la entidad nacía con dieciséis cuentas:
+        // el interruptor llega al catálogo base y NO a las otras dos semillas
+        // —ver ensureEntityAccounting, donde está el porqué—. Una opción que
+        // describe mal lo que hace es peor que no ofrecerla: el despacho la
+        // escoge esperando una entidad vacía y luego no entiende el `doctor`.
         value: 'ninguno',
-        label: 'No chart: the entity brings its own and it is imported',
+        label: 'No base chart: the entity imports its own (role and payroll accounts are still created)',
       },
     ],
     defaultValue: 'base_neutro',
@@ -71,13 +78,19 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'never overwrites what the firm chose.',
     whyAsking:
       'Your foreign subsidiary can start with the same chart your Mexican entities use — minus the ' +
-      'IVA, ISR and withholding accounts, which it will never use — or it can start empty because you ' +
-      'plan to bring its existing chart over from another system. Both are defensible; which one is ' +
-      'right depends on whether that entity already has books elsewhere.',
+      'IVA, ISR and withholding accounts, which it will never use — or it can start without that ' +
+      'chart because you plan to bring its existing one over from another system. Both are ' +
+      'defensible; which one is right depends on whether that entity already has books elsewhere.',
     whatIDo:
       'On the house chart I seed the universal accounts plus a generic bank and sales-tax account, so ' +
-      'invoices, bills and payments post immediately. On no chart I seed nothing and only report which ' +
-      'roles are left unmapped, so `mnemosine doctor` tells you what the import still owes.',
+      'invoices, bills and payments post immediately. On no base chart I skip THAT chart and nothing ' +
+      'else: the entity is still born with the CFDI role accounts and the payroll mapping rows, so ' +
+      '"no chart" does not mean an empty entity — expect roughly sixteen accounts. What it does not ' +
+      'get is everything the base chart carries: bank, receivables, payables, revenue. Every invoice ' +
+      'fails with MISSING_ROLE_ACCOUNT until the import lands, and so does the first pay run — the ' +
+      'cash_payroll bucket is mandatory and points at a bank account (1111 in Mexico, 1115 on the ' +
+      'neutral chart) that only the base chart creates, which is why `entity create` warns about it ' +
+      'by name. `mnemosine doctor` lists the unmapped roles, so you know what the import still owes.',
     ifSkipped:
       'Foreign entities get the house chart. If you were going to import their real chart, you will ' +
       'have a handful of unused accounts to deactivate.',

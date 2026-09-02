@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
+import { ensureEntityAccounting } from '../../src/services/accounting/entity-accounting.js';
 import { query, withTransaction, closeDatabase } from '../../src/database/connection.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { postInvoiceEntry } from '../../src/services/accounting/ar-ap-posting.js';
 import type { Invoice, InvoiceLine } from '../../src/types/index.js';
+import { seedPolicies, resolvePolicy } from '../../src/services/policy/policy-service.js';
 
 // ============================================================
 // UNA ENTIDAD EXTRANJERA NO NACE CON IVA
@@ -157,6 +159,31 @@ describe('la entidad extranjera no recibe nada mexicano', () => {
     ]);
   });
 
+  it('se declara estadounidense, que es el catálogo que de verdad recibió', async () => {
+    // El `country` del resultado se recalculaba con `=== 'USA'` en vez de
+    // salir de la misma normalización que escoge el catálogo, y lo que esta
+    // columna guarda es 'US' —es CHAR(2), y COUNTRY_PROFILES.USA.iso2 es
+    // 'US'—, así que la entidad recibía el catálogo estadounidense correcto y
+    // se declaraba mexicana. Salía al mundo: `entity create --json` vuelca el
+    // resultado entero.
+    //
+    // Se re-siembra sobre la entidad ya creada porque `ensureEntityAccounting`
+    // es idempotente: no escribe nada nuevo y devuelve el mismo veredicto que
+    // devolvió en el alta, leyendo el país de la base y no de un literal.
+    const { rows } = await query<{ incorporation_country: string }>(
+      'SELECT incorporation_country FROM legal_entities WHERE id = $1',
+      [usa.entityId]
+    );
+    expect(rows[0].incorporation_country.trim()).toBe('US');
+
+    const resultado = await withTransaction((client) =>
+      ensureEntityAccounting(usa.entityId, usa.tenantId, usa.userId, { client })
+    );
+    expect(resultado.nomina.country).toBe('USA');
+    expect(resultado.nomina.bucketsAlreadyMapped).toContain('futa_payable');
+    expect(resultado.nomina.bucketsAlreadyMapped).not.toContain('imss_payable');
+  });
+
   it('paga la nómina desde su banco, no desde uno en pesos', async () => {
     const { rows } = await query<{ code: string; name: string }>(
       `SELECT a.code, a.name FROM payroll_account_mapping m
@@ -222,4 +249,64 @@ describe('la prueba que importa: la entidad extranjera postea', () => {
     expect(Number(impuesto!.credit_amount)).toBe(80);
     expect(renglones.some((r) => /IVA/.test(r.name))).toBe(false);
   });
+});
+
+// ============================================================
+// LA RAMA 'ninguno', QUE NINGUNA PRUEBA MIRABA.
+//
+// La opción decía «On no chart I seed nothing» y la entidad nacía con
+// dieciséis cuentas: el interruptor llega al catálogo base y no a las otras dos
+// semillas. Al reescribir ese texto se coló una afirmación nueva y también
+// falsa —que la entidad nace con «las cuentas que los roles y los buckets de
+// nómina necesitan»—, cuando `cash_payroll` es obligatorio y apunta a una
+// cuenta que SÓLO crea el catálogo base. Esta prueba existe para que el texto
+// del panel no vuelva a poder decir algo que el código desmiente.
+//
+// La política se resuelve ANTES de crear la entidad a propósito: la siembra es
+// idempotente, así que sobre una entidad ya sembrada 'ninguno' llega tarde y no
+// se puede observar. Eso mismo le pasa hoy al asistente `init`, que siembra la
+// contabilidad de la primera entidad antes de preguntar la política.
+// ============================================================
+describe("el catálogo 'ninguno' y lo que de verdad deja", () => {
+  let base: Fixture;
+  const entityId = uuidv4();
+
+  beforeAll(async () => {
+    base = await crearInquilino('Catálogo · sin catálogo base', { pais: 'US' });
+    await seedPolicies({ tenantId: base.tenantId });
+    await resolvePolicy({ tenantId: base.tenantId }, 'catalogo_entidad_no_mexicana', 'ninguno', base.userId);
+
+    const org = await query<{ id: string }>(
+      'SELECT organization_id AS id FROM legal_entities WHERE id = $1',
+      [base.entityId]
+    );
+    await query(
+      `INSERT INTO legal_entities (id, tenant_id, organization_id, name, entity_type, tax_id, tax_id_type,
+        incorporation_country, functional_currency, accounting_standard, fiscal_year_start_month, is_active)
+       VALUES ($1, $2, $3, $4, 'corporation', $5, 'ein', 'US', 'USD', 'us_gaap', 1, true)`,
+      [entityId, base.tenantId, org.rows[0].id, 'Filial sin catálogo', '99-9999999']
+    );
+  }, 120_000);
+
+  it('no siembra el catálogo base, pero la entidad NO nace vacía', async () => {
+    const r = await withTransaction((client) =>
+      ensureEntityAccounting(entityId, base.tenantId, base.userId, { client })
+    );
+    // La mitad que la palabra «ninguno» promete: cero cuentas del catálogo base.
+    expect(r.cuentasBaseCreadas).toEqual([]);
+    // Y la mitad que NO promete y el panel ahora sí declara: las otras dos
+    // semillas corren igual. Se afirma que HAY, no cuántas: el número es de las
+    // semillas y puede crecer sin que el texto mienta.
+    expect(r.accountsCreated.length + r.nomina.accountsCreated.length).toBeGreaterThan(0);
+  }, 120_000);
+
+  it('deja cash_payroll sin mapear, así que la primera nómina falla igual', async () => {
+    // El hecho que el texto del panel afirmaba al revés: cash_payroll es
+    // obligatorio (gl-posting-service) y apunta a 1115 en el estrato neutro,
+    // que sólo crea el catálogo base — el que 'ninguno' apaga.
+    const r = await withTransaction((client) =>
+      ensureEntityAccounting(entityId, base.tenantId, base.userId, { client })
+    );
+    expect(r.nomina.bucketsUnmappable.map((u) => u.bucket)).toContain('cash_payroll');
+  }, 120_000);
 });
