@@ -57,7 +57,12 @@ beforeAll(async () => {
   cuentaCxp = await cuentaPorCodigo(f.entityId, '2110');
   cuentaAnticipo = await cuentaPorCodigo(f.entityId, '1150');
   cuentaDescuento = await cuentaPorCodigo(f.entityId, '5200');
-  cuentaOtrosIngresos = await cuentaPorCodigo(f.entityId, '4200');
+  // 4300, no 4200. El rol `otros_ingresos` pedía el 4200 con el nombre «Otros
+  // Ingresos», pero el catálogo base ya tiene ese número como «Ingresos por
+  // Servicios» y la guarda de creación compara CÓDIGOS: el rol heredaba la
+  // cuenta de Servicios y este residual se contabilizaba como ingreso de
+  // OPERACIÓN. La prueba fijaba ese 4200, así que afirmaba el defecto.
+  cuentaOtrosIngresos = await cuentaPorCodigo(f.entityId, '4300');
   // El panel se siembra a nivel de INQUILINO (entity_id NULL), y ahí es donde
   // se resuelve: `resolvePolicy` exige el mismo alcance en que la decisión
   // está pendiente.

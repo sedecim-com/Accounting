@@ -128,7 +128,14 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     description: 'Contra-costo: reduce las compras.',
   },
   {
-    code: '4200', name: 'Otros Ingresos', account_type: 'revenue',
+    // 4300, NO 4200. El catálogo base declara 4200 como «Ingresos por
+    // Servicios» y 4300 como «Otros Ingresos», con esta misma clasificación.
+    // La guarda de creación compara CÓDIGOS, así que pedir 4200 con el nombre
+    // de otra cuenta no crea nada: hereda en silencio la de Servicios, y el
+    // residual que `pago_corto_residual` manda aquí acababa en ingreso de
+    // OPERACIÓN en vez de en otros ingresos. Se ve en el estado de resultados y
+    // no revienta en ningún lado.
+    code: '4300', name: 'Otros Ingresos', account_type: 'revenue',
     normal_balance: 'credit', fs_category: 'other_income',
     description:
       'Ingresos que no provienen de una venta. Existe porque la política ' +
@@ -152,7 +159,7 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
 export const ROLE_MAP: Record<AccountRole, string> = {
   // Income and collection
   ingreso: '4100',
-  otros_ingresos: '4200',
+  otros_ingresos: '4300',
   devolucion_ventas: '4400',
   anticipo_clientes: '2150',
   cxc: '1120',

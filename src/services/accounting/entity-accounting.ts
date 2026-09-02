@@ -90,7 +90,7 @@ export async function ensureEntityAccounting(
     // semillas de abajo corren igual. Extenderles el interruptor sonaría más
     // fiel a la palabra «ninguno» y dejaría payroll_account_mapping sin una
     // sola fila: esa tabla no tiene otro escritor en tiempo de ejecución —sólo
-    // esta semilla y la migración 049 que la sembró de golpe—, así que la
+    // esta semilla y la migración 053 que la sembró de golpe—, así que la
     // primera corrida moriría con «Missing payroll_account_mapping for bucket:
     // wages_expense» en vez de con el bucket que sí falta. Porque falta uno:
     // bajo 'ninguno', `cash_payroll` —obligatorio junto a wages_expense y

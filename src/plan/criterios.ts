@@ -1531,6 +1531,17 @@ export const CRITERIOS: Criterio[] = [
               'a una entidad mexicana: el IVA dejaría de acreditarse'
           );
     },
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: "code: '1130', name: 'IVA Acreditable'",
+        a: "code: '1131', name: 'IVA Acreditable'",
+        porque:
+          'el IVA acreditable deja de sembrarse con el código que el criterio exige: una entidad ' +
+          'onboardeada revienta con MISSING_ROLE_ACCOUNT al primer CFDI recibido, y ése es ' +
+          'exactamente el fallo que este criterio existe para no dejar pasar',
+      },
+    ],
   },
 
   {
@@ -1560,8 +1571,12 @@ export const CRITERIOS: Criterio[] = [
       const decl = /code:\s*'([^']+)'\s*,\s*name:\s*'([^']*)'/g;
       const porCodigo = new Map<string, Map<string, string[]>>();
       for (const f of fuentes('src')) {
-        const texto = sinComentarios(fs.readFileSync(f, 'utf-8'));
+        // POR EL SEAM, no por fs: el arnés de S2 muta el fuente en memoria, y
+        // una lectura directa lo esquiva — el mutante de este criterio quedaba
+        // vivo porque el criterio medía un texto que la mutación no tocaba. Y
+        // la cuenta de lecturas crudas de este archivo sólo admite la de leer().
         const rel = path.relative(RAIZ, f);
+        const texto = codigoDe(rel);
         decl.lastIndex = 0;
         for (const m of texto.matchAll(decl)) {
           const [, codigo, nombre] = m;
@@ -1598,6 +1613,18 @@ export const CRITERIOS: Criterio[] = [
               `no crea su cuenta y hereda la ajena, sin error: ${choques.join(' · ')}`
           );
     },
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: "code: '4300', name: 'Otros Ingresos'",
+        a: "code: '4200', name: 'Otros Ingresos'",
+        porque:
+          'reintroduce la colisión que este criterio destapó de verdad: 4200 ya es «Ingresos por ' +
+          'Servicios» en el catálogo base, así que el rol heredaba esa cuenta en silencio y el ' +
+          'residual del pago corto se iba a ingreso de OPERACIÓN. Si el criterio no muerde aquí, ' +
+          'no muerde en el único caso que le dio origen',
+      },
+    ],
   },
 
   // ---- E1.2 · Cerebro fiscal del CFDI ----
