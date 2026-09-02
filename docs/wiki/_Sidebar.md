@@ -2,6 +2,17 @@
 
 [[Home]]
 
+**El manual**
+
+- [[Manual-de-usuario]]
+- [[Manual-Primer-cliente]]
+- [[Manual-El-dia-a-dia]]
+- [[Manual-Cobrar-y-pagar]]
+- [[Manual-Bancos-y-conciliacion]]
+- [[Manual-El-cierre-de-mes]]
+- [[Manual-Trabajar-con-el-agente]]
+- [[Manual-Reportes-y-entregables]]
+
 **Usarlo**
 
 - [[Puesta-en-marcha]]
