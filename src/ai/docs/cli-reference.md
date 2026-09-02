@@ -1355,8 +1355,8 @@ Repoint a role to another account, or create a qualified variant
 
 Arguments:
   role                     one of: activo_fijo, anticipo_clientes,
-                           anticipo_proveedores, banco, cxc, cxp… (see role
-                           list)
+                           anticipo_proveedores, banco, comision_bancaria, cxc…
+                           (see role list)
   code                     account code the role should point to
 
 Options:
@@ -3494,6 +3494,9 @@ Commands:
   reconciliation|conciliacion             The reconciliation session: the two-sided arithmetic that makes `balanced` mean something
   reconciling-item|partida-conciliatoria  Reconciling items as rows: what explains the difference, with age, owner, due date and escalation
   adjustment|ajuste                       The fees, VAT, interest and withholdings a reconciliation uncovers, created as DRAFTS
+  fee|comision                            Bank fees as an accounting act: the charge as an expense and its VAT parked until the bank issues the CFDI
+  interest|interes                        Interest earned on bank balances: income at its GROSS amount and the tax the bank withheld as a prepayment in the entity’s favour
+  check|cheque                            Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law is when the payment counts
   help [command]                          display help for command
 ```
 
@@ -4093,37 +4096,18 @@ The reconciliation session: the two-sided arithmetic that makes `balanced` mean
 something
 
 Options:
-  -h, --help                            display help for command
+  -h, --help                             display help for command
 
 Commands:
-  run|ejecutar [options] <account>      Guided monthly pass over one account:
-                                        statement, matching engine, session and
-                                        reconciling items; it ALWAYS stops
-                                        before approve and post, and prints what
-                                        is missing
-  open|abrir [options] <account>        Open the period session, asserting the
-                                        opening balance equals the previous
-                                        session closing and refusing date gaps
-                                        and overlaps
-  list|listar [options]                 List sessions by account, state and
-                                        period, with the FROZEN variance and how
-                                        many items are still open
-  status|estado [options] [session]     Recompute the variance LIVE and print
-                                        the two-sided breakdown: bank balance,
-                                        its items one by one, adjusted; books
-                                        balance, its items, adjusted; and the
-                                        difference
-  close|cerrar [options] <session>      Recompute the whole arithmetic and move
-                                        the session to `balanced` ONLY if the
-                                        variance is exactly zero (or within the
-                                        policy tolerance) and every item is
-                                        classified and dated
-  generate|generar [options] <session>  Produce the two-sided bank
-                                        reconciliation statement for the audit
-                                        file: json for the whole document,
-                                        md/csv/tsv for the line-by-line
-                                        statement, plain text to print
-  help [command]                        display help for command
+  run|ejecutar [options] <account>       Guided monthly pass over one account: statement, matching engine, session and reconciling items; it ALWAYS stops before approve and post, and prints what is missing
+  open|abrir [options] <account>         Open the period session, asserting the opening balance equals the previous session closing and refusing date gaps and overlaps
+  list|listar [options]                  List sessions by account, state and period, with the FROZEN variance and how many items are still open
+  status|estado [options] [session]      Recompute the variance LIVE and print the two-sided breakdown: bank balance, its items one by one, adjusted; books balance, its items, adjusted; and the difference
+  close|cerrar [options] <session>       Recompute the whole arithmetic and move the session to `balanced` ONLY if the variance is exactly zero (or within the policy tolerance) and every item is classified and dated
+  approve|aprobar [options] <session>    Sign the session, requiring that the approver is not the preparer, and freeze an immutable snapshot with a hash of its members and its balances
+  post|contabilizar [options] <session>  Post the approved adjustment entries and seal the session’s book lines as reconciled, blocking their edit, their void and their date change
+  generate|generar [options] <session>   Produce the two-sided bank reconciliation statement for the audit file: json for the whole document, md/csv/tsv for the line-by-line statement, plain text to print
+  help [command]                         display help for command
 ```
 
 #### `mnemosine bank reconciliation run` (alias: ejecutar)
@@ -4266,6 +4250,59 @@ Options:
   --dry-run                do the whole thing and roll it back
   -y, --yes                skip the confirmation
   --json                   JSON output
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank reconciliation approve` (alias: aprobar)
+
+```
+Usage: mnemosine bank reconciliation approve|aprobar [options] <session>
+
+Sign the session, requiring that the approver is not the preparer, and freeze an
+immutable snapshot with a hash of its members and its balances
+
+Arguments:
+  session                  balanced session to sign
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --reason <text>          why it is being signed; stored on the session and in
+                           the audit trail
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+#### `mnemosine bank reconciliation post` (alias: contabilizar)
+
+```
+Usage: mnemosine bank reconciliation post|contabilizar [options] <session>
+
+Post the approved adjustment entries and seal the session’s book lines as
+reconciled, blocking their edit, their void and their date change
+
+Arguments:
+  session                  approved session to post
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --note <text>            free annotation stored with the record
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
   -h, --help               display help for command
 ```
 
@@ -4433,6 +4470,150 @@ Options:
   --item <id>                                                the reconciling item this adjustment explains
   --json                                                     JSON output
   -h, --help                                                 display help for command
+```
+
+### `mnemosine bank fee` (alias: comision)
+
+```
+Usage: mnemosine bank fee|comision [options] [command]
+
+Bank fees as an accounting act: the charge as an expense and its VAT parked
+until the bank issues the CFDI
+
+Options:
+  -h, --help                             display help for command
+
+Commands:
+  post|contabilizar [options] <account>  Post the period’s bank fees from the statement, one entry per charge, leaving their VAT in pending-creditable until the bank’s CFDI arrives
+  help [command]                         display help for command
+```
+
+#### `mnemosine bank fee post` (alias: contabilizar)
+
+```
+Usage: mnemosine bank fee post|contabilizar [options] <account>
+
+Post the period’s bank fees from the statement, one entry per charge, leaving
+their VAT in pending-creditable until the bank’s CFDI arrives
+
+Arguments:
+  account                  bank account whose fees to post (name or id)
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --period <YYYY-MM>       month whose fees to post
+  --iva-rate <rate>        VAT rate the charge already carries INSIDE it, as a
+                           fraction (0.16 for 16%); 0 for an exempt fee. No
+                           default: a default here is a tax decision nobody
+                           takes and nobody sees
+  --max-amount <amount>    above this magnitude the charge is skipped and left
+                           for human eyes; it is a confidence gate, not a
+                           validation
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+### `mnemosine bank interest` (alias: interes)
+
+```
+Usage: mnemosine bank interest|interes [options] [command]
+
+Interest earned on bank balances: income at its GROSS amount and the tax the
+bank withheld as a prepayment in the entity’s favour
+
+Options:
+  -h, --help                             display help for command
+
+Commands:
+  post|contabilizar [options] <account>  Post the period’s interest as income and the ISR the bank withheld as a provisional payment in the entity’s favour, never as an expense
+  help [command]                         display help for command
+```
+
+#### `mnemosine bank interest post` (alias: contabilizar)
+
+```
+Usage: mnemosine bank interest post|contabilizar [options] <account>
+
+Post the period’s interest as income and the ISR the bank withheld as a
+provisional payment in the entity’s favour, never as an expense
+
+Arguments:
+  account                  bank account whose interest to post (name or id)
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --period <YYYY-MM>       month whose interest to post
+  --rate <rate>            ISR WITHHOLDING rate the bank applied, as a fraction
+                           (0.0125 for 1.25%); 0 when it withheld nothing. This
+                           is NOT the interest rate: the interest is what the
+                           statement says
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
+```
+
+### `mnemosine bank check` (alias: cheque)
+
+```
+Usage: mnemosine bank check|cheque [options] [command]
+
+Paper checks as a fiscal fact: when the bank actually paid one, which under the
+VAT law is when the payment counts
+
+Options:
+  -h, --help                          display help for command
+
+Commands:
+  reconcile|conciliar [options] <id>  Prove the check against the bank movement
+                                      that cleared it and post the VAT
+                                      reclassification from pending to
+                                      creditable IN THE MONTH IT CLEARED
+  help [command]                      display help for command
+```
+
+#### `mnemosine bank check reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine bank check reconcile|conciliar [options] <id>
+
+Prove the check against the bank movement that cleared it and post the VAT
+reclassification from pending to creditable IN THE MONTH IT CLEARED
+
+Arguments:
+  id                       vendor payment made by check
+
+Options:
+  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
+                           one)
+  -t, --tenant <id>        tenant (firm) whose data to scope to
+  -u, --user <email>       acting user, for attribution and permissions
+  --transaction <id>       the bank movement that paid it, named by hand;
+                           required when several charges match
+  --as-of <date>           the clearing date you assert (YYYY-MM-DD); it is
+                           CONTRASTED against the movement, never imposed — the
+                           bank dates the clearing
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  -h, --help               display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)

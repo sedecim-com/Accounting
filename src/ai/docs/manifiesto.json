@@ -95,13 +95,13 @@
     "src/services/accounting/fiscal-calendar-service.ts": "d5d7a785b11a533a34c39d5d1c4568f2c4122930",
     "src/cli/entry-command.ts": "bda3af4169e96a2548f52512dfc5415ed5f6ae42",
     "src/services/accounting/iva-cash-basis.ts": "0fa82412b57e1c26a8164a80fa757aec80e46fc0",
-    "src/services/xml-ingestion/cfdi-taxonomy.ts": "54de95c63d0fd4d6fd51cad38a8dae654e0eead4",
+    "src/services/xml-ingestion/cfdi-taxonomy.ts": "ded786dabbd1519763c1467aeb4eb828f25966c4",
     "src/services/integrations/mexico/pac/pac-router.ts": "adb8d8fde1a2bd9ae22817492682b4c480351d48",
     "src/api/rest/routes/invoices.ts": "852a2b050a60044e8c1b1d6e38f6582ff70653fc",
     "src/ai/ingest-service.ts": "227cfda8de3cc49502de0e2aaff9e3f29a406aba",
     "src/services/banking/matching.ts": "377481c3ea9dff2f4b259649fce70ebb5dd600ca",
     "src/api/rest/routes/bank-reconciliation.ts": "37f309b8788c6a5c36accc8c120396163f4aff6b",
-    "src/database/enums.ts": "d3731694d2df8916b08569fcecae737ff63c3dad",
+    "src/database/enums.ts": "7c29e0c877456d936573c5b841a9be0621bfc04f",
     "src/ai/external-service.ts": "0dcfa6a6f06c6b2985a947fefd08ccaf0819c571",
     "src/ai/tools/external-tools.ts": "283948b7b85553aff42f03cf69f59c932859b567",
     "src/services/integrations/accounting/contalink-adapter.ts": "26f1f237d951a438adfc9e3d0430c316ff762f2b",
@@ -112,9 +112,9 @@
     "src/services/banking/statement-checks.ts": "54a4b54f11f557740ccda5c25f5cef304ba8415e",
     "src/services/banking/match-service.ts": "52b731c828d115c9323215e225ae95a4827c92d3",
     "src/services/banking/book-items.ts": "e6a4453810d68c32571e3eea87f334f45e073ce6",
-    "src/services/banking/reconciliation-service.ts": "ebccb08b6ea18f9d6917e4d01f3a8adca386f0e2",
-    "src/services/banking/reconciling-items.ts": "5df424458d702cfd8595d86463a5f08594aec8a2",
+    "src/services/banking/reconciliation-service.ts": "3ab76e68024ac61bdc39e99afaf2874dd3330bfe",
+    "src/services/banking/reconciling-items.ts": "a9ad36f020258bd8ef66f0e8b873704d16b066cc",
     "src/services/banking/reconciliation-adjustments.ts": "e627489ed40cb7cb1c37010015cd7033f30bb852",
-    "src/cli/bank-command.ts": "abaab23836220dd9f0ba2da3588341f1fda1df32"
+    "src/cli/bank-command.ts": "01f8c9aaef207fb08758da4f05c528b62bbe0efb"
   }
 }

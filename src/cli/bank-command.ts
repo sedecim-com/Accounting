@@ -1,4 +1,5 @@
 import * as readline from 'node:readline/promises';
+import Decimal from 'decimal.js';
 import { readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { stdin, stdout } from 'node:process';
@@ -70,7 +71,9 @@ import {
   ESTADOS_DE_SESION,
   PASOS_DE_CORRIDA,
   abrirSesion,
+  aprobarSesion,
   cerrarSesion,
+  contabilizarSesion,
   correrConciliacion,
   estadoDeSesion,
   listarSesiones,
@@ -78,8 +81,19 @@ import {
   type EstadoDeSesionConciliacion,
   type PasoDeCorrida,
   type RenglonSesion,
+  type ResultadoAprobacion,
+  type ResultadoContabilizacion,
   type ResultadoCorridaGuiada,
 } from '../services/banking/reconciliation-service.js';
+import {
+  conciliarCheque,
+  contabilizarComisiones,
+  contabilizarIntereses,
+  type MovimientoOmitido,
+  type ResultadoDeCobroDeCheque,
+  type ResultadoDeComisiones,
+  type ResultadoDeIntereses,
+} from '../services/banking/treasury-posting.js';
 import {
   listarPartidas,
   type PartidaConciliatoria,
@@ -100,6 +114,7 @@ import {
   type TipoDePartida,
 } from '../services/banking/reconciliation-math.js';
 import { MATCHED_ENTITY_TYPES } from '../database/enums.js';
+import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import type { Palette } from './palette.js';
 import {
   ExitCode,
@@ -247,6 +262,50 @@ import {
 // segundo porque el contrato de salida reserva el 11 para «no falló: espera a
 // una persona», y eso es exactamente lo que deja un ajuste: un borrador en la
 // cola de revisión.
+//
+// Y CINCO MÁS, DE F05d — el ÚNICO tramo de esta familia que toca el mayor. Las
+// veintisiete hojas anteriores construyeron el documento, el cotejo y la
+// aritmética sin postear un solo asiento; las cinco de aquí firman la sesión y
+// contabilizan lo que descubrió, y por eso las cinco son irreversible + IA ✗
+// sin excepción. El par no depende del valor de ninguna bandera: `--dry-run` no
+// convierte una hoja irreversible en una de lectura, porque el permiso del
+// agente se decide al REGISTRAR y una bandera se decide al invocar.
+//
+// LA DUODÉCIMA · LAS CINCO ENSEÑAN EL ACTO **ENSAYADO** ANTES DE PREGUNTAR. No
+// se describe de memoria lo que va a pasar: se corre el acto de verdad con
+// `dryRun`, se imprime lo que devolvió y se pregunta sobre ESO. Describirlo a
+// mano sería una segunda implementación del acto viviendo en la capa de
+// presentación, y el día que las dos discrepen la que miente es la que el
+// operador leyó antes de decir que sí. Cuesta un recorrido de más y compra que
+// la pantalla y el libro no puedan contar cosas distintas — es el mismo
+// argumento por el que `close` ya leía el estado antes de firmar, llevado hasta
+// el final. Con `-y` no hay ensayo previo: nadie va a leer nada.
+//
+// LA DECIMOTERCERA · `--idempotency-key` SE HONRA, NO SE ANUNCIA. El núcleo la
+// inyecta en toda hoja irreversible, y una bandera declarada que nadie lee es
+// la mentira que este mismo archivo ya cazó en `ap reconcile`. Las cinco pasan
+// por `conLlave`: la misma llave con la misma carga devuelve el resultado
+// GRABADO sin volver a ejecutar, y con otra carga acusa reuso (salida 6). En
+// ensayo no se graba nada — una llave consumida por un acto que no escribió
+// dejaría el reintento de verdad contestando con el informe de un ensayo.
+//
+// LA DECIMOCUARTA · EL SUSTANTIVO `check` VIVE A PROFUNDIDAD 3 A PROPÓSITO. La
+// palabra ya es un VERBO en la lista cerrada (`check`·`verificar`, que es
+// `bank statement check`), así que no puede existir a nivel raíz sin que una de
+// las dos deje de ser aprendible. Colgado de `bank`, `bank check reconcile` es
+// inequívoco: el segundo token está en posición de objeto y el tercero en la de
+// acto. Es lo que el catálogo dice en la nota de §5.13, y por eso `cheque` es
+// el alias de un SUSTANTIVO aunque `check` como verbo se traduzca `verificar`.
+//
+// LA DECIMOQUINTA · `fee post` E `interest post` EXIGEN LA TASA, Y SON DOS
+// GRAFÍAS. El servicio no admite un tratamiento fiscal por omisión, y hace
+// bien: un 16% escrito en el código es una política contable disfrazada de
+// número, aplicada a todos los cargos del periodo a la vez y sin que nadie la
+// vea. Así que `--iva-rate` es OBLIGATORIA en la comisión y `--rate` lo es en
+// el interés, y no comparten grafía porque no nombran lo mismo — una es el IVA
+// que el cargo trae dentro y la otra la retención de ISR que el banco ya se
+// llevó. `0` es una respuesta legítima en las dos (comisión exenta, abono sin
+// retención) y hay que teclearla: eso es lo que la convierte en una decisión.
 // ============================================================
 
 export interface BankCommandDeps {
@@ -320,6 +379,35 @@ function exigirImporte(flag: string, valor: string): string {
   const limpio = valor.trim().replace(/,/g, '');
   if (!IMPORTE_RE.test(limpio)) {
     throw usageError(`${flag} debe ser un importe decimal; llegó "${valor}".`);
+  }
+  return limpio;
+}
+
+/**
+ * Una tasa como CADENA, entre 0 y 1.
+ *
+ * Se comprueba la forma aquí para que `--rate 16` —el error de teclado que se
+ * comete de verdad, escribiendo el porcentaje en vez de la fracción— salga como
+ * uso (2) y no como fallo de dominio (4). El rango lo vuelve a exigir el
+ * servicio dentro de la transacción, que es donde manda: esto es la puerta que
+ * lo dice ANTES de gastar una conexión, no la que lo decide.
+ */
+function exigirTasa(flag: string, valor: string): string {
+  const limpio = valor.trim();
+  if (!IMPORTE_RE.test(limpio)) {
+    throw usageError(`${flag} debe ser una tasa decimal; llegó "${valor}".`);
+  }
+  // Con `Decimal` y no con `Number`, por la misma regla que el dinero: una tasa
+  // que llega como '0.9999999999999999999' se convierte en 1 al pasar por un
+  // flotante, y entonces la puerta que rechaza «1 o más» la deja pasar por
+  // redondeo. El servicio la vuelve a comprobar dentro de la transacción, que
+  // es donde manda; esto es la puerta que lo dice antes de gastar una conexión.
+  const tasa = new Decimal(limpio);
+  if (tasa.lessThan(0) || tasa.greaterThanOrEqualTo(1)) {
+    throw usageError(
+      `${flag} va entre 0 y 1, no en porcentaje: 0.16 para el 16%, 0.0125 para el 1.25%, 0 para ` +
+        `ninguna. Llegó "${valor}".`
+    );
   }
   return limpio;
 }
@@ -962,6 +1050,177 @@ function corridaComoDocumento(r: ResultadoCorridaGuiada): Row {
   };
 }
 
+// ============================================================
+// F05d · LOS CINCO DOCUMENTOS DE LAS HOJAS QUE TOCAN EL MAYOR
+// ============================================================
+
+/**
+ * La firma como UN documento, CON la instantánea dentro.
+ *
+ * El hash viaja con lo que resume y no solo. Un hash sin su documento no es
+ * verificable por nadie: quien recibe el json podría repetir el sha256 pero no
+ * tendría sobre qué, y «¿esto es lo que se aprobó?» volvería a contestarse con
+ * una impresión. Con los dos, cualquiera reproduce la firma fuera de este
+ * programa.
+ */
+function aprobacionComoDocumento(r: ResultadoAprobacion): Row {
+  const s = r.instantanea;
+  return {
+    status: r.estado,
+    approved_by: r.aprobadaPor,
+    approved_at: r.aprobadaEl,
+    reason: r.motivo,
+    hash: r.hash,
+    period: `${s.sesion.desde}..${s.sesion.hasta}`,
+    currency: s.sesion.moneda,
+    bank_account: s.sesion.bankAccountId,
+    statement_id: s.sesion.statementId,
+    variance: s.saldos.variacion,
+    frozen_variance: s.congelado.variance,
+    tolerance: s.saldos.tolerancia,
+    balances: s.saldos.cuadra,
+    items: s.miembros.partidas.length,
+    matches: s.miembros.cotejos.length,
+    adjustments: s.miembros.ajustes.length,
+    segregation: {
+      policy: r.segregacion.politica,
+      policy_defined: r.segregacion.politicaDefinida,
+      preparer: r.segregacion.preparador,
+      approver_is_preparer: r.segregacion.coincide,
+      note: r.segregacion.nota,
+    },
+    // LO QUE SE FIRMÓ, entero. Es lo que el `approval_hash` de la 055 resume.
+    snapshot: s,
+    dry_run: r.ensayo,
+    id: r.sesionId,
+  };
+}
+
+/** Un ajuste contabilizado, con la distinción entre postear y adoptar intacta. */
+function asientoDeAjusteComoFila(a: ResultadoContabilizacion['asientos'][number]): Row {
+  return {
+    type: a.tipo,
+    amount: a.importe,
+    journal_entry: a.journalEntryId,
+    entry_number: a.entryNumber ?? '',
+    draft: a.draftId ?? '',
+    // `adoptado` no es cosmético: es la diferencia entre haber posteado el
+    // asiento y haber reconocido uno que ya existía, y sin él un conteo de
+    // asientos mentiría sobre lo que este acto hizo.
+    adopted: a.adoptado,
+    id: a.ajusteId,
+  };
+}
+
+function contabilizacionComoDocumento(r: ResultadoContabilizacion): Row {
+  return {
+    status: r.estado,
+    already_posted: r.yaContabilizada,
+    entries: r.asientos.map(asientoDeAjusteComoFila),
+    posted: r.posteados,
+    adopted: r.adoptados,
+    sealed_lines: r.partidasSelladas,
+    matches_written: r.cotejosEscritos,
+    seal_group: r.grupoDelSello,
+    items_resolved: r.partidasResueltas,
+    posted_at: r.contabilizadaEl,
+    dry_run: r.ensayo,
+    id: r.sesionId,
+  };
+}
+
+/** Lo que NO se contabilizó, con su motivo. Nunca se calla ninguna. */
+function omitidaComoFila(o: MovimientoOmitido): Row {
+  return {
+    date: o.fecha,
+    amount: o.total,
+    reason: o.motivo,
+    detail: o.detalle,
+    id: o.transactionId,
+  };
+}
+
+/**
+ * `ya-contabilizada` NO ES UN HALLAZGO y los otros tres SÍ.
+ *
+ * Volver a correr el mes y encontrarlo hecho es el resultado normal de un acto
+ * idempotente, y salir 4 por eso enseñaría a ignorar el 4. Un cargo sobre el
+ * tope, uno en un periodo cerrado y uno con el signo al revés son otra cosa:
+ * son dinero del extracto que nadie contabilizó y que nadie va a mirar si el
+ * comando sale 0.
+ */
+function hayQueMirar(omitidas: readonly MovimientoOmitido[]): boolean {
+  return omitidas.some((o) => o.motivo !== 'ya-contabilizada');
+}
+
+function comisionesComoDocumento(r: ResultadoDeComisiones): Row {
+  return {
+    account: r.cuenta.nombre,
+    period: `${r.periodo.desde}..${r.periodo.hasta}`,
+    posted: r.contabilizadas.map((c) => ({
+      transaction: c.transactionId,
+      date: c.fecha,
+      description: c.descripcion,
+      // Los tres renglones del asiento, con los CUATRO decimales de la columna.
+      total: c.total,
+      base: c.base,
+      vat: c.iva,
+      journal_entry: c.entryId,
+      entry_number: c.entryNumber,
+    })),
+    skipped: r.omitidas.map(omitidaComoFila),
+    totals: { total: r.totales.total, base: r.totales.base, vat: r.totales.iva },
+    dry_run: r.ensayo,
+    id: r.cuenta.id,
+  };
+}
+
+function interesesComoDocumento(r: ResultadoDeIntereses): Row {
+  return {
+    account: r.cuenta.nombre,
+    period: `${r.periodo.desde}..${r.periodo.hasta}`,
+    posted: r.contabilizados.map((i) => ({
+      transaction: i.transactionId,
+      date: i.fecha,
+      description: i.descripcion,
+      gross: i.bruto,
+      withheld: i.retencion,
+      net: i.neto,
+      journal_entry: i.entryId,
+      entry_number: i.entryNumber,
+    })),
+    skipped: r.omitidos.map(omitidaComoFila),
+    totals: { gross: r.totales.bruto, withheld: r.totales.retencion, net: r.totales.neto },
+    dry_run: r.ensayo,
+    id: r.cuenta.id,
+  };
+}
+
+function cobroDeChequeComoDocumento(r: ResultadoDeCobroDeCheque): Row {
+  return {
+    payment_number: r.paymentNumber,
+    check_number: r.checkNumber,
+    // EL DÍA DEL COBRO Y EL MES EN QUE CAE EL ASIENTO, como datos y no sólo
+    // como prosa: es lo que decide en qué declaración mensual entra este IVA.
+    cleared_on: r.fechaDeCobro,
+    period: r.periodo ? r.periodo.nombre : null,
+    period_status: r.periodo ? r.periodo.status : null,
+    transaction: {
+      id: r.movimiento.id,
+      date: r.movimiento.fecha,
+      amount: r.movimiento.importe,
+      description: r.movimiento.descripcion,
+    },
+    reclassified: r.reclasificado,
+    by_bill: r.porGasto.map((g) => ({ bill: g.billNumber, bill_id: g.billId, amount: g.importe })),
+    journal_entry: r.entryId,
+    entry_number: r.entryNumber,
+    note: r.nota,
+    dry_run: r.ensayo,
+    id: r.paymentId,
+  };
+}
+
 const COLUMNAS_CUENTA = [
   'account', 'bank', 'type', 'currency', 'gl_code', 'book_balance', 'last_reconciled', 'active',
 ] as const;
@@ -1366,6 +1625,104 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     !opts.quiet &&
     opts.output === undefined &&
     opts.fields === undefined;
+
+  // ============================================================
+  // F05d · LO QUE COMPARTEN LAS CINCO HOJAS QUE TOCAN EL MAYOR
+  // ============================================================
+
+  /**
+   * La confirmación de un acto irreversible, con el aborto que NO parece un
+   * fallo.
+   *
+   * Sin TTY se nombra `-y` por su nombre en vez de dejar un «abortado» a secas:
+   * quien corre esto desde un guion tiene que poder distinguir «el mayor no se
+   * movió porque nadie contestó» de «el mayor no se movió porque algo falló».
+   */
+  const exigirConfirmacion = async (pregunta: string, comando: string): Promise<void> => {
+    if (await ask(pregunta)) return;
+    throw abortedByUser(
+      stdin.isTTY
+        ? 'Sin cambios: el mayor no se tocó.'
+        : `Sin cambios: no hay terminal donde confirmar. Añade -y para que \`${comando}\` corra ` +
+          'sin preguntar, o --dry-run para ver el asiento completo sin escribir nada.'
+    );
+  };
+
+  /**
+   * EL ACTO IRREVERSIBLE, ENSAYADO ANTES DE PREGUNTAR.
+   *
+   * `correr(true)` recorre el camino real y lo deshace, así que lo que se
+   * imprime antes de la pregunta SALE DEL MISMO CÓDIGO que va a escribir. La
+   * alternativa —componer la vista previa a mano desde las banderas— es una
+   * segunda implementación del acto viviendo en la capa de presentación, y el
+   * día que discrepen la que miente es justo la que el operador leyó antes de
+   * decir que sí.
+   *
+   * Tres caminos y ninguno solapado: con `--dry-run` sólo se ensaya; con `-y`
+   * no se ensaya (nadie va a leer la vista previa y el ensayo costaría un
+   * recorrido entero por nada); y sin ninguna de las dos se ensaya, se enseña,
+   * se pregunta y entonces se escribe.
+   *
+   * La vista previa sólo se imprime en la salida legible. En `--json` un
+   * preámbulo por stdout dejaría de ser JSON, que es el error que convierte un
+   * guion en una llamada a soporte; la pregunta se sigue haciendo, y sin
+   * terminal se aborta nombrando `-y`.
+   */
+  const actoIrreversible = async <T>(args: {
+    opts: CommonOpts & { yes?: boolean };
+    dryRun: boolean;
+    comando: string;
+    /** El camino real, deshecho por el centinela del servicio. */
+    ensayar: () => Promise<T>;
+    /** El camino real, bajo llave de idempotencia. Sólo se llega aquí si se escribe. */
+    ejecutar: () => Promise<{ repetido: boolean; resultado: T }>;
+    mostrar: (r: T) => void;
+    pregunta: (r: T) => string;
+  }): Promise<{ repetido: boolean; resultado: T }> => {
+    if (args.dryRun) return { repetido: false, resultado: await args.ensayar() };
+    if (args.opts.yes !== true) {
+      const ensayo = await args.ensayar();
+      if (legible(args.opts)) args.mostrar(ensayo);
+      await exigirConfirmacion(args.pregunta(ensayo), args.comando);
+    }
+    return args.ejecutar();
+  };
+
+  /**
+   * `--idempotency-key`, HONRADA Y NO ANUNCIADA.
+   *
+   * El núcleo la inyecta en toda hoja irreversible y una bandera declarada que
+   * nadie lee es una promesa incumplida —ya se cazó esa mentira exacta en `ap
+   * reconcile`—. La misma llave con la misma carga devuelve el resultado
+   * GRABADO sin volver a ejecutar; con otra carga, `conLlave` acusa el reuso.
+   *
+   * EN ENSAYO NO SE GRABA NADA, y por eso esta función sólo la llama el camino
+   * de escritura de `actoIrreversible`. Una llave consumada por un acto que no
+   * escribió dejaría el reintento de verdad contestando con el informe de un
+   * ensayo, y el operador creería que el mayor se movió cuando no se movió.
+   */
+  const bajoLlave = async <T>(
+    ctx: { tenantId: string; entityId: string },
+    acto: { scope: string; clave?: string; payloadHash: string },
+    correr: () => Promise<T>
+  ): Promise<{ repetido: boolean; resultado: T }> => {
+    const hecho = await conLlave(
+      { tenantId: ctx.tenantId, entityId: ctx.entityId },
+      { scope: acto.scope, clave: acto.clave, payloadHash: acto.payloadHash },
+      async () => ({ v: await correr() })
+    );
+    return { repetido: hecho.repetido, resultado: hecho.resultado.v };
+  };
+
+  /** El aviso de que nada se ejecutó otra vez, con la llave por su nombre. */
+  const avisarRepetido = (clave: string | undefined, que: string): void => {
+    process.stderr.write(
+      deps.palette.yellow(
+        `↩ Idempotency hit: la llave "${clave ?? ''}" ya consumó este acto — ${que}. ` +
+          'Nada se ejecutó otra vez; esto es el resultado grabado.\n'
+      )
+    );
+  };
 
   const account = bank
     .command('account')
@@ -4025,6 +4382,320 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       })
   );
 
+  // ---- bank reconciliation approve ---------------------------------
+  //
+  // LA FIRMA. Es la primera hoja de esta familia declarada `irreversible`, y no
+  // porque escriba en el mayor —no lo hace— sino porque una firma no se retira:
+  // volver a aprobar escribiría otro hash encima del primero y «¿esto es lo que
+  // se aprobó?» dejaría de tener una sola respuesta. El servicio lo rechaza; la
+  // declaración lo dice.
+  const reconApprove = reconciliation
+    .command('approve')
+    .alias('aprobar')
+    .argument('<session>', 'balanced session to sign')
+    .description(
+      'Sign the session, requiring that the approver is not the preparer, and freeze an immutable ' +
+        'snapshot with a hash of its members and its balances'
+    );
+  withContext(reconApprove);
+  reconApprove
+    .option('--reason <text>', 'why it is being signed; stored on the session and in the audit trail')
+    .option('--json', 'JSON output');
+  declareRisk(reconApprove, {
+    risk: 'irreversible',
+    agent: false,
+    writes:
+      'reconciliation_sessions (status=approved + approved_by/at + approval_reason + ' +
+      'approval_snapshot + approval_hash, las cinco en la MISMA sentencia que exigen los CHECK ' +
+      'de la 055); NUNCA journal_entries — el mayor lo mueve `post`',
+  });
+  reconApprove.action(
+    (
+      sesion: string,
+      opts: CommonOpts & {
+        reason?: string; dryRun?: boolean; yes?: boolean; idempotencyKey?: string;
+      }
+    ) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        const { dryRun } = gateMutation(reconApprove, opts as unknown as Record<string, unknown>);
+        const scope = entityScope(ctx.tenantId, ctx.entityId);
+        // La forma se comprueba antes de gastar una conexión: un id mal
+        // tecleado es uso (2), no una sesión que no cuadra (4).
+        const sesionId = uuidDeBandera('<session>', sesion);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const p = deps.palette;
+
+        const firmar = (ensayo: boolean): Promise<ResultadoAprobacion> =>
+          aprobarSesion(
+            scope,
+            sesionId,
+            { motivo: opts.reason },
+            { userId: reviewer.userId, dryRun: ensayo }
+          );
+
+        /**
+         * QUÉ SE ESTÁ FIRMANDO, ANTES DE FIRMARLO.
+         *
+         * Firmar a ciegas es exactamente el defecto que la instantánea viene a
+         * impedir: la 055 guarda un documento congelado para que un auditor
+         * pueda saber qué había sobre la mesa, y una superficie que pide la
+         * firma sin enseñar ese documento deja al firmante en la posición del
+         * auditor sin instantánea. Los números salen del ENSAYO, así que son
+         * los mismos que la escritura real va a congelar, hash incluido.
+         */
+        const mostrarLoQueSeFirma = (r: ResultadoAprobacion): void => {
+          const s = r.instantanea;
+          const out = process.stdout;
+          const renglon = (etiqueta: string, valor: string): void => {
+            out.write(`    ${etiqueta.padEnd(20)}${valor}\n`);
+          };
+          out.write(`\n  ${p.bold('LO QUE SE VA A FIRMAR')}\n`);
+          renglon('sesión', `${r.sesionId} · ${s.sesion.desde} → ${s.sesion.hasta} · ${s.sesion.moneda}`);
+          renglon('cuenta', s.sesion.bankAccountId);
+          renglon('extracto', s.sesion.statementId ?? 'ninguno atado a la sesión');
+          // La variación VIVA y la CONGELADA, las dos: aprobar exige que la
+          // segunda reproduzca la primera, y enseñarlas juntas es lo que
+          // permite ver que se comparó algo.
+          renglon(
+            'variación',
+            `${s.saldos.variacion ?? 'NO CALCULADA'} (congelada al cerrar: ${s.congelado.variance})`
+          );
+          renglon(
+            'miembros',
+            `${s.miembros.partidas.length} partida(s) · ${s.miembros.cotejos.length} cotejo(s) · ` +
+              `${s.miembros.ajustes.length} ajuste(s)`
+          );
+          renglon('hash', r.hash);
+          renglon(
+            'segregación',
+            `preparó ${r.segregacion.preparador ?? 'nadie registrado'} · política ` +
+              `${r.segregacion.politica}${r.segregacion.politicaDefinida ? '' : ' (por omisión)'}`
+          );
+          if (r.segregacion.nota) out.write(`    ${p.yellow(r.segregacion.nota)}\n`);
+        };
+
+        const { repetido, resultado: r } = await actoIrreversible({
+          opts,
+          dryRun,
+          comando: 'bank reconciliation approve',
+          ensayar: () => firmar(true),
+          ejecutar: () =>
+            bajoLlave(
+              ctx,
+              {
+                scope: 'bank reconciliation approve',
+                clave: opts.idempotencyKey,
+                // El MOTIVO entra en la carga: aprobar con otra justificación
+                // es otro acto, y devolverle el informe del primero lo
+                // escondería detrás de una llave reutilizada.
+                payloadHash: hashDeCarga(sesionId, opts.reason ?? ''),
+              },
+              () => firmar(false)
+            ),
+          mostrar: mostrarLoQueSeFirma,
+          pregunta: (previo) =>
+            `Vas a FIRMAR la sesión ${previo.sesionId} con la instantánea ` +
+              `${previo.hash.slice(0, 12)}… (${previo.instantanea.miembros.partidas.length} ` +
+              `partida(s), ${previo.instantanea.miembros.ajustes.length} ajuste(s), variación ` +
+              `${previo.instantanea.saldos.variacion ?? '—'}). La firma no se retira: volver a ` +
+              'aprobarla se rechaza. ¿Continuar?',
+        });
+        if (repetido) avisarRepetido(opts.idempotencyKey, `sesión ${r.sesionId} ya firmada`);
+
+        if (opts.json) {
+          render([aprobacionComoDocumento(r)], { json: true, idField: 'id' });
+        } else {
+          // Sin ensayo previo no se ha enseñado nada todavía: se enseña ahora.
+          if (opts.yes === true || dryRun) mostrarLoQueSeFirma(r);
+          process.stdout.write(
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.sesionId)} ${p.dim(
+              `· ${r.estado} · firmada por ${r.aprobadaPor} el ${r.aprobadaEl}` +
+                `${r.motivo ? ` · ${r.motivo}` : ''}`
+            )}\n`
+          );
+          process.stdout.write(`  ${p.dim('hash')} ${r.hash}\n`);
+        }
+        process.stderr.write(
+          p.dim(
+            '  Aprobada NO es contabilizada: el mayor lo mueve `bank reconciliation post`, que ' +
+              'postea los ajustes que esta firma acaba de congelar.\n'
+          )
+        );
+        if (dryRun) {
+          process.stderr.write(
+            p.yellow('  Ensayo: se firmó de verdad y se deshizo. El hash es el que quedaría.\n')
+          );
+        }
+      })
+  );
+
+  // ---- bank reconciliation post ------------------------------------
+  //
+  // LA HOJA QUE MUEVE EL MAYOR. Postea los asientos de los ajustes que la firma
+  // congeló, sella las líneas de libros que produjeron —el ÚNICO UPDATE que la
+  // 041 admite sobre una línea posteada—, escribe el cotejo contra el
+  // movimiento del extracto que las explica y resuelve la partida que el ajuste
+  // dejó sin objeto. Los cuatro caen juntos o no cae ninguno.
+  const reconPost = reconciliation
+    .command('post')
+    .alias('contabilizar')
+    .argument('<session>', 'approved session to post')
+    .description(
+      'Post the approved adjustment entries and seal the session’s book lines as reconciled, ' +
+        'blocking their edit, their void and their date change'
+    );
+  withContext(reconPost);
+  withNote(reconPost);
+  reconPost.option('--json', 'JSON output');
+  declareRisk(reconPost, {
+    risk: 'irreversible',
+    agent: false,
+    writes:
+      'journal_entries + journal_entry_lines (POSTEADOS, por el motor); ' +
+      'reconciliation_adjustments.journal_entry_id; ai_drafts (cierra el borrador que se posteó); ' +
+      'reconciliation_match_groups + reconciliation_matches (el cotejo que cierra el círculo); ' +
+      'journal_entry_lines.is_reconciled/reconciled_at/reconciliation_id (el SELLO, lo único que ' +
+      'la 041 deja tocar de una línea posteada); reconciling_items.resuelta_at; ' +
+      'reconciliation_sessions (status=posted + posted_at + posted_by)',
+  });
+  reconPost.action(
+    (
+      sesion: string,
+      opts: CommonOpts & {
+        note?: string; dryRun?: boolean; yes?: boolean; idempotencyKey?: string;
+      }
+    ) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        const { dryRun } = gateMutation(reconPost, opts as unknown as Record<string, unknown>);
+        const scope = entityScope(ctx.tenantId, ctx.entityId);
+        const sesionId = uuidDeBandera('<session>', sesion);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const p = deps.palette;
+
+        const contabilizar = (ensayo: boolean): Promise<ResultadoContabilizacion> =>
+          contabilizarSesion(
+            scope,
+            sesionId,
+            { notas: opts.note },
+            { userId: reviewer.userId, dryRun: ensayo }
+          );
+
+        /**
+         * LOS ASIENTOS, UNO POR UNO, ANTES DE ESCRIBIRLOS.
+         *
+         * Salen del ENSAYO, así que llevan el número de póliza que la escritura
+         * real va a asignar y la distinción entre POSTEAR y ADOPTAR ya resuelta
+         * —adoptar es reconocer el asiento que `mnemosine review` ya creó por
+         * este mismo ajuste, y contarlo como posteado diría que este acto
+         * escribió algo que no escribió—.
+         *
+         * LA CONTRAPARTIDA NO SE IMPRIME AQUÍ Y HAY QUE DECIRLO. Cada asiento
+         * mueve dos cuentas: la de mayor del banco —la del sello, común a
+         * todos, la que esta hoja nombra— y la que se eligió al crear el ajuste
+         * (`--gl-account`, o el rol de su tipo), que vive dentro del borrador.
+         * Esta capa no lee `ai_drafts`: inventar aquí un código de cuenta
+         * «probable» sería adivinar en la pantalla que alguien mira antes de
+         * mover el mayor. La imprimió `bank adjustment create` línea a línea, y
+         * la vuelve a imprimir `mnemosine review` sobre el borrador.
+         */
+        const mostrarAsientos = (r: ResultadoContabilizacion): void => {
+          const out = process.stdout;
+          if (r.yaContabilizada) {
+            out.write(
+              `\n  ${p.yellow('La sesión ya está contabilizada')}: ${r.asientos.length} ` +
+                'asiento(s) en el libro y nada que postear.\n'
+            );
+            return;
+          }
+          out.write(`\n  ${p.bold('ASIENTOS QUE SE VAN A CREAR')}\n`);
+          if (r.asientos.length === 0) {
+            out.write(`    ${p.dim('ninguno: la sesión no tiene ajustes que contabilizar')}\n`);
+          }
+          for (const a of r.asientos) {
+            out.write(
+              `    ${a.tipo.padEnd(14)}${a.importe.padStart(16)}  ` +
+                `${a.adoptado ? p.dim('adoptado') : p.green('nuevo')} · póliza ` +
+                `${a.entryNumber ?? a.journalEntryId} · borrador ${a.draftId ?? '—'}\n`
+            );
+          }
+          out.write(
+            `    ${p.dim(
+              'contrapartida de cada uno: la que fijó `bank adjustment create` en su borrador'
+            )}\n`
+          );
+          out.write(
+            `\n  ${p.bold('Y LO QUE SE SELLA')}\n` +
+              `    ${String(r.partidasSelladas).padStart(4)} línea(s) de libros contra la cuenta ` +
+              'de mayor del banco\n' +
+              `    ${String(r.cotejosEscritos).padStart(4)} cotejo(s) contra el movimiento del ` +
+              'extracto que las explica\n' +
+              `    ${String(r.partidasResueltas).padStart(4)} partida(s) conciliatoria(s) que el ` +
+              'ajuste deja sin objeto\n'
+          );
+        };
+
+        const { repetido, resultado: r } = await actoIrreversible({
+          opts,
+          dryRun,
+          comando: 'bank reconciliation post',
+          ensayar: () => contabilizar(true),
+          ejecutar: () =>
+            bajoLlave(
+              ctx,
+              {
+                scope: 'bank reconciliation post',
+                clave: opts.idempotencyKey,
+                payloadHash: hashDeCarga(sesionId, opts.note ?? ''),
+              },
+              () => contabilizar(false)
+            ),
+          mostrar: mostrarAsientos,
+          pregunta: (previo) =>
+            previo.yaContabilizada
+              ? `La sesión ${previo.sesionId} ya está contabilizada y no se va a postear nada. ` +
+                '¿Continuar de todos modos?'
+              : `Vas a CONTABILIZAR ${previo.asientos.filter((a) => !a.adoptado).length} ` +
+                `asiento(s) nuevo(s) en el mayor de la sesión ${previo.sesionId} y sellar ` +
+                `${previo.partidasSelladas} línea(s) de libros. El mayor es inmutable: esto ` +
+                'sólo se corrige por reversa. ¿Continuar?',
+        });
+        if (repetido) {
+          avisarRepetido(opts.idempotencyKey, `sesión ${r.sesionId} ya contabilizada`);
+        }
+
+        if (opts.json) {
+          render([contabilizacionComoDocumento(r)], { json: true, idField: 'id' });
+        } else {
+          if (opts.yes === true || dryRun) mostrarAsientos(r);
+          process.stdout.write(
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.sesionId)} ${p.dim(
+              `· ${r.estado} · ${r.posteados} posteado(s) · ${r.adoptados} adoptado(s) · ` +
+                `${r.partidasSelladas} línea(s) sellada(s) · ${r.cotejosEscritos} cotejo(s) · ` +
+                `${r.partidasResueltas} partida(s) resuelta(s)`
+            )}\n`
+          );
+        }
+        // EL SELLO NO ALCANZA A LAS PARTIDAS DE LIBROS, y decirlo aquí evita la
+        // pregunta que sigue: un cheque en circulación sigue sin aparecer en el
+        // banco después de contabilizar, y sellarlo lo escondería justo el mes
+        // en que el banco por fin lo va a mostrar.
+        process.stderr.write(
+          p.dim(
+            '  El sello dice «este renglón ya está explicado por el banco», no «esta sesión ' +
+              'terminó»: los cheques en circulación y los depósitos en tránsito siguen abiertos ' +
+              'para el cotejo del mes que viene.\n'
+          )
+        );
+        if (dryRun) {
+          process.stderr.write(
+            p.yellow('  Ensayo: se contabilizó de verdad y se deshizo. No hay póliza en el libro.\n')
+          );
+        }
+      })
+  );
+
   // ---- bank reconciliation generate --------------------------------
   const reconGenerate = reconciliation
     .command('generate')
@@ -4117,5 +4788,517 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           `  ${p.dim('aprobó')}    ${e.sesion.aprobadaPor ?? 'sin aprobar'}\n\n`
       );
     })
+  );
+
+  // ============================================================
+  // F05d · LA TESORERÍA QUE SE CONTABILIZA SOLA (filas 1259, 1260 y 1271)
+  //
+  // Tres sustantivos más y tres hojas, las tres irreversible + IA ✗. Lo que las
+  // separa de la conciliación es que no firman nada: leen el extracto —o el
+  // pago— y escriben la póliza que le corresponde, una por hecho.
+  //
+  // LAS CUENTAS SE IMPRIMEN POR SU ROL Y NO POR SU CÓDIGO. `roleAccounts`
+  // resuelve `comision_bancaria` al código que ESTA entidad tenga mapeado, y la
+  // semilla apunta al 6310 sólo porque es la que trae el catálogo de cuentas
+  // por omisión. Escribir «6310» en la pantalla sería adivinar el catálogo de
+  // otro despacho justo en la vista que alguien lee antes de mover el mayor; el
+  // rol es lo que de verdad decide la cuenta, y es lo que se enseña.
+  // ============================================================
+
+  /** Un renglón de asiento: concepto a la izquierda, cargo y abono en columna. */
+  const renglonDeAsiento = (concepto: string, cargo: string | null, abono: string | null): void => {
+    process.stdout.write(
+      `      ${concepto.padEnd(28)}${(cargo ?? '').padStart(16)}${(abono ?? '').padStart(16)}\n`
+    );
+  };
+
+  /**
+   * LO QUE NO SE CONTABILIZÓ, SIEMPRE Y CON SU MOTIVO.
+   *
+   * Un movimiento del periodo que el comando decide no tocar y no dice es
+   * dinero del extracto que desaparece de la vista: nadie va a buscar el cargo
+   * de 40 000 que se saltó el tope si el comando salió 0 sin mencionarlo.
+   */
+  const imprimirOmitidas = (omitidas: readonly MovimientoOmitido[]): void => {
+    if (omitidas.length === 0) return;
+    const p = deps.palette;
+    process.stdout.write(`\n  ${p.bold('OMITIDAS')}\n`);
+    for (const o of omitidas) {
+      const marca = o.motivo === 'ya-contabilizada' ? p.dim('·') : p.yellow('!');
+      process.stdout.write(
+        `    ${marca} ${o.fecha}  ${o.total.padStart(16)}  ${p.dim(`[${o.motivo}]`)} ${o.detalle}\n`
+      );
+    }
+  };
+
+  // ---- bank fee post -----------------------------------------------
+  const fee = bank
+    .command('fee')
+    .alias('comision')
+    .description(
+      'Bank fees as an accounting act: the charge as an expense and its VAT parked until the ' +
+        'bank issues the CFDI'
+    );
+
+  const feePost = fee
+    .command('post')
+    .alias('contabilizar')
+    .argument('<account>', 'bank account whose fees to post (name or id)')
+    .description(
+      'Post the period’s bank fees from the statement, one entry per charge, leaving their VAT ' +
+        'in pending-creditable until the bank’s CFDI arrives'
+    );
+  withContext(feePost);
+  feePost
+    .requiredOption('--period <YYYY-MM>', 'month whose fees to post')
+    // OBLIGATORIA Y SIN VALOR POR OMISIÓN. Un 16% escrito en el código sería
+    // una decisión fiscal invisible aplicada a todos los cargos del periodo a
+    // la vez; hubo un 15%, hay una tasa de frontera del 8% y hay comisiones
+    // exentas. `0` es una respuesta legítima y hay que teclearla.
+    .requiredOption(
+      '--iva-rate <rate>',
+      'VAT rate the charge already carries INSIDE it, as a fraction (0.16 for 16%); 0 for an ' +
+        'exempt fee. No default: a default here is a tax decision nobody takes and nobody sees'
+    )
+    .option(
+      '--max-amount <amount>',
+      'above this magnitude the charge is skipped and left for human eyes; it is a confidence ' +
+        'gate, not a validation'
+    )
+    .option('--json', 'JSON output');
+  declareRisk(feePost, {
+    risk: 'irreversible',
+    agent: false,
+    writes:
+      'journal_entries + journal_entry_lines POSTEADOS (source_type=bank_fee, uno por cargo, ' +
+      'idempotente por (source_type, source_id))',
+  });
+  feePost.action(
+    (
+      cuenta: string,
+      opts: CommonOpts & {
+        period: string; ivaRate: string; maxAmount?: string;
+        dryRun?: boolean; yes?: boolean; idempotencyKey?: string;
+      }
+    ) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        const { dryRun } = gateMutation(feePost, opts as unknown as Record<string, unknown>);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const p = deps.palette;
+        const tasa = exigirTasa('--iva-rate', opts.ivaRate);
+        const tope = opts.maxAmount ? exigirImporte('--max-amount', opts.maxAmount) : undefined;
+
+        const contabilizar = (ensayo: boolean): Promise<ResultadoDeComisiones> =>
+          contabilizarComisiones(ctx.entityId, cuenta, {
+            periodo: opts.period,
+            iva: { modo: 'tasa', tasa },
+            maxAmount: tope,
+            userId: reviewer.userId,
+            dryRun: ensayo,
+          });
+
+        /** El asiento entero de cada cargo: tres renglones y su póliza. */
+        const mostrar = (r: ResultadoDeComisiones): void => {
+          const out = process.stdout;
+          out.write(
+            `\n  ${p.bold('COMISIONES')} ${p.dim(
+              `${r.periodo.desde} → ${r.periodo.hasta} · ${r.cuenta.nombre} · IVA ${tasa}`
+            )}\n`
+          );
+          if (r.contabilizadas.length === 0) {
+            out.write(`    ${p.dim('ningún cargo que contabilizar')}\n`);
+          }
+          for (const c of r.contabilizadas) {
+            out.write(
+              `\n    ${c.fecha} ${p.dim(
+                `${c.descripcion ?? 'sin descripción'} · póliza ${c.entryNumber ?? '(ensayo)'}`
+              )}\n`
+            );
+            renglonDeAsiento('comision_bancaria', c.base, null);
+            // El IVA va a 1135 y no a 1130 A PROPÓSITO: el art. 5 frac. II
+            // pide comprobante fiscal, y aquí sólo hay una línea del extracto.
+            // Se acredita cuando llegue el CFDI del banco.
+            if (c.iva !== '0.0000') renglonDeAsiento('iva_pendiente_acreditar', c.iva, null);
+            renglonDeAsiento(r.cuenta.nombre, null, c.total);
+          }
+          imprimirOmitidas(r.omitidas);
+          out.write(
+            `\n  ${p.dim(
+              `totales: cargo ${r.totales.total} · gasto ${r.totales.base} · IVA ${r.totales.iva}`
+            )}\n`
+          );
+        };
+
+        const { repetido, resultado: r } = await actoIrreversible({
+          opts,
+          dryRun,
+          comando: 'bank fee post',
+          ensayar: () => contabilizar(true),
+          ejecutar: () =>
+            bajoLlave(
+              ctx,
+              {
+                scope: 'bank fee post',
+                clave: opts.idempotencyKey,
+                // La TASA entra en la carga: el mismo mes con otra tasa es otro
+                // acto y no puede contestarse con el informe del primero.
+                payloadHash: hashDeCarga(cuenta, opts.period, tasa, tope ?? ''),
+              },
+              () => contabilizar(false)
+            ),
+          mostrar,
+          pregunta: (previo) =>
+            `Vas a CONTABILIZAR ${previo.contabilizadas.length} comisión(es) del ` +
+              `${previo.periodo.desde} al ${previo.periodo.hasta} en la cuenta ` +
+              `${previo.cuenta.nombre}, por ${previo.totales.total} (IVA ${previo.totales.iva} a ` +
+              'pendiente de acreditar). El mayor es inmutable: esto sólo se corrige por reversa. ' +
+              '¿Continuar?',
+        });
+        if (repetido) {
+          avisarRepetido(opts.idempotencyKey, `${r.contabilizadas.length} comisión(es)`);
+        }
+
+        if (opts.json) {
+          render([comisionesComoDocumento(r)], { json: true, idField: 'id' });
+        } else {
+          if (opts.yes === true || dryRun) mostrar(r);
+          process.stdout.write(
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.cuenta.nombre)} ${p.dim(
+              `· ${r.contabilizadas.length} contabilizada(s) · ${r.omitidas.length} omitida(s) · ` +
+                `cargo ${r.totales.total} · IVA ${r.totales.iva}`
+            )}\n`
+          );
+        }
+        process.stderr.write(
+          p.dim(
+            '  El IVA queda en pendiente de acreditar: se acredita con `bank fee apply` cuando ' +
+              'llegue el CFDI del banco, no aquí.\n'
+          )
+        );
+        if (dryRun) {
+          process.stderr.write(
+            p.yellow('  Ensayo: se contabilizó de verdad y se deshizo; los ids salen en null.\n')
+          );
+        }
+        // 4 es «hay algo que mirar», como en `bank statement check`. Volver a
+        // correr el mes y encontrarlo hecho NO lo es.
+        if (hayQueMirar(r.omitidas)) return ExitCode.VALIDATION;
+      })
+  );
+
+  // ---- bank interest post ------------------------------------------
+  const interest = bank
+    .command('interest')
+    .alias('interes')
+    .description(
+      'Interest earned on bank balances: income at its GROSS amount and the tax the bank withheld ' +
+        'as a prepayment in the entity’s favour'
+    );
+
+  const interestPost = interest
+    .command('post')
+    .alias('contabilizar')
+    .argument('<account>', 'bank account whose interest to post (name or id)')
+    .description(
+      'Post the period’s interest as income and the ISR the bank withheld as a provisional ' +
+        'payment in the entity’s favour, never as an expense'
+    );
+  withContext(interestPost);
+  interestPost
+    .requiredOption('--period <YYYY-MM>', 'month whose interest to post')
+    // `--rate` ES LA TASA DE RETENCIÓN, NO LA DEL INTERÉS. El interés no se
+    // calcula aquí: lo calculó el banco y lo dice el extracto. Lo que se
+    // despeja es cuánto se quedó por el camino.
+    .requiredOption(
+      '--rate <rate>',
+      'ISR WITHHOLDING rate the bank applied, as a fraction (0.0125 for 1.25%); 0 when it ' +
+        'withheld nothing. This is NOT the interest rate: the interest is what the statement says'
+    )
+    .option('--json', 'JSON output');
+  declareRisk(interestPost, {
+    risk: 'irreversible',
+    agent: false,
+    writes:
+      'journal_entries + journal_entry_lines POSTEADOS (source_type=bank_interest, uno por abono, ' +
+      'idempotente por (source_type, source_id))',
+  });
+  interestPost.action(
+    (
+      cuenta: string,
+      opts: CommonOpts & {
+        period: string; rate: string; dryRun?: boolean; yes?: boolean; idempotencyKey?: string;
+      }
+    ) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        const { dryRun } = gateMutation(interestPost, opts as unknown as Record<string, unknown>);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const p = deps.palette;
+        const tasa = exigirTasa('--rate', opts.rate);
+
+        const contabilizar = (ensayo: boolean): Promise<ResultadoDeIntereses> =>
+          contabilizarIntereses(ctx.entityId, cuenta, {
+            periodo: opts.period,
+            retencion: { modo: 'tasa', tasa },
+            userId: reviewer.userId,
+            dryRun: ensayo,
+          });
+
+        const mostrar = (r: ResultadoDeIntereses): void => {
+          const out = process.stdout;
+          out.write(
+            `\n  ${p.bold('INTERESES')} ${p.dim(
+              `${r.periodo.desde} → ${r.periodo.hasta} · ${r.cuenta.nombre} · retención ${tasa}`
+            )}\n`
+          );
+          if (r.contabilizados.length === 0) {
+            out.write(`    ${p.dim('ningún abono que contabilizar')}\n`);
+          }
+          for (const i of r.contabilizados) {
+            out.write(
+              `\n    ${i.fecha} ${p.dim(
+                `${i.descripcion ?? 'sin descripción'} · póliza ${i.entryNumber ?? '(ensayo)'}`
+              )}\n`
+            );
+            renglonDeAsiento(r.cuenta.nombre, i.neto, null);
+            // La retención es un ACTIVO —un pago provisional a favor—, nunca un
+            // gasto: es lo que la fila 1260 del catálogo pide en negritas.
+            if (i.retencion !== '0.0000') {
+              renglonDeAsiento('isr_retenido_a_favor', i.retencion, null);
+            }
+            renglonDeAsiento('producto_financiero', null, i.bruto);
+          }
+          imprimirOmitidas(r.omitidos);
+          out.write(
+            `\n  ${p.dim(
+              `totales: bruto ${r.totales.bruto} · retenido ${r.totales.retencion} · neto ` +
+                `${r.totales.neto}`
+            )}\n`
+          );
+        };
+
+        const { repetido, resultado: r } = await actoIrreversible({
+          opts,
+          dryRun,
+          comando: 'bank interest post',
+          ensayar: () => contabilizar(true),
+          ejecutar: () =>
+            bajoLlave(
+              ctx,
+              {
+                scope: 'bank interest post',
+                clave: opts.idempotencyKey,
+                payloadHash: hashDeCarga(cuenta, opts.period, tasa),
+              },
+              () => contabilizar(false)
+            ),
+          mostrar,
+          pregunta: (previo) =>
+            `Vas a CONTABILIZAR ${previo.contabilizados.length} abono(s) de interés del ` +
+              `${previo.periodo.desde} al ${previo.periodo.hasta} en la cuenta ` +
+              `${previo.cuenta.nombre}: ${previo.totales.bruto} de ingreso bruto y ` +
+              `${previo.totales.retencion} de ISR retenido a favor. El mayor es inmutable: esto ` +
+              'sólo se corrige por reversa. ¿Continuar?',
+        });
+        if (repetido) {
+          avisarRepetido(opts.idempotencyKey, `${r.contabilizados.length} abono(s) de interés`);
+        }
+
+        if (opts.json) {
+          render([interesesComoDocumento(r)], { json: true, idField: 'id' });
+        } else {
+          if (opts.yes === true || dryRun) mostrar(r);
+          process.stdout.write(
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.cuenta.nombre)} ${p.dim(
+              `· ${r.contabilizados.length} contabilizado(s) · ${r.omitidos.length} omitido(s) · ` +
+                `bruto ${r.totales.bruto} · retenido ${r.totales.retencion}`
+            )}\n`
+          );
+        }
+        process.stderr.write(
+          p.dim(
+            '  El ISR retenido queda como pago provisional A FAVOR, no como gasto: es lo que se ' +
+              'acredita contra el impuesto del ejercicio.\n'
+          )
+        );
+        if (dryRun) {
+          process.stderr.write(
+            p.yellow('  Ensayo: se contabilizó de verdad y se deshizo; los ids salen en null.\n')
+          );
+        }
+        if (hayQueMirar(r.omitidos)) return ExitCode.VALIDATION;
+      })
+  );
+
+  // ---- bank check reconcile ----------------------------------------
+  //
+  // EL SUSTANTIVO `check` VIVE AQUÍ Y NO EN LA RAÍZ. La palabra ya es un verbo
+  // de la lista cerrada —`bank statement check`—, así que a nivel raíz una de
+  // las dos dejaría de ser aprendible. Colgado de `bank`, el segundo token está
+  // en posición de objeto y el tercero en la de acto, y no hay ambigüedad. Es
+  // lo que dice la nota de §5.13 del catálogo.
+  //
+  // Del registro de cheques completo —`list|issue|void|lock|remit|export`— sólo
+  // se adelanta `reconcile`, que es la única fila de fase 1: media máquina de
+  // estados es una que miente sobre los estados que no modela.
+  const cheque = bank
+    .command('check')
+    .alias('cheque')
+    .description(
+      'Paper checks as a fiscal fact: when the bank actually paid one, which under the VAT law ' +
+        'is when the payment counts'
+    );
+
+  const checkReconcile = cheque
+    .command('reconcile')
+    .alias('conciliar')
+    .argument('<id>', 'vendor payment made by check')
+    .description(
+      'Prove the check against the bank movement that cleared it and post the VAT ' +
+        'reclassification from pending to creditable IN THE MONTH IT CLEARED'
+    );
+  withContext(checkReconcile);
+  checkReconcile
+    .option(
+      '--transaction <id>',
+      'the bank movement that paid it, named by hand; required when several charges match'
+    )
+    .option(
+      '--as-of <date>',
+      'the clearing date you assert (YYYY-MM-DD); it is CONTRASTED against the movement, never ' +
+        'imposed — the bank dates the clearing'
+    )
+    .option('--json', 'JSON output');
+  declareRisk(checkReconcile, {
+    risk: 'irreversible',
+    agent: false,
+    writes:
+      'vendor_payments.check_cleared_date + check_cleared_tx_id (juntas, por el CHECK ' +
+      '`pago_cheque_cobro_coherente` de la 055) + journal_entries POSTEADOS ' +
+      '(source_type=bank_check_clearing) cuando hay IVA que reclasificar',
+  });
+  checkReconcile.action(
+    (
+      pago: string,
+      opts: CommonOpts & {
+        transaction?: string; asOf?: string;
+        dryRun?: boolean; yes?: boolean; idempotencyKey?: string;
+      }
+    ) =>
+      run(async () => {
+        const ctx = await entityForWrite(opts);
+        const { dryRun } = gateMutation(checkReconcile, opts as unknown as Record<string, unknown>);
+        const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
+        const p = deps.palette;
+        const pagoId = uuidDeBandera('<id>', pago);
+        const movimientoId = opts.transaction
+          ? uuidDeBandera('--transaction', opts.transaction)
+          : undefined;
+        const asOf = opts.asOf ? exigirFecha('--as-of', opts.asOf) : undefined;
+
+        const conciliar = (ensayo: boolean): Promise<ResultadoDeCobroDeCheque> =>
+          conciliarCheque(ctx.entityId, pagoId, {
+            transactionId: movimientoId,
+            asOf,
+            userId: reviewer.userId,
+            dryRun: ensayo,
+          });
+
+        /**
+         * EN QUÉ MES CAE EL ASIENTO, Y POR QUÉ.
+         *
+         * Es la parte que se equivoca sola: quien mira un cheque piensa en el
+         * día que lo firmó, y bajo la LIVA el pago se entiende efectuado el día
+         * que el banco lo PAGÓ. La diferencia entre los dos meses es la
+         * diferencia entre dos declaraciones mensuales de IVA, así que el mes
+         * y su razón se imprimen antes de preguntar, no después.
+         */
+        const mostrar = (r: ResultadoDeCobroDeCheque): void => {
+          const out = process.stdout;
+          const renglon = (etiqueta: string, valor: string): void => {
+            out.write(`    ${etiqueta.padEnd(16)}${valor}\n`);
+          };
+          out.write(`\n  ${p.bold('EL MES EN QUE CAE EL ASIENTO')}\n`);
+          renglon('cheque', `${r.checkNumber ?? 'sin folio'} · pago ${r.paymentNumber}`);
+          renglon(
+            'cobrado el',
+            `${r.fechaDeCobro} ${p.dim(
+              `(lo fecha el banco: movimiento ${r.movimiento.id}, ${r.movimiento.importe})`
+            )}`
+          );
+          renglon(
+            'periodo',
+            r.periodo ? `${r.periodo.nombre} (${r.periodo.status})` : 'sin periodo abierto en esa fecha'
+          );
+          out.write(
+            `    ${p.dim(
+              'por qué: bajo la LIVA el pago con cheque se entiende efectuado el día del COBRO y ' +
+                'no el de la firma, así que el IVA de este pago se acredita en ese mes.'
+            )}\n`
+          );
+
+          out.write(`\n  ${p.bold('ASIENTO')}\n`);
+          if (r.porGasto.length === 0) {
+            out.write(`      ${p.dim('ninguno: no hay IVA que reclasificar')}\n`);
+          }
+          for (const g of r.porGasto) {
+            renglonDeAsiento(`iva_acreditable · ${g.billNumber}`, g.importe, null);
+            renglonDeAsiento(`iva_pendiente_acreditar · ${g.billNumber}`, null, g.importe);
+          }
+          out.write(`      ${p.dim(`total reclasificado ${r.reclasificado}`)}\n`);
+          if (r.nota) out.write(`    ${p.yellow(r.nota)}\n`);
+        };
+
+        const { repetido, resultado: r } = await actoIrreversible({
+          opts,
+          dryRun,
+          comando: 'bank check reconcile',
+          ensayar: () => conciliar(true),
+          ejecutar: () =>
+            bajoLlave(
+              ctx,
+              {
+                scope: 'bank check reconcile',
+                clave: opts.idempotencyKey,
+                payloadHash: hashDeCarga(pagoId, movimientoId ?? '', asOf ?? ''),
+              },
+              () => conciliar(false)
+            ),
+          mostrar,
+          pregunta: (previo) =>
+            `Vas a registrar que el banco cobró el cheque ${previo.checkNumber ?? previo.paymentNumber} ` +
+              `el ${previo.fechaDeCobro} y a reclasificar ${previo.reclasificado} de IVA en el ` +
+              `periodo ${previo.periodo?.nombre ?? 'sin periodo'}. El mayor es inmutable: esto ` +
+              'sólo se corrige por reversa. ¿Continuar?',
+        });
+        if (repetido) {
+          avisarRepetido(opts.idempotencyKey, `cheque cobrado el ${r.fechaDeCobro}`);
+        }
+
+        if (opts.json) {
+          render([cobroDeChequeComoDocumento(r)], { json: true, idField: 'id' });
+        } else {
+          if (opts.yes === true || dryRun) mostrar(r);
+          process.stdout.write(
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(
+              r.checkNumber ?? r.paymentNumber
+            )} ${p.dim(
+              `· cobrado el ${r.fechaDeCobro} · periodo ${r.periodo?.nombre ?? '—'} · IVA ` +
+                `reclasificado ${r.reclasificado}` +
+                `${r.entryNumber ? ` · póliza ${r.entryNumber}` : ''}`
+            )}\n`
+          );
+        }
+        // CERO ES UN RESULTADO LEGÍTIMO y se dice en voz alta con su porqué:
+        // casi siempre significa que el asiento del pago ya liberó el IVA en la
+        // fecha del cheque en vez de esperar al cobro.
+        if (r.nota) process.stderr.write(p.yellow(`  ${r.nota}\n`));
+        if (dryRun) {
+          process.stderr.write(
+            p.yellow('  Ensayo: se registró el cobro de verdad y se deshizo.\n')
+          );
+        }
+      })
   );
 }

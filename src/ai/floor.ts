@@ -1,3 +1,5 @@
+import Decimal from 'decimal.js';
+
 // ============================================================
 // THE UNBREAKABLE FLOOR
 //
@@ -18,9 +20,16 @@
 //   3. isOpStale — external-service executeExternalOp: an outbox
 //      operation queued more than FLOOR_MAX_OP_AGE_DAYS ago is
 //      refused; a stale approval must be re-queued and re-reviewed.
+//   4. floorTolerancia — reconciliation-service criteriosDeCierre:
+//      `bank reconciliation close --tolerance` cannot exceed
+//      FLOOR_MAX_TOLERANCIA_CONCILIACION, so no flag can close an
+//      arbitrary mismatch by calling it a tolerance.
 //
 // Keep this module small and dependency-free: pure functions the
-// call sites cannot accidentally bypass via configuration.
+// call sites cannot accidentally bypass via configuration. The one
+// import is decimal.js, a value library with no I/O: money is a
+// string here as everywhere else, and comparing two amounts with
+// `<` on floats would put a rounding error inside the floor itself.
 // ============================================================
 
 /**
@@ -70,3 +79,74 @@ export const FLOOR_SOMBRA_DIAS = 7;
 export const FLOOR_SOMBRA_ACUERDO = 0.9;
 export const FLOOR_SOMBRA_VEREDICTOS = 10;
 
+/**
+ * A5 · EL TECHO DE LA TOLERANCIA DE CONCILIACIÓN, en la moneda de la cuenta.
+ *
+ * `bank reconciliation close --tolerance` nació SIN TOPE. Con la política
+ * `conciliacion_tolerancia` en `tolerancia_con_residual`, nada acotaba cuánto
+ * podía valer la tolerancia que llega por bandera: se podía cerrar CUALQUIER
+ * descuadre llamándolo tolerancia. Y una sesión cerrada no es una nota interna
+ * — `period-close.ts` lee `status IN ('balanced','approved','posted')` como la
+ * evidencia de que el efectivo de esa cuenta se verificó contra el banco. Un
+ * control que la línea de comandos puede aflojar hasta cubrir justo el error
+ * que existe para descubrir no es un control: es un formulario.
+ *
+ * ES PISO Y NO CONFIGURACIÓN, por la misma razón que `FLOOR_MAX_AUTO_POST`: el
+ * despacho puede exigir MÁS —bajar la tolerancia, o dejar la política en
+ * `cero_exacto`, que es el default—, nunca menos. Y se combina por el MÍNIMO
+ * (`Decimal.min`), jamás por el máximo: una regla que se combina por el máximo
+ * no es un piso, es una sugerencia con nombre de piso.
+ *
+ * EL NÚMERO, y por qué éste. 500 es el orden de magnitud de una comisión
+ * bancaria, que es la cosa más grande que aparece de rutina en un extracto sin
+ * estar en libros. Por debajo, un residual es polvo de redondeo. Por encima es
+ * un HALLAZGO, y un hallazgo se arrastra como partida conciliatoria con nombre,
+ * responsable y fecha esperada —que es literalmente lo que la opción
+ * `tolerancia_con_residual` promete en el panel— en vez de enterrarse detrás de
+ * una bandera que nadie vuelve a leer.
+ *
+ * LA MONEDA, dicho en voz alta: es una magnitud en la moneda de la cuenta que
+ * se concilia, con la misma limitación declarada que `FLOOR_MAX_AUTO_POST`.
+ * Convertir exigiría un tipo de cambio a la fecha de cierre, y este módulo no
+ * consulta nada a propósito — un piso que depende de una lectura es un piso que
+ * se cae cuando la lectura falla.
+ */
+export const FLOOR_MAX_TOLERANCIA_CONCILIACION = '500.0000';
+
+/**
+ * La tolerancia efectiva: la pedida, acotada por el techo. Devuelve una CADENA
+ * con los cuatro decimales que guardan las columnas de dinero.
+ *
+ * FALLA CERRADO, como el resto del módulo: lo ilegible, lo no finito y lo
+ * negativo devuelven `'0.0000'` —tolerancia cero, o sea variación exactamente
+ * cero—, nunca el techo y nunca lo que llegó. Un `Number('')` daría 0 y un
+ * `parseFloat('1e400')` daría Infinity; las dos formas son exactamente cómo un
+ * campo mal capturado se convierte en un cuadre falso.
+ */
+export function floorTolerancia(configurada: string): string {
+  let pedida: Decimal;
+  try {
+    pedida = new Decimal(configurada);
+  } catch {
+    return '0.0000';
+  }
+  if (!pedida.isFinite() || pedida.isNegative()) return '0.0000';
+
+  // Y LO QUE NO CABE EN UNA COLUMNA DE DINERO TAMPOCO ES DINERO.
+  //
+  // El docblock de arriba nombraba `1e400` como uno de los casos que tienen
+  // que dar cero, y no lo daba: `isFinite()` es de coma flotante, pero
+  // decimal.js NO usa coma flotante — su exponente llega mucho más lejos, así
+  // que `1e400` es un Decimal perfectamente finito y la guarda no se disparaba.
+  // El valor caía en `Decimal.min` y salía el TECHO: un campo mal capturado se
+  // convertía en la tolerancia más permisiva que la ley permite, que es lo
+  // contrario de fallar cerrado.
+  //
+  // El criterio correcto no es la finitud sino la REPRESENTABILIDAD: una
+  // tolerancia es un importe, los importes viven en DECIMAL(19,4), y quince
+  // dígitos enteros es el límite. Lo que no cabe ahí no es una tolerancia
+  // grande — es un error de captura o un ataque, y las dos cosas valen cero.
+  if (pedida.abs().greaterThanOrEqualTo('1e15')) return '0.0000';
+
+  return Decimal.min(pedida, new Decimal(FLOOR_MAX_TOLERANCIA_CONCILIACION)).toFixed(4);
+}

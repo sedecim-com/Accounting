@@ -51,7 +51,12 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
   {
     code: '1145', name: 'ISR Retenido a Favor', account_type: 'asset',
     normal_balance: 'debit', fs_category: 'current_assets',
-    description: 'ISR que los clientes retuvieron a la empresa; se acredita contra el impuesto propio.',
+    description:
+      'ISR que terceros retuvieron a la empresa —clientes sobre honorarios y arrendamiento, y el ' +
+      'banco sobre los intereses que paga— y que se acredita contra el impuesto propio. La ' +
+      'descripción decía sólo «clientes» y por eso parecía que la retención bancaria necesitaba ' +
+      'cuenta aparte: no la necesita, porque las dos son créditos contra el MISMO impuesto anual. ' +
+      'Separarlas sería una cuenta más sin una pregunta detrás.',
   },
   {
     code: '1146', name: 'IVA Retenido a Favor', account_type: 'asset',
@@ -146,6 +151,28 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
       'ensuciar 4100: las ventas se comparan contra los CFDI emitidos.',
   },
   {
+    // F05d. Las comisiones NO van a 6300 «Gastos Financieros» aunque quepan:
+    // ahí vive la pérdida cambiaria, y mezclar el costo de mover dinero con el
+    // efecto de que el peso se movió empobrece el estado de resultados justo en
+    // la línea donde un despacho mira si el banco le está saliendo caro.
+    code: '6310', name: 'Comisiones y Gastos Bancarios', account_type: 'expense',
+    normal_balance: 'debit', fs_category: 'other_expenses',
+    description:
+      'Comisiones de manejo de cuenta, transferencias y devoluciones que cobra el banco. ' +
+      'Su IVA se aparca en 1135 hasta que llega el CFDI del banco: sin comprobante no hay ' +
+      'acreditamiento, por mucho que el cargo esté en el extracto.',
+  },
+  {
+    // F05d. Separado de 4300 «Otros Ingresos» por la misma razón: el interés
+    // que paga el banco es un producto financiero recurrente, y confundirlo con
+    // lo esporádico esconde la única partida de ingreso que un tesorero mira.
+    code: '4310', name: 'Productos Financieros', account_type: 'revenue',
+    normal_balance: 'credit', fs_category: 'other_income',
+    description:
+      'Intereses ganados sobre saldos e inversiones. El ISR que el banco retiene sobre ellos ' +
+      'NO es gasto: es pago provisional a favor (1145), y tratarlo como gasto lo pierde.',
+  },
+  {
     code: '6900', name: 'Gastos No Deducibles', account_type: 'expense',
     normal_balance: 'debit', fs_category: 'operating_expenses',
     description:
@@ -195,6 +222,8 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   isr_nomina_por_pagar: '2140',
   imss_por_pagar: '2170',
   // FX differences
+  comision_bancaria: '6310',
+  producto_financiero: '4310',
   utilidad_cambiaria: '4300',
   perdida_cambiaria: '6300',
 };

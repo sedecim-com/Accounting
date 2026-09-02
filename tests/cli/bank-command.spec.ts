@@ -12,6 +12,9 @@ import { VERBS } from '../../src/cli/kernel/vocabulary.js';
 // responder que la vio. Se olvida antes de los casos que la usan para que cada
 // uno la reconstruya con el suyo.
 import { olvidarAlcances } from '../../src/database/scope.js';
+// F05d · la llave de idempotencia se comprueba con la MISMA función que la
+// escribe: una carga calculada a mano en la prueba probaría otra cosa.
+import { hashDeCarga } from '../../src/services/idempotency/idempotency-store.js';
 
 // ============================================================
 // La familia `bank` contra el rulebook y contra sus tres promesas caras:
@@ -47,6 +50,36 @@ vi.mock('../../src/ai/context.js', () => ({
   listEntities: () => Promise.resolve([{ id: 'E1', name: 'Acme SA' }]),
 }));
 
+// F05d · EL MOTOR DEL MAYOR, CON DOBLE.
+//
+// Es lo único de la capa contable que se dobla, y a propósito: lo que estas
+// pruebas vigilan es qué RENGLONES se componen y qué se imprime antes de
+// preguntar, no cómo `posting.ts` los escribe —eso lo prueban las suyas—. El
+// doble devuelve un número de póliza porque la vista previa lo enseña, y guarda
+// cada asiento para poder afirmar que NO se creó ninguno cuando no debía.
+const motor = vi.hoisted(() => ({
+  asientos: [] as Array<{ description: string; lines: unknown[]; sourceType?: string }>,
+}));
+
+vi.mock('../../src/services/accounting/posting.js', () => ({
+  createJournalEntry: (
+    _entityId: string,
+    _fecha: Date,
+    _tipo: string,
+    description: string,
+    lines: unknown[],
+    _userId: string,
+    opts?: { sourceType?: string }
+  ) => {
+    motor.asientos.push({ description, lines, sourceType: opts?.sourceType });
+    return Promise.resolve({
+      id: `JE${motor.asientos.length}`,
+      entry_number: `P-${motor.asientos.length}`,
+    });
+  },
+  attestEntryAsync: () => undefined,
+}));
+
 vi.mock('../../src/ai/draft-service.js', () => ({
   resolveReviewer: () => Promise.resolve({ userId: 'U1', email: 'a@b.c' }),
   // F05c: `bank adjustment create` materializa el ajuste como BORRADOR, y el
@@ -63,6 +96,9 @@ const SES = '33333333-3333-3333-3333-333333333333';
 const PART = '44444444-4444-4444-4444-444444444444';
 const DRAFT = '55555555-5555-5555-5555-555555555555';
 const AJU = '66666666-6666-6666-6666-666666666666';
+// F05d · el pago con cheque y el cargo del banco que lo cobró.
+const PAGO = '77777777-7777-7777-7777-777777777777';
+const MOV = '88888888-8888-8888-8888-888888888888';
 
 // ---- programa y auditoría (estructura) -----------------------------
 
@@ -99,6 +135,9 @@ const LEAVES = [
   'bank reconciliation status', 'bank reconciling-item list',
   'bank reconciling-item assign', 'bank reconciling-item correct', 'bank adjustment create',
   'bank reconciliation close', 'bank reconciliation generate',
+  // F05d · la firma y el sello. Las cinco que tocan el mayor.
+  'bank reconciliation approve', 'bank reconciliation post',
+  'bank fee post', 'bank interest post', 'bank check reconcile',
 ];
 
 /** Las ocho de F05b, para no repetir la lista en cada aserción. */
@@ -114,6 +153,18 @@ const F05C = [
   'bank reconciliation status', 'bank reconciling-item list',
   'bank reconciling-item assign', 'bank reconciling-item correct', 'bank adjustment create',
   'bank reconciliation close', 'bank reconciliation generate',
+];
+
+/**
+ * Las cinco de F05d, que son las ÚNICAS de esta familia que tocan el mayor.
+ *
+ * Se nombran juntas porque casi todo lo que hay que afirmar sobre ellas se
+ * afirma sobre las cinco a la vez: irreversible, IA ✗, las tres banderas del
+ * núcleo. Una lista suelta por caso dejaría fuera a la sexta que alguien añada.
+ */
+const F05D = [
+  'bank reconciliation approve', 'bank reconciliation post',
+  'bank fee post', 'bank interest post', 'bank check reconcile',
 ];
 
 beforeAll(() => {
@@ -142,7 +193,7 @@ describe('the rulebook', () => {
     expect(violations).toEqual([]);
   });
 
-  it('ships exactly the twenty-seven leaves, each ending in a verb from the closed list', () => {
+  it('ships exactly the thirty-two leaves, each ending in a verb from the closed list', () => {
     const leaves: string[] = [];
     const walk = (cmd: Command, prefix: string[]) => {
       const path = [...prefix, cmd.name()];
@@ -201,6 +252,18 @@ describe('the bilingual surface', () => {
     'bank reconciling-item correct': 'corregir',
     'bank adjustment': 'ajuste',
     'bank adjustment create': 'crear',
+    // F05d · las dos hojas que cierran la sesión y los tres sustantivos de
+    // tesorería. `cheque` es el alias de un SUSTANTIVO aunque `check` sea
+    // también un verbo de la lista cerrada (`bank statement check`·`verificar`):
+    // por eso vive a profundidad 3 y no en la raíz.
+    'bank reconciliation approve': 'aprobar',
+    'bank reconciliation post': 'contabilizar',
+    'bank fee': 'comision',
+    'bank fee post': 'contabilizar',
+    'bank interest': 'interes',
+    'bank interest post': 'contabilizar',
+    'bank check': 'cheque',
+    'bank check reconcile': 'conciliar',
   };
 
   it('gives every command exactly one Spanish alias', () => {
@@ -363,6 +426,76 @@ describe('safety declarations', () => {
         declareRisk(new Command(nombre), { risk: 'escritura', agent: true })
       ).toThrow(/draftOnly/);
     }
+  });
+
+  it('las CINCO de F05d son irreversible + IA ✗, y el par no depende de una bandera', () => {
+    // Es la propiedad de seguridad que el catálogo declara como invariante:
+    // toda fila irreversible es IA prohibida. `declareRisk` la hace cumplir al
+    // REGISTRAR —una `irreversible` con `agent: true` rompe el arranque—, así
+    // que construir este programa ya la prueba; esto la fija fila a fila para
+    // que la sexta que alguien añada no se cuele con `agent: true`.
+    for (const path of F05D) {
+      expect(risks.get(path)?.risk, path).toBe('irreversible');
+      expect(risks.get(path)?.agentAllowed, path).toBe(false);
+      expect(risks.get(path)?.draftOnly, path).toBeFalsy();
+    }
+  });
+
+  it('would REFUSE to ship any of the five with agent access', () => {
+    // Ninguna bandera lo arregla: ni `draftOnly`, que es lo que hace legal a
+    // `statement import`. Un `irreversible` con agente no arranca.
+    expect(() =>
+      declareRisk(new Command('post'), { risk: 'irreversible', agent: true, draftOnly: true })
+    ).toThrow(/never post to the ledger|permission must never depend/);
+  });
+
+  it('las cinco llevan las tres banderas que el núcleo exige de una irreversible', () => {
+    for (const path of F05D) {
+      const largas = find(path).options.map((o) => o.long);
+      expect(largas, path).toEqual(
+        expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key'])
+      );
+    }
+  });
+
+  it('las dos hojas de la sesión declaran lo que escriben, y `post` nombra el SELLO', () => {
+    // `approve` no toca el mayor y su declaración lo dice: mueve el estado y
+    // congela la instantánea, y nada más.
+    const firma = risks.get('bank reconciliation approve');
+    expect(firma?.writes).toMatch(/approval_snapshot/);
+    expect(firma?.writes).toMatch(/approval_hash/);
+    expect(firma?.writes).toMatch(/NUNCA journal_entries/);
+
+    // `post` sí, y declara las cuatro cosas que caen juntas.
+    const sello = risks.get('bank reconciliation post');
+    expect(sello?.writes).toMatch(/journal_entries/);
+    expect(sello?.writes).toMatch(/is_reconciled/);
+    expect(sello?.writes).toMatch(/reconciliation_matches/);
+    expect(sello?.writes).toMatch(/status=posted/);
+  });
+
+  it('las tres de tesorería declaran su `source_type`, que es lo que las hace idempotentes', () => {
+    expect(risks.get('bank fee post')?.writes).toMatch(/source_type=bank_fee/);
+    expect(risks.get('bank interest post')?.writes).toMatch(/source_type=bank_interest/);
+    expect(risks.get('bank check reconcile')?.writes).toMatch(/source_type=bank_check_clearing/);
+    // Y el cheque declara las DOS columnas de la 055, que su CHECK exige juntas.
+    expect(risks.get('bank check reconcile')?.writes).toMatch(/check_cleared_date/);
+    expect(risks.get('bank check reconcile')?.writes).toMatch(/check_cleared_tx_id/);
+  });
+
+  it('el tratamiento fiscal es OBLIGATORIO, y las dos tasas no comparten grafía', () => {
+    // Un valor por omisión aquí sería una decisión fiscal invisible aplicada a
+    // todos los cargos del periodo a la vez.
+    const iva = find('bank fee post').options.find((o) => o.long === '--iva-rate');
+    expect(iva?.required, '--iva-rate obligatoria').toBe(true);
+    const rate = find('bank interest post').options.find((o) => o.long === '--rate');
+    expect(rate?.required, '--rate obligatoria').toBe(true);
+    // Y no son la misma palabra: una es el IVA que el cargo trae dentro y la
+    // otra la retención de ISR. Una sola grafía para las dos sería la deriva
+    // de `--bank` en F05b, con un asiento cuadrado y mal como precio.
+    expect(find('bank fee post').options.map((o) => o.long)).not.toContain('--rate');
+    expect(find('bank interest post').options.map((o) => o.long)).not.toContain('--iva-rate');
+    expect(rate?.description, 'dice que NO es la tasa de interés').toMatch(/NOT the interest rate/);
   });
 
   it('never offers a flag that would print a full identifier', () => {
@@ -2251,5 +2384,665 @@ describe('bank reconciliation run · el pase que se detiene a tiempo', () => {
     // Y la corrida dice SIEMPRE que no aprobó ni contabilizó, aunque se haya
     // detenido en el primer paso.
     expect(r.out).toMatch(/`run` no hace ninguna de las dos/);
+  });
+});
+
+// ============================================================
+// F05d · LA FIRMA Y EL SELLO
+//
+// Lo que estas pruebas vigilan es lo que separa a estas cinco hojas de las
+// veintisiete anteriores: que MUEVEN EL MAYOR. De ahí las tres propiedades que
+// se afirman una y otra vez —que nada se escribe sin que se haya enseñado
+// antes, que lo que se enseña sale del MISMO recorrido que después escribe, y
+// que una hoja irreversible nunca es invocable por el agente— y de ahí que
+// varias afirmen sobre `motor.asientos`: la única forma de comprobar que un
+// camino NO posteó es mirar el motor y encontrarlo vacío.
+// ============================================================
+
+interface MundoF05d extends MundoDeSesion {
+  cotejos?: unknown[];
+  aPostear?: unknown[];
+  resueltas?: number;
+  politicas?: Record<string, string>;
+  llave?: { payload_hash: string; resultado: unknown };
+  movimientos?: unknown[];
+  periodo?: { id: string; period_name: string; status: string } | null;
+  roles?: Array<{ role: string; account_id: string }>;
+  pago?: Record<string, unknown>;
+  movimientoDeCobro?: Record<string, unknown> | null;
+  mexicana?: boolean;
+}
+
+/**
+ * El mundo de F05d, consulta por consulta, encima del de F05c.
+ *
+ * El ORDEN vuelve a importar: la lectura de ajustes de `post` y la de `status`
+ * salen de la misma tabla y sólo la primera pide el `payload` del borrador, así
+ * que se reconoce por ahí y antes que la otra.
+ */
+const mundoDeFirma =
+  (over: MundoF05d = {}) =>
+  (text: string, params: unknown[]) => {
+    if (/FROM idempotency_keys/.test(text)) return filas(over.llave ? [over.llave] : []);
+    if (/FROM policy_decisions/.test(text)) {
+      const valor = over.politicas?.[String(params[1])];
+      return valor === undefined
+        ? filas([])
+        : filas([
+            {
+              key: params[1], status: 'resolved', resolved_value: valor,
+              question: 'q', resolution_notes: null, default_value: null,
+            },
+          ]);
+    }
+    if (/SELECT rm\.id, rm\.group_id/.test(text)) return filas(over.cotejos ?? []);
+    if (/draft_payload/.test(text)) return filas(over.aPostear ?? []);
+    if (/UPDATE reconciling_items ri/.test(text)) {
+      return { rows: [], rowCount: over.resueltas ?? 0 };
+    }
+    if (/UPDATE reconciliation_sessions/.test(text)) {
+      return {
+        rows: [
+          {
+            approved_at: '2026-09-01 12:00:00+00',
+            posted_at: '2026-09-01 12:00:00+00',
+            arithmetic_computed_at: '2026-09-01 12:00:00+00',
+          },
+        ],
+        rowCount: 1,
+      };
+    }
+    if (/SELECT posted_at::text/.test(text)) {
+      return filas([{ posted_at: '2026-09-01 12:00:00+00' }]);
+    }
+    // ── tesorería ──
+    if (/transaction_type = 'fee'/.test(text) || /transaction_type = 'interest'/.test(text)) {
+      return filas(over.movimientos ?? []);
+    }
+    if (/FROM fiscal_periods/.test(text)) {
+      return filas(
+        over.periodo === null
+          ? []
+          : [over.periodo ?? { id: 'FP1', period_name: '2026-08', status: 'open' }]
+      );
+    }
+    if (/FROM account_roles/.test(text)) {
+      return filas(
+        over.roles ?? [
+          { role: 'comision_bancaria', account_id: 'A6310' },
+          { role: 'iva_pendiente_acreditar', account_id: 'A1135' },
+          { role: 'producto_financiero', account_id: 'A4310' },
+          { role: 'isr_retenido_a_favor', account_id: 'A1145' },
+        ]
+      );
+    }
+    if (/incorporation_country/.test(text)) {
+      return filas([
+        { incorporation_country: over.mexicana === false ? 'US' : 'MX', accounting_standard: 'mx_nif' },
+      ]);
+    }
+    if (/FROM vendor_payments/.test(text) && /FOR UPDATE/.test(text)) {
+      return filas([pagoConCheque(over.pago)]);
+    }
+    if (/ya_usado_por/.test(text)) {
+      return filas(
+        over.movimientoDeCobro === null ? [] : [movimientoDeCobro(over.movimientoDeCobro)]
+      );
+    }
+    return mundo(over)(text);
+  };
+
+/** Una sesión CUADRADA y cerrada por otro: el punto de partida de `approve`. */
+function sesionBalanceada(over: Record<string, unknown> = {}) {
+  return {
+    status: 'balanced',
+    closed_at: '2026-08-31 18:00:00',
+    // Cerrada por OTRO usuario: `resolveReviewer` contesta U1 en estas pruebas,
+    // así que con esto la segregación de funciones no se dispara sola.
+    closed_by: 'U2',
+    arithmetic_computed_at: '2026-08-31 18:00:00',
+    variance: '0.0000',
+    ...over,
+  };
+}
+
+function pagoConCheque(over: Record<string, unknown> = {}) {
+  return {
+    id: PAGO, payment_number: 'PAY-0007', check_number: '10042',
+    payment_method: 'check', payment_amount: '1160.0000', payment_date: '2026-08-01',
+    currency_code: 'MXN', status: 'completed', bank_account_id: ACC,
+    check_cleared_date: null, check_cleared_tx_id: null,
+    ...over,
+  };
+}
+
+function movimientoDeCobro(over: Record<string, unknown> = {}) {
+  return {
+    id: MOV, fecha: '2026-08-14', importe: '-1160.0000',
+    descripcion: 'CHEQUE 10042', bank_account_id: ACC, moneda: 'MXN', ya_usado_por: null,
+    ...over,
+  };
+}
+
+describe('bank reconciliation approve · la firma que se enseña antes de darla', () => {
+  beforeEach(() => {
+    motor.asientos.length = 0;
+  });
+
+  it('enseña QUÉ se firma —variación, miembros y el hash— ANTES de preguntar', async () => {
+    let pregunta = '';
+    const r = await run(
+      ['bank', 'reconciliation', 'approve', SES],
+      mundoDeFirma({ sesion: sesionBalanceada() }),
+      {
+        confirm: (q: string) => {
+          pregunta = q;
+          return Promise.resolve(true);
+        },
+      }
+    );
+    expect(r.errs).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    expect(r.out).toMatch(/LO QUE SE VA A FIRMAR/);
+    // La variación VIVA junto a la CONGELADA: aprobar exige que la segunda
+    // reproduzca la primera, y sin las dos en pantalla nadie ve que se comparó.
+    // `monto` publica dos decimales cuando el valor no trae más: es la misma
+    // escala que enseña `bank reconciliation status`, y no se cambia aquí.
+    expect(r.out).toMatch(/variación\s+0\.00 \(congelada al cerrar: 0\.00\)/);
+    expect(r.out).toMatch(/miembros\s+0 partida\(s\) · 0 cotejo\(s\) · 0 ajuste\(s\)/);
+
+    const hash = /hash\s+([0-9a-f]{64})/.exec(r.out);
+    expect(hash, 'el hash sale ENTERO: un hash recortado no se puede reproducir').not.toBeNull();
+    expect(pregunta, 'y la pregunta lo lleva: firmar a ciegas es lo que esto impide')
+      .toContain((hash as RegExpExecArray)[1].slice(0, 12));
+  });
+
+  it('el hash que se ENSEÑA es exactamente el que se ESCRIBE', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'approve', SES],
+      mundoDeFirma({ sesion: sesionBalanceada() })
+    );
+    const hash = /hash\s+([0-9a-f]{64})/.exec(r.out) as RegExpExecArray;
+    const firmas = r.sql.filter((q) => /approval_hash = \$5/.test(q.text));
+    // DOS recorridos del mismo camino: el ENSAYO que compone la vista previa y
+    // la escritura de verdad. Es el precio de que la pantalla no pueda contar
+    // una cosa y el libro otra.
+    expect(firmas.length, 'el ensayo y la escritura').toBe(2);
+    expect(firmas[1].params[4], 'lo escrito es lo enseñado').toBe(hash[1]);
+  });
+
+  it('las cinco columnas de la firma van en UNA sentencia, que es lo que la 055 exige', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'approve', SES, '-y'],
+      mundoDeFirma({ sesion: sesionBalanceada() })
+    );
+    const firma = r.sql.find((q) => /approval_hash = \$5/.test(q.text));
+    const texto = (firma as { text: string }).text.replace(/\s+/g, ' ');
+    // `sesion_firma_coherente` no admite media firma y `sesion_aprobada_con_firma`
+    // no admite el estado sin el hash: separarlas abriría la ventana que los
+    // dos CHECK existen para cerrar.
+    expect(texto).toMatch(/SET status = 'approved'/);
+    expect(texto).toMatch(/approved_by = \$2/);
+    expect(texto).toMatch(/approved_at = NOW\(\)/);
+    expect(texto).toMatch(/approval_snapshot = \$4::jsonb/);
+    // Y el candado optimista: la segunda firma concurrente actualiza cero filas.
+    expect(texto).toMatch(/WHERE id = \$1 AND entity_id = \$6 AND status = 'balanced'/);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('sin confirmar NO firma: sólo queda el ensayo, que la transacción deshace', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'approve', SES],
+      mundoDeFirma({ sesion: sesionBalanceada() }),
+      { confirm: () => Promise.resolve(false) }
+    );
+    expect(r.exitCode, '10 es «abortado por el usuario», no un fallo').toBe(10);
+    expect(
+      r.sql.filter((q) => /approval_hash = \$5/.test(q.text)).length,
+      'sólo el ensayo'
+    ).toBe(1);
+  });
+
+  it('una sesión EN CURSO no se firma, y se dice dónde se hace la aritmética', async () => {
+    const r = await run(['bank', 'reconciliation', 'approve', SES], mundoDeFirma());
+    expect(r.exitCode, 'conflicto de estado, no validación').toBe(6);
+    expect((r.errs[0] as Error).message).toMatch(/no se firma lo que todavía no cuadra/);
+    expect((r.errs[0] as Error).message).toMatch(/bank reconciliation close/);
+    // La proyección de la sesión también menciona `approval_hash`; lo que no
+    // puede existir es la ESCRITURA, que es la que lo asigna.
+    expect(r.sql.filter((q) => /approval_hash = \$5/.test(q.text)), 'ni el ensayo escribe')
+      .toEqual([]);
+  });
+
+  it('con la política en «exigir», quien cerró la sesión no la firma', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'approve', SES, '-y'],
+      mundoDeFirma({
+        // U1 es quien contesta `resolveReviewer` en estas pruebas.
+        sesion: sesionBalanceada({ closed_by: 'U1' }),
+        politicas: { segregacion_de_funciones: 'exigir' },
+      })
+    );
+    expect(r.exitCode, '7 es permiso, y esto es un control de cuatro ojos').toBe(7);
+    expect((r.errs[0] as Error).message).toMatch(/quien hace la conciliación no la firma/);
+    expect(r.sql.filter((q) => /approval_hash = \$5/.test(q.text))).toEqual([]);
+  });
+
+  it('un id que no es uuid no llega a la base', async () => {
+    const r = await run(['bank', 'reconciliation', 'approve', 'la-de-agosto'], mundoDeFirma());
+    expect(r.exitCode, 'un typo es uso (2), no una sesión que no cuadra (4)').toBe(2);
+    expect(r.sql).toEqual([]);
+  });
+
+  it('en json, el hash viaja CON la instantánea que resume', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'approve', SES, '-y', '--json'],
+      mundoDeFirma({ sesion: sesionBalanceada() })
+    );
+    const payload = JSON.parse(r.out) as { rows: Array<Record<string, unknown>> };
+    const fila = payload.rows[0];
+    expect(String(fila.hash)).toMatch(/^[0-9a-f]{64}$/);
+    // Un hash sin su documento no lo puede verificar nadie: quien recibe el
+    // json podría repetir el sha256 pero no tendría sobre qué.
+    const instantanea = fila.snapshot as { version: number; saldos: { variacion: string | null } };
+    expect(instantanea.version).toBe(1);
+    expect(instantanea.saldos.variacion).toBe('0.00');
+    expect(fila.status).toBe('approved');
+  });
+
+  it('--dry-run enseña la firma entera y deja la sesión sin firmar', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'approve', SES, '--dry-run', '--json'],
+      mundoDeFirma({ sesion: sesionBalanceada() })
+    );
+    const fila = (JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows[0];
+    expect(fila.dry_run).toBe(true);
+    expect(String(fila.hash), 'el hash que QUEDARÍA, entero').toMatch(/^[0-9a-f]{64}$/);
+    // UN solo recorrido: en ensayo no hay vista previa que componer aparte.
+    expect(r.sql.filter((q) => /approval_hash = \$5/.test(q.text)).length).toBe(1);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('firmar NO postea: el motor del mayor no se toca', async () => {
+    await run(
+      ['bank', 'reconciliation', 'approve', SES, '-y'],
+      mundoDeFirma({ sesion: sesionBalanceada() })
+    );
+    expect(motor.asientos, 'la firma congela; el mayor lo mueve `post`').toEqual([]);
+  });
+});
+
+describe('bank reconciliation post · la hoja que mueve el mayor', () => {
+  beforeEach(() => {
+    motor.asientos.length = 0;
+  });
+
+  const ajustePosteado = {
+    id: AJU, tipo: 'comision', importe: '-35.0000',
+    draft_id: DRAFT, journal_entry_id: 'JE-VIEJA',
+    draft_status: 'approved', draft_payload: null, draft_journal_entry_id: 'JE-VIEJA',
+    entry_number: 'P-0009', movimiento_del_banco: null,
+  };
+
+  it('una sesión CUADRADA pero sin firmar no se contabiliza, y se dice por qué', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'post', SES, '-y'],
+      mundoDeFirma({ sesion: { status: 'balanced' } })
+    );
+    expect(r.exitCode).toBe(6);
+    expect((r.errs[0] as Error).message).toMatch(/está cuadrada pero SIN FIRMAR/);
+    expect((r.errs[0] as Error).message).toMatch(/bank reconciliation approve/);
+    expect(motor.asientos, 'nada llegó al mayor').toEqual([]);
+  });
+
+  it('imprime los asientos UNO POR UNO con su importe y su póliza, antes de preguntar', async () => {
+    let pregunta = '';
+    const r = await run(
+      ['bank', 'reconciliation', 'post', SES],
+      mundoDeFirma({ sesion: { status: 'approved' }, aPostear: [ajustePosteado], resueltas: 2 }),
+      {
+        confirm: (q: string) => {
+          pregunta = q;
+          return Promise.resolve(true);
+        },
+      }
+    );
+    expect(r.errs).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    expect(r.out).toMatch(/ASIENTOS QUE SE VAN A CREAR/);
+    expect(r.out).toMatch(/comision\s+-35\.00\s+adoptado · póliza P-0009/);
+    // ADOPTAR NO ES POSTEAR, y la pregunta lo dice: el asiento ya existía
+    // porque alguien aprobó el borrador en `mnemosine review`.
+    expect(pregunta).toMatch(/CONTABILIZAR 0 asiento\(s\) nuevo\(s\)/);
+    expect(motor.asientos, 'no se postea un segundo asiento por el mismo hecho').toEqual([]);
+  });
+
+  it('enseña lo que SELLA, que es la mitad del acto que nadie ve', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'post', SES, '--dry-run'],
+      mundoDeFirma({ sesion: { status: 'approved' }, resueltas: 3 })
+    );
+    expect(r.out).toMatch(/Y LO QUE SE SELLA/);
+    expect(r.out).toMatch(/línea\(s\) de libros contra la cuenta de mayor del banco/);
+    expect(r.out).toMatch(/cotejo\(s\) contra el movimiento del extracto/);
+    // Sin resolver la partida, la propia sesión firmada pasaría a mostrar una
+    // variación igual a los ajustes contabilizados, todos los meses.
+    expect(r.out).toMatch(/3 partida\(s\) conciliatoria\(s\) que el ajuste deja sin objeto/);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('sin confirmar sólo corre el ensayo: la sesión no llega a `posted`', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'post', SES],
+      mundoDeFirma({ sesion: { status: 'approved' } }),
+      { confirm: () => Promise.resolve(false) }
+    );
+    expect(r.exitCode).toBe(10);
+    expect(
+      r.sql.filter((q) => /SET status = 'posted'/.test(q.text)).length,
+      'sólo el ensayo, que la transacción deshace'
+    ).toBe(1);
+  });
+
+  it('--idempotency-key repetida devuelve lo GRABADO y no vuelve a escribir', async () => {
+    const grabado = {
+      v: {
+        sesionId: SES, estado: 'posted', yaContabilizada: true, asientos: [],
+        posteados: 0, adoptados: 0, partidasSelladas: 0, cotejosEscritos: 0,
+        grupoDelSello: null, partidasResueltas: 0,
+        contabilizadaEl: '2026-09-01 12:00:00+00', ensayo: false,
+      },
+    };
+    const r = await run(
+      ['bank', 'reconciliation', 'post', SES, '-y', '--idempotency-key', 'cierre-agosto'],
+      mundoDeFirma({
+        sesion: { status: 'approved' },
+        // La carga se calcula con la MISMA función que la escribe.
+        llave: { payload_hash: hashDeCarga(SES, ''), resultado: grabado },
+      })
+    );
+    expect(r.exitCode).toBe(0);
+    expect(
+      r.sql.filter((q) => /SET status = 'posted'/.test(q.text)),
+      'nada se ejecutó otra vez'
+    ).toEqual([]);
+    expect(r.out).toMatch(/posted · 0 posteado\(s\)/);
+  });
+
+  it('la MISMA llave con otra carga acusa reuso en vez de contestar con el informe viejo', async () => {
+    const r = await run(
+      ['bank', 'reconciliation', 'post', SES, '-y', '--idempotency-key', 'cierre-agosto',
+        '--note', 'otra cosa'],
+      mundoDeFirma({
+        sesion: { status: 'approved' },
+        llave: { payload_hash: hashDeCarga(SES, ''), resultado: { v: {} } },
+      })
+    );
+    expect(r.exitCode, '6: la llave existe con otra carga').toBe(6);
+    expect((r.errs[0] as Error).message).toMatch(/ya se usó en "bank reconciliation post"/);
+    expect(r.sql.filter((q) => /SET status = 'posted'/.test(q.text))).toEqual([]);
+  });
+});
+
+describe('bank fee post · la comisión y su IVA que NO se acredita todavía', () => {
+  beforeEach(() => {
+    motor.asientos.length = 0;
+  });
+
+  const cargo = (over: Record<string, unknown> = {}) => ({
+    id: 'BT-FEE', fecha: '2026-08-05', importe: '-35.0000',
+    descripcion: 'COMISION MANEJO DE CUENTA', contraparte: null,
+    ...over,
+  });
+
+  const mundoDeComisiones = (over: MundoF05d = {}) =>
+    mundoDeFirma({ cuenta: { moneda_funcional: 'MXN' }, ...over });
+
+  it('enseña el ASIENTO COMPLETO: base, IVA aparcado y el abono a la cuenta', async () => {
+    const r = await run(
+      ['bank', 'fee', 'post', ACC, '--period', '2026-08', '--iva-rate', '0.16', '-y'],
+      mundoDeComisiones({ movimientos: [cargo()] })
+    );
+    expect(r.errs).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    // El IVA se DESPEJA del total, no se calcula sobre él: 35 / 1.16 = 30.1724.
+    expect(r.out).toMatch(/comision_bancaria\s+30\.1724/);
+    expect(r.out).toMatch(/iva_pendiente_acreditar\s+4\.8276/);
+    expect(r.out).toMatch(/BBVA MXN\s+35\.0000/);
+    // Los CUATRO decimales de la columna, nunca dos.
+    expect(r.out).not.toMatch(/30\.17\b(?!\d)/);
+    expect(motor.asientos.map((a) => a.sourceType)).toEqual(['bank_fee']);
+  });
+
+  it('--iva-rate 0 deja el cargo entero como gasto, sin renglón de 1135', async () => {
+    const r = await run(
+      ['bank', 'fee', 'post', ACC, '--period', '2026-08', '--iva-rate', '0', '-y'],
+      mundoDeComisiones({ movimientos: [cargo()] })
+    );
+    expect(r.out).toMatch(/comision_bancaria\s+35\.0000/);
+    expect(r.out, 'una comisión exenta no aparca impuesto ninguno')
+      .not.toMatch(/iva_pendiente_acreditar/);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('--iva-rate en PORCENTAJE se rechaza como uso y no gasta una conexión', async () => {
+    const r = await run(
+      ['bank', 'fee', 'post', ACC, '--period', '2026-08', '--iva-rate', '16'],
+      mundoDeComisiones()
+    );
+    expect(r.exitCode).toBe(2);
+    expect((r.errs[0] as Error).message).toMatch(/va entre 0 y 1, no en porcentaje/);
+    expect(r.sql).toEqual([]);
+  });
+
+  it('un cargo con el signo al revés se OMITE con su motivo y sale 4', async () => {
+    const r = await run(
+      ['bank', 'fee', 'post', ACC, '--period', '2026-08', '--iva-rate', '0.16', '-y'],
+      mundoDeComisiones({ movimientos: [cargo({ importe: '120.0000' })] })
+    );
+    // Una devolución de comisión METE dinero: contabilizarla como gasto la
+    // sumaría al costo en vez de restarla, y cuadraría perfectamente así.
+    expect(r.out).toMatch(/\[signo-contrario\]/);
+    expect(motor.asientos, 'no se voltea un signo en silencio').toEqual([]);
+    expect(r.exitCode, '4 es «hay algo que mirar», como en `statement check`').toBe(4);
+  });
+
+  it('volver a correr el mes y encontrarlo hecho NO es un hallazgo: sale 0', async () => {
+    const r = await run(
+      ['bank', 'fee', 'post', ACC, '--period', '2026-08', '--iva-rate', '0.16', '-y'],
+      (text: string, params: unknown[]) =>
+        /FROM journal_entries/.test(text) && /source_type = \$2/.test(text)
+          ? filas([{ id: 'JE-VIEJA', entry_number: 'P-0001' }])
+          : mundoDeComisiones({ movimientos: [cargo()] })(text, params)
+    );
+    expect(r.out).toMatch(/\[ya-contabilizada\]/);
+    expect(motor.asientos).toEqual([]);
+    expect(r.exitCode, 'un acto idempotente que no hizo nada no es un problema').toBe(0);
+  });
+
+  it('--dry-run enseña el asiento completo y devuelve los ids en null', async () => {
+    const r = await run(
+      ['bank', 'fee', 'post', ACC, '--period', '2026-08', '--iva-rate', '0.16', '--dry-run'],
+      mundoDeComisiones({ movimientos: [cargo()] })
+    );
+    // El asiento se ve entero aunque no vaya a quedarse.
+    expect(r.out).toMatch(/comision_bancaria\s+30\.1724/);
+    expect(r.out).toMatch(/póliza \(ensayo\)/);
+    // Y se creó de verdad, una sola vez: el ensayo ES el camino real, deshecho.
+    expect(motor.asientos.length, 'sin vista previa aparte: en ensayo hay un solo recorrido')
+      .toBe(1);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('la frontera de entidad va por JOIN, porque bank_transactions no la tiene', async () => {
+    const r = await run(
+      ['bank', 'fee', 'post', ACC, '--period', '2026-08', '--iva-rate', '0.16', '-y'],
+      mundoDeComisiones()
+    );
+    const consulta = r.sql.find((q) => /transaction_type = 'fee'/.test(q.text));
+    const texto = (consulta as { text: string }).text.replace(/\s+/g, ' ');
+    expect(texto).toMatch(/JOIN bank_accounts ba ON ba\.id = bt\.bank_account_id/);
+    expect(texto).toMatch(/ba\.entity_id = \$2/);
+    expect((consulta as { params: unknown[] }).params[1]).toBe('E1');
+  });
+});
+
+describe('bank interest post · el interés BRUTO y la retención a favor', () => {
+  beforeEach(() => {
+    motor.asientos.length = 0;
+  });
+
+  const abono = (over: Record<string, unknown> = {}) => ({
+    id: 'BT-INT', fecha: '2026-08-31', importe: '98.7500',
+    descripcion: 'RENDIMIENTO', contraparte: null,
+    ...over,
+  });
+
+  it('reconoce el ingreso por el BRUTO y la retención como pago a favor, nunca como gasto', async () => {
+    const r = await run(
+      ['bank', 'interest', 'post', ACC, '--period', '2026-08', '--rate', '0.0125', '-y'],
+      mundoDeFirma({ cuenta: { moneda_funcional: 'MXN' }, movimientos: [abono()] })
+    );
+    expect(r.errs).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    // 98.75 / (1 − 0.0125) = 100.0000, y la retención sale RESTANDO para que
+    // neto + retención dé el bruto exacto.
+    expect(r.out).toMatch(/BBVA MXN\s+98\.7500/);
+    expect(r.out).toMatch(/isr_retenido_a_favor\s+1\.2500/);
+    expect(r.out).toMatch(/producto_financiero\s+100\.0000/);
+    expect(motor.asientos.map((a) => a.sourceType)).toEqual(['bank_interest']);
+  });
+
+  it('`--rate` es la RETENCIÓN y no la tasa de interés, y la ayuda lo dice', async () => {
+    const r = await run(
+      ['bank', 'interest', 'post', ACC, '--period', '2026-08', '--rate', '12', '-y'],
+      mundoDeFirma({ cuenta: { moneda_funcional: 'MXN' } })
+    );
+    // Teclear la tasa anual del pagaré donde va la retención es el error que
+    // de verdad se comete, y sale como uso antes de tocar la base.
+    expect(r.exitCode).toBe(2);
+    expect((r.errs[0] as Error).message).toMatch(/--rate va entre 0 y 1/);
+    expect(r.sql).toEqual([]);
+  });
+
+  it('un movimiento de interés que SACA dinero no se contabiliza al revés', async () => {
+    const r = await run(
+      ['bank', 'interest', 'post', ACC, '--period', '2026-08', '--rate', '0', '-y'],
+      mundoDeFirma({ cuenta: { moneda_funcional: 'MXN' }, movimientos: [abono({ importe: '-40.0000' })] })
+    );
+    expect(r.out).toMatch(/\[signo-contrario\]/);
+    expect(motor.asientos, 'un interés PAGADO no es un producto financiero').toEqual([]);
+    expect(r.exitCode).toBe(4);
+  });
+});
+
+describe('bank check reconcile · el mes en que cae el asiento', () => {
+  beforeEach(() => {
+    motor.asientos.length = 0;
+  });
+
+  it('dice EN QUÉ MES cae el asiento y POR QUÉ, antes de escribir nada', async () => {
+    let pregunta = '';
+    const r = await run(
+      ['bank', 'check', 'reconcile', PAGO, '--transaction', MOV],
+      mundoDeFirma({ mexicana: false }),
+      {
+        confirm: (q: string) => {
+          pregunta = q;
+          return Promise.resolve(true);
+        },
+      }
+    );
+    expect(r.errs).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    expect(r.out).toMatch(/EL MES EN QUE CAE EL ASIENTO/);
+    expect(r.out).toMatch(/cobrado el\s+2026-08-14/);
+    expect(r.out).toMatch(/periodo\s+2026-08 \(open\)/);
+    // La razón, no sólo el mes: el cheque se firmó el 1 de agosto y lo que
+    // decide el periodo es el día en que el banco lo pagó.
+    expect(r.out).toMatch(/el día del COBRO y no el de la firma/);
+    expect(pregunta).toMatch(/el 2026-08-14/);
+  });
+
+  it('escribe las DOS columnas del cobro en la misma sentencia', async () => {
+    const r = await run(
+      ['bank', 'check', 'reconcile', PAGO, '--transaction', MOV, '-y'],
+      mundoDeFirma({ mexicana: false })
+    );
+    const escritura = r.sql.find((q) => /UPDATE vendor_payments/.test(q.text));
+    const texto = (escritura as { text: string }).text.replace(/\s+/g, ' ');
+    // `pago_cheque_cobro_coherente` de la 055: la fecha sin el movimiento es
+    // una afirmación sin prueba, y el movimiento sin la fecha, una prueba que
+    // no dice de cuándo.
+    expect(texto).toMatch(/SET check_cleared_date = \$1::date, check_cleared_tx_id = \$2/);
+    expect(texto, 'la entidad otra vez en el WHERE, aunque el SELECT ya la exigió')
+      .toMatch(/WHERE id = \$3 AND entity_id = \$4/);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('cero reclasificado es un resultado legítimo, y se dice por qué', async () => {
+    const r = await run(
+      ['bank', 'check', 'reconcile', PAGO, '--transaction', MOV, '-y'],
+      mundoDeFirma({ mexicana: false })
+    );
+    expect(r.out).toMatch(/IVA reclasificado 0\.0000/);
+    expect(r.out).toMatch(/ninguno: no hay IVA que reclasificar/);
+    expect(motor.asientos, 'sin IVA que mover no se inventa un asiento').toEqual([]);
+  });
+
+  it('--as-of que discrepa del banco se rechaza NOMBRANDO las dos fechas', async () => {
+    const r = await run(
+      ['bank', 'check', 'reconcile', PAGO, '--transaction', MOV, '--as-of', '2026-08-20', '-y'],
+      mundoDeFirma({ mexicana: false })
+    );
+    expect(r.exitCode).toBe(4);
+    const mensaje = (r.errs[0] as Error).message;
+    expect(mensaje).toContain('2026-08-20');
+    expect(mensaje).toContain('2026-08-14');
+    expect(r.sql.filter((q) => /UPDATE vendor_payments/.test(q.text)), 'no se escribió el cobro')
+      .toEqual([]);
+  });
+
+  it('un cheque ya cobrado no se cobra dos veces, y se dice cuándo y contra qué', async () => {
+    const r = await run(
+      ['bank', 'check', 'reconcile', PAGO, '-y'],
+      mundoDeFirma({
+        mexicana: false,
+        pago: { check_cleared_date: '2026-08-14', check_cleared_tx_id: MOV },
+      })
+    );
+    expect(r.exitCode).toBe(4);
+    expect((r.errs[0] as Error).message).toMatch(/ya consta cobrado el 2026-08-14/);
+    expect(r.sql.filter((q) => /UPDATE vendor_payments/.test(q.text))).toEqual([]);
+  });
+
+  it('un pago que no se hizo con cheque no tiene cobro que conciliar', async () => {
+    const r = await run(
+      ['bank', 'check', 'reconcile', PAGO, '-y'],
+      mundoDeFirma({ mexicana: false, pago: { payment_method: 'transfer' } })
+    );
+    expect(r.exitCode).toBe(4);
+    expect((r.errs[0] as Error).message).toMatch(/no con cheque/);
+  });
+
+  it('--dry-run dice el mes y no escribe el cobro dos veces', async () => {
+    const r = await run(
+      ['bank', 'check', 'reconcile', PAGO, '--transaction', MOV, '--dry-run', '--json'],
+      mundoDeFirma({ mexicana: false })
+    );
+    const fila = (JSON.parse(r.out) as { rows: Array<Record<string, unknown>> }).rows[0];
+    expect(fila.dry_run).toBe(true);
+    expect(fila.cleared_on, 'el mes lo decide el banco, y sale como DATO').toBe('2026-08-14');
+    expect(fila.period).toBe('2026-08');
+    expect(
+      r.sql.filter((q) => /UPDATE vendor_payments/.test(q.text)).length,
+      'un solo recorrido, el que la transacción deshace'
+    ).toBe(1);
+  });
+
+  it('un id que no es uuid no llega a la base', async () => {
+    const r = await run(['bank', 'check', 'reconcile', 'el-de-la-renta'], mundoDeFirma());
+    expect(r.exitCode).toBe(2);
+    expect(r.sql).toEqual([]);
   });
 });

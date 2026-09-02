@@ -562,6 +562,22 @@ export async function clasificarPartidas(
         AND ba.id = $2
         AND je.status = 'posted'
         AND jel.is_reconciled = false
+        -- NI SELLADA NI COTEJADA. El sello llega al contabilizar la sesión, y
+        -- hasta entonces una línea perfectamente explicada seguía saliendo
+        -- como partida: la comisión recién contabilizada aparecía como «cheque
+        -- en circulación», cuando el cotejo que ese mismo comando escribe ya
+        -- afirma que ese renglón del banco ES esta línea.
+        --
+        -- Es la misma asimetría que F05b tuvo entre el motor y el listado: dos
+        -- piezas decidiendo con criterios distintos qué es una partida de
+        -- libros pendiente. Un cotejo VIVO explica la línea aunque el sello aún
+        -- no esté puesto — el sello dice «esta conciliación la cerró alguien»,
+        -- el cotejo dice «esto ya tiene contrapartida», y para levantar una
+        -- partida conciliatoria manda lo segundo.
+        AND NOT EXISTS (SELECT 1 FROM reconciliation_matches rm
+                         WHERE rm.matched_entity_type = 'journal_entry_line'
+                           AND rm.matched_entity_id = jel.id
+                           AND rm.unapplied_at IS NULL)
         AND je.entry_date <= $3::date
         AND NOT EXISTS (SELECT 1 FROM reconciling_items ri
                          WHERE ri.journal_entry_line_id = jel.id

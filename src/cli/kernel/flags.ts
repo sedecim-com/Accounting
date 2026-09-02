@@ -203,6 +203,27 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // nombra —`bank reconciling-item`— y no `--reconciling-item`, que sería la
   // bandera más larga del binario.
   '--item': null,
+
+  // ── F05d · las dos tasas de tesorería ─────────────────────────────────
+  //
+  // SON DOS GRAFÍAS Y NO UNA, y ésta es la entrada que más trabajo hace del
+  // bloque. `bank fee post` y `bank interest post` piden cada una «la tasa»,
+  // pero no la misma: en la comisión es el IVA que el cargo trae DENTRO y en el
+  // interés es la RETENCIÓN de ISR que el banco ya se llevó. Un solo `--rate`
+  // sirviendo a las dos sería una grafía con dos significados dentro del mismo
+  // sustantivo —el caso de `--bank` en F05b y el de `--account` en F05c—, y aquí
+  // el precio de confundirlas no es una lista mal filtrada: es un asiento
+  // cuadrado con la base y el impuesto cambiados de sitio, que no lo caza nadie.
+  //
+  // `--rate` es la del catálogo (fila 1260) y se queda donde el catálogo la
+  // pone. `--iva-rate` no está en la fila 1259 porque la fila no previó que el
+  // tratamiento fiscal tuviera que ser explícito; el servicio no admite valor
+  // por omisión —un 16% invisible aplicado a todos los cargos del periodo a la
+  // vez es una decisión fiscal que nadie tomó—, así que la bandera tiene que
+  // existir. Se escribe con el nombre del impuesto, como `--clabe` y
+  // `--sat-bank-code` se escriben con el nombre de lo que nombran.
+  '--rate': null,
+  '--iva-rate': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

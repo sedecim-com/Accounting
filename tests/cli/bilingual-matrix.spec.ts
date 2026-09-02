@@ -133,6 +133,11 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
     // que los dos sustantivos conviven aquí sin compartir alias.
     reconciliation: 'conciliacion', 'reconciling-item': 'partida-conciliatoria',
     adjustment: 'ajuste',
+    // F05d · los tres sustantivos de tesorería. `check` vive a profundidad 3 a
+    // propósito: la palabra ya es el VERBO de `bank statement check`, y a nivel
+    // raíz una de las dos dejaría de ser aprendible. Por eso su alias es el
+    // sustantivo `cheque` y no el verbo `verificar`.
+    fee: 'comision', interest: 'interes', check: 'cheque',
   },
   backup: { create: 'crear', list: 'listar', verify: 'comprobar', restore: 'restaurar' },
   report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },

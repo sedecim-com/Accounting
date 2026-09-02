@@ -463,6 +463,7 @@ export const CRITERIOS: Criterio[] = [
         F05a: 'docs/auditorias/F05a.md',
         F05b: 'docs/auditorias/F05b.md',
         F05c: 'docs/auditorias/F05c.md',
+        F05d: 'docs/auditorias/F05d.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -3194,7 +3195,13 @@ export const CRITERIOS: Criterio[] = [
       // debe NOMBRAR la cuenta donde el IVA de un PPD aparca, y decir que un
       // asiento posteado no cambia de estado.
       const cfdi = crudoDe('src/ai/docs/mexico-cfdi.md');
-      if (!/1135/.test(cfdi) || !/2125/.test(cfdi)) {
+      // La FRASE, no el número. Bastaba con que «1135» apareciera en alguna
+      // parte, y F05d añadió una segunda mención (la regla del cheque
+      // cobrado): mutar la del PPD dejaba la otra en pie y el criterio seguía
+      // en verde mientras el manual enseñaba justo lo contrario de lo que
+      // vigila. Un número suelto no es una lección; la lección es a qué cuenta
+      // va el IVA de un PPD.
+      if (!/PPD received → DR 1135/.test(cfdi) || !/2125/.test(cfdi)) {
         return falla('mexico-cfdi.md volvió a enseñar el IVA sin las cuentas de aparcado (1135/2125)');
       }
       return /IMMUTABLE|inmutable/i.test(crudoDe('src/ai/docs/accounting.md'))
@@ -3203,9 +3210,13 @@ export const CRITERIOS: Criterio[] = [
     },
     mutantes: [
       {
+        // Anclado en la FRASE del PPD y no en el número suelto. Con `de: '1135'`
+        // el mutante cambiaba la primera aparición del documento, y F05d añadió
+        // otra antes (la regla del cheque cobrado): el criterio encontraba la
+        // que quedaba y el mutante sobrevivía. El gemelo de siempre.
         archivo: 'src/ai/docs/mexico-cfdi.md',
-        de: '1135',
-        a: '1130',
+        de: 'PPD received → DR 1135',
+        a: 'PPD received → DR 1130',
         porque: 'el manual vuelve a enseñar que el IVA de un PPD se acredita de inmediato: el defecto que iva-ppd-reclass existe para reparar',
       },
       {
@@ -3480,6 +3491,159 @@ export const CRITERIOS: Criterio[] = [
 
 
 
+
+
+  // ---- F05d · La firma y el sello ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El asiento de tesorería cae en el día que ocurrió, no en la víspera',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/treasury-posting.ts',
+        de: "  return new Date(`${iso}T00:00:00`);",
+        a: "  return new Date(`${iso}T00:00:00Z`);",
+        porque: 'vuelve la medianoche UTC: en México el asiento se fecha el día ANTERIOR, y el día 1 de mes eso lo manda al mes anterior con su IVA a otra declaración, cuadrando igual de bien',
+      },
+    ],
+    evaluar: () => {
+      // EL DEFECTO QUE CASI SE VA VIVO, y el único de F05d que era de
+      // gravedad 1. `new Date('2026-06-01T00:00:00Z')` es medianoche UTC, y
+      // `createJournalEntry` pasa ese Date al driver, que lo serializa en la
+      // zona del PROCESO: en México (UTC−6) esa medianoche es el 31 de mayo a
+      // las 18:00. El asiento se guardaba fechado un día antes Y colgado del
+      // periodo fiscal de ese día.
+      //
+      // Medido: un cheque cobrado el 1 de junio posteaba su reclasificación de
+      // IVA en MAYO — es decir, en otra declaración mensual—, y el 1 de enero
+      // se lleva además el folio al ejercicio anterior. Y cuadra igual de
+      // bien, que es lo que lo hacía invisible.
+      //
+      // Afectaba a los TRES verbos de tesorería. `treasury-posting.ts` era el
+      // único de los cuatro sitios del sistema que crean asientos desde una
+      // fecha ISO que lo hacía en UTC.
+      const t = codigoDe('src/services/banking/treasury-posting.ts');
+      if (!/function fechaDelAsiento\(/.test(t)) {
+        return falla('desapareció el constructor único de la fecha del asiento: cada verbo volvería a fabricarla por su cuenta');
+      }
+      if (/new Date\(`\$\{[a-zA-Z.]+\}T00:00:00Z`\)/.test(t)) {
+        return falla('volvió la medianoche UTC: el asiento se fecharía un día antes, y el día 1 de mes eso es el mes anterior');
+      }
+      // Y LO USAN LOS TRES. Que exista el helper no sirve si un verbo se lo
+      // salta: el defecto original era exactamente un sitio de cuatro.
+      const usos = (t.match(/fechaDelAsiento\(/g) ?? []).length;
+      return usos >= 4
+        ? ok('la fecha del asiento la construye un solo sitio, en medianoche local, y los tres verbos la usan')
+        : falla(
+            `sólo ${usos - 1} verbo(s) de tesorería usan el constructor de fecha: el que se lo salte volverá a fechar en la víspera`
+          );
+    },
+  },
+
+  {
+    paquete: 'E0.3',
+    enunciado: 'La firma congela lo que se firmó, y su hash no depende del orden',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/055_la_firma_y_el_sello.sql',
+        de: "CHECK (status <> 'posted' OR (posted_at IS NOT NULL AND posted_by IS NOT NULL))",
+        a: 'CHECK (true)',
+        porque: 'una sesión podría quedar contabilizada sin decir cuándo ni por quién',
+      },
+      {
+        archivo: 'src/database/migrations/055_la_firma_y_el_sello.sql',
+        de: "CHECK (status NOT IN ('approved', 'posted') OR approval_hash IS NOT NULL)",
+        a: 'CHECK (true)',
+        porque: 'se llegaría a approved sin instantánea sellada: la firma vuelve a ser una palabra que alguien escribe, que es de lo que este módulo viene',
+      },
+    ],
+    evaluar: () => {
+      // Una aprobación sin fecha, sin firmante y sin instantánea es
+      // indistinguible de un UPDATE — que es la forma exacta del defecto
+      // histórico de este módulo. Y la instantánea es lo que permite que un
+      // auditor pregunte «¿esto es lo que se aprobó?» seis meses después, en
+      // vez de mirar el estado de HOY con las partidas ya reclasificadas.
+      const sql = crudoDe('src/database/migrations/055_la_firma_y_el_sello.sql');
+      const svc = codigoDe('src/services/banking/reconciliation-service.ts');
+
+      // Se ancla el CUERPO de cada guardia y no su nombre. Un CHECK puede
+      // conservar el nombre y quedarse en `CHECK (true)`, que es exactamente
+      // el mutante que sobrevivió a la primera versión de este criterio.
+      const guardias: Array<[string, RegExp]> = [
+        ['sesion_firma_coherente', /approved_by IS NOT NULL AND approved_at IS NOT NULL/],
+        ['sesion_aprobada_con_firma', /status NOT IN \('approved', 'posted'\) OR approval_hash IS NOT NULL/],
+        ['sesion_contabilizada_con_rastro', /status <> 'posted' OR \(posted_at IS NOT NULL AND posted_by IS NOT NULL\)/],
+      ];
+      const faltan = guardias
+        .filter(([nombre, cuerpo]) => !new RegExp(`CONSTRAINT ${nombre}`).test(sql) || !cuerpo.test(sql))
+        .map(([nombre]) => nombre);
+      if (faltan.length > 0) {
+        return falla(`la firma perdió guardias en la base (o quedaron vacíos de contenido): ${faltan.join(', ')}`);
+      }
+      // EL HASH TIENE QUE SER DETERMINISTA o la pregunta no se puede
+      // contestar: el mismo contenido serializado en otro orden daría otro
+      // hash, y «no casa» dejaría de significar «alguien lo cambió».
+      if (!/export function hashDeInstantanea\(/.test(svc)) {
+        return falla('no hay una función única que selle la instantánea: dos llamadores producirían dos hashes del mismo contenido');
+      }
+      // Y LA TOLERANCIA CON LA QUE SE CERRÓ SE PERSISTE. Sin ella, la firma
+      // reevaluaba el cuadre con la de hoy y la instantánea sellada de un
+      // cierre legítimo con residual decía que la cuenta NO cuadraba: el único
+      // documento cuyo trabajo es no contradecir al cierre lo contradecía.
+      const persiste = /closing_tolerance DECIMAL\(19,4\)/.test(sql) && /closing_tolerance = \$\d+/.test(svc);
+      return persiste
+        ? ok('la firma va entera o no va, su hash es determinista, y reevalúa con la tolerancia del cierre y no con la de hoy')
+        : falla('la tolerancia del cierre no se persiste o no se escribe: la instantánea firmada volvería a contradecir al cierre que firma');
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Contabilizar una comisión ata su movimiento, o el mismo cargo se cuenta dos veces',
+    mutantes: [
+      {
+        archivo: 'src/services/banking/treasury-posting.ts',
+        de: '      await cotejarMovimientoConSuLinea(client, {',
+        a: '      await Promise.resolve({',
+        porque: 'el cargo contabilizado vuelve a levantar DOS partidas conciliatorias que se anulan entre sí: la sesión informa que cuadra y la comisión se puede contabilizar otra vez',
+      },
+    ],
+    evaluar: () => {
+      // `clasificarPartidas` y `movimientosSinExplicar` preguntan por COTEJOS
+      // VIVOS, no por la caché `is_matched`. Un cargo contabilizado sin cotejo
+      // levantaba `cargo-del-banco` del lado del banco y su gemela del lado de
+      // libros: el MISMO hecho contado dos veces, anulándose. Medido, un cargo
+      // de −348 daba dos partidas por −696 y la sesión decía `cuadra: true` —
+      // y sobre esa base la comisión se podía contabilizar por segunda vez,
+      // porque la segunda partida absorbía el desvío.
+      //
+      // La única defensa era acordarse de correr el motor de cotejo antes de
+      // clasificar. Un invariante que depende de que alguien recuerde un paso
+      // no es un invariante.
+      const t = codigoDe('src/services/banking/treasury-posting.ts');
+      if (!/async function cotejarMovimientoConSuLinea\(/.test(t)) {
+        return falla('desapareció el cotejo que ata el movimiento a la línea que lo explica');
+      }
+      // LOS DOS VERBOS que crean línea contra el banco lo llaman: la comisión y
+      // el interés. Se CUENTAN porque son gemelos y anclar «alguna» llamada
+      // dejaría vivo al que rompa el otro.
+      const llamadas = (t.match(/await cotejarMovimientoConSuLinea\(/g) ?? []).length;
+      if (llamadas < 2) {
+        return falla(
+          `sólo ${llamadas} de los 2 verbos que crean línea de banco atan su movimiento: el que no lo ate lo levantará dos veces`
+        );
+      }
+      // Y EL OTRO LADO LO RESPETA: una línea con cotejo vivo está explicada
+      // aunque el sello aún no esté puesto. Sin esto, la línea de la comisión
+      // seguía saliendo como partida hasta contabilizar la sesión.
+      const libros = /rm\.matched_entity_type = 'journal_entry_line'[\s\S]{0,200}?rm\.unapplied_at IS NULL/.test(
+        codigoDe('src/services/banking/reconciling-items.ts')
+      );
+      return libros
+        ? ok('los dos verbos atan su movimiento y un cotejo vivo explica la línea aunque el sello llegue después')
+        : falla('el clasificador volvió a juzgar la partida de libros sólo por el sello: la línea ya cotejada seguiría levantándose');
+    },
+  },
 
   // ---- F05c · La sesión que cuadra ----
 

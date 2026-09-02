@@ -34,6 +34,13 @@
 - `bank adjustment create <session>` creates DRAFTS and posts nothing. Its journal entry stays NULL until a later tranche posts it behind a signature.
 - Once a session is legitimately `balanced`, the period-close checklist item "Bank reconciliations complete" ticks — and only for a period the session actually COVERS. A September reconciliation does not vouch for August.
 
+## Signing and posting (F05d) — the only part that reaches the ledger
+- `bank reconciliation approve <session>` freezes an immutable SNAPSHOT of what was signed —the items and the balances as they stood— and seals it with a hash. That is what lets anyone later ask "is this what was approved?" and get a yes or a no. It re-evaluates the balance with the tolerance the session was CLOSED with, not today's.
+- Whether the approver may be the person who closed it is the firm's decision, `segregacion_de_funciones` — the same key that governs manual posting, because it is the same question.
+- `bank reconciliation post <session>` posts the adjustment drafts and seals the book lines. From then on those lines cannot be edited, cancelled or re-dated.
+- `bank fee post` books the fee with its VAT in 1135, NOT 1130: the charge is on the statement but the bank's CFDI has not arrived, and without the receipt there is no credit however much the money already left. `bank interest post` books interest GROSS and the withheld ISR as a prepayment (1145) — never as an expense; treating it as expense loses the credit and understates income.
+- **All five are IA ✗ and all five are irreversible.** You may read and explain them; you may never run them.
+
 ## What YOU do
 - Read: `bank account list|show`, `bank statement list|show|check`, `bank transaction list|show`, `bank book-item list`, `bank match preview`, `bank reconciliation list|status`, `bank reconciling-item list`. Import a file when the user gives you one. `bank reconciliation open` and `bank adjustment create` are yours too — they write, but neither reaches the ledger.
 - What you must NOT do: `run`, `close`, `match run|apply|create|unapply`, `reconciling-item assign|correct`. Closing a session is an attestation about someone's cash, and dating an item is a promise on someone's behalf.

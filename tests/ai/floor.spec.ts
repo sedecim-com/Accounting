@@ -4,6 +4,7 @@ import {
   FLOOR_MAX_OP_AGE_DAYS,
   floorMaxAutoAmount,
   isOpStale,
+  floorTolerancia,
 } from '../../src/ai/floor.js';
 
 describe('the unbreakable floor', () => {
@@ -57,5 +58,46 @@ describe('isOpStale', () => {
 
   it('an unparseable timestamp fails CLOSED (stale)', () => {
     expect(isOpStale('not a date', NOW)).toBe(true);
+  });
+});
+
+/**
+ * `floorTolerancia` falla cerrado, y su propio docblock nombraba un caso que
+ * NO fallaba cerrado.
+ *
+ * Decía que `1e400` tiene que dar cero «porque un parseFloat daría Infinity», y
+ * la guarda que lo perseguía era `isFinite()`. Pero decimal.js no es coma
+ * flotante: su exponente llega mucho más lejos, así que `1e400` es un Decimal
+ * perfectamente finito, la guarda no se disparaba, y el valor salía por
+ * `Decimal.min` convertido en EL TECHO — la tolerancia más permisiva que la ley
+ * permite, a partir de un campo mal capturado. Lo contrario de fallar cerrado,
+ * en el módulo cuya única tesis es fallar cerrado.
+ *
+ * El criterio correcto no es la finitud sino la representabilidad: una
+ * tolerancia es un importe, y los importes viven en DECIMAL(19,4).
+ */
+describe('floorTolerancia', () => {
+  it('lo ilegible, lo negativo y lo vacío valen cero', () => {
+    for (const v of ['abc', '-5', '', '  ']) {
+      expect(floorTolerancia(v), v).toBe('0.0000');
+    }
+  });
+
+  it('lo que no cabe en una columna de dinero vale cero, no el techo', () => {
+    // El caso que el docblock nombraba y la guarda no cazaba.
+    expect(floorTolerancia('1e400')).toBe('0.0000');
+    expect(floorTolerancia('1e15')).toBe('0.0000');
+  });
+
+  it('pero un importe legítimo y enorme SÍ se acota al techo', () => {
+    // La corrección tenía que distinguir «no es dinero» de «es mucho dinero».
+    // Recortar los dos a cero habría cambiado un fallo abierto por uno cerrado
+    // de más, y una tolerancia grande y válida es una decisión del despacho.
+    expect(floorTolerancia('1e14')).not.toBe('0.0000');
+  });
+
+  it('y lo que cabe por debajo del techo pasa tal cual', () => {
+    expect(floorTolerancia('120')).toBe('120.0000');
+    expect(floorTolerancia('0')).toBe('0.0000');
   });
 });

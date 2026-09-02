@@ -115,6 +115,27 @@ export const STATEMENT_SOURCE_FORMATS = [
   'csv', 'ofx', 'qfx', 'mt940', 'mt942', 'camt053', 'camt054', 'bai2', 'xlsx', 'manual',
 ] as const;
 
+// ── Sesión de conciliación (003, 054, 055) ──
+
+/**
+ * El CHECK vive en la 003 y la lista a mano vivía en `reconciliation-service.ts`
+ * con un comentario que decía «los estados del CHECK de la 003» — una promesa de
+ * fidelidad que nada comprobaba. Se censa ahora porque hasta F05d los dos
+ * últimos valores eran decorativos: NADIE escribía 'approved' ni 'posted', así
+ * que una divergencia en esa mitad de la lista no tenía cómo doler. La firma y
+ * el sello los vuelven alcanzables, y con ellos el filtro de
+ * `bank reconciliation list --state` empieza a decidir sobre valores que de
+ * verdad existen en la tabla.
+ *
+ * La 054 y la 055 añaden más CHECK sobre esta misma columna (los que exigen
+ * aritmética, firma y rastro), y sus literales son SUBCONJUNTOS de éstos: la
+ * prueba de contrato acumula por columna y deduplica, así que el vocabulario
+ * que compara sigue siendo exactamente estos cuatro.
+ */
+export const RECONCILIATION_SESSION_STATUSES = [
+  'in_progress', 'balanced', 'approved', 'posted',
+] as const;
+
 /**
  * El censo que la prueba de contrato recorre. Añadir una fila aquí es lo que
  * pone el vocabulario bajo vigilancia; declararlo arriba sin registrarlo lo
@@ -137,4 +158,5 @@ export const VOCABULARIOS: readonly Vocabulario[] = [
   v('credit_notes', 'status', CREDIT_NOTE_STATUSES),
   v('bank_accounts', 'account_type', BANK_ACCOUNT_TYPES),
   v('bank_statements', 'source_format', STATEMENT_SOURCE_FORMATS),
+  v('reconciliation_sessions', 'status', RECONCILIATION_SESSION_STATUSES),
 ];

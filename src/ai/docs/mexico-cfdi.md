@@ -6,6 +6,7 @@
   - PUE received → DR 1130 "IVA Acreditable" (creditable now). PUE issued → CR 2120 "IVA Trasladado".
   - PPD received → DR 1135 "IVA Pendiente de Acreditar" — NOT creditable yet; it PARKS there and the PAYMENT (with its REP) releases it to 1130, pro-rata to the amount paid. PPD issued mirrors this: parks in 2125 "IVA Trasladado No Cobrado", released to 2120 on collection.
   - Never send PPD tax straight to 1130/2120: that claims/causes tax before the law does. The engine (iva-cash-basis.ts) picks the role from MetodoPago and the payment path does the release — your draft must use the parked account for PPD.
+- **PAYMENT BY CHEQUE IS EFFECTIVE WHEN THE CHEQUE IS CASHED, NOT WHEN IT IS HANDED OVER.** So the creditable VAT of a cheque payment belongs to the month the BANK PAID IT, not the month the cheque was written. `mnemosine bank check reconcile` posts that reclassification (1135 → 1130) dated on the clearing day. If a user asks why a January cheque's VAT is not in January's return, this is why — and if it IS in January, something reclassified it too early.
 - Withholdings (ISR/VAT) subtract from the total.
 - Identifiers: UUID (fiscal stamp), series/folio, issuer/receiver RFC. The UUID is the system's dedupe key.
 

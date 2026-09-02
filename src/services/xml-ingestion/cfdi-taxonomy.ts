@@ -32,7 +32,12 @@ export type AccountRole =
   // Payroll
   | 'sueldos_gasto' | 'sueldos_por_pagar' | 'isr_nomina_por_pagar' | 'imss_por_pagar'
   // Exchange differences
-  | 'utilidad_cambiaria' | 'perdida_cambiaria';
+  | 'utilidad_cambiaria' | 'perdida_cambiaria'
+  // Tesorería (F05d): lo que cuesta mover el dinero y lo que el dinero produce.
+  // Ninguno de los dos va a la cuenta genérica que le quedaría cerca —6300 es
+  // pérdida cambiaria y 4300 es «otros ingresos»—: mezclarlos esconde
+  // exactamente las dos líneas que un tesorero mira.
+  | 'comision_bancaria' | 'producto_financiero';
 
 export interface PostingLine {
   role: AccountRole;

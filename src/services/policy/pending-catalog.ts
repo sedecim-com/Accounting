@@ -495,10 +495,13 @@ export const POLICY_CATALOG: PolicySpec[] = [
     // es intencional y el maker real queda trazado por source_type/source_id.
     key: 'segregacion_de_funciones',
     category: 'seguridad',
-    question: 'May the person who drafted a manual journal entry also post it?',
+    question: 'May the person who did the work also sign it off?',
     impact:
-      'Four-eyes control on the manual path: with "exigir", entry post rejects the drafter posting ' +
-      'their own entry; with "alertar" it posts but the audit row says so; off means no check.',
+      'Four-eyes control, on TWO acts that ask the same question. On the manual path: with "exigir", ' +
+      'entry post rejects the drafter posting their own entry. On the bank path: it rejects the ' +
+      'person who closed a reconciliation session also approving it. With "alertar" both go through ' +
+      'and the audit row records the coincidence; off means no check. One key and not two on purpose ' +
+      "— it is one decision about the firm's hands, and two keys for it would drift apart.",
     options: [
       { value: 'off', label: 'Off: anyone may post what they drafted (single-person firm)' },
       { value: 'alertar', label: 'Warn: post succeeds, the audit trail records the coincidence' },
@@ -511,9 +514,9 @@ export const POLICY_CATALOG: PolicySpec[] = [
     whyAsking:
       'Separation of duties is the classic control against a single person inventing and applying an entry. Whether your firm can afford it depends on how many hands it has.',
     whatIDo:
-      'With "exigir", `entry post` refuses when the poster created the draft (system flows are exempt: they are traced by source). With "alertar", it posts and leaves the fact in the audit log.',
+      'With "exigir", `entry post` refuses when the poster created the draft, and `bank reconciliation approve` refuses when the approver is the one who closed the session (system flows are exempt: they are traced by source). With "alertar", both go through and leave the fact in the audit log.',
     ifSkipped:
-      'It stays off: no separation check, which is the only workable default for a single-user tenant.',
+      'It stays off: no separation check, which is the only workable default for a single-user tenant — a one-person firm that had to find a second signer would never close a month.',
     priority: 30,
   },
   {

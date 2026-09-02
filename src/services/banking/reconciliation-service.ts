@@ -1,11 +1,22 @@
+import { createHash } from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { query, withTransaction } from '../../database/connection.js';
 import { condicionDeAlcance, type Scope } from '../../database/scope.js';
-import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { RECONCILIATION_SESSION_STATUSES } from '../../database/enums.js';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { FLOOR_MAX_TOLERANCIA_CONCILIACION, floorTolerancia } from '../../ai/floor.js';
+import {
+  canonicalDraftHash,
+  validateDraftPayload,
+  type DraftPayload,
+} from '../../ai/draft-service.js';
 import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
+import { attestEntryAsync, createJournalEntry } from '../accounting/posting.js';
+import { JournalEntryType } from '../../types/index.js';
 import { getPolicy } from '../policy/policy-service.js';
+import { sellarPartidas } from './book-items.js';
 import { correrCotejo, type ResultadoCorrida } from './match-service.js';
 import {
   importarEstadoDeCuenta,
@@ -17,6 +28,7 @@ import {
   calcularAritmetica,
   monto,
   type Aritmetica,
+  type LadoDeLaConciliacion,
   type Reparo,
   type TipoDePartida,
 } from './reconciliation-math.js';
@@ -27,7 +39,11 @@ import {
   type PartidaConciliatoria,
   type ResultadoDeClasificacion,
 } from './reconciling-items.js';
-import { listarAjustes, type AjusteDeSesion } from './reconciliation-adjustments.js';
+import {
+  listarAjustes,
+  type AjusteDeSesion,
+  type TipoDeAjuste,
+} from './reconciliation-adjustments.js';
 
 // ============================================================
 // LA SESIÓN QUE CUADRA (F05c · 053)
@@ -83,14 +99,25 @@ import { listarAjustes, type AjusteDeSesion } from './reconciliation-adjustments
 //    comandos ni se codifica: una bifurcación de criterio contable se añade al
 //    panel y se lee con `getPolicy`.
 //
-// LO QUE ESTE ARCHIVO NO HACE, A PROPÓSITO: no aprueba, no contabiliza y no
-// sella líneas. `approve` exige preparador ≠ aprobador y un snapshot firmado;
-// `post` contabiliza los ajustes y sella el mayor. Son F05d, detrás de una
-// firma. `run` se detiene SIEMPRE antes de los dos e imprime lo que falta.
+// LO QUE ESTE ARCHIVO NO HACÍA, Y AHORA HACE (F05d · 055). `aprobarSesion` y
+// `contabilizarSesion` viven al final, con su propio encabezado: son los DOS
+// ÚNICOS actos de todo F05 que tocan el mayor, y por eso `run` sigue
+// deteniéndose SIEMPRE antes de los dos e imprimiendo lo que falta. La regla no
+// cambió al implementarlos: aprobar exige que el aprobador no sea el preparador
+// y congela una instantánea firmada; contabilizar mueve el libro. Ninguna de
+// las dos la hace un pase automático.
 // ============================================================
 
-/** Estados del CHECK de `reconciliation_sessions.status` (003). */
-export const ESTADOS_DE_SESION = ['in_progress', 'balanced', 'approved', 'posted'] as const;
+/**
+ * Estados del CHECK de `reconciliation_sessions.status` (003).
+ *
+ * La lista ya no se escribe aquí: vive en el censo de `src/database/enums.ts`,
+ * que es lo que la prueba de contrato compara contra `pg_constraint`. El
+ * comentario que antes ocupaba este sitio AFIRMABA venir del CHECK y nada lo
+ * comprobaba — y desde F05d los cuatro valores son alcanzables de verdad, así
+ * que separarse del esquema ya tiene cómo doler.
+ */
+export const ESTADOS_DE_SESION = RECONCILIATION_SESSION_STATUSES;
 export type EstadoDeSesionConciliacion = (typeof ESTADOS_DE_SESION)[number];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -631,6 +658,12 @@ interface FilaSesion {
   closed_at: string | null;
   closed_by: string | null;
   approved_by: string | null;
+  // ── LA FIRMA Y EL SELLO (055) ──
+  approved_at: string | null;
+  approval_reason: string | null;
+  approval_hash: string | null;
+  posted_at: string | null;
+  posted_by: string | null;
   notes: string | null;
   created_at: string;
   account_name: string;
@@ -652,7 +685,9 @@ const SELECT_SESION = `
          s.variance::text AS variance,
          s.status, s.statement_id,
          s.arithmetic_computed_at::text AS arithmetic_computed_at,
-         s.closed_at::text AS closed_at, s.closed_by, s.approved_by, s.notes,
+         s.closed_at::text AS closed_at, s.closed_by, s.approved_by,
+         s.approved_at::text AS approved_at, s.approval_reason, s.approval_hash,
+         s.posted_at::text AS posted_at, s.posted_by, s.notes,
          s.created_at::text AS created_at,
          ba.account_name, ba.account_type, ba.currency_code
     FROM reconciliation_sessions s
@@ -845,6 +880,11 @@ export interface CriteriosDeCierre {
  * que la magnitud la aporta quien cierra, explícitamente, y sigue siendo cero
  * si no la aporta. Elegir un número por omisión aquí sería exactamente lo que
  * el panel existe para evitar.
+ *
+ * PERO LO QUE APORTA QUIEN CIERRA TIENE TECHO, y el techo no es del panel ni de
+ * la bandera: es piso de código (`floorTolerancia`, en `src/ai/floor.ts`). No
+ * elegir la magnitud por omisión y no acotarla no son la misma decisión, y
+ * hasta F05d se estaban confundiendo.
  */
 export async function criteriosDeCierre(
   tenantId: string,
@@ -872,7 +912,35 @@ export async function criteriosDeCierre(
         `Tolerancia ilegible: "${toleranciaPedida}". Se espera un importe no negativo.`
       );
     }
-    tolerancia = t.toFixed(4);
+
+    // EL PISO IRROMPIBLE DE LA TOLERANCIA (`src/ai/floor.ts`).
+    //
+    // Hasta aquí la magnitud no tenía TECHO: con la política en
+    // `tolerancia_con_residual`, nada acotaba lo que se podía pasar por la
+    // bandera, así que cualquier descuadre se cerraba llamándolo tolerancia — y
+    // `period-close.ts` lee la sesión cerrada como la evidencia de que el
+    // efectivo se verificó contra el banco. El cotejo tiene su piso desde A4;
+    // esto es el mismo piso, con la misma forma: se combina por el MÍNIMO,
+    // vive en código y no en configuración, y ninguna bandera lo sube.
+    //
+    // Se ACOTA y ADEMÁS se RECHAZA lo que excede, y las dos cosas hacen falta.
+    // Acotar es la invariante: `tolerancia` no puede salir de aquí por encima
+    // del techo, aunque un llamador futuro se olvide de mirar. Rechazar es la
+    // honestidad: recortar en silencio de 5 000 a 500 haría fallar el cierre
+    // más abajo con «la variación no cabe en 500», y quien tecleó 5 000 no
+    // entendería de dónde salió ese número.
+    const acotada = floorTolerancia(t.toFixed(4));
+    if (!new Decimal(acotada).equals(t)) {
+      throw new ValidationError(
+        `La tolerancia que pides (${t.toFixed(4)}) pasa del techo irrompible de ` +
+          `${FLOOR_MAX_TOLERANCIA_CONCILIACION} que este programa admite para \`--tolerance\`. ` +
+          `Ese techo no es configuración y no hay bandera que lo suba: por encima de él una ` +
+          `diferencia deja de ser polvo de redondeo y es un HALLAZGO, y un hallazgo se arrastra ` +
+          `como partida conciliatoria con responsable y fecha esperada —que es lo que la política ` +
+          `"tolerancia_con_residual" promete— en vez de cerrarse llamándolo tolerancia.`
+      );
+    }
+    tolerancia = acotada;
   }
 
   return {
@@ -925,6 +993,16 @@ export interface EstadoDeSesion {
     cerradaEl: string | null;
     cerradaPor: string | null;
     aprobadaPor: string | null;
+    aprobadaEl: string | null;
+    motivoDeAprobacion: string | null;
+    /**
+     * El `approval_hash` de la 055. Viaja en la lectura porque es lo que
+     * permite contestar «¿esto es lo que se aprobó?» sin volver a firmar nada:
+     * una superficie que enseña la sesión y esconde su hash obliga a creerle.
+     */
+    hashDeAprobacion: string | null;
+    contabilizadaEl: string | null;
+    contabilizadaPor: string | null;
     notas: string | null;
   };
   aritmetica: Aritmetica;
@@ -1066,6 +1144,11 @@ async function leerEstado(
       cerradaEl: sesion.closed_at,
       cerradaPor: sesion.closed_by,
       aprobadaPor: sesion.approved_by,
+      aprobadaEl: sesion.approved_at,
+      motivoDeAprobacion: sesion.approval_reason,
+      hashDeAprobacion: sesion.approval_hash,
+      contabilizadaEl: sesion.posted_at,
+      contabilizadaPor: sesion.posted_by,
       notas: sesion.notes,
     },
     aritmetica,
@@ -1465,6 +1548,13 @@ export async function cerrarSesion(
               bank_interest = $7,
               other_adjustments = $8,
               variance = $9,
+              -- LA TOLERANCIA CON LA QUE SE CIERRA, PERSISTIDA. Sin ella, la
+              -- firma reevaluaba el cuadre con la tolerancia de HOY —cero por
+              -- omisión— y la instantánea sellada de una sesión cerrada
+              -- legítimamente con residual decía que NO cuadraba. El documento
+              -- que existe para contestar «esto es lo que se aprobó»
+              -- contradecía al cierre que estaba firmando.
+              closing_tolerance = $12,
               notes = COALESCE($10, notes),
               updated_at = NOW()
         WHERE id = $1 AND entity_id = $11 AND status = 'in_progress'
@@ -1481,6 +1571,7 @@ export async function cerrarSesion(
         congelado.variance,
         opts.notas ?? null,
         entityId,
+        criterios.tolerancia.tolerancia,
       ]
     );
     if (escrito.rowCount !== 1) {
@@ -1859,5 +1950,1239 @@ export async function correrConciliacion(
       detenidaAntesDeAprobar: true,
       ensayo: ctx.dryRun === true,
     };
+  }
+}
+
+// ============================================================
+// F05d · LA FIRMA Y EL SELLO — LOS DOS ÚNICOS ACTOS DE F05 QUE TOCAN EL MAYOR
+//
+// F05a construyó el documento, F05b el cotejo y F05c la aritmética, y ninguno
+// posteó un solo asiento. Aquí se firma la sesión y se contabiliza lo que
+// descubrió, y todo lo que sigue se mide con esa vara.
+//
+// TRES DECISIONES SOSTIENEN ESTE TRAMO:
+//
+// 1. LA INSTANTÁNEA ES LO QUE HACE QUE LA FIRMA SIGNIFIQUE ALGO. `approved_by`
+//    existe desde la 003 y nadie lo escribía; escribirlo solo habría sido un
+//    UPDATE con nombre bonito. Lo que se congela son los MIEMBROS —las partidas
+//    conciliatorias con su tipo y su importe, los cotejos vivos, los ajustes— y
+//    los SALDOS —los dos lados de la aritmética y la variación—, porque quien
+//    audite esta sesión en seis meses va a ver el estado de HOY: partidas
+//    reclasificadas, cotejos deshechos, líneas nuevas contra la cuenta de
+//    banco. Sin la instantánea no hay forma de saber qué había sobre la mesa
+//    cuando alguien firmó, y «¿esto es lo que se aprobó?» se contesta con una
+//    impresión en vez de con un sí o un no.
+//
+// 2. EL HASH TIENE QUE SER DETERMINISTA O NO SIRVE PARA NADA. Dos lectores que
+//    ensamblen el mismo contenido en distinto orden tienen que llegar al mismo
+//    dígito, y no es una hipótesis remota: `approval_snapshot` es JSONB, y
+//    Postgres NO conserva el orden de las claves de un jsonb. El documento que
+//    se relee para verificar la firma vuelve con las claves en el orden de
+//    Postgres, no en el que se escribieron. Un hash sobre `JSON.stringify` tal
+//    cual habría fallado la primera vez que alguien intentara verificarlo — y
+//    habría fallado en la dirección peor, diciendo «esto no es lo que se
+//    aprobó» sobre una sesión intacta.
+//
+// 3. CONTABILIZAR ES TODO O NADA. Media contabilización deja ajustes posteados
+//    en una sesión que no llegó a `posted`, y eso ya no se deshace: el mayor es
+//    inmutable (041) y un asiento posteado sólo se corrige por REVERSA. Por eso
+//    la transacción es una sola y por eso el acto es IDEMPOTENTE: contabilizar
+//    dos veces no postea dos veces.
+// ============================================================
+
+// ── LA INSTANTÁNEA ──────────────────────────────────────────────────────
+
+/** Una partida conciliatoria, tal como se firmó. */
+export interface MiembroPartida {
+  id: string;
+  tipo: TipoDePartida;
+  lado: LadoDeLaConciliacion;
+  importe: string;
+  fecha: string;
+  fechaEsperada: string | null;
+  resuelta: boolean;
+  bankTransactionId: string | null;
+  journalEntryLineId: string | null;
+}
+
+/** Un cotejo VIVO de la sesión (los desaplicados no se firman: ya no explican nada). */
+export interface MiembroCotejo {
+  id: string;
+  grupoId: string | null;
+  bankTransactionId: string;
+  tipo: string;
+  entidadId: string;
+  importe: string;
+  parcial: boolean;
+}
+
+/** Un ajuste de la sesión, con el estado en que se firmó. */
+export interface MiembroAjuste {
+  id: string;
+  tipo: TipoDeAjuste;
+  importe: string;
+  draftId: string | null;
+  journalEntryId: string | null;
+}
+
+/**
+ * LO QUE SE FIRMA. `version` va dentro y no fuera: el día que esta forma
+ * cambie, el hash de una sesión vieja tiene que seguir siendo reproducible, y
+ * para eso el documento tiene que decir bajo qué forma se calculó.
+ */
+export interface InstantaneaDeAprobacion {
+  version: 1;
+  sesion: {
+    id: string;
+    entityId: string;
+    bankAccountId: string;
+    statementId: string | null;
+    desde: string;
+    hasta: string;
+    moneda: string;
+  };
+  saldos: {
+    /** El saldo del extracto en el marco del mayor. `null` = no se observó. */
+    bancoObservado: string | null;
+    bancoAjustado: string | null;
+    bancoPorTipo: { tipo: TipoDePartida; importe: string }[];
+    librosObservado: string | null;
+    librosAjustado: string | null;
+    librosPorTipo: { tipo: TipoDePartida; importe: string }[];
+    variacion: string | null;
+    tolerancia: string;
+    cuadra: boolean;
+  };
+  miembros: {
+    partidas: MiembroPartida[];
+    cotejos: MiembroCotejo[];
+    ajustes: MiembroAjuste[];
+  };
+  /** El resumen que `close` congeló. Se firma junto a la aritmética viva que lo reproduce. */
+  congelado: ResumenCongelado;
+}
+
+/** Lo que hace falta para construir la instantánea, sin base de datos de por medio. */
+export interface EntradaDeInstantanea {
+  sesion: InstantaneaDeAprobacion['sesion'];
+  aritmetica: Aritmetica;
+  congelado: ResumenCongelado;
+  partidas: readonly PartidaConciliatoria[];
+  cotejos: readonly MiembroCotejo[];
+  ajustes: readonly AjusteDeSesion[];
+}
+
+/**
+ * La instantánea, a partir de lo que `status` ya sabe leer.
+ *
+ * NO SE GUARDA TODO LO QUE SE LEYÓ, y la poda es deliberada. Quedan fuera los
+ * campos DERIVADOS del reloj —la antigüedad en días, el escalamiento vivo—
+ * porque cambian solos: firmarlos haría que el mismo contenido diera un hash
+ * distinto mañana, y entonces «¿esto es lo que se aprobó?» contestaría «no»
+ * sobre una sesión que nadie tocó. Se firma lo que un humano decidió, no lo que
+ * el calendario calcula.
+ */
+export function construirInstantanea(entrada: EntradaDeInstantanea): InstantaneaDeAprobacion {
+  const a = entrada.aritmetica;
+  return {
+    version: 1,
+    sesion: entrada.sesion,
+    saldos: {
+      bancoObservado: a.banco.saldo,
+      bancoAjustado: a.banco.ajustado,
+      bancoPorTipo: a.banco.partidas.map((p) => ({ tipo: p.tipo, importe: p.importe })),
+      librosObservado: a.libros.saldo,
+      librosAjustado: a.libros.ajustado,
+      librosPorTipo: a.libros.partidas.map((p) => ({ tipo: p.tipo, importe: p.importe })),
+      variacion: a.variacion,
+      tolerancia: a.tolerancia,
+      cuadra: a.cuadra,
+    },
+    miembros: {
+      partidas: entrada.partidas.map((p) => ({
+        id: p.id,
+        tipo: p.tipo,
+        lado: p.lado,
+        importe: p.importe,
+        fecha: p.fecha,
+        fechaEsperada: p.fechaEsperada,
+        resuelta: p.resuelta,
+        bankTransactionId: p.bankTransactionId,
+        journalEntryLineId: p.journalEntryLineId,
+      })),
+      cotejos: entrada.cotejos.map((c) => ({ ...c })),
+      ajustes: entrada.ajustes.map((j) => ({
+        id: j.id,
+        tipo: j.tipo,
+        importe: j.importe,
+        draftId: j.draftId,
+        journalEntryId: j.journalEntryId,
+      })),
+    },
+    congelado: entrada.congelado,
+  };
+}
+
+/**
+ * SERIALIZACIÓN DETERMINISTA: el mismo contenido da la misma cadena, venga como
+ * venga.
+ *
+ * DOS NORMALIZACIONES, y las dos hacen falta:
+ *
+ *   · LAS CLAVES DE CADA OBJETO SE ORDENAN. `approval_snapshot` es JSONB y
+ *     Postgres no conserva el orden de las claves: el documento que se relee
+ *     para verificar la firma NO vuelve como se escribió. Sin esto, verificar
+ *     un hash intacto habría dado «no coincide».
+ *   · LAS FILAS DE CADA LISTA SE ORDENAN por su propia forma canónica. En este
+ *     documento TODA lista es un CONJUNTO de miembros —partidas, cotejos,
+ *     ajustes, el desglose por tipo—: ninguna deriva significado de la
+ *     posición, y cada elemento lleva dentro lo que lo identifica. Ordenarlas
+ *     es lo único que vuelve la promesa incondicional: da igual quién ensamble
+ *     el documento y en qué orden le devuelva las filas el `ORDER BY`.
+ *
+ * Se ordena por la forma canónica del ELEMENTO y no por su `id` a propósito:
+ * así la regla no depende de que cada lista futura traiga un campo llamado id.
+ *
+ * `undefined` no se serializa —la clave desaparece, como en JSON— y `null` sí:
+ * un dato ausente y un dato observado como nulo no son lo mismo, y esa
+ * distinción es medio módulo de F05c.
+ *
+ * FALLA CERRADO ante lo que no sabe serializar (una función, un símbolo, un
+ * NaN): un hash que se calcula sobre algo que no entendió no es una firma, es
+ * un número.
+ */
+export function serializacionCanonica(valor: unknown): string {
+  if (valor === null || valor === undefined) return 'null';
+  if (typeof valor === 'string') return JSON.stringify(valor);
+  if (typeof valor === 'boolean') return valor ? 'true' : 'false';
+  if (typeof valor === 'number') {
+    if (!Number.isFinite(valor)) {
+      throw new ValidationError(
+        `La instantánea de aprobación no admite el número ${String(valor)}: un hash calculado ` +
+          `sobre algo que el serializador no entendió no es una firma.`
+      );
+    }
+    return JSON.stringify(valor);
+  }
+  if (Array.isArray(valor)) {
+    return `[${valor.map((v) => serializacionCanonica(v)).sort().join(',')}]`;
+  }
+  if (typeof valor === 'object') {
+    const claves = Object.keys(valor as Record<string, unknown>)
+      .filter((k) => (valor as Record<string, unknown>)[k] !== undefined)
+      .sort();
+    const partes = claves.map(
+      (k) => `${JSON.stringify(k)}:${serializacionCanonica((valor as Record<string, unknown>)[k])}`
+    );
+    return `{${partes.join(',')}}`;
+  }
+  throw new ValidationError(
+    `La instantánea de aprobación no admite un valor de tipo ${typeof valor}: no se firma lo que ` +
+      `no se puede volver a serializar igual.`
+  );
+}
+
+/** sha256 hexadecimal de la serialización determinista. Es el `approval_hash` de la 055. */
+export function hashDeInstantanea(instantanea: InstantaneaDeAprobacion): string {
+  return createHash('sha256').update(serializacionCanonica(instantanea), 'utf8').digest('hex');
+}
+
+/**
+ * Los cotejos VIVOS de la sesión.
+ *
+ * `bank_transactions` no tiene `entity_id`, así que la frontera es el JOIN a
+ * `bank_accounts` y va DENTRO del SQL — la misma forma que
+ * `movimientosSinExplicar`, y por la misma fuga que este módulo ya cerró tres
+ * veces. El grupo se comprueba aparte porque `group_id` es nullable: los
+ * cotejos anteriores a la 052 no lo tienen, y un INNER JOIN los habría dejado
+ * fuera de la firma sin decirlo.
+ *
+ * Los desaplicados NO se firman: `unapplied_at` no borra la fila —desaplicar
+ * clausura, es historia del expediente— pero un cotejo deshecho ya no explica
+ * ningún movimiento, y meterlo en la instantánea sería firmar una explicación
+ * retirada.
+ */
+async function cotejosVivosDeLaSesion(
+  client: pg.PoolClient,
+  entityId: string,
+  sesionId: string
+): Promise<MiembroCotejo[]> {
+  const r = await client.query<{
+    id: string;
+    group_id: string | null;
+    bank_transaction_id: string;
+    matched_entity_type: string;
+    matched_entity_id: string;
+    matched_amount: string;
+    is_partial: boolean;
+  }>(
+    `SELECT rm.id, rm.group_id, rm.bank_transaction_id,
+            rm.matched_entity_type, rm.matched_entity_id,
+            rm.matched_amount::text AS matched_amount, rm.is_partial
+       FROM reconciliation_matches rm
+       JOIN bank_transactions bt ON bt.id = rm.bank_transaction_id
+       JOIN bank_accounts ba ON ba.id = bt.bank_account_id
+       LEFT JOIN reconciliation_match_groups g ON g.id = rm.group_id
+      WHERE rm.reconciliation_session_id = $1
+        AND ba.entity_id = $2
+        AND (g.id IS NULL OR g.entity_id = $2)
+        AND rm.unapplied_at IS NULL
+      ORDER BY rm.id`,
+    [sesionId, entityId]
+  );
+  return r.rows.map((f) => ({
+    id: f.id,
+    grupoId: f.group_id,
+    bankTransactionId: f.bank_transaction_id,
+    tipo: f.matched_entity_type,
+    entidadId: f.matched_entity_id,
+    importe: monto(new Decimal(f.matched_amount)),
+    parcial: f.is_partial,
+  }));
+}
+
+// ============================================================
+// `bank reconciliation approve` — LA FIRMA
+// ============================================================
+
+export interface OpcionesAprobacion {
+  /** `--reason`: por qué se aprueba. Va a `approval_reason` y a la bitácora. */
+  motivo?: string;
+}
+
+/** Lo que la política de segregación decidió sobre ESTA firma, dicho en voz alta. */
+export interface VeredictoDeSegregacion {
+  politica: string;
+  politicaDefinida: boolean;
+  /** Quién cerró la sesión. `null` en una sesión heredada sin `closed_by`. */
+  preparador: string | null;
+  /** El aprobador es el preparador. */
+  coincide: boolean;
+  /** En español, cuando la política dejó pasar la coincidencia. */
+  nota: string | null;
+}
+
+export interface ResultadoAprobacion {
+  sesionId: string;
+  estado: EstadoDeSesionConciliacion;
+  aprobadaPor: string;
+  aprobadaEl: string;
+  motivo: string | null;
+  /** El `approval_hash` de la 055: sha256 de la instantánea determinista. */
+  hash: string;
+  instantanea: InstantaneaDeAprobacion;
+  segregacion: VeredictoDeSegregacion;
+  ensayo: boolean;
+}
+
+/**
+ * `bank reconciliation approve <session>`: firma la sesión exigiendo que el
+ * aprobador no sea el preparador y congela una instantánea inmutable con hash
+ * de miembros y de saldos.
+ *
+ * SÓLO DESDE `balanced`. No desde `in_progress` —firmar lo que nadie calculó es
+ * el defecto histórico entero del módulo— y no desde `approved` ni `posted`: la
+ * segunda firma escribiría otro hash encima del primero y el «¿esto es lo que
+ * se aprobó?» dejaría de tener respuesta.
+ *
+ * LA ARITMÉTICA SE RECALCULA Y TIENE QUE REPRODUCIR LA QUE SE CERRÓ. Entre
+ * `close` y `approve` pasa tiempo, y en ese tiempo los libros se mueven: basta
+ * una póliza contra la cuenta de mayor del banco con fecha dentro del periodo
+ * para que el saldo de libros ya no sea el que se afirmó. Firmar entonces sería
+ * firmar una aseveración que ya es falsa. Se compara contra `variance` —la
+ * columna congelada— y no contra cero, porque una sesión pudo cerrarse con un
+ * residual dentro de la tolerancia y ese residual es parte de lo que se
+ * aseveró.
+ *
+ * LA SEGREGACIÓN LA GOBIERNA `segregacion_de_funciones`, LA MISMA CLAVE QUE EL
+ * POSTEO MANUAL. No hay una segunda clave para esto y no debe haberla: es la
+ * misma pregunta del despacho —¿puede la misma persona hacer el trabajo y
+ * firmarlo?— y dos claves para una decisión divergen el día que alguien cambie
+ * una y se olvide de la otra. Se lee con el CLIENTE de esta transacción, no por
+ * el pool: una segunda conexión mientras ésta tiene la sesión bajo candado es
+ * como se llega a un abrazo mortal con el pool pequeño.
+ */
+export async function aprobarSesion(
+  scope: Scope,
+  sesionId: string,
+  opts: OpcionesAprobacion,
+  ctx: ContextoSesion
+): Promise<ResultadoAprobacion> {
+  const { tenantId, entityId } = exigirEntidad(scope);
+
+  return ejecutarActo(async (client) => {
+    const sesion = await sesionDeLaEntidad(client, entityId, sesionId, true);
+    if (sesion.status !== 'balanced') {
+      throw new ConflictError(
+        sesion.status === 'in_progress'
+          ? `La sesión ${sesionId} está en curso: no se firma lo que todavía no cuadra. ` +
+            `Ciérrala con \`bank reconciliation close\`, que es donde se hace la aritmética.`
+          : `La sesión ${sesionId} ya está en '${sesion.status}': volver a firmarla escribiría ` +
+            `otro hash encima del primero, y «¿esto es lo que se aprobó?» dejaría de tener una ` +
+            `sola respuesta.`
+      );
+    }
+
+    // ── LA SEGREGACIÓN DE FUNCIONES, SOBRE LA MISMA CLAVE QUE EL POSTEO ──
+    //
+    // Cerrado al declarar, abierto al escribir, exactamente como en
+    // `posting.ts`: sólo el literal 'exigir' bloquea y sólo 'alertar' anota; un
+    // valor desconocido cae al lado que no congela la operación.
+    const coincide = sesion.closed_by !== null && sesion.closed_by === ctx.userId;
+    const politica = await getPolicy(
+      { tenantId, entityId },
+      'segregacion_de_funciones',
+      client
+    );
+    let notaSoD: string | null = null;
+    if (coincide) {
+      if (politica.value === 'exigir') {
+        throw new ForbiddenError(
+          `La sesión ${sesionId} la cerró ${ctx.userId}, que es quien intenta aprobarla, y la ` +
+            `política de segregación de funciones de este despacho está en "exigir": quien hace ` +
+            `la conciliación no la firma. Que la apruebe otro usuario, o cambia el criterio ` +
+            `donde vive, con \`mnemosine pending resolve segregacion_de_funciones\`.`,
+          { rule: 'maker_checker', politica: 'segregacion_de_funciones', sesion: sesionId }
+        );
+      }
+      if (politica.value === 'alertar') {
+        notaSoD =
+          'SoD: quien aprueba la conciliación es quien la cerró (política en alertar). ' +
+          'La coincidencia queda en la bitácora.';
+      }
+    }
+    if (sesion.closed_by === null && politica.value === 'exigir') {
+      // Una sesión sin `closed_by` no permite comprobar NADA, y con la política
+      // en 'exigir' dejarla pasar sería fingir un control que no se ejerció.
+      throw new ForbiddenError(
+        `La sesión ${sesionId} no registra quién la cerró, así que no se puede comprobar que el ` +
+          `aprobador sea otro, y la política de segregación de funciones está en "exigir". Un ` +
+          `control que no se puede ejercer no se da por cumplido.`,
+        { rule: 'maker_checker', politica: 'segregacion_de_funciones', sesion: sesionId }
+      );
+    }
+
+    // ── LA ARITMÉTICA VIVA, QUE TIENE QUE REPRODUCIR LA CONGELADA ──
+    //
+    // Se lee por el MISMO camino que `status` y `close`. Si la firma calculara
+    // por un camino propio, la superficie enseñaría unos números y la
+    // instantánea guardaría otros, y el documento firmado dejaría de ser el
+    // documento que alguien miró.
+    // Y CON LA TOLERANCIA CON LA QUE SE CERRÓ, NO CON LA DE HOY.
+    //
+    // Se lee de la sesión y no de la política a propósito. La sesión se cerró
+    // bajo unas reglas; relitigarlas al firmar hacía que la instantánea sellada
+    // de un cierre legítimo con residual dijera que la cuenta NO cuadraba —y
+    // que un cambio de política entre el cierre y la firma pudiera invalidar un
+    // cierre ya hecho, que es reescribir el pasado desde el panel.
+    const politicas = await criteriosDeCierre(tenantId, entityId);
+    const toleranciaDelCierre = await client.query<{ t: string }>(
+      `SELECT closing_tolerance::text AS t FROM reconciliation_sessions
+        WHERE id = $1 AND entity_id = $2`,
+      [sesionId, entityId]
+    );
+    const criterios: typeof politicas = {
+      ...politicas,
+      tolerancia: {
+        ...politicas.tolerancia,
+        tolerancia: toleranciaDelCierre.rows[0]?.t ?? '0',
+      },
+    };
+    const estado = await leerEstado(client, entityId, sesion, criterios);
+    const a = estado.aritmetica;
+
+    const deriva = estado.bloqueantes.filter((r) => r.codigo === 'deriva-del-extracto');
+    if (deriva.length > 0) {
+      throw new ConflictError(
+        `La sesión ${sesionId} no se firma: el extracto cambió después de cerrarla.\n` +
+          deriva.map((r) => `  · ${r.detalle}`).join('\n') +
+          `\nUna firma sobre un documento que ya no es el que se concilió no prueba nada.`
+      );
+    }
+    if (a.variacion === null) {
+      throw new ConflictError(
+        `La sesión ${sesionId} cerró con variación ${monto(new Decimal(sesion.variance))} y hoy ` +
+          `la variación NO SE PUEDE CALCULAR: uno de los dos lados dejó de observarse (banco ` +
+          `${a.banco.ajustado ?? 'sin observar'}, libros ${a.libros.ajustado ?? 'sin observar'}). ` +
+          `No se firma lo que no se puede volver a restar.`
+      );
+    }
+    if (!new Decimal(a.variacion).equals(new Decimal(sesion.variance))) {
+      throw new ConflictError(
+        `La sesión ${sesionId} se cerró afirmando una variación de ` +
+          `${monto(new Decimal(sesion.variance))} y hoy la aritmética da ${a.variacion}: los ` +
+          `libros se movieron entre el cierre y la firma. Firmar ahora sería firmar una ` +
+          `aseveración que ya es falsa. Revisa qué se posteó contra la cuenta de mayor del banco ` +
+          `dentro del periodo antes de aprobar.`
+      );
+    }
+
+    // ── LO QUE SE FIRMA ──
+    const cotejos = await cotejosVivosDeLaSesion(client, entityId, sesionId);
+    const instantanea = construirInstantanea({
+      sesion: {
+        id: sesion.id,
+        entityId: sesion.entity_id,
+        bankAccountId: sesion.bank_account_id,
+        statementId: sesion.statement_id,
+        desde: sesion.start_date,
+        hasta: sesion.end_date,
+        moneda: sesion.currency_code,
+      },
+      aritmetica: a,
+      congelado: estado.congelado,
+      partidas: estado.partidas,
+      cotejos,
+      ajustes: estado.ajustes,
+    });
+    const hash = hashDeInstantanea(instantanea);
+
+    const escrito = await client.query<{ approved_at: string }>(
+      // LAS CINCO COLUMNAS EN LA MISMA SENTENCIA. El CHECK
+      // `sesion_firma_coherente` de la 055 no admite media firma —un
+      // `approved_by` sin fecha, o una fecha sin instantánea— y
+      // `sesion_aprobada_con_firma` no admite el estado sin el hash. Separarlas
+      // abriría exactamente la ventana que los dos CHECK existen para cerrar.
+      //
+      // `status = 'balanced'` en el WHERE hace la escritura segura frente a dos
+      // firmas concurrentes: la segunda actualiza cero filas.
+      `UPDATE reconciliation_sessions
+          SET status = 'approved',
+              approved_by = $2,
+              approved_at = NOW(),
+              approval_reason = $3,
+              approval_snapshot = $4::jsonb,
+              approval_hash = $5,
+              updated_at = NOW()
+        WHERE id = $1 AND entity_id = $6 AND status = 'balanced'
+        RETURNING approved_at::text AS approved_at`,
+      [
+        sesionId,
+        ctx.userId,
+        opts.motivo ?? null,
+        JSON.stringify(instantanea),
+        hash,
+        entityId,
+      ]
+    );
+    if (escrito.rowCount !== 1) {
+      throw new ConflictError(
+        `La sesión ${sesionId} cambió de estado mientras se firmaba: la firma no escribió ninguna ` +
+          `fila. Vuelve a mirarla con \`bank reconciliation status\` antes de reintentar.`
+      );
+    }
+
+    await registrarAuditoria(client, {
+      tenantId,
+      userId: ctx.userId,
+      action: 'approve',
+      entityType: 'reconciliation_sessions',
+      entityId: sesionId,
+      oldValues: { status: 'balanced', approved_by: sesion.approved_by },
+      newValues: {
+        status: 'approved',
+        approved_by: ctx.userId,
+        approval_hash: hash,
+        closed_by: sesion.closed_by,
+        variance: monto(new Decimal(sesion.variance)),
+        partidas: instantanea.miembros.partidas.length,
+        cotejos: instantanea.miembros.cotejos.length,
+        ajustes: instantanea.miembros.ajustes.length,
+        politica_segregacion: politica.value,
+        aprobador_es_preparador: coincide,
+      },
+      // La coincidencia preparador/aprobador se registra AQUÍ y no sólo se
+      // devuelve: la salida se la lleva el viento y la bitácora no.
+      reason: [opts.motivo, notaSoD].filter((x) => x).join(' · ') || null,
+    });
+
+    const resultado: ResultadoAprobacion = {
+      sesionId,
+      estado: 'approved',
+      aprobadaPor: ctx.userId,
+      aprobadaEl: escrito.rows[0].approved_at,
+      motivo: opts.motivo ?? null,
+      hash,
+      instantanea,
+      segregacion: {
+        politica: politica.value,
+        politicaDefinida: politica.defined,
+        preparador: sesion.closed_by,
+        coincide,
+        nota: notaSoD,
+      },
+      ensayo: ctx.dryRun === true,
+    };
+    if (ctx.dryRun) throw new EnsayoSesion(resultado);
+    return resultado;
+  });
+}
+
+// ============================================================
+// `bank reconciliation post` — LA CONTABILIZACIÓN
+// ============================================================
+
+export interface OpcionesContabilizacion {
+  notas?: string;
+}
+
+/** Un ajuste y el asiento que lo dejó de ser una promesa. */
+export interface AsientoDeAjuste {
+  ajusteId: string;
+  tipo: TipoDeAjuste;
+  /** El importe FIRMADO por su efecto en la cuenta de banco, como lo guarda la fila. */
+  importe: string;
+  draftId: string | null;
+  journalEntryId: string;
+  entryNumber: string | null;
+  /**
+   * `false` SÓLO cuando este acto posteó el asiento. Es `true` cuando ya
+   * existía —alguien aprobó el borrador por `mnemosine review`, o la sesión ya
+   * estaba contabilizada— y aquí sólo se reconoció. La distinción no es
+   * cosmética: es la diferencia entre haber posteado y haber reconocido lo
+   * posteado, y sin ella un conteo de asientos mentiría.
+   */
+  adoptado: boolean;
+}
+
+export interface ResultadoContabilizacion {
+  sesionId: string;
+  estado: EstadoDeSesionConciliacion;
+  /** La sesión ya estaba contabilizada: este acto no posteó nada. */
+  yaContabilizada: boolean;
+  asientos: AsientoDeAjuste[];
+  posteados: number;
+  adoptados: number;
+  partidasSelladas: number;
+  /**
+   * Cotejos escritos entre el movimiento del extracto y la línea de libros que
+   * el ajuste acaba de crear. Sin ellos el movimiento seguiría sin cotejo vivo
+   * y la sesión del mes siguiente lo levantaría otra vez.
+   */
+  cotejosEscritos: number;
+  /** El grupo al que apunta `reconciliation_id` de las líneas selladas. */
+  grupoDelSello: string | null;
+  partidasResueltas: number;
+  contabilizadaEl: string | null;
+  ensayo: boolean;
+}
+
+interface FilaAjusteParaPostear {
+  id: string;
+  tipo: string;
+  importe: string;
+  draft_id: string | null;
+  journal_entry_id: string | null;
+  draft_status: string | null;
+  draft_payload: DraftPayload | null;
+  draft_journal_entry_id: string | null;
+  entry_number: string | null;
+  /** El movimiento del extracto que la partida explicada por este ajuste trajo. */
+  movimiento_del_banco: string | null;
+}
+
+/**
+ * Los ajustes de la sesión con el estado de su borrador y el número del asiento
+ * si ya lo tienen. Acotado por entidad en los DOS extremos —la fila del ajuste
+ * y la sesión de la que cuelga—, porque `entity_id` en la columna no acota
+ * sola: fue un id que entraba crudo a un INSERT «porque la foránea ya lo
+ * validaba» lo que abrió la tercera fuga de este módulo.
+ */
+async function ajustesParaContabilizar(
+  client: pg.PoolClient,
+  entityId: string,
+  sesionId: string,
+  bajoCandado: boolean
+): Promise<FilaAjusteParaPostear[]> {
+  const r = await client.query<FilaAjusteParaPostear>(
+    `SELECT ra.id, ra.tipo, ra.importe::text AS importe,
+            ra.draft_id, ra.journal_entry_id,
+            d.status          AS draft_status,
+            d.payload         AS draft_payload,
+            d.journal_entry_id AS draft_journal_entry_id,
+            je.entry_number,
+            ri.bank_transaction_id AS movimiento_del_banco
+       FROM reconciliation_adjustments ra
+       JOIN reconciliation_sessions s ON s.id = ra.reconciliation_session_id
+       LEFT JOIN ai_drafts d ON d.id = ra.draft_id AND d.entity_id = ra.entity_id
+       LEFT JOIN journal_entries je ON je.id = ra.journal_entry_id AND je.entity_id = ra.entity_id
+       -- La partida que el ajuste explica trae el movimiento del extracto, y
+       -- con él se puede escribir el cotejo que cierra el círculo. Acotada por
+       -- entidad aunque la foránea ya exista: la columna no acota sola.
+       LEFT JOIN reconciling_items ri ON ri.id = ra.reconciling_item_id AND ri.entity_id = ra.entity_id
+      WHERE ra.entity_id = $1
+        AND s.entity_id = $1
+        AND ra.reconciliation_session_id = $2
+      ORDER BY ra.created_at, ra.id${bajoCandado ? '\n      FOR UPDATE OF ra' : ''}`,
+    [entityId, sesionId]
+  );
+  return r.rows;
+}
+
+/**
+ * `bank reconciliation post <session>`: contabiliza los asientos de ajuste
+ * aprobados y sella como conciliadas las líneas de libros que la sesión produjo.
+ *
+ * TRES ESCRITOS Y NO UNO: el asiento del ajuste (con su `journal_entry_id`, la
+ * columna que prueba que dejó de ser una promesa), el SELLO sobre la línea de
+ * libros que ese asiento creó —con su cotejo contra el movimiento del extracto
+ * que la explica— y la RESOLUCIÓN de la partida conciliatoria que el ajuste
+ * acaba de dejar sin objeto. Los tres tienen que caer juntos: con el asiento
+ * sin el cotejo, el mismo cargo del banco reaparece como partida nueva el mes
+ * siguiente; con el asiento sin la partida resuelta, la propia sesión firmada
+ * pasa a mostrar una variación que nada explica.
+ *
+ * SÓLO DESDE `approved`, Y TODO EN UNA TRANSACCIÓN. Media contabilización deja
+ * asientos posteados colgando de una sesión que no llegó a `posted`, y eso ya
+ * no se deshace con un rollback tardío: el mayor es inmutable (041) y un
+ * asiento posteado sólo se corrige por REVERSA (NIF B-1). O entra el conjunto,
+ * o no entra nada.
+ *
+ * ES IDEMPOTENTE POR TRES SITIOS, y hacen falta los tres:
+ *
+ *   · LA SESIÓN. Con `status = 'posted'` no se postea nada: se devuelve lo que
+ *     ya hay, con `yaContabilizada`. Volver a intentarlo tras un fallo de red
+ *     no puede duplicar un asiento.
+ *   · EL AJUSTE. El que ya tiene `journal_entry_id` se salta.
+ *   · EL BORRADOR. Si alguien aprobó el borrador por `mnemosine review` antes
+ *     de llegar aquí, su asiento YA EXISTE (`ai_drafts.journal_entry_id`): se
+ *     ADOPTA en la fila del ajuste en vez de postear un segundo asiento por el
+ *     mismo hecho. Sin esta rama, el camino más natural del despacho —revisar
+ *     los pendientes antes de cerrar el mes— duplicaría cada comisión.
+ *
+ * Y CIERRA EL BORRADOR AL POSTEARLO, que es la otra mitad de lo mismo. Dejarlo
+ * en `pending_review` con su asiento ya en el libro sería dejar servida la
+ * duplicación en `mnemosine review`. No se llama a `approveDraft` porque abre
+ * su PROPIA transacción —y aquí sólo puede haber una—, así que se hace lo mismo
+ * que hace ella: crear y postear por el motor, y marcar el borrador con el
+ * hash del contenido que se posteó.
+ *
+ * QUIÉN REVISÓ. `reviewed_by` queda como `recon:<sesión>` y no como una
+ * persona, siguiendo la forma de `policy:<id>` del camino automático. La
+ * revisión humana de este borrador ocurrió en `approve`, sobre una instantánea
+ * firmada que congeló su tipo y su importe; atribuirla a un correo aquí diría
+ * que alguien lo miró uno por uno, y no es lo que pasó.
+ */
+export async function contabilizarSesion(
+  scope: Scope,
+  sesionId: string,
+  opts: OpcionesContabilizacion,
+  ctx: ContextoSesion
+): Promise<ResultadoContabilizacion> {
+  const { tenantId, entityId } = exigirEntidad(scope);
+
+  // La atestación se lanza DESPUÉS del commit: lee el asiento de vuelta de la
+  // base, así que lanzarla dentro de la transacción es una carrera contra la
+  // propia escritura. Se acumula aquí y se dispara abajo, y NUNCA en ensayo:
+  // en ensayo el asiento no existe cuando la transacción se deshace.
+  const atestaciones: Array<{ tenantId: string; entityId: string; entryId: string }> = [];
+
+  const resultado = await ejecutarActo(async (client) => {
+    const sesion = await sesionDeLaEntidad(client, entityId, sesionId, true);
+
+    if (sesion.status === 'posted') {
+      const yaEstaban = await ajustesParaContabilizar(client, entityId, sesionId, false);
+      const sello = await client.query<{ posted_at: string | null }>(
+        `SELECT posted_at::text AS posted_at FROM reconciliation_sessions
+          WHERE id = $1 AND entity_id = $2`,
+        [sesionId, entityId]
+      );
+      const salida: ResultadoContabilizacion = {
+        sesionId,
+        estado: 'posted',
+        yaContabilizada: true,
+        asientos: yaEstaban
+          .filter((f) => f.journal_entry_id !== null)
+          .map((f) => ({
+            ajusteId: f.id,
+            tipo: f.tipo as TipoDeAjuste,
+            importe: monto(new Decimal(f.importe)),
+            draftId: f.draft_id,
+            journalEntryId: f.journal_entry_id as string,
+            entryNumber: f.entry_number,
+            adoptado: true,
+          })),
+        posteados: 0,
+        adoptados: 0,
+        partidasSelladas: 0,
+        cotejosEscritos: 0,
+        grupoDelSello: null,
+        partidasResueltas: 0,
+        contabilizadaEl: sello.rows[0]?.posted_at ?? null,
+        ensayo: ctx.dryRun === true,
+      };
+      if (ctx.dryRun) throw new EnsayoSesion(salida);
+      return salida;
+    }
+
+    if (sesion.status !== 'approved') {
+      throw new ConflictError(
+        sesion.status === 'balanced'
+          ? `La sesión ${sesionId} está cuadrada pero SIN FIRMAR. Contabilizar mueve el mayor, y ` +
+            `eso va detrás de una firma: \`bank reconciliation approve\` primero.`
+          : `La sesión ${sesionId} está en '${sesion.status}': sólo se contabiliza una sesión ` +
+            `aprobada.`
+      );
+    }
+
+    // ── 1. LOS AJUSTES, BAJO CANDADO ──
+    const ajustes = await ajustesParaContabilizar(client, entityId, sesionId, true);
+    const asientos: AsientoDeAjuste[] = [];
+    const idsDeAsiento: string[] = [];
+    // Qué movimiento del extracto queda explicado por qué asiento. Es lo que
+    // permite escribir el cotejo de la sección 2 y, con él, que la comisión de
+    // agosto no vuelva a aparecer como partida nueva en septiembre.
+    const explicados: Array<{ ajusteId: string; entryId: string; movimiento: string }> = [];
+    let posteados = 0;
+    let adoptados = 0;
+    let totalBanco = new Decimal(0);
+
+    for (const fila of ajustes) {
+      const tipo = fila.tipo as TipoDeAjuste;
+      const importe = monto(new Decimal(fila.importe));
+
+      // (a) Ya contabilizado por un intento anterior.
+      if (fila.journal_entry_id !== null) {
+        asientos.push({
+          ajusteId: fila.id,
+          tipo,
+          importe,
+          draftId: fila.draft_id,
+          journalEntryId: fila.journal_entry_id,
+          entryNumber: fila.entry_number,
+          adoptado: true,
+        });
+        continue;
+      }
+
+      // (b) El borrador ya se aprobó por `mnemosine review`: se adopta su
+      //     asiento. Postear otro sería registrar dos veces la misma comisión.
+      if (fila.draft_journal_entry_id !== null) {
+        await exigirUnaFila(
+          client.query(
+            `UPDATE reconciliation_adjustments
+                SET journal_entry_id = $1
+              WHERE id = $2 AND entity_id = $3 AND journal_entry_id IS NULL`,
+            [fila.draft_journal_entry_id, fila.id, entityId]
+          ),
+          `El ajuste ${fila.id} cambió mientras se adoptaba su asiento`
+        );
+        idsDeAsiento.push(fila.draft_journal_entry_id);
+        if (fila.movimiento_del_banco !== null) {
+          explicados.push({
+            ajusteId: fila.id,
+            entryId: fila.draft_journal_entry_id,
+            movimiento: fila.movimiento_del_banco,
+          });
+        }
+        totalBanco = totalBanco.plus(fila.importe);
+        adoptados++;
+        asientos.push({
+          ajusteId: fila.id,
+          tipo,
+          importe,
+          draftId: fila.draft_id,
+          journalEntryId: fila.draft_journal_entry_id,
+          entryNumber: null,
+          adoptado: true,
+        });
+        continue;
+      }
+
+      // (c) Hay que postearlo. Lo que no se puede postear se NOMBRA y detiene
+      //     el acto entero: contabilizar la mitad de los ajustes de una sesión
+      //     firmada la dejaría diciendo una cosa y afirmando otra.
+      if (fila.draft_id === null || fila.draft_payload === null) {
+        throw new ValidationError(
+          `El ajuste ${fila.id} (${tipo}, ${importe}) no tiene borrador del que sacar el asiento. ` +
+            `La sesión no se contabiliza a medias: recréalo con \`bank adjustment create\` o ` +
+            `bórralo antes de aprobar.`
+        );
+      }
+      if (fila.draft_status === 'rejected') {
+        throw new ValidationError(
+          `El borrador ${fila.draft_id} del ajuste ${fila.id} (${tipo}, ${importe}) fue RECHAZADO ` +
+            `en \`mnemosine review\`, y la sesión se firmó contándolo. Una de las dos decisiones ` +
+            `está equivocada y el programa no puede elegir cuál: revisa la sesión antes de ` +
+            `contabilizarla.`
+        );
+      }
+      if (fila.draft_status !== 'pending_review') {
+        throw new ValidationError(
+          `El borrador ${fila.draft_id} del ajuste ${fila.id} está en "${fila.draft_status ?? 'sin estado'}" ` +
+            `y no trae asiento: no hay de dónde contabilizarlo.`
+        );
+      }
+
+      const payload = fila.draft_payload;
+      const validacion = await validateDraftPayload(entityId, payload);
+      if (validacion.errors.length > 0) {
+        throw new ValidationError(
+          `El asiento del ajuste ${fila.id} (${tipo}, ${importe}) no se puede contabilizar: ` +
+            `${validacion.errors.join('; ')}.`
+        );
+      }
+
+      // La MISMA normalización a dos decimales que usó el validador, para que
+      // lo validado y lo posteado sean idénticos byte a byte. Los cuatro
+      // decimales de la columna ya se defendieron al crear el ajuste
+      // (`exigirImportePosteable`): lo que no cabía en dos se rechazó allí en
+      // vez de redondearse, así que aquí no se pierde nada.
+      const lineas = payload.lines.map((l) => ({
+        account_id: validacion.accountIdByCode.get(l.account_code) as string,
+        debit_amount:
+          l.debit !== undefined && l.debit !== null
+            ? new Decimal(l.debit).toDecimalPlaces(2).toFixed(2)
+            : null,
+        credit_amount:
+          l.credit !== undefined && l.credit !== null
+            ? new Decimal(l.credit).toDecimalPlaces(2).toFixed(2)
+            : null,
+        description: l.description ?? payload.description,
+      }));
+
+      const asiento = await createJournalEntry(
+        entityId,
+        new Date(`${payload.entry_date}T00:00:00`),
+        // El tipo lo dice el libro y no un comentario: `auto_reconciliation`
+        // existe en el CHECK desde la 001 y esto es exactamente eso. Marcarlo
+        // `standard` diría que alguien redactó una póliza a mano.
+        JournalEntryType.AUTO_RECONCILIATION,
+        payload.description,
+        lineas,
+        ctx.userId,
+        {
+          sourceType: 'bank_reconciliation',
+          sourceId: fila.id,
+          reference: payload.reference,
+          autoPost: true,
+          // La MISMA transacción: el asiento y el sello caen juntos o no caen.
+          client,
+        }
+      );
+      atestaciones.push({ tenantId, entityId, entryId: asiento.id });
+
+      // LA COLUMNA QUE PRUEBA QUE EL AJUSTE DEJÓ DE SER UNA PROMESA. Hasta aquí
+      // `journal_entry_id` era NULL siempre, y eso era la promesa entera de
+      // F05c: «`bank adjustment create` nunca contabiliza por su cuenta».
+      await exigirUnaFila(
+        client.query(
+          `UPDATE reconciliation_adjustments
+              SET journal_entry_id = $1
+            WHERE id = $2 AND entity_id = $3 AND journal_entry_id IS NULL`,
+          [asiento.id, fila.id, entityId]
+        ),
+        `El ajuste ${fila.id} cambió mientras se contabilizaba`
+      );
+
+      // Y SE CIERRA EL BORRADOR. Si se quedara `pending_review` con su asiento
+      // ya posteado, `mnemosine review approve` lo postearía una segunda vez y
+      // la comisión quedaría contabilizada dos veces.
+      await exigirUnaFila(
+        client.query(
+          `UPDATE ai_drafts
+              SET status = 'approved',
+                  journal_entry_id = $1,
+                  reviewed_by = $2,
+                  reviewed_at = NOW(),
+                  review_notes = $3,
+                  approved_content_hash = $4
+            WHERE id = $5 AND entity_id = $6 AND status = 'pending_review'`,
+          [
+            asiento.id,
+            `recon:${sesionId}`,
+            `Contabilizado por \`bank reconciliation post\` sobre la sesión ${sesionId}, ` +
+              `cuya aprobación firmó este ajuste.`,
+            canonicalDraftHash(payload),
+            fila.draft_id,
+            entityId,
+          ]
+        ),
+        `El borrador ${fila.draft_id} cambió de estado mientras se contabilizaba`
+      );
+
+      idsDeAsiento.push(asiento.id);
+      if (fila.movimiento_del_banco !== null) {
+        explicados.push({
+          ajusteId: fila.id,
+          entryId: asiento.id,
+          movimiento: fila.movimiento_del_banco,
+        });
+      }
+      totalBanco = totalBanco.plus(fila.importe);
+      posteados++;
+      asientos.push({
+        ajusteId: fila.id,
+        tipo,
+        importe,
+        draftId: fila.draft_id,
+        journalEntryId: asiento.id,
+        entryNumber: asiento.entry_number,
+        adoptado: false,
+      });
+    }
+
+    // ── 2. EL SELLO SOBRE LAS LÍNEAS DE LIBROS QUE ESTA SESIÓN PRODUJO ──
+    //
+    // Se sellan las líneas contra la CUENTA DE MAYOR DEL BANCO de los asientos
+    // que se acaban de contabilizar, y sólo ésas. La contrapartida —el gasto
+    // por comisión, el producto financiero— no es materia de conciliación
+    // bancaria y sellarla no significaría nada.
+    //
+    // Y NO SE SELLAN LAS PARTIDAS CONCILIATORIAS DE LIBROS. Un cheque en
+    // circulación sigue sin aparecer en el banco después de contabilizar la
+    // sesión: sellarlo lo sacaría de `bank book-item list` y del cotejo del mes
+    // que viene, que es justo cuando el banco por fin lo va a mostrar. El sello
+    // dice «este renglón ya está explicado por el banco», no «esta sesión
+    // terminó».
+    //
+    // El sello es, además, lo único que la 041 deja escribir sobre una línea
+    // posteada (`is_reconciled`, `reconciled_at`, `reconciliation_id`): la
+    // edición, el borrado y el cambio de fecha ya están cerrados por el
+    // disparador del mayor inviolable, no por esto.
+    let partidasSelladas = 0;
+    let cotejosEscritos = 0;
+    let grupoDelSello: string | null = null;
+    if (idsDeAsiento.length > 0) {
+      const lineas = await client.query<{ id: string; journal_entry_id: string; importe: string }>(
+        // LA FRONTERA, DENTRO DEL SQL Y POR LOS DOS LADOS: el asiento lleva
+        // `entity_id` y la cuenta bancaria también, y el vínculo entre ellas es
+        // `gl_account_id`. Un mapeo mal capturado convertiría esto en un sello
+        // sobre los libros de otra entidad.
+        `SELECT jel.id, jel.journal_entry_id,
+                (COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0))::text AS importe
+           FROM journal_entry_lines jel
+           JOIN journal_entries je ON je.id = jel.journal_entry_id
+           JOIN bank_accounts ba ON ba.gl_account_id = jel.account_id AND ba.entity_id = je.entity_id
+          WHERE je.id = ANY($1::uuid[])
+            AND je.entity_id = $2
+            AND ba.id = $3
+            AND je.status = 'posted'
+            AND jel.is_reconciled = false
+          ORDER BY jel.id`,
+        [idsDeAsiento, entityId, sesion.bank_account_id]
+      );
+
+      if (lineas.rows.length > 0) {
+        const totalLibros = lineas.rows.reduce(
+          (acc, f) => acc.plus(f.importe),
+          new Decimal(0)
+        );
+        // EL GRUPO QUE SOSTIENE EL SELLO, con la igualdad que un grupo existe
+        // para sostener. `reconciliation_id` apunta a un grupo (052) y
+        // `sellarPartidas` exige que exista y sea de la misma entidad, así que
+        // el sello necesita uno: éste. Y la igualdad no es decorativa —Σbanco
+        // son los importes firmados de los ajustes, Σlibros son las líneas de
+        // banco que produjeron— porque las dos cifras describen el MISMO hecho
+        // por dos caminos distintos, y si difieren, el asiento no dice lo que
+        // el ajuste decía.
+        if (!totalLibros.equals(totalBanco)) {
+          throw new ValidationError(
+            `Los ajustes de la sesión ${sesionId} suman ${monto(totalBanco)} sobre la cuenta de ` +
+              `banco y los asientos que se acaban de contabilizar mueven ${monto(totalLibros)} ` +
+              `contra su cuenta de mayor. Las dos cifras describen el mismo hecho: si no ` +
+              `coinciden, el asiento no dice lo que el ajuste decía, y no se sella nada.`
+          );
+        }
+        grupoDelSello = uuidv4();
+        await client.query(
+          `INSERT INTO reconciliation_match_groups (
+             id, entity_id, bank_account_id, reconciliation_session_id,
+             total_banco, total_libros, total_ajustes,
+             residual, residual_mode, origen, created_by
+           ) VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 'keep', 'manual', $7)`,
+          [
+            grupoDelSello,
+            entityId,
+            sesion.bank_account_id,
+            sesionId,
+            totalBanco.toFixed(4),
+            totalLibros.toFixed(4),
+            ctx.userId,
+          ]
+        );
+        partidasSelladas = await sellarPartidas(
+          client,
+          lineas.rows.map((f) => f.id),
+          grupoDelSello
+        );
+
+        // ── EL COTEJO QUE CIERRA EL CÍRCULO ──
+        //
+        // SIN ESTO, LA MISMA COMISIÓN VUELVE A APARECER TODOS LOS MESES. El
+        // movimiento del extracto que este ajuste explica sigue SIN COTEJO
+        // VIVO, y tanto `clasificarPartidas` como `movimientosSinExplicar`
+        // preguntan exactamente eso —a las filas de cotejo, no a la caché
+        // `is_matched`—. La sesión de septiembre volvería a levantar la
+        // comisión de agosto como partida nueva, ya estando en libros, y
+        // descuadraría por su importe. Cada mes, y cada vez más grande.
+        //
+        // El asiento y el movimiento son las dos caras del mismo hecho, así
+        // que el cotejo no es un adorno: es la afirmación de que este renglón
+        // del banco ES esta línea de libros. Va al MISMO grupo que sostiene el
+        // sello, que es lo que hace que el grupo sea un grupo y no una fila
+        // suelta creada para tener a quién apuntar.
+        const porAsiento = new Map(lineas.rows.map((l) => [l.journal_entry_id, l]));
+        for (const e of explicados) {
+          const linea = porAsiento.get(e.entryId);
+          if (!linea) continue;
+          const cotejo = await client.query(
+            // `WHERE NOT EXISTS` sobre los cotejos VIVOS: si alguien ya cotejó
+            // ese movimiento a mano entre la firma y esto, no se escribe un
+            // segundo cotejo que lo explicaría dos veces.
+            `INSERT INTO reconciliation_matches (
+               id, reconciliation_session_id, bank_transaction_id, match_type,
+               matched_entity_type, matched_entity_id, matched_amount,
+               confidence_score, is_partial, matched_by, group_id, notes
+             )
+             SELECT $1, $2, $3, 'manual', 'journal_entry_line', $4, $5,
+                    NULL, false, $6, $7, $8
+              WHERE NOT EXISTS (
+                    SELECT 1 FROM reconciliation_matches rm
+                     WHERE rm.bank_transaction_id = $3 AND rm.unapplied_at IS NULL)`,
+            [
+              uuidv4(),
+              sesionId,
+              e.movimiento,
+              linea.id,
+              new Decimal(linea.importe).abs().toFixed(4),
+              ctx.userId,
+              grupoDelSello,
+              `Ajuste ${e.ajusteId} contabilizado por bank reconciliation post`,
+            ]
+          );
+          if ((cotejo.rowCount ?? 0) === 1) {
+            cotejosEscritos++;
+            // La caché de `bank_transactions`, que `match-service` mantiene con
+            // esta misma sentencia. Se repite aquí y no se importa porque la
+            // suya es privada; el HECHO es la fila de cotejo de arriba y esto
+            // sólo es la bandera que los listados leen para ir rápido.
+            await client.query(
+              `UPDATE bank_transactions
+                  SET is_matched = true, matched_at = NOW(), matched_by = $1
+                WHERE id = $2 AND bank_account_id = $3`,
+              [ctx.userId, e.movimiento, sesion.bank_account_id]
+            );
+          }
+        }
+      }
+    }
+
+    // ── 3. LAS PARTIDAS QUE LOS AJUSTES ACABAN DE DEJAR SIN OBJETO ──
+    //
+    // ESTO NO ES ORNAMENTO: SIN ELLO LA SESIÓN SE DESCUADRA SOLA. Una comisión
+    // del banco es una partida del lado de LIBROS —corrige el saldo de libros
+    // para llegar al del banco—, y en cuanto su ajuste se postea, la comisión
+    // ESTÁ en los libros. Si la partida siguiera abierta, la aritmética viva la
+    // sumaría otra vez y la sesión que cerró en cero pasaría a mostrar una
+    // variación igual a los ajustes contabilizados, todos los meses, sin que
+    // nada la explique. `calcularAritmetica` ya excluye las resueltas; lo que
+    // faltaba era el escritor para ESTE caso, porque `clasificarPartidas`
+    // resuelve por cotejo vivo o por sello, y una partida explicada por un
+    // ajuste no tiene ninguno de los dos.
+    const resueltas = await client.query(
+      `UPDATE reconciling_items ri
+          SET resuelta_at = NOW()
+         FROM reconciliation_adjustments ra
+        WHERE ra.reconciling_item_id = ri.id
+          AND ra.reconciliation_session_id = $1
+          AND ri.reconciliation_session_id = $1
+          AND ra.entity_id = $2
+          AND ri.entity_id = $2
+          AND ra.journal_entry_id IS NOT NULL
+          AND ri.resuelta_at IS NULL`,
+      [sesionId, entityId]
+    );
+
+    // ── 4. EL SELLO DE LA SESIÓN ──
+    const escrito = await client.query<{ posted_at: string }>(
+      // `posted_at` y `posted_by` en la MISMA sentencia que el estado: el CHECK
+      // `sesion_contabilizada_con_rastro` de la 055 no admite `posted` sin los
+      // dos. `status = 'approved'` en el WHERE hace la escritura segura frente
+      // a dos contabilizaciones concurrentes: la segunda toca cero filas.
+      `UPDATE reconciliation_sessions
+          SET status = 'posted',
+              posted_at = NOW(),
+              posted_by = $2,
+              notes = COALESCE($3, notes),
+              updated_at = NOW()
+        WHERE id = $1 AND entity_id = $4 AND status = 'approved'
+        RETURNING posted_at::text AS posted_at`,
+      [sesionId, ctx.userId, opts.notas ?? null, entityId]
+    );
+    if (escrito.rowCount !== 1) {
+      throw new ConflictError(
+        `La sesión ${sesionId} cambió de estado mientras se contabilizaba: nada se escribió. ` +
+          `Vuelve a mirarla con \`bank reconciliation status\` antes de reintentar.`
+      );
+    }
+
+    await registrarAuditoria(client, {
+      tenantId,
+      userId: ctx.userId,
+      action: 'post',
+      entityType: 'reconciliation_sessions',
+      entityId: sesionId,
+      oldValues: { status: 'approved' },
+      newValues: {
+        status: 'posted',
+        posted_by: ctx.userId,
+        asientos_posteados: posteados,
+        asientos_adoptados: adoptados,
+        asientos: asientos.map((x) => x.journalEntryId),
+        partidas_selladas: partidasSelladas,
+        cotejos_escritos: cotejosEscritos,
+        grupo_del_sello: grupoDelSello,
+        partidas_resueltas: resueltas.rowCount ?? 0,
+      },
+      reason: opts.notas ?? null,
+    });
+
+    const salida: ResultadoContabilizacion = {
+      sesionId,
+      estado: 'posted',
+      yaContabilizada: false,
+      asientos,
+      posteados,
+      adoptados,
+      partidasSelladas,
+      cotejosEscritos,
+      grupoDelSello,
+      partidasResueltas: resueltas.rowCount ?? 0,
+      contabilizadaEl: escrito.rows[0].posted_at,
+      ensayo: ctx.dryRun === true,
+    };
+    if (ctx.dryRun) throw new EnsayoSesion(salida);
+    return salida;
+  });
+
+  // Post-commit y sólo post-commit. En ensayo la transacción se deshizo, así
+  // que los asientos que se «postearon» no existen: atestarlos pediría a la
+  // cadena que firmara un hecho que no ocurrió.
+  if (!ctx.dryRun) {
+    for (const a of atestaciones) attestEntryAsync(a.tenantId, a.entityId, a.entryId);
+  }
+  return resultado;
+}
+
+/**
+ * Un UPDATE que tiene que tocar EXACTAMENTE una fila, o el acto se cae entero.
+ *
+ * Los cuatro escritos de la contabilización llevan su condición de estado en el
+ * WHERE —`journal_entry_id IS NULL`, `status = 'pending_review'`— justamente
+ * para que una carrera no los aplique dos veces. Pero un WHERE que no casa
+ * devuelve cero filas SIN error, y un `UPDATE` silencioso dentro de una
+ * transacción que después confirma es cómo un asiento posteado se queda sin la
+ * fila que lo reclama.
+ */
+async function exigirUnaFila(
+  promesa: Promise<{ rowCount: number | null }>,
+  queParte: string
+): Promise<void> {
+  const r = await promesa;
+  if (r.rowCount !== 1) {
+    throw new ConflictError(
+      `${queParte}: la escritura tocó ${r.rowCount ?? 0} filas en vez de una. Nada se confirma.`
+    );
   }
 }

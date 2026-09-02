@@ -232,10 +232,18 @@ describe('ATAQUE · balanced sin merecerlo', () => {
        VALUES ($1,$2,$3,'2026-11-01','2026-11-30',0,1000)`,
       [id, cuentaA, A.entityId]
     );
-    for (const estado of ['balanced', 'approved', 'posted']) {
+    // Los tres estados siguen siendo inalcanzables por SQL directo, pero desde
+    // la 055 hay DOS candados y no uno: `sesion_aprobada_con_firma` exige el
+    // hash para `approved` y `posted`, y en Postgres gana el que se evalúe
+    // primero. Lo que esta prueba afirma es que ninguno de los tres pasa; cuál
+    // de los dos CHECK lo impide es un detalle del motor.
+    await expect(
+      query(`UPDATE reconciliation_sessions SET status = 'balanced' WHERE id = $1`, [id])
+    ).rejects.toThrow(/sesion_balanceada_con_aritmetica/);
+    for (const estado of ['approved', 'posted']) {
       await expect(
         query(`UPDATE reconciliation_sessions SET status = $2 WHERE id = $1`, [id, estado])
-      ).rejects.toThrow(/sesion_balanceada_con_aritmetica/);
+      ).rejects.toThrow(/sesion_balanceada_con_aritmetica|sesion_aprobada_con_firma/);
     }
   });
 
