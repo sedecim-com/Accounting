@@ -1,6 +1,4 @@
 import { Router, Request, Response } from 'express';
-import Decimal from 'decimal.js';
-import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 import { ValidationError } from '../../../utils/errors.js';
@@ -14,6 +12,10 @@ import {
   type AgedReceivableRow,
   type AgedPayableRow,
 } from '../../../services/reporting/report-service.js';
+import {
+  getCashFlowStatement,
+  type MetodoDeFlujo,
+} from '../../../services/reporting/cash-flow-service.js';
 import { toCsv, csvAttachment } from '../../../utils/csv.js';
 
 // ============================================================
@@ -203,120 +205,54 @@ router.get('/aged-payables', requirePermission('reports:read'), requireEntityAcc
   });
 }));
 
+/**
+ * `?method=` en el idioma de la API (inglés) y en el del panel (español).
+ *
+ * Un valor que no se reconoce se RECHAZA en vez de caer al indirecto: pedir
+ * «direct» y recibir el indirecto sin aviso es el defecto que G1b vino a
+ * corregir, y pedir «dirceto» y recibirlo también lo sería.
+ */
+function metodoPedido(valor: string): MetodoDeFlujo {
+  const v = valor.toLowerCase();
+  if (v === 'direct' || v === 'directo') return 'directo';
+  if (v === 'indirect' || v === 'indirecto') return 'indirecto';
+  throw new ValidationError(`method must be 'indirect' or 'direct', received '${valor}'`);
+}
+
 // GET /v1/reports/cash-flow
 //
-// NOT extracted. The three defects the catalog records are still here and
-// moving them into the service would only make them look official: the
-// `method` parameter is echoed but never changes the calculation (there is
-// no direct method), financing activities are hardcoded to zero, and AR/AP
-// are detected by `name ILIKE '%receivable%'`. A statement of cash flows
-// that only pretends to have a method does not belong in a shared service
-// until it has one.
+// EXTRACTED (G1b). The engine lived here, entire, and was the reason the CLI
+// and the agent had no statement of cash flows at all. It now lives in
+// src/services/reporting/cash-flow-service.ts, and what stays here is the
+// HTTP contract: the query-string names, the defaults and the envelope.
+//
+// The published key set DOES change, and deliberately. The old body carried
+// `adjustments.accounts_receivable_change`, `accounts_payable_change` and
+// `asset_purchases`/`asset_disposals` — names for three concepts the engine
+// could not compute: the first two were matched with `name ILIKE
+// '%receivable%'` against a chart seeded in Spanish (so they were always
+// '0.0000'), and the last two came from the `fixed_assets` master rather than
+// the ledger. Keeping the names over the corrected numbers would publish a
+// concept the sections no longer carry; the account-level `lines` now say
+// what moved, and `self_check` says whether every account that moved landed
+// in a section — which is what decides whether this document can tie to the
+// bank at all. The three section keys keep their published names.
+//
+// `method` is no longer echoed. Asking for the direct method used to return
+// the indirect one labelled as direct; now it fails with what is missing.
 router.get('/cash-flow', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
-  const { entity_id, start_date, end_date, method = 'indirect' } = req.query;
+  const { entity_id, start_date, end_date, method } = req.query;
   const entityId = entity_id as string || req.entityId;
 
   if (!entityId || !start_date || !end_date) throw new ValidationError('entity_id, start_date, end_date are required');
 
-  // Operating Activities
-  const netIncome = await query<{ amount: string }>(
-    `SELECT COALESCE(
-      SUM(CASE WHEN a.account_type = 'revenue' THEN COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)
-               WHEN a.account_type = 'expense' THEN COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)
-               ELSE 0 END), 0) as amount
-     FROM journal_entry_lines jel
-     JOIN journal_entries je ON je.id = jel.journal_entry_id AND je.status = 'posted'
-       AND je.entry_date BETWEEN $2 AND $3
-     JOIN accounts a ON a.id = jel.account_id
-     WHERE a.entity_id = $1 AND a.account_type IN ('revenue', 'expense')`,
-    [entityId, start_date, end_date]
-  );
-
-  // Depreciation add-back
-  const depreciation = await query<{ amount: string }>(
-    `SELECT COALESCE(SUM(jel.debit_amount), 0) as amount
-     FROM journal_entry_lines jel
-     JOIN journal_entries je ON je.id = jel.journal_entry_id AND je.status = 'posted'
-       AND je.entry_date BETWEEN $2 AND $3 AND je.entry_type = 'auto_depreciation'
-     JOIN accounts a ON a.id = jel.account_id
-     WHERE a.entity_id = $1`,
-    [entityId, start_date, end_date]
-  );
-
-  // AR changes (investing in receivables)
-  const arChange = await query<{ amount: string }>(
-    `SELECT COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0) as amount
-     FROM journal_entry_lines jel
-     JOIN journal_entries je ON je.id = jel.journal_entry_id AND je.status = 'posted'
-       AND je.entry_date BETWEEN $2 AND $3
-     JOIN accounts a ON a.id = jel.account_id
-     WHERE a.entity_id = $1 AND a.account_subtype = 'current_asset'
-       AND a.name ILIKE '%receivable%'`,
-    [entityId, start_date, end_date]
-  );
-
-  // AP changes
-  const apChange = await query<{ amount: string }>(
-    `SELECT COALESCE(SUM(COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)), 0) as amount
-     FROM journal_entry_lines jel
-     JOIN journal_entries je ON je.id = jel.journal_entry_id AND je.status = 'posted'
-       AND je.entry_date BETWEEN $2 AND $3
-     JOIN accounts a ON a.id = jel.account_id
-     WHERE a.entity_id = $1 AND a.account_subtype = 'current_liability'
-       AND a.name ILIKE '%payable%'`,
-    [entityId, start_date, end_date]
-  );
-
-  // Investing Activities (fixed asset purchases)
-  const assetPurchases = await query<{ amount: string }>(
-    `SELECT COALESCE(SUM(acquisition_cost), 0) as amount
-     FROM fixed_assets
-     WHERE entity_id = $1 AND acquisition_date BETWEEN $2 AND $3`,
-    [entityId, start_date, end_date]
-  );
-
-  const assetDisposals = await query<{ amount: string }>(
-    `SELECT COALESCE(SUM(disposal_amount), 0) as amount
-     FROM fixed_assets
-     WHERE entity_id = $1 AND disposal_date BETWEEN $2 AND $3 AND disposal_amount IS NOT NULL`,
-    [entityId, start_date, end_date]
-  );
-
-  const netIncomeAmt = new Decimal(netIncome.rows[0].amount);
-  const depreciationAmt = new Decimal(depreciation.rows[0].amount);
-  const arChangeAmt = new Decimal(arChange.rows[0].amount).negated();
-  const apChangeAmt = new Decimal(apChange.rows[0].amount);
-  const operatingCashFlow = netIncomeAmt.plus(depreciationAmt).plus(arChangeAmt).plus(apChangeAmt);
-
-  const assetPurchasesAmt = new Decimal(assetPurchases.rows[0].amount).negated();
-  const assetDisposalsAmt = new Decimal(assetDisposals.rows[0].amount);
-  const investingCashFlow = assetPurchasesAmt.plus(assetDisposalsAmt);
-
-  const totalCashFlow = operatingCashFlow.plus(investingCashFlow);
-
-  res.json({
-    data: {
-      entity_id: entityId,
-      start_date, end_date, method,
-      operating_activities: {
-        net_income: netIncomeAmt.toFixed(4),
-        adjustments: {
-          depreciation: depreciationAmt.toFixed(4),
-          accounts_receivable_change: arChangeAmt.toFixed(4),
-          accounts_payable_change: apChangeAmt.toFixed(4),
-        },
-        total: operatingCashFlow.toFixed(4),
-      },
-      investing_activities: {
-        asset_purchases: assetPurchasesAmt.toFixed(4),
-        asset_disposals: assetDisposalsAmt.toFixed(4),
-        total: investingCashFlow.toFixed(4),
-      },
-      financing_activities: { total: '0.0000' },
-      net_cash_flow: totalCashFlow.toFixed(4),
-    },
-    meta: meta(req),
+  const statement = await getCashFlowStatement(entityId, {
+    startDate: start_date as string,
+    endDate: end_date as string,
+    ...(method ? { metodo: metodoPedido(method as string) } : {}),
   });
+
+  res.json({ data: statement, meta: meta(req) });
 }));
 
 // GET /v1/reports/general-ledger

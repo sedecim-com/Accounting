@@ -400,6 +400,82 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 50,
   },
   {
+    key: 'flujo_efectivo_metodo',
+    category: 'contable',
+    question: 'Is the statement of cash flows presented by the indirect or the direct method?',
+    impact:
+      'Decides the whole face of the statement. Before G1b the engine accepted a `method` parameter, ' +
+      'echoed it back in the response and NEVER changed a number — every caller that asked for the ' +
+      'direct method got the indirect one, labelled as direct.',
+    options: [
+      {
+        value: 'indirecto',
+        label: 'Indirect: start from net income and adjust for non-cash items and working-capital movements',
+      },
+      {
+        value: 'directo',
+        label: 'Direct: gross collections and payments by concept (customers, suppliers, employees, taxes)',
+      },
+    ],
+    defaultValue: 'indirecto',
+    defaultRationale:
+      'NIF B-2 allows both and Mexican practice overwhelmingly files the indirect one: it derives from ' +
+      'the same balances the trial balance already has, while the direct method needs every cash ' +
+      'movement classified by concept at the moment it is recorded. Offering «direct» over data that ' +
+      'was never classified for it would produce a statement that looks right and is not.',
+    whyAsking: 'The two methods present the same cash differently, and the presentation is a firm decision, not a calculation.',
+    whatIDo: 'I build the statement by the indirect method and label it as such.',
+    ifSkipped: 'I use the indirect method.',
+    priority: 30,
+  },
+  {
+    key: 'flujo_efectivo_cuentas_de_efectivo',
+    category: 'contable',
+    question: 'Which accounts count as «cash and cash equivalents» when the statement of cash flows is squared?',
+    impact:
+      'The statement only means anything if its net movement equals the real change in cash, and that ' +
+      'requires knowing which accounts ARE cash. Before G1b classification ran on account names ' +
+      'matched with ILIKE «%receivable%» and «%payable%» — in English, against a chart of accounts ' +
+      'this product itself seeds in Spanish, so it matched nothing and working capital came out zero.',
+    options: [
+      { value: 'rol', label: 'By role: the accounts account_roles marks as bank and cash' },
+      { value: 'subtipo', label: 'By subtype: current-asset accounts explicitly flagged as cash' },
+      { value: 'lista', label: 'A list of account codes the firm declares' },
+    ],
+    defaultValue: 'rol',
+    defaultRationale:
+      'The role map is the semantic layer this system already uses everywhere else to answer «which ' +
+      'account is this» — it survives renamings, translations and imported charts, which is exactly ' +
+      'what account names do not. Matching by name is how that defect got here.',
+    whyAsking: 'To square the cash flow statement I have to know which accounts hold the cash it is talking about.',
+    whatIDo: 'I take the accounts mapped to the bank and cash roles.',
+    ifSkipped: 'I use the role map.',
+    priority: 30,
+  },
+  {
+    key: 'flujo_efectivo_descuadre',
+    category: 'contable',
+    question: 'When the cash flow statement does not equal the real movement of cash, do I publish it, name it, or refuse?',
+    impact:
+      'A statement of cash flows that does not tie to cash is the one financial statement whose error ' +
+      'is provable from the outside — anyone can compare it against the bank. Absorbing the residue ' +
+      'into a line item hides exactly what the reader would have caught.',
+    options: [
+      { value: 'avisar', label: 'Publish it with the difference stated and quantified' },
+      { value: 'bloquear', label: 'Refuse to emit the statement until it ties' },
+      { value: 'silencio', label: 'Publish the computed net without contrasting it' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'Refusing would leave the firm without a statement it may need for a filing deadline, and ' +
+      'silence is how a wrong statement gets signed. Naming the residue keeps the document usable ' +
+      'and puts the discrepancy where the preparer — and the auditor — will see it.',
+    whyAsking: 'The derived statement and the real bank movement can disagree, and what I do then is your call.',
+    whatIDo: 'I publish the statement and state the difference against real cash, with its amount.',
+    ifSkipped: 'I publish it and name the difference.',
+    priority: 30,
+  },
+  {
     key: 'informes_asientos_de_cierre',
     category: 'contable',
     question:

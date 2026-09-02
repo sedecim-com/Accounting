@@ -498,6 +498,7 @@ export const CRITERIOS: Criterio[] = [
         F06c: 'docs/auditorias/F06c.md',
         R4: 'docs/auditorias/R4.md',
         G1a: 'docs/auditorias/G1a.md',
+        G1b: 'docs/auditorias/G1b.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -4236,6 +4237,50 @@ export const CRITERIOS: Criterio[] = [
       return vigilado
         ? ok(`las ${declarados.length} garantías del esquema están selladas, y doctor falla si alguna deja de estarlo`)
         : falla('doctor dejó de leer pg_trigger.tgenabled: apagar una garantía volvería a ser indetectable');
+    },
+  },
+
+  // ---- G1b · El flujo de efectivo, amarrado al efectivo ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El estado de flujos clasifica por ROL, no por el nombre en inglés de la cuenta, y se amarra contra el efectivo real',
+    mutantes: [
+      {
+        // El diente exacto del tramo: volver a preguntar por el NOMBRE. El
+        // motor viejo hacía `name ILIKE '%receivable%'` contra un catálogo
+        // que este mismo producto siembra en español, así que no casaba nada
+        // y el capital de trabajo salía en cero — sin que ninguna prueba lo
+        // notara, porque cero es un número perfectamente presentable.
+        archivo: 'src/services/reporting/cash-flow-service.ts',
+        de: '               FROM account_roles ar',
+        a: '               FROM accounts ar_por_nombre',
+        porque: 'la clasificación vuelve a colgar del NOMBRE de la cuenta en vez del rol, que es el defecto histórico exacto: contra un catálogo sembrado en español no casa nada y el capital de trabajo sale en cero, que es un número perfectamente presentable',
+      },
+    ],
+    evaluar: () => {
+      const cf = codigoDe('src/services/reporting/cash-flow-service.ts');
+      const rc = codigoDe('src/services/reporting/cash-flow-reconcile.ts');
+
+      // 1. EL MOTOR SALIÓ DE LA RUTA. Era el ÚNICO informe que nunca se
+      //    extrajo a la capa de servicios: vivía dentro de src/api/rest, así
+      //    que el CLI y el agente no lo tenían y REST era un segundo motor.
+      if (!/export async function politicasDeFlujo/.test(cf)) {
+        return falla('el estado de flujos volvió a vivir sólo en la ruta REST: el CLI y el agente se quedan sin él, y REST vuelve a ser un motor aparte');
+      }
+      // 2. SE CLASIFICA POR ROL, NO POR NOMBRE. El mapa de roles sobrevive a
+      //    renombres, traducciones y catálogos importados; los nombres no.
+      if (!/FROM account_roles ar/.test(cf)) {
+        return falla('la clasificación del flujo dejó de pasar por el mapa de roles: si vuelve a preguntar por el nombre, el capital de trabajo saldrá en cero contra cualquier catálogo en español');
+      }
+      // 3. Y EL RESIDUO SE IMPRIME, NO SE ABSORBE. Es el único estado
+      //    financiero cuyo error se comprueba desde fuera: cualquiera lo
+      //    contrasta contra su banco. Meterlo dentro de un renglón esconde
+      //    justo lo que el lector habría cazado.
+      const amarre = /export async function conciliarFlujoDeEfectivo/.test(rc);
+      return amarre
+        ? ok('el flujo vive en la capa compartida, clasifica por rol y se contrasta contra el efectivo real con el residuo a la vista')
+        : falla('desapareció el amarre contra el efectivo real: el estado de flujos vuelve a poder no tener ninguna relación con el banco sin que nadie lo diga');
     },
   },
 

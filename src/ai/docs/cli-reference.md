@@ -122,6 +122,8 @@ Commands:
                                         offenders
   fx|cambio                             Exchange rates: the origin every
                                         foreign-currency amount converts from
+  cashflow|flujo                        Statement of cash flows (NIF B-2 / ASC
+                                        230): build it, and tie it to real cash
   backup|respaldo                       Logical backups of the whole
                                         installation (create, list, verify by
                                         rehearsing the restore, restore) and
@@ -5175,6 +5177,79 @@ Options:
   --live                              perform the real external effect (default
                                       is the sandbox endpoint)
   -h, --help                          display help for command
+```
+
+## `mnemosine cashflow` (alias: flujo)
+
+```
+Usage: mnemosine cashflow|flujo [options] [command]
+
+Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash
+
+Options:
+  -h, --help                     display help for command
+
+Commands:
+  generate|generar [options]     Build the statement of cash flows for a period,
+                                 with the tie-out to real cash
+  reconcile|conciliar [options]  Reconcile the derived statement of cash flows
+                                 against the real movement of cash and
+                                 equivalents, and print the residue instead of
+                                 absorbing it
+  help [command]                 display help for command
+```
+
+### `mnemosine cashflow generate` (alias: generar)
+
+```
+Usage: mnemosine cashflow generate|generar [options]
+
+Build the statement of cash flows for a period, with the tie-out to real cash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --method <indirect|direct>               method to build the statement with (default: the `flujo_efectivo_metodo` policy)
+  --gross                                  present gross receipts and payments instead of net (NIF B-2 §40 / ASC 230-10-45-7); refused with a reason — these books cannot support it
+  -h, --help                               display help for command
+```
+
+### `mnemosine cashflow reconcile` (alias: conciliar)
+
+```
+Usage: mnemosine cashflow reconcile|conciliar [options]
+
+Reconcile the derived statement of cash flows against the real movement of cash
+and equivalents, and print the residue instead of absorbing it
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --period <expr>                          period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06
+  --since <date>                           inclusive lower bound (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound (YYYY-MM-DD)
+  --as-of <date>                           valuation/balance date (YYYY-MM-DD)
+  --date-basis <document|posting|value>    which date the filters apply to (default: "posting")
+  --strict                                 treat warnings as blocking (exit 4)
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --show-candidates                        list the journal lines that most likely explain the residue (suspects, not a verdict)
+  -h, --help                               display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)

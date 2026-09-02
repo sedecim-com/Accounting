@@ -337,6 +337,34 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // ni `--rate` —la tasa de IVA/ISR de tesorería, F05d—: tres conceptos, tres
   // grafías, y ésta se escribe con las dos palabras para no rozar ninguna.
   '--rate-type': null,
+
+  // ── G1b · el estado de flujos de efectivo (NIF B-2 / ASC 230) ─────────
+  //
+  // Ninguna lleva forma corta. Las dos entradas son de la familia
+  // `cashflow`·`flujo`, y el catálogo las escribe así en sus dos filas de
+  // fase 1 (docs/cli-command-catalog.md).
+  //
+  // `--method` NO entra aquí: ya existe, congelada en F06a como el método
+  // CONTABLE de depreciación, y `cashflow generate --method indirect|direct`
+  // la reutiliza con el mismo significado de fondo —«por qué método se
+  // calculó esto»— y sin forma corta, que es lo que el diccionario gobierna.
+  // Se deja anotado aquí porque una bandera con dos inquilinos tiene que
+  // constar en alguna parte: si algún día uno de los dos le pone `-m` (hoy el
+  // modelo de IA), el auditor lo dirá en las dos familias a la vez.
+  //
+  // `--gross` es la BASE DE PRESENTACIÓN del estado —bruta contra neta, NIF
+  // B-2 §40 y ASC 230-10-45-7—, no un nivel de detalle. Se congela con la
+  // grafía del catálogo antes de que reaparezca como `--detail` o
+  // `--expanded`, que son otra promesa: enseñar más renglones no es dejar de
+  // compensar entradas contra salidas.
+  '--gross': null,
+  // `cashflow reconcile --show-candidates`: los movimientos que PODRÍAN
+  // explicar el residuo. El plural va en el sustantivo y no en el verbo, y el
+  // nombre dice lo que la lista es —candidatos, no un veredicto—. La declara
+  // `cashflow-reconcile-command.ts` desde su primer día; entra al diccionario
+  // ahora para que la próxima conciliación que ofrezca pistas —`statement
+  // check`, `cashflow explain` de fase 3— las ofrezca con esta misma palabra.
+  '--show-candidates': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
