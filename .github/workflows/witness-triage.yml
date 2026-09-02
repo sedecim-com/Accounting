@@ -82,7 +82,20 @@ jobs:
           # una regla de subcadena —el mismo defecto que este archivo arregla en
           # el detector de marcadores— y callaría secretos de verdad como
           # `password: 'change-me-later-but-this-is-live'`.
-          SECRET_HITS=$(printf '%s' "$DIFF" | grep -inE '^\+.*(BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|api[_-]?key["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9_\-]{16,}|password\s*[:=]\s*["'"'"'][^"'"'"']+|secret\s*[:=]\s*["'"'"'][^"'"'"']+)' | grep -ivE 'example|placeholder|dummy|test|fake|sample|\.env\.example|redacted|\*\*\*|dev-secret-change-me' | cut -d: -f1 | sort -u | wc -l)
+          #
+          # LAS PALABRAS SEGURAS SON BILINGÜES, y hasta hoy no lo eran. La lista
+          # decía `example|placeholder|dummy|test|fake|sample` y las fixtures de
+          # esta casa se escriben en español, así que
+          # `ANTHROPIC_API_KEY: 'sk-de-mentira-para-la-prueba'` —una fixture de
+          # una prueba, en un archivo de pruebas— salía como secreto rojo en el
+          # informe de un PR. Es la MISMA clase que este archivo ya reparó en el
+          # detector de deuda: el triaje dejaba de leerse porque gritaba en
+          # español. Se añaden las traducciones de las palabras que YA estaban,
+          # no palabras nuevas: la exposición a subcadena es la misma que la de
+          # `test` o `fake`, ni mayor ni menor. Y la fixture que lo destapó se
+          # deja como está a propósito, para que sea el caso vivo que prueba
+          # esta exclusión.
+          SECRET_HITS=$(printf '%s' "$DIFF" | grep -inE '^\+.*(BEGIN (RSA|OPENSSH|EC|PGP) PRIVATE KEY|api[_-]?key["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9_\-]{16,}|password\s*[:=]\s*["'"'"'][^"'"'"']+|secret\s*[:=]\s*["'"'"'][^"'"'"']+)' | grep -ivE 'example|placeholder|dummy|test|fake|sample|\.env\.example|redacted|\*\*\*|dev-secret-change-me|ejemplo|prueba|mentira|ficticio|fals[ao]' | cut -d: -f1 | sort -u | wc -l)
           if [ "$SECRET_HITS" -gt 0 ]; then
             echo "- 🔴 **$SECRET_HITS línea(s) con posible secreto** en el diff (patrón de clave/password/key material). Verificar antes de merge; NO imprimir el valor." >> "$OUT"
           fi
