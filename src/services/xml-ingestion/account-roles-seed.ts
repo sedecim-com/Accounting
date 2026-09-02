@@ -128,13 +128,15 @@ export const REQUIRED_ACCOUNTS: AccountSpec[] = [
     description: 'Contra-costo: reduce las compras.',
   },
   {
-    // 4300, NO 4200. El catálogo base declara 4200 como «Ingresos por
-    // Servicios» y 4300 como «Otros Ingresos», con esta misma clasificación.
-    // La guarda de creación compara CÓDIGOS, así que pedir 4200 con el nombre
-    // de otra cuenta no crea nada: hereda en silencio la de Servicios, y el
-    // residual que `pago_corto_residual` manda aquí acababa en ingreso de
-    // OPERACIÓN en vez de en otros ingresos. Se ve en el estado de resultados y
-    // no revienta en ningún lado.
+    // 4300 y no 4200. El razonamiento de arriba es correcto y el número que
+    // eligió lo contradecía: 4200 es «Ingresos por Servicios» en el catálogo
+    // base, que corre ANTES, así que la guarda por código se saltaba esta
+    // cuenta y el rol acababa apuntando a ingresos de operación — igual de
+    // cotejables contra los CFDI emitidos que 4100, que es justo lo que la
+    // descripción quería evitar. 4300 «Otros Ingresos» ya existe en el
+    // catálogo base con este nombre exacto y este mismo fs_category; se
+    // declara aquí ADEMÁS porque el catálogo base es condicional y sobre uno
+    // importado la cuenta tiene que existir igual.
     code: '4300', name: 'Otros Ingresos', account_type: 'revenue',
     normal_balance: 'credit', fs_category: 'other_income',
     description:

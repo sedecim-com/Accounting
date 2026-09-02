@@ -1500,6 +1500,17 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E1.1',
     enunciado:
       'Las cuatro cuentas de IVA se siembran en toda entidad MEXICANA, también sobre catálogo importado',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: "code: '1135', name: 'IVA Pendiente de Acreditar'",
+        a: "code: '1136', name: 'IVA Pendiente de Acreditar'",
+        porque:
+          'el IVA de una factura PPD se queda sin cuenta donde esperar al pago; el mutante ' +
+          'renumera en vez de borrar porque borrar el renglón entero también movería otras ' +
+          'anclas, y un espejo debe fallar por la razón que dice',
+      },
+    ],
     evaluar: async () => {
       // El enunciado decía «siempre» y se volvió falso el día que la siembra
       // empezó a ramificar por país: una entidad estadounidense ya no recibe
@@ -1531,22 +1542,30 @@ export const CRITERIOS: Criterio[] = [
               'a una entidad mexicana: el IVA dejaría de acreditarse'
           );
     },
-    mutantes: [
-      {
-        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
-        de: "code: '1130', name: 'IVA Acreditable'",
-        a: "code: '1131', name: 'IVA Acreditable'",
-        porque:
-          'el IVA acreditable deja de sembrarse con el código que el criterio exige: una entidad ' +
-          'onboardeada revienta con MISSING_ROLE_ACCOUNT al primer CFDI recibido, y ése es ' +
-          'exactamente el fallo que este criterio existe para no dejar pasar',
-      },
-    ],
   },
 
   {
     paquete: 'E1.1',
     enunciado: 'Un código de cuenta significa UNA cuenta en todas las semillas',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/common/payroll-account-mapping-seed.ts',
+        de: "code: '6110', name: 'Sueldos y Salarios'",
+        a: "code: '5200', name: 'Sueldos y Salarios'",
+        porque:
+          'devolver la nómina al código de las devoluciones sobre compras es EL fallo que ' +
+          'este criterio vino a impedir: el sueldo bruto cargado a un contra-costo acreedor',
+      },
+      {
+        archivo: 'src/services/accounting/chart-seed.ts',
+        de: "code: '6110', name: 'Sueldos y Salarios'",
+        a: "code: '6110', name: 'Nomina'",
+        porque:
+          'la colisión tiene dos lados y el criterio debe morder por los dos: renombrar la ' +
+          'cuenta del catálogo base sin tocar las otras semillas es la mitad que un espejo ' +
+          'de un solo sentido bendeciría',
+      },
+    ],
     evaluar: () => {
       // EL FALLO QUE ESTE CRITERIO PERSIGUE. Cuatro semillas escriben en el
       // catálogo de la MISMA entidad —el catálogo base, los roles del CFDI, el
@@ -1571,12 +1590,11 @@ export const CRITERIOS: Criterio[] = [
       const decl = /code:\s*'([^']+)'\s*,\s*name:\s*'([^']*)'/g;
       const porCodigo = new Map<string, Map<string, string[]>>();
       for (const f of fuentes('src')) {
-        // POR EL SEAM, no por fs: el arnés de S2 muta el fuente en memoria, y
-        // una lectura directa lo esquiva — el mutante de este criterio quedaba
-        // vivo porque el criterio medía un texto que la mutación no tocaba. Y
-        // la cuenta de lecturas crudas de este archivo sólo admite la de leer().
+        // Por el seam (crudoDe) y no por fs directo: una lectura que lo rodea
+        // deja el criterio fuera del arnés de mutación, y un criterio que
+        // ningún mutante puede matar es prosa con forma de compuerta.
         const rel = path.relative(RAIZ, f);
-        const texto = codigoDe(rel);
+        const texto = sinComentarios(crudoDe(rel));
         decl.lastIndex = 0;
         for (const m of texto.matchAll(decl)) {
           const [, codigo, nombre] = m;
@@ -1613,18 +1631,6 @@ export const CRITERIOS: Criterio[] = [
               `no crea su cuenta y hereda la ajena, sin error: ${choques.join(' · ')}`
           );
     },
-    mutantes: [
-      {
-        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
-        de: "code: '4300', name: 'Otros Ingresos'",
-        a: "code: '4200', name: 'Otros Ingresos'",
-        porque:
-          'reintroduce la colisión que este criterio destapó de verdad: 4200 ya es «Ingresos por ' +
-          'Servicios» en el catálogo base, así que el rol heredaba esa cuenta en silencio y el ' +
-          'residual del pago corto se iba a ingreso de OPERACIÓN. Si el criterio no muerde aquí, ' +
-          'no muerde en el único caso que le dio origen',
-      },
-    ],
   },
 
   // ---- E1.2 · Cerebro fiscal del CFDI ----
