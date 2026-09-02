@@ -30,6 +30,7 @@ import {
   blockedByState,
   abortedByUser,
   exitCodeFor,
+  dateOnly as day,
 } from './kernel/index.js';
 
 // ============================================================
@@ -79,10 +80,6 @@ interface CommonOpts {
 
 const MONEY = ['total_amount', 'subtotal', 'tax_amount', 'amount_applied', 'amount_available'];
 
-const day = (v: Date | string | null | undefined): string =>
-  v instanceof Date
-    ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
-    : v ?? '';
 
 export function registerCreditNoteCommand(program: Command, deps: CreditNoteCommandDeps): void {
   const creditNote = program

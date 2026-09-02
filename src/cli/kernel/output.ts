@@ -94,11 +94,88 @@ function selectFields(rows: Row[], fields: string | boolean | undefined): string
   return wanted;
 }
 
+/**
+ * La fecha LOCAL como yyyy-mm-dd. Un Date que llega al renderizador es una
+ * fecha CONTABLE (node-postgres entrega las columnas DATE como Date a
+ * medianoche local), no un instante: `toISOString()` la movía un día al
+ * oeste de Greenwich — una póliza del 31 de enero a las 20:00 en CDMX se
+ * leía como del 1 de febrero, en el corte de periodo. Los getters locales
+ * son los que coinciden con lo que la base guardó.
+ *
+ * Los instantes de verdad (timestamps de bitácora: posted_date, reversed_at,
+ * last_used_at…) no pasan por aquí como Date: los comandos los serializan
+ * ellos mismos con toISOString() ANTES de armar la fila, y eso queda así.
+ */
+export function dateOnly(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
+  const s = String(value);
+  // Una cadena ISO con hora ya trae la fecha resuelta: se recorta, no se reinterpreta.
+  return /^\d{4}-\d{2}-\d{2}T/.test(s) ? s.slice(0, 10) : s;
+}
+
 function cell(value: unknown): string {
   if (value === null || value === undefined) return '';
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return dateOnly(value);
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+/** Valor de celda rumbo a JSON: mismas reglas de fecha que cell(), tipos intactos. */
+function jsonCell(value: unknown): unknown {
+  if (value === undefined) return null;
+  if (value instanceof Date) return dateOnly(value);
+  return value;
+}
+
+// ============================================================
+// DINERO EN LA TABLA — presentación, no almacenamiento.
+// Un contador lee 12,458,930.55; el 12458930.5500 de cuatro
+// decimales es el formato de ALMACENAMIENTO y sólo es contrato en
+// los formatos de máquina (json/ndjson/csv/tsv/md), que no cambian
+// ni un byte. La detección se apoya en la misma convención que ya
+// alinea estas columnas a la derecha: *_amount, *_total, debit,
+// credit, balance, importe…
+// ============================================================
+
+const MONEY_COL_RE =
+  /(^|_)(amount|amounts|total|totals|subtotal|debit|debits|credit|credits|balance|balances|importe|price)(_|$)/;
+
+const DECIMAL_RE = /^-?\d+(\.\d+)?$/;
+
+/** ¿La columna es de dinero por convención de nombre? */
+function isMoneyColumn(col: string): boolean {
+  return MONEY_COL_RE.test(col.toLowerCase());
+}
+
+/**
+ * es-MX de presentación: separador de miles y DOS decimales, a partir de la
+ * cadena decimal de almacenamiento. Todo por cadena y BigInt: pasar por
+ * float es exactamente el redondeo que este sistema prohíbe, y aunque aquí
+ * sólo se imprime, un importe de más de 2^53 centésimos saldría ya mentido.
+ * El tercer decimal redondea hacia arriba en valor absoluto cuando es ≥ 5
+ * (half-up sobre la magnitud, como redondea la calculadora del despacho).
+ */
+export function formatMoneyMx(value: string): string {
+  const m = /^(-?)(\d+)(?:\.(\d*))?$/.exec(value);
+  if (!m) return value;
+  const sign = m[1];
+  let intDigits = m[2];
+  const fracRaw = m[3] ?? '';
+  let frac = (fracRaw + '00').slice(0, 2);
+  if (fracRaw.length > 2 && fracRaw.charCodeAt(2) >= 0x35 /* '5' */) {
+    const bumped = (BigInt(intDigits + frac) + 1n)
+      .toString()
+      .padStart(intDigits.length + 2, '0');
+    intDigits = bumped.slice(0, -2);
+    frac = bumped.slice(-2);
+  }
+  const grouped = intDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const out = `${grouped}.${frac}`;
+  return sign && out !== '0.00' ? `-${out}` : out;
 }
 
 /** A column is numeric when every non-empty value parses as a number. */
@@ -113,8 +190,14 @@ function inferNumeric(rows: Row[], cols: string[]): Set<string> {
 
 function toTable(rows: Row[], cols: string[], numeric: Set<string>, stream: NodeJS.WriteStream): string {
   const p = palette(stream);
+  // SOLO aquí (la rama para humanos) el dinero se viste de presentación;
+  // los formatos de máquina reciben la cadena de almacenamiento intacta.
+  const display = (col: string, value: unknown): string => {
+    const raw = cell(value);
+    return isMoneyColumn(col) && DECIMAL_RE.test(raw) ? formatMoneyMx(raw) : raw;
+  };
   const widths = cols.map((c) =>
-    Math.max(c.length, ...rows.map((r) => cell(r[c]).length), 0)
+    Math.max(c.length, ...rows.map((r) => display(c, r[c]).length), 0)
   );
   // Numbers right-align so digits stack; everything else left-aligns.
   const padded = (v: string, w: number, right: boolean) =>
@@ -124,7 +207,7 @@ function toTable(rows: Row[], cols: string[], numeric: Set<string>, stream: Node
 
   const header = cols.map((c, i) => padded(c, widths[i], false)).join('  ').trimEnd();
   const rule = widths.map((w) => '─'.repeat(w)).join('  ');
-  const body = rows.map((r) => row(cols.map((c) => cell(r[c]))));
+  const body = rows.map((r) => row(cols.map((c) => display(c, r[c]))));
   return [p.bold(header), p.dim(rule), ...body].join('\n');
 }
 
@@ -196,14 +279,14 @@ export function render(rows: Row[], opts: RenderOptions = {}): void {
         schema: SCHEMA_VERSION,
         count: rows.length,
         ...(typeof opts.total === 'number' ? { total: opts.total, truncated } : {}),
-        rows: rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null]))),
+        rows: rows.map((r) => Object.fromEntries(cols.map((c) => [c, jsonCell(r[c])]))),
       },
       null,
       2
     ) + '\n';
   } else if (format === 'ndjson') {
     text = rows
-      .map((r) => JSON.stringify(Object.fromEntries(cols.map((c) => [c, r[c] ?? null]))))
+      .map((r) => JSON.stringify(Object.fromEntries(cols.map((c) => [c, jsonCell(r[c])]))))
       .join('\n') + (rows.length ? '\n' : '');
   } else if (format === 'csv' || format === 'tsv') {
     text = toDelimited(rows, cols, format === 'csv' ? ',' : '\t') + '\n';

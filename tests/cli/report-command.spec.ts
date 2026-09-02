@@ -195,8 +195,10 @@ describe('truncation is announced and the footing is not truncated with it', () 
     expect(err).toMatch(/Showing 1 of 53 rows/);
     // The footing covers 53 accounts even though one row was printed.
     expect(err).toMatch(/Debits 18477\.1200\s+Credits 18477\.1200\s+\(53 accounts\)\s+balanced/);
-    // Money reached stdout as the decimal string it started as.
-    expect(out).toMatch(/-2469\.1200/);
+    // La tabla es para humanos: el importe sale vestido es-MX (miles y dos
+    // decimales); la cadena de almacenamiento sigue siendo el contrato de
+    // json/csv y eso lo vigila tests/cli/kernel/presentation.spec.ts.
+    expect(out).toMatch(/-2,469\.12/);
   });
 
   it('trial balance: an out-of-balance footing is a warning, not a rounding note', async () => {

@@ -25,6 +25,7 @@ import {
   abortedByUser,
   usageError,
   exitCodeFor,
+  dateOnly,
 } from './kernel/index.js';
 
 // ============================================================
@@ -337,7 +338,8 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
 
 }
 
-const hoy = (): string => new Date().toISOString().slice(0, 10);
+// El dia LOCAL del despacho, no el de Greenwich: de noche ya era "manana" en UTC.
+const hoy = (): string => dateOnly(new Date());
 
 /**
  * El camino común de los dos comandos: ensayo, confirmación, escritura.
