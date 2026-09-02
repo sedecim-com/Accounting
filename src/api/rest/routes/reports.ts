@@ -92,6 +92,10 @@ router.get('/trial-balance', requirePermission('reports:read'), requireEntityAcc
       entity_id: entityId,
       accounts: report.rows,
       totals: report.totals,
+      // Sólo viaja cuando el rango contiene el cierre del ejercicio: la
+      // balanza lo cuenta y tiene que decirlo, o no se puede atar contra un
+      // estado de resultados que lo deja fuera.
+      ...(report.closing ? { closing_entries: report.closing } : {}),
     },
     meta: meta(req),
   });
@@ -138,6 +142,7 @@ router.get('/income-statement', requirePermission('reports:read'), requireEntity
       revenue: report.revenue,
       expenses: report.expenses,
       net_income: report.net_income,
+      ...(report.closing ? { closing_entries: report.closing } : {}),
     },
     meta: meta(req),
   });

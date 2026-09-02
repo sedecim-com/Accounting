@@ -497,6 +497,7 @@ export const CRITERIOS: Criterio[] = [
         F06b: 'docs/auditorias/F06b.md',
         F06c: 'docs/auditorias/F06c.md',
         R4: 'docs/auditorias/R4.md',
+        G1a: 'docs/auditorias/G1a.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -4166,6 +4167,95 @@ export const CRITERIOS: Criterio[] = [
       return entregada
         ? ok('la guarda de estado es única y la usan todos los verbos, el origen es propio, la reversa es todo-o-nada y la familia está en el binario')
         : falla('registerBatchCommand no está en el binario: el staging de F01 vuelve a ser un almacén sin salida');
+    },
+  },
+
+  // ---- G1a · Los estados que ya se firman, y que hoy mentían ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El cierre barre por el SIGNO del saldo, comprueba que barrió, y los informes no cuentan el cierre como actividad',
+    mutantes: [
+      {
+        // El signo del saldo, no la forma de la consulta. El banco unitario
+        // FABRICA ending_balance recomponiendo la resta que la consulta
+        // declara (report-service.spec.ts:62), así que invertirla pasaba las
+        // 3 500 pruebas en verde y sólo la acusaba un regex sobre el TEXTO
+        // del SQL. La prueba de conducta de G1a es la que ahora la mata.
+        archivo: 'src/services/reporting/report-service.ts',
+        de: 'COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0) AS ending_balance',
+        a: 'COALESCE(SUM(COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)), 0) AS ending_balance',
+        porque: 'invierte el signo de TODO saldo publicado: la balanza, el estado de resultados y el balance general dirían lo contrario de lo que los libros dicen, y hasta G1a ninguna prueba de cifras lo notaba',
+      },
+      {
+        // El diente, no la boca: el saldo se consulta DOS veces (ingresos y
+        // gastos) y mutar una sola basta, porque el barrido de esa mitad cae
+        // del lado contrario y el ejercicio queda sin barrer.
+        archivo: 'src/services/accounting/period-close.ts',
+        de: 'SUM(ab.debit_total - ab.credit_total) as balance',
+        a: 'SUM(ab.credit_total - ab.debit_total) as balance',
+        porque: 'el cierre barrería los ingresos por el lado equivocado: las cuentas quedan al doble en vez de en cero y el resultado entra invertido al capital, que es el defecto exacto que este tramo vino a matar',
+      },
+    ],
+    evaluar: () => {
+      const pc = codigoDe('src/services/accounting/period-close.ts');
+      const cc = codigoDe('src/services/reporting/criterio-cierre.ts');
+      const lc = codigoDe('src/services/accounting/ledger-checks.ts');
+      const rs = codigoDe('src/services/reporting/report-service.ts');
+
+      // 0. EL ORDEN DE LA RESTA ES LA AFIRMACIÓN, y por eso se ancla literal:
+      //    un saldo es cargos MENOS abonos, en ese orden, y al revés todo lo
+      //    publicado dice lo contrario de lo que los libros dicen. Se ancla
+      //    aquí —y no sólo en la prueba de conducta— porque un criterio sólo
+      //    mata lo que inspecciona: la primera versión de este bloque no
+      //    leía report-service, y sus dos mutantes sobrevivieron.
+      if (!/COALESCE\(SUM\(COALESCE\(jel\.debit_amount, 0\) - COALESCE\(jel\.credit_amount, 0\)\), 0\) AS ending_balance/.test(rs)) {
+        return falla('se invirtió el signo del saldo publicado: la balanza, el estado de resultados y el balance general dirían lo contrario de lo que dicen los libros');
+      }
+      // Se CUENTAN las dos apariciones —ingresos y gastos— en vez de
+      //    comprobar que haya una: son gemelas textuales, y un mutante que
+      //    invierta sólo la primera deja la segunda en pie, así que la
+      //    presencia seguiría siendo cierta mientras el cierre barre medio
+      //    ejercicio del revés. Es la trampa que ya cobró piezas en F04.
+      const consultasDelSaldo = (pc.match(/SUM\(ab\.debit_total - ab\.credit_total\) as balance/g) ?? []).length;
+      if (consultasDelSaldo !== 2) {
+        return falla(
+          `el cierre consulta el saldo con la resta invertida en ${2 - consultasDelSaldo} de sus dos mitades: ` +
+            'barrería por el lado equivocado y el resultado entraría invertido al capital'
+        );
+      }
+
+      // 1. EL LADO LO DECIDE EL SIGNO. Durante un año el emisor usó abs(),
+      //    que acierta por casualidad en la cuenta de naturaleza normal y
+      //    DUPLICA la contra-natural: la 4400 (revenue deudora) recibía otro
+      //    cargo y la 5200 (expense acreedora) otro abono. Con ventas 10 000,
+      //    devolución 2 000, costo 6 000 y devolución de compras 1 000, una
+      //    utilidad de 3 000 se publicaba como PÉRDIDA de 2 000 — y el
+      //    balance decía is_balanced true, porque el renglón del resultado
+      //    cancelaba exactamente el exceso.
+      if (!/function lineaQueBarre/.test(pc) || !/balance\.greaterThan\(0\)/.test(pc)) {
+        return falla('el barrido del cierre dejó de decidir el lado por el signo: las cuentas contra-naturales volverían a duplicarse en vez de barrerse');
+      }
+      // 2. Y SE COMPRUEBA QUE BARRIÓ. Nada lo comprobaba, que es por lo que
+      //    el defecto anterior vivió tanto: el asiento cuadraba.
+      if (!/verificarQueElEjercicioBarrio/.test(pc)) {
+        return falla('nadie comprueba que el ejercicio cerrado quede en cero: un cierre que no barre volvería a pasar inadvertido');
+      }
+      // 3. EL INFORME NO CUENTA EL CIERRE COMO ACTIVIDAD. El asiento se fecha
+      //    al final del periodo que cierra —dentro del rango que el propio
+      //    informe consulta—, así que un ejercicio cerrado imprimía «Net
+      //    income 0.0000» en las TRES superficies, que comparten la consulta.
+      if (!/export function predicadoSinCierre/.test(cc)) {
+        return falla('desapareció el criterio compartido del cierre: el estado de resultados de un ejercicio cerrado volvería a salir en ceros');
+      }
+      // 4. LOS SALDOS MATERIALIZADOS SE VERIFICAN CONTRA SU PROPIO
+      //    INVARIANTE. checkBalance sólo miraba debit_total/credit_total:
+      //    inyectar 99 999 en ending_balance —la columna que el cierre
+      //    escribe y el ejercicio siguiente HEREDA— devolvía cero hallazgos.
+      const invariante = /ab\.beginning_balance \+ ab\.debit_total - ab\.credit_total/.test(lc);
+      return invariante
+        ? ok('el cierre barre por el signo y se comprueba, los informes no cuentan el cierre como actividad, y ending_balance ya no es una columna que nadie verifica')
+        : falla('ending_balance volvió a ser invisible para el chequeo del mayor: inyectarle una cifra falsa no daría hallazgo');
     },
   },
 

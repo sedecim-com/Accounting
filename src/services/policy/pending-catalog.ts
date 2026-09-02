@@ -400,6 +400,119 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 50,
   },
   {
+    key: 'informes_asientos_de_cierre',
+    category: 'contable',
+    question:
+      'When a report covers the date the year was closed, do its closing entries count as activity?',
+    impact:
+      'The closing entry is dated at the END of the period it closes — inside the range the income ' +
+      'statement queries. Counting it zeroes the year out: a company with 10,000 in sales prints ' +
+      '«Net income 0.0000». Excluding it from the statement while keeping it in the trial balance is ' +
+      'the only combination where both documents are true at once.',
+    options: [
+      {
+        value: 'estado_sin_cierre_balanza_con_cierre',
+        label: 'Income statement excludes them; the trial balance includes them and says so',
+      },
+      { value: 'excluir_siempre', label: 'No report ever counts them' },
+      { value: 'incluir_siempre_y_advertir', label: 'Every report counts them and warns the range contains a close' },
+    ],
+    defaultValue: 'estado_sin_cierre_balanza_con_cierre',
+    defaultRationale:
+      'The income statement answers «what did the business earn», and the closing entry is not ' +
+      'earnings: it is the act of putting earnings away. The trial balance answers «what do the ' +
+      'books say», and there the entry IS part of the books — hiding it would break the tie with ' +
+      'the general ledger that the Anexo 24 is checked against.',
+    whyAsking:
+      'The entry that closes your year falls inside the range your year-end reports ask for, so I have to know whether to count it.',
+    whatIDo: 'I leave closing entries out of the income statement and keep them in the trial balance.',
+    ifSkipped: 'I exclude them from the statement and include them in the trial balance.',
+    priority: 20,
+  },
+  {
+    key: 'destino_del_resultado_del_ejercicio',
+    category: 'contable',
+    question: 'At year-end close, where does the result go: straight to retained earnings, or through «Result of the Period» first?',
+    impact:
+      'Decides whether the balance sheet can still show what THIS year earned after the close. Sweeping ' +
+      'straight to 3200 merges it with every prior year on the day of the close, before the shareholders ' +
+      'have approved anything.',
+    options: [
+      {
+        value: 'dos_pasos_hasta_asamblea',
+        label: 'Close to «Result of the Period» (3300); a later audited reclassification moves it to Retained Earnings (3200)',
+      },
+      { value: 'directo_a_acumulados', label: 'Close straight to Retained Earnings (3200)' },
+    ],
+    defaultValue: 'dos_pasos_hasta_asamblea',
+    defaultRationale:
+      'Mexican practice keeps the year result separate until the asamblea resolves what to do with it ' +
+      '(dividends, reserva legal, capitalisation) — LGSM art. 19 forbids distributing profits until ' +
+      'losses are absorbed, and that argument needs the year to still be identifiable. The account ' +
+      '3300 already exists in the seeded chart and nothing writes to it.',
+    whyAsking:
+      'After closing December, your balance sheet either still shows what this year earned or folds it into the accumulated total. That is a presentation decision, and it is yours.',
+    whatIDo: 'I close the year into 3300 and leave the move to 3200 as a separate, audited act.',
+    ifSkipped: 'I use the two-step route through «Result of the Period».',
+    priority: 25,
+  },
+  {
+    key: 'cierre_recierre_de_periodo_reabierto',
+    category: 'contable',
+    question: 'If a year-end period that already emitted its closing entry is reopened and closed again, what happens to the first one?',
+    impact:
+      'Today the second close emits a COMPLETE second set of closing entries and nothing removes the ' +
+      'first: retained earnings takes the result twice. `period reopen` made this reachable from the ' +
+      'terminal, so the answer stopped being hypothetical.',
+    options: [
+      {
+        value: 'reversar_y_reemitir',
+        label: 'Reverse the previous closing entry (own folio, audited reason) and emit the close again in full',
+      },
+      { value: 'incremental', label: 'Leave the first close standing; the new one sweeps only what is left' },
+      { value: 'prohibir', label: 'Refuse: a period whose close was emitted is corrected by explicit reclassification, not by closing again' },
+    ],
+    defaultValue: 'reversar_y_reemitir',
+    defaultRationale:
+      'It is the only option that leaves the books stating one truth and shows how they got there: ' +
+      'NIF B-1 corrects by reversal, never by edit, and the reversal is the evidence that the first ' +
+      'close was undone on purpose. «Incremental» would depend on the first close having been right, ' +
+      'which is precisely what a reopening puts in doubt.',
+    whyAsking:
+      'Reopening a closed year means its closing entry is already sitting in the books, and closing again will write a second one. I need to know whether to undo the first or leave it standing.',
+    whatIDo: 'I reverse the previous closing entry with its reason recorded, then close again from scratch.',
+    ifSkipped: 'I reverse and re-emit.',
+    priority: 25,
+  },
+  {
+    key: 'severidad_resultado_sin_barrer',
+    category: 'contable',
+    question: 'If the year-end close finishes and some revenue or expense account still carries a balance, is that a warning or a failure?',
+    impact:
+      'A close that leaves accounts unswept has not closed the year, and the very defect this check ' +
+      'exists to catch —the abs() that doubled returns instead of sweeping them— produced exactly ' +
+      'that: accounts left at twice their balance while the entry itself balanced and every other ' +
+      'indicator read green.',
+    options: [
+      { value: 'bloquear_cierre', label: 'Fail: the hard close rolls back and the period stays open' },
+      { value: 'avisar', label: 'Warn: the close completes and the residue is reported with its remedy' },
+      {
+        value: 'tolerancia',
+        label: "Accept up to the entity's closing tolerance and fail above it",
+      },
+    ],
+    defaultValue: 'bloquear_cierre',
+    defaultRationale:
+      'The close is what makes the year final; a close that half-worked leaves the next year seeded ' +
+      'from wrong opening balances, and by the time anyone notices the statements are signed. ' +
+      'Stopping is recoverable — a wrong opening balance carried forward is not.',
+    whyAsking:
+      'When the close cannot sweep an account to zero, either it stops and tells you or it finishes and hopes you read the warning.',
+    whatIDo: 'I roll the close back and name the accounts that would not sweep.',
+    ifSkipped: 'I refuse to complete a close that leaves results unswept.',
+    priority: 20,
+  },
+  {
     key: 'fuente_tipo_cambio',
     category: 'contable',
     question: 'When I need an exchange rate for a date, which published source do I use?',

@@ -2,6 +2,13 @@ import Decimal from 'decimal.js';
 import { query } from '../../database/connection.js';
 import { ValidationError, NotFoundError } from '../../utils/errors.js';
 import type { BalanceSheetSection, IncomeStatementSection } from '../../types/index.js';
+import {
+  avisoDeCierreEnRango,
+  criterioDeCierreEnInformes,
+  predicadoSinCierre,
+  type AvisoDeCierre,
+  type RangoConsultado,
+} from './criterio-cierre.js';
 
 // ============================================================
 // REPORTING — domain service
@@ -242,7 +249,7 @@ export interface TrialBalanceQueryRow {
   ending_balance: string;
 }
 
-export interface TrialBalanceFilters {
+export interface TrialBalanceFilters extends RangoConsultado {
   /** Activity of ONE fiscal period. Mutually exclusive with the date filters. */
   fiscalPeriodId?: string;
   /** Cumulative: every posted entry up to and including this date. */
@@ -252,6 +259,15 @@ export interface TrialBalanceFilters {
   untilDate?: string;
   /** Roll up to at most this account level. The REST surface defaults it to 5. */
   maxLevel?: number;
+  /**
+   * Pide la balanza EN CRUDO, sin pasar por `informes_asientos_de_cierre`.
+   *
+   * Lo usa el cotejo contra las vistas materializadas, que no saben de
+   * criterios de presentación: si el informe dejara fuera el cierre y la vista
+   * no, el cotejo denunciaría una deriva que no existe. No es una superficie
+   * de informe y por eso no obedece al panel.
+   */
+  ignoreClosingPolicy?: boolean;
 }
 
 /** Builds the `AND …` fragment that lives INSIDE the (jel JOIN je) pair. */
@@ -296,6 +312,17 @@ export async function queryTrialBalanceRows(
   }
   const periodFilter = entryFilter(filters, params, i);
 
+  // El criterio del panel se aplica AQUÍ, donde pasan las tres superficies.
+  // Por omisión la balanza SÍ cuenta los asientos de cierre —es lo que ata la
+  // balanza con el mayor— y quien la publica añade la nota que lo dice.
+  const criterio = filters.ignoreClosingPolicy
+    ? null
+    : await criterioDeCierreEnInformes(entityId);
+  const closingFilter = criterio && !criterio.enBalanza ? predicadoSinCierre() : '';
+  // Unidos sin dejar un hueco cuando uno de los dos falta: los predicados del
+  // par (jel JOIN je) se leen —y se prueban— como una sola cadena.
+  const jeFilters = [periodFilter, closingFilter].filter((p) => p !== '').join(' ');
+
   const result = await query<TrialBalanceQueryRow>(
     `SELECT
       a.id AS account_id,
@@ -309,7 +336,7 @@ export async function queryTrialBalanceRows(
     LEFT JOIN (journal_entry_lines jel
                JOIN journal_entries je
                  ON je.id = jel.journal_entry_id
-                AND je.status = 'posted' ${periodFilter})
+                AND je.status = 'posted' ${jeFilters})
            ON jel.account_id = a.id
     ${where}
     GROUP BY a.id, a.code, a.name, a.account_type
@@ -349,6 +376,12 @@ export interface TrialBalanceReport {
   total: number;
   /** Footed over every matched account, never over the displayed page. */
   totals: TrialBalanceTotals;
+  /**
+   * Presente sólo cuando el rango contiene el cierre del ejercicio. Sin esta
+   * nota, una balanza que lo cuenta y un estado de resultados que no parecen
+   * discrepar, y quien los ata a mano concluye que uno de los dos miente.
+   */
+  closing?: AvisoDeCierre;
 }
 
 export interface TrialBalanceOptions extends TrialBalanceFilters {
@@ -375,7 +408,14 @@ export async function getTrialBalance(
     ? matched.slice(offset)
     : matched.slice(offset, offset + opts.limit);
 
-  return { entity_id: entityId, rows, total: matched.length, totals };
+  const closing = await avisoDeCierreEnRango(entityId, opts, 'trial-balance');
+  return {
+    entity_id: entityId,
+    rows,
+    total: matched.length,
+    totals,
+    ...(closing ? { closing } : {}),
+  };
 }
 
 // ------------------------------------------------------------
@@ -570,6 +610,17 @@ export async function queryIncomeStatementRows(
   entityId: string,
   opts: { startDate: string; endDate: string; include?: IncomeStatementInclude }
 ): Promise<IncomeStatementQueryRow[]> {
+  // EL FILTRO DEL CIERRE, UNA VEZ, DONDE PASAN LAS TRES SUPERFICIES.
+  //
+  // Sin él, un ejercicio con 10 000 de ventas imprime «Net income 0.0000»: el
+  // asiento que barre el resultado va fechado el último día del periodo que
+  // cierra, o sea DENTRO del rango, y cancela exactamente lo que el informe
+  // acaba de sumar. No depende de `include` —ese parámetro decide qué cuentas
+  // se muestran, no qué asientos se cuentan— porque si dependiera, la balanza
+  // del agente y la del REST volverían a contestar cosas distintas.
+  const criterio = await criterioDeCierreEnInformes(entityId);
+  const closingFilter = criterio.enEstadoDeResultados ? '' : predicadoSinCierre();
+
   const having =
     (opts.include ?? 'nonzero-net') === 'any-activity'
       ? `HAVING COALESCE(SUM(COALESCE(jel.debit_amount, 0)), 0) != 0
@@ -585,7 +636,8 @@ export async function queryIncomeStatementRows(
     LEFT JOIN (journal_entry_lines jel
                JOIN journal_entries je
                  ON je.id = jel.journal_entry_id
-                AND je.status = 'posted' AND je.entry_date BETWEEN $2 AND $3)
+                AND je.status = 'posted' AND je.entry_date BETWEEN $2 AND $3
+                ${closingFilter})
            ON jel.account_id = a.id
     WHERE a.entity_id = $1 AND a.is_active = true
       AND a.account_type IN ('revenue', 'expense')
@@ -636,6 +688,8 @@ export interface IncomeStatementReport {
   revenue: IncomeStatementSection;
   expenses: IncomeStatementSection;
   net_income: string;
+  /** Presente sólo cuando el rango contiene el cierre del ejercicio. */
+  closing?: AvisoDeCierre;
 }
 
 export async function getIncomeStatement(
@@ -646,6 +700,11 @@ export async function getIncomeStatement(
   const rows = await queryIncomeStatementRows(entityId, opts);
   const revenue = buildIncomeStatementSection(rows, 'revenue', scale);
   const expenses = buildIncomeStatementSection(rows, 'expense', scale);
+  const closing = await avisoDeCierreEnRango(
+    entityId,
+    { sinceDate: opts.startDate, untilDate: opts.endDate },
+    'income-statement'
+  );
   return {
     entity_id: entityId,
     start_date: opts.startDate,
@@ -653,6 +712,7 @@ export async function getIncomeStatement(
     revenue,
     expenses,
     net_income: new Decimal(revenue.total).minus(new Decimal(expenses.total)).toFixed(scale),
+    ...(closing ? { closing } : {}),
   };
 }
 
@@ -907,10 +967,10 @@ export async function getAgedPayables(
 //
 // La forma que pide el XML XC del SAT (Anexo 24): por cuenta y
 // periodo, el inicial, cada movimiento y el final. El inicial sale de
-// account_balances.beginning_balance — que solo siembra el cierre
-// DURO: en periodos abiertos el campo dice 0 y eso es ausencia de
-// arrastre, no un saldo; la vista lo dice con period_status y con
-// `inicial_confiable` en lugar de fingir.
+// account_balances.beginning_balance — que sólo siembra el cierre DURO
+// del periodo ANTERIOR: mientras ése no cierre, el campo dice 0 y eso
+// es ausencia de arrastre, no un saldo; la vista lo dice con
+// `inicial_confiable` y con `periodo_anterior` en lugar de fingir.
 // ------------------------------------------------------------
 
 export interface AuxiliaryView {
@@ -919,7 +979,13 @@ export interface AuxiliaryView {
   period_name: string;
   period_status: string;
   inicial: string;
+  /**
+   * El inicial es un ACUMULADO ARRASTRADO y no un cero por ausencia de
+   * arrastre. Lo jura el estado del periodo ANTERIOR, no el del consultado.
+   */
   inicial_confiable: boolean;
+  /** Periodo del que tendría que venir el arrastre, y en qué estado está. */
+  periodo_anterior: { period_name: string; status: string } | null;
   movimientos: LedgerQueryRow[];
   /** Movimientos totales del filtro, antes de limit/offset. */
   total_movimientos: number;
@@ -976,6 +1042,30 @@ export async function getAuxiliaryView(
     offset: opts.offset,
   });
 
+  // EL INICIAL LO JURA EL PERIODO ANTERIOR, NO EL CONSULTADO.
+  //
+  // `beginning_balance` sólo lo siembra carryForwardBalances, y eso corre
+  // dentro del cierre DURO del periodo que precede a éste. Mirar el estado
+  // del periodo consultado contestaba otra pregunta: agosto puede estar
+  // 'hard_close' con julio abierto —se cierra fuera de orden más a menudo de
+  // lo que se admite— y entonces el inicial de agosto es 0 por falta de
+  // arrastre, no porque el acumulado sea cero. Al revés también: agosto
+  // abierto con julio cerrado tiene un inicial perfectamente arrastrado que
+  // la vista declaraba dudoso. El XML del Anexo 24 atesta este campo como
+  // verdad, así que aquí una respuesta cómoda es una declaración falsa.
+  //
+  // Sin periodo anterior no hubo arrastre posible, y el inicial no puede
+  // presentarse como acumulado: se declara no confiable en vez de suponer.
+  const anterior = await query<{ period_name: string; status: string }>(
+    `SELECT period_name, status
+       FROM fiscal_periods
+      WHERE entity_id = $1 AND end_date < $2
+      ORDER BY end_date DESC, start_date DESC
+      LIMIT 1`,
+    [entityId, periodo.start_date]
+  );
+  const previo = anterior.rows[0] ?? null;
+
   const inicial = new Decimal(fila?.beginning ?? 0);
   const cargos = new Decimal(fila?.d ?? 0);
   const abonos = new Decimal(fila?.c ?? 0);
@@ -985,7 +1075,8 @@ export async function getAuxiliaryView(
     period_name: periodo.period_name,
     period_status: periodo.status,
     inicial: inicial.toFixed(LEDGER_SCALE),
-    inicial_confiable: periodo.status === 'hard_close' || periodo.status === 'locked',
+    inicial_confiable: previo !== null && (previo.status === 'hard_close' || previo.status === 'locked'),
+    periodo_anterior: previo,
     movimientos,
     total_movimientos: total,
     cargos: cargos.toFixed(LEDGER_SCALE),

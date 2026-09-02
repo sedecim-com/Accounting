@@ -2,11 +2,12 @@ import Decimal from 'decimal.js';
 import { query, withTransaction, currentTenant } from '../../database/connection.js';
 import { getPolicy } from '../policy/policy-service.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
-import { createJournalEntry, attestEntryAsync } from './posting.js';
+import { createJournalEntry, attestEntryAsync, reverseWithinTransaction } from './posting.js';
 import { runLedgerChecks } from './ledger-checks.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
+import { logger } from '../../utils/logger.js';
 import { FiscalPeriodStatus } from '../../types/index.js';
-import type { FiscalPeriod, JournalEntryType } from '../../types/index.js';
+import type { FiscalPeriod, JournalEntry, JournalEntryType } from '../../types/index.js';
 
 // ============================================================
 // EL CHECKLIST DEL CIERRE — casillas con NOMBRE ESTABLE
@@ -682,6 +683,9 @@ export async function hardClosePeriod(
   // Closing entries are created with the transaction's client (atomic with
   // the hard close), so attestation must fire here, AFTER commit.
   const closingEntryIds: string[] = [];
+  let emitidosDelCierre = 0;
+  let reversasDelCierre = 0;
+  let avisosDelCierre: string[] = [];
   const closed = await withTransaction(async (client) => {
     // Verify soft_close
     const periodResult = await client.query<FiscalPeriod>(
@@ -714,9 +718,20 @@ export async function hardClosePeriod(
 
     // Generate closing entries for year-end
     if (isYearEnd.rows[0]?.is_last) {
-      closingEntryIds.push(
-        ...(await generateClosingEntries(client, entityId, periodId, userId, new Date(period.end_date)))
+      const cierre = await generateClosingEntries(
+        client,
+        entityId,
+        periodId,
+        userId,
+        new Date(period.end_date),
+        reason
       );
+      // Los espejos de la reversa también son asientos nuevos: se atestan
+      // igual que los del cierre.
+      closingEntryIds.push(...cierre.ids, ...cierre.reversas);
+      reversasDelCierre = cierre.reversas.length;
+      avisosDelCierre = cierre.avisos;
+      emitidosDelCierre = cierre.ids.length;
     }
 
     // Carry balance-sheet endings into the next period's beginnings.
@@ -743,7 +758,13 @@ export async function hardClosePeriod(
       entityType: 'fiscal_period',
       entityId: periodId,
       oldValues: { status: 'soft_close' },
-      newValues: { status: 'hard_close', closing_entries: closingEntryIds.length },
+      newValues: {
+        status: 'hard_close',
+        closing_entries: emitidosDelCierre,
+        // Sólo cuando hubo: un cierre normal no ensucia el rastro con ceros.
+        ...(reversasDelCierre > 0 ? { closing_reversals: reversasDelCierre } : {}),
+        ...(avisosDelCierre.length > 0 ? { resultados_sin_barrer: avisosDelCierre } : {}),
+      },
       reason,
     });
 
@@ -807,7 +828,17 @@ export async function carryForwardBalances(
      WHERE ab.fiscal_period_id = $2 AND ab.entity_id = $1
        AND a.account_type IN ('asset', 'liability', 'equity',
                               'contra_asset', 'contra_liability', 'contra_equity')
-       AND ab.ending_balance <> 0
+       -- Un final en cero no ESTRENA renglón —no hay acumulado que sembrar—,
+       -- pero sí CORRIGE el que ya exista. Con ending_balance <> 0 a secas,
+       -- la fila quedaba fuera del origen, el ON CONFLICT no llegaba a correr
+       -- y el inicial VIEJO sobrevivía: reabrir junio para cancelar una
+       -- cuenta por cobrar de 3 000 dejaba junio cerrando en 0 y julio
+       -- abriendo en 3 000. Justo la corrección que se reabre a hacer es la
+       -- que no llegaba al mes siguiente.
+       AND (ab.ending_balance <> 0
+            OR EXISTS (SELECT 1 FROM account_balances nb
+                        WHERE nb.account_id = ab.account_id
+                          AND nb.fiscal_period_id = $3))
      ON CONFLICT (account_id, fiscal_period_id)
      DO UPDATE SET
        beginning_balance = EXCLUDED.beginning_balance,
@@ -819,115 +850,352 @@ export async function carryForwardBalances(
   return result.rowCount ?? 0;
 }
 
+// ============================================================
+// EL BARRIDO DEL EJERCICIO — POR SIGNO, NO POR abs()
+//
+// El saldo llega en la convención del mayor: DEUDOR POSITIVO
+// (SUM(debit_total - credit_total)). Barrer una cuenta es asentarla del lado
+// CONTRARIO a su saldo, y eso lo decide el signo — nada más.
+//
+// Por qué abs() parecía funcionar: en la cuenta de naturaleza normal el signo
+// es siempre el mismo (un ingreso tiene saldo acreedor, o sea negativo; un
+// gasto, deudor, positivo), así que «cargar siempre los ingresos y abonar
+// siempre los gastos» acierta por casualidad — el signo era constante y el
+// código no lo miraba.
+//
+// Por qué falla en la contra-natural: la 4400 «Devoluciones sobre Ventas» es
+// revenue de naturaleza DEUDORA y la 5200 «Devoluciones sobre Compras» es
+// expense de naturaleza ACREEDORA. Ahí abs() borra el signo que contradice al
+// tipo de cuenta y asienta del MISMO lado que el saldo: en vez de barrer,
+// DUPLICA —la cuenta queda al doble en lugar de en cero— y el total se infla
+// con lo que debía restar. Con ventas 10 000 y devoluciones 2 000 el ingreso
+// se acumulaba como 12 000.
+//
+// El asiento seguía cuadrando —la línea puente cancelaba el exceso— así que
+// ninguna verificación de cuadre lo veía. La que lo ve es la del residuo:
+// verificarQueElEjercicioBarrio.
+// ============================================================
+
+/** Un saldo de cuenta de resultados, en la convención del mayor. */
+export interface SaldoDeResultados {
+  account_id: string;
+  /** Código de la cuenta; sirve para nombrarla si el barrido la deja con saldo. */
+  code?: string;
+  /** SUM(debit_total - credit_total) del ejercicio: positivo = deudor. */
+  balance: string;
+}
+
+export interface LineaDeCierre {
+  account_id: string;
+  debit_amount: string | null;
+  credit_amount: string | null;
+  description: string;
+}
+
+export interface BarridoDeCierre {
+  lineas: LineaDeCierre[];
+  /**
+   * Suma de los saldos barridos CON SIGNO (deudor positivo), cuatro decimales.
+   * Con abs() esto era la suma de valores absolutos, y una devolución INFLABA
+   * el ingreso en vez de restarlo.
+   */
+  total: string;
+}
+
+/** El asiento que BARRE: el lado contrario al saldo. */
+function lineaQueBarre(accountId: string, balance: Decimal, description: string): LineaDeCierre {
+  return balance.greaterThan(0)
+    ? { account_id: accountId, debit_amount: null, credit_amount: balance.toFixed(4), description }
+    : { account_id: accountId, debit_amount: balance.abs().toFixed(4), credit_amount: null, description };
+}
+
+/**
+ * La línea puente contra la cuenta de enlace: el MISMO lado que el total,
+ * porque es la contrapartida de todo lo que se barrió del lado contrario.
+ */
+function lineaPuente(accountId: string, total: Decimal, description: string): LineaDeCierre {
+  return total.greaterThan(0)
+    ? { account_id: accountId, debit_amount: total.toFixed(4), credit_amount: null, description }
+    : { account_id: accountId, debit_amount: null, credit_amount: total.abs().toFixed(4), description };
+}
+
+/**
+ * Convierte saldos de resultados en las líneas que los dejan en cero, más la
+ * línea puente contra la cuenta de enlace.
+ *
+ * Sirve para los tres tramos del cierre —ingresos contra 3900, gastos contra
+ * 3900 y 3900 contra la cuenta de destino— porque los tres son la misma
+ * operación: asentar lo contrario al saldo y enlazar por el neto.
+ *
+ * Total cero con líneas: legítimo (ventas 10 000 y devoluciones 10 000 se
+ * barren entre sí). No lleva puente y el asiento cuadra igual. El guarda
+ * viejo `greaterThan(0)` acertaba en ese caso por accidente y se volvía un
+ * fallo duro con total NEGATIVO —un ejercicio de sólo devoluciones, o gastos
+ * netos acreedores—: omitía la contrapartida y el asiento salía descuadrado.
+ */
+export function barrerCuentasDeResultados(
+  saldos: ReadonlyArray<SaldoDeResultados>,
+  puente: { account_id: string; descripcionCuenta: string; descripcionPuente: string }
+): BarridoDeCierre {
+  const lineas: LineaDeCierre[] = [];
+  let total = new Decimal(0);
+
+  for (const saldo of saldos) {
+    const balance = new Decimal(saldo.balance);
+    if (balance.isZero()) continue; // una cuenta sin saldo no se barre ni ensucia el asiento
+    lineas.push(lineaQueBarre(saldo.account_id, balance, puente.descripcionCuenta));
+    total = total.plus(balance);
+  }
+
+  if (!total.isZero()) {
+    lineas.push(lineaPuente(puente.account_id, total, puente.descripcionPuente));
+  }
+
+  return { lineas, total: total.toFixed(4) };
+}
+
+/**
+ * Dónde aterriza el resultado del ejercicio, según el panel.
+ *
+ * SOLO el literal 'directo_a_acumulados' funde el año con los anteriores. El
+ * defecto y cualquier valor desconocido van por los dos pasos: la 3300
+ * conserva identificable lo que ESTE ejercicio ganó hasta que la asamblea
+ * resuelva, que es el único camino reversible de los dos.
+ */
+export function codigoDestinoDelResultado(valorDelPanel: string): '3200' | '3300' {
+  return valorDelPanel === 'directo_a_acumulados' ? '3200' : '3300';
+}
+
+export type AccionDeRecierre = 'reversar' | 'incremental' | 'prohibir';
+
+/**
+ * Qué hacer con el cierre YA emitido cuando el periodo se reabrió y se cierra
+ * otra vez.
+ *
+ * Un valor desconocido cae en 'incremental' —barrer lo que quede— y no en
+ * 'reversar': es el único de los tres que no escribe nada por su cuenta, y
+ * partiendo de los saldos vigentes no puede duplicar el resultado. Si el
+ * cierre anterior barrió bien, no queda nada que barrer y no emite líneas.
+ */
+export function accionDeRecierre(valorDelPanel: string): AccionDeRecierre {
+  if (valorDelPanel === 'reversar_y_reemitir') return 'reversar';
+  if (valorDelPanel === 'prohibir') return 'prohibir';
+  return 'incremental';
+}
+
+/**
+ * Qué peso tiene una cuenta de resultados que sobrevive al barrido.
+ *
+ * 'tolerancia' bloquea igual que 'bloquear_cierre': la opción del panel
+ * promete «hasta la tolerancia de cierre de la entidad» y esa cifra NO existe
+ * —`closing_tolerance` es de las sesiones de conciliación, otro dominio—, así
+ * que la tolerancia efectiva es cero. Un valor desconocido AVISA, por el mismo
+ * criterio defensivo de severidadDeLineaSinPartida: un valor raro no congela
+ * el cierre de un despacho.
+ */
+export function severidadDeResultadoSinBarrer(valorDelPanel: string): 'bloquear' | 'avisar' {
+  return valorDelPanel === 'bloquear_cierre' || valorDelPanel === 'tolerancia'
+    ? 'bloquear'
+    : 'avisar';
+}
+
+/** Lo que el cierre anual dejó, para atestar y para el rastro. */
+export interface AsientosDeCierreAnual {
+  /** Los asientos de cierre emitidos. */
+  ids: string[];
+  /** Espejos del cierre anterior, cuando el periodo se reabrió y se recerró. */
+  reversas: string[];
+  /** Cuentas que no barrieron, cuando el panel manda avisar en vez de bloquear. */
+  avisos: string[];
+}
+
 async function generateClosingEntries(
   client: pg.PoolClient,
   entityId: string,
   periodId: string,
   userId: string,
-  periodEndDate: Date
-): Promise<string[]> {
-  // Income Summary (3900 "Resumen de Ingresos y Gastos") and Retained
-  // Earnings (3200 "Resultado de Ejercicios Anteriores").
+  periodEndDate: Date,
+  reason?: string
+): Promise<AsientosDeCierreAnual> {
+  const resultado: AsientosDeCierreAnual = { ids: [], reversas: [], avisos: [] };
+
+  // Income Summary (3900 "Resumen de Ingresos y Gastos"), Retained
+  // Earnings (3200 "Resultado de Ejercicios Anteriores") y Resultado del
+  // Ejercicio (3300, el destino de dos pasos).
   // Resolution is by CODE: both are equity, so matching on account_type
   // picked the SAME account twice and the Income Summary → Retained
   // Earnings entry debited and credited itself. The code must be 3200, not
   // 3100: 3100 is "Capital Social", and sweeping the year's result into
   // share capital both misstates equity and violates NIF C-11 (capital
   // social only moves by formal corporate acts).
+  // Por CÓDIGO y no por ROL a propósito: la taxonomía de roles (AccountRole)
+  // no tiene ninguno de capital —ni resultado, ni acumulados, ni resumen—, y
+  // añadirlo es tocar cfdi-taxonomy, fuera de este alcance.
+  // La 3300 se siembra SIN is_system_account, así que su rama del OR no puede
+  // exigirlo; las otras dos lo conservan.
   const systemAccounts = await client.query<{ id: string; code: string }>(
     `SELECT id, code FROM accounts
-     WHERE entity_id = $1 AND is_system_account = true
-     AND code IN ('3900', '3200')`,
+     WHERE entity_id = $1
+     AND ((is_system_account = true AND code IN ('3900', '3200'))
+          OR code = '3300')`,
     [entityId]
   );
 
   const incomeSummaryId = systemAccounts.rows.find((a) => a.code === '3900')?.id;
   const retainedEarningsId = systemAccounts.rows.find((a) => a.code === '3200')?.id;
-  if (!incomeSummaryId || !retainedEarningsId) return []; // System accounts not set up
+  const resultadoDelEjercicioId = systemAccounts.rows.find((a) => a.code === '3300')?.id;
 
-  const createdIds: string[] = [];
+  // Las tres políticas se leen DENTRO de la transacción del cierre (el
+  // cliente del llamador): getPolicy sin cliente toma una segunda conexión
+  // del pool y el cierre ya tiene la suya tomada y en transacción.
+  //
+  // Se leen ANTES de decidir si hay cuentas puente porque la del residuo
+  // gobierna también el camino en que NO las hay (ver justo debajo).
+  const ctxPanel = { tenantId: await inquilinoDe(client, entityId), entityId };
+  const polDestino = await getPolicy(ctxPanel, 'destino_del_resultado_del_ejercicio', client);
+  const polRecierre = await getPolicy(ctxPanel, 'cierre_recierre_de_periodo_reabierto', client);
+  const polResiduo = await getPolicy(ctxPanel, 'severidad_resultado_sin_barrer', client);
+
+  // SIN CUENTAS PUENTE NO HAY BARRIDO, Y ESO NO ES UN CIERRE.
+  //
+  // Este `return` estaba ANTES de la comprobación de residuo, así que un
+  // catálogo sin la marca de sistema en la 3900 —uno tocado a mano, o
+  // migrado desde otro sistema— hacía que el cierre no emitiera una sola
+  // línea y el periodo pasara igualmente a 'hard_close': el ejercicio entero
+  // sin barrer, sin error y sin aviso, con `closing_entries: 0` como único
+  // vestigio en el rastro. Es exactamente el caso para el que se escribió
+  // severidad_resultado_sin_barrer, y quedaba detrás de la puerta.
+  //
+  // Ahora el residuo decide: un ejercicio sin actividad de resultados cierra
+  // sin ruido, y uno con actividad se detiene nombrando lo que no barrió.
+  if (!incomeSummaryId || !retainedEarningsId) {
+    logger.warn(
+      'Cierre anual: la entidad no tiene resueltas sus cuentas puente (3900 «Resumen de Ingresos y Gastos» y 3200 «Resultado de Ejercicios Anteriores», ambas con is_system_account); no se emite barrido.',
+      { entity_id: entityId, fiscal_period_id: periodId }
+    );
+    await verificarQueElEjercicioBarrio(
+      client,
+      entityId,
+      periodId,
+      polResiduo.value,
+      resultado.avisos
+    );
+    return resultado;
+  }
+
+  // El destino pedido puede no existir en un catálogo antiguo; entonces se
+  // cae a 3200 y se dice, en vez de dejar el cierre sin contrapartida.
+  const codigoPedido = codigoDestinoDelResultado(polDestino.value);
+  if (codigoPedido === '3300' && !resultadoDelEjercicioId) {
+    logger.warn(
+      'Cierre anual: la política pide barrer a 3300 «Resultado del Ejercicio» y la entidad no la tiene en su catálogo; se usa 3200.',
+      { entity_id: entityId, fiscal_period_id: periodId }
+    );
+  }
+  const destinoId =
+    codigoPedido === '3300' ? (resultadoDelEjercicioId ?? retainedEarningsId) : retainedEarningsId;
+  const codigoDestino = destinoId === resultadoDelEjercicioId ? '3300' : '3200';
+  const nombreDestino = codigoDestino === '3300' ? 'Result of the Period' : 'Retained Earnings';
+
+  // 0. EL CIERRE ANTERIOR, SI LO HAY.
+  //
+  // `period reopen` (F06b) hizo alcanzable volver a cerrar un periodo que ya
+  // emitió su cierre. Sin este tramo, el segundo cierre emitía un juego
+  // COMPLETO de asientos y nada retiraba el primero: el resultado entraba dos
+  // veces a capital. Se reconocen por entry_type='closing' + el periodo —el
+  // esquema sí lo permite—, ya posteados y sin espejo previo; el espejo nace
+  // con entry_type='reversing', así que una reversa nunca se toma por cierre.
+  // FOR UPDATE porque reverseWithinTransaction lo exige del llamador.
+  //
+  // El discriminante es el que hay: la ruta REST de pólizas acepta
+  // entry_type='closing' a mano, así que una póliza tecleada como «de cierre»
+  // en el periodo de cierre entra en esta reversa. Se declaró de cierre; se
+  // trata como de cierre. Distinguirlas exigiría marcar el origen del asiento,
+  // que es esquema nuevo y no entra aquí.
+  const cierresPrevios = await client.query<JournalEntry>(
+    `SELECT * FROM journal_entries
+      WHERE entity_id = $1 AND fiscal_period_id = $2
+        AND entry_type = 'closing' AND status = 'posted'
+        AND reversed_by_entry_id IS NULL
+      ORDER BY entry_number
+      FOR UPDATE`,
+    [entityId, periodId]
+  );
+
+  if (cierresPrevios.rows.length > 0) {
+    const accion = accionDeRecierre(polRecierre.value);
+    const numeros = cierresPrevios.rows.map((e) => e.entry_number).join(', ');
+
+    if (accion === 'prohibir') {
+      throw new AccountingError(
+        'CIERRE_YA_EMITIDO',
+        `El periodo ya emitió su cierre (${numeros}) y la política ` +
+          'cierre_recierre_de_periodo_reabierto lo prohíbe volver a cerrar: corrígelo por ' +
+          'reclasificación explícita, o cambia la política en mnemosine pending.'
+      );
+    }
+
+    if (accion === 'reversar') {
+      // Por el camino de la 041: espejo posteado con folio propio y motivo
+      // auditado, jamás una edición del asiento original (NIF B-1).
+      const motivo =
+        `Recierre de periodo reabierto: se reversa el cierre anterior antes de volver a emitirlo` +
+        (reason ? ` · ${reason}` : '');
+      for (const previo of cierresPrevios.rows) {
+        const espejo = await reverseWithinTransaction(
+          client,
+          previo,
+          userId,
+          `Reversal of ${previo.entry_number}: ${motivo}`,
+          periodEndDate
+        );
+        resultado.reversas.push(espejo.id);
+      }
+    }
+    // 'incremental': el cierre anterior se queda en pie y el barrido de abajo
+    // parte de los saldos VIGENTES, así que sólo emite lo que quede.
+  }
 
   // 1. Close Revenue accounts. Balances aggregate over EVERY period of the
   // fiscal year being closed: per-period rows hold activity only (P&L
   // accounts do not carry forward), so closing just the last period (the
   // old query) left the earlier months' P&L unclosed.
-  const revenueAccounts = await client.query<{ id: string; balance: string }>(
-    `SELECT ab.account_id as id,
+  const revenueAccounts = await client.query<SaldoDeResultados>(
+    `SELECT ab.account_id as account_id, a.code,
             SUM(ab.debit_total - ab.credit_total) as balance
      FROM account_balances ab
      JOIN accounts a ON a.id = ab.account_id
      JOIN fiscal_periods fp ON fp.id = ab.fiscal_period_id
-     WHERE a.entity_id = $1 AND a.account_type = 'revenue'
+     WHERE a.entity_id = $1 AND ab.entity_id = $1 AND a.account_type = 'revenue'
      AND fp.fiscal_year_id = (SELECT fiscal_year_id FROM fiscal_periods WHERE id = $2)
-     GROUP BY ab.account_id`,
+     GROUP BY ab.account_id, a.code`,
     [entityId, periodId]
   );
-
-  const closingLines: Array<{
-    account_id: string;
-    debit_amount: string | null;
-    credit_amount: string | null;
-    description: string;
-  }> = [];
-
-  let totalRevenue = new Decimal(0);
-  for (const rev of revenueAccounts.rows) {
-    const balance = new Decimal(rev.balance);
-    if (balance.isZero()) continue;
-
-    closingLines.push({
-      account_id: rev.id,
-      debit_amount: balance.abs().toFixed(4),
-      credit_amount: null,
-      description: 'Close revenue to Income Summary',
-    });
-    totalRevenue = totalRevenue.plus(balance.abs());
-  }
-
-  if (totalRevenue.greaterThan(0)) {
-    closingLines.push({
-      account_id: incomeSummaryId,
-      debit_amount: null,
-      credit_amount: totalRevenue.toFixed(4),
-      description: 'Revenue closed to Income Summary',
-    });
-  }
 
   // 2. Close Expense accounts (same full-fiscal-year aggregation)
-  const expenseAccounts = await client.query<{ id: string; balance: string }>(
-    `SELECT ab.account_id as id,
+  const expenseAccounts = await client.query<SaldoDeResultados>(
+    `SELECT ab.account_id as account_id, a.code,
             SUM(ab.debit_total - ab.credit_total) as balance
      FROM account_balances ab
      JOIN accounts a ON a.id = ab.account_id
      JOIN fiscal_periods fp ON fp.id = ab.fiscal_period_id
-     WHERE a.entity_id = $1 AND a.account_type = 'expense'
+     WHERE a.entity_id = $1 AND ab.entity_id = $1 AND a.account_type = 'expense'
      AND fp.fiscal_year_id = (SELECT fiscal_year_id FROM fiscal_periods WHERE id = $2)
-     GROUP BY ab.account_id`,
+     GROUP BY ab.account_id, a.code`,
     [entityId, periodId]
   );
 
-  let totalExpenses = new Decimal(0);
-  for (const exp of expenseAccounts.rows) {
-    const balance = new Decimal(exp.balance);
-    if (balance.isZero()) continue;
-
-    closingLines.push({
-      account_id: exp.id,
-      debit_amount: null,
-      credit_amount: balance.abs().toFixed(4),
-      description: 'Close expense to Income Summary',
-    });
-    totalExpenses = totalExpenses.plus(balance.abs());
-  }
-
-  if (totalExpenses.greaterThan(0)) {
-    closingLines.push({
-      account_id: incomeSummaryId,
-      debit_amount: totalExpenses.toFixed(4),
-      credit_amount: null,
-      description: 'Expenses closed to Income Summary',
-    });
-  }
+  const barridoIngresos = barrerCuentasDeResultados(revenueAccounts.rows, {
+    account_id: incomeSummaryId,
+    descripcionCuenta: 'Close revenue to Income Summary',
+    descripcionPuente: 'Revenue closed to Income Summary',
+  });
+  const barridoGastos = barrerCuentasDeResultados(expenseAccounts.rows, {
+    account_id: incomeSummaryId,
+    descripcionCuenta: 'Close expense to Income Summary',
+    descripcionPuente: 'Expenses closed to Income Summary',
+  });
+  const closingLines = [...barridoIngresos.lineas, ...barridoGastos.lineas];
 
   // Create closing journal entry (revenue + expenses). Dated at the END of
   // the period being closed — new Date() (the old code) landed them in the
@@ -943,39 +1211,101 @@ async function generateClosingEntries(
       userId,
       { autoPost: true, client }
     );
-    createdIds.push(entry.id);
+    resultado.ids.push(entry.id);
   }
 
-  // 3. Close Income Summary to Retained Earnings
-  const netIncome = totalRevenue.minus(totalExpenses);
-  if (!netIncome.isZero()) {
-    const isProfit = netIncome.greaterThan(0);
+  // 3. Close Income Summary to the destination the panel chose.
+  //
+  // Lo que queda en 3900 tras los dos puentes es la suma de los dos totales
+  // CON SIGNO, en la misma convención deudor-positivo: negativo = saldo
+  // acreedor = UTILIDAD. Barrerlo es el mismo acto que barrer cualquier otra
+  // cuenta, así que va por la misma función — el abs() aparece una sola vez,
+  // DESPUÉS de que el signo eligió el lado, que es donde siempre estuvo bien.
+  const saldoResumen = new Decimal(barridoIngresos.total).plus(barridoGastos.total);
+  if (!saldoResumen.isZero()) {
+    const esUtilidad = saldoResumen.isNegative();
+    const barridoResumen = barrerCuentasDeResultados(
+      [{ account_id: incomeSummaryId, balance: saldoResumen.toFixed(4) }],
+      {
+        account_id: destinoId,
+        descripcionCuenta: 'Close Income Summary',
+        descripcionPuente: `Net ${esUtilidad ? 'income' : 'loss'} to ${nombreDestino}`,
+      }
+    );
     const entry = await createJournalEntry(
       entityId,
       periodEndDate,
       'closing' as JournalEntryType,
-      'Close Income Summary to Retained Earnings',
-      [
-        {
-          account_id: incomeSummaryId,
-          debit_amount: isProfit ? netIncome.toFixed(4) : null,
-          credit_amount: isProfit ? null : netIncome.abs().toFixed(4),
-          description: 'Close Income Summary',
-        },
-        {
-          account_id: retainedEarningsId,
-          debit_amount: isProfit ? null : netIncome.abs().toFixed(4),
-          credit_amount: isProfit ? netIncome.toFixed(4) : null,
-          description: `Net ${isProfit ? 'income' : 'loss'} to Retained Earnings`,
-        },
-      ],
+      `Close Income Summary to ${nombreDestino}`,
+      barridoResumen.lineas,
       userId,
       { autoPost: true, client }
     );
-    createdIds.push(entry.id);
+    resultado.ids.push(entry.id);
   }
 
-  return createdIds;
+  // 4. LA COMPROBACIÓN QUE NO EXISTÍA.
+  //
+  // Nada verificaba que el ejercicio quedara en cero, y por eso el abs()
+  // sobrevivió: el asiento cuadraba, `is_balanced` decía true y las cuentas
+  // quedaban al DOBLE. Esta consulta es la única que lo ve.
+  await verificarQueElEjercicioBarrio(
+    client,
+    entityId,
+    periodId,
+    polResiduo.value,
+    resultado.avisos
+  );
+
+  return resultado;
+}
+
+/**
+ * Tras emitir, ninguna cuenta de resultados del ejercicio puede conservar
+ * saldo. Con 'bloquear_cierre' (el defecto) la excepción revierte la
+ * transacción ENTERA del cierre duro y nombra las cuentas con su saldo.
+ */
+export async function verificarQueElEjercicioBarrio(
+  client: pg.PoolClient,
+  entityId: string,
+  periodId: string,
+  valorDelPanel: string,
+  avisos: string[]
+): Promise<void> {
+  const residuos = await client.query<{ code: string; name: string; balance: string }>(
+    `SELECT a.code, a.name, SUM(ab.debit_total - ab.credit_total)::text as balance
+     FROM account_balances ab
+     JOIN accounts a ON a.id = ab.account_id
+     JOIN fiscal_periods fp ON fp.id = ab.fiscal_period_id
+     WHERE a.entity_id = $1 AND ab.entity_id = $1
+     AND a.account_type IN ('revenue', 'expense')
+     AND fp.fiscal_year_id = (SELECT fiscal_year_id FROM fiscal_periods WHERE id = $2)
+     GROUP BY a.id, a.code, a.name
+     HAVING SUM(ab.debit_total - ab.credit_total) <> 0
+     ORDER BY a.code`,
+    [entityId, periodId]
+  );
+  if (residuos.rows.length === 0) return;
+
+  const detalle = residuos.rows
+    .map((r) => `${r.code} ${r.name}: ${new Decimal(r.balance).toFixed(4)}`)
+    .join('; ');
+
+  if (severidadDeResultadoSinBarrer(valorDelPanel) === 'bloquear') {
+    throw new AccountingError(
+      'RESULTADO_SIN_BARRER',
+      `El cierre no dejó el ejercicio en cero: ${residuos.rows.length} cuenta(s) de resultados ` +
+        `conservan saldo (${detalle}). El cierre se revirtió entero y el periodo sigue abierto: ` +
+        'un saldo que sobrevive al cierre siembra mal el ejercicio siguiente. Si el despacho ' +
+        'prefiere que esto sólo avise, la política es severidad_resultado_sin_barrer.'
+    );
+  }
+
+  const aviso =
+    `El cierre dejó ${residuos.rows.length} cuenta(s) de resultados con saldo (${detalle}): ` +
+    'revisa el barrido antes de firmar los estados del ejercicio.';
+  avisos.push(aviso);
+  logger.warn(aviso, { entity_id: entityId, fiscal_period_id: periodId });
 }
 
 // Need to import pg for the client type
