@@ -46,6 +46,20 @@ const CLI = path.join(RAIZ_REPO, 'src', 'cli', 'mnemosine.ts');
  * a propósito: si alguna empezara a conectarse, el código cambiaría y la
  * prueba lo diría en vez de pasar apoyada en la base de quien la corre.
  */
+/**
+ * Tope para toda prueba que LANZA EL BINARIO como proceso hijo.
+ *
+ * Cada `corre()` arranca un `tsx` entero: en esta máquina tarda ~3 s y en el
+ * corredor de CI bastante más. El tope por omisión de vitest son 5 000 ms, así
+ * que una prueba con dos invocaciones —`completion bash` y `completion zsh`—
+ * revienta por tiempo en CI mientras pasa en local. La batería `it.each` de
+ * abajo ya llevaba su tope de 60 s; sus cuatro hermanas, que lanzan el mismo
+ * proceso hijo veinte líneas más abajo, no. Se arregla la CLASE: el tope vive
+ * en una constante y lo lleva TODA prueba que lance el binario, para que la
+ * siguiente que se escriba lo herede en vez de volver a descubrirlo en rojo.
+ */
+const LANZA_EL_BINARIO = 60_000;
+
 function corre(args: string[]): { status: number; stdout: string; stderr: string } {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemo-exit-'));
   try {
@@ -223,7 +237,7 @@ describe('el binario de verdad sale con el código del contrato', () => {
       const r = corre(args);
       expect(r.status, `stderr:\n${r.stderr}\nstdout:\n${r.stdout.slice(0, 400)}`).toBe(codigo);
     },
-    60_000
+    LANZA_EL_BINARIO
   );
 
   it('el mensaje de commander se imprime UNA vez y sin remedio inventado', () => {
@@ -235,14 +249,14 @@ describe('el binario de verdad sale con el código del contrato', () => {
     // texto interno del envoltorio.
     expect(r.stderr.match(/unknown option/g)).toHaveLength(1);
     expect(r.stderr).not.toContain('commander exit');
-  });
+  }, LANZA_EL_BINARIO);
 
   it('--help sigue imprimiendo la ayuda en stdout, no un error en stderr', () => {
     const r = corre(['--help']);
     expect(r.status).toBe(ExitCode.OK);
     expect(r.stdout).toContain('Usage: mnemosine');
     expect(r.stderr).not.toContain('commander exit');
-  });
+  }, LANZA_EL_BINARIO);
 });
 
 // ── `completion` quedó registrado y responde ─────────────────────────
@@ -263,7 +277,7 @@ describe('mnemosine completion está cableado en el programa', () => {
     // stdout es el guion y nada más: la documentación del comando promete un
     // redirect, y un banner haría el archivo insourceable.
     expect(r.stdout.split('\n')[0].startsWith('#')).toBe(true);
-  });
+  }, LANZA_EL_BINARIO);
 
   it('zsh también, y los dos guiones son distintos', () => {
     const bash = corre(['completion', 'bash']);
@@ -271,7 +285,7 @@ describe('mnemosine completion está cableado en el programa', () => {
     expect(zsh.status).toBe(ExitCode.OK);
     expect(zsh.stdout).toContain('compdef');
     expect(zsh.stdout).not.toBe(bash.stdout);
-  });
+  }, LANZA_EL_BINARIO);
 });
 
 // ── Las hojas de ESTE archivo, derivadas del ÁRBOL y no de su texto ──

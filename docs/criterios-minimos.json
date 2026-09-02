@@ -38,6 +38,8 @@
     "E4.1 · Una conciliación no se declara cuadrada sin postear su diferencia",
     "E4.2 · Postear no dispara el refresco de vistas materializadas",
     "E5.1 · El clasificador tiene vara de medir: golden set con esperado y arnés fijado",
+    "E5.1 · El documento que el agente lee como «el binario exacto» reproduce la ayuda real, con los ejemplos incluidos",
+    "E5.1 · El guion de completado se genera del árbol embarcado entero, y su cuerpo no le devuelve la lista al shell para que la expanda",
     "E5.1 · El presupuesto corta donde nacen las sesiones, y desatendido el tope es tope",
     "E5.1 · La auditoría de consistencia corre contra el binario que se embarca, y su deuda no crece",
     "E5.1 · La calibración se lee del rastro: ai stats por bucket, con delta",
@@ -48,7 +50,9 @@
     "E5.1 · Los importes sobreviven a la compactación por construcción",
     "E5.1 · Los precios del ledger declaran su vigencia, y el reporte la muestra",
     "E5.1 · Ninguna herramienta del agente alcanza el mayor ni ejecuta hacia fuera",
+    "E5.1 · Ninguna hoja del CLI aplasta su código de salida: el catch devuelve el código del contrato, y el error de uso de Commander pasa por la puerta que cierra el pool",
     "E5.1 · Toda hoja del CLI declara su riesgo, así que hay algo sobre lo que aplicar la compuerta",
+    "E5.1 · Todo ejemplo de la ayuda lo acepta el Commander embarcado, en la hoja en cuya ayuda vive, y ninguno enseña la clave legada tax=",
     "E5.1 · Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre"
   ],
   "_f05": "F05 (frontera de banco) subio el piso de 31 a 37 criterios: los seis verdes de E2.1 que nadie protegia. Se anaden aqui porque el arreglo de la frontera bancaria estuvo a punto de regresar uno de ellos —acotaba por `req.entityId` sin montar requireEntityAccess, y acotar por una cabecera que nadie valida no es acotar—. El criterio lo cazo; el piso impide que la proxima vez dependa de que alguien mire.",
