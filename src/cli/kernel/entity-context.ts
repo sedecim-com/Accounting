@@ -22,9 +22,9 @@ import { CliError, ExitCode } from './exit.js';
 // which is project-scoped and may be committed. Which company a
 // bookkeeper is looking at right now is not a fact about the repo.
 //
-// A stored entity that has since been archived or deleted must not
-// crash the next command: we say so, drop the stale pointer, and
-// fall through to normal resolution.
+// Un pin que ya no resuelve no borra la selección ni sigue de
+// largo: falla UNA vez, con el remedio de su causa (conexión →
+// doctor; entidad → entity use), y conserva el pin intacto.
 // ============================================================
 
 interface CliState {
@@ -78,17 +78,46 @@ export interface EntityResolution {
   source: 'flag' | 'env' | 'stored' | 'only';
 }
 
+// Códigos de red de Node y clases de pg que significan «no hay base», no «no
+// hay entidad»: 08* (fallo de conexión), 57P0* (el servidor se fue), 28*
+// (autenticación: el «role postgres does not exist» del primer día) y 3D000
+// (la base nombrada no existe).
+const CODIGOS_DE_CONEXION = new Set([
+  'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT', 'EHOSTUNREACH', 'EPIPE', 'EAI_AGAIN',
+  '08000', '08001', '08003', '08004', '08006', '08P01',
+  '57P01', '57P02', '57P03',
+  '28000', '28P01',
+  '3D000',
+]);
+
+/**
+ * Con la base caída y con la entidad archivada este módulo veía el mismo
+ * catch, y el remedio correcto es opuesto: `entity use` NECESITA la base, así
+ * que sugerirlo ante una conexión caída manda al usuario a otro fallo igual.
+ * Clasifica por el código del error (pg y la capa de red los traen) y, como
+ * red de seguridad, por las firmas de texto que esos errores acarrean.
+ */
+export function esFalloDeConexion(err: unknown): boolean {
+  const codigo = (err as { code?: unknown } | null)?.code;
+  if (typeof codigo === 'string' && CODIGOS_DE_CONEXION.has(codigo)) return true;
+  const mensaje = err instanceof Error ? err.message : String(err);
+  return /conexi|connect|econn|timed?\s?out|terminat|tunnel|\bssl\b|socket|password authentication|role "?[^"\s]+"? does not exist|database .* does not exist|starting up|shutting down/i.test(
+    mensaje
+  );
+}
+
 /**
  * Resolves the entity a command should operate on, under the single
- * precedence rule. `warn` receives any note worth showing the user
- * (a stale stored entity), so this stays free of I/O decisions.
+ * precedence rule. `warn` sigue aceptándose por compatibilidad con todas las
+ * hojas que lo pasan, pero hoy no emite nada: el fallo del pin dejó de ser un
+ * aviso-y-sigue (que duplicaba el error) y ahora lanza una sola vez con el
+ * remedio de su causa.
  */
 export async function resolveActiveEntity(
   opts: { entity?: string } = {},
   deps: { home?: string; warn?: (message: string) => void } = {}
 ): Promise<EntityResolution> {
   const home = deps.home ?? os.homedir();
-  const warn = deps.warn ?? (() => {});
 
   if (opts.entity) return { ctx: await resolveEntity(opts.entity), source: 'flag' };
 
@@ -106,10 +135,25 @@ export async function resolveActiveEntity(
       // mistimed command must not destroy the bookkeeper's selection. A stale
       // pin is an annoyance the user can fix in one command; a silently
       // deleted one is state they cannot get back.
-      warn(
-        `Could not resolve the active entity (${stored}): ${(err as Error).message}\n` +
-          'The selection was kept. Use `mnemosine entity use <id|name>` to change it, ' +
-          'or `mnemosine entity unset` to clear it.'
+      //
+      // Y aquí se TERMINA: antes esta rama avisaba y seguía a resolveEntity(),
+      // que con la base caída fallaba con el MISMO error — el usuario lo leía
+      // dos veces y encima con el remedio de la otra causa. Cada causa lanza
+      // una vez, con su remedio, y el pin queda intacto.
+      const detalle = err instanceof Error ? err.message : String(err);
+      if (esFalloDeConexion(err)) {
+        throw new CliError(
+          `Could not reach the database while resolving the active entity (${stored}): ${detalle}\n` +
+            '  → mnemosine doctor   (and check DATABASE_URL in .env)\n' +
+            'The pinned entity was kept.',
+          ExitCode.FAILURE
+        );
+      }
+      throw new CliError(
+        `The pinned entity (${stored}) could not be resolved: ${detalle}\n` +
+          '  → mnemosine entity use <id|name>   (or `mnemosine entity unset` to clear it)\n' +
+          'The pinned entity was kept.',
+        ExitCode.NOT_FOUND
       );
     }
   }
