@@ -49,15 +49,15 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **215 comandos** repartidos en **57 familias** de primer nivel. De las **1627** filas del catálogo, **200** (12.3 %) ya se pueden invocar.
+El binario ejecuta hoy **217 comandos** repartidos en **58 familias** de primer nivel. De las **1629** filas del catálogo, **203** (12.5 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **257** filas lo declaran completo, **390** a medias y **980** inexistente.
+Del motor que cada comando necesita, **259** filas lo declaran completo, **390** a medias y **980** inexistente.
 
-**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **386** filas, de las que **185** ya se teclean.
+**Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **388** filas, de las que **188** ya se teclean.
 
-**El objetivo comprometible son 1384 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1386 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1627 filas son **1606 rutas únicas**: **16 rutas** están catalogadas en más de una sección (**21** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1629 filas son **1607 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
@@ -78,7 +78,7 @@ Contadas por COMANDO, las 1627 filas son **1606 rutas únicas**: **16 rutas** es
 | `credit-note` | 7 | 5 |
 | `backup` | 5 | 5 |
 
-**2 de 616** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts) y 1 a líneas fuera del archivo.
+**1 de 616** citas `archivo:línea` ya no resuelven — 1 a archivos que se borraron (src/services/integrations/email/sendgrid-adapter.ts).
 
 _Que una cita resuelva no prueba que siga apuntando a lo mismo: sólo que el archivo existe y tiene esa línea. El juicio ✅/🟡/❌ de cada fila es humano y se revisa a mano._
 
@@ -634,6 +634,8 @@ Cubre el ciclo completo *quote-to-cash*: alta y saneamiento del padrón de clien
 | `mnemosine customer credit lock <id>` · `cliente credito bloquear` | Pone `credit_status='on_hold'`: los pedidos nuevos quedan retenidos en `order approve` | `--reason`, `--until` | 🟡 `customers.credit_status` existe con su CHECK (002_ap_ar_schema.sql:180) y el PATCH lo acepta (customers.ts:109), pero ningún flujo lo escribe ni lo consume | escritura | ✗ | 2 |
 | `mnemosine customer credit unlock <id>` · `cliente credito desbloquear` | Vuelve a `approved` — compuerta humana obligatoria, nunca automática | `--reason`, `--yes` | 🟡 mismo campo (002:180), sin flujo | escritura | ✗ | 2 |
 | `mnemosine customer credit history <id>` · `cliente credito historial` | Historial de límites, bloqueos, liberaciones y quién los autorizó | `--since`, `--until`, `--json` | 🟡 `audit_log` sí captura los PATCH de cliente (middleware montado en src/index.ts:178; tabla en 001_core_schema.sql:454) pero sin `old_values`, sin `approver_id` y sin distinguir el campo de crédito | lectura | ✓ | 3 |
+| `mnemosine audit list` · `auditoria listar` | Bitácora de mutaciones: quién, cuándo, sobre qué objeto y qué campos cambiaron. Acota por actor, objeto, acción y ventana | `--actor`, `--object`, `--action`, `--since`, `--until`, `--limit`, `--json` | ✅ **hecha en G3**: `audit_log` (001_core_schema.sql:454) lleva años escribiéndose desde `registrarAuditoria` y NO tenía lectura fuera de psql — darle acceso a un auditor era darle credenciales de escritura. G3 le da la hoja y le añade los tres caminos que cambiaban el destino del dinero sin dejar rastro (`createVendor`, `setAccountRole`, el servicio de cuentas) | lectura | ✓ | 1 |
+| `mnemosine audit show <id>` · `auditoria ver` | Una entrada de la bitácora entera: el valor antes, el valor después y el motivo | `--json` | ✅ **hecha en G3**: la fila completa con sus `old_values`/`new_values` y su `reason`. La tabla es de sólo agregar (033), así que lo que se lee aquí es lo que pasó, no lo que alguien dejó | lectura | ✓ | 1 |
 
 #### Cotizaciones y pedidos de venta
 

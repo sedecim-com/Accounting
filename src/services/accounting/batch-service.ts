@@ -2,8 +2,10 @@ import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { query, withTransaction } from '../../database/connection.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { logger } from '../../utils/logger.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
-import { createJournalEntry, reverseWithinTransaction } from './posting.js';
+import {
+  exigirSegregacion, createJournalEntry, reverseWithinTransaction } from './posting.js';
 import {
   checkDraftDocument,
   resolveDraftLines,
@@ -650,6 +652,29 @@ export async function postBatch(
       ? 'un lote aplicado o descartado ya no tiene nada que aplicar.'
       : 'postear sin verificar es exactamente lo que este flujo existe para impedir — corre `batch check` primero, o usa --partial.'
   );
+
+  // EL SEGUNDO PAR DE OJOS, ANTES DE MOVER NADA (G3).
+  //
+  // Ésta era la CUARTA puerta al mayor. El candado de `posting.ts` compara el
+  // creador del ASIENTO contra quien lo postea, y aquí eso siempre sale
+  // falso: los asientos del lote los crea y los postea el mismo acto. Así que
+  // la comparación que importa —quien IMPORTÓ contra quien APLICA— sólo puede
+  // hacerse aquí, donde consta quién preparó el lote. El candado es el mismo:
+  // se le pasa el creador que a esta puerta le consta, en vez de copiarlo.
+  //
+  // Va antes de proponer para que un lote que no se puede aplicar no gaste
+  // una validación de mil filas en decirlo.
+  const notaSoD = await exigirSegregacion({
+    tenantId: ctx.tenantId,
+    entityId: ctx.entityId,
+    creador: lote.created_by,
+    ejecutor: userId,
+    referencia: `El lote ${batchId}`,
+  });
+  // Con la política en 'alertar' no se bloquea, se anota. La fila de
+  // auditoría del posteo la escribe el motor dentro de su transacción con su
+  // propia nota; aquí, fuera de ella, lo que queda es el aviso al operador.
+  if (notaSoD) logger.warn(`${notaSoD} — lote ${batchId}`);
 
   // Proponer fuera (patrón de match-service): la validación fila por fila lee
   // por el pool. Lo que asuma se recomprueba dentro: createJournalEntry con

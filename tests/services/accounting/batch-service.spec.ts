@@ -11,6 +11,10 @@ vi.mock('../../../src/services/accounting/journal-entry-service.js', () => ({
 vi.mock('../../../src/services/accounting/posting.js', () => ({
   createJournalEntry: vi.fn(),
   reverseWithinTransaction: vi.fn(),
+  // G3: la puerta del lote llama al candado compartido. Devuelve null —sin
+  // nota— porque estas pruebas son de la aplicación del lote, no de la
+  // política; el candado tiene sus propias pruebas de conducta.
+  exigirSegregacion: vi.fn(async () => null),
 }));
 vi.mock('../../../src/services/audit/audit-log.js', () => ({
   registrarAuditoria: vi.fn(),

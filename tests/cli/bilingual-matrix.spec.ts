@@ -60,6 +60,9 @@ const TOP_LEVEL: Record<string, string> = {
   // F06b: la lectura del cierre. `closing` es el proceso; `close` (que ya
   // existía) es el acto. El alias compuesto viene del catálogo.
   closing: 'cierre-proceso',
+  // G3: el rastro que responde «quién cambió qué». `auditoria` sin tilde,
+  // como el resto del vocabulario español del binario.
+  audit: 'auditoria',
   // G1b: el estado de flujos. `cashflow` es UNA palabra en inglés y su alias
   // español es `flujo` a secas — «efectivo» no se repite porque en español el
   // flujo contable ya es de efectivo; el catálogo lo fijó así.

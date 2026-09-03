@@ -5,6 +5,13 @@ import { query, withTransaction } from '../database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../services/accounting/posting.js';
 import { JournalEntryType } from '../types/index.js';
 import { matchApproval, type MatchApprovalOpts } from './approval-policy.js';
+import {
+  sujetoAutenticado,
+  decidirSujeto,
+  autenticacionExigida,
+  avisarIdentidadDeclarada,
+} from '../auth/sujeto-activo.js';
+import { config } from '../config/index.js';
 import type { AgentContext } from './context.js';
 
 // ============================================================
@@ -281,25 +288,101 @@ export interface Reviewer {
 }
 
 /**
- * Resolve the human reviewer for posting: journal_entries.created_by is a
- * user UUID, so approvals are attributed to a real user of the tenant.
- * Without an explicit email, only a single-user tenant resolves — with more
- * users, silently picking one would misattribute the audit trail.
+ * QUIÉN FIRMA ESTA ESCRITURA (G3).
+ *
+ * `journal_entries.created_by` es un UUID de `users`, y de ahí el hecho
+ * pasa a `audit_log.user_id`, que no se puede reescribir (033). Así que
+ * lo que decida esta función queda certificado para siempre.
+ *
+ * Hasta este tramo lo decidía `--user <correo>` y nada más: la bandera
+ * que teclea quien ejecuta el comando. Ahora la identidad la trae la
+ * sesión OIDC —que existía completa y no consumía nadie— y `--user`
+ * queda reducida a lo único que puede hacer honestamente: RESTRINGIR.
+ * Nombrarte a ti mismo se acepta; nombrar a otro se rechaza.
+ *
+ * Sin proveedor de identidad configurado, la bandera sigue siendo la
+ * única identidad que hay y el comportamiento no cambia — pero lo dice
+ * (`avisarIdentidadDeclarada`) en vez de callárselo.
+ *
+ * NO la use quien ya sabe a quién atribuir por otra vía: la aprobación
+ * por política atribuye al humano que la concedió y para eso está
+ * `resolvePolicyGrantor`, que no autentica porque el otorgante no es
+ * quien está delante de la terminal.
  */
 export async function resolveReviewer(tenantId: string, email?: string): Promise<Reviewer> {
-  if (email) {
-    const result = await query<{ id: string; email: string }>(
-      `SELECT id, email FROM users
-       WHERE tenant_id = $1 AND is_active = true AND email = $2
-       LIMIT 1`,
-      [tenantId, email]
-    );
-    if (result.rows.length === 0) {
-      throw new Error(`No active user with email ${email} exists in this tenant`);
-    }
-    return { userId: result.rows[0].id, email: result.rows[0].email };
+  const sesion = await sujetoAutenticado();
+  const elegido = decidirSujeto(sesion, email, {
+    exigeAutenticacion: autenticacionExigida(),
+  });
+
+  if (!elegido.autenticado && email) {
+    avisarIdentidadDeclarada(email);
   }
 
+  // Con sesión se busca primero por el `sub` del proveedor, que no
+  // cambia: el correo sí puede cambiar en el IdP, y atar la atribución a
+  // un dato mutable es cómo se pierde el rastro de una persona que se
+  // casó o cambió de dominio. El correo queda como respaldo para la
+  // identidad todavía no vinculada, que es lo que hace el alta JIT.
+  if (elegido.subject) {
+    const porIdentidad = await query<{ id: string; email: string }>(
+      `SELECT u.id, u.email FROM identities i
+       JOIN users u ON u.id = i.user_id
+       WHERE i.provider = $1 AND i.subject = $2
+         AND u.tenant_id = $3 AND u.is_active = true
+       LIMIT 1`,
+      [config.auth.provider, elegido.subject, tenantId]
+    );
+    if (porIdentidad.rows.length > 0) {
+      return { userId: porIdentidad.rows[0].id, email: porIdentidad.rows[0].email };
+    }
+  }
+
+  if (elegido.email) {
+    return usuarioActivoPorCorreo(tenantId, elegido.email, elegido.autenticado);
+  }
+
+  return unicoUsuarioActivo(tenantId);
+}
+
+/**
+ * El humano que concedió una política de auto-aprobación.
+ *
+ * NO pasa por la sesión, y es deliberado: el otorgante es a quien la
+ * política atribuye, no quien está ejecutando el comando —de hecho lo
+ * normal es que no haya nadie ejecutando nada—. Someterlo a la regla de
+ * `--user` haría que ninguna política aprobara nunca mientras hubiera
+ * una sesión abierta de otra persona.
+ */
+export async function resolvePolicyGrantor(tenantId: string, email: string): Promise<Reviewer> {
+  return usuarioActivoPorCorreo(tenantId, email, false);
+}
+
+async function usuarioActivoPorCorreo(
+  tenantId: string,
+  email: string,
+  autenticado: boolean
+): Promise<Reviewer> {
+  const result = await query<{ id: string; email: string }>(
+    `SELECT id, email FROM users
+     WHERE tenant_id = $1 AND is_active = true AND email = $2
+     LIMIT 1`,
+    [tenantId, email]
+  );
+  if (result.rows.length === 0) {
+    // Con sesión el mensaje es otro problema: te autenticaste bien y no
+    // tienes fila en este inquilino. Decir «no existe ese usuario» ahí
+    // manda a buscar un error de tecleo que no hay.
+    throw new Error(
+      autenticado
+        ? `Tu sesión (${email}) está verificada pero no corresponde a ningún usuario activo de este inquilino; un administrador tiene que darte de alta`
+        : `No active user with email ${email} exists in this tenant`
+    );
+  }
+  return { userId: result.rows[0].id, email: result.rows[0].email };
+}
+
+async function unicoUsuarioActivo(tenantId: string): Promise<Reviewer> {
   const result = await query<{ id: string; email: string }>(
     `SELECT id, email FROM users
      WHERE tenant_id = $1 AND is_active = true
@@ -535,7 +618,7 @@ export async function autoApproveDraftByPolicy(
   // Attribution: journal_entries.created_by must be a real user — the
   // human who granted the policy. If they no longer resolve (deactivated),
   // this fails closed and the draft stays pending.
-  const reviewer = await resolveReviewer(ctx.tenantId, policy.created_by);
+  const reviewer = await resolvePolicyGrantor(ctx.tenantId, policy.created_by);
 
   // Hash binding to the exact content the policy matched.
   const matchedHash = canonicalDraftHash(draft.payload);

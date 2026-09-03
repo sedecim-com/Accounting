@@ -459,17 +459,33 @@ router.post('/publish-aggregates', requirePermission('periods:close'), validateB
 
 // GET /v1/admin/bitcoin/anchors
 router.get('/bitcoin/anchors', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
+  // G3: `is_simulated` va en el SELECT y sale en la respuesta, con la misma
+  // forma que la lista de atestaciones de arriba.
+  //
+  // Aquí NO se rechaza: el administrador tiene derecho a ver el estado real
+  // de su instalación, y una lista vacía le escondería que sí hay anclajes,
+  // sólo que fabricados. Lo que no puede pasar es que los vea sin saberlo:
+  // `status: 'broadcast'` junto a un `bitcoin_txid` de 64 hex se lee como una
+  // transacción de Bitcoin, y hoy es un sha256 del payload y la hora.
   const result = await query(
     `SELECT id, anchor_type, merkle_root, entry_count,
             bitcoin_txid, bitcoin_block_height, confirmations,
-            fee_satoshis, fee_usd, status, broadcast_at, confirmed_at
+            fee_satoshis, fee_usd, status, broadcast_at, confirmed_at,
+            is_simulated
      FROM bitcoin_anchors WHERE tenant_id = $1 OR tenant_id IS NULL
      ORDER BY broadcast_at DESC NULLS LAST, created_at DESC LIMIT 100`,
     [req.user!.tenant_id]
   );
 
+  const simulados = result.rows.filter((r) => (r as { is_simulated: boolean }).is_simulated).length;
+
   res.json({
     data: result.rows,
+    aviso: simulados > 0
+      ? `${simulados} de ${result.rows.length} anclajes de esta página son SIMULADOS: su txid se ` +
+        'fabricó localmente y no existe en Bitcoin. No los publiques como prueba ante un tercero ' +
+        'ni compartas un enlace a un explorador con ellos.'
+      : undefined,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
 }));

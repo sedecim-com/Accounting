@@ -126,6 +126,8 @@ Commands:
                                         takes them out of 1160, month by month
   cashflow|flujo                        Statement of cash flows (NIF B-2 / ASC
                                         230): build it, and tie it to real cash
+  audit|auditoria                       Read the audit trail: who changed what,
+                                        when, and from which value
   backup|respaldo                       Logical backups of the whole
                                         installation (create, list, verify by
                                         rehearsing the restore, restore) and
@@ -1272,6 +1274,7 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --dry-run                validate and report, without writing
+  --reason <text>          why these flags change; recorded in the audit trail
   -h, --help               display help for command
 ```
 
@@ -1419,7 +1422,7 @@ Commands:
   import|importar [options] <file>  Bulk-load a statutory scheme from CSV — the
                                     heaviest setup task of a Mexican firm
   check|verificar [options]         Coverage gate before the Anexo 24 catalog
-                                    XML: which top accounts still lack a mapping
+                                    XML: which accounts still lack a mapping
   help [command]                    display help for command
 ```
 
@@ -1440,8 +1443,8 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --scheme <name>          scheme: sat-agrupador, us-tax-line, ifrs
   --value <v>              the code in that scheme; empty clears the mapping
-  --year <y>               catalog year (not supported yet: the versioned
-                           c_CodAgrup catalog does not exist)
+  --year <y>               fiscal year whose SAT catalog validates the code
+                           (default: today's)
   --dry-run                validate and report, without writing
   -h, --help               display help for command
 ```
@@ -1499,7 +1502,7 @@ Options:
 ```
 Usage: mnemosine account map check|verificar [options]
 
-Coverage gate before the Anexo 24 catalog XML: which top accounts still lack a
+Coverage gate before the Anexo 24 catalog XML: which accounts still lack a
 mapping
 
 Options:
@@ -1514,7 +1517,7 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --check <names>                          named checks to run (available: coverage; empty lists them) (default: "coverage")
   --scheme <name>                          scheme to verify (default: "sat-agrupador")
-  --level <n>                              deepest account level required to be mapped (default: "2")
+  --level <n>                              retired: the gate no longer measures by account level
   -h, --help                               display help for command
 ```
 
@@ -1533,6 +1536,8 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  --reason <text>          why the account comes back into service; recorded in
+                           the audit trail
   -h, --help               display help for command
 ```
 
@@ -5027,7 +5032,7 @@ Print the offending rows of one check (ids, amounts, dates) and the exact
 command that fixes it
 
 Arguments:
-  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, trial-balance, ledger-integrity, rep-parked, rep-missing
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -5380,6 +5385,73 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --show-candidates                        list the journal lines that most likely explain the residue (suspects, not a verdict)
+  -h, --help                               display help for command
+```
+
+## `mnemosine audit` (alias: auditoria)
+
+```
+Usage: mnemosine audit|auditoria [options] [command]
+
+Read the audit trail: who changed what, when, and from which value
+
+Options:
+  -h, --help               display help for command
+
+Commands:
+  list|listar [options]    Audit trail of mutations: who, when, which object,
+                           and which fields changed
+  show|ver [options] <id>  One audit entry in full: the value before, the value
+                           after, and the reason
+  help [command]           display help for command
+```
+
+### `mnemosine audit list` (alias: listar)
+
+```
+Usage: mnemosine audit list|listar [options]
+
+Audit trail of mutations: who, when, which object, and which fields changed
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       only entries written by this user (email); this command attributes nothing
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --since <date>                           inclusive lower bound on the entry timestamp (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound on the entry timestamp (YYYY-MM-DD)
+  --actor <who>                            human | agent | agent:<session> (see the note on --actor agent)
+  --action <name>                          one of: create, update, delete, post, void, approve, close, reopen
+  --object [family]                        object family: ledger, period, bank, ar, ap, asset, fiscal; with no value, lists them
+  --entity-type <name>                     exact audit_log.entity_type value, when the family is not enough
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -h, --help                               display help for command
+```
+
+### `mnemosine audit show` (alias: ver)
+
+```
+Usage: mnemosine audit show|ver [options] <id>
+
+One audit entry in full: the value before, the value after, and the reason
+
+Arguments:
+  id                                       audit_log row id (the id column of `audit list`)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       only entries written by this user (email); this command attributes nothing
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
   -h, --help                               display help for command
 ```
 

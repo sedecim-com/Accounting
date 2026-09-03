@@ -1013,7 +1013,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.1',
-    enunciado: 'El maker-checker vive en el panel y muerde solo la póliza manual',
+    enunciado: 'El maker-checker vive en el panel, en UN candado que todas las puertas al mayor atraviesan',
     mutantes: [
       {
         archivo: 'src/services/accounting/posting.ts',
@@ -1034,14 +1034,41 @@ export const CRITERIOS: Criterio[] = [
       if (!/key: 'segregacion_de_funciones'/.test(panel) || !/'exigir'/.test(panel)) {
         return falla('la clave segregacion_de_funciones salió del panel: la decisión §5 vuelve a estar diferida tácitamente');
       }
+      // G3 REESCRIBIÓ ESTE CRITERIO, y el porqué importa. Antes anclaba la
+      // forma `!entry.source_type && entry.created_by === userId` DENTRO de
+      // postJournalEntry, o sea el candado escrito inline en una puerta. Con
+      // eso en verde, `POST /v1/journal-entries {"auto_post":true}` y su
+      // gemelo de GraphQL posteaban SIN consultar la política: el criterio
+      // vigilaba una puerta mientras otras dos quedaban abiertas. Ahora el
+      // candado es UNO —`autorizarPosteo`— y lo atraviesan todas; anclarlo
+      // aquí es lo que impide volver a copiarlo, que es como se abrieron.
       const p = codigoDe('src/services/accounting/posting.ts');
-      const iPost = p.indexOf('export async function postJournalEntry');
-      const tramo = iPost >= 0 ? p.slice(iPost, p.indexOf('export', iPost + 10)) : '';
-      if (!/!entry\.source_type && entry\.created_by === userId/.test(tramo)) {
-        return falla('la compuerta perdió su forma (manual + coincidencia): o muerde a nómina/reversas o dejó de morder');
+      if (!/async function autorizarPosteo/.test(p)) {
+        return falla('el candado de segregación dejó de estar extraído: copiado en cada puerta, en seis meses dirán cosas distintas y alguna no dirá nada');
       }
-      if (!/politica\.value === 'exigir'/.test(tramo) || !/SOD_QUIEN_CREA_NO_POSTEA/.test(tramo)) {
-        return falla('el lector dejó de comparar contra el literal exigir o perdió su código de dominio');
+      // Y EL LOTE TIENE SU PROPIA PUERTA, con el mismo candado. Era la
+      // CUARTA: la misma persona hacía `entry import` + `batch post` sin
+      // segundo par de ojos mientras `entry create` + `entry post` sí se lo
+      // pedía. No se arregló eximiendo menos en el motor —ahí created_by y
+      // posted_by son la misma persona POR CONSTRUCCIÓN, los escribe el mismo
+      // acto, así que la comparación sale trivialmente falsa— sino pasándole
+      // al candado el creador que a esa puerta le consta: quien IMPORTÓ.
+      if (!/export async function exigirSegregacion/.test(p)) {
+        return falla('el núcleo del candado dejó de compartirse: la puerta del lote tendría que copiarlo, y una copia dice lo mismo hoy y otra cosa en seis meses');
+      }
+      if (!/exigirSegregacion\(\{/.test(codigoDe('src/services/accounting/batch-service.ts'))) {
+        return falla('el lote importado volvió a aplicarse sin segundo par de ojos: quien importa puede aplicar, y es el camino que más asientos mueve de una vez');
+      }
+      // Se CUENTAN las dos lecturas del literal —la del núcleo compartido y
+      // la del candado del asiento—: son gemelas textuales, y un mutante que
+      // cambie una deja la otra en pie, así que la presencia seguiría siendo
+      // cierta con media compuerta muerta.
+      const lecturasDelLiteral = (p.match(/politica\.value === 'exigir'/g) ?? []).length;
+      if (lecturasDelLiteral !== 2 || !/SOD_QUIEN_CREA_NO_POSTEA/.test(p)) {
+        return falla(
+          `el lector dejó de comparar contra el literal exigir en ${2 - lecturasDelLiteral} de sus dos sitios, ` +
+            'o perdió su código de dominio: la política existiría sin morder'
+        );
       }
       if (!/'SOD_QUIEN_CREA_NO_POSTEA'/.test(codigoDe('src/cli/entry-command.ts'))) {
         return falla('el rechazo SoD dejó de salir como BLOQUEADO (5): se leería como entrada inválida');
@@ -1054,7 +1081,7 @@ export const CRITERIOS: Criterio[] = [
       const doctor = codigoDe('src/ai/doctor-service.ts');
       return /checkSoDViolations\(permisos\)/.test(doctor) &&
         /checks\.push\(await checkPermisosEnConflicto\(\)\)/.test(doctor)
-        ? ok('panel + lector en el motor (solo manual), salida bloqueada, y la composición de permisos vigilada en doctor')
+        ? ok('panel + UN candado que todas las puertas atraviesan (incluido el lote), salida bloqueada, y la composición de permisos vigilada en doctor')
         : falla('checkSoDViolations volvió a quedarse sin consumidor o el check salió de runDoctor');
     },
   },

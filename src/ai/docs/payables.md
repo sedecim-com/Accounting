@@ -1,6 +1,7 @@
 # Accounts payable (vendors and received invoices)
 
 ## Vendors
+- Creating a vendor leaves an audit row (G3): who, when, and which fields — bank details never travel into `audit_log`, not even already-encrypted, because that table is append-only (033) and a CLABE that lands there does not come out even by rotating the key; what is recorded is `bank_details_on_file: true`.
 - Data: vendor_number (V-...), company_name, tax_id (RFC/EIN), terms, default expense account, is_1099_vendor flag (USA), bank data ENCRYPTED (account/CLABE/routing — you will never see them in the clear).
 - YOU: search_vendors. Human: POST/PATCH /v1/vendors.
 

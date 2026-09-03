@@ -90,7 +90,7 @@
     "system.md"
   ],
   "hashes": {
-    "src/services/accounting/posting.ts": "1e0f611c0d85f9902f0333b41c7e2402f0e3144a",
+    "src/services/accounting/posting.ts": "5c6b9fdcc0730f79591295b529912403d15ac835",
     "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
     "src/services/accounting/fiscal-calendar-service.ts": "b6ac67a12cbd54dd417d0738d6cd25414e0a0f2a",
     "src/cli/entry-command.ts": "acd3adffdfdec732345f909d78ef085c1a5544fa",
@@ -106,7 +106,7 @@
     "src/ai/tools/external-tools.ts": "283948b7b85553aff42f03cf69f59c932859b567",
     "src/services/integrations/accounting/contalink-adapter.ts": "26f1f237d951a438adfc9e3d0430c316ff762f2b",
     "src/services/ap/bill-service.ts": "28d1ab2eaf5c8a2c30be2f073b450b60d0f2ded6",
-    "src/services/ap/vendor-service.ts": "266636a0d6b50c28994e3f2a373cca5b1f628361",
+    "src/services/ap/vendor-service.ts": "b01bd9bd640ae52901d5f5cc776afa7a26d7fa8b",
     "src/services/payments/payment-service.ts": "1e4bfe07dd9e487b10a44da38ca68cce130a73f7",
     "src/services/banking/bank-statement-service.ts": "703ef03b34cb02c17980761ee25e3cd0b9ad9aa5",
     "src/services/banking/statement-checks.ts": "54a4b54f11f557740ccda5c25f5cef304ba8415e",
