@@ -123,6 +123,11 @@ const TOP_LEVEL: Record<string, string> = {
   jobs: 'tareas',
   skills: 'habilidades',
   webhooks: 'ganchos',
+  // El guion de completado del shell. `completion` ya estaba reservado en
+  // OBJECTLESS_COMMANDS y no existía; el alias lo fija el registro
+  // (docs/cli-command-registry.md §2.12: `completion`·`completado`), no el
+  // gusto de quien lo registra.
+  completion: 'completado',
 };
 
 const SUBCOMMANDS: Record<string, Record<string, string>> = {

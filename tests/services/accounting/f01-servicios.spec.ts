@@ -108,7 +108,7 @@ describe('setAccountGovernance — el CHECK de la 001, antes del UPDATE', () => 
 
 describe('resolverEsquema — sin columna se rechaza, no se finge', () => {
   it('mapea los esquemas con columna y rechaza el resto con mensajes distintos', () => {
-    // F07a: el agrupador se mudó a su propia columna con la 060. Antes esto
+    // F07a: el agrupador se mudó a su propia columna con la 063. Antes esto
     // decía mx_nif_code, que es el código de PRESENTACIÓN bajo NIF.
     expect(resolverEsquema('sat-agrupador')).toBe('codigo_agrupador_sat');
     expect(resolverEsquema('us-tax-line')).toBe('us_gaap_code');

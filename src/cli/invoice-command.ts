@@ -169,6 +169,86 @@ export function dueDateFromTerms(terms: string | null | undefined, invoiceDate: 
   return base.toISOString().slice(0, 10);
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// El separador de `--line` de esta familia es el PUNTO Y COMA —una
+// descripción con coma es normal, con punto y coma no— y su `tax=` es una
+// TASA en por ciento, no un monto: el de `bill` es el monto. Las dos cosas
+// son la brecha H3, y por eso cada ejemplo se escribe entero en vez de
+// remitir a otro comando.
+//
+// Las cuentas son códigos del catálogo base real (chart-seed.ts): 4100
+// Ventas, 4200 Ingresos por Servicios. Prosa en inglés (idioma del nodo),
+// datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  list: `
+Examples:
+  # Open invoices of one customer that are at least 30 days past due.
+  mnemosine invoice list --customer "Grupo Alameda" --overdue-days 30
+  # Everything sent in July 2026, as CSV.
+  mnemosine invoice list --period 2026-07 --status sent --format csv
+`,
+  show: `
+Examples:
+  # The invoice with its lines, the cash applied and its ledger entry.
+  mnemosine invoice show INV-2026-00042
+  # As JSON, for a script that reads amount_due.
+  mnemosine invoice show INV-2026-00042 --json
+`,
+  create: `
+Examples:
+  # One service line at 16% IVA. Inside --line the pairs are separated by
+  # SEMICOLONS, and tax= is a RATE in percent — 16 means 16%, not 16 pesos.
+  mnemosine invoice create --customer "Grupo Alameda" --date 2026-07-15 --line "account=4200;qty=1;price=85000.00;tax=16;description=Servicios contables julio"
+  # Goods and services on one document, against the customer's purchase order.
+  mnemosine invoice create --customer "Grupo Alameda" --po-number OC-2026-118 --line "account=4100;qty=10;price=1250.00;tax=16" --line "account=4200;qty=1;price=32000.00;tax=16"
+`,
+  issue: `
+Examples:
+  # Post DR receivable / CR revenue / CR IVA. It does not stamp and does not send.
+  mnemosine invoice issue INV-2026-00042
+  # See the entry it would post, writing nothing.
+  mnemosine invoice issue INV-2026-00042 --dry-run
+`,
+  void: `
+Examples:
+  # Void a local invoice and reverse its ledger entry. --reason is required.
+  mnemosine invoice void INV-2026-00042 --reason "Emitida al cliente equivocado"
+  # See what would be reversed before deciding.
+  mnemosine invoice void INV-2026-00042 --dry-run
+`,
+  edit: `
+Examples:
+  # Move the due date of a DRAFT and correct its memo.
+  mnemosine invoice edit INV-2026-00043 --due-date 2026-08-30 --memo "Vence a 45 dias por convenio"
+  # Replace ALL the lines of the draft: what you pass IS the invoice.
+  mnemosine invoice edit INV-2026-00043 --line "account=4200;qty=1;price=92000.00;tax=16"
+`,
+  delete: `
+Examples:
+  # Delete a DRAFT that never reached the ledger; the folio stays as an explained gap.
+  mnemosine invoice delete INV-2026-00043 --reason "Capturada por duplicado"
+  # See the gap it would leave, writing nothing.
+  mnemosine invoice delete INV-2026-00043 --dry-run
+`,
+  seriesList: `
+Examples:
+  # Each folio counter, the last number issued and the next one.
+  mnemosine invoice series list
+  # The same, as JSON, for the numbering audit.
+  mnemosine invoice series list --json
+`,
+  seriesCheck: `
+Examples:
+  # Report the gaps in the folio series; an explained gap is not a finding.
+  mnemosine invoice series check
+  # Only fiscal 2026, and fail (exit 4) even when every gap is explained.
+  mnemosine invoice series check --year 2026 --strict
+`,
+} as const;
+
 export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDeps): void {
   const invoice = program
     .command('invoice')
@@ -246,6 +326,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     .option('--customer <ref>', 'only this customer (number, name or id)')
     .option('--overdue-days <n>', 'only open invoices at least this many days past due');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action((search: string | undefined, opts: CommonOpts & { customer?: string; overdueDays?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -326,6 +407,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     .description('Show one invoice with its lines, the cash applied and its ledger entry');
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -431,6 +513,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     .option('--po-number <text>', 'the customer purchase order this bills against')
     .option('--json', 'JSON output');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'invoices + invoice_lines (draft)' });
+  create.addHelpText('after', EJEMPLOS.create);
   create.action(
     (
       opts: CommonOpts & {
@@ -537,6 +620,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     risk: 'irreversible',
     writes: 'journal_entries + account_balances + invoices.status',
   });
+  issue.addHelpText('after', EJEMPLOS.issue);
   issue.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await writeEntityOf(opts);
@@ -634,6 +718,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     risk: 'irreversible',
     writes: 'invoices.status + a reversing journal_entry',
   });
+  voidCmd.addHelpText('after', EJEMPLOS.void);
   voidCmd.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await writeEntityOf(opts);
@@ -712,6 +797,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     .option('--po-number <text>', 'new purchase order reference')
     .option('--json', 'JSON output');
   declareRisk(edit, { risk: 'escritura', agent: false, writes: 'invoices + invoice_lines (draft only)' });
+  edit.addHelpText('after', EJEMPLOS.edit);
   edit.action(
     (
       ref: string,
@@ -797,6 +883,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     risk: 'irreversible',
     writes: 'invoices + invoice_lines (hard delete, audit-logged)',
   });
+  del.addHelpText('after', EJEMPLOS.delete);
   del.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await writeEntityOf(opts);
@@ -855,6 +942,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     .description('List the folio counters, the last number issued and the next one');
   withOutput(withSelection(withContext(seriesList)));
   declareRisk(seriesList, { risk: 'lectura', agent: true });
+  seriesList.addHelpText('after', EJEMPLOS.seriesList);
   seriesList.action((opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -890,6 +978,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
     .option('--year <year>', 'only this fiscal year of the series')
     .option('--strict', 'exit 4 even when every gap is explained');
   declareRisk(seriesCheck, { risk: 'lectura', agent: true });
+  seriesCheck.addHelpText('after', EJEMPLOS.seriesCheck);
   seriesCheck.action((opts: CommonOpts & { year?: string; strict?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);

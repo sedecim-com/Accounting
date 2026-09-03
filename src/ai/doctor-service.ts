@@ -8,6 +8,12 @@ import { isLocalHost, defaultSslMode } from '../database/ssl.js';
 import { DB_PROVIDERS } from '../database/providers.js';
 import { listProfiles } from './providers/config.js';
 import { scanOrphans, type Orphan } from './orphan-scan.js';
+import {
+  detectMemoryConflicts,
+  detectPolicyContradictions,
+  detectStrandedMemory,
+  digestCoverage,
+} from './memory-service.js';
 
 // ============================================================
 // DOCTOR — health diagnostics
@@ -59,6 +65,14 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(await checkPermisosEnConflicto());
     checks.push(await checkReopenedPeriods());
     checks.push(await checkPendingWork());
+    // La memoria del despacho, después del trabajo pendiente porque es la
+    // otra mitad del lazo del agente: lo que está por decidir y lo que ya se
+    // decidió. Las tres van juntas y en este orden — primero el criterio que
+    // se contradice, luego el que no llega al prompt, luego el que choca con
+    // el panel — que es el orden en que hacen daño.
+    checks.push(await checkMemoryConflicts());
+    checks.push(await checkMemoryVisibility());
+    checks.push(await checkMemoryAgainstPolicies());
     checks.push(await checkCredentials(deps.now ?? new Date()));
   }
   checks.push(checkModelProvider(deps.cwd));
@@ -1158,5 +1172,176 @@ export async function checkRolAuditor(): Promise<CheckResult> {
     level: 'ok',
     detail:
       `sólo lectura sobre ${legibles} tablas aisladas, NOLOGIN y sujeto a la RLS${nota}`,
+  };
+}
+
+// ============================================================
+// HIGIENE DE LA MEMORIA (A5·2)
+//
+// La memoria del despacho es la única parte del sistema que CRECE sola y a
+// la que nadie vigilaba. Se cuelga de doctor y copia su modelo: enumerar
+// todo aunque el anterior falle, separar el fallo del aviso, y dar el
+// comando exacto del remedio en vez del síntoma.
+//
+// Son TRES comprobaciones y no una, porque son tres enfermedades distintas
+// con tres remedios distintos:
+//
+//  1. `Memory conflicts` — dos criterios visibles peleándose la misma
+//     decisión. El modelo ve los dos y elige uno sin decir cuál.
+//  2. `Memory in the prompt` — criterios que existen y que el modelo NO ve:
+//     los que caen fuera del recorte del digest y los que cuelgan de una
+//     entidad desactivada. Misma enfermedad en dos estadios, un solo
+//     renglón.
+//  3. `Memory vs policy panel` — un precedente reabriendo por la puerta de
+//     atrás una decisión que el panel ya cerró por la de delante.
+//
+// NINGUNA es 'fail', y no es pereza: 'fail' significa en este archivo «el
+// sistema no puede operar», y con la memoria contradictoria el sistema opera
+// —mal, pero opera—, igual que `Segregación de funciones` o `Reopened
+// periods`, que son avisos por la misma razón. Poner en rojo, y en código de
+// salida 1, una instalación que trabaja es lo que enseña a la gente a
+// ignorar doctor.
+//
+// Y ninguna RESUELVE nada: doctor detecta e imprime el comando; quien
+// decide cuál criterio manda es el humano.
+// ============================================================
+
+/** Recorta una respuesta para que quepa en un renglón sin perder lo que dice. */
+const recorte = (s: string, n = 60): string =>
+  s.length <= n ? s : `${s.slice(0, n - 1)}…`;
+
+export async function checkMemoryConflicts(): Promise<CheckResult> {
+  // `{}` = todas las entidades, ESCRITO. doctor no tiene contexto de entidad
+  // y las quiere todas; el CLI sí lo tiene y acota. La diferencia entre las
+  // dos llamadas tiene que verse, no deducirse de un argumento que falta.
+  const { conflicts, scanned } = await detectMemoryConflicts({});
+
+  if (conflicts.length === 0) {
+    return {
+      name: 'Memory conflicts',
+      level: 'ok',
+      // El denominador va siempre: cero conflictos sobre cero memoria no es
+      // un certificado de buena salud.
+      detail:
+        scanned === 0
+          ? 'no active precedents yet'
+          : `${scanned} active precedent(s), none competing for the same decision`,
+    };
+  }
+
+  const muestra = conflicts.slice(0, 3).map((c) => {
+    const via = c.scope === 'topic' ? 'topic' : 'same question';
+    const dichos = c.answers.slice(0, 3).map((a) => `"${recorte(a)}"`).join(' vs ');
+    return `${c.entityName} · ${via} "${recorte(c.key, 40)}" → ${dichos}`;
+  });
+
+  return {
+    name: 'Memory conflicts',
+    level: 'warn',
+    detail:
+      `${conflicts.length} decision(s) with contradicting precedents, out of ${scanned} active: ` +
+      muestra.join('; ') +
+      (conflicts.length > 3 ? ` … (+${conflicts.length - 3})` : '') +
+      ' — the model reads them from the same memory and applies one without saying which. ' +
+      '(If one of them also fell past the digest cut, see "Memory in the prompt".)',
+    fix:
+      'mnemosine memory --conflicts --entity <entity>  → decide which one stands and retire the ' +
+      'other: mnemosine memory retire <id> --reason "<why it no longer applies>"',
+  };
+}
+
+export async function checkMemoryVisibility(): Promise<CheckResult> {
+  const entidades = await query<{ id: string; name: string }>(
+    `SELECT id, name FROM legal_entities WHERE is_active = true ORDER BY name`
+  );
+
+  const fuera: string[] = [];
+  let activos = 0;
+  let vistos = 0;
+  // TODAS las entidades activas, hasta el final. En un despacho con varias,
+  // parar en la primera desbordada dejaría al resto sin avisar — y el aviso
+  // no dice «hay una»: dice cuántos precedentes no llegan al prompt.
+  for (const e of entidades.rows) {
+    if (!e.id) continue;
+    // El digest se lee POR SU FUNCIÓN Y SIN ARGUMENTOS: si mañana cambia el
+    // recorte o el presupuesto, esta medida cambia con él en vez de mentir
+    // sobre un digest que ya no existe. `digestCoverage` ya no admite un
+    // presupuesto propio, justamente para que aquí no se pueda medir uno que
+    // ninguna sesión recibe.
+    const c = await digestCoverage({ entityId: e.id });
+    activos += c.active;
+    vistos += c.visible;
+    if (c.hidden > 0) {
+      fuera.push(`${e.name}: ${c.hidden} of ${c.active} past the digest cut (max ${c.maxEntries})`);
+    }
+  }
+
+  const varados = await detectStrandedMemory();
+  const varadosTotal = varados.reduce((n, v) => n + v.count, 0);
+
+  if (fuera.length === 0 && varadosTotal === 0) {
+    return {
+      name: 'Memory in the prompt',
+      level: 'ok',
+      detail: `${vistos} of ${activos} active precedent(s) ride in every session's digest`,
+    };
+  }
+
+  const partes: string[] = [];
+  if (fuera.length > 0) {
+    // El mismo trato que en `Memory conflicts`: se enseñan tres y se DICE
+    // cuántas quedan detrás. Cortar en tres sin decirlo esconde entidades
+    // desbordadas justo en el renglón que existe para no esconderlas.
+    partes.push(
+      fuera.slice(0, 3).join('; ') + (fuera.length > 3 ? ` … (+${fuera.length - 3})` : '')
+    );
+  }
+  if (varadosTotal > 0) {
+    partes.push(
+      `${varadosTotal} precedent(s) anchored to a deactivated entity (${varados
+        .slice(0, 3)
+        .map((v) => `${v.entityName}×${v.count}`)
+        .join(', ')}) — no session can ever load them`
+    );
+  }
+
+  return {
+    name: 'Memory in the prompt',
+    level: 'warn',
+    detail:
+      `${partes.join('; ')} — those criteria stop applying by default; the model only sees them ` +
+      'if it happens to run search_precedents',
+    fix:
+      'mnemosine memory --entity <entity> --all  → retire what no longer applies ' +
+      '(mnemosine memory retire <id> --reason "<why>") so the criteria that do apply fit in the digest',
+  };
+}
+
+export async function checkMemoryAgainstPolicies(): Promise<CheckResult> {
+  const choques = await detectPolicyContradictions({});
+  if (choques.length === 0) {
+    return {
+      name: 'Memory vs policy panel',
+      level: 'ok',
+      detail: 'no precedent contradicts a decision already answered in the panel',
+    };
+  }
+  const muestra = choques
+    .slice(0, 3)
+    .map(
+      (c) =>
+        `${c.entityName} · ${c.policyKey} answered "${c.resolvedValue}" but a precedent says ` +
+        `"${recorte(c.precedentAnswer)}" (${c.namedInstead.join(', ')})`
+    );
+  return {
+    name: 'Memory vs policy panel',
+    level: 'warn',
+    detail:
+      `${choques.length} precedent(s) reopening a decision the panel already closed: ` +
+      muestra.join('; ') +
+      (choques.length > 3 ? ` … (+${choques.length - 3})` : ''),
+    fix:
+      'Either correct the precedent (mnemosine memory correct <id> "<answer>") or change the ' +
+      'decision where decisions live: mnemosine pending  — but not both saying different things',
   };
 }

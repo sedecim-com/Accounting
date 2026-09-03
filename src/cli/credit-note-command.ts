@@ -82,6 +82,53 @@ interface CommonOpts {
 const MONEY = ['total_amount', 'subtotal', 'tax_amount', 'amount_applied', 'amount_available'];
 
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// `--amount` es el SUBTOTAL del crédito y `--tax` su IVA: son dos importes,
+// no uno con impuesto incluido. Ligar la nota a su factura con `--invoice` es
+// lo que decide el lado fiscal; `--relates-to` es para cuando la factura
+// original no vive en el sistema y sólo se tiene el UUID del CFDI.
+// Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  create: `
+Examples:
+  # A return tied to its invoice: the link is what drives the IVA side.
+  mnemosine credit-note create --type devolucion --invoice INV-2026-00042 --amount 5000.00 --tax 800.00 --memo "Devolucion de 4 piezas"
+  # A discount when the original invoice is not in the system, only its CFDI.
+  mnemosine credit-note create --type descuento --customer "Grupo Alameda" --amount 2500.00 --tax 400.00 --relates-to 3F2504E0-4F89-11D3-9A0C-0305E82C3301
+`,
+  show: `
+Examples:
+  # One note with its applications, its available balance and its ledger entry.
+  mnemosine credit-note show CN-2026-00007
+  # As JSON, for a script that reads the balance left to apply.
+  mnemosine credit-note show CN-2026-00007 --json
+`,
+  list: `
+Examples:
+  # Issued notes with credit left to apply — the live customer credit.
+  mnemosine credit-note list --open
+  # Returns only, for one customer.
+  mnemosine credit-note list --type devolucion --customer "Grupo Alameda"
+`,
+  issue: `
+Examples:
+  # Post DR returns + DR IVA / CR receivable. It does not stamp.
+  mnemosine credit-note issue CN-2026-00007
+  # See the entry it would post, writing nothing.
+  mnemosine credit-note issue CN-2026-00007 --dry-run
+`,
+  apply: `
+Examples:
+  # Apply an issued note to one invoice; what is left stays as customer credit.
+  mnemosine credit-note apply CN-2026-00007 --invoice "INV-2026-00042:5800.00"
+  # Two invoices at once, run for real and rolled back, to check the arithmetic.
+  mnemosine credit-note apply CN-2026-00007 --invoice "INV-2026-00042:3000.00" --invoice "INV-2026-00051:2800.00" --dry-run
+`,
+} as const;
+
 export function registerCreditNoteCommand(program: Command, deps: CreditNoteCommandDeps): void {
   const creditNote = program
     .command('credit-note')
@@ -161,6 +208,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
     .option('--memo <text>', 'memo')
     .option('--json', 'JSON output');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'credit_notes (draft)' });
+  create.addHelpText('after', EJEMPLOS.create);
   create.action(
     (
       opts: CommonOpts & {
@@ -218,6 +266,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
     .description('Show one credit note with its applications, available balance and ledger entry');
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -276,6 +325,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
     .option('--type <type>', `only this type: ${CREDIT_NOTE_TYPES.join(', ')}`)
     .option('--open', 'only issued notes with balance left to apply (the live customer credit)');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action(
     (opts: CommonOpts & { customer?: string; type?: string; open?: boolean }) =>
       run(async () => {
@@ -334,6 +384,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
     risk: 'irreversible',
     writes: 'journal_entries + account_balances + credit_notes.status',
   });
+  issue.addHelpText('after', EJEMPLOS.issue);
   issue.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await writeEntityOf(opts);
@@ -401,6 +452,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
     agent: false,
     writes: 'credit_note_applications + invoices.amount_due (no new ledger entry: it posted at issue)',
   });
+  apply.addHelpText('after', EJEMPLOS.apply);
   apply.action(
     (ref: string, opts: CommonOpts & { invoice?: string[]; amount?: string }) =>
       run(async () => {

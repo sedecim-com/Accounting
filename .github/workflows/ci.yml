@@ -164,6 +164,16 @@ jobs:
       # (tests/api/routes/openapi-contrato.spec.ts) y no depende de que nadie
       # se acuerde de regenerar.
       - run: npx tsx scripts/openapi.ts --check
+      # EL CENSO DE SUPERFICIE. Seis números medidos sobre el `program` que se
+      # embarca —hojas sin ejemplo, sin contrato de salida, sin alias
+      # castellano, nodos fuera del idioma canónico, hojas graves sin sus tres
+      # banderas, banderas del diccionario sin hoja— cada uno con su línea base
+      # que SÓLO PUEDE ENCOGER. Falla cuando un número crece sobre su línea
+      # base, y cuando una excepción de SALIDA_NO_TABULAR deja de tapar algo.
+      # El guardián que ya había medía contra una lista escrita a mano y pasaba
+      # en verde con trece hojas incumpliendo: lo que no estaba en la lista no
+      # existía para él. Éste no puede tener ese defecto porque no tiene lista.
+      - run: npx tsx scripts/ux-status.ts --check
 
   # EL ENSAYO DE LA RESTAURACIÓN (S3).
   #
@@ -297,3 +307,127 @@ jobs:
         env:
           DATABASE_URL: ${{ env.MIGRATION_DATABASE_URL }}
       - run: bash scripts/verify-isolation.sh
+
+  # EL ARNÉS QUE NUNCA HABÍA JUZGADO NADA (A7).
+  #
+  # scripts/eval-clasificador.ts existía completo —carga el golden set, corre el
+  # clasificador por el camino real de `mnemosine ingest`, puntúa por clase,
+  # compara contra la corrida anterior y anexa a docs/evals/clasificador.jsonl—
+  # y no aparecía en package.json ni en este archivo. Un instrumento que no se
+  # ejecuta en el único sitio que decide una fusión es una intención, no una
+  # puerta; es la misma lección que el censo de superficie aprendió en E0.0.
+  #
+  # LA REGLA QUE ESTO ENDURECE (§7 del plan maestro): «ninguna ampliación de
+  # autonomía sin eval, calibración, sombra… y una lectura comprometida del
+  # arnés». Hasta este job la última condición no se podía ni evaluar.
+  #
+  # POR QUÉ ESTE JOB SE SALTA EN VOZ ALTA Y NO PASA CALLADO.
+  #
+  # El eval necesita dos cosas que el resto de la CI no: una base y una
+  # CREDENCIAL DE PROVEEDOR. La base la pone el servicio de aquí abajo; la
+  # credencial es un secreto del repositorio, y en un fork —o antes de que el
+  # dueño la ponga— no existe. La salida fácil sería que el paso fallara en
+  # silencio o que `continue-on-error` lo pintara de verde: las dos hacen que la
+  # casilla diga «el clasificador se midió» cuando nadie lo midió, que es el
+  # «green pipeline lies» que kernel/exit.ts denuncia en su cabecera. Aquí, sin
+  # credencial, el job se salta y lo ANUNCIA: un ::warning en la corrida y una
+  # nota en el resumen del PR. Verde porque no había nada que correr, y dicho.
+  eval:
+    name: Eval del clasificador
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mnemosine_eval
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_eval
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_eval
+    steps:
+      - uses: actions/checkout@v7
+      # La comprobación va ANTES de instalar nada: una corrida saltada tiene que
+      # costar segundos, no un `npm ci`. El secreto se lee en `env:` de un paso
+      # —el contexto `secrets` no está disponible en el `if:` de un job— y sale
+      # como salida del paso, que sí lo está.
+      - name: ¿Hay credencial de proveedor?
+        id: credencial
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "hay=si" >> "$GITHUB_OUTPUT"
+          else
+            echo "hay=no" >> "$GITHUB_OUTPUT"
+          fi
+      - name: SALTADO — sin credencial no hay eval, y no se finge que lo hubo
+        if: steps.credencial.outputs.hay != 'si'
+        run: |
+          echo "::warning title=Eval del clasificador SALTADO::No hay secreto ANTHROPIC_API_KEY en este repositorio (o la corrida viene de un fork). El clasificador NO se midió en esta corrida."
+          {
+            echo "### Eval del clasificador: SALTADO"
+            echo ""
+            echo "No hay \`ANTHROPIC_API_KEY\` disponible, así que el golden set **no se corrió**."
+            echo "Este job está verde porque no había nada que ejecutar, **no** porque el"
+            echo "clasificador haya pasado una medición."
+            echo ""
+            echo "Para que juzgue de verdad: añade el secreto \`ANTHROPIC_API_KEY\` al repositorio."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-node@v7
+        if: steps.credencial.outputs.hay == 'si'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+        if: steps.credencial.outputs.hay == 'si'
+      - run: npm run migrate
+        if: steps.credencial.outputs.hay == 'si'
+      # SIN --umbral, Y A PROPÓSITO.
+      #
+      # La casa siembra sus trinquetes en lo MEDIDO (los umbrales por archivo de
+      # vitest.config.ts, las líneas base del censo). Aquí no hay nada medido
+      # todavía: el arnés no ha corrido nunca contra el proveedor que se embarca,
+      # así que cualquier número que se escribiera aquí sería inventado, y un
+      # umbral inventado o deja pasar todo o rompe la CI por no ser el correcto.
+      # `--umbral 0.8` entra en el MISMO commit que registre la primera corrida
+      # real y pueda sembrarlo en lo observado.
+      #
+      # Y EL PASO ES PUERTA IGUAL, porque el arnés ya no confunde «medí y salió
+      # mal» con «no pude medir». Durante un tiempo sí lo confundía: el único
+      # camino a un código distinto de 0 era --umbral, así que con este paso
+      # —que corre sin él— una ANTHROPIC_API_KEY caducada, un id de modelo
+      # repuntado o una caída del proveedor daban ocho clases en 0.000 y una
+      # casilla VERDE. Hoy la salida usa la tabla de src/cli/kernel/exit.ts:
+      #
+      #   0  midió el corpus entero (y con --umbral, da la talla)
+      #   4  MIDIÓ y el clasificador está por debajo del umbral
+      #   8  NO PUDO MEDIR: el proveedor falló. Reintentable
+      #   1  NO PUDO MEDIR por el repositorio: un caso declara un panel que no
+      #      se puede montar, el golden set no entregó casos, o el corpus se
+      #      desalineó del catálogo sembrado. Reintentar no arregla nada
+      - name: Eval contra el golden set
+        if: steps.credencial.outputs.hay == 'si'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TEST_ADMIN_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: npm run eval -- --provider anthropic
+      # La bitácora es la memoria del «mejoró/empeoró» y el checkout se tira al
+      # acabar: sin esto, la línea que esta corrida acaba de escribir se pierde y
+      # el arnés vuelve a empezar de cero en la siguiente.
+      - name: La línea que esta corrida escribió
+        if: steps.credencial.outputs.hay == 'si'
+        run: |
+          {
+            echo "### Eval del clasificador: corrida registrada"
+            echo ""
+            echo '```json'
+            tail -n 1 docs/evals/clasificador.jsonl
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

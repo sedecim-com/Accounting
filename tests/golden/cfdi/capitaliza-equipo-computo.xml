@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="4.0" Serie="GE" Folio="602" Fecha="2026-08-19T13:00:00" FormaPago="03" MetodoPago="PUE" TipoDeComprobante="I" Moneda="MXN" SubTotal="28000.00" Total="32480.00" LugarExpedicion="06600">
+  <cfdi:Emisor Rfc="TEC021110TC7" Nombre="Tecnologia y Computo del Valle SA" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="XAXX010101000" Nombre="Demo Corp MX" UsoCFDI="I04" DomicilioFiscalReceptor="06600" RegimenFiscalReceptor="601"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="43211503" ClaveUnidad="E48" Unidad="Servicio" Descripcion="Laptop profesional 16 pulgadas - equipo para direccion" Cantidad="1" ValorUnitario="28000.00" Importe="28000.00" ObjetoImp="02"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="4480.00">
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="28000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="4480.00"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="77F7F7F7-0007-4F07-8F07-F7F7F7F7F007" FechaTimbrado="2026-08-19T13:00:00" RfcProvCertif="SAT970701NN3" SelloCFD="selloCFD" NoCertificadoSAT="30001000000500000001" SelloSAT="selloSAT"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

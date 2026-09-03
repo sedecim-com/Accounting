@@ -84,6 +84,22 @@ function exigirFecha(flag: string, valor: string): string {
   return valor;
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables
+//
+// `--as-of` corta LOS DOS lados de la conciliación a la misma fecha; sin ella
+// es hoy. Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = `
+Examples:
+  # The vendor subledger against the cxp control account, as of today.
+  mnemosine ap reconcile
+  # At the close date, spelling out every reconciling item in prose.
+  mnemosine ap reconcile --as-of 2026-07-31 --explain
+  # Exit 4 on any delta, for CI.
+  mnemosine ap reconcile --as-of 2026-07-31 --strict
+`;
+
 export function registerApCommand(program: Command, deps: ApCommandDeps): void {
   const ap = program
     .command('ap')
@@ -135,6 +151,7 @@ export function registerApCommand(program: Command, deps: ApCommandDeps): void {
     .option('--as-of <date>', 'cut-off for both sides of the reconciliation (YYYY-MM-DD; defaults to today)')
     .option('--explain', 'spell out every reconciling item in prose, not just the table');
   declareRisk(reconcile, { risk: 'lectura', agent: true });
+  reconcile.addHelpText('after', EJEMPLOS);
   reconcile.action((opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);

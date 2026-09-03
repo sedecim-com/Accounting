@@ -262,9 +262,15 @@ describe('los roles contables de los cinco tipos', () => {
     await expect(
       crearAjuste('ent-1', 'ses-1', { tipo: 'comision', importe: '-350' }, 'usr-1')
     ).rejects.toThrow(/comision_bancaria/);
+    // `producto_financiero`, no `interes_ganado`. Este aserto fijaba el segundo,
+    // y `interes_ganado` NO EXISTE en todo src/: ni en el tipo AccountRole ni en
+    // el sembrador. El mensaje mandaba al usuario a sembrar un rol fantasma
+    // mientras el real —`producto_financiero`, 4310, sembrado en
+    // account-roles-seed.ts y consumido por treasury-posting— ya estaba ahí.
+    // Un nombre fijado por una prueba no lo vuelve cierto.
     await expect(
       crearAjuste('ent-1', 'ses-1', { tipo: 'interes', importe: '120' }, 'usr-1')
-    ).rejects.toThrow(/interes_ganado/);
+    ).rejects.toThrow(/producto_financiero/);
     expect(mockCrearBorrador).not.toHaveBeenCalled();
   });
 

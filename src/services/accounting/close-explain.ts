@@ -331,7 +331,7 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
   //
   // La COLUMNA sale de MAPPING_SCHEMES y no escrita a mano: el agrupador ya
   // cambió de casilla una vez (mx_nif_code → codigo_agrupador_sat, migración
-  // 060) y una copia literal aquí habría quedado apuntando al sitio viejo sin
+  // 063) y una copia literal aquí habría quedado apuntando al sitio viejo sin
   // que nada lo dijera. Es una constante del módulo, no entrada del usuario.
   //
   // La entidad va en las DOS tablas —la cuenta y el asiento— igual que en la

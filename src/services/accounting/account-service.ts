@@ -611,7 +611,7 @@ export async function getAccountBalanceByPeriod(
 // ignoran: fingir que se guardó un mapeo es peor que decir que aún no
 // se puede.
 //
-// F07a · EL AGRUPADOR CAMBIA DE CASILLA. Hasta la 060, 'sat-agrupador'
+// F07a · EL AGRUPADOR CAMBIA DE CASILLA. Hasta la 063, 'sat-agrupador'
 // escribía en mx_nif_code. Era el sitio equivocado y se notaba en el
 // nombre: mx_nif_code nació hermana de us_gaap_code e ifrs_code, o sea
 // una familia de códigos de NORMA CONTABLE — cómo se PRESENTA una
@@ -619,7 +619,7 @@ export async function getAccountBalanceByPeriod(
 // la AGRUPA la autoridad para leer la contabilidad. Compartían casilla
 // mientras nadie usara las dos; el día que una entidad mexicana
 // necesitara su código NIF de presentación Y su agrupador del Anexo 24,
-// uno pisaba al otro en silencio. Desde la 060 el agrupador tiene la
+// uno pisaba al otro en silencio. Desde la 063 el agrupador tiene la
 // suya, `accounts.codigo_agrupador_sat`, que es la que la 037 había
 // creado para esto y llevaba dos años sin un solo lector.
 // ============================================================
@@ -723,7 +723,7 @@ export interface FilaMapeo {
   name: string;
   account_level: number;
   is_active: boolean;
-  /** El agrupador FISCAL del Anexo 24. Desde la 060 vive aquí. */
+  /** El agrupador FISCAL del Anexo 24. Desde la 063 vive aquí. */
   codigo_agrupador_sat: string | null;
   /** Presentación bajo NIF mexicanas. NO es el agrupador: ver MAPPING_SCHEMES. */
   mx_nif_code: string | null;

@@ -8,11 +8,11 @@ import { C_CODAGRUP, VIGENCIA_C_CODAGRUP, rubroDe } from './sat-agrupadores-cata
 // ============================================================
 // F07a · EL CATÁLOGO c_CodAgrup: LECTOR Y ESCRITOR
 //
-// `sat_codigos_agrupadores` la creó la 060 y nació huérfana: una tabla sin
+// `sat_codigos_agrupadores` la creó la 063 y nació huérfana: una tabla sin
 // escritor es una promesa, y sin lector es decoración. Este módulo es las dos
 // cosas, y con eso el agrupador deja de validarse contra nada.
 //
-// La tabla es GLOBAL a propósito (lo dice el COMMENT de la 060): el catálogo
+// La tabla es GLOBAL a propósito (lo dice el COMMENT de la 063): el catálogo
 // del SAT es un hecho publicado por la autoridad, no un dato del inquilino.
 // Por eso aquí NO hay entity_id ni tenant_id en ningún WHERE — y es la única
 // excepción de la casa, sostenida por la migración, no por descuido.
@@ -41,10 +41,10 @@ export interface ResultadoSiembraAgrupadores {
 
 /**
  * Siembra el c_CodAgrup oficial. Idempotente por (codigo, vigente_desde), que
- * es la llave primaria de la 060: correrla dos veces no duplica ni pisa.
+ * es la llave primaria de la 063: correrla dos veces no duplica ni pisa.
  *
  * No borra lo que ya hubiera: si alguien cargó el catálogo de otro ejercicio,
- * ese sigue ahí con su propia vigencia, que es justo para lo que la 060 puso
+ * ese sigue ahí con su propia vigencia, que es justo para lo que la 063 puso
  * la vigencia en la llave.
  */
 export async function sembrarCatalogoAgrupadores(

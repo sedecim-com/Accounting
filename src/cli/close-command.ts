@@ -9,7 +9,7 @@ import { softClosePeriod, hardClosePeriod } from '../services/accounting/period-
 import { resolveEntity, bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
-import { abortedByUser, exitCodeFor } from './kernel/index.js';
+import { abortedByUser, exitCodeFor, ExitCode } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 
@@ -117,6 +117,30 @@ export async function confirmarCierre(
   return { procede: true };
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// `--period` de este comando NO es el selector de `report`: casa por
+// SUBCADENA contra el nombre guardado del periodo, y los nombres se acuñan en
+// inglés ("July 2026", fiscal-calendar-service.ts). Un `--period 2026-07`
+// aquí no encuentra nada, y por eso los ejemplos escriben el nombre.
+//
+// Sin `--period` cierra el periodo abierto MÁS ANTIGUO, que es lo correcto:
+// uno no se cierra mientras otro anterior siga abierto.
+// Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = `
+Examples:
+  # What is still missing before the oldest open period can be closed.
+  mnemosine close --check
+  # The periods that can be closed right now, and nothing else.
+  mnemosine close --list
+  # Soft-close one month, by the name the calendar gave it.
+  mnemosine close --period "July 2026" --reason "Cierre mensual de julio"
+  # Hard close posts the closing entries and carries balances forward: see it first.
+  mnemosine close --period "December 2026" --hard --reason "Cierre anual 2026" --dry-run
+`;
+
 export function registerCloseCommand(program: Command, deps: CloseCliDeps): void {
   const close = program
     .command('close')
@@ -139,6 +163,7 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
     risk: 'irreversible',
     writes: 'fiscal_periods; con --hard, asientos de cierre POSTEADOS y arrastre de saldos',
   });
+  close.addHelpText('after', EJEMPLOS);
   close.action(async (opts: {
       entity?: string; tenant?: string; user?: string; period?: string;
       list?: boolean; check?: boolean; hard?: boolean; json?: boolean;
@@ -174,7 +199,7 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
         if (!period) {
           console.error(`No open period matches "${opts.period}".`);
           console.error(`Available: ${periods.map((p) => p.period_name).join(', ')}`);
-          return deps.shutdown(1);
+          return deps.shutdown(ExitCode.NOT_FOUND);
         }
 
         const readiness = await getCloseReadiness(ctx, period);

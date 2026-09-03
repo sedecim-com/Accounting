@@ -304,6 +304,72 @@ type ResultadoLote = {
   results: Array<Record<string, unknown>>;
 };
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// El separador de `--line` de esta familia es la COMA, y no el ';' de invoice
+// ni el ':' de entry. Es la brecha H3 y la razón por la que cada ejemplo se
+// escribe entero: quien cruza de un comando a otro no tiene por qué recordar
+// tres gramáticas. `tax-amount=` es MONTO aquí (el `tax=` de invoice es TASA).
+//
+// Las cuentas son códigos del catálogo base real (chart-seed.ts). La prosa va
+// en inglés porque es el idioma del nodo; los datos son mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  list: `
+Examples:
+  # Everything still owed to one vendor.
+  mnemosine bill list --vendor "Papeleria del Centro" --open
+  # What falls due on or before the 15th and is already approved.
+  mnemosine bill list --due-before 2026-07-15 --status approved --limit 20
+`,
+  show: `
+Examples:
+  # The bill with its lines and their account coding.
+  mnemosine bill show BILL-2026-00007
+  # Add the journal entry the approval produced and the CFDI it came from.
+  mnemosine bill show BILL-2026-00007 --journal --cfdi
+`,
+  create: `
+Examples:
+  # One line, coded to administrative expense, with 2,000.00 of IVA.
+  # Inside --line the pairs are separated by COMMAS (invoice uses ";", entry ":").
+  mnemosine bill create "Papeleria del Centro" --vendor-invoice-number A-4471 --bill-date 2026-07-08 --line "account=6100,qty=1,price=12500.00,tax-amount=2000.00,description=Papeleria de oficina"
+  # Two lines, one of them capital equipment; the due date comes from the vendor terms.
+  mnemosine bill create --vendor "Papeleria del Centro" --description "Compras de julio" --line "account=6100,price=8600.00,tax-amount=1376.00" --line "account=1220,qty=2,price=15900.00,tax-amount=5088.00"
+`,
+  lineSet: `
+Examples:
+  # Re-code line 2 to utilities; only a bill that is not approved yet accepts this.
+  mnemosine bill line set BILL-2026-00007 --line 2 --account 6130
+  # Re-code it and fix its text in the same call.
+  mnemosine bill line set BILL-2026-00007 --line 2 --account 6130 --description "Energia electrica de la bodega"
+`,
+  approve: `
+Examples:
+  # Recognize the liability in the ledger: DR expense + IVA / CR payables.
+  mnemosine bill approve BILL-2026-00007
+  # Show the entry it would post, writing nothing.
+  mnemosine bill approve BILL-2026-00007 --dry-run
+`,
+  inboxList: `
+Examples:
+  # What arrived as CFDI and is ready to become a bill.
+  mnemosine bill inbox list --status ready
+  # Only what is held waiting for a prior approval, for one vendor.
+  mnemosine bill inbox list --requires-approval --vendor "Papeleria del Centro"
+`,
+  inboxRun: `
+Examples:
+  # Turn one pre-registration into a vendor bill.
+  mnemosine bill inbox run 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90
+  # Approve in bulk what --query selects, after seeing the whole effect first.
+  mnemosine bill inbox run --bulk --query "status=ready,mode=batch" --action approve --dry-run
+  # Reject one, with the reason that lands in the audit trail.
+  mnemosine bill inbox run 6f2b0d24-9b8a-4c1e-8f4d-2a7c1e5b3d90 --action reject --reason "CFDI de otro contribuyente"
+`,
+} as const;
+
 export function registerBillCommand(program: Command, deps: BillCommandDeps): void {
   const bill = program
     .command('bill')
@@ -379,6 +445,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     .option('--due-before <date>', 'only bills falling due on or before this date (YYYY-MM-DD)')
     .option('--open', 'only bills that still owe money (excludes paid, void and cancelled)');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action(
     (search: string | undefined, opts: CommonOpts & { vendor?: string; dueBefore?: string; open?: boolean }) =>
       run(async () => {
@@ -446,6 +513,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     .option('--journal', 'include the journal entry approval produced')
     .option('--cfdi', 'include the CFDI this bill came from, when it came from one');
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((ref: string, opts: CommonOpts & { lines?: boolean; journal?: boolean; cfdi?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -531,6 +599,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     .option('--from-file <path>', 'read the bill as JSON instead: { lines: [...], ... }')
     .option('--json', 'JSON output');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'bills, bill_lines' });
+  create.addHelpText('after', EJEMPLOS.create);
   create.action(
     (
       positional: string | undefined,
@@ -657,6 +726,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     .option('--project <id>', 'project id')
     .option('--description <text>', 'line description');
   declareRisk(lineSet, { risk: 'escritura', agent: false, writes: 'bill_lines' });
+  lineSet.addHelpText('after', EJEMPLOS.lineSet);
   lineSet.action(
     (
       ref: string,
@@ -695,6 +765,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   // irreversible ⇒ the kernel adds --dry-run, --yes and --idempotency-key,
   // and refuses at startup to let the agent invoke this.
   declareRisk(approve, { risk: 'irreversible', agent: false, writes: 'bills.status, journal_entries' });
+  approve.addHelpText('after', EJEMPLOS.approve);
   approve.action(
     (ref: string, opts: CommonOpts & { dryRun?: boolean; yes?: boolean; idempotencyKey?: string }) =>
       run(async () => {
@@ -805,6 +876,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
     .option('--requires-approval', 'only the ones held for a prior approval')
     .option('--vendor <ref>', 'only this vendor (number, name or id)');
   declareRisk(inboxList, { risk: 'lectura', agent: true });
+  inboxList.addHelpText('after', EJEMPLOS.inboxList);
   inboxList.action(
     (opts: CommonOpts & { processingMode?: string; requiresApproval?: boolean; vendor?: string }) =>
       run(async () => {
@@ -898,6 +970,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
       'pre_registrations; con --action process además bills, bill_lines, ASIENTOS POSTEADOS y, ' +
       'sólo con --allow-new-vendor, vendors',
   });
+  inboxRun.addHelpText('after', EJEMPLOS.inboxRun);
   inboxRun.action(
     (
       idArg: string | undefined,

@@ -12,7 +12,8 @@ import {
   type SkillDraftRow,
 } from '../ai/skills/skill-drafts.js';
 import type { SkillScanReport } from '../ai/skills/trust-scanner.js';
-import { listSkills, viewSkill } from '../ai/skills/store.js';
+import { listSkills, viewSkill, visibleSkills } from '../ai/skills/store.js';
+import { exitCodeFor, notFound } from './kernel/index.js';
 
 // ============================================================
 // mnemosine skills (alias: habilidades)
@@ -67,6 +68,27 @@ function draftHeader(draft: SkillDraftRow, c: Palette): string {
   return `${c.bold(`${draft.action} ${draft.skill_name}`)} ${c.dim(`(${draft.id}${model})`)}`;
 }
 
+/**
+ * `viewSkill` habla para el MODELO: su negativa es UNIFORME a propósito —no
+ * existe, es inválida y está vetada dan el mismo texto, porque distinguirlas
+ * filtraría qué hay instalado— y por eso no lleva código de salida. Esa
+ * uniformidad es correcta allí y muda aquí: en la frontera del CLI esa
+ * negativa concreta es NOT_FOUND, y sólo ella.
+ *
+ * La clasificación NO se hace leyendo el texto del mensaje (que el almacén
+ * puede reescribir mañana) sino preguntándole al mismo almacén si el nombre
+ * es visible. Así un fallo de lectura o de parseo de un SKILL.md que SÍ
+ * existe sigue saliendo por su propio código en vez de disfrazarse de 3.
+ */
+function leerHabilidad(name: string): ReturnType<typeof viewSkill> {
+  try {
+    return viewSkill(name);
+  } catch (err) {
+    if (visibleSkills().some((s) => s.name === name)) throw err;
+    throw notFound(err instanceof Error ? err.message : String(err));
+  }
+}
+
 export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps): void {
   const { palette: c, shutdown, reportError } = deps;
 
@@ -115,7 +137,7 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
         await shutdown(0);
       } catch (err) {
         reportError(err);
-        await shutdown(1);
+        await shutdown(exitCodeFor(err));
       }
     });
 
@@ -222,7 +244,7 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
         } catch (err) {
           rl?.close();
           reportError(err);
-          await shutdown(1);
+          await shutdown(exitCodeFor(err));
         }
       }
     );
@@ -233,7 +255,7 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
     .argument('<name>', 'Skill name')
     .action(async (name: string) => {
       try {
-        const skill = viewSkill(name);
+        const skill = leerHabilidad(name);
         console.log(c.bold(skill.frontmatter.name));
         if (skill.frontmatter.description) console.log(c.dim(skill.frontmatter.description));
         console.log('');
@@ -241,7 +263,7 @@ export function registerSkillsCommand(program: Command, deps: SkillsCommandDeps)
         await shutdown(0);
       } catch (err) {
         reportError(err);
-        await shutdown(1);
+        await shutdown(exitCodeFor(err));
       }
     });
 }
