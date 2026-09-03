@@ -244,13 +244,29 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
         offset: opts.offset,
       });
 
+      // F07a · LAS CUATRO COLUMNAS DEL ANEXO 24.
+      //
+      // El nodo Ctas de la BalanzaComprobacion pide SaldoIni, Debe, Haber y
+      // SaldoFin, y esta proyección publicaba tres: la cuarta columna que el
+      // servicio calcula se perdía aquí, en el `map`, sin que nada chillara.
+      //
+      // Se añaden SÓLO cuando la balanza tiene un ANTES —un periodo o un rango
+      // con fecha de inicio—, que es cuando existe un saldo inicial que
+      // declarar. En la acumulada y en la historia completa las columnas no
+      // salen, en vez de salir en cero: un cero ahí se lee como arrastre.
+      //
+      // `ending_balance` se queda donde estaba y significando lo que siempre
+      // significó —para un rango es el movimiento NETO, no un saldo final—,
+      // así que la balanza de siempre no cambia de forma para quien la leía.
       const rows: Row[] = tb.rows.map((r) => ({
         account_code: r.account_code,
         account_name: r.account_name,
         account_type: r.account_type,
+        ...(tb.inicial ? { beginning_balance: money(r.beginning_balance) } : {}),
         debit_total: money(r.debit_total),
         credit_total: money(r.credit_total),
         ending_balance: money(r.ending_balance),
+        ...(tb.inicial ? { final_balance: money(r.final_balance) } : {}),
       }));
 
       header(ctx, 'Trial balance', scope);
@@ -262,6 +278,30 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
       // permite atarla con el estado de resultados —que lo deja fuera— sin
       // que los dos documentos parezcan contradecirse.
       if (tb.closing) note(tb.closing.note);
+
+      // De dónde salió el SaldoIni y si ya es firme, por lo mismo que la nota
+      // del cierre: la cifra sin su procedencia no se puede atar contra nada.
+      // Un inicial derivado sobre un mes ABIERTO es correcto hoy y puede ser
+      // otro mañana, y quien firma la entrega tiene que saberlo.
+      if (tb.inicial) {
+        note(tb.inicial.note);
+        // Y las cuentas que NO pasan el recálculo del SAT se NOMBRAN. La nota
+        // trae el conteo; un conteo manda a buscar y una lista manda a
+        // corregir, y es la lista la que evita que la balanza se imprima con
+        // cara de correcta. El corte en cinco es el de las demás listas.
+        if (tb.inicial.descuadres.length > 0) {
+          const nombradas = tb.inicial.descuadres
+            .slice(0, 5)
+            .map((d) => `${d.account_code} (${d.diferencia})`)
+            .join(', ');
+          const resto = tb.inicial.descuadres.length - 5;
+          warn(
+            `SaldoIni + Debe - Haber does not give SaldoFin in ` +
+              `${tb.inicial.descuadres.length} account(s): ${nombradas}` +
+              (resto > 0 ? ` (+${resto})` : '')
+          );
+        }
+      }
 
       const { total_debits, total_credits, is_balanced } = tb.totals;
       const line = `Debits ${total_debits}   Credits ${total_credits}   (${tb.total} accounts)`;

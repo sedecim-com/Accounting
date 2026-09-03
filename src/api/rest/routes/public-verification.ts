@@ -131,12 +131,19 @@ router.get('/verify/:entryHash', asyncHandler(async (req: Request, res: Response
         confirmations: c.status === 'confirmed' ? 12 : 0,
         status: c.status,
       })),
+      // Este manejador ya rechazó con 501 la atestación simulada, así que
+      // llegar aquí significa que la atestación es real. El anclaje de
+      // Bitcoin es OTRA fila y puede seguir siendo simulado: se sirve
+      // marcado, y sin enlace al explorador cuando lo es (getBitcoinProof
+      // devuelve `explorerUrl: null` en ese caso). Servirlo sin la marca
+      // sería exactamente lo que E1.4 vino a impedir, una tabla más allá.
       bitcoin: btcProof
         ? {
             txid: btcProof.bitcoinTxid,
             blockHeight: btcProof.blockHeight,
             confirmations: btcProof.confirmations,
             explorerUrl: btcProof.explorerUrl,
+            isSimulated: btcProof.isSimulated,
           }
         : null,
       independentVerification: {
@@ -146,7 +153,11 @@ router.get('/verify/:entryHash', asyncHandler(async (req: Request, res: Response
           '3. Verify computed hash matches this entryHash',
           '4. Verify zkVerify attestation on zkVerify explorer',
           '5. Verify chain transactions on respective block explorers',
-          btcProof ? '6. Verify Bitcoin OP_RETURN contains expected Merkle root' : '',
+          btcProof && !btcProof.isSimulated
+            ? '6. Verify Bitcoin OP_RETURN contains expected Merkle root'
+            : btcProof
+              ? '6. El anclaje de Bitcoin es SIMULADO: no hay OP_RETURN en la cadena que comprobar'
+              : '',
         ].filter(Boolean),
         codeSnippet: `
 // Node.js verification
@@ -399,11 +410,13 @@ router.get('/bitcoin/verify/:txid', asyncHandler(async (req: Request, res: Respo
     broadcast_at: Date | null;
     confirmed_at: Date | null;
     op_return_payload: string;
+    is_simulated: boolean;
   }>(
     `SELECT id, anchor_type, merkle_root, entry_count,
             bitcoin_block_height, bitcoin_block_hash, confirmations, status,
             broadcast_at, confirmed_at,
-            encode(op_return_payload, 'hex') as op_return_payload
+            encode(op_return_payload, 'hex') as op_return_payload,
+            is_simulated
      FROM bitcoin_anchors WHERE bitcoin_txid = $1`,
     [txid]
   );
@@ -411,6 +424,17 @@ router.get('/bitcoin/verify/:txid', asyncHandler(async (req: Request, res: Respo
   if (anchor.rows.length === 0) throw new NotFoundError('Bitcoin anchor');
 
   const a = anchor.rows[0];
+  // G3: el hueco que la 034 dejó abierto. Las tres tablas de atestación
+  // aprendieron a declararse simuladas; `bitcoin_anchors` no, y este endpoint
+  // —SIN autenticar— servía un `bitcoin_block_height`, un
+  // `confirmations` y un `explorerUrl` de mempool.space sobre un txid que
+  // `anchorToBitcoin` calcula con un sha256 local. Quien abriera ese enlace
+  // encontraría que la transacción no existe: es la mentira más cara posible,
+  // porque quien la descubre es el tercero al que ya se la enseñaron.
+  if (a.is_simulated) {
+    rechazarSimulada(res, 'Ese anclaje de Bitcoin');
+    return;
+  }
   res.json({
     data: {
       txid,
@@ -441,6 +465,18 @@ router.get('/bitcoin/proof/:entryHash', asyncHandler(async (req: Request, res: R
 
   const proof = await bitcoinAnchorService.getBitcoinProof(entryHash);
   if (!proof) throw new NotFoundError('Bitcoin proof for entry');
+
+  // G3: la doctrina de este router, entera, en una rama. `/verify/:entryHash`
+  // sirve el anclaje marcado porque su carga principal es OTRA cosa —la
+  // atestación, que ya se comprobó real—; este endpoint no tiene otra carga:
+  // se llama «proof» y devuelve el txid, la raíz, la prueba de Merkle y las
+  // instrucciones para ir a comprobarlo a la cadena. Servir eso sobre un
+  // anclaje fabricado es entregar una receta que termina en un explorador
+  // diciendo «no encontrada».
+  if (proof.isSimulated) {
+    rechazarSimulada(res, 'La prueba de anclaje de ese asiento');
+    return;
+  }
 
   res.json({
     data: proof,

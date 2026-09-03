@@ -1,7 +1,20 @@
 import { v4 as uuidv4 } from 'uuid';
-import { query } from '../../database/connection.js';
+import { query, withTransaction } from '../../database/connection.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
+import { logger } from '../../utils/logger.js';
+import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
+import { getPolicy } from '../policy/policy-service.js';
+import type { PolicyContext } from '../policy/policy-service.js';
 import { resolvePeriod } from './fiscal-calendar-service.js';
+import {
+  prepararValidacionAgrupador,
+  validarCodigoAgrupador,
+  exigirAgrupadorValido,
+} from './sat-agrupadores.js';
+import type {
+  ContextoValidacionAgrupador,
+  ResultadoValidacionAgrupador,
+} from './sat-agrupadores.js';
 import type { Account } from '../../types/index.js';
 
 // ============================================================
@@ -161,6 +174,46 @@ export interface CreateAccountInput {
   is_header?: boolean;
   description?: string | null;
   tags?: string[];
+  /** G3: por qué nace esta cuenta. Va a `audit_log.reason` si el llamador lo trae. */
+  reason?: string | null;
+}
+
+// ============================================================
+// G3 · EL CATÁLOGO DEJA RASTRO
+//
+// Una cuenta es el DESTINO del dinero. Crearla, renombrarla, archivarla o
+// cambiarle las banderas de gobierno decide a dónde puede postear el sistema
+// y a dónde ya no, y hasta hoy ninguno de esos cuatro actos escribía una fila
+// en `audit_log`: quedaba `updated_by` —el ÚLTIMO que tocó, que se pisa con
+// cada cambio— y nada más. `updated_by` no es un rastro; es una foto.
+//
+// Tres decisiones de forma, y ninguna es de estilo:
+//
+//  1. Cada escritor pasa a `withTransaction`. Con `query()` el hecho y su
+//     rastro se confirmaban en transacciones distintas (dos conexiones del
+//     pool), así que un fallo entre ambos dejaba uno sin el otro. Es la misma
+//     razón que `registrarAuditoria` documenta al recibir el cliente.
+//  2. Las columnas del rastro se ENUMERAN. Un `{...row}` publicaría en la
+//     bitácora —que es de sólo agregar— cualquier columna que una migración
+//     futura añada, sin que nadie lo decidiera.
+//  3. El inquilino se resuelve con `tenantDe` desde la ENTIDAD de la cuenta,
+//     no desde el contexto RLS a secas: los tres escritores que reciben sólo
+//     un id de cuenta (update, archive, gobierno) tienen que leer la fila de
+//     todas formas para poder decir de qué valor vino.
+// ============================================================
+
+/** Lo que un lector del rastro necesita de una cuenta, y nada más. */
+const ACCOUNT_AUDIT_FIELDS = [
+  'code', 'name', 'account_type', 'account_subtype', 'fs_category',
+  'parent_id', 'currency_code', 'normal_balance', 'allow_manual_entries',
+  'is_header', 'is_control_account', 'require_subsidiary', 'is_active',
+  'description',
+] as const;
+
+function cuentaParaRastro(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of ACCOUNT_AUDIT_FIELDS) out[f] = row[f] ?? null;
+  return out;
 }
 
 export async function createAccount(input: CreateAccountInput): Promise<Account> {
@@ -183,23 +236,36 @@ export async function createAccount(input: CreateAccountInput): Promise<Account>
     );
   }
 
-  const result = await query<Account>(
-    `INSERT INTO accounts (
-      id, code, name, account_type, account_subtype, fs_category,
-      parent_id, entity_id, currency_code, normal_balance,
-      allow_manual_entries, is_header, description, tags, created_by
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-    RETURNING *`,
-    [
-      uuidv4(), input.code, input.name, input.account_type,
-      input.account_subtype || null, input.fs_category || null,
-      input.parent_id || null, input.entity_id, input.currency_code || null,
-      input.normal_balance, allowManual, isHeader,
-      input.description || null, input.tags ? JSON.stringify(input.tags) : '{}',
-      input.created_by,
-    ]
-  );
-  return result.rows[0];
+  return withTransaction(async (client) => {
+    const result = await client.query<Account>(
+      `INSERT INTO accounts (
+        id, code, name, account_type, account_subtype, fs_category,
+        parent_id, entity_id, currency_code, normal_balance,
+        allow_manual_entries, is_header, description, tags, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      RETURNING *`,
+      [
+        uuidv4(), input.code, input.name, input.account_type,
+        input.account_subtype || null, input.fs_category || null,
+        input.parent_id || null, input.entity_id, input.currency_code || null,
+        input.normal_balance, allowManual, isHeader,
+        input.description || null, input.tags ? JSON.stringify(input.tags) : '{}',
+        input.created_by,
+      ]
+    );
+    const cuenta = result.rows[0];
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, input.entity_id),
+      userId: input.created_by,
+      action: 'create',
+      entityType: 'account',
+      entityId: cuenta.id,
+      oldValues: null,
+      newValues: cuentaParaRastro(cuenta as unknown as Record<string, unknown>),
+      reason: input.reason ?? null,
+    });
+    return cuenta;
+  });
 }
 
 /** The only columns a caller may change. Structure (code, type, parent) is immutable here. */
@@ -213,33 +279,60 @@ export type AccountPatch = Partial<Record<UpdatableField, unknown>>;
 export async function updateAccount(
   id: string,
   patch: AccountPatch,
-  userId: string
+  userId: string,
+  reason?: string | null
 ): Promise<Account> {
-  const sets: string[] = [];
-  const params: unknown[] = [];
-  let i = 1;
-
-  for (const field of UPDATABLE_FIELDS) {
-    if (patch[field] === undefined) continue;
-    sets.push(`${field} = $${i++}`);
-    params.push(field === 'tags' ? JSON.stringify(patch[field]) : patch[field]);
-  }
-  if (sets.length === 0) {
+  const cambiados = UPDATABLE_FIELDS.filter((f) => patch[f] !== undefined);
+  if (cambiados.length === 0) {
     throw new ValidationError(
       `No updatable field given. One of: ${UPDATABLE_FIELDS.join(', ')}.`
     );
   }
 
-  sets.push('updated_at = NOW()');
-  sets.push(`updated_by = $${i++}`);
-  params.push(userId, id);
+  return withTransaction(async (client) => {
+    // FOR UPDATE: la fila anterior es el `old_values` del rastro y a la vez
+    // el candado que impide que dos ediciones simultáneas dejen el estado de
+    // una y el antes de la otra.
+    const antes = await client.query<Account>(
+      'SELECT * FROM accounts WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    if (antes.rows.length === 0) throw new NotFoundError('Account', id);
+    const previa = antes.rows[0] as unknown as Record<string, unknown>;
 
-  const result = await query<Account>(
-    `UPDATE accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
-    params
-  );
-  if (result.rows.length === 0) throw new NotFoundError('Account', id);
-  return result.rows[0];
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    for (const field of cambiados) {
+      sets.push(`${field} = $${i++}`);
+      params.push(field === 'tags' ? JSON.stringify(patch[field]) : patch[field]);
+    }
+    sets.push('updated_at = NOW()');
+    sets.push(`updated_by = $${i++}`);
+    params.push(userId, id);
+
+    const result = await client.query<Account>(
+      `UPDATE accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
+      params
+    );
+    const despues = result.rows[0] as unknown as Record<string, unknown>;
+
+    // Sólo los campos TOCADOS, con su antes y su después. El documento
+    // completo convertiría cada renombre en una copia entera de la cuenta y
+    // haría ilegible la pregunta que el rastro contesta: qué cambió.
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, previa.entity_id as string),
+      userId,
+      action: 'update',
+      entityType: 'account',
+      entityId: id,
+      oldValues: Object.fromEntries(cambiados.map((f) => [f, previa[f] ?? null])),
+      newValues: Object.fromEntries(cambiados.map((f) => [f, despues[f] ?? null])),
+      reason: reason ?? null,
+    });
+
+    return result.rows[0];
+  });
 }
 
 export interface DeactivateOptions {
@@ -260,6 +353,12 @@ export interface DeactivateOptions {
   enforceZeroBalance?: boolean;
   /** Corre las verificaciones y NO escribe: el informe de `--dry-run`. */
   dryRun?: boolean;
+  /**
+   * G3: por qué se archiva. `--force` sobre una cuenta con saldo vivo YA
+   * exige razón en el CLI (§3.5); esto es lo que hace que esa razón llegue a
+   * algún sitio en vez de morir en la terminal.
+   */
+  reason?: string | null;
 }
 
 export async function deactivateAccount(
@@ -291,16 +390,55 @@ export async function deactivateAccount(
 
   if (opts.dryRun) return { hadHistory, balance };
 
-  const result = await query(
-    `UPDATE accounts SET is_active = false, updated_at = NOW(), updated_by = $1 WHERE id = $2`,
-    [userId, id]
-  );
-  if (result.rowCount === 0) throw new NotFoundError('Account', id);
+  await withTransaction(async (client) => {
+    const antes = await client.query<{ entity_id: string; code: string; is_active: boolean }>(
+      'SELECT entity_id, code, is_active FROM accounts WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    if (antes.rows.length === 0) throw new NotFoundError('Account', id);
+    const previa = antes.rows[0];
+
+    await client.query(
+      `UPDATE accounts SET is_active = false, updated_at = NOW(), updated_by = $1 WHERE id = $2`,
+      [userId, id]
+    );
+
+    // Archivar es 'update', no 'delete': la cuenta sigue ahí y su historia
+    // también. El vocabulario de `audit_log.action` lo fija un CHECK (001) y
+    // llamarle 'delete' a lo que no borra haría mentir a todo lector que
+    // filtre por acción.
+    //
+    // El saldo y la historia entran en `new_values` porque son las DOS
+    // condiciones que el archivado evalúa: quien lea el rastro tiene que
+    // poder ver si se archivó una cuenta con movimientos, o con saldo vivo
+    // por la vía de `--force`, sin recalcular nada seis meses después.
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, previa.entity_id),
+      userId,
+      action: 'update',
+      entityType: 'account',
+      entityId: id,
+      oldValues: { code: previa.code, is_active: previa.is_active },
+      newValues: {
+        code: previa.code,
+        is_active: false,
+        had_history: hadHistory,
+        balance_at_archive: balance,
+        forced_with_balance: opts.enforceZeroBalance !== true && Number(balance) !== 0,
+      },
+      reason: opts.reason ?? null,
+    });
+  });
+
   return { hadHistory, balance };
 }
 
-export async function reactivateAccount(id: string, userId: string): Promise<Account> {
-  return updateAccount(id, { is_active: true }, userId);
+export async function reactivateAccount(
+  id: string,
+  userId: string,
+  reason?: string | null
+): Promise<Account> {
+  return updateAccount(id, { is_active: true }, userId, reason);
 }
 
 // ============================================================
@@ -327,7 +465,8 @@ export interface GovernanceFlags {
 export async function setAccountGovernance(
   id: string,
   flags: GovernanceFlags,
-  userId: string
+  userId: string,
+  reason?: string | null
 ): Promise<Account> {
   const keys = Object.keys(flags) as (keyof GovernanceFlags)[];
   if (keys.length === 0) {
@@ -339,35 +478,58 @@ export async function setAccountGovernance(
     throw new ValidationError(`Moneda ilegible "${flags.currency_code}": tres letras (MXN, USD) o vacía para limpiar.`);
   }
 
-  const actual = await query<Account>('SELECT * FROM accounts WHERE id = $1', [id]);
-  if (actual.rows.length === 0) throw new NotFoundError('Account', id);
-  const cuenta = actual.rows[0];
-
-  // El CHECK de la 001 en una frase, ANTES del UPDATE: un nodo agrupador no
-  // acepta pólizas manuales. Se valida sobre el estado RESULTANTE.
-  const seraHeader = flags.is_header ?? cuenta.is_header;
-  const aceptaraManual = flags.allow_manual_entries ?? cuenta.allow_manual_entries;
-  if (seraHeader && aceptaraManual) {
-    throw new ValidationError(
-      'Una cuenta agrupadora (header=true) no puede aceptar pólizas manuales: fija también allow-manual=false.'
+  return withTransaction(async (client) => {
+    const actual = await client.query<Account>(
+      'SELECT * FROM accounts WHERE id = $1 FOR UPDATE',
+      [id]
     );
-  }
+    if (actual.rows.length === 0) throw new NotFoundError('Account', id);
+    const cuenta = actual.rows[0];
 
-  const sets: string[] = [];
-  const params: unknown[] = [];
-  let i = 1;
-  for (const k of keys) {
-    sets.push(`${k} = $${i++}`);
-    params.push(flags[k] ?? null);
-  }
-  sets.push('updated_at = NOW()', `updated_by = $${i++}`);
-  params.push(userId, id);
+    // El CHECK de la 001 en una frase, ANTES del UPDATE: un nodo agrupador no
+    // acepta pólizas manuales. Se valida sobre el estado RESULTANTE.
+    const seraHeader = flags.is_header ?? cuenta.is_header;
+    const aceptaraManual = flags.allow_manual_entries ?? cuenta.allow_manual_entries;
+    if (seraHeader && aceptaraManual) {
+      throw new ValidationError(
+        'Una cuenta agrupadora (header=true) no puede aceptar pólizas manuales: fija también allow-manual=false.'
+      );
+    }
 
-  const result = await query<Account>(
-    `UPDATE accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
-    params
-  );
-  return result.rows[0];
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    let i = 1;
+    for (const k of keys) {
+      sets.push(`${k} = $${i++}`);
+      params.push(flags[k] ?? null);
+    }
+    sets.push('updated_at = NOW()', `updated_by = $${i++}`);
+    params.push(userId, id);
+
+    const result = await client.query<Account>(
+      `UPDATE accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
+      params
+    );
+
+    // Las banderas de gobierno son la puerta del posteo: `allow_manual_entries`
+    // decide si un humano puede escribir en esta cuenta, y `is_control_account`
+    // si el mayor la considera control de un subdiario. Cambiarlas sin dejar
+    // quién es exactamente lo que hace irrebatible un asiento discutido.
+    const previa = cuenta as unknown as Record<string, unknown>;
+    const despues = result.rows[0] as unknown as Record<string, unknown>;
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, cuenta.entity_id),
+      userId,
+      action: 'update',
+      entityType: 'account',
+      entityId: id,
+      oldValues: Object.fromEntries(keys.map((k) => [k, previa[k] ?? null])),
+      newValues: Object.fromEntries(keys.map((k) => [k, despues[k] ?? null])),
+      reason: reason ?? null,
+    });
+
+    return result.rows[0];
+  });
 }
 
 // ============================================================
@@ -442,17 +604,28 @@ export async function getAccountBalanceByPeriod(
 // ============================================================
 // F01 · MAPEOS ESTATUTARIOS — las columnas que nadie escribía
 //
-// mx_nif_code (agrupador SAT c_CodAgrup), us_gaap_code e ifrs_code
-// viven en accounts desde la 001, tipadas y siempre nulas: ninguna
-// ruta las escribía. Son la tarea de alta más pesada de un despacho
-// mexicano (el agrupador por cuenta es requisito del XML de catálogo
-// del Anexo 24). Esquemas sin columna (fs-line, cash-flow,
-// consolidation) se RECHAZAN con mensaje, no se ignoran: fingir que
-// se guardó un mapeo es peor que decir que aún no se puede.
+// us_gaap_code, mx_nif_code e ifrs_code viven en accounts desde la
+// 001, tipadas y siempre nulas: ninguna ruta las escribía. Son la
+// tarea de alta más pesada de un despacho. Esquemas sin columna
+// (fs-line, cash-flow, consolidation) se RECHAZAN con mensaje, no se
+// ignoran: fingir que se guardó un mapeo es peor que decir que aún no
+// se puede.
+//
+// F07a · EL AGRUPADOR CAMBIA DE CASILLA. Hasta la 060, 'sat-agrupador'
+// escribía en mx_nif_code. Era el sitio equivocado y se notaba en el
+// nombre: mx_nif_code nació hermana de us_gaap_code e ifrs_code, o sea
+// una familia de códigos de NORMA CONTABLE — cómo se PRESENTA una
+// cuenta bajo NIF, US-GAAP o IFRS. El agrupador del SAT es FISCAL: cómo
+// la AGRUPA la autoridad para leer la contabilidad. Compartían casilla
+// mientras nadie usara las dos; el día que una entidad mexicana
+// necesitara su código NIF de presentación Y su agrupador del Anexo 24,
+// uno pisaba al otro en silencio. Desde la 060 el agrupador tiene la
+// suya, `accounts.codigo_agrupador_sat`, que es la que la 037 había
+// creado para esto y llevaba dos años sin un solo lector.
 // ============================================================
 
 export const MAPPING_SCHEMES = {
-  'sat-agrupador': 'mx_nif_code',
+  'sat-agrupador': 'codigo_agrupador_sat',
   'us-tax-line': 'us_gaap_code',
   'ifrs': 'ifrs_code',
 } as const;
@@ -472,13 +645,70 @@ export function resolverEsquema(scheme: string): (typeof MAPPING_SCHEMES)[Mappin
   );
 }
 
+export interface OpcionesDeMapeo {
+  /**
+   * Fecha contra la que se comprueba la vigencia del catálogo del SAT. El
+   * agrupador válido depende del EJERCICIO, así que la fecha es un dato del
+   * mapeo, no del reloj: por omisión hoy, pero quien mapea un ejercicio
+   * anterior debe poder decirlo.
+   */
+  fecha?: string;
+  /** Veredicto ya resuelto por el llamador (import en lote): evita releer la política por fila. */
+  validacion?: ContextoValidacionAgrupador;
+  /** Recibe el aviso cuando el código se acepta con reparos, en vez de perderlo. */
+  onAviso?: (r: ResultadoValidacionAgrupador) => void;
+}
+
+/**
+ * Resuelve el contexto de políticas de una cuenta. `setAccountMapping` sólo
+ * recibe el id de la cuenta, y la política vive por inquilino/entidad: hay que
+ * subir por la cuenta hasta su entidad. Se hace en UNA consulta.
+ */
+async function contextoDePoliticaDeCuenta(id: string): Promise<PolicyContext | null> {
+  const r = await query<{ entity_id: string; tenant_id: string }>(
+    `SELECT a.entity_id, le.tenant_id
+       FROM accounts a JOIN legal_entities le ON le.id = a.entity_id
+      WHERE a.id = $1`,
+    [id]
+  );
+  const row = r.rows[0];
+  return row ? { tenantId: row.tenant_id, entityId: row.entity_id } : null;
+}
+
 export async function setAccountMapping(
   id: string,
   scheme: string,
   value: string | null,
-  userId: string
+  userId: string,
+  opts: OpcionesDeMapeo = {}
 ): Promise<Account> {
   const columna = resolverEsquema(scheme);
+
+  // F07a · el agrupador se valida contra el catálogo oficial ANTES de
+  // escribirse. Sólo el agrupador: us-tax-line e ifrs son otras taxonomías y
+  // no tienen catálogo sembrado que las juzgue. Limpiar (value null) nunca se
+  // valida — borrar un mapeo no puede estar «fuera de catálogo».
+  if (scheme === 'sat-agrupador' && value !== null) {
+    const ctxPol = await contextoDePoliticaDeCuenta(id);
+    if (ctxPol === null) throw new NotFoundError('Account', id);
+    const fecha = opts.fecha ?? new Date().toISOString().slice(0, 10);
+    const ctxVal = opts.validacion ?? (await prepararValidacionAgrupador(ctxPol, fecha));
+    // Revienta si la política dice rechazar; devuelve el veredicto si no.
+    const veredicto = await exigirAgrupadorValido(ctxVal, value);
+    // Un aviso que nadie recoge es un aviso perdido, así que va al log
+    // SIEMPRE y además al llamador si lo pidió. Lo que no se hace es
+    // guardarlo en una variable de módulo: este servicio atiende peticiones
+    // concurrentes y dos mapeos a la vez se robarían el aviso el uno al otro.
+    if (veredicto.aviso) {
+      logger.warn(veredicto.aviso, {
+        cuenta: id,
+        codigo: value,
+        veredicto: veredicto.veredicto,
+      });
+      opts.onAviso?.(veredicto);
+    }
+  }
+
   const result = await query<Account>(
     `UPDATE accounts SET ${columna} = $1, updated_at = NOW(), updated_by = $2
       WHERE id = $3 RETURNING *`,
@@ -493,6 +723,9 @@ export interface FilaMapeo {
   name: string;
   account_level: number;
   is_active: boolean;
+  /** El agrupador FISCAL del Anexo 24. Desde la 060 vive aquí. */
+  codigo_agrupador_sat: string | null;
+  /** Presentación bajo NIF mexicanas. NO es el agrupador: ver MAPPING_SCHEMES. */
   mx_nif_code: string | null;
   us_gaap_code: string | null;
   ifrs_code: string | null;
@@ -500,7 +733,8 @@ export interface FilaMapeo {
 
 export async function listAccountMappings(entityId: string): Promise<FilaMapeo[]> {
   const result = await query<FilaMapeo>(
-    `SELECT code, name, account_level, is_active, mx_nif_code, us_gaap_code, ifrs_code
+    `SELECT code, name, account_level, is_active,
+            codigo_agrupador_sat, mx_nif_code, us_gaap_code, ifrs_code
        FROM accounts WHERE entity_id = $1 AND is_active = true
       ORDER BY code`,
     [entityId]
@@ -510,23 +744,44 @@ export async function listAccountMappings(entityId: string): Promise<FilaMapeo[]
 
 export interface ResultadoImportacionMapeo {
   code: string;
-  resultado: 'aplicado' | 'sin_cuenta' | 'valor_vacio';
+  resultado: 'aplicado' | 'sin_cuenta' | 'valor_vacio' | 'fuera_de_catalogo';
   detalle?: string;
 }
 
 /**
- * Carga masiva de un esquema desde pares (código de cuenta, valor). No valida
- * contra el catálogo c_CodAgrup (no existe en el repo todavía): la cobertura
- * la vigila `map check`; la validez del agrupador queda para `map match`.
+ * Carga masiva de un esquema desde pares (código de cuenta, valor).
+ *
+ * F07a: el agrupador ya SÍ se valida contra el c_CodAgrup (`sat-agrupadores`).
+ * La política y la vigencia del catálogo se resuelven UNA vez para toda la
+ * tanda —son las mismas para las mil filas de un CSV— y una fila fuera de
+ * catálogo no aborta el lote: se marca y el resto entra. Un import de mil
+ * cuentas que muere en la 700 deja al despacho peor que uno que reporta las
+ * tres malas.
  */
 export async function importAccountMappings(
   entityId: string,
   scheme: string,
   pares: { code: string; value: string }[],
   userId: string,
-  opts: { dryRun?: boolean } = {}
+  opts: { dryRun?: boolean; fecha?: string } = {}
 ): Promise<ResultadoImportacionMapeo[]> {
   resolverEsquema(scheme); // valida ANTES de tocar fila alguna
+
+  let ctxVal: ContextoValidacionAgrupador | undefined;
+  if (scheme === 'sat-agrupador') {
+    const r = await query<{ tenant_id: string }>(
+      'SELECT tenant_id FROM legal_entities WHERE id = $1',
+      [entityId]
+    );
+    const tenantId = r.rows[0]?.tenant_id;
+    if (tenantId) {
+      ctxVal = await prepararValidacionAgrupador(
+        { tenantId, entityId },
+        opts.fecha ?? new Date().toISOString().slice(0, 10)
+      );
+    }
+  }
+
   const resultados: ResultadoImportacionMapeo[] = [];
   for (const par of pares) {
     if (!par.value?.trim()) {
@@ -540,8 +795,22 @@ export async function importAccountMappings(
       resultados.push({ code: par.code, resultado: 'sin_cuenta' });
       continue;
     }
+    const valor = par.value.trim();
+
+    // En dry-run también se valida: el sentido de un dry-run es enterarse
+    // antes, y un dry-run que aprueba lo que la corrida real va a rechazar es
+    // el peor de los dos mundos.
+    if (ctxVal) {
+      const v = await validarCodigoAgrupador(ctxVal, valor);
+      if (v.accion === 'rechazar') {
+        resultados.push({ code: par.code, resultado: 'fuera_de_catalogo', detalle: v.aviso });
+        continue;
+      }
+      if (v.aviso) logger.warn(v.aviso, { cuenta: par.code, codigo: valor });
+    }
+
     if (!opts.dryRun) {
-      await setAccountMapping(cuenta.id, scheme, par.value.trim(), userId);
+      await setAccountMapping(cuenta.id, scheme, valor, userId, { validacion: ctxVal });
     }
     resultados.push({ code: par.code, resultado: 'aplicado' });
   }
@@ -549,29 +818,162 @@ export async function importAccountMappings(
 }
 
 export interface HuecoDeCobertura {
+  account_id: string;
   code: string;
   name: string;
   account_level: number;
+  /** Cuántas líneas posteadas tiene en el alcance medido. 0 bajo los alcances que no miran el mayor. */
+  lineas_posteadas: number;
+}
+
+/** Los tres alcances del panel para 'agrupador_alcance_de_la_compuerta'. */
+export const ALCANCES_DE_COMPUERTA = [
+  'cuentas_con_movimientos',
+  'todas_las_de_detalle',
+  'todas',
+] as const;
+export type AlcanceDeCompuerta = (typeof ALCANCES_DE_COMPUERTA)[number];
+
+export interface OpcionesDeCompuerta {
+  /** Evita subir por la entidad para encontrar el inquilino cuando el llamador ya lo sabe. */
+  tenantId?: string;
+  /** Acota el movimiento a un periodo fiscal concreto. */
+  fiscalPeriodId?: string;
+  /** Acota el movimiento por fecha de asiento. */
+  desde?: string;
+  hasta?: string;
+  /** Fuerza el alcance sin pasar por el panel. Para pruebas y para `--scope`. */
+  alcance?: AlcanceDeCompuerta;
+}
+
+export interface CoberturaDeMapeo {
+  alcance: AlcanceDeCompuerta;
+  /** true = el usuario contestó la política; false = se usó el defecto. */
+  alcanceElegido: boolean;
+  /** Cuentas de la población medida, con hueco y sin él. */
+  poblacion: number;
+  huecos: HuecoDeCobertura[];
 }
 
 /**
- * `map check --check coverage`: cuentas activas de nivel mayor y subcuenta de
- * primer nivel (account_level ≤ nivel) sin valor en el esquema. Es la
- * compuerta previa al XML de catálogo del Anexo 24.
+ * `map check --check coverage`: la compuerta previa al XML de catálogo del
+ * Anexo 24 — qué cuentas no pueden entregarse porque les falta el mapeo.
+ *
+ * F07a · POR QUÉ ESTO SE REESCRIBIÓ ENTERO. La versión anterior filtraba
+ * `account_level <= 2`, y una sonda contra una entidad real con dos cuentas
+ * movidas devolvió 43 huecos, 42 de ellos cuentas SIN UN SOLO MOVIMIENTO —
+ * mientras que la única cuenta que sí se había movido sin agrupador, la 1120,
+ * NO salía en la lista por estar en el nivel 3. Fallaba en las dos
+ * direcciones a la vez: ruido donde no hay riesgo y silencio donde lo hay.
+ * Las dos mitades del fallo son la misma equivocación — el nivel de una
+ * cuenta en el catálogo no dice nada sobre si la autoridad va a leerla.
+ *
+ * Lo que la autoridad lee es el saldo y las pólizas, así que la población por
+ * omisión son las cuentas CON MOVIMIENTO POSTEADO. Es la respuesta que el
+ * panel trae de fábrica en 'agrupador_alcance_de_la_compuerta', y quien
+ * prefiera cubrir el catálogo entero antes de que se mueva lo contesta ahí.
+ *
+ * Sobre `nivel`: el tercer parámetro se acepta como número por compatibilidad
+ * con los llamadores de F01 y se IGNORA a propósito — es el filtro que
+ * causaba el defecto. Está anotado en el informe de F07a para que el CLI
+ * retire `--level` en vez de seguir prometiendo un recorte que no ocurre.
  */
+export async function checkMappingCoverageDetallada(
+  entityId: string,
+  scheme: string,
+  opciones: OpcionesDeCompuerta = {}
+): Promise<CoberturaDeMapeo> {
+  const columna = resolverEsquema(scheme);
+
+  let alcance: AlcanceDeCompuerta;
+  let alcanceElegido = false;
+  if (opciones.alcance) {
+    alcance = opciones.alcance;
+  } else {
+    const tenantId =
+      opciones.tenantId ??
+      (
+        await query<{ tenant_id: string }>(
+          'SELECT tenant_id FROM legal_entities WHERE id = $1',
+          [entityId]
+        )
+      ).rows[0]?.tenant_id;
+    if (!tenantId) throw new NotFoundError('LegalEntity', entityId);
+    const pol = await getPolicy({ tenantId, entityId }, 'agrupador_alcance_de_la_compuerta');
+    alcance = (ALCANCES_DE_COMPUERTA as readonly string[]).includes(pol.value)
+      ? (pol.value as AlcanceDeCompuerta)
+      : 'cuentas_con_movimientos';
+    alcanceElegido = pol.defined;
+  }
+
+  // La entidad va DENTRO del SQL en las dos tablas, no sólo en `accounts`:
+  // un asiento de otra entidad no puede ser el que obligue a mapear ésta.
+  const params: unknown[] = [entityId];
+  const movimiento: string[] = [];
+  if (opciones.fiscalPeriodId) {
+    params.push(opciones.fiscalPeriodId);
+    movimiento.push(`AND je.fiscal_period_id = $${params.length}`);
+  }
+  if (opciones.desde) {
+    params.push(opciones.desde);
+    movimiento.push(`AND je.entry_date >= $${params.length}`);
+  }
+  if (opciones.hasta) {
+    params.push(opciones.hasta);
+    movimiento.push(`AND je.entry_date <= $${params.length}`);
+  }
+
+  // Un solo recorrido para las dos cifras: la población y el hueco. Contarlas
+  // por separado invita a que una consulta cambie y la otra no, y entonces el
+  // «3 de 40» del informe deja de ser sobre el mismo conjunto.
+  const poblacionFiltro =
+    alcance === 'todas'
+      ? ''
+      : alcance === 'todas_las_de_detalle'
+        ? 'AND a.is_header = false'
+        : 'AND m.lineas > 0';
+
+  const result = await query<HuecoDeCobertura & { sin_mapeo: boolean }>(
+    `WITH mov AS (
+       SELECT jel.account_id, COUNT(*)::int AS lineas
+         FROM journal_entry_lines jel
+         JOIN journal_entries je
+           ON je.id = jel.journal_entry_id
+          AND je.status = 'posted'
+          AND je.entity_id = $1
+        ${movimiento.join(' ')}
+        GROUP BY jel.account_id
+     )
+     SELECT a.id AS account_id, a.code, a.name, a.account_level,
+            COALESCE(m.lineas, 0) AS lineas_posteadas,
+            (a.${columna} IS NULL) AS sin_mapeo
+       FROM accounts a
+       LEFT JOIN mov m ON m.account_id = a.id
+      WHERE a.entity_id = $1 AND a.is_active = true
+        ${poblacionFiltro}
+      ORDER BY a.code`,
+    params
+  );
+
+  return {
+    alcance,
+    alcanceElegido,
+    poblacion: result.rows.length,
+    huecos: result.rows
+      .filter((r) => r.sin_mapeo)
+      .map(({ account_id, code, name, account_level, lineas_posteadas }) => ({
+        account_id, code, name, account_level, lineas_posteadas,
+      })),
+  };
+}
+
+/** Forma histórica: sólo los huecos. Los llamadores de F01 siguen compilando. */
 export async function checkMappingCoverage(
   entityId: string,
   scheme: string,
-  nivel = 2
+  nivelOOpciones: number | OpcionesDeCompuerta = 2
 ): Promise<HuecoDeCobertura[]> {
-  const columna = resolverEsquema(scheme);
-  const result = await query<HuecoDeCobertura>(
-    `SELECT code, name, account_level
-       FROM accounts
-      WHERE entity_id = $1 AND is_active = true
-        AND account_level <= $2 AND ${columna} IS NULL
-      ORDER BY code`,
-    [entityId, nivel]
-  );
-  return result.rows;
+  const opciones = typeof nivelOOpciones === 'number' ? {} : nivelOOpciones;
+  const r = await checkMappingCoverageDetallada(entityId, scheme, opciones);
+  return r.huecos;
 }

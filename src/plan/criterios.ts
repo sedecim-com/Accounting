@@ -498,6 +498,7 @@ export const CRITERIOS: Criterio[] = [
         F06c: 'docs/auditorias/F06c.md',
         R4: 'docs/auditorias/R4.md',
         D1a: 'docs/auditorias/D1a.md',
+        F07a: 'docs/auditorias/F07a.md',
         G1a: 'docs/auditorias/G1a.md',
         G1b: 'docs/auditorias/G1b.md',
         G0: 'docs/auditorias/G0.md',
@@ -4197,6 +4198,60 @@ export const CRITERIOS: Criterio[] = [
       return entregada
         ? ok('la guarda de estado es única y la usan todos los verbos, el origen es propio, la reversa es todo-o-nada y la familia está en el binario')
         : falla('registerBatchCommand no está en el binario: el staging de F01 vuelve a ser un almacén sin salida');
+    },
+  },
+
+  // ---- F07a · Los cimientos del Anexo 24 ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El agrupador del SAT vive en una sola columna, y la balanza publica su saldo inicial y sus descuadres',
+    mutantes: [
+      {
+        // El okupa: el agrupador FISCAL vivía en la casilla de la norma
+        // CONTABLE, hermana de us_gaap_code e ifrs_code. Funcionaba mientras
+        // nadie usara la otra; el día que una entidad necesitara ambas, una
+        // pisaba a la otra en silencio.
+        archivo: 'src/services/accounting/account-service.ts',
+        de: "  'sat-agrupador': 'codigo_agrupador_sat',",
+        a: "  'sat-agrupador': 'mx_nif_code',",
+        porque: 'devuelve el agrupador fiscal a la columna de presentación contable: el código NIF y el del SAT vuelven a pisarse, y el catálogo del Anexo 24 se construye sobre la casilla equivocada',
+      },
+      {
+        // Lo que el adversarial cazó: el servicio calculaba los descuadres
+        // —el recálculo que la AUTORIDAD rehace sobre el archivo sellado— y
+        // las tres superficies los tiraban. La balanza se imprimía con cara
+        // de correcta.
+        archivo: 'src/api/rest/routes/reports.ts',
+        de: '      ...(report.inicial ? { opening_balance: report.inicial } : {}),',
+        a: '      // sin el sobre del saldo inicial',
+        porque: 'la API vuelve a tirar la procedencia del saldo inicial, si es firme y los descuadres: el consumidor recibe una balanza que parece correcta sobre cuentas que no cuadran',
+      },
+    ],
+    evaluar: () => {
+      const cta = codigoDe('src/services/accounting/account-service.ts');
+      const rest = codigoDe('src/api/rest/routes/reports.ts');
+      const cierre = codigoDe('src/services/accounting/period-close.ts');
+
+      // 1. UNA SOLA VERDAD. El esquema 'sat-agrupador' escribe en la columna
+      //    que la 037 creó para eso, no en la de norma contable.
+      if (!/'sat-agrupador': 'codigo_agrupador_sat'/.test(cta)) {
+        return falla('el agrupador del SAT volvió a la columna de presentación contable: dos cosas distintas compartiendo casilla, que es como llegó aquí');
+      }
+      // 2. LA CUARTA COLUMNA LLEGA A LA SUPERFICIE. El SAT recalcula
+      //    SaldoIni + Debe − Haber = SaldoFin sobre lo que se le entrega, así
+      //    que un descuadre calculado y no publicado es peor que no
+      //    calcularlo: nadie lo mira y la balanza sale con cara de correcta.
+      if (!/opening_balance: report\.inicial/.test(rest)) {
+        return falla('la API dejó de publicar el saldo inicial y sus descuadres: se calculan y se tiran, que es como estaban antes de F07a');
+      }
+      // 3. Y LA CASILLA QUE FALTABA. Sin agrupador no hay catálogo que
+      //    entregar; el COMMENT de la 037 llevaba prometiéndola desde
+      //    entonces sobre una columna que nadie escribía.
+      const casilla = /'sat-agrupador-missing'/.test(cierre);
+      return casilla
+        ? ok('el agrupador tiene una sola columna, la balanza publica saldo inicial y descuadres, y el cierre avisa de las cuentas con movimiento sin agrupar')
+        : falla('desapareció la casilla del agrupador: se podría cerrar un mes cuyas cuentas movidas no se pueden entregar al SAT');
     },
   },
 

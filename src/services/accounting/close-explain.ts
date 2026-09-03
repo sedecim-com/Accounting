@@ -6,6 +6,7 @@ import {
   CLOSE_CHECK_ITEMS,
   type CloseCheckCode,
 } from './period-close.js';
+import { MAPPING_SCHEMES } from './account-service.js';
 
 // ============================================================
 // F06b · `closing explain <codigo>` — LOS RENGLONES OFENSORES
@@ -55,6 +56,7 @@ export const REMEDIO_DE: Readonly<Record<CloseCheckCode, string>> = {
   'ledger-integrity': 'mnemosine ledger check --period <YYYY-MM>',
   'rep-parked': 'mnemosine rep reconcile',
   'rep-missing': 'mnemosine rep missing list',
+  'sat-agrupador-missing': 'mnemosine account map set <code> --scheme sat-agrupador --value <c_CodAgrup>',
 };
 
 export interface OpcionesDeExplicacion {
@@ -317,6 +319,43 @@ const RUNNERS: Record<CloseCheckCode, Runner> = {
        ) pagos
        ORDER BY pagos.payment_date, pagos.payment_number
        LIMIT $3`,
+      [entityId, periodId, limit]
+    ),
+
+  // Espejo de la casilla 7 (F07a): las cuentas CON MOVIMIENTO POSTEADO hasta
+  // el corte del periodo a las que les falta el agrupador del Anexo 24. Mismo
+  // predicado que `checkMappingCoverageDetallada` con alcance
+  // 'cuentas_con_movimientos' y `hasta` = fin del periodo, y por lo mismo
+  // acumulado y no acotado al mes: una cuenta movida en enero lleva SaldoIni
+  // en la balanza de marzo.
+  //
+  // La COLUMNA sale de MAPPING_SCHEMES y no escrita a mano: el agrupador ya
+  // cambió de casilla una vez (mx_nif_code → codigo_agrupador_sat, migración
+  // 060) y una copia literal aquí habría quedado apuntando al sitio viejo sin
+  // que nada lo dijera. Es una constante del módulo, no entrada del usuario.
+  //
+  // La entidad va en las DOS tablas —la cuenta y el asiento— igual que en la
+  // compuerta: un asiento de otra entidad no puede ser el que obligue a
+  // mapear ésta.
+  'sat-agrupador-missing': (entityId, periodId, limit) =>
+    filas(
+      `SELECT a.code, a.name, a.account_level, m.lineas AS lineas_posteadas,
+              COUNT(*) OVER()::text AS total_ofensores
+         FROM accounts a
+         JOIN (
+           SELECT jel.account_id, COUNT(*)::int AS lineas
+             FROM journal_entry_lines jel
+             JOIN journal_entries je
+               ON je.id = jel.journal_entry_id
+              AND je.status = 'posted'
+              AND je.entity_id = $1
+              AND je.entry_date <= (SELECT end_date FROM fiscal_periods WHERE id = $2)
+            GROUP BY jel.account_id
+         ) m ON m.account_id = a.id
+        WHERE a.entity_id = $1 AND a.is_active = true
+          AND a.${MAPPING_SCHEMES['sat-agrupador']} IS NULL
+        ORDER BY a.code
+        LIMIT $3`,
       [entityId, periodId, limit]
     ),
 };
