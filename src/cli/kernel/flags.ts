@@ -447,6 +447,20 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // envío anterior está siendo sustituido. Una fecha equivocada aquí no
   // devuelve una lista mal filtrada: liga la complementaria al envío que no es.
   '--modified': null,
+  // F07c · `diot export --layout working-paper|sat`. La forma del ARCHIVO QUE
+  // SE ENTREGA, que NO es `--format`.
+  //
+  // `--format` gobierna la salida renderizada del binario —table, json, csv—
+  // y la gobierna igual en las 130 hojas. El layout es una propiedad del
+  // documento que se produce: un archivo de lote de la autoridad y una
+  // conciliación por tercero son dos documentos distintos, no dos formatos de
+  // impresión del mismo. Sin esta entrada, la próxima sesión que necesite lo
+  // mismo lo llamaría `--variant`, `--kind` o —peor— reutilizaría `--format`
+  // y `--format json` pasaría a significar dos cosas según el comando.
+  //
+  // Sin forma corta a propósito: `-l` es de `--list` y las formas cortas se
+  // asignan una sola vez.
+  '--layout': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

@@ -592,6 +592,82 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 30,
   },
   {
+    key: 'diot_tipo_operacion_por_omision',
+    category: 'contable',
+    question: 'A supplier with no operation type declared: which one does the DIOT report?',
+    impact:
+      'The DIOT reports each supplier under an operation type — 03 professional services, 06 ' +
+      'property leasing, 85 other. It is per SUPPLIER, not per invoice, so a wrong default is ' +
+      'wrong for every month until someone corrects it.',
+    options: [
+      { value: '85', label: 'Other (85) — the catch-all the catalogue provides' },
+      { value: '03', label: 'Professional services (03)' },
+      { value: 'bloquear', label: 'None: refuse to build the DIOT until every supplier declares one' },
+    ],
+    defaultValue: '85',
+    defaultRationale:
+      'The catalogue itself provides 85 as the residual category, so using it is not a guess: it is ' +
+      'the answer the form expects when the operation is neither professional services nor leasing. ' +
+      'Refusing would block a monthly filing over suppliers whose classification does not change the ' +
+      'tax, and 03 or 06 asserted by default would put a specific claim in your name.',
+    whyAsking:
+      'The form classifies each supplier by the kind of operation you have with them, and most of them are neither professional services nor leasing — but the two that are, you have to tell me.',
+    whatIDo: 'I report suppliers with no declared type under 85, and list them so you can refine the ones that matter.',
+    ifSkipped: 'I use 85 and tell you which suppliers took it.',
+    priority: 35,
+  },
+  {
+    key: 'diot_tercero_sin_rfc',
+    category: 'contable',
+    question: 'A supplier with a missing, invalid or generic RFC when the DIOT is built: refuse, or report it as global?',
+    impact:
+      'The DIOT identifies each national supplier by RFC. Today the system detects an EMPTY tax id ' +
+      'and nothing else: neither a malformed one nor the generic XAXX010101000, which is precisely ' +
+      'the value that turns a real supplier into an anonymous one on the filing.',
+    options: [
+      { value: 'bloquear', label: 'Refuse to build it and name the suppliers' },
+      { value: 'declarar_global', label: 'Report them under type 15 (global, general public)' },
+    ],
+    defaultValue: 'bloquear',
+    defaultRationale:
+      'Type 15 exists for genuine sales to the general public, not as a bin for suppliers whose RFC ' +
+      'nobody captured. Using it that way files a declaration saying those operations had no ' +
+      'identifiable counterparty, which is a statement about your books rather than a formatting ' +
+      'choice — and it is the kind of thing the authority cross-checks against the suppliers own ' +
+      'filings.',
+    whyAsking:
+      'A supplier without a valid RFC cannot be identified on the filing, and the alternative to stopping is declaring that those purchases had no known counterparty.',
+    whatIDo: 'I refuse to build the DIOT and name the suppliers whose RFC is missing, malformed or generic.',
+    ifSkipped: 'I refuse and name them.',
+    priority: 30,
+  },
+  {
+    key: 'diot_iva_exento_y_base',
+    category: 'contable',
+    question: 'How is exempt activity reported when the source document did not carry its base?',
+    impact:
+      'The DIOT declares the VALUE of the acts, not only the tax. An exempt line carries no tax ' +
+      'amount and, until now, the parser dropped it entirely: a CFDI 4.0 exempt node has ' +
+      'TipoFactor="Exento" and no Importe, so it was discarded in silence.',
+    options: [
+      { value: 'exigir_base', label: 'Require the base: refuse to report a period with exempt lines whose value is unknown' },
+      { value: 'derivar_del_subtotal', label: 'Derive it from the line subtotal' },
+      { value: 'omitir_y_avisar', label: 'Leave those lines out and list them' },
+    ],
+    defaultValue: 'exigir_base',
+    defaultRationale:
+      'Exempt activity is not the absence of an operation: it is an operation the DIOT wants counted, ' +
+      'and understating it understates the total the authority reconciles against your VAT return. ' +
+      'Deriving from the subtotal is right often enough to be dangerous — it silently breaks wherever ' +
+      'a line mixes exempt and taxed concepts. Now that the base is captured at ingestion, requiring ' +
+      'it means requiring something the document already said.',
+    whyAsking:
+      'Exempt purchases still count on the filing, and they are the ones whose amount the system used to throw away without telling anyone.',
+    whatIDo: 'I stop and name the documents whose exempt base is unknown instead of guessing it.',
+    ifSkipped: 'I require the base and name what is missing.',
+    priority: 35,
+  },
+  {
     key: 'efirma_sellado_contabilidad_electronica',
     category: 'contable',
     question: 'Does the system seal the Anexo 24 files with your e.firma, or do you seal them yourself?',

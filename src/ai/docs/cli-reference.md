@@ -70,6 +70,7 @@ Commands:
   fx|cambio                              Exchange rates: the origin every foreign-currency amount converts from
   prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
+  diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
   cashflow|flujo                         Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash
   audit|auditoria                        Read the audit trail: who changed what, when, and from which value
   subscription|suscripcion               Outbound event subscriptions: who we notify, and what we could not deliver
@@ -971,28 +972,34 @@ Usage: mnemosine payment create|crear [options] <bill>
 Record a payment made against a bill and recognize the IVA it was holding
 
 Arguments:
-  bill                     bill number, vendor invoice number or id
+  bill                      bill number, vendor invoice number or id
 
 Options:
-  --amount <amount>        amount, in the document currency
-  --date <date>            value date (YYYY-MM-DD); defaults to today
-  --method <method>        cash, check, ach, wire, spei, credit_card or other
-                           (default: "spei")
-  --bank <account>         bank account id; without it the entity's `banco` role
-                           is used
-  --json                   JSON output
-  --discount <amount>      early-payment discount taken
-  --memo <text>            note stored with the payment
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --dry-run                compute and show the full effect; write nothing and
-                           call nothing external
-  -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
-  -h, --help               display help for command
+  --amount <amount>         amount, in the document currency
+  --date <date>             value date (YYYY-MM-DD); defaults to today
+  --method <method>         cash, check, ach, wire, spei, credit_card or other
+                            (default: "spei")
+  --bank <account>          bank account id; without it the entity's `banco`
+                            role is used
+  --json                    JSON output
+  --check-number <number>   cheque number; only valid with --method check
+  --to-account <number>     account that received the money (CtaDest of the SAT
+                            voucher)
+  --to-bank <code>          destination bank key from the SAT c_Banco catalogue
+                            (3 digits)
+  --to-foreign-bank <name>  destination bank name when it is a foreign one
+  --discount <amount>       early-payment discount taken
+  --memo <text>             note stored with the payment
+  -e, --entity <idOrName>   legal entity to operate on (defaults to the active
+                            one)
+  -t, --tenant <id>         tenant (firm) whose data to scope to
+  -u, --user <email>        acting user, for attribution and permissions
+  --dry-run                 compute and show the full effect; write nothing and
+                            call nothing external
+  -y, --yes                 skip the confirmation prompt
+  --idempotency-key <key>   client dedupe key, stored on success: a retry with
+                            the same key and payload returns the recorded result
+  -h, --help                display help for command
 ```
 
 ### `mnemosine payment apply` (alias: aplicar)
@@ -5364,6 +5371,96 @@ Options:
   --period <expr>                          period to check: 2026-02, its name, or the fiscal period id
   --closing                                check the year-end balance (month 13) instead of a month
   --check [names]                          comma-separated check names; with no value, prints the available ones
+  -h, --help                               display help for command
+```
+
+## `mnemosine diot`
+
+```
+Usage: mnemosine diot [options] [command]
+
+Mexican DIOT: build the month from paid transactions, check it, and export the
+working paper
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Build the month's DIOT from paid transactions,
+                              broken down by third party and by rate
+  check|verificar [options]   Run the DIOT invariants by name: the paid fact,
+                              the rate breakdown, the exempt base, the third
+                              party and its operation type
+  export|exportar [options]   Emit the DIOT file, byte-stable for diffing: the
+                              working paper today, the SAT batch layout when it
+                              is grounded
+  help [command]              display help for command
+```
+
+### `mnemosine diot generate` (alias: generar)
+
+```
+Usage: mnemosine diot generate|generar [options]
+
+Build the month's DIOT from paid transactions, broken down by third party and by
+rate
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <YYYY-MM>                       month to declare (the DIOT is monthly; no month 13)
+  -h, --help                               display help for command
+```
+
+### `mnemosine diot check` (alias: verificar)
+
+```
+Usage: mnemosine diot check|verificar [options]
+
+Run the DIOT invariants by name: the paid fact, the rate breakdown, the exempt
+base, the third party and its operation type
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --period <YYYY-MM>                       month to check (the DIOT is monthly; no month 13)
+  --check [names]                          comma-separated check names; with no value, prints the available ones
+  -h, --help                               display help for command
+```
+
+### `mnemosine diot export` (alias: exportar)
+
+```
+Usage: mnemosine diot export|exportar [options]
+
+Emit the DIOT file, byte-stable for diffing: the working paper today, the SAT
+batch layout when it is grounded
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the exported file to this path (without it, the file goes to stdout so it can be diffed)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <YYYY-MM>                       month to export (the DIOT is monthly; no month 13)
+  --layout <working-paper|sat>             file layout: working-paper is the per-third-party reconciliation; sat is the authority batch file (default: "working-paper")
+  -y, --yes                                skip the overwrite prompt when -o names an existing file
   -h, --help                               display help for command
 ```
 

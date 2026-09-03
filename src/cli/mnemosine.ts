@@ -93,6 +93,7 @@ import { registerClosingCommand } from './closing-command.js';
 import { registerFxCommand } from './fx-command.js';
 import { registerPrepaidCommand } from './prepaid-command.js';
 import { registerEAccountingCommand } from './e-accounting-command.js';
+import { registerDiotCommand } from './diot-command.js';
 import { registerCashFlowCommand } from './cashflow-command.js';
 import { registerAuditCommand } from './audit-command.js';
 import { registerWebhookSweepCommand } from './webhook-sweep-command.js';
@@ -2252,6 +2253,7 @@ registerClosingCommand(program, { palette: c, shutdown, reportError });
 registerFxCommand(program, { palette: c, shutdown, reportError });
 registerPrepaidCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
+registerDiotCommand(program, { palette: c, shutdown, reportError });
 registerCashFlowCommand(program, { palette: c, shutdown, reportError });
 registerAuditCommand(program, { palette: c, shutdown, reportError });
 // G4b · el barrido de entregas SALIENTES. Cuelga de `subscription`·`suscripcion`,

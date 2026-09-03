@@ -102,6 +102,8 @@ const TOP_LEVEL: Record<string, string> = {
   outbox: 'envio',
   question: 'duda',
   sat: '',
+  // F07c: la DIOT no se traduce, como sat y cfdi: es el nombre del trámite.
+  diot: '',
   // F02: cfdi es la misma palabra en los dos idiomas, como sat.
   cfdi: '',
   rep: '',
