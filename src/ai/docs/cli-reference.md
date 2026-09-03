@@ -1655,9 +1655,9 @@ Options:
 
 Examples:
   # The coverage gate before any Anexo 24 catalog XML: what still lacks a code.
-  mnemosine account map check --scheme sat-agrupador --level 2
+  mnemosine account map check --scheme sat-agrupador
   # Same, but exit 4 on any gap so CI can block on it.
-  mnemosine account map check --scheme sat-agrupador --level 3 --strict
+  mnemosine account map check --scheme sat-agrupador --strict
 ```
 
 ### `mnemosine account restore` (alias: restaurar)

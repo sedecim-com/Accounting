@@ -208,12 +208,19 @@ Examples:
   # Load it for real, replay-safe: the same key and file return the first result.
   mnemosine account map import ./agrupador.csv --scheme sat-agrupador --idempotency-key agrupador-2026
 `,
+  // SIN --level, y no es un detalle de estilo: F07a la retiró y hoy la hoja la
+  // RECHAZA con salida 2. Estos dos ejemplos llegaron de S-UX cuando la bandera
+  // aún recortaba, y al fusionar quedaban documentando el 100 % de las
+  // invocaciones de esta hoja con una bandera que muere. Peor: el corpus que
+  // lee el agente se regenera de aquí, así que le habríamos enseñado dos
+  // órdenes que el binario contesta con un error. La población la fija ahora la
+  // política, y eso es lo que el segundo ejemplo enseña.
   mapCheck: `
 Examples:
   # The coverage gate before any Anexo 24 catalog XML: what still lacks a code.
-  mnemosine account map check --scheme sat-agrupador --level 2
+  mnemosine account map check --scheme sat-agrupador
   # Same, but exit 4 on any gap so CI can block on it.
-  mnemosine account map check --scheme sat-agrupador --level 3 --strict
+  mnemosine account map check --scheme sat-agrupador --strict
 `,
   restore: `
 Examples:

@@ -270,7 +270,12 @@ export async function leerPanel(
 /** Bajo el tope de tools/index.ts (32000) con margen para el resto del turno. */
 const TOPE_DEL_PANEL = 30000;
 
-const ESCALONES_DE_NOTA = [400, 150, 0] as const;
+// El 60 no es un número redondo: es el peldaño que hace que las 46 políticas
+// de hoy quepan CON su justificación (28 622 < 30 000). Sin él la escalera
+// saltaba de 150 directa a 0, y a este tamaño 150 ya no cabía: el agente
+// recibía las 46 reglas SIN una sola razón de por qué son así. Un panel que
+// dice qué hacer y nunca por qué es el que se acaba ignorando.
+const ESCALONES_DE_NOTA = [400, 150, 60, 0] as const;
 
 /** El marcador cuenta DENTRO del tope, no encima. */
 const MARCA_DE_RECORTE = ' […trimmed]';

@@ -593,34 +593,26 @@ describe('el instructivo no puede perderse por el tope, y el panel tampoco', () 
     // ahi. Exigir un numero POSITIVO era exigir que el catalogo fuera pequeno,
     // que es una fotografia del mismo tipo que el «400» de antes. Lo que no
     // cambia es la propiedad: el aviso NO PUEDE MENTIR sobre su propio corte,
-    // y las dos ramas se comprueban contra las notas que de verdad llegaron.
-    // Que hoy caiga en cero es una PERDIDA —el agente ya no ve ninguna
-    // justificacion— y esta anotada como decision pendiente de producto: o se
-    // anade un peldano fino, o se sube el presupuesto del panel, o se acepta
-    // que a este tamano la justificacion se pide una a una.
+    // EXIGE QUE RECORTE, NO QUE SUELTE. La fusion habia relajado esto para
+    // aceptar tambien «notes were DROPPED», y con ello daba por buena una
+    // regresion embarcada: a 46 politicas el panel medía 26 001 y el agente
+    // recibia las reglas SIN una sola justificacion. La escalera gano un
+    // peldano de 60 y vuelven las 46 notas, asi que el aserto vuelve a ser el
+    // de main — un aserto que acepta las dos salidas no distingue la sana de
+    // la rota, que es justo lo que tiene que hacer.
     const recortado = /notes were trimmed to (\d+) characters/.exec(panel.notes_trimmed ?? '');
-    const soltado = /notes were DROPPED/.test(panel.notes_trimmed ?? '');
     expect(
-      recortado !== null || soltado,
-      'el panel no anuncia que recorto ni que solto sus notas'
-    ).toBe(true);
-    if (recortado) {
-      const tope = Number(recortado[1]);
+      recortado,
+      'el panel solto sus notas en vez de recortarlas: el agente se queda sin ninguna justificacion'
+    ).not.toBeNull();
+    {
+      const tope = Number(recortado![1]);
       expect(tope).toBeGreaterThan(0);
       for (const p of panel.policies) {
         expect(
           (p.notes ?? '').length,
           `la nota de ${p.key} pasa del recorte que el propio aviso anuncia`
         ).toBeLessThanOrEqual(tope);
-      }
-    } else {
-      // Anunciar que se soltaron y mandar alguna es la misma mentira, del
-      // otro lado.
-      for (const p of panel.policies) {
-        expect(
-          p.notes ?? null,
-          `el aviso dice que solto las notas y ${p.key} trae una`
-        ).toBeNull();
       }
     }
   });
