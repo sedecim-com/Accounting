@@ -171,6 +171,54 @@ function cabeceraDePeriodo(r: CloseReadiness, c: Palette): string {
   );
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// El periodo se nombra por el NOMBRE que el calendario acuñó ("July 2026") o
+// por su id, y `periodoOMasViejo` casa por subcadena del nombre: sin argumento
+// se contesta sobre el más viejo abierto, que es el mismo criterio de la hoja
+// `close` — dos superficies que contestaran sobre meses distintos no
+// previsualizarían nada.
+//
+// Los códigos de `explain` son los estables de `CLOSE_CHECK_CODES`, y por eso
+// `check --check` sin valor los imprime sin tocar la base: preguntar qué se
+// puede verificar no debería costar una conexión.
+//
+// Prosa en inglés (idioma del nodo); los datos son mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  preview: `
+Examples:
+  # Can the oldest open period enter close, and what is missing?
+  mnemosine closing preview
+  # A named month. Blocking items come from the engine AND from the AI queues:
+  # a draft dated inside the period stops the close like a red checkbox does.
+  mnemosine closing preview "July 2026"
+  # Warnings block too, for a scripted gate: exit 4 where it would have been 0.
+  mnemosine closing preview "July 2026" --strict
+`,
+  check: `
+Examples:
+  # The whole catalog over the oldest open period.
+  mnemosine closing check
+  # What can be verified at all, without touching the database.
+  mnemosine closing check --check
+  # Two checks only, on a named month. Filtered, the verdict is about WHAT WAS
+  # ASKED and nothing else; unfiltered it also weighs the AI blockers.
+  mnemosine closing check --period "July 2026" --check trial-balance,ledger-integrity
+`,
+  explain: `
+Examples:
+  # The rows keeping one check red, and the exact command that clears them.
+  mnemosine closing explain entries-posted
+  # Bank lines nobody explained, on a named month, ten rows at most.
+  mnemosine closing explain bank-lines-unexplained --period "July 2026" -n 10
+  # The offenders as CSV, which is the annex an auditor asks for. The real total
+  # travels with the rows, so the --limit cut never passes in silence.
+  mnemosine closing explain depreciation-posted --format csv -o cierre-julio-depreciacion.csv
+`,
+} as const;
+
 export function registerClosingCommand(program: Command, deps: ClosingCommandDeps): void {
   const closing = program
     .command('closing')
@@ -189,10 +237,15 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   const preview = closing
     .command('preview')
     .alias('previsualizar')
-    .argument('[period]', 'period name, YYYY-MM, or id (default: the oldest open one)')
+    // NO dice «YYYY-MM»: `periodoOMasViejo` casa por id o por subcadena del
+    // nombre acuñado, y sólo sobre periodos ABIERTOS. `period show 2026-07` sí
+    // resuelve porque va por `resolvePeriod`; éste no. Prometer las tres formas
+    // mandaba al usuario a un «no encontrado» sobre un periodo que existe.
+    .argument('[period]', 'open period name or id (default: the oldest open one)')
     .description('Read-only twin of closing start: says whether the period can enter close and what is missing');
   withStrict(withOutput(withContext(preview)));
   declareRisk(preview, { risk: 'lectura', agent: true });
+  preview.addHelpText('after', EJEMPLOS.preview);
   preview.action((periodArg: string | undefined, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -248,6 +301,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     .option('--check [codes]', 'comma-separated check codes; with no value, prints the available ones')
     .option('--period <name>', 'period to check (default: the oldest open one)');
   declareRisk(check, { risk: 'lectura', agent: true });
+  check.addHelpText('after', EJEMPLOS.check);
   check.action((opts: CommonOpts & { check?: string | boolean; period?: string }) =>
     run(async () => {
       // `--check` sin valor: el registro, sin tocar la base — la pregunta
@@ -349,6 +403,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     .option('-n, --limit <n>', 'maximum offending rows to print', (v: string) => Number(v))
     .option('--period <name>', 'period to explain (default: the oldest open one)');
   declareRisk(explain, { risk: 'lectura', agent: true });
+  explain.addHelpText('after', EJEMPLOS.explain);
   explain.action(
     (
       code: string,

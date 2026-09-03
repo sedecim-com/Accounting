@@ -163,7 +163,12 @@ export async function getPolicy(
 /** Numeric shortcut for policies that are amounts or quantities. */
 export async function getPolicyNumber(ctx: PolicyContext, key: string): Promise<number> {
   const p = await getPolicy(ctx, key);
-  const n = Number(p.value);
+  // `Number('')`, `Number('  ')` y `Number(null)` valen 0, y `Number.isFinite(0)`
+  // es true: sin este recorte, un valor en blanco se leía como CERO en vez de
+  // caer al default declarado. La escritura ya no admite blancos, pero una
+  // fila anterior a esa guarda sigue en la base, así que el cinturón se queda.
+  const crudo = (p.value ?? '').trim();
+  const n = crudo === '' ? Number.NaN : Number(crudo);
   if (!Number.isFinite(n)) {
     const spec = getPolicySpec(key);
     return Number(spec?.defaultValue ?? 0);
@@ -179,6 +184,28 @@ export async function resolvePolicy(
   notes?: string
 ): Promise<void> {
   const spec = getPolicySpec(key);
+
+  // UNA RESPUESTA EN BLANCO NO ES UNA RESPUESTA, y hasta hoy sí lo era.
+  //
+  // La ruta interactiva de `pending define` recorta y cancela con vacío; la
+  // ruta por ARGUMENTO (`pending define <key> "   "`) no hacía ninguna de las
+  // dos, y aquí tampoco se miraba. La fila entraba como `resolved` con
+  // resolved_value en blanco, y a partir de ahí el sistema la presentaba al
+  // agente bajo el sello «tu despacho decidió esto, síguelo».
+  //
+  // El daño no era cosmético: `getPolicyNumber` hacía Number('   \n  ') === 0
+  // y Number.isFinite(0) es true, así que el respaldo al default declarado
+  // NUNCA se disparaba y el umbral de capitalización del motor quedaba en
+  // CERO — «capitalízalo todo», en silencio, sobre cada compra del cliente.
+  // Se corta en el sitio donde entra, que es el único que cubre a los dos
+  // llamadores (pending define y el asistente del alta).
+  if (value.trim() === '') {
+    throw new ValidationError(
+      `Una política no se contesta en blanco: "${key}" quedaría marcada como decidida por el despacho ` +
+        'con un valor vacío, y el motor lo leería como cero. Da un valor, o déjala pendiente.',
+      'value'
+    );
+  }
 
   // A4 · LA COMPUERTA DE LA EVIDENCIA: encender el auto-posteo exige el
   // historial de sombra que el piso manda (días, acuerdo y veredictos

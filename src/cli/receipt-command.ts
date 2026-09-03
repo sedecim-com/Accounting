@@ -92,6 +92,65 @@ const MONEY = ['payment_amount', 'applied_amount', 'unapplied_amount', 'amount_a
 // El dia LOCAL: a las 20:00 en CDMX, toISOString ya cobraba con fecha de manana.
 const hoy = (): string => dateOnly(new Date());
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// El folio del cobro es PMT-AAAA-NNNNN (el pago a proveedor es VPMT-, otra
+// familia) y el de la factura INV-AAAA-NNNNN. Registrar el cobro no es
+// papeleo: es el acto que libera el IVA trasladado que un CFDI PPD dejó
+// aparcado, así que cada ejemplo dice qué mueve.
+//
+// En `--invoice` el importe puede ir pegado tras dos puntos
+// ("INV-2026-00042:2500.00") o suelto en `--amount` cuando es una sola.
+// Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  record: `
+Examples:
+  # Cash received against one invoice; this releases the PPD IVA it was holding.
+  mnemosine receipt record INV-2026-00042 --amount 98600.00 --date 2026-07-31 --method spei --reference "SPEI 0123456789"
+  # Take more than the invoice owes; the excess stays on account as an anticipo.
+  mnemosine receipt record INV-2026-00042 --amount 120000.00 --on-account
+  # See the entry it would post, writing nothing.
+  mnemosine receipt record INV-2026-00042 --amount 98600.00 --dry-run
+`,
+  show: `
+Examples:
+  # One collection: its applications, live and historic, its REP and its entry.
+  mnemosine receipt show PMT-2026-00042
+  # As JSON, for a script that reads the unapplied remainder.
+  mnemosine receipt show PMT-2026-00042 --json
+`,
+  list: `
+Examples:
+  # Collections from one customer during July 2026.
+  mnemosine receipt list --customer "Grupo Alameda" --since 2026-07-01 --until 2026-07-31
+  # Cash still sitting on account, and completed collections with no REP linked.
+  mnemosine receipt list --unapplied --needs-rep
+`,
+  apply: `
+Examples:
+  # Apply an on-account balance to two invoices, each amount after the colon.
+  mnemosine receipt apply PMT-2026-00042 --invoice "INV-2026-00042:2500.00" --invoice "INV-2026-00051:1800.00"
+  # A single invoice, with the amount as its own flag.
+  mnemosine receipt apply PMT-2026-00042 --invoice INV-2026-00042 --amount 2500.00
+`,
+  unapply: `
+Examples:
+  # A NEW event, not an erasure: it reopens the invoice and re-parks the PPD IVA.
+  mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Aplicada a la factura equivocada"
+  # See what would be reopened before doing it.
+  mnemosine receipt unapply PMT-2026-00042 --invoice INV-2026-00042 --reason "Revision del cobro de julio" --dry-run
+`,
+  reverse: `
+Examples:
+  # A bounced collection (NSF): mirrors every entry, reopens invoices, re-parks IVA.
+  mnemosine receipt reverse PMT-2026-00042 --reason "Devuelto por fondos insuficientes"
+  # See the mirror it would post, writing nothing.
+  mnemosine receipt reverse PMT-2026-00042 --dry-run
+`,
+} as const;
+
 export function registerReceiptCommand(program: Command, deps: ReceiptCommandDeps): void {
   const receipt = program
     .command('receipt')
@@ -200,6 +259,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     agent: false,
     writes: 'customer_payments, payment_allocations, invoices.amount_due, journal_entries',
   });
+  record.addHelpText('after', EJEMPLOS.record);
   record.action(
     (
       ref: string,
@@ -279,6 +339,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .description('Show one collection: its applications (live and history), REP status and ledger entry');
   withOutput(withContext(show));
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -344,6 +405,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .option('--unapplied', 'only collections with an on-account remainder')
     .option('--needs-rep', 'only completed collections with no REP linked');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action(
     (opts: CommonOpts & { customer?: string; unapplied?: boolean; needsRep?: boolean }) =>
       run(async () => {
@@ -407,6 +469,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     agent: false,
     writes: 'payment_allocations, invoices.amount_due, journal_entries',
   });
+  apply.addHelpText('after', EJEMPLOS.apply);
   apply.action(
     (ref: string, opts: CommonOpts & { invoice?: string[]; amount?: string }) =>
       run(async () => {
@@ -462,6 +525,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     agent: false,
     writes: 'payment_allocations (closure), invoices.amount_due, journal_entries',
   });
+  unapply.addHelpText('after', EJEMPLOS.unapply);
   unapply.action(
     (ref: string, opts: CommonOpts & { invoice: string; reason: string }) =>
       run(async () => {
@@ -540,6 +604,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     agent: false,
     writes: 'customer_payments.status, payment_allocations (closure), invoices, reversing journal_entries',
   });
+  reverse.addHelpText('after', EJEMPLOS.reverse);
   reverse.action(
     (ref: string, opts: CommonOpts & { fee?: string }) =>
       run(async () => {

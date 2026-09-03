@@ -166,6 +166,18 @@ export function registerCashFlowReconcile(
   );
   declareRisk(reconcile, { risk: 'lectura', agent: true });
 
+  reconcile.addHelpText(
+    'after',
+    `
+Examples:
+  # Tie the derived statement against the real movement of cash: the residue is
+  # PRINTED, never absorbed, because a statement that always ties proves nothing.
+  mnemosine cashflow reconcile --period 2026-07
+  # When there IS a residue: the journal lines that most likely explain it —
+  # suspects, not a verdict — and --strict to make CI stop on it (exit 4).
+  mnemosine cashflow reconcile --period 2026-07 --show-candidates --strict
+`
+  );
   reconcile.action((opts: ReconcileOpts) =>
     (async () => {
       try {

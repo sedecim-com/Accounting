@@ -61,6 +61,54 @@ interface CommonOpts {
   until?: string;
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// El acotado por fecha de `cfdi list` se hace con --since/--until: son las
+// dos que la consulta lee de verdad.
+//
+// `cfdi status sync` sale a la red. Sin `--live` habla con el endpoint de
+// pruebas, así que el ejemplo que consulta al SAT de verdad la escribe.
+// Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  list: `
+Examples:
+  # Everything this entity issued during July 2026.
+  mnemosine cfdi list --direction emitido --since 2026-07-01 --until 2026-07-31
+  # Received payment receipts (REP) only, as CSV.
+  mnemosine cfdi list --direction recibido --type cfdi_pago --format csv
+`,
+  show: `
+Examples:
+  # Header, lines, taxes and the SAT status held in the mirror.
+  mnemosine cfdi show 3F2504E0-4F89-11D3-9A0C-0305E82C3301
+  # The exact bytes as they arrived, to verify the seal outside this system.
+  mnemosine cfdi show 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --format xml
+`,
+  statusShow: `
+Examples:
+  # What the SAT last answered about this CFDI, from the cache.
+  mnemosine cfdi status show 3F2504E0-4F89-11D3-9A0C-0305E82C3301
+  # Ask the SAT now and update the cache with the answer.
+  mnemosine cfdi status show 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --refresh
+`,
+  statusSync: `
+Examples:
+  # Which CFDIs would be consulted, calling nothing at all.
+  mnemosine cfdi status sync --dry-run
+  # Really consult the SAT for the 50 stalest; --live is what leaves the sandbox.
+  mnemosine cfdi status sync --limit 50 --stale-hours 24 --live --yes
+`,
+  explain: `
+Examples:
+  # Why the classifier recorded it the way it did: case, facts and decisions.
+  mnemosine cfdi explain 3F2504E0-4F89-11D3-9A0C-0305E82C3301
+  # The same, as JSON, to attach to the working paper.
+  mnemosine cfdi explain 3F2504E0-4F89-11D3-9A0C-0305E82C3301 --json
+`,
+} as const;
+
 export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): void {
   const cfdi = program
     .command('cfdi')
@@ -97,6 +145,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
     .option('--direction <d>', 'emitido, recibido o ajeno (derivada contra el RFC de la entidad)')
     .option('--type <t>', 'document_type (cfdi_ingreso, cfdi_egreso, cfdi_pago…)');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action((opts: CommonOpts & { direction?: string; type?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -120,7 +169,16 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
     .argument('<uuid>', 'CFDI UUID (timbre fiscal)')
     .description('One CFDI: header, lines, taxes and SAT status; --format xml prints the exact bytes');
   withOutput(withContext(show));
+  // El SÉPTIMO formato, declarado donde el usuario lo lee. `withOutput` deletrea
+  // los seis del kernel y esta hoja acepta uno más —`--format xml` imprime los
+  // bytes tal como llegaron, para verificar el sello fuera de este sistema—, y
+  // hasta ahora sólo lo decía la descripción en prosa. La superficie declarada
+  // tiene que casar con la real: el guardián de ejemplos lo cazó comparando el
+  // valor de una invocación contra el vocabulario del propio marcador.
+  const formato = show.options.find((o) => o.long === '--format');
+  if (formato) formato.flags = formato.flags.replace('|md>', '|md|xml>');
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((uuid: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -152,6 +210,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   withOutput(withContext(statusShow));
   statusShow.option('--refresh', 'consulta al SAT ahora y actualiza la caché sat_* del documento');
   declareRisk(statusShow, { risk: 'lectura', agent: true });
+  statusShow.addHelpText('after', EJEMPLOS.statusShow);
   statusShow.action((uuid: string, opts: CommonOpts & { refresh?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -189,6 +248,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   // Sin --live se queda en el informe de lo que consultaría; el kernel
   // inyecta --live/--dry-run/-y y gateMutation exige la confirmación.
   declareRisk(statusSync, { risk: 'externo', agent: false, writes: 'xml_documents (caché sat_*)' });
+  statusSync.addHelpText('after', EJEMPLOS.statusSync);
   statusSync.action((opts: CommonOpts & { limit: string; staleHours: string; live?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -232,6 +292,7 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
     .description('WHY it was recorded the way it was: case, facts and decisions the classifier left');
   withOutput(withContext(explain));
   declareRisk(explain, { risk: 'lectura', agent: true });
+  explain.addHelpText('after', EJEMPLOS.explain);
   explain.action((uuid: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);

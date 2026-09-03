@@ -95,6 +95,40 @@ const acumular = (valor: string, previo: string[] = []): string[] => [...previo,
 
 /** Un gasto se paga cuando su pasivo ya está en el mayor. */
 const PAGABLES = ['approved', 'posted', 'partially_paid'] as const;
+
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// Los dos folios de esta familia NO son el mismo: un gasto es BILL-AAAA-NNNNN
+// y un pago a proveedor es VPMT-AAAA-NNNNN (`PMT-` es el cobro del cliente,
+// otra familia). Confundirlos es el error que más cuesta aquí, así que cada
+// ejemplo escribe el suyo entero.
+//
+// `--bill` y `--amount` de `payment apply` se leen POR POSICIÓN: el primer
+// --amount es del primer --bill. Prosa en inglés (idioma del nodo), datos
+// mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  create: `
+Examples:
+  # Record a transfer that already left the bank, against one approved bill.
+  mnemosine payment create BILL-2026-00007 --amount 16820.00 --date 2026-07-31 --method spei
+  # Pay early and take the discount the terms allow: 820.00 of liability that no cash extinguishes.
+  mnemosine payment create BILL-2026-00007 --amount 16000.00 --discount 820.00 --memo "Pronto pago 2/10 Net 30"
+  # See the effect on the bill and on the ledger, writing nothing.
+  mnemosine payment create BILL-2026-00007 --amount 16820.00 --dry-run
+`,
+  apply: `
+Examples:
+  # Split one transfer across two open bills. --bill and --amount pair up IN ORDER.
+  mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 12000.00 --bill BILL-2026-00011 --amount 8500.00
+  # Apply less than the balance and leave the bill open for the rest.
+  mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 9000.00 --mode partial
+  # Close a bill short: what is unpaid stops being owed, so it needs a written reason.
+  mnemosine payment apply VPMT-2026-00019 --bill BILL-2026-00007 --amount 15900.00 --mode residual --short-pay-reason "Nota de credito que el proveedor nunca emitio"
+`,
+} as const;
+
 export function registerPaymentCommands(program: Command, deps: PaymentCommandDeps): void {
   const run = async (fn: () => Promise<void>): Promise<void> => {
     try {
@@ -175,6 +209,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     agent: false,
     writes: 'vendor_payments, payment_applications, bills.amount_due, journal_entries',
   });
+  create.addHelpText('after', EJEMPLOS.create);
   create.action((ref: string, opts: MontoOpts) =>
     run(async () => {
       const ctx = await writeEntityOf(opts);
@@ -251,6 +286,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     agent: false,
     writes: 'payment_applications, bills.amount_due, journal_entries',
   });
+  apply.addHelpText('after', EJEMPLOS.apply);
   apply.action((ref: string, opts: AplicarOpts) =>
     run(async () => {
       const { dryRun } = gateMutation(apply, opts as unknown as Record<string, unknown>);

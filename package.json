@@ -15,7 +15,7 @@
     "seed": "tsx src/database/seed.ts",
     "test": "vitest run --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage",
-    "lint": "eslint src/ tests/ scripts/ --max-warnings 1161",
+    "lint": "eslint src/ tests/ scripts/ --max-warnings 1156",
     "typecheck": "tsc --noEmit",
     "graphql:codegen": "graphql-codegen",
     "test:watch": "vitest --config vitest.config.ts",
@@ -23,10 +23,12 @@
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
     "plan:status": "tsx src/plan/status.ts",
     "catalogo:estado": "tsx scripts/catalogo-estado.ts",
+    "ux:status": "tsx scripts/ux-status.ts",
     "costo:por-fila": "tsx scripts/costo-por-fila.ts",
     "reclass:iva-ppd": "tsx scripts/reclasificar-iva-ppd.ts",
     "backfill:account-roles": "tsx scripts/rellenar-roles-de-cuenta.ts",
-    "corpus:estado": "tsx scripts/corpus-manifiesto.ts"
+    "corpus:estado": "tsx scripts/corpus-manifiesto.ts",
+    "eval": "tsx scripts/eval-clasificador.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

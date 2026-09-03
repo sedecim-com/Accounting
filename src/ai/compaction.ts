@@ -25,7 +25,12 @@
 //    agent persists unsaved precedents through the EXISTING staged
 //    tools (ask_user → answered-precedent / pending question).
 //    Human review is preserved: no new direct-write path is
-//    introduced here.
+//    introduced here. «Una por ventana» es la condición de este
+//    módulo y NO es el conteo final: desde que el umbral se deriva
+//    de la ventana del perfil, las ventanas de compactación se
+//    multiplican, y son los runners los que además acotan cuántas
+//    descargas corre una sesión (MAX_DESCARGAS_MEMORIA_POR_SESION
+//    en providers/config.ts, donde está la medición y el porqué).
 // ============================================================
 
 /** Rough chars-per-token used across the CLI (see prompt-size). */
@@ -381,6 +386,10 @@ export function buildFlushPrompt(): string {
  * flush turn's own reply (assistant/tool traffic up to the next real user
  * message) is skipped — it must not count as fresh activity, or every window
  * would flush twice.
+ *
+ * Esto contesta «¿hay actividad nueva que valga una descarga?» y nada más. El
+ * «¿y cuántas van ya en esta sesión?» lo contestan los runners con su tope: un
+ * `true` de aquí es condición necesaria, no suficiente.
  */
 export function shouldFlush(view: readonly CompactableMessage[]): boolean {
   let start = 0;

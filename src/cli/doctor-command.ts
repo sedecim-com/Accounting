@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { runDoctor, type DoctorReport, type CheckLevel } from '../ai/doctor-service.js';
+import { exitCodeFor } from './kernel/index.js';
 
 // ============================================================
 // mnemosine doctor
@@ -54,7 +55,7 @@ export function registerDoctorCommand(program: Command, deps: DoctorCliDeps): vo
         await deps.shutdown(report.worst === 'fail' ? 1 : 0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 }

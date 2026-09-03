@@ -1527,6 +1527,363 @@ function leerEntradaEstandar(): Promise<string> {
   });
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// Treinta y dos hojas y ni una invocación: era, con diferencia, el hueco más
+// grande del árbol de ayuda, y sobre el trabajo que un contador hace TODOS los
+// meses. `bank match run --help` enumeraba nueve banderas y ninguna corrida.
+//
+// TRES COSAS QUE ESTOS EJEMPLOS TIENEN QUE ENSEÑAR, Y NO SON DECORADO.
+//
+// LA PRIMERA · `--account` DE ESTA FAMILIA ES LA CUENTA BANCARIA. En `entry`,
+// `ledger`, `report` y `bill` la misma grafía recibe un CÓDIGO del catálogo;
+// aquí recibe el nombre —o el uuid— de una cuenta de banco, y su cuenta de
+// mayor se llama `--gl-account`. Por eso los ejemplos escriben
+// `--account "BBVA Operativa MXN"` con comillas y `--gl-account 1111` sin
+// ellas: quien copia uno tiene que ver la diferencia sin ir a leer la ayuda de
+// al lado.
+//
+// LA SEGUNDA · EL SEGUNDO EJEMPLO DE CADA HOJA ES EL ERROR CARO. No es un
+// segundo caso corriente: es lo que las cuatro auditorías de F05 encontraron
+// roto. `close` enseña que `balanced` se GANA —era un UPDATE que ponía la
+// palabra sin restar nada, y el tablero de cierre la leía como la evidencia de
+// que el efectivo se verificó contra el banco—; `check reconcile` enseña que
+// el asiento se fecha el día que el banco pagó —se fechaba en la víspera, y el
+// día 1 de mes eso manda el IVA a otra declaración—; `fee post` enseña que la
+// tasa se teclea, cero incluido; `match run` enseña que un parecido de texto
+// no aplica un cotejo por alto que puntúe.
+//
+// LA TERCERA · NINGÚN EJEMPLO ENSEÑA ALGO QUE NO EXISTE. Los formatos de
+// archivo con parser son csv, camt053 y mt940 —los otros seis nombres que
+// `--format` acepta no tienen lector todavía—, `generate` no hace pdf ni xlsx
+// y lo dice en su bloque, y la ruta REST que «completaba» una conciliación
+// responde 501 desde F05c: aquí el equivalente honesto son close → approve →
+// post, tres actos con tres firmas, y así se escriben.
+//
+// Las cuentas citadas existen en el catálogo que el repositorio siembra —el
+// base de chart-seed.ts más las requeridas de account-roles-seed.ts, que
+// `ensureEntityAccounting` crea en la MISMA transacción—: 6310 «Comisiones y
+// Gastos Bancarios» y 4310 «Productos Financieros» son de las segundas, y son
+// las que F05d separó a propósito de 6300 y 4300. Las CLABE llevan sus 18
+// dígitos con el verificador que `exigirClabe` calcula: se pueden teclear.
+// La prosa va en inglés porque es el idioma del nodo; los datos son mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  accountCreate: `
+Examples:
+  # The peso operating account, mapped 1:1 to the cash account of the chart.
+  # The CLABE is 18 digits and its check digit is verified before anything is written.
+  mnemosine bank account create "BBVA Operativa MXN" --bank "BBVA Mexico" --gl-account 1111 --currency MXN --clabe 012180001234567899
+  # A second peso account on its own GL account. --currency is re-checked
+  # against the GL account, so a mismatch is refused and never converted.
+  # OJO, medido: el catalogo siembra 1112 «Banco Nacional - USD» SIN
+  # currency_code, y COALESCE(a.currency_code, le.functional_currency) la
+  # resuelve como MXN. Un ejemplo con --currency USD sobre 1112 parsea y el
+  # servicio lo RECHAZA. Hasta que la siembra le ponga su moneda, aqui no se
+  # escribe una cuenta en dolares: un ejemplo copiable que no corre es peor
+  # que ninguno.
+  mnemosine bank account create "Santander Operativa MXN" --bank "Santander Mexico" --gl-account 1115 --currency MXN --clabe 014180011223344558
+  # A company card is a LIABILITY and maps to a liability account. --dry-run
+  # runs the real insert, unique 1:1 index included, and rolls it back.
+  mnemosine bank account create "Banorte Empresarial" --bank "Banorte" --gl-account 2110 --currency MXN --type credit-card --dry-run
+`,
+  accountList: `
+Examples:
+  # Every account of the active entity, with its GL mapping and both balances.
+  mnemosine bank account list
+  # Only the dollar ones, as JSON.
+  mnemosine bank account list --currency USD --json
+  # Every entity of the firm at once; the tenant bound stays inside the SQL.
+  mnemosine bank account list --all-entities --format csv
+`,
+  accountShow: `
+Examples:
+  # One account: masked identifiers, SAT bank key and the reconciliation anchor.
+  mnemosine bank account show "BBVA Operativa MXN"
+  # For a screen somebody else can see: not even the last four digits.
+  mnemosine bank account show "BBVA Operativa MXN" --redacted
+`,
+  accountEdit: `
+Examples:
+  # Rename it and record the branch: nothing sensitive changes here.
+  mnemosine bank account edit "BBVA Operativa MXN" --name "BBVA Operativa Principal" --branch "Polanco"
+  # The CLABE is the identifier the money leaves by, so --reason is required,
+  # the before and after land MASKED in the append-only audit trail, and it
+  # asks before writing. -y skips the question, never the reason.
+  mnemosine bank account edit "BBVA Operativa MXN" --clabe 012180001234567899 --reason "Cambio de CLABE notificado por el banco el 2026-07-01"
+  # An empty value CLEARS the field; omitting the flag leaves it alone.
+  mnemosine bank account edit "Santander Operativa MXN" --swift ""
+`,
+  accountSet: `
+Examples:
+  # Point the account at the GL account it really is; refused when the old one
+  # already carries posted entries.
+  mnemosine bank account set "BBVA Operativa MXN" --gl-account 1111
+  # Remap over an account that DOES have posted entries: --force, and --force
+  # is what makes --reason mandatory.
+  mnemosine bank account set "Santander Operativa MXN" --gl-account 1115 --force --reason "El mayor quedo mal asignado en la migracion de abril"
+`,
+  statementImport: `
+Examples:
+  # A CAMT.053 the bank publishes: the format is sniffed and both balances come
+  # inside it. Re-importing the same file adds nothing, because the dedupe is by
+  # the content hash a trigger computes and not by an id the bank may not publish.
+  mnemosine bank statement import ./extractos/bbva-2026-07.xml --account "BBVA Operativa MXN"
+  # A CSV carries no closing balance: assert it. If the file does carry one and
+  # they differ the import is refused, which is what catches a truncated download.
+  mnemosine bank statement import ./extractos/santander-2026-07.csv --account "Santander Operativa MXN" --format csv --profile santander-mx --closing-balance 184320.55
+  # A whole folder, parsed and run through the seven checks, writing nothing.
+  mnemosine bank statement import ./extractos/julio/bbva-01.csv --dir ./extractos/julio --account "BBVA Operativa MXN" --dry-run
+`,
+  statementList: `
+Examples:
+  # Every statement imported for one account, with opening and closing balance.
+  mnemosine bank statement list --account "BBVA Operativa MXN"
+  # The third quarter across every account, as CSV for the audit file.
+  mnemosine bank statement list --since 2026-07-01 --until 2026-09-30 --format csv
+`,
+  statementShow: `
+Examples:
+  # The document: sequence number, date range, hash of the file and the profile used.
+  mnemosine bank statement show 9d3f1c26-5a4b-4f77-9c1e-2b7d84a6e510
+  # With its lines, capped so a four-thousand-line statement does not fill the screen.
+  mnemosine bank statement show 9d3f1c26-5a4b-4f77-9c1e-2b7d84a6e510 --lines --limit 200
+`,
+  statementCheck: `
+Examples:
+  # Bare --check lists the seven checks and touches no database.
+  mnemosine bank statement check --check
+  # The latest statement of every account; exit 4 NAMES the check that broke.
+  mnemosine bank statement check
+  # One statement, balance chain only, with warnings blocking as well.
+  mnemosine bank statement check 9d3f1c26-5a4b-4f77-9c1e-2b7d84a6e510 --check cadena-de-saldos --strict
+`,
+  txList: `
+Examples:
+  # What the bank says happened in July and nobody has explained yet.
+  mnemosine bank transaction list --account "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --unmatched
+  # hledger-style terms in one quoted argument: a bare word searches the
+  # description, amt: compares the amount. Money out, over 10,000.
+  mnemosine bank transaction list "desc:CFE amt:>10000" --direction out --account "BBVA Operativa MXN"
+  # Only what the BANK classified as a fee, which is its nature and not its direction.
+  mnemosine bank transaction list --type fee --account "BBVA Operativa MXN" --json
+`,
+  txShow: `
+Examples:
+  # One movement, the statement it came from and the live matches that explain it.
+  mnemosine bank transaction show 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4
+  # With raw_data exactly as the bank published it: it can carry the
+  # counterparty in the clear, so it is opt-in.
+  mnemosine bank transaction show 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --raw
+`,
+  bookList: `
+Examples:
+  # What the books say went through the bank and the bank has not shown yet,
+  # oldest first. The argument is the BANK account, not its GL code.
+  mnemosine bank book-item list "BBVA Operativa MXN"
+  # Only what has been waiting more than 30 days: the outstanding-check candidates.
+  mnemosine bank book-item list "BBVA Operativa MXN" --over-days 30 --format csv
+`,
+  matchPreview: `
+Examples:
+  # What the engine would propose for one movement, signal by signal and gate
+  # by gate, applying nothing.
+  mnemosine bank match preview 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4
+  # Sweep July with the SAME gates run would use. Write them identically or the
+  # preview stops predicting what the write will do.
+  mnemosine bank match preview --account "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --min-confidence 0.9 --max-amount 50000
+`,
+  matchRun: `
+Examples:
+  # Apply only what clears every gate. A proposal decided by description
+  # similarity alone is never applied, however high it scores.
+  mnemosine bank match run --account "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --min-confidence 0.9
+  # The same run, rolled back, to read what it would seal before sealing it.
+  mnemosine bank match run --account "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --dry-run
+  # Tie the matches to the open session so the arithmetic of the month counts them.
+  mnemosine bank match run --account "BBVA Operativa MXN" --session 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --max-amount 25000
+`,
+  matchApply: `
+Examples:
+  # Apply the engine proposal for two movements, in ONE database transaction.
+  mnemosine bank match apply 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 7a1d09f4-6b28-4c31-8e05-9f42d7c1a63b
+  # The whole effect, rolled back.
+  mnemosine bank match apply 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --dry-run
+  # Ids from a file: --stdin eats standard input, so no TTY is left to ask on
+  # and the confirmation has to be given by name with -y.
+  mnemosine bank match apply --stdin -y < movimientos-julio.txt
+`,
+  matchCreate: `
+Examples:
+  # One deposit that settles two invoices. The group is refused unless
+  # the bank side, the book side and the adjustments add up to each other.
+  mnemosine bank match create --account "BBVA Operativa MXN" --transaction 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4 --book-item invoice:2e6c94b1-7d05-4f83-a219-64bd8c30f7a5,invoice:3d91e7a5-24bf-4c68-9013-8ad5f6207e4c
+  # A short payment: the wire fee the bank kept is DECLARED as an adjustment and
+  # written off. Declaring it is not posting it: no journal entry is created here.
+  mnemosine bank match create --account "BBVA Operativa MXN" --transaction 7a1d09f4-6b28-4c31-8e05-9f42d7c1a63b --book-item 2e6c94b1-7d05-4f83-a219-64bd8c30f7a5 --adjust "comision por transferencia=-35.00" --residual write-off --write-off-account 6310
+`,
+  matchUnapply: `
+Examples:
+  # Undo a match with its typed reason: the whole group goes with it and the
+  # book-item seal is released. It refuses once the session is approved or posted.
+  mnemosine bank match unapply 1f8b47c9-90d2-4e35-b6a1-c73f025d8e91 --reason cotejo-erroneo
+  # A movement the bank published twice, without the confirmation prompt.
+  mnemosine bank match unapply 1f8b47c9-90d2-4e35-b6a1-c73f025d8e91 --reason duplicado -y
+`,
+  reconRun: `
+Examples:
+  # The guided monthly pass over one account: statement, matching engine,
+  # session and reconciling items. It ALWAYS stops before approve and post,
+  # and prints what is still missing.
+  mnemosine bank reconciliation run "BBVA Operativa MXN" --period 2026-07 --file ./extractos/bbva-2026-07.xml
+  # Stop after the matching step to look before anything is opened, and roll back.
+  mnemosine bank reconciliation run "BBVA Operativa MXN" --period 2026-07 --stop-at cotejo --dry-run
+  # Continue the session already open for the period instead of refusing.
+  mnemosine bank reconciliation run "BBVA Operativa MXN" --period 2026-07 --resume --min-confidence 0.9
+`,
+  reconOpen: `
+Examples:
+  # Open July: the opening balance must equal the previous session closing, and
+  # a gap or an overlap of dates is refused.
+  mnemosine bank reconciliation open "BBVA Operativa MXN" --period 2026-07
+  # Assert the closing balance you were given: it is COMPARED against the
+  # statement, never substituted for it.
+  mnemosine bank reconciliation open "BBVA Operativa MXN" --since 2026-07-01 --until 2026-07-31 --closing-balance 1284730.18
+`,
+  reconList: `
+Examples:
+  # The sessions of one account with their FROZEN variance and open items.
+  mnemosine bank reconciliation list --account "BBVA Operativa MXN"
+  # The quarter, still open ones only. An EMPTY variance column means nobody
+  # computed the arithmetic; it is never printed as a zero.
+  mnemosine bank reconciliation list --since 2026-07-01 --until 2026-09-30 --status in_progress --format csv
+`,
+  reconStatus: `
+Examples:
+  # Recompute the variance LIVE and print both sides item by item. The frozen
+  # column is shown apart and labelled: it is never the answer.
+  mnemosine bank reconciliation status --account "BBVA Operativa MXN"
+  # One session by id, as JSON, with the residual a close could absorb.
+  mnemosine bank reconciliation status 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --tolerance 0.50 --json
+`,
+  itemList: `
+Examples:
+  # Everything that explains the difference, with age, owner and escalation.
+  mnemosine bank reconciling-item list 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7
+  # Outstanding checks that have been waiting more than 30 days.
+  mnemosine bank reconciling-item list 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --type cheque-en-circulacion --over-days 30
+`,
+  itemAssign: `
+Examples:
+  # Give it an owner and the date it is expected to settle. close refuses to
+  # sign while a single item has no expected date, and nothing invents one:
+  # neither the statement nor the ledger knows when a check will be cashed.
+  mnemosine bank reconciling-item assign 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 3d91e7a5-24bf-4c68-9013-8ad5f6207e4c --owner "Tesoreria" --expected 2026-08-15
+  # Mark one that already went past its date, with the note that goes with it.
+  mnemosine bank reconciling-item assign 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 3d91e7a5-24bf-4c68-9013-8ad5f6207e4c --escalation vencido --note "Segundo aviso al proveedor"
+`,
+  itemCorrect: `
+Examples:
+  # The automatic classification proposes by SIGN, and a sign cannot tell a
+  # bank charge from a bank ERROR. That is what decides who gets billed.
+  mnemosine bank reconciling-item correct 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 3d91e7a5-24bf-4c68-9013-8ad5f6207e4c --type error-del-banco
+  # Moving it to the other side needs its new contribution, signed.
+  mnemosine bank reconciling-item correct 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 3d91e7a5-24bf-4c68-9013-8ad5f6207e4c --type error-de-libros --amount "-1250.00"
+`,
+  adjCreate: `
+Examples:
+  # The fee the reconciliation uncovered, created AS A DRAFT for review: this
+  # leaf posts nothing and exits 11 because it is waiting for a person.
+  # --amount is SIGNED by its effect on the bank account, so a charge is negative.
+  mnemosine bank adjustment create 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --type comision --amount "-348.00" --gl-account 6310
+  # The interest the statement credited: 4310 and not 4300, so the only income
+  # line a treasurer reads does not get mixed with the occasional.
+  mnemosine bank adjustment create 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --type interes --amount 1275.40 --gl-account 4310
+  # The ISR the bank withheld on that interest is a SEPARATE adjustment, it
+  # LEAVES the account, and it needs no account: its role is already seeded.
+  mnemosine bank adjustment create 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --type isr-retenido --amount "-15.94" --item 3d91e7a5-24bf-4c68-9013-8ad5f6207e4c
+`,
+  reconClose: `
+Examples:
+  # Recompute the whole arithmetic and move the session to balanced ONLY if it
+  # really balances. balanced is what the period-close checklist reads as the
+  # evidence that this account was verified against the bank: it is not a word
+  # that gets written, it is one that gets earned.
+  mnemosine bank reconciliation close 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7
+  # Read the arithmetic and roll it back, before answering the question it asks.
+  mnemosine bank reconciliation close 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
+  # Absorb a residual of half a peso, only where the tolerance policy admits
+  # one. The tolerance is stored with the session, so the signature later reads
+  # the tolerance it was closed with and not today's.
+  mnemosine bank reconciliation close 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --tolerance 0.50 --note "Diferencia de redondeo del extracto"
+`,
+  reconApprove: `
+Examples:
+  # Sign the balanced session: the approver may not be the preparer, and the
+  # snapshot freezes with a hash of its members and its balances.
+  mnemosine bank reconciliation approve 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --reason "Revisada contra el estado de cuenta de julio"
+  # A signature is not withdrawn: read what would be frozen before freezing it.
+  mnemosine bank reconciliation approve 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
+`,
+  reconPost: `
+Examples:
+  # Post the adjustment entries the signature froze and seal the book lines
+  # they produced. This is the only leaf of the family that moves the ledger.
+  mnemosine bank reconciliation post 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7
+  # Rehearsed: the real act runs and is rolled back, so what it prints is the
+  # entry that would exist and not a description of it.
+  mnemosine bank reconciliation post 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --dry-run
+  # A retry with the same key and the same payload returns the RECORDED result
+  # instead of posting a second time.
+  mnemosine bank reconciliation post 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --idempotency-key conciliacion-bbva-2026-07
+`,
+  reconGenerate: `
+Examples:
+  # The two-sided reconciliation statement for the audit file, as text to print.
+  mnemosine bank reconciliation generate 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7
+  # The whole document as json. There is no pdf and no xlsx: this leaf refuses
+  # them by name instead of writing a file that would sit in an audit file
+  # pretending to be one.
+  mnemosine bank reconciliation generate 6b2a5f80-3c14-4d92-a7e6-5081bc93f2d7 --json --output conciliacion-bbva-2026-07.json
+`,
+  feePost: `
+Examples:
+  # July's bank fees, one entry per charge, with their VAT parked as pending
+  # until the bank issues the CFDI. --iva-rate is the VAT the charge already
+  # carries INSIDE it, as a fraction, and it has no default: a rate written
+  # into the code is a tax decision nobody takes and nobody sees.
+  mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0.16
+  # An exempt fee: 0 is a legitimate answer, and it has to be typed.
+  mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0
+  # Leave the unusually large charges for human eyes, and rehearse first.
+  mnemosine bank fee post "BBVA Operativa MXN" --period 2026-07 --iva-rate 0.16 --max-amount 5000 --dry-run
+`,
+  interestPost: `
+Examples:
+  # July's interest as income at its GROSS amount, and the ISR the bank
+  # withheld as a payment in the entity's favour, never as an expense.
+  # --rate is the WITHHOLDING rate, not the interest rate: the interest is
+  # whatever the statement says it was.
+  mnemosine bank interest post "BBVA Operativa MXN" --period 2026-07 --rate 0.0125
+  # A month in which the bank withheld nothing, rehearsed first.
+  mnemosine bank interest post "BBVA Operativa MXN" --period 2026-07 --rate 0 --dry-run
+`,
+  checkReconcile: `
+Examples:
+  # Prove the check against the movement that cleared it. Under the VAT law the
+  # payment counts when the bank actually paid, so the reclassification posts IN
+  # THE MONTH IT CLEARED: a check signed in January and cashed in March belongs
+  # to March, and to March's return.
+  mnemosine bank check reconcile 8f27d3e6-1a94-4b50-9c83-fe6120a75d38
+  # Name the movement by hand when several charges of the account could be it.
+  mnemosine bank check reconcile 8f27d3e6-1a94-4b50-9c83-fe6120a75d38 --transaction 4c8e21b7-0f53-4a19-9d62-71ea3c05b8d4
+  # Assert the clearing date: it is CONTRASTED against the movement and never
+  # imposed on it. The bank dates the clearing.
+  mnemosine bank check reconcile 8f27d3e6-1a94-4b50-9c83-fe6120a75d38 --as-of 2026-03-10 --dry-run
+`,
+} as const;
+
 export function registerBankCommand(program: Command, deps: BankCommandDeps): void {
   const bank = program
     .command('bank')
@@ -1776,6 +2133,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     agent: false,
     writes: 'bank_accounts (con clabe_encrypted / account_number_encrypted)',
   });
+  create.addHelpText('after', EJEMPLOS.accountCreate);
   create.action(
     (
       nombre: string,
@@ -1852,6 +2210,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       "every entity of the tenant, for a firm's overview; still bounded inside the SQL"
     );
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.accountList);
   list.action(
     (busqueda: string | undefined, opts: CommonOpts & { type?: string; currency?: string; allEntities?: boolean }) =>
       run(async () => {
@@ -1897,6 +2256,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     'drop even the last 4 digits of the identifiers, for a shared screen'
   );
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.accountShow);
   show.action((ref: string, opts: CommonOpts & { redacted?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -1982,6 +2342,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     agent: false,
     writes: 'bank_accounts + audit_log (campo por campo, con los identificadores enmascarados)',
   });
+  edit.addHelpText('after', EJEMPLOS.accountEdit);
   edit.action(
     (
       ref: string,
@@ -2099,6 +2460,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     agent: false,
     writes: 'bank_accounts.gl_account_id + audit_log',
   });
+  set.addHelpText('after', EJEMPLOS.accountSet);
   set.action(
     (ref: string, opts: CommonOpts & { glAccount: string; reason?: string; force?: boolean; dryRun?: boolean }) =>
       run(async () => {
@@ -2190,6 +2552,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     draftOnly: true,
     writes: 'bank_statements y bank_transactions (staging bancario); NUNCA journal_entries',
   });
+  importar.addHelpText('after', EJEMPLOS.statementImport);
   importar.action(
     (
       archivos: string[],
@@ -2321,6 +2684,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .option('--since <date>', 'statements whose period ENDS on or after this date (YYYY-MM-DD)')
     .option('--until <date>', 'statements whose period STARTS on or before this date (YYYY-MM-DD)');
   declareRisk(statementList, { risk: 'lectura', agent: true });
+  statementList.addHelpText('after', EJEMPLOS.statementList);
   statementList.action((opts: CommonOpts & { account?: string; since?: string; until?: string }) =>
     run(async () => {
       rechazarOffset(opts, 'Acota con --account, --since o --until.');
@@ -2376,6 +2740,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .option('--lines', 'include the statement lines')
     .option('-n, --limit <n>', 'maximum lines to list with --lines (default 500)', enteroPositivo('--limit'));
   declareRisk(statementShow, { risk: 'lectura', agent: true });
+  statementShow.addHelpText('after', EJEMPLOS.statementShow);
   statementShow.action((id: string, opts: CommonOpts & { lines?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -2469,6 +2834,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .option('--account <ref>', 'every statement of this bank account (name or id)')
     .option('--since <date>', 'only statements whose period ends on or after this date (YYYY-MM-DD)');
   declareRisk(check, { risk: 'lectura', agent: true });
+  check.addHelpText('after', EJEMPLOS.statementCheck);
   check.action(
     (id: string | undefined, opts: CommonOpts & { check?: string | boolean; account?: string; since?: string }) =>
       run(async () => {
@@ -2583,6 +2949,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'transaction nature as the bank classified it (not its direction)'
     );
   declareRisk(txList, { risk: 'lectura', agent: true });
+  txList.addHelpText('after', EJEMPLOS.txList);
   txList.action(
     (
       consulta: string | undefined,
@@ -2634,6 +3001,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     'include raw_data exactly as the bank published it; it can carry the counterparty in the clear'
   );
   declareRisk(txShow, { risk: 'lectura', agent: true });
+  txShow.addHelpText('after', EJEMPLOS.txShow);
   txShow.action((id: string, opts: CommonOpts & { raw?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -2716,6 +3084,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       enteroDesdeCero('--over-days')
     );
   declareRisk(bookList, { risk: 'lectura', agent: true });
+  bookList.addHelpText('after', EJEMPLOS.bookList);
   bookList.action(
     (ref: string, opts: CommonOpts & { since?: string; until?: string; overDays?: number }) =>
       run(async () => {
@@ -2785,6 +3154,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   // LA MITAD DE LECTURA. Es ✓ mientras `run` es ✗ y las dos hacen la misma
   // pregunta: por eso son dos hojas y no una con bandera (regla R11).
   declareRisk(preview, { risk: 'lectura', agent: true });
+  preview.addHelpText('after', EJEMPLOS.matchPreview);
   preview.action(
     (
       txId: string | undefined,
@@ -2928,6 +3298,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'reconciliation_match_groups + reconciliation_matches + el sello de journal_entry_lines ' +
       '(is_reconciled/reconciled_at/reconciliation_id); NUNCA una póliza',
   });
+  matchRun.addHelpText('after', EJEMPLOS.matchRun);
   matchRun.action(
     (
       opts: CommonOpts & {
@@ -3016,6 +3387,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'reconciliation_match_groups + reconciliation_matches + el sello de journal_entry_lines; ' +
       'NUNCA una póliza',
   });
+  matchApply.addHelpText('after', EJEMPLOS.matchApply);
   matchApply.action(
     (
       ids: string[],
@@ -3134,6 +3506,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'reconciliation_match_groups + reconciliation_matches + el sello de journal_entry_lines; ' +
       'NUNCA una póliza (el write-off se DECLARA y no se contabiliza)',
   });
+  matchCreate.addHelpText('after', EJEMPLOS.matchCreate);
   matchCreate.action(
     (
       opts: CommonOpts & {
@@ -3246,6 +3619,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'reconciliation_matches (CLAUSURA: unapplied_at/by/reason, ninguna fila se borra) + ' +
       'libera el sello de journal_entry_lines',
   });
+  matchUnapply.addHelpText('after', EJEMPLOS.matchUnapply);
   matchUnapply.action(
     (matchId: string, opts: CommonOpts & { reason?: string; dryRun?: boolean; yes?: boolean }) =>
       run(async () => {
@@ -3515,6 +3889,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'el sello de journal_entry_lines + reconciliation_sessions + reconciling_items; ' +
       'NUNCA una póliza, y NUNCA approve ni post',
   });
+  reconRun.addHelpText('after', EJEMPLOS.reconRun);
   reconRun.action(
     (
       ref: string,
@@ -3639,6 +4014,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'reconciliation_sessions (in_progress, con arithmetic_computed_at NULL: el CHECK de la 053 ' +
       'impide que llegue a balanced por esta puerta); NUNCA journal_entries',
   });
+  reconOpen.addHelpText('after', EJEMPLOS.reconOpen);
   reconOpen.action(
     (
       ref: string,
@@ -3740,6 +4116,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       "every entity of the tenant, for a firm's overview; still bounded inside the SQL"
     );
   declareRisk(reconList, { risk: 'lectura', agent: true });
+  reconList.addHelpText('after', EJEMPLOS.reconList);
   reconList.action(
     (
       opts: CommonOpts & {
@@ -3804,6 +4181,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'residual the close may absorb; only valid where the tolerance policy admits one'
     );
   declareRisk(reconStatus, { risk: 'lectura', agent: true });
+  reconStatus.addHelpText('after', EJEMPLOS.reconStatus);
   reconStatus.action(
     (sesion: string | undefined, opts: CommonOpts & { account?: string; tolerance?: string }) =>
       run(async () => {
@@ -3901,6 +4279,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       enteroDesdeCero('--over-days')
     );
   declareRisk(itemList, { risk: 'lectura', agent: true });
+  itemList.addHelpText('after', EJEMPLOS.itemList);
   itemList.action(
     (sesion: string, opts: CommonOpts & { type?: string; overDays?: number }) =>
       run(async () => {
@@ -3984,6 +4363,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     agent: false,
     writes: 'reconciling_items.responsable, fecha_esperada, escalamiento, notas',
   });
+  itemAssign.addHelpText('after', EJEMPLOS.itemAssign);
   itemAssign.action(
     (
       sesion: string,
@@ -4079,6 +4459,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     agent: false,
     writes: 'reconciling_items.tipo, importe',
   });
+  itemCorrect.addHelpText('after', EJEMPLOS.itemCorrect);
   itemCorrect.action(
     (sesion: string, item: string, opts: CommonOpts & { type: string; amount?: string }) =>
       run(async () => {
@@ -4145,6 +4526,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'reconciliation_adjustments (journal_entry_id NULL) + ai_drafts (borrador pendiente de ' +
       'revisión); NUNCA journal_entries',
   });
+  adjCreate.addHelpText('after', EJEMPLOS.adjCreate);
   adjCreate.action(
     (
       sesion: string,
@@ -4252,6 +4634,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'reconciliation_sessions (status=balanced + arithmetic_computed_at + closed_at/by + las seis ' +
       'columnas del resumen CONGELADO); NUNCA una póliza — los ajustes siguen siendo borradores',
   });
+  reconClose.addHelpText('after', EJEMPLOS.reconClose);
   reconClose.action(
     (
       sesion: string,
@@ -4417,6 +4800,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'approval_snapshot + approval_hash, las cinco en la MISMA sentencia que exigen los CHECK ' +
       'de la 055); NUNCA journal_entries — el mayor lo mueve `post`',
   });
+  reconApprove.addHelpText('after', EJEMPLOS.reconApprove);
   reconApprove.action(
     (
       sesion: string,
@@ -4567,6 +4951,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'la 041 deja tocar de una línea posteada); reconciling_items.resuelta_at; ' +
       'reconciliation_sessions (status=posted + posted_at + posted_by)',
   });
+  reconPost.addHelpText('after', EJEMPLOS.reconPost);
   reconPost.action(
     (
       sesion: string,
@@ -4715,6 +5100,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     );
   withOutput(withContext(reconGenerate));
   declareRisk(reconGenerate, { risk: 'lectura', agent: true });
+  reconGenerate.addHelpText('after', EJEMPLOS.reconGenerate);
   reconGenerate.action((sesion: string, opts: CommonOpts) =>
     run(async () => {
       // EL PDF Y EL XLSX QUE NO SE FINGEN. El catálogo escribe
@@ -4881,6 +5267,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'journal_entries + journal_entry_lines POSTEADOS (source_type=bank_fee, uno por cargo, ' +
       'idempotente por (source_type, source_id))',
   });
+  feePost.addHelpText('after', EJEMPLOS.feePost);
   feePost.action(
     (
       cuenta: string,
@@ -5031,6 +5418,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'journal_entries + journal_entry_lines POSTEADOS (source_type=bank_interest, uno por abono, ' +
       'idempotente por (source_type, source_id))',
   });
+  interestPost.addHelpText('after', EJEMPLOS.interestPost);
   interestPost.action(
     (
       cuenta: string,
@@ -5186,6 +5574,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       '`pago_cheque_cobro_coherente` de la 055) + journal_entries POSTEADOS ' +
       '(source_type=bank_check_clearing) cuando hay IVA que reclasificar',
   });
+  checkReconcile.addHelpText('after', EJEMPLOS.checkReconcile);
   checkReconcile.action(
     (
       pago: string,

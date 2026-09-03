@@ -7,6 +7,7 @@ import {
 } from './init/index.js';
 import { runDoctor } from '../ai/doctor-service.js';
 import { bootstrapTenant } from '../ai/context.js';
+import { exitCodeFor } from './kernel/index.js';
 
 // ============================================================
 // mnemosine init
@@ -316,7 +317,7 @@ export function registerInitCommand(program: Command, deps: InitCliDeps): void {
         await deps.shutdown(result.completed ? 0 : 1);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 }

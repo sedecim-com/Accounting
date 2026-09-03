@@ -13,6 +13,7 @@ import {
 import { probeAll, type NamedProbeResult, type ProbeOptions } from '../ai/providers/probe.js';
 import { FLOOR_MAX_AUTO_POST, floorMaxAutoAmount } from '../ai/floor.js';
 import type { ResolvedProfile } from '../ai/providers/types.js';
+import { exitCodeFor } from './kernel/index.js';
 
 // ============================================================
 // mnemosine status [--all] [--json]
@@ -358,7 +359,7 @@ export function registerStatusCommand(program: Command, deps: StatusDeps): void 
         await deps.shutdown(statusExitCode(report, Boolean(opts.strict)));
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 }

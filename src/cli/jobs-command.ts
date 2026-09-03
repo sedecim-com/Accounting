@@ -6,6 +6,7 @@ import {
 } from '../ai/jobs/job-store.js';
 import { runDueJobs, type RunAgentTurn } from '../ai/jobs/runner.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
+import { exitCodeFor } from './kernel/index.js';
 
 // ============================================================
 // mnemosine jobs — persisted scheduled agent tasks.
@@ -103,7 +104,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     };
 
@@ -146,7 +147,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 
@@ -161,7 +162,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 

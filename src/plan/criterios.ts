@@ -164,8 +164,74 @@ export function fuentes(rel = 'src'): string[] {
  * que puede recortar de más — un criterio que se calla de más falla hacia el
  * rojo, que es el lado seguro.
  */
+/**
+ * Memoria por CONTENIDO, no por ruta. Los 161 sitios de llamada releen los
+ * mismos archivos una y otra vez, y el seam de mutación cambia el contenido sin
+ * cambiar la ruta: cachear por ruta serviría el archivo sano a un mutante y el
+ * espejo dejaría de morder. Con la clave en el propio texto, un mutante es
+ * simplemente otra entrada.
+ */
+const CACHE_SIN_COMENTARIOS = new Map<string, string>();
+
 export function sinComentarios(texto: string): string {
-  return texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  // Recorrido con estado en vez de dos regex. Las regex se quedaron CIEGAS el
+  // día que un ejemplo de ayuda citó un glob de shell: `./cfdi/julio/*.xml`
+  // contiene `/*`, que abría un comentario de bloque cerrado 94 499 bytes
+  // después — el 80 % de mnemosine.ts desaparecía del criterio y `plan:status`
+  // acusaba SIETE rojos falsos sobre familias que sí estaban en el binario. Un
+  // instrumento que decide no puede cegarse con una cadena, así que las
+  // cadenas se saltan en vez de mirarse.
+  //
+  // Se copia POR TRAMOS, no carácter a carácter: la primera versión de este
+  // arreglo concatenaba de uno en uno y salía 8× más lenta, y con 161 sitios
+  // de llamada eso llevó las pruebas de `main()` a agotar su presupuesto de
+  // 30 s en CI. Correcto y lento sigue siendo un defecto cuando el instrumento
+  // corre en cada empuje.
+  //
+  // Sirve para TypeScript y para SQL (`codigoDe` se usa sobre los dos): las
+  // comillas simples que SQL duplica para escapar cierran y reabren, que deja
+  // el mismo resultado. Las expresiones regulares de TS se tratan como
+  // división —no se intenta desambiguar—, así que un `/*` dentro de un literal
+  // de regex seguiría cegando; hoy no hay ninguno.
+  const memo = CACHE_SIN_COMENTARIOS.get(texto);
+  if (memo !== undefined) return memo;
+
+  const trozos: string[] = [];
+  let i = 0;
+  let copiadoDesde = 0;
+  while (i < texto.length) {
+    const c = texto.charCodeAt(i);
+    // 0x2f '/'  0x2a '*'  0x2d '-'  0x27 "'"  0x22 '"'  0x60 '`'  0x5c '\\'
+    if (c === 0x2f || c === 0x2d) {
+      const d = texto.charCodeAt(i + 1);
+      const bloque = c === 0x2f && d === 0x2a;
+      const linea = (c === 0x2f && d === 0x2f) || (c === 0x2d && d === 0x2d);
+      if (bloque || linea) {
+        trozos.push(texto.slice(copiadoDesde, i));
+        const fin = bloque ? texto.indexOf('*/', i + 2) : texto.indexOf('\n', i);
+        i = fin === -1 ? texto.length : bloque ? fin + 2 : fin;
+        copiadoDesde = i;
+        continue;
+      }
+    }
+    if (c === 0x27 || c === 0x22 || c === 0x60) {
+      // La cadena se CONSERVA: quitarla rompería los criterios que buscan un
+      // literal («status = 'posted'»), que son casi todos. Sólo se salta, para
+      // que un `/*` de su interior no abra un comentario.
+      let j = i + 1;
+      while (j < texto.length && texto.charCodeAt(j) !== c) {
+        if (texto.charCodeAt(j) === 0x5c) j++;
+        j++;
+      }
+      i = Math.min(j + 1, texto.length);
+      continue;
+    }
+    i++;
+  }
+  trozos.push(texto.slice(copiadoDesde));
+  const fuera = trozos.join('');
+  CACHE_SIN_COMENTARIOS.set(texto, fuera);
+  return fuera;
 }
 
 /**
@@ -2799,7 +2865,15 @@ export const CRITERIOS: Criterio[] = [
         return falla('el ledger de uso dejó de persistir la duración que los runners miden');
       }
       const cli = codigoDe('src/cli/mnemosine.ts');
-      if (!/registrarCorridaIngesta\(ctx/.test(cli)) {
+      // El criterio afirma la CONDUCTA —que la corrida quede registrada—, no
+      // el nombre de la función que la registra. Afirmaba
+      // `registrarCorridaIngesta(ctx` y se puso rojo el día que A7·3 partió
+      // esa función en abrir/cerrar para que la fila naciera ANTES del bucle:
+      // acusaba «la ingesta volvió a imprimir y evaporar» sobre una capacidad
+      // que acababa de mejorar. Un criterio que nombra un identificador
+      // castiga el refactor que lo cumple mejor — la lección de la casa que
+      // la cabecera de este archivo abre, cobrada otra vez.
+      if (!/conCorridaRegistrada\(|registrarCorridaIngesta\(ctx/.test(cli)) {
         return falla('la ingesta volvió a imprimir y evaporar: nadie registra la corrida');
       }
       if ((cli.match(/registrarEventoEnSegundoPlano\(ctx/g) ?? []).length < 3) {
@@ -5252,5 +5326,404 @@ export const CRITERIOS: Criterio[] = [
           );
     },
   },
+
+  // ══════════════════════════════════════════════════════════
+  // S-UX · lote 2. Seis criterios que nacen de una lección repetida:
+  // el guardián se deriva del ÁRBOL, nunca de una lista paralela. Los
+  // cinco entregables de este tramo pasaron por un adversario con el
+  // encargo de tumbarlos, y los cinco tenían el mismo defecto de
+  // familia — la prueba miraba un árbol de juguete, una sola fila, o
+  // un suelo con holgura. Cada criterio de abajo cita el mutante que
+  // SOBREVIVÍA antes de armarlo.
+  // ══════════════════════════════════════════════════════════
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'El guion de completado se genera del árbol embarcado entero, y su cuerpo no le devuelve la lista al shell para que la expanda',
+    mutantes: [
+      {
+        archivo: 'src/cli/completion-command.ts',
+        de: '      visit(child, childPath);',
+        a: '      if (childPath.length < 3) visit(child, childPath);',
+        porque:
+          'profundidad-truncada: un generador que se detiene un nivel antes pierde las 53 tablas de tercer nivel (el guion cae de 597 a 544 líneas) y una prueba sobre un árbol sintético de dos niveles no tiene tercer nivel que perder',
+      },
+    ],
+    evaluar: () => {
+      const gen = codigoDe('src/cli/completion-command.ts');
+      // El recorrido no se topa: un tope de profundidad es el modo de
+      // fallo que deja `sat cred add --<TAB>` sin ofrecer --dry-run.
+      if (/childPath\.length\s*<\s*\d/.test(gen)) {
+        return falla('el generador de completado topó la profundidad del recorrido: las hojas de tercer nivel perderían su tabla de banderas');
+      }
+      // Escape con bandera GLOBAL. Sin /g sólo se escapa la primera
+      // comilla, y un nombre con dos deja el resto del texto donde el
+      // shell lo expande. Demostrado en bash 3.2: se ejecuta.
+      if (!/\.replace\(\/'\/g,/.test(gen)) {
+        return falla('shellQuote perdió la bandera global del escape: un nombre con dos comillas deja carga ejecutable en el guion');
+      }
+      // El cuerpo consumidor lee palabra a palabra. `compgen -W` EXPANDE
+      // la lista, así que devuelve al shell justo lo que las tablas
+      // habían entrecomillado bien. OJO al ancla: el módulo NOMBRA
+      // «compgen -W» dentro del comentario BASH que lo prohíbe, y ese
+      // comentario viaja en una cadena de TypeScript, así que
+      // codigoDe() no lo quita. Buscar el nombre acusaría a la frase
+      // que previene el defecto — el primer intento de este criterio
+      // hizo justo eso. Se ancla en la CONDUCTA: ninguna línea que
+      // abra `candidates=(` puede continuar con una expansión.
+      if (/candidates=\(\s*\$\(/.test(gen)) {
+        return falla('el consumidor del guion volvió a construir la lista con una expansión: un alias hostil ejecuta código al pulsar TAB');
+      }
+      if (!/while IFS= read -r word/.test(gen)) {
+        return falla('el cuerpo del guion perdió el lector línea a línea: es la pieza que impide que el shell expanda lo que se le ofrece');
+      }
+      // Y el guardián mira el objeto que la pieza produce: el program
+      // EMBARCADO, no un árbol inventado. Ésta es la lección entera.
+      const spec = codigoDe('tests/cli/completion-command.spec.ts');
+      return /from '\.\.\/\.\.\/src\/cli\/mnemosine\.js'/.test(spec)
+        ? ok('el completado se genera del árbol embarcado, con escape global y sin reexpansión en el consumidor')
+        : falla('la prueba del completado dejó de importar el program embarcado: volvería a certificar un árbol de juguete');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'El documento que el agente lee como «el binario exacto» reproduce la ayuda real, con los ejemplos incluidos',
+    mutantes: [
+      {
+        archivo: 'scripts/generate-cli-reference.ts',
+        de: "  emitir(cmd, 'afterHelp', contexto);",
+        a: '  // emitir(cmd, contexto);',
+        porque:
+          'ayuda-a-medias: helpInformation() no dispara afterHelp, así que las 244 invocaciones de ejemplo desaparecen del documento mientras el generador sigue prometiendo fidelidad byte a byte',
+      },
+    ],
+    evaluar: () => {
+      const gen = codigoDe('scripts/generate-cli-reference.ts');
+      if (!/emitir\(cmd, 'afterHelp', contexto\)/.test(gen)) {
+        return falla('el generador volvió a la ayuda sin afterHelp: los ejemplos no llegarían al documento que el agente lee como el binario');
+      }
+      // Conteo sobre el ARTEFACTO, no sobre el generador: un generador
+      // correcto con un documento sin regenerar es el mismo hueco.
+      const doc = crudoDe('src/ai/docs/cli-reference.md');
+      const ejemplos = (doc.match(/Examples:/g) ?? []).length;
+      if (ejemplos < 100) {
+        return falla(
+          `cli-reference.md sólo trae ${ejemplos} bloques de ejemplos: el documento está sin regenerar y el agente no ve la mitad visible de la ayuda`
+        );
+      }
+      return ok(`el documento del agente reproduce la ayuda real: ${ejemplos} bloques de ejemplos`);
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'Todo ejemplo de la ayuda lo acepta el Commander embarcado, en la hoja en cuya ayuda vive, y ninguno enseña la clave legada tax=',
+    mutantes: [
+      {
+        archivo: 'src/cli/bill-command.ts',
+        de: 'tax-amount=2000.00',
+        a: 'tax=16',
+        porque:
+          'ejemplo-que-miente: tax= es TASA en invoice y MONTO en bill, así que el ejemplo copiable registraría 16 pesos de IVA donde van 2 000 — la confusión H3 que este tramo existe para curar, en el propio texto que la cura',
+      },
+    ],
+    evaluar: () => {
+      const spec = codigoDe('tests/cli/ejemplos-de-ayuda.spec.ts');
+      // La prueba PARSEA con el Commander real: comprobar que la bandera
+      // existe deja pasar el ejemplo al que le falta el argumento
+      // posicional, y ése muere en el parser del usuario, no en CI.
+      if (!/\.parse\(argv, \{ from: 'user' \}\)/.test(spec)) {
+        return falla('el guardián de ejemplos dejó de pasar las invocaciones por el Commander real: un ejemplo sin su argumento posicional volvería a pasar en verde');
+      }
+      // Los suelos van en el valor MEDIDO. Un suelo con holgura no es un
+      // trinquete: es un permiso — con 97 sobre 115 se podía borrar una
+      // familia documentada entera sin un solo rojo.
+      const suelos = spec.match(/(?:SUELO|MINIMO)_[A-Z_]+\s*=\s*(\d+)/g) ?? [];
+      if (suelos.length < 2) {
+        return falla('el guardián de ejemplos perdió sus suelos medidos: sin ellos un revert parcial pasa en verde');
+      }
+      const bill = codigoDe('src/cli/bill-command.ts');
+      const ejemplosDeBill = bill.slice(bill.indexOf('EJEMPLOS'));
+      return /tax-amount=/.test(ejemplosDeBill) && !/--line "[^"]*[,"]tax=/.test(ejemplosDeBill)
+        ? ok('los ejemplos parsean contra el Commander embarcado y bill enseña tax-amount, no la clave legada')
+        : falla('un ejemplo de bill volvió a la clave legada tax=: registraría el IVA con un factor de diez');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'Ninguna hoja del CLI aplasta su código de salida: el catch devuelve el código del contrato, y el error de uso de Commander pasa por la puerta que cierra el pool',
+    mutantes: [
+      {
+        archivo: 'src/cli/memory-command.ts',
+        de: '        await deps.shutdown(exitCodeFor(err));',
+        a: '        await deps.shutdown(1);',
+        porque:
+          'código-aplastado: una hoja que ninguna fila conductual visita, con un texto que ningún grep de «shutdown(1)» esperaba encontrar de vuelta — 39 de 179 hojas vivían así y el contrato de trece códigos era papel',
+      },
+    ],
+    evaluar: () => {
+      // Barrido de la clase entera, no de la instancia: el defecto que
+      // este criterio vigila vivía en 14 archivos a la vez.
+      const archivos = fs
+        .readdirSync(rutaDe('src/cli'))
+        .filter((n) => n.endsWith('.ts'))
+        .sort();
+      const aplastan: string[] = [];
+      for (const nombre of archivos) {
+        if (/shutdown\(1\)/.test(codigoDe('src/cli', nombre))) aplastan.push(nombre);
+      }
+      if (aplastan.length > 0) {
+        return falla(
+          `${aplastan.length} archivo(s) del CLI vuelven a aplastar el código de salida a 1: ${aplastan.slice(0, 4).join(', ')} — el contrato de trece códigos vuelve a ser papel`
+        );
+      }
+      // Y la capa de Commander: sin exitOverride, un error de uso sale
+      // por el process.exit() propio de Commander, con código 1 y sin
+      // drenar las atestaciones ni cerrar el pool.
+      const raiz = codigoDe('src/cli/mnemosine.ts');
+      return /exitOverride/.test(raiz)
+        ? ok(`ninguna hoja aplasta su código de salida (${archivos.length} archivos barridos) y Commander pasa por la puerta del kernel`)
+        : falla('el program perdió exitOverride: los errores de uso saldrían con 1 y sin cerrar el pool');
+    },
+  },
+  {
+    paquete: 'E1.3',
+    enunciado:
+      'La capa explicativa vive donde se decide, no sólo en el alta: pending imprime los tres campos del catálogo, pide el preview con el contexto de la entidad y no enseña prosa sin envolver',
+    mutantes: [
+      {
+        archivo: 'src/cli/pending-command.ts',
+        de: "    out.push(...wrapLines('   ', '   ', p.question));",
+        a: '    out.push(`   ${p.question}`);',
+        porque:
+          'prosa-sin-envolver: las 21 políticas del catálogo tienen impact de más de 72 caracteres (la más larga, 406) y el terminal las reflowa a columna cero, perdiendo la sangría que dice a qué clave pertenece cada cosa',
+      },
+    ],
+    evaluar: () => {
+      const cli = codigoDe('src/cli/pending-command.ts');
+      // Del CATÁLOGO, no de la fila sembrada: el texto congelado al
+      // sembrar caduca en cuanto alguien reescribe el catálogo.
+      if (!/getPolicySpec\(/.test(cli)) {
+        return falla('pending dejó de leer el catálogo: imprimiría el texto congelado al sembrar, que caduca sin avisar');
+      }
+      for (const campo of ['whyAsking', 'whatIDo', 'ifSkipped']) {
+        if (!new RegExp(`spec\\??\\.${campo}`).test(cli)) {
+          return falla(
+            `pending dejó de imprimir ${campo}: la capa explicativa volvería a existir sólo en el alta, el único momento en que no tiene datos que enseñar`
+          );
+        }
+      }
+      // El preview, con el contexto de la ENTIDAD: sin él el ejemplo
+      // deja de ser el del cliente, que es lo único que lo hace valer.
+      if (!/previewFor\(/.test(cli)) {
+        return falla('pending dejó de pedir la vista previa: el contador vería la pregunta sin sus propios datos debajo');
+      }
+      // Envoltura en las DOS pantallas, cada una con su ancla PROPIA.
+      // Contar llamadas con un umbral era holgura: sobran sitios
+      // envueltos, así que quitar uno dejaba el conteo por encima del
+      // tope y el mutante pasaba en verde. Arreglar el listado y no el
+      // prompt de define es reparar la instancia: son la misma decisión
+      // vista dos veces, y el prompt es el instante en que se toma.
+      if (!/wrapLines\('   ', '   ', p\.question\)/.test(cli)) {
+        return falla('el listado de pending dejó de envolver la pregunta: la prosa del catálogo saldría a columna cero, sin la sangría que dice a qué clave pertenece');
+      }
+      if (!/for \(const l of wrapLines\('', '', p\.question\)\)/.test(cli)) {
+        return falla('el prompt de «pending define» dejó de envolver la pregunta: la mitad de la envoltura volvería a llegar a una sola de las dos pantallas');
+      }
+      const envueltos = (cli.match(/wrapLines\(/g) ?? []).length;
+      return ok(`la capa explicativa vive en pending con su preview y ${envueltos - 1} campos envueltos en las dos pantallas`);
+    },
+  },
+  {
+    paquete: 'E0.0',
+    enunciado:
+      'El censo de superficie corre en CI, y su trinquete está apretado contra lo medido',
+    mutantes: [
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '      - run: npx tsx scripts/ux-status.ts --check',
+        a: '      # - run: npx tsx scripts/ux-status.ts --check',
+        porque:
+          'puerta-declarada-y-no-cableada: el instrumento existía, la prueba lo importaba, y la degradación de superficie entraba igual porque nada lo corría en el único sitio que decide una fusión',
+      },
+    ],
+    evaluar: () => {
+      const ci = crudoDe('.github/workflows/ci.yml');
+      // Ancla al PASO, no al texto: el modo de fallo natural de un paso de
+      // CI es que alguien lo comente, y `# - run: … --check` contiene la
+      // cadena entera. El primer intento de este criterio casaba su propio
+      // comentario y bendecía al mutante que lo apagaba.
+      if (!/^\s*- run: npx tsx scripts\/ux-status\.ts --check\s*$/m.test(ci)) {
+        return falla('el censo de superficie salió de CI: la degradación de usabilidad volvería a entrar sin que nada la detenga en la fusión');
+      }
+      // Y las seis líneas base existen. Un censo sin línea base mide y
+      // no acusa; el trinquete es la mitad que sirve.
+      const censo = codigoDe('scripts/ux-status.ts');
+      const base = censo.match(/LINEAS_BASE[^=]*=\s*Object\.freeze\(\{([\s\S]*?)\}\)/);
+      if (!base) {
+        return falla('el censo perdió sus líneas base: mediría sin acusar, que es la mitad que no sirve');
+      }
+      const cuantas = (base[1].match(/:\s*\d+/g) ?? []).length;
+      return cuantas === 6
+        ? ok('el censo de superficie corre en CI con sus seis líneas base sembradas en lo medido')
+        : falla(`el censo declara ${cuantas} líneas base de las 6 medidas: una medida sin trinquete no frena nada`);
+    },
+  },
+
+
+  // ══════════════════════════════════════════════════════════
+  // A7·remate. Las tres ganancias que A7 dejó nombradas, más la que
+  // apareció mirándolas: el panel se podía contestar en blanco.
+  // ══════════════════════════════════════════════════════════
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'El arnés del eval mide la superficie que se embarca, y no puede salir en verde sin haber medido',
+    mutantes: [
+      {
+        archivo: 'scripts/eval-clasificador.ts',
+        de: '          herramientas: SUPERFICIE_INGESTA,',
+        a: '          // herramientas: sin lista',
+        porque:
+          'clasificador-más-ancho: buildTools sin lista devuelve las 25 herramientas mientras la ingesta embarca 11, así que el arnés juzgaría a un agente que nadie corre — y la cabecera del propio arnés lo prohíbe por escrito',
+      },
+    ],
+    evaluar: () => {
+      const arnes = codigoDe('scripts/eval-clasificador.ts');
+      const hoja = codigoDe('src/cli/mnemosine.ts');
+      // La MISMA constante en los dos sitios: el arnés no puede medir una
+      // superficie que la hoja no embarca, ni al revés.
+      if (!/herramientas: SUPERFICIE_INGESTA/.test(arnes)) {
+        return falla('el arnés del eval abre sesión sin superficie nombrada: buildTools le daría las 25 y mediría un clasificador que la ingesta no embarca');
+      }
+      if (!/herramientas: SUPERFICIE_INGESTA/.test(hoja)) {
+        return falla('la hoja de ingest dejó de pasar su superficie: el arnés mediría una cosa y el contador correría otra');
+      }
+      // El código de salida distingue «medí y salió mal» de «NO PUDE MEDIR».
+      // Es la doctrina que kernel/exit.ts publica en su cabecera, y el arnés
+      // salía 0 con el proveedor caído al cien por cien.
+      if (!/process\.exitCode = codigoDeSalida\(/.test(arnes)) {
+        return falla('el arnés dejó de fijar su salida con el veredicto: una llave caducada volvería a producir casilla verde');
+      }
+      if (!/EXTERNAL_FAILED/.test(arnes)) {
+        return falla('el arnés perdió la rama del fallo del proveedor: «no pude mirar» volvería a contarse como «no encontré nada»');
+      }
+      // Y siembra el panel que el corpus declara: puntuar un caso bajo un
+      // panel distinto del declarado es medir con una vara chueca.
+      return /politicasRequeridas\(/.test(arnes)
+        ? ok('el arnés mide la superficie embarcada, siembra el panel declarado y su salida dice si midió')
+        : falla('el arnés dejó de leer las precondiciones de política del corpus: puntuaría los casos bajo el panel por omisión');
+    },
+  },
+  {
+    paquete: 'E1.3',
+    enunciado:
+      'El panel del despacho llega al turno que decide, y una política sin contestar se pregunta en vez de aplicarse el defecto',
+    mutantes: [
+      {
+        archivo: 'src/ai/ingest-service.ts',
+        de: "2. READ YOUR FIRM'S POLICY PANEL with get_accounting_policies BEFORE deciding the treatment.",
+        a: '2. Decide the accounting treatment with your own judgement.',
+        porque:
+          'la-herramienta-que-nadie-pide: la pieza correcta a una llamada de función de donde hace falta — el panel existe, la herramienta existe, y el turno que clasifica el CFDI decide sin mirarlo',
+      },
+    ],
+    evaluar: () => {
+      // La herramienta existe Y el turno la pide. Lo primero sin lo segundo es
+      // exactamente la tesis que la auditoría III le puso al producto.
+      if (!existe('src/ai/tools/policy-tools.ts')) {
+        return falla('la herramienta del panel desapareció: el agente vuelve a decidir sin ver lo que el despacho contestó');
+      }
+      const prompt = codigoDe('src/ai/ingest-service.ts');
+      if (!/get_accounting_policies/.test(prompt)) {
+        return falla('el prompt de la ingesta dejó de pedir el panel: el CFDI de 12 000 se clasifica sin que el umbral del despacho exista en el contexto');
+      }
+      // Y la superficie la lleva: una herramienta fuera de la lista nombrada
+      // no llega al turno aunque esté registrada.
+      const sup = codigoDe('src/ai/tools/superficie.ts');
+      return /get_accounting_policies/.test(sup)
+        ? ok('el panel llega al turno que decide, por prompt y por superficie')
+        : falla('get_accounting_policies salió de la superficie nombrada: existiría sin llegar a la corrida que la necesita');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'Todo camino que clasifica CFDI por lotes corre con superficie recortada y deja su fila de corrida',
+    mutantes: [
+      {
+        archivo: 'src/cli/init/s5-import.ts',
+        // El ancla es el USO, no el import: quitar la línea 14 rompe la
+        // compilación pero deja el nombre en la línea 121, y un criterio que
+        // busca el texto lo bendecía igual. El espejo tiene que quitar la
+        // CONDUCTA, no el símbolo — y este mutante lo cobró en su primera
+        // corrida, que es exactamente para lo que sirve.
+        de: '    herramientas: SUPERFICIE_INGESTA,',
+        a: '    // sin superficie: buildTools devuelve las 25',
+        porque:
+          'la-clase-a-medias: se reparó la hoja de `ingest` y quedó vivo el segundo camino — el alta clasifica una carpeta entera con las 25 herramientas, brazo externo incluido, y sin dejar una sola fila de corrida',
+      },
+    ],
+    evaluar: () => {
+      // Los DOS caminos, contados. Reparar uno y dejar el otro es la instancia,
+      // no la clase: `mnemosine init` clasifica por lotes igual que `ingest`.
+      const caminos = [
+        { rel: 'src/cli/mnemosine.ts', nombre: 'la hoja de ingest' },
+        { rel: 'src/cli/init/s5-import.ts', nombre: 'el alta (init)' },
+      ];
+      for (const c of caminos) {
+        const src = codigoDe(c.rel);
+        // El CABLEADO, no el nombre. La primera versión buscaba
+        // «SUPERFICIE_INGESTA» a secas y el import solo ya la satisfacía: se
+        // podía borrar la línea que la PASA y el criterio seguía verde. Lo
+        // cazó su propio espejo en la primera corrida, que es para lo que el
+        // arnés de mutación existe.
+        if (!/herramientas:\s*SUPERFICIE_INGESTA/.test(src)) {
+          return falla(`${c.nombre} clasifica por lotes sin pasar su superficie: buildTools le devolvería las 25 herramientas, con el brazo externo dentro`);
+        }
+        if (!/conCorridaRegistrada\(/.test(src)) {
+          return falla(`${c.nombre} no envuelve su bucle: una corrida que muera a media lista dejaría los borradores y cero filas de corrida`);
+        }
+      }
+      // Y la fila se abre ANTES del bucle, que es la mitad que la 044 no tenía:
+      // sin estado no se distingue «murió a medias» de «no encontró nada».
+      const m = crudoDe('src/database/migrations/060_la_corrida_que_se_abre_antes.sql');
+      return /status/.test(m) && /closed_at/.test(m)
+        ? ok('los dos caminos de lote corren recortados y su corrida se abre antes del bucle, con estado y cierre')
+        : falla('la 058 perdió el estado o el cierre de la corrida: una fila abierta para siempre es indistinguible de una corrida vacía');
+    },
+  },
+  {
+    paquete: 'E1.3',
+    enunciado:
+      'Una política contestada en blanco no está contestada, y el motor no la lee como cero',
+    mutantes: [
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: "  if (value.trim() === '') {",
+        a: '  if (false) {',
+        porque:
+          'respuesta-en-blanco: la fila entra como «resolved» con el valor vacío y el sistema se la presenta al agente bajo el sello «tu despacho decidió esto» — y un piso más abajo Number("  ") es 0, así que el umbral de capitalización del motor queda en CERO',
+      },
+    ],
+    evaluar: () => {
+      const svc = codigoDe('src/services/policy/policy-service.ts');
+      // La ESCRITURA: se corta donde entra, que es el único sitio que cubre a
+      // los dos llamadores (pending define y el asistente del alta). La ruta
+      // interactiva recortaba; la ruta por ARGUMENTO no.
+      if (!/value\.trim\(\) === ''/.test(svc)) {
+        return falla('resolvePolicy volvió a admitir una respuesta en blanco: la política quedaría marcada como decidida por el despacho con un valor vacío');
+      }
+      // La LECTURA: el cinturón, porque una fila anterior a la guarda sigue en
+      // la base. `Number('')` es 0 y `Number.isFinite(0)` es true, así que sin
+      // el recorte el respaldo al default declarado no se dispara nunca.
+      return /crudo === '' \? Number\.NaN : Number\(crudo\)/.test(svc)
+        ? ok('el blanco se rechaza al escribirse y no se confunde con cero al leerse')
+        : falla('getPolicyNumber volvió a Number(p.value) a secas: un valor en blanco heredado pondría el umbral de capitalización en cero — «capitalízalo todo», en silencio');
+    },
+  },
+
 
 ];
