@@ -1,5 +1,5 @@
 -- ============================================================
--- 060 · EL AGRUPADOR CON UNA SOLA VERDAD (F07a)
+-- 063 · EL AGRUPADOR CON UNA SOLA VERDAD (F07a)
 --
 -- El código agrupador del SAT es la pieza sobre la que se construye TODO el
 -- Anexo 24: sin él no hay catálogo de cuentas que entregar. Y hoy hay TRES
@@ -58,10 +58,10 @@ $mudanza$;
 
 -- ── 2. CADA COLUMNA DICE LO QUE ES ──────────────────────────────────────
 COMMENT ON COLUMN accounts.codigo_agrupador_sat IS
-  'El código agrupador del SAT (catálogo c_CodAgrup del Anexo 24). Es FISCAL: cómo agrupa la autoridad esta cuenta para leer la contabilidad. Única verdad desde la 060; antes se escribía en mx_nif_code, que es otra cosa.';
+  'El código agrupador del SAT (catálogo c_CodAgrup del Anexo 24). Es FISCAL: cómo agrupa la autoridad esta cuenta para leer la contabilidad. Única verdad desde la 063; antes se escribía en mx_nif_code, que es otra cosa.';
 
 COMMENT ON COLUMN accounts.mx_nif_code IS
-  'Código de PRESENTACIÓN bajo NIF mexicanas, hermano de us_gaap_code e ifrs_code. NO es el agrupador del SAT: hasta la 060 se usaba para eso y el día que una entidad necesitara ambos, uno pisaba al otro.';
+  'Código de PRESENTACIÓN bajo NIF mexicanas, hermano de us_gaap_code e ifrs_code. NO es el agrupador del SAT: hasta la 063 se usaba para eso y el día que una entidad necesitara ambos, uno pisaba al otro.';
 
 -- ── 3. EL CATÁLOGO OFICIAL, VERSIONADO POR AÑO ──────────────────────────
 --

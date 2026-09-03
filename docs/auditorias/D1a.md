@@ -88,7 +88,7 @@ probada también por SQL crudo.
 ## Nota sobre el proceso
 
 Este tramo se implementó mientras **otra sesión trabajaba en G0 sobre el mismo
-árbol**. La consecuencia se pagó: la migración 060 de F07a, escrita en paralelo y
+árbol**. La consecuencia se pagó: la migración 063 de F07a, escrita en paralelo y
 todavía sin trackear, desapareció del árbol y hubo que reescribirla. Un archivo
 nuevo sin commitear no sobrevive al `checkout` de otro. La lección es de higiene,
 no de código: en un árbol compartido, lo que no está en un commit no existe.

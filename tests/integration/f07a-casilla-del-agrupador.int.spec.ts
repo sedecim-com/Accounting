@@ -155,14 +155,14 @@ describe('mapeadas, la casilla se pone verde DE VERDAD', () => {
     expect(warnings.some((w) => /agrupador/.test(w))).toBe(false);
   });
 
-  it('la mudanza de la 060 llegó: el valor está en codigo_agrupador_sat y mx_nif_code sigue libre', async () => {
+  it('la mudanza de la 063 llegó: el valor está en codigo_agrupador_sat y mx_nif_code sigue libre', async () => {
     const r = await query<{ codigo_agrupador_sat: string | null; mx_nif_code: string | null }>(
       'SELECT codigo_agrupador_sat, mx_nif_code FROM accounts WHERE id = $1',
       [f.roles.banco]
     );
     expect(r.rows[0].codigo_agrupador_sat).toBe('102.01');
     // La casilla de PRESENTACIÓN no la toca el agrupador FISCAL: ése era el
-    // cisma que la 060 cerró.
+    // cisma que la 063 cerró.
     expect(r.rows[0].mx_nif_code).toBeNull();
   });
 });

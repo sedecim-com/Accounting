@@ -4,7 +4,7 @@ import { execSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import { z } from 'zod';
-import type { ProviderProfile, ResolvedProfile } from './types.js';
+import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
 
 // ============================================================
 // PROVIDER CONFIG
@@ -16,12 +16,191 @@ import type { ProviderProfile, ResolvedProfile } from './types.js';
 // Files: ./mnemosine.config.json (project) > ~/.mnemosine/config.json (user)
 // ============================================================
 
-export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
+// ============================================================
+// REPRODUCIBILIDAD DEL PERFIL — lo que hace COMPARABLES dos corridas
+//
+// El arnés de evaluación (scripts/eval-clasificador.ts) anexa cada corrida a
+// docs/evals/clasificador.jsonl y la compara contra la anterior del mismo
+// proveedor+modelo: imprime «mejoró/empeoró» por clase. Esa flecha sólo
+// significa algo si entre las dos corridas cambió el CLASIFICADOR y no el azar
+// del muestreo. Sin temperatura fija y sin un id de modelo que no se mueva bajo
+// los pies, dos corridas no son comparables NI EN PRINCIPIO, y la premisa del
+// arnés está rota antes de empezar.
+//
+// MEDIDO, NO ARGUMENTADO. Tres corridas del MISMO caso, el mismo perfil y el
+// mismo modelo (ollama · gemma4:26b, 2026-09-02, tests/golden/cfdi/pue-recibido)
+// dieron global 0.750, 0.750 y 0.000: las dos primeras clasificaron con
+// confianza 0.70 y 0.80, y la tercera ni siquiera clasificó — preguntó. No es
+// que la calibración oscile en el tercer decimal: el RESULTADO de clase cambia
+// entre corridas idénticas. Sobre eso el arnés estaba dispuesto a imprimir una
+// flecha de tendencia. Llevaba un año sin ejecutarse y ese ruido no lo había
+// visto nadie.
+//
+// Por eso cada perfil declara aquí su postura, y NINGUNO PUEDE CALLARSE: el
+// campo es obligatorio en el tipo, así que un perfil nuevo sin declarar no
+// compila. Un default silencioso sería justo el modo de fallo que esto viene a
+// cerrar — el que dejó once perfiles sin un solo `temperature` durante un año.
+// ============================================================
+
+/**
+ * `fijado`   — el muestreo se puede clavar; `temperature` dice en cuánto.
+ * `no-admite` — el proveedor RECHAZA fijarlo, o el perfil no es evaluable en
+ *               absoluto. `razon` dice cuál de las dos y por qué. No se finge
+ *               una temperatura que la API devolvería como 400.
+ */
+export type PosturaMuestreo = 'fijado' | 'no-admite';
+
+export interface Reproducibilidad {
+  muestreo: PosturaMuestreo;
+  /** Temperatura del clasificador. Presente si y sólo si muestreo === 'fijado'. */
+  temperature?: number;
+  /**
+   * Id FECHADO del modelo, para pedir la misma instantánea en cada corrida en
+   * vez de un alias que el proveedor repunta cuando quiere. `null` = este
+   * perfil no fija ninguna; `razon` dice si es porque el proveedor no publica
+   * instantáneas fechadas o porque nadie la ha establecido todavía.
+   */
+  instantanea: string | null;
+  /** Por qué. Obligatoria y sustantiva: una postura sin motivo es una opinión. */
+  razon: string;
+}
+
+export type PerfilReproducible = ProviderProfile & { reproducibilidad: Reproducibilidad };
+
+// ============================================================
+// VENTANA DE CONTEXTO — y por qué la ventana NO es el umbral
+//
+// El tipo vive en types.ts; aquí se declara perfil por perfil y se deriva el
+// umbral de compactación. Dos decisiones que conviene no enterrar:
+//
+// 1) QUÉ SE DECLARA. Sólo un número que se pueda sostener. Ante la duda,
+//    `desconocida` con su razón: equivocarse HACIA ARRIBA es el fallo caro
+//    —el umbral queda por encima de lo que el proveedor acepta y la sesión
+//    revienta igual que antes—, mientras que `desconocida` cae al respaldo
+//    global de 150 000, o sea exactamente la conducta de hoy. De doce
+//    perfiles, cuatro traen número y ocho dicen que no lo saben.
+//
+// 2) CUÁNTO DE LA VENTANA SE PUEDE LLENAR DE HISTORIA. La mitad, y el resto
+//    es reserva. El número sale de lo que el umbral NO PUEDE VER, porque
+//    estimateViewTokens sólo mide la vista de mensajes:
+//      · las herramientas del arnés — MEDIDAS: 25 herramientas, 19 700
+//        caracteres de esquema JSON ≈ 4 925 tokens que viajan en CADA
+//        petición y que la vista no cuenta;
+//      · los bloques de sistema — el rol, el catálogo de cuentas de la
+//        entidad, el digest de memoria y las destrezas; miles de tokens más,
+//        y crecen con la entidad;
+//      · la respuesta, que ya viaja pedida en la petición: MAX_TOKENS es
+//        16 000 en el runner Anthropic y 8 192 en el compatible;
+//      · y lo que el turno añade DESPUÉS del chequeo: el umbral se mira
+//        ANTES de que entre el mensaje del usuario, y el bucle agéntico
+//        puede dar hasta 25 vueltas de herramienta con sus resultados.
+//    Sumado sobre la ventana más pequeña que declaramos (32 768): 4 925 +
+//    sistema + 8 192 de respuesta ya rozan la mitad. Por eso la mitad, y no
+//    dos tercios.
+//
+// 3) EL UMBRAL SOLO NO BASTA. La compactación conserva una cola reciente
+//    intacta de 20 000 tokens por omisión; con un umbral de 16 384 esa cola
+//    se lo come entero y planCompaction devolvería null SIEMPRE: el paso
+//    existiría y no sería ALCANZABLE. Por eso, cuando el umbral se deriva,
+//    la cola se deriva con él (la mitad del umbral, nunca por encima de la
+//    omisión del compactador). El `keep_recent_tokens` del operador sigue
+//    ganando sobre esto igual que su `threshold_tokens`.
+//
+// LO QUE ESTO NO SABE: `--model` NO mueve la ventana. La declaración es del
+// PERFIL, y quien cambia el modelo por bandera puede estar apuntando a uno de
+// ventana distinta; el arnés no tiene de dónde deducirlo. Se prefiere dejar en
+// pie la ventana declarada —siempre más prudente que el respaldo global en los
+// perfiles pequeños, que es el caso que duele— y que quien sepa lo que hace
+// mande con `compaction.threshold_tokens`, que gana sobre todo lo de aquí.
+// ============================================================
+
+/** Fracción de la ventana que puede ocupar la HISTORIA antes de compactar. */
+export const FRACCION_VENTANA_COMPACTABLE = 0.5;
+
+/**
+ * La ventana como la EXIGE la tabla de fábrica: una unión discriminada, no el
+ * `tokens?: number` suelto de types.ts.
+ *
+ * types.ts afirma en un comentario que `tokens` está «presente si y sólo si
+ * postura === 'declarada'», y su tipo no lo sostiene: `{ postura: 'declarada' }`
+ * sin tokens compilaba, y ese perfil derivaba `Math.floor(undefined * 0.5)` =
+ * NaN como umbral. Un umbral NaN no apaga ruidosamente: `vista > NaN` es SIEMPRE
+ * falso, así que la compactación automática quedaría apagada EN SILENCIO — justo
+ * el modo de fallo que esta pieza existe para cerrar. La unión de abajo hace que
+ * ese perfil no compile, y `desconocida` con tokens tampoco (un número que nadie
+ * declara no es un dato). Anclada con @ts-expect-error en
+ * tests/ai/providers/ventana-de-contexto.spec.ts: si alguien la afloja, el
+ * typecheck de pruebas lo dice.
+ *
+ * La guarda de compactacionParaPerfil se queda igualmente, y no por duplicar:
+ * `ventanaDe` va por listProfiles, cuyo tipo es ProviderProfile —sin ventana— y
+ * que se AFIRMA con un cast a Partial<PerfilDeFabrica>. Lo que llega ahí está
+ * aseverado, no probado, y una aseveración no es una garantía.
+ */
+export type VentanaDeFabrica =
+  | { postura: 'declarada'; tokens: number; razon: string }
+  | { postura: 'desconocida'; tokens?: undefined; razon: string };
+
+/** Perfil de fábrica: declara su reproducibilidad Y su ventana. Sin excusa. */
+export type PerfilDeFabrica = PerfilReproducible & { ventana: VentanaDeFabrica };
+
+/**
+ * ¿ENVÍAN YA EL MUESTREO los constructores de petición?
+ *
+ * HOY NO. `src/ai/agent.ts` (camino Anthropic) y `src/ai/providers/openai-compat.ts`
+ * (camino OpenAI-compatible) arman el cuerpo de la petición sin `temperature`, y
+ * ninguno de los dos está en la partición del paquete que declaró esta tabla. La
+ * declaración de arriba es, por tanto, DECLARACIÓN: dice lo que cada proveedor
+ * admite, no lo que hoy viaja por el cable.
+ *
+ * Esta bandera existe para que esa diferencia no se pudra en un comentario. El
+ * arnés la lee y lo dice en voz alta en cada corrida, y
+ * tests/ai/eval/arnes-cableado.spec.ts la contrasta contra los dos archivos
+ * reales: si alguien cablea el muestreo y no la sube, rojo; si alguien la sube
+ * sin cablearlo, rojo. Una nota que se invalida sola en vez de envejecer.
+ *
+ * TIPADA `boolean` A PROPÓSITO, no como el literal `false` que el valor sugiere:
+ * con el literal, TypeScript da por muertas todas las ramas que dependen de que
+ * algún día valga `true` —incluida la comparación de la bitácora, que se quedó
+ * sin compilar— y el día que alguien la suba se encontraría con código que
+ * nadie ha comprobado nunca. El tipo mantiene vivo el camino que la bandera
+ * existe para abrir.
+ */
+export const MUESTREO_CABLEADO: boolean = false;
+
+export const BUILTIN_PROFILES: Record<string, PerfilDeFabrica> = {
   anthropic: {
     type: 'anthropic',
     model: 'claude-opus-5',
     api_key_env: 'ANTHROPIC_API_KEY',
     note: 'Claude via the Anthropic API (default)',
+    // Aquí el respaldo global no reventaba nada: sobraba. 150 000 sobre un
+    // millón compactaba al 15% de la ventana y tiraba historia que cabía de
+    // sobra —el fallo silencioso de la dirección contraria.
+    ventana: {
+      postura: 'declarada',
+      tokens: 1_000_000,
+      razon:
+        'claude-opus-5 sirve una ventana de un millón de tokens. No es un número inferido: la ' +
+        'API lo publica por modelo (GET /v1/models/{id} devuelve max_input_tokens), así que es ' +
+        'comprobable contra el proveedor y no contra la memoria de nadie. Si la familia cambia, ' +
+        'ese endpoint es donde se mira.',
+    },
+    // El perfil POR DEFECTO —el que el eval mide si nadie pasa --provider— es
+    // el que menos puede fijarse. No es una omisión: es la API.
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'El SDK instalado lo dice en su propia deprecación de `temperature` ' +
+        '(node_modules/@anthropic-ai/sdk, BetaMessageCreateParams): los modelos posteriores a ' +
+        'Claude Opus 4.6 no admiten fijar la temperatura — se acepta 1.0 por compatibilidad y ' +
+        'cualquier otro valor vuelve como 400. claude-opus-5 es posterior, así que temperatura 0 ' +
+        'sería un error, no un ajuste. Tampoco hay instantánea que fijar: el id ya es exacto y ' +
+        'Anthropic no publica variantes fechadas de esta familia (añadirle un sufijo de fecha da ' +
+        'un modelo inexistente). Dos corridas de este perfil NO son comparables por construcción, ' +
+        'y el arnés tiene que decirlo en vez de dibujar flechas.',
+    },
   },
   hermes: {
     type: 'openai-compatible',
@@ -29,6 +208,24 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://inference-api.nousresearch.com/v1',
     api_key_env: 'NOUS_API_KEY',
     note: 'Hermes 4 via Nous Portal — standard function calling, the accounting tools work',
+    ventana: {
+      postura: 'declarada',
+      tokens: 131_072,
+      razon:
+        'Hermes 4 405B es un afinado de Llama 3.1 405B, cuya ventana entrenada son 128k tokens; ' +
+        'el afinado no la mueve. El portal podría servir menos y no lo publica, pero declarar ' +
+        '128k ya es más prudente que el respaldo global de 150 000, que quedaría POR ENCIMA de ' +
+        'la ventana del modelo base.',
+    },
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'Endpoint Chat Completions clásico: `temperature` es parámetro del cuerpo y 0 es el ' +
+        'ajuste del clasificador. El alias del modelo nombra un peso fijo (405B), no un enrutador; ' +
+        'no hay instantánea fechada que establecer.',
+    },
   },
   'hermes-agent': {
     type: 'openai-compatible',
@@ -40,12 +237,53 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
       'Local Hermes Agent (hermes gateway). WARNING: it runs ITS OWN tools server-side and does not ' +
       'return tool calls to the client — mnemosine accounting tools are NOT invoked ' +
       'over this channel; it is generic chat/agent. For accounting with tools use "hermes".',
+    ventana: {
+      postura: 'desconocida',
+      razon:
+        'La pasarela decide qué modelo hay detrás del alias `hermes-agent` y no lo versiona hacia ' +
+        'el cliente; su ventana la fija su propia configuración, invisible desde aquí. Además ' +
+        'corre sus propias herramientas del lado del servidor, así que ni siquiera es la vista de ' +
+        'este arnés la que llena ese contexto. Respaldo global.',
+    },
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'Antes que el muestreo falla el sujeto: `tools: false` porque la pasarela corre SUS ' +
+        'propias herramientas del lado del servidor y no devuelve llamadas al cliente. Las ' +
+        'herramientas contables nunca se invocan, así que este perfil no clasifica nada que el ' +
+        'golden set pueda puntuar. No es evaluable, y fijarle una temperatura sugeriría que sí.',
+    },
   },
   ollama: {
     type: 'openai-compatible',
     model: 'llama3.1',
     base_url: 'http://localhost:11434/v1',
     note: 'Local model via Ollama. Set "model" to an installed one that supports tools',
+    // EL PERFIL QUE MOTIVÓ TODO ESTO. Con el umbral global de 150 000 la
+    // sesión reventaba por contexto ANTES de que la compactación se disparara,
+    // y el operador veía un error del proveedor donde había un problema de
+    // diseño del arnés.
+    ventana: {
+      postura: 'declarada',
+      tokens: 32_768,
+      razon:
+        'La ventana EFECTIVA de Ollama no es la del modelo: el servidor trunca a su `num_ctx` ' +
+        '(4 096 por omisión; se sube con OLLAMA_CONTEXT_LENGTH o un Modelfile), y ese valor no se ' +
+        'puede consultar desde aquí. Los 128k nominales de llama3.1 son inalcanzables en local por ' +
+        'la caché KV mucho antes que por los pesos. 32 768 es un techo deliberado entre ambos: muy ' +
+        'por debajo de lo nominal, muy por encima de la omisión, y siempre por debajo del respaldo ' +
+        'global que era el error. Quien conozca su `num_ctx` manda con `compaction.threshold_tokens`.',
+    },
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'Servidor local con Chat Completions: acepta `temperature`, y al correr contra pesos ' +
+        'locales el modelo no se mueve bajo los pies. La instantánea es la etiqueta que el usuario ' +
+        'tenga instalada (`--model`), no algo que este perfil pueda fijar por él.',
+    },
   },
   openai: {
     type: 'openai-compatible',
@@ -54,6 +292,24 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     api_key_env: 'OPENAI_API_KEY',
     max_tokens_param: 'max_completion_tokens',
     note: 'OpenAI via API key (API equivalent of the ChatGPT/Codex subscription)',
+    ventana: {
+      postura: 'desconocida',
+      razon:
+        'OpenAI publica la ventana por modelo y NADIE LA HA ESTABLECIDO AQUÍ. No se pone de ' +
+        'memoria: este perfil apunta a un modelo de razonamiento cuya ventana total y cuyo límite ' +
+        'de entrada no son el mismo número, y equivocarse hacia arriba deja el umbral por encima ' +
+        'de lo que la API acepta. Hasta que alguien lo mire en la documentación del modelo que ' +
+        'realmente usa, respaldo global.',
+    },
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'Modelo de razonamiento — este mismo perfil ya lo delata con `max_tokens_param: ' +
+        'max_completion_tokens`. Con el razonamiento activo (el default) la API sólo acepta la ' +
+        'temperatura por omisión: cualquier otro valor vuelve como 400 «Unsupported value: ' +
+        "'temperature' … Only the default (1) value is supported». No se fija.",
+    },
   },
   grok: {
     type: 'openai-compatible',
@@ -61,6 +317,21 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://api.x.ai/v1',
     api_key_env: 'XAI_API_KEY',
     note: 'xAI Grok — OpenAI-compatible API',
+    ventana: {
+      postura: 'desconocida',
+      razon:
+        'xAI documenta la ventana de grok-4 en su referencia de modelos y nadie la ha traído aquí. ' +
+        'Es un dato de una línea que se comprueba en un minuto; hasta que se compruebe, respaldo ' +
+        'global, que es lo que este perfil ya hacía.',
+    },
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'xAI documenta `temperature` en 0–2 para grok-4 (lo que grok-4 sí rechaza es ' +
+        '`reasoning_effort`, que este arnés no envía). Sin instantánea fechada establecida.',
+    },
   },
   minimax: {
     type: 'openai-compatible',
@@ -68,6 +339,20 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://api.minimax.io/v1',
     api_key_env: 'MINIMAX_API_KEY',
     note: 'MiniMax (global endpoint; for China change base_url to api.minimaxi.com/v1)',
+    ventana: {
+      postura: 'desconocida',
+      razon:
+        'La ventana de MiniMax-M2 la publica MiniMax por modelo y no se ha establecido aquí. Sin ' +
+        'establecer, respaldo global.',
+    },
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'Endpoint Chat Completions: `temperature` es parámetro del cuerpo. El alias nombra una ' +
+        'versión concreta del modelo (M2); sin instantánea fechada establecida.',
+    },
   },
   qwen: {
     type: 'openai-compatible',
@@ -75,6 +360,23 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
     api_key_env: 'DASHSCOPE_API_KEY',
     note: 'Qwen via DashScope compatible-mode (the API route used by Qwen Code)',
+    ventana: {
+      postura: 'desconocida',
+      razon:
+        'Mismo problema que su reproducibilidad: `qwen3-max` es un alias que DashScope repunta, y ' +
+        'la ventana viaja con la instantánea concreta que sirva ese día. Un número fijo aquí ' +
+        'envejecería sin avisar. Respaldo global hasta que se fije la instantánea.',
+    },
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'DashScope en modo compatible acepta `temperature` en el cuerpo. `qwen3-max` es un alias ' +
+        'que DashScope repunta: la instantánea fechada existe del lado del proveedor y está SIN ' +
+        'ESTABLECER aquí — hasta que se fije, dos corridas separadas en el tiempo pueden estar ' +
+        'midiendo modelos distintos.',
+    },
   },
   gemini: {
     type: 'openai-compatible',
@@ -82,6 +384,23 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
     api_key_env: 'GEMINI_API_KEY',
     note: 'Google AI Studio (Gemini) — OpenAI-compatible endpoint; set "model" to the version your account has',
+    ventana: {
+      postura: 'declarada',
+      tokens: 1_048_576,
+      razon:
+        'gemini-2.5-pro admite 1 048 576 tokens de entrada — el número que Google publica en la ' +
+        'ficha del modelo de AI Studio, y que la capa compatible con OpenAI no recorta. Igual que ' +
+        'el perfil por defecto, aquí el respaldo global no era peligroso sino desperdiciado.',
+    },
+    reproducibilidad: {
+      muestreo: 'fijado',
+      temperature: 0,
+      instantanea: null,
+      razon:
+        'La capa compatible con OpenAI de AI Studio acepta `temperature`. El alias ya lleva ' +
+        'versión menor (2.5-pro), pero Google publica instantáneas fechadas por debajo: SIN ' +
+        'ESTABLECER aquí.',
+    },
   },
   openrouter: {
     type: 'openai-compatible',
@@ -89,6 +408,23 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     base_url: 'https://openrouter.ai/api/v1',
     api_key_env: 'OPENROUTER_API_KEY',
     note: 'OpenRouter — one key, hundreds of models; change "model" to whichever you prefer',
+    ventana: {
+      postura: 'desconocida',
+      razon:
+        'Aquí no es que falte el dato: es que NO EXISTE uno solo. `openrouter/auto` elige modelo ' +
+        'por petición, así que la ventana cambia entre turnos de la misma sesión. Declarar un ' +
+        'número sería declarar el de un modelo que quizá no conteste el turno siguiente.',
+    },
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'Aquí la comparabilidad se rompe UN ESCALÓN ANTES que el muestreo: `openrouter/auto` es un ' +
+        'enrutador que elige modelo por petición, así que dos corridas del «mismo proveedor+modelo» ' +
+        'pueden haber preguntado a dos modelos distintos — y la bitácora las compararía como si ' +
+        'fueran la misma. Fijar la temperatura no arreglaría eso. Para evaluar con OpenRouter hay ' +
+        'que pasar `--model` con un modelo concreto; el perfil por omisión no es evaluable.',
+    },
   },
   copilot: {
     type: 'openai-compatible',
@@ -98,6 +434,21 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
     note:
       'GitHub Copilot. WARNING: it does not use a classic API key — the token comes from the GitHub OAuth flow ' +
       '(short-lived and renewable); useful behind a proxy like copilot-api that refreshes it.',
+    ventana: {
+      postura: 'desconocida',
+      razon:
+        'Lo que Copilot sirve detrás del alias lo decide GitHub y no se versiona hacia el cliente; ' +
+        'encima el proxy que renueva el token puede recortar el contexto por su cuenta. Dos capas ' +
+        'que pueden mover la ventana sin avisar: no hay número que declarar.',
+    },
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'Mismo modelo de razonamiento que el perfil `openai` (gpt-5.1) y por tanto el mismo 400 al ' +
+        'fijar temperatura; encima, lo que Copilot sirve detrás de ese alias lo decide GitHub y no ' +
+        'se versiona hacia el cliente. Dos capas de deriva, ninguna fijable desde aquí.',
+    },
   },
   openclaw: {
     type: 'openai-compatible',
@@ -109,8 +460,50 @@ export const BUILTIN_PROFILES: Record<string, ProviderProfile> = {
       'Local OpenClaw gateway. Requires gateway.http.endpoints.chatCompletions.enabled=true ' +
       'in its config; the gateway token is an operator credential — loopback only. ' +
       'Like hermes-agent, it runs ITS OWN tools server-side: chat channel, no accounting tools.',
+    ventana: {
+      postura: 'desconocida',
+      razon:
+        'Como hermes-agent: `openclaw:main` nombra lo que la pasarela local tenga montado, y su ' +
+        'ventana la fija la configuración de esa pasarela. Desde el arnés no se ve.',
+    },
+    reproducibilidad: {
+      muestreo: 'no-admite',
+      instantanea: null,
+      razon:
+        'Como hermes-agent: `tools: false`, la pasarela corre sus propias herramientas del lado del ' +
+        'servidor y las contables nunca se invocan. No hay clasificación que puntuar, así que no ' +
+        'hay muestreo que fijar.',
+    },
   },
 };
+
+/**
+ * La reproducibilidad DECLARADA de un perfil, o `null` si no la declara.
+ *
+ * Sólo los perfiles de fábrica la traen. Un perfil definido por el usuario en
+ * mnemosine.config.json devuelve `null` a propósito: el archivo de configuración
+ * no tiene dónde declararla, y adivinarla por él sería inventar una garantía.
+ * El arnés trata ese `null` como «sin garantía de comparabilidad» y lo dice.
+ */
+export function reproducibilidadDe(nombre: string): Reproducibilidad | null {
+  return BUILTIN_PROFILES[nombre]?.reproducibilidad ?? null;
+}
+
+/**
+ * La ventana DECLARADA del perfil que de verdad se va a usar, o `null` si el
+ * perfil no declara ninguna.
+ *
+ * Va por listProfiles y NO por BUILTIN_PROFILES a propósito: un perfil del
+ * archivo REEMPLAZA al de fábrica del mismo nombre (no se fusionan), así que
+ * quien redefine `ollama` en su mnemosine.config.json está apuntando a otro
+ * servidor y heredarle en silencio la ventana del perfil de fábrica sería
+ * afirmar de su montaje algo que nadie declaró. Ese caso cae al respaldo
+ * global, que es la conducta previa: peor que hoy, nunca.
+ */
+export function ventanaDe(nombre: string, cwd = process.cwd()): VentanaContexto | null {
+  const perfil = listProfiles(cwd).profiles[nombre] as Partial<PerfilDeFabrica> | undefined;
+  return perfil?.ventana ?? null;
+}
 
 // Strict fail-closed schemas: an unknown key is ALWAYS a mistake (a typo like
 // "api_key_evn" would otherwise silently fall back to defaults — the worst
@@ -189,6 +582,12 @@ const compactionSchema = z
     keep_recent_tokens: z.number().int().min(1).optional(),
     /** Identifier survival policy; only 'strict' exists today. */
     identifier_policy: z.enum(['strict']).optional(),
+    /**
+     * Tope de TURNOS DE DESCARGA DE MEMORIA por sesión. Ver
+     * MAX_DESCARGAS_MEMORIA_POR_SESION: 0 apaga la descarga automática, un
+     * número grande devuelve la conducta de una por compactación.
+     */
+    max_memory_flushes: z.number().int().min(0).optional(),
   })
   .strict();
 
@@ -547,6 +946,60 @@ export function resolveIngestThresholds(
  */
 export const DEFAULT_COMPACTION_THRESHOLD_TOKENS = 150_000;
 
+// ============================================================
+// CUÁNTAS VECES PUEDE UNA SESIÓN ESCRIBIR MEMORIA SOLA — decidido y declarado
+//
+// Antes de esta pieza el umbral era 150 000 para todo perfil y la descarga de
+// memoria (compaction.ts · buildFlushPrompt) corría UNA VEZ POR COMPACTACIÓN.
+// Esa cadencia no la eligió nadie: salía de que el umbral fuera único. Derivar
+// el umbral de la ventana la multiplica, y no por un matiz.
+//
+// MEDIDO, no argumentado (el arnés de la medición vive en
+// tests/ai/providers/ventana-de-contexto.spec.ts; turnos de ~7 000 tokens, el
+// mismo trabajo, sólo cambia el perfil):
+//
+//   perfil / umbral                30 turnos   60    100    200
+//   ollama, derivado 16 384            27       —     97      —
+//   el mismo historial, global 150 000   1       2      5     10
+//   anthropic, derivado 500 000          0       —      —      —
+//
+// Veintisiete descargas donde el mismo trabajo daba una. Cada descarga es un
+// bucle agéntico con la superficie completa y un prompt que instruye
+// EXPLÍCITAMENTE a persistir criterio; con la ventana pequeña el conteo deja de
+// seguir a la conversación y pasa a seguir a los TURNOS (97 en 100). Compactar
+// más para respetar una ventana de 32k está bien y se queda; que de ahí se siga
+// multiplicar por veintisiete las veces que el sistema escribe memoria es una
+// ampliación de autonomía que nadie decidió, y una ampliación de autonomía no es
+// un efecto colateral aceptable de arreglar un umbral.
+//
+// DESCARTADO · UN SUELO AL UMBRAL DERIVADO. Devuelve el fallo que la pieza
+// existe para cerrar: sobre una ventana de 32 768 cualquier suelo útil es la
+// ventana entera y ollama vuelve a reventar por contexto. Cambiar una ampliación
+// de autonomía ACOTADA por un desbordamiento SIN ACOTAR es mal negocio.
+//
+// DESCARTADO · UN PRESUPUESTO EN TOKENS RETIRADOS (una descarga por cada N
+// tokens que salen de la vista). Es el modelo más fino —ata la descarga a la
+// conversación y no al perfil— y rompe un contrato embarcado: «cada ventana de
+// compactación tiene su propia descarga» (tests/ai/compaction.spec.ts). Cambiar
+// ese contrato es una decisión aparte de ésta y no se cuela aquí.
+//
+// ELEGIDO · TOPE POR SESIÓN = 5, y el número sale de la tabla de arriba: 5 es
+// exactamente lo que la cadencia de HOY (umbral global) le da a una sesión de
+// 100 turnos. Por debajo de eso el tope no le quita nada a nadie —30 turnos dan
+// 1, 60 dan 2—, y por encima acota lo que la ventana pequeña convertía en una
+// descarga por turno. Sobre lo medido: ollama 30 turnos pasa de 27 a 5, y 100
+// turnos de 97 a 5.
+//
+// LO QUE EL TOPE NO APAGA, y por eso su coste es el que es: el agente sigue
+// pudiendo proponer criterio en un turno normal por la vía de siempre
+// (ask_user → pregunta pendiente). Lo acotado es el barrido AUTOMÁTICO previo a
+// cada compactación, no la capacidad de proponer. Y la transcripción completa
+// nunca se toca: vive en Postgres (`mnemosine sessions`).
+//
+// El operador manda con `compaction.max_memory_flushes`: 0 apaga el barrido
+// automático del todo, y un número grande devuelve la conducta anterior.
+export const MAX_DESCARGAS_MEMORIA_POR_SESION = 5;
+
 /**
  * Runner-facing compaction settings resolved from the config file.
  * Duplicated shape of compaction.ts's CompactionConfig (kept structural to
@@ -557,6 +1010,28 @@ export interface ResolvedCompactionConfig {
   thresholdTokens?: number;
   keepRecentTokens?: number;
   identifierPolicy?: 'strict';
+  /**
+   * PROCEDENCIA DEL UMBRAL, y por qué hace falta un campo para decirla.
+   *
+   * `true` = el archivo del operador NO trae `threshold_tokens`, así que el
+   * valor de arriba es sólo el respaldo global y el runner puede sustituirlo
+   * por el que se derive de la ventana de SU perfil. Ausente o `false` = el
+   * umbral lo puso alguien —el operador en su archivo, o quien construyó la
+   * sesión a mano— y manda tal cual, incluido el 0 que apaga.
+   *
+   * Sin este campo el runner recibiría 150 000 y no podría distinguir «lo
+   * escribió el operador» de «nadie dijo nada», que es justo la diferencia
+   * entre respetar su control y pisárselo. Y nótese que `thresholdTokens`
+   * sigue trayendo el respaldo aunque sea derivable: cualquier consumidor que
+   * ignore esta bandera se comporta EXACTAMENTE como antes de que existiera.
+   */
+  umbralDerivable?: boolean;
+  /**
+   * Turnos de descarga de memoria que esta sesión puede correr como mucho
+   * (MAX_DESCARGAS_MEMORIA_POR_SESION). Los runners lo leen; ausente = el
+   * default declarado arriba.
+   */
+  maxDescargasMemoria?: number;
 }
 
 /**
@@ -564,15 +1039,74 @@ export interface ResolvedCompactionConfig {
  * no threshold_tokens) auto-compaction fires at ~150k estimated tokens;
  * `threshold_tokens: 0` is the explicit off switch (manual /compact keeps
  * working); any other value moves the threshold.
+ *
+ * El umbral que sale de aquí es GLOBAL. Quien conozca su perfil lo afina con
+ * compactacionParaPerfil, que sólo actúa cuando `umbralDerivable` lo permite.
  */
 export function resolveCompactionConfig(cwd = process.cwd()): ResolvedCompactionConfig {
   const { config } = loadConfigFile(cwd);
   const section = config.compaction ?? {};
+  const delOperador = section.threshold_tokens !== undefined;
   const threshold = section.threshold_tokens ?? DEFAULT_COMPACTION_THRESHOLD_TOKENS;
   return {
     thresholdTokens: threshold === 0 ? undefined : threshold,
     keepRecentTokens: section.keep_recent_tokens,
     identifierPolicy: section.identifier_policy,
+    maxDescargasMemoria: section.max_memory_flushes,
+    // La marca sólo aparece cuando dice algo. Un `umbralDerivable: false`
+    // presente en cada resolución sería ruido en todo consumidor que compare
+    // el objeto entero, y la ausencia ya significa exactamente eso.
+    ...(delOperador ? {} : { umbralDerivable: true }),
+  };
+}
+
+/**
+ * El umbral (y la cola) que esta sesión usará DE VERDAD, ya conocido el perfil.
+ *
+ * Precedencia, de más fuerte a más débil:
+ *   1. lo que trae `base` cuando NO es derivable — el `threshold_tokens` del
+ *      operador (0 incluido: sigue apagando) o el valor que le pasó a mano
+ *      quien construyó la sesión;
+ *   2. la ventana declarada por el perfil, por la fracción;
+ *   3. el respaldo global que `base` ya traía.
+ *
+ * `colaRecientePorOmision` la pasa el runner desde el propio compactador
+ * (DEFAULT_KEEP_RECENT_TOKENS) en vez de duplicarse aquí: config.ts no importa
+ * compaction.ts a propósito, y una copia del número se desincronizaría el día
+ * que allí cambie.
+ */
+export function compactacionParaPerfil(
+  nombrePerfil: string,
+  base: ResolvedCompactionConfig,
+  colaRecientePorOmision: number,
+  cwd = process.cwd()
+): ResolvedCompactionConfig {
+  if (!base.umbralDerivable) return base;
+  const ventana = ventanaDe(nombrePerfil, cwd);
+  // `Number.isFinite` y no `!== undefined`: lo que hay que impedir no es un
+  // campo ausente sino un UMBRAL NaN, que es lo que sale de multiplicar la
+  // fracción por undefined y que apagaría la compactación en silencio
+  // (`vista > NaN` es siempre falso). undefined, NaN e Infinity caen todos al
+  // respaldo global, que es la conducta previa a esta pieza: peor que hoy,
+  // nunca. VentanaDeFabrica ya hace que la tabla no pueda declarar ese perfil;
+  // esto cubre lo que entra por el cast de ventanaDe.
+  if (
+    ventana?.postura !== 'declarada' ||
+    typeof ventana.tokens !== 'number' ||
+    !Number.isFinite(ventana.tokens)
+  ) {
+    return base;
+  }
+
+  const umbral = Math.floor(ventana.tokens * FRACCION_VENTANA_COMPACTABLE);
+  return {
+    ...base,
+    thresholdTokens: umbral,
+    // Un umbral por debajo de la cola intacta haría que planCompaction no
+    // encontrara NUNCA nada que soltar: el disparo existiría y la compactación
+    // sería inalcanzable. La cola del operador, si la puso, sigue mandando.
+    keepRecentTokens:
+      base.keepRecentTokens ?? Math.min(colaRecientePorOmision, Math.floor(umbral / 2)),
   };
 }
 

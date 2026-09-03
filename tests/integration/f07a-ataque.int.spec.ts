@@ -731,7 +731,7 @@ describe('B3 · el código que NO está en el catálogo', () => {
     });
     const c = await casillasDe(f.cuentas['1120']);
     expect(c.agrupador).toBe('105.01');
-    // LA MUDANZA DE LA 060: la casilla de PRESENTACIÓN no se toca. Era el
+    // LA MUDANZA DE LA 063: la casilla de PRESENTACIÓN no se toca. Era el
     // cisma —el agrupador FISCAL viviendo en la casilla de la norma contable—
     // y el día que una entidad necesitara las dos, una pisaba a la otra.
     expect(c.nif).toBeNull();
@@ -864,7 +864,7 @@ describe('B5 · el catálogo VACÍO para ese ejercicio', () => {
 
 describe('B6 · el catálogo GLOBAL: quién lo lee y quién lo puede engordar', () => {
   it('no lleva inquilino ni entidad, y las dos entidades leen las MISMAS filas', async () => {
-    // Global a propósito (lo dice el COMMENT de la 060): el c_CodAgrup es un
+    // Global a propósito (lo dice el COMMENT de la 063): el c_CodAgrup es un
     // hecho publicado por la autoridad, no un dato del inquilino. Que no tenga
     // las columnas de alcance es lo que sostiene que su lector no las filtre.
     const cols = await query<{ column_name: string }>(
@@ -901,13 +901,13 @@ describe('B6 · el catálogo GLOBAL: quién lo lee y quién lo puede engordar', 
   });
 });
 
-describe('B7 · la mudanza de la 060, replicada sobre datos', () => {
+describe('B7 · la mudanza de la 063, replicada sobre datos', () => {
   it('mueve el agrupador de la casilla vieja a la suya sin perderlo', async () => {
-    // La 060 ya corrió sobre esta base, así que lo que se replica es su
+    // La 063 ya corrió sobre esta base, así que lo que se replica es su
     // sentencia sobre una fila nueva: es la única forma de probar que la
     // condición hace lo que promete y no lo contrario.
     const previa = await createAccount({
-      code: '1196', name: 'Cuenta con agrupador de antes de la 060',
+      code: '1196', name: 'Cuenta con agrupador de antes de la 063',
       account_type: 'asset', account_subtype: 'current_asset',
       fs_category: 'current_assets', parent_id: f.cuentas['1100'],
       entity_id: f.entityId, normal_balance: 'debit', created_by: f.userId,

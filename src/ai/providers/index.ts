@@ -85,13 +85,29 @@ export async function createLlmSession(
   };
 
   const systemBlocks = await buildSystemBlocks(ctx);
-  const compaction = opts.compaction ?? resolveCompactionConfig();
+  // LA COSTURA DE LA COMPACTACIÓN POR VENTANA (A5·3). Aquí se resuelve la
+  // sección GLOBAL del archivo, con su marca `umbralDerivable`, y son los dos
+  // runners los que la afinan contra la ventana de SU perfil
+  // (compactacionParaPerfil). Esta línea es todo el enlace: pasar por aquí un
+  // umbral ya fijado —o la misma sección con la marca apagada— convierte la
+  // pieza entera en un no-op en producción sin que nada más lo note. Anclada de
+  // lado a lado en tests/ai/providers/ventana-de-contexto.spec.ts: la sesión que
+  // construye ESTA función, para el perfil de ventana pequeña, tiene que
+  // compactar donde manda la ventana y no donde manda el respaldo global.
+  //
+  // `opts.cwd` y no process.cwd(): el presupuesto ya lee su configuración de ese
+  // directorio (assertWithinBudget, arriba), y la sección `compaction` y la
+  // ventana del perfil tienen que salir del MISMO archivo. Con dos directorios
+  // distintos, un trabajo lanzado sobre otra carpeta leería el tope de gasto de
+  // un mnemosine.config.json y el umbral de compactación de otro.
+  const compaction = opts.compaction ?? resolveCompactionConfig(opts.cwd);
 
   let session: LlmSession;
   if (profile.type === 'anthropic') {
     const client = profile.apiKey ? new Anthropic({ apiKey: profile.apiKey }) : new Anthropic();
     session = new MnemosineAgent(client, ctx, systemBlocks, budgeted, profile.model, profile.name, {
       compaction,
+      cwd: opts.cwd,
       grounding: opts.grounding,
       herramientas: opts.herramientas,
     });
@@ -106,6 +122,7 @@ export async function createLlmSession(
     const systemText = systemBlocks.map((b) => b.text).join('\n\n');
     session = new OpenAiCompatSession(client, profile, ctx, systemText, budgeted, {
       compaction,
+      cwd: opts.cwd,
       grounding: opts.grounding,
       herramientas: opts.herramientas,
     });
@@ -180,12 +197,24 @@ export async function createLlmSessionWithFailover(
   const name = profileName || listProfiles(cwd).defaultName;
   const chain = resolveFailoverChain(name, cwd);
   const make = opts.sessionFactory ?? createLlmSession;
-  const sessionOpts: CreateLlmSessionOptions = {
-    compaction: opts.compaction,
-    grounding: opts.grounding,
-    cwd: opts.cwd,
-    onBudgetWarning: opts.onBudgetWarning,
-  };
+  // SE REENVÍA POR EXCLUSIÓN, NO POR ENUMERACIÓN, y la diferencia era una fuga.
+  //
+  // Este objeto listaba cuatro campos a mano y `herramientas` no estaba entre
+  // ellos. Medido ejecutando buildTools: la corrida desatendida pasa
+  // SUPERFICIE_DESATENDIDA_SANDBOX —23 herramientas— y al constructor llegaba
+  // `undefined`, así que recibía las 25. Las dos de más son `external_pull` y
+  // `external_diff_trial_balance`: LECTURAS CONTRA EL SISTEMA DEL CLIENTE CON
+  // SU CREDENCIAL. Es decir, `jobs run-due` SIN `--live` tenía el brazo
+  // externo de todos modos, y la compuerta que S0.3 construyó quedaba
+  // derrotada por un literal de cuatro campos.
+  //
+  // Enumerar es el defecto, no el campo: el que se olvidó fue el quinto y el
+  // sexto se habría olvidado igual. Se quitan las opciones PROPIAS del
+  // failover y se reenvía el resto, así que un campo nuevo de
+  // CreateLlmSessionOptions viaja por construcción y uno nuevo del failover
+  // obliga a tocar esta línea, que es visible en el diff.
+  const { model: _model, onFailover: _onFailover, sessionFactory: _factory, cooldowns: _cooldowns, ...heredadas } = opts;
+  const sessionOpts: CreateLlmSessionOptions = heredadas;
 
   // No fallbacks configured → plain single-provider session, created eagerly
   // (same behavior as createLlmSession, credential errors surface now).

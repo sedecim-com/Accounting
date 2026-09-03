@@ -6,6 +6,7 @@ import {
   type UsageSummary,
 } from '../ai/usage-ledger.js';
 import { PRECIOS_VIGENTES_A } from '../ai/providers/prices.js';
+import { exitCodeFor, usageError } from './kernel/index.js';
 
 // ============================================================
 // mnemosine usage
@@ -37,11 +38,11 @@ export function parseSince(value: string | undefined, now: Date = new Date()): D
   if (rel) {
     const days = Number(rel[1]);
     if (!Number.isSafeInteger(days) || days > MAX_SINCE_DAYS) {
-      throw new Error(`Invalid --since value "${value}": relative windows are capped at ${MAX_SINCE_DAYS}d.`);
+      throw usageError(`Invalid --since value "${value}": relative windows are capped at ${MAX_SINCE_DAYS}d.`);
     }
     const parsed = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
     if (Number.isNaN(parsed.getTime())) {
-      throw new Error(`Invalid --since value "${value}": the resulting date is out of range.`);
+      throw usageError(`Invalid --since value "${value}": the resulting date is out of range.`);
     }
     return parsed;
   }
@@ -49,14 +50,14 @@ export function parseSince(value: string | undefined, now: Date = new Date()): D
     const parsed = new Date(`${trimmed}T00:00:00`);
     if (!Number.isNaN(parsed.getTime())) return parsed;
   }
-  throw new Error(`Invalid --since value "${value}". Use Nd (e.g. 7d, 30d) or YYYY-MM-DD.`);
+  throw usageError(`Invalid --since value "${value}". Use Nd (e.g. 7d, 30d) or YYYY-MM-DD.`);
 }
 
 export function parseGroupBy(value: string | undefined): UsageGroupBy {
   if (!value) return 'model';
   const normalized = value.trim().toLowerCase() as UsageGroupBy;
   if (!GROUP_CHOICES.includes(normalized)) {
-    throw new Error(`Invalid --by value "${value}". Use one of: ${GROUP_CHOICES.join(', ')}.`);
+    throw usageError(`Invalid --by value "${value}". Use one of: ${GROUP_CHOICES.join(', ')}.`);
   }
   return normalized;
 }
@@ -161,7 +162,7 @@ export function registerUsageCommand(program: Command, deps: UsageCommandDeps): 
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 }

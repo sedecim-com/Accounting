@@ -33,7 +33,7 @@
 //
 //   2. NO trae naturaleza. La tabla publicada por el SAT tiene TRES
 //      columnas —nivel, código, nombre— y ninguna dice si el agrupador es
-//      deudor o acreedor. La columna `naturaleza` de la 060 queda NULL a
+//      deudor o acreedor. La columna `naturaleza` de la 063 queda NULL a
 //      propósito. Deducirla del rango del rubro es tentador y falso: 108
 //      «Estimación de cuentas incobrables» vive en el rango 1xx del activo
 //      y es ACREEDORA. Una naturaleza inventada haría fallar exactamente la

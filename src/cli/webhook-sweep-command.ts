@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { bootstrapTenant } from '../ai/context.js';
 import { currentTenant } from '../database/connection.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
+import { exitCodeFor } from './kernel/index.js';
 import {
   barrerEntregasVencidas,
   TOPE_POR_INQUILINO,
@@ -101,6 +102,23 @@ export function registerWebhookSweepCommand(
     .option('-n, --limit <n>', 'Max deliveries per tenant in this pass', String(TOPE_POR_INQUILINO))
     .option('--json', 'JSON output');
 
+  // EJEMPLOS DE AYUDA. Invocaciones copiables, no plantillas: parsean contra
+  // el commander embarcado (lo comprueba tests/cli/ejemplos-de-ayuda.spec.ts).
+  // La primera es la que va al cron y la segunda es la que se teclea antes de
+  // ponerla ahí: esta hoja hace POST a terceros, así que el ensayo va primero.
+  sweep.addHelpText(
+    'after',
+    `
+Examples:
+  # The rehearsal: it reports what it WOULD retry and posts to nobody.
+  mnemosine subscription delivery sweep --all-tenants --dry-run
+  # The line that goes in the crontab, every five minutes.
+  mnemosine subscription delivery sweep --all-tenants --live --yes --json
+  # One firm only, with a smaller batch per pass.
+  mnemosine subscription delivery sweep --tenant 3f2504e0-4f89-11d3-9a0c-0305e82c3301 --limit 50 --live -y
+`
+  );
+
   // Externo: cada entrega es un POST a la URL de un tercero. El kernel
   // añade --dry-run, -y/--yes, --idempotency-key y --live.
   declareRisk(sweep, {
@@ -190,7 +208,11 @@ export function registerWebhookSweepCommand(
       await deps.shutdown(0);
     } catch (err) {
       deps.reportError(err);
-      await deps.shutdown(1);
+      // El código lo decide el error, no la hoja. Un `1` a mano aplasta el
+      // 4 de `--strict`, el 3 de conflicto y el 2 de uso en el mismo valor,
+      // y el cron que invoca este barrido cada cinco minutos sólo tiene el
+      // código de salida para distinguir «no pude barrer» de «me llamaste mal».
+      await deps.shutdown(exitCodeFor(err));
     }
   });
 }

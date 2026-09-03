@@ -101,6 +101,129 @@ function summarize(row: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// Todo lo que esta familia toma por `<code>` es el CÓDIGO del catálogo, no el
+// nombre ni un uuid; los que aparecen abajo existen en el catálogo base que
+// siembra chart-seed.ts (1110 Caja y Bancos, 1111 Banco Nacional MXN, 1120
+// CxC, 1130 IVA Acreditable, 2110 CxP, 6100 Gastos de Administración).
+//
+// `account map import` es la tarea de alta más pesada de un despacho
+// mexicano, así que su ejemplo enseña el ensayo antes que la carga.
+// Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  list: `
+Examples:
+  # Every active expense account.
+  mnemosine account list --type expense
+  # The children of Caja y Bancos (1110), which is where bank accounts hang.
+  mnemosine account list --parent 1110
+  # Retired accounts only, as CSV.
+  mnemosine account list --inactive --format csv
+`,
+  show: `
+Examples:
+  # One account with its parent, its governance flags and its lifetime activity.
+  mnemosine account show 1130
+  # Skip the balance lookup, which is the slow part.
+  mnemosine account show 1130 --no-balance
+`,
+  create: `
+Examples:
+  # A new expense account hanging off Gastos de Administracion (6100).
+  mnemosine account create 6150 "Mantenimiento de oficina" --type expense --parent 6100
+  # A grouping node: --header means it accepts no manual entries.
+  mnemosine account create 1250 "Activo Intangible" --type asset --parent 1200 --header
+`,
+  edit: `
+Examples:
+  # Rename an account. Its code, its type and its normal balance do not change here.
+  mnemosine account edit 6150 --name "Mantenimiento y conservacion"
+  # Move it to another financial-statement caption.
+  mnemosine account edit 6150 --fs-category operating_expenses --subtype operating_expense
+`,
+  archive: `
+Examples:
+  # Retire an account. It is an undo verb, so --reason is required and audited.
+  mnemosine account archive 6150 --reason "Sustituida por 6151 en el catalogo del despacho"
+  # Run the checks and report first; --dry-run needs no reason because it writes nothing.
+  mnemosine account archive 6150 --dry-run
+`,
+  set: `
+Examples:
+  # Make receivables a control account whose detail lives in the subledger.
+  mnemosine account set 1120 control-account=true require-subsidiary=true
+  # Restrict the dollar bank account to USD, validating before writing.
+  mnemosine account set 1112 currency=USD --dry-run
+`,
+  balanceShow: `
+Examples:
+  # The bank account period by period: beginning, debits, credits, ending.
+  mnemosine account balance show 1111
+  # Only the period that contains a date.
+  mnemosine account balance show 1111 --as-of 2026-07-31
+`,
+  roleList: `
+Examples:
+  # Every semantic role and the account automatic posting will use for it.
+  mnemosine account role list
+  # Just the creditable-VAT role.
+  mnemosine account role list --role iva_acreditable
+`,
+  roleSet: `
+Examples:
+  # Repoint the creditable-VAT role at another account.
+  mnemosine account role set iva_acreditable 1130 --note "Catalogo del despacho"
+  # Validate the change without writing it.
+  mnemosine account role set banco 1111 --dry-run
+`,
+  roleSeed: `
+Examples:
+  # Create the base accounts that are missing and map every UNMAPPED role.
+  # It never overwrites a role someone pointed by hand.
+  mnemosine account role seed
+  # Do it on a named entity instead of the active one.
+  mnemosine account role seed --entity "Molinos del Bajio SA de CV"
+`,
+  mapSet: `
+Examples:
+  # Give the creditable-VAT account its SAT agrupador code (Anexo 24).
+  mnemosine account map set 1130 --scheme sat-agrupador --value 118.01
+  # Clear a mapping: an empty --value.
+  mnemosine account map set 1130 --scheme sat-agrupador --value ""
+`,
+  mapList: `
+Examples:
+  # Every active account with its statutory mappings.
+  mnemosine account map list
+  # Only the SAT agrupador column, as CSV.
+  mnemosine account map list --scheme sat-agrupador --format csv
+`,
+  mapImport: `
+Examples:
+  # Parse the CSV (one "code,value" per line) and resolve every account; write nothing.
+  mnemosine account map import ./agrupador.csv --scheme sat-agrupador --dry-run
+  # Load it for real, replay-safe: the same key and file return the first result.
+  mnemosine account map import ./agrupador.csv --scheme sat-agrupador --idempotency-key agrupador-2026
+`,
+  mapCheck: `
+Examples:
+  # The coverage gate before any Anexo 24 catalog XML: what still lacks a code.
+  mnemosine account map check --scheme sat-agrupador --level 2
+  # Same, but exit 4 on any gap so CI can block on it.
+  mnemosine account map check --scheme sat-agrupador --level 3 --strict
+`,
+  restore: `
+Examples:
+  # Put a retired account back in service.
+  mnemosine account restore 6150
+  # Do it on a named entity instead of the active one.
+  mnemosine account restore 6150 --entity "Molinos del Bajio SA de CV"
+`,
+} as const;
+
 export function registerAccountCommand(program: Command, deps: AccountCommandDeps): void {
   const account = program
     .command('account')
@@ -140,6 +263,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .option('--parent <code>', 'only children of this account code')
     .option('--inactive', 'show inactive accounts instead of active ones');
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action((search: string | undefined, opts: CommonOpts & { type?: string; parent?: string; inactive?: boolean; status?: string[] }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -178,6 +302,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   withOutput(withContext(show));
   show.option('--no-balance', 'skip the lifetime activity lookup');
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((code: string, opts: CommonOpts & { balance?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -210,6 +335,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .option('--header', 'a grouping node: it accepts no manual entries')
     .option('--json', 'JSON output');
   declareRisk(create, { risk: 'escritura', agent: false, writes: 'accounts' });
+  create.addHelpText('after', EJEMPLOS.create);
   create.action(
     (
       code: string,
@@ -275,6 +401,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .option('--subtype <name>', 'new subtype')
     .option('--fs-category <name>', 'new financial-statement caption');
   declareRisk(edit, { risk: 'escritura', agent: false, writes: 'accounts' });
+  edit.addHelpText('after', EJEMPLOS.edit);
   edit.action(
     (code: string, opts: CommonOpts & { name?: string; description?: string; subtype?: string; fsCategory?: string }) =>
       run(async () => {
@@ -309,6 +436,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   withForce(archive);
   archive.option('--dry-run', 'run the checks and report, without writing');
   declareRisk(archive, { risk: 'escritura', agent: false, writes: 'accounts.is_active' });
+  archive.addHelpText('after', EJEMPLOS.archive);
   archive.action((code: string, opts: CommonOpts & { force?: boolean; reason?: string; dryRun?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -359,6 +487,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     // exactamente el acto que alguien pregunta después.
     .option('--reason <text>', 'why these flags change; recorded in the audit trail');
   declareRisk(set, { risk: 'escritura', agent: false, writes: 'accounts (banderas de gobierno)' });
+  set.addHelpText('after', EJEMPLOS.set);
   set.action((code: string, pairs: string[], opts: CommonOpts & { dryRun?: boolean; reason?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -396,6 +525,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .option('--period <name>', 'only the periods whose name matches')
     .option('--as-of <date>', 'only the period containing this date (YYYY-MM-DD)');
   declareRisk(balShow, { risk: 'lectura', agent: true });
+  balShow.addHelpText('after', EJEMPLOS.balanceShow);
   balShow.action((code: string, opts: CommonOpts & { period?: string; asOf?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -431,6 +561,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .option('--role <name>', 'only this role')
     .option('--qualifier <q>', 'only this qualified variant');
   declareRisk(roleList, { risk: 'lectura', agent: true });
+  roleList.addHelpText('after', EJEMPLOS.roleList);
   roleList.action((opts: CommonOpts & { role?: string; qualifier?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -456,6 +587,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     // van a necesitar— y la fila propuesta va en el informe de G3.
     .option('--dry-run', 'validate and report, without writing');
   declareRisk(roleSet, { risk: 'escritura', agent: false, writes: 'account_roles' });
+  roleSet.addHelpText('after', EJEMPLOS.roleSet);
   roleSet.action((roleName: string, code: string, opts: CommonOpts & { qualifier?: string; note?: string; dryRun?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -489,6 +621,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .description('Create the missing base accounts and map every unmapped role (never overwrites a manual choice)');
   withContext(roleSeed);
   declareRisk(roleSeed, { risk: 'escritura', agent: false, writes: 'accounts, account_roles (solo faltantes)' });
+  roleSeed.addHelpText('after', EJEMPLOS.roleSeed);
   roleSeed.action((opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -522,11 +655,12 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .option('--value <v>', 'the code in that scheme; empty clears the mapping')
     // F07a: la bandera existía y sólo sabía rechazarse — «el catálogo
     // c_CodAgrup versionado no existe en el sistema», que era cierto hasta la
-    // 060. Ya existe y tiene vigencias, así que --year vuelve a significar lo
+    // 063. Ya existe y tiene vigencias, así que --year vuelve a significar lo
     // que el catálogo de comandos siempre dijo: contra QUÉ ejercicio se valida.
     .option('--year <y>', "fiscal year whose SAT catalog validates the code (default: today's)")
     .option('--dry-run', 'validate and report, without writing');
   declareRisk(mapSet, { risk: 'escritura', agent: false, writes: 'accounts (columnas estatutarias)' });
+  mapSet.addHelpText('after', EJEMPLOS.mapSet);
   mapSet.action((code: string, opts: CommonOpts & { scheme: string; value?: string; year?: string; dryRun?: boolean }) =>
     run(async () => {
       resolverEsquema(opts.scheme);
@@ -584,6 +718,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   withOutput(withSelection(withContext(mapList)));
   mapList.option('--scheme <name>', 'project only this scheme');
   declareRisk(mapList, { risk: 'lectura', agent: true });
+  mapList.addHelpText('after', EJEMPLOS.mapList);
   mapList.action((opts: CommonOpts & { scheme?: string }) =>
     run(async () => {
       if (opts.scheme) resolverEsquema(opts.scheme);
@@ -610,6 +745,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .option('--dry-run', 'parse and resolve everything, write nothing')
     .option('--idempotency-key <key>', 'replay-safe key: the same key with the same file returns the first result');
   declareRisk(mapImport, { risk: 'escritura', agent: false, writes: 'accounts (columnas estatutarias, en lote)' });
+  mapImport.addHelpText('after', EJEMPLOS.mapImport);
   mapImport.action((file: string, opts: CommonOpts & { scheme: string; dryRun?: boolean; idempotencyKey?: string }) =>
     run(async () => {
       resolverEsquema(opts.scheme);
@@ -662,6 +798,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     // la daría por puesta siempre y el error saltaría sin que nadie la pidiera.
     .option('--level <n>', 'retired: the gate no longer measures by account level');
   declareRisk(mapCheck, { risk: 'lectura', agent: true });
+  mapCheck.addHelpText('after', EJEMPLOS.mapCheck);
   mapCheck.action((opts: CommonOpts & { check?: string; scheme: string; level?: string; strict?: boolean }) =>
     run(async () => {
       const disponibles = ['coverage'];
@@ -732,6 +869,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   // guardarse hoy». Ya lo tiene: `updateAccount` escribe en `audit_log`.
   restore.option('--reason <text>', 'why the account comes back into service; recorded in the audit trail');
   declareRisk(restore, { risk: 'escritura', agent: false, writes: 'accounts.is_active' });
+  restore.addHelpText('after', EJEMPLOS.restore);
   restore.action((code: string, opts: CommonOpts & { reason?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);

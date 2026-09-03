@@ -15,7 +15,7 @@
     "seed": "tsx src/database/seed.ts",
     "test": "vitest run --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage",
-    "lint": "eslint src/ tests/ scripts/ --max-warnings 1123",
+    "lint": "eslint src/ tests/ scripts/ --max-warnings 1117",
     "typecheck": "tsc --noEmit",
     "graphql:codegen": "graphql-codegen",
     "test:watch": "vitest --config vitest.config.ts",
@@ -23,11 +23,13 @@
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
     "plan:status": "tsx src/plan/status.ts",
     "catalogo:estado": "tsx scripts/catalogo-estado.ts",
+    "ux:status": "tsx scripts/ux-status.ts",
     "costo:por-fila": "tsx scripts/costo-por-fila.ts",
     "reclass:iva-ppd": "tsx scripts/reclasificar-iva-ppd.ts",
     "backfill:account-roles": "tsx scripts/rellenar-roles-de-cuenta.ts",
     "corpus:estado": "tsx scripts/corpus-manifiesto.ts",
-    "openapi": "tsx scripts/openapi.ts"
+    "openapi": "tsx scripts/openapi.ts",
+    "eval": "tsx scripts/eval-clasificador.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
@@ -80,5 +82,9 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "_overrides_por_que": "qs 6.16.0 se fuerza porque express 4.22.2 y body-parser 1.20.6 —las ULTIMAS de sus lineas— pinan `qs ~6.15.1`, que excluye la version parcheada de GHSA-x5fp-wj9c-mxmx (CVE-2026-82562, bypass de arrayLimit con comma:true). No hay arreglo aguas arriba para Express 4; express@5 si admite ^6.14.0, pero seguimos en 4 a proposito (ver @as-integrations/express4 en src/index.ts). El fallo NO es alcanzable aqui —exige comma:true y express solo pasa allowPrototypes, body-parser no lo activa y este codigo nunca llama a qs.parse— asi que esto es higiene, no urgencia. Se quita cuando express 4 admita 6.16 o cuando migremos a express 5.",
+  "overrides": {
+    "qs": "6.16.0"
   }
 }

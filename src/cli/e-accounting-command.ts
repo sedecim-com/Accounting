@@ -466,6 +466,41 @@ export function registerEAccountingCommand(
     );
   };
 
+  /**
+   * EJEMPLOS DE AYUDA. Invocaciones copiables, no plantillas: cada una parsea
+   * contra el commander embarcado (lo comprueba tests/cli/ejemplos-de-ayuda.spec.ts)
+   * y sus valores salen del vocabulario cerrado que el propio marcador deletrea.
+   * Van aparte de `avisoDeAyuda`, que dice lo que el comando NO hace; esto dice
+   * cómo se teclea.
+   */
+  const EJEMPLOS = {
+    catalogGenerate: `
+Examples:
+  # See the verdict before anything is archived: it builds the CtaCatalogo and
+  # names the accounts that would block it, writing nothing.
+  mnemosine e-accounting catalog generate --period 2026-07 --dry-run
+  # The real run, with a copy of the XML next to the archived one.
+  mnemosine e-accounting catalog generate --period 2026-07 -o catalogo-2026-07.xml --yes
+`,
+    balanceGenerate: `
+Examples:
+  # The monthly balance, shown and checked before it is archived.
+  mnemosine e-accounting balance generate --period 2026-07 --dry-run
+  # An amended filing: type C needs the date the balance it replaces was modified.
+  mnemosine e-accounting balance generate --period 2026-07 --type C --modified 2026-09-15 --yes
+  # The year-end balance, filed as month 13. With --closing the period names the
+  # FISCAL YEAR: it declares the closing adjustments, not December again.
+  mnemosine e-accounting balance generate --period 2026 --closing --yes
+`,
+    balanceCheck: `
+Examples:
+  # Re-run what the authority re-runs over the month, before you seal anything.
+  mnemosine e-accounting balance check --period 2026-07
+  # The year-end balance, with warnings made blocking so cron stops on them (exit 4).
+  mnemosine e-accounting balance check --period 2026 --closing --strict
+`,
+  };
+
   /** El recibo por stdout, SIN `output`: ese destino ya lo ocupa el XML. */
   const emitirRecibo = (fila: Row, opts: CommonOpts): void => {
     const { output: _output, ...sinDestino } = opts;
@@ -526,6 +561,7 @@ export function registerEAccountingCommand(
     .option('-y, --yes', 'skip the overwrite prompt when -o names an existing file');
   outputNombraElXml(generarCatalogo, 'CtaCatalogo');
   avisoDeAyuda(generarCatalogo);
+  generarCatalogo.addHelpText('after', EJEMPLOS.catalogGenerate);
   // ESCRITURA + IA ✓ con `draftOnly`, y aquí es literal: lo único que escribe
   // es `sat_anexo24_artefactos`, un documento archivado por su hash que nadie
   // ha firmado ni transmitido. Ver la tercera decisión de la cabecera.
@@ -691,6 +727,7 @@ export function registerEAccountingCommand(
     .option('-y, --yes', 'skip the overwrite prompt when -o names an existing file');
   outputNombraElXml(generarBalanzaHoja, 'Balanza');
   avisoDeAyuda(generarBalanzaHoja);
+  generarBalanzaHoja.addHelpText('after', EJEMPLOS.balanceGenerate);
   // ESCRITURA + IA ✓ con `draftOnly`, por lo mismo que su hermana.
   declareRisk(generarBalanzaHoja, {
     risk: 'escritura',
@@ -813,6 +850,7 @@ export function registerEAccountingCommand(
     );
   // LECTURA: no escribe, no genera y no archiva. IA ✓ sin más condiciones.
   declareRisk(verificar, { risk: 'lectura', agent: true });
+  verificar.addHelpText('after', EJEMPLOS.balanceCheck);
   verificar.action(
     (
       opts: CommonOpts & {

@@ -347,6 +347,18 @@ export function registerCashFlowCommand(program: Command, deps: CashFlowCommandD
     );
   declareRisk(generate, { risk: 'lectura', agent: true });
 
+  generate.addHelpText(
+    'after',
+    `
+Examples:
+  # The statement for a closed month, with its tie-out to real cash. The method
+  # comes from the \`flujo_efectivo_metodo\` policy unless you override it.
+  mnemosine cashflow generate --period 2026-07
+  # The direct method when the firm answered the panel the other way, or when a
+  # working paper needs both presentations side by side.
+  mnemosine cashflow generate --period 2026-07 --method direct --format csv -o flujo-julio.csv
+`
+  );
   generate.action((opts: GenerateOpts) =>
     run(async () => {
       // Las dos banderas se validan ANTES de tocar la base: un typo en

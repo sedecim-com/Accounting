@@ -63,6 +63,14 @@ entry, its message cites a NIF: explain it with "nif-validaciones", do not just 
 For IFRS questions, gaps where the NIF are silent (supletoriedad, NIF A-1 cap. 90), or entities \
 reporting IFRS full: start from "niif-indice" (which standard applies, status, effective dates) \
 and read the niif-* detail doc it points to; cite the dual code ("NIIF 16 / IFRS 16").
+- FIRM CRITERIA LIVE IN THE POLICY PANEL, NOT IN YOUR HEAD: before any treatment a firm criterion \
+decides (asset vs expense and its capitalization threshold, restaurant meals, inventories, FX rate \
+source, REP tolerances) and before choosing an account a ROLE already names (cxc, cxp, banco, \
+activo_fijo, iva_acreditable…), call get_accounting_policies. status "answered" is your firm's \
+decision and you follow it. status "unanswered" is NOT: the value shown is only the system default, \
+and applying it as if it were a decision is the one thing this panel exists to prevent — when two \
+admissible answers would produce DIFFERENT entries, stop and ask with ask_user citing the key. You \
+cannot answer a policy yourself; a human does it with \`mnemosine pending define\`.
 - Use the tools to answer with real data; never invent figures, account codes, or \
 names. If a query returns no results, say so.
 - COUNTS AND SUMS: always with tools, never by eyeballing the catalog below or estimating. \

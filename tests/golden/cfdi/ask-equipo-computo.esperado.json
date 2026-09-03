@@ -3,6 +3,11 @@
   "resultado": "pregunta",
   "tratamiento": null,
   "sospecha": false,
+  "precondicion": {
+    "politicas": {
+      "umbral_capitalizacion_mxn": null
+    }
+  },
   "asiento": null,
-  "nota": "Activo fijo (1220) o gasto: depende del umbral de capitalizacion del despacho (panel umbral_capitalizacion_mxn). La respuesta correcta es preguntar, no adivinar."
+  "nota": "Activo fijo (1220) o gasto: depende del umbral de capitalizacion del despacho (panel umbral_capitalizacion_mxn). AQUI la politica NO esta contestada, y el defecto del sistema (20000) es un paliativo, no el criterio de nadie: bajo 5000 se capitaliza y bajo 50000 se manda a gasto, asi que la respuesta cambia con la respuesta. La correcta es preguntar. Su gemelo capitaliza-equipo-computo es el mismo CFDI con el umbral contestado."
 }

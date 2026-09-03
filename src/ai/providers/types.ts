@@ -82,6 +82,40 @@ export interface LlmSession {
 
 export type ProviderType = 'anthropic' | 'openai-compatible';
 
+// ============================================================
+// VENTANA DE CONTEXTO DEL PERFIL
+//
+// La compactación automática se dispara por un número de tokens. Ese número
+// sólo significa algo CONTRA UNA VENTANA: 150 000 es prudente para un modelo
+// de un millón y es una mentira para un llama3.1 servido en local, que revienta
+// por contexto antes de que el umbral se acerque. El operador ve entonces un
+// error del proveedor donde había un problema de diseño del arnés.
+//
+// Por eso la ventana viaja EN EL PERFIL, junto al modelo que la determina, y
+// no en la sección global del archivo. La postura es obligatoria en los
+// perfiles de fábrica (config.ts la exige en el tipo): un perfil nuevo que se
+// calle no compila. Y `desconocida` es una respuesta legítima —lo ilegítimo es
+// inventar un número—: quien no la sabe lo dice, y el arnés cae al respaldo
+// global, que es exactamente lo que hacía antes de existir este campo.
+// ============================================================
+
+/**
+ * `declarada`   — se conoce el número de tokens; `tokens` lo dice.
+ * `desconocida` — no se puede fijar desde aquí (lo elige una pasarela, un
+ *                 enrutador o el `num_ctx` de un servidor local), o el
+ *                 proveedor lo publica y nadie lo ha establecido todavía.
+ *                 `razon` dice cuál de las dos.
+ */
+export type PosturaVentana = 'declarada' | 'desconocida';
+
+export interface VentanaContexto {
+  postura: PosturaVentana;
+  /** Tokens de ventana. Presente si y sólo si postura === 'declarada'. */
+  tokens?: number;
+  /** Por qué. Obligatoria y sustantiva: un número sin origen no es un dato. */
+  razon: string;
+}
+
 /** Provider profile as it lives in the configuration. */
 export interface ProviderProfile {
   type: ProviderType;

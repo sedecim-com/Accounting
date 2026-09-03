@@ -8,6 +8,7 @@ import {
   WEBHOOK_SOURCE_KINDS,
   type WebhookSourceKind,
 } from '../ai/webhooks/intake.js';
+import { exitCodeFor, usageError, ExitCode } from './kernel/index.js';
 
 // ============================================================
 // mnemosine webhooks (alias: ganchos)
@@ -39,7 +40,7 @@ const fmtDate = (d: Date | null): string =>
 function parseSourceKind(value: string): WebhookSourceKind {
   const normalized = value.trim().toLowerCase() as WebhookSourceKind;
   if (!WEBHOOK_SOURCE_KINDS.includes(normalized)) {
-    throw new Error(`Invalid --source "${value}". Use one of: ${WEBHOOK_SOURCE_KINDS.join(', ')}.`);
+    throw usageError(`Invalid --source "${value}". Use one of: ${WEBHOOK_SOURCE_KINDS.join(', ')}.`);
   }
   return normalized;
 }
@@ -83,7 +84,7 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 
@@ -121,7 +122,7 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 
@@ -141,11 +142,11 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
           await deps.shutdown(0);
         } else {
           console.log(c.yellow(`No enabled webhook token named "${name}" in this entity.`));
-          await deps.shutdown(1);
+          await deps.shutdown(ExitCode.NOT_FOUND);
         }
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 
@@ -161,7 +162,7 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
       try {
         const limit = Number.parseInt(opts.limit, 10);
         if (!Number.isFinite(limit) || limit < 1) {
-          throw new Error(`Invalid --limit "${opts.limit}": use a positive number.`);
+          throw usageError(`Invalid --limit "${opts.limit}": use a positive number.`);
         }
         bootstrapTenant(opts.tenant);
         const ctx = await resolveEntity(opts.entity);
@@ -193,7 +194,7 @@ export function registerWebhooksCommand(program: Command, deps: WebhooksCommandD
         await deps.shutdown(0);
       } catch (err) {
         deps.reportError(err);
-        await deps.shutdown(1);
+        await deps.shutdown(exitCodeFor(err));
       }
     });
 }

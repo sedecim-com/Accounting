@@ -14,7 +14,7 @@ import {
   CONSENT_TEXT,
 } from '../services/fiscal-credentials/service.js';
 import { declareRisk, gateMutation } from './kernel/risk.js';
-import { exitCodeFor } from './kernel/index.js';
+import { exitCodeFor, notFound, ExitCode } from './kernel/index.js';
 
 // ============================================================
 // `mnemosine sat cred …` COMMANDS
@@ -32,7 +32,7 @@ export interface SatCommandDeps {
 
 /** Reads a file, warning if its permissions expose it to other users. */
 function readSensitiveFile(file: string, label: string, warn: (s: string) => void): Buffer {
-  if (!fs.existsSync(file)) throw new Error(`The ${label} file does not exist: ${file}`);
+  if (!fs.existsSync(file)) throw notFound(`The ${label} file does not exist: ${file}`);
   const stat = fs.statSync(file);
   if ((stat.mode & 0o077) !== 0) {
     warn(
@@ -124,7 +124,11 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
           console.error(
             ce.red('\nThis is a CSD (digital seal), not an e.firma. The SAT bulk download rejects it.')
           );
-          await shutdown(1);
+          // El certificado se leyó bien y NO pasa la regla: eso es VALIDATION,
+          // el mismo 4 que una póliza descuadrada. Con 1 el guion que deposita
+          // credenciales en lote no puede distinguir «este .cer no sirve» de
+          // «la bóveda no respondió», que sí es reintentable.
+          await shutdown(ExitCode.VALIDATION);
         }
         // The RFC is validated BEFORE asking for the password: nobody should
         // type their e.firma passphrase only to find out afterwards that they
@@ -137,13 +141,16 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
             )
           );
           console.error(c.dim('Use --entity to pick the correct entity.'));
-          await shutdown(1);
+          await shutdown(ExitCode.VALIDATION);
         }
         if (info.validTo <= new Date()) {
           console.error(
             ce.red(`\nThe certificate expired on ${info.validTo.toISOString().split('T')[0]}. Renew it at the SAT.`)
           );
-          await shutdown(1);
+          // «credential expired» está NOMBRADO en la tabla de exit.ts como el
+          // caso de BLOCKED. No es que el material sea inválido: era válido y
+          // el calendario lo bloqueó.
+          await shutdown(ExitCode.BLOCKED);
         }
 
         if (dryRun) {
@@ -167,7 +174,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
         const password = await askHidden(c.cyan('\nPrivate key password (not shown): '));
         if (!verifyKeyPair(cer, key, password)) {
           console.error(ce.red('\nThe key does not match the certificate, or the password is incorrect.'));
-          await shutdown(1);
+          await shutdown(ExitCode.VALIDATION);
         }
         console.log(c.dim('Key pair verified locally.'));
 
@@ -237,7 +244,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
         await shutdown(0);
       } catch (err) {
         reportError(err);
-        await shutdown(1);
+        await shutdown(exitCodeFor(err));
       }
     });
 
@@ -267,7 +274,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
         await shutdown(0);
       } catch (err) {
         reportError(err);
-        await shutdown(1);
+        await shutdown(exitCodeFor(err));
       }
     });
 

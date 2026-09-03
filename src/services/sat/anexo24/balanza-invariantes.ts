@@ -339,7 +339,7 @@ export function verificarCuentasEnCatalogo(ctx: ContextoDeVerificacion): Hallazg
 /**
  * `natur-coherente` · la cuenta y su agrupador dicen la misma naturaleza.
  *
- * Es la incoherencia que la migración 060 dejó cazable al guardar `naturaleza`
+ * Es la incoherencia que la migración 063 dejó cazable al guardar `naturaleza`
  * en `sat_codigos_agrupadores`: una cuenta deudora mapeada a un agrupador
  * acreedor PASA el XSD y la rechaza la validación de fondo. La balanza en sí
  * sigue cuadrando —por eso es advertencia y no bloqueo—: lo que está mal es el

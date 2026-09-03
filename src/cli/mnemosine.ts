@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 import { stdin, stdout, stderr } from 'node:process';
-import { Command, InvalidArgumentError } from 'commander';
+import { Command, InvalidArgumentError, type CommanderError } from 'commander';
 import { declararPendientes } from './kernel/riesgos-retrofit.js';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
@@ -32,7 +32,11 @@ import {
   type SessionRow,
 } from '../ai/session-store.js';
 import { ingestCfdiFiles, previewCfdiFiles, type DraftCapture } from '../ai/ingest-service.js';
-import { SUPERFICIE_DESATENDIDA, SUPERFICIE_DESATENDIDA_SANDBOX } from '../ai/tools/superficie.js';
+import {
+  SUPERFICIE_DESATENDIDA,
+  SUPERFICIE_DESATENDIDA_SANDBOX,
+  SUPERFICIE_INGESTA,
+} from '../ai/tools/superficie.js';
 import { resolverUmbralesConPanel } from '../ai/ingest-thresholds.js';
 import {
   declareRisk,
@@ -48,8 +52,9 @@ import {
   exitCodeFor,
   CliError,
   ExitCode,
+  type ExitCodeValue,
 } from './kernel/index.js';
-import { esAfirmativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { esAfirmativa, esNegativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import { registerSatCommands } from './sat-commands.js';
 import { registerPendingCommands, renderAll } from './pending-command.js';
@@ -65,6 +70,7 @@ import { palette } from './palette.js';
 import { detectSetupState, type SetupState } from './first-run.js';
 import { renderBanner, type BannerInfo } from './banner.js';
 import { registerCloseCommand } from './close-command.js';
+import { registerCompletionCommand } from './completion-command.js';
 import { registerCompactCommand } from './compact-command.js';
 import { registerApprovalsCommand } from './approvals-command.js';
 import { registerUsageCommand } from './usage-command.js';
@@ -100,7 +106,7 @@ import { registerBackupCommand } from './backup-command.js';
 import { registerReportCommand } from './report-command.js';
 import { recordUsage, estimateCostUsd, clampTokenCount } from '../ai/usage-ledger.js';
 import { registrarEventoEnSegundoPlano } from '../ai/agent-events.js';
-import { registrarCorridaIngesta } from '../ai/ingest-runs.js';
+import { conCorridaRegistrada } from '../ai/ingest-runs.js';
 import type { TurnUsage } from '../ai/providers/types.js';
 import type { RunAgentTurn } from '../ai/jobs/runner.js';
 import {
@@ -110,8 +116,13 @@ import {
   resolveReviewer,
   DraftValidationError,
   canonicalDraftHash,
+  diffDraftPayloads,
+  rejectionPrecedent,
   type DraftRow,
+  type DraftPayload,
+  type DraftCorrection,
 } from '../ai/draft-service.js';
+import { teachMemory } from '../ai/memory-service.js';
 import {
   listQuestions,
   answerQuestion,
@@ -384,7 +395,7 @@ async function buildSession(
  *  node readline silently drops a second question() while one is pending (the
  *  promise never resolves → deadlock). The promise chain queues concurrent
  *  ask_user calls so each question waits its turn at the terminal. */
-function makeAskUser(rl: () => readline.Interface | undefined): AskUserFn {
+export function makeAskUser(rl: () => readline.Interface | undefined): AskUserFn {
   let chain: Promise<unknown> = Promise.resolve();
   return (prompt) => {
     const run = async (): Promise<string | null> => {
@@ -396,15 +407,25 @@ function makeAskUser(rl: () => readline.Interface | undefined): AskUserFn {
         prompt.options.forEach((o, i) => console.log(`  ${i + 1}) ${o}`));
       }
       console.log(c.dim('  (option number or free text; empty = leave pending for `mnemosine questions`)'));
-      const raw = await ask(iface, c.cyan('answer> '));
-      if (raw === null) return null;
-      const answer = raw.trim();
-      if (!answer) return null;
-      const idx = Number(answer);
-      if (prompt.options && Number.isInteger(idx) && idx >= 1 && idx <= prompt.options.length) {
-        return prompt.options[idx - 1];
+      // EL MISMO CRITERIO QUE LA COLA, porque es la misma escritura: lo que
+      // se teclee aquí lo graba recordAnsweredQuestion ya como precedente
+      // firme. Un sí/no desnudo se repregunta en vez de convertirse en el
+      // criterio; agotada la repregunta la duda queda PENDIENTE, que es lo
+      // que ya significaba una respuesta en blanco en este prompt.
+      for (let intento = 0; intento < 2; intento++) {
+        const raw = await ask(iface, c.cyan('answer> '));
+        if (raw === null) return null;
+        const answer = raw.trim();
+        if (!answer) return null;
+        const idx = Number(answer);
+        if (prompt.options && Number.isInteger(idx) && idx >= 1 && idx <= prompt.options.length) {
+          return prompt.options[idx - 1];
+        }
+        if (!consentimientoDesnudo(answer)) return answer;
+        console.log(ce.dim(criterioDesnudo(answer, prompt.options, false)));
       }
-      return answer;
+      console.log(ce.dim('Left pending: nothing was recorded as a precedent.'));
+      return null;
     };
     const p = chain.then(run, run);
     chain = p.then(
@@ -566,6 +587,233 @@ async function runFreshRescue(state: SetupState): Promise<InitWizardResult | 'de
 
 const program = new Command();
 
+// ============================================================
+// EL CONTRATO DE SALIDA TAMBIÉN CUBRE LOS ERRORES DE COMMANDER
+//
+// Sin `exitOverride`, todo error de USO —subcomando inexistente, bandera
+// mal escrita, argumento faltante— muere en el `process.exit(1)` que
+// commander lleva dentro (`_exit`, command.js:534). Dos daños, y el
+// segundo es el caro:
+//   · el código es 1 donde exit.ts promete 2 (USAGE), así que un guion
+//     no puede distinguir un dedazo del usuario de un fallo del sistema; y
+//   · el proceso muere SIN pasar por shutdown(), o sea sin drenar las
+//     atestaciones en vuelo ni cerrar el pool. Las trece filas de la tabla
+//     de exit.ts existían y la puerta de salida se saltaba doce.
+//
+// `exitOverride` convierte cada `_exit` de commander en una excepción que
+// el catch de la entrada recoge y pasa por shutdown().
+//
+// EL DETALLE QUE MUERDE: exitOverride TAMBIÉN dispara en `--help` y en
+// `--version`, que son salidas de ÉXITO. Mandarlas a 2 rompería todo
+// guion que pida ayuda antes de decidir, así que el traductor las mira
+// por `err.code` —el identificador estable que commander adjunta— y
+// nunca por el texto del mensaje.
+//
+// LA INSTALACIÓN VA AQUÍ, pegada al constructor y antes del primer
+// `.command()`: commander copia `_exitCallback` en el momento de CREAR
+// cada subcomando (copyInheritedSettings, command.js:105) y nunca
+// después. Instalarlo al final del archivo dejaría el árbol entero sin
+// cubrir y sólo la raíz traduciría — que es justo el caso que menos
+// duele, porque la raíz ya tiene su propia compuerta más abajo.
+// ============================================================
+
+/** Los `err.code` de commander que NO son un error: la ayuda y la versión. */
+const SALIDAS_DE_COMMANDER_QUE_SON_EXITO = new Set([
+  'commander.help', // `mnemosine help`, `mnemosine help report`
+  'commander.helpDisplayed', // -h / --help en cualquier nivel
+  'commander.version', // -V / --version
+]);
+
+/**
+ * El código del contrato (exit.ts) para una salida de commander.
+ *
+ * Todo lo que no es ayuda ni versión es un error de USO: bandera
+ * desconocida, subcomando inexistente, argumento faltante, argumento
+ * inválido, opción obligatoria sin valor, opciones en conflicto,
+ * demasiados argumentos. Los ocho tienen el mismo remedio —el usuario
+ * vuelve a teclear— y por eso comparten código.
+ *
+ * Queda un noveno `err.code`, `commander.executeSubCommandAsync`, que no
+ * es una salida sino el cierre de un subcomando EJECUTABLE lanzado con
+ * spawn. En este árbol no puede dispararse: no hay una sola hoja de esa
+ * forma, y hay prueba que lo fija (si alguien añade la primera, la prueba
+ * se pone roja y este comentario deja de ser una promesa).
+ */
+export function codigoDeSalidaDeCommander(err: {
+  code?: string;
+  exitCode?: number;
+}): ExitCodeValue {
+  if (SALIDAS_DE_COMMANDER_QUE_SON_EXITO.has(err.code ?? '')) {
+    // `help({ error: true })` imprime la ayuda A RAÍZ de un fallo y sale
+    // con código distinto de cero: eso sigue siendo un uso mal escrito.
+    return err.exitCode === 0 ? ExitCode.OK : ExitCode.USAGE;
+  }
+  return ExitCode.USAGE;
+}
+
+/**
+ * Lo que commander iba a hacer con process.exit, convertido en algo que
+ * el cierre ordenado pueda atender. Lleva el código YA traducido porque
+ * quien la recoge (el catch de la entrada) no debe volver a decidir.
+ *
+ * No es un CliError a propósito: un CliError significa «un comando falló
+ * y hay que reportarlo», y aquí no hay nada que reportar — commander ya
+ * escribió su línea en stderr antes de salir (`error()`, command.js:1953)
+ * y --help/--version ya volcaron lo suyo en stdout.
+ */
+export class SalidaDeCommander extends Error {
+  constructor(
+    readonly codigo: ExitCodeValue,
+    readonly origen: string
+  ) {
+    super(`commander exit (${origen})`);
+    this.name = 'SalidaDeCommander';
+  }
+}
+
+program.exitOverride((err: CommanderError) => {
+  throw new SalidaDeCommander(codigoDeSalidaDeCommander(err), err.code);
+});
+
+// ============================================================
+// LOS EJEMPLOS DE LAS HOJAS QUE VIVEN EN ESTE ARCHIVO
+//
+// Mismo trato que en report-command.ts y compañía: prosa en el idioma
+// del nodo —estas hojas están en inglés— y datos mexicanos de verdad,
+// el mismo reparto que ya usan los ejemplos de las otras familias
+// (Molinos del Bajio como entidad, Papeleria del Centro como proveedor,
+// cuentas del catálogo que chart-seed.ts siembra).
+//
+// Ninguna bandera de aquí está inventada: tests/cli/ejemplos-de-ayuda
+// resuelve cada línea contra el árbol embarcado y falla si una hoja
+// enseña una bandera que no declara.
+// ============================================================
+const EJEMPLOS = {
+  entities: `
+Examples:
+  # The active legal entities of this tenant (\`entity list\` supersedes this).
+  mnemosine entities
+`,
+  providers: `
+Examples:
+  # Which model providers are configured, and whether their API key is present.
+  mnemosine providers
+`,
+  ask: `
+Examples:
+  # One question, one answer, no interactive session.
+  mnemosine ask "Cuanto IVA acreditable acumule en julio"
+  # Ask about one client, on a named provider.
+  mnemosine ask "Saldo de la cuenta 1111 al cierre de julio" --entity "Molinos del Bajio" --provider anthropic
+`,
+  chat: `
+Examples:
+  # Open a session against the entity you last worked on.
+  mnemosine chat
+  # Pick up the transcript of this terminal's last session.
+  mnemosine chat --continue
+  # Resume one session by id (list them with \`mnemosine sessions\`).
+  mnemosine chat --resume 6f1b0c2e-6d3a-4a8e-9a4c-2a3b4c5d6e7f
+`,
+  sessions: `
+Examples:
+  # The most recent chat sessions of the active entity.
+  mnemosine sessions
+  # The last five, for one client.
+  mnemosine sessions --entity "Molinos del Bajio" --limit 5
+`,
+  drafts: `
+Examples:
+  # Every draft the AI created that nobody has looked at yet.
+  mnemosine drafts --status pending_review
+  # The rejected ones, for a named entity.
+  mnemosine drafts --status rejected --entity "Molinos del Bajio SA de CV"
+`,
+  review: `
+Examples:
+  # Walk the pending drafts one by one; approving POSTS to the ledger.
+  mnemosine review
+  # See what would be posted without moving a balance.
+  mnemosine review --dry-run
+  # Attribute the review to a named reviewer and skip the prompt.
+  mnemosine review --user contador@despacho.mx --yes
+`,
+  ingest: `
+Examples:
+  # Read a month of received CFDIs; everything lands as a draft to review.
+  mnemosine ingest ./cfdi/julio/*.xml
+  # See what it would classify, writing nothing and posting nothing.
+  mnemosine ingest ./cfdi/julio/PCE180412TF4_A4471.xml --dry-run
+  # Turn auto-posting OFF for this run, even if the firm's panel allows it.
+  mnemosine ingest ./cfdi/julio/*.xml --no-auto-post --user contador@despacho.mx
+  # Confirm the auto-posting the panel already authorized, with your own ceiling.
+  mnemosine ingest ./cfdi/julio/*.xml --auto-post --min-confidence 0.95 --max-amount 20000
+`,
+  lang: `
+Examples:
+  # Which language the agent answers in right now.
+  mnemosine lang
+  # Make it answer in Spanish. The CLI interface stays English either way.
+  mnemosine lang es
+`,
+  onboard: `
+Examples:
+  # Plan the import from the client's current system, writing nothing.
+  mnemosine onboard --provider contalink --cutoff 2026-06-30 --dry-run
+  # Bring in the chart and the opening balances; they wait as a draft.
+  mnemosine onboard --provider contalink --cutoff 2026-06-30 --entity "Molinos del Bajio"
+  # Post the opening entry now, balancing the remainder to prior-year results.
+  mnemosine onboard --provider contalink --cutoff 2026-06-30 --balance-account 3200 --post --yes
+`,
+  outboxList: `
+Examples:
+  # The operations queued for the client's external system.
+  mnemosine outbox list
+  # Everything that failed, as JSON to attach to a ticket.
+  mnemosine outbox list --status failed --json
+`,
+  outboxRun: `
+Examples:
+  # Work the queue interactively; nothing reaches the client's system yet.
+  mnemosine outbox run --dry-run
+  # Execute two operations FOR REAL against the client's system.
+  mnemosine outbox run 3f2a9c14-8b0e-4d55-9c31-77a0d2f4b8e6 8a1c5d90-2b47-4e6f-b0d3-91e2a7c4f5b6 --live --yes
+`,
+  questionList: `
+Examples:
+  # The questions the agent is waiting on.
+  mnemosine question list
+  # The ones already answered, as CSV for the file.
+  mnemosine question list --status answered --format csv
+`,
+  questionAnswer: `
+Examples:
+  # Work the pending queue one question at a time.
+  mnemosine question answer
+  # Answer one by id; the answer is stored as a precedent.
+  mnemosine question answer 5d2e7a10-93cf-4b62-8a71-0c4e6f8b2d19 "Va a gastos: mantenimiento menor, no capitaliza"
+  # Pick option 2 of the ones the question offers.
+  mnemosine question answer 5d2e7a10-93cf-4b62-8a71-0c4e6f8b2d19 2
+`,
+  login: `
+Examples:
+  # Sign in with a browser.
+  mnemosine login
+  # On a server reached over SSH, with no browser to open.
+  mnemosine login --device
+`,
+  logout: `
+Examples:
+  # Delete the credential stored on this machine.
+  mnemosine logout
+`,
+  whoami: `
+Examples:
+  # Which credential is active, and how long it is good for.
+  mnemosine whoami
+`,
+};
+
 program
   .name('mnemosine')
   .description('AI accounting assistant — converse with your accounting from the terminal')
@@ -606,6 +854,7 @@ program
   .command('entities')
   .alias('entidades')
   .description('Lists the active legal entities (deprecated: use `mnemosine entity list`)')
+  .addHelpText('after', EJEMPLOS.entities)
   .action(async () => {
     try {
       // R9 deprecation protocol: the old name keeps working and says so on
@@ -629,7 +878,7 @@ program
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -637,6 +886,7 @@ program
   .command('providers')
   .alias('proveedores')
   .description('Lists the configured model providers (built-in + mnemosine.config.json)')
+  .addHelpText('after', EJEMPLOS.providers)
   .action(async () => {
     try {
       const { profiles, defaultName, source } = listProfiles();
@@ -662,7 +912,7 @@ program
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -674,6 +924,7 @@ program
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
   .option('-m, --model <model>', 'Override the profile model')
+  .addHelpText('after', EJEMPLOS.ask)
   .action(async (questionParts: string[], opts: { entity?: string; provider?: string; model?: string }) => {
     try {
       const callbacks = makeCallbacks();
@@ -686,7 +937,7 @@ program
     } catch (err) {
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -699,6 +950,7 @@ program
   .option('--continue', 'Resume the latest session of this terminal/entity (transcript continuity; the model context starts fresh)')
   .option('--resume <id>', 'Resume a specific session by id (see: mnemosine sessions)')
   .option('--no-banner', 'Suppress the startup banner (also: MNEMOSINE_NO_BANNER=1)')
+  .addHelpText('after', EJEMPLOS.chat)
   .action(async (opts: {
     entity?: string; provider?: string; model?: string;
     continue?: boolean; resume?: string; banner?: boolean;
@@ -765,14 +1017,20 @@ program
         if (state.state === 'ready') throw startupErr;
         if (state.state === 'broken') {
           // Repair mode: name the problem, print the fix, change nothing.
+          // FAILURE y no un código fino a propósito: `state.broken` agrupa
+          // causas de máquina (no hay base, no hay credencial de modelo, las
+          // migraciones no han corrido) que no comparten remedio ni familia.
+          // Inventarles un 2 o un 5 sería mentir con más precisión.
           renderBrokenFlow(state);
-          return shutdown(1);
+          return shutdown(ExitCode.FAILURE);
         }
         // Fresh machine → inline rescue. A pipe cannot answer a wizard:
         // point at init and exit instead of hanging.
         if (!stdin.isTTY || !stdout.isTTY) {
           stderr.write('Not configured. Run: mnemosine init\n');
-          return shutdown(1);
+          // Misma razón: la máquina está sin configurar, que es un fallo
+          // genérico del entorno y no un error de uso del que invoca.
+          return shutdown(ExitCode.FAILURE);
         }
         const rescue = await runFreshRescue(state);
         if (rescue === 'declined' || !rescue.completed) {
@@ -819,7 +1077,7 @@ program
         let resumed: SessionRow | null = null;
         if (opts.resume) {
           resumed = await getSession(ctx, opts.resume);
-          if (!resumed) throw new Error(`Session ${opts.resume} does not exist in this entity.`);
+          if (!resumed) throw notFound(`Session ${opts.resume} does not exist in this entity.`);
         } else if (opts.continue) {
           resumed = await latestSession(ctx, terminalKey ?? undefined);
           if (!resumed) console.log(c.dim('No previous session for this entity; starting a new one.\n'));
@@ -1021,7 +1279,7 @@ program
       rl?.close();
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1035,6 +1293,7 @@ program
     if (!Number.isFinite(n)) throw new InvalidArgumentError('Expected a number.');
     return n;
   }, 20)
+  .addHelpText('after', EJEMPLOS.sessions)
   .action(async (opts: { entity?: string; limit?: number }) => {
     try {
       const ctx = await resolveEntity(opts.entity);
@@ -1056,7 +1315,7 @@ program
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1092,6 +1351,7 @@ program
   .description('Lists the journal entry drafts created by the AI')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-s, --status <status>', 'pending_review | approved | rejected')
+  .addHelpText('after', EJEMPLOS.drafts)
   .action(async (opts: { entity?: string; status?: 'pending_review' | 'approved' | 'rejected' }) => {
     try {
       const ctx = await resolveEntity(opts.entity);
@@ -1110,23 +1370,258 @@ program
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
+
+// ============================================================
+// LA GRAMÁTICA DEL MENÚ DE REVISIÓN
+//
+// El prompt ofrecía «[a]pprove / [r]eject / [s]kip / [q]uit» y CUALQUIER otra
+// tecla saltaba el borrador sin imprimir nada. Dos defectos en el mismo sitio:
+//
+//  · «s» es lo que un contador que trabaja en español teclea creyendo que
+//    dice «sí». Creía haber aprobado y había saltado — y la tecla más
+//    ambigua del menú era justo la que se tragaba la respuesta en silencio.
+//  · Una respuesta no reconocida DECIDÍA (saltaba) en vez de repreguntar,
+//    que es lo contrario de lo que aprendió el kernel de confirmación: lo
+//    que no se entiende se vuelve a preguntar, nunca se interpreta.
+//
+// Este menú no es una pregunta de sí/no, así que ninguna respuesta del
+// vocabulario de confirmación se interpreta como tecla: se nombra la
+// ambigüedad —en los dos idiomas, porque en uno «s» es sí y en el otro es
+// saltar, y son resultados opuestos— y se enseñan las teclas. Pasar al
+// siguiente es ENTER, que no colisiona con ningún idioma.
+//
+// El «¿es un sí?» sale del kernel (esAfirmativa), no de un predicado nuevo:
+// aquí se usa para RECHAZAR la respuesta, no para consentir nada.
+// ============================================================
+
+/** Lo que el revisor pidió, o la razón por la que no se entendió. */
+type ReviewChoice =
+  | { kind: 'approve' | 'edit' | 'reject' | 'next' | 'quit' }
+  | { kind: 'unclear'; message: string };
+
+const REVIEW_KEYS: Array<{ kind: 'approve' | 'edit' | 'reject' | 'next' | 'quit'; words: string[] }> = [
+  { kind: 'approve', words: ['a', 'approve', 'aprobar'] },
+  { kind: 'edit', words: ['e', 'edit', 'editar', 'corregir'] },
+  { kind: 'reject', words: ['r', 'reject', 'rechazar'] },
+  { kind: 'next', words: ['skip', 'saltar', 'siguiente', 'next'] },
+  { kind: 'quit', words: ['q', 'quit', 'exit', 'salir'] },
+];
+
+const REVIEW_MENU =
+  '\n[a]pprove and post  [e]dit then approve  [r]eject  ENTER next  [q]uit > ';
+
+function reviewMenuChoice(raw: string): ReviewChoice {
+  const dicho = raw.trim();
+  const t = dicho
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (t === '') return { kind: 'next' }; // ENTER: pasa al siguiente, sin tocar nada
+  for (const { kind, words } of REVIEW_KEYS) {
+    if (words.includes(t)) return { kind };
+  }
+  if (esAfirmativa(t)) {
+    return {
+      kind: 'unclear',
+      message:
+        `«${dicho}» is a yes, and this is not a yes/no question: in Spanish it reads as «sí» and ` +
+        'in English as «skip» — opposite outcomes. Type `a` to approve AND POST, or press ENTER ' +
+        'to move on without touching this draft.',
+    };
+  }
+  return { kind: 'unclear', message: `I did not understand «${dicho}»; the keys are above.` };
+}
+
+/**
+ * Pregunta el menú y concede UNA repregunta a lo que no se entendió. El tope
+ * es deliberado, igual que en confirmarConReintento: un prompt que insiste sin
+ * límite contra una stdin que repite basura es un ciclo infinito en un cron.
+ * Agotada la repregunta NO decide nada — devuelve el «no entendí» para que
+ * quien llama lo DIGA y deje el borrador intacto. Null es EOF.
+ */
+async function askReviewMenu(
+  preguntar: (prompt: string) => Promise<string | null>
+): Promise<ReviewChoice | null> {
+  let ultimo: ReviewChoice = { kind: 'unclear', message: '' };
+  for (let intento = 0; intento < 2; intento++) {
+    const raw = await preguntar(c.cyan(REVIEW_MENU));
+    if (raw === null) return null;
+    const choice = reviewMenuChoice(raw);
+    if (choice.kind !== 'unclear') return choice;
+    console.log(ce.dim(choice.message));
+    ultimo = choice;
+  }
+  return ultimo;
+}
+
+/** Palabras que abren la edición de la descripción del asiento. */
+const DESC_WORDS = ['d', 'desc', 'description', 'descripcion'];
+
+/** Cómo se lee una línea mientras se corrige. */
+function editorLine(l: { account_code?: string; debit?: number; credit?: number }): string {
+  const side =
+    typeof l.debit === 'number'
+      ? `debit  ${l.debit.toFixed(2)}`
+      : typeof l.credit === 'number'
+        ? `credit ${l.credit.toFixed(2)}`
+        : 'no amount';
+  return `${String(l.account_code ?? '??').padEnd(10)} ${side}`;
+}
+
+/**
+ * CORREGIR ANTES DE APROBAR.
+ *
+ * Guiado, sin gramática que memorizar: se elige una línea (o «d» para la
+ * descripción) y se contesta lo nuevo; en blanco se conserva lo que había.
+ * Trabaja sobre una COPIA — el borrador de la cola no se toca, porque el
+ * original es lo que el modelo propuso y de ahí sale el diff.
+ *
+ * EOF aborta la corrección entera: una stdin que se cierra a media edición no
+ * puede acabar en una aprobación a medias.
+ */
+async function editDraftPayload(
+  preguntar: (prompt: string) => Promise<string | null>,
+  original: DraftPayload
+): Promise<{ abort: true } | { abort: false; payload: DraftPayload }> {
+  const edited: DraftPayload = {
+    ...original,
+    lines: (Array.isArray(original.lines) ? original.lines : []).map((l) => ({ ...l })),
+  };
+  let sinEntender = 0;
+  for (;;) {
+    console.log(c.dim(`  description: ${edited.description}`));
+    edited.lines.forEach((l, i) => console.log(c.dim(`  ${i + 1}) ${editorLine(l)}`)));
+
+    const raw = await preguntar(
+      c.cyan(`Correct which line? (1-${edited.lines.length}, «d» description, ENTER done) > `)
+    );
+    if (raw === null) return { abort: true };
+    const t = raw.trim().toLowerCase();
+    if (t === '') return { abort: false, payload: edited };
+
+    if (DESC_WORDS.includes(t)) {
+      const nueva = await preguntar(c.cyan(`New description (ENTER keeps «${edited.description}») > `));
+      if (nueva === null) return { abort: true };
+      if (nueva.trim() !== '') edited.description = nueva.trim();
+      sinEntender = 0;
+      continue;
+    }
+
+    const n = /^\d+$/.test(t) ? parseInt(t, 10) : NaN;
+    if (!Number.isInteger(n) || n < 1 || n > edited.lines.length) {
+      if (++sinEntender >= 2) {
+        console.log(ce.dim('Still not understood; leaving the editor with what was corrected so far.'));
+        return { abort: false, payload: edited };
+      }
+      console.log(
+        ce.dim(`I did not understand «${raw.trim()}»: a line number 1-${edited.lines.length}, «d», or ENTER.`)
+      );
+      continue;
+    }
+    sinEntender = 0;
+
+    const line = edited.lines[n - 1];
+    const code = await preguntar(
+      c.cyan(`Line ${n} account code (ENTER keeps «${line.account_code ?? ''}») > `)
+    );
+    if (code === null) return { abort: true };
+    if (code.trim() !== '') line.account_code = code.trim();
+
+    const esDebito = typeof line.debit === 'number';
+    const actual = esDebito ? line.debit : line.credit;
+    const monto = await preguntar(
+      c.cyan(
+        `Line ${n} ${esDebito ? 'debit' : 'credit'} amount ` +
+          `(ENTER keeps ${typeof actual === 'number' ? actual.toFixed(2) : '—'}) > `
+      )
+    );
+    if (monto === null) return { abort: true };
+    if (monto.trim() !== '') {
+      const v = Number(monto.trim());
+      if (!Number.isFinite(v) || v <= 0) {
+        // No se inventa un importe: se dice y se conserva el que había. El
+        // cuadre lo vuelve a juzgar el motor al aprobar, no este prompt.
+        console.log(ce.dim(`«${monto.trim()}» is not a positive amount; line ${n} keeps what it had.`));
+      } else if (esDebito) {
+        line.debit = v;
+      } else {
+        line.credit = v;
+      }
+    }
+  }
+}
+
+/**
+ * TRAS UN RECHAZO, OFRECER SEMBRAR EL PRECEDENTE.
+ *
+ * El motivo del rechazo ya se escribía en ai_drafts.review_notes, y esa
+ * columna no la lee nadie que enseñe: el digest que entra al prompt de cada
+ * sesión sale SÓLO de ai_questions. Catorce rechazos con motivo escrito no
+ * llegaban a ningún sitio, y el contador rechazaba el mismo error catorce
+ * veces y concluía, con razón, que el agente no aprende.
+ *
+ * Lo que esto NO hace es sembrar solo. Enseña el precedente que se sembraría,
+ * pregunta, y sólo un sí explícito llama a teachMemory —la MISMA vía humana
+ * que usa `mnemosine memory teach`, reutilizada, no duplicada— atribuido al
+ * revisor que lo dijo. El default del [y/N] es no, y un EOF también lo es.
+ */
+async function offerToSeedPrecedent(
+  preguntar: (prompt: string) => Promise<string | null>,
+  ctx: AgentContext,
+  reviewer: { email: string },
+  draft: DraftRow,
+  reason: string
+): Promise<boolean> {
+  const propuesta = rejectionPrecedent(draft, reason);
+  console.log(c.dim('  Precedent this could seed, so the AI stops repeating it:'));
+  console.log(c.dim(`    when: ${propuesta.rule}`));
+  console.log(c.dim(`    then: ${propuesta.criterion}`));
+  const veredicto = await confirmarConReintento(
+    preguntar,
+    c.cyan('  Seed it as a firm criterion, attributed to you? [y/N] ')
+  );
+  if (!veredicto.si) {
+    console.log(c.dim('  Not seeded: the rejection stands and nothing was taught.'));
+    return false;
+  }
+  try {
+    const id = await teachMemory(ctx, {
+      rule: propuesta.rule,
+      criterion: propuesta.criterion,
+      taughtBy: reviewer.email,
+    });
+    console.log(`  ✔ Criterion seeded by ${reviewer.email}; review it with: mnemosine memory`);
+    console.log(c.dim(`    id: ${id}`));
+    return true;
+  } catch (err) {
+    reportError(err);
+    console.log(c.dim('  The rejection stands; the criterion was not seeded.'));
+    return false;
+  }
+}
 
 const review = program
   .command('review')
   .alias('revisar')
-  .description('Reviews pending drafts: approve (creates and posts the journal entry) or reject')
+  .description(
+    'Reviews pending drafts: approve (creates and posts the journal entry), ' +
+      'correct then approve, or reject — a rejection can seed the criterion for next time'
+  )
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Reviewer email (default: first active user of the tenant)');
+  .option('-u, --user <email>', 'Reviewer email (default: first active user of the tenant)')
+  .addHelpText('after', EJEMPLOS.review);
 // Aprobar POSTEA al mayor: irreversible, declarado junto a su registro (S0.6;
 // antes vivía en la tabla de retrofit). El kernel añade --dry-run, --yes e
 // --idempotency-key y le niega el comando al agente.
 declareRisk(review, {
   risk: 'irreversible',
   agent: false,
-  writes: 'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador',
+  writes:
+    'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador; ' +
+    'ai_questions al sembrar un precedente que el revisor confirmó tras un rechazo',
 });
 review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idempotencyKey?: string }) => {
     let rl: readline.Interface | undefined;
@@ -1168,23 +1663,63 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
         void shutdown(130);
       });
 
+      const preguntar = (prompt: string): Promise<string | null> => ask(rl!, prompt);
+
       let approved = 0;
+      let corrected = 0;
       let rejected = 0;
+      let seeded = 0;
       for (let i = 0; i < pending.length; i++) {
         renderDraft(pending[i], i, pending.length);
-        const raw = await ask(rl, c.cyan('\n[a]pprove and post  [r]eject  [s]kip  [q]uit > '));
-        if (raw === null) break; // stdin EOF: stop cleanly instead of hanging
-        const answer = raw.trim().toLowerCase();
+        const choice = await askReviewMenu(preguntar);
+        if (choice === null) break; // stdin EOF: stop cleanly instead of hanging
+        if (choice.kind === 'quit') break;
+        if (choice.kind === 'unclear') {
+          // Antes esto no imprimía NADA: el borrador se saltaba en silencio.
+          console.log(c.dim('Nothing was done to this draft; moving on to the next one.'));
+          continue;
+        }
+        if (choice.kind === 'next') {
+          console.log(c.dim('Skipped: the draft stays pending.'));
+          continue;
+        }
 
-        if (answer === 'q') break;
-        if (answer === 'a') {
+        // El hash de lo que el revisor VIO. Ata la aprobación —corregida o
+        // no— a ese contenido exacto: si el payload cambia en medio, aborta.
+        const baseHash = canonicalDraftHash(pending[i].payload);
+
+        if (choice.kind === 'approve' || choice.kind === 'edit') {
+          let correction: DraftCorrection | undefined;
+          if (choice.kind === 'edit') {
+            const edit = await editDraftPayload(preguntar, pending[i].payload);
+            if (edit.abort) break; // EOF a media corrección: no se aprueba nada
+            const diff = diffDraftPayloads(pending[i].payload, edit.payload);
+            if (diff.length === 0) {
+              console.log(c.dim('Nothing changed: it would post exactly as the model proposed.'));
+            } else {
+              console.log(c.bold('\nModel → you:'));
+              for (const d of diff) console.log(`  ${d}`);
+              // El servicio recalcula approved_content_hash sobre ESTA
+              // versión: la columna tiene que decir lo que el humano aprobó.
+              correction = { payload: edit.payload, basedOnHash: baseHash };
+            }
+            // EL HUMANO DISPONE: corregir no aprueba. La aprobación se pide
+            // aparte, con la gramática única de confirmación del kernel.
+            const veredicto = await confirmarConReintento(
+              preguntar,
+              c.cyan('Approve and post THIS version? [y/N] ')
+            );
+            if (!veredicto.si) {
+              console.log(c.dim('Not approved: the correction is discarded and the draft stays pending.'));
+              continue;
+            }
+          }
           try {
-            // Approval is bound to the exact content the reviewer SAW at
-            // render time: if the payload changes in between, approval aborts.
             const posted = await approveDraft(
-              ctx, pending[i].id, reviewer, undefined, canonicalDraftHash(pending[i].payload)
+              ctx, pending[i].id, reviewer, undefined, baseHash, correction
             );
             approved++;
+            if (correction) corrected++;
             console.log(`✔ Journal entry ${c.bold(posted.entryNumber)} created and posted.`);
           } catch (err) {
             if (err instanceof DraftValidationError) {
@@ -1195,32 +1730,43 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
               reportError(err);
             }
           }
-        } else if (answer === 'r') {
-          const decision = rejectionReasonFrom(await ask(rl, c.cyan('Rejection reason: ')));
-          // EOF at the reason prompt aborts the rejection: leave the draft
-          // pending and stop the queue cleanly, never confirm silently.
-          if (decision.abort) break;
-          try {
-            await rejectDraft(ctx, pending[i].id, reviewer, decision.reason);
-            rejected++;
-            console.log('✘ Draft rejected.');
-          } catch (err) {
-            // e.g. another session already reviewed it — keep the queue going
-            reportError(err);
-            console.log(c.dim('The draft is left as-is; continuing with the next one.'));
-          }
+          continue;
         }
-        // 's' or anything else: skip
+
+        const decision = rejectionReasonFrom(await preguntar(c.cyan('Rejection reason: ')));
+        // EOF at the reason prompt aborts the rejection: leave the draft
+        // pending and stop the queue cleanly, never confirm silently.
+        if (decision.abort) break;
+        try {
+          await rejectDraft(ctx, pending[i].id, reviewer, decision.reason);
+          rejected++;
+          console.log('✘ Draft rejected.');
+        } catch (err) {
+          // e.g. another session already reviewed it — keep the queue going
+          reportError(err);
+          console.log(c.dim('The draft is left as-is; continuing with the next one.'));
+          continue;
+        }
+        // Un rechazo con motivo escrito y nadie que lo lea era el agente que
+        // no aprende. Se OFRECE; siembra sólo si el humano lo confirma.
+        if (await offerToSeedPrecedent(preguntar, ctx, reviewer, pending[i], decision.reason)) {
+          seeded++;
+        }
       }
 
       rl.close();
-      console.log(c.dim(`\nDone: ${approved} approved, ${rejected} rejected.`));
+      console.log(
+        c.dim(
+          `\nDone: ${approved} approved (${corrected} corrected first), ` +
+            `${rejected} rejected, ${seeded} criteria seeded.`
+        )
+      );
       await shutdown(0);
     } catch (err) {
       rl?.close();
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1236,7 +1782,8 @@ const ingest = program
   .option('--auto-post', 'Enables threshold-based auto-posting (default: everything stays as draft)')
   .option('--no-auto-post', 'Disables auto-posting even if the config has it turned on')
   .option('--min-confidence <n>', 'Minimum confidence for auto-post (0-1)', parseFloat)
-  .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat);
+  .option('--max-amount <n>', 'Maximum auto-postable amount', parseFloat)
+  .addHelpText('after', EJEMPLOS.ingest);
 // Irreversible por su camino más grave (el auto-posteo), declarado junto a su
 // registro (S0.6). El plan de cierre proponía partirlo por bandera, pero S0.3
 // lo dejó atrás: el auto-posteo no lo decide una bandera sino el panel del
@@ -1320,8 +1867,16 @@ ingest.action(async (files: string[], opts: {
 
       // No interactive channel: the AI's questions land in `mnemosine questions`.
       const capture: DraftCapture = { drafts: [] };
+      // `capture.drafts` se VACÍA en cada archivo (ingest-service lo reinicia
+      // antes de cada turno), así que no sirve para saber cuántos borradores
+      // lleva la corrida. Este contador sí: cuenta cada aviso de borrador
+      // creado desde que empezó. Sólo se usa en el camino de la MUERTE — el
+      // camino feliz sigue contando sobre report.results, que es la misma
+      // verdad medida donde siempre se midió.
+      const borradoresCapturados = { n: 0 };
       const callbacks = makeCallbacks(undefined, (info) => {
         capture.drafts.push(info);
+        borradoresCapturados.n++;
       });
       // A2: la ingesta acumula su consumo para la fila de ai_ingest_runs —
       // y de paso cierra un hueco: este camino no registraba NADA en
@@ -1352,6 +1907,17 @@ ingest.action(async (files: string[], opts: {
       // an unattended run — disabled here.
       const session = await createLlmSession(profile, ctx, callbacks, {
         grounding: { enabled: false },
+        // A7·3 · y con su superficie NOMBRADA. Esta hoja construía su sesión
+        // por su cuenta y no pasaba lista: recibía TODAS las herramientas
+        // porque nadie se lo impidió. Hoy no es una fuga —ninguna postea—,
+        // pero es propiedad por accidente en el ÚNICO camino que puede
+        // postear al mayor sin humano cuando el panel autoriza el auto-posteo.
+        // No es la desatendida: la ingesta clasifica comprobantes, no
+        // concilia ni reporta, y su lista propia (tools/superficie.ts) deja
+        // fuera el brazo externo entero y los estados financieros. Una
+        // herramienta nueva nace excluida de la ingesta hasta que alguien la
+        // añada a esa lista, y eso es una línea en un diff que se revisa.
+        herramientas: SUPERFICIE_INGESTA,
       });
 
       console.log(
@@ -1365,41 +1931,71 @@ ingest.action(async (files: string[], opts: {
       );
 
       const corridaInicio = Date.now();
-      const report = await ingestCfdiFiles({
-        ctx, reviewer, files, thresholds, session, capture,
-        onProgress: (msg) => stderr.write(ce.dim(`\n── ${msg}\n`)),
-      });
-
-      // A2: la corrida deja fila (counts, borradores, consumo) y cada CFDI
-      // sospechoso deja evento con sus campos marcados. El registro nunca
-      // tira la corrida: los resultados de ARRIBA ya son verdad aunque la
-      // anotación falle — se avisa y se sigue.
-      try {
-        const corridaId = await registrarCorridaIngesta(ctx, {
+      // A7·3: LA FILA SE ABRE ANTES DEL BUCLE Y SE CIERRA DESPUÉS — también
+      // por el camino de la excepción. Antes se insertaba al final, con los
+      // contadores ya finales: una corrida de 2 000 CFDI que moría en el
+      // archivo 1 500 dejaba mil quinientos borradores en la base y CERO
+      // filas de corrida, y a la mañana siguiente no había nada que dijera
+      // qué corrida los produjo. Ahora la fila nace en 'running' y muere
+      // diciendo cómo murió.
+      //
+      // El registro sigue siendo BEST-EFFORT: si la apertura falla, la
+      // ingesta corre igual. Lo que ya no pasa es que el fallo se pierda —
+      // sale en amarillo por la salida donde esta hoja avisa (no un stderr en
+      // gris que nadie lee) y se repite junto al Summary, que es lo último
+      // que el operador mira tras una corrida larga.
+      const fila = { id: null as string | null };
+      const avisosDeRegistro: string[] = [];
+      const report = await conCorridaRegistrada({
+        ctx,
+        apertura: {
           provider: profile.name,
           model: profile.model,
           filesTotal: files.length,
-          counts: report.counts,
-          sospechaCount: report.results.filter((r) => (r.sospechas?.length ?? 0) > 0).length,
-          draftsCreated: report.results.filter((r) => r.draftId).length,
+          autoPostEnabled: thresholds.autoPost,
+          createdBy: reviewer.email,
+        },
+        cuerpo: (corridaId) => {
+          fila.id = corridaId;
+          return ingestCfdiFiles({
+            ctx, reviewer, files, thresholds, session, capture,
+            onProgress: (msg) => stderr.write(ce.dim(`\n── ${msg}\n`)),
+          });
+        },
+        // Si la corrida reventó (`resultado` null) NO se inventan counts: se
+        // omiten, las columnas conservan su DEFAULT 0 y el status 'failed' es
+        // lo que dice que esos ceros son «no se llegó a contar». Lo que sí se
+        // escribe es lo que este proceso midió de verdad: el consumo del
+        // modelo y los borradores que alcanzó a crear.
+        cierre: (resultado) => ({
+          counts: resultado?.counts,
+          sospechaCount: resultado
+            ? resultado.results.filter((r) => (r.sospechas?.length ?? 0) > 0).length
+            : 0,
+          draftsCreated: resultado
+            ? resultado.results.filter((r) => r.draftId).length
+            : borradoresCapturados.n,
           inputTokens: consumo.input,
           outputTokens: consumo.output,
           estimatedCostUsd: consumo.costoConocido ? consumo.costo : null,
           durationMs: Date.now() - corridaInicio,
-          autoPostEnabled: thresholds.autoPost,
-          createdBy: reviewer.email,
-        });
-        for (const r of report.results) {
-          if ((r.sospechas?.length ?? 0) > 0) {
-            registrarEventoEnSegundoPlano(ctx, {
-              kind: 'sospecha',
-              provider: profile.name,
-              detail: { archivo: r.file, campos: r.sospechas, corrida: corridaId },
-            });
-          }
+        }),
+        onAviso: (mensaje) => {
+          avisosDeRegistro.push(mensaje);
+          console.error(c.yellow(`Aviso: ${mensaje}`));
+        },
+      });
+
+      // A2: cada CFDI sospechoso deja evento con sus campos marcados, ligado
+      // a la fila de su corrida (null si la apertura no llegó a escribirse).
+      for (const r of report.results) {
+        if ((r.sospechas?.length ?? 0) > 0) {
+          registrarEventoEnSegundoPlano(ctx, {
+            kind: 'sospecha',
+            provider: profile.name,
+            detail: { archivo: r.file, campos: r.sospechas, corrida: fila.id },
+          });
         }
-      } catch (err) {
-        stderr.write(ce.yellow(`  (aviso: la corrida no quedó registrada en ai_ingest_runs: ${(err as Error).message})\n`));
       }
 
       const icon: Record<string, string> = {
@@ -1420,12 +2016,18 @@ ingest.action(async (files: string[], opts: {
       );
       if (cnt.draft > 0) console.log(c.dim('Review the drafts with: mnemosine review'));
       if (cnt.blocked > 0) console.log(c.dim('Answer the questions with: mnemosine questions'));
+      // El registro es best-effort y NO cambia el código de salida — los CFDI
+      // clasificados son verdad aunque la anotación falle. Pero el operador se
+      // entera aquí, donde mira, y no sólo cuando pasó hace veinte minutos.
+      for (const aviso of avisosDeRegistro) {
+        console.error(c.yellow(`⚠ ${aviso}`));
+      }
 
       await shutdown(cnt.error + cnt.invalid > 0 ? 1 : 0);
     } catch (err) {
       if (isInterrupt(err)) await shutdown(130);
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1434,6 +2036,7 @@ program
   .alias('idioma')
   .description("Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)")
   .argument('[language]', "'en' or 'es'; omit to show the current setting")
+  .addHelpText('after', EJEMPLOS.lang)
   .action(async (language?: string) => {
     try {
       if (!language) {
@@ -1448,12 +2051,12 @@ program
           console.log(c.dim(`  ⚠ MNEMOSINE_LANG=${env} is set and takes precedence — unset it for this change to apply.`));
         }
       } else {
-        throw new Error(`Unsupported language "${language}". Options: en, es`);
+        throw usageError(`Unsupported language "${language}". Options: en, es`);
       }
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -1468,7 +2071,8 @@ const onboard = program
   .option('-u, --user <email>', 'Who runs it (default: sole active user of the tenant)')
   .option('--balance-account <code>', 'Balancing account if the remote trial balance does not sum to zero (e.g. 3200)')
   .option('--post', 'Post the opening balance immediately (default: stays as a draft for mnemosine review)')
-  .option('--dry-run', 'Only show the plan, without executing anything');
+  .option('--dry-run', 'Only show the plan, without executing anything')
+  .addHelpText('after', EJEMPLOS.onboard);
 // Irreversible por su camino más grave (--post postea el asiento de apertura),
 // declarado junto a su registro (S0.6). Su --dry-run existía desde antes del
 // kernel y ya era honesta (sólo el plan); el kernel añade --yes e
@@ -1484,7 +2088,7 @@ onboard.action(async (opts: {
   }) => {
     let rl: readline.Interface | undefined;
     try {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(opts.cutoff)) throw new Error('--cutoff must be YYYY-MM-DD');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(opts.cutoff)) throw usageError('--cutoff must be YYYY-MM-DD');
       const startDate = opts.from ?? `${opts.cutoff.slice(0, 4)}-01-01`;
       const ctx = await resolveEntity(opts.entity);
       const { dryRun } = gateMutation(onboard, opts);
@@ -1877,7 +2481,8 @@ const outbox = program
 const outboxList = outbox
   .command('list')
   .alias('listar')
-  .description('List queued external operations (default: pending)');
+  .description('List queued external operations (default: pending)')
+  .addHelpText('after', EJEMPLOS.outboxList);
 withOutput(withSelection(withContext(outboxList)));
 declareRisk(outboxList, { risk: 'lectura', agent: true });
 outboxList.action(async (_opts: unknown, cmdArg: Command) => {
@@ -1899,7 +2504,8 @@ const outboxRun = outbox
   .argument('[id...]', 'operation ids to execute; omit to review the whole queue interactively')
   .description("Execute queued operations against the client's external system (the real effect requires --live)")
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)');
+  .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)')
+  .addHelpText('after', EJEMPLOS.outboxRun);
 declareRisk(outboxRun, {
   risk: 'externo',
   agent: false,
@@ -1974,6 +2580,163 @@ async function listarQuestionsImpl(opts: {
   );
 }
 
+// ============================================================
+// LA GRAMÁTICA DE LA COLA DE PREGUNTAS
+//
+// El prompt ofrecía «[answer / option number / s=skip / d=dismiss / q=quit]»
+// y todo lo que no fuera una de esas teclas se tomaba como LA RESPUESTA. Dos
+// consecuencias en el mismo sitio:
+//
+//  · «s» era saltar, que es justo lo que teclea en español quien cree decir
+//    «sí» — el mismo defecto que `review` corrigió un comando más allá.
+//  · Cualquier OTRA palabra de consentimiento —«si», «sí», «y», «yes»— no era
+//    tecla, así que se INSERTABA como respuesta. Y una respuesta aquí no es
+//    una respuesta cualquiera: answerQuestion la graba con is_precedent=true
+//    y buildMemoryDigest la imprime en el prompt de TODAS las sesiones
+//    siguientes. El contador que tecleaba «si» creyendo que consentía
+//    plantaba un precedente FIRME cuyo criterio era la palabra «si».
+//
+// POR QUÉ ESTE BUCLE NO PUEDE COPIAR AL DE `review`. Allí toda respuesta es
+// una TECLA de menú y lo no reconocido se repregunta entero. Aquí el TEXTO
+// LIBRE ES la respuesta legítima —es el canal por el que el despacho enseña
+// su criterio—, así que repreguntarlo todo rompería el comando. La frontera
+// no es «tecla vs. resto», sino «está contestando la PREGUNTA» vs. «cree
+// estar contestando al MENÚ», y una respuesta que coincide con una palabra
+// de consentimiento cae justo encima de esa frontera.
+//
+// SE RESUELVE ASÍ, y la asimetría entre las dos reglas es deliberada:
+//
+//  1. Un sí/no DESNUDO nunca se acepta como respuesta, ni siquiera repetido.
+//     No es sólo que sea ambiguo con el menú: es que como criterio está
+//     VACÍO. El digest imprime `topic ?? question: answer`, y con topic —que
+//     el modelo casi siempre pone— la línea que le queda al agente es
+//     «clasificacion:Telmex: si». Un precedente firme no puede nacer de una
+//     ambigüedad, y menos de una que no dice nada. La salida se enseña en la
+//     misma repregunta: el número de una opción (elegirla SÍ es inequívoco,
+//     aunque la opción se llame «Sí, se deduce»), o el criterio en palabras.
+//     Si la pregunta era de sí/no, el sí con su porqué —«sí, se deduce al
+//     100%»— es exactamente lo que el agente necesita leer en seis semanas.
+//  2. Un número fuera del rango de opciones —«5» donde hay tres— sí tiene
+//     contenido: puede ser un dedazo del índice o una cuenta («5201», que
+//     hasta hoy entraba tal cual). Se repregunta UNA vez nombrando el rango
+//     y se acepta literal si se repite. Repetirlo después de leer el aviso
+//     es una confirmación informada, no un silencio que se toma por permiso;
+//     y no abre puerta al sí desnudo, porque la regla 1 se evalúa antes y no
+//     tiene excepción por insistencia.
+//  3. Pasar de largo es ENTER, que no colisiona con ningún idioma. «s» deja
+//     de ser tecla: cae en la regla 1 y se repregunta.
+//
+// Agotada la repregunta NO se decide nada: la pregunta queda pendiente. El
+// «¿es un sí?» sale del kernel (esAfirmativa/esNegativa) y no de un predicado
+// nuevo; aquí se usa para RECHAZAR una respuesta, jamás para consentir.
+// ============================================================
+
+/** Minúsculas y sin marcas diacríticas: «SÍ» y «si» son la misma palabra. */
+const normalizaTecla = (s: string): string =>
+  s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/**
+ * ¿Es un sí/no a secas? Ni sirve de criterio ni se distingue de un intento de
+ * contestar al menú. Sale del kernel para que la gramática del «sí» siga
+ * siendo UNA sola en todo el CLI.
+ */
+function consentimientoDesnudo(texto: string): boolean {
+  return esAfirmativa(texto) || esNegativa(texto);
+}
+
+/** Lo que se le dice a quien contesta «si» donde la respuesta se vuelve memoria firme. */
+function criterioDesnudo(
+  dicho: string,
+  options: string[] | null | undefined,
+  enMenu: boolean
+): string {
+  const salidas = options?.length
+    ? `an option number (1-${options.length}), or the criterion in words`
+    : 'the criterion in words';
+  return (
+    `«${dicho}» is a bare yes/no` +
+    (enMenu ? ', and this prompt is also a menu — I cannot tell it from a keystroke' : '') +
+    '. What you type here is SAVED AS A FIRM PRECEDENT and enters the prompt of every later ' +
+    `session, so «${dicho}» would be the whole criterion the agent gets to read. ` +
+    `Answer with ${salidas} (e.g. «sí, se deduce al 100%»); ENTER leaves the question pending.`
+  );
+}
+
+/** Lo que el contador quiso decir en el prompt de la cola de preguntas. */
+type QuestionReply =
+  | { kind: 'answer'; answer: string }
+  | { kind: 'skip' | 'dismiss' | 'quit' }
+  | { kind: 'unclear'; message: string };
+
+const QUESTION_KEYS: Array<{ kind: 'skip' | 'dismiss' | 'quit'; words: string[] }> = [
+  { kind: 'skip', words: ['skip', 'saltar', 'siguiente', 'next'] },
+  { kind: 'dismiss', words: ['d', 'dismiss', 'descartar'] },
+  { kind: 'quit', words: ['q', 'quit', 'exit', 'salir'] },
+];
+
+const QUESTION_MENU = '\n[answer / option number / ENTER=skip / d=dismiss / q=quit] > ';
+
+/**
+ * Interpreta UNA línea del prompt. `insistido` es true sólo cuando se repite
+ * al pie de la letra lo que ya se avisó; abre la regla 2 y nunca la 1.
+ */
+function questionReply(
+  raw: string,
+  options: string[] | null | undefined,
+  opts: { insistido?: boolean } = {}
+): QuestionReply {
+  const dicho = raw.trim();
+  const t = normalizaTecla(dicho);
+  if (t === '') return { kind: 'skip' };
+  for (const { kind, words } of QUESTION_KEYS) {
+    if (words.includes(t)) return { kind };
+  }
+  if (consentimientoDesnudo(t)) {
+    return { kind: 'unclear', message: criterioDesnudo(dicho, options, true) };
+  }
+  const idx = Number(t);
+  if (options?.length && Number.isInteger(idx)) {
+    if (idx >= 1 && idx <= options.length) return { kind: 'answer', answer: options[idx - 1] };
+    if (!opts.insistido) {
+      return {
+        kind: 'unclear',
+        message:
+          `There is no option «${dicho}»: this question offers 1-${options.length}. ` +
+          `Type one of those, or repeat «${dicho}» to record it verbatim as the answer.`,
+      };
+    }
+  }
+  return { kind: 'answer', answer: dicho };
+}
+
+/**
+ * Pregunta y concede UNA repregunta a lo que no se pudo leer. El tope es
+ * deliberado, igual que en confirmarConReintento: un prompt que insiste sin
+ * límite contra una stdin que repite basura es un ciclo infinito en un cron.
+ * Agotada la repregunta NO decide: devuelve el «no entendí» para que quien
+ * llama lo diga y deje la pregunta pendiente. Null es EOF.
+ */
+async function askQuestionReply(
+  preguntar: (prompt: string) => Promise<string | null>,
+  options: string[] | null | undefined
+): Promise<QuestionReply | null> {
+  let anterior: string | null = null;
+  let ultimo: QuestionReply = { kind: 'unclear', message: '' };
+  for (let intento = 0; intento < 2; intento++) {
+    const raw = await preguntar(c.cyan(QUESTION_MENU));
+    if (raw === null) return null;
+    const dicho = raw.trim();
+    const reply = questionReply(dicho, options, {
+      insistido: anterior !== null && normalizaTecla(anterior) === normalizaTecla(dicho),
+    });
+    if (reply.kind !== 'unclear') return reply;
+    console.log(ce.dim(reply.message));
+    anterior = dicho;
+    ultimo = reply;
+  }
+  return ultimo;
+}
+
 async function colaDeQuestionsImpl(opts: { entity?: string; user?: string }): Promise<void> {
   let rl: readline.Interface | undefined;
   try {
@@ -1998,32 +2761,40 @@ async function colaDeQuestionsImpl(opts: { entity?: string; user?: string }): Pr
       void shutdown(130);
     });
 
+    const preguntar = (prompt: string): Promise<string | null> => ask(rl!, prompt);
+
     let answered = 0;
     let dismissed = 0;
     for (let i = 0; i < pending.length; i++) {
       const q = pending[i];
       renderQuestion(q, i, pending.length);
-      const raw = await ask(rl, c.cyan('\n[answer / option number / s=skip / d=dismiss / q=quit] > '));
-      if (raw === null) break;
-      const line = raw.trim();
-      if (!line || line.toLowerCase() === 's') continue;
-      if (line.toLowerCase() === 'q') break;
+      const reply = await askQuestionReply(preguntar, q.options);
+      if (reply === null) break; // stdin EOF: stop cleanly instead of hanging
+      if (reply.kind === 'quit') break;
+      if (reply.kind === 'skip') {
+        console.log(c.dim('Skipped: the question stays pending.'));
+        continue;
+      }
+      if (reply.kind === 'unclear') {
+        // Aquí estaba el defecto: esto ENTRABA como respuesta y sembraba un
+        // precedente firme con la palabra que nadie supo leer.
+        console.log(c.dim('Nothing recorded: the question stays pending, and no precedent was seeded.'));
+        continue;
+      }
 
       try {
-        if (line.toLowerCase() === 'd') {
+        // En positivo, no por descarte: es lo único que estrecha el tipo
+        // hasta la rama que trae texto, y así el compilador vigila que sólo
+        // se grabe como respuesta lo que el intérprete llamó respuesta.
+        if (reply.kind === 'answer') {
+          await answerQuestion(ctx, q.id, reply.answer, reviewer.email);
+          answered++;
+          console.log(`✔ Answered and saved as a precedent: ${c.bold(reply.answer)}`);
+        } else {
           await dismissQuestion(ctx, q.id, reviewer.email);
           dismissed++;
           console.log(c.dim('Question dismissed.'));
-          continue;
         }
-        const idx = Number(line);
-        const answer =
-          q.options && Number.isInteger(idx) && idx >= 1 && idx <= q.options.length
-            ? q.options[idx - 1]
-            : line;
-        await answerQuestion(ctx, q.id, answer, reviewer.email);
-        answered++;
-        console.log(`✔ Answered and saved as a precedent: ${c.bold(answer)}`);
       } catch (err) {
         // e.g. another session already resolved it — continue with the queue
         reportError(err);
@@ -2052,7 +2823,8 @@ const question = program
 const questionList = question
   .command('list')
   .alias('listar')
-  .description("List the agent's questions (default: pending)");
+  .description("List the agent's questions (default: pending)")
+  .addHelpText('after', EJEMPLOS.questionList);
 withOutput(withSelection(withContext(questionList)));
 declareRisk(questionList, { risk: 'lectura', agent: true });
 questionList.action(async (_opts: unknown, cmdArg: Command) => {
@@ -2074,7 +2846,8 @@ const questionAnswer = question
   .argument('[answer...]', 'the answer text, or the number of an option (requires <id>)')
   .description('Answer a question (the answer is saved as a precedent), or work the pending queue')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
-  .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)');
+  .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)')
+  .addHelpText('after', EJEMPLOS.questionAnswer);
 declareRisk(questionAnswer, {
   risk: 'escritura',
   agent: false,
@@ -2095,11 +2868,22 @@ questionAnswer.action(async (id: string | undefined, answerParts: string[], _opt
     }
     const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
     const line = answerParts.join(' ').trim();
+    // Por argumento no hay menú que confundir, pero la OTRA mitad de la regla
+    // sigue en pie: lo que entre aquí se graba con is_precedent=true. Un sí/no
+    // desnudo —y un blanco, que hasta hoy pasaba como respuesta vacía— no es
+    // un criterio, y no hay repregunta posible en un comando no interactivo:
+    // se rechaza enseñando cómo se dice. Elegir una opción por su número es
+    // inequívoco aunque la opción se llame «Sí»: eso no pasa por el filtro.
+    const opciones = q.options ?? [];
     const idx = Number(line);
-    const answer =
-      q.options && Number.isInteger(idx) && idx >= 1 && idx <= q.options.length
-        ? q.options[idx - 1]
-        : line;
+    const esOpcion = Number.isInteger(idx) && idx >= 1 && idx <= opciones.length;
+    if (line === '') {
+      throw usageError('question answer <id> needs the answer: mnemosine question answer <id> "<text or option number>"');
+    }
+    if (!esOpcion && consentimientoDesnudo(line)) {
+      throw usageError(criterioDesnudo(line, q.options, false));
+    }
+    const answer = esOpcion ? opciones[idx - 1] : line;
     await answerQuestion(ctx, q.id, answer, reviewer.email);
     console.log(`✔ Answered and saved as a precedent: ${c.bold(answer)}`);
     await shutdown(0);
@@ -2148,12 +2932,14 @@ program
   .alias('entrar')
   .description('Signs in with your identity provider (OIDC)')
   .option('--device', 'Use the device-code flow (SSH, server without a browser)')
+  .addHelpText('after', EJEMPLOS.login)
   .action(async (opts: { device?: boolean }) => {
     try {
       if (!config.auth.enabled) {
         console.error(ce.red('OIDC is not configured.'));
         console.error('Set AUTH_OIDC_ISSUER, AUTH_OIDC_CLIENT_ID and AUTH_OIDC_AUDIENCE in your .env.');
-        await shutdown(1);
+        // Entorno sin configurar, igual que los dos de arriba: FAILURE.
+        await shutdown(ExitCode.FAILURE);
       }
       const cfg = {
         issuer: config.auth.issuer,
@@ -2184,7 +2970,7 @@ program
       await shutdown(0);
     } catch (err) {
       reportError(err);
-      await shutdown(1);
+      await shutdown(exitCodeFor(err));
     }
   });
 
@@ -2192,6 +2978,7 @@ program
   .command('logout')
   .alias('salir')
   .description('Deletes the stored credential')
+  .addHelpText('after', EJEMPLOS.logout)
   .action(async () => {
     await clearToken();
     console.log('Signed out.');
@@ -2202,6 +2989,7 @@ program
   .command('whoami')
   .alias('quien')
   .description('Shows the active credential and its validity')
+  .addHelpText('after', EJEMPLOS.whoami)
   .action(async () => {
     const token = await loadToken();
     if (!token) {
@@ -2277,6 +3065,21 @@ registerSkillsCommand(program, { palette: c, shutdown, reportError });
 registerWebhooksCommand(program, { palette: c, shutdown, reportError });
 registerInitCommand(program, { palette: c, shutdown, reportError });
 registerCloseCommand(program, { palette: c, shutdown, reportError });
+// Va el ÚLTIMO a propósito: su guion se genera del árbol vivo en tiempo de
+// acción, así que el orden de registro no lo condiciona, pero registrarlo al
+// final deja escrito que completa todo lo de arriba y no un árbol a medias.
+registerCompletionCommand(program, { palette: c, shutdown, reportError });
+// Lectura pura: recorre el árbol EN MEMORIA y escribe un guion en stdout, sin
+// abrir la base ni tocar nada de fuera. Toda hoja declara —a lo que no declara
+// no se le aplica ninguna compuerta y el auditor no puede decir nada de ello—
+// y una hoja NUEVA declara junto a su registro, no en la tabla de retrofit.
+//
+// DEUDA ANOTADA: el sitio de la casa es junto al `.command('completion')`,
+// dentro de completion-command.ts. Está aquí porque registerCompletionCommand
+// no devuelve el comando y ese archivo lo escribe otra mano; migrarla es mover
+// la declaración y borrar la búsqueda.
+const completionCmd = (program.commands as Command[]).find((cmd) => cmd.name() === 'completion');
+if (completionCmd) declareRisk(completionCmd, { risk: 'lectura', agent: true });
 
 // Las declaraciones de riesgo que faltaban, sobre el árbol ya completo.
 //
@@ -2412,21 +3215,39 @@ export { program };
 // require.main identifies it). Importing this module — the entry-flow spec
 // pulls the exported pure helpers — must not launch the CLI.
 if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module) {
-  const argv = [...process.argv];
-  const veredicto = veredictoDeRaiz(argv[2], comandosRegistrados(program));
-  if (veredicto.tipo === 'desconocido') {
-    // Antes de abrir base o túnel alguno: un tecleo desconocido termina aquí
-    // con el contrato de USAGE, en vez de viajar hasta chat y morir con un
-    // «too many arguments for chat» que no nombra el problema.
-    stderr.write(ce.red(`error: unknown command '${argv[2]}'\n`));
-    if (veredicto.sugerencia) {
-      stderr.write(`(Did you mean ${veredicto.sugerencia}?)\n`);
+  void (async () => {
+    const argv = [...process.argv];
+    const veredicto = veredictoDeRaiz(argv[2], comandosRegistrados(program));
+    if (veredicto.tipo === 'desconocido') {
+      // Antes de abrir base o túnel alguno: un tecleo desconocido termina aquí
+      // con el contrato de USAGE, en vez de viajar hasta chat y morir con un
+      // «too many arguments for chat» que no nombra el problema.
+      stderr.write(ce.red(`error: unknown command '${argv[2]}'\n`));
+      if (veredicto.sugerencia) {
+        stderr.write(`(Did you mean ${veredicto.sugerencia}?)\n`);
+      }
+      // Por shutdown como todo el resto. Aquí todavía no hay base abierta y
+      // el cierre no tiene nada que drenar, pero la salida del proceso tiene
+      // UNA puerta: dejar una excepción a la vista es cómo vuelve el bicho.
+      await shutdown(ExitCode.USAGE);
+      return;
     }
-    process.exit(ExitCode.USAGE);
-  }
-  if (veredicto.tipo === 'canonico') argv[2] = veredicto.nombre;
-  program.parseAsync(argv).catch(async (err) => {
-    reportError(err);
-    await shutdown(1);
-  });
+    if (veredicto.tipo === 'canonico') argv[2] = veredicto.nombre;
+    try {
+      await program.parseAsync(argv);
+    } catch (err) {
+      if (err instanceof SalidaDeCommander) {
+        // Ya está todo escrito: `error()` vuelca su línea en stderr ANTES de
+        // salir, y --help/--version imprimieron lo suyo. reportError aquí
+        // duplicaría el mensaje y encima le colgaría un remedio inventado.
+        await shutdown(err.codigo);
+        return;
+      }
+      reportError(err);
+      // exitCodeFor y no un 1 fijo: un CliError que se escapa de su acción
+      // trae su código puesto, y perderlo justo en la puerta es el mismo
+      // daño que arriba, sólo que un piso más abajo.
+      await shutdown(exitCodeFor(err));
+    }
+  })();
 }

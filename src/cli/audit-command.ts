@@ -173,6 +173,29 @@ function camposTocados(viejo: unknown, nuevo: unknown): string {
   return [...nombres].sort().join(', ');
 }
 
+/**
+ * EJEMPLOS DE AYUDA. Invocaciones copiables, no plantillas: cada una parsea
+ * contra el commander embarcado (lo comprueba tests/cli/ejemplos-de-ayuda.spec.ts)
+ * y sus valores salen del vocabulario que el propio marcador deletrea —las
+ * acciones de ACCIONES, las familias de FAMILIAS—.
+ */
+const EJEMPLOS = {
+  list: `
+Examples:
+  # Who touched the ledger last week, newest first.
+  mnemosine audit list --object ledger --since 2026-07-01 --until 2026-07-31
+  # Only what the agent posted, which is the question a reviewer asks first.
+  mnemosine audit list --actor agent --action post --limit 20
+`,
+  show: `
+Examples:
+  # One entry in full: the value before, the value after and the reason.
+  mnemosine audit show 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+  # The same row as JSON, to diff it against another environment.
+  mnemosine audit show 3f2504e0-4f89-11d3-9a0c-0305e82c3301 --json
+`,
+};
+
 export function registerAuditCommand(program: Command, deps: AuditCommandDeps): void {
   const audit = program
     .command('audit')
@@ -267,6 +290,7 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
       return n;
     });
   declareRisk(list, { risk: 'lectura', agent: true });
+  list.addHelpText('after', EJEMPLOS.list);
   list.action((opts: ListOpts) =>
     run(async () => {
       // `--object` sin valor: descubrimiento de las familias, sin base de
@@ -424,6 +448,7 @@ export function registerAuditCommand(program: Command, deps: AuditCommandDeps): 
   withOutput(withContext(show));
   describirFiltroDeUsuario(show);
   declareRisk(show, { risk: 'lectura', agent: true });
+  show.addHelpText('after', EJEMPLOS.show);
   show.action((id: string, opts: CommonOpts) =>
     run(async () => {
       const tenantId = await inquilinoDe(opts);

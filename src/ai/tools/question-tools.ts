@@ -7,6 +7,7 @@ import {
   recordAnsweredQuestion,
   searchPrecedents,
 } from '../question-service.js';
+import { groupConflicts, type ConflictScope } from '../memory-service.js';
 
 // ============================================================
 // QUESTION TOOLS (questions + precedents)
@@ -16,6 +17,36 @@ import {
 // search_precedents: the firm's memory — already-resolved
 // criteria the agent must consult BEFORE asking.
 // ============================================================
+
+// ============================================================
+// LA FORMA DE LO QUE EL MODELO RECIBE ESTÁ CERRADA
+//
+// Este es el objeto que el modelo lee cuando la memoria del despacho se
+// contradice, y es exactamente donde la autonomía se ampliaría sin que
+// nadie lo decidiera: un campo de conveniencia —`prevailing` con el
+// precedente más reciente, `suggested`, `winner`, `applies`— no sería un
+// dato más. Sería el sistema entregando un GANADOR calculado por fecha
+// dentro del mismo objeto en el que dice, por escrito, que sólo un humano
+// resuelve el conflicto. Y el modelo obedece al campo, no a la nota.
+//
+// Por eso el resultado se declara como TIPO en vez de construirse suelto:
+// un campo nuevo deja de compilar en silencio. La prueba cierra por su lado
+// el juego de claves del JSON que sale de verdad — el tipo ata la forma en
+// compilación y la prueba ata el efecto en ejecución.
+// ============================================================
+interface SearchPrecedentsResult {
+  count: number;
+  conflicts?: Array<{ competing_for: string; grouped_by: ConflictScope; answers: string[] }>;
+  conflict_note?: string;
+  precedents: Array<{
+    question: string;
+    answer: string | null;
+    context: string | null;
+    topic: string | null;
+    answered_by: string | null;
+    answered_at: Date | null;
+  }>;
+}
 
 export function buildQuestionTools(ctx: AgentContext, deps: ToolDeps) {
   const askUserTool = betaZodTool({
@@ -114,7 +145,9 @@ export function buildQuestionTools(ctx: AgentContext, deps: ToolDeps) {
     description:
       'Searches precedents: questions already resolved by the firm (classification criteria, ' +
       'vendor treatment, policies). ALWAYS consult it before ask_user and before ' +
-      'classifying doubtful operations. The most recent precedent prevails.',
+      'classifying doubtful operations. The most recent precedent prevails — EXCEPT when the ' +
+      'result flags a conflict: two active precedents answering the same decision differently ' +
+      'are not a recency question, they are an unresolved one, and only a human resolves them.',
     inputSchema: z.object({
       search: z.string().min(1).describe('Text to search: vendor, description, account, topic'),
     }),
@@ -122,8 +155,40 @@ export function buildQuestionTools(ctx: AgentContext, deps: ToolDeps) {
       deps.observe?.('search_precedents', input);
       const rows = await searchPrecedents(ctx, input.search);
       if (rows.length === 0) return 'No precedents for that search.';
-      return JSON.stringify({
+
+      // DONDE MÁS IMPORTA: en el momento de usarlos.
+      //
+      // `doctor` encuentra los conflictos cuando alguien corre `doctor`; el
+      // modelo se topa con ellos AQUÍ, clasificando una factura. Sin esto la
+      // regla «prevalece el más reciente» resuelve por él una contradicción
+      // de criterio contable, en silencio y sin dejar rastro de que había
+      // dos. Marcarla no la resuelve —no es del sistema resolverla— pero
+      // convierte una elección invisible en una pregunta.
+      const conflictos = groupConflicts(rows);
+
+      // Sin `...spread`: el spread de un objeto condicional se cuela por
+      // delante del chequeo de propiedades sobrantes, y lo que aquí importa
+      // es justamente que no entre una clave que nadie declaró. Las claves
+      // ausentes se escriben `undefined`: JSON.stringify no las emite, así
+      // que la salida es la misma y la forma queda atada.
+      const salida: SearchPrecedentsResult = {
         count: rows.length,
+        conflicts:
+          conflictos.length > 0
+            ? conflictos.map((c) => ({
+                competing_for: c.key,
+                grouped_by: c.scope,
+                answers: c.answers,
+              }))
+            : undefined,
+        conflict_note:
+          conflictos.length > 0
+            ? 'CONFLICT: these precedents give different answers for the same decision. Do NOT ' +
+              'pick one on your own and do NOT fall back on the most recent: say out loud that ' +
+              'the firm holds two contradicting criteria, use ask_user so a human decides which ' +
+              'one stands, and keep working on what does not depend on it. The human resolves ' +
+              'it with `mnemosine memory --conflicts`.'
+            : undefined,
         precedents: rows.map((r) => ({
           question: r.question,
           answer: r.answer,
@@ -132,7 +197,8 @@ export function buildQuestionTools(ctx: AgentContext, deps: ToolDeps) {
           answered_by: r.answered_by,
           answered_at: r.answered_at,
         })),
-      });
+      };
+      return JSON.stringify(salida);
     },
   });
 

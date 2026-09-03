@@ -11,6 +11,7 @@ import { buildExternalTools } from './external-tools.js';
 import { buildStatusTools } from './status-tools.js';
 import { buildSkillsTools } from './skills-tools.js';
 import { buildSessionSearchTools } from './session-search-tools.js';
+import { buildPolicyTools } from './policy-tools.js';
 
 export type { ToolObserver, ToolDeps, AskUserFn, AskUserPrompt, DraftCreatedInfo } from './observer.js';
 
@@ -87,6 +88,7 @@ export function buildTools(
     ...buildStatusTools(ctx, deps),
     ...buildSkillsTools(ctx, deps),
     ...buildSessionSearchTools(ctx, deps),
+    ...buildPolicyTools(ctx, deps),
   ].map(withResultCap);
   if (!permitidas) return todas;
 

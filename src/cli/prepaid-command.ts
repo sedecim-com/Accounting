@@ -466,6 +466,48 @@ export function filasDelAsiento(
   return filas;
 }
 
+
+// ============================================================
+// EJEMPLOS DE AYUDA. Invocaciones copiables, no plantillas: cada una parsea
+// contra el commander embarcado (lo comprueba tests/cli/ejemplos-de-ayuda.spec.ts)
+// y sus valores salen del vocabulario cerrado que el propio marcador deletrea.
+// La prosa va en inglés, que es el idioma del nodo; los datos son mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  create: `
+Examples:
+  # An annual insurance premium already charged to prepaid expenses: the schedule
+  # says how it becomes expense, month by month. Nothing posts here.
+  mnemosine prepaid create "Seguro de flotilla 2026-2027" --amount 84000.00 --start 2026-08-01 --end 2027-07-31 --origin cfdi
+  # A balance the client arrives with, mid-coverage. --origin has NO default on
+  # purpose: where the charge came from changes what a reviewer has to check.
+  mnemosine prepaid create "Renta anticipada de bodega" --amount 36000.00 --start 2026-01-01 --end 2026-12-31 --origin saldo_preexistente --note "Saldo migrado de CONTPAQi, cedula de abril"
+`,
+  list: `
+Examples:
+  # What is still amortising, with what is left and how many periods remain.
+  mnemosine prepaid list
+  # Only what was open on a given date — the view a working paper needs.
+  mnemosine prepaid list --as-of 2026-07-31 --limit 50
+`,
+  show: `
+Examples:
+  # The full period-by-period table of one schedule.
+  mnemosine prepaid show "Seguro de flotilla"
+  # By id when the description is ambiguous; the table is the same.
+  mnemosine prepaid show 3f2504e0-4f89-11d3-9a0c-0305e82c3301 --json
+`,
+  run: `
+Examples:
+  # ALWAYS this one first: the month accrual is irreversible, and --dry-run
+  # computes and shows every entry it would post, writing nothing.
+  mnemosine prepaid run --period 2026-08 --dry-run
+  # The real run, with a key: a retry after a dropped connection returns the
+  # recorded result instead of accruing the month twice.
+  mnemosine prepaid run --period 2026-08 --yes --idempotency-key devengo-2026-08
+`,
+};
+
 export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDeps): void {
   const prepaid = program
     .command('prepaid')
@@ -617,6 +659,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
     agent: false,
     writes: 'prepaid_expenses (la cabecera del calendario); ninguna póliza — el cargo ya está en el mayor',
   });
+  crear.addHelpText('after', EJEMPLOS.create);
   crear.action((
     descripcion: string,
     opts: CommonOpts & {
@@ -807,6 +850,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
     .option('-a, --all', 'every live schedule, including those not started yet and already ended')
     .option('--as-of <date>', 'only schedules whose coverage is open on this date (YYYY-MM-DD; default today)');
   declareRisk(listar, { risk: 'lectura', agent: true });
+  listar.addHelpText('after', EJEMPLOS.list);
   listar.action((opts: CommonOpts & { limit?: number; offset?: number; all?: boolean; asOf?: string }) =>
     run(async () => {
       const alDia = medianocheLocal(opts.asOf === undefined ? new Date() : exigirFecha('--as-of', opts.asOf));
@@ -861,6 +905,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
   withContext(ver);
   withOutput(ver);
   declareRisk(ver, { risk: 'lectura', agent: true });
+  ver.addHelpText('after', EJEMPLOS.show);
   ver.action((ref: string, opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -922,6 +967,7 @@ export function registerPrepaidCommand(program: Command, deps: PrepaidCommandDep
       'journal_entries + journal_entry_lines (un asiento de ajuste por anticipo), ' +
       'prepaid_amortization_schedules, prepaid_expenses',
   });
+  ejecutar.addHelpText('after', EJEMPLOS.run);
   ejecutar.action((
     opts: CommonOpts & {
       period?: string;

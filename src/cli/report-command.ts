@@ -144,6 +144,78 @@ function pageOf<T>(rows: T[], opts: CommonOpts): T[] {
   return shown === undefined ? rows.slice(from) : rows.slice(from, from + shown);
 }
 
+// ============================================================
+// EJEMPLOS · invocaciones copiables, con datos mexicanos
+//
+// Aquí la duda cara no es la sintaxis sino CUÁL VENTANA se está pidiendo:
+// `--period` y `--since/--until` dan la ACTIVIDAD de un tramo, `--as-of` da
+// el ACUMULADO hasta una fecha. Una balanza pedida con la bandera equivocada
+// cuadra igual y contesta otra pregunta, así que los ejemplos enseñan las dos.
+//
+// `--period` de esta familia acepta 2026-07, 2026-Q3, FY2026 y 2026-01..2026-06
+// (resolvePeriodRange). Prosa en inglés (idioma del nodo), datos mexicanos.
+// ============================================================
+const EJEMPLOS = {
+  trialBalance: `
+Examples:
+  # The activity of July 2026, by account, with the footing.
+  mnemosine report trial-balance show --period 2026-07
+  # Cumulative to a cutoff date, rolled up to two levels, zero balances omitted.
+  mnemosine report trial-balance show --as-of 2026-07-31 --level 2 --exclude-zero
+  # The same figures as CSV, to hand over with the close.
+  mnemosine report trial-balance show --period 2026-07 --format csv --output balanza-2026-07.csv
+`,
+  balanceSheet: `
+Examples:
+  # Assets, liabilities and equity at the cutoff date, in natural sign.
+  mnemosine report balance-sheet show --as-of 2026-07-31
+  # At the end of a fiscal period, as JSON.
+  mnemosine report balance-sheet show --period 2026-07 --json
+`,
+  incomeStatement: `
+Examples:
+  # Revenue, expenses and net income for one month.
+  mnemosine report income-statement show --period 2026-07
+  # The first half of the year, as markdown for the board pack.
+  mnemosine report income-statement show --since 2026-01-01 --until 2026-06-30 --format md
+`,
+  generalLedger: `
+Examples:
+  # Every posted movement of the peso bank account during July 2026.
+  mnemosine report general-ledger show --account 1111 --period 2026-07
+  # The receivables control account over a date range, as CSV.
+  mnemosine report general-ledger show --account 1120 --since 2026-07-01 --until 2026-07-31 --format csv
+`,
+  agedReceivable: `
+Examples:
+  # What customers owe, bucketed by age, as of today.
+  mnemosine report aged-receivable show
+  # As of the close date, as CSV for the AR working paper.
+  mnemosine report aged-receivable show --as-of 2026-07-31 --format csv
+`,
+  agedPayable: `
+Examples:
+  # What we owe vendors, bucketed by age, as of today.
+  mnemosine report aged-payable show
+  # As of the close date, as CSV for the AP working paper.
+  mnemosine report aged-payable show --as-of 2026-07-31 --format csv
+`,
+  viewShow: `
+Examples:
+  # Whether each reporting view still agrees with the ledger, and by how much.
+  mnemosine report view show
+  # As JSON, to gate a pipeline on the drift.
+  mnemosine report view show --json
+`,
+  viewSync: `
+Examples:
+  # Rebuild every reporting view from the ledger. It is firm-wide, not per entity.
+  mnemosine report view sync
+  # Only the trial balance view, with an exclusive lock — needed the first time.
+  mnemosine report view sync --view mv_trial_balance --no-concurrently
+`,
+} as const;
+
 export function registerReportCommand(program: Command, deps: ReportCommandDeps): void {
   const report = program
     .command('report')
@@ -202,6 +274,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
     .option('--level <n>', 'roll up to at most this account level (default: every level)')
     .option('--exclude-zero', 'omit accounts whose ending balance is exactly zero');
   declareRisk(tbShow, { risk: 'lectura', agent: true });
+  tbShow.addHelpText('after', EJEMPLOS.trialBalance);
   tbShow.action((opts: CommonOpts & { level?: string; excludeZero?: boolean }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -326,6 +399,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
     .description('Assets, liabilities and equity at a cutoff date, in natural sign');
   withOutput(withSelection(withTime(withContext(bsShow))));
   declareRisk(bsShow, { risk: 'lectura', agent: true });
+  bsShow.addHelpText('after', EJEMPLOS.balanceSheet);
   bsShow.action((opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -404,6 +478,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
     .description('Revenue, expenses and net income for a period');
   withOutput(withSelection(withTime(withContext(isShow))));
   declareRisk(isShow, { risk: 'lectura', agent: true });
+  isShow.addHelpText('after', EJEMPLOS.incomeStatement);
   isShow.action((opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -458,6 +533,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
   withOutput(withSelection(withTime(withContext(glShow))));
   glShow.option('--account <code>', 'restrict to one account (code or id)');
   declareRisk(glShow, { risk: 'lectura', agent: true });
+  glShow.addHelpText('after', EJEMPLOS.generalLedger);
   glShow.action((opts: CommonOpts & { account?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -543,6 +619,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
       );
     withOutput(withSelection(withTime(withContext(show))));
     declareRisk(show, { risk: 'lectura', agent: true });
+    show.addHelpText('after', isAr ? EJEMPLOS.agedReceivable : EJEMPLOS.agedPayable);
     show.action((opts: CommonOpts) =>
       run(async () => {
         const ctx = await entityOf(opts);
@@ -621,6 +698,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
     .description('Whether each reporting view still agrees with the ledger, and by how much');
   withOutput(withSelection(withContext(viewShow)));
   declareRisk(viewShow, { risk: 'lectura', agent: true });
+  viewShow.addHelpText('after', EJEMPLOS.viewShow);
   viewShow.action((opts: CommonOpts) =>
     run(async () => {
       const ctx = await entityOf(opts);
@@ -660,6 +738,7 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
     agent: false,
     writes: 'mv_trial_balance, mv_account_balance_summary',
   });
+  viewSync.addHelpText('after', EJEMPLOS.viewSync);
   viewSync.action((opts: CommonOpts & { view?: string[]; concurrently?: boolean }) =>
     run(async () => {
       bootstrapTenant(opts.tenant);
