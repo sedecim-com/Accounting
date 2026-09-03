@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CRITERIOS, conFuenteMutada, crudoDe, type Criterio } from '../../src/plan/criterios.js';
+import { CRITERIOS, conFuenteMutada, crudoDe, tieneEspejo, type Criterio } from '../../src/plan/criterios.js';
 
 // ============================================================
 // LOS ESPEJOS, POR FIN EJECUTABLES (S2).
@@ -44,11 +44,22 @@ const conMutantes = CRITERIOS.filter((c) => (c.mutantes?.length ?? 0) > 0);
 // así que su espejo es requisito, no pago: el otro es la deuda que se salda.
 // 61 → 60: el criterio del único ci.yml gana su espejo al añadir `restauracion`
 // a la lista de jobs — deuda vieja saldada en el commit que la toca.
-const SIN_ESPEJO_MAXIMO = 60;
+// 60 → 58: la línea base se había quedado una unidad por encima de la cuenta
+// real (59), y S4a paga otra: el trinquete de cobertura por archivo gana sus
+// tres espejos al dejar de contar llaves y pasar a leer valores. El criterio
+// nuevo de este tramo —la cobertura de la suite de integración— nace con los
+// suyos, así que no entra en esta deuda: la paga por adelantado.
+const SIN_ESPEJO_MAXIMO = 58;
 
 describe('el arnés de mutación — un criterio sin mordida es prosa', () => {
   it('la línea base de criterios sin espejo sólo encoge', () => {
-    const sinEspejo = CRITERIOS.filter((c) => (c.mutantes?.length ?? 0) === 0);
+    // `tieneEspejo` y no `c.mutantes`: desde S4a un criterio puede traer su
+    // espejo en `mutantesEnDisco` —el arnés de conducta, que muta el archivo
+    // real porque lo que corre no es lo que el criterio lee—. Contar sólo un
+    // campo haría que la deuda subiera al añadir un criterio que SÍ trae
+    // mordida, y un trinquete que se dispara por dónde está escrito el espejo
+    // mide la forma en vez del hecho.
+    const sinEspejo = CRITERIOS.filter((c) => !tieneEspejo(c));
     expect(
       sinEspejo.length,
       `criterios sin mutante declarado: ${sinEspejo.length}. Si BAJÓ, actualiza ` +

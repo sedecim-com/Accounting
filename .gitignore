@@ -46,6 +46,7 @@ vault-local/
 
 # Salidas de herramientas
 coverage/
+coverage-integration/
 .nyc_output/
 *.log
 npm-debug.log*
