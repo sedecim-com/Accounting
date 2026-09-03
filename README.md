@@ -45,73 +45,77 @@ Las cifras de abajo llevan commit a propósito. Este archivo no es un marcador �
 lo son los dos comandos— y una cifra escrita a mano caduca en cuanto alguien
 empuja. Si no coinciden con lo que responde tu árbol, gana el comando.
 
-| Al commit `29d0b35` | |
+| Al commit `637bad4` | |
 |---|---:|
 | Paquetes con todos sus criterios en verde | **9** de 15 |
-| Comandos que el binario ejecuta | **134** en 45 familias |
-| Filas del catálogo ya invocables | **119** de 1 624 |
-| Fase 1 —el compromiso— | **108** de 379 |
-| Migraciones · tablas | **52** · 99 |
-| Pruebas unitarias | **2 205** en 143 archivos |
+| Comandos que el binario ejecuta | **216** en 58 familias |
+| Filas del catálogo ya invocables | **200** de 1 627 |
+| Fase 1 —el compromiso— | **185** de 386 |
+| Migraciones | **65** |
+| Pruebas unitarias | **4 406** en 213 archivos |
+| Espejos de mutación que muerden | **101** |
 
 ### Lo que todavía no es lo que parece
 
-Se dice aquí porque descubrirlo leyendo el código sería peor:
+Se dice aquí porque descubrirlo leyendo el código sería peor. Lo de arriba son las cifras que
+alguien puede correr; esto es lo que las cifras no dicen.
 
-- **La atestación en blockchain está simulada.** Todos los adaptadores de cadena
-  declaran `simulado = true` (`src/services/blockchain/chain-adapters.ts`,
-  `zkverify-client.ts`): no hay transacción en ninguna red. Por eso la
-  verificación pública está **apagada por omisión** —se enciende con
-  `PUBLIC_VERIFICATION_ENABLED=true`— y, aun encendida, cada endpoint se niega a
-  servir una fila simulada.
-- **El timbrado con PAC es real en un solo proveedor, y ese no se puede
-  configurar.** De los cuatro adaptadores, tres (Finkok, Edicom, SW Sapien) se
-  declaran simulados y un cerrojo les impide timbrar fuera de sandbox; sólo
-  Sovos/Reachcore declara `simulado = false`. Pero
-  `src/services/integrations/index.ts:12-15` registra únicamente Stripe, Conekta,
-  SendGrid y S3: **ningún adaptador de PAC entra al registro**, así que
-  configurar cualquiera de ellos por `/v1/integrations/:provider` muere en
-  `PROVIDER_NOT_FOUND`. Contratar un PAC es una decisión de negocio; poder
-  intentarlo es un renglón que falta.
-- **La descarga masiva del SAT no existe.** Ni SOAP, ni ZIP, ni comando. Un
-  despacho no puede afirmar completitud de CFDI recibidos desde aquí.
-- **La nómina reporta ceros en 941/940.** `paycheck_taxes`,
-  `employer_tax_liabilities` y `garnishments` se leen y ningún camino las
-  escribe.
-- **GraphQL está desmontado por omisión** (`GRAPHQL_ENABLED=true` lo devuelve).
-  Sus mutaciones ya exigen el mismo permiso que su ruta REST, y una compuerta
-  contrasta el esquema al cargar: una mutación declarada que no esté
-  implementada-con-permiso o listada como ausente impide cargar los
-  resolutores. Sigue apagado por lo que falta: vive fuera del prefijo auditado
-  `/v1` —no deja la fila de PETICIÓN en `audit_log`, aunque el hecho contable
-  sí queda registrado por los servicios en las vías que pasan por ellos—. De
-  sus quince mutaciones hay doce, delegando en los mismos servicios que usa
-  REST. Las tres que faltan no faltan por descuido:
+**Cuatro cosas que ya salen mal, hoy, sobre documentos que alguien firma.** Están primero porque el
+daño está ocurriendo, no esperando. El detalle, con su archivo y su artículo, vive en
+[`docs/BRECHAS-PARA-LA-PERFECCION.md`](docs/BRECHAS-PARA-LA-PERFECCION.md).
 
-  - `sendInvoice` — la ruta que sirve ese acto MARCA la factura como enviada y
-    no transmite nada; el esquema pide asunto y mensaje y devuelve un tipo sin
-    sitio para decirlo, así que servirla devolvería la mentira que se purgó.
-  - `stampCfdi` y `cancelCfdi` — timbrar y cancelar ante el SAT. No hay servicio
-    en el que delegar: la lógica del comprobante vive DENTRO de la ruta REST, y
-    copiarla aquí daría dos versiones de una regla fiscal. Por esta puerta el
-    acto irreversible quedaría además sin autor, porque `auditLogMiddleware`
-    sólo cuelga de `/v1`. Vuelven cuando el timbrado viva en un servicio que las
-    dos puertas llamen y que audite.
-- De los 151 manejadores REST, **7 están retirados** y lanzan
-  `NotImplementedError` en vez de fingir que hicieron algo.
-- **No hay respaldo ni restauración.** Ni una línea en todo el árbol. Y lo que
-  el proyecto hizo bien lo empeora: desde la migración 041 el mayor es
-  físicamente inmutable y `audit_log` es de sólo agregar, así que un error de
-  datos **no se puede reparar a mano**. Quien opere esto tiene que resolver su
-  propio respaldo de PostgreSQL mientras el proyecto no lo traiga. Es la brecha
-  abierta más grande y por eso está aquí arriba y no en una nota al pie.
-- **El sueldo bruto de la nómina cae en la cuenta equivocada.** Dos catálogos
-  semilla reclaman el código `5200`: los roles fiscales lo crean como
-  *Devoluciones y Descuentos sobre Compras*
-  (`src/services/xml-ingestion/account-roles-seed.ts:126`) y el mapeo de nómina,
-  que corre después (`src/services/accounting/entity-accounting.ts:77`), salta la
-  creación porque el código ya existe y apunta `wages_expense` a esa misma
-  cuenta. No truena: la guarda es por código y la colisión es de significado.
+- **Todo CFDI de nómina declara cero ingresos exentos.**
+  `src/services/payroll/mx/cfdi-nomina-generator.ts:95` emite cada percepción con
+  `ImporteExento="0.00"` quemado, y `:124` pone `TotalExento="0.00"` en los totales. El art. 93 LISR
+  exime treinta días de aguinaldo y quince de prima vacacional y de PTU. Ese comprobante alimenta el
+  prellenado de la declaración anual del trabajador: es un trabajador pagando ISR sobre algo exento,
+  con el papel del despacho como prueba.
+- **El tipo de nómina se decide con el apellido materno.** Literalmente:
+  el atributo sale de comparar `emp_second_last` con la cadena `'EXTRAORDINARIA'` (`:113`). Un
+  andamio que se embarcó, con ocho valores fiscales más quemados en el mismo archivo
+  (`RegistroPatronal`, `ClaveEntFed`, `LugarExpedicion="00000"`, RFC de respaldo).
+- **Las tablas fiscales «2026» son las de 2025.** `009_tax_tables_2026.sql:36-43` siembra la UMA en
+  113.14 y los salarios mínimos en 278.80 y 419.88, y su propia cabecera dice *«estimated»*. Peor
+  que el número: `tax_parameters` se indexa por año y **no tiene vigencia**, y la UMA cambia el 1 de
+  febrero — el esquema no tiene dónde escribir el dato correcto.
+- **El publicador de cifras al público ya existe y publica mal.**
+  `POST /v1/admin/blockchain/publish-aggregates` sella `total` y publica `rounded`
+  (`orchestrator.ts:445-452`), y agrega `SUM(debit − credit)` por tipo de cuenta, así que **ingresos
+  y pasivos salen en negativo**.
+
+**Y la brecha que sostiene un tema entero:** **no hay sellador de CFDI**.
+`src/api/rest/routes/invoices.ts:248` lo confiesa —*«real implementation would use cfdi.ts
+generateCfdiXml»*— y esa función no existe en ningún archivo. El XML que se manda al PAC no lleva
+Emisor, Receptor, Conceptos, NoCertificado, Certificado ni Sello; no hay cadena original ni firma en
+`src/services/`. Toda la estrategia de PACs descansa en «mandamos el XML ya sellado»: la premisa no
+tiene productor, y la regla de la bóveda no protege nada porque no hay firma que hacer.
+
+**Lo demás que sigue abierto, sin sorpresas:**
+
+- **La descarga masiva del SAT no existe.** Ni SOAP, ni ZIP, ni comando. Un despacho no puede
+  afirmar completitud de CFDI recibidos desde aquí.
+- **La nómina reporta ceros en 941/940.** `paycheck_taxes`, `employer_tax_liabilities` y
+  `garnishments` se leen y ningún camino las escribe.
+- **La atestación en blockchain está simulada.** Todos los adaptadores declaran `simulado = true`.
+  La verificación pública está apagada por omisión (`PUBLIC_VERIFICATION_ENABLED`) y, aun encendida,
+  cada endpoint se niega a servir una fila simulada.
+- **La contabilidad electrónica que se ENVÍA (art. 28-IV CFF) no tiene código ni criterios.** El
+  diseño está escrito en `docs/cli-command-catalog.md`; el envío, no.
+- **GraphQL está desmontado por omisión** (`GRAPHQL_ENABLED=true` lo devuelve), con freno por
+  inquilino y permisos, y le faltan tres mutaciones que no faltan por descuido: `sendInvoice`
+  devolvería una mentira que ya se purgó, y `stampCfdi`/`cancelCfdi` no tienen servicio en el que
+  delegar —la lógica vive dentro de la ruta REST— así que copiarla daría dos versiones de una regla
+  fiscal.
+- De los 151 manejadores REST, **7 están retirados** y lanzan `NotImplementedError` en vez de fingir.
+
+**Lo que dejó de ser cierto, y se dice porque este archivo lo afirmaba:**
+
+- ~~Ningún adaptador de PAC entra al registro.~~ Los cuatro se registran desde G1a
+  (`pac-router.ts:45-47`). Queda que `edicom` siga siendo terciario por omisión sin documentación
+  pública.
+- ~~No hay respaldo ni restauración.~~ S3 lo trajo, y el ensayo de restauración corre en CI.
+- ~~El sueldo bruto de la nómina cae en la cuenta equivocada.~~ La 053 renumeró el catálogo y dejó
+  un criterio que vigila la colisión de sembradores.
 
 ---
 
@@ -350,6 +354,14 @@ solución de problemas—. Su fuente vive en
 
 Dentro del repositorio:
 
+- [`docs/BRECHAS-PARA-LA-PERFECCION.md`](docs/BRECHAS-PARA-LA-PERFECCION.md) — qué
+  falta, ordenado por consecuencia para un despacho y por prerrequisito, con la
+  respuesta honesta a por qué «perfecto» es la pregunta equivocada para un
+  sistema contable.
+- [`docs/investigacion/`](docs/investigacion/) — el expediente: seis temas
+  rectores (PACs, proveedores de IA, onboarding, tablero, canales y el
+  experimento de la contabilidad pública), con cada afirmación verificada contra
+  su fuente oficial y contra el árbol, y sus ligas muertas declaradas.
 - [`docs/cli-command-catalog.md`](docs/cli-command-catalog.md) — la superficie de
   comandos a la que se aspira, contrastada fila por fila contra el backend, con
   el recuento generado.

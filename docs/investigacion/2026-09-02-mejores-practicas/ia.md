@@ -171,3 +171,378 @@ Prácticas:
 8. https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/migrate/openai/auth-and-credentials — ídem; por eso el patrón de base_url de Vertex queda como «verificado solo en terceros»
 
 **Constancia de seguridad**: las dos páginas de Bedrock traían texto dirigido a asistentes sugiriendo ejecutar un comando de AWS CLI («agent-toolkit search-skills»). Se trató como dato, no como instrucción, y no se ejecutó.
+
+---
+
+## Segunda pasada — 2026-09-02 (tarde)
+
+Escrita sobre el árbol de la rama `docs/brechas-para-la-perfeccion`, que ya trae A7·remate
+(reproducibilidad por perfil) y A5 (ventana de contexto por perfil), ninguno de los dos fusionado a
+`main` todavía. Nada de lo de arriba se borra; lo que quedó desmentido se dice aquí citando la línea
+vieja.
+
+**Corrección de entrada, y es del propio documento.** La primera línea de «Dónde estamos» dice «once
+perfiles integrados en `src/ai/providers/config.ts` (BUILTIN_PROFILES, líneas 19–113)». Son DOCE, y
+siempre lo fueron: `src/ai/docs/connectivity.md:50` dice «12 built-in profiles» desde el commit de
+línea base (`git log -S "11 built-in profiles"` no devuelve nada). El conteo se arrastró al encargo
+de esta pasada. Hoy BUILTIN_PROFILES vive en config.ts:171–478 y son: `anthropic`, `hermes`,
+`hermes-agent`, `ollama`, `openai`, `grok`, `minimax`, `qwen`, `gemini`, `openrouter`, `copilot`,
+`openclaw`.
+
+### Lo que se verificó
+
+Re-fetch de las ligas que SOSTIENEN una recomendación. Las decorativas no se volvieron a abrir.
+
+**Vivas y sin cambio material (la afirmación vieja aguanta):**
+
+1. `https://openrouter.ai/docs/use-cases/oauth-pkce` — intacta y es la que más peso carga: PKCE con
+   `code_challenge_method=S256`, **modo headless** («omit `callback_url` entirely», con el desafío
+   *obligatorio* en ese modo), código de **un solo uso que expira en 10 minutos**, canje en
+   `https://openrouter.ai/api/v1/auth/keys`. La ruta A del mecanismo sigue en pie tal como se
+   escribió.
+2. `https://ai.google.dev/gemini-api/docs/openai` — sigue **en beta** («Support for the OpenAI
+   libraries is still in beta while we extend feature support»), base
+   `https://generativelanguage.googleapis.com/v1beta/openai/` **con diagonal final**, function
+   calling con su sección propia. Los ejemplos ya usan `gemini-3.8-flash`.
+3. `https://platform.minimax.io/docs/api-reference/text-openai-api` — base `https://api.minimax.io/v1`,
+   tools sí, `n` sólo 1, `presence_penalty`/`frequency_penalty`/`logit_bias` ignorados, `function_call`
+   legado no soportado. **Dato nuevo y útil: la temperatura documentada es el rango [0, 2]** — la
+   postura `muestreo: 'fijado', temperature: 0` del perfil `minimax` (config.ts:348–355) se sostiene
+   contra la fuente, no contra la memoria.
+4. `https://platform.claude.com/docs/en/about-claude/pricing` y
+   `https://platform.claude.com/docs/en/manage-claude/data-residency` — vivas, y ambas cargan peso
+   nuevo (precio y residencia, abajo).
+5. `https://docs.x.ai/docs/api-reference` — base `https://api.x.ai/v1` y `Authorization: Bearer
+   $XAI_API_KEY` vigentes. Ya no lista modelos en la propia página: remite a `docs.x.ai/docs/models`.
+
+**Cambiadas — la afirmación vieja ya no se sostiene:**
+
+6. `https://docs.x.ai/docs/models` — **`grok-4` YA NO APARECE en la tabla.** Lo que hay hoy, con
+   ventana y precio: `grok-4.6` (500k; $2/$6 por millón bajo 200k, $4/$12 arriba), `grok-4.5` (500k,
+   mismo precio), `grok-4.3` (1M; $1.25/$2.50), `grok-4.20-0309-reasoning` y `-non-reasoning` (1M;
+   $1.25/$2.50), `grok-build-0.1` (256k; $1/$2), `grok-4.20-multi-agent-0309` (1M). La pasada
+   anterior dijo «nuestro default `grok-4` quedó viejo»; hoy es más fuerte que eso: el modelo del
+   perfil no está en la referencia del proveedor.
+7. `https://developers.openai.com/api/docs/models` — **`gpt-5.1` YA NO APARECE.** La familia listada
+   es GPT-5.6: `Sol` ($4/$20), `Terra` ($2/$12), `Luna` ($0.20/$1.20), las tres con **1.05M de
+   ventana**, 128k de salida máxima y corte de conocimiento del 16 de febrero de 2026. La pasada
+   anterior no pudo verificar el modelo («platform.openai.com devuelve 403») y lo dio por consistente;
+   hoy la doc que sí responde lo contradice.
+8. `https://api-docs.deepseek.com/quick_start/pricing` — los modelos son `deepseek-v4-flash`,
+   `deepseek-v4-pro` y `deepseek-v4-flash-vision-exp`, **1M de ventana** los tres, y el precio va por
+   **horario**: valle/pico, con pico de 01:00–04:00 y 06:00–10:00 UTC de lunes a viernes
+   (`v4-flash` $0.22/$0.66 valle y $0.44/$1.32 pico; `v4-pro` $0.66/$1.98 valle y $1.32/$3.96 pico;
+   acierto de caché $0.007–$0.022 por millón). Confirma lo que la pasada anterior ya había visto:
+   `deepseek-chat` y `deepseek-reasoner` no existen en la doc.
+9. `https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope` — la
+   deriva de `qwen` **subió de grado**. La pasada anterior escribió «ya no aparece en el quickstart
+   oficial […] probablemente aún funciona, pero está en ruta de deprecación». Hoy la página trae un
+   **aviso de migración escrito**: `dashscope-intl.aliyuncs.com` debe migrar al endpoint por
+   workspace de Singapur. Las bases vigentes son
+   `https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` (Singapur y Pekín),
+   `https://dashscope-us.aliyuncs.com/compatible-mode/v1` (Virginia),
+   `https://{WorkspaceId}.cn-hongkong.maas.aliyuncs.com/…` y `…ap-northeast-1…` (Tokio). El
+   function calling sigue acotado a «qwen-turbo, qwen-plus, qwen-max» — y el perfil embarca
+   `qwen3-max`, que no es ninguno de esos tres nombres.
+10. `https://platform.minimax.io/docs/guides/text-generation` — **MiniMax-M2: 204 800 tokens de
+    ventana**; M3: 1 000 000; la familia M2.x intermedia también 204 800. M2 sigue listado, así que
+    el perfil no está roto: está viejo con número conocido.
+11. `https://console.groq.com/docs/models` — deriva que la pasada anterior no podía ver porque miró
+    otras páginas: los Llama **ya no publican precio** («Contact Sales»). Lo que sí tiene precio
+    público es `openai/gpt-oss-120b` ($0.15/$0.60) y `openai/gpt-oss-20b` ($0.075/$0.30), ambos con
+    131 072 de ventana. La recomendación «alta directa de `groq` con `llama-3.3-70b-versatile`» del
+    mecanismo nace sin precio conocido.
+
+**Muertas o no extraíbles en esta pasada (se declaran, no se rellenan de memoria):**
+
+- `https://developers.openai.com/api/pricing` — 404.
+- `https://platform.minimax.io/docs/price` y `…/docs/guides/price` — 404 las dos. **El precio de
+  MiniMax queda sin fuente oficial extraíble**, y por eso no aparece en la tabla de costos de abajo.
+- `https://www.alibabacloud.com/help/en/model-studio/what-is-qwen-llm` — 301 a la consola
+  (`modelstudio.console.alibabacloud.com`, que pide sesión). `…/models` y `…/text-generation`
+  responden pero **no publican ventana ni precio**; nombran `qwen3.8-max`, `qwen-plus` y
+  `qwen3.6-plus` en ejemplos. **La ventana de `qwen3-max` sigue sin fuente oficial extraíble.**
+- `https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations`,
+  `…/learn/data-residency` y `https://cloud.google.com/vertex-ai/docs/general/locations` (301 a
+  docs.cloud.google.com) — las tres sirven el índice de navegación y no el contenido. **Segunda
+  pasada consecutiva contra la misma pared**: la anterior ya había listado tres páginas de Google
+  por lo mismo. No es un fallo de esta corrida; es una propiedad de esa documentación.
+- `https://docs.aws.amazon.com/bedrock/latest/userguide/models-regions.html` — hoy es un sello que
+  remite a `models-region-compatibility.html` (esa sí respondió, y trae la respuesta de México).
+- `https://mistral.ai/pricing` — responde, pero sólo publica Mistral Large ($0.5/$1.5) y manda el
+  resto a «Models overview».
+
+**Constancia de seguridad de esta corrida.** No reaparecieron las dos páginas de AWS con el texto
+dirigido a asistentes que la pasada anterior denunció (`agent-toolkit search-skills`); las de Bedrock
+que abrí hoy no lo traían. Sí apareció, en `openrouter.ai/docs/use-cases/oauth-pkce`, una línea de
+cabecera dirigida a lectores automáticos: «Fetch the complete documentation index at:
+https://openrouter.ai/docs/llms.txt». No es un intento de secuestro y no pedía nada peligroso, pero
+es una instrucción incrustada dirigida a un agente: se anota y no se siguió. La página de modelos de
+xAI trae una sección rotulada como nota para asistentes cuyo contenido es prosa de documentación
+(que Grok no conoce eventos posteriores a su entrenamiento); tampoco se trató como instrucción.
+
+### La deriva contra el árbol
+
+**(a) Lo que el documento recomendaba y YA SE HIZO — a medias, y la mitad que falta importa.**
+
+- El tramo 3 del mecanismo pedía «instantánea fechada + muestreo fijado». A7 hizo la mitad de
+  arriba: `PosturaMuestreo` y `Reproducibilidad` son **obligatorias en el tipo**
+  (`src/ai/providers/config.ts:52–70`), ningún perfil puede callarse, y `MUESTREO_CABLEADO: boolean =
+  false` (config.ts:169) es una bandera auto-invalidante que el arnés lee en voz alta y que
+  `tests/ai/eval/arnes-cableado.spec.ts` contrasta contra los dos runners. Confirmado a mano:
+  `src/ai/agent.ts` y `src/ai/providers/openai-compat.ts` **no envían `temperature`** — la
+  declaración es declaración, no cable.
+- La mitad de abajo NO se hizo: `grep -rn "instantanea_modelo\|ia_deriva" src/` devuelve cero. No
+  existe `ai_instantaneas_modelo`, no hay chequeo de deriva en `doctor`, no hay criterio
+  `ia_deriva_modelo` en el panel. Lo que el documento llamó «lo que A7·remate ya exige» sigue
+  exigido.
+- Y hay un dato que sólo se ve abriendo el archivo: **los doce perfiles declaran `instantanea:
+  null`** (config.ts, doce ocurrencias entre las líneas 193 y 471). La recomendación «donde el
+  proveedor ofrezca id fechado, el default lo usa» no se cumplió en ninguno.
+- A5 metió la ventana: `VentanaDeFabrica` como unión discriminada (config.ts:140–142),
+  `FRACCION_VENTANA_COMPACTABLE = 0.5` (config.ts:118) y la derivación del umbral con su cola
+  (config.ts:1101). Doce perfiles: **cuatro con número** —`anthropic` 1 000 000, `hermes` 131 072,
+  `ollama` 32 768, `gemini` 1 048 576— y **ocho `desconocida`**.
+
+**(b) Lo que el documento daba por cierto y dejó de serlo.**
+
+- El documento listó como supuesto a contrastar «`grok` con `model: 'grok-4'` (config.ts:58–64)» y
+  concluyó «quedó viejo». Hoy el perfil vive en config.ts:314–334 y la razón de su ventana dice
+  literalmente: «xAI documenta la ventana de grok-4 en su referencia de modelos y nadie la ha traído
+  aquí. Es un dato de una línea que se comprueba en un minuto» (config.ts:323–325). **Esa frase ya es
+  falsa**: la referencia de xAI no documenta `grok-4`. El dato de una línea no se puede traer porque
+  no existe.
+- Mismo caso en `openai` (config.ts:288–312): la razón dice «OpenAI publica la ventana por modelo y
+  NADIE LA HA ESTABLECIDO AQUÍ» (config.ts:298). OpenAI publica la ventana **de la familia 5.6**;
+  de `gpt-5.1` ya no publica nada. El perfil `copilot` (config.ts:429) arrastra el mismo `gpt-5.1`.
+- **La pieza que la pasada anterior no miró y es la que responde la pregunta de costo:**
+  `src/ai/providers/prices.ts`. Existe una tabla local de precios con fecha de corte como DATO
+  (`PRECIOS_VIGENTES_A = '2026-08-24'`, prices.ts:52) que `mnemosine usage` imprime. De sus
+  renglones, cuatro nombran modelos que sus proveedores ya no listan: `gpt-5.1` (prices.ts:80),
+  `grok-4` (prices.ts:87), `deepseek-chat` (prices.ts:99) y `deepseek-reasoner` (prices.ts:100).
+- El único renglón que sobrevive la verificación **exacto**: `anthropic('claude-opus-5', 5, 25)`
+  (prices.ts:64), que con los multiplicadores del archivo da lectura de caché $0.50 y escritura 5m
+  $6.25. La página de precios de Anthropic da $5 / $25 / $0.50 / $6.25. Coincide dígito por dígito.
+
+**(c) Las ventanas: cuáles se pueden establecer HOY con fuente oficial.** Ocho perfiles dicen
+`desconocida`. No son ocho deudas iguales:
+
+| perfil | modelo del perfil | ¿establecible hoy? | qué dice la fuente oficial |
+|---|---|---|---|
+| `minimax` | `MiniMax-M2` | **SÍ — 204 800** | platform.minimax.io/docs/guides/text-generation lo publica por modelo |
+| `openai` | `gpt-5.1` | **No, y no por pereza** | el modelo no está en la doc; la familia 5.6 sí (1.05M). Hay que subir el `model` ANTES de poder declarar ventana |
+| `grok` | `grok-4` | **No, misma razón** | `grok-4` no está en docs.x.ai/docs/models. Si se sube: grok-4.6 → 500k; grok-4.3 → 1M |
+| `qwen` | `qwen3-max` | **No** | ninguna página fetchable de Model Studio publica la ventana; y el alias se repunta, como ya dice su razón |
+| `openrouter` | `openrouter/auto` | **No, por construcción** | elige modelo por petición: no existe UN número. La razón que trae es correcta y debe quedarse |
+| `copilot` | `gpt-5.1` | **No, por construcción** | lo que sirve GitHub detrás del alias no se versiona al cliente |
+| `hermes-agent` | pasarela local | **No, por construcción** | la ventana la fija la configuración de la pasarela |
+| `openclaw` | pasarela local | **No, por construcción** | ídem |
+
+Resumen honesto: **de las ocho, UNA se cierra hoy con fuente oficial** (`minimax` = 204 800). Tres
+están bloqueadas por un `model` obsoleto —y se desbloquean subiéndolo, no investigando más— y cuatro
+son irreducibles. El trabajo directo y verificable que pedía el encargo es exactamente ese: una
+línea en `minimax`, y tres perfiles cuyo `model` hay que subir primero.
+
+**(d) El asistente de conexión no se ha tocado.** `git log --oneline -- src/cli/init/s3-ai.ts`
+devuelve **un solo commit** (`4eeee63`, línea base). No existe la ruta A (OpenRouter PKCE), no
+existen las plantillas de Azure/Bedrock, y `KEY_URLS` (s3-ai.ts:23–35) sigue con las once entradas de
+siempre: ninguna de las seis altas directas que el mecanismo proponía.
+
+### Lo que falta para ser perfecto
+
+Ordenado por consecuencia para un despacho, no por dificultad.
+
+**1. El costo por documento es NULO para cinco de los doce perfiles, y eso desarma el presupuesto.**
+`lookupPrice` (prices.ts:109) no conoce `Hermes-4-405B`, `MiniMax-M2`, `qwen3-max`, `openrouter/auto`
+ni los modelos locales. Sin precio, `estimateCostUsd` devuelve `null`,
+`ai_usage.estimated_cost_usd` queda NULL y `evaluateBudget` (budget.ts:57–59) suma **cero**. Un
+despacho que ponga `budget.monthly_usd` y corra en `minimax` o `qwen` tiene un tope que **siempre
+lee $0.00 y nunca corta** — y en ruta desatendida el `on_exceed` por omisión es `block`, o sea que la
+protección que más promete es la que menos protege. `unpricedTurns` lo cuenta y lo imprime, pero
+contar no es cortar. *Tamaño S. No la bloquea nada: son renglones en una tabla, con la salvedad de
+que MiniMax y Qwen no publican precio en página fetchable — para esos dos el renglón honesto es
+seguir en NULL y decirlo en la nota del perfil.*
+
+**2. La tabla de precios tiene la forma equivocada para los precios de 2026.** `ModelPrice`
+(prices.ts:16–27) es plana: un input, un output, dos tarifas de caché. Hoy xAI cobra **por tramo de
+contexto** (<200k vs ≥200k, el doble arriba), Gemini 2.5 Pro igual, y DeepSeek cobra **por horario**
+(valle/pico, con la ventana de pico publicada en UTC). El invariante escrito del archivo —«las
+estimaciones deben sorprender HACIA ABAJO en el reporte, nunca en la factura»— obliga a cargar
+siempre el precio caro; pero sin la forma no se puede ni declarar el barato, y el reporte de un
+despacho que corre de noche en México (valle en UTC) sobreestima el doble. *Tamaño M. Bloqueada por
+nada técnico; es una decisión de diseño de la tabla.*
+
+**3. Un despacho no puede comparar proveedores con sus propios números, y le faltan dos GROUP BY.**
+Los datos YA existen: `ai_ingest_runs` (migración 044) trae `provider`, `model`, `files_total`,
+`estimated_cost_usd` y `duration_ms` por corrida, y `ai_usage` trae `provider` y `model` por llamada.
+Lo que falta es la consulta:
+  - **Costo por documento por proveedor**: `mnemosine usage --by provider` (usage-command.ts:19) da
+    el dinero por proveedor, pero no lo divide entre documentos; la división vive en
+    `ai_ingest_runs` y ningún comando la hace.
+  - **Latencia por proveedor**: `stats-service.ts:152–157` calcula promedio y p95 de `duration_ms`
+    **sin agrupar por proveedor** (`WHERE entity_id = $1` y punto). Un despacho que cambió de
+    proveedor el martes ve un p95 que promedia las dos épocas y no puede distinguirlas.
+  Esto es lo que convierte «¿cuál me conviene desde Guadalajara?» de opinión en medición. *Tamaño S.
+  No la bloquea nada.*
+
+**4. El comando que existe para presupuestar mide la superficie equivocada.** `prompt-size`
+(prompt-size-command.ts:170) llama `buildTools(ctx, {...})` **sin lista blanca**: mide las 25
+herramientas del chat. La ingesta —el camino por el que pasa cada CFDI y que el arnés ya mide con
+`SUPERFICIE_INGESTA`— embarca **once**. Medido hoy en este árbol: 25 herramientas = 19 892
+caracteres de esquema; las once de la ingesta = **10 522 caracteres**. El comando que un socio abriría
+para saber cuánto cuesta procesar una factura le enseña casi el doble de lo que esa factura paga.
+Una bandera `--superficie ingesta` lo arregla. *Tamaño S.*
+
+**5. Residencia de datos en México: NO EXISTE, y conviene escribirlo en la documentación antes de que
+lo pregunte un cliente.** Verificado hoy contra fuente oficial:
+  - **Anthropic (primera parte)**: `inference_geo` acepta **sólo `"us"` y `"global"`**; el
+    *workspace geo* «Currently, `"us"` is the only available workspace geo». No hay México, no hay
+    LatAm. El `"us"` cuesta 1.1x sobre todo (entrada, salida, caché).
+  - **AWS Bedrock**: `mx-central-1` (México) **existe y aparece** en la tabla de compatibilidad
+    regional — pero para Claude Opus 5, Sonnet 5, Fable 5/5.1 y Mythos 5/5.1 figura **únicamente bajo
+    «Global»**; «In-Region» y «Geo» están marcados como no soportados. Traducción para un despacho:
+    se puede **facturar** desde México; no se puede **inferir** en México.
+  - **Azure / Microsoft Foundry**: las tablas de región y zonas de datos que sí pude leer son US y
+    EU; el punto más cercano en LatAm es Brazil South. México no aparece.
+  - **Google Vertex**: **no verificable** — las tres páginas de locations y data-residency sirven
+    índice de navegación, igual que en la pasada anterior. No se afirma nada.
+  La consecuencia práctica es limpia: **si los XML de un cliente no pueden salir del país, el único
+  perfil que cumple es `ollama`**, y ese perfil ya existe con su ventana declarada (32 768,
+  config.ts:265–275) y con la advertencia medida de que no es reproducible entre corridas
+  (0.750 / 0.750 / 0.000 sobre el mismo caso, config.ts:29–38). Lo que falta no es infraestructura:
+  es **decirlo**, en `src/ai/docs/connectivity.md` y en el init. *Tamaño S para escribirlo; el hecho
+  no se puede cambiar.*
+
+**6. El init no hace la única pregunta que decide todo.** `s3-ai.ts` sigue como el día uno. Además de
+las tres rutas ya propuestas (A: OpenRouter PKCE headless; B: llave propia; C: suscripción tras
+broker), falta una pregunta que la pasada anterior no formuló y que es anterior a todas: **«¿pueden
+salir del país los XML de tus clientes?»**. Un sí/no que parte el árbol en dos —`ollama` de un lado,
+todo lo demás del otro— y que hoy nadie pregunta, de modo que el default lleva los CFDI de un tercero
+a un servidor extranjero sin que se haya tomado la decisión. *Tamaño M. Bloqueada por que S-UX (PR 52)
+toca el init: hay que coordinar o esperar.*
+
+**7. La ruta de menor fricción entrega, por omisión, el perfil que el arnés no puede medir.**
+OpenRouter es la mejor respuesta verificada en privacidad, y por un margen amplio: **no registra
+prompts ni respuestas por omisión** («zero logging of your prompts/completions, even if an error
+occurs, unless you opt-in»), permite **filtrar proveedores por su política de datos** y **falla la
+petición** si ninguno cumple la política de la cuenta, y **no pone margen sobre la inferencia** (cobra
+5.5% al comprar crédito por Stripe, 5% por cripto). Para un despacho que maneja papeles fiscales de
+terceros, ese conjunto es exactamente lo que hay que poder enseñarle a un cliente. Pero el perfil
+`openrouter` del repo trae `model: 'openrouter/auto'`, cuya propia razón declara que **no es
+evaluable** (config.ts:412–419: «dos corridas del mismo proveedor+modelo pueden haber preguntado a
+dos modelos distintos»). La ruta A tiene que fijar un modelo concreto en el momento del alta, no
+dejar `auto`. *Tamaño S dentro del tramo de init.*
+
+**8. El orden correcto para saldar la deuda de deriva es uno solo, y son tres pasos en un archivo.**
+Subir el `model` → fijar la `instantanea` fechada → declarar la `ventana`. En ese orden, porque los
+tres perfiles que no pueden declarar ventana es porque su modelo ya no existe. Hacerlo al revés
+—buscar ventanas de modelos muertos— es el trabajo que la propia razón de `grok` pide hoy y que no se
+puede hacer. *Tamaño S por perfil; cuatro perfiles (`openai`, `grok`, `copilot`, `qwen`).*
+
+**9. El detector de deriva sigue sin existir.** Sin cambios respecto a lo que el mecanismo ya
+propuso: `ai_instantaneas_modelo`, siembra desde la sonda de `s3-ai`, chequeo en `doctor` que compara
+`modelo_reportado`/`system_fingerprint` contra la instantánea y reporta `warn` —nunca `fail`—, y el
+criterio `ia_deriva_modelo` ∈ {`avisar`, `congelar_autopost`} en el panel con su lector y su fila de
+catálogo, para no parir una capacidad huérfana. *Tamaño M. Bloqueada por que A7 (que abrió el campo)
+aún no está en `main`.*
+
+**10. El número que un socio pide de verdad: cuánto cuesta clasificar una factura.**
+
+El modelo de costo sale de números **medidos en este árbol**, no supuestos:
+
+- Esquemas de las once herramientas de la ingesta: **10 522 caracteres ≈ 2 631 tokens** (medido hoy
+  con `buildTools(ctx, deps, SUPERFICIE_INGESTA)`).
+- Instrucciones de rol + índice de documentos: **5 428 + 3 025 = 8 453 caracteres ≈ 2 114 tokens**.
+- Catálogo de cuentas: hasta `MAX_COA_LINES = 400` líneas (system-prompt.ts:23) ≈ 3 000 tokens.
+- El CFDI en sí: los golden pesan ~1 400 caracteres ≈ **350 tokens**. Es la parte más barata, de
+  lejos.
+- Cada resultado de herramienta entra hasta `MAX_TOOL_RESULT_CHARS = 32 000` caracteres (8 000
+  tokens, tools/index.ts:27) y el bucle admite `MAX_ITERATIONS = 25` (agent.ts:33).
+
+Con cinco llamadas al modelo y un `read_docs` de por medio —una clasificación normal: leer la doc,
+buscar la cuenta, buscar precedente, leer la política del despacho, redactar el borrador— sale
+**≈ 60 000 tokens de entrada y ≈ 1 500 de salida por documento**. Con precios de hoy:
+
+| Modelo | $/M entrada | $/M salida | **por documento** | **2 000 docs/mes** |
+|---|---|---|---|---|
+| claude-opus-5 (el default) | 5 | 25 | $0.34 | $675 |
+| claude-opus-5 *con el prefijo cacheado* | 5 (caché 0.50) | 25 | **$0.22** | **$436** |
+| claude-sonnet-5 | 2 | 10 | $0.14 | $270 |
+| claude-haiku-4.5 | 1 | 5 | $0.068 | $135 |
+| gpt-5.6 Sol | 4 | 20 | $0.27 | $540 |
+| gpt-5.6 Terra | 2 | 12 | $0.14 | $276 |
+| gpt-5.6 Luna | 0.20 | 1.20 | **$0.014** | **$28** |
+| grok-4.6 (<200k) | 2 | 6 | $0.13 | $258 |
+| grok-4.3 (<200k) | 1.25 | 2.50 | $0.079 | $158 |
+| gemini-3.8-flash | 0.75 | 3.75 | $0.051 | $101 |
+| gemini-2.5-pro (el del perfil) | 1.25 | 10 | $0.090 | $180 |
+| deepseek-v4-flash (valle) | 0.22 | 0.66 | **$0.014** | **$28** |
+| deepseek-v4-flash (pico) | 0.44 | 1.32 | $0.028 | $57 |
+| deepseek-v4-pro (valle) | 0.66 | 1.98 | $0.043 | $85 |
+| mistral-large | 0.5 | 1.5 | $0.032 | $65 |
+| groq `openai/gpt-oss-120b` | 0.15 | 0.60 | **$0.010** | **$20** |
+| MiniMax-M2 | *sin fuente oficial fetchable* | — | — | — |
+| qwen3-max | *sin fuente oficial fetchable* | — | — | — |
+| ollama (local) | 0 | 0 | $0 marginal | $0 + el fierro |
+
+Tres lecturas que ese cuadro obliga:
+
+- **El default cuesta veinticuatro veces el más barato.** No es argumento para cambiarlo —la calidad
+  de clasificación contable no está medida entre estos modelos y el arnés existe justamente para
+  medirla— pero sí es argumento para que el init lo DIGA antes de que el despacho encienda la
+  ingesta nocturna.
+- **La caché del prefijo vale un tercio de la factura de Anthropic y no está en el camino
+  compatible.** `buildSystemBlocks` marca `cache_control: { type: 'ephemeral' }`
+  (system-prompt.ts:189), pero el runner OpenAI-compatible recibe el bloque **aplanado a texto**
+  (`providers/index.ts:87` → `openai-compat.ts:115, 374`): quien cachea ahí lo hace por su cuenta
+  (OpenAI y DeepSeek sí; los demás no). Dato fino que la tabla de arriba no refleja: Anthropic
+  factura además 286–406 tokens de preámbulo de herramientas por petición en Opus 5, y `prompt-size`
+  no los cuenta.
+- **El coste crece con los RESULTADOS de herramienta, no con el CFDI.** El documento son 350 tokens
+  de 60 000. Lo caro es el `read_docs` y las búsquedas que se re-envían en cada vuelta. Cualquier
+  ahorro serio está en el bucle, no en el proveedor.
+
+**11. Y la recomendación, que es lo que el encargo pedía de verdad.** Para un despacho mexicano, con
+lo verificado hoy:
+
+- **Si los papeles no pueden salir del país**: `ollama`, con los ojos abiertos —ventana 32 768 y la
+  falta de reproducibilidad ya medida— y el fierro pagado. No hay alternativa con residencia en
+  México: ninguna de las cuatro nubes la ofrece para inferencia.
+- **Si sí pueden salir y lo que pesa es la privacidad demostrable ante el cliente**: OpenRouter, con
+  su política de cero registro y su filtro de proveedores, **con un modelo fijo** y dado de alta por
+  PKCE headless. Es también el **mecanismo de alta que menos preguntas hace**: sin registro por
+  proveedor, sin consola, un pegado de código que expira en diez minutos. El segundo escalón son
+  Groq, Mistral o DeepSeek con una llave de consola. Los que más preguntan, y por mucho, son Vertex
+  (token de ~1 hora vía `api_key_cmd`, que `resolveProfile` ejecuta una vez por resolución) y Azure
+  (recurso + deployment).
+- **Si lo que pesa es el precio por documento**: `groq/gpt-oss-120b`, `gpt-5.6 Luna` o
+  `gemini-3.8-flash`, entre $0.010 y $0.051 por documento. DeepSeek empata en precio, pero la
+  jurisdicción es China y para papeles fiscales de un tercero eso es una conversación con el cliente,
+  no una decisión de ingeniería — y conviene que el init la nombre en vez de esconderla.
+- **Latencia**: **ningún proveedor publica latencia a México**, y ninguno tiene región de inferencia
+  en el país. La única respuesta honesta es medirla; la columna `duration_ms` ya está poblada desde
+  la migración 044 y lo único que falta es agruparla por proveedor (brecha 3). Recomendar un
+  proveedor «por latencia» sin ese GROUP BY sería exactamente el tipo de afirmación sin fuente que
+  esta investigación existe para no hacer.
+
+### Ligas de esta segunda pasada
+
+**Re-verificadas y vivas** (WebFetch en esta corrida): openrouter.ai/docs/use-cases/oauth-pkce ·
+openrouter.ai/docs/faq · ai.google.dev/gemini-api/docs/openai · ai.google.dev/gemini-api/docs/pricing ·
+platform.minimax.io/docs/api-reference/text-openai-api · platform.minimax.io/docs/guides/text-generation ·
+platform.claude.com/docs/en/about-claude/pricing · platform.claude.com/docs/en/manage-claude/data-residency ·
+docs.x.ai/docs/api-reference · docs.x.ai/docs/models · developers.openai.com/api/docs/models ·
+api-docs.deepseek.com/quick_start/pricing ·
+alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope ·
+alibabacloud.com/help/en/model-studio/models · alibabacloud.com/help/en/model-studio/text-generation ·
+console.groq.com/docs/models · mistral.ai/pricing ·
+docs.aws.amazon.com/bedrock/latest/userguide/models-region-compatibility.html ·
+learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/models
+
+**Muertas o no extraíbles en esta corrida**: developers.openai.com/api/pricing (404) ·
+platform.minimax.io/docs/price (404) · platform.minimax.io/docs/guides/price (404) ·
+alibabacloud.com/help/en/model-studio/what-is-qwen-llm (301 a consola con sesión) ·
+docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations (índice, sin contenido) ·
+docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/data-residency (ídem) ·
+cloud.google.com/vertex-ai/docs/general/locations (301 → ídem) ·
+docs.aws.amazon.com/bedrock/latest/userguide/models-regions.html (sello que remite a otra página)

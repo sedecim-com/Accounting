@@ -40,6 +40,7 @@
 
 **Su estado**
 
+- [[Brechas-para-la-perfeccion]]
 - [[El-tablero-y-los-criterios]]
 - [[Auditorias]]
 - [[Hoja-de-ruta]]

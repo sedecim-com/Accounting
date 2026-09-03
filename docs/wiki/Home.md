@@ -49,9 +49,15 @@ que promete un paso inexistente es peor que no tener manual—.
 
 ### Hacia dónde va
 
-Investigación con ligas verificadas (2026-09-02) y la dirección que tomaría cada frente. Son
-mapas de conexión y diseño, no capacidades: el lector no sale de aquí creyendo que ya puede
-conectar WhatsApp.
+Investigación en **dos pasadas** (2026-09-02, mañana y tarde) con sus ligas verificadas, y la
+dirección que tomaría cada frente. Son mapas de conexión y diseño, no capacidades: el lector no sale
+de aquí creyendo que ya puede conectar WhatsApp.
+
+**Empieza por [[Brechas-para-la-perfeccion]]**, que ordena todo lo demás por consecuencia para un
+despacho y por prerrequisito — y explica por qué «perfecto» es la pregunta equivocada para un
+sistema contable. La segunda pasada encontró, fuera de esos seis temas, **cuatro cifras falsas que el
+sistema ya emite**: el módulo de nómina, 31 archivos, el más grande del árbol, era el que ninguna
+auditoría había abierto.
 
 - **[[Conectores-PAC]]** — los proveedores de timbrado investigados, la regla de custodia y el plan de precarga.
 - **[[Onboarding-de-contabilidad]]** — traer una contabilidad existente: el XML del SAT como formato universal.

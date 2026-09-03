@@ -113,3 +113,388 @@ Telegram: https://core.telegram.org/bots/api — Slack: https://docs.slack.dev/a
 - El detalle del payload de webhook cuando el usuario toca un botón de WhatsApp (id/payload del botón) NO quedó verificado en la página consultada; el diseño no depende de ese detalle, pero quien implemente la pieza 3 debe verificarlo en la doc de mensajes interactivos antes de codificar.
 
 **Nota de seguridad**: ninguna página consultada intentó inyectar instrucciones; todo el contenido web se trató como dato.
+
+## Segunda pasada — 2026-09-02 (tarde)
+
+Corrida de re-verificación y de contraste contra el árbol. Se re-resolvieron con WebFetch las 19
+ligas que SOSTIENEN una recomendación de la mañana (no las decorativas) y se añadieron 11 nuevas,
+casi todas de fuente oficial mexicana, que la primera pasada no tocó. Nada de lo anterior se borra:
+donde algo quedó desmentido se cita la línea vieja y se dice en qué se equivocaba.
+
+### Lo que se verificó
+
+**Los dos gateways: confirmados, y uno con la cita más dura de lo que teníamos.**
+
+- `docs.openclaw.ai/gateway/openai-http-api` — VIVA. Confirma lo que la mañana ya había corregido:
+  «/v1/chat/completions supports a function-tool subset compatible with common OpenAI Chat
+  clients», con `tools` y `tool_choice`. Y trae una frase que endurece nuestra decisión de
+  frontera: «A valid Gateway token/password for this endpoint is equivalent to an owner/operator
+  credential, not a narrow per-user scope». Deshabilitado por defecto; «Keep it on
+  loopback/tailnet/private ingress only».
+- `docs.openclaw.ai/channels/whatsapp` — VIVA. Baileys confirmado: «production-ready via WhatsApp
+  Web (Baileys). The gateway owns the linked session(s)». Y un matiz que agrava el veredicto de la
+  mañana: «personal-number/self-chat setups are fully supported». Sigue sin ser canal de clientes.
+- `docs.openclaw.ai/gateway/security` — VIVA. Una frontera de confianza por gateway, loopback,
+  `dmPolicy: pairing`, `openclaw security audit`. Dato NUEVO y útil para nosotros: su
+  `sandbox.mode` admite perfiles por agente, incluido «messaging-only for public-facing bots» —
+  que es exactamente el molde del canal acotado que este documento propone.
+- `docs.openclaw.ai/gateway/config-channels` — VIVA. `dmPolicy` pairing/allowlist/open/disabled y
+  `groupPolicy: allowlist` por defecto, confirmados. NUEVO: los códigos de emparejamiento caducan
+  a la hora y hay tope de 3 pendientes por cuenta.
+- `docs.openclaw.ai/channels` — VIVA, y CAMBIÓ. La mañana escribió «30+ plataformas … WebChat
+  viene en el núcleo; la mayoría son plugins oficiales». Hoy el catálogo lista **31** y **el
+  núcleo trae WebChat Y Telegram**; 27 plugins oficiales y 3 externos (WeChat, WeCom, Zalo).
+  Corrección menor, pero enseña que el inventario de canales de ese proyecto envejece en semanas.
+- `github.com/openclaw/openclaw` — VIVA. MIT, ~388.7k estrellas, el gateway sigue descrito como
+  «the local control plane for sessions, tools, events, and channel connections».
+- `github.com/NousResearch/hermes-agent` — VIVA. MIT, y el listado de canales textual: «Telegram,
+  Discord, Slack, WhatsApp, Signal, and CLI — all from a single gateway process».
+- `hermes-agent.nousresearch.com/docs/user-guide/features/api-server` — VIVA y literal: puerto
+  8642, bind `127.0.0.1`, «API_SERVER_KEY is required for every deployment», «gives full access to
+  hermes-agent's toolset, including terminal commands», y la frase que hace de su `tools: false`
+  una limitación real y no una decisión: las tool calls «were already executed server-side … never
+  as pending calls for the client to execute».
+
+**WhatsApp: el modelo de precio se confirma y una afirmación nuestra se cae.**
+
+- `developers.facebook.com/docs/whatsapp/pricing` — VIVA. Confirmado el cobro por mensaje desde el
+  1-jul-2025: «You are only charged when a template message is delivered». Confirmado que los no
+  plantilla son gratis. **DESMENTIDO** lo que la mañana escribió —«Marketing siempre se cobra;
+  utility y authentication son gratis dentro de la ventana de servicio»—: la página dice
+  «Utility templates delivered within an open customer service window are free» y **no extiende esa
+  gratuidad a authentication**, que se cobra. Para nuestro caso cambia poco (un despacho manda
+  utility), pero una tabla de costos que regala la categoría equivocada es la clase de error que
+  después se presupuesta.
+- NUEVO en esa misma página y NUEVO del todo:
+  `developers.facebook.com/documentation/business-messaging/whatsapp/pricing/ai-providers` — VIVA.
+  Desde el **16-feb-2026** Meta cobra a los «AI Providers» los mensajes NO plantilla. La definición
+  apunta a «providers and developers of artificial intelligence or machine learning technologies …
+  who provide certain services on WhatsApp Business Platform»: el producto ES el asistente, no
+  un negocio que usa IA en su propia atención. Mercados cobrados a la fecha de consulta: Italia
+  (16-feb, exenta 13-may), 29 países EU/EEA (11-mar a 12-may, exentos 13-may) y **Brasil, vigente**;
+  tarifas nuevas anunciadas para el 1-jul-2026. **México no está en la lista y un despacho no cae
+  en la definición** — pero es la primera vez que Meta pone precio a un mensaje según QUIÉN está
+  detrás, y eso va a la lista de vigilancia, no al plan.
+- `developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-webhooks` — VIVA. Confirma el
+  reintento: «Meta retries delivery with decreasing frequency until the request succeeds, for up to
+  7 days», y avisa de notificaciones duplicadas. **Precisión contra la mañana**: esta página NO
+  contiene el HMAC ni el handshake; ese material está en la de Graph API, que también se verificó
+  (`developers.facebook.com/docs/graph-api/webhooks/getting-started`, VIVA): `hub.mode`,
+  `hub.challenge`, `hub.verify_token`, y «Generate a SHA256 signature using the payload and your
+  app's App Secret … everything after `sha256=`». La mañana atribuyó las dos cosas a la página de
+  WhatsApp; el diseño no cambia, la cita sí.
+- `developers.facebook.com/docs/whatsapp/overview/getting-opt-in` — VIVA, y literal en lo que
+  importa: «Businesses must clearly state the business's name that a person is opting in to receive
+  messages from», cualquier método conforme a la ley aplicable.
+- `developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages` — VIVA: «When a WhatsApp
+  user messages you or calls you, a 24-hour timer called a customer service window starts» y
+  «When the window closes, you can only send pre-approved template messages». Tres botones.
+- `developers.facebook.com/docs/whatsapp/cloud-api` — VIVA. WABA, número de negocio, webhooks para
+  todo entrante, plantillas aprobadas como único envío fuera de ventana.
+
+**Lo que la mañana dejó explícitamente sin verificar, ya está verificado.** La nota decía: «El
+detalle del payload de webhook cuando el usuario toca un botón de WhatsApp NO quedó verificado …
+quien implemente la pieza 3 debe verificarlo». Verificado en
+`developers.facebook.com/documentation/business-messaging/whatsapp/messages/interactive-reply-buttons-messages`
+(VIVA): llega `"interactive": { "type": "button_reply", "button_reply": { "id": "<BUTTON_ID>",
+"title": "<BUTTON_LABEL_TEXT>" } }`; máximo 3 botones, título tope 20 caracteres, **id tope 256** —
+y el usuario viene identificado **sólo por su `wa_id`, que es su teléfono**. Ese último dato es el
+que arma la sección tres.
+
+**Telegram, Slack y correo: sin cambios, con los números exactos.**
+
+- `core.telegram.org/bots/api` — VIVA. `secret_token` (1-256) devuelto en
+  `X-Telegram-Bot-Api-Secret-Token`; sin firma HMAC del cuerpo; `getUpdates` sigue existiendo.
+- `docs.slack.dev/apis/events-api/` — VIVA y con las cifras: HTTP 2xx «within three seconds»;
+  reintentos casi inmediato, 1 minuto y 5 minutos; y desactivación temporal si se falla «more than
+  95% of delivery attempts within 60 minutes». Socket Mode sigue siendo la alternativa sin URL
+  pública.
+- `aws.amazon.com/ses/pricing/` — VIVA: $0.16/1000 en Essentials, $0.10/1000 a la carta. **NUEVO y
+  pertinente**: SES cobra también **entrada**, $0.10 por 1000 correos recibidos más $0.09 por cada
+  1000 «incoming email chunks».
+- `resend.com/pricing` — VIVA: gratis 3,000/mes con tope de 100/día; Pro $20/mes por 50,000.
+- `postmarkapp.com/pricing` — VIVA: gratis 100/mes; **Basic $15/mes por 10,000 — y el
+  procesamiento de correo ENTRANTE no viene en Basic**: está en Pro ($16.50) y Platform. La tabla
+  de la mañana daba el $15 sin ese matiz, y el matiz es justo el que decide si ese proveedor sirve
+  para recibir un CFDI.
+
+**Fuentes oficiales mexicanas, nuevas en esta pasada** (ninguna aparecía en la primera):
+Código de Comercio y Código Fiscal de la Federación desde el PDF de la Cámara de Diputados (texto
+extraído localmente, artículos citados abajo), la LFPDPPP vigente y su historial legislativo, y la
+NOM-151-SCFI-2016 en el DOF. Todas resolvieron.
+
+**Muertas o rotas en esta corrida (3):**
+- `developers.facebook.com/docs/whatsapp/cloud-api/guides/send-message-templates` — **HTTP 500**.
+  El material de plantillas se sostuvo con `guides/send-messages`, que sí responde.
+- `developers.facebook.com/docs/whatsapp/flows/guides/aboutflowsjson` — **HTTP 404**. Y la raíz de
+  Flows (`/docs/whatsapp/flows` y su gemela en `/documentation/…/flows/`) responde 200 pero sirve
+  la página vacía —sólo el encabezado—, así que **WhatsApp Flows queda SIN VERIFICAR**: no se
+  afirma nada sobre formularios cifrados dentro de WhatsApp hasta que alguien lea esa doc con un
+  navegador de verdad.
+- `www.dof.gob.mx` — el certificado no cubre el host con `www` (altnames sólo `dof.gob.mx`). Se
+  resolvió sin `www` y respondió. Vale la pena saberlo: media investigación mexicana cita el host
+  con `www`.
+
+Vivas pero sin el dato pedido (no son muertas, se anotan para que nadie repita el intento):
+`…/cloud-api/webhooks/payload-examples` y `…/cloud-api/webhooks/components` responden pero remiten a
+la referencia por tipo de mensaje; el detalle está en las páginas por tipo, que sí lo dieron.
+
+**Inyecciones**: ninguna página intentó dar instrucciones a un asistente. Se anota, por honestidad,
+que el listado de `github.com/openclaw/openclaw` incluye un archivo `CLAUDE.md` dirigido a
+asistentes de código: no se abrió ni se siguió, y no forma parte de ninguna afirmación de aquí.
+
+### La deriva contra el árbol
+
+Entre la mañana y la tarde entraron a `main` G1a, F06, R4 y F05, y el árbol de trabajo lleva además
+S-UX y A5 (`637bad4`). Esto es lo que cambió bajo los pies de este documento.
+
+**Las dos comprobaciones que el encargo pedía por su nombre: las dos siguen abiertas.**
+
+1. **`ai_webhook_deliveries` sigue sin guardar el cuerpo.** `src/database/migrations/028_ai_webhooks.sql:68-91`
+   enumera las columnas y no hay ninguna de cuerpo; `src/ai/webhooks/intake.ts:65-66` lo confirma
+   desde el otro lado (`DELIVERY_COLUMNS` = id, token_id, tenant_id, entity_id, document_key,
+   received_at, status, suspicion, drafts_created) y el `INSERT` de `recordDelivery`
+   (`intake.ts:239-249`) manda seis valores, ninguno el cuerpo. La última migración del árbol es la
+   060 y ninguna lo añade. La decisión sigue redactada como pregunta abierta en
+   `docs/plan-cierre-brechas.md:6881-6889`, con su recomendación —persistir `raw_body` y vaciarlo al
+   salir de `received`, con tope de 7 días— sin ejecutar. **La pieza 1 del mecanismo sigue siendo el
+   prerequisito de todo, intacta.**
+2. **El CHECK de `ai_external_ops` sigue sin `send_message`.** `src/database/migrations/014_ai_external_ops.sql:14-17`
+   admite exactamente `create_policy`, `update_policy`, `upload_xml`, `bank_transaction`,
+   `reconcile_invoice`. Las únicas migraciones posteriores que tocan la tabla son la 019
+   (`approved_content_hash`) y menciones en comentarios de la 022, 038 y 060. Mandar un mensaje por
+   la bandeja sigue exigiendo migración.
+
+**Lo que empeoró, y es culpa de no haber aplicado la corrección de la mañana.** La primera pasada
+recomendaba: «la nota del perfil `openclaw` debe decir que el endpoint SÍ acepta tools según su doc
+oficial y que el `tools: false` es decisión de frontera nuestra». No se aplicó — y A5 **multiplicó
+la afirmación inexacta por tres**. Hoy `src/ai/providers/config.ts:453-477` la repite en tres
+lugares: el `note` de siempre (`:462`, «Like hermes-agent, it runs ITS OWN tools server-side»), y
+los dos bloques que A5 añadió, `ventana.razon` (`:465-468`) y `reproducibilidad.razon`
+(`:471-475`: «Como hermes-agent: `tools: false`, la pasarela corre sus propias herramientas del lado
+del servidor y las contables nunca se invocan. No hay clasificación que puntuar»). Es decir: ahora
+un **veredicto de reproducibilidad** —«no-admite», sin instantánea— se justifica sobre una premisa
+que la doc oficial contradice. Un renglón por corregir se volvieron tres, y el tercero ya decide
+algo. El perfil `hermes-agent` (`:230-256`) sí es exacto y se re-verificó palabra por palabra.
+
+**El registro de integraciones no se movió, y trajo una lección que la mañana no vio.**
+`src/services/integrations/index.ts:1-14` sigue registrando `stripeAdapter`, `conektaAdapter` y
+`s3Adapter` (más los PAC por `pac-router.ts`); no existe `src/services/integrations/canales/`, y un
+grep de `whatsapp|telegram|canal_` sobre todo `src/` no devuelve **nada**. Pero al comprobarlo
+apareció esto: **`s3Adapter` tampoco tiene consumidor** — fuera de su propio archivo y del
+`index.ts` que lo registra, no lo llama nadie. O sea que la regla que F03 dejó escrita —el adaptador
+no nace hasta que nace su consumidor— **ya está rota hoy**, y el criterio que la vigila
+(`src/plan/criterios.ts:3230-3266`) sólo sabe vigilarla **por el nombre `sendgrid`**. Un adaptador
+de canal nuevo pasaría por debajo de ese criterio sin despeinarse.
+
+**`HUERFANOS_CONGELADOS` encogió.** `src/plan/criterios.ts:1200-1206` ya sólo congela
+`autoExecuteOpByPolicy` y `calculateBenefitsForPaycheck`: `earlyPaymentDiscount` se pagó en F04 y su
+línea se borró, que es como esa lista registra las deudas saldadas. La recomendación de la mañana
+—extenderla a los adaptadores restantes— sigue sin aplicar, y `s3Adapter` es la prueba de que hacía
+falta.
+
+**Y la deriva que importa: A5 cerró una puerta que un canal de chat vuelve a abrir, multiplicada.**
+
+A5 descubrió que en `mnemosine questions` teclear «si» se tomaba como LA RESPUESTA y
+`answerQuestion` la graba con `is_precedent = true`, así que la palabra «si» se convertía en un
+precedente FIRME que entra al digest de todas las sesiones siguientes. Lo cerró con una gramática
+explícita, y esa gramática es ahora el contrato que cualquier canal tiene que cumplir. Está en tres
+sitios, y conviene leerlos antes de escribir una línea de canal:
+
+- `src/cli/kernel/confirmacion.ts:38-58` — el «sí» es ANCLADO (el token completo, nunca la inicial),
+  bilingüe y sin acentos obligatorios; `null` (EOF) y vacío **jamás** son consentimiento.
+  `confirmarConReintento` (`:78-91`) concede **exactamente una** repregunta, «porque un prompt que
+  insiste sin límite frente a una stdin que repite basura es un ciclo infinito en un cron».
+- `src/cli/mnemosine.ts:1375-1433` — en `review`, un «sí» se RECHAZA porque en español lee «sí» y en
+  inglés «skip», resultados opuestos; `askReviewMenu` reintenta una vez y, agotada, **no decide
+  nada**.
+- `src/cli/mnemosine.ts:2585-2700` — en `questions`, la frontera declarada no es «tecla contra
+  resto» sino «contesta la PREGUNTA» contra «cree contestar al MENÚ». Regla 1: un sí/no desnudo
+  nunca se acepta, **ni repetido** («no tiene excepción por insistencia»), porque como criterio está
+  vacío: el digest imprimiría «clasificacion:Telmex: si». Regla 2: un número fuera de rango sí tiene
+  contenido y se acepta si se insiste tras el aviso. Regla 3: pasar de largo es ENTER.
+
+**Qué exige eso de un canal, punto por punto:**
+
+1. **La repregunta tiene que existir sin stdin.** El mecanismo entero de A5 es «no entendí, te lo
+   vuelvo a preguntar una vez». Un chat no tiene bucle: la respuesta llega tres horas después, desde
+   un teléfono, sin sesión. Así que la repregunta deja de ser un bucle y pasa a ser **estado**: la
+   pregunta queda pendiente, sale UN mensaje de aclaración y **el tope de uno se hereda literal** —
+   un canal que repregunta sin tope no es un ciclo infinito en un cron, es un ciclo infinito
+   **facturado por plantilla**.
+2. **El botón es la única forma inequívoca, y la doc lo permite.** `interactive.button_reply.id`
+   admite 256 caracteres y el título 20: el id puede llevar la referencia completa
+   (`draft:<uuid>:opcion:2`) mientras el usuario lee tres palabras. Eso es exactamente el «número de
+   la opción» que la regla 1 de A5 acepta —«elegirla SÍ es inequívoco, aunque la opción se llame
+   *Sí, se deduce*»—. Corolario duro: **por un canal, el texto libre nunca siembra un precedente
+   firme**. Botón para elegir entre las `options` que el modelo puso; texto libre sólo como
+   `review_notes`, o pendiente.
+3. **Dos «sí» seguidos siguen sin ser criterio.** La regla 1 no tiene excepción por insistencia y un
+   canal no puede inventarse una: en un chat, repetir es más barato que pensar.
+4. **La atribución es el nudo.** `teachMemory` (`src/ai/memory-service.ts:155-170`) exige
+   `taughtBy`; `rejectionPrecedent` (`src/ai/draft-service.ts:157-193`) sólo REDACTA la propuesta y
+   la siembra la hace el bucle de revisión «atribuida a quien lo dice». Un mensaje de WhatsApp trae
+   `wa_id` — un teléfono. **Sembrar un precedente firme atribuido a un número de teléfono es
+   justamente lo que A5 gastó 555 pruebas en impedir**, y por un canal ocurriría a escala.
+5. **La valla del digest ya está puesta y se hereda gratis.** El comentario de
+   `memory-service.ts` deja claro que `topic`/`question` se neutralizan a una línea y viajan entre
+   los marcadores de dato de tercero, precisamente porque pueden venir de un CFDI o de un payload de
+   webhook hostil. Un canal entra por ese mismo camino: no hay trabajo nuevo aquí, sí hay una
+   prueba que escribir.
+
+**El `reviewed_by` que convertiría un canal en una mentira estadística.** Este no estaba en la
+primera pasada y es el hallazgo más barato de arreglar y más caro de olvidar. `ai_drafts.reviewed_by`
+es texto libre con un convenio de espacio de nombres: `'policy:<id>'` cuando autoriza una política,
+y el correo del revisor cuando es humano (`src/ai/draft-service.ts:501`, `:602`).
+`src/ai/stats-service.ts:14-24` lo dice sin rodeos —«humano → lo aprobado que no es ninguno de los
+dos»— y lo implementa como residuo en `:100-104`; `src/ai/shadow-verdicts.ts:57-63` hace lo mismo
+para la concordancia sombra-vs-humano, con `NOT LIKE 'policy:%'`. Consecuencia: una aprobación
+llegada por canal, escrita como `whatsapp:+52…`, **se contaría como `aprobados_humano` y como
+`decididos`** — y esa es justo la estadística con la que el despacho decide si sube
+`ingest_auto_post`. El canal tendría que resolver a un correo de usuario real, o reclamar su propio
+prefijo Y cambiar esas tres consultas **en el mismo commit**. `ai_external_ops.reviewed_by`
+(014:27) es un `VARCHAR(255)` con la misma forma y la misma trampa.
+
+**Lo que la primera pasada dio por bueno y sigue siéndolo:** el registry con `readonly simulado`
+(`base/adapter.interface.ts:59`) y credenciales cifradas (`base/registry.ts:47-96`); la ruta
+`ai-webhooks.ts` con token sha256, comparación en tiempo constante, cuerpo crudo con tope de 1MB e
+idempotencia; el molde de `PolicySpec` (`pending-catalog.ts:14-38`) y su ejemplo de compuerta
+operativa en `ingest_auto_post` (`:808`, `:831`); y `019_approval_integrity.sql`, que ata la
+aprobación al hash canónico de lo aprobado — pieza que en esta pasada resulta valer más de lo que
+parecía (ver abajo).
+
+### Lo que falta para ser perfecto
+
+Ordenado por consecuencia para un despacho, no por dificultad.
+
+**1. El CFDI no cabe por WhatsApp. Literalmente, por tipo MIME.** La tabla de tipos de documento de
+la Cloud API —verificada en DOS páginas oficiales distintas, `…/cloud-api/reference/media` y
+`…/business-phone-numbers/media`— admite `.txt`, `.doc/.docx`, `.xls/.xlsx`, `.ppt/.pptx` y `.pdf`,
+todos a 100 MB. **No admite `application/xml` ni `text/xml`.** Un CFDI ES un XML. Lo que el cliente
+va a mandar es el PDF, que es la representación impresa y no el documento fiscal: no se valida
+contra el SAT, no trae sello ni cadena original, y termina con alguien tecleando el UUID. La
+consecuencia de no decidir esto es la peor de todas, porque no falla ruidosamente: falla llenando el
+sistema de PDFs. La frontera correcta: **el canal que transporta CFDIs es el CORREO** (SES entrante
+$0.10/1000, o Postmark **Pro** $16.50 — Basic no incluye entrante) o el webhook que ya existe;
+WhatsApp transporta la CONVERSACIÓN y, como mucho, un PDF de evidencia — y el adaptador debe saber
+responder «mándame el XML a <dirección>» cuando reciba un PDF con pinta de CFDI. Tamaño **M**.
+Bloqueada por: nada. Es una decisión de frontera más el adaptador de correo.
+
+**2. Los adjuntos caducan antes que el drenado, así que la pieza 1 es necesaria pero no basta.**
+Incluso para los tipos que sí caben: el webhook **no trae los bytes**, trae un id de medio. Y
+(oficial) «Media URLs expire after 5 minutes» y «Media IDs in webhooks expire after 7 days».
+Persistir el cuerpo antes del 200 —la pieza 1 de este documento— guarda entonces **un puntero a algo
+que va a desaparecer**. Un canal con adjuntos exige que la descarga de bytes ocurra dentro de una
+ventana corta y que los bytes se guarden donde `s3Adapter` lleva un año esperando su primer
+consumidor. Tamaño **M**. Bloqueada por: la migración del cuerpo (gap 1 de la mañana) y por que
+`s3Adapter` gane consumidor.
+
+**3. Un teléfono no es un aprobador — y ahora se dice con la ley en la mano, no con una intuición.**
+La primera pasada lo argumentó bien pero sin fuente. La fuente existe y es mejor que el argumento.
+**Código de Comercio art. 90**: se presume que un mensaje de datos proviene del emisor si fue
+enviado «por el propio Emisor», «usando medios de identificación, tales como **claves o
+contraseñas** del Emisor o por alguna persona facultada», o por un sistema programado por él. Un tap
+en WhatsApp no es ninguna de las tres. Y el **art. 90 bis fracción I** abre la única puerta: vale
+cuando el destinatario «haya aplicado en forma adecuada **el procedimiento acordado previamente** con
+el Emisor». Traducido a diseño: la tabla `canal_vinculos` que este documento propuso **no es una
+comodidad, es el procedimiento acordado previamente**, y por eso el alta tiene que hacerse desde una
+sesión autenticada, con fecha, método y alcance, y poder mostrarse. Desde el otro lado, NIST SP
+800-63B rev. 4 dice lo mismo: «Use of the PSTN for out-of-band verification is *restricted*», y el
+número de teléfono no prueba posesión del dispositivo. **Contra el árbol**: `public.users`
+(`src/database/migrations/001_core_schema.sql:28-43`) tiene `email` y `password_hash` y **ninguna
+columna de teléfono**; `audit_log` (`:454-470`) exige `user_id UUID NOT NULL` y tiene `ip_address` y
+`user_agent` pero **ninguna columna de canal ni de id de mensaje**. Hoy, literalmente, no hay dónde
+escribir «quién aprobó por chat y desde qué mensaje». Tamaño **M** (tabla de vínculos + columnas de
+canal en la auditoría). Bloqueada por: nada.
+
+**4. El rastro de una aprobación por chat dura diez años, no una sesión.** **CCom art. 49**: los
+comerciantes deben conservar **por un plazo mínimo de diez años** los originales de los mensajes de
+datos «en que se consignen contratos, convenios o compromisos que den nacimiento a derechos y
+obligaciones», y para los mensajes de datos exige que la información «se haya mantenido íntegra e
+inalterada … y sea accesible para su ulterior consulta». El **art. 93 bis** define esa integridad, y
+la **NOM-151-SCFI-2016** (DOF 30-03-2017, verificada) fija el cómo: constancia de conservación
+emitida por un prestador de servicios de certificación acreditado, con sello de tiempo RFC 3161
+sobre la huella y firma electrónica avanzada del prestador, **con vigencia mínima de diez años**. La
+mitad buena: la integridad ya la tenemos, y no lo sabíamos —`019_approval_integrity.sql` guarda el
+sha256 canónico de lo aprobado en `ai_drafts` y en `ai_external_ops`, y A5 lo recalcula sobre lo que
+el humano REALMENTE aprobó tras corregir. La mitad que falta: **el mensaje**. El cuerpo del mensaje
+que aprobó no se guarda en ningún lado (gap 1), así que hoy una aprobación por chat es una
+aprobación que no se puede enseñar. Tamaño: **S** el paso honesto (guardar el mensaje, atarlo a la
+operación y registrar qué hash aprobó), **L** si se persigue la constancia con un PSC acreditado —y
+eso último es decisión del despacho, con su whyAsking, no default nuestro. Bloqueada por: gap 1.
+
+**5. La ventana de 24 horas y el reloj de tres días no son el mismo reloj, y el segundo es el que
+multa.** Toda la investigación —la de la mañana y la de la tarde— inventarió WhatsApp, Telegram,
+Slack y correo, y **se dejó fuera el único canal con plazo legal**. **CFF art. 17-K** (texto vigente,
+última reforma DOF 09-04-2026): quien tiene buzón tributario «deberá consultarlo dentro de los
+**tres días** siguientes a aquél en que reciba un aviso electrónico enviado por el Servicio de
+Administración Tributaria a cualquiera de los mecanismos de comunicación que el contribuyente
+registre»; y si no habilita el buzón o señala medios de contacto erróneos o desactualizados, «se
+entenderá que **se opone a la notificación**» y la autoridad notifica por estrados (art. 134 fr.
+III). Para un despacho, el valor de tener canales no es platicar con el cliente: es no perder un
+plazo de tres días. Dos consecuencias de diseño: (a) la familia `canal` está incompleta sin un
+vigilante del buzón —y el panel ya tiene el molde para lo que eso toca, `efirma_max_accesos_diarios`
+y `efirma_accion_anomalia` (`pending-catalog.ts:760`, `:782`)—; (b) **ningún plazo fiscal puede
+colgar de una ventana que no controlamos**: fuera de la ventana de 24 h sólo sale una plantilla
+utility aprobada, y esa plantilla dice «hay algo que ver», nunca lleva la decisión. Tamaño: **L** el
+vigilante del buzón (necesita e.firma), **S** la regla de la ventana. Bloqueada por: la e.firma para
+lo primero; nada para lo segundo.
+
+**6. El consentimiento de un despacho mexicano no es el opt-in de Meta, y la ley cambió.** La
+primera pasada citó «buena práctica LFPDPPP» al pasar. Hoy la LFPDPPP en vigor es **otra ley**:
+publicada en el DOF el **20-03-2025**, con última reforma 14-11-2025, y el INAI ya no existe — la
+autoridad garante es «Transparencia para el Pueblo», órgano desconcentrado de la Secretaría
+Anticorrupción y Buen Gobierno. Su **art. 7** admite consentimiento tácito como regla general, pero
+dice: «Los **datos financieros o patrimoniales** requerirán el **consentimiento expreso** de la
+persona titular», y obliga a que el aviso de privacidad establezca «los mecanismos y procedimientos»
+de revocación. Todo lo que un despacho manda por un canal —un saldo, una balanza, una lista de pagos
+por hacer— es dato financiero o patrimonial. El opt-in de Meta (que sólo exige nombrar al negocio)
+**no cubre eso**. Así que el registro de vínculo nace con consentimiento expreso por persona, con su
+vía de revocación, o nace mal. El art. 8 sube un escalón más para datos sensibles: firma electrónica
+o «cualquier mecanismo de autenticación que al efecto se establezca». Tamaño **S** si se diseña así
+la primera migración de `canal_vinculos`; **XL** si se retrofitea después de un año de vínculos
+creados sin ese campo. Bloqueada por: nada, y es la más barata de hacer bien y la más cara de
+arreglar tarde.
+
+**7. El `reviewed_by` que mentiría en la estadística que decide el auto-posteo.** Detallado en la
+sección anterior con sus tres consultas (`stats-service.ts:100-104`, `shadow-verdicts.ts:57-63`, y el
+convenio de `draft-service.ts:501`). Tamaño **S**, pero indivisible: o el canal resuelve a un usuario
+real, o reclama prefijo propio y las tres consultas cambian en el mismo commit. Bloqueada por: nada.
+
+**8. El correo sigue sin consumidor, y ahora sabemos que debe nacer con DOS.** La lección de F03 está
+vigilada por nombre: `criterios.ts:3251` comprueba que no exista `sendgrid-adapter.ts` y que
+`index.ts` no lo mencione. Eso no impide registrar mañana un `email-resend-adapter.ts` igual de
+huérfano — como demuestra `s3Adapter`, huérfano hoy. Un adaptador de correo debe nacer con el
+despachador del outbox (salida) **y** con la entrada de CFDI por correo (gap 1 de esta lista): dos
+consumidores desde el primer commit. Y el criterio debería generalizarse de «sendgrid no existe» a
+«ningún adaptador registrado carece de consumidor», que es la forma que `s3Adapter` ya reprobaría.
+Tamaño **M**. Bloqueada por: la decisión del gap 1 (qué proveedor, por su entrante).
+
+**9. La nota de `openclaw`, que ya se reprodujo tres veces.** Corregir `config.ts:462`, `:465-468` y
+`:471-475` en una sola pasada, diciendo lo que la doc oficial dice —el endpoint SÍ acepta un
+subconjunto de function tools— y por qué nuestro `tools: false` sigue siendo correcto: porque el
+token del gateway «is equivalent to an owner/operator credential», y darle las herramientas
+contables por ahí rompería «el agente propone, el humano dispone». Tamaño **S**. Bloqueada por:
+nada. Cuanto más se tarde, más bloques la repetirán.
+
+**10. Un canal es, por definición, superficie desatendida — y A5 acaba de enseñar cómo se pierde.**
+`createLlmSessionWithFailover` reenviaba las opciones **enumerando** cuatro campos y `herramientas`
+no estaba entre ellos: la corrida desatendida creía pasar 23 herramientas y pasaban 25, con
+`external_pull` y `external_diff_trial_balance` —lecturas contra el sistema del cliente con su
+credencial— dentro. Se arregló la clase (reenvío por exclusión). Un canal entra por ese mismo sitio y
+con la agravante de que **nadie está mirando cuando llega el mensaje**: la sesión de canal tiene que
+declarar su superficie explícitamente y quedar bajo el mismo cerrojo desatendido, con una prueba que
+ejerza la costura de lado a lado —«probar el callee por su cuenta y el caller contra un doble sordo
+es exactamente cómo esto sobrevivió»—. No es una brecha nueva: es un requisito que hay que dejar
+escrito antes de que el canal exista. Tamaño **S**. Bloqueada por: nada.
+
+**Y una que no es brecha sino vigilancia**: la política de «AI Providers» de Meta (16-feb-2026). No
+nos aplica hoy —ni por definición ni por país—, pero es el primer precio que depende de quién está
+detrás del mensaje. Si algún día el despacho vende el agente como producto, cambia de casilla.
+
+**Lo que NO falta, y conviene decirlo para no gastar en ello**: la valla del digest contra texto de
+tercero ya existe; el hash de aprobación ya ata al humano con lo que vio; la gramática del sí ya está
+centralizada en un solo módulo y con censo que la vigila; el registry ya cifra credenciales y ya
+obliga a declarar `simulado`. Un canal bien hecho hereda las cuatro cosas sin escribirlas otra vez.
+Lo que falta es todo lo de arriba, y casi nada de ello es código de mensajería: es identidad,
+consentimiento, conservación y plazos.
