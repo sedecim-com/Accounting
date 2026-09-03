@@ -5,6 +5,7 @@ import { preAuthRateLimiter } from '../middleware/rate-limiter.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { bitcoinAnchorService } from '../../../services/blockchain/bitcoin-anchor.js';
 import { cryptoService } from '../../../services/blockchain/crypto-service.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 // PUBLIC verification endpoints — NO authentication required
 // These expose cryptographic proofs so third parties can verify
@@ -162,6 +163,7 @@ router.get('/verify/:entryHash', asyncHandler(async (req: Request, res: Response
         codeSnippet: `
 // Node.js verification
 import crypto from 'crypto';
+import { declararRiesgoRuta } from '../risk.js';
 const entry = /* fetch from source */;
 const canonical = JSON.stringify({ id: entry.id, ... });
 const hash = '0x' + crypto.createHash('sha256').update(canonical).digest('hex');
@@ -486,7 +488,8 @@ router.get('/bitcoin/proof/:entryHash', asyncHandler(async (req: Request, res: R
 
 // POST /public/v1/verify/merkle-proof
 // Verify a user-submitted Merkle proof against our root
-router.post('/verify/merkle-proof', asyncHandler(async (req: Request, res: Response) => {
+// POST sin credenciales que no escribe: verifica una prueba y contesta.
+router.post('/verify/merkle-proof', declararRiesgoRuta({ riesgo: 'lectura' }), asyncHandler(async (req: Request, res: Response) => {
   const { leaf, proof, root } = req.body;
 
   if (!leaf || !proof || !root) {

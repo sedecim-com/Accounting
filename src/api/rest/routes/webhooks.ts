@@ -12,6 +12,7 @@ import {
   getDeliveries,
   WEBHOOK_EVENTS,
 } from '../../../services/webhooks/webhook-service.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 const router = Router();
 
@@ -21,7 +22,7 @@ const createWebhookSchema = z.object({
 });
 
 // POST /v1/webhooks
-router.post('/', requirePermission('settings:manage'), validateBody(createWebhookSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'webhook_subscriptions (la suscripcion; la entrega la hace el despachador)' }), requirePermission('settings:manage'), validateBody(createWebhookSchema), asyncHandler(async (req: Request, res: Response) => {
   const { url, events } = req.body;
 
   const invalidEvents = events.filter((e: string) => !WEBHOOK_EVENTS.includes(e as typeof WEBHOOK_EVENTS[number]));
@@ -48,7 +49,7 @@ router.get('/', requirePermission('settings:manage'), asyncHandler(async (req: R
 }));
 
 // DELETE /v1/webhooks/:id
-router.delete('/:id', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
+router.delete('/:id', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'DELETE de webhook_subscriptions: borrado duro, sin copia' }), requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   // R2: acotado por inquilino; cero filas = no existe o no es tuyo → 404.
   const borrado = await deleteWebhook(req.params.id, req.user!.tenant_id);
   if (!borrado) throw new NotFoundError('Webhook', req.params.id);
@@ -56,7 +57,7 @@ router.delete('/:id', requirePermission('settings:manage'), asyncHandler(async (
 }));
 
 // POST /v1/webhooks/:id/test
-router.post('/:id/test', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/test', declararRiesgoRuta({ riesgo: 'externo', escribe: 'nada en la base; ENTREGA a la URL del suscriptor' }), requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   await dispatchEvent(req.user!.tenant_id, 'test.ping', { message: 'Test webhook delivery' });
 
   res.json({
@@ -81,7 +82,7 @@ router.get('/:id/deliveries', requirePermission('settings:manage'), asyncHandler
 }));
 
 // POST /v1/webhook-deliveries/:id/retry
-router.post('/deliveries/:id/retry', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/deliveries/:id/retry', declararRiesgoRuta({ riesgo: 'externo', escribe: 'webhook_deliveries + reenvia a la URL del suscriptor' }), requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const retried = await retryDelivery(req.params.id, req.user!.tenant_id);
   if (!retried) throw new NotFoundError('Webhook delivery', req.params.id);
 

@@ -15,6 +15,8 @@ import {
 } from '../../../services/ar/invoice-service.js';
 import { estadoParaPersistir } from '../../../services/integrations/mexico/pac/simulacion.js';
 import type { Invoice } from '../../../types/index.js';
+import { declararRiesgoRuta } from '../risk.js';
+import { arregloAcotado, MAX_RENGLONES_POR_DOCUMENTO } from '../topes.js';
 
 // ============================================================
 // /v1/invoices — HTTP surface over the AR invoice service.
@@ -49,7 +51,15 @@ const createInvoiceSchema = z.object({
   invoice_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
   currency_code: z.string().length(3).optional(),
-  lines: z.array(invoiceLineSchema).min(1, 'At least 1 line required'),
+  // Un renglón = un INSERT dentro de la transacción que crea la factura.
+  // El porqué del número, en topes.ts.
+  lines: arregloAcotado(invoiceLineSchema, {
+    tope: MAX_RENGLONES_POR_DOCUMENTO,
+    plural: 'renglones',
+    salida: 'Parte la factura: un comprobante con más renglones que eso no lo timbra ningún PAC.',
+    minimo: 1,
+    mensajeMinimo: 'At least 1 line required',
+  }),
   terms: z.string().optional(),
   memo: z.string().optional(),
   po_number: z.string().optional(),
@@ -134,7 +144,7 @@ router.get('/:id', requirePermission('invoices:read'), asyncHandler(async (req: 
 }));
 
 // POST /v1/invoices
-router.post('/', requirePermission('invoices:create'), requireEntityAccess, validateBody(createInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'invoices + invoice_lines (borrador)' }), requirePermission('invoices:create'), requireEntityAccess, validateBody(createInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
   const invoice = await createInvoice({ ...req.body, created_by: req.user!.user_id });
   res.status(201).json({ data: invoice, meta: meta(req) });
 }));
@@ -144,7 +154,9 @@ router.post('/', requirePermission('invoices:create'), requireEntityAccess, vali
 // here, atomically with the delivery fields. `issueInvoice` owns both halves
 // now — `markSent` is what separates delivering from merely issuing, and the
 // CLI's `invoice issue` passes it as false.
-router.post('/:id/send', requirePermission('invoices:send'), requireEntityAccess, validateBody(sendInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
+// `irreversible` y no `externo`: el nombre dice enviar, pero lo que hace es
+// EMITIR —la poliza de ingreso postea aqui— y marcar. No sale nada de la casa.
+router.post('/:id/send', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries de ingreso y CxC POSTEADOS + invoices.status; NO transmite correo' }), requirePermission('invoices:send'), requireEntityAccess, validateBody(sendInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
   const { to } = req.body;
 
   const { attest } = await issueInvoice(req.params.id, req.user!.user_id, {
@@ -172,7 +184,7 @@ router.post('/:id/send', requirePermission('invoices:send'), requireEntityAccess
 }));
 
 // POST /v1/invoices/:id/payments
-router.post('/:id/payments', requirePermission('invoices:create'), requireEntityAccess, validateBody(recordPaymentSchema.extend({
+router.post('/:id/payments', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'customer_payments + payment_allocations + invoices.amount_due + journal_entries' }), requirePermission('invoices:create'), requireEntityAccess, validateBody(recordPaymentSchema.extend({
   // payment_amount y payment_method se habían caído del esquema al extraer
   // el servicio, y el manejador los seguía leyendo: llegaban sin validar.
   payment_amount: numericLike,
@@ -225,7 +237,7 @@ router.post('/:id/payments', requirePermission('invoices:create'), requireEntity
 // reversal's description, in the original entry's notes and in the audit
 // record, so it is the only account of WHY revenue was annulled. Same rule as
 // POST /v1/journal-entries/:id/void.
-router.post('/:id/void', requirePermission('invoices:void'), requireEntityAccess, validateBody(voidInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/void', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'invoices.status + una poliza de reversa' }), requirePermission('invoices:void'), requireEntityAccess, validateBody(voidInvoiceSchema), asyncHandler(async (req: Request, res: Response) => {
   const { reason } = req.body as { reason: string };
   const { invoice, attest } = await voidInvoice(req.params.id, req.user!.user_id, {
     entityId: req.entityId!,
@@ -239,7 +251,7 @@ router.post('/:id/void', requirePermission('invoices:void'), requireEntityAccess
 }));
 
 // POST /v1/invoices/:id/cfdi/stamp (Mexico)
-router.post('/:id/cfdi/stamp', requirePermission('invoices:create'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/cfdi/stamp', declararRiesgoRuta({ riesgo: 'externo', escribe: 'invoices.cfdi_uuid/cfdi_status; TIMBRA ante un PAC' }), requirePermission('invoices:create'), asyncHandler(async (req: Request, res: Response) => {
   const { pacRouter } = await import('../../../services/integrations/mexico/pac/pac-router.js');
 
   const invoice = await query<Invoice>('SELECT * FROM invoices WHERE id = $1', [req.params.id]);
@@ -287,7 +299,7 @@ router.post('/:id/cfdi/stamp', requirePermission('invoices:create'), asyncHandle
 }));
 
 // POST /v1/invoices/:id/cfdi/cancel (Mexico)
-router.post('/:id/cfdi/cancel', requirePermission('invoices:void'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/cfdi/cancel', declararRiesgoRuta({ riesgo: 'externo', escribe: 'cancela el CFDI ante el PAC y el SAT' }), requirePermission('invoices:void'), asyncHandler(async (req: Request, res: Response) => {
   const { cancellation_reason, replacement_uuid } = req.body;
 
   if (!cancellation_reason) {

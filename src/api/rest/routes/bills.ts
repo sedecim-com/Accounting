@@ -12,6 +12,12 @@ import {
   approveBill,
 } from '../../../services/ap/bill-service.js';
 import type { PaginationMeta } from '../../../types/index.js';
+import { declararRiesgoRuta } from '../risk.js';
+import {
+  arregloAcotado,
+  MAX_APLICACIONES_POR_PAGO,
+  MAX_RENGLONES_POR_DOCUMENTO,
+} from '../topes.js';
 
 // ============================================================
 // /v1/bills — HTTP surface over the vendor-bill service.
@@ -50,7 +56,13 @@ const createBillSchema = z.object({
   bill_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
   currency_code: z.string().length(3).optional(),
-  lines: z.array(billLineSchema).min(1),
+  // El porqué del número, en topes.ts.
+  lines: arregloAcotado(billLineSchema, {
+    tope: MAX_RENGLONES_POR_DOCUMENTO,
+    plural: 'renglones',
+    salida: 'Parte el comprobante: con más renglones que eso lo que hay es una importación.',
+    minimo: 1,
+  }),
   terms: z.string().optional(),
   description: z.string().optional(),
   attachments: z.array(z.unknown()).optional(),
@@ -63,11 +75,20 @@ const vendorPaymentSchema = z.object({
   payment_method: z.string().min(1),
   payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/),
   bank_account_id: z.string().uuid().optional(),
-  applications: z.array(z.object({
-    bill_id: z.string().uuid(),
-    amount_applied: numericLike,
-    discount_amount: numericLike.optional(),
-  })).optional(),
+  // Ruta IRREVERSIBLE: cada aplicación mueve `amount_due` y entra en la
+  // póliza que se postea, dentro de la transacción del pago.
+  applications: arregloAcotado(
+    z.object({
+      bill_id: z.string().uuid(),
+      amount_applied: numericLike,
+      discount_amount: numericLike.optional(),
+    }),
+    {
+      tope: MAX_APLICACIONES_POR_PAGO,
+      plural: 'aplicaciones',
+      salida: 'Un pago contra más documentos que eso es una remesa: regístrala como varios pagos.',
+    }
+  ).optional(),
   memo: z.string().optional(),
 });
 
@@ -117,14 +138,14 @@ router.get('/:id', requirePermission('bills:read'), asyncHandler(async (req: Req
 }));
 
 // POST /v1/bills
-router.post('/', requirePermission('bills:create'), requireEntityAccess, validateBody(createBillSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'bills, bill_lines' }), requirePermission('bills:create'), requireEntityAccess, validateBody(createBillSchema), asyncHandler(async (req: Request, res: Response) => {
   const bill = await createBill({ ...req.body, created_by: req.user!.user_id });
 
   res.status(201).json({ data: bill, meta: meta(req) });
 }));
 
 // POST /v1/bills/:id/approve
-router.post('/:id/approve', requirePermission('bills:approve'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/approve', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'bills.status + journal_entries: reconoce el pasivo y el IVA acreditable' }), requirePermission('bills:approve'), asyncHandler(async (req: Request, res: Response) => {
   // Approval recognizes the liability: CR AP / DR expense + creditable IVA,
   // atomically with the status change (idempotent behind journal_entry_id).
   const { bill, attestation } = await approveBill(req.params.id, req.user!.user_id);
@@ -146,7 +167,7 @@ router.post('/:id/approve', requirePermission('bills:approve'), asyncHandler(asy
 //
 // There is no payment scheduler in mnemosine to route this to. Until one
 // exists that actually holds and releases a payment, the endpoint says so.
-router.post('/:id/schedule-payment', requirePermission('bills:create'), asyncHandler(async () => {
+router.post('/:id/schedule-payment', declararRiesgoRuta({ riesgo: 'externo', escribe: 'nada: hoy 501. El acto que nombra es instruir a un banco.' }), requirePermission('bills:create'), asyncHandler(async () => {
   throw new NotImplementedError(
     'mnemosine does not schedule payments: it has no payment scheduler and no connection to your ' +
       'bank, so nothing would be released on the date you give. Pay the bill in your bank, then ' +
@@ -159,7 +180,7 @@ router.post('/:id/schedule-payment', requirePermission('bills:create'), asyncHan
 // requireEntityAccess: el entity_id viene del CUERPO y nadie comprobaba
 // que fuera una entidad del usuario. Con el UUID de una entidad hermana
 // se fabricaba un pago a proveedor en sus libros.
-router.post('/payments', requirePermission('bills:create'), requireEntityAccess, validateBody(vendorPaymentSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/payments', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'vendor_payments + payment_allocations + bills.amount_due + journal_entries' }), requirePermission('bills:create'), requireEntityAccess, validateBody(vendorPaymentSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, vendor_id, payment_amount, payment_method, payment_date, bank_account_id, applications, memo } = req.body;
 
   // Una sola implementación, compartida con `mnemosine bill pay` y con el

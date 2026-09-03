@@ -38,6 +38,7 @@ import {
 import { generateIdseBatch } from '../../../services/payroll/integrations/imss-idse-adapter.js';
 import { generateNachaFile } from '../../../services/payroll/usa/nacha-generator.js';
 import { PAY_RUN_TYPES } from '../../../database/enums.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 const router = Router();
 
@@ -123,6 +124,7 @@ router.get('/employees/:id', requirePermission('payroll:read'), asyncHandler(asy
 
 router.post(
   '/employees',
+  declararRiesgoRuta({ riesgo: 'escritura', escribe: 'employees' }),
   requirePermission('payroll:create'),
   requireEntityAccess,
   validateBody(createEmployeeSchema),
@@ -139,6 +141,7 @@ router.post(
 
 router.post(
   '/employees/:id/compensation',
+  declararRiesgoRuta({ riesgo: 'escritura', escribe: 'employees + el historial salarial' }),
   requirePermission('payroll:update'),
   validateBody(compensationChangeSchema),
   asyncHandler(async (req: Request, res: Response) => {
@@ -154,7 +157,7 @@ router.post(
   })
 );
 
-router.post('/employees/:id/terminate', requirePermission('payroll:update'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/employees/:id/terminate', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'employees.termination_date/status; ninguna poliza' }), requirePermission('payroll:update'), asyncHandler(async (req: Request, res: Response) => {
   const { termination_date, termination_reason } = req.body;
   if (!termination_date) throw new ValidationError('termination_date required');
   await terminateEmployee(req.params.id, termination_date, termination_reason || '');
@@ -162,7 +165,7 @@ router.post('/employees/:id/terminate', requirePermission('payroll:update'), asy
 }));
 
 // ---------- Pay schedules & periods ----------
-router.post('/pay-schedules', requirePermission('payroll:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+router.post('/pay-schedules', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pay_schedules' }), requirePermission('payroll:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const id = await createPaySchedule({
     ...req.body,
     tenant_id: req.tenantId!,
@@ -171,7 +174,7 @@ router.post('/pay-schedules', requirePermission('payroll:create'), requireEntity
   res.status(201).json({ data: { id }, meta: meta(req) });
 }));
 
-router.post('/pay-schedules/:id/generate-periods', requirePermission('payroll:create'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/pay-schedules/:id/generate-periods', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pay_periods' }), requirePermission('payroll:create'), asyncHandler(async (req: Request, res: Response) => {
   const { count = 24 } = req.body;
   const ids = await generatePayPeriods(req.params.id, count);
   res.json({ data: { period_ids: ids }, meta: meta(req) });
@@ -192,6 +195,7 @@ router.get('/pay-periods', requirePermission('payroll:read'), requireEntityAcces
 // ---------- Pay runs ----------
 router.post(
   '/pay-runs',
+  declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pay_runs (borrador)' }),
   requirePermission('payroll:create'),
   validateBody(createPayRunSchema),
   asyncHandler(async (req: Request, res: Response) => {
@@ -206,6 +210,7 @@ router.post(
 
 router.post(
   '/pay-runs/:id/calculate',
+  declararRiesgoRuta({ riesgo: 'escritura', escribe: 'paychecks calculados; ninguna poliza' }),
   requirePermission('payroll:create'),
   asyncHandler(async (req: Request, res: Response) => {
     await calculatePayRun(req.params.id, {
@@ -220,6 +225,7 @@ router.post(
 
 router.post(
   '/pay-runs/:id/approve',
+  declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'pay_runs.status: la aprobacion que habilita el posteo y el pago' }),
   requirePermission('payroll:approve'),
   asyncHandler(async (req: Request, res: Response) => {
     await approvePayRun(req.params.id, req.user!.user_id);
@@ -229,6 +235,7 @@ router.post(
 
 router.post(
   '/pay-runs/:id/post-to-gl',
+  declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries POSTEADOS + account_balances' }),
   requirePermission('payroll:approve'),
   asyncHandler(async (req: Request, res: Response) => {
     const journalEntryId = await postPayRunToGL(req.params.id, req.user!.user_id);
@@ -238,6 +245,7 @@ router.post(
 
 router.post(
   '/pay-runs/:id/mark-paid',
+  declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'pay_runs.status = paid: afirma que el dinero salio' }),
   requirePermission('payroll:approve'),
   asyncHandler(async (req: Request, res: Response) => {
     await markPayRunPaid(req.params.id);
@@ -253,13 +261,13 @@ router.get('/pay-runs/:id', requirePermission('payroll:read'), asyncHandler(asyn
 }));
 
 // ---------- MX CFDI payroll (Nomina complement) ----------
-router.post('/paychecks/:id/cfdi-nomina', requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/paychecks/:id/cfdi-nomina', declararRiesgoRuta({ riesgo: 'externo', escribe: 'TIMBRA el CFDI de nomina ante un PAC' }), requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
   const result = await generateAndStampCfdiNomina(req.params.id, { tenantId: req.tenantId!, userId: req.user!.user_id });
   res.json({ data: result, meta: meta(req) });
 }));
 
 // ---------- MX SUA ----------
-router.post('/sua', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+router.post('/sua', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings + el archivo SUA; no transmite' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, year, month } = req.body;
   if (!year || !month) throw new ValidationError('year, month required');
   const result = await generateSuaFile(req.tenantId!, entity_id || req.entityId!, year, month);
@@ -275,7 +283,8 @@ router.post('/sua', requirePermission('payroll:approve'), requireEntityAccess, a
 // cambiarla para liquidar a alguien de otra entidad del mismo inquilino.
 // Es la sexta vez que esta frontera aparece en el proyecto y la primera en
 // nómina: la puerta la abrió el propio arreglo de este tramo.
-router.post('/finiquito', requirePermission('payroll:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+// POST que calcula y contesta: el finiquito no se guarda en ninguna parte.
+router.post('/finiquito', declararRiesgoRuta({ riesgo: 'lectura' }), requirePermission('payroll:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   // El inquilino y la entidad viajan APARTE del cuerpo: el finiquito lee el
   // panel de políticas (`dias_aguinaldo`, `prima_vacacional_pct`) y acota el
   // empleado por inquilino dentro del SQL, y ninguna de las dos cosas puede
@@ -288,7 +297,7 @@ router.post('/finiquito', requirePermission('payroll:create'), requireEntityAcce
 }));
 
 // ---------- USA W-2 ----------
-router.post('/w2', requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/w2', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings' }), requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
   const { employee_id, tax_year } = req.body;
   if (!employee_id || !tax_year) throw new ValidationError('employee_id, tax_year required');
   const result = await generateW2(employee_id, tax_year);
@@ -296,7 +305,7 @@ router.post('/w2', requirePermission('payroll:approve'), asyncHandler(async (req
 }));
 
 // ---------- USA Form 941 ----------
-router.post('/form-941', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+router.post('/form-941', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, tax_year, quarter } = req.body;
   if (!tax_year || !quarter) throw new ValidationError('tax_year, quarter required');
   const result = await generateForm941(req.tenantId!, entity_id || req.entityId!, tax_year, quarter);
@@ -304,7 +313,7 @@ router.post('/form-941', requirePermission('payroll:approve'), requireEntityAcce
 }));
 
 // ---------- USA Form 940 ----------
-router.post('/form-940', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+router.post('/form-940', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, tax_year } = req.body;
   if (!tax_year) throw new ValidationError('tax_year required');
   const result = await generateForm940(req.tenantId!, entity_id || req.entityId!, tax_year);
@@ -312,7 +321,7 @@ router.post('/form-940', requirePermission('payroll:approve'), requireEntityAcce
 }));
 
 // ---------- USA NACHA ----------
-router.post('/nacha', requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/nacha', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'direct_deposit_batches + paychecks.direct_deposit_batch_id; produce la instruccion de pago que el banco ejecuta' }), requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
   const { pay_run_id, company_info } = req.body;
   if (!pay_run_id || !company_info) throw new ValidationError('pay_run_id, company_info required');
   const result = await generateNachaFile(pay_run_id, company_info);
@@ -320,14 +329,14 @@ router.post('/nacha', requirePermission('payroll:approve'), asyncHandler(async (
 }));
 
 // ---------- USA W-3 / EFW2 ----------
-router.post('/w3', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+router.post('/w3', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, tax_year } = req.body;
   if (!tax_year) throw new ValidationError('tax_year required');
   const result = await generateW3(req.tenantId!, entity_id || req.entityId!, tax_year);
   res.json({ data: result, meta: meta(req) });
 }));
 
-router.post('/efw2', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+router.post('/efw2', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, tax_year, submitter } = req.body;
   if (!tax_year || !submitter) throw new ValidationError('tax_year, submitter required');
   const result = await generateEfw2File(req.tenantId!, entity_id || req.entityId!, tax_year, submitter);
@@ -343,6 +352,7 @@ router.get('/benefit-plans', requirePermission('payroll:read'), requireEntityAcc
 
 router.post(
   '/benefit-plans',
+  declararRiesgoRuta({ riesgo: 'escritura', escribe: 'benefit_plans' }),
   requirePermission('payroll:create'),
   requireEntityAccess,
   validateBody(createBenefitPlanSchema),
@@ -363,6 +373,7 @@ router.get('/employees/:id/benefit-elections', requirePermission('payroll:read')
 
 router.post(
   '/employees/:id/benefit-elections',
+  declararRiesgoRuta({ riesgo: 'escritura', escribe: 'benefit_elections' }),
   requirePermission('payroll:update'),
   validateBody(electBenefitSchema.partial({ employee_id: true })),
   asyncHandler(async (req: Request, res: Response) => {
@@ -379,7 +390,7 @@ router.post(
 // hang instead of answering 422, which is a worse answer than the one we
 // withdrew. The rest of this file has the same latent bug; see the note in
 // the lane report.
-router.post('/imss-idse/batch', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+router.post('/imss-idse/batch', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings + el lote IDSE; no transmite' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, movements } = req.body;
   if (!Array.isArray(movements)) throw new ValidationError('movements[] required');
   const result = await generateIdseBatch(req.tenantId!, entity_id || req.entityId!, movements);
@@ -401,7 +412,7 @@ router.post('/imss-idse/batch', requirePermission('payroll:approve'), requireEnt
 // caller who believed they had filed.
 // ============================================================
 
-router.post('/imss-idse/submit', requirePermission('payroll:approve'), asyncHandler(async () => {
+router.post('/imss-idse/submit', declararRiesgoRuta({ riesgo: 'externo', escribe: 'nada: hoy 501. El acto que nombra es transmitir al IMSS.' }), requirePermission('payroll:approve'), asyncHandler(async () => {
   throw new NotImplementedError(
     'mnemosine does not transmit to IMSS. Generate the batch with POST /v1/payroll/imss-idse/batch, ' +
       'then upload the .txt yourself at idse.imss.gob.mx with the patron FIEL, and record the IMSS ' +
@@ -410,7 +421,7 @@ router.post('/imss-idse/submit', requirePermission('payroll:approve'), asyncHand
 }));
 
 // ---------- IRS e-file (941/940) — WITHDRAWN ----------
-router.post('/irs-efile/:filing_id', requirePermission('payroll:approve'), asyncHandler(async () => {
+router.post('/irs-efile/:filing_id', declararRiesgoRuta({ riesgo: 'externo', escribe: 'nada: hoy 501. El acto que nombra es transmitir al IRS.' }), requirePermission('payroll:approve'), asyncHandler(async () => {
   throw new NotImplementedError(
     'mnemosine does not transmit to the IRS. Produce the form with POST /v1/payroll/form-941 or ' +
       'POST /v1/payroll/form-940 and file it yourself — through an authorized e-file provider, or by ' +
@@ -426,7 +437,7 @@ router.get('/irs-efile/status/:submission_id', requirePermission('payroll:read')
 }));
 
 // ---------- SSA BSO (W-2 EFW2 bundle) — WITHDRAWN ----------
-router.post('/ssa-bso/submit', requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async () => {
+router.post('/ssa-bso/submit', declararRiesgoRuta({ riesgo: 'externo', escribe: 'nada: hoy 501. El acto que nombra es subir a la SSA.' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async () => {
   throw new NotImplementedError(
     'mnemosine does not upload to the SSA. Produce the EFW2 file with POST /v1/payroll/efw2, run it ' +
       'through AccuWage, upload it yourself at the SSA Business Services Online portal, and record the ' +

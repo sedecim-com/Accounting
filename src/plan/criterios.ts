@@ -502,6 +502,7 @@ export const CRITERIOS: Criterio[] = [
         G1a: 'docs/auditorias/G1a.md',
         G1b: 'docs/auditorias/G1b.md',
         G0: 'docs/auditorias/G0.md',
+        G4a: 'docs/auditorias/G4a.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -4377,6 +4378,60 @@ export const CRITERIOS: Criterio[] = [
       return vigilado
         ? ok(`las ${declarados.length} garantías del esquema están selladas, y doctor falla si alguna deja de estarlo`)
         : falla('doctor dejó de leer pg_trigger.tgenabled: apagar una garantía volvería a ser indetectable');
+    },
+  },
+
+  // ---- G4a · Una sola superficie declarada ----
+
+  {
+    paquete: 'E2.1',
+    enunciado: 'La API declara el riesgo de cada ruta que muta, en el primer manejador, y el arranque muere si alguna no lo hace',
+    mutantes: [
+      {
+        // Que el censo vuelva a aceptar una declaración que no llega a
+        // correr. Es el diente exacto: la ruta pasa el censo, se cuenta como
+        // cerrada, y no protege nada.
+        archivo: 'src/api/rest/risk.ts',
+        de: '  if (resumen.malColocadas.length > 0) {',
+        a: '  if (false) {',
+        porque: 'una declaración escrita DETRÁS del manejador vuelve a contar como declaración: el manejador ya respondió cuando al marcador le tocaría correr, así que la ruta se queda sin llave de idempotencia y sin el renglón de auditoría, y el censo la cuenta como cerrada — medido, el acto irreversible se ejecuta DOS veces con la misma llave',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: '  const censo = auditarRiesgoDeRutas(app);',
+        a: '  const censo = { total: 0, porRiesgo: {} } as ReturnType<typeof auditarRiesgoDeRutas>;',
+        porque: 'el censo deja de correr al arrancar: la API vuelve a poder desplegar rutas que mutan sin declarar su clase, que es la definición del segundo motor con menos reglas',
+      },
+    ],
+    evaluar: () => {
+      const risk = codigoDe('src/api/rest/risk.ts');
+      const index = codigoDe('src/index.ts');
+
+      // 1. LA DECLARACIÓN EXISTE Y ES UN MANEJADOR. Commander tiene un objeto
+      //    `Command` donde colgarla; Express no, así que la declaración viaja
+      //    DENTRO de lo que Express registra y no puede desincronizarse de lo
+      //    que la ruta hace.
+      if (!/export function declararRiesgoRuta/.test(risk)) {
+        return falla('la API se quedó sin registro de riesgo: vuelve a ser un motor con menos reglas que el CLI, que sí declara');
+      }
+      // 2. EL CENSO ES DERIVADO. Recorre la pila real de Express; una lista
+      //    escrita al lado del código es el defecto que este proyecto lleva
+      //    un mes cazando, y aquí sería el más caro de todos.
+      if (!/_router|route\.stack/.test(risk)) {
+        return falla('el censo dejó de recorrer la pila real de Express: si vuelve a ser una lista paralela, declarará lo que alguien recordó, no lo que la app sirve');
+      }
+      // 3. Y MUERE AL ARRANCAR, no en la petición. Un censo que sólo avisa es
+      //    un censo que nadie mira: el binario del CLI no arranca con una
+      //    declaración imposible, y la API tampoco debe.
+      if (!/auditarRiesgoDeRutas\(app\)/.test(index)) {
+        return falla('el censo salió del arranque: se podrían desplegar rutas que mutan sin declarar, y nadie se enteraría hasta la auditoría');
+      }
+      // 4. LA POSICIÓN SE EXIGE. Una declaración detrás del manejador
+      //    certifica sin proteger, y el censo la contaba como cerrada.
+      const posicion = /resumen\.malColocadas\.length > 0/.test(risk);
+      return posicion
+        ? ok('la API declara como el CLI, el censo deriva de la pila real, el arranque muere si falta una y la declaración tiene que poder correr')
+        : falla('el censo volvió a aceptar declaraciones que no llegan a correr: certifican sin proteger, que es peor que no declarar');
     },
   },
 
