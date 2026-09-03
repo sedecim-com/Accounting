@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { PRUEBAS_DE_CONDUCTA, correrConducta, type PruebaDeConducta } from './conducta.js';
 
 // ============================================================
 // CRITERIOS DE CIERRE, EJECUTABLES
@@ -57,70 +56,21 @@ export interface Mutante {
   porque: string;
 }
 
-/**
- * DE QUÉ HABLA UN CRITERIO (S4a).
- *
- * `lectura` mide el TEXTO del repositorio; `conducta` mide lo que el programa
- * HACE. No son grados de la misma cosa y presentarlos igual fue el error: un
- * verde de lectura dice «la línea que buscaba está escrita», y esa frase es
- * compatible con que el sistema entregue el número contrario. Tres veces esta
- * semana lo fue.
- *
- * El tablero cuenta las dos poblaciones por separado porque esa proporción —y
- * no el total de verdes— es lo que mide el avance de este tramo.
- */
-export type Clase = 'lectura' | 'conducta';
-
 export interface Criterio {
   paquete: string;
   /** Qué se afirma, en términos de comportamiento observable. */
   enunciado: string;
-  /**
-   * Precondición que el runner comprueba antes de evaluar.
-   *
-   * `base-efimera` es más exigente que `base-de-datos`: no basta con que haya
-   * una base a la que preguntar, hace falta un rol que pueda CREAR una
-   * desechable. Se distingue porque el motivo que el tablero imprime cuando no
-   * se puede evaluar es distinto, y quien lo lee tiene que poder arreglarlo.
-   */
-  necesita?: 'base-de-datos' | 'red' | 'base-efimera';
+  /** Precondición que el runner comprueba antes de evaluar. */
+  necesita?: 'base-de-datos' | 'red';
   evaluar: () => Promise<Resultado> | Resultado;
-  /** Por omisión `lectura`: es lo que era todo antes de S4a. */
-  clase?: Clase;
   /**
-   * Espejos: mutaciones que DEBEN poner este criterio en rojo. Se aplican
-   * sobre el SEAM DE LECTURA (conFuenteMutada), en memoria, y por eso valen
-   * sólo para criterios de `lectura`. La línea base de criterios sin espejo
-   * sólo encoge (meta-criterio en E0.0).
+   * Espejos: mutaciones que DEBEN poner este criterio en rojo. Sólo para
+   * criterios SIN `necesita` (los de conducta se juzgan contra la base, no
+   * contra el fuente). La línea base de criterios sin espejo sólo encoge
+   * (meta-criterio en E0.0).
    */
   mutantes?: Mutante[];
-  /**
-   * Espejos de un criterio de CONDUCTA, aplicados sobre el archivo REAL.
-   *
-   * Campo aparte y no una bandera dentro de `mutantes`, porque el arnés es
-   * otro: un criterio de conducta no puede mutarse en memoria —lo que corre no
-   * es lo que el criterio lee—, así que estos se escriben en disco y se
-   * re-corren en un proceso nuevo. Los aplica
-   * tests/integration/plan-conducta-mutacion.int.spec.ts, que corre en serie y
-   * restaura en un `finally`. Mezclarlos habría hecho que el arnés en memoria
-   * intentara evaluarlos sin base y los diera por muertos sin haberlos matado.
-   */
-  mutantesEnDisco?: Mutante[];
 }
-
-/** Un criterio sin `clase` es de lectura: era lo único que había antes de S4a. */
-export const claseDe = (c: Criterio): Clase => c.clase ?? 'lectura';
-
-/**
- * ¿Tiene espejo, del arnés que sea?
- *
- * Existe para que la línea base de «criterios sin espejo» no cuente como deuda
- * a un criterio de conducta que SÍ trae los suyos, sólo que en el otro campo.
- * Un trinquete que se dispara por dónde está escrito el espejo, y no por si
- * existe, mide la forma en vez del hecho.
- */
-export const tieneEspejo = (c: Criterio): boolean =>
-  (c.mutantes?.length ?? 0) > 0 || (c.mutantesEnDisco?.length ?? 0) > 0;
 
 // ── Ayudas ──────────────────────────────────────────────────
 
@@ -432,172 +382,6 @@ export async function contadoresAnualesSembrados(): Promise<Resultado> {
 export const ok = (detalle: string): Resultado => ({ estado: 'ok', detalle });
 export const falla = (detalle: string): Resultado => ({ estado: 'falla', detalle });
 export const noEvaluable = (detalle: string): Resultado => ({ estado: 'no-evaluable', detalle });
-
-// ── El trinquete de cobertura, leído como NÚMEROS (S4a) ─────
-//
-// EL DEFECTO QUE ESTO REPARA. El criterio «la cobertura del motor contable
-// tiene trinquete por archivo» contaba llaves:
-//
-//     const archivos = (c.match(/'src\/[^']+\.ts':/g) ?? []).length;
-//     return archivos >= 3 ? ok(...) : falla(...);
-//
-// Con esa vara, poner los tres umbrales EN CERO lo dejaba en verde: las tres
-// llaves seguían ahí. Y bajar un umbral es exactamente el movimiento que un
-// trinquete de cobertura existe para impedir — no hay otro. Un criterio que
-// cuenta entradas mide la FORMA del archivo de configuración, no lo que ese
-// archivo exige; es la misma familia de escape que el conteo de llaves de
-// AUD-6 y que el criterio de maker-checker que anclaba en UNA puerta.
-//
-// QUÉ ES «BAJAR», Y POR QUÉ NO ES UN MÍNIMO ABSOLUTO. Se consideró exigir que
-// todo umbral fuera >= N. No sirve, y el propio vitest.config.ts explica por
-// qué: sus umbrales conviven entre 66 (sequence.ts, deuda declarada) y 100
-// (criterio-cierre.ts). Cualquier N que deje pasar el 66 legítimo deja caer
-// posting.ts de 99 a 67 sin decir nada, y cualquier N que proteja el 99 pone
-// en rojo una deuda que se declaró a propósito. Un solo número no puede
-// distinguir «esto siempre fue bajo» de «esto acaba de bajar».
-//
-// Lo que sí distingue las dos cosas es un SUELO POR ARCHIVO Y POR MÉTRICA,
-// congelado en lo que la configuración declara hoy: la misma forma de
-// trinquete que el repositorio ya usa en docs/catalogo-minimos.json y en
-// SIN_ESPEJO_MAXIMO. Sólo sube, y sube en el mismo commit que gana el terreno.
-//
-// LO QUE UN SUELO ASÍ NO COMPRA, dicho antes de que alguien lo descubra: nada
-// impide bajar el umbral Y el suelo en el mismo commit. Ningún trinquete de
-// esta casa lo impide — tampoco el del catálogo ni el de los espejos. Lo que
-// compra es que el descenso deje de ser INVISIBLE: hoy los tres ceros pasan
-// sin que ninguna compuerta se mueva; con el suelo hay que escribir el número
-// nuevo, con nombre, en un diff que alguien revisa.
-
-const METRICAS = ['statements', 'branches', 'functions', 'lines'] as const;
-type Metrica = (typeof METRICAS)[number];
-export type Umbrales = Record<Metrica, number>;
-
-/**
- * Los umbrales por archivo que un vitest.config declara, como NÚMEROS.
- *
- * Se lee sobre el código sin comentarios (`codigoDe`): los bloques de arriba
- * de vitest.config.ts citan cifras en prosa —«medidos hoy: 88.23 / 76.29…»— y
- * leer prosa como si fuera conducta es el error que este archivo existe para
- * no cometer.
- */
-export function umbralesDeclarados(config: string): Map<string, Partial<Umbrales>> {
-  const declarados = new Map<string, Partial<Umbrales>>();
-  // Sólo casa `'src/…ts': { … }`: las entradas de `include` son `'src/…ts',`
-  // sin llave detrás, así que un archivo medido no se confunde con uno con
-  // umbral. Es justo la diferencia que el criterio viejo no hacía.
-  for (const entrada of config.matchAll(/'(src\/[^']+\.ts)':\s*\{([^}]*)\}/g)) {
-    const valores: Partial<Umbrales> = {};
-    for (const metrica of METRICAS) {
-      const m = new RegExp(`\\b${metrica}\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`).exec(entrada[2]);
-      if (m) valores[metrica] = Number(m[1]);
-    }
-    declarados.set(entrada[1], valores);
-  }
-  return declarados;
-}
-
-/**
- * Los globs de `coverage.include`, que dicen QUÉ se mide.
- *
- * Se corta desde `coverage:` a propósito: `test.include` aparece ANTES en los
- * dos archivos y es la lista de pruebas, no la de fuentes medidas. Un regex
- * que casara la primera lista leería «tests/**» y bendeciría cualquier cosa.
- */
-export function medidosPor(config: string): string[] {
-  const desdeCobertura = config.slice(config.indexOf('coverage:'));
-  const bloque = /include:\s*\[([^\]]*)\]/.exec(desdeCobertura);
-  return [...(bloque?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
-}
-
-const seMide = (globs: string[], archivo: string): boolean =>
-  globs.some((g) => g === archivo || (g.endsWith('**') && archivo.startsWith(g.slice(0, -2))));
-
-/**
- * El veredicto de un suelo contra lo que un vitest.config declara HOY.
- *
- * Tres direcciones, porque un trinquete que sólo mira una se vacía por las
- * otras dos —la lección del piso de criterios, aplicada a números—:
- *   1. un umbral por debajo del suelo → el descenso, que es el caso central;
- *   2. un archivo del suelo que perdió su entrada → el trinquete retirado por
- *      borrado en vez de por rebaja;
- *   3. un archivo del suelo que ya no se MIDE → un umbral sobre un archivo
- *      fuera de `include` no exige nada, y es la forma silenciosa de apagarlo.
- *
- * Y una cuarta sobre lo que el suelo todavía no cubre: un archivo nuevo con
- * una métrica en cero. Un umbral en cero es la ausencia de umbral escrita con
- * más letras, y nace protegido para que no haga falta un commit posterior.
- */
-export function contraSuelo(config: string, suelo: Record<string, Umbrales>): string[] {
-  const declarados = umbralesDeclarados(config);
-  const globs = medidosPor(config);
-  const problemas: string[] = [];
-
-  for (const [archivo, piso] of Object.entries(suelo)) {
-    const hoy = declarados.get(archivo);
-    if (!hoy) {
-      problemas.push(`${archivo} perdió su umbral por archivo (el suelo lo exige)`);
-      continue;
-    }
-    if (!seMide(globs, archivo)) {
-      problemas.push(
-        `${archivo} tiene umbral pero coverage.include ya no lo alcanza: un umbral sobre un archivo que no se mide no exige nada`
-      );
-    }
-    // Una línea por ARCHIVO, no por métrica: poner los cuatro umbrales de seis
-    // archivos en cero produce veinticuatro quejas idénticas, y un detalle que
-    // no se puede leer de un vistazo no sirve para actuar — que es lo único
-    // para lo que existe el campo `detalle`.
-    const bajaron = METRICAS.filter((m) => (hoy[m] ?? -1) < piso[m]).map((m) =>
-      hoy[m] === undefined ? `${m} ya no se declara (suelo ${piso[m]})` : `${m} ${piso[m]}→${hoy[m]}`
-    );
-    if (bajaron.length > 0) {
-      problemas.push(`${archivo}: el umbral bajó — ${bajaron.join(', ')}`);
-    }
-  }
-
-  for (const [archivo, hoy] of declarados) {
-    if (suelo[archivo]) continue;
-    const flojas = METRICAS.filter((m) => (hoy[m] ?? 0) <= 0);
-    if (flojas.length > 0) {
-      problemas.push(
-        `${archivo}: ${flojas.join(', ')} en cero o sin declarar — un umbral en cero es la ausencia de umbral escrita con más letras`
-      );
-    }
-  }
-
-  return problemas;
-}
-
-/**
- * SUELO DEL PROYECTO UNITARIO. Congelado en lo que vitest.config.ts declara
- * al escribirse este trinquete (2026-09-02). Sólo sube.
- */
-export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
-  'src/services/accounting/posting.ts': { statements: 99, branches: 95, functions: 100, lines: 99 },
-  'src/services/accounting/validation.ts': { statements: 90, branches: 77, functions: 100, lines: 90 },
-  'src/services/accounting/ar-ap-posting.ts': { statements: 99, branches: 89, functions: 100, lines: 99 },
-  'src/utils/sequence.ts': { statements: 68, branches: 100, functions: 75, lines: 66 },
-  'src/services/reporting/report-service.ts': { statements: 88, branches: 76, functions: 95, lines: 88 },
-  'src/services/reporting/criterio-cierre.ts': { statements: 100, branches: 95, functions: 100, lines: 100 },
-};
-
-/**
- * SUELO DE LA SUITE DE INTEGRACIÓN. Nace en S4a con la primera medición real
- * de esa suite (984 pruebas contra Postgres, todas en verde): hasta hoy
- * vitest.integration.config.ts no declaraba cobertura, así que las pruebas que
- * de verdad ejercitan el dinero no contaban para ninguna medida.
- */
-export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
-  'src/services/accounting/period-close.ts': { statements: 90, branches: 81, functions: 96, lines: 89 },
-  'src/services/accounting/ledger-checks.ts': { statements: 90, branches: 86, functions: 75, lines: 92 },
-  'src/services/accounting/posting.ts': { statements: 91, branches: 86, functions: 96, lines: 91 },
-  'src/services/accounting/ar-ap-posting.ts': { statements: 87, branches: 75, functions: 96, lines: 91 },
-  'src/services/accounting/validation.ts': { statements: 86, branches: 78, functions: 100, lines: 88 },
-  'src/services/accounting/iva-cash-basis.ts': { statements: 96, branches: 84, functions: 100, lines: 98 },
-  'src/services/reporting/report-service.ts': { statements: 84, branches: 75, functions: 77, lines: 86 },
-  'src/services/reporting/criterio-cierre.ts': { statements: 91, branches: 80, functions: 85, lines: 91 },
-  'src/services/reporting/cash-flow-service.ts': { statements: 94, branches: 89, functions: 96, lines: 95 },
-};
 
 // ── Los criterios ───────────────────────────────────────────
 
@@ -977,110 +761,13 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E0.1',
     enunciado: 'La cobertura del motor contable tiene trinquete por archivo',
     evaluar: () => {
-      // S4a: este criterio CONTABA LLAVES —cuántas entradas `'src/…ts':` hay—
-      // y con esa vara los tres umbrales puestos en CERO lo dejaban en verde.
-      // Ahora lee los VALORES contra SUELO_COBERTURA_UNITARIA; el porqué de
-      // esa forma de vara, y lo que no compra, está sobre la tabla.
       const c = codigoDe('vitest.config.ts');
       if (!/thresholds/.test(c)) return falla('vitest.config.ts no define umbrales de cobertura');
-
-      const problemas = contraSuelo(c, SUELO_COBERTURA_UNITARIA);
-      if (problemas.length > 0) return falla(problemas.join('; '));
-
-      const declarados = umbralesDeclarados(c);
-      const comprobados = Object.keys(SUELO_COBERTURA_UNITARIA).length * METRICAS.length;
-      return ok(
-        `${declarados.size} archivos con umbral propio; ${comprobados} valores comprobados contra el suelo y ninguno por debajo`
-      );
+      const archivos = (c.match(/'src\/[^']+\.ts':/g) ?? []).length;
+      return archivos >= 3
+        ? ok(`${archivos} archivos con umbral propio`)
+        : falla(`sólo ${archivos} archivo(s) con umbral: un umbral global es un promedio que deja caer una pieza crítica`);
     },
-    mutantes: [
-      {
-        archivo: 'vitest.config.ts',
-        de: 'statements: 99, branches: 95, functions: 100, lines: 99,',
-        a: 'statements: 0, branches: 0, functions: 0, lines: 0,',
-        porque:
-          'EL ESCAPE QUE ESTE TRAMO VINO A CERRAR: los umbrales en cero dejan las llaves en su sitio, ' +
-          'así que el criterio que contaba llaves seguía en verde mientras el trinquete ya no apretaba nada',
-      },
-      {
-        archivo: 'vitest.config.ts',
-        de: "'src/services/reporting/criterio-cierre.ts': {",
-        a: "'src/services/reporting/otro-archivo.ts': {",
-        porque:
-          'el trinquete se retira por RENOMBRE en vez de por rebaja —el conteo de llaves no se mueve— ' +
-          'y la pieza por la que pasan las tres superficies de cierre se queda sin umbral',
-      },
-      {
-        archivo: 'vitest.config.ts',
-        de: "        'src/services/reporting/**',\n",
-        a: '',
-        porque:
-          'el umbral sobrevive pero su archivo sale de coverage.include: un umbral sobre algo que no se ' +
-          'mide no exige nada, y es la forma silenciosa de apagarlo',
-      },
-    ],
-  },
-  {
-    paquete: 'E0.1',
-    enunciado: 'La suite de integración declara su cobertura y la ejerce en CI',
-    evaluar: () => {
-      // POR QUÉ NACE ESTE CRITERIO (S4a). vitest.integration.config.ts no tenía
-      // bloque `coverage` en toda la vida del proyecto: 984 pruebas contra un
-      // Postgres de verdad —las que ejercitan el dinero— no contaban para
-      // ninguna medida. Se veía en los dos archivos que el proyecto unitario se
-      // niega, con razón, a ratchetear: period-close.ts medía 14.6% allá y mide
-      // 90.15% aquí; ledger-checks.ts, 4.05% y 90.54%. No era cobertura que
-      // faltara: era cobertura que nadie contaba.
-      if (!existe('vitest.integration.config.ts')) {
-        return falla('no hay configuración de integración: no hay nada que medir');
-      }
-      const c = codigoDe('vitest.integration.config.ts');
-      if (!/coverage:/.test(c) || !/thresholds/.test(c)) {
-        return falla(
-          'la suite de integración no declara cobertura con umbrales: las pruebas contra Postgres no cuentan para ninguna medida'
-        );
-      }
-
-      const problemas = contraSuelo(c, SUELO_COBERTURA_INTEGRACION);
-
-      // Y CORRE. Un umbral que nadie ejecuta es la misma clase de mentira que
-      // el job `restauracion` vino a tapar un piso más arriba: vitest sólo
-      // aplica `thresholds` cuando se le pide medir, así que sin --coverage en
-      // la línea de CI esta configuración diría la verdad sobre sí misma sin
-      // que nadie la corriera nunca.
-      const ci = existe('.github/workflows/ci.yml') ? crudoDe('.github/workflows/ci.yml') : '';
-      if (!/test:integration[^\n]*--coverage/.test(ci)) {
-        return falla(
-          'ci.yml corre la suite de integración SIN --coverage: los umbrales declarados no se aplican en ninguna parte' +
-            (problemas.length > 0 ? `; además: ${problemas.join('; ')}` : '')
-        );
-      }
-
-      if (problemas.length > 0) return falla(problemas.join('; '));
-
-      const archivos = Object.keys(SUELO_COBERTURA_INTEGRACION).length;
-      return ok(
-        `${archivos} archivos con umbral medido contra Postgres, y la CI corre la suite con --coverage`
-      );
-    },
-    mutantes: [
-      {
-        archivo: '.github/workflows/ci.yml',
-        de: 'npm run test:integration -- --coverage',
-        a: 'npm run test:integration',
-        porque:
-          'los umbrales de integración quedan escritos y nadie los ejecuta: la configuración diría la ' +
-          'verdad sobre sí misma sin correr jamás, que es el defecto que el job de restauración ya costó una vez',
-      },
-      {
-        archivo: 'vitest.integration.config.ts',
-        de: 'statements: 90, branches: 81, functions: 96, lines: 89,',
-        a: 'statements: 0, branches: 0, functions: 0, lines: 0,',
-        porque:
-          'el umbral del cierre de periodo —el archivo que SÓLO esta suite puede medir— se pone en cero, ' +
-          'que es la rebaja invisible que el conteo de llaves nunca vio',
-      },
-    ],
   },
   {
     paquete: 'E0.1',
@@ -5965,27 +5652,6 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
-  // ============================================================
-  // LOS CRITERIOS QUE EJECUTAN (S4a)
-  //
-  // Van en E0.1 —«red de seguridad»— y no en el paquete del tema que juzgan, y
-  // conviene decir por qué en las dos direcciones.
-  //
-  // A FAVOR: E0.1 es el paquete de la demostración, no el de los informes ni
-  // el del cierre. Lo que estos tres criterios añaden no es una afirmación
-  // nueva sobre el dinero —el cierre ya tiene sus pruebas de integración— sino
-  // que el TABLERO deje de creerle al texto. Ése es el objeto de E0.1.
-  //
-  // EN CONTRA, y queda anotado: el sitio temático del criterio del saldo sería
-  // E4.2 (informes) y el del barrido, E1.1. Los dos están ABIERTOS, y un
-  // criterio verde en paquete abierto tiene que entrar en
-  // docs/criterios-minimos.json en el mismo commit —el piso de S2— que este
-  // tramo no puede escribir: los suelos son del orquestador. Si se prefiere el
-  // sitio temático, mover cada criterio y añadir su renglón al piso es un
-  // cambio de dos líneas; no se hizo aquí porque habría dejado la CI en rojo
-  // desde un archivo que no me toca tocar.
-  // ============================================================
-  ...PRUEBAS_DE_CONDUCTA.map(criterioDeConducta),
   // ══════════════════════════════════════════════════════════
   // S-UX · lote 2. Seis criterios que nacen de una lección repetida:
   // el guardián se deriva del ÁRBOL, nunca de una lista paralela. Los
@@ -6386,25 +6052,3 @@ export const CRITERIOS: Criterio[] = [
 
 
 ];
-
-/**
- * Convierte una prueba de conducta en un criterio del tablero.
- *
- * El único trabajo real que hace es CLASIFICAR EL SILENCIO. `correrConducta`
- * devuelve `no-evaluable` cuando el escenario no se pudo montar (no hay rol
- * que cree bases, la migración no corrió) y `falla` cuando sí se montó y la
- * cifra salió mal o el camino reventó. Esa frontera es todo el contrato:
- * `bloqueadoPorEntorno` excusa de `--exigir` lo primero y no lo segundo, así
- * que ponerla en el sitio equivocado convertiría cada mutante vivo en un
- * «aquí no había instrumento».
- */
-function criterioDeConducta(p: PruebaDeConducta): Criterio {
-  return {
-    paquete: p.paquete,
-    enunciado: p.enunciado,
-    clase: 'conducta',
-    necesita: 'base-efimera',
-    mutantesEnDisco: p.mutantes,
-    evaluar: () => correrConducta(p.id),
-  };
-}

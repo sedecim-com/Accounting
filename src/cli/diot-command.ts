@@ -569,6 +569,35 @@ export function registerDiotCommand(program: Command, deps: DiotCommandDeps): vo
     );
   };
 
+  /**
+   * EJEMPLOS DE AYUDA. Invocaciones copiables, no plantillas: el censo de
+   * superficie exige que cada hoja tenga la suya, y la razón es la de la
+   * auditoría de usabilidad — un `--help` que enumera banderas sin enseñar
+   * una sola invocación deja al usuario adivinando el orden y el formato.
+   */
+  const EJEMPLOS = {
+    generate: `
+Examples:
+  # The month, with its breakdown by third party and by rate. Writes nothing.
+  mnemosine diot generate --period 2026-07
+  # Only the findings that would stop the filing, as JSON for a script.
+  mnemosine diot generate --period 2026-07 --json
+`,
+    check: `
+Examples:
+  # The invariant the SAT cross-checks by itself: the creditable VAT declared
+  # here against what the ledger says was actually paid that month.
+  mnemosine diot check --period 2026-07
+  # Exit 4 if anything blocks, so a pipeline can stop on it.
+  mnemosine diot check --period 2026-07 --strict
+`,
+    export: `
+Examples:
+  # The working paper, to review before anything is filed.
+  mnemosine diot export --period 2026-07 -o diot-2026-07.txt
+`,
+  };
+
   // ==========================================================
   // diot generate · diot generar
   // ==========================================================
@@ -585,6 +614,7 @@ export function registerDiotCommand(program: Command, deps: DiotCommandDeps): vo
   // LECTURA, y la fila del catálogo dice `escritura`: ver la primera decisión
   // de la cabecera. Con lo que hay hoy esta hoja no escribe una sola fila.
   declareRisk(generar, { risk: 'lectura', agent: true });
+  generar.addHelpText('after', EJEMPLOS.generate);
   generar.action((opts: CommonOpts & { period?: string }) =>
     run(async () => {
       // El mes se valida ANTES de tocar la base: un typo en --period no
@@ -660,6 +690,7 @@ export function registerDiotCommand(program: Command, deps: DiotCommandDeps): vo
   );
   // LECTURA: no escribe, no archiva y no sale del sistema. IA ✓ sin más.
   declareRisk(verificar, { risk: 'lectura', agent: true });
+  verificar.addHelpText('after', EJEMPLOS.check);
   verificar.action(
     (opts: CommonOpts & { period?: string; check?: string | boolean; strict?: boolean }) =>
       run(async () => {
@@ -767,6 +798,7 @@ export function registerDiotCommand(program: Command, deps: DiotCommandDeps): vo
   // LECTURA: arma la declaración y la escribe DONDE EL USUARIO PIDIÓ. No
   // archiva, no postea y no llega a ninguna autoridad.
   declareRisk(exportar, { risk: 'lectura', agent: true });
+  exportar.addHelpText('after', EJEMPLOS.export);
   exportar.action(
     (opts: CommonOpts & { period?: string; layout?: string; yes?: boolean }) =>
       run(async () => {

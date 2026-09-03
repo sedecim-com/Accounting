@@ -1,5 +1,10 @@
 -- ============================================================
--- 063 · EL TERCERO QUE LA DIOT DECLARA (F07c)
+-- 066 · EL TERCERO QUE LA DIOT DECLARA (F07c)
+--
+-- Nació como 063 y se renumeró al fusionar: main traía su propia 060, la
+-- consolidación del agrupador se corrió a 063, y dos migraciones no pueden
+-- compartir número. El guardia de numeración lo cazó en la fusión, que es
+-- exactamente para lo que está.
 --
 -- La DIOT informa mensualmente, proveedor por proveedor, el IVA de las
 -- operaciones con terceros. Es una obligación distinta del Anexo 24 y con
@@ -38,14 +43,14 @@
 -- fija: un tipo de tercero inventado no lo rechaza el sistema, lo rechaza la
 -- autoridad al recibir el archivo, cuando el plazo ya corrió.
 ALTER TABLE vendors
-    ADD COLUMN tipo_tercero VARCHAR(2)
+    ADD COLUMN IF NOT EXISTS tipo_tercero VARCHAR(2)
         CHECK (tipo_tercero IN ('04', '05', '15')),
-    ADD COLUMN tipo_operacion VARCHAR(2)
+    ADD COLUMN IF NOT EXISTS tipo_operacion VARCHAR(2)
         CHECK (tipo_operacion IN ('03', '06', '85')),
     -- Sólo para el tercero extranjero (tipo 05). El formato pide los tres.
-    ADD COLUMN id_fiscal_extranjero VARCHAR(40),
-    ADD COLUMN pais_residencia CHAR(3),
-    ADD COLUMN nacionalidad VARCHAR(100);
+    ADD COLUMN IF NOT EXISTS id_fiscal_extranjero VARCHAR(40),
+    ADD COLUMN IF NOT EXISTS pais_residencia CHAR(3),
+    ADD COLUMN IF NOT EXISTS nacionalidad VARCHAR(100);
 
 COMMENT ON COLUMN vendors.tipo_tercero IS
   'Catálogo de la DIOT: 04 proveedor nacional, 05 proveedor extranjero, 15 proveedor global (operaciones con el público en general). Sin él la fila del proveedor no se puede declarar.';
@@ -60,6 +65,7 @@ COMMENT ON COLUMN vendors.pais_residencia IS
 -- antes de que alguien pida la DIOT — y descubrirlo el día 17 del mes es
 -- descubrirlo tarde.
 ALTER TABLE vendors
+    DROP CONSTRAINT IF EXISTS tercero_extranjero_identificado,
     ADD CONSTRAINT tercero_extranjero_identificado
         CHECK (
             tipo_tercero IS DISTINCT FROM '05'
@@ -73,8 +79,8 @@ ALTER TABLE vendors
 -- llevan importe cero de impuesto y la DIOT las declara en renglones
 -- distintos, así que sin esta columna son indistinguibles.
 ALTER TABLE bill_lines
-    ADD COLUMN tax_rate DECIMAL(5,2),
-    ADD COLUMN tipo_factor VARCHAR(10) NOT NULL DEFAULT 'tasa'
+    ADD COLUMN IF NOT EXISTS tax_rate DECIMAL(5,2),
+    ADD COLUMN IF NOT EXISTS tipo_factor VARCHAR(10) NOT NULL DEFAULT 'tasa'
         CHECK (tipo_factor IN ('tasa', 'cuota', 'exento'));
 
 COMMENT ON COLUMN bill_lines.tax_rate IS
@@ -89,7 +95,7 @@ COMMENT ON COLUMN bill_lines.tipo_factor IS
 -- hay redondeo de por medio; para lo exento no hay tasa de la que derivarla.
 -- Se guarda al ingerir, que es cuando el CFDI la dice.
 ALTER TABLE bill_lines
-    ADD COLUMN valor_actos DECIMAL(19,4);
+    ADD COLUMN IF NOT EXISTS valor_actos DECIMAL(19,4);
 
 COMMENT ON COLUMN bill_lines.valor_actos IS
   'La base del traslado —el «valor de los actos o actividades» de la DIOT— tal como la declara el CFDI. No se deriva del importe: en lo exento no hay tasa de la que derivarla, y en lo demás el redondeo la separa del cociente.';

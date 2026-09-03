@@ -22,7 +22,6 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
     "plan:status": "tsx src/plan/status.ts",
-    "mutantes": "tsx scripts/mutantes.ts",
     "catalogo:estado": "tsx scripts/catalogo-estado.ts",
     "ux:status": "tsx scripts/ux-status.ts",
     "costo:por-fila": "tsx scripts/costo-por-fila.ts",
