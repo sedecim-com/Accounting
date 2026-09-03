@@ -492,7 +492,23 @@ describe('checkOrphanedCapability', () => {
   });
 
   it('ordena por consecuencia: primero lo que puede falsear una cifra', () => {
-    const detalle = repo.detail;
+    // SOBRE UN ÁRBOL SINTÉTICO, y no sobre este repositorio, por lo mismo que
+    // orphan-scan.spec.ts: la versión anterior exigía que ESTE código tuviera
+    // en todo momento al menos un huérfano de los que falsean una cifra, y el
+    // único que había era `paycheck_taxes` —la tabla que la nómina calculaba y
+    // no escribía—. Al aparecer su escritor (F08a) la prueba se puso roja por
+    // haberse ARREGLADO el defecto que vigilaba. El orden es lo que se quiere
+    // probar, y el orden se prueba con un caso, no con el estado del árbol.
+    const escribir = (rel: string, contenido: string): void => {
+      const f = path.join(tmpDir, rel);
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, contenido);
+    };
+    escribir('src/database/migrations/001.sql', 'CREATE TABLE paycheck_taxes (id uuid);');
+    escribir('src/api/forms.ts', "const q = 'SELECT * FROM paycheck_taxes WHERE paycheck_id = $1';");
+    escribir('src/util.ts', 'export function nadieLaLlama() { return 1; }');
+
+    const detalle = checkOrphanedCapability({ cwd: tmpDir }).detail;
     const cifra = detalle.indexOf('figure');
     const muerto = detalle.indexOf('unreferenced');
     expect(cifra).toBeGreaterThanOrEqual(0);

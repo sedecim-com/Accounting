@@ -71,6 +71,8 @@ Commands:
   prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
+  isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
+  tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
   cashflow|flujo                         Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash
   audit|auditoria                        Read the audit trail: who changed what, when, and from which value
   subscription|suscripcion               Outbound event subscriptions: who we notify, and what we could not deliver
@@ -6537,6 +6539,13 @@ The DIOT is captured or uploaded by a person in the SAT portal; this binary neve
 reaches the portal and never loads an e.firma. The batch-file layout is not
 grounded in this repository, so `diot export --layout sat` refuses instead of
 inventing one — run it to see exactly what has to be confirmed.
+
+
+Examples:
+  # The month, with its breakdown by third party and by rate. Writes nothing.
+  mnemosine diot generate --period 2026-07
+  # Only the findings that would stop the filing, as JSON for a script.
+  mnemosine diot generate --period 2026-07 --json
 ```
 
 ### `mnemosine diot check` (alias: verificar)
@@ -6568,6 +6577,14 @@ same month — needs a VAT return, and no engine in this repository computes one
 against a number nobody computed: the DIOT is built from the two ledger events that
 move creditable VAT, so its total is the movement of that account by construction.
 Tie it out by hand against the account until `filing preview` exists.
+
+
+Examples:
+  # The invariant the SAT cross-checks by itself: the creditable VAT declared
+  # here against what the ledger says was actually paid that month.
+  mnemosine diot check --period 2026-07
+  # Exit 4 if anything blocks, so a pipeline can stop on it.
+  mnemosine diot check --period 2026-07 --strict
 ```
 
 ### `mnemosine diot export` (alias: exportar)
@@ -6597,6 +6614,199 @@ The DIOT is captured or uploaded by a person in the SAT portal; this binary neve
 reaches the portal and never loads an e.firma. The batch-file layout is not
 grounded in this repository, so `diot export --layout sat` refuses instead of
 inventing one — run it to see exactly what has to be confirmed.
+
+
+Examples:
+  # The working paper, to review before anything is filed.
+  mnemosine diot export --period 2026-07 -o diot-2026-07.txt
+```
+
+## `mnemosine isn`
+
+```
+Usage: mnemosine isn [options] [command]
+
+Mexican state payroll tax: capture the state rates with their grounds, and see
+what a pay run owes
+
+Options:
+  -h, --help                    display help for command
+
+Commands:
+  rate|tasa                     State ISN rates, by state and by vigencia
+  calculate|calcular [options]  One pay run's ISN, one row per state, naming
+                                every rate that is missing instead of computing
+                                zero
+  help [command]                display help for command
+```
+
+### `mnemosine isn rate` (alias: tasa)
+
+```
+Usage: mnemosine isn rate|tasa [options] [command]
+
+State ISN rates, by state and by vigencia
+
+Options:
+  -h, --help                          display help for command
+
+Commands:
+  set|fijar [options] <state> <rate>  Capture one state rate with its vigencia
+                                      and the law behind it
+  list|listar [options]               The captured state rates, with the one in
+                                      force on a given date marked
+  help [command]                      display help for command
+```
+
+#### `mnemosine isn rate set` (alias: fijar)
+
+```
+Usage: mnemosine isn rate set|fijar [options] <state> <rate>
+
+Capture one state rate with its vigencia and the law behind it
+
+Arguments:
+  state                                          SAT c_Estado key, as it is written on your workers (JAL, NLE)
+  rate                                           the rate, as a fraction (0.03) or a percentage (3%)
+
+Options:
+  -e, --entity <idOrName>                        legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                              tenant (firm) whose data to scope to
+  -u, --user <email>                             acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>        output format (default: "table")
+  --json                                         shorthand for --format json
+  -o, --output <path>                            write to a file instead of stdout
+  --fields [names]                               comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                    identifiers only, one per line, for piping
+  --effective-from <date>                        first day this rate applies (YYYY-MM-DD)
+  --superseded-on <date>                         day the next rate takes over and this one stops applying (YYYY-MM-DD); omit while it is the current one
+  --legal-basis <text>                           the law and article the rate comes from (required)
+  --regime <tasa_plana|escalonado|con_exencion>  how the state charges it; the engine only computes tasa_plana (default: "tasa_plana")
+  --exemption <amount>                           monthly amount exempted; only with --regime con_exencion
+  --dry-run                                      show exactly what would be written, and who it reaches; write nothing
+  -y, --yes                                      skip the confirmation prompt
+  -h, --help                                     display help for command
+
+Examples:
+  # Capture Jalisco at 3%, effective from the day the reform took effect.
+  mnemosine isn rate set JAL 3% --effective-from 2026-01-01 \
+    --legal-basis "Ley de Hacienda del Estado de Jalisco art. 41, POE 2025-12-15"
+  # Close a rate the state replaced, then capture the new one.
+  mnemosine isn rate set JAL 0.03 --effective-from 2025-01-01 --superseded-on 2026-01-01 \
+    --legal-basis "Ley de Hacienda del Estado de Jalisco art. 41 (2025)"
+  # See exactly what would be written, and who it reaches, without writing.
+  mnemosine isn rate set NLE 3% --effective-from 2026-01-01 --legal-basis "..." --dry-run
+```
+
+#### `mnemosine isn rate list` (alias: listar)
+
+```
+Usage: mnemosine isn rate list|listar [options]
+
+The captured state rates, with the one in force on a given date marked
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -a, --all                                every vigencia ever captured, not only the one in force
+  --state <key>                            only this state (SAT c_Estado key)
+  --as-of <date>                           which rate was in force on this date (YYYY-MM-DD; default today)
+  -h, --help                               display help for command
+
+Examples:
+  # What is in force today, state by state.
+  mnemosine isn rate list
+  # Every vigencia ever captured for one state, history included.
+  mnemosine isn rate list --state JAL --all
+  # What was in force on the day a pay period closed.
+  mnemosine isn rate list --as-of 2026-03-31 --json
+```
+
+### `mnemosine isn calculate` (alias: calcular)
+
+```
+Usage: mnemosine isn calculate|calcular [options]
+
+One pay run's ISN, one row per state, naming every rate that is missing instead
+of computing zero
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --run <payRunId>                         the pay run to compute (required)
+  --state <key>                            narrow the rows to one state; findings are never hidden
+  -h, --help                               display help for command
+
+Examples:
+  # The ISN of one pay run, state by state, with whatever is missing named.
+  mnemosine isn calculate --run 5f1c8e3a-0000-4000-8000-000000000001
+  # Only one state, for the paper that goes to that state.
+  mnemosine isn calculate --run 5f1c8e3a-0000-4000-8000-000000000001 --state JAL
+```
+
+## `mnemosine tax-deposit` (alias: entero)
+
+```
+Usage: mnemosine tax-deposit|entero [options] [command]
+
+Employer tax liabilities: what is owed, to whom, and by when
+
+Options:
+  -h, --help             display help for command
+
+Commands:
+  list|listar [options]  Accrued employer liabilities with their due date and
+                         status, soonest due first
+  help [command]         display help for command
+```
+
+### `mnemosine tax-deposit list` (alias: listar)
+
+```
+Usage: mnemosine tax-deposit list|listar [options]
+
+Accrued employer liabilities with their due date and status, soonest due first
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by liability status (pending|deposited|late|waived); repeatable
+  -a, --all                                include what is already settled: deposited and waived rows too
+  --period <YYYY-MM>                       only liabilities whose period touches this month
+  --until <date>                           only what falls due on or before this date (YYYY-MM-DD)
+  --all-entities                           every entity of the tenant, not just the active one
+  -h, --help                               display help for command
+
+Examples:
+  # What the employer still owes, soonest due first.
+  mnemosine tax-deposit list
+  # One month, everything in it, including what is already deposited.
+  mnemosine tax-deposit list --period 2026-07 --all
+  # Anything falling due before the 17th, as JSON for a reminder job.
+  mnemosine tax-deposit list --until 2026-08-17 --json
 ```
 
 ## `mnemosine cashflow` (alias: flujo)

@@ -68,7 +68,18 @@ export interface PoliticaDelPanel {
   default_value: string | null;
   /** De qué fila salió: la de la entidad manda sobre la del inquilino. */
   scope: 'entity' | 'tenant';
-  options: Array<{ value: string; label: string }>;
+  /**
+   * LAS ALTERNATIVAS VIAJAN SÓLO CUANDO HAY QUE ELEGIR.
+   *
+   * Presente en las políticas SIN contestar, que es donde el agente tiene que
+   * preguntar con las opciones reales delante. En una contestada se omite, por
+   * dos razones que apuntan al mismo sitio: enseñarle al agente los caminos
+   * que el despacho descartó le invita a reconsiderar una decisión que no es
+   * suya, y las listas de opciones eran la mitad del peso del panel — a 53
+   * políticas ya no cabía ninguna nota, así que el agente recibía las reglas
+   * sin una sola razón de por qué son así.
+   */
+  options?: Array<{ value: string; label: string }>;
   notes: string | null;
   /**
    * No-null = la fila DICE estar resuelta y no guarda respuesta utilizable.
@@ -226,7 +237,7 @@ export async function leerPanel(
       answered_value: respuesta,
       default_value: fila.default_value,
       scope: fila.entity_id === null ? 'tenant' : 'entity',
-      options: fila.options ?? [],
+      ...(contestada ? {} : { options: fila.options ?? [] }),
       notes: textoLlano(fila.resolution_notes),
       answer_defect: marcadaResuelta && !contestada ? DEFECTO_RESPUESTA_VACIA : null,
     };

@@ -1341,6 +1341,118 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'Shortfalls go to purchase discounts (5200). Nothing breaks, but if your criterion is to treat them as income, the cost of sales will be understated until you say so.',
     priority: 35,
   },
+  // ---- F08a · Lo que el patrón paga y lo que el trabajador no recibió ----
+
+  {
+    key: 'subsidio_al_empleo_entregado_registro',
+    category: 'contable',
+    question:
+      'When the employment subsidy exceeds the ISR withheld and you hand the difference to the worker in cash, is that a receivable from the tax authority or an expense of the firm?',
+    impact:
+      'It decides whether the cash you hand over comes back as a credit against the ISR withheld from other workers, or lands in payroll expense and never comes back.',
+    options: [
+      {
+        value: 'cuenta_por_cobrar_fisco',
+        label: 'A receivable: it is creditable against the ISR withheld from other workers',
+      },
+      {
+        value: 'gasto_del_patron',
+        label: 'An expense: the firm absorbs it and does not credit it',
+      },
+    ],
+    defaultValue: 'cuenta_por_cobrar_fisco',
+    defaultRationale:
+      'It is what the law allows and what the money actually is: the employer advances cash that the ' +
+      'authority repays by way of credit. Expensing it is a decision to give up that credit, which ' +
+      'some firms make deliberately when the amounts are small and the paperwork is not worth it — ' +
+      'but it should be a decision, not the consequence of a default.',
+    whyAsking:
+      'When the subsidy is larger than the ISR of the period, the employer must hand the difference to the worker in cash. That money leaves the firm and comes back only if you credit it. Where you book it changes both your payroll expense and what you owe the SAT this month.',
+    whatIDo:
+      'I compute the excess per paycheck, record it on the payslip as cash delivered, and post it to the account this policy names. With "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports.',
+    ifSkipped:
+      'It goes to a receivable from the authority. Nothing breaks; if your criterion is to absorb it, payroll expense will be understated until you say so.',
+    priority: 42,
+  },
+  {
+    key: 'isn_estado_que_causa',
+    category: 'fiscal',
+    question:
+      'For the state payroll tax (ISN), which state does a worker belong to: the one where the work is performed, or the one of the firm\'s tax domicile?',
+    impact:
+      'It decides which state you file in and at which rate — the rates run from about 1% to 4% and each state audits its own.',
+    options: [
+      {
+        value: 'centro_de_trabajo',
+        label: 'Where the work is performed (the employee\'s work state)',
+      },
+      {
+        value: 'domicilio_fiscal',
+        label: 'The state of the firm\'s tax domicile, for every worker',
+      },
+    ],
+    defaultValue: 'centro_de_trabajo',
+    defaultRationale:
+      'The ISN is a state tax on payroll paid for work performed within that state, so the work state ' +
+      'is the one that can demand it. A firm whose workers all sit at the tax domicile gets the same ' +
+      'answer either way; one with people in several states does not, and filing everything in the ' +
+      'head office state is how a firm ends up owing another state for years without knowing.',
+    whyAsking:
+      'Remote and multi-state workforces make this a real fork, and it is not a rule the system can settle: it depends on where your establishments are and what each state\'s law says about them.',
+    whatIDo:
+      'I group each pay run by the state this policy points at, look up that state\'s rate for the period, and accrue one ISN liability per state. If a state has no rate captured, I say which state and which period rather than computing zero.',
+    ifSkipped:
+      'I use the employee\'s work state. If your establishments are all in one state, this changes nothing.',
+    priority: 43,
+  },
+  {
+    key: 'isn_momento_de_causacion',
+    category: 'contable',
+    question:
+      'Do you accrue the ISN when the payroll is earned, or when it is paid?',
+    impact:
+      'It moves the expense between months whenever a pay period straddles a month end.',
+    options: [
+      { value: 'devengo', label: 'When earned, with the payroll it belongs to' },
+      { value: 'pago', label: 'When paid, with the cash that leaves' },
+    ],
+    defaultValue: 'devengo',
+    defaultRationale:
+      'The payroll expense it rides on is accrued, and splitting the tax from its base puts the two ' +
+      'in different months for no reason. Firms on a cash criterion for state taxes can say so here.',
+    whyAsking:
+      'A pay period that starts in one month and ends in the next has to land somewhere, and the two answers give different monthly results.',
+    whatIDo:
+      'I date the ISN liability by the criterion you choose here, and the due date by the state calendar either way.',
+    ifSkipped:
+      'It accrues with the payroll that caused it.',
+    priority: 44,
+  },
+  {
+    key: 'provision_cuotas_patronales',
+    category: 'contable',
+    question:
+      'Do you accrue the employer IMSS and INFONAVIT contributions with every pay run, or once a month when they are paid?',
+    impact:
+      'It decides whether a mid-month payroll shows its employer cost immediately or only at the month end.',
+    options: [
+      { value: 'por_corrida', label: 'With every pay run, next to the payroll that caused it' },
+      { value: 'mensual_al_cierre', label: 'Once a month, matching how they are actually paid' },
+    ],
+    defaultValue: 'por_corrida',
+    defaultRationale:
+      'The employer contribution is a cost of the same work the payroll pays for, and accruing it with ' +
+      'its pay run keeps the cost of a period complete without waiting for the month end. Firms that ' +
+      'reconcile against the SUA line by line often prefer the monthly accrual, and that is a real ' +
+      'criterion, not an error.',
+    whyAsking:
+      'IMSS and INFONAVIT are paid monthly and bimonthly, not per pay run, so there is a genuine choice between matching the cost and matching the payment.',
+    whatIDo:
+      'I write one employer liability row per pay run or one per month according to this, and the SUA reconciliation reads whichever you chose.',
+    ifSkipped:
+      'They accrue with each pay run.',
+    priority: 45,
+  },
 ];
 
 export function getPolicySpec(key: string): PolicySpec | undefined {

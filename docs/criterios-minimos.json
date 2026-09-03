@@ -70,9 +70,12 @@
     "E5.1 · Toda hoja del CLI declara su riesgo, así que hay algo sobre lo que aplicar la compuerta",
     "E5.1 · Todo camino que clasifica CFDI por lotes corre con superficie recortada y deja su fila de corrida",
     "E5.1 · Todo ejemplo de la ayuda lo acepta el Commander embarcado, en la hoja en cuya ayuda vive, y ninguno enseña la clave legada tax=",
-    "E5.1 · Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre"
+    "E5.1 · Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre",
+    "E4.1 · El subsidio al empleo que excede al ISR llega al trabajador, se declara en su CFDI y se puede postear",
+    "E4.1 · Un impuesto que no se puede calcular se nombra, no se cifra en cero"
   ],
   "_f05": "F05 (frontera de banco) subio el piso de 31 a 37 criterios: los seis verdes de E2.1 que nadie protegia. Se anaden aqui porque el arreglo de la frontera bancaria estuvo a punto de regresar uno de ellos —acotaba por `req.entityId` sin montar requireEntityAccess, y acotar por una cabecera que nadie valida no es acotar—. El criterio lo cazo; el piso impide que la proxima vez dependa de que alguien mire.",
   "_f05d": "F05d subio el piso de 37 a 46: los nueve verdes de E0.0 que nadie protegia, incluido «el corpus tiene compuerta de caducidad» — que este mismo tramo estuvo a punto de volver inutil sin tocarlo. Al anadir al manual una segunda mencion de 1135 (la regla del cheque cobrado), el mutante que vigilaba la del PPD paso a mutar la nueva y el criterio, que solo comprobaba PRESENCIA del numero, seguia en verde mientras el manual podia ensenar lo contrario. Un ancla de presencia caduca en cuanto alguien escribe cerca.",
-  "_f07b": "El piso sube de 46 a 52 con los verdes de E2.1 que otra sesion gano en paralelo (permisos de GraphQL y declaracion de riesgo por ruta). No son de F07b: el trinquete los reclama en el primer commit que pasa por aqui, y eso es exactamente lo que impide que un verde recien ganado se pierda sin que nadie lo note."
+  "_f07b": "El piso sube de 46 a 52 con los verdes de E2.1 que otra sesion gano en paralelo (permisos de GraphQL y declaracion de riesgo por ruta). No son de F07b: el trinquete los reclama en el primer commit que pasa por aqui, y eso es exactamente lo que impide que un verde recien ganado se pierda sin que nadie lo note.",
+  "_f08a": "F08a sube el piso de 67 a 69: los dos verdes que E4.1 gana en este tramo. El paquete sigue ABIERTO -su tercer criterio, el de las tres tablas con escritor, se queda rojo hasta que garnishments tenga el suyo en F08b-, y por eso --exigir no los cubre y hay que nombrarlos uno a uno. Los dos protegen dinero que ya se mueve: el subsidio al empleo que el trabajador recibe en efectivo y la negativa del ISN a cifrar un cero donde falta una tasa."
 }

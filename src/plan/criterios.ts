@@ -783,6 +783,7 @@ export const CRITERIOS: Criterio[] = [
         F07a: 'docs/auditorias/F07a.md',
         F07b: 'docs/auditorias/F07b.md',
         F07c: 'docs/auditorias/F07c.md',
+        F08a: 'docs/auditorias/F08a.md',
         G1a: 'docs/auditorias/G1a.md',
         G1b: 'docs/auditorias/G1b.md',
         G0: 'docs/auditorias/G0.md',
@@ -2173,13 +2174,34 @@ export const CRITERIOS: Criterio[] = [
       // además nunca aplica—, no porque nadie llame a getPolicy con ella. Una
       // coincidencia de cadena no es un consumidor, igual que un re-export de
       // barril no es un puente.
+      //
+      // LA CLAVE PUEDE VIAJAR EN UNA CONSTANTE, y eso no la hace huérfana.
+      // F08a puso el defecto delante: `leerRegistroDelSubsidio` llama a
+      // getPolicy con CLAVE_POLITICA_SUBSIDIO_ENTREGADO, declarada tres líneas
+      // arriba con esa cadena exacta, y el criterio la contó como no leída. El
+      // instrumento medía un MODISMO —la literal pegada al paréntesis— y no el
+      // hecho, así que empujaba a duplicar la cadena en el sitio donde el
+      // compilador ya la tenía. Se acepta la constante sólo si el MISMO archivo
+      // la declara con esa clave y la pasa a un lector: un identificador suelto
+      // que se llame parecido no cuenta, igual que no cuenta una coincidencia
+      // de cadena.
+      const leePorConstante = (k: string): boolean =>
+        dondeAparece(new RegExp(`const\\s+([A-Za-z0-9_$]+)\\s*=\\s*['\`"]${k}['\`"]`), ['src'], true)
+          .filter(ajeno)
+          .some((f) => {
+            const fuente = codigoDe(f);
+            const decl = new RegExp(`const\\s+([A-Za-z0-9_$]+)\\s*=\\s*['\`"]${k}['\`"]`).exec(fuente);
+            if (decl === null) return false;
+            return new RegExp(`getPolicy(Number)?\\s*\\([\\s\\S]{0,120}?\\b${decl[1]}\\b`).test(fuente);
+          });
+
       const huerfanas = claves.filter(
         (k) =>
           dondeAparece(
             new RegExp(`getPolicy(Number)?\\s*\\([\\s\\S]{0,120}?['\`"]${k}['\`"]`),
             ['src'],
             true
-          ).filter(ajeno).length === 0
+          ).filter(ajeno).length === 0 && !leePorConstante(k)
       );
       return huerfanas.length === 0
         ? ok(`${claves.length} políticas, todas leídas por algún consumidor`)
@@ -4590,6 +4612,116 @@ export const CRITERIOS: Criterio[] = [
         ? ok('la guarda de estado es única y la usan todos los verbos, el origen es propio, la reversa es todo-o-nada y la familia está en el binario')
         : falla('registerBatchCommand no está en el binario: el staging de F01 vuelve a ser un almacén sin salida');
     },
+  },
+
+  // ---- F08a · Lo que el patrón paga y lo que el trabajador no recibió ----
+
+  {
+    paquete: 'E4.1',
+    enunciado:
+      'El subsidio al empleo que excede al ISR llega al trabajador, se declara en su CFDI y se puede postear',
+    evaluar: () => {
+      // POR QUÉ NACE (F08a). La línea decía
+      // `Math.max(0, isr.tax_amount - sub.tax_amount)` y el comentario justo
+      // encima prometía «if negative, employee receives as cash». El Math.max
+      // era exactamente lo que impedía que lo recibiera: cuando el subsidio al
+      // empleo supera al ISR del periodo, el patrón ENTREGA la diferencia en
+      // efectivo y la acredita. Ese dinero desaparecía, y el defecto no se veía
+      // porque el recibo cuadraba consigo mismo — con el trabajador cobrando de
+      // menos.
+      //
+      // Arreglarlo abrió otras dos puertas que este criterio vigila juntas,
+      // porque las tres son el mismo hecho visto desde tres capas: el efectivo
+      // entra en el neto (recibo), tiene que declararse como OtrosPagos 002
+      // (CFDI, o Total ≠ SubTotal − Descuento y el PAC lo rechaza) y tiene que
+      // tener contrapartida en el asiento (mayor, o la corrida entera no se
+      // puede postear). Un criterio por capa habría dejado pasar el estado en
+      // el que el trabajador cobra y la contabilidad se niega a registrarlo.
+      const recibo = codigoDe('src/services/payroll/common/paycheck-service.ts');
+      if (/Math\.max\(\s*0\s*,\s*isr\.tax_amount/.test(recibo)) {
+        return falla(
+          'paycheck-service vuelve a descartar el excedente con Math.max: el subsidio que el ' +
+            'trabajador debía recibir en efectivo se pierde otra vez'
+        );
+      }
+      if (!/subsidio_entregado_efectivo/.test(recibo)) {
+        return falla('el recibo no guarda el subsidio entregado en efectivo: no hay de dónde declararlo');
+      }
+
+      const cfdi = codigoDe('src/services/payroll/mx/cfdi-nomina-generator.ts');
+      if (!/TipoOtroPago="002"/.test(cfdi) || !/SubsidioAlEmpleo SubsidioCausado/.test(cfdi)) {
+        return falla(
+          'el CFDI de nómina no declara el subsidio entregado como OtrosPagos 002 con su ' +
+            'SubsidioCausado: Total deja de ser SubTotal − Descuento y el comprobante no cuadra consigo mismo'
+        );
+      }
+
+      const mayor = codigoDe('src/services/payroll/common/gl-posting-service.ts');
+      if (!/isrDeLaCorrida\.lessThan\(0\)/.test(mayor)) {
+        return falla(
+          'el asiento de nómina no trata el ISR negativo como cargo: una corrida cuyo subsidio ' +
+            'entregado supere al ISR retenido no se puede postear, y el trabajador ya cobró'
+        );
+      }
+
+      return ok(
+        'el excedente entra en el neto, se declara como OtrosPagos 002 con su SubsidioCausado y ' +
+          'tiene contrapartida en el asiento'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/cfdi-nomina-generator.ts',
+        de: 'TipoOtroPago="002"',
+        a: 'TipoOtroPago="999"',
+        porque:
+          'el comprobante deja de declarar el subsidio entregado con la clave que el SAT cruza, y el ' +
+          'criterio tiene que verlo aunque el nodo siga ahí',
+      },
+      {
+        archivo: 'src/services/payroll/common/gl-posting-service.ts',
+        de: 'isrDeLaCorrida.lessThan(0)',
+        a: 'isrDeLaCorrida.lessThan(-1e9)',
+        porque:
+          'la rama del cargo queda escrita y nunca se toma: la corrida vuelve a descuadrarse por el ' +
+          'importe entregado, que es el defecto original con una condición imposible en vez de un Math.max',
+      },
+    ],
+  },
+  {
+    paquete: 'E4.1',
+    enunciado: 'Un impuesto que no se puede calcular se nombra, no se cifra en cero',
+    evaluar: () => {
+      // POR QUÉ NACE (F08a). El ISN —impuesto estatal sobre nóminas, carga del
+      // patrón, del 1% al 4%— no existía en una sola línea de código. Al nacer,
+      // el riesgo inmediato no era calcularlo mal: era calcularlo en CERO. La
+      // tabla de tasas nace VACÍA a propósito (32 estados con tasas que cambian
+      // por decreto; sembrarlas de memoria es fabricar un número plausible), así
+      // que el motor tiene que negarse con nombre y apellido en vez de devolver
+      // un cero que se suma sin protestar.
+      const p = 'src/services/payroll/mx/isn-calculator.ts';
+      if (!existe(p)) return falla('no hay calculador de ISN: el impuesto sobre nóminas sigue sin existir');
+      const isn = codigoDe(p);
+      const negativas = ['isn_sin_tasa_capturada', 'isn_regimen_no_soportado', 'isn_sin_estado_en_el_trabajador'];
+      const faltan = negativas.filter((h) => !isn.includes(h));
+      if (faltan.length > 0) {
+        return falla(
+          `el motor del ISN no se niega ante ${faltan.join(', ')}: un estado sin tasa capturada, un ` +
+            'régimen que no sabe calcular o un trabajador sin estado producirían un cero con aspecto de resultado'
+        );
+      }
+      return ok('las tres negativas del ISN nombran lo que falta en vez de cifrar un cero');
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/isn-calculator.ts',
+        de: 'isn_regimen_no_soportado',
+        a: 'isn_regimen_ya_veremos',
+        porque:
+          'un régimen escalonado calculado como si fuera tasa plana da un importe plausible y falso, ' +
+          'y el criterio sólo lo ve si exige el hallazgo por su nombre',
+      },
+    ],
   },
 
   // ---- F07c+d · La DIOT, las pólizas y el índice que actualiza ----

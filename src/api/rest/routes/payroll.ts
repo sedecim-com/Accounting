@@ -238,7 +238,7 @@ router.post(
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries POSTEADOS + account_balances' }),
   requirePermission('payroll:approve'),
   asyncHandler(async (req: Request, res: Response) => {
-    const journalEntryId = await postPayRunToGL(req.params.id, req.user!.user_id);
+    const journalEntryId = await postPayRunToGL(req.params.id, req.user!.user_id, req.user!.tenant_id);
     res.json({ data: { journal_entry_id: journalEntryId }, meta: meta(req) });
   })
 );
@@ -254,9 +254,12 @@ router.post(
 );
 
 router.get('/pay-runs/:id', requirePermission('payroll:read'), asyncHandler(async (req: Request, res: Response) => {
-  const run = await query(`SELECT * FROM pay_runs WHERE id = $1`, [req.params.id]);
+  // La frontera va DENTRO del SQL: RLS tapa hoy estas tres consultas, pero un
+  // 404 que depende de una política de la base es un 404 que desaparece el día
+  // que alguien las corra con otro rol. Y la serie TEN dice 404, no 403.
+  const run = await query(`SELECT * FROM pay_runs WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.user!.tenant_id]);
   if (run.rows.length === 0) throw new NotFoundError('PayRun', req.params.id);
-  const paychecks = await query(`SELECT * FROM paychecks WHERE pay_run_id = $1`, [req.params.id]);
+  const paychecks = await query(`SELECT * FROM paychecks WHERE pay_run_id = $1 AND tenant_id = $2`, [req.params.id, req.user!.tenant_id]);
   res.json({ data: { ...run.rows[0], paychecks: paychecks.rows }, meta: meta(req) });
 }));
 
@@ -485,7 +488,7 @@ router.get('/me/w2/:tax_year', asyncHandler(async (req: Request, res: Response) 
 
 // ---------- Paychecks & filings ----------
 router.get('/paychecks/:id', requirePermission('payroll:read'), asyncHandler(async (req: Request, res: Response) => {
-  const pc = await query(`SELECT * FROM paychecks WHERE id = $1`, [req.params.id]);
+  const pc = await query(`SELECT * FROM paychecks WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.user!.tenant_id]);
   if (pc.rows.length === 0) throw new NotFoundError('Paycheck', req.params.id);
   const earnings = await query(`SELECT * FROM paycheck_earnings WHERE paycheck_id = $1`, [req.params.id]);
   const deductions = await query(`SELECT * FROM paycheck_deductions WHERE paycheck_id = $1`, [req.params.id]);

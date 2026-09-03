@@ -104,6 +104,9 @@ const TOP_LEVEL: Record<string, string> = {
   sat: '',
   // F07c: la DIOT no se traduce, como sat y cfdi: es el nombre del trámite.
   diot: '',
+  // F08a: el ISN tampoco — es la sigla del impuesto, igual en los dos idiomas.
+  isn: '',
+  'tax-deposit': 'entero',
   // F02: cfdi es la misma palabra en los dos idiomas, como sat.
   cfdi: '',
   rep: '',
@@ -168,6 +171,10 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   fx: { rate: 'tipo' },
   prepaid: { create: 'crear', list: 'listar', show: 'ver', run: 'ejecutar' },
   'e-accounting': { catalog: 'catalogo', balance: 'balanza' },
+  // F08a. `rate` es la tasa del impuesto y `list`/`set` sus dos actos; el
+  // pasivo patronal vive aparte porque lleva IMSS e INFONAVIT además del ISN.
+  isn: { rate: 'tasa', calculate: 'calcular' },
+  'tax-deposit': { list: 'listar' },
   // G1b: las dos hojas de fase 1 del catálogo.
   cashflow: { generate: 'generar', reconcile: 'conciliar' },
   subscription: { delivery: 'entrega' },

@@ -100,6 +100,7 @@ import { registerFxCommand } from './fx-command.js';
 import { registerPrepaidCommand } from './prepaid-command.js';
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
+import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerCashFlowCommand } from './cashflow-command.js';
 import { registerAuditCommand } from './audit-command.js';
 import { registerWebhookSweepCommand } from './webhook-sweep-command.js';
@@ -3042,6 +3043,10 @@ registerFxCommand(program, { palette: c, shutdown, reportError });
 registerPrepaidCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
+// F08a. Registra DOS familias: `isn` (las tasas estatales y su cálculo) y
+// `tax-deposit` (el pasivo patronal, que lleva IMSS e INFONAVIT además del
+// ISN — colgarlo de `isn` habría sido mentira).
+registerPayrollIsnCommands(program, { palette: c, shutdown, reportError });
 registerCashFlowCommand(program, { palette: c, shutdown, reportError });
 registerAuditCommand(program, { palette: c, shutdown, reportError });
 // G4b · el barrido de entregas SALIENTES. Cuelga de `subscription`·`suscripcion`,
