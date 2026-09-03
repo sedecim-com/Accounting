@@ -11,6 +11,12 @@
 - Withholdings (ISR/VAT) subtract from the total.
 - Identifiers: UUID (fiscal stamp), series/folio, issuer/receiver RFC. The UUID is the system's dedupe key.
 
+## What the API refuses before trying (G4a)
+- Every REST route that mutates declares its risk class in its FIRST handler, the same four words the CLI uses (`lectura` / `escritura` / `irreversible` / `externo`), and the app REFUSES TO START if one does not — the same way the binary refuses to start on an impossible declaration. It also refuses if a declaration sits behind the handler: it would certify without protecting.
+- Routes declared `irreversible` or `externo` REQUIRE an `Idempotency-Key` header. Same key + same payload replays the recorded response; same key + a DIFFERENT payload is a 409, never a silent second act. Stamping twice at a PAC does not undo either, which is why `externo` counts.
+- Declared limits, so a body cannot become a denial of service: 1,000 lines per document, 5,000 movements per import, 500 applications per payment. Over the limit the rejection names the limit.
+- `POST /v1/xml/upload` is declared `irreversible`, not `escritura`: with auto-posting it reaches the ledger. Its CLI twin (`mnemosine ingest`) always declared it that way, and the same act with two classes depending on the door was the whole point of G4a.
+
 ## Multi-PAC stamping (issued invoices)
 - Failover chain with per-provider circuit breaker and per-tenant preferences. FOUR adapters are registered (G0 put them all through `integrationRegistry.register()` from one list — before, Sovos was in the router's dictionary only, so configuring it through the API died). THREE are SIMULATED (Finkok, SW Sapien, Edicom): they fabricate UUID and seal with `crypto.randomBytes`, and an anti-simulation lock guarantees a simulated folio is NEVER persisted as 'stamped' (it lands as 'failed' with a note). SOVOS is NOT simulated: it has a real SOAP implementation, injectable transport, and it THROWS rather than inventing a folio — but it has no credentials configured, so it cannot stamp either. `GET /v1/admin/integrations` now publishes the `simulado` flag per provider, so the difference is visible instead of assumed. Stamping is de facto off until a real PAC is contracted (§5 decision).
 - Human: POST /v1/invoices/:id/cfdi/stamp. CANCELLATION IS WITHDRAWN: /cfdi/cancel answers 501 — the human cancels at the PAC/SAT portal and reverses the entry with `mnemosine entry reverse`. Never tell a user the system cancels CFDIs.

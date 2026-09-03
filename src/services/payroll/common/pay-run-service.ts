@@ -2,6 +2,11 @@ import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
 import { calculatePaycheck, type EarningLine, type DeductionLine } from './paycheck-service.js';
+import {
+  acumularPasivoPatronal,
+  hallazgosQueBloquean,
+  type ResultadoAcumulacion,
+} from './employer-liability-service.js';
 import { dispatchEvent } from '../../webhooks/webhook-service.js';
 import { payRunStateTransitions } from '../../../api/rest/middleware/metrics.js';
 
@@ -105,8 +110,33 @@ export async function calculatePayRun(payRunId: string, input: PayRunInput): Pro
   payRunStateTransitions.inc({ from: 'draft', to: 'calculated', country: 'unknown' });
 }
 
-export async function approvePayRun(payRunId: string, approvedBy: string): Promise<void> {
+/**
+ * APROBAR ES CERRAR, Y AL CERRAR SE APUNTA LO QUE EL PATRÓN DEBE.
+ *
+ * La aprobación es el momento en que los números de la corrida dejan de
+ * moverse, así que es el momento en que el pasivo patronal —IMSS e INFONAVIT
+ * patronales, y el ISN de cada estado— pasa de ser un cálculo a ser una deuda
+ * con fecha límite. Hasta esta pieza nadie escribía `employer_tax_liabilities`
+ * y las formas que la suman reportaban ceros con aspecto de números.
+ *
+ * VA DENTRO DE LA MISMA TRANSACCIÓN que el cambio de estado, no después: si
+ * el pasivo no se puede escribir, la corrida no queda aprobada. Una corrida
+ * aprobada sin su pasivo es exactamente el estado que este tramo repara, y
+ * dejarlo ocurrir «sólo cuando falla la segunda mitad» lo vuelve intermitente,
+ * que es peor que constante.
+ *
+ * Lo que NO detiene la aprobación es una tasa de ISN sin capturar: eso vuelve
+ * como hallazgo bloqueante en el resultado, con el estado y el periodo
+ * nombrados, para que el llamador lo enseñe. Detener la nómina de todos porque
+ * a un estado le falta el dato en el catálogo sería cambiar una omisión por
+ * una parálisis; lo que no se permite es que se vuelva un cero silencioso.
+ */
+export async function approvePayRun(
+  payRunId: string,
+  approvedBy: string
+): Promise<ResultadoAcumulacion> {
   let tenantId = '';
+  let pasivo: ResultadoAcumulacion | undefined;
   await withTransaction(async (client) => {
     const res = await client.query<{ status: string; tenant_id: string }>(
       `SELECT status, tenant_id FROM pay_runs WHERE id = $1 FOR UPDATE`,
@@ -121,9 +151,17 @@ export async function approvePayRun(payRunId: string, approvedBy: string): Promi
       `UPDATE pay_runs SET status = 'approved', approved_by = $1, approved_at = NOW() WHERE id = $2`,
       [approvedBy, payRunId]
     );
+    pasivo = await acumularPasivoPatronal({ tenantId, payRunId }, client);
   });
-  await dispatchEvent(tenantId, 'payroll.run.approved', { pay_run_id: payRunId, approved_by: approvedBy });
+  const resultado = pasivo!;
+  await dispatchEvent(tenantId, 'payroll.run.approved', {
+    pay_run_id: payRunId,
+    approved_by: approvedBy,
+    pasivo_renglones: resultado.renglones.length,
+    hallazgos_bloqueantes: hallazgosQueBloquean(resultado.hallazgos).length,
+  });
   payRunStateTransitions.inc({ from: 'calculated', to: 'approved', country: 'unknown' });
+  return resultado;
 }
 
 export async function markPayRunPaid(payRunId: string): Promise<void> {

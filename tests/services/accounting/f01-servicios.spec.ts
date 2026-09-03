@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
   withTransaction: vi.fn(),
+  // G3: `setAccountGovernance` audita, y `tenantDe` pregunta primero por el
+  // inquilino del CONTEXTO.
+  currentTenant: vi.fn(() => 'tenant-1'),
 }));
 
 import {
@@ -17,12 +20,17 @@ import {
   parseCsvEntradas,
   assertLayoutSoportado,
 } from '../../../src/services/accounting/entry-import-service.js';
-import { query } from '../../../src/database/connection.js';
+import { query, withTransaction } from '../../../src/database/connection.js';
 
 const mockQuery = query as unknown as Mock;
+const mockTx = withTransaction as unknown as Mock;
 
 beforeEach(() => {
   mockQuery.mockReset();
+  mockTx.mockReset();
+  // El cuerpo de la transacción corre contra un cliente cuyo query() es el
+  // MISMO mock, para que las secuencias sigan viendo las sentencias en orden.
+  mockTx.mockImplementation((fn: (c: { query: unknown }) => unknown) => fn({ query: mockQuery }));
 });
 
 describe('parseGovernancePairs — vocabulario cerrado, valores estrictos', () => {
@@ -55,20 +63,54 @@ describe('setAccountGovernance — el CHECK de la 001, antes del UPDATE', () => 
 
   it('acepta la pareja coherente y escribe solo las claves dadas', async () => {
     mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'a1', is_header: false, allow_manual_entries: true }],
+      rows: [{ id: 'a1', entity_id: 'e-1', is_header: false, allow_manual_entries: true }],
     });
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1', is_header: true, allow_manual_entries: false }] });
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // G3: el INSERT del rastro
     await setAccountGovernance('a1', { is_header: true, allow_manual_entries: false }, 'u1');
     const [sql] = mockQuery.mock.calls[1];
     expect(sql).toMatch(/is_header = \$1/);
     expect(sql).toMatch(/allow_manual_entries = \$2/);
     expect(sql).not.toMatch(/is_control_account/);
   });
+
+  // G3: las banderas de gobierno son la PUERTA del posteo —quién puede
+  // escribir en esta cuenta y si el mayor la considera control de un
+  // subdiario—. Cambiarlas sin dejar quién es lo que hace irrebatible un
+  // asiento discutido.
+  it('deja rastro con el antes y el después de las banderas tocadas', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'a1', entity_id: 'e-1', is_header: false, allow_manual_entries: true }],
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1', allow_manual_entries: false }] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await setAccountGovernance('a1', { allow_manual_entries: false }, 'u1', 'se postea sólo por regla');
+
+    const [sqlRastro, paramsRastro] = mockQuery.mock.calls[2] as [string, unknown[]];
+    expect(sqlRastro).toMatch(/INSERT INTO audit_log/);
+    expect(paramsRastro[1]).toBe('u1');
+    expect(paramsRastro[4]).toBe('account');
+    expect(JSON.parse(String(paramsRastro[6]))).toEqual({ allow_manual_entries: true });
+    expect(JSON.parse(String(paramsRastro[7]))).toEqual({ allow_manual_entries: false });
+    expect(paramsRastro[8]).toBe('se postea sólo por regla');
+  });
+
+  // La validación cae DENTRO de la transacción: ni la cuenta cambia ni la
+  // bitácora crece.
+  it('una pareja rechazada no deja rastro', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'a1', entity_id: 'e-1', is_header: false, allow_manual_entries: true }],
+    });
+    await expect(setAccountGovernance('a1', { is_header: true }, 'u1')).rejects.toThrow(/agrupadora/);
+    expect(mockQuery.mock.calls).toHaveLength(1);
+  });
 });
 
 describe('resolverEsquema — sin columna se rechaza, no se finge', () => {
   it('mapea los esquemas con columna y rechaza el resto con mensajes distintos', () => {
-    expect(resolverEsquema('sat-agrupador')).toBe('mx_nif_code');
+    // F07a: el agrupador se mudó a su propia columna con la 063. Antes esto
+    // decía mx_nif_code, que es el código de PRESENTACIÓN bajo NIF.
+    expect(resolverEsquema('sat-agrupador')).toBe('codigo_agrupador_sat');
     expect(resolverEsquema('us-tax-line')).toBe('us_gaap_code');
     expect(() => resolverEsquema('fs-line')).toThrow(/aún no tiene columna/);
     expect(() => resolverEsquema('marciano')).toThrow(/Esquema desconocido/);

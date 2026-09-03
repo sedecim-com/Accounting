@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../database/connection.js';
 import { assertUrlDeWebhook, assertDestinoPublico } from './url-guard.js';
 import { hashWebhookSignature } from '../../utils/encryption.js';
-import { config } from '../../config/index.js';
+import { politicaDe, veredicto, razonDeMuerte, retryConfigInicial } from './politica-reintento.js';
 import type { WebhookSubscription, WebhookDelivery } from '../../types/index.js';
 
 export const WEBHOOK_EVENTS = [
@@ -33,10 +33,15 @@ export async function createWebhook(
   const secret = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
   const id = uuidv4();
 
+  // LA POLÍTICA DE REINTENTO SE ESCRIBE, no se deja al DEFAULT.
+  // `retry_config` es NOT NULL con DEFAULT `{"max_retries": 5, ...}` desde
+  // la 003, y `politicaDe` le da precedencia a la suscripción sobre el
+  // entorno: omitir la columna aquí significaba que TODA suscripción nacía
+  // con el 5 de la migración y que WEBHOOK_MAX_RETRIES no gobernaba nada.
   const result = await query<WebhookSubscription>(
-    `INSERT INTO webhook_subscriptions (id, tenant_id, url, events, secret, is_active)
-     VALUES ($1, $2, $3, $4, $5, true) RETURNING *`,
-    [id, tenantId, url, events, secret]
+    `INSERT INTO webhook_subscriptions (id, tenant_id, url, events, secret, is_active, retry_config)
+     VALUES ($1, $2, $3, $4, $5, true, $6::jsonb) RETURNING *`,
+    [id, tenantId, url, events, secret, JSON.stringify(retryConfigInicial())]
   );
 
   return result.rows[0];
@@ -100,7 +105,15 @@ export async function dispatchEvent(
   }
 }
 
-async function deliverWebhook(
+/**
+ * UN intento de entrega, con su firma y su registro del resultado.
+ *
+ * Deja de ser privada porque el barrido (`barrido-entregas.ts`) tiene que
+ * reintentar exactamente esto —el mismo cuerpo, la misma cabecera de
+ * identidad— y una segunda copia del envío sería una segunda política de
+ * firma esperando a divergir.
+ */
+export async function deliverWebhook(
   deliveryId: string,
   subscription: WebhookSubscription,
   payload: Record<string, unknown>
@@ -151,26 +164,35 @@ async function markFailed(
   statusCode: number | null,
   errorMessage: string
 ): Promise<void> {
-  const maxRetries = config.webhooks.maxRetries;
-  const retryInterval = config.webhooks.retryInterval;
-
-  const delivery = await query<WebhookDelivery>(
-    'SELECT * FROM webhook_deliveries WHERE id = $1',
+  // La política sale de la SUSCRIPCIÓN, no de una constante global:
+  // `webhook_subscriptions.retry_config` existe desde la 003 con su DEFAULT
+  // puesto y hasta ahora no lo leía nadie. Un receptor frágil y uno robusto
+  // no merecen el mismo castigo, y la columna ya estaba ahí para decirlo.
+  const delivery = await query<WebhookDelivery & { retry_config: WebhookSubscription['retry_config'] }>(
+    `SELECT d.attempt_count, s.retry_config
+       FROM webhook_deliveries d
+       JOIN webhook_subscriptions s ON s.id = d.webhook_id
+      WHERE d.id = $1`,
     [deliveryId]
   );
 
   const attemptCount = (delivery.rows[0]?.attempt_count || 0) + 1;
-  const status = attemptCount >= maxRetries ? 'failed' : 'pending';
-  const nextRetry = attemptCount < maxRetries
-    ? new Date(Date.now() + retryInterval * 1000 * Math.pow(2, attemptCount - 1))
-    : null;
+  const fallo = veredicto(attemptCount, politicaDe(delivery.rows[0]));
+
+  // MUERTA SE DICE, no se calla. Antes la entrega agotada quedaba en
+  // 'failed' con el error del último intento, indistinguible de la que aún
+  // tenía turnos: nadie podía saber, mirando la fila, si el sistema seguía
+  // trabajando en ella o se había rendido. El motivo se escribe EN LA FILA
+  // porque es donde va a leerlo quien investigue meses después, cuando la
+  // salida del barrido que lo anunció ya no exista.
+  const mensaje = fallo.muerta ? razonDeMuerte(attemptCount, errorMessage) : errorMessage;
 
   await query(
     `UPDATE webhook_deliveries SET
       status = $1, http_status_code = $2, error_message = $3,
       attempt_count = $4, next_retry_at = $5
      WHERE id = $6`,
-    [status, statusCode, errorMessage, attemptCount, nextRetry, deliveryId]
+    [fallo.muerta ? 'failed' : 'pending', statusCode, mensaje, attemptCount, fallo.proximoIntento, deliveryId]
   );
 }
 

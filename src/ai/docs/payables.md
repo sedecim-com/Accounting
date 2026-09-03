@@ -1,6 +1,7 @@
 # Accounts payable (vendors and received invoices)
 
 ## Vendors
+- Creating a vendor leaves an audit row (G3): who, when, and which fields — bank details never travel into `audit_log`, not even already-encrypted, because that table is append-only (033) and a CLABE that lands there does not come out even by rotating the key; what is recorded is `bank_details_on_file: true`.
 - Data: vendor_number (V-...), company_name, tax_id (RFC/EIN), terms, default expense account, is_1099_vendor flag (USA), bank data ENCRYPTED (account/CLABE/routing — you will never see them in the clear).
 - YOU: search_vendors. Human: POST/PATCH /v1/vendors.
 
@@ -23,3 +24,4 @@
 - POST / (create), POST /:id/approve, POST /payments (payment applied to bills — this is the call that moves amount_due and posts to the ledger).
 - CLI: `bill create|approve`, `payment create` (pay a bill), `payment apply` (spread a payment already made), `bill inbox list|run` (the CFDI queue). Payment writes are IA ✗ — you may read and propose, never run them.
 - POST /:id/schedule-payment answers 501: mnemosine has no payment scheduler and no connection to any bank. It used to answer 200 and append a line to bills.memo, which left the vendor unpaid on the date it reported. Never tell a human a payment is scheduled.
+- Payment trace for the Anexo 24 (F07d): when a payment moves money, the póliza XML must carry the trail inside it — origin account and bank, destination account and bank, cheque number, date, payee and their RFC. `payment create` now captures the cheque number and the destination account (nationally by SAT bank code, or by NAME for a foreign bank: they are different fields, and a CHECK refuses both at once). The cheque number was a column three call sites READ and no INSERT ever wrote — orphan capacity in reverse. The destination lives on the PAYMENT, not on the vendor: the filing declares the account of THAT movement, so reading it from the master would make an old póliza change its answer when the vendor's details change. A payment that moved money without its trail is reported by póliza number rather than silently omitted.

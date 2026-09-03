@@ -79,6 +79,11 @@ interface MontoOpts extends CommonOpts {
   reference?: string;
   memo?: string;
   discount?: string;
+  /** F07d · el rastro que la póliza del Anexo 24 declara. Ver `rastroFlags`. */
+  checkNumber?: string;
+  toAccount?: string;
+  toBank?: string;
+  toForeignBank?: string;
 }
 
 interface AplicarOpts extends CommonOpts {
@@ -185,6 +190,29 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
       .option('--bank <account>', "bank account id; without it the entity's `banco` role is used")
       .option('--json', 'JSON output');
 
+  // EL RASTRO DE PAGO (F07d). Cuatro banderas que no cambian ni un asiento y
+  // sin las cuales la póliza del Anexo 24 no se puede emitir: el nodo de pago
+  // exige de dónde salió el dinero y a dónde fue.
+  //
+  // SE CAPTURA AQUÍ, EN EL MISMO ACTO EN QUE SE REGISTRA EL PAGO, y no en una
+  // pantalla posterior de «completar datos fiscales». La razón es práctica:
+  // dentro de tres meses, cuando toque emitir las pólizas del periodo, nadie
+  // se acuerda de a qué cuenta se transfirió; hoy el que teclea tiene el
+  // comprobante del banco delante. Un dato fiscal que se pide tarde se
+  // inventa o se deja vacío.
+  //
+  // `--check-number` es la grafía que el catálogo ya reserva (fila
+  // `entry support add`, docs/cli-command-catalog.md:459); las otras tres son
+  // altas al diccionario de §3 y se proponen como tales en el informe. La
+  // cuenta de ORIGEN no lleva bandera propia: es `--bank`, que ya existe, y
+  // de ella salen CtaOri y BancoOriNal (bank_accounts.sat_bank_code, F05).
+  const rastroFlags = (cmd: Command): Command =>
+    cmd
+      .option('--check-number <number>', 'cheque number; only valid with --method check')
+      .option('--to-account <number>', 'account that received the money (CtaDest of the SAT voucher)')
+      .option('--to-bank <code>', 'destination bank key from the SAT c_Banco catalogue (3 digits)')
+      .option('--to-foreign-bank <name>', 'destination bank name when it is a foreign one');
+
   // ============================================================
   // payment · lo que sale
   // ============================================================
@@ -198,7 +226,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
     .alias('crear')
     .argument('<bill>', 'bill number, vendor invoice number or id')
     .description('Record a payment made against a bill and recognize the IVA it was holding');
-  montoFlags(create)
+  rastroFlags(montoFlags(create))
     .option('--discount <amount>', 'early-payment discount taken')
     .option('--memo <text>', 'note stored with the payment');
   withContext(create);
@@ -207,7 +235,9 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   declareRisk(create, {
     risk: 'irreversible',
     agent: false,
-    writes: 'vendor_payments, payment_applications, bills.amount_due, journal_entries',
+    writes:
+      'vendor_payments (con check_number y la cuenta destino), payment_applications, ' +
+      'bills.amount_due, journal_entries',
   });
   create.addHelpText('after', EJEMPLOS.create);
   create.action((ref: string, opts: MontoOpts) =>
@@ -234,6 +264,10 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
         paymentMethod: opts.method,
         bankAccountId: opts.bank ?? null,
         memo: opts.memo ?? null,
+        checkNumber: opts.checkNumber ?? null,
+        cuentaDestino: opts.toAccount ?? null,
+        bancoDestinoSat: opts.toBank ?? null,
+        bancoDestinoExtranjero: opts.toForeignBank ?? null,
         applications: [
           { documentId: target.id, amountApplied: opts.amount, discountAmount: opts.discount },
         ],
@@ -411,6 +445,7 @@ async function ejecutar(a: {
 
   if (a.opts.dryRun) {
     imprimir(previo, p, a.etiqueta, true, a.opts.json === true);
+    avisarRastroIncompleto(a.entrada, p, a.opts.json === true);
     process.stderr.write(p.dim('Dry run: nothing was written.\n'));
     return;
   }
@@ -422,6 +457,51 @@ async function ejecutar(a: {
     attestEntryAsync(a.ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
   }
   imprimir(result, p, a.etiqueta, false, a.opts.json === true);
+  avisarRastroIncompleto(a.entrada, p, a.opts.json === true);
+}
+
+/** Métodos que mueven dinero por un banco y por tanto piden cuenta destino. */
+const POR_BANCO = ['check', 'ach', 'wire', 'spei'] as const;
+
+/**
+ * DICE LO QUE FALTA EN EL MOMENTO EN QUE TODAVÍA SE PUEDE PREGUNTAR.
+ *
+ * No es una compuerta y no debe serlo: el pago YA OCURRIÓ, y negarse a
+ * registrarlo porque falta un dato del XML de pólizas dejaría el mayor sin el
+ * movimiento y el IVA acreditable aparcado — mucho peor que una póliza
+ * incompleta. Pero callarlo produce el otro desastre, el de F07: el dato se
+ * descubre tres meses después, cuando `voucher generate` nombra la póliza y
+ * ya no hay a quién preguntarle a qué cuenta se transfirió.
+ *
+ * Va por stderr para no ensuciar el `--json`, que es contrato de máquina.
+ */
+function avisarRastroIncompleto(entrada: EntradaPago, p: Palette, json: boolean): void {
+  if (json) return;
+  // `some` y no `includes(x as ...)`: Commander entrega `string`, y una
+  // aserción aquí sólo callaría al compilador. Es la misma lección que la
+  // cabecera de `payment apply` deja escrita sobre `--mode`.
+  if (!POR_BANCO.some((m) => m === entrada.paymentMethod)) return;
+
+  const faltan: string[] = [];
+  if ((entrada.cuentaDestino ?? '') === '') faltan.push('--to-account');
+  if (
+    (entrada.bancoDestinoSat ?? '') === '' &&
+    (entrada.bancoDestinoExtranjero ?? '') === ''
+  ) {
+    faltan.push('--to-bank / --to-foreign-bank');
+  }
+  if (entrada.paymentMethod === 'check' && (entrada.checkNumber ?? '') === '') {
+    faltan.push('--check-number');
+  }
+  if (faltan.length === 0) return;
+
+  process.stderr.write(
+    p.yellow(
+      `The SAT voucher (Anexo 24) declares where this money went, and that is missing: ` +
+        `${faltan.join(', ')}. ` +
+        `\`e-accounting voucher generate\` will name this payment as untraced.\n`
+    )
+  );
 }
 
 function imprimir(

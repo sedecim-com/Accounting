@@ -1,6 +1,36 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
-vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
+// `currentTenant` lo usa report-service para resolver el inquilino de una
+// política sin una segunda consulta. Devuelve un inquilino fijo: aquí no se
+// prueba RLS, se prueba la balanza.
+vi.mock('../../../src/database/connection.js', () => ({
+  query: vi.fn(),
+  currentTenant: vi.fn(() => 'ten-1'),
+}));
+
+// El origen del saldo inicial también sale del panel. Se sustituye por el
+// lector, no por el valor, para poder afirmar CON QUÉ CLAVE se lee: una
+// política sin lector es una pregunta que no cambia nada.
+vi.mock('../../../src/services/policy/policy-service.js', () => ({ getPolicy: vi.fn() }));
+
+// El criterio de los asientos de cierre lo decide una política, y leerla es un
+// viaje a la base. Se sustituye por su valor POR OMISIÓN —el estado de
+// resultados los excluye, la balanza los incluye— para que estas pruebas sigan
+// contando consultas de informe y no de panel. `predicadoSinCierre` se deja
+// REAL: es el SQL que las aserciones de abajo comprueban.
+vi.mock('../../../src/services/reporting/criterio-cierre.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../src/services/reporting/criterio-cierre.js')>();
+  return {
+    ...actual,
+    criterioDeCierreEnInformes: vi.fn(async () => ({
+      valor: 'estado_sin_cierre_balanza_con_cierre',
+      enEstadoDeResultados: false,
+      enBalanza: true,
+    })),
+    avisoDeCierreEnRango: vi.fn(async () => null),
+  };
+});
 
 // El criterio de los asientos de cierre lo decide una política, y leerla es un
 // viaje a la base. Se sustituye por su valor POR OMISIÓN —el estado de
@@ -24,6 +54,7 @@ vi.mock('../../../src/services/reporting/criterio-cierre.js', async (importOrigi
 import {
   resolvePeriodRange,
   queryTrialBalanceRows,
+  queryAccumulatedBalances,
   totalTrialBalance,
   getTrialBalance,
   queryBalanceSheetRows,
@@ -40,7 +71,9 @@ import {
   getAgedReceivables,
   getAgedPayables,
 } from '../../../src/services/reporting/report-service.js';
-import { query } from '../../../src/database/connection.js';
+import { query, currentTenant } from '../../../src/database/connection.js';
+import { getPolicy } from '../../../src/services/policy/policy-service.js';
+import { criterioDeCierreEnInformes } from '../../../src/services/reporting/criterio-cierre.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as Mock;
@@ -197,6 +230,357 @@ describe('getTrialBalance — truncation must never change the answer', () => {
     const report = await getTrialBalance(ENTITY);
     expect(report.rows).toHaveLength(2);
     expect(report.total).toBe(2);
+  });
+});
+
+// ============================================================
+// F07a · LA CUARTA COLUMNA
+//
+// Lo que se fija aquí es la ARITMÉTICA y la forma de las consultas. Que las
+// cifras sean las del mayor lo sostiene
+// tests/integration/f07a-balanza-de-cuatro-columnas.int.spec.ts, contra
+// Postgres: con un arnés que fabrica las filas, un saldo inicial derivado del
+// mayor no se puede demostrar —sólo se puede reproducir la resta—.
+// ============================================================
+
+/** Una fila del índice de acumulados, tal y como la devuelve Postgres. */
+const accRow = (code: string, balance: string) => ({ account_id: `id-${code}`, balance });
+
+const DERIVAR = {
+  key: 'anexo24_balanza_saldo_inicial',
+  value: 'derivar_del_mayor',
+  defined: false,
+  question: '',
+  rationale: null,
+};
+
+describe('queryAccumulatedBalances — la suma del mayor para TODAS las cuentas', () => {
+  beforeEach(() => vi.mocked(criterioDeCierreEnInformes).mockClear());
+
+  it('el inicial es ESTRICTAMENTE anterior al corte y el final lo incluye', async () => {
+    // La diferencia entre `<` y `<=` es el movimiento del propio periodo
+    // contado dentro de su saldo inicial.
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAccumulatedBalances(ENTITY, { date: '2026-03-01', inclusive: false });
+    expect(sql(0)).toMatch(/AND je\.entry_date < \$2/);
+    expect(params(0)).toEqual([ENTITY, '2026-03-01']);
+
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAccumulatedBalances(ENTITY, { date: '2026-03-31', inclusive: true });
+    expect(sql(1)).toMatch(/AND je\.entry_date <= \$2/);
+  });
+
+  it('sin corte suma la historia posteada entera', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAccumulatedBalances(ENTITY, { inclusive: true });
+    expect(sql(0)).not.toMatch(/entry_date/);
+    expect(params(0)).toEqual([ENTITY]);
+  });
+
+  it('acota por entidad DENTRO del SQL y sólo cuenta lo posteado', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAccumulatedBalances(ENTITY, { date: '2026-03-01', inclusive: false });
+    expect(sql(0)).toMatch(/WHERE a\.entity_id = \$1/);
+    expect(sql(0)).toMatch(/je\.status = 'posted'/);
+    expect(sql(0)).toMatch(/GROUP BY jel\.account_id/);
+  });
+
+  it('lleva el mismo criterio de asientos de cierre que la balanza', async () => {
+    // Las tres columnas tienen que hablar del mismo libro: un inicial que
+    // cuenta el cierre del ejercicio dentro de una balanza que no lo cuenta
+    // arrastra al mes de enero el ejercicio ya barrido.
+    vi.mocked(criterioDeCierreEnInformes).mockResolvedValueOnce({
+      valor: 'excluir_siempre',
+      enEstadoDeResultados: false,
+      enBalanza: false,
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAccumulatedBalances(ENTITY, { date: '2026-03-01', inclusive: false });
+    expect(sql(0)).toMatch(/AND NOT \(je\.entry_type = 'closing'/);
+  });
+
+  it('y el cotejo de las vistas lo puede saltar, como en la balanza', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryAccumulatedBalances(ENTITY, { inclusive: true }, { ignoreClosingPolicy: true });
+    expect(criterioDeCierreEnInformes).not.toHaveBeenCalled();
+    expect(sql(0)).not.toMatch(/entry_type/);
+  });
+});
+
+describe('getTrialBalance — el saldo inicial que el Anexo 24 exige', () => {
+  beforeEach(() => {
+    vi.mocked(getPolicy).mockReset();
+    vi.mocked(getPolicy).mockResolvedValue(DERIVAR);
+    vi.mocked(criterioDeCierreEnInformes).mockClear();
+  });
+
+  /** El guion de consultas de una balanza por rango de fechas. */
+  const conRango = (opts: {
+    filas: ReturnType<typeof tbRow>[];
+    previo?: { period_name: string; status: string } | null;
+    iniciales?: ReturnType<typeof accRow>[];
+    finales?: ReturnType<typeof accRow>[];
+  }) => {
+    mockQuery.mockResolvedValueOnce({ rows: opts.filas });
+    mockQuery.mockResolvedValueOnce({ rows: opts.previo ? [opts.previo] : [] });
+    mockQuery.mockResolvedValueOnce({ rows: opts.iniciales ?? [] });
+    mockQuery.mockResolvedValueOnce({ rows: opts.finales ?? [] });
+  };
+
+  const MARZO = { sinceDate: '2026-03-01', untilDate: '2026-03-31' };
+
+  it('una balanza sin un ANTES no inventa la columna: se queda en tres', async () => {
+    // `asOfDate` y la historia completa arrancan en el origen de los libros.
+    // Una columna de ceros ahí se leería como arrastre, y además costaría dos
+    // consultas por informe a las superficies que hoy hacen una.
+    mockQuery.mockResolvedValueOnce({ rows: [tbRow('1120', '100', '0')] });
+    const report = await getTrialBalance(ENTITY, { asOfDate: '2026-06-30' });
+    expect(report.inicial).toBeUndefined();
+    expect(report.rows[0].beginning_balance).toBeUndefined();
+    expect(mockQuery.mock.calls).toHaveLength(1);
+  });
+
+  it('la balanza de un rango publica SaldoIni y SaldoFin, y cuadra', async () => {
+    conRango({
+      filas: [tbRow('1120', '30', '10')],
+      previo: { period_name: 'Periodo 2/2026', status: 'hard_close' },
+      iniciales: [accRow('1120', '100')],
+      finales: [accRow('1120', '120')],
+    });
+    const report = await getTrialBalance(ENTITY, MARZO);
+    const fila = report.rows[0];
+    expect(fila.beginning_balance).toBe('100.0000');
+    expect(fila.debit_total).toBe('30');
+    expect(fila.credit_total).toBe('10');
+    expect(fila.final_balance).toBe('120.0000');
+    expect(fila.cuadra).toBe(true);
+    expect(report.inicial!.descuadres).toEqual([]);
+    // Y `ending_balance` sigue siendo lo que era: el movimiento neto del rango.
+    expect(fila.ending_balance).toBe('20');
+  });
+
+  it('el SaldoFin se pide aparte: no se recompone, y por eso puede acusar', async () => {
+    // Escrito como inicial + debe − haber, el recálculo del SAT saldría bien
+    // SIEMPRE. Aquí el mayor dice otra cosa y la cuenta se señala en vez de
+    // absorberse.
+    conRango({
+      filas: [tbRow('1120', '30', '10')],
+      previo: { period_name: 'Periodo 2/2026', status: 'hard_close' },
+      iniciales: [accRow('1120', '100')],
+      finales: [accRow('1120', '999')],
+    });
+    const report = await getTrialBalance(ENTITY, MARZO);
+    expect(report.rows[0].final_balance).toBe('999.0000');
+    expect(report.rows[0].cuadra).toBe(false);
+    expect(report.inicial!.descuadres).toEqual([
+      {
+        account_id: 'id-1120',
+        account_code: '1120',
+        esperado: '120.0000',
+        obtenido: '999.0000',
+        diferencia: '-879.0000',
+      },
+    ]);
+    expect(report.inicial!.note).toMatch(/1 account\(s\) fail SaldoIni \+ Debe − Haber = SaldoFin/);
+  });
+
+  it('la cuenta que no aparece en el acumulado vale cero, no desaparece', async () => {
+    conRango({
+      filas: [tbRow('1120', '30', '10')],
+      previo: { period_name: 'Periodo 2/2026', status: 'hard_close' },
+      iniciales: [],
+      finales: [accRow('1120', '20')],
+    });
+    const report = await getTrialBalance(ENTITY, MARZO);
+    expect(report.rows[0].beginning_balance).toBe('0.0000');
+    expect(report.rows[0].cuadra).toBe(true);
+  });
+
+  it('el dinero sale como cadena de cuatro decimales, nunca como número', async () => {
+    conRango({
+      filas: [tbRow('1120', '0.1', '0')],
+      previo: { period_name: 'Periodo 2/2026', status: 'hard_close' },
+      iniciales: [accRow('1120', '0.2')],
+      finales: [accRow('1120', '0.3')],
+    });
+    const report = await getTrialBalance(ENTITY, MARZO);
+    expect(typeof report.rows[0].beginning_balance).toBe('string');
+    expect(report.rows[0].beginning_balance).toBe('0.2000');
+    // 0.2 + 0.1 en coma flotante es 0.30000000000000004: con Decimal cuadra.
+    expect(report.rows[0].cuadra).toBe(true);
+  });
+
+  it('FIRME lo jura el periodo ANTERIOR, no el consultado', async () => {
+    conRango({
+      filas: [tbRow('1120', '30', '10')],
+      previo: { period_name: 'Periodo 2/2026', status: 'open' },
+      iniciales: [accRow('1120', '100')],
+      finales: [accRow('1120', '120')],
+    });
+    const abierto = await getTrialBalance(ENTITY, MARZO);
+    expect(abierto.inicial!.firme).toBe(false);
+    expect(abierto.inicial!.periodo_anterior).toEqual({
+      period_name: 'Periodo 2/2026',
+      status: 'open',
+    });
+    // Calculable y no firme: la cifra existe y todavía puede cambiar. Decirlo
+    // es la mitad del trabajo, porque esto se firma.
+    expect(abierto.inicial!.note).toMatch(/derived from the ledger/);
+    expect(abierto.inicial!.note).toMatch(/NOT firm/);
+
+    mockQuery.mockReset();
+    conRango({
+      filas: [tbRow('1120', '30', '10')],
+      previo: { period_name: 'Periodo 2/2026', status: 'hard_close' },
+      iniciales: [accRow('1120', '100')],
+      finales: [accRow('1120', '120')],
+    });
+    const cerrado = await getTrialBalance(ENTITY, MARZO);
+    expect(cerrado.inicial!.firme).toBe(true);
+    expect(cerrado.inicial!.note).toMatch(/Firm: Periodo 2\/2026 is hard_close/);
+  });
+
+  it('sin periodo anterior el inicial debería ser cero, y si no lo es lo dice', async () => {
+    conRango({
+      filas: [tbRow('1120', '30', '10')],
+      previo: null,
+      iniciales: [accRow('1120', '100')],
+      finales: [accRow('1120', '120')],
+    });
+    const report = await getTrialBalance(ENTITY, MARZO);
+    expect(report.inicial!.firme).toBe(false);
+    expect(report.inicial!.periodo_anterior).toBeNull();
+    expect(report.inicial!.note).toMatch(/No earlier fiscal period/);
+    expect(report.inicial!.note).toMatch(/1 account\(s\) already carry a balance/);
+  });
+
+  it('el periodo fiscal fecha la balanza con su propio rango, y acotado a la entidad', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [tbRow('1120', '30', '10')] });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'fp-3', period_name: 'Periodo 3/2026', start_date: '2026-03-01', end_date: '2026-03-31' }],
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [{ period_name: 'Periodo 2/2026', status: 'hard_close' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [accRow('1120', '100')] });
+    mockQuery.mockResolvedValueOnce({ rows: [accRow('1120', '120')] });
+
+    const report = await getTrialBalance(ENTITY, { fiscalPeriodId: 'fp-3' });
+    // Un id de periodo de OTRA entidad no puede fechar esta balanza.
+    expect(sql(1)).toMatch(/FROM fiscal_periods WHERE id = \$1 AND entity_id = \$2/);
+    expect(params(1)).toEqual(['fp-3', ENTITY]);
+    expect(params(3)).toEqual([ENTITY, '2026-03-01']); // inicial: antes del día 1
+    expect(params(4)).toEqual([ENTITY, '2026-03-31']); // final: hasta el último
+    expect(report.inicial!.desde).toBe('2026-03-01');
+  });
+
+  it('un periodo que no es de esta entidad no produce saldo inicial ninguno', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [tbRow('1120', '0', '0')] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    const report = await getTrialBalance(ENTITY, { fiscalPeriodId: 'de-otra-entidad' });
+    expect(report.inicial).toBeUndefined();
+    expect(mockQuery.mock.calls).toHaveLength(2);
+  });
+
+  it('--exclude-zero ya no tira la cuenta que arrastra saldo sin haberse movido', async () => {
+    // Es justo la cuenta que el Anexo 24 necesita: el SAT recalcula sobre su
+    // SaldoIni. Filtrando por el movimiento —que es cero— desaparecía.
+    conRango({
+      filas: [tbRow('1120', '0', '0'), tbRow('1130', '0', '0')],
+      previo: { period_name: 'Periodo 2/2026', status: 'hard_close' },
+      iniciales: [accRow('1120', '500')],
+      finales: [accRow('1120', '500')],
+    });
+    const report = await getTrialBalance(ENTITY, { ...MARZO, excludeZero: true });
+    expect(report.rows.map((r) => r.account_code)).toEqual(['1120']);
+    expect(report.total).toBe(1);
+  });
+
+  it('lee la política del panel con su clave literal', async () => {
+    conRango({
+      filas: [tbRow('1120', '0', '0')],
+      previo: { period_name: 'Periodo 2/2026', status: 'hard_close' },
+    });
+    const report = await getTrialBalance(ENTITY, MARZO);
+    expect(getPolicy).toHaveBeenCalledWith(
+      { tenantId: 'ten-1', entityId: ENTITY },
+      'anexo24_balanza_saldo_inicial'
+    );
+    expect(report.inicial!.criterio).toBe('derivar_del_mayor');
+    expect(report.inicial!.origen).toBe('mayor');
+  });
+
+  it('sin contexto de inquilino, lo resuelve por la entidad antes de leer el panel', async () => {
+    // El CLI y el REST fijan el contexto RLS; un trabajo de fondo no. El
+    // patrón de la casa es el mismo de criterio-cierre: contexto, y si no,
+    // legal_entities.
+    vi.mocked(currentTenant).mockReturnValueOnce(undefined);
+    mockQuery.mockResolvedValueOnce({ rows: [tbRow('1120', '0', '0')] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ tenant_id: 'ten-de-la-entidad' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    await getTrialBalance(ENTITY, MARZO);
+    expect(sql(1)).toMatch(/SELECT tenant_id FROM legal_entities WHERE id = \$1/);
+    expect(getPolicy).toHaveBeenCalledWith(
+      { tenantId: 'ten-de-la-entidad', entityId: ENTITY },
+      'anexo24_balanza_saldo_inicial'
+    );
+  });
+
+  it('una entidad sin inquilino no revienta el informe: aplica el criterio por omisión', async () => {
+    // Un informe no debe morir por no poder leer una política, que es la misma
+    // regla que criterio-cierre declara para el criterio del cierre.
+    vi.mocked(currentTenant).mockReturnValueOnce(undefined);
+    mockQuery.mockResolvedValueOnce({ rows: [tbRow('1120', '0', '0')] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const report = await getTrialBalance(ENTITY, MARZO);
+    expect(getPolicy).not.toHaveBeenCalled();
+    expect(report.inicial!.criterio).toBe('derivar_del_mayor');
+    expect(report.inicial!.origen).toBe('mayor');
+  });
+
+  it('exigir_cierre_duro lee el arrastre que sembró el cierre, no el mayor', async () => {
+    vi.mocked(getPolicy).mockResolvedValue({ ...DERIVAR, value: 'exigir_cierre_duro' });
+    mockQuery.mockResolvedValueOnce({ rows: [tbRow('1120', '30', '10')] });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'fp-3', period_name: 'Periodo 3/2026', start_date: '2026-03-01', end_date: '2026-03-31' }],
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [{ period_name: 'Periodo 2/2026', status: 'hard_close' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [accRow('1120', '100')] });
+    mockQuery.mockResolvedValueOnce({ rows: [accRow('1120', '120')] });
+
+    const report = await getTrialBalance(ENTITY, { fiscalPeriodId: 'fp-3' });
+    expect(sql(3)).toMatch(/beginning_balance::text AS balance FROM account_balances/);
+    expect(params(3)).toEqual([ENTITY, 'fp-3']);
+    expect(report.inicial!.origen).toBe('arrastre_del_cierre');
+    expect(report.rows[0].beginning_balance).toBe('100.0000');
+    expect(report.inicial!.note).toMatch(/carried forward by the hard close of Periodo 2\/2026/);
+  });
+
+  it('exigir_cierre_duro se NIEGA en vez de publicar ceros cuando no hay arrastre', async () => {
+    // El criterio que el usuario eligió dice exactamente esto. La alternativa
+    // —un cero— es una declaración firmada de que la empresa abrió el mes en
+    // nada, y ésa es la mentira que F07a vino a quitar del suelo.
+    vi.mocked(getPolicy).mockResolvedValue({ ...DERIVAR, value: 'exigir_cierre_duro' });
+    mockQuery.mockResolvedValueOnce({ rows: [tbRow('1120', '30', '10')] });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'fp-3', period_name: 'Periodo 3/2026', start_date: '2026-03-01', end_date: '2026-03-31' }],
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [{ period_name: 'Periodo 2/2026', status: 'soft_close' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const err = await getTrialBalance(ENTITY, { fiscalPeriodId: 'fp-3' }).then(
+      () => null,
+      (e: Error) => e
+    );
+    expect(err).toBeInstanceOf(ValidationError);
+    expect(err!.message).toMatch(/anexo24_balanza_saldo_inicial.*exigir_cierre_duro/);
+    expect(err!.message).toMatch(/Periodo 2\/2026 está en 'soft_close'/);
+    expect(err!.message).toMatch(/derivar_del_mayor/);
   });
 });
 

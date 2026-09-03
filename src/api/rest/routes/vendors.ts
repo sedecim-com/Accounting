@@ -12,6 +12,7 @@ import {
 } from '../../../services/ap/vendor-service.js';
 import type { PaginationMeta } from '../../../types/index.js';
 import { entityScope } from '../../../database/scope.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 // ============================================================
 // /v1/vendors — HTTP surface over the vendor master service.
@@ -90,7 +91,7 @@ router.get('/', requirePermission('bills:read'), requireEntityAccess, asyncHandl
 }));
 
 // POST /v1/vendors
-router.post('/', requirePermission('bills:create'), requireEntityAccess, validateBody(createVendorSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'vendors' }), requirePermission('bills:create'), requireEntityAccess, validateBody(createVendorSchema), asyncHandler(async (req: Request, res: Response) => {
   const vendor = await createVendor(
     { ...req.body, created_by: req.user!.user_id },
     { includeBankSecrets: true }
@@ -106,7 +107,7 @@ router.get('/:id', requirePermission('bills:read'), requireEntityAccess, asyncHa
 }));
 
 // PATCH /v1/vendors/:id
-router.patch('/:id', requirePermission('bills:create'), requireEntityAccess, validateBody(updateVendorSchema), asyncHandler(async (req: Request, res: Response) => {
+router.patch('/:id', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'vendors' }), requirePermission('bills:create'), requireEntityAccess, validateBody(updateVendorSchema), asyncHandler(async (req: Request, res: Response) => {
   const patch = Object.fromEntries(
     VENDOR_UPDATABLE_FIELDS.filter((f) => req.body[f] !== undefined).map((f) => [f, req.body[f]])
   );

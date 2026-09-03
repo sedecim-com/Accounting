@@ -27,6 +27,22 @@ function mockDb(over: Partial<Record<string, unknown[]>> = {}) {
     if (q.includes('version()')) return Promise.resolve({ rows: over.version ?? [{ v: 'PostgreSQL 15.17 on x86_64' }] });
     if (q.includes('public.migrations')) return Promise.resolve({ rows: over.migrations ?? [] });
     if (q.includes('legal_entities')) return Promise.resolve({ rows: over.entities ?? [{ n: '1' }] });
+    // G3 · las TRES consultas de checkRolAuditor, cada una con su forma. Van
+    // antes de la rama genérica de `pg_roles`, que si no se traga la primera
+    // y le devuelve la fila del aislamiento —otras columnas, otro sentido—.
+    //
+    // Por omisión el rol NO existe, que es como nace un clúster:
+    // `provision-roles.sql` no lo crea y `rol-auditor.sql` es un acto aparte
+    // del operador.
+    if (q.includes('mnemosine_auditor')) {
+      if (q.includes('pg_roles')) return Promise.resolve({ rows: over.auditor ?? [] });
+      if (q.includes('privilege_type IN')) return Promise.resolve({ rows: over.auditorEscribe ?? [] });
+      // El censo de lo que lee SIN aislamiento va antes que la cobertura: las
+      // dos preguntan por `has_table_privilege` y sólo la primera pide
+      // `es_vista`, así que ése es el discriminante.
+      if (q.includes('es_vista')) return Promise.resolve({ rows: over.auditorSinFiltro ?? [] });
+      return Promise.resolve({ rows: over.auditorCobertura ?? [{ legibles: '57', totales: '57' }] });
+    }
     if (q.includes('pg_roles')) return Promise.resolve({ rows: over.roles ?? [{ current_user: 'app', is_super: false, bypass: false, rls_tables: '57' }] });
     if (q.includes('ai_drafts')) return Promise.resolve({ rows: over.pending ?? [{ drafts: '0', questions: '0', ops: '0' }] });
     if (q.includes('fiscal_credentials')) return Promise.resolve({ rows: over.creds ?? [{ n: '0', soonest: null }] });
@@ -193,6 +209,104 @@ describe('runDoctor — encryption key', () => {
   });
 });
 
+// ============================================================
+// G3 · EL ROL QUE SÓLO MIRA
+//
+// El rol no cabe en una migración —el migrador no tiene CREATEROLE, y es a
+// propósito desde S3— así que lo crea el operador con scripts/rol-auditor.sql
+// y `doctor` mira si está y con qué permisos. Los tres niveles no son grados
+// de la misma cosa y por eso hay una prueba por cada uno.
+// ============================================================
+const AUDITOR_SANO = [{
+  rolcanlogin: false, rolbypassrls: false, rolsuper: false, rolcreaterole: false,
+}];
+
+describe('runDoctor — rol de auditor', () => {
+  it('warn cuando no existe: no es una avería, es una capacidad que falta', async () => {
+    mockDb();
+    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/credenciales de ESCRITURA/);
+    expect(c.fix).toMatch(/rol-auditor\.sql/);
+  });
+
+  it('ok cuando está, es NOLOGIN y no salta la RLS', async () => {
+    mockDb({ auditor: AUDITOR_SANO, auditorCobertura: [{ legibles: '57', totales: '57' }] });
+    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    expect(c.level).toBe('ok');
+    expect(c.detail).toMatch(/57 tablas aisladas/);
+  });
+
+  it('ok nombrando lo que lee sin aislamiento: la lista es lo que hace que se note si crece', async () => {
+    mockDb({
+      auditor: AUDITOR_SANO,
+      auditorCobertura: [{ legibles: '57', totales: '57' }],
+      auditorSinFiltro: [
+        { relname: 'exchange_rates', es_vista: false },
+        { relname: 'tax_tables', es_vista: false },
+      ],
+    });
+    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    expect(c.level).toBe('ok');
+    expect(c.detail).toMatch(/exchange_rates, tax_tables/);
+    expect(c.detail).toMatch(/referencia global/);
+  });
+
+  it('fail si lee una vista materializada: la RLS no la filtra y la refresca un BYPASSRLS', async () => {
+    // `GRANT SELECT ON ALL TABLES` las alcanza y una vista materializada no
+    // está sujeta a políticas: sus filas ya están escritas, y las escribe
+    // `mnemosine_refresher`, que ignora la RLS a propósito. Es la fuga cara
+    // del rol, y no la delataba nada.
+    mockDb({
+      auditor: AUDITOR_SANO,
+      auditorSinFiltro: [{ relname: 'mv_trial_balance', es_vista: true }],
+    });
+    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    expect(c.level).toBe('fail');
+    expect(c.detail).toMatch(/mv_trial_balance/);
+    expect(c.detail).toMatch(/TODOS los inquilinos/);
+  });
+
+  it('fail con BYPASSRLS: es PEOR que no tenerlo — un solo-lectura que atraviesa el aislamiento', async () => {
+    mockDb({
+      auditor: [{ rolcanlogin: false, rolbypassrls: true, rolsuper: false, rolcreaterole: false }],
+    });
+    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    expect(c.level).toBe('fail');
+    expect(c.detail).toMatch(/TODOS los inquilinos/);
+  });
+
+  it('fail si tiene escritura sobre cualquier tabla: deja de ser lo que su nombre dice', async () => {
+    mockDb({
+      auditor: AUDITOR_SANO,
+      auditorEscribe: [{ tabla: 'journal_entries', privilegio: 'INSERT' }],
+    });
+    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    expect(c.level).toBe('fail');
+    expect(c.detail).toMatch(/journal_entries:INSERT/);
+  });
+
+  it('warn con LOGIN: los libros siguen a salvo, lo que se pierde es el «quién»', async () => {
+    mockDb({
+      auditor: [{ rolcanlogin: true, rolbypassrls: false, rolsuper: false, rolcreaterole: false }],
+    });
+    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/NOMINALES/);
+  });
+
+  it('warn cuando faltan GRANT: una tabla nueva nace invisible para el auditor', async () => {
+    // La cuenta va sobre las tablas CON política, que son exactamente las que
+    // le tocan: 57 aisladas, lee 50, faltan siete. Antes se contaban todas y
+    // se restaban «tres» a mano —users, sessions, tenants—, y ese tres se
+    // quedó corto en cuanto el guion tuvo que negar la cuarta.
+    mockDb({ auditor: AUDITOR_SANO, auditorCobertura: [{ legibles: '50', totales: '57' }] });
+    const c = find(await runDoctor({ migrationsDir: tmpDir, cwd: tmpDir }), 'Auditor role');
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/7 tabla/);
+  });
+});
+
 describe('runDoctor — aggregated severity', () => {
   it('worst = fail if there is any failure', async () => {
     mockDb();
@@ -201,7 +315,12 @@ describe('runDoctor — aggregated severity', () => {
   });
 
   it('worst = warn when there are only warnings', async () => {
-    mockDb({ roles: [{ current_user: 'victor', is_super: true, bypass: false, rls_tables: '57' }] });
+    // El rol de auditor va SANO a propósito: sin él este caso pasaría por su
+    // warn y no por el que la prueba nombra.
+    mockDb({
+      roles: [{ current_user: 'victor', is_super: true, bypass: false, rls_tables: '57' }],
+      auditor: [{ rolcanlogin: false, rolbypassrls: false, rolsuper: false, rolcreaterole: false }],
+    });
     fs.writeFileSync(path.join(tmpDir, 'mnemosine.config.json'), JSON.stringify({
       default_provider: 'local', providers: { local: { type: 'openai-compatible', model: 'm', base_url: 'http://x/v1' } },
     }));
@@ -373,7 +492,23 @@ describe('checkOrphanedCapability', () => {
   });
 
   it('ordena por consecuencia: primero lo que puede falsear una cifra', () => {
-    const detalle = repo.detail;
+    // SOBRE UN ÁRBOL SINTÉTICO, y no sobre este repositorio, por lo mismo que
+    // orphan-scan.spec.ts: la versión anterior exigía que ESTE código tuviera
+    // en todo momento al menos un huérfano de los que falsean una cifra, y el
+    // único que había era `paycheck_taxes` —la tabla que la nómina calculaba y
+    // no escribía—. Al aparecer su escritor (F08a) la prueba se puso roja por
+    // haberse ARREGLADO el defecto que vigilaba. El orden es lo que se quiere
+    // probar, y el orden se prueba con un caso, no con el estado del árbol.
+    const escribir = (rel: string, contenido: string): void => {
+      const f = path.join(tmpDir, rel);
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, contenido);
+    };
+    escribir('src/database/migrations/001.sql', 'CREATE TABLE paycheck_taxes (id uuid);');
+    escribir('src/api/forms.ts', "const q = 'SELECT * FROM paycheck_taxes WHERE paycheck_id = $1';");
+    escribir('src/util.ts', 'export function nadieLaLlama() { return 1; }');
+
+    const detalle = checkOrphanedCapability({ cwd: tmpDir }).detail;
     const cifra = detalle.indexOf('figure');
     const muerto = detalle.indexOf('unreferenced');
     expect(cifra).toBeGreaterThanOrEqual(0);

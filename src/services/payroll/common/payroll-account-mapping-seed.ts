@@ -114,6 +114,19 @@ export const MX_PAYROLL_ACCOUNTS: PayrollAccountSpec[] = [
       'Aportaciones que paga el patrón, separadas del sueldo porque no son percepción ' +
       'del trabajador y no entran en su CFDI de nómina.',
   },
+  {
+    // F08a. Existe sólo para los despachos que contestan
+    // `subsidio_al_empleo_entregado_registro` = gasto_del_patron: el subsidio
+    // que se entregó en efectivo y que se decide NO acreditar. Con el criterio
+    // por omisión —cuenta por cobrar al fisco— esta cuenta nunca se toca, y por
+    // eso no es un bucket obligatorio: la corrida sólo la pide cuando el
+    // despacho eligió absorberlo.
+    code: '6118', name: 'Subsidio al Empleo Absorbido', account_type: 'expense',
+    normal_balance: 'debit', fs_category: 'operating_expenses',
+    description:
+      'Subsidio al empleo entregado en efectivo al trabajador que el patrón decide no ' +
+      'acreditar contra el ISR retenido a otros.',
+  },
 ];
 
 export const MX_BUCKET_MAP: Record<string, string> = {
@@ -125,6 +138,7 @@ export const MX_BUCKET_MAP: Record<string, string> = {
   infonavit_payable: '2175',
   garnishment_payable: '2165',
   benefits_payable: '2185',
+  subsidio_empleo_expense: '6118',
 };
 
 /**

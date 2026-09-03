@@ -240,7 +240,14 @@ const MUTANTES = new Set(['escritura', 'irreversible', 'externo']);
 // seis hojas de contabilidad diaria que llegaron sin una sola invocación. Se
 // documentan en vez de subir la línea base del censo: ceder la primera vez que
 // resulta incómodo convierte el trinquete en permiso.
-const SUELO_HOJAS_CON_EJEMPLOS = 169;
+//
+// 169 → 175: la fusión de main sobre F07b/G3/G4 trajo otras seis hojas sin una
+// sola invocación —`e-accounting catalog generate`, `e-accounting balance
+// generate|check`, `audit list|show` y `subscription delivery sweep`—, y el
+// censo de superficie las acusó con el mismo número: `hojas-sin-ejemplo` subía
+// de 47 a 53. Se documentan, no se sube la línea base. El cruce vuelve a dar:
+// 222 hojas − 47 sin ejemplo = 175.
+const SUELO_HOJAS_CON_EJEMPLOS = 175;
 
 /**
  * LOS TRES SUELOS SE VOLVIERON A MEDIR AL CERRAR EL LOTE, Y CONTRA EL ÁRBOL
@@ -279,7 +286,9 @@ const SUELO_HOJAS_CON_EJEMPLOS = 169;
  * hojas que se pueden borrar sin que nadie proteste.
  */
 // 210 → 216 por las seis hojas que G1a añadió al árbol embarcado.
-const SUELO_HOJAS = 216;
+// 216 → 222 por las seis que la fusión de main trajo del otro lado: las tres
+// de `e-accounting`, las dos de `audit` y el barrido de `subscription`.
+const SUELO_HOJAS = 222;
 
 describe('la ayuda enseña invocaciones que se pueden teclear', () => {
   it('el árbol embarcado se lee entero: si no, nada de lo de abajo prueba nada', () => {
@@ -606,7 +615,12 @@ function clavesDocumentadasDeLinea(cmd: Command): Set<string> | null {
 // 364 → 376: doce invocaciones nuevas, dos por hoja — la corriente y la que
 // evita el error caro (para `prepaid run`, que el devengo del mes es
 // IRREVERSIBLE y por eso el primer ejemplo es --dry-run).
-const SUELO_EJEMPLOS = 376;
+// 376 → 390: catorce más al documentar las seis hojas de la fusión. Tres llevan
+// una tercera invocación porque su segunda decisión no cabe en dos: la balanza
+// tiene envío normal, complementario y de cierre, y el barrido tiene ensayo,
+// crontab y un solo inquilino. Los tres primeros ejemplos de hoja que muta
+// —catálogo, balanza, barrido— son el ensayo, que es donde empieza la lectura.
+const SUELO_EJEMPLOS = 390;
 
 describe('los ejemplos pasan por el commander de verdad', () => {
   const NODOS = nodosDe(program);

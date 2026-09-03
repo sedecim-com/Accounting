@@ -61,6 +61,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(await checkTenantIsolation());
     checks.push(await checkLedgerIntegrity());
     checks.push(await checkSelloDeGarantias());
+    checks.push(await checkRolAuditor());
     checks.push(await checkPermisosEnConflicto());
     checks.push(await checkReopenedPeriods());
     checks.push(await checkPendingWork());
@@ -974,6 +975,203 @@ export async function checkSelloDeGarantias(): Promise<CheckResult> {
     name: 'Guarantee triggers sealed',
     level: 'ok',
     detail: `${r.rows.length} garantías en ENABLE ALWAYS: ni session_replication_role las calla`,
+  };
+}
+
+// ============================================================
+// G3 · EL ROL QUE SÓLO MIRA
+//
+// `mnemosine_auditor` no puede nacer en una migración: un rol es objeto de
+// CLÚSTER y el migrador no tiene CREATEROLE, deliberadamente desde S3 (la
+// 061 lo explica). Lo crea quien opera el clúster con scripts/rol-auditor.sql.
+//
+// Y una garantía que vive en un guion que alguien tiene que acordarse de
+// correr es una garantía que un día no está. Así que se MIRA, con el mismo
+// patrón que la 058 estrenó para el sello de las garantías: el sistema no
+// asume sus defensas.
+//
+// Los tres niveles no son grados de la misma cosa:
+//
+//  · 'warn' — no hay rol. El sistema opera perfectamente; lo que no se puede
+//    es dar acceso a un auditor externo sin darle credenciales de escritura.
+//    Es una capacidad que falta, no una avería.
+//  · 'fail' — hay rol Y PUEDE SALTARSE LA RLS. Es peor que no tenerlo: un
+//    sólo-lectura que atraviesa el aislamiento le enseña a un auditor
+//    externo los libros de todos los demás inquilinos del despacho, en
+//    silencio, porque leer no dispara nada. Lo mismo vale para un rol de
+//    auditor con escritura o con LOGIN: deja de ser lo que su nombre dice.
+//  · 'ok' — está, es NOLOGIN, no salta la RLS y no escribe.
+// ============================================================
+export async function checkRolAuditor(): Promise<CheckResult> {
+  const nombre = 'Auditor role';
+  const rol = await query<{
+    rolcanlogin: boolean;
+    rolbypassrls: boolean;
+    rolsuper: boolean;
+    rolcreaterole: boolean;
+  }>(
+    `SELECT rolcanlogin, rolbypassrls, rolsuper, rolcreaterole
+       FROM pg_roles WHERE rolname = 'mnemosine_auditor'`
+  );
+
+  if (rol.rows.length === 0) {
+    return {
+      name: nombre,
+      level: 'warn',
+      detail:
+        'mnemosine_auditor no existe: dar acceso a un auditor externo hoy exige prestarle ' +
+        'credenciales de ESCRITURA sobre los libros',
+      fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (no cabe en una migración: el migrador no tiene CREATEROLE, y es a propósito)',
+    };
+  }
+
+  const r = rol.rows[0];
+
+  // Escritura concedida sobre CUALQUIER tabla del esquema. Un solo INSERT
+  // basta para que el rol deje de ser lo que su nombre promete, así que se
+  // pregunta por el hecho, no por el conteo.
+  const escribe = await query<{ tabla: string; privilegio: string }>(
+    `SELECT table_name AS tabla, privilege_type AS privilegio
+       FROM information_schema.table_privileges
+      WHERE grantee = 'mnemosine_auditor'
+        AND table_schema = 'public'
+        AND privilege_type IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')
+      ORDER BY table_name, privilege_type
+      LIMIT 5`
+  );
+
+  const graves: string[] = [];
+  if (r.rolbypassrls) graves.push('IGNORA LA RLS (BYPASSRLS): ve los libros de TODOS los inquilinos');
+  if (r.rolsuper) graves.push('es SUPERUSUARIO');
+  if (r.rolcreaterole) graves.push('puede crear roles');
+  if (escribe.rows.length > 0) {
+    graves.push(
+      `tiene ESCRITURA sobre ${escribe.rows.map((e) => `${e.tabla}:${e.privilegio}`).join(', ')}`
+    );
+  }
+  if (graves.length > 0) {
+    return {
+      name: nombre,
+      level: 'fail',
+      detail: `mnemosine_auditor ${graves.join('; ')}`,
+      fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — el guion reafirma NOBYPASSRLS y revoca; averigua además QUIÉN se lo concedió',
+    };
+  }
+
+  // LOGIN es su propio renglón y NO es 'fail': el rol sigue sin poder
+  // escribir y sigue sujeto a la RLS, así que los libros están a salvo. Lo
+  // que se pierde es el «quién»: una cuenta compartida por cuatro personas
+  // del despacho contesta «alguien del despacho», que es exactamente la
+  // respuesta que este producto existe para no dar.
+  if (r.rolcanlogin) {
+    return {
+      name: nombre,
+      level: 'warn',
+      detail:
+        'mnemosine_auditor tiene LOGIN: está pensado como paquete de privilegios que se concede a ' +
+        'cuentas NOMINALES (una por auditor), no como cuenta compartida',
+      fix: 'ALTER ROLE mnemosine_auditor NOLOGIN;  y emite una cuenta por persona: CREATE ROLE <auditor> LOGIN IN ROLE mnemosine_auditor',
+    };
+  }
+
+  // LO QUE LEE SIN QUE NADA LO FILTRE. Es el renglón que faltaba, y es la
+  // fuga más cara que este rol puede tener.
+  //
+  // La RLS no llega a todas partes: `rls-policies.sql` genera políticas desde
+  // el catálogo y sólo alcanza a las tablas con `tenant_id` o `entity_id`, y
+  // una VISTA MATERIALIZADA no está sujeta a RLS en absoluto —sus filas ya
+  // están escritas—. Peor: las refresca `mnemosine_refresher`, que tiene
+  // BYPASSRLS a propósito (R3), así que `mv_trial_balance` contiene la
+  // balanza de TODOS los inquilinos y `GRANT SELECT ON ALL TABLES` se la
+  // entregaba al auditor. Medido: el ACL quedaba en
+  // `mnemosine_auditor=r/mnemosine_refresher` sólo por correr el guion.
+  //
+  // Aquí no se clasifica nada —doctor no puede saber si una tabla sin
+  // inquilino es referencia global o una fuga—: se ENUMERA lo que el auditor
+  // lee sin aislamiento, y se separa en dos. Las vistas materializadas son
+  // 'fail' sin discusión, porque ninguna lo es. Las tablas se nombran en el
+  // detalle para que el operador vea la lista y note el día que crece.
+  const sinFiltro = await query<{ relname: string; es_vista: boolean }>(
+    `SELECT c.relname, c.relkind = 'm' AS es_vista
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind IN ('r','p','m')
+        AND NOT c.relispartition
+        AND NOT c.relrowsecurity
+        AND has_table_privilege('mnemosine_auditor', c.oid, 'SELECT')
+      ORDER BY c.relname`
+  );
+  const vistas = sinFiltro.rows.filter((r) => r.es_vista).map((r) => r.relname);
+  const tablasSinFiltro = sinFiltro.rows.filter((r) => !r.es_vista).map((r) => r.relname);
+
+  if (vistas.length > 0) {
+    return {
+      name: nombre,
+      level: 'fail',
+      detail:
+        `mnemosine_auditor lee ${vistas.length} vista(s) materializada(s) (${vistas.join(', ')}): ` +
+        'no las filtra la RLS y las construye un rol con BYPASSRLS, así que contienen los libros ' +
+        'de TODOS los inquilinos',
+      fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  — su bloque 4 revoca toda relkind = \'m\'',
+    };
+  }
+
+  // Cobertura, contada sobre lo que de verdad tiene que poder leer: las tablas
+  // CON política. Contarlas todas obligaba a restar a mano las que se niegan
+  // —«menos tres: users, sessions, tenants»— y ese tres se quedó corto en
+  // cuanto el guion tuvo que negar la cuarta. Un número escrito a mano en dos
+  // archivos distintos se desincroniza; éste se lo pregunta al catálogo.
+  const cobertura = await query<{ legibles: string; totales: string }>(
+    `SELECT
+       (SELECT count(*)::text FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND NOT c.relispartition
+           AND c.relrowsecurity
+           AND has_table_privilege('mnemosine_auditor', c.oid, 'SELECT')) AS legibles,
+       (SELECT count(*)::text FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND NOT c.relispartition
+           AND c.relrowsecurity) AS totales`
+  );
+  // Sin fila no se puede medir la cobertura, y una comprobación que revienta
+  // se lleva por delante a las que vienen detrás: `runDoctor` las corre en
+  // secuencia. Lo que no se puede medir se dice.
+  if (cobertura.rows.length === 0) {
+    return {
+      name: nombre,
+      level: 'warn',
+      detail: 'mnemosine_auditor existe y está bien acotado, pero no se pudo medir su cobertura de tablas',
+      fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (su bloque de verificación imprime los dos conteos)',
+    };
+  }
+  const legibles = parseInt(cobertura.rows[0].legibles, 10);
+  const totales = parseInt(cobertura.rows[0].totales, 10);
+  const sinConceder = totales - legibles;
+
+  if (sinConceder > 0) {
+    return {
+      name: nombre,
+      level: 'warn',
+      detail:
+        `mnemosine_auditor sólo lee ${legibles} de las ${totales} tablas aisladas: ` +
+        `${sinConceder} tabla(s) nacieron después del último GRANT`,
+      fix: 'psql "$SUPERUSER_URL" -f scripts/rol-auditor.sql  (vuelve a conceder y fija los privilegios por defecto de lo que venga)',
+    };
+  }
+
+  // El detalle nombra lo que lee sin aislamiento aunque esté bien: son las
+  // tablas de referencia global (tipos de cambio, catálogos del SAT, tarifas),
+  // y verlas escritas es lo que hace que alguien note el día que aparece una
+  // que no lo es.
+  const nota = tablasSinFiltro.length > 0
+    ? `; además ${tablasSinFiltro.length} sin inquilino, que deben ser sólo referencia global (${tablasSinFiltro.join(', ')})`
+    : '';
+  return {
+    name: nombre,
+    level: 'ok',
+    detail:
+      `sólo lectura sobre ${legibles} tablas aisladas, NOLOGIN y sujeto a la RLS${nota}`,
   };
 }
 

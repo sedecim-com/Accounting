@@ -69,6 +69,121 @@ export async function drainAttestations(timeoutMs = 10_000): Promise<void> {
   ]);
 }
 
+/**
+ * EL CANDADO DE CUATRO OJOS, EN EL ÚNICO SITIO QUE LAS DOS PUERTAS CRUZAN.
+ *
+ * Vivía DENTRO de `postJournalEntry`, y por eso sólo mordía a quien entraba
+ * por ahí: `entry post` y las dos rutas `/:id/post`. La otra puerta al mayor
+ * —`createJournalEntry` con `autoPost`, que es lo que sirven
+ * `POST /v1/journal-entries {"auto_post":true}` y la mutación GraphQL
+ * `createJournalEntry(input:{autoPost:true})`— postea en el mismo acto de
+ * crear y NO pasaba por aquí. El control existía, se vendía, y se eludía con
+ * una bandera JSON mientras `entry-command.ts` declaraba por escrito que ese
+ * mismo `auto_post` «is deliberately not exposed» precisamente por esto.
+ *
+ * No se copia en la ruta: copiado, dentro de seis meses las dos copias dirían
+ * cosas distintas y sólo una estaría probada. Se extrae, y las dos ramas del
+ * motor lo atraviesan. Cualquier puerta futura que quiera llegar al mayor
+ * pasa por `createJournalEntry` o por `postJournalEntry`, y las dos llaman
+ * aquí.
+ *
+ * QUÉ QUEDA EXENTO Y POR QUÉ. Sólo la póliza que una persona redactó a mano:
+ *   - `source_type` no nulo → la póliza la generó un flujo del sistema
+ *     (factura, nómina, borrador de IA, conciliación, cierre de ejercicio) y
+ *     el maker real queda trazado por `source_type`/`source_id`;
+ *   - `is_reversal` → la reversa es DERIVADA de un asiento ya posteado; su
+ *     contenido no es discrecional y exigir un segundo par de ojos sólo
+ *     produciría falsos positivos.
+ * Las dos marcas las pone el motor, NUNCA el cuerpo de una petición: ni la
+ * ruta REST ni el resolver GraphQL pueden fijar `sourceType` ni `isReversal`,
+ * así que la exención no se puede falsificar desde fuera. `entry_type` sí
+ * viaja en el cuerpo (el enum del esquema admite 'closing'), y por eso NO se
+ * usa para eximir: sería la misma bandera JSON otra vez.
+ *
+ * Cerrado al declarar, abierto al escribir: sólo el literal 'exigir' bloquea
+ * y sólo 'alertar' anota; un valor desconocido cae al lado que no congela la
+ * operación, igual que `ingest_auto_post`.
+ *
+ * Devuelve la nota para la fila de auditoría ('alertar'), o null.
+ */
+/**
+ * EL NÚCLEO DEL CANDADO, para las puertas que saben algo que el asiento no.
+ *
+ * `autorizarPosteo` compara el creador del ASIENTO contra quien lo postea, y
+ * eso basta para la póliza manual. No basta para el LOTE IMPORTADO: ahí el
+ * asiento lo crea y lo postea el mismo acto —`createJournalEntry` con
+ * autoPost—, así que `created_by` es SIEMPRE quien aplica y la comparación
+ * sale trivialmente falsa. El par de ojos del lote se compara contra quien lo
+ * IMPORTÓ, un dato que sólo el lote tiene.
+ *
+ * Por eso el candado se comparte en vez de copiarse: una segunda copia en
+ * batch-service diría lo mismo hoy y otra cosa dentro de seis meses, que es
+ * exactamente cómo se abrieron las tres puertas que G3 vino a cerrar.
+ */
+export async function exigirSegregacion(args: {
+  tenantId: string;
+  entityId: string;
+  creador: string;
+  ejecutor: string;
+  referencia: string;
+}): Promise<string | null> {
+  if (args.creador !== args.ejecutor) return null;
+  const politica = await getPolicy(
+    { tenantId: args.tenantId, entityId: args.entityId },
+    'segregacion_de_funciones'
+  );
+  if (politica.value === 'exigir') {
+    throw new AccountingError(
+      'SOD_QUIEN_CREA_NO_POSTEA',
+      `${args.referencia}: la política de segregación de funciones exige que quien aplica ` +
+        'no sea quien lo preparó. Que otro usuario lo aplique, o ajusta la política ' +
+        'segregacion_de_funciones en mnemosine pending.'
+    );
+  }
+  if (politica.value === 'alertar') {
+    return 'SoD: quien aplica es quien lo preparó (política en alertar)';
+  }
+  return null;
+}
+
+async function autorizarPosteo(
+  entry: Pick<JournalEntry, 'entry_number' | 'entity_id' | 'source_type' | 'created_by' | 'is_reversal'>,
+  tenantId: string,
+  userId: string
+): Promise<string | null> {
+  // La exención por `source_type` existe para los asientos que genera un
+  // DOCUMENTO del negocio —una factura, un pago, una corrida de
+  // depreciación—: ahí no hay «quien creó el borrador» distinto de quien lo
+  // aplica, y exigir cuatro ojos sería exigirlos contra el motor.
+  //
+  // EL LOTE IMPORTADO NO ES ESO. `import_batch` tiene DOS actos humanos —uno
+  // importa, otro postea— y es el camino que más asientos mueve de una vez.
+  // Eximirlo abría la CUARTA puerta al mayor: probado, la misma persona hacía
+  // `entry import` + `batch post` sin que nadie le pidiera el segundo par de
+  // ojos, mientras `entry create` + `entry post` sí se lo pedía. Dos caminos
+  // para el mismo acto contable, uno con candado y otro sin él, que es
+  // exactamente lo que G3 vino a cerrar.
+  if (entry.source_type || entry.is_reversal) return null;
+  if (entry.created_by !== userId) return null;
+
+  const politica = await getPolicy(
+    { tenantId, entityId: entry.entity_id },
+    'segregacion_de_funciones'
+  );
+  if (politica.value === 'exigir') {
+    throw new AccountingError(
+      'SOD_QUIEN_CREA_NO_POSTEA',
+      `${entry.entry_number}: la política de segregación de funciones exige que quien postea ` +
+        'no sea quien creó el borrador. Que otro usuario corra entry post, o ajusta la ' +
+        'política segregacion_de_funciones en mnemosine pending.'
+    );
+  }
+  if (politica.value === 'alertar') {
+    return 'SoD: quien postea es quien creó el borrador (política en alertar)';
+  }
+  return null;
+}
+
 export async function createJournalEntry(
   entityId: string,
   entryDate: Date,
@@ -219,6 +334,15 @@ export async function createJournalEntry(
         );
       }
 
+      // EL CANDADO QUE ESTA RAMA NO ATRAVESABA. Crear-y-postear es UN acto de
+      // UNA persona: aquí `entry.created_by === createdBy` siempre, así que
+      // sobre una póliza manual la coincidencia que el maker-checker vigila
+      // es total por construcción. Va ANTES de tocar el periodo y los saldos,
+      // y en el mismo orden que `postJournalEntry` —validar, resolver
+      // inquilino, autorizar, bloquear— para que las dos puertas fallen por
+      // la misma razón y en el mismo punto.
+      const notaSoD = await autorizarPosteo(entry, tenantId, createdBy);
+
       // Mismo candado que postJournalEntry (R1): el autoPost también postea.
       await bloquearPeriodoParaPostear(client, entry.fiscal_period_id);
 
@@ -238,6 +362,10 @@ export async function createJournalEntry(
         entityId: entryId,
         oldValues: { status: 'draft' },
         newValues: { status: 'posted', posted_by: createdBy },
+        // La misma nota que deja `entry post` con la política en 'alertar':
+        // si el rastro no la lleva por esta puerta, la bitácora certifica un
+        // control que nadie consultó.
+        reason: notaSoD,
       });
 
       for (const line of entryLines) {
@@ -344,30 +472,12 @@ export async function postJournalEntry(
 
     // F01 · MAKER-CHECKER HUMANO (decisión §5, resuelta como panel).
     //
-    // Solo pólizas MANUALES (source_type nulo): en los flujos del sistema —
-    // nómina, aprobación de borradores de IA, reversas — creador=posteador es
-    // intencional y el maker real queda trazado por source_type/source_id.
-    // Cerrado al declarar, abierto al escribir: solo el literal 'exigir'
-    // bloquea y solo 'alertar' anota; un valor desconocido cae al lado que no
-    // congela la operación (off), igual que ingest_auto_post con 'on'.
-    let notaSoD: string | null = null;
-    if (!entry.source_type && entry.created_by === userId) {
-      const politica = await getPolicy(
-        { tenantId, entityId: entry.entity_id },
-        'segregacion_de_funciones'
-      );
-      if (politica.value === 'exigir') {
-        throw new AccountingError(
-          'SOD_QUIEN_CREA_NO_POSTEA',
-          `${entry.entry_number}: la política de segregación de funciones exige que quien postea ` +
-            'no sea quien creó el borrador. Que otro usuario corra entry post, o ajusta la ' +
-            'política segregacion_de_funciones en mnemosine pending.'
-        );
-      }
-      if (politica.value === 'alertar') {
-        notaSoD = 'SoD: quien postea es quien creó el borrador (política en alertar)';
-      }
-    }
+    // El cuerpo de la compuerta ya NO vive aquí: vive en `autorizarPosteo`,
+    // que es el único sitio que las dos puertas al mayor atraviesan. Aquí la
+    // pregunta es genuina —crear y postear son dos actos, y pueden ser dos
+    // personas—; en la rama `autoPost` de `createJournalEntry` son uno solo.
+    // Las dos preguntan lo mismo al mismo código.
+    const notaSoD = await autorizarPosteo(entry, tenantId, userId);
 
     // Candado compartido sobre el periodo (R1): la validación de arriba lee
     // el estado FUERA de esta transacción, así que un cierre concurrente

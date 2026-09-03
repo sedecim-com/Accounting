@@ -251,9 +251,19 @@ export interface Account {
   entity_id: string;
   currency_code: string | null;
   tax_line_id: string | null;
+  // Códigos de NORMA CONTABLE: cómo se PRESENTA la cuenta bajo cada juego de
+  // normas. Los tres son hermanos desde la 001 y no tienen nada que ver con
+  // el fisco — en particular `mx_nif_code` NO es el agrupador del SAT, aunque
+  // hasta la migración 063 se usara para eso.
   us_gaap_code: string | null;
   mx_nif_code: string | null;
   ifrs_code: string | null;
+  /**
+   * El código agrupador del SAT (c_CodAgrup del Anexo 24). Es FISCAL: cómo
+   * agrupa la autoridad esta cuenta para leer la contabilidad. Existe desde la
+   * 037 y es la única verdad del agrupador desde la 063.
+   */
+  codigo_agrupador_sat: string | null;
   normal_balance: NormalBalance;
   is_active: boolean;
   is_header: boolean;

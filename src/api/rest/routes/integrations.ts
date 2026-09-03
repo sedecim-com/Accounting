@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { query } from '../../../database/connection.js';
 import { requirePermission } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
+import { NotFoundError } from '../../../utils/errors.js';
 import { integrationRegistry, pacRouter } from '../../../services/integrations/index.js';
 import type { IIntegrationAdapter } from '../../../services/integrations/base/adapter.interface.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 const router = Router();
 
@@ -100,7 +102,9 @@ router.get('/:provider', requirePermission('settings:manage'), asyncHandler(asyn
 // Configure credentials for a provider
 // ============================================================
 
-router.put('/:provider', requirePermission('settings:manage'), validateBody(configureProviderSchema), asyncHandler(async (req: Request, res: Response) => {
+// Mismo criterio que `mnemosine sat add`, declarado `externo`: lo que entra
+// aqui son credenciales con las que este sistema hablara por el cliente.
+router.put('/:provider', declararRiesgoRuta({ riesgo: 'externo', escribe: 'integration_credentials + el material en la boveda: credenciales del cliente ante un tercero' }), requirePermission('settings:manage'), validateBody(configureProviderSchema), asyncHandler(async (req: Request, res: Response) => {
   const adapter = integrationRegistry.get(req.params.provider);
   const ctx = { tenantId: req.user!.tenant_id, userId: req.user!.user_id };
 
@@ -118,7 +122,7 @@ router.put('/:provider', requirePermission('settings:manage'), validateBody(conf
 // Test connection to an integration
 // ============================================================
 
-router.post('/:provider/test', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:provider/test', declararRiesgoRuta({ riesgo: 'externo', escribe: 'nada en la base; ALCANZA al proveedor con la credencial del cliente' }), requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const adapter = integrationRegistry.get(req.params.provider);
   const health = await adapter.healthCheck({ tenantId: req.user!.tenant_id, userId: req.user!.user_id });
 
@@ -136,8 +140,15 @@ router.post('/:provider/test', requirePermission('settings:manage'), asyncHandle
 // Deactivate an integration
 // ============================================================
 
-router.delete('/:provider', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
-  await integrationRegistry.deactivate(req.user!.tenant_id, req.params.provider);
+// Un DELETE que no borra: apaga. Por eso es escritura. Si algun dia
+// destruye el material —como `sat revoke`— pasa a irreversible.
+router.delete('/:provider', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'integration_credentials.status = inactive; NO destruye el material de la boveda' }), requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
+  // 204 sobre CERO filas era «apagado» sin apagar nada: el proveedor mal
+  // escrito, o el que nunca se configuro, contestaban igual que el que si
+  // se apago. En un endpoint cuyo acto es cortarle a un tercero el acceso
+  // a las credenciales del cliente, ese silencio es el peor posible.
+  const apagada = await integrationRegistry.deactivate(req.user!.tenant_id, req.params.provider);
+  if (!apagada) throw new NotFoundError('Integration', req.params.provider);
   res.status(204).send();
 }));
 
@@ -157,7 +168,7 @@ router.get('/pac/preferences/all', requirePermission('settings:manage'), asyncHa
 }));
 
 // PUT /v1/admin/integrations/pac/preferences
-router.put('/pac/preferences/all', requirePermission('settings:manage'), validateBody(pacPreferencesSchema), asyncHandler(async (req: Request, res: Response) => {
+router.put('/pac/preferences/all', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'preferencias de enrutado entre PACs' }), requirePermission('settings:manage'), validateBody(pacPreferencesSchema), asyncHandler(async (req: Request, res: Response) => {
   const { pac_primary, pac_secondary, pac_tertiary, auto_failover } = req.body;
   await pacRouter.savePreferences(req.user!.tenant_id, {
     pac_primary, pac_secondary, pac_tertiary, auto_failover,

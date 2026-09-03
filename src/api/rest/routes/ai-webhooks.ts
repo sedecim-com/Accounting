@@ -13,6 +13,7 @@ import {
   type ProcessDeliveryOutcome,
 } from '../../../ai/webhooks/reader-agent.js';
 import { scanImportedText } from '../../../ai/ingest-service.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 // ============================================================
 // INBOUND AI WEBHOOKS (item 22)
@@ -89,6 +90,10 @@ export function createAiWebhooksRouter(deps: AiWebhooksRouterDeps = {}): Router 
 
   router.post(
     '/:tokenName',
+    declararRiesgoRuta({
+      riesgo: 'escritura',
+      escribe: 'webhook_deliveries: clave del documento y banderas de sospecha. El cuerpo NO se guarda.',
+    }),
     // Own the parser's failure modes here: a body over the cap would otherwise
     // reach the global error handler as an unmapped 500. An oversized body is
     // 413, an unreadable one 400 — neither confirms whether the token exists.

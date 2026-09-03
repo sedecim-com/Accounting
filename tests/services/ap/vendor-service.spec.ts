@@ -3,6 +3,10 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 vi.mock('../../../src/database/connection.js', () => ({
   query: vi.fn(),
   withTransaction: vi.fn(),
+  // G3: `createVendor` audita, y `tenantDe` (services/audit/audit-log.ts)
+  // pregunta primero por el inquilino del CONTEXTO. Devolverlo aquí evita
+  // que cada prueba tenga que encolar además el SELECT a legal_entities.
+  currentTenant: vi.fn(() => 'tenant-1'),
 }));
 
 // R2: scope.ts se mockea PASANDO por el mismo mockQuery, para que las
@@ -71,7 +75,9 @@ beforeEach(() => {
 });
 
 const sql = (call: number) => String(mockQuery.mock.calls[call][0]).replace(/\s+/g, ' ');
-const params = (call: number) => mockQuery.mock.calls[call][1];
+// Tipado como `unknown[]` y no dejado en `any`: sin esto cada `params(n)[i]`
+// de este fichero cuenta una advertencia de acceso inseguro, y son decenas.
+const params = (call: number): unknown[] => mockQuery.mock.calls[call][1] as unknown[];
 
 // ============================================================
 // TAX ID — the field that decides whether a CFDI can ever be
@@ -345,6 +351,7 @@ describe('createVendor', () => {
   it('keeps the route defaults: Net 30, USD, not a 1099 vendor', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // G3: el INSERT del rastro
     await createVendor(base);
     const p = params(1);
     expect(p[2]).toBe('V-2026-00001'); // vendor_number, drawn from COUNT(*)
@@ -356,9 +363,34 @@ describe('createVendor', () => {
   it('encrypts bank details rather than storing them in the clear', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     await createVendor({ ...base, clabe: '012345678901234567' });
     expect(params(1)[15]).not.toBe('012345678901234567');
     expect(params(1)[15]).toBeTruthy();
+  });
+
+  // G3: el alta deja rastro, en la MISMA transacción, y sin llevarse los
+  // secretos bancarios a una tabla de sólo agregar.
+  it('writes an audit row in the same transaction, without the bank secrets', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'v1', company_name: 'Proveedor Uno', clabe_encrypted: 'ENC' }],
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await createVendor({ ...base, clabe: '012345678901234567' });
+
+    expect(mockTx).toHaveBeenCalledTimes(1);
+    expect(sql(2)).toMatch(/INSERT INTO audit_log/);
+    const p = params(2);
+    expect(p[1]).toBe(USER);          // user_id
+    expect(p[2]).toBe('tenant-1');    // tenant_id, del contexto
+    expect(p[3]).toBe('create');      // action
+    expect(p[4]).toBe('vendor');      // entity_type
+    expect(p[5]).toBe('v1');          // entity_id
+    const nuevos = String(p[7]);
+    expect(nuevos).not.toContain('012345678901234567');
+    expect(nuevos).not.toContain('ENC');
+    expect(nuevos).toContain('bank_details_on_file');
   });
 
   it('turns the unique-violation the COUNT(*) numbering can cause into a named conflict', async () => {
@@ -379,6 +411,7 @@ describe('createVendor', () => {
   it('redacts the bank blobs from what it returns, unless asked', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'v1', clabe_encrypted: 'ENC' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     expect(await createVendor(base)).not.toHaveProperty('clabe_encrypted');
   });
 });

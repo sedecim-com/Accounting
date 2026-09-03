@@ -21,146 +21,76 @@ Usage: mnemosine [options] [command]
 AI accounting assistant — converse with your accounting from the terminal
 
 Options:
-  -V, --version                         output the version number
-  -T, --tenant <uuid>                   Tenant to operate on (or
-                                        MNEMOSINE_TENANT). Scopes EVERY query
-                                        via RLS
-  -h, --help                            display help for command
+  -V, --version                          output the version number
+  -T, --tenant <uuid>                    Tenant to operate on (or MNEMOSINE_TENANT). Scopes EVERY query via RLS
+  -h, --help                             display help for command
 
 Commands:
-  entities|entidades                    Lists the active legal entities
-                                        (deprecated: use `mnemosine entity
-                                        list`)
-  providers|proveedores                 Lists the configured model providers
-                                        (built-in + mnemosine.config.json)
-  ask|pregunta [options] <question...>  Asks a single question and exits
-  chat [options]                        Opens an interactive chat session
-                                        (default)
-  sessions|sesiones [options]           Lists recent chat sessions (resume one
-                                        with: mnemosine chat --resume <id>)
-  drafts|borradores [options]           Lists the journal entry drafts created
-                                        by the AI
-  review|revisar [options]              Reviews pending drafts: approve (creates
-                                        and posts the journal entry) or reject
-  ingest|ingesta [options] <files...>   Batch ingestion of CFDIs (XML): rules →
-                                        AI classification → drafts (or auto-post
-                                        by thresholds)
-  lang|idioma [language]                Shows or sets the language of the
-                                        AGENT's answers (CLI UI stays English;
-                                        Spanish command aliases always work)
-  onboard|alta [options]                Imports a client's accounting from an
-                                        external system (chart of accounts +
-                                        opening balances)
-  outbox|envio [options]                Operations queued for external
-                                        accounting systems: list, review and
-                                        execute
-  question|duda [options]               The agent's pending questions: list,
-                                        answer (saved as a precedent) or dismiss
-  sat                                   SAT services (e.firma credentials; the
-                                        CFDI bulk download is not built yet)
-  pending|pendientes [options]          What you need to do: work to resolve and
-                                        policy decisions to define
-  login|entrar [options]                Signs in with your identity provider
-                                        (OIDC)
-  logout|salir                          Deletes the stored credential
-  whoami|quien                          Shows the active credential and its
-                                        validity
-  doctor [options]                      Diagnoses system health: DB, migrations,
-                                        provider, credentials, isolation
-  memory|memoria [options]              Firm precedents: what the AI learned and
-                                        you control
-  prompt-size|tamano-prompt [options]   Offline breakdown of the system prompt
-                                        and tool schemas (no API calls)
-  compact|compactar [options]           Dry-run compaction report for a session
-                                        transcript (no API calls)
-  approvals|aprobaciones                Graduated approval policies for staged
-                                        writes (once / session / always)
-  entity|entidad                        Select and inspect the legal entity
-                                        commands operate on
-  payment|pago                          Vendor payments: record cash that
-                                        already left the bank and settle the
-                                        bill it pays
-  account|cuenta                        Chart of accounts: inspect, create and
-                                        retire accounts
-  entry|poliza                          Journal entries: draft, inspect,
-                                        validate, post, reverse and void
-  period|periodo                        Fiscal periods: what exists, what state
-                                        it is in, and opening a future one
-  year|ejercicio                        Fiscal years: the calendar an entity
-                                        keeps its books in
-  vendor|proveedor                      Vendor master: who we owe money to, on
-                                        what terms, under which tax id
-  bill|factura-proveedor                Vendor bills: capture, code, inspect and
-                                        approve what we owe
-  customer|cliente                      Customers: the AR master file, with the
-                                        balance each one owes
-  invoice|factura                       Customer invoices: draft, inspect, issue
-                                        to the ledger and void (never stamped
-                                        here)
-  receipt|cobro                         Customer collections: record cash, apply
-                                        on-account balance, unapply, and reverse
-                                        bounced checks
-  credit-note|nota-credito              Credit notes: returns, discounts and
-                                        corrections against the receivable
-                                        (never stamped here)
-  ar|cxc                                Receivables controls: reconcile the
-                                        subledger against the control account,
-                                        run named diagnostics
-  ap|cxp                                Payables controls: reconcile the vendor
-                                        subledger against the control account
-  bank|banco                            Bank accounts and bank statements:
-                                        master data and imported statements
-  asset|activo                          Fixed asset register: the ledger of what
-                                        the company owns and depreciates
-  depreciation|depreciacion             The monthly depreciation run: compute
-                                        it, look at it, then post it
-  batch|lote                            Staged entry batches: list, inspect,
-                                        check, post transactionally and reverse
-                                        as a unit
-  closing|cierre-proceso                The close as a process: its read-only
-                                        surface — readiness, named checks,
-                                        offenders
-  fx|cambio                             Exchange rates: the origin every
-                                        foreign-currency amount converts from
-  prepaid|pago-anticipado               Prepaid expenses: the schedule that
-                                        takes them out of 1160, month by month
-  cashflow|flujo                        Statement of cash flows (NIF B-2 / ASC
-                                        230): build it, and tie it to real cash
-  backup|respaldo                       Logical backups of the whole
-                                        installation (create, list, verify by
-                                        rehearsing the restore, restore) and
-                                        per-tenant logical exports (export)
-  report|reporte                        Financial statements, trial balance,
-                                        general ledger and ageing
-  ledger|mayor                          The general ledger itself: integrity
-                                        checks, stale drafts, auxiliaries and
-                                        balances
-  cfdi                                  The CFDI mirror: list, inspect, SAT
-                                        status and the classifier trail
-  rep                                   Payment receipts (REP): what is missing
-                                        one, and the parked ones to retry
-  ai|ia                                 Métricas y calibración del agente
-                                        contable
-  usage|uso [options]                   Token usage and estimated cost from the
-                                        local ledger (no API calls)
-  status|estado [options]               Health snapshot: config, live provider
-                                        probes, database and RLS (redacted,
-                                        shareable)
-  jobs|tareas                           Persisted scheduled agent tasks (all
-                                        output is reviewable drafts, never
-                                        direct writes)
-  skills|habilidades                    Firm skills: list, review staged
-                                        changes, view content
-  webhooks|ganchos                      Inbound webhook tokens: dedicated
-                                        credentials that wake a restricted
-                                        reader agent
-  init|configurar [options]             Guided setup: infrastructure, entity,
-                                        users, AI provider, and your books
-  close|cierre [options]                Month-end close: checks what is missing
-                                        and closes the period
-  completion|completado [shell]         Print a shell completion script (bash,
-                                        zsh) on stdout
-  help [command]                        display help for command
+  entities|entidades                     Lists the active legal entities (deprecated: use `mnemosine entity list`)
+  providers|proveedores                  Lists the configured model providers (built-in + mnemosine.config.json)
+  ask|pregunta [options] <question...>   Asks a single question and exits
+  chat [options]                         Opens an interactive chat session (default)
+  sessions|sesiones [options]            Lists recent chat sessions (resume one with: mnemosine chat --resume <id>)
+  drafts|borradores [options]            Lists the journal entry drafts created by the AI
+  review|revisar [options]               Reviews pending drafts: approve (creates and posts the journal entry), correct then approve, or reject — a rejection can seed the criterion for next time
+  ingest|ingesta [options] <files...>    Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)
+  lang|idioma [language]                 Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)
+  onboard|alta [options]                 Imports a client's accounting from an external system (chart of accounts + opening balances)
+  outbox|envio [options]                 Operations queued for external accounting systems: list, review and execute
+  question|duda [options]                The agent's pending questions: list, answer (saved as a precedent) or dismiss
+  sat                                    SAT services (e.firma credentials; the CFDI bulk download is not built yet)
+  pending|pendientes [options]           What you need to do: work to resolve and policy decisions to define
+  login|entrar [options]                 Signs in with your identity provider (OIDC)
+  logout|salir                           Deletes the stored credential
+  whoami|quien                           Shows the active credential and its validity
+  doctor [options]                       Diagnoses system health: DB, migrations, provider, credentials, isolation
+  memory|memoria [options]               Firm precedents: what the AI learned and you control
+  prompt-size|tamano-prompt [options]    Offline breakdown of the system prompt and tool schemas (no API calls)
+  compact|compactar [options]            Dry-run compaction report for a session transcript (no API calls)
+  approvals|aprobaciones                 Graduated approval policies for staged writes (once / session / always)
+  entity|entidad                         Select and inspect the legal entity commands operate on
+  payment|pago                           Vendor payments: record cash that already left the bank and settle the bill it pays
+  account|cuenta                         Chart of accounts: inspect, create and retire accounts
+  entry|poliza                           Journal entries: draft, inspect, validate, post, reverse and void
+  period|periodo                         Fiscal periods: what exists, what state it is in, and opening a future one
+  year|ejercicio                         Fiscal years: the calendar an entity keeps its books in
+  vendor|proveedor                       Vendor master: who we owe money to, on what terms, under which tax id
+  bill|factura-proveedor                 Vendor bills: capture, code, inspect and approve what we owe
+  customer|cliente                       Customers: the AR master file, with the balance each one owes
+  invoice|factura                        Customer invoices: draft, inspect, issue to the ledger and void (never stamped here)
+  receipt|cobro                          Customer collections: record cash, apply on-account balance, unapply, and reverse bounced checks
+  credit-note|nota-credito               Credit notes: returns, discounts and corrections against the receivable (never stamped here)
+  ar|cxc                                 Receivables controls: reconcile the subledger against the control account, run named diagnostics
+  ap|cxp                                 Payables controls: reconcile the vendor subledger against the control account
+  bank|banco                             Bank accounts and bank statements: master data and imported statements
+  asset|activo                           Fixed asset register: the ledger of what the company owns and depreciates
+  depreciation|depreciacion              The monthly depreciation run: compute it, look at it, then post it
+  batch|lote                             Staged entry batches: list, inspect, check, post transactionally and reverse as a unit
+  closing|cierre-proceso                 The close as a process: its read-only surface — readiness, named checks, offenders
+  fx|cambio                              Exchange rates: the origin every foreign-currency amount converts from
+  prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
+  e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
+  diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
+  isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
+  tax-deposit|entero                     Employer tax liabilities: what is owed, to whom, and by when
+  cashflow|flujo                         Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash
+  audit|auditoria                        Read the audit trail: who changed what, when, and from which value
+  subscription|suscripcion               Outbound event subscriptions: who we notify, and what we could not deliver
+  backup|respaldo                        Logical backups of the whole installation (create, list, verify by rehearsing the restore, restore) and per-tenant logical exports (export)
+  report|reporte                         Financial statements, trial balance, general ledger and ageing
+  ledger|mayor                           The general ledger itself: integrity checks, stale drafts, auxiliaries and balances
+  cfdi                                   The CFDI mirror: list, inspect, SAT status and the classifier trail
+  rep                                    Payment receipts (REP): what is missing one, and the parked ones to retry
+  ai|ia                                  Métricas y calibración del agente contable
+  usage|uso [options]                    Token usage and estimated cost from the local ledger (no API calls)
+  status|estado [options]                Health snapshot: config, live provider probes, database and RLS (redacted, shareable)
+  jobs|tareas                            Persisted scheduled agent tasks (all output is reviewable drafts, never direct writes)
+  skills|habilidades                     Firm skills: list, review staged changes, view content
+  webhooks|ganchos                       Inbound webhook tokens: dedicated credentials that wake a restricted reader agent
+  init|configurar [options]              Guided setup: infrastructure, entity, users, AI provider, and your books
+  close|cierre [options]                 Month-end close: checks what is missing and closes the period
+  completion|completado [shell]          Print a shell completion script (bash, zsh) on stdout
+  help [command]                         display help for command
 ```
 
 ## `mnemosine entities` (alias: entidades)
@@ -288,7 +218,8 @@ Examples:
 ```
 Usage: mnemosine review|revisar [options]
 
-Reviews pending drafts: approve (creates and posts the journal entry) or reject
+Reviews pending drafts: approve (creates and posts the journal entry), correct
+then approve, or reject — a rejection can seed the criterion for next time
 
 Options:
   -e, --entity <idOrName>  Legal entity (id, RFC or name fragment)
@@ -808,6 +739,7 @@ Options:
   -t, --tenant <id>                          Tenant
   -b, --search <text>                        Filter by text
   --all                                      Include retired ones
+  --conflicts                                Only the precedents that contradict each other, and how to resolve them
   --json                                     JSON output
   -h, --help                                 display help for command
 
@@ -863,6 +795,7 @@ Arguments:
 
 Options:
   -u, --user <email>  Who retires it
+  --reason <text>     Why it no longer applies (kept in the precedent history)
   -h, --help          display help for command
 ```
 
@@ -1151,28 +1084,34 @@ Usage: mnemosine payment create|crear [options] <bill>
 Record a payment made against a bill and recognize the IVA it was holding
 
 Arguments:
-  bill                     bill number, vendor invoice number or id
+  bill                      bill number, vendor invoice number or id
 
 Options:
-  --amount <amount>        amount, in the document currency
-  --date <date>            value date (YYYY-MM-DD); defaults to today
-  --method <method>        cash, check, ach, wire, spei, credit_card or other
-                           (default: "spei")
-  --bank <account>         bank account id; without it the entity's `banco` role
-                           is used
-  --json                   JSON output
-  --discount <amount>      early-payment discount taken
-  --memo <text>            note stored with the payment
-  -e, --entity <idOrName>  legal entity to operate on (defaults to the active
-                           one)
-  -t, --tenant <id>        tenant (firm) whose data to scope to
-  -u, --user <email>       acting user, for attribution and permissions
-  --dry-run                compute and show the full effect; write nothing and
-                           call nothing external
-  -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
-  -h, --help               display help for command
+  --amount <amount>         amount, in the document currency
+  --date <date>             value date (YYYY-MM-DD); defaults to today
+  --method <method>         cash, check, ach, wire, spei, credit_card or other
+                            (default: "spei")
+  --bank <account>          bank account id; without it the entity's `banco`
+                            role is used
+  --json                    JSON output
+  --check-number <number>   cheque number; only valid with --method check
+  --to-account <number>     account that received the money (CtaDest of the SAT
+                            voucher)
+  --to-bank <code>          destination bank key from the SAT c_Banco catalogue
+                            (3 digits)
+  --to-foreign-bank <name>  destination bank name when it is a foreign one
+  --discount <amount>       early-payment discount taken
+  --memo <text>             note stored with the payment
+  -e, --entity <idOrName>   legal entity to operate on (defaults to the active
+                            one)
+  -t, --tenant <id>         tenant (firm) whose data to scope to
+  -u, --user <email>        acting user, for attribution and permissions
+  --dry-run                 compute and show the full effect; write nothing and
+                            call nothing external
+  -y, --yes                 skip the confirmation prompt
+  --idempotency-key <key>   client dedupe key, stored on success: a retry with
+                            the same key and payload returns the recorded result
+  -h, --help                display help for command
 
 Examples:
   # Record a transfer that already left the bank, against one approved bill.
@@ -1428,6 +1367,7 @@ Options:
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
   --dry-run                validate and report, without writing
+  --reason <text>          why these flags change; recorded in the audit trail
   -h, --help               display help for command
 
 Examples:
@@ -1606,7 +1546,7 @@ Commands:
   import|importar [options] <file>  Bulk-load a statutory scheme from CSV — the
                                     heaviest setup task of a Mexican firm
   check|verificar [options]         Coverage gate before the Anexo 24 catalog
-                                    XML: which top accounts still lack a mapping
+                                    XML: which accounts still lack a mapping
   help [command]                    display help for command
 ```
 
@@ -1627,8 +1567,8 @@ Options:
   -u, --user <email>       acting user, for attribution and permissions
   --scheme <name>          scheme: sat-agrupador, us-tax-line, ifrs
   --value <v>              the code in that scheme; empty clears the mapping
-  --year <y>               catalog year (not supported yet: the versioned
-                           c_CodAgrup catalog does not exist)
+  --year <y>               fiscal year whose SAT catalog validates the code
+                           (default: today's)
   --dry-run                validate and report, without writing
   -h, --help               display help for command
 
@@ -1704,7 +1644,7 @@ Examples:
 ```
 Usage: mnemosine account map check|verificar [options]
 
-Coverage gate before the Anexo 24 catalog XML: which top accounts still lack a
+Coverage gate before the Anexo 24 catalog XML: which accounts still lack a
 mapping
 
 Options:
@@ -1719,14 +1659,14 @@ Options:
   -q, --quiet                              identifiers only, one per line, for piping
   --check <names>                          named checks to run (available: coverage; empty lists them) (default: "coverage")
   --scheme <name>                          scheme to verify (default: "sat-agrupador")
-  --level <n>                              deepest account level required to be mapped (default: "2")
+  --level <n>                              retired: the gate no longer measures by account level
   -h, --help                               display help for command
 
 Examples:
   # The coverage gate before any Anexo 24 catalog XML: what still lacks a code.
-  mnemosine account map check --scheme sat-agrupador --level 2
+  mnemosine account map check --scheme sat-agrupador
   # Same, but exit 4 on any gap so CI can block on it.
-  mnemosine account map check --scheme sat-agrupador --level 3 --strict
+  mnemosine account map check --scheme sat-agrupador --strict
 ```
 
 ### `mnemosine account restore` (alias: restaurar)
@@ -1744,6 +1684,8 @@ Options:
                            one)
   -t, --tenant <id>        tenant (firm) whose data to scope to
   -u, --user <email>       acting user, for attribution and permissions
+  --reason <text>          why the account comes back into service; recorded in
+                           the audit trail
   -h, --help               display help for command
 
 Examples:
@@ -6036,7 +5978,7 @@ Print the offending rows of one check (ids, amounts, dates) and the exact
 command that fixes it
 
 Arguments:
-  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, trial-balance, ledger-integrity, rep-parked, rep-missing
+  code                                     check code, one of: previous-period-closed, entries-posted, bank-reconciled, bank-variance-frozen, bank-items-overdue, bank-lines-unexplained, invoices-reviewed, depreciation-posted, trial-balance, ledger-integrity, rep-parked, rep-missing, sat-agrupador-missing
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -6389,6 +6331,484 @@ Examples:
   mnemosine prepaid run --period 2026-08 --yes --idempotency-key devengo-2026-08
 ```
 
+## `mnemosine e-accounting` (alias: contabilidad-electronica)
+
+```
+Usage: mnemosine e-accounting|contabilidad-electronica [options] [command]
+
+Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
+
+Options:
+  -h, --help        display help for command
+
+Commands:
+  catalog|catalogo  The chart of accounts as the SAT wants it: CtaCatalogo 1.3
+  balance|balanza   The trial balance the SAT expects: BCE 1.3, normal, amended
+                    or year-end
+  help [command]    display help for command
+```
+
+### `mnemosine e-accounting catalog` (alias: catalogo)
+
+```
+Usage: mnemosine e-accounting catalog|catalogo [options] [command]
+
+The chart of accounts as the SAT wants it: CtaCatalogo 1.3
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Build and archive the CtaCatalogo 1.3 XML (NumCta,
+                              Desc, SubCtaDe, Nivel, Natur, CodAgrup) with its
+                              hash
+  help [command]              display help for command
+```
+
+#### `mnemosine e-accounting catalog generate` (alias: generar)
+
+```
+Usage: mnemosine e-accounting catalog generate|generar [options]
+
+Build and archive the CtaCatalogo 1.3 XML (NumCta, Desc, SubCtaDe, Nivel, Natur,
+CodAgrup) with its hash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the CtaCatalogo XML to this path (the artifact store keeps its own copy)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <YYYY-MM>                       month the catalog declares (Mes and Anio of its header)
+  --dry-run                                build it and show the verdict; archive nothing and write no file
+  -y, --yes                                skip the overwrite prompt when -o names an existing file
+  -h, --help                               display help for command
+
+This builds the file. It does NOT seal it and does NOT file it.
+The XML comes out with no Sello, noCertificado or Certificado: sealing with the
+e.firma and transmitting through the Buzón Tributario are your acts, outside this
+system. This binary never asks for an e.firma and never loads a private key.
+
+
+Examples:
+  # See the verdict before anything is archived: it builds the CtaCatalogo and
+  # names the accounts that would block it, writing nothing.
+  mnemosine e-accounting catalog generate --period 2026-07 --dry-run
+  # The real run, with a copy of the XML next to the archived one.
+  mnemosine e-accounting catalog generate --period 2026-07 -o catalogo-2026-07.xml --yes
+```
+
+### `mnemosine e-accounting balance` (alias: balanza)
+
+```
+Usage: mnemosine e-accounting balance|balanza [options] [command]
+
+The trial balance the SAT expects: BCE 1.3, normal, amended or year-end
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Build and archive the period's trial balance XML
+                              (SaldoIni, Debe, Haber, SaldoFin) with its hash
+  check|verificar [options]   Run the invariants the SAT re-runs: SaldoIni +
+                              Debe − Haber = SaldoFin honouring Natur, and every
+                              account in the catalog
+  help [command]              display help for command
+```
+
+#### `mnemosine e-accounting balance generate` (alias: generar)
+
+```
+Usage: mnemosine e-accounting balance generate|generar [options]
+
+Build and archive the period's trial balance XML (SaldoIni, Debe, Haber,
+SaldoFin) with its hash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the Balanza XML to this path (the artifact store keeps its own copy)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to declare: 2026-02, its name, or the fiscal period id
+  --type <N|C>                             envelope type: N normal, C amended (needs --modified) (default: "N")
+  --closing                                the year-end balance, filed as month 13 — not December again
+  --modified <date>                        date the balance being amended was modified (FechaModBal); required with --type C
+  --dry-run                                build it and show the verdict; archive nothing and write no file
+  -y, --yes                                skip the overwrite prompt when -o names an existing file
+  -h, --help                               display help for command
+
+This builds the file. It does NOT seal it and does NOT file it.
+The XML comes out with no Sello, noCertificado or Certificado: sealing with the
+e.firma and transmitting through the Buzón Tributario are your acts, outside this
+system. This binary never asks for an e.firma and never loads a private key.
+
+
+Examples:
+  # The monthly balance, shown and checked before it is archived.
+  mnemosine e-accounting balance generate --period 2026-07 --dry-run
+  # An amended filing: type C needs the date the balance it replaces was modified.
+  mnemosine e-accounting balance generate --period 2026-07 --type C --modified 2026-09-15 --yes
+  # The year-end balance, filed as month 13. With --closing the period names the
+  # FISCAL YEAR: it declares the closing adjustments, not December again.
+  mnemosine e-accounting balance generate --period 2026 --closing --yes
+```
+
+#### `mnemosine e-accounting balance check` (alias: verificar)
+
+```
+Usage: mnemosine e-accounting balance check|verificar [options]
+
+Run the invariants the SAT re-runs: SaldoIni + Debe − Haber = SaldoFin honouring
+Natur, and every account in the catalog
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --period <expr>                          period to check: 2026-02, its name, or the fiscal period id
+  --closing                                check the year-end balance (month 13) instead of a month
+  --check [names]                          comma-separated check names; with no value, prints the available ones
+  -h, --help                               display help for command
+
+Examples:
+  # Re-run what the authority re-runs over the month, before you seal anything.
+  mnemosine e-accounting balance check --period 2026-07
+  # The year-end balance, with warnings made blocking so cron stops on them (exit 4).
+  mnemosine e-accounting balance check --period 2026 --closing --strict
+```
+
+## `mnemosine diot`
+
+```
+Usage: mnemosine diot [options] [command]
+
+Mexican DIOT: build the month from paid transactions, check it, and export the
+working paper
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Build the month's DIOT from paid transactions,
+                              broken down by third party and by rate
+  check|verificar [options]   Run the DIOT invariants by name: the paid fact,
+                              the rate breakdown, the exempt base, the third
+                              party and its operation type
+  export|exportar [options]   Emit the DIOT file, byte-stable for diffing: the
+                              working paper today, the SAT batch layout when it
+                              is grounded
+  help [command]              display help for command
+```
+
+### `mnemosine diot generate` (alias: generar)
+
+```
+Usage: mnemosine diot generate|generar [options]
+
+Build the month's DIOT from paid transactions, broken down by third party and by
+rate
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <YYYY-MM>                       month to declare (the DIOT is monthly; no month 13)
+  -h, --help                               display help for command
+
+This builds and checks the DIOT. It does NOT file it.
+The DIOT is captured or uploaded by a person in the SAT portal; this binary never
+reaches the portal and never loads an e.firma. The batch-file layout is not
+grounded in this repository, so `diot export --layout sat` refuses instead of
+inventing one — run it to see exactly what has to be confirmed.
+
+
+Examples:
+  # The month, with its breakdown by third party and by rate. Writes nothing.
+  mnemosine diot generate --period 2026-07
+  # Only the findings that would stop the filing, as JSON for a script.
+  mnemosine diot generate --period 2026-07 --json
+```
+
+### `mnemosine diot check` (alias: verificar)
+
+```
+Usage: mnemosine diot check|verificar [options]
+
+Run the DIOT invariants by name: the paid fact, the rate breakdown, the exempt
+base, the third party and its operation type
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --period <YYYY-MM>                       month to check (the DIOT is monthly; no month 13)
+  --check [names]                          comma-separated check names; with no value, prints the available ones
+  -h, --help                               display help for command
+
+What this does NOT check, and why it is not silently missing:
+the cross-check the SAT itself runs — the DIOT total against the VAT return of the
+same month — needs a VAT return, and no engine in this repository computes one
+(`filing preview` is not built). What IS proven here is stronger than a comparison
+against a number nobody computed: the DIOT is built from the two ledger events that
+move creditable VAT, so its total is the movement of that account by construction.
+Tie it out by hand against the account until `filing preview` exists.
+
+
+Examples:
+  # The invariant the SAT cross-checks by itself: the creditable VAT declared
+  # here against what the ledger says was actually paid that month.
+  mnemosine diot check --period 2026-07
+  # Exit 4 if anything blocks, so a pipeline can stop on it.
+  mnemosine diot check --period 2026-07 --strict
+```
+
+### `mnemosine diot export` (alias: exportar)
+
+```
+Usage: mnemosine diot export|exportar [options]
+
+Emit the DIOT file, byte-stable for diffing: the working paper today, the SAT
+batch layout when it is grounded
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the exported file to this path (without it, the file goes to stdout so it can be diffed)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <YYYY-MM>                       month to export (the DIOT is monthly; no month 13)
+  --layout <working-paper|sat>             file layout: working-paper is the per-third-party reconciliation; sat is the authority batch file (default: "working-paper")
+  -y, --yes                                skip the overwrite prompt when -o names an existing file
+  -h, --help                               display help for command
+
+This builds and checks the DIOT. It does NOT file it.
+The DIOT is captured or uploaded by a person in the SAT portal; this binary never
+reaches the portal and never loads an e.firma. The batch-file layout is not
+grounded in this repository, so `diot export --layout sat` refuses instead of
+inventing one — run it to see exactly what has to be confirmed.
+
+
+Examples:
+  # The working paper, to review before anything is filed.
+  mnemosine diot export --period 2026-07 -o diot-2026-07.txt
+```
+
+## `mnemosine isn`
+
+```
+Usage: mnemosine isn [options] [command]
+
+Mexican state payroll tax: capture the state rates with their grounds, and see
+what a pay run owes
+
+Options:
+  -h, --help                    display help for command
+
+Commands:
+  rate|tasa                     State ISN rates, by state and by vigencia
+  calculate|calcular [options]  One pay run's ISN, one row per state, naming
+                                every rate that is missing instead of computing
+                                zero
+  help [command]                display help for command
+```
+
+### `mnemosine isn rate` (alias: tasa)
+
+```
+Usage: mnemosine isn rate|tasa [options] [command]
+
+State ISN rates, by state and by vigencia
+
+Options:
+  -h, --help                          display help for command
+
+Commands:
+  set|fijar [options] <state> <rate>  Capture one state rate with its vigencia
+                                      and the law behind it
+  list|listar [options]               The captured state rates, with the one in
+                                      force on a given date marked
+  help [command]                      display help for command
+```
+
+#### `mnemosine isn rate set` (alias: fijar)
+
+```
+Usage: mnemosine isn rate set|fijar [options] <state> <rate>
+
+Capture one state rate with its vigencia and the law behind it
+
+Arguments:
+  state                                          SAT c_Estado key, as it is written on your workers (JAL, NLE)
+  rate                                           the rate, as a fraction (0.03) or a percentage (3%)
+
+Options:
+  -e, --entity <idOrName>                        legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                              tenant (firm) whose data to scope to
+  -u, --user <email>                             acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>        output format (default: "table")
+  --json                                         shorthand for --format json
+  -o, --output <path>                            write to a file instead of stdout
+  --fields [names]                               comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                    identifiers only, one per line, for piping
+  --effective-from <date>                        first day this rate applies (YYYY-MM-DD)
+  --superseded-on <date>                         day the next rate takes over and this one stops applying (YYYY-MM-DD); omit while it is the current one
+  --legal-basis <text>                           the law and article the rate comes from (required)
+  --regime <tasa_plana|escalonado|con_exencion>  how the state charges it; the engine only computes tasa_plana (default: "tasa_plana")
+  --exemption <amount>                           monthly amount exempted; only with --regime con_exencion
+  --dry-run                                      show exactly what would be written, and who it reaches; write nothing
+  -y, --yes                                      skip the confirmation prompt
+  -h, --help                                     display help for command
+
+Examples:
+  # Capture Jalisco at 3%, effective from the day the reform took effect.
+  mnemosine isn rate set JAL 3% --effective-from 2026-01-01 \
+    --legal-basis "Ley de Hacienda del Estado de Jalisco art. 41, POE 2025-12-15"
+  # Close a rate the state replaced, then capture the new one.
+  mnemosine isn rate set JAL 0.03 --effective-from 2025-01-01 --superseded-on 2026-01-01 \
+    --legal-basis "Ley de Hacienda del Estado de Jalisco art. 41 (2025)"
+  # See exactly what would be written, and who it reaches, without writing.
+  mnemosine isn rate set NLE 3% --effective-from 2026-01-01 --legal-basis "..." --dry-run
+```
+
+#### `mnemosine isn rate list` (alias: listar)
+
+```
+Usage: mnemosine isn rate list|listar [options]
+
+The captured state rates, with the one in force on a given date marked
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -a, --all                                every vigencia ever captured, not only the one in force
+  --state <key>                            only this state (SAT c_Estado key)
+  --as-of <date>                           which rate was in force on this date (YYYY-MM-DD; default today)
+  -h, --help                               display help for command
+
+Examples:
+  # What is in force today, state by state.
+  mnemosine isn rate list
+  # Every vigencia ever captured for one state, history included.
+  mnemosine isn rate list --state JAL --all
+  # What was in force on the day a pay period closed.
+  mnemosine isn rate list --as-of 2026-03-31 --json
+```
+
+### `mnemosine isn calculate` (alias: calcular)
+
+```
+Usage: mnemosine isn calculate|calcular [options]
+
+One pay run's ISN, one row per state, naming every rate that is missing instead
+of computing zero
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --run <payRunId>                         the pay run to compute (required)
+  --state <key>                            narrow the rows to one state; findings are never hidden
+  -h, --help                               display help for command
+
+Examples:
+  # The ISN of one pay run, state by state, with whatever is missing named.
+  mnemosine isn calculate --run 5f1c8e3a-0000-4000-8000-000000000001
+  # Only one state, for the paper that goes to that state.
+  mnemosine isn calculate --run 5f1c8e3a-0000-4000-8000-000000000001 --state JAL
+```
+
+## `mnemosine tax-deposit` (alias: entero)
+
+```
+Usage: mnemosine tax-deposit|entero [options] [command]
+
+Employer tax liabilities: what is owed, to whom, and by when
+
+Options:
+  -h, --help             display help for command
+
+Commands:
+  list|listar [options]  Accrued employer liabilities with their due date and
+                         status, soonest due first
+  help [command]         display help for command
+```
+
+### `mnemosine tax-deposit list` (alias: listar)
+
+```
+Usage: mnemosine tax-deposit list|listar [options]
+
+Accrued employer liabilities with their due date and status, soonest due first
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -s, --status <state...>                  filter by liability status (pending|deposited|late|waived); repeatable
+  -a, --all                                include what is already settled: deposited and waived rows too
+  --period <YYYY-MM>                       only liabilities whose period touches this month
+  --until <date>                           only what falls due on or before this date (YYYY-MM-DD)
+  --all-entities                           every entity of the tenant, not just the active one
+  -h, --help                               display help for command
+
+Examples:
+  # What the employer still owes, soonest due first.
+  mnemosine tax-deposit list
+  # One month, everything in it, including what is already deposited.
+  mnemosine tax-deposit list --period 2026-07 --all
+  # Anything falling due before the 17th, as JSON for a reminder job.
+  mnemosine tax-deposit list --until 2026-08-17 --json
+```
+
 ## `mnemosine cashflow` (alias: flujo)
 
 ```
@@ -6476,6 +6896,152 @@ Examples:
   # When there IS a residue: the journal lines that most likely explain it —
   # suspects, not a verdict — and --strict to make CI stop on it (exit 4).
   mnemosine cashflow reconcile --period 2026-07 --show-candidates --strict
+```
+
+## `mnemosine audit` (alias: auditoria)
+
+```
+Usage: mnemosine audit|auditoria [options] [command]
+
+Read the audit trail: who changed what, when, and from which value
+
+Options:
+  -h, --help               display help for command
+
+Commands:
+  list|listar [options]    Audit trail of mutations: who, when, which object,
+                           and which fields changed
+  show|ver [options] <id>  One audit entry in full: the value before, the value
+                           after, and the reason
+  help [command]           display help for command
+```
+
+### `mnemosine audit list` (alias: listar)
+
+```
+Usage: mnemosine audit list|listar [options]
+
+Audit trail of mutations: who, when, which object, and which fields changed
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       only entries written by this user (email); this command attributes nothing
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --since <date>                           inclusive lower bound on the entry timestamp (YYYY-MM-DD)
+  --until <date>                           inclusive upper bound on the entry timestamp (YYYY-MM-DD)
+  --actor <who>                            human | agent | agent:<session> (see the note on --actor agent)
+  --action <name>                          one of: create, update, delete, post, void, approve, close, reopen
+  --object [family]                        object family: ledger, period, bank, ar, ap, asset, fiscal; with no value, lists them
+  --entity-type <name>                     exact audit_log.entity_type value, when the family is not enough
+  -n, --limit <n>                          maximum rows to return
+  --offset <n>                             skip this many rows
+  -h, --help                               display help for command
+
+Examples:
+  # Who touched the ledger last week, newest first.
+  mnemosine audit list --object ledger --since 2026-07-01 --until 2026-07-31
+  # Only what the agent posted, which is the question a reviewer asks first.
+  mnemosine audit list --actor agent --action post --limit 20
+```
+
+### `mnemosine audit show` (alias: ver)
+
+```
+Usage: mnemosine audit show|ver [options] <id>
+
+One audit entry in full: the value before, the value after, and the reason
+
+Arguments:
+  id                                       audit_log row id (the id column of `audit list`)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       only entries written by this user (email); this command attributes nothing
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # One entry in full: the value before, the value after and the reason.
+  mnemosine audit show 3f2504e0-4f89-11d3-9a0c-0305e82c3301
+  # The same row as JSON, to diff it against another environment.
+  mnemosine audit show 3f2504e0-4f89-11d3-9a0c-0305e82c3301 --json
+```
+
+## `mnemosine subscription` (alias: suscripcion)
+
+```
+Usage: mnemosine subscription|suscripcion [options] [command]
+
+Outbound event subscriptions: who we notify, and what we could not deliver
+
+Options:
+  -h, --help        display help for command
+
+Commands:
+  delivery|entrega  Outbound delivery log and retries
+  help [command]    display help for command
+```
+
+### `mnemosine subscription delivery` (alias: entrega)
+
+```
+Usage: mnemosine subscription delivery|entrega [options] [command]
+
+Outbound delivery log and retries
+
+Options:
+  -h, --help              display help for command
+
+Commands:
+  sweep|barrer [options]  Retry every outbound delivery whose retry time has
+                          passed, with exponential backoff; deliveries that
+                          exhaust their attempts are declared dead and reported
+                          (call this from cron)
+  help [command]          display help for command
+```
+
+#### `mnemosine subscription delivery sweep` (alias: barrer)
+
+```
+Usage: mnemosine subscription delivery sweep|barrer [options]
+
+Retry every outbound delivery whose retry time has passed, with exponential
+backoff; deliveries that exhaust their attempts are declared dead and reported
+(call this from cron)
+
+Options:
+  -t, --tenant <id>        Tenant to sweep (defaults to MNEMOSINE_TENANT)
+  --all-tenants            Sweep every active tenant, each under its own tenant
+                           context
+  -n, --limit <n>          Max deliveries per tenant in this pass (default:
+                           "100")
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
+  -h, --help               display help for command
+
+Examples:
+  # The rehearsal: it reports what it WOULD retry and posts to nobody.
+  mnemosine subscription delivery sweep --all-tenants --dry-run
+  # The line that goes in the crontab, every five minutes.
+  mnemosine subscription delivery sweep --all-tenants --live --yes --json
+  # One firm only, with a smaller batch per pass.
+  mnemosine subscription delivery sweep --tenant 3f2504e0-4f89-11d3-9a0c-0305e82c3301 --limit 50 --live -y
 ```
 
 ## `mnemosine backup` (alias: respaldo)

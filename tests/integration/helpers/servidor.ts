@@ -84,19 +84,27 @@ export async function levantar(monturas: Array<[string, Router]>, sesion: Sesion
 export interface Respuesta {
   status: number;
   body: Record<string, unknown>;
+  /** Cierto cuando la respuesta salió del almacén de idempotencia y no del manejador. */
+  repetida: boolean;
 }
 
 export async function pedir(
   s: Servidor,
   metodo: string,
   ruta: string,
-  cuerpo?: unknown
+  cuerpo?: unknown,
+  /** Cabeceras extra. `Idempotency-Key` es la razón por la que existe. */
+  cabeceras?: Record<string, string>
 ): Promise<Respuesta> {
   const r = await fetch(`${s.url}${ruta}`, {
     method: metodo,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...cabeceras },
     body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
   });
   const texto = await r.text();
-  return { status: r.status, body: texto ? JSON.parse(texto) : {} };
+  return {
+    status: r.status,
+    body: texto ? (JSON.parse(texto) as Record<string, unknown>) : {},
+    repetida: r.headers.get('idempotency-replayed') === 'true',
+  };
 }

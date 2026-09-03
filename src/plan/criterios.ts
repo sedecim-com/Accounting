@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { PRUEBAS_DE_CONDUCTA, correrConducta, type PruebaDeConducta } from './conducta.js';
 
 // ============================================================
 // CRITERIOS DE CIERRE, EJECUTABLES
@@ -56,21 +57,70 @@ export interface Mutante {
   porque: string;
 }
 
+/**
+ * DE QUÉ HABLA UN CRITERIO (S4a).
+ *
+ * `lectura` mide el TEXTO del repositorio; `conducta` mide lo que el programa
+ * HACE. No son grados de la misma cosa y presentarlos igual fue el error: un
+ * verde de lectura dice «la línea que buscaba está escrita», y esa frase es
+ * compatible con que el sistema entregue el número contrario. Tres veces esta
+ * semana lo fue.
+ *
+ * El tablero cuenta las dos poblaciones por separado porque esa proporción —y
+ * no el total de verdes— es lo que mide el avance de este tramo.
+ */
+export type Clase = 'lectura' | 'conducta';
+
 export interface Criterio {
   paquete: string;
   /** Qué se afirma, en términos de comportamiento observable. */
   enunciado: string;
-  /** Precondición que el runner comprueba antes de evaluar. */
-  necesita?: 'base-de-datos' | 'red';
-  evaluar: () => Promise<Resultado> | Resultado;
   /**
-   * Espejos: mutaciones que DEBEN poner este criterio en rojo. Sólo para
-   * criterios SIN `necesita` (los de conducta se juzgan contra la base, no
-   * contra el fuente). La línea base de criterios sin espejo sólo encoge
-   * (meta-criterio en E0.0).
+   * Precondición que el runner comprueba antes de evaluar.
+   *
+   * `base-efimera` es más exigente que `base-de-datos`: no basta con que haya
+   * una base a la que preguntar, hace falta un rol que pueda CREAR una
+   * desechable. Se distingue porque el motivo que el tablero imprime cuando no
+   * se puede evaluar es distinto, y quien lo lee tiene que poder arreglarlo.
+   */
+  necesita?: 'base-de-datos' | 'red' | 'base-efimera';
+  evaluar: () => Promise<Resultado> | Resultado;
+  /** Por omisión `lectura`: es lo que era todo antes de S4a. */
+  clase?: Clase;
+  /**
+   * Espejos: mutaciones que DEBEN poner este criterio en rojo. Se aplican
+   * sobre el SEAM DE LECTURA (conFuenteMutada), en memoria, y por eso valen
+   * sólo para criterios de `lectura`. La línea base de criterios sin espejo
+   * sólo encoge (meta-criterio en E0.0).
    */
   mutantes?: Mutante[];
+  /**
+   * Espejos de un criterio de CONDUCTA, aplicados sobre el archivo REAL.
+   *
+   * Campo aparte y no una bandera dentro de `mutantes`, porque el arnés es
+   * otro: un criterio de conducta no puede mutarse en memoria —lo que corre no
+   * es lo que el criterio lee—, así que estos se escriben en disco y se
+   * re-corren en un proceso nuevo. Los aplica
+   * tests/integration/plan-conducta-mutacion.int.spec.ts, que corre en serie y
+   * restaura en un `finally`. Mezclarlos habría hecho que el arnés en memoria
+   * intentara evaluarlos sin base y los diera por muertos sin haberlos matado.
+   */
+  mutantesEnDisco?: Mutante[];
 }
+
+/** Un criterio sin `clase` es de lectura: era lo único que había antes de S4a. */
+export const claseDe = (c: Criterio): Clase => c.clase ?? 'lectura';
+
+/**
+ * ¿Tiene espejo, del arnés que sea?
+ *
+ * Existe para que la línea base de «criterios sin espejo» no cuente como deuda
+ * a un criterio de conducta que SÍ trae los suyos, sólo que en el otro campo.
+ * Un trinquete que se dispara por dónde está escrito el espejo, y no por si
+ * existe, mide la forma en vez del hecho.
+ */
+export const tieneEspejo = (c: Criterio): boolean =>
+  (c.mutantes?.length ?? 0) > 0 || (c.mutantesEnDisco?.length ?? 0) > 0;
 
 // ── Ayudas ──────────────────────────────────────────────────
 
@@ -383,6 +433,172 @@ export const ok = (detalle: string): Resultado => ({ estado: 'ok', detalle });
 export const falla = (detalle: string): Resultado => ({ estado: 'falla', detalle });
 export const noEvaluable = (detalle: string): Resultado => ({ estado: 'no-evaluable', detalle });
 
+// ── El trinquete de cobertura, leído como NÚMEROS (S4a) ─────
+//
+// EL DEFECTO QUE ESTO REPARA. El criterio «la cobertura del motor contable
+// tiene trinquete por archivo» contaba llaves:
+//
+//     const archivos = (c.match(/'src\/[^']+\.ts':/g) ?? []).length;
+//     return archivos >= 3 ? ok(...) : falla(...);
+//
+// Con esa vara, poner los tres umbrales EN CERO lo dejaba en verde: las tres
+// llaves seguían ahí. Y bajar un umbral es exactamente el movimiento que un
+// trinquete de cobertura existe para impedir — no hay otro. Un criterio que
+// cuenta entradas mide la FORMA del archivo de configuración, no lo que ese
+// archivo exige; es la misma familia de escape que el conteo de llaves de
+// AUD-6 y que el criterio de maker-checker que anclaba en UNA puerta.
+//
+// QUÉ ES «BAJAR», Y POR QUÉ NO ES UN MÍNIMO ABSOLUTO. Se consideró exigir que
+// todo umbral fuera >= N. No sirve, y el propio vitest.config.ts explica por
+// qué: sus umbrales conviven entre 66 (sequence.ts, deuda declarada) y 100
+// (criterio-cierre.ts). Cualquier N que deje pasar el 66 legítimo deja caer
+// posting.ts de 99 a 67 sin decir nada, y cualquier N que proteja el 99 pone
+// en rojo una deuda que se declaró a propósito. Un solo número no puede
+// distinguir «esto siempre fue bajo» de «esto acaba de bajar».
+//
+// Lo que sí distingue las dos cosas es un SUELO POR ARCHIVO Y POR MÉTRICA,
+// congelado en lo que la configuración declara hoy: la misma forma de
+// trinquete que el repositorio ya usa en docs/catalogo-minimos.json y en
+// SIN_ESPEJO_MAXIMO. Sólo sube, y sube en el mismo commit que gana el terreno.
+//
+// LO QUE UN SUELO ASÍ NO COMPRA, dicho antes de que alguien lo descubra: nada
+// impide bajar el umbral Y el suelo en el mismo commit. Ningún trinquete de
+// esta casa lo impide — tampoco el del catálogo ni el de los espejos. Lo que
+// compra es que el descenso deje de ser INVISIBLE: hoy los tres ceros pasan
+// sin que ninguna compuerta se mueva; con el suelo hay que escribir el número
+// nuevo, con nombre, en un diff que alguien revisa.
+
+const METRICAS = ['statements', 'branches', 'functions', 'lines'] as const;
+type Metrica = (typeof METRICAS)[number];
+export type Umbrales = Record<Metrica, number>;
+
+/**
+ * Los umbrales por archivo que un vitest.config declara, como NÚMEROS.
+ *
+ * Se lee sobre el código sin comentarios (`codigoDe`): los bloques de arriba
+ * de vitest.config.ts citan cifras en prosa —«medidos hoy: 88.23 / 76.29…»— y
+ * leer prosa como si fuera conducta es el error que este archivo existe para
+ * no cometer.
+ */
+export function umbralesDeclarados(config: string): Map<string, Partial<Umbrales>> {
+  const declarados = new Map<string, Partial<Umbrales>>();
+  // Sólo casa `'src/…ts': { … }`: las entradas de `include` son `'src/…ts',`
+  // sin llave detrás, así que un archivo medido no se confunde con uno con
+  // umbral. Es justo la diferencia que el criterio viejo no hacía.
+  for (const entrada of config.matchAll(/'(src\/[^']+\.ts)':\s*\{([^}]*)\}/g)) {
+    const valores: Partial<Umbrales> = {};
+    for (const metrica of METRICAS) {
+      const m = new RegExp(`\\b${metrica}\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`).exec(entrada[2]);
+      if (m) valores[metrica] = Number(m[1]);
+    }
+    declarados.set(entrada[1], valores);
+  }
+  return declarados;
+}
+
+/**
+ * Los globs de `coverage.include`, que dicen QUÉ se mide.
+ *
+ * Se corta desde `coverage:` a propósito: `test.include` aparece ANTES en los
+ * dos archivos y es la lista de pruebas, no la de fuentes medidas. Un regex
+ * que casara la primera lista leería «tests/**» y bendeciría cualquier cosa.
+ */
+export function medidosPor(config: string): string[] {
+  const desdeCobertura = config.slice(config.indexOf('coverage:'));
+  const bloque = /include:\s*\[([^\]]*)\]/.exec(desdeCobertura);
+  return [...(bloque?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
+}
+
+const seMide = (globs: string[], archivo: string): boolean =>
+  globs.some((g) => g === archivo || (g.endsWith('**') && archivo.startsWith(g.slice(0, -2))));
+
+/**
+ * El veredicto de un suelo contra lo que un vitest.config declara HOY.
+ *
+ * Tres direcciones, porque un trinquete que sólo mira una se vacía por las
+ * otras dos —la lección del piso de criterios, aplicada a números—:
+ *   1. un umbral por debajo del suelo → el descenso, que es el caso central;
+ *   2. un archivo del suelo que perdió su entrada → el trinquete retirado por
+ *      borrado en vez de por rebaja;
+ *   3. un archivo del suelo que ya no se MIDE → un umbral sobre un archivo
+ *      fuera de `include` no exige nada, y es la forma silenciosa de apagarlo.
+ *
+ * Y una cuarta sobre lo que el suelo todavía no cubre: un archivo nuevo con
+ * una métrica en cero. Un umbral en cero es la ausencia de umbral escrita con
+ * más letras, y nace protegido para que no haga falta un commit posterior.
+ */
+export function contraSuelo(config: string, suelo: Record<string, Umbrales>): string[] {
+  const declarados = umbralesDeclarados(config);
+  const globs = medidosPor(config);
+  const problemas: string[] = [];
+
+  for (const [archivo, piso] of Object.entries(suelo)) {
+    const hoy = declarados.get(archivo);
+    if (!hoy) {
+      problemas.push(`${archivo} perdió su umbral por archivo (el suelo lo exige)`);
+      continue;
+    }
+    if (!seMide(globs, archivo)) {
+      problemas.push(
+        `${archivo} tiene umbral pero coverage.include ya no lo alcanza: un umbral sobre un archivo que no se mide no exige nada`
+      );
+    }
+    // Una línea por ARCHIVO, no por métrica: poner los cuatro umbrales de seis
+    // archivos en cero produce veinticuatro quejas idénticas, y un detalle que
+    // no se puede leer de un vistazo no sirve para actuar — que es lo único
+    // para lo que existe el campo `detalle`.
+    const bajaron = METRICAS.filter((m) => (hoy[m] ?? -1) < piso[m]).map((m) =>
+      hoy[m] === undefined ? `${m} ya no se declara (suelo ${piso[m]})` : `${m} ${piso[m]}→${hoy[m]}`
+    );
+    if (bajaron.length > 0) {
+      problemas.push(`${archivo}: el umbral bajó — ${bajaron.join(', ')}`);
+    }
+  }
+
+  for (const [archivo, hoy] of declarados) {
+    if (suelo[archivo]) continue;
+    const flojas = METRICAS.filter((m) => (hoy[m] ?? 0) <= 0);
+    if (flojas.length > 0) {
+      problemas.push(
+        `${archivo}: ${flojas.join(', ')} en cero o sin declarar — un umbral en cero es la ausencia de umbral escrita con más letras`
+      );
+    }
+  }
+
+  return problemas;
+}
+
+/**
+ * SUELO DEL PROYECTO UNITARIO. Congelado en lo que vitest.config.ts declara
+ * al escribirse este trinquete (2026-09-02). Sólo sube.
+ */
+export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
+  'src/services/accounting/posting.ts': { statements: 99, branches: 95, functions: 100, lines: 99 },
+  'src/services/accounting/validation.ts': { statements: 90, branches: 77, functions: 100, lines: 90 },
+  'src/services/accounting/ar-ap-posting.ts': { statements: 99, branches: 89, functions: 100, lines: 99 },
+  'src/utils/sequence.ts': { statements: 68, branches: 100, functions: 75, lines: 66 },
+  'src/services/reporting/report-service.ts': { statements: 88, branches: 76, functions: 95, lines: 88 },
+  'src/services/reporting/criterio-cierre.ts': { statements: 100, branches: 95, functions: 100, lines: 100 },
+};
+
+/**
+ * SUELO DE LA SUITE DE INTEGRACIÓN. Nace en S4a con la primera medición real
+ * de esa suite (984 pruebas contra Postgres, todas en verde): hasta hoy
+ * vitest.integration.config.ts no declaraba cobertura, así que las pruebas que
+ * de verdad ejercitan el dinero no contaban para ninguna medida.
+ */
+export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
+  'src/services/accounting/period-close.ts': { statements: 90, branches: 81, functions: 96, lines: 89 },
+  'src/services/accounting/ledger-checks.ts': { statements: 90, branches: 86, functions: 75, lines: 92 },
+  'src/services/accounting/posting.ts': { statements: 91, branches: 86, functions: 96, lines: 91 },
+  'src/services/accounting/ar-ap-posting.ts': { statements: 87, branches: 75, functions: 96, lines: 91 },
+  'src/services/accounting/validation.ts': { statements: 86, branches: 78, functions: 100, lines: 88 },
+  'src/services/accounting/iva-cash-basis.ts': { statements: 96, branches: 84, functions: 100, lines: 98 },
+  'src/services/reporting/report-service.ts': { statements: 84, branches: 75, functions: 77, lines: 86 },
+  'src/services/reporting/criterio-cierre.ts': { statements: 91, branches: 80, functions: 85, lines: 91 },
+  'src/services/reporting/cash-flow-service.ts': { statements: 94, branches: 89, functions: 96, lines: 95 },
+};
+
 // ── Los criterios ───────────────────────────────────────────
 
 export const CRITERIOS: Criterio[] = [
@@ -391,7 +607,25 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E0.0',
     enunciado: 'El repositorio tiene remoto, así que la CI puede dispararse',
     evaluar: () => {
-      const cfg = rutaDe('.git', 'config');
+      // EN UN ÁRBOL VINCULADO, `.git` ES UN ARCHIVO.
+      //
+      // `git worktree add` deja un `.git` que no es directorio sino una línea
+      // «gitdir: …» apuntando al repositorio común. Este criterio buscaba
+      // `.git/config` a secas y daba «no hay .git» en cualquier worktree —el
+      // único rojo que salía al verificar un commit en un árbol limpio, que es
+      // la práctica que este proyecto adoptó justo para no medir la mezcla de
+      // varias sesiones—. Un falso rojo en el instrumento de verificación es
+      // peor que en el código: entrena a saltarse la verificación.
+      const enlace = rutaDe('.git');
+      if (!fs.existsSync(enlace)) return falla('no hay .git');
+      let cfg = path.join(enlace, 'config');
+      if (fs.statSync(enlace).isFile()) {
+        const apunta = /gitdir:\s*(.+)/.exec(leer(enlace));
+        if (apunta === null) return falla('el .git de este árbol vinculado no dice a qué repositorio apunta');
+        const comun = path.resolve(path.dirname(enlace), apunta[1].trim());
+        // …/.git/worktrees/<nombre> → el config vive dos niveles más arriba.
+        cfg = path.join(comun, '..', '..', 'config');
+      }
       if (!fs.existsSync(cfg)) return falla('no hay .git');
       const tiene = /\[remote /.test(leer(cfg));
       return tiene
@@ -564,9 +798,15 @@ export const CRITERIOS: Criterio[] = [
         F06c: 'docs/auditorias/F06c.md',
         R4: 'docs/auditorias/R4.md',
         D1a: 'docs/auditorias/D1a.md',
+        F07a: 'docs/auditorias/F07a.md',
+        F07b: 'docs/auditorias/F07b.md',
+        F07c: 'docs/auditorias/F07c.md',
+        F08a: 'docs/auditorias/F08a.md',
         G1a: 'docs/auditorias/G1a.md',
         G1b: 'docs/auditorias/G1b.md',
         G0: 'docs/auditorias/G0.md',
+        G4a: 'docs/auditorias/G4a.md',
+        G4b: 'docs/auditorias/G4b.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -756,13 +996,110 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E0.1',
     enunciado: 'La cobertura del motor contable tiene trinquete por archivo',
     evaluar: () => {
+      // S4a: este criterio CONTABA LLAVES —cuántas entradas `'src/…ts':` hay—
+      // y con esa vara los tres umbrales puestos en CERO lo dejaban en verde.
+      // Ahora lee los VALORES contra SUELO_COBERTURA_UNITARIA; el porqué de
+      // esa forma de vara, y lo que no compra, está sobre la tabla.
       const c = codigoDe('vitest.config.ts');
       if (!/thresholds/.test(c)) return falla('vitest.config.ts no define umbrales de cobertura');
-      const archivos = (c.match(/'src\/[^']+\.ts':/g) ?? []).length;
-      return archivos >= 3
-        ? ok(`${archivos} archivos con umbral propio`)
-        : falla(`sólo ${archivos} archivo(s) con umbral: un umbral global es un promedio que deja caer una pieza crítica`);
+
+      const problemas = contraSuelo(c, SUELO_COBERTURA_UNITARIA);
+      if (problemas.length > 0) return falla(problemas.join('; '));
+
+      const declarados = umbralesDeclarados(c);
+      const comprobados = Object.keys(SUELO_COBERTURA_UNITARIA).length * METRICAS.length;
+      return ok(
+        `${declarados.size} archivos con umbral propio; ${comprobados} valores comprobados contra el suelo y ninguno por debajo`
+      );
     },
+    mutantes: [
+      {
+        archivo: 'vitest.config.ts',
+        de: 'statements: 99, branches: 95, functions: 100, lines: 99,',
+        a: 'statements: 0, branches: 0, functions: 0, lines: 0,',
+        porque:
+          'EL ESCAPE QUE ESTE TRAMO VINO A CERRAR: los umbrales en cero dejan las llaves en su sitio, ' +
+          'así que el criterio que contaba llaves seguía en verde mientras el trinquete ya no apretaba nada',
+      },
+      {
+        archivo: 'vitest.config.ts',
+        de: "'src/services/reporting/criterio-cierre.ts': {",
+        a: "'src/services/reporting/otro-archivo.ts': {",
+        porque:
+          'el trinquete se retira por RENOMBRE en vez de por rebaja —el conteo de llaves no se mueve— ' +
+          'y la pieza por la que pasan las tres superficies de cierre se queda sin umbral',
+      },
+      {
+        archivo: 'vitest.config.ts',
+        de: "        'src/services/reporting/**',\n",
+        a: '',
+        porque:
+          'el umbral sobrevive pero su archivo sale de coverage.include: un umbral sobre algo que no se ' +
+          'mide no exige nada, y es la forma silenciosa de apagarlo',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.1',
+    enunciado: 'La suite de integración declara su cobertura y la ejerce en CI',
+    evaluar: () => {
+      // POR QUÉ NACE ESTE CRITERIO (S4a). vitest.integration.config.ts no tenía
+      // bloque `coverage` en toda la vida del proyecto: 984 pruebas contra un
+      // Postgres de verdad —las que ejercitan el dinero— no contaban para
+      // ninguna medida. Se veía en los dos archivos que el proyecto unitario se
+      // niega, con razón, a ratchetear: period-close.ts medía 14.6% allá y mide
+      // 90.15% aquí; ledger-checks.ts, 4.05% y 90.54%. No era cobertura que
+      // faltara: era cobertura que nadie contaba.
+      if (!existe('vitest.integration.config.ts')) {
+        return falla('no hay configuración de integración: no hay nada que medir');
+      }
+      const c = codigoDe('vitest.integration.config.ts');
+      if (!/coverage:/.test(c) || !/thresholds/.test(c)) {
+        return falla(
+          'la suite de integración no declara cobertura con umbrales: las pruebas contra Postgres no cuentan para ninguna medida'
+        );
+      }
+
+      const problemas = contraSuelo(c, SUELO_COBERTURA_INTEGRACION);
+
+      // Y CORRE. Un umbral que nadie ejecuta es la misma clase de mentira que
+      // el job `restauracion` vino a tapar un piso más arriba: vitest sólo
+      // aplica `thresholds` cuando se le pide medir, así que sin --coverage en
+      // la línea de CI esta configuración diría la verdad sobre sí misma sin
+      // que nadie la corriera nunca.
+      const ci = existe('.github/workflows/ci.yml') ? crudoDe('.github/workflows/ci.yml') : '';
+      if (!/test:integration[^\n]*--coverage/.test(ci)) {
+        return falla(
+          'ci.yml corre la suite de integración SIN --coverage: los umbrales declarados no se aplican en ninguna parte' +
+            (problemas.length > 0 ? `; además: ${problemas.join('; ')}` : '')
+        );
+      }
+
+      if (problemas.length > 0) return falla(problemas.join('; '));
+
+      const archivos = Object.keys(SUELO_COBERTURA_INTEGRACION).length;
+      return ok(
+        `${archivos} archivos con umbral medido contra Postgres, y la CI corre la suite con --coverage`
+      );
+    },
+    mutantes: [
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'npm run test:integration -- --coverage',
+        a: 'npm run test:integration',
+        porque:
+          'los umbrales de integración quedan escritos y nadie los ejecuta: la configuración diría la ' +
+          'verdad sobre sí misma sin correr jamás, que es el defecto que el job de restauración ya costó una vez',
+      },
+      {
+        archivo: 'vitest.integration.config.ts',
+        de: 'statements: 90, branches: 81, functions: 96, lines: 89,',
+        a: 'statements: 0, branches: 0, functions: 0, lines: 0,',
+        porque:
+          'el umbral del cierre de periodo —el archivo que SÓLO esta suite puede medir— se pone en cero, ' +
+          'que es la rebaja invisible que el conteo de llaves nunca vio',
+      },
+    ],
   },
   {
     paquete: 'E0.1',
@@ -1079,7 +1416,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.1',
-    enunciado: 'El maker-checker vive en el panel y muerde solo la póliza manual',
+    enunciado: 'El maker-checker vive en el panel, en UN candado que todas las puertas al mayor atraviesan',
     mutantes: [
       {
         archivo: 'src/services/accounting/posting.ts',
@@ -1100,14 +1437,41 @@ export const CRITERIOS: Criterio[] = [
       if (!/key: 'segregacion_de_funciones'/.test(panel) || !/'exigir'/.test(panel)) {
         return falla('la clave segregacion_de_funciones salió del panel: la decisión §5 vuelve a estar diferida tácitamente');
       }
+      // G3 REESCRIBIÓ ESTE CRITERIO, y el porqué importa. Antes anclaba la
+      // forma `!entry.source_type && entry.created_by === userId` DENTRO de
+      // postJournalEntry, o sea el candado escrito inline en una puerta. Con
+      // eso en verde, `POST /v1/journal-entries {"auto_post":true}` y su
+      // gemelo de GraphQL posteaban SIN consultar la política: el criterio
+      // vigilaba una puerta mientras otras dos quedaban abiertas. Ahora el
+      // candado es UNO —`autorizarPosteo`— y lo atraviesan todas; anclarlo
+      // aquí es lo que impide volver a copiarlo, que es como se abrieron.
       const p = codigoDe('src/services/accounting/posting.ts');
-      const iPost = p.indexOf('export async function postJournalEntry');
-      const tramo = iPost >= 0 ? p.slice(iPost, p.indexOf('export', iPost + 10)) : '';
-      if (!/!entry\.source_type && entry\.created_by === userId/.test(tramo)) {
-        return falla('la compuerta perdió su forma (manual + coincidencia): o muerde a nómina/reversas o dejó de morder');
+      if (!/async function autorizarPosteo/.test(p)) {
+        return falla('el candado de segregación dejó de estar extraído: copiado en cada puerta, en seis meses dirán cosas distintas y alguna no dirá nada');
       }
-      if (!/politica\.value === 'exigir'/.test(tramo) || !/SOD_QUIEN_CREA_NO_POSTEA/.test(tramo)) {
-        return falla('el lector dejó de comparar contra el literal exigir o perdió su código de dominio');
+      // Y EL LOTE TIENE SU PROPIA PUERTA, con el mismo candado. Era la
+      // CUARTA: la misma persona hacía `entry import` + `batch post` sin
+      // segundo par de ojos mientras `entry create` + `entry post` sí se lo
+      // pedía. No se arregló eximiendo menos en el motor —ahí created_by y
+      // posted_by son la misma persona POR CONSTRUCCIÓN, los escribe el mismo
+      // acto, así que la comparación sale trivialmente falsa— sino pasándole
+      // al candado el creador que a esa puerta le consta: quien IMPORTÓ.
+      if (!/export async function exigirSegregacion/.test(p)) {
+        return falla('el núcleo del candado dejó de compartirse: la puerta del lote tendría que copiarlo, y una copia dice lo mismo hoy y otra cosa en seis meses');
+      }
+      if (!/exigirSegregacion\(\{/.test(codigoDe('src/services/accounting/batch-service.ts'))) {
+        return falla('el lote importado volvió a aplicarse sin segundo par de ojos: quien importa puede aplicar, y es el camino que más asientos mueve de una vez');
+      }
+      // Se CUENTAN las dos lecturas del literal —la del núcleo compartido y
+      // la del candado del asiento—: son gemelas textuales, y un mutante que
+      // cambie una deja la otra en pie, así que la presencia seguiría siendo
+      // cierta con media compuerta muerta.
+      const lecturasDelLiteral = (p.match(/politica\.value === 'exigir'/g) ?? []).length;
+      if (lecturasDelLiteral !== 2 || !/SOD_QUIEN_CREA_NO_POSTEA/.test(p)) {
+        return falla(
+          `el lector dejó de comparar contra el literal exigir en ${2 - lecturasDelLiteral} de sus dos sitios, ` +
+            'o perdió su código de dominio: la política existiría sin morder'
+        );
       }
       if (!/'SOD_QUIEN_CREA_NO_POSTEA'/.test(codigoDe('src/cli/entry-command.ts'))) {
         return falla('el rechazo SoD dejó de salir como BLOQUEADO (5): se leería como entrada inválida');
@@ -1120,7 +1484,7 @@ export const CRITERIOS: Criterio[] = [
       const doctor = codigoDe('src/ai/doctor-service.ts');
       return /checkSoDViolations\(permisos\)/.test(doctor) &&
         /checks\.push\(await checkPermisosEnConflicto\(\)\)/.test(doctor)
-        ? ok('panel + lector en el motor (solo manual), salida bloqueada, y la composición de permisos vigilada en doctor')
+        ? ok('panel + UN candado que todas las puertas atraviesan (incluido el lote), salida bloqueada, y la composición de permisos vigilada en doctor')
         : falla('checkSoDViolations volvió a quedarse sin consumidor o el check salió de runDoctor');
     },
   },
@@ -1828,13 +2192,34 @@ export const CRITERIOS: Criterio[] = [
       // además nunca aplica—, no porque nadie llame a getPolicy con ella. Una
       // coincidencia de cadena no es un consumidor, igual que un re-export de
       // barril no es un puente.
+      //
+      // LA CLAVE PUEDE VIAJAR EN UNA CONSTANTE, y eso no la hace huérfana.
+      // F08a puso el defecto delante: `leerRegistroDelSubsidio` llama a
+      // getPolicy con CLAVE_POLITICA_SUBSIDIO_ENTREGADO, declarada tres líneas
+      // arriba con esa cadena exacta, y el criterio la contó como no leída. El
+      // instrumento medía un MODISMO —la literal pegada al paréntesis— y no el
+      // hecho, así que empujaba a duplicar la cadena en el sitio donde el
+      // compilador ya la tenía. Se acepta la constante sólo si el MISMO archivo
+      // la declara con esa clave y la pasa a un lector: un identificador suelto
+      // que se llame parecido no cuenta, igual que no cuenta una coincidencia
+      // de cadena.
+      const leePorConstante = (k: string): boolean =>
+        dondeAparece(new RegExp(`const\\s+([A-Za-z0-9_$]+)\\s*=\\s*['\`"]${k}['\`"]`), ['src'], true)
+          .filter(ajeno)
+          .some((f) => {
+            const fuente = codigoDe(f);
+            const decl = new RegExp(`const\\s+([A-Za-z0-9_$]+)\\s*=\\s*['\`"]${k}['\`"]`).exec(fuente);
+            if (decl === null) return false;
+            return new RegExp(`getPolicy(Number)?\\s*\\([\\s\\S]{0,120}?\\b${decl[1]}\\b`).test(fuente);
+          });
+
       const huerfanas = claves.filter(
         (k) =>
           dondeAparece(
             new RegExp(`getPolicy(Number)?\\s*\\([\\s\\S]{0,120}?['\`"]${k}['\`"]`),
             ['src'],
             true
-          ).filter(ajeno).length === 0
+          ).filter(ajeno).length === 0 && !leePorConstante(k)
       );
       return huerfanas.length === 0
         ? ok(`${claves.length} políticas, todas leídas por algún consumidor`)
@@ -4247,6 +4632,297 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  // ---- F08a · Lo que el patrón paga y lo que el trabajador no recibió ----
+
+  {
+    paquete: 'E4.1',
+    enunciado:
+      'El subsidio al empleo que excede al ISR llega al trabajador, se declara en su CFDI y se puede postear',
+    evaluar: () => {
+      // POR QUÉ NACE (F08a). La línea decía
+      // `Math.max(0, isr.tax_amount - sub.tax_amount)` y el comentario justo
+      // encima prometía «if negative, employee receives as cash». El Math.max
+      // era exactamente lo que impedía que lo recibiera: cuando el subsidio al
+      // empleo supera al ISR del periodo, el patrón ENTREGA la diferencia en
+      // efectivo y la acredita. Ese dinero desaparecía, y el defecto no se veía
+      // porque el recibo cuadraba consigo mismo — con el trabajador cobrando de
+      // menos.
+      //
+      // Arreglarlo abrió otras dos puertas que este criterio vigila juntas,
+      // porque las tres son el mismo hecho visto desde tres capas: el efectivo
+      // entra en el neto (recibo), tiene que declararse como OtrosPagos 002
+      // (CFDI, o Total ≠ SubTotal − Descuento y el PAC lo rechaza) y tiene que
+      // tener contrapartida en el asiento (mayor, o la corrida entera no se
+      // puede postear). Un criterio por capa habría dejado pasar el estado en
+      // el que el trabajador cobra y la contabilidad se niega a registrarlo.
+      const recibo = codigoDe('src/services/payroll/common/paycheck-service.ts');
+      if (/Math\.max\(\s*0\s*,\s*isr\.tax_amount/.test(recibo)) {
+        return falla(
+          'paycheck-service vuelve a descartar el excedente con Math.max: el subsidio que el ' +
+            'trabajador debía recibir en efectivo se pierde otra vez'
+        );
+      }
+      if (!/subsidio_entregado_efectivo/.test(recibo)) {
+        return falla('el recibo no guarda el subsidio entregado en efectivo: no hay de dónde declararlo');
+      }
+
+      const cfdi = codigoDe('src/services/payroll/mx/cfdi-nomina-generator.ts');
+      if (!/TipoOtroPago="002"/.test(cfdi) || !/SubsidioAlEmpleo SubsidioCausado/.test(cfdi)) {
+        return falla(
+          'el CFDI de nómina no declara el subsidio entregado como OtrosPagos 002 con su ' +
+            'SubsidioCausado: Total deja de ser SubTotal − Descuento y el comprobante no cuadra consigo mismo'
+        );
+      }
+
+      const mayor = codigoDe('src/services/payroll/common/gl-posting-service.ts');
+      if (!/isrDeLaCorrida\.lessThan\(0\)/.test(mayor)) {
+        return falla(
+          'el asiento de nómina no trata el ISR negativo como cargo: una corrida cuyo subsidio ' +
+            'entregado supere al ISR retenido no se puede postear, y el trabajador ya cobró'
+        );
+      }
+
+      return ok(
+        'el excedente entra en el neto, se declara como OtrosPagos 002 con su SubsidioCausado y ' +
+          'tiene contrapartida en el asiento'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/cfdi-nomina-generator.ts',
+        de: 'TipoOtroPago="002"',
+        a: 'TipoOtroPago="999"',
+        porque:
+          'el comprobante deja de declarar el subsidio entregado con la clave que el SAT cruza, y el ' +
+          'criterio tiene que verlo aunque el nodo siga ahí',
+      },
+      {
+        archivo: 'src/services/payroll/common/gl-posting-service.ts',
+        de: 'isrDeLaCorrida.lessThan(0)',
+        a: 'isrDeLaCorrida.lessThan(-1e9)',
+        porque:
+          'la rama del cargo queda escrita y nunca se toma: la corrida vuelve a descuadrarse por el ' +
+          'importe entregado, que es el defecto original con una condición imposible en vez de un Math.max',
+      },
+    ],
+  },
+  {
+    paquete: 'E4.1',
+    enunciado: 'Un impuesto que no se puede calcular se nombra, no se cifra en cero',
+    evaluar: () => {
+      // POR QUÉ NACE (F08a). El ISN —impuesto estatal sobre nóminas, carga del
+      // patrón, del 1% al 4%— no existía en una sola línea de código. Al nacer,
+      // el riesgo inmediato no era calcularlo mal: era calcularlo en CERO. La
+      // tabla de tasas nace VACÍA a propósito (32 estados con tasas que cambian
+      // por decreto; sembrarlas de memoria es fabricar un número plausible), así
+      // que el motor tiene que negarse con nombre y apellido en vez de devolver
+      // un cero que se suma sin protestar.
+      const p = 'src/services/payroll/mx/isn-calculator.ts';
+      if (!existe(p)) return falla('no hay calculador de ISN: el impuesto sobre nóminas sigue sin existir');
+      const isn = codigoDe(p);
+      const negativas = ['isn_sin_tasa_capturada', 'isn_regimen_no_soportado', 'isn_sin_estado_en_el_trabajador'];
+      const faltan = negativas.filter((h) => !isn.includes(h));
+      if (faltan.length > 0) {
+        return falla(
+          `el motor del ISN no se niega ante ${faltan.join(', ')}: un estado sin tasa capturada, un ` +
+            'régimen que no sabe calcular o un trabajador sin estado producirían un cero con aspecto de resultado'
+        );
+      }
+      return ok('las tres negativas del ISN nombran lo que falta en vez de cifrar un cero');
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/isn-calculator.ts',
+        de: 'isn_regimen_no_soportado',
+        a: 'isn_regimen_ya_veremos',
+        porque:
+          'un régimen escalonado calculado como si fuera tasa plana da un importe plausible y falso, ' +
+          'y el criterio sólo lo ve si exige el hallazgo por su nombre',
+      },
+    ],
+  },
+
+  // ---- F07c+d · La DIOT, las pólizas y el índice que actualiza ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'Un dato sucio ensucia su renglón y no el archivo del mes, y un factor de INPC no cruza bases',
+    mutantes: [
+      {
+        // La negativa que sostiene el módulo del INPC. El INEGI ha rebasado
+        // la serie varias veces, y dividir un índice de una base entre otro
+        // de otra base da un número PLAUSIBLE y sin significado — que es lo
+        // peligroso: un factor absurdo se ve, uno plausible se firma.
+        archivo: 'src/services/fiscal/inpc/factor.ts',
+        de: '  if (baseAntiguo !== baseReciente) {',
+        a: '  if (false) {',
+        porque: 'el factor de actualización vuelve a cruzar bases distintas del INPC: sale un número creíble, se usa para deducir inversiones actualizadas y nadie lo nota hasta una revisión',
+      },
+      {
+        // La tesis de F07d: el constructor no distingue «esta póliza» de
+        // «este archivo», así que una sola fila sucia mataba el mes entero
+        // — justo en el comando cuyo producto es la lista de lo que falta.
+        archivo: 'src/services/sat/anexo24/polizas-service.ts',
+        de: 'type Saneador = (crudo: string, numUnIdenPol: string, campo: string) => string;',
+        a: 'type Saneador = (crudo: string) => string;',
+        porque: 'el saneador pierde la póliza y el campo que está limpiando: el aviso deja de decir DÓNDE estaba el dato sucio, y un archivo de cientos de pólizas vuelve a denunciar sin señalar',
+      },
+    ],
+    evaluar: () => {
+      const factor = codigoDe('src/services/fiscal/inpc/factor.ts');
+      const pol = codigoDe('src/services/sat/anexo24/polizas-service.ts');
+      const diot = codigoDe('src/services/sat/diot/rfc.ts');
+
+      // 1. EL INPC NO CRUZA BASES. Es la única aritmética de este tramo cuyo
+      //    error no se ve: el resultado sigue siendo un número con pinta de
+      //    factor. Por eso la 065 metió la base en la LLAVE.
+      if (!/baseAntiguo !== baseReciente/.test(factor) || !/INPC_BASES_DISTINTAS/.test(factor)) {
+        return falla('el factor del INPC volvió a admitir bases distintas: el número que devuelve es plausible, se firma, y no significa nada');
+      }
+      // 2. EL DATO SUCIO ENSUCIA SU RENGLÓN, NO EL ARCHIVO. El saneador lleva
+      //    la póliza y el campo consigo para que el aviso señale, y no sólo
+      //    denuncie: en un archivo de cientos, «hay un dato sucio» no es una
+      //    ayuda, es una búsqueda.
+      // Se cuentan las DOS: el tipo del saneador y la implementación que lo
+      // cumple. Anclar la firma a secas dejaba vivo el mutante, porque la
+      // implementación repite la misma lista de parámetros y la presencia
+      // seguía siendo cierta con el tipo ya mutilado. Es la cuarta vez en
+      // este proyecto que un gemelo textual salva a un mutante.
+      const saneadorConSitio = (pol.match(/numUnIdenPol: string, campo: string/g) ?? []).length;
+      if (saneadorConSitio !== 2) {
+        return falla(
+          `el saneador de pólizas perdió el sitio en ${2 - saneadorConSitio} de sus dos mitades: ` +
+            'el aviso vuelve a no señalar qué póliza y qué campo llevaban el dato sucio'
+        );
+      }
+      // 3. Y EL RFC SE JUZGA ANTES DE CONSTRUIR. `vendors.tax_id` es texto
+      //    libre sin CHECK: un RFC de once caracteres reventaba el archivo
+      //    desde el nodo del comprobante, y viajaba sin comprobar por el del
+      //    pago. Decidir antes de construir es lo que convierte un archivo
+      //    muerto en un renglón con su motivo.
+      const rfcAntes = /export function rfcDeclarable/.test(diot) || /rfcDeclarable/.test(pol);
+      return rfcAntes
+        ? ok('el INPC se niega a cruzar bases, el dato sucio se denuncia con su póliza y su campo, y el RFC se juzga antes de construir el XML')
+        : falla('el RFC volvió a comprobarse dentro del constructor: un RFC inválido mata el archivo del mes en vez de caer su renglón con su motivo');
+    },
+  },
+
+  // ---- F07b · El XML que se entrega a la autoridad ----
+
+  {
+    paquete: 'E2.1',
+    enunciado: 'La contabilidad electrónica no cruza inquilinos, y el recálculo del SAT respeta la naturaleza de la cuenta',
+    mutantes: [
+      {
+        // Gravedad 2 que el adversarial cazó: la balanza resolvía el
+        // contribuyente con `WHERE id = $1` y nada más, mientras el catálogo
+        // sí acotaba. Con la RLS inerte —que es como corre la suite, a
+        // propósito— verificar la balanza de una entidad ajena publicaba su
+        // plan de cuentas entero, y generar habría archivado un artefacto
+        // FISCAL con el tenant_id del otro despacho.
+        archivo: 'src/services/sat/anexo24/balanza-service.ts',
+        de: '      WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,',
+        a: '      WHERE id = $1`,',
+        porque: 'la balanza del Anexo 24 vuelve a resolver el contribuyente sin acotar por inquilino: se publica el plan de cuentas de otro despacho y se archiva un artefacto fiscal con su tenant_id',
+      },
+      {
+        // La trampa del tramo: el recálculo que la autoridad rehace NO es
+        // simétrico. Una cuenta acreedora y una deudora con los mismos
+        // cuatro números se declaran distinto, y tratarlas igual entrega un
+        // archivo que cuadra en el sistema y no en el SAT.
+        archivo: 'src/services/sat/anexo24/balanza-invariantes.ts',
+        de: 'export function recalculoDelSat(i: ImportesDeclarados, natur: Natur): Decimal {',
+        a: 'export function recalculoDelSat(i: ImportesDeclarados, _natur: Natur): Decimal {',
+        porque: 'el recálculo deja de mirar la naturaleza de la cuenta: una acreedora se verifica con la aritmética de una deudora y el archivo entregado cuadra donde el SAT dirá que no cuadra',
+      },
+    ],
+    evaluar: () => {
+      const bal = codigoDe('src/services/sat/anexo24/balanza-service.ts');
+      const inv = codigoDe('src/services/sat/anexo24/balanza-invariantes.ts');
+      const art = codigoDe('src/services/sat/anexo24/artefactos.ts');
+
+      // 1. LA FRONTERA, DENTRO DEL SQL. Séptima aparición de esta frontera en
+      //    el proyecto, y la primera en un artefacto que se entrega a la
+      //    autoridad: aquí el cruce no sólo filtra datos, los ARCHIVA a
+      //    nombre de otro contribuyente.
+      if (!/tenant_id = \$2::uuid/.test(bal)) {
+        return falla('la balanza del Anexo 24 dejó de acotar por inquilino: publicaría el plan de cuentas de otro despacho y archivaría su artefacto fiscal con el tenant ajeno');
+      }
+      // 2. EL RECÁLCULO RESPETA LA NATURALEZA. SaldoIni + Debe − Haber =
+      //    SaldoFin no se calcula igual en una cuenta deudora que en una
+      //    acreedora, y ésa es la trampa que hace que un archivo cuadre aquí
+      //    y no allá.
+      if (!/export function recalculoDelSat\(i: ImportesDeclarados, natur: Natur\)/.test(inv)) {
+        return falla('el recálculo del SAT dejó de mirar la naturaleza de la cuenta: el archivo cuadraría en el sistema y no en la autoridad');
+      }
+      // 3. Y EL ARCHIVO NO VA SELLADO SALVO QUE EL DESPACHO LO DIGA. La
+      //    e.firma es el contribuyente firmando, no el software: construir el
+      //    archivo y firmarlo son actos distintos y de manos distintas.
+      // Se ancla el CAMPO, no el nombre de la política: `codigoDe` despoja los
+      // comentarios, y el nombre de la política sólo aparecía en uno. Un
+      // criterio que ancla prosa mide lo que el despojador acaba de borrar —
+      // la lección del censo de confirmación, esta vez del otro lado.
+      const sinSellar = /politicaSellado: string;/.test(art);
+      return sinSellar
+        ? ok('el Anexo 24 no cruza inquilinos, el recálculo respeta la naturaleza de cada cuenta, y el archivo sale sin sellar salvo que el panel diga lo contrario')
+        : falla('el artefacto dejó de registrar el criterio de sellado: nadie podría saber si el archivo entregado llevaba la e.firma del contribuyente');
+    },
+  },
+
+  // ---- F07a · Los cimientos del Anexo 24 ----
+
+  {
+    paquete: 'E1.2',
+    enunciado: 'El agrupador del SAT vive en una sola columna, y la balanza publica su saldo inicial y sus descuadres',
+    mutantes: [
+      {
+        // El okupa: el agrupador FISCAL vivía en la casilla de la norma
+        // CONTABLE, hermana de us_gaap_code e ifrs_code. Funcionaba mientras
+        // nadie usara la otra; el día que una entidad necesitara ambas, una
+        // pisaba a la otra en silencio.
+        archivo: 'src/services/accounting/account-service.ts',
+        de: "  'sat-agrupador': 'codigo_agrupador_sat',",
+        a: "  'sat-agrupador': 'mx_nif_code',",
+        porque: 'devuelve el agrupador fiscal a la columna de presentación contable: el código NIF y el del SAT vuelven a pisarse, y el catálogo del Anexo 24 se construye sobre la casilla equivocada',
+      },
+      {
+        // Lo que el adversarial cazó: el servicio calculaba los descuadres
+        // —el recálculo que la AUTORIDAD rehace sobre el archivo sellado— y
+        // las tres superficies los tiraban. La balanza se imprimía con cara
+        // de correcta.
+        archivo: 'src/api/rest/routes/reports.ts',
+        de: '      ...(report.inicial ? { opening_balance: report.inicial } : {}),',
+        a: '      // sin el sobre del saldo inicial',
+        porque: 'la API vuelve a tirar la procedencia del saldo inicial, si es firme y los descuadres: el consumidor recibe una balanza que parece correcta sobre cuentas que no cuadran',
+      },
+    ],
+    evaluar: () => {
+      const cta = codigoDe('src/services/accounting/account-service.ts');
+      const rest = codigoDe('src/api/rest/routes/reports.ts');
+      const cierre = codigoDe('src/services/accounting/period-close.ts');
+
+      // 1. UNA SOLA VERDAD. El esquema 'sat-agrupador' escribe en la columna
+      //    que la 037 creó para eso, no en la de norma contable.
+      if (!/'sat-agrupador': 'codigo_agrupador_sat'/.test(cta)) {
+        return falla('el agrupador del SAT volvió a la columna de presentación contable: dos cosas distintas compartiendo casilla, que es como llegó aquí');
+      }
+      // 2. LA CUARTA COLUMNA LLEGA A LA SUPERFICIE. El SAT recalcula
+      //    SaldoIni + Debe − Haber = SaldoFin sobre lo que se le entrega, así
+      //    que un descuadre calculado y no publicado es peor que no
+      //    calcularlo: nadie lo mira y la balanza sale con cara de correcta.
+      if (!/opening_balance: report\.inicial/.test(rest)) {
+        return falla('la API dejó de publicar el saldo inicial y sus descuadres: se calculan y se tiran, que es como estaban antes de F07a');
+      }
+      // 3. Y LA CASILLA QUE FALTABA. Sin agrupador no hay catálogo que
+      //    entregar; el COMMENT de la 037 llevaba prometiéndola desde
+      //    entonces sobre una columna que nadie escribía.
+      const casilla = /'sat-agrupador-missing'/.test(cierre);
+      return casilla
+        ? ok('el agrupador tiene una sola columna, la balanza publica saldo inicial y descuadres, y el cierre avisa de las cuentas con movimiento sin agrupar')
+        : falla('desapareció la casilla del agrupador: se podría cerrar un mes cuyas cuentas movidas no se pueden entregar al SAT');
+    },
+  },
+
   // ---- D1a · El devengo existe, y lo que ya se pagaba se paga bien ----
 
   {
@@ -4369,6 +5045,118 @@ export const CRITERIOS: Criterio[] = [
       return vigilado
         ? ok(`las ${declarados.length} garantías del esquema están selladas, y doctor falla si alguna deja de estarlo`)
         : falla('doctor dejó de leer pg_trigger.tgenabled: apagar una garantía volvería a ser indetectable');
+    },
+  },
+
+  // ---- G4b · El contrato que se pregunta, y la entrega que se reintenta ----
+
+  {
+    paquete: 'E2.1',
+    enunciado: 'El contrato de la API se deriva del censo de rutas, y la entrega saliente vencida se reintenta',
+    mutantes: [
+      {
+        // Que el contrato deje de preguntarle a la app y pase a ser una lista.
+        archivo: 'src/api/rest/openapi.ts',
+        de: "import { censarRutas, VERBOS_QUE_MUTAN, alcanceDeIdempotencia, type RutaCensada } from './risk.js';",
+        a: "import { VERBOS_QUE_MUTAN, alcanceDeIdempotencia, type RutaCensada } from './risk.js';\nconst censarRutas = (): RutaCensada[] => [];",
+        porque: 'la especificación deja de derivar de la pila real y pasa a describir un vacío: publicaría lo que alguien recordó y no lo que la app sirve, que es el defecto que este proyecto lleva un mes cazando',
+      },
+      {
+        archivo: 'src/services/webhooks/barrido-entregas.ts',
+        de: '            AND d.next_retry_at <= NOW()',
+        a: '            AND d.next_retry_at > NOW()',
+        porque: 'el barrido reclama justo las entregas que NO toca reintentar todavía y deja las vencidas donde estaban: la cola vuelve a no vaciarse nunca y la caída de treinta segundos vuelve a perder el evento para siempre',
+      },
+    ],
+    evaluar: () => {
+      const oa = codigoDe('src/api/rest/openapi.ts');
+      const barrido = codigoDe('src/services/webhooks/barrido-entregas.ts');
+
+      // 1. EL CONTRATO SE PREGUNTA, NO SE ESCRIBE. `censarRutas` (G4a) ya
+      //    recorre la pila real de Express; una especificación escrita al
+      //    lado del código se desincroniza el primer martes, y un cliente
+      //    generado de ella integra contra una API que no existe.
+      // Se ancla la IMPORTACIÓN, no el nombre: `censarRutas` aparece tres
+      // veces en el archivo, así que una sustitución local —un `const
+      // censarRutas = () => []` encima— deja la cadena viva y el ancla
+      // contenta mientras el contrato describe un vacío. Lo que importa no es
+      // que la palabra esté: es que venga del censo de G4a.
+      if (!/import \{[^}]*\bcensarRutas\b[^}]*\} from '\.\/risk\.js'/.test(oa)) {
+        return falla('el contrato de la API dejó de derivar del censo: volvería a describir lo que alguien recordó en vez de lo que la app sirve');
+      }
+      // 2. Y DICE LA VERDAD QUE G4a ESTABLECIÓ: qué ruta es irreversible y
+      //    cuál exige llave. Un contrato que no lo dice no sirve para
+      //    integrar con cuidado — el integrador no sabe qué no puede repetir.
+      if (!/alcanceDeIdempotencia/.test(oa)) {
+        return falla('la especificación dejó de publicar qué rutas exigen Idempotency-Key: quien integre no sabrá cuáles no puede reintentar a ciegas');
+      }
+      // 3. LA ENTREGA VENCIDA SE RECLAMA. El esquema traía desde la 003
+      //    `next_retry_at` y hasta su índice —un índice para una consulta que
+      //    no existía— y nadie leía la columna: `markFailed` la escribía y el
+      //    barrido no existía, así que una caída de treinta segundos del
+      //    receptor perdía el evento para siempre y en silencio.
+      // Las TRES apariciones, contadas: el reclamo, el conteo de pendientes y
+      // el informe comparten el predicado, y un mutante que invierta una sola
+      // deja las otras dos en pie con la presencia intacta.
+      const vencidas = (barrido.match(/next_retry_at <= NOW\(\)/g) ?? []).length;
+      const reclama = vencidas === 3;
+      return reclama
+        ? ok('el contrato deriva del censo y publica riesgo e idempotencia, y las entregas vencidas se reclaman en vez de quedarse')
+        : falla('el barrido dejó de reclamar las entregas vencidas: la cola no se vacía y el evento se pierde sin que nadie se entere');
+    },
+  },
+
+  // ---- G4a · Una sola superficie declarada ----
+
+  {
+    paquete: 'E2.1',
+    enunciado: 'La API declara el riesgo de cada ruta que muta, en el primer manejador, y el arranque muere si alguna no lo hace',
+    mutantes: [
+      {
+        // Que el censo vuelva a aceptar una declaración que no llega a
+        // correr. Es el diente exacto: la ruta pasa el censo, se cuenta como
+        // cerrada, y no protege nada.
+        archivo: 'src/api/rest/risk.ts',
+        de: '  if (resumen.malColocadas.length > 0) {',
+        a: '  if (false) {',
+        porque: 'una declaración escrita DETRÁS del manejador vuelve a contar como declaración: el manejador ya respondió cuando al marcador le tocaría correr, así que la ruta se queda sin llave de idempotencia y sin el renglón de auditoría, y el censo la cuenta como cerrada — medido, el acto irreversible se ejecuta DOS veces con la misma llave',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: '  const censo = auditarRiesgoDeRutas(app);',
+        a: '  const censo = { total: 0, porRiesgo: {} } as ReturnType<typeof auditarRiesgoDeRutas>;',
+        porque: 'el censo deja de correr al arrancar: la API vuelve a poder desplegar rutas que mutan sin declarar su clase, que es la definición del segundo motor con menos reglas',
+      },
+    ],
+    evaluar: () => {
+      const risk = codigoDe('src/api/rest/risk.ts');
+      const index = codigoDe('src/index.ts');
+
+      // 1. LA DECLARACIÓN EXISTE Y ES UN MANEJADOR. Commander tiene un objeto
+      //    `Command` donde colgarla; Express no, así que la declaración viaja
+      //    DENTRO de lo que Express registra y no puede desincronizarse de lo
+      //    que la ruta hace.
+      if (!/export function declararRiesgoRuta/.test(risk)) {
+        return falla('la API se quedó sin registro de riesgo: vuelve a ser un motor con menos reglas que el CLI, que sí declara');
+      }
+      // 2. EL CENSO ES DERIVADO. Recorre la pila real de Express; una lista
+      //    escrita al lado del código es el defecto que este proyecto lleva
+      //    un mes cazando, y aquí sería el más caro de todos.
+      if (!/_router|route\.stack/.test(risk)) {
+        return falla('el censo dejó de recorrer la pila real de Express: si vuelve a ser una lista paralela, declarará lo que alguien recordó, no lo que la app sirve');
+      }
+      // 3. Y MUERE AL ARRANCAR, no en la petición. Un censo que sólo avisa es
+      //    un censo que nadie mira: el binario del CLI no arranca con una
+      //    declaración imposible, y la API tampoco debe.
+      if (!/auditarRiesgoDeRutas\(app\)/.test(index)) {
+        return falla('el censo salió del arranque: se podrían desplegar rutas que mutan sin declarar, y nadie se enteraría hasta la auditoría');
+      }
+      // 4. LA POSICIÓN SE EXIGE. Una declaración detrás del manejador
+      //    certifica sin proteger, y el censo la contaba como cerrada.
+      const posicion = /resumen\.malColocadas\.length > 0/.test(risk);
+      return posicion
+        ? ok('la API declara como el CLI, el censo deriva de la pila real, el arranque muere si falta una y la declaración tiene que poder correr')
+        : falla('el censo volvió a aceptar declaraciones que no llegan a correr: certifican sin proteger, que es peor que no declarar');
     },
   },
 
@@ -5327,6 +6115,27 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  // ============================================================
+  // LOS CRITERIOS QUE EJECUTAN (S4a)
+  //
+  // Van en E0.1 —«red de seguridad»— y no en el paquete del tema que juzgan, y
+  // conviene decir por qué en las dos direcciones.
+  //
+  // A FAVOR: E0.1 es el paquete de la demostración, no el de los informes ni
+  // el del cierre. Lo que estos tres criterios añaden no es una afirmación
+  // nueva sobre el dinero —el cierre ya tiene sus pruebas de integración— sino
+  // que el TABLERO deje de creerle al texto. Ése es el objeto de E0.1.
+  //
+  // EN CONTRA, y queda anotado: el sitio temático del criterio del saldo sería
+  // E4.2 (informes) y el del barrido, E1.1. Los dos están ABIERTOS, y un
+  // criterio verde en paquete abierto tiene que entrar en
+  // docs/criterios-minimos.json en el mismo commit —el piso de S2— que este
+  // tramo no puede escribir: los suelos son del orquestador. Si se prefiere el
+  // sitio temático, mover cada criterio y añadir su renglón al piso es un
+  // cambio de dos líneas; no se hizo aquí porque habría dejado la CI en rojo
+  // desde un archivo que no me toca tocar.
+  // ============================================================
+  ...PRUEBAS_DE_CONDUCTA.map(criterioDeConducta),
   // ══════════════════════════════════════════════════════════
   // S-UX · lote 2. Seis criterios que nacen de una lección repetida:
   // el guardián se deriva del ÁRBOL, nunca de una lista paralela. Los
@@ -5727,3 +6536,25 @@ export const CRITERIOS: Criterio[] = [
 
 
 ];
+
+/**
+ * Convierte una prueba de conducta en un criterio del tablero.
+ *
+ * El único trabajo real que hace es CLASIFICAR EL SILENCIO. `correrConducta`
+ * devuelve `no-evaluable` cuando el escenario no se pudo montar (no hay rol
+ * que cree bases, la migración no corrió) y `falla` cuando sí se montó y la
+ * cifra salió mal o el camino reventó. Esa frontera es todo el contrato:
+ * `bloqueadoPorEntorno` excusa de `--exigir` lo primero y no lo segundo, así
+ * que ponerla en el sitio equivocado convertiría cada mutante vivo en un
+ * «aquí no había instrumento».
+ */
+function criterioDeConducta(p: PruebaDeConducta): Criterio {
+  return {
+    paquete: p.paquete,
+    enunciado: p.enunciado,
+    clase: 'conducta',
+    necesita: 'base-efimera',
+    mutantesEnDisco: p.mutantes,
+    evaluar: () => correrConducta(p.id),
+  };
+}

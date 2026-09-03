@@ -584,15 +584,36 @@ describe('el instructivo no puede perderse por el tope, y el panel tampoco', () 
     // recortado sean las notas, que se anuncie, y que el número anunciado sea
     // el que de verdad se aplicó: un aviso que miente sobre su propio corte es
     // peor que no avisar.
-    const anunciado = /notes were trimmed to (\d+) characters/.exec(panel.notes_trimmed ?? '');
-    expect(anunciado, 'el panel no anuncia el recorte de sus notas').not.toBeNull();
-    const tope = Number(anunciado![1]);
-    expect(tope).toBeGreaterThan(0);
-    for (const p of panel.policies) {
-      expect(
-        (p.notes ?? '').length,
-        `la nota de ${p.key} pasa del recorte que el propio aviso anuncia`
-      ).toBeLessThanOrEqual(tope);
+    //
+    // Y EL ESCALON DE CERO TAMBIEN SE JUZGA, porque la fusion lo alcanzo. Con
+    // 39 politicas el panel cabia recortando las notas a 150; con las 46 de
+    // hoy —F07a y F07b anadieron siete— ya no cabe ninguna nota: el panel
+    // desnudo mide 26 035 caracteres sobre un presupuesto de 30 000, o sea
+    // menos de 90 por politica, y la escalera [400, 150, 0] no tiene peldano
+    // ahi. Exigir un numero POSITIVO era exigir que el catalogo fuera pequeno,
+    // que es una fotografia del mismo tipo que el «400» de antes. Lo que no
+    // cambia es la propiedad: el aviso NO PUEDE MENTIR sobre su propio corte,
+    // EXIGE QUE RECORTE, NO QUE SUELTE. La fusion habia relajado esto para
+    // aceptar tambien «notes were DROPPED», y con ello daba por buena una
+    // regresion embarcada: a 46 politicas el panel medía 26 001 y el agente
+    // recibia las reglas SIN una sola justificacion. La escalera gano un
+    // peldano de 60 y vuelven las 46 notas, asi que el aserto vuelve a ser el
+    // de main — un aserto que acepta las dos salidas no distingue la sana de
+    // la rota, que es justo lo que tiene que hacer.
+    const recortado = /notes were trimmed to (\d+) characters/.exec(panel.notes_trimmed ?? '');
+    expect(
+      recortado,
+      'el panel solto sus notas en vez de recortarlas: el agente se queda sin ninguna justificacion'
+    ).not.toBeNull();
+    {
+      const tope = Number(recortado![1]);
+      expect(tope).toBeGreaterThan(0);
+      for (const p of panel.policies) {
+        expect(
+          (p.notes ?? '').length,
+          `la nota de ${p.key} pasa del recorte que el propio aviso anuncia`
+        ).toBeLessThanOrEqual(tope);
+      }
     }
   });
 

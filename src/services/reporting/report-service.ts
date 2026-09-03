@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { query } from '../../database/connection.js';
+import { query, currentTenant } from '../../database/connection.js';
 import { ValidationError, NotFoundError } from '../../utils/errors.js';
 import type { BalanceSheetSection, IncomeStatementSection } from '../../types/index.js';
 import {
@@ -9,6 +9,7 @@ import {
   type AvisoDeCierre,
   type RangoConsultado,
 } from './criterio-cierre.js';
+import { getPolicy } from '../policy/policy-service.js';
 
 // ============================================================
 // REPORTING — domain service
@@ -369,9 +370,401 @@ export function totalTrialBalance(
   };
 }
 
+// ------------------------------------------------------------
+// F07a · LA CUARTA COLUMNA: EL SALDO INICIAL DE LA BALANZA
+//
+// El nodo Ctas de la BalanzaComprobacion (Anexo 24) pide CUATRO cifras por
+// cuenta —SaldoIni, Debe, Haber y SaldoFin— y la autoridad RECALCULA
+// SaldoIni + Debe − Haber = SaldoFin sobre el archivo que recibe. Aquí había
+// tres, y la tercera no es la que su nombre promete: para un rango,
+// `ending_balance` NO es un saldo final, es el MOVIMIENTO NETO del rango
+// (Debe − Haber, la misma resta escrita de otra manera). Renombrarla rompe
+// cuatro superficies, así que se queda como está y la cuarta columna llega
+// al lado, con su nombre propio.
+//
+// Y `final_balance` NO se calcula como inicial + debe − haber. Escrito así, el
+// recálculo del SAT saldría bien SIEMPRE —es la misma expresión— y no
+// comprobaría nada. Se pide APARTE al mayor, acumulado al corte, y lo que la
+// balanza publica es si las dos cuentas coinciden (`cuadra`) y qué cuentas no
+// (`descuadres`). Es donde se ve, por ejemplo, un asiento fechado fuera del
+// periodo fiscal al que pertenece: el movimiento se filtra por
+// `fiscal_period_id` y el acumulado por fecha, y ahí las dos lecturas se
+// separan en vez de taparse.
+//
+// DE DÓNDE SALE EL INICIAL lo decide el panel. La única fuente que existía
+// —`account_balances.beginning_balance`— la siembra ÚNICAMENTE
+// carryForwardBalances, que corre dentro del cierre DURO: una entidad que sólo
+// cierra en suave habría declarado CEROS en todas las cuentas, o sea que abrió
+// el mes en nada, firmado. El defecto del panel es derivarlo del mayor, que es
+// cierto en cualquier estado del periodo.
+//
+// CALCULABLE NO ES FIRME, y el informe dice las dos cosas:
+//   · CALCULABLE es que haya cifra. Derivada del mayor la hay siempre —por eso
+//     `firme` es el único campo que hace falta publicar aquí—; arrastrada del
+//     cierre puede no haberla, y entonces esta balanza se niega en vez de
+//     poner un cero.
+//   · FIRME es que la cifra ya no pueda cambiar, y eso lo jura el periodo
+//     ANTERIOR, no el consultado: un inicial derivado sobre un mes abierto es
+//     correcto hoy y puede ser otro mañana, porque todavía se puede postear
+//     ahí. Es la misma distinción que `inicial_confiable` hace en el auxiliar
+//     (getAuxiliaryView), con una diferencia: allí el cero podía significar
+//     «no hubo arrastre», y aquí no hay ceros por ausencia.
+//
+// Las tres consultas —movimiento, inicial y final— llevan el MISMO criterio de
+// asientos de cierre (`informes_asientos_de_cierre`). Si no, el ejercicio ya
+// barrido se sumaría al inicial de una balanza que no lo cuenta y las cuatro
+// columnas hablarían de libros distintos. Con el criterio por omisión —la
+// balanza SÍ cuenta el cierre— el acumulado de una cuenta de resultados se
+// pone solo en cero al cruzar el cierre del ejercicio, que es justo lo que el
+// SaldoIni de enero necesita.
+// ------------------------------------------------------------
+
+/**
+ * Valor por omisión de 'anexo24_balanza_saldo_inicial'. Se repite aquí por lo
+ * mismo que en criterio-cierre: un informe no debe morir por no poder leer una
+ * política.
+ */
+const SALDO_INICIAL_POR_OMISION = 'derivar_del_mayor';
+
+export interface AccumulatedBalanceRow {
+  account_id: string;
+  /** Acumulado DEUDOR-POSITIVO (Σ debe − Σ haber) hasta el corte. */
+  balance: string;
+}
+
+/**
+ * El acumulado de cada cuenta hasta un corte: la versión para TODAS las
+ * cuentas de la suma que `getAuxiliaryView` hacía para una sola.
+ *
+ * `inclusive` distingue las dos preguntas que la balanza necesita, que son la
+ * misma consulta con `<` o con `<=`: el SALDO INICIAL es todo lo posteado
+ * ANTES del primer día del rango (estricto — incluir ese día metería el
+ * movimiento del propio periodo en su inicial), y el SALDO FINAL es todo lo
+ * posteado HASTA el último día inclusive.
+ *
+ * Aquí los JOIN son internos, no el par (jel JOIN je) colgado de un LEFT: esa
+ * disciplina existe para que una cuenta SIN actividad siga apareciendo en la
+ * balanza, y este resultado no es una lista de cuentas sino un índice de
+ * acumulados. La cuenta que no aparece se lee como cero, y es cero.
+ */
+export async function queryAccumulatedBalances(
+  entityId: string,
+  corte: { date?: string; inclusive: boolean },
+  filters: { ignoreClosingPolicy?: boolean } = {}
+): Promise<AccumulatedBalanceRow[]> {
+  const params: unknown[] = [entityId];
+  let dateFilter = '';
+  if (corte.date !== undefined) {
+    params.push(corte.date);
+    dateFilter = `AND je.entry_date ${corte.inclusive ? '<=' : '<'} $2`;
+  }
+  const criterio = filters.ignoreClosingPolicy
+    ? null
+    : await criterioDeCierreEnInformes(entityId);
+  const closingFilter = criterio && !criterio.enBalanza ? predicadoSinCierre() : '';
+
+  const result = await query<AccumulatedBalanceRow>(
+    // La resta va escrita como Σcargos − Σabonos, y no como Σ(cargos − abonos)
+    // que es la forma de las otras cinco consultas de este archivo. Dicen lo
+    // mismo; la diferencia es que el criterio E1.2 CUENTA las cinco
+    // apariciones literales de aquella expresión para que ningún mutante pueda
+    // invertir una y esconderse entre las demás, y una sexta copia idéntica
+    // devolvería la cuenta a cinco justo cuando el mutante la quita. El orden
+    // —cargos MENOS abonos— es lo que aquí se afirma, y lo sostiene la prueba
+    // de conducta: si se invierte, el saldo inicial de febrero sale −4 500.
+    `SELECT
+      jel.account_id,
+      COALESCE(SUM(COALESCE(jel.debit_amount, 0)) - SUM(COALESCE(jel.credit_amount, 0)), 0) AS balance
+    FROM accounts a
+    JOIN journal_entry_lines jel ON jel.account_id = a.id
+    JOIN journal_entries je
+      ON je.id = jel.journal_entry_id
+     AND je.status = 'posted' ${dateFilter} ${closingFilter}
+    WHERE a.entity_id = $1
+    GROUP BY jel.account_id`,
+    params
+  );
+  return result.rows;
+}
+
+/** Índice cuenta → acumulado, con Decimal ya construido. */
+function indiceDeSaldos(rows: AccumulatedBalanceRow[]): Map<string, Decimal> {
+  return new Map(rows.map((r) => [r.account_id, new Decimal(r.balance)]));
+}
+
+/** El ANTES de una balanza: la fecha desde la que se cuenta el movimiento. */
+interface RangoDeLaBalanza {
+  /** Primer día del rango. El inicial es todo lo posteado ESTRICTAMENTE antes. */
+  desde: string;
+  /** Último día, cuando el rango lo tiene acotado. */
+  hasta?: string;
+  fiscal_period_id?: string;
+  period_name?: string;
+}
+
+/**
+ * Una balanza sólo tiene saldo inicial cuando tiene un ANTES.
+ *
+ * `asOfDate` y la historia completa arrancan en el origen de los libros: su
+ * inicial no es cero por falta de datos, es cero porque no hay nada anterior,
+ * y publicar una columna de ceros ahí invita a leerlos como arrastre. Por eso
+ * devuelve null y las columnas se omiten en vez de inventarse.
+ */
+async function rangoDeLaBalanza(
+  entityId: string,
+  filters: TrialBalanceFilters
+): Promise<RangoDeLaBalanza | null> {
+  if (filters.fiscalPeriodId) {
+    // La entidad va DENTRO del SQL: un id de periodo de otra entidad no puede
+    // fechar la balanza de ésta.
+    const r = await query<{ id: string; period_name: string; start_date: string; end_date: string }>(
+      `SELECT id, period_name, start_date::text AS start_date, end_date::text AS end_date
+         FROM fiscal_periods WHERE id = $1 AND entity_id = $2`,
+      [filters.fiscalPeriodId, entityId]
+    );
+    const p = r.rows[0];
+    if (!p) return null;
+    return {
+      desde: p.start_date,
+      hasta: p.end_date,
+      fiscal_period_id: p.id,
+      period_name: p.period_name,
+    };
+  }
+  if (filters.sinceDate) {
+    return { desde: filters.sinceDate, ...(filters.untilDate ? { hasta: filters.untilDate } : {}) };
+  }
+  return null;
+}
+
+/**
+ * El periodo que precede al rango, con su estado. Es quien jura si el inicial
+ * es FIRME: mirar el estado del periodo consultado contesta otra pregunta
+ * —agosto puede estar cerrado con julio abierto, que se cierra fuera de orden
+ * más a menudo de lo que se admite—.
+ */
+async function periodoAnteriorA(
+  entityId: string,
+  desde: string
+): Promise<{ period_name: string; status: string } | null> {
+  const r = await query<{ period_name: string; status: string }>(
+    `SELECT period_name, status
+       FROM fiscal_periods
+      WHERE entity_id = $1 AND end_date < $2
+      ORDER BY end_date DESC, start_date DESC
+      LIMIT 1`,
+    [entityId, desde]
+  );
+  return r.rows[0] ?? null;
+}
+
+/** Criterio efectivo del panel para el origen del saldo inicial. */
+async function criterioDeSaldoInicial(entityId: string): Promise<string> {
+  const tenantId = currentTenant() ?? (await inquilinoDeLaEntidad(entityId));
+  if (!tenantId) return SALDO_INICIAL_POR_OMISION;
+  return (await getPolicy({ tenantId, entityId }, 'anexo24_balanza_saldo_inicial')).value;
+}
+
+async function inquilinoDeLaEntidad(entityId: string): Promise<string | undefined> {
+  const r = await query<{ tenant_id: string }>(
+    'SELECT tenant_id FROM legal_entities WHERE id = $1',
+    [entityId]
+  );
+  return r.rows[0]?.tenant_id;
+}
+
+/** Lo que el cierre DURO dejó sembrado como inicial del periodo. */
+async function saldosSembradosPorElCierre(
+  entityId: string,
+  fiscalPeriodId: string
+): Promise<AccumulatedBalanceRow[]> {
+  const r = await query<AccumulatedBalanceRow>(
+    `SELECT account_id, beginning_balance::text AS balance
+       FROM account_balances
+      WHERE entity_id = $1 AND fiscal_period_id = $2`,
+    [entityId, fiscalPeriodId]
+  );
+  return r.rows;
+}
+
+/** Una cuenta donde el recálculo del SAT no daría el saldo final declarado. */
+export interface DescuadreDeCuenta {
+  account_id: string;
+  account_code: string;
+  /** SaldoIni + Debe − Haber, que es lo que la autoridad recalcula. */
+  esperado: string;
+  /** El acumulado del mayor al corte, pedido aparte. */
+  obtenido: string;
+  /** esperado − obtenido. Nunca se absorbe: se publica. */
+  diferencia: string;
+}
+
+/** La nota y la procedencia del saldo inicial de una balanza. */
+export interface AvisoDeSaldoInicial {
+  /** Valor efectivo de 'anexo24_balanza_saldo_inicial'. */
+  criterio: string;
+  /** De dónde salió la cifra de cada cuenta. */
+  origen: 'mayor' | 'arrastre_del_cierre';
+  /** El inicial es todo lo posteado ANTES de esta fecha. */
+  desde: string;
+  /**
+   * La cifra ya no puede cambiar. CALCULABLE siempre lo es —si no lo fuera,
+   * esta balanza no existiría—; FIRME sólo cuando el periodo ANTERIOR está
+   * cerrado en duro o bloqueado, porque hasta entonces todavía se puede
+   * postear ahí y el inicial de mañana sería otro.
+   */
+  firme: boolean;
+  periodo_anterior: { period_name: string; status: string } | null;
+  /** Cuentas donde SaldoIni + Debe − Haber ≠ SaldoFin. Vacío = pasa el recálculo. */
+  descuadres: DescuadreDeCuenta[];
+  /** Texto listo para imprimir, en el idioma del informe. */
+  note: string;
+}
+
+/** Fila de balanza con las dos columnas que el Anexo 24 añade. */
+export interface TrialBalanceReportRow extends TrialBalanceQueryRow {
+  /**
+   * SaldoIni. Presente sólo cuando la balanza tiene un ANTES —un periodo o un
+   * rango con fecha de inicio—; ausente en la acumulada y en la historia
+   * completa, donde no hay nada anterior que arrastrar.
+   */
+  beginning_balance?: string;
+  /** SaldoFin: el acumulado del mayor al corte, calculado aparte del inicial. */
+  final_balance?: string;
+  /** SaldoIni + Debe − Haber = SaldoFin para ESTA cuenta. */
+  cuadra?: boolean;
+}
+
+/**
+ * Añade a cada fila su SaldoIni y su SaldoFin, y comprueba el invariante que
+ * el SAT recalcula. Devuelve null cuando la balanza no tiene un ANTES.
+ */
+async function conSaldoInicial(
+  entityId: string,
+  opts: TrialBalanceOptions,
+  filas: TrialBalanceQueryRow[]
+): Promise<{ rows: TrialBalanceReportRow[]; inicial: AvisoDeSaldoInicial } | null> {
+  const rango = await rangoDeLaBalanza(entityId, opts);
+  if (!rango) return null;
+
+  const criterio = await criterioDeSaldoInicial(entityId);
+  const previo = await periodoAnteriorA(entityId, rango.desde);
+  const firme = previo !== null && (previo.status === 'hard_close' || previo.status === 'locked');
+
+  let origen: AvisoDeSaldoInicial['origen'];
+  let iniciales: Map<string, Decimal>;
+  if (criterio === 'exigir_cierre_duro') {
+    // EL CRITERIO QUE SE NIEGA. Quien lo eligió pidió exactamente esto: sin
+    // arrastre sembrado no hay balanza, en vez de una balanza con ceros que
+    // se firma igual. El mensaje dice las dos salidas que tiene.
+    origen = 'arrastre_del_cierre';
+    const sembrados = rango.fiscal_period_id
+      ? await saldosSembradosPorElCierre(entityId, rango.fiscal_period_id)
+      : [];
+    if (sembrados.length === 0) {
+      throw new ValidationError(
+        `La balanza desde ${rango.desde} no tiene saldo inicial arrastrado y la política ` +
+          `'anexo24_balanza_saldo_inicial' está en 'exigir_cierre_duro'` +
+          (previo ? `: ${previo.period_name} está en '${previo.status}'` : ': no hay periodo anterior') +
+          `. Cierre en duro el periodo anterior o cambie el criterio a 'derivar_del_mayor'.`
+      );
+    }
+    iniciales = indiceDeSaldos(sembrados);
+  } else {
+    origen = 'mayor';
+    iniciales = indiceDeSaldos(
+      await queryAccumulatedBalances(entityId, { date: rango.desde, inclusive: false }, opts)
+    );
+  }
+
+  const finales = indiceDeSaldos(
+    await queryAccumulatedBalances(entityId, { date: rango.hasta, inclusive: true }, opts)
+  );
+
+  const cero = new Decimal(0);
+  const descuadres: DescuadreDeCuenta[] = [];
+  const rows: TrialBalanceReportRow[] = filas.map((r) => {
+    const ini = iniciales.get(r.account_id) ?? cero;
+    const fin = finales.get(r.account_id) ?? cero;
+    const esperado = ini.plus(r.debit_total).minus(r.credit_total);
+    const diferencia = esperado.minus(fin);
+    // Sin tolerancia: las cuatro columnas son DECIMAL(19,4) exactas y el SAT
+    // rehace la resta con las mismas cifras. Un céntimo aquí no es redondeo.
+    const cuadra = diferencia.isZero();
+    if (!cuadra) {
+      descuadres.push({
+        account_id: r.account_id,
+        account_code: r.account_code,
+        esperado: esperado.toFixed(LEDGER_SCALE),
+        obtenido: fin.toFixed(LEDGER_SCALE),
+        diferencia: diferencia.toFixed(LEDGER_SCALE),
+      });
+    }
+    return {
+      ...r,
+      // Las cuatro columnas salen a la escala del mayor, no a la de la nota al
+      // pie: son cifras del libro, y mezclar escalas dentro de una fila es
+      // como se pierde un céntimo entre columnas.
+      beginning_balance: ini.toFixed(LEDGER_SCALE),
+      final_balance: fin.toFixed(LEDGER_SCALE),
+      cuadra,
+    };
+  });
+
+  const conArrastre = [...iniciales.values()].filter((v) => !v.isZero()).length;
+  const partes: string[] = [];
+  if (origen === 'mayor') {
+    partes.push(`Opening balance derived from the ledger: everything posted before ${rango.desde}.`);
+  } else {
+    partes.push(
+      `Opening balance carried forward by the hard close of ` +
+        `${previo?.period_name ?? 'the previous period'}.`
+    );
+  }
+  if (firme) {
+    // `firme` sólo es cierto con `previo` no nulo, y TS lo sabe por el alias.
+    partes.push(`Firm: ${previo.period_name} is ${previo.status}.`);
+  } else if (previo) {
+    partes.push(
+      `Computable but NOT firm: ${previo.period_name} is '${previo.status}', so an entry ` +
+        `posted there would change it.`
+    );
+  } else {
+    partes.push(
+      `No earlier fiscal period, so it should be zero` +
+        (conArrastre > 0
+          ? ` — and ${conArrastre} account(s) already carry a balance before ${rango.desde}.`
+          : '.')
+    );
+  }
+  if (descuadres.length > 0) {
+    partes.push(
+      `${descuadres.length} account(s) fail SaldoIni + Debe − Haber = SaldoFin; see descuadres.`
+    );
+  }
+
+  return {
+    rows,
+    inicial: {
+      criterio,
+      origen,
+      desde: rango.desde,
+      firme,
+      periodo_anterior: previo,
+      descuadres,
+      note: partes.join(' '),
+    },
+  };
+}
+
 export interface TrialBalanceReport {
   entity_id: string;
-  rows: TrialBalanceQueryRow[];
+  /**
+   * Las filas llevan SaldoIni y SaldoFin ADEMÁS de lo de siempre, nunca en su
+   * lugar: `ending_balance` conserva exactamente el significado y el valor que
+   * publican hoy la CLI, el REST y las herramientas del agente.
+   */
+  rows: TrialBalanceReportRow[];
   /** Accounts the filters matched, before limit/offset. */
   total: number;
   /** Footed over every matched account, never over the displayed page. */
@@ -382,6 +775,11 @@ export interface TrialBalanceReport {
    * discrepar, y quien los ata a mano concluye que uno de los dos miente.
    */
   closing?: AvisoDeCierre;
+  /**
+   * Presente sólo cuando la balanza tiene un ANTES —un periodo o un rango con
+   * fecha de inicio—, que es cuando existe un saldo inicial que declarar.
+   */
+  inicial?: AvisoDeSaldoInicial;
 }
 
 export interface TrialBalanceOptions extends TrialBalanceFilters {
@@ -397,9 +795,22 @@ export async function getTrialBalance(
   opts: TrialBalanceOptions = {}
 ): Promise<TrialBalanceReport> {
   const all = await queryTrialBalanceRows(entityId, opts);
+
+  // El saldo inicial se resuelve ANTES de recortar: `--exclude-zero` tiene que
+  // poder mirar las cuatro columnas. Una cuenta sin movimiento en el mes pero
+  // con saldo arrastrado es exactamente la que el Anexo 24 necesita —el SAT
+  // recalcula sobre su SaldoIni— y la que la versión anterior del filtro
+  // dejaba fuera por tener el movimiento en cero.
+  const cuatroColumnas = await conSaldoInicial(entityId, opts, all);
+  const filas: TrialBalanceReportRow[] = cuatroColumnas?.rows ?? all;
   const matched = opts.excludeZero
-    ? all.filter((r) => !new Decimal(r.ending_balance).isZero())
-    : all;
+    ? filas.filter(
+        (r) =>
+          !new Decimal(r.ending_balance).isZero() ||
+          !new Decimal(r.beginning_balance ?? 0).isZero() ||
+          !new Decimal(r.final_balance ?? 0).isZero()
+      )
+    : filas;
 
   // Footing happens here, over every matched row, BEFORE the page is cut.
   const totals = totalTrialBalance(matched, opts.scale ?? LEDGER_SCALE);
@@ -415,6 +826,7 @@ export async function getTrialBalance(
     total: matched.length,
     totals,
     ...(closing ? { closing } : {}),
+    ...(cuatroColumnas ? { inicial: cuatroColumnas.inicial } : {}),
   };
 }
 
@@ -971,6 +1383,14 @@ export async function getAgedPayables(
 // del periodo ANTERIOR: mientras ése no cierre, el campo dice 0 y eso
 // es ausencia de arrastre, no un saldo; la vista lo dice con
 // `inicial_confiable` y con `periodo_anterior` en lugar de fingir.
+//
+// F07a arregló ESTO en la BALANZA y no aquí: el inicial de la balanza se
+// deriva del mayor (ver `conSaldoInicial`), así que hay cifra en cualquier
+// estado del periodo, y `firme` sustituye a la pregunta que
+// `inicial_confiable` contesta —allí el cero podía ser ausencia de arrastre;
+// aquí todavía puede serlo—. El auxiliar es el XC del Anexo 24 y sigue
+// leyendo `account_balances`: la misma derivación se le puede aplicar con
+// `queryAccumulatedBalances`, y es trabajo con nombre, no un cambio de paso.
 // ------------------------------------------------------------
 
 export interface AuxiliaryView {

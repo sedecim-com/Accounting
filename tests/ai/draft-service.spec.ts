@@ -11,6 +11,18 @@ vi.mock('../../src/services/accounting/posting.js', () => ({
 vi.mock('../../src/ai/approval-policy.js', () => ({
   matchApproval: vi.fn(),
 }));
+// Se sustituyen SÓLO las dos preguntas que salen de la máquina —hay sesión
+// guardada, y ¿este despliegue exige autenticar?—. `decidirSujeto`, que es la
+// regla que este tramo añade, corre la de produccion: una copia de la regla en
+// el banco de pruebas probaria la copia.
+vi.mock('../../src/auth/sujeto-activo.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/auth/sujeto-activo.js')>();
+  return {
+    ...real,
+    sujetoAutenticado: vi.fn(() => Promise.resolve(null)),
+    autenticacionExigida: vi.fn(() => false),
+  };
+});
 
 import {
   validateDraftPayload,
@@ -19,10 +31,18 @@ import {
   autoApproveDraftByPolicy,
   rejectDraft,
   resolveReviewer,
+  resolvePolicyGrantor,
   canonicalDraftHash,
   DraftValidationError,
   type DraftPayload,
 } from '../../src/ai/draft-service.js';
+import {
+  sujetoAutenticado,
+  autenticacionExigida,
+  reiniciarAvisoDeIdentidad,
+  SuplantacionError,
+  SesionNoVerificableError,
+} from '../../src/auth/sujeto-activo.js';
 import { query, withTransaction } from '../../src/database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../../src/services/accounting/posting.js';
 import { matchApproval } from '../../src/ai/approval-policy.js';
@@ -33,6 +53,15 @@ const mockWithTransaction = withTransaction as unknown as Mock;
 const mockCreateJE = createJournalEntry as unknown as Mock;
 const mockAttest = attestEntryAsync as unknown as Mock;
 const mockMatchApproval = matchApproval as unknown as Mock;
+const mockSujeto = sujetoAutenticado as unknown as Mock;
+const mockExige = autenticacionExigida as unknown as Mock;
+
+/** La sesión que `mnemosine login` habría dejado en el llavero. */
+const SESION = {
+  subject: 'sub-ana-0001',
+  email: 'ana@despacho.mx',
+  issuer: 'https://idp.example.com',
+};
 
 const CTX: AgentContext = {
   entityId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
@@ -581,7 +610,12 @@ describe('rejectDraft', () => {
 });
 
 describe('resolveReviewer', () => {
-  beforeEach(() => mockQuery.mockReset());
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockSujeto.mockReset().mockResolvedValue(null);
+    mockExige.mockReset().mockReturnValue(false);
+    reiniciarAvisoDeIdentidad();
+  });
 
   it('auto-picks only when the tenant has exactly one active user', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-1', email: 'admin@demo.com' }] });
@@ -610,5 +644,112 @@ describe('resolveReviewer', () => {
 
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await expect(resolveReviewer(CTX.tenantId, 'nadie@x.com')).rejects.toThrow(/nadie@x\.com/);
+  });
+
+  // ── G3 · LA IDENTIDAD QUE AHORA SÍ SE COMPRUEBA ─────────────────────
+  //
+  // Las tres pruebas de arriba corren SIN sesión y SIN proveedor
+  // configurado, que es el despliegue de hoy: siguen verdes a propósito
+  // —el cambio no puede romper a quien no tiene OIDC—. Lo que sigue fija
+  // la verdad nueva.
+
+  it('sin sesión no se calla: la bandera queda marcada como declarada', async () => {
+    const escrito: string[] = [];
+    const espia = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        escrito.push(String(chunk));
+        return true;
+      });
+    try {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-2', email: 'beto@despacho.mx' }] });
+      const r = await resolveReviewer(CTX.tenantId, 'beto@despacho.mx');
+      expect(r.userId).toBe('user-2');
+    } finally {
+      espia.mockRestore();
+    }
+    expect(escrito.join('')).toMatch(/no lo comprobó nadie/);
+  });
+
+  it('con sesión, un --user que nombra a OTRO se rechaza antes de tocar la base', async () => {
+    mockSujeto.mockResolvedValue(SESION);
+
+    await expect(resolveReviewer(CTX.tenantId, 'beto@despacho.mx')).rejects.toThrow(
+      SuplantacionError
+    );
+    await expect(resolveReviewer(CTX.tenantId, 'beto@despacho.mx')).rejects.toThrow(
+      /ana@despacho\.mx.*--user dice beto@despacho\.mx/s
+    );
+    // No se consultó nada: la suplantación se niega por regla, no por la
+    // suerte de que el usuario nombrado no exista.
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('con sesión, nombrarte a ti mismo es un no-op admitido (caja y espacios aparte)', async () => {
+    mockSujeto.mockResolvedValue(SESION);
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-ana', email: 'ana@despacho.mx' }] });
+
+    const r = await resolveReviewer(CTX.tenantId, '  ANA@Despacho.MX ');
+    expect(r).toEqual({ userId: 'user-ana', email: 'ana@despacho.mx' });
+  });
+
+  it('la atribución sale del sujeto AUTENTICADO, atada al sub y no al correo', async () => {
+    mockSujeto.mockResolvedValue(SESION);
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-ana', email: 'ana@despacho.mx' }] });
+
+    const r = await resolveReviewer(CTX.tenantId);
+    expect(r).toEqual({ userId: 'user-ana', email: 'ana@despacho.mx' });
+
+    const [sql, params] = mockQuery.mock.calls[0];
+    expect(sql).toMatch(/FROM identities i/);
+    expect(sql).toMatch(/u\.is_active = true/);
+    expect(params).toEqual(['oidc', 'sub-ana-0001', CTX.tenantId]);
+  });
+
+  it('con la identidad aún sin vincular cae al correo verificado, en ese orden', async () => {
+    mockSujeto.mockResolvedValue(SESION);
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // identities: nada vinculado
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-ana', email: 'ana@despacho.mx' }] });
+
+    const r = await resolveReviewer(CTX.tenantId);
+    expect(r.userId).toBe('user-ana');
+    expect(mockQuery.mock.calls[1][1]).toEqual([CTX.tenantId, 'ana@despacho.mx']);
+  });
+
+  it('con sesión verificada sin usuario en el inquilino, el error no manda a buscar un tecleo', async () => {
+    mockSujeto.mockResolvedValue(SESION);
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // identities
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // users por correo
+
+    await expect(resolveReviewer(CTX.tenantId)).rejects.toThrow(
+      /verificada pero no corresponde a ningún usuario activo/
+    );
+  });
+
+  it('con proveedor configurado y sin sesión se rechaza en vez de creerle a --user', async () => {
+    mockExige.mockReturnValue(true);
+    mockSujeto.mockResolvedValue(null);
+
+    await expect(resolveReviewer(CTX.tenantId, 'beto@despacho.mx')).rejects.toThrow(
+      SesionNoVerificableError
+    );
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolvePolicyGrantor', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockSujeto.mockReset().mockResolvedValue(SESION);
+    mockExige.mockReset().mockReturnValue(true);
+  });
+
+  it('no pasa por la sesión: el otorgante no es quien está en la terminal', async () => {
+    // Con la regla de `--user` aplicada aquí, una sesión abierta de Ana
+    // impediría ejecutar cualquier política concedida por otra persona.
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-2', email: 'beto@despacho.mx' }] });
+    const r = await resolvePolicyGrantor(CTX.tenantId, 'beto@despacho.mx');
+    expect(r).toEqual({ userId: 'user-2', email: 'beto@despacho.mx' });
+    expect(mockSujeto).not.toHaveBeenCalled();
   });
 });

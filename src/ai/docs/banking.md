@@ -10,6 +10,7 @@
 3. Reconciliation session: POST /:account_id/reconciliations {start_date, end_date, ending_balance_per_bank} records the statement balance. It does NOT group the matches: nothing writes reconciliation_matches.reconciliation_session_id, so GET /reconciliations/:id always answers matches [] and matched_count 0 — only unmatched_count is real. It CANNOT be completed: POST /reconciliations/:id/complete answers 501.
 
 ## What mnemosine does NOT do
+- Bank statement import through REST is capped at 5,000 movements per request and, being declared `irreversible`, requires an `Idempotency-Key` (G4a): a network retry no longer imports the same statement twice.
 - It does not reconcile. Nothing here computes the book balance, the variance, outstanding checks or deposits in transit, and nothing posts the bank fees, interest or returns a reconciliation uncovers. `complete` used to flip the session to 'balanced' without any of that, and the period-close checklist read 'balanced' as proof the account had been verified — so it now refuses instead.
 - Consequence to state plainly when asked: the close checklist item "Bank reconciliations complete" will stay unticked. That is accurate, not a bug. Reconcile the account outside mnemosine and post the adjustments you find as journal entries.
 - A session's `variance` and `ending_balance_per_books` are column defaults of 0. Never read them as a computed result.

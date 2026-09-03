@@ -7,6 +7,7 @@ import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../../../utils/errors.js';
 import { PreRegistrationService, DuplicateError } from '../../../services/xml-ingestion/pre-registration-service.js';
 import { requireByIdInScope, entityScope } from '../../../database/scope.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 const router = Router();
 const service = new PreRegistrationService();
@@ -127,7 +128,33 @@ const createBatchSchema = z.object({
 // ============================================================
 
 // POST /v1/xml/upload - Upload XML content (JSON body with base64 or string)
-router.post('/upload', requirePermission('bills:create'), requireEntityAccess, validateBody(uploadXmlSchema), asyncHandler(async (req: Request, res: Response) => {
+//
+// IRREVERSIBLE, no `escritura`, y la diferencia no es de matiz.
+//
+// Esta ruta se declaraba `escritura` diciendo escribir «xml_documents +
+// pre_registrations», que es lo que hace en el camino manual. Pero
+// `processXMLUpload` entra en `processToAccounting` cuando el motor de
+// reglas del inquilino dejó el pre-registro en modo automático —una regla
+// puede concederse ese modo ella misma, applyRuleActions—, y
+// `processToAccounting` llama a `createJournalEntry` con `autoPost: true`.
+// La propia respuesta lo delata: devuelve `bill_id` y `journal_entry_id`.
+// O sea que este POST postea al mayor, y quien lo lea en el censo tenía que
+// poder verlo.
+//
+// La hoja gemela del binario ya lo decía con estas palabras: `mnemosine
+// ingest` declara `irreversible` con «xml_documents, pre_registrations,
+// bills; y con auto-posteo, asientos POSTEADOS» (src/cli/mnemosine.ts). El
+// mismo acto no puede tener dos clases según por qué puerta entre: eso es
+// exactamente el segundo motor con menos reglas que este censo existe para
+// cerrar.
+//
+// Y la clase de menos no era inocua. `escritura` es la ÚNICA que puede
+// abrirse al agente (con soloBorrador); `irreversible` no puede abrirse
+// nunca. Declarada de menos, esta ruta quedaba a un booleano de ser
+// invocable por el agente. Además, `irreversible` es lo que le cuelga la
+// llave de idempotencia: hasta ahora un reintento de red sobre un lote de
+// CFDI no tenía con qué deduplicarse aquí.
+router.post('/upload', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'xml_documents + pre_registrations + bills; con auto-proceso, asientos POSTEADOS' }), requirePermission('bills:create'), requireEntityAccess, validateBody(uploadXmlSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, xml_content, xml_contents, source = 'api' } = req.body;
   const entityId = entity_id || req.entityId;
 
@@ -334,7 +361,7 @@ router.get('/pre-registrations/:id', requirePermission('bills:read'), requireEnt
 }));
 
 // PATCH /v1/pre-registrations/:id
-router.patch('/pre-registrations/:id', requirePermission('bills:create'), requireEntityAccess, validateBody(updatePreRegSchema), asyncHandler(async (req: Request, res: Response) => {
+router.patch('/pre-registrations/:id', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pre_registrations' }), requirePermission('bills:create'), requireEntityAccess, validateBody(updatePreRegSchema), asyncHandler(async (req: Request, res: Response) => {
   const { vendor_id, lines, due_date, notes, tags, default_account_id } = req.body;
 
   const updates: string[] = [];
@@ -367,7 +394,7 @@ router.patch('/pre-registrations/:id', requirePermission('bills:create'), requir
 }));
 
 // POST /v1/pre-registrations/:id/process
-router.post('/pre-registrations/:id/process', requirePermission('bills:create'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/pre-registrations/:id/process', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'bills o vendor/customer_payments + journal_entries POSTEADOS; con allow_new_vendor, tambien un vendor nuevo' }), requirePermission('bills:create'), asyncHandler(async (req: Request, res: Response) => {
   // El filtro va DENTRO del SQL. Cero filas significa a la vez «no existe» y
   // «no es de tu entidad»: la respuesta es 404 en los dos casos y no hay rama
   // donde el programa pueda distinguirlos.
@@ -430,7 +457,7 @@ router.post('/pre-registrations/:id/process', requirePermission('bills:create'),
 }));
 
 // POST /v1/pre-registrations/:id/reject
-router.post('/pre-registrations/:id/reject', requirePermission('bills:void'), requireEntityAccess, validateBody(rejectPreRegSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/pre-registrations/:id/reject', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pre_registrations.status' }), requirePermission('bills:void'), requireEntityAccess, validateBody(rejectPreRegSchema), asyncHandler(async (req: Request, res: Response) => {
   const { reason, notes } = req.body;
 
   const result = await query(
@@ -447,7 +474,7 @@ router.post('/pre-registrations/:id/reject', requirePermission('bills:void'), re
 }));
 
 // POST /v1/pre-registrations/:id/approve
-router.post('/pre-registrations/:id/approve', requirePermission('bills:approve'), requireEntityAccess, validateBody(approvePreRegSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/pre-registrations/:id/approve', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pre_registrations.approval_status; el acto contable es /process' }), requirePermission('bills:approve'), requireEntityAccess, validateBody(approvePreRegSchema), asyncHandler(async (req: Request, res: Response) => {
   const { notes } = req.body;
 
   const result = await query(
@@ -466,13 +493,31 @@ router.post('/pre-registrations/:id/approve', requirePermission('bills:approve')
   });
 }));
 
+/**
+ * El renglon de un id que el lote no pudo tocar. El texto es el MISMO que
+ * `new NotFoundError('Pre-Registration', id)` pone en la ruta individual, para
+ * que un id ajeno se lea igual se pida suelto o dentro de un lote.
+ */
+function noEncontrado(id: string): { id: string; status: string; error: string } {
+  return { id, status: 'error', error: `Pre-Registration with id ${id} not found` };
+}
+
 // POST /v1/pre-registrations/bulk
-router.post('/pre-registrations/bulk', requirePermission('bills:create'), requireEntityAccess, validateBody(bulkPreRegSchema), asyncHandler(async (req: Request, res: Response) => {
+// LA MISMA FORMA QUE POST /v1/journal-entries, y aqui aun mas descarada: el
+// ACTO viaja en el cuerpo (`action`), asi que una sola ruta es a la vez
+// aprobar, rechazar, agrupar y POSTEAR. Se declara por la rama mas grave —
+// `process`— porque es la unica lectura honesta de una ruta cuya clase no se
+// sabe hasta abrir el JSON. Partirla en cuatro rutas es lo que pide la regla
+// del CLI; cambia el contrato HTTP y no se decide en este tramo.
+router.post('/pre-registrations/bulk', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'lo que haga `action`; con process, todo lo que postea /pre-registrations/:id/process, por cada id' }), requirePermission('bills:create'), requireEntityAccess, validateBody(bulkPreRegSchema), asyncHandler(async (req: Request, res: Response) => {
   const { action, ids, params = {} } = req.body;
 
   const results: Array<{ id: string; status: string; error?: string }> = [];
 
-  for (const id of ids) {
+  // `bulkPreRegSchema` ya validó `ids` como arreglo de UUID y `validateBody`
+  // dejó en `req.body` lo que salió del esquema; el tipo se recupera aquí
+  // porque `req.body` es `any` y sin esto cada `id` viaja sin tipo.
+  for (const id of ids as string[]) {
     try {
       switch (action) {
         case 'process': {
@@ -498,30 +543,46 @@ router.post('/pre-registrations/bulk', requirePermission('bills:create'), requir
           results.push({ id, status: 'success' });
           break;
         }
-        case 'approve':
-          await query(
+        // LAS TRES RAMAS QUE DECIAN `success` SOBRE CERO FILAS.
+        //
+        // `process` ya lo tenia arreglado (requireByIdInScope lanza), y las
+        // tres de al lado se quedaron como estaban: el UPDATE se ejecutaba,
+        // nadie miraba `rowCount`, y `success` salia igual para un id
+        // propio aprobado que para uno inexistente o de otra entidad. En un
+        // lote la mentira se multiplica: un `approve` de cien ids ajenos
+        // devolvia cien `success` y ni una sola fila cambiada.
+        //
+        // `RETURNING id` con cero filas es lo mismo que ve la ruta
+        // individual, y ahi ya era 404. Aqui no puede serlo —el lote sigue
+        // con los demas— asi que se convierte en el error DE ESE ID, con el
+        // mismo texto que daria la ruta individual.
+        case 'approve': {
+          const r = await query<{ id: string }>(
             `UPDATE pre_registrations SET approval_status = 'approved', approved_by = $1, approved_at = NOW()
-              WHERE id = $2 AND entity_id = $3`,
+              WHERE id = $2 AND entity_id = $3 RETURNING id`,
             [req.user!.user_id, id, req.entityId]
           );
-          results.push({ id, status: 'success' });
+          results.push(r.rows.length === 0 ? noEncontrado(id) : { id, status: 'success' });
           break;
-        case 'reject':
-          await query(
+        }
+        case 'reject': {
+          const r = await query<{ id: string }>(
             `UPDATE pre_registrations SET status = 'rejected', notes = COALESCE(notes,'') || $1
-              WHERE id = $2 AND entity_id = $3`,
+              WHERE id = $2 AND entity_id = $3 RETURNING id`,
             [`\nBulk reject: ${params.reason || 'No reason'}`, id, req.entityId]
           );
-          results.push({ id, status: 'success' });
+          results.push(r.rows.length === 0 ? noEncontrado(id) : { id, status: 'success' });
           break;
-        case 'set_batch':
-          await query(
+        }
+        case 'set_batch': {
+          const r = await query<{ id: string }>(
             `UPDATE pre_registrations SET scheduled_batch_id = $1, processing_mode = 'batch'
-              WHERE id = $2 AND entity_id = $3`,
+              WHERE id = $2 AND entity_id = $3 RETURNING id`,
             [params.batch_id, id, req.entityId]
           );
-          results.push({ id, status: 'success' });
+          results.push(r.rows.length === 0 ? noEncontrado(id) : { id, status: 'success' });
           break;
+        }
         default:
           results.push({ id, status: 'error', error: `Unknown action: ${action}` });
       }
@@ -564,7 +625,7 @@ router.get('/processing-rules', requirePermission('settings:manage'), requireEnt
 }));
 
 // POST /v1/processing-rules
-router.post('/processing-rules', requirePermission('settings:manage'), requireEntityAccess, validateBody(createProcessingRuleSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/processing-rules', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'processing_rules' }), requirePermission('settings:manage'), requireEntityAccess, validateBody(createProcessingRuleSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, rule_name, rule_code, rule_type, priority, conditions, actions, description, applies_to_document_types, is_active } = req.body;
   const entityId = entity_id || req.entityId;
 
@@ -590,7 +651,7 @@ router.post('/processing-rules', requirePermission('settings:manage'), requireEn
 }));
 
 // PUT /v1/processing-rules/:id
-router.put('/processing-rules/:id', requirePermission('settings:manage'), validateBody(updateProcessingRuleSchema), asyncHandler(async (req: Request, res: Response) => {
+router.put('/processing-rules/:id', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'processing_rules' }), requirePermission('settings:manage'), requireEntityAccess, validateBody(updateProcessingRuleSchema), asyncHandler(async (req: Request, res: Response) => {
   const fields = ['rule_name', 'description', 'priority', 'is_active'];
   const updates: string[] = [];
   const params: unknown[] = [];
@@ -605,10 +666,18 @@ router.put('/processing-rules/:id', requirePermission('settings:manage'), valida
   if (updates.length === 0) throw new ValidationError('No valid fields to update');
 
   updates.push(`updated_at = NOW()`);
-  params.push(req.params.id);
+  params.push(req.params.id, req.entityId);
 
+  // `AND entity_id`: la regla se direcciona por UUID y hasta aquí nadie
+  // miraba de quién era. RLS no cubre esto — su predicado es el INQUILINO, y
+  // dos entidades hermanas de una holding lo comparten—, así que con el UUID
+  // de una regla de la sociedad de al lado se le reescribía el motor de
+  // reglas: `actions` decide a qué cuenta va cada CFDI y si se contabiliza
+  // solo. Cero filas se trata como «no existe», indistinguible de «no es
+  // tuya» a propósito (el porqué, en database/scope.ts).
   const result = await query(
-    `UPDATE processing_rules SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+    `UPDATE processing_rules SET ${updates.join(', ')}
+      WHERE id = $${idx} AND entity_id = $${idx + 1} RETURNING *`,
     params
   );
   if (result.rows.length === 0) throw new NotFoundError('Processing Rule', req.params.id);
@@ -620,8 +689,15 @@ router.put('/processing-rules/:id', requirePermission('settings:manage'), valida
 }));
 
 // DELETE /v1/processing-rules/:id
-router.delete('/processing-rules/:id', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
-  const result = await query('DELETE FROM processing_rules WHERE id = $1', [req.params.id]);
+router.delete('/processing-rules/:id', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'DELETE de processing_rules: borrado duro, sin copia' }), requirePermission('settings:manage'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  // Mismo `AND entity_id` que el PUT de arriba, y aquí importa más: esto es
+  // un borrado duro y sin copia —así lo dice su propia declaración—, o sea el
+  // acto que la clase `irreversible` describe. Sin acotar, un UUID ajeno
+  // borraba la regla de otra entidad del mismo inquilino.
+  const result = await query(
+    'DELETE FROM processing_rules WHERE id = $1 AND entity_id = $2',
+    [req.params.id, req.entityId]
+  );
   if (result.rowCount === 0) throw new NotFoundError('Processing Rule', req.params.id);
   res.status(204).send();
 }));
@@ -654,7 +730,7 @@ router.get('/processing-batches', requirePermission('bills:read'), requireEntity
 }));
 
 // POST /v1/processing-batches
-router.post('/processing-batches', requirePermission('bills:create'), requireEntityAccess, validateBody(createBatchSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/processing-batches', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'processing_batches (el lote, sin ejecutarlo)' }), requirePermission('bills:create'), requireEntityAccess, validateBody(createBatchSchema), asyncHandler(async (req: Request, res: Response) => {
   const {
     entity_id, batch_name, description, scheduled_date, scheduled_time,
     include_filters, auto_post, notify_on_complete, notify_emails,
@@ -692,8 +768,20 @@ router.post('/processing-batches', requirePermission('bills:create'), requireEnt
 }));
 
 // POST /v1/processing-batches/:id/execute
-router.post('/processing-batches/:id/execute', requirePermission('bills:create'), asyncHandler(async (req: Request, res: Response) => {
-  const results = await service.processBatch(req.params.id, req.user!.user_id);
+router.post('/processing-batches/:id/execute', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'lo mismo que /pre-registrations/:id/process, por cada renglon del lote' }), requirePermission('bills:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  // LA FRONTERA DE ENTIDAD, en la ruta de este archivo que más pesa.
+  //
+  // `processBatch` recorre los pre-registros del lote y los mete por
+  // `processToAccounting`: crea facturas de proveedor y POSTEA sus asientos.
+  // Con el UUID de un lote de la entidad hermana, esta ruta contabilizaba en
+  // los libros de la otra sociedad — el mismo camino que TEN-2 ya había
+  // cerrado en `/pre-registrations/:id/process` y que quedó abierto por el
+  // lote, que hace lo mismo N veces.
+  //
+  // El alcance viaja al servicio y entra en su UPDATE de arranque, en vez de
+  // comprobarse aquí con un SELECT previo: un SELECT y luego un UPDATE por id
+  // deja abierta la ventana entre comprobar y escribir.
+  const results = await service.processBatch(req.params.id, req.user!.user_id, req.entityId!);
 
   res.json({
     data: results,
@@ -727,10 +815,13 @@ router.get('/processing-batches/:id/progress', requirePermission('bills:read'), 
 }));
 
 // POST /v1/processing-batches/:id/cancel
-router.post('/processing-batches/:id/cancel', requirePermission('bills:create'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/processing-batches/:id/cancel', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'processing_batches.status = cancelled' }), requirePermission('bills:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  // `AND entity_id`: cancelar el lote de la entidad hermana detenía su
+  // procesamiento programado desde una sesión que no es la suya.
   const result = await query(
-    `UPDATE processing_batches SET status = 'cancelled' WHERE id = $1 AND status IN ('scheduled', 'running') RETURNING *`,
-    [req.params.id]
+    `UPDATE processing_batches SET status = 'cancelled'
+      WHERE id = $1 AND entity_id = $2 AND status IN ('scheduled', 'running') RETURNING *`,
+    [req.params.id, req.entityId]
   );
   if (result.rows.length === 0) throw new NotFoundError('Cancellable Batch', req.params.id);
 

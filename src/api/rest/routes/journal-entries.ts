@@ -13,6 +13,8 @@ import {
 } from '../../../services/accounting/index.js';
 import type { JournalEntry, JournalEntryLine, PaginationMeta } from '../../../types/index.js';
 import { JournalEntryType } from '../../../types/index.js';
+import { declararRiesgoRuta } from '../risk.js';
+import { arregloAcotado, MAX_RENGLONES_POR_DOCUMENTO } from '../topes.js';
 
 const router = Router();
 
@@ -59,7 +61,15 @@ const createJournalEntrySchema = z.object({
     ])
     .optional(),
   description: z.string().optional(),
-  lines: z.array(journalLineSchema).min(2, 'At least 2 lines required'),
+  // Un renglón = un INSERT dentro de la transacción que crea la póliza, con
+  // el periodo fiscal bloqueado mientras dura. El porqué del número, en topes.ts.
+  lines: arregloAcotado(journalLineSchema, {
+    tope: MAX_RENGLONES_POR_DOCUMENTO,
+    plural: 'renglones',
+    salida: 'Una póliza más larga que eso es una importación: pártela, o usa `mnemosine entry import`.',
+    minimo: 2,
+    mensajeMinimo: 'At least 2 lines required',
+  }),
   auto_post: z.boolean().optional(),
   reference: z.string().optional(),
 });
@@ -171,8 +181,25 @@ router.get('/:id', requirePermission('journal_entries:read'), requireEntityAcces
 }));
 
 // POST /v1/journal-entries
+// DECLARADA POR LO ALTO, Y LA RAZON ES UN DEFECTO QUE HAY QUE NOMBRAR.
+//
+// Esta ruta es dos actos: con `auto_post` ausente escribe un borrador
+// (escritura) y con `auto_post: true` postea al mayor (irreversible). O sea
+// que su clase depende del CUERPO DE LA PETICION — la misma forma que
+// `declareRisk` prohibe en el CLI cuando depende del valor de una bandera,
+// y peor, porque el cuerpo lo escribe quien llama.
+//
+// La regla de la casa dice que se parte en dos rutas con dos declaraciones.
+// Partirla cambia el contrato HTTP y eso no se decide en este tramo, asi que
+// aqui se declara por el acto MAS GRAVE de los dos y queda dicho: mientras
+// `auto_post` viva en el cuerpo, esta ruta no puede ser accesible al agente
+// ni aunque solo se usara para borradores.
 router.post(
   '/',
+  declararRiesgoRuta({
+    riesgo: 'irreversible',
+    escribe: 'journal_entries + journal_entry_lines; con auto_post: true, POSTEADOS al mayor',
+  }),
   requirePermission('journal_entries:create'),
   requireEntityAccess,
   validateBody(createJournalEntrySchema),
@@ -210,6 +237,7 @@ router.post(
 // POST /v1/journal-entries/:id/post
 router.post(
   '/:id/post',
+  declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries.status + account_balances' }),
   requirePermission('journal_entries:post'),
   asyncHandler(async (req: Request, res: Response) => {
     await assertEntryAccess(req, req.params.id);
@@ -228,6 +256,7 @@ router.post(
 // POST /v1/journal-entries/:id/void
 router.post(
   '/:id/void',
+  declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries.status o una poliza espejo' }),
   requirePermission('journal_entries:void'),
   validateBody(voidJeSchema),
   asyncHandler(async (req: Request, res: Response) => {
@@ -248,6 +277,7 @@ router.post(
 // POST /v1/journal-entries/:id/reverse
 router.post(
   '/:id/reverse',
+  declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'una poliza nueva POSTEADA + account_balances' }),
   requirePermission('journal_entries:create'),
   validateBody(reverseJeSchema),
   asyncHandler(async (req: Request, res: Response) => {
