@@ -607,7 +607,25 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E0.0',
     enunciado: 'El repositorio tiene remoto, así que la CI puede dispararse',
     evaluar: () => {
-      const cfg = rutaDe('.git', 'config');
+      // EN UN ÁRBOL VINCULADO, `.git` ES UN ARCHIVO.
+      //
+      // `git worktree add` deja un `.git` que no es directorio sino una línea
+      // «gitdir: …» apuntando al repositorio común. Este criterio buscaba
+      // `.git/config` a secas y daba «no hay .git» en cualquier worktree —el
+      // único rojo que salía al verificar un commit en un árbol limpio, que es
+      // la práctica que este proyecto adoptó justo para no medir la mezcla de
+      // varias sesiones—. Un falso rojo en el instrumento de verificación es
+      // peor que en el código: entrena a saltarse la verificación.
+      const enlace = rutaDe('.git');
+      if (!fs.existsSync(enlace)) return falla('no hay .git');
+      let cfg = path.join(enlace, 'config');
+      if (fs.statSync(enlace).isFile()) {
+        const apunta = /gitdir:\s*(.+)/.exec(leer(enlace));
+        if (apunta === null) return falla('el .git de este árbol vinculado no dice a qué repositorio apunta');
+        const comun = path.resolve(path.dirname(enlace), apunta[1].trim());
+        // …/.git/worktrees/<nombre> → el config vive dos niveles más arriba.
+        cfg = path.join(comun, '..', '..', 'config');
+      }
       if (!fs.existsSync(cfg)) return falla('no hay .git');
       const tiene = /\[remote /.test(leer(cfg));
       return tiene
