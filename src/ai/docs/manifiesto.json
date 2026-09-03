@@ -81,14 +81,7 @@
     ]
   },
   "sin_revisar": [
-    "connectivity.md",
-    "identity-access.md",
-    "mnemosine.md",
-    "payroll.md",
-    "playbooks.md",
-    "receivables.md",
-    "reports.md",
-    "system.md"
+    "payroll.md"
   ],
   "hashes": {
     "src/services/accounting/posting.ts": "5c6b9fdcc0730f79591295b529912403d15ac835",
@@ -116,6 +109,26 @@
     "src/services/banking/reconciliation-service.ts": "3ab76e68024ac61bdc39e99afaf2874dd3330bfe",
     "src/services/banking/reconciling-items.ts": "a9ad36f020258bd8ef66f0e8b873704d16b066cc",
     "src/services/banking/reconciliation-adjustments.ts": "05f7dc904f77c9a6fa4b187b5a93b8b4274f10c8",
-    "src/cli/bank-command.ts": "15cf590cd2fec3dec8bc702e66ffaf60c2d11a44"
+    "src/cli/bank-command.ts": "15cf590cd2fec3dec8bc702e66ffaf60c2d11a44",
+    "src/services/webhooks/webhook-service.ts": "1207441f2f2f4fe020ef37789269afb23f3261bc",
+    "src/services/integrations/index.ts": "c785f9eb1596c6560eb5f5a15ebb8710e2ee8ac6",
+    "src/database/rls-policies.sql": "29156dede7f923e1cf9ef9653d0c22352b20ce18",
+    "src/services/fiscal-credentials/service.ts": "5427809dedc39c29abd51628ee49100c76f96b6b",
+    "src/services/reporting/report-service.ts": "821feb963eae89279c9b333ad1e4129309b0c0e1",
+    "src/services/ar/invoice-service.ts": "5ef0eeefa2c58db5b190d445a4e50d297707f2ec",
+    "src/services/ar/customer-service.ts": "89e61497dafc2b3f440592fe78dfd367605840dd",
+    "src/services/ar/credit-note-service.ts": "9100c26979e17cdcc059242824acd7cf03e4c8ad",
+    "src/services/ar/ar-controls.ts": "1d6e560697fbb2d8d113244e3cb3332c12b72a46",
+    "src/services/accounting/ar-ap-posting.ts": "46b35303e363711e8e46ce509121e110f23fcdbe",
+    "src/ai/providers/index.ts": "ed591a9ca62a734081e910ec1aceced42cdf5bbc",
+    "src/ai/providers/config.ts": "4b6bfbebb767c99c8d5f318cf816405db04e6df3",
+    "src/ai/draft-service.ts": "f3d2e14cea96cf726a785c2b319275f09b7701e0",
+    "src/ai/question-service.ts": "320a614fe4b7ae52646b1298b4e3339710ddc56c",
+    "src/ai/budget.ts": "501401dcfc093c50e86ab33976d41ba7805010b6",
+    "src/ai/floor.ts": "f1a5ebed1e5d3e8f4bdea31b831c812d86e4c6b7",
+    "src/services/policy/policy-service.ts": "b1cd1c8956e275cc63859a9733b81b16e1cd239c",
+    "src/ai/tools/policy-tools.ts": "6f5312c431be52088f656e44d598c51326587af8",
+    "src/ai/doctor-service.ts": "0ac0a70d870e62cd6ebb20ef8bb36eaed012edc0",
+    "src/ai/onboarding-service.ts": "7bd405ae60700ebab6bac3062002acd1cf9b4b58"
   }
 }

@@ -45,7 +45,14 @@ interface Manifiesto {
  * rechazando. Un manual obsoleto no es documentación vieja: es el agente
  * afirmando cosas falsas con seguridad.
  */
-export const SIN_REVISAR_MAXIMO = 8;
+// S4b lo bajó de 8 a 1. Llevaba clavado en su techo desde que se creó: los
+// ocho manuales «sin revisar» no eran manuales desactualizados, eran manuales
+// que NADIE había contrastado nunca contra el código, mientras el agente los
+// citaba como su mundo. Siete se revisaron afirmación por afirmación —unas
+// 220, de las que 56 mentían— y quedó `payroll.md`, que otra sesión está
+// tocando ahora mismo: revisarlo mientras se mueve sería sellar un blanco
+// móvil. Como el suelo del catálogo y como el piso: sólo baja.
+export const SIN_REVISAR_MAXIMO = 1;
 
 /** El mismo hash que `git hash-object`: nadie tiene que aprender otro. */
 export function hashDe(rel: string): string | null {

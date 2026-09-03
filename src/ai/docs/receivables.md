@@ -2,18 +2,29 @@
 
 ## Customers
 - Data: customer_number (C-...), company_name/first_name, tax_id (RFC/EIN), payment terms (default Net 30), credit limit and credit status (approved/on_hold/suspended), default income and AR accounts.
-- YOU: search_customers. Human: POST/PATCH /v1/customers.
+- The CFDI 4.0 fiscal profile lives apart from the commercial data: RFC, tax regime, postal code and UsoCFDI are set with `customer tax set`, validated against the SAT catalogs BEFORE they are written — a malformed RFC or an invented regime is refused at capture instead of failing at stamping weeks later. `customer edit` reaches neither the fiscal profile nor credit.
+- Archiving is not deleting, and it is refused while the customer still owes something.
+- YOU: search_customers, plus the read-only `customer list|show` and `customer tax show|list`. Human: POST/PATCH /v1/customers, `customer create|edit|archive|restore`, `customer tax set` — every write here is IA ✗.
 
 ## Invoices
 - States: draft → pending → sent → viewed → partially_paid → paid; also overdue, void, cancelled, uncollectible.
-- "viewed" = the customer opened it; it is still collectible (counts in aging).
-- amount_due is maintained with each payment; aging uses amount_due > 0 and states sent/viewed/partially_paid/overdue.
+- Of those, the only ones anything WRITES are draft (create), sent (issue, and again when cash is unapplied or a collection is reversed), partially_paid, paid and void. Nothing sets pending, viewed, overdue, uncollectible or cancelled: they are legal values of the column with no writer. So "viewed" does not mean the customer opened it — there is no read receipt and no email transport in this system — though aging does count a row that carries it.
+- amount_due is maintained with each payment applied and each credit note applied, and back UP when cash is unapplied or a bounced collection is reversed; aging uses amount_due > 0 and states sent/viewed/partially_paid/overdue.
 - CFDI (Mexico): cfdi_status pending → stamped (or cancelled/failed); stamping goes through multi-PAC (see the mexico-cfdi doc).
-- Automatic entry when an invoice posts: debit AR for the total; credit income per line; credit output VAT payable.
-- Payment received: debit banks; credit AR for each application to an invoice.
+- Automatic entry when an invoice posts: debit AR for the total; credit income per line; credit output VAT — 2120 IVA Trasladado for a PUE invoice, 2125 IVA Trasladado No Cobrado for a PPD one, released to 2120 by the collection (mexico-cfdi doc).
+- ISSUING IS NOT SENDING. Posting that entry is what `invoice issue` does, and it neither stamps nor delivers; the delivery marks (sent_at, sent_to) are written only by POST /:id/send, which also posts. Nothing is transmitted either way. Never tell a human the invoice was emailed.
+- A FOREIGN-CURRENCY INVOICE REFUSES TO POST (R4). If currency_code is not the entity's functional currency, issuing fails with FX_AR_NOT_WIRED: AR conversion is phase 2, and posting today would record USD as if they were pesos with no trace of the original amount. The expense side already converts; the revenue side stops instead. Do not propose issuing one — say the capability is not wired.
+- Only a DRAFT is edited or deleted (`invoice edit|delete`; deleting demands a reason and leaves its folio as a DOCUMENTED gap — folios are never recycled, and `invoice series check` reports every gap, explained or not). An issued invoice is corrected by voiding it or with a credit note, never in place.
+- Voiding annuls the ledger entry with a linked reversal (NIF B-1) and always requires a reason. `invoice void` REFUSES an invoice carrying a CFDI (cancel it before the SAT first) or with cash applied to it (unapply first); the REST route opts out of both guards to keep the contract it has always had.
+- Credit notes are their own document with their own folio (CN), not a negative invoice: draft → issue (posts DR devolucion_ventas 4400 + DR the VAT role / CR AR) → apply to invoices, which posts nothing more because the ledger already moved at issue. An issued, unapplied note IS the customer's credit balance. A note tied to an invoice applies only to THAT invoice: the tie is what decides which VAT account it unwinds.
+- Payment received: debit banks for the cash. The credit splits by what it settles — AR for what is APPLIED to invoices, and `anticipo_clientes` (2150) for cash received without naming one, because unapplied cash is an advance, not a settled receivable. For each PPD invoice it applies to, the same entry moves the parked VAT 2125 → 2120 for the collected share. Applying an advance later (`receipt apply`) is DR 2150 / CR AR plus that same VAT release, and moves no cash.
 
 ## What YOU do
-- get_aged_receivables (aging with days_overdue; negative = not yet due), search_customers, and query the generated journal entries (search_journal_entries with entry_type auto_invoice/auto_payment).
+- get_aged_receivables (aging with days_overdue; negative = not yet due), search_customers, and query the generated journal entries (search_journal_entries with entry_type auto_invoice/auto_payment — credit notes post as auto_invoice, applications and unapplications as auto_payment).
+- get_aged_receivables ages the DUE DATE at as_of_date but reads the balance AS IT STANDS TODAY: it does not reconstruct what was owed on a past date. Fine for a collections call, wrong for an auditor — say which one you are giving.
+- `mnemosine ar reconcile` (read-only, you may run it) squares the subledger — open invoices minus unapplied credit notes — against the cxc control account, and NAMES the manual entries posted straight to the control with no document behind them, which no aging report can see. `ar check` runs the named battery (subledger-delta, negative-balance, over-application, orphan-application, duplicate-invoice, stale-unapplied-cash, missing-uuid, cancelled-cfdi-open, stamped-without-entry). Both are TODAY, never as-of.
 
 ## Human (REST /v1/invoices)
 - POST / (create), POST /:id/send, POST /:id/payments (record a collection), POST /:id/void (requires reason), POST /:id/cfdi/stamp, POST /:id/cfdi/cancel.
+- POST /:id/send is the issuing call: it posts the revenue and AR entry and marks the invoice sent. It transmits nothing and answers `transmitted: false`; the sending is the user's own.
+- CLI: `invoice create|issue|void|edit|delete`, `credit-note create|issue|apply`, `receipt record|apply|unapply|reverse` (collections). Those writes are IA ✗ — you may read and propose, never run them; `invoice list|show|series`, `credit-note list|show`, `receipt list|show` and the `ar` commands are yours. Stamping has no CLI: it is the REST route only.
