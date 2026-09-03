@@ -32,7 +32,7 @@ function tipoDocumentoDe(tipo: string | undefined): string {
   return 'credit_note';
 }
 import { RulesEngine, Rule, RuleActions, RuleEvaluationResult } from './rules-engine.js';
-import { AccountingError, ValidationError } from '../../utils/errors.js';
+import { AccountingError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 export class DuplicateError extends Error {
   constructor(message: string, public existingId: string) {
@@ -1177,16 +1177,47 @@ export class PreRegistrationService {
   }
 
   /**
-   * Process batch
+   * Ejecuta un lote programado.
+   *
+   * EL ARRANQUE COMPRUEBA QUE EL LOTE EXISTA. El UPDATE que lo pone en
+   * `running` no miraba cuantas filas habia tocado, y con cero seguia
+   * adelante: la consulta de renglones tampoco encontraba nada —van
+   * ligados por `scheduled_batch_id`— y POST /processing-batches/:id/execute
+   * contestaba 200 con `{total: 0, successful: 0, failed: 0, errors: []}`.
+   * Un lote inexistente y un lote vacio daban la MISMA respuesta, y la
+   * respuesta se lee como «el lote corrio y no habia nada que hacer».
+   *
+   * `RETURNING id` convierte eso en 404, que es todo lo que este arreglo
+   * hace. Queda NOMBRADO y sin decidir lo de al lado: hoy nada impide
+   * relanzar un lote que ya esta en `running`, y dos corridas simultaneas
+   * se reparten los renglones que la otra aun no haya marcado. Cerrar eso
+   * es elegir de que estados se puede arrancar —y si un lote `completed`
+   * se puede repetir—, que es una decision sobre el ciclo de vida del
+   * lote y no sobre si el UPDATE encontro fila.
    */
   async processBatch(
     batchId: string,
-    userId: string
+    userId: string,
+    /**
+     * La entidad que ejecuta. Obligatoria: el lote se direcciona por UUID y
+     * lo que hace es POSTEAR, asi que sin acotar por entidad un UUID ajeno
+     * contabilizaba en los libros de la sociedad hermana —RLS no lo cubre,
+     * su predicado es el inquilino y las hermanas lo comparten—.
+     */
+    entityId: string
   ): Promise<{ total: number; successful: number; failed: number; errors: Array<{ id: string; error: string }> }> {
-    await query(
-      `UPDATE processing_batches SET status = 'running', started_at = NOW(), executed_by = $1 WHERE id = $2`,
-      [userId, batchId]
+    // El alcance entra en el MISMO UPDATE que arranca el lote, no en un
+    // SELECT previo: comprobar por un lado y escribir por otro deja abierta
+    // la ventana entre las dos consultas. Cero filas es «no existe» o «no es
+    // de esta entidad», indistinguibles a proposito.
+    const arranque = await query(
+      `UPDATE processing_batches SET status = 'running', started_at = NOW(), executed_by = $1
+        WHERE id = $2 AND entity_id = $3 RETURNING id`,
+      [userId, batchId, entityId]
     );
+    if (arranque.rows.length === 0) {
+      throw new NotFoundError('Processing Batch', batchId);
+    }
 
     const preRegs = await query<Record<string, unknown>>(
       `SELECT * FROM pre_registrations

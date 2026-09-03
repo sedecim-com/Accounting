@@ -592,6 +592,85 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 30,
   },
   {
+    key: 'efirma_sellado_contabilidad_electronica',
+    category: 'contable',
+    question: 'Does the system seal the Anexo 24 files with your e.firma, or do you seal them yourself?',
+    impact:
+      'Sealing means the private key of the taxpayer is loaded and used by this software. The files ' +
+      'it produces are a declaration to the tax authority signed in your name.',
+    options: [
+      {
+        value: 'nunca_sellar_en_el_sistema',
+        label: 'Never: the system produces the unsealed XML and you seal and transmit it yourself',
+      },
+      {
+        value: 'sellar_con_custodia',
+        label: 'Seal here, with the key held in the credential vault and every use logged',
+      },
+    ],
+    defaultValue: 'nunca_sellar_en_el_sistema',
+    defaultRationale:
+      'The e.firma is the taxpayer signing, not the software. Producing the file and signing it are ' +
+      'different acts and belong to different hands: this system builds the XML, shows you what it ' +
+      'contains, and stops. The vault exists for the credentials the system genuinely needs; the ' +
+      'signature on a declaration is not one of them. Firms that decide otherwise can say so here, ' +
+      'and then every decryption is logged — but the default is that your key never enters this ' +
+      'process.',
+    whyAsking:
+      'Sealing an Anexo 24 file means your private key is used by this software to sign a declaration in your name. That is not a technical detail I get to assume for you: it is your signature.',
+    whatIDo: 'I build the XML unsealed and hand it to you; the sealing and the transmission are yours.',
+    ifSkipped: 'I never seal: your key does not enter this process.',
+    priority: 15,
+  },
+  {
+    key: 'anexo24_cuenta_sin_agrupador',
+    category: 'contable',
+    question: 'Generating the Anexo 24 catalogue with accounts that have no grouping code: refuse, or emit them?',
+    impact:
+      'The CtaCatalogo node requires CodigoAgrupador on every account. An account without one either ' +
+      'gets left out of the file — so the balance references an account the catalogue does not ' +
+      'declare — or goes in empty and the XSD rejects it.',
+    options: [
+      { value: 'bloquear', label: 'Refuse to generate until every account carries its grouping code' },
+      { value: 'omitir_y_avisar', label: 'Leave them out of the file and list them' },
+    ],
+    defaultValue: 'bloquear',
+    defaultRationale:
+      'Emitting an incomplete catalogue is worse than emitting none: the balance filed afterwards ' +
+      'references accounts the catalogue never declared, and that inconsistency is exactly what the ' +
+      'authority validates across filings. Stopping costs a mapping session; filing a catalogue that ' +
+      'contradicts the balance costs a rejection with the deadline already spent.',
+    whyAsking:
+      'Every account in the file needs its SAT grouping code, and I can either stop and tell you which ones are missing or hand you a catalogue that does not match the balance you will file next.',
+    whatIDo: 'I refuse to generate and name the accounts that are missing their grouping code.',
+    ifSkipped: 'I refuse and name them.',
+    priority: 25,
+  },
+  {
+    key: 'anexo24_niveles_a_presentar',
+    category: 'contable',
+    question: 'Which levels of the chart go into the Anexo 24 catalogue?',
+    impact:
+      'The file declares the hierarchy through SubCtaDe and Nivel. Filing only the top levels hides ' +
+      'the detail the authority uses to follow an entry; filing everything exposes a chart that may ' +
+      'carry internal analytical accounts.',
+    options: [
+      { value: 'jerarquia_completa', label: 'Every account, with its parent and level' },
+      { value: 'hasta_nivel_2', label: 'Only rubros and first-level accounts' },
+      { value: 'las_que_se_mueven', label: 'Only accounts with posted movement, plus their parents' },
+    ],
+    defaultValue: 'jerarquia_completa',
+    defaultRationale:
+      'The catalogue is the map the authority reads the balance and the entries against, so an account ' +
+      'that appears in either must appear here. Trimming it creates references the file cannot ' +
+      'resolve, and the hierarchy is precisely what SubCtaDe exists to carry.',
+    whyAsking:
+      'The file has to declare the hierarchy of your chart, and how deep it goes decides whether a later filing can reference an account this catalogue never mentioned.',
+    whatIDo: 'I include the whole chart with its parent-child structure.',
+    ifSkipped: 'I include every account with its hierarchy.',
+    priority: 30,
+  },
+  {
     key: 'agrupador_alcance_de_la_compuerta',
     category: 'contable',
     question: 'Which accounts must carry a SAT grouping code before the books can be filed?',

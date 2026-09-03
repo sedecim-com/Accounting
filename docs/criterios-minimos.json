@@ -49,8 +49,15 @@
     "E5.1 · Los precios del ledger declaran su vigencia, y el reporte la muestra",
     "E5.1 · Ninguna herramienta del agente alcanza el mayor ni ejecuta hacia fuera",
     "E5.1 · Toda hoja del CLI declara su riesgo, así que hay algo sobre lo que aplicar la compuerta",
-    "E5.1 · Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre"
+    "E5.1 · Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre",
+    "E1.3 · Encender el auto-posteo es del panel: la bandera y el archivo sólo pueden ser más estrictos",
+    "E1.3 · La sombra mide el modo que se va a encender, y la decisión se escribe donde se midió",
+    "E1.3 · A qué cuenta va un saldo condonado lo decide el panel, y sin motivo escrito no se condona",
+    "E2.1 · Ninguna ruta acota su trabajo por una entidad que nadie comprobó",
+    "E2.1 · Ninguna mutación de GraphQL entra al motor sin permiso, y una nueva no puede nacer sin él",
+    "E2.1 · La API declara el riesgo de cada ruta que muta, en el primer manejador, y el arranque muere si alguna no lo hace"
   ],
   "_f05": "F05 (frontera de banco) subio el piso de 31 a 37 criterios: los seis verdes de E2.1 que nadie protegia. Se anaden aqui porque el arreglo de la frontera bancaria estuvo a punto de regresar uno de ellos —acotaba por `req.entityId` sin montar requireEntityAccess, y acotar por una cabecera que nadie valida no es acotar—. El criterio lo cazo; el piso impide que la proxima vez dependa de que alguien mire.",
-  "_f05d": "F05d subio el piso de 37 a 46: los nueve verdes de E0.0 que nadie protegia, incluido «el corpus tiene compuerta de caducidad» — que este mismo tramo estuvo a punto de volver inutil sin tocarlo. Al anadir al manual una segunda mencion de 1135 (la regla del cheque cobrado), el mutante que vigilaba la del PPD paso a mutar la nueva y el criterio, que solo comprobaba PRESENCIA del numero, seguia en verde mientras el manual podia ensenar lo contrario. Un ancla de presencia caduca en cuanto alguien escribe cerca."
+  "_f05d": "F05d subio el piso de 37 a 46: los nueve verdes de E0.0 que nadie protegia, incluido «el corpus tiene compuerta de caducidad» — que este mismo tramo estuvo a punto de volver inutil sin tocarlo. Al anadir al manual una segunda mencion de 1135 (la regla del cheque cobrado), el mutante que vigilaba la del PPD paso a mutar la nueva y el criterio, que solo comprobaba PRESENCIA del numero, seguia en verde mientras el manual podia ensenar lo contrario. Un ancla de presencia caduca en cuanto alguien escribe cerca.",
+  "_f07b": "El piso sube de 46 a 52 con los verdes de E2.1 que otra sesion gano en paralelo (permisos de GraphQL y declaracion de riesgo por ruta). No son de F07b: el trinquete los reclama en el primer commit que pasa por aqui, y eso es exactamente lo que impide que un verde recien ganado se pierda sin que nadie lo note."
 }

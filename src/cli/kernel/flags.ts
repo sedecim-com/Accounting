@@ -412,6 +412,41 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // documento, y en este binario hay tres cosas con UUID (el CFDI, el asiento
   // y la entidad).
   '--cfdi-uuid': null,
+
+  // ── F07b · el XML del Anexo 24 que se entrega ─────────────────────────
+  //
+  // Sólo DOS grafías nuevas, y ninguna lleva forma corta. La familia
+  // `e-accounting`·`contabilidad-electronica` habla sobre todo banderas que ya
+  // estaban congeladas —`--period`, `--dry-run`, `-o/--output`, `--check`,
+  // `--strict`, `--json`, `-y/--yes`—, y una de ellas conviene dejar anotada
+  // porque llega con otro inquilino: `--type`. Está congelada desde F05a como
+  // la naturaleza de una cuenta bancaria, y aquí la fila 2063 del catálogo la
+  // reutiliza como el TipoEnvio del archivo (N normal, C complementaria). Es
+  // el mismo caso que `--method` en G1b: dos inquilinos, un concepto de fondo
+  // —«de qué clase es esto»— y ninguna forma corta, que es lo que el
+  // diccionario gobierna. Queda escrito aquí para que el día que alguien le
+  // ponga una `-t` (hoy el inquilino) el auditor lo diga en las dos familias.
+  //
+  // `--closing` ES LA BALANZA DEL EJERCICIO Y NO UN MES. Va con Mes 13 y
+  // declara los AJUSTES de cierre, así que NO es diciembre otra vez: la
+  // diferencia importa porque presentar diciembre con Mes 13 entrega un
+  // archivo que la autoridad acepta y que no contiene el cierre — nadie se
+  // entera hasta la revisión. Se escribe entera y no `--close` para no rozar
+  // el VERBO `close`·`cerrar`, que existe y hace otra cosa, ni
+  // `--closing-balance` de F05a, que es el saldo final que un operador afirma
+  // sobre un extracto bancario.
+  '--closing': null,
+  // FECHA EN QUE SE MODIFICÓ LA BALANZA QUE SE COMPLEMENTA (`FechaModBal`).
+  // Obligatoria con `--type C` y prohibida con `--type N`, y las dos cosas las
+  // impone el constructor del XML, no esta bandera.
+  //
+  // NO es `--as-of`, que en este diccionario es una fecha de VALUACIÓN con la
+  // que se filtra o se valora; ni `--since`/`--until`, que son los límites de
+  // un filtro. Es un DATO DE LA FILA —igual que `--start` y `--end` de D1a—:
+  // viaja al archivo como un atributo y la autoridad lo lee para saber qué
+  // envío anterior está siendo sustituido. Una fecha equivocada aquí no
+  // devuelve una lista mal filtrada: liga la complementaria al envío que no es.
+  '--modified': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

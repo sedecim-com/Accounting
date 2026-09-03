@@ -199,6 +199,20 @@ export interface RutaCensada {
   posicionDeclaracion: number;
   /** Cuántos manejadores de la cadena llevan declaración. */
   declaraciones: number;
+  /**
+   * LA CADENA REAL DE LA RUTA, en el orden en que Express la corre.
+   *
+   * El censo ya recorre la pila; guardar lo que encuentra evita que cada
+   * instrumento derivado escriba SU PROPIO recorrido — que es como se
+   * consiguen dos censos que discrepan. El contrato de la API
+   * (openapi.ts) lo usa para sacar de aquí el esquema de Zod que valida
+   * el cuerpo y el permiso que la ruta exige, ambos colgados de su
+   * manejador igual que la declaración de riesgo lo está del suyo.
+   *
+   * Es `unknown[]` a propósito: este archivo no sabe de Zod ni de
+   * permisos, y no tiene por qué. Quien pregunta trae su lector.
+   */
+  manejadores: readonly unknown[];
 }
 
 // ============================================================
@@ -250,7 +264,8 @@ function recorrer(pila: CapaExpress[], prefijo: string, salida: RutaCensada[]): 
   for (const capa of pila) {
     if (capa.route) {
       const rutas = Array.isArray(capa.route.path) ? capa.route.path : [capa.route.path];
-      const enCadena = capa.route.stack.map((h) => riesgoDeManejador(h.handle));
+      const manejadores = capa.route.stack.map((h) => h.handle);
+      const enCadena = manejadores.map((h) => riesgoDeManejador(h));
       const posicion = enCadena.findIndex((r) => r !== undefined);
       const cuantas = enCadena.filter((r) => r !== undefined).length;
       const declarado = posicion === -1 ? undefined : enCadena[posicion];
@@ -264,6 +279,7 @@ function recorrer(pila: CapaExpress[], prefijo: string, salida: RutaCensada[]): 
             riesgo: declarado,
             posicionDeclaracion: posicion,
             declaraciones: cuantas,
+            manejadores,
           });
         }
       }

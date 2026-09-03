@@ -499,6 +499,7 @@ export const CRITERIOS: Criterio[] = [
         R4: 'docs/auditorias/R4.md',
         D1a: 'docs/auditorias/D1a.md',
         F07a: 'docs/auditorias/F07a.md',
+        F07b: 'docs/auditorias/F07b.md',
         G1a: 'docs/auditorias/G1a.md',
         G1b: 'docs/auditorias/G1b.md',
         G0: 'docs/auditorias/G0.md',
@@ -4199,6 +4200,68 @@ export const CRITERIOS: Criterio[] = [
       return entregada
         ? ok('la guarda de estado es única y la usan todos los verbos, el origen es propio, la reversa es todo-o-nada y la familia está en el binario')
         : falla('registerBatchCommand no está en el binario: el staging de F01 vuelve a ser un almacén sin salida');
+    },
+  },
+
+  // ---- F07b · El XML que se entrega a la autoridad ----
+
+  {
+    paquete: 'E2.1',
+    enunciado: 'La contabilidad electrónica no cruza inquilinos, y el recálculo del SAT respeta la naturaleza de la cuenta',
+    mutantes: [
+      {
+        // Gravedad 2 que el adversarial cazó: la balanza resolvía el
+        // contribuyente con `WHERE id = $1` y nada más, mientras el catálogo
+        // sí acotaba. Con la RLS inerte —que es como corre la suite, a
+        // propósito— verificar la balanza de una entidad ajena publicaba su
+        // plan de cuentas entero, y generar habría archivado un artefacto
+        // FISCAL con el tenant_id del otro despacho.
+        archivo: 'src/services/sat/anexo24/balanza-service.ts',
+        de: '      WHERE id = $1 AND ($2::uuid IS NULL OR tenant_id = $2::uuid)`,',
+        a: '      WHERE id = $1`,',
+        porque: 'la balanza del Anexo 24 vuelve a resolver el contribuyente sin acotar por inquilino: se publica el plan de cuentas de otro despacho y se archiva un artefacto fiscal con su tenant_id',
+      },
+      {
+        // La trampa del tramo: el recálculo que la autoridad rehace NO es
+        // simétrico. Una cuenta acreedora y una deudora con los mismos
+        // cuatro números se declaran distinto, y tratarlas igual entrega un
+        // archivo que cuadra en el sistema y no en el SAT.
+        archivo: 'src/services/sat/anexo24/balanza-invariantes.ts',
+        de: 'export function recalculoDelSat(i: ImportesDeclarados, natur: Natur): Decimal {',
+        a: 'export function recalculoDelSat(i: ImportesDeclarados, _natur: Natur): Decimal {',
+        porque: 'el recálculo deja de mirar la naturaleza de la cuenta: una acreedora se verifica con la aritmética de una deudora y el archivo entregado cuadra donde el SAT dirá que no cuadra',
+      },
+    ],
+    evaluar: () => {
+      const bal = codigoDe('src/services/sat/anexo24/balanza-service.ts');
+      const inv = codigoDe('src/services/sat/anexo24/balanza-invariantes.ts');
+      const art = codigoDe('src/services/sat/anexo24/artefactos.ts');
+
+      // 1. LA FRONTERA, DENTRO DEL SQL. Séptima aparición de esta frontera en
+      //    el proyecto, y la primera en un artefacto que se entrega a la
+      //    autoridad: aquí el cruce no sólo filtra datos, los ARCHIVA a
+      //    nombre de otro contribuyente.
+      if (!/tenant_id = \$2::uuid/.test(bal)) {
+        return falla('la balanza del Anexo 24 dejó de acotar por inquilino: publicaría el plan de cuentas de otro despacho y archivaría su artefacto fiscal con el tenant ajeno');
+      }
+      // 2. EL RECÁLCULO RESPETA LA NATURALEZA. SaldoIni + Debe − Haber =
+      //    SaldoFin no se calcula igual en una cuenta deudora que en una
+      //    acreedora, y ésa es la trampa que hace que un archivo cuadre aquí
+      //    y no allá.
+      if (!/export function recalculoDelSat\(i: ImportesDeclarados, natur: Natur\)/.test(inv)) {
+        return falla('el recálculo del SAT dejó de mirar la naturaleza de la cuenta: el archivo cuadraría en el sistema y no en la autoridad');
+      }
+      // 3. Y EL ARCHIVO NO VA SELLADO SALVO QUE EL DESPACHO LO DIGA. La
+      //    e.firma es el contribuyente firmando, no el software: construir el
+      //    archivo y firmarlo son actos distintos y de manos distintas.
+      // Se ancla el CAMPO, no el nombre de la política: `codigoDe` despoja los
+      // comentarios, y el nombre de la política sólo aparecía en uno. Un
+      // criterio que ancla prosa mide lo que el despojador acaba de borrar —
+      // la lección del censo de confirmación, esta vez del otro lado.
+      const sinSellar = /politicaSellado: string;/.test(art);
+      return sinSellar
+        ? ok('el Anexo 24 no cruza inquilinos, el recálculo respeta la naturaleza de cada cuenta, y el archivo sale sin sellar salvo que el panel diga lo contrario')
+        : falla('el artefacto dejó de registrar el criterio de sellado: nadie podría saber si el archivo entregado llevaba la e.firma del contribuyente');
     },
   },
 

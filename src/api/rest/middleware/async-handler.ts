@@ -19,13 +19,49 @@ export function asyncHandler<
   };
 }
 
+// ============================================================
+// EL ESQUEMA VIAJA EN EL MANEJADOR.
+//
+// `validateBody(esquema)` era una caja cerrada: el esquema quedaba dentro
+// del cierre y desde fuera no había forma de preguntarle a una ruta qué
+// cuerpo admite. Por eso la API tenía 50 esquemas de Zod validando cada
+// petición y CERO especificación: lo único publicable era una lista
+// escrita a mano al lado del código, que es justo la clase de artefacto
+// que este proyecto lleva un mes cazando.
+//
+// La marca es la MISMA técnica que `declararRiesgoRuta` usa para la clase
+// de riesgo (../risk.ts), y por el mismo motivo: un mapa aparte indexado
+// por ruta es otra lista paralela, y una ruta renombrada lo deja mintiendo
+// en silencio. Colgado del manejador, el esquema no puede separarse de lo
+// que valida — el censo recorre la pila real de Express y lo encuentra ahí
+// o no existe.
+//
+// La marca no CAMBIA nada: `validateBody` valida exactamente igual que
+// antes. Sólo deja de ser opaca.
+// ============================================================
+const MARCA_CUERPO = Symbol('esquema-de-cuerpo');
+
+type ManejadorConEsquema = RequestHandler & { [MARCA_CUERPO]?: ZodTypeAny };
+
+/** El esquema de cuerpo que lleva un manejador, si lo lleva. */
+export function esquemaDeCuerpo(h: unknown): ZodTypeAny | undefined {
+  return typeof h === 'function' ? (h as ManejadorConEsquema)[MARCA_CUERPO] : undefined;
+}
+
 /**
  * Validate `req.body` against a Zod schema. On success the parsed value
  * replaces `req.body` (so handlers see the typed shape). On failure throws a
- * ValidationError that errorHandler converts to a 400 with field details.
+ * ValidationError that errorHandler converts to a 422 with field details.
+ * (Decía 400; `ValidationError` construye con 422 desde utils/errors.ts, y el
+ * contrato publicado sale de ahí, así que el comentario tenía que dejar de
+ * decir otra cosa.)
+ *
+ * El manejador que devuelve lleva colgado el esquema (`esquemaDeCuerpo`),
+ * para que el contrato de la API pueda derivarse de lo que la API valida
+ * de verdad y no de una copia.
  */
 export function validateBody<S extends ZodTypeAny>(schema: S): RequestHandler {
-  return (req, _res, next) => {
+  const validador: ManejadorConEsquema = (req, _res, next) => {
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
       const details = parsed.error.errors.map(
@@ -36,6 +72,8 @@ export function validateBody<S extends ZodTypeAny>(schema: S): RequestHandler {
     req.body = parsed.data as ZInfer<S>;
     next();
   };
+  validador[MARCA_CUERPO] = schema;
+  return validador;
 }
 
 /**

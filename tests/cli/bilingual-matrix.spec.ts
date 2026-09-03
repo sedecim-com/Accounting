@@ -67,6 +67,10 @@ const TOP_LEVEL: Record<string, string> = {
   // español es `flujo` a secas — «efectivo» no se repite porque en español el
   // flujo contable ya es de efectivo; el catálogo lo fijó así.
   cashflow: 'flujo',
+  // F07b: la contabilidad electrónica del Anexo 24. El alias no se abrevia:
+  // «contabilidad-electronica» es como la nombra la ley y como la busca quien
+  // la necesita.
+  'e-accounting': 'contabilidad-electronica',
   // D1a: el gasto que cubre periodos futuros. El alias es «pago-anticipado»
   // y no «anticipo»: un anticipo A PROVEEDOR (1150) es otra cosa —dinero que
   // sale antes de recibir— y confundirlos en la terminal sería confundirlos
@@ -152,6 +156,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   // R4: `rate` es calificador de `fx`, como `statement` lo es de `bank`.
   fx: { rate: 'tipo' },
   prepaid: { create: 'crear', list: 'listar', show: 'ver', run: 'ejecutar' },
+  'e-accounting': { catalog: 'catalogo', balance: 'balanza' },
   // G1b: las dos hojas de fase 1 del catálogo.
   cashflow: { generate: 'generar', reconcile: 'conciliar' },
   // F05b: los tres sustantivos del cotejo. `match` es OBJETO aquí (el cotejo),

@@ -78,7 +78,7 @@ const conocidos = comandosRegistrados(program);
 describe('veredictoDeRaiz — el árbitro puro', () => {
   it('un alias real un nivel abajo se sugiere con su ruta: balanza → report balanza', () => {
     const v = veredictoDeRaiz('balanza', conocidos);
-    expect(v).toEqual({ tipo: 'desconocido', sugerencia: 'report balanza' });
+    expect(v).toEqual({ tipo: 'desconocido', sugerencia: 'e-accounting balanza o report balanza' });
   });
 
   it('un dedazo en la raíz sugiere el comando raíz: reprot → report', () => {
@@ -129,7 +129,7 @@ describe('la raíz de verdad (proceso completo)', () => {
     const r = corre(['balanza']);
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("unknown command 'balanza'");
-    expect(r.stderr).toContain('report balanza');
+    expect(r.stderr).toContain('e-accounting balanza o report balanza');
   }, 90_000);
 
   it('reprot: código 2 y Did you mean report', () => {

@@ -92,6 +92,7 @@ import { registerBatchCommand } from './batch-command.js';
 import { registerClosingCommand } from './closing-command.js';
 import { registerFxCommand } from './fx-command.js';
 import { registerPrepaidCommand } from './prepaid-command.js';
+import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerCashFlowCommand } from './cashflow-command.js';
 import { registerAuditCommand } from './audit-command.js';
 import { registerBackupCommand } from './backup-command.js';
@@ -2249,6 +2250,7 @@ registerBatchCommand(program, { palette: c, shutdown, reportError });
 registerClosingCommand(program, { palette: c, shutdown, reportError });
 registerFxCommand(program, { palette: c, shutdown, reportError });
 registerPrepaidCommand(program, { palette: c, shutdown, reportError });
+registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerCashFlowCommand(program, { palette: c, shutdown, reportError });
 registerAuditCommand(program, { palette: c, shutdown, reportError });
 registerBackupCommand(program, { palette: c, shutdown, reportError });
@@ -2362,22 +2364,33 @@ export function veredictoDeRaiz(
 
   // Umbral de commander (suggestSimilar): a lo más 3 ediciones y similitud
   // mayor a 0.4; empates al orden alfabético para que la salida sea estable.
-  let mejor: { invocacion: string; distancia: number } | null = null;
+  //
+  // CUANDO HAY EMPATE, SE OFRECEN LAS DOS. El desempate alfabético hacía la
+  // salida estable pero elegía por el usuario, y desde F07b hay palabras que
+  // viven en dos familias: «balanza» es la de comprobación (`report`) y
+  // también la del Anexo 24 (`e-accounting`). Quien la teclea suele querer la
+  // primera, pero «suele» no es saber, y adivinar mal a alguien que ya está
+  // perdido lo manda más lejos. Se listan las candidatas empatadas, en orden
+  // alfabético para que la salida siga siendo estable.
+  let mejorDistancia = Infinity;
+  let empatadas: string[] = [];
   for (const candidato of comandos) {
     if (candidato.clave.length <= 1) continue;
     const claveNormal = normalizarToken(candidato.clave);
     const distancia = distanciaDeEdicion(normal, claveNormal);
     const largo = Math.max(normal.length, claveNormal.length);
     if (distancia > 3 || (largo - distancia) / largo <= 0.4) continue;
-    if (
-      !mejor ||
-      distancia < mejor.distancia ||
-      (distancia === mejor.distancia && candidato.invocacion < mejor.invocacion)
-    ) {
-      mejor = { invocacion: candidato.invocacion, distancia };
+    if (distancia < mejorDistancia) {
+      mejorDistancia = distancia;
+      empatadas = [candidato.invocacion];
+    } else if (distancia === mejorDistancia && !empatadas.includes(candidato.invocacion)) {
+      empatadas.push(candidato.invocacion);
     }
   }
-  return { tipo: 'desconocido', sugerencia: mejor?.invocacion ?? null };
+  empatadas.sort();
+  const sugerencia =
+    empatadas.length === 0 ? null : empatadas.length === 1 ? empatadas[0] : empatadas.join(' o ');
+  return { tipo: 'desconocido', sugerencia };
 }
 
 // Exported for scripts/generate-cli-reference.ts, which walks the command

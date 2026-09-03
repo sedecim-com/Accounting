@@ -21,146 +21,71 @@ Usage: mnemosine [options] [command]
 AI accounting assistant — converse with your accounting from the terminal
 
 Options:
-  -V, --version                         output the version number
-  -T, --tenant <uuid>                   Tenant to operate on (or
-                                        MNEMOSINE_TENANT). Scopes EVERY query
-                                        via RLS
-  -h, --help                            display help for command
+  -V, --version                          output the version number
+  -T, --tenant <uuid>                    Tenant to operate on (or MNEMOSINE_TENANT). Scopes EVERY query via RLS
+  -h, --help                             display help for command
 
 Commands:
-  entities|entidades                    Lists the active legal entities
-                                        (deprecated: use `mnemosine entity
-                                        list`)
-  providers|proveedores                 Lists the configured model providers
-                                        (built-in + mnemosine.config.json)
-  ask|pregunta [options] <question...>  Asks a single question and exits
-  chat [options]                        Opens an interactive chat session
-                                        (default)
-  sessions|sesiones [options]           Lists recent chat sessions (resume one
-                                        with: mnemosine chat --resume <id>)
-  drafts|borradores [options]           Lists the journal entry drafts created
-                                        by the AI
-  review|revisar [options]              Reviews pending drafts: approve (creates
-                                        and posts the journal entry) or reject
-  ingest|ingesta [options] <files...>   Batch ingestion of CFDIs (XML): rules →
-                                        AI classification → drafts (or auto-post
-                                        by thresholds)
-  lang|idioma [language]                Shows or sets the language of the
-                                        AGENT's answers (CLI UI stays English;
-                                        Spanish command aliases always work)
-  onboard|alta [options]                Imports a client's accounting from an
-                                        external system (chart of accounts +
-                                        opening balances)
-  outbox|envio [options]                Operations queued for external
-                                        accounting systems: list, review and
-                                        execute
-  question|duda [options]               The agent's pending questions: list,
-                                        answer (saved as a precedent) or dismiss
-  sat                                   SAT services (e.firma credentials; the
-                                        CFDI bulk download is not built yet)
-  pending|pendientes [options]          What you need to do: work to resolve and
-                                        policy decisions to define
-  login|entrar [options]                Signs in with your identity provider
-                                        (OIDC)
-  logout|salir                          Deletes the stored credential
-  whoami|quien                          Shows the active credential and its
-                                        validity
-  doctor [options]                      Diagnoses system health: DB, migrations,
-                                        provider, credentials, isolation
-  memory|memoria [options]              Firm precedents: what the AI learned and
-                                        you control
-  prompt-size|tamano-prompt [options]   Offline breakdown of the system prompt
-                                        and tool schemas (no API calls)
-  compact|compactar [options]           Dry-run compaction report for a session
-                                        transcript (no API calls)
-  approvals|aprobaciones                Graduated approval policies for staged
-                                        writes (once / session / always)
-  entity|entidad                        Select and inspect the legal entity
-                                        commands operate on
-  payment|pago                          Vendor payments: record cash that
-                                        already left the bank and settle the
-                                        bill it pays
-  account|cuenta                        Chart of accounts: inspect, create and
-                                        retire accounts
-  entry|poliza                          Journal entries: draft, inspect,
-                                        validate, post, reverse and void
-  period|periodo                        Fiscal periods: what exists, what state
-                                        it is in, and opening a future one
-  year|ejercicio                        Fiscal years: the calendar an entity
-                                        keeps its books in
-  vendor|proveedor                      Vendor master: who we owe money to, on
-                                        what terms, under which tax id
-  bill|factura-proveedor                Vendor bills: capture, code, inspect and
-                                        approve what we owe
-  customer|cliente                      Customers: the AR master file, with the
-                                        balance each one owes
-  invoice|factura                       Customer invoices: draft, inspect, issue
-                                        to the ledger and void (never stamped
-                                        here)
-  receipt|cobro                         Customer collections: record cash, apply
-                                        on-account balance, unapply, and reverse
-                                        bounced checks
-  credit-note|nota-credito              Credit notes: returns, discounts and
-                                        corrections against the receivable
-                                        (never stamped here)
-  ar|cxc                                Receivables controls: reconcile the
-                                        subledger against the control account,
-                                        run named diagnostics
-  ap|cxp                                Payables controls: reconcile the vendor
-                                        subledger against the control account
-  bank|banco                            Bank accounts and bank statements:
-                                        master data and imported statements
-  asset|activo                          Fixed asset register: the ledger of what
-                                        the company owns and depreciates
-  depreciation|depreciacion             The monthly depreciation run: compute
-                                        it, look at it, then post it
-  batch|lote                            Staged entry batches: list, inspect,
-                                        check, post transactionally and reverse
-                                        as a unit
-  closing|cierre-proceso                The close as a process: its read-only
-                                        surface — readiness, named checks,
-                                        offenders
-  fx|cambio                             Exchange rates: the origin every
-                                        foreign-currency amount converts from
-  prepaid|pago-anticipado               Prepaid expenses: the schedule that
-                                        takes them out of 1160, month by month
-  cashflow|flujo                        Statement of cash flows (NIF B-2 / ASC
-                                        230): build it, and tie it to real cash
-  audit|auditoria                       Read the audit trail: who changed what,
-                                        when, and from which value
-  backup|respaldo                       Logical backups of the whole
-                                        installation (create, list, verify by
-                                        rehearsing the restore, restore) and
-                                        per-tenant logical exports (export)
-  report|reporte                        Financial statements, trial balance,
-                                        general ledger and ageing
-  ledger|mayor                          The general ledger itself: integrity
-                                        checks, stale drafts, auxiliaries and
-                                        balances
-  cfdi                                  The CFDI mirror: list, inspect, SAT
-                                        status and the classifier trail
-  rep                                   Payment receipts (REP): what is missing
-                                        one, and the parked ones to retry
-  ai|ia                                 Métricas y calibración del agente
-                                        contable
-  usage|uso [options]                   Token usage and estimated cost from the
-                                        local ledger (no API calls)
-  status|estado [options]               Health snapshot: config, live provider
-                                        probes, database and RLS (redacted,
-                                        shareable)
-  jobs|tareas                           Persisted scheduled agent tasks (all
-                                        output is reviewable drafts, never
-                                        direct writes)
-  skills|habilidades                    Firm skills: list, review staged
-                                        changes, view content
-  webhooks|ganchos                      Inbound webhook tokens: dedicated
-                                        credentials that wake a restricted
-                                        reader agent
-  init|configurar [options]             Guided setup: infrastructure, entity,
-                                        users, AI provider, and your books
-  close|cierre [options]                Month-end close: checks what is missing
-                                        and closes the period
-  help [command]                        display help for command
+  entities|entidades                     Lists the active legal entities (deprecated: use `mnemosine entity list`)
+  providers|proveedores                  Lists the configured model providers (built-in + mnemosine.config.json)
+  ask|pregunta [options] <question...>   Asks a single question and exits
+  chat [options]                         Opens an interactive chat session (default)
+  sessions|sesiones [options]            Lists recent chat sessions (resume one with: mnemosine chat --resume <id>)
+  drafts|borradores [options]            Lists the journal entry drafts created by the AI
+  review|revisar [options]               Reviews pending drafts: approve (creates and posts the journal entry) or reject
+  ingest|ingesta [options] <files...>    Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)
+  lang|idioma [language]                 Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)
+  onboard|alta [options]                 Imports a client's accounting from an external system (chart of accounts + opening balances)
+  outbox|envio [options]                 Operations queued for external accounting systems: list, review and execute
+  question|duda [options]                The agent's pending questions: list, answer (saved as a precedent) or dismiss
+  sat                                    SAT services (e.firma credentials; the CFDI bulk download is not built yet)
+  pending|pendientes [options]           What you need to do: work to resolve and policy decisions to define
+  login|entrar [options]                 Signs in with your identity provider (OIDC)
+  logout|salir                           Deletes the stored credential
+  whoami|quien                           Shows the active credential and its validity
+  doctor [options]                       Diagnoses system health: DB, migrations, provider, credentials, isolation
+  memory|memoria [options]               Firm precedents: what the AI learned and you control
+  prompt-size|tamano-prompt [options]    Offline breakdown of the system prompt and tool schemas (no API calls)
+  compact|compactar [options]            Dry-run compaction report for a session transcript (no API calls)
+  approvals|aprobaciones                 Graduated approval policies for staged writes (once / session / always)
+  entity|entidad                         Select and inspect the legal entity commands operate on
+  payment|pago                           Vendor payments: record cash that already left the bank and settle the bill it pays
+  account|cuenta                         Chart of accounts: inspect, create and retire accounts
+  entry|poliza                           Journal entries: draft, inspect, validate, post, reverse and void
+  period|periodo                         Fiscal periods: what exists, what state it is in, and opening a future one
+  year|ejercicio                         Fiscal years: the calendar an entity keeps its books in
+  vendor|proveedor                       Vendor master: who we owe money to, on what terms, under which tax id
+  bill|factura-proveedor                 Vendor bills: capture, code, inspect and approve what we owe
+  customer|cliente                       Customers: the AR master file, with the balance each one owes
+  invoice|factura                        Customer invoices: draft, inspect, issue to the ledger and void (never stamped here)
+  receipt|cobro                          Customer collections: record cash, apply on-account balance, unapply, and reverse bounced checks
+  credit-note|nota-credito               Credit notes: returns, discounts and corrections against the receivable (never stamped here)
+  ar|cxc                                 Receivables controls: reconcile the subledger against the control account, run named diagnostics
+  ap|cxp                                 Payables controls: reconcile the vendor subledger against the control account
+  bank|banco                             Bank accounts and bank statements: master data and imported statements
+  asset|activo                           Fixed asset register: the ledger of what the company owns and depreciates
+  depreciation|depreciacion              The monthly depreciation run: compute it, look at it, then post it
+  batch|lote                             Staged entry batches: list, inspect, check, post transactionally and reverse as a unit
+  closing|cierre-proceso                 The close as a process: its read-only surface — readiness, named checks, offenders
+  fx|cambio                              Exchange rates: the origin every foreign-currency amount converts from
+  prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
+  e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
+  cashflow|flujo                         Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash
+  audit|auditoria                        Read the audit trail: who changed what, when, and from which value
+  backup|respaldo                        Logical backups of the whole installation (create, list, verify by rehearsing the restore, restore) and per-tenant logical exports (export)
+  report|reporte                         Financial statements, trial balance, general ledger and ageing
+  ledger|mayor                           The general ledger itself: integrity checks, stale drafts, auxiliaries and balances
+  cfdi                                   The CFDI mirror: list, inspect, SAT status and the classifier trail
+  rep                                    Payment receipts (REP): what is missing one, and the parked ones to retry
+  ai|ia                                  Métricas y calibración del agente contable
+  usage|uso [options]                    Token usage and estimated cost from the local ledger (no API calls)
+  status|estado [options]                Health snapshot: config, live provider probes, database and RLS (redacted, shareable)
+  jobs|tareas                            Persisted scheduled agent tasks (all output is reviewable drafts, never direct writes)
+  skills|habilidades                     Firm skills: list, review staged changes, view content
+  webhooks|ganchos                       Inbound webhook tokens: dedicated credentials that wake a restricted reader agent
+  init|configurar [options]              Guided setup: infrastructure, entity, users, AI provider, and your books
+  close|cierre [options]                 Month-end close: checks what is missing and closes the period
+  help [command]                         display help for command
 ```
 
 ## `mnemosine entities` (alias: entidades)
@@ -5312,6 +5237,132 @@ Options:
   --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
   --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
+  -h, --help                               display help for command
+```
+
+## `mnemosine e-accounting` (alias: contabilidad-electronica)
+
+```
+Usage: mnemosine e-accounting|contabilidad-electronica [options] [command]
+
+Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
+
+Options:
+  -h, --help        display help for command
+
+Commands:
+  catalog|catalogo  The chart of accounts as the SAT wants it: CtaCatalogo 1.3
+  balance|balanza   The trial balance the SAT expects: BCE 1.3, normal, amended
+                    or year-end
+  help [command]    display help for command
+```
+
+### `mnemosine e-accounting catalog` (alias: catalogo)
+
+```
+Usage: mnemosine e-accounting catalog|catalogo [options] [command]
+
+The chart of accounts as the SAT wants it: CtaCatalogo 1.3
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Build and archive the CtaCatalogo 1.3 XML (NumCta,
+                              Desc, SubCtaDe, Nivel, Natur, CodAgrup) with its
+                              hash
+  help [command]              display help for command
+```
+
+#### `mnemosine e-accounting catalog generate` (alias: generar)
+
+```
+Usage: mnemosine e-accounting catalog generate|generar [options]
+
+Build and archive the CtaCatalogo 1.3 XML (NumCta, Desc, SubCtaDe, Nivel, Natur,
+CodAgrup) with its hash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the CtaCatalogo XML to this path (the artifact store keeps its own copy)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <YYYY-MM>                       month the catalog declares (Mes and Anio of its header)
+  --dry-run                                build it and show the verdict; archive nothing and write no file
+  -y, --yes                                skip the overwrite prompt when -o names an existing file
+  -h, --help                               display help for command
+```
+
+### `mnemosine e-accounting balance` (alias: balanza)
+
+```
+Usage: mnemosine e-accounting balance|balanza [options] [command]
+
+The trial balance the SAT expects: BCE 1.3, normal, amended or year-end
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate|generar [options]  Build and archive the period's trial balance XML
+                              (SaldoIni, Debe, Haber, SaldoFin) with its hash
+  check|verificar [options]   Run the invariants the SAT re-runs: SaldoIni +
+                              Debe − Haber = SaldoFin honouring Natur, and every
+                              account in the catalog
+  help [command]              display help for command
+```
+
+#### `mnemosine e-accounting balance generate` (alias: generar)
+
+```
+Usage: mnemosine e-accounting balance generate|generar [options]
+
+Build and archive the period's trial balance XML (SaldoIni, Debe, Haber,
+SaldoFin) with its hash
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the Balanza XML to this path (the artifact store keeps its own copy)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to declare: 2026-02, its name, or the fiscal period id
+  --type <N|C>                             envelope type: N normal, C amended (needs --modified) (default: "N")
+  --closing                                the year-end balance, filed as month 13 — not December again
+  --modified <date>                        date the balance being amended was modified (FechaModBal); required with --type C
+  --dry-run                                build it and show the verdict; archive nothing and write no file
+  -y, --yes                                skip the overwrite prompt when -o names an existing file
+  -h, --help                               display help for command
+```
+
+#### `mnemosine e-accounting balance check` (alias: verificar)
+
+```
+Usage: mnemosine e-accounting balance check|verificar [options]
+
+Run the invariants the SAT re-runs: SaldoIni + Debe − Haber = SaldoFin honouring
+Natur, and every account in the catalog
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  --period <expr>                          period to check: 2026-02, its name, or the fiscal period id
+  --closing                                check the year-end balance (month 13) instead of a month
+  --check [names]                          comma-separated check names; with no value, prints the available ones
   -h, --help                               display help for command
 ```
 

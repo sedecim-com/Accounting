@@ -34,9 +34,11 @@ vi.mock('../../../src/database/connection.js', () => ({
   getPool: vi.fn(),
 }));
 
-import { MONTAJES_V1 } from '../../../src/api/rest/montajes.js';
-import publicVerificationRouter from '../../../src/api/rest/routes/public-verification.js';
-import aiWebhooksRouter from '../../../src/api/rest/routes/ai-webhooks.js';
+import {
+  MONTAJES_V1,
+  MONTAJES_FUERA_DE_V1,
+  montarSuperficieCensable,
+} from '../../../src/api/rest/montajes.js';
 import {
   declararRiesgoRuta,
   auditarRiesgoDeRutas,
@@ -50,13 +52,14 @@ import {
  * La app tal como la arma src/index.ts: la tabla compartida bajo /v1, más
  * los dos montajes que van fuera del prefijo autenticado. Sin JWT ni base:
  * el censo mira lo que Express registró, no lo que las rutas contestan.
+ *
+ * Los dos montajes de fuera se copiaban aquí a mano hasta que el contrato de
+ * la API (G4b) necesitó la misma superficie y montajes.ts la compartió:
+ * ahora los tres instrumentos —este censo, el contrato y quien venga— miran
+ * exactamente lo mismo, que es de lo que trata este archivo.
  */
 function montarApiReal(): Express {
-  const app = express();
-  for (const [sufijo, router] of MONTAJES_V1) app.use(`/v1${sufijo}`, router);
-  app.use('/public/v1', publicVerificationRouter);
-  app.use('/v1/ai/webhooks', aiWebhooksRouter);
-  return app;
+  return montarSuperficieCensable(express());
 }
 
 describe('censo de riesgo de rutas', () => {
@@ -79,8 +82,7 @@ describe('censo de riesgo de rutas', () => {
     let mutantes = 0;
     const routers: Router[] = [
       ...MONTAJES_V1.map(([, r]) => r),
-      publicVerificationRouter,
-      aiWebhooksRouter,
+      ...MONTAJES_FUERA_DE_V1.map(([, r]) => r),
     ];
     for (const router of routers) {
       if (vistos.has(router)) continue;

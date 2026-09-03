@@ -180,11 +180,42 @@ export function assertPermissions(
   }
 }
 
+// ============================================================
+// EL PERMISO VIAJA EN EL MANEJADOR.
+//
+// Misma técnica que la clase de riesgo (../risk.ts) y que el esquema de
+// cuerpo (./async-handler.ts), y por la misma razón: quien quiera saber
+// qué permiso exige una ruta no debería tener que leer 17 archivos ni
+// mantener una tabla al lado. El permiso está donde se aplica, y el censo
+// de la pila real lo encuentra ahí o no existe.
+//
+// La marca no cambia el comportamiento: `assertPermissions` decide igual
+// que antes. Sólo deja de ser opaca desde fuera.
+// ============================================================
+const MARCA_PERMISO = Symbol('permiso-de-ruta');
+
+type GuardaDePermiso = ((req: Request, res: Response, next: NextFunction) => void) & {
+  [MARCA_PERMISO]?: readonly string[];
+};
+
+/**
+ * Los permisos que exige un manejador, si es una guarda de permiso.
+ *
+ * Se exigen TODOS (`assertPermissions` rechaza en cuanto falta uno), con
+ * la única excepción del comodín `*`. Quien publique esto tiene que
+ * decirlo así: es una conjunción, no una lista de alternativas.
+ */
+export function permisosDeManejador(h: unknown): readonly string[] | undefined {
+  return typeof h === 'function' ? (h as GuardaDePermiso)[MARCA_PERMISO] : undefined;
+}
+
 export function requirePermission(...permissions: string[]) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+  const guarda: GuardaDePermiso = (req: Request, _res: Response, next: NextFunction): void => {
     assertPermissions(req.user, permissions);
     next();
   };
+  guarda[MARCA_PERMISO] = Object.freeze([...permissions]);
+  return guarda;
 }
 
 export function requireEntityAccess(req: Request, _res: Response, next: NextFunction): void {

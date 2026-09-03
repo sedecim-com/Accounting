@@ -156,6 +156,14 @@ jobs:
       # cuando cambia una fuente de un manual ya revisado — no verifica el
       # contenido (eso sería medir prosa), detecta caducidad y nombra qué releer.
       - run: npx tsx scripts/corpus-manifiesto.ts --check
+      # El contrato de la API (docs/openapi.json) se GENERA de la pila real de
+      # Express: rutas, esquemas de Zod, permisos y clase de riesgo salen de los
+      # manejadores montados. Esto falla cuando la copia publicada dejó de
+      # coincidir con las rutas — es sólo la frescura del archivo; que la
+      # especificación CUBRA todas las rutas lo exige la suite
+      # (tests/api/routes/openapi-contrato.spec.ts) y no depende de que nadie
+      # se acuerde de regenerar.
+      - run: npx tsx scripts/openapi.ts --check
 
   # EL ENSAYO DE LA RESTAURACIÓN (S3).
   #

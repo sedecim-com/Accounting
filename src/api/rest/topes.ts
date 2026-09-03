@@ -84,6 +84,40 @@ export const MAX_RENGLONES_POR_DOCUMENTO = 1_000;
  */
 export const MAX_APLICACIONES_POR_PAGO = 500;
 
+// ============================================================
+// EL TOPE TIENE QUE PODER PUBLICARSE.
+//
+// `arregloAcotado` guarda el número dentro del cierre de un `superRefine`,
+// y desde fuera del cierre no hay forma de leerlo: ni Zod lo expone ni el
+// `ZodEffects` que devuelve lo enseña en su `_def`. Mientras estuvo sólo
+// en el rechazo eso daba igual —quien se pasaba, se enteraba—, pero el
+// contrato de la API (openapi.ts) se deriva de estos mismos esquemas, y un
+// contrato que anuncia `minItems: 2` y calla el techo de 1 000 miente por
+// omisión justo donde más cuesta: quien integra descubre el tope con un
+// 422 en producción.
+//
+// Así que el tope se cuelga del esquema, con la misma técnica con la que
+// la clase de riesgo se cuelga de su manejador y el esquema de cuerpo del
+// suyo. Un mapa «esquema → tope» al lado sería otra lista paralela.
+// ============================================================
+const MARCA_COTA = Symbol('cota-de-arreglo');
+
+type ConCota = { [MARCA_COTA]?: number };
+
+/**
+ * El techo que `arregloAcotado` puso, si el esquema salió de ahí.
+ *
+ * Quien lo lea puede tratarlo como el `maxItems` COMPLETO del arreglo: la
+ * marca la pone únicamente `arregloAcotado`, cuyo `superRefine` no
+ * comprueba nada más que la longitud. Un refinamiento que hiciera algo
+ * además de eso no debe llevar esta marca.
+ */
+export function cotaDeArreglo(esquema: unknown): number | undefined {
+  return typeof esquema === 'object' && esquema !== null
+    ? (esquema as ConCota)[MARCA_COTA]
+    : undefined;
+}
+
 /**
  * Un arreglo con tope, y con un rechazo que se puede leer.
  *
@@ -110,14 +144,17 @@ export function arregloAcotado<T extends z.ZodTypeAny>(
   const { tope, plural, salida, minimo, mensajeMinimo } = opciones;
   const base =
     minimo === undefined ? z.array(elemento) : z.array(elemento).min(minimo, mensajeMinimo);
-  return base.superRefine((valor, ctx) => {
-    if (valor.length <= tope) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.too_big,
-      type: 'array',
-      maximum: tope,
-      inclusive: true,
-      message: `llegaron ${valor.length} ${plural} y caben ${tope} por petición. ${salida}`,
+  const acotado: z.ZodEffects<z.ZodArray<T>, z.infer<T>[], z.infer<T>[]> & ConCota =
+    base.superRefine((valor, ctx) => {
+      if (valor.length <= tope) return;
+      ctx.addIssue({
+        code: z.ZodIssueCode.too_big,
+        type: 'array',
+        maximum: tope,
+        inclusive: true,
+        message: `llegaron ${valor.length} ${plural} y caben ${tope} por petición. ${salida}`,
+      });
     });
-  });
+  acotado[MARCA_COTA] = tope;
+  return acotado;
 }

@@ -1,4 +1,4 @@
-import type { Router } from 'express';
+import type { Express, Router } from 'express';
 import accountsRouter from './routes/accounts.js';
 import journalEntriesRouter from './routes/journal-entries.js';
 import invoicesRouter from './routes/invoices.js';
@@ -14,6 +14,8 @@ import blockchainRouter from './routes/blockchain.js';
 import integrationsRouter from './routes/integrations.js';
 import payrollRouter from './routes/payroll.js';
 import aiRouter from './routes/ai.js';
+import publicVerificationRouter from './routes/public-verification.js';
+import aiWebhooksRouter from './routes/ai-webhooks.js';
 
 // ============================================================
 // LA TABLA DE MONTAJE DEL PREFIJO AUTENTICADO.
@@ -56,3 +58,47 @@ export const MONTAJES_V1: ReadonlyArray<readonly [string, Router]> = [
   ['/payroll', payrollRouter],
   ['/ai', aiRouter],
 ];
+
+/**
+ * Los montajes que NO van detrás de `authenticate`, con la dirección
+ * exacta con la que src/index.ts los cuelga.
+ *
+ * Están fuera de MONTAJES_V1 porque index.ts los monta uno por uno con su
+ * condición a la vista —/public/v1 sólo si PUBLIC_VERIFICATION_ENABLED, los
+ * webhooks de IA con su propio limitador— y meterlos en la tabla escondería
+ * esa diferencia. Pero un instrumento que censa la SUPERFICIE los necesita
+ * igual, y hasta hoy los copiaba a mano: `montarSuperficieCensable` existe
+ * para que dejen de copiarse.
+ */
+export const MONTAJES_FUERA_DE_V1: ReadonlyArray<readonly [string, Router]> = [
+  ['/public/v1', publicVerificationRouter],
+  ['/v1/ai/webhooks', aiWebhooksRouter],
+];
+
+/**
+ * Monta TODA la superficie de rutas REST sobre una app vacía, sin un solo
+ * middleware: ni autenticación, ni límites, ni contexto de inquilino.
+ *
+ * Es lo que necesitan los instrumentos que PREGUNTAN por las rutas en vez de
+ * servirlas —el censo de riesgo (risk.ts) y el contrato de la API
+ * (openapi.ts)—, y la razón de que exista es la de siempre en este archivo:
+ * la alternativa era que cada uno repitiera la lista de montajes, y una lista
+ * repetida es una lista que se desincroniza.
+ *
+ * DOS COSAS QUE ESTA APP NO ES:
+ *
+ *   · No es la app que sirve. `bootstrap()` intercala `authenticate`,
+ *     `tenantContext` y los dos frenos entre el prefijo y los routers; aquí no
+ *     hay nada de eso, a propósito, porque montar autenticación exigiría
+ *     configuración y ninguno de los dos instrumentos la necesita para mirar.
+ *
+ *   · No dice qué está ENCENDIDO. /public/v1 sólo se sirve con
+ *     PUBLIC_VERIFICATION_ENABLED=true; aquí se monta siempre, porque la
+ *     bandera decide si esas rutas se atienden, no si existen escritas. Quien
+ *     publique este censo tiene que decirlo así.
+ */
+export function montarSuperficieCensable(app: Express): Express {
+  for (const [sufijo, router] of MONTAJES_V1) app.use(`/v1${sufijo}`, router);
+  for (const [ruta, router] of MONTAJES_FUERA_DE_V1) app.use(ruta, router);
+  return app;
+}
