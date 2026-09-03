@@ -504,6 +504,7 @@ export const CRITERIOS: Criterio[] = [
         G1b: 'docs/auditorias/G1b.md',
         G0: 'docs/auditorias/G0.md',
         G4a: 'docs/auditorias/G4a.md',
+        G4b: 'docs/auditorias/G4b.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -4441,6 +4442,64 @@ export const CRITERIOS: Criterio[] = [
       return vigilado
         ? ok(`las ${declarados.length} garantías del esquema están selladas, y doctor falla si alguna deja de estarlo`)
         : falla('doctor dejó de leer pg_trigger.tgenabled: apagar una garantía volvería a ser indetectable');
+    },
+  },
+
+  // ---- G4b · El contrato que se pregunta, y la entrega que se reintenta ----
+
+  {
+    paquete: 'E2.1',
+    enunciado: 'El contrato de la API se deriva del censo de rutas, y la entrega saliente vencida se reintenta',
+    mutantes: [
+      {
+        // Que el contrato deje de preguntarle a la app y pase a ser una lista.
+        archivo: 'src/api/rest/openapi.ts',
+        de: "import { censarRutas, VERBOS_QUE_MUTAN, alcanceDeIdempotencia, type RutaCensada } from './risk.js';",
+        a: "import { VERBOS_QUE_MUTAN, alcanceDeIdempotencia, type RutaCensada } from './risk.js';\nconst censarRutas = (): RutaCensada[] => [];",
+        porque: 'la especificación deja de derivar de la pila real y pasa a describir un vacío: publicaría lo que alguien recordó y no lo que la app sirve, que es el defecto que este proyecto lleva un mes cazando',
+      },
+      {
+        archivo: 'src/services/webhooks/barrido-entregas.ts',
+        de: '            AND d.next_retry_at <= NOW()',
+        a: '            AND d.next_retry_at > NOW()',
+        porque: 'el barrido reclama justo las entregas que NO toca reintentar todavía y deja las vencidas donde estaban: la cola vuelve a no vaciarse nunca y la caída de treinta segundos vuelve a perder el evento para siempre',
+      },
+    ],
+    evaluar: () => {
+      const oa = codigoDe('src/api/rest/openapi.ts');
+      const barrido = codigoDe('src/services/webhooks/barrido-entregas.ts');
+
+      // 1. EL CONTRATO SE PREGUNTA, NO SE ESCRIBE. `censarRutas` (G4a) ya
+      //    recorre la pila real de Express; una especificación escrita al
+      //    lado del código se desincroniza el primer martes, y un cliente
+      //    generado de ella integra contra una API que no existe.
+      // Se ancla la IMPORTACIÓN, no el nombre: `censarRutas` aparece tres
+      // veces en el archivo, así que una sustitución local —un `const
+      // censarRutas = () => []` encima— deja la cadena viva y el ancla
+      // contenta mientras el contrato describe un vacío. Lo que importa no es
+      // que la palabra esté: es que venga del censo de G4a.
+      if (!/import \{[^}]*\bcensarRutas\b[^}]*\} from '\.\/risk\.js'/.test(oa)) {
+        return falla('el contrato de la API dejó de derivar del censo: volvería a describir lo que alguien recordó en vez de lo que la app sirve');
+      }
+      // 2. Y DICE LA VERDAD QUE G4a ESTABLECIÓ: qué ruta es irreversible y
+      //    cuál exige llave. Un contrato que no lo dice no sirve para
+      //    integrar con cuidado — el integrador no sabe qué no puede repetir.
+      if (!/alcanceDeIdempotencia/.test(oa)) {
+        return falla('la especificación dejó de publicar qué rutas exigen Idempotency-Key: quien integre no sabrá cuáles no puede reintentar a ciegas');
+      }
+      // 3. LA ENTREGA VENCIDA SE RECLAMA. El esquema traía desde la 003
+      //    `next_retry_at` y hasta su índice —un índice para una consulta que
+      //    no existía— y nadie leía la columna: `markFailed` la escribía y el
+      //    barrido no existía, así que una caída de treinta segundos del
+      //    receptor perdía el evento para siempre y en silencio.
+      // Las TRES apariciones, contadas: el reclamo, el conteo de pendientes y
+      // el informe comparten el predicado, y un mutante que invierta una sola
+      // deja las otras dos en pie con la presencia intacta.
+      const vencidas = (barrido.match(/next_retry_at <= NOW\(\)/g) ?? []).length;
+      const reclama = vencidas === 3;
+      return reclama
+        ? ok('el contrato deriva del censo y publica riesgo e idempotencia, y las entregas vencidas se reclaman en vez de quedarse')
+        : falla('el barrido dejó de reclamar las entregas vencidas: la cola no se vacía y el evento se pierde sin que nadie se entere');
     },
   },
 

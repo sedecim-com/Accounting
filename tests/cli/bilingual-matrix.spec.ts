@@ -60,6 +60,10 @@ const TOP_LEVEL: Record<string, string> = {
   // F06b: la lectura del cierre. `closing` es el proceso; `close` (que ya
   // existía) es el acto. El alias compuesto viene del catálogo.
   closing: 'cierre-proceso',
+  // G4b: las suscripciones de SALIDA. `webhooks`·`ganchos` es la familia de
+  // ENTRADA y son tablas distintas: un solo sustantivo para las dos cosas
+  // sería el defecto de nombre que esta casa lleva un mes cazando.
+  subscription: 'suscripcion',
   // G3: el rastro que responde «quién cambió qué». `auditoria` sin tilde,
   // como el resto del vocabulario español del binario.
   audit: 'auditoria',
@@ -159,6 +163,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   'e-accounting': { catalog: 'catalogo', balance: 'balanza' },
   // G1b: las dos hojas de fase 1 del catálogo.
   cashflow: { generate: 'generar', reconcile: 'conciliar' },
+  subscription: { delivery: 'entrega' },
   // F05b: los tres sustantivos del cotejo. `match` es OBJETO aquí (el cotejo),
   // no acto: el verbo `cotejar` sigue reservado para `bank transaction match`.
   bank: {

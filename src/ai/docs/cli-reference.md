@@ -72,6 +72,7 @@ Commands:
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   cashflow|flujo                         Statement of cash flows (NIF B-2 / ASC 230): build it, and tie it to real cash
   audit|auditoria                        Read the audit trail: who changed what, when, and from which value
+  subscription|suscripcion               Outbound event subscriptions: who we notify, and what we could not deliver
   backup|respaldo                        Logical backups of the whole installation (create, list, verify by rehearsing the restore, restore) and per-tenant logical exports (export)
   report|reporte                         Financial statements, trial balance, general ledger and ageing
   ledger|mayor                           The general ledger itself: integrity checks, stale drafts, auxiliaries and balances
@@ -5504,6 +5505,65 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   -h, --help                               display help for command
+```
+
+## `mnemosine subscription` (alias: suscripcion)
+
+```
+Usage: mnemosine subscription|suscripcion [options] [command]
+
+Outbound event subscriptions: who we notify, and what we could not deliver
+
+Options:
+  -h, --help        display help for command
+
+Commands:
+  delivery|entrega  Outbound delivery log and retries
+  help [command]    display help for command
+```
+
+### `mnemosine subscription delivery` (alias: entrega)
+
+```
+Usage: mnemosine subscription delivery|entrega [options] [command]
+
+Outbound delivery log and retries
+
+Options:
+  -h, --help              display help for command
+
+Commands:
+  sweep|barrer [options]  Retry every outbound delivery whose retry time has
+                          passed, with exponential backoff; deliveries that
+                          exhaust their attempts are declared dead and reported
+                          (call this from cron)
+  help [command]          display help for command
+```
+
+#### `mnemosine subscription delivery sweep` (alias: barrer)
+
+```
+Usage: mnemosine subscription delivery sweep|barrer [options]
+
+Retry every outbound delivery whose retry time has passed, with exponential
+backoff; deliveries that exhaust their attempts are declared dead and reported
+(call this from cron)
+
+Options:
+  -t, --tenant <id>        Tenant to sweep (defaults to MNEMOSINE_TENANT)
+  --all-tenants            Sweep every active tenant, each under its own tenant
+                           context
+  -n, --limit <n>          Max deliveries per tenant in this pass (default:
+                           "100")
+  --json                   JSON output
+  --dry-run                compute and show the full effect; write nothing and
+                           call nothing external
+  -y, --yes                skip the confirmation prompt
+  --idempotency-key <key>  client dedupe key, stored on success: a retry with
+                           the same key and payload returns the recorded result
+  --live                   perform the real external effect (default is the
+                           sandbox endpoint)
+  -h, --help               display help for command
 ```
 
 ## `mnemosine backup` (alias: respaldo)

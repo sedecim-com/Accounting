@@ -49,15 +49,15 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **220 comandos** repartidos en **59 familias** de primer nivel. De las **1629** filas del catálogo, **206** (12.6 %) ya se pueden invocar.
+El binario ejecuta hoy **221 comandos** repartidos en **60 familias** de primer nivel. De las **1630** filas del catálogo, **207** (12.7 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **262** filas lo declaran completo, **390** a medias y **977** inexistente.
+Del motor que cada comando necesita, **263** filas lo declaran completo, **390** a medias y **977** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **388** filas, de las que **191** ya se teclean.
 
-**El objetivo comprometible son 1386 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1387 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1629 filas son **1607 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1630 filas son **1608 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
@@ -2930,6 +2930,7 @@ Todo lo que no es contabilidad: a qué entidad y a qué despacho apuntas, cómo 
 | `mnemosine subscription test <id>` · `suscripcion probar` | Envía un evento de prueba a UNA suscripción y muestra la respuesta | `--event`, `--live` (obligatorio), `--dry-run`, `-y/--yes`, `--idempotency-key` | 🟡 hoy `POST /v1/webhooks/:id/test` (routes/webhooks.ts:57) **ignora el `:id`** y llama `dispatchEvent(tenant, 'test.ping')` (webhook-service.ts:51), que abanica a todas las suscripciones suscritas a ese evento — y `test.ping` **no está en `WEBHOOK_EVENTS`**, así que en la práctica no entrega a ninguna. El envío a una sola requiere exportar el `deliverWebhook` interno | externo [5] | ✗ | 2 |
 | `mnemosine subscription delivery list <subscriptionId>` · `suscripcion entrega listar` | Entregas salientes de UNA suscripción con estado e intentos | `-s/--status`, `-n/--limit`, `--json` | ✅ src/services/webhooks/webhook-service.ts:172 (`getDeliveries`) — **exige el id de la suscripción** (`WHERE webhook_id = $1`): no existe un listado de todas las entregas del tenant | lectura [0] | ✓ | 2 |
 | `mnemosine subscription delivery retry <id>` · `suscripcion entrega reintentar` | Reintenta una entrega saliente fallida contra la URL del cliente | `--dry-run`, `-y/--yes`, `--live`, `--idempotency-key` | ✅ src/services/webhooks/webhook-service.ts:154 (`retryDelivery`) + REST routes/webhooks.ts:81 | externo [5] | ✗ | 2 |
+| `mnemosine subscription delivery sweep` · `suscripcion entrega barrer` | Reintenta TODAS las entregas salientes cuya hora de reintento venció, con retroceso exponencial; las que agotan sus intentos se declaran muertas y se reportan. Para llamar desde cron | `--tenant`, `--all-tenants`, `--dry-run`, `--limit`, `--json` | ✅ **hecha en G4b**: `webhook_deliveries` (003:298) traía `attempt_count`, `next_retry_at` **y hasta el índice del barrido** (`idx_webhook_deliveries_retry`, :316) — un índice para una consulta que no existía. `markFailed` escribía `next_retry_at` y NADIE la leía, así que una caída de treinta segundos del receptor perdía el evento para siempre. Y `webhook_subscriptions.retry_config` (JSONB con su política por suscripción, desde la 003) tampoco lo leía nadie. `delivery retry` es el reintento de UNA; ésta es el barrido | externo [5] | ✗ | 2 |
 
 #### Importación, exportación, migración y respaldo
 

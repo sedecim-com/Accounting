@@ -95,6 +95,7 @@ import { registerPrepaidCommand } from './prepaid-command.js';
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerCashFlowCommand } from './cashflow-command.js';
 import { registerAuditCommand } from './audit-command.js';
+import { registerWebhookSweepCommand } from './webhook-sweep-command.js';
 import { registerBackupCommand } from './backup-command.js';
 import { registerReportCommand } from './report-command.js';
 import { recordUsage, estimateCostUsd, clampTokenCount } from '../ai/usage-ledger.js';
@@ -2253,6 +2254,16 @@ registerPrepaidCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerCashFlowCommand(program, { palette: c, shutdown, reportError });
 registerAuditCommand(program, { palette: c, shutdown, reportError });
+// G4b · el barrido de entregas SALIENTES. Cuelga de `subscription`·`suscripcion`,
+// que es la familia de SALIDA del catálogo — `webhooks`·`ganchos` es la de
+// ENTRADA (tokens que despiertan al agente lector) y son tablas distintas: el
+// mismo sustantivo para las dos cosas habría sido el defecto de nombre que
+// esta casa lleva un mes cazando en otras formas.
+const subscription = program
+  .command('subscription')
+  .alias('suscripcion')
+  .description('Outbound event subscriptions: who we notify, and what we could not deliver');
+registerWebhookSweepCommand(subscription, { palette: c, shutdown, reportError });
 registerBackupCommand(program, { palette: c, shutdown, reportError });
 registerReportCommand(program, { palette: c, shutdown, reportError });
 registerLedgerCommand(program, { palette: c, shutdown, reportError });
