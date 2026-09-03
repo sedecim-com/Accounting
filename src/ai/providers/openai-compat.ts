@@ -5,6 +5,7 @@ import type { LlmSession, ResolvedProfile, SessionCallbacks, TurnToolUse } from 
 import {
   buildFlushPrompt,
   compactView,
+  DEFAULT_KEEP_RECENT_TOKENS,
   estimateViewTokens,
   openAiView,
   planCompaction,
@@ -12,6 +13,11 @@ import {
   type CompactionConfig,
   type CompactionResult,
 } from '../compaction.js';
+import {
+  compactacionParaPerfil,
+  MAX_DESCARGAS_MEMORIA_POR_SESION,
+  type ResolvedCompactionConfig,
+} from './config.js';
 import { GroundingGuard, type GroundingOptions } from '../grounding.js';
 
 // ============================================================
@@ -56,8 +62,18 @@ interface AccumulatedToolCall {
 }
 
 export interface OpenAiCompatSessionOptions {
-  /** History compaction; automatic only when thresholdTokens is set. */
-  compaction?: CompactionConfig;
+  /**
+   * History compaction; automatic only when thresholdTokens is set.
+   *
+   * `umbralDerivable` lo pone resolveCompactionConfig cuando el archivo del
+   * operador NO fijó `threshold_tokens`, y es lo único que autoriza a este
+   * runner a sustituir el umbral global por el que se deriva de la ventana de
+   * su perfil. Quien construya la sesión a mano y pase un umbral sin esa
+   * bandera manda igual que el operador.
+   */
+  compaction?: CompactionConfig & Pick<ResolvedCompactionConfig, 'umbralDerivable'>;
+  /** Directorio del mnemosine.config.json para resolver la ventana del perfil. */
+  cwd?: string;
   /** Grounding backstop (see grounding.ts); enabled by default. */
   grounding?: GroundingOptions;
   /** Lista blanca de herramientas (tools/superficie.ts); sin ella, todas. */
@@ -72,6 +88,23 @@ export class OpenAiCompatSession implements LlmSession {
   private readonly maxIterations: number;
   private readonly userRequestRef: { current?: string } = {};
   private readonly grounding: GroundingGuard;
+  /**
+   * La compactación EFECTIVA de esta sesión: la del archivo del operador si la
+   * fijó, y si no la derivada de la ventana que declara el perfil. Se resuelve
+   * UNA VEZ, al construir: releerla en cada turno haría que un cambio del
+   * archivo a mitad de sesión moviera el umbral bajo los pies del historial
+   * que ya se acumuló.
+   */
+  private readonly compactacion: ResolvedCompactionConfig;
+  /**
+   * Turnos de descarga de memoria ya corridos en ESTA sesión, y su tope.
+   * El tope es la decisión de autonomía que config.ts declara junto a
+   * MAX_DESCARGAS_MEMORIA_POR_SESION: la frecuencia con la que el sistema
+   * escribe memoria no puede depender de lo pequeña que sea la ventana del
+   * perfil — y es este runner, con ollama, el que la tenía multiplicada por 27.
+   */
+  private descargasDeMemoria = 0;
+  private readonly maxDescargasDeMemoria: number;
   /** True while the silent memory-flush turn runs (mutes onText). */
   private muteText = false;
 
@@ -85,6 +118,14 @@ export class OpenAiCompatSession implements LlmSession {
   ) {
     this.label = `${profile.name} · ${profile.model}`;
     this.maxIterations = profile.max_iterations ?? DEFAULT_MAX_ITERATIONS;
+    this.compactacion = compactacionParaPerfil(
+      profile.name,
+      options.compaction ?? {},
+      DEFAULT_KEEP_RECENT_TOKENS,
+      options.cwd
+    );
+    this.maxDescargasDeMemoria =
+      this.compactacion.maxDescargasMemoria ?? MAX_DESCARGAS_MEMORIA_POR_SESION;
     // A tools:false channel CANNOT ground itself (its note already says so):
     // nudging it would demand the impossible. Force-disable the guard there.
     this.grounding = new GroundingGuard(
@@ -124,7 +165,7 @@ export class OpenAiCompatSession implements LlmSession {
   async runTurn(userInput: string, signal?: AbortSignal): Promise<string> {
     // Auto-compaction happens BEFORE the new user message enters the view,
     // and only when a threshold is configured (default off).
-    const threshold = this.options.compaction?.thresholdTokens;
+    const threshold = this.compactacion.thresholdTokens;
     if (threshold !== undefined && estimateViewTokens(openAiView(this.history)) > threshold) {
       await this.compact(signal);
     }
@@ -163,11 +204,14 @@ export class OpenAiCompatSession implements LlmSession {
     // Nothing to drop → no flush turn either (a flush for a no-op
     // compaction wastes a round-trip). compactView re-plans after the flush.
     const preView = openAiView(this.history);
-    if (!planCompaction(preView, { keepRecentTokens: this.options.compaction?.keepRecentTokens })) {
+    if (!planCompaction(preView, { keepRecentTokens: this.compactacion.keepRecentTokens })) {
       return null;
     }
 
-    if (shouldFlush(preView)) {
+    // Once per window (shouldFlush) y como mucho maxDescargasDeMemoria veces
+    // por sesión: config.ts declara la medición y por qué el tope existe.
+    if (shouldFlush(preView) && this.descargasDeMemoria < this.maxDescargasDeMemoria) {
+      this.descargasDeMemoria++;
       this.muteText = true;
       try {
         await this.runLoop(buildFlushPrompt(), signal);
@@ -179,8 +223,8 @@ export class OpenAiCompatSession implements LlmSession {
     const compacted = await compactView<OpenAI.Chat.Completions.ChatCompletionMessageParam>({
       messages: this.history,
       view: openAiView(this.history),
-      keepRecentTokens: this.options.compaction?.keepRecentTokens,
-      identifierPolicy: this.options.compaction?.identifierPolicy,
+      keepRecentTokens: this.compactacion.keepRecentTokens,
+      identifierPolicy: this.compactacion.identifierPolicy,
       complete: (instruction, sourceText) => this.summarize(instruction, sourceText, signal),
       makeSummaryMessage: (text) => ({ role: 'user', content: text }),
     });
@@ -288,6 +332,9 @@ export class OpenAiCompatSession implements LlmSession {
 
   reset(): void {
     this.history = [];
+    // El tope de descargas es POR SESIÓN, y reset() empieza una: un tope gastado
+    // dejaría a la conversación nueva sin barrido de criterio ninguno.
+    this.descargasDeMemoria = 0;
     // The docs the guard counted left the context with the history, and a
     // spent latch must not leave the fresh conversation unguarded.
     this.grounding.reset();
