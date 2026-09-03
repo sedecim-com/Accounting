@@ -54,7 +54,7 @@ import {
   ExitCode,
   type ExitCodeValue,
 } from './kernel/index.js';
-import { esAfirmativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { esAfirmativa, esNegativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
 import { registerSatCommands } from './sat-commands.js';
 import { registerPendingCommands, renderAll } from './pending-command.js';
@@ -113,8 +113,13 @@ import {
   resolveReviewer,
   DraftValidationError,
   canonicalDraftHash,
+  diffDraftPayloads,
+  rejectionPrecedent,
   type DraftRow,
+  type DraftPayload,
+  type DraftCorrection,
 } from '../ai/draft-service.js';
+import { teachMemory } from '../ai/memory-service.js';
 import {
   listQuestions,
   answerQuestion,
@@ -387,7 +392,7 @@ async function buildSession(
  *  node readline silently drops a second question() while one is pending (the
  *  promise never resolves → deadlock). The promise chain queues concurrent
  *  ask_user calls so each question waits its turn at the terminal. */
-function makeAskUser(rl: () => readline.Interface | undefined): AskUserFn {
+export function makeAskUser(rl: () => readline.Interface | undefined): AskUserFn {
   let chain: Promise<unknown> = Promise.resolve();
   return (prompt) => {
     const run = async (): Promise<string | null> => {
@@ -399,15 +404,25 @@ function makeAskUser(rl: () => readline.Interface | undefined): AskUserFn {
         prompt.options.forEach((o, i) => console.log(`  ${i + 1}) ${o}`));
       }
       console.log(c.dim('  (option number or free text; empty = leave pending for `mnemosine questions`)'));
-      const raw = await ask(iface, c.cyan('answer> '));
-      if (raw === null) return null;
-      const answer = raw.trim();
-      if (!answer) return null;
-      const idx = Number(answer);
-      if (prompt.options && Number.isInteger(idx) && idx >= 1 && idx <= prompt.options.length) {
-        return prompt.options[idx - 1];
+      // EL MISMO CRITERIO QUE LA COLA, porque es la misma escritura: lo que
+      // se teclee aquí lo graba recordAnsweredQuestion ya como precedente
+      // firme. Un sí/no desnudo se repregunta en vez de convertirse en el
+      // criterio; agotada la repregunta la duda queda PENDIENTE, que es lo
+      // que ya significaba una respuesta en blanco en este prompt.
+      for (let intento = 0; intento < 2; intento++) {
+        const raw = await ask(iface, c.cyan('answer> '));
+        if (raw === null) return null;
+        const answer = raw.trim();
+        if (!answer) return null;
+        const idx = Number(answer);
+        if (prompt.options && Number.isInteger(idx) && idx >= 1 && idx <= prompt.options.length) {
+          return prompt.options[idx - 1];
+        }
+        if (!consentimientoDesnudo(answer)) return answer;
+        console.log(ce.dim(criterioDesnudo(answer, prompt.options, false)));
       }
-      return answer;
+      console.log(ce.dim('Left pending: nothing was recorded as a precedent.'));
+      return null;
     };
     const p = chain.then(run, run);
     chain = p.then(
@@ -1356,10 +1371,242 @@ program
     }
   });
 
+// ============================================================
+// LA GRAMÁTICA DEL MENÚ DE REVISIÓN
+//
+// El prompt ofrecía «[a]pprove / [r]eject / [s]kip / [q]uit» y CUALQUIER otra
+// tecla saltaba el borrador sin imprimir nada. Dos defectos en el mismo sitio:
+//
+//  · «s» es lo que un contador que trabaja en español teclea creyendo que
+//    dice «sí». Creía haber aprobado y había saltado — y la tecla más
+//    ambigua del menú era justo la que se tragaba la respuesta en silencio.
+//  · Una respuesta no reconocida DECIDÍA (saltaba) en vez de repreguntar,
+//    que es lo contrario de lo que aprendió el kernel de confirmación: lo
+//    que no se entiende se vuelve a preguntar, nunca se interpreta.
+//
+// Este menú no es una pregunta de sí/no, así que ninguna respuesta del
+// vocabulario de confirmación se interpreta como tecla: se nombra la
+// ambigüedad —en los dos idiomas, porque en uno «s» es sí y en el otro es
+// saltar, y son resultados opuestos— y se enseñan las teclas. Pasar al
+// siguiente es ENTER, que no colisiona con ningún idioma.
+//
+// El «¿es un sí?» sale del kernel (esAfirmativa), no de un predicado nuevo:
+// aquí se usa para RECHAZAR la respuesta, no para consentir nada.
+// ============================================================
+
+/** Lo que el revisor pidió, o la razón por la que no se entendió. */
+type ReviewChoice =
+  | { kind: 'approve' | 'edit' | 'reject' | 'next' | 'quit' }
+  | { kind: 'unclear'; message: string };
+
+const REVIEW_KEYS: Array<{ kind: 'approve' | 'edit' | 'reject' | 'next' | 'quit'; words: string[] }> = [
+  { kind: 'approve', words: ['a', 'approve', 'aprobar'] },
+  { kind: 'edit', words: ['e', 'edit', 'editar', 'corregir'] },
+  { kind: 'reject', words: ['r', 'reject', 'rechazar'] },
+  { kind: 'next', words: ['skip', 'saltar', 'siguiente', 'next'] },
+  { kind: 'quit', words: ['q', 'quit', 'exit', 'salir'] },
+];
+
+const REVIEW_MENU =
+  '\n[a]pprove and post  [e]dit then approve  [r]eject  ENTER next  [q]uit > ';
+
+function reviewMenuChoice(raw: string): ReviewChoice {
+  const dicho = raw.trim();
+  const t = dicho
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (t === '') return { kind: 'next' }; // ENTER: pasa al siguiente, sin tocar nada
+  for (const { kind, words } of REVIEW_KEYS) {
+    if (words.includes(t)) return { kind };
+  }
+  if (esAfirmativa(t)) {
+    return {
+      kind: 'unclear',
+      message:
+        `«${dicho}» is a yes, and this is not a yes/no question: in Spanish it reads as «sí» and ` +
+        'in English as «skip» — opposite outcomes. Type `a` to approve AND POST, or press ENTER ' +
+        'to move on without touching this draft.',
+    };
+  }
+  return { kind: 'unclear', message: `I did not understand «${dicho}»; the keys are above.` };
+}
+
+/**
+ * Pregunta el menú y concede UNA repregunta a lo que no se entendió. El tope
+ * es deliberado, igual que en confirmarConReintento: un prompt que insiste sin
+ * límite contra una stdin que repite basura es un ciclo infinito en un cron.
+ * Agotada la repregunta NO decide nada — devuelve el «no entendí» para que
+ * quien llama lo DIGA y deje el borrador intacto. Null es EOF.
+ */
+async function askReviewMenu(
+  preguntar: (prompt: string) => Promise<string | null>
+): Promise<ReviewChoice | null> {
+  let ultimo: ReviewChoice = { kind: 'unclear', message: '' };
+  for (let intento = 0; intento < 2; intento++) {
+    const raw = await preguntar(c.cyan(REVIEW_MENU));
+    if (raw === null) return null;
+    const choice = reviewMenuChoice(raw);
+    if (choice.kind !== 'unclear') return choice;
+    console.log(ce.dim(choice.message));
+    ultimo = choice;
+  }
+  return ultimo;
+}
+
+/** Palabras que abren la edición de la descripción del asiento. */
+const DESC_WORDS = ['d', 'desc', 'description', 'descripcion'];
+
+/** Cómo se lee una línea mientras se corrige. */
+function editorLine(l: { account_code?: string; debit?: number; credit?: number }): string {
+  const side =
+    typeof l.debit === 'number'
+      ? `debit  ${l.debit.toFixed(2)}`
+      : typeof l.credit === 'number'
+        ? `credit ${l.credit.toFixed(2)}`
+        : 'no amount';
+  return `${String(l.account_code ?? '??').padEnd(10)} ${side}`;
+}
+
+/**
+ * CORREGIR ANTES DE APROBAR.
+ *
+ * Guiado, sin gramática que memorizar: se elige una línea (o «d» para la
+ * descripción) y se contesta lo nuevo; en blanco se conserva lo que había.
+ * Trabaja sobre una COPIA — el borrador de la cola no se toca, porque el
+ * original es lo que el modelo propuso y de ahí sale el diff.
+ *
+ * EOF aborta la corrección entera: una stdin que se cierra a media edición no
+ * puede acabar en una aprobación a medias.
+ */
+async function editDraftPayload(
+  preguntar: (prompt: string) => Promise<string | null>,
+  original: DraftPayload
+): Promise<{ abort: true } | { abort: false; payload: DraftPayload }> {
+  const edited: DraftPayload = {
+    ...original,
+    lines: (Array.isArray(original.lines) ? original.lines : []).map((l) => ({ ...l })),
+  };
+  let sinEntender = 0;
+  for (;;) {
+    console.log(c.dim(`  description: ${edited.description}`));
+    edited.lines.forEach((l, i) => console.log(c.dim(`  ${i + 1}) ${editorLine(l)}`)));
+
+    const raw = await preguntar(
+      c.cyan(`Correct which line? (1-${edited.lines.length}, «d» description, ENTER done) > `)
+    );
+    if (raw === null) return { abort: true };
+    const t = raw.trim().toLowerCase();
+    if (t === '') return { abort: false, payload: edited };
+
+    if (DESC_WORDS.includes(t)) {
+      const nueva = await preguntar(c.cyan(`New description (ENTER keeps «${edited.description}») > `));
+      if (nueva === null) return { abort: true };
+      if (nueva.trim() !== '') edited.description = nueva.trim();
+      sinEntender = 0;
+      continue;
+    }
+
+    const n = /^\d+$/.test(t) ? parseInt(t, 10) : NaN;
+    if (!Number.isInteger(n) || n < 1 || n > edited.lines.length) {
+      if (++sinEntender >= 2) {
+        console.log(ce.dim('Still not understood; leaving the editor with what was corrected so far.'));
+        return { abort: false, payload: edited };
+      }
+      console.log(
+        ce.dim(`I did not understand «${raw.trim()}»: a line number 1-${edited.lines.length}, «d», or ENTER.`)
+      );
+      continue;
+    }
+    sinEntender = 0;
+
+    const line = edited.lines[n - 1];
+    const code = await preguntar(
+      c.cyan(`Line ${n} account code (ENTER keeps «${line.account_code ?? ''}») > `)
+    );
+    if (code === null) return { abort: true };
+    if (code.trim() !== '') line.account_code = code.trim();
+
+    const esDebito = typeof line.debit === 'number';
+    const actual = esDebito ? line.debit : line.credit;
+    const monto = await preguntar(
+      c.cyan(
+        `Line ${n} ${esDebito ? 'debit' : 'credit'} amount ` +
+          `(ENTER keeps ${typeof actual === 'number' ? actual.toFixed(2) : '—'}) > `
+      )
+    );
+    if (monto === null) return { abort: true };
+    if (monto.trim() !== '') {
+      const v = Number(monto.trim());
+      if (!Number.isFinite(v) || v <= 0) {
+        // No se inventa un importe: se dice y se conserva el que había. El
+        // cuadre lo vuelve a juzgar el motor al aprobar, no este prompt.
+        console.log(ce.dim(`«${monto.trim()}» is not a positive amount; line ${n} keeps what it had.`));
+      } else if (esDebito) {
+        line.debit = v;
+      } else {
+        line.credit = v;
+      }
+    }
+  }
+}
+
+/**
+ * TRAS UN RECHAZO, OFRECER SEMBRAR EL PRECEDENTE.
+ *
+ * El motivo del rechazo ya se escribía en ai_drafts.review_notes, y esa
+ * columna no la lee nadie que enseñe: el digest que entra al prompt de cada
+ * sesión sale SÓLO de ai_questions. Catorce rechazos con motivo escrito no
+ * llegaban a ningún sitio, y el contador rechazaba el mismo error catorce
+ * veces y concluía, con razón, que el agente no aprende.
+ *
+ * Lo que esto NO hace es sembrar solo. Enseña el precedente que se sembraría,
+ * pregunta, y sólo un sí explícito llama a teachMemory —la MISMA vía humana
+ * que usa `mnemosine memory teach`, reutilizada, no duplicada— atribuido al
+ * revisor que lo dijo. El default del [y/N] es no, y un EOF también lo es.
+ */
+async function offerToSeedPrecedent(
+  preguntar: (prompt: string) => Promise<string | null>,
+  ctx: AgentContext,
+  reviewer: { email: string },
+  draft: DraftRow,
+  reason: string
+): Promise<boolean> {
+  const propuesta = rejectionPrecedent(draft, reason);
+  console.log(c.dim('  Precedent this could seed, so the AI stops repeating it:'));
+  console.log(c.dim(`    when: ${propuesta.rule}`));
+  console.log(c.dim(`    then: ${propuesta.criterion}`));
+  const veredicto = await confirmarConReintento(
+    preguntar,
+    c.cyan('  Seed it as a firm criterion, attributed to you? [y/N] ')
+  );
+  if (!veredicto.si) {
+    console.log(c.dim('  Not seeded: the rejection stands and nothing was taught.'));
+    return false;
+  }
+  try {
+    const id = await teachMemory(ctx, {
+      rule: propuesta.rule,
+      criterion: propuesta.criterion,
+      taughtBy: reviewer.email,
+    });
+    console.log(`  ✔ Criterion seeded by ${reviewer.email}; review it with: mnemosine memory`);
+    console.log(c.dim(`    id: ${id}`));
+    return true;
+  } catch (err) {
+    reportError(err);
+    console.log(c.dim('  The rejection stands; the criterion was not seeded.'));
+    return false;
+  }
+}
+
 const review = program
   .command('review')
   .alias('revisar')
-  .description('Reviews pending drafts: approve (creates and posts the journal entry) or reject')
+  .description(
+    'Reviews pending drafts: approve (creates and posts the journal entry), ' +
+      'correct then approve, or reject — a rejection can seed the criterion for next time'
+  )
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-u, --user <email>', 'Reviewer email (default: first active user of the tenant)')
   .addHelpText('after', EJEMPLOS.review);
@@ -1369,7 +1616,9 @@ const review = program
 declareRisk(review, {
   risk: 'irreversible',
   agent: false,
-  writes: 'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador',
+  writes:
+    'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador; ' +
+    'ai_questions al sembrar un precedente que el revisor confirmó tras un rechazo',
 });
 review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idempotencyKey?: string }) => {
     let rl: readline.Interface | undefined;
@@ -1411,23 +1660,63 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
         void shutdown(130);
       });
 
+      const preguntar = (prompt: string): Promise<string | null> => ask(rl!, prompt);
+
       let approved = 0;
+      let corrected = 0;
       let rejected = 0;
+      let seeded = 0;
       for (let i = 0; i < pending.length; i++) {
         renderDraft(pending[i], i, pending.length);
-        const raw = await ask(rl, c.cyan('\n[a]pprove and post  [r]eject  [s]kip  [q]uit > '));
-        if (raw === null) break; // stdin EOF: stop cleanly instead of hanging
-        const answer = raw.trim().toLowerCase();
+        const choice = await askReviewMenu(preguntar);
+        if (choice === null) break; // stdin EOF: stop cleanly instead of hanging
+        if (choice.kind === 'quit') break;
+        if (choice.kind === 'unclear') {
+          // Antes esto no imprimía NADA: el borrador se saltaba en silencio.
+          console.log(c.dim('Nothing was done to this draft; moving on to the next one.'));
+          continue;
+        }
+        if (choice.kind === 'next') {
+          console.log(c.dim('Skipped: the draft stays pending.'));
+          continue;
+        }
 
-        if (answer === 'q') break;
-        if (answer === 'a') {
+        // El hash de lo que el revisor VIO. Ata la aprobación —corregida o
+        // no— a ese contenido exacto: si el payload cambia en medio, aborta.
+        const baseHash = canonicalDraftHash(pending[i].payload);
+
+        if (choice.kind === 'approve' || choice.kind === 'edit') {
+          let correction: DraftCorrection | undefined;
+          if (choice.kind === 'edit') {
+            const edit = await editDraftPayload(preguntar, pending[i].payload);
+            if (edit.abort) break; // EOF a media corrección: no se aprueba nada
+            const diff = diffDraftPayloads(pending[i].payload, edit.payload);
+            if (diff.length === 0) {
+              console.log(c.dim('Nothing changed: it would post exactly as the model proposed.'));
+            } else {
+              console.log(c.bold('\nModel → you:'));
+              for (const d of diff) console.log(`  ${d}`);
+              // El servicio recalcula approved_content_hash sobre ESTA
+              // versión: la columna tiene que decir lo que el humano aprobó.
+              correction = { payload: edit.payload, basedOnHash: baseHash };
+            }
+            // EL HUMANO DISPONE: corregir no aprueba. La aprobación se pide
+            // aparte, con la gramática única de confirmación del kernel.
+            const veredicto = await confirmarConReintento(
+              preguntar,
+              c.cyan('Approve and post THIS version? [y/N] ')
+            );
+            if (!veredicto.si) {
+              console.log(c.dim('Not approved: the correction is discarded and the draft stays pending.'));
+              continue;
+            }
+          }
           try {
-            // Approval is bound to the exact content the reviewer SAW at
-            // render time: if the payload changes in between, approval aborts.
             const posted = await approveDraft(
-              ctx, pending[i].id, reviewer, undefined, canonicalDraftHash(pending[i].payload)
+              ctx, pending[i].id, reviewer, undefined, baseHash, correction
             );
             approved++;
+            if (correction) corrected++;
             console.log(`✔ Journal entry ${c.bold(posted.entryNumber)} created and posted.`);
           } catch (err) {
             if (err instanceof DraftValidationError) {
@@ -1438,26 +1727,37 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
               reportError(err);
             }
           }
-        } else if (answer === 'r') {
-          const decision = rejectionReasonFrom(await ask(rl, c.cyan('Rejection reason: ')));
-          // EOF at the reason prompt aborts the rejection: leave the draft
-          // pending and stop the queue cleanly, never confirm silently.
-          if (decision.abort) break;
-          try {
-            await rejectDraft(ctx, pending[i].id, reviewer, decision.reason);
-            rejected++;
-            console.log('✘ Draft rejected.');
-          } catch (err) {
-            // e.g. another session already reviewed it — keep the queue going
-            reportError(err);
-            console.log(c.dim('The draft is left as-is; continuing with the next one.'));
-          }
+          continue;
         }
-        // 's' or anything else: skip
+
+        const decision = rejectionReasonFrom(await preguntar(c.cyan('Rejection reason: ')));
+        // EOF at the reason prompt aborts the rejection: leave the draft
+        // pending and stop the queue cleanly, never confirm silently.
+        if (decision.abort) break;
+        try {
+          await rejectDraft(ctx, pending[i].id, reviewer, decision.reason);
+          rejected++;
+          console.log('✘ Draft rejected.');
+        } catch (err) {
+          // e.g. another session already reviewed it — keep the queue going
+          reportError(err);
+          console.log(c.dim('The draft is left as-is; continuing with the next one.'));
+          continue;
+        }
+        // Un rechazo con motivo escrito y nadie que lo lea era el agente que
+        // no aprende. Se OFRECE; siembra sólo si el humano lo confirma.
+        if (await offerToSeedPrecedent(preguntar, ctx, reviewer, pending[i], decision.reason)) {
+          seeded++;
+        }
       }
 
       rl.close();
-      console.log(c.dim(`\nDone: ${approved} approved, ${rejected} rejected.`));
+      console.log(
+        c.dim(
+          `\nDone: ${approved} approved (${corrected} corrected first), ` +
+            `${rejected} rejected, ${seeded} criteria seeded.`
+        )
+      );
       await shutdown(0);
     } catch (err) {
       rl?.close();
@@ -2277,6 +2577,163 @@ async function listarQuestionsImpl(opts: {
   );
 }
 
+// ============================================================
+// LA GRAMÁTICA DE LA COLA DE PREGUNTAS
+//
+// El prompt ofrecía «[answer / option number / s=skip / d=dismiss / q=quit]»
+// y todo lo que no fuera una de esas teclas se tomaba como LA RESPUESTA. Dos
+// consecuencias en el mismo sitio:
+//
+//  · «s» era saltar, que es justo lo que teclea en español quien cree decir
+//    «sí» — el mismo defecto que `review` corrigió un comando más allá.
+//  · Cualquier OTRA palabra de consentimiento —«si», «sí», «y», «yes»— no era
+//    tecla, así que se INSERTABA como respuesta. Y una respuesta aquí no es
+//    una respuesta cualquiera: answerQuestion la graba con is_precedent=true
+//    y buildMemoryDigest la imprime en el prompt de TODAS las sesiones
+//    siguientes. El contador que tecleaba «si» creyendo que consentía
+//    plantaba un precedente FIRME cuyo criterio era la palabra «si».
+//
+// POR QUÉ ESTE BUCLE NO PUEDE COPIAR AL DE `review`. Allí toda respuesta es
+// una TECLA de menú y lo no reconocido se repregunta entero. Aquí el TEXTO
+// LIBRE ES la respuesta legítima —es el canal por el que el despacho enseña
+// su criterio—, así que repreguntarlo todo rompería el comando. La frontera
+// no es «tecla vs. resto», sino «está contestando la PREGUNTA» vs. «cree
+// estar contestando al MENÚ», y una respuesta que coincide con una palabra
+// de consentimiento cae justo encima de esa frontera.
+//
+// SE RESUELVE ASÍ, y la asimetría entre las dos reglas es deliberada:
+//
+//  1. Un sí/no DESNUDO nunca se acepta como respuesta, ni siquiera repetido.
+//     No es sólo que sea ambiguo con el menú: es que como criterio está
+//     VACÍO. El digest imprime `topic ?? question: answer`, y con topic —que
+//     el modelo casi siempre pone— la línea que le queda al agente es
+//     «clasificacion:Telmex: si». Un precedente firme no puede nacer de una
+//     ambigüedad, y menos de una que no dice nada. La salida se enseña en la
+//     misma repregunta: el número de una opción (elegirla SÍ es inequívoco,
+//     aunque la opción se llame «Sí, se deduce»), o el criterio en palabras.
+//     Si la pregunta era de sí/no, el sí con su porqué —«sí, se deduce al
+//     100%»— es exactamente lo que el agente necesita leer en seis semanas.
+//  2. Un número fuera del rango de opciones —«5» donde hay tres— sí tiene
+//     contenido: puede ser un dedazo del índice o una cuenta («5201», que
+//     hasta hoy entraba tal cual). Se repregunta UNA vez nombrando el rango
+//     y se acepta literal si se repite. Repetirlo después de leer el aviso
+//     es una confirmación informada, no un silencio que se toma por permiso;
+//     y no abre puerta al sí desnudo, porque la regla 1 se evalúa antes y no
+//     tiene excepción por insistencia.
+//  3. Pasar de largo es ENTER, que no colisiona con ningún idioma. «s» deja
+//     de ser tecla: cae en la regla 1 y se repregunta.
+//
+// Agotada la repregunta NO se decide nada: la pregunta queda pendiente. El
+// «¿es un sí?» sale del kernel (esAfirmativa/esNegativa) y no de un predicado
+// nuevo; aquí se usa para RECHAZAR una respuesta, jamás para consentir.
+// ============================================================
+
+/** Minúsculas y sin marcas diacríticas: «SÍ» y «si» son la misma palabra. */
+const normalizaTecla = (s: string): string =>
+  s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/**
+ * ¿Es un sí/no a secas? Ni sirve de criterio ni se distingue de un intento de
+ * contestar al menú. Sale del kernel para que la gramática del «sí» siga
+ * siendo UNA sola en todo el CLI.
+ */
+function consentimientoDesnudo(texto: string): boolean {
+  return esAfirmativa(texto) || esNegativa(texto);
+}
+
+/** Lo que se le dice a quien contesta «si» donde la respuesta se vuelve memoria firme. */
+function criterioDesnudo(
+  dicho: string,
+  options: string[] | null | undefined,
+  enMenu: boolean
+): string {
+  const salidas = options?.length
+    ? `an option number (1-${options.length}), or the criterion in words`
+    : 'the criterion in words';
+  return (
+    `«${dicho}» is a bare yes/no` +
+    (enMenu ? ', and this prompt is also a menu — I cannot tell it from a keystroke' : '') +
+    '. What you type here is SAVED AS A FIRM PRECEDENT and enters the prompt of every later ' +
+    `session, so «${dicho}» would be the whole criterion the agent gets to read. ` +
+    `Answer with ${salidas} (e.g. «sí, se deduce al 100%»); ENTER leaves the question pending.`
+  );
+}
+
+/** Lo que el contador quiso decir en el prompt de la cola de preguntas. */
+type QuestionReply =
+  | { kind: 'answer'; answer: string }
+  | { kind: 'skip' | 'dismiss' | 'quit' }
+  | { kind: 'unclear'; message: string };
+
+const QUESTION_KEYS: Array<{ kind: 'skip' | 'dismiss' | 'quit'; words: string[] }> = [
+  { kind: 'skip', words: ['skip', 'saltar', 'siguiente', 'next'] },
+  { kind: 'dismiss', words: ['d', 'dismiss', 'descartar'] },
+  { kind: 'quit', words: ['q', 'quit', 'exit', 'salir'] },
+];
+
+const QUESTION_MENU = '\n[answer / option number / ENTER=skip / d=dismiss / q=quit] > ';
+
+/**
+ * Interpreta UNA línea del prompt. `insistido` es true sólo cuando se repite
+ * al pie de la letra lo que ya se avisó; abre la regla 2 y nunca la 1.
+ */
+function questionReply(
+  raw: string,
+  options: string[] | null | undefined,
+  opts: { insistido?: boolean } = {}
+): QuestionReply {
+  const dicho = raw.trim();
+  const t = normalizaTecla(dicho);
+  if (t === '') return { kind: 'skip' };
+  for (const { kind, words } of QUESTION_KEYS) {
+    if (words.includes(t)) return { kind };
+  }
+  if (consentimientoDesnudo(t)) {
+    return { kind: 'unclear', message: criterioDesnudo(dicho, options, true) };
+  }
+  const idx = Number(t);
+  if (options?.length && Number.isInteger(idx)) {
+    if (idx >= 1 && idx <= options.length) return { kind: 'answer', answer: options[idx - 1] };
+    if (!opts.insistido) {
+      return {
+        kind: 'unclear',
+        message:
+          `There is no option «${dicho}»: this question offers 1-${options.length}. ` +
+          `Type one of those, or repeat «${dicho}» to record it verbatim as the answer.`,
+      };
+    }
+  }
+  return { kind: 'answer', answer: dicho };
+}
+
+/**
+ * Pregunta y concede UNA repregunta a lo que no se pudo leer. El tope es
+ * deliberado, igual que en confirmarConReintento: un prompt que insiste sin
+ * límite contra una stdin que repite basura es un ciclo infinito en un cron.
+ * Agotada la repregunta NO decide: devuelve el «no entendí» para que quien
+ * llama lo diga y deje la pregunta pendiente. Null es EOF.
+ */
+async function askQuestionReply(
+  preguntar: (prompt: string) => Promise<string | null>,
+  options: string[] | null | undefined
+): Promise<QuestionReply | null> {
+  let anterior: string | null = null;
+  let ultimo: QuestionReply = { kind: 'unclear', message: '' };
+  for (let intento = 0; intento < 2; intento++) {
+    const raw = await preguntar(c.cyan(QUESTION_MENU));
+    if (raw === null) return null;
+    const dicho = raw.trim();
+    const reply = questionReply(dicho, options, {
+      insistido: anterior !== null && normalizaTecla(anterior) === normalizaTecla(dicho),
+    });
+    if (reply.kind !== 'unclear') return reply;
+    console.log(ce.dim(reply.message));
+    anterior = dicho;
+    ultimo = reply;
+  }
+  return ultimo;
+}
+
 async function colaDeQuestionsImpl(opts: { entity?: string; user?: string }): Promise<void> {
   let rl: readline.Interface | undefined;
   try {
@@ -2301,32 +2758,40 @@ async function colaDeQuestionsImpl(opts: { entity?: string; user?: string }): Pr
       void shutdown(130);
     });
 
+    const preguntar = (prompt: string): Promise<string | null> => ask(rl!, prompt);
+
     let answered = 0;
     let dismissed = 0;
     for (let i = 0; i < pending.length; i++) {
       const q = pending[i];
       renderQuestion(q, i, pending.length);
-      const raw = await ask(rl, c.cyan('\n[answer / option number / s=skip / d=dismiss / q=quit] > '));
-      if (raw === null) break;
-      const line = raw.trim();
-      if (!line || line.toLowerCase() === 's') continue;
-      if (line.toLowerCase() === 'q') break;
+      const reply = await askQuestionReply(preguntar, q.options);
+      if (reply === null) break; // stdin EOF: stop cleanly instead of hanging
+      if (reply.kind === 'quit') break;
+      if (reply.kind === 'skip') {
+        console.log(c.dim('Skipped: the question stays pending.'));
+        continue;
+      }
+      if (reply.kind === 'unclear') {
+        // Aquí estaba el defecto: esto ENTRABA como respuesta y sembraba un
+        // precedente firme con la palabra que nadie supo leer.
+        console.log(c.dim('Nothing recorded: the question stays pending, and no precedent was seeded.'));
+        continue;
+      }
 
       try {
-        if (line.toLowerCase() === 'd') {
+        // En positivo, no por descarte: es lo único que estrecha el tipo
+        // hasta la rama que trae texto, y así el compilador vigila que sólo
+        // se grabe como respuesta lo que el intérprete llamó respuesta.
+        if (reply.kind === 'answer') {
+          await answerQuestion(ctx, q.id, reply.answer, reviewer.email);
+          answered++;
+          console.log(`✔ Answered and saved as a precedent: ${c.bold(reply.answer)}`);
+        } else {
           await dismissQuestion(ctx, q.id, reviewer.email);
           dismissed++;
           console.log(c.dim('Question dismissed.'));
-          continue;
         }
-        const idx = Number(line);
-        const answer =
-          q.options && Number.isInteger(idx) && idx >= 1 && idx <= q.options.length
-            ? q.options[idx - 1]
-            : line;
-        await answerQuestion(ctx, q.id, answer, reviewer.email);
-        answered++;
-        console.log(`✔ Answered and saved as a precedent: ${c.bold(answer)}`);
       } catch (err) {
         // e.g. another session already resolved it — continue with the queue
         reportError(err);
@@ -2400,11 +2865,22 @@ questionAnswer.action(async (id: string | undefined, answerParts: string[], _opt
     }
     const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
     const line = answerParts.join(' ').trim();
+    // Por argumento no hay menú que confundir, pero la OTRA mitad de la regla
+    // sigue en pie: lo que entre aquí se graba con is_precedent=true. Un sí/no
+    // desnudo —y un blanco, que hasta hoy pasaba como respuesta vacía— no es
+    // un criterio, y no hay repregunta posible en un comando no interactivo:
+    // se rechaza enseñando cómo se dice. Elegir una opción por su número es
+    // inequívoco aunque la opción se llame «Sí»: eso no pasa por el filtro.
+    const opciones = q.options ?? [];
     const idx = Number(line);
-    const answer =
-      q.options && Number.isInteger(idx) && idx >= 1 && idx <= q.options.length
-        ? q.options[idx - 1]
-        : line;
+    const esOpcion = Number.isInteger(idx) && idx >= 1 && idx <= opciones.length;
+    if (line === '') {
+      throw usageError('question answer <id> needs the answer: mnemosine question answer <id> "<text or option number>"');
+    }
+    if (!esOpcion && consentimientoDesnudo(line)) {
+      throw usageError(criterioDesnudo(line, q.options, false));
+    }
+    const answer = esOpcion ? opciones[idx - 1] : line;
     await answerQuestion(ctx, q.id, answer, reviewer.email);
     console.log(`✔ Answered and saved as a precedent: ${c.bold(answer)}`);
     await shutdown(0);

@@ -46,6 +46,19 @@ export interface DraftRow {
 }
 
 /**
+ * Un importe TAL Y COMO POSTEARÁ (2 decimales), o null cuando no es un número
+ * usable. Vive fuera de canonicalDraftHash porque el DIFF modelo-vs-humano
+ * tiene que normalizar EXACTAMENTE igual que el hash: si el diff viera un
+ * cambio donde el hash no lo ve —o al revés— «esta corrección no cambia nada»
+ * y «el contenido cambió tras la revisión» dejarían de ser la misma verdad.
+ */
+function normalizedAmount(v: number | undefined | null): string | null {
+  return v !== undefined && v !== null && typeof v === 'number' && Number.isFinite(v)
+    ? new Decimal(v).toDecimalPlaces(2).toFixed(2)
+    : null;
+}
+
+/**
  * Canonical sha256 (hex) of a draft payload: fixed alphabetical key
  * order, amounts normalized to 2-decimal strings (10000, 10000.0 and
  * "what will post" all hash alike), absent optionals as null. The
@@ -54,10 +67,7 @@ export interface DraftRow {
  * closing the TOCTOU window between human review and posting.
  */
 export function canonicalDraftHash(payload: DraftPayload): string {
-  const amount = (v: number | undefined | null): string | null =>
-    v !== undefined && v !== null && typeof v === 'number' && Number.isFinite(v)
-      ? new Decimal(v).toDecimalPlaces(2).toFixed(2)
-      : null;
+  const amount = normalizedAmount;
   const canonical = {
     description: payload.description ?? null,
     entry_date: payload.entry_date ?? null,
@@ -70,6 +80,117 @@ export function canonicalDraftHash(payload: DraftPayload): string {
     reference: payload.reference ?? null,
   };
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+/** Una línea del borrador, dicha en una frase, para el diff de altas y bajas. */
+function describeLine(l: DraftLine): string {
+  const d = normalizedAmount(l?.debit);
+  const c = normalizedAmount(l?.credit);
+  const side = d !== null ? `debit ${d}` : c !== null ? `credit ${c}` : 'no amount';
+  return `${l?.account_code ?? '(no account)'} ${side}`;
+}
+
+/**
+ * EL DATO MÁS VALIOSO DEL PRODUCTO: qué propuso el modelo y qué aprobó el
+ * humano. Devuelve una línea por diferencia, vacío si no hay ninguna.
+ *
+ * Compara EXACTAMENTE los mismos campos, y con la misma normalización, que
+ * canonicalDraftHash. Esa equivalencia es una propiedad, no una casualidad:
+ * `diff vacío` ⟺ `mismo hash`. Si el diff normalizara de más —recortando
+ * espacios de una descripción, digamos— habría correcciones que cambian el
+ * hash y no aparecen en ninguna nota: la corrección se registraría vacía y la
+ * pista de por qué el asiento posteado no es el propuesto se perdería.
+ */
+export function diffDraftPayloads(proposed: DraftPayload, approved: DraftPayload): string[] {
+  const cambios: string[] = [];
+  const muestra = (v: string | null): string => (v === null ? '(none)' : `"${v}"`);
+
+  for (const field of ['entry_date', 'description', 'reference'] as const) {
+    const antes = proposed?.[field] ?? null;
+    const despues = approved?.[field] ?? null;
+    if (antes !== despues) cambios.push(`${field}: ${muestra(antes)} → ${muestra(despues)}`);
+  }
+
+  const antes = Array.isArray(proposed?.lines) ? proposed.lines : [];
+  const despues = Array.isArray(approved?.lines) ? approved.lines : [];
+  for (let i = 0; i < Math.max(antes.length, despues.length); i++) {
+    const n = i + 1;
+    const a = antes[i];
+    const b = despues[i];
+    if (a && !b) {
+      cambios.push(`line ${n}: removed (${describeLine(a)})`);
+      continue;
+    }
+    if (!a && b) {
+      cambios.push(`line ${n}: added (${describeLine(b)})`);
+      continue;
+    }
+    if (!a || !b) continue;
+    if ((a.account_code ?? null) !== (b.account_code ?? null)) {
+      cambios.push(
+        `line ${n} account_code: ${muestra(a.account_code ?? null)} → ${muestra(b.account_code ?? null)}`
+      );
+    }
+    for (const side of ['debit', 'credit'] as const) {
+      const x = normalizedAmount(a[side]);
+      const y = normalizedAmount(b[side]);
+      if (x !== y) cambios.push(`line ${n} ${side}: ${x ?? '(none)'} → ${y ?? '(none)'}`);
+    }
+    if ((a.description ?? null) !== (b.description ?? null)) {
+      cambios.push(
+        `line ${n} description: ${muestra(a.description ?? null)} → ${muestra(b.description ?? null)}`
+      );
+    }
+  }
+  return cambios;
+}
+
+/** Tope del trozo de descripción que un precedente hereda del borrador. */
+const PRECEDENT_SITUATION_MAX = 120;
+
+/** La regla y el criterio que un rechazo PROPONE sembrar. */
+export interface RejectionPrecedent {
+  rule: string;
+  criterion: string;
+}
+
+/**
+ * EL RECHAZO QUE PODRÍA ENSEÑAR — y que por sí solo no enseña nada.
+ *
+ * Esto sólo REDACTA la propuesta: la situación sale del borrador rechazado y
+ * el criterio es el motivo que el humano escribió. Nada se siembra aquí. La
+ * siembra es teachMemory, y sólo la ejecuta el bucle de revisión cuando el
+ * revisor contesta que sí, atribuida a él. Un precedente que naciera de un
+ * rechazo sin ese sí sería el sistema aprendiendo por su cuenta.
+ *
+ * NO lleva `topic` a propósito: buildMemoryDigest imprime `topic ?? question`,
+ * así que un topic común («draft-rejection») colapsaría TODOS los precedentes
+ * sembrados así a la misma línea del digest y el modelo perdería justo lo que
+ * distingue un rechazo de otro — la situación.
+ */
+export function rejectionPrecedent(draft: DraftRow, reason: string): RejectionPrecedent {
+  // El payload es JSONB: llega lo que el modelo escribió, no lo que el tipo
+  // promete. Nada de esto puede reventar el bucle de revisión.
+  const p: Partial<DraftPayload> = draft?.payload ?? {};
+  // Una sola línea: `question` viaja al digest, donde una fila es una línea.
+  const unaLinea = (s: string): string => s.replace(/\s+/g, ' ').trim();
+
+  let situacion = unaLinea(typeof p.description === 'string' ? p.description : '');
+  if (situacion.length > PRECEDENT_SITUATION_MAX) {
+    situacion = situacion.slice(0, PRECEDENT_SITUATION_MAX - 1) + '…';
+  }
+  const codes = [
+    ...new Set(
+      (Array.isArray(p.lines) ? p.lines : [])
+        .map((l) => (typeof l?.account_code === 'string' ? l.account_code.trim() : ''))
+        .filter((c) => c !== '')
+    ),
+  ];
+  const cabeza = situacion !== '' ? `A draft like "${situacion}"` : 'A draft with no description';
+  return {
+    rule: codes.length > 0 ? `${cabeza}, posting to ${codes.join(', ')}` : cabeza,
+    criterion: unaLinea(reason),
+  };
 }
 
 export interface DraftValidation {
@@ -331,15 +452,46 @@ export async function resolveReviewer(tenantId: string, email?: string): Promise
  * canonicalDraftHash computed when the payload was SHOWN to the reviewer;
  * if the payload read under the row lock hashes differently, the content
  * drifted between review and approval and the approval is invalidated.
+ *
+ * `correction` es corregir-y-aprobar: lo que se postea es la versión del
+ * HUMANO, no la del modelo. Ver DraftCorrection.
  */
 export async function approveDraft(
   ctx: AgentContext,
   draftId: string,
   reviewer: Reviewer,
   notes?: string,
-  expectedHash?: string
+  expectedHash?: string,
+  correction?: DraftCorrection
 ): Promise<{ entryId: string; entryNumber: string }> {
-  return approveDraftInternal(ctx, draftId, reviewer, notes, expectedHash, reviewer.email);
+  return approveDraftInternal(ctx, draftId, reviewer, notes, expectedHash, reviewer.email, correction);
+}
+
+/**
+ * CORREGIR-Y-APROBAR. Un revisor que arregla una cuenta y aprueba está
+ * enseñando, y hasta hoy ese gesto no existía: sólo aprobar tal cual o vetar.
+ *
+ * Las dos garantías que NO puede romper:
+ *
+ *  1. `basedOnHash` es el hash del borrador que el revisor VIO antes de
+ *     editar, y approveDraftInternal lo compara con el payload leído BAJO EL
+ *     CERROJO. Editar no afloja la detección de deriva: si otra sesión tocó
+ *     el borrador mientras el humano escribía, la corrección se apoyaba en
+ *     una versión que ya no existe y la aprobación se invalida.
+ *  2. `approved_content_hash` pasa a ser el hash de ESTE payload —lo que el
+ *     humano realmente aprobó—, no el de la propuesta del modelo. Dejarlo en
+ *     el viejo haría que la columna jurara que el humano consintió un
+ *     contenido que él mismo tachó: la garantía rota EN SILENCIO.
+ *
+ * `ai_drafts.payload` NO se reescribe: sigue siendo lo que propuso el modelo,
+ * que es la evidencia de la que sale el diff. Lo que aprobó el humano queda
+ * posteado en journal_entries, y qué cambió, en review_notes.
+ */
+export interface DraftCorrection {
+  /** El payload editado: lo que el humano aprueba y lo que se postea. */
+  payload: DraftPayload;
+  /** canonicalDraftHash del borrador tal y como se le mostró al revisor. */
+  basedOnHash: string;
 }
 
 /**
@@ -354,7 +506,8 @@ async function approveDraftInternal(
   reviewer: Reviewer,
   notes: string | undefined,
   expectedHash: string | undefined,
-  reviewedByAs: string
+  reviewedByAs: string,
+  correction?: DraftCorrection
 ): Promise<{ entryId: string; entryNumber: string }> {
   return withTransaction(async (client) => {
     const locked = await client.query<DraftRow>(
@@ -370,43 +523,74 @@ async function approveDraftInternal(
 
     // Drift detection: the hash of what the human reviewed must match the
     // payload we are about to post, read UNDER the row lock.
-    const contentHash = canonicalDraftHash(draft.payload);
-    if (expectedHash !== undefined && contentHash !== expectedHash) {
+    const storedHash = canonicalDraftHash(draft.payload);
+    if (expectedHash !== undefined && storedHash !== expectedHash) {
       throw new Error('Draft content changed after review; approval invalidated');
     }
+
+    // CORREGIR-Y-APROBAR. Sin corrección esto es literalmente el camino de
+    // antes: approvedPayload === draft.payload y contentHash === storedHash.
+    let approvedPayload = draft.payload;
+    let notesToStore: string | null = notes ?? null;
+    if (correction !== undefined) {
+      // La corrección se comprueba contra el payload BAJO CERROJO por su
+      // cuenta, sin depender de que el llamador haya pasado expectedHash: un
+      // camino que edita sin pasarlo no puede quedar con menos guardia que el
+      // que sólo aprueba.
+      if (correction.basedOnHash !== storedHash) {
+        throw new Error(
+          'Draft content changed after review; the correction was based on another version and is invalidated'
+        );
+      }
+      const diff = diffDraftPayloads(draft.payload, correction.payload);
+      // El diff se escribe POR CONSTRUCCIÓN: no hay forma de corregir y
+      // aprobar sin dejar registrado qué se cambió.
+      if (diff.length === 0) {
+        throw new Error('The correction changes nothing; approve the draft as proposed instead');
+      }
+      approvedPayload = correction.payload;
+      notesToStore = [
+        `corrected by ${reviewer.email} before approval:`,
+        ...diff.map((d) => `  ${d}`),
+        ...(notes ? [notes] : []),
+      ].join('\n');
+    }
+    const contentHash = canonicalDraftHash(approvedPayload);
 
     // FLOOR: an entry can only ever post into an OPEN fiscal period —
     // validateDraftPayload re-checks fiscal_periods here (under the lock),
     // and the accounting engine enforces it again inside createJournalEntry.
     // No configuration or approval policy bypasses this validation.
     // Re-validate: the catalog may have changed since the AI drafted it.
-    const validation = await validateDraftPayload(ctx.entityId, draft.payload);
+    // Se valida LO QUE SE VA A POSTEAR: una corrección pasa por el mismo
+    // colador que la propuesta del modelo, cuadre y catálogo incluidos.
+    const validation = await validateDraftPayload(ctx.entityId, approvedPayload);
     if (validation.errors.length > 0) {
       throw new DraftValidationError(validation.errors);
     }
 
     // Same 2-decimal normalization the validator used — validated amounts
     // are byte-identical to posted amounts.
-    const lines = draft.payload.lines.map((l) => ({
+    const lines = approvedPayload.lines.map((l) => ({
       account_id: validation.accountIdByCode.get(l.account_code)!,
       debit_amount:
         l.debit !== undefined && l.debit !== null ? new Decimal(l.debit).toDecimalPlaces(2).toFixed(2) : null,
       credit_amount:
         l.credit !== undefined && l.credit !== null ? new Decimal(l.credit).toDecimalPlaces(2).toFixed(2) : null,
-      description: l.description ?? draft.payload.description,
+      description: l.description ?? approvedPayload.description,
     }));
 
     const entry = await createJournalEntry(
       ctx.entityId,
-      new Date(`${draft.payload.entry_date}T00:00:00`),
+      new Date(`${approvedPayload.entry_date}T00:00:00`),
       JournalEntryType.STANDARD,
-      draft.payload.description,
+      approvedPayload.description,
       lines,
       reviewer.userId,
       {
         sourceType: 'ai_draft',
         sourceId: draftId,
-        reference: draft.payload.reference,
+        reference: approvedPayload.reference,
         autoPost: true,
         client, // same transaction as the draft update below
       }
@@ -418,7 +602,7 @@ async function approveDraftInternal(
            reviewed_by = $2, reviewed_at = NOW(), review_notes = $3,
            approved_content_hash = $4
        WHERE id = $5 AND entity_id = $6 AND status = 'pending_review'`,
-      [entry.id, reviewedByAs, notes ?? null, contentHash, draftId, ctx.entityId]
+      [entry.id, reviewedByAs, notesToStore, contentHash, draftId, ctx.entityId]
     );
     if (updated.rowCount !== 1) {
       throw new Error(`Draft ${draftId} changed status during approval; everything was rolled back`);
