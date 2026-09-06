@@ -4,7 +4,9 @@
 
 ## Visión
 
-Un sistema contable mexicano que se opera desde la terminal, con un agente de IA que **propone y nunca dispone**. Lleva partida doble sobre PostgreSQL — catálogo, pólizas, clientes y proveedores, bancos, periodos, reportes — con el cumplimiento fiscal mexicano (CFDI 4.0, catálogos del SAT, IVA sobre base de flujo) **dentro del motor, no encima de él**.
+Un sistema contable **internacional, AI-first y operado desde la terminal**, con un agente de IA que **propone y nunca dispone**. Lleva partida doble sobre PostgreSQL — catálogo, pólizas, clientes y proveedores, bancos, periodos, reportes — y opera de forma automática al recibir la información de las fuentes definidas para cada jurisdicción (CFDI del SAT, estados de cuenta, nómina), cumpliendo las normas contables generales (NIF, US GAAP, IFRS/NIIF) y las particulares de cada país **dentro del motor, no encima de él**.
+
+Empieza por **México y Estados Unidos**. México es la jurisdicción de origen y la más completa (CFDI 4.0, catálogos del SAT, IVA sobre base de flujo, nómina LFT/LSS); Estados Unidos tiene hoy la nómina federal y estatal y poco más. Cada jurisdicción es un **paquete configurable** sobre un motor común, con un panel que permite ajustar sus diferencias — el diseño está en [`docs/jurisdicciones.md`](jurisdicciones.md) y el inventario verificado de qué motor existe para cada país en [`docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md`](investigacion/2026-09-06-normas-y-motores/motores-inventario.md).
 
 ## El problema
 
@@ -14,6 +16,7 @@ Un despacho contable mexicano lleva varios clientes en la misma instalación. Ca
 
 - Un despacho contable mexicano con varios clientes (multi-inquilino).
 - Un contador independiente que lleva los suyos.
+- El despacho o la PyME que lleva entidades en México **y** en Estados Unidos desde la misma instalación — con la salvedad de que la jurisdicción estadounidense está en el estado que declara el inventario de motores, no en el que sugiere el esquema.
 - En ambos casos, alguien que **ya sabe contabilidad**: el CLI propone una póliza y espera que un humano la juzgue; no explica qué es una póliza.
 
 No es, hoy, un producto para quien no sabe contabilidad ni para quien nunca ha visto una terminal — ver `docs/wiki/El-tablero-grafico.md` y la Vía B de la secuencia (§1) para el plan de una interfaz gráfica.
@@ -47,7 +50,8 @@ Un resumen de alto nivel, agrupado por área del oficio (catálogo y asiento, ba
 
 ## No-goals (declarados, no accidentales)
 
-- **No es un ERP genérico.** El catálogo, los roles de cuenta y el IVA de flujo son mexicanos por diseño; internacionalizar el motor contable no está en el plan actual (ver decisión "¿es el sistema contable del despacho, o el motor auditable que se conecta al que ya tienen?" en el archivo de Brechas de usabilidad, §5).
+- **No es un ERP genérico ni un motor «sin país».** No hay módulos fuera de la contabilidad y su cumplimiento, y la internacionalización se hace por **paquetes de jurisdicción** sobre un motor común (`docs/jurisdicciones.md`): catálogo fiscal, calendario, parámetros legales con vigencia, formatos y corpus del agente por país — nunca aflojando las reglas del motor a un común denominador sin normas. Hoy hay dos paquetes: México, completo; Estados Unidos, parcial (nómina). Sigue vigente la decisión «¿es el sistema contable del despacho, o el motor auditable que se conecta al que ya tienen?» del archivo de Brechas de usabilidad, §5.
+- **La ley no se decide y el criterio no se legisla.** Lo que fija la ley (tasas, topes, tablas) va a una tabla con vigencia y fuente oficial; lo que decide el despacho va al panel de políticas con su lector; ninguno de los dos va al prompt ni al chat (`docs/jurisdicciones.md` §2).
 - **No timbra ni cancela CFDI todavía.** Cuatro adaptadores de PAC están precargados (Finkok, SW Sapien, Edicom, Sovos/Reachcore) pero no hay hoja de CLI que los use — ver tramo `CFDI·SELLO` en la secuencia.
 - **No tiene interfaz gráfica.** El producto es el CLI; el tablero gráfico (`W0–W1`) es un tramo de la Vía B, no una promesa entregada.
 - **La IA no decide criterio contable.** Una bifurcación entre dos tratamientos legítimos va al panel de políticas (`src/services/policy/`), nunca al prompt ni al chat.
@@ -64,5 +68,7 @@ Un resumen de alto nivel, agrupado por área del oficio (catálogo y asiento, ba
 - Issue de scope pineada: (label `scope`, creada por este mismo PR — ver el número real en `docs/MIGRATION.md`, porque el #1 de este repositorio ya lo tiene un Pull Request).
 - Plan ejecutable vivo: `src/plan/criterios.ts` + `npm run plan:status`.
 - Historia de entrega: [`docs/HISTORY.md`](HISTORY.md).
+- La jurisdicción como dimensión (diseño rector del panel por jurisdicción): [`docs/jurisdicciones.md`](jurisdicciones.md).
+- Investigación normativa y de motores (2026-09-06): [`docs/investigacion/2026-09-06-normas-y-motores/`](investigacion/2026-09-06-normas-y-motores/).
 - Cómo trabajamos: [`docs/PROCESS.md`](PROCESS.md).
 - Quién ejecuta cada nivel: [`docs/ROUTING.md`](ROUTING.md).
