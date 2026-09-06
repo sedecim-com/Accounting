@@ -43,6 +43,8 @@ que promete un paso inexistente es peor que no tener manual—.
 - **[[El-agente-y-sus-limites]]** — el maker-checker, las dos bandejas de propuesta, el suelo inamovible y qué hace un trabajo desatendido cuando no hay nadie mirando.
 - **[[Aislamiento-multi-inquilino]]** — *row-level security* de PostgreSQL, no un `WHERE` en TypeScript. Por qué la frontera de entidad devuelve 404 y nunca 403.
 - **[[Fiscal-mexicano]]** — CFDI 4.0, IVA sobre base de flujo (PUE contra PPD, y el REP que las reconcilia), e.firma y CSD, timbrado.
+- **[[Jurisdicciones]]** — México y Estados Unidos como paquetes sobre un motor común: lo que fija la ley va a una tabla con vigencia, lo que decide el despacho va al panel, y por qué el panel de hoy no sabe de países.
+- **[[Motores-contables]]** — qué motor existe para cada jurisdicción, cuál está a medias y cuál no existe bajo ningún nombre; verificado por escépticos, con `archivo:línea`.
 - **[[Base-de-datos-y-migraciones]]** — la cadena de migraciones, los cuatro duplicados históricos que no se pueden renumerar, y por qué las políticas de RLS se reaplican después de cada corrida.
 - **[[Seguridad-y-credenciales]]** — la bóveda cifrada, la bitácora de accesos, y por qué el proceso se niega a arrancar en producción con los secretos del repositorio.
 - **[[Glosario]]** — RFC, CFDI, PUE, PPD, REP, CSD, inquilino, entidad. En ese orden de necesidad.

@@ -26,6 +26,8 @@
 - [[El-agente-y-sus-limites]]
 - [[Aislamiento-multi-inquilino]]
 - [[Fiscal-mexicano]]
+- [[Jurisdicciones]]
+- [[Motores-contables]]
 - [[Base-de-datos-y-migraciones]]
 - [[Seguridad-y-credenciales]]
 - [[Glosario]]

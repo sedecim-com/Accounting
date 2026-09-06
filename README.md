@@ -286,8 +286,23 @@ Es la parte que no se puede improvisar y la razón de que el motor sea propio:
   en `src/ai/docs/`, no como prosa en el prompt: la sesión paga contexto sólo
   por lo que abre.
 
-También hay nómina de EE. UU. y motor de impuestos por jurisdicción, en el
-estado que `plan:status` declara.
+## Dos jurisdicciones, un motor
+
+El sistema empieza por México y Estados Unidos y aspira a más países. Hoy la
+semántica es mexicana casi en todo y Estados Unidos tiene nómina federal y
+estatal completa (FIT, FICA, FUTA, SUTA, 51 estados, 941/940/W-2) y poco más:
+sin catálogo fiscal propio, sin *sales tax*, sin 1099. El inventario verificado
+de qué motor existe para cada país —con sus huecos nombrados y su
+`archivo:línea`— está en
+[`docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md`](docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md).
+
+La regla de diseño que ordena la internacionalización es una: **la ley no se
+decide y el criterio no se legisla.** Lo que fija la ley (tasas, topes, tablas,
+UMA) va a una tabla con vigencia y fuente oficial; lo que decide el despacho
+(base de depreciación, destino del resultado) va al panel de políticas con su
+lector; cada país es un paquete configurable sobre el mismo motor. El diseño
+del panel por jurisdicción —y por qué el de hoy no sabe de países— está en
+[`docs/jurisdicciones.md`](docs/jurisdicciones.md).
 
 ---
 
@@ -362,6 +377,12 @@ Dentro del repositorio:
   modelo de coste por fila y el orden por flujos.
 - [`docs/plan-cierre-brechas.md`](docs/plan-cierre-brechas.md) — las garantías
   heredadas, dispuestas partida por partida.
+- [`docs/jurisdicciones.md`](docs/jurisdicciones.md) — la jurisdicción como
+  dimensión: el diseño rector del panel de configuración por país.
+- [`docs/investigacion/2026-09-06-normas-y-motores/`](docs/investigacion/2026-09-06-normas-y-motores/)
+  — la investigación normativa y de motores: el inventario verificado de motores por
+  jurisdicción, y las fuentes oficiales de US GAAP, IFRS/NIIF, NIF y lo fiscal de México
+  y Estados Unidos.
 - [`docs/investigacion/2026-09-02-mejores-practicas/`](docs/investigacion/2026-09-02-mejores-practicas/)
   — la investigación de conectores y dirección: PACs, proveedores de IA, onboarding, tablero
   gráfico, canales de mensajería y la arquitectura experimental de cuentas públicas/privadas.
