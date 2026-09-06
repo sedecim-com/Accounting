@@ -102,7 +102,7 @@
 | Motor | Estado | Regla que debe definirse | Parámetro | Evidencia |
 |---|---|---|---|---|
 | Registro de motores fiscales (tax-engine) | completo | — | casa | `register-all.ts` |
-| Tablas 2026 | completo | Cifras confirmadas contra SSA/IRS: tope SS 184 500; 401(k) 24 500; deducción estándar 16 100 / 32 200 / 24 150 | ley (`009_tax_tables_2026.sql`) | `motores/nomina-us.md` §Fuentes |
+| Tablas 2026 | parcial | La semilla «2026» trae el tope de Seguro Social de **2024** (168 600, `009:15`, repetido como literal en `fica-calculator.ts:18,99`) y el W-2 lleva un **tercer** tope propio (183 600, `w2-generator.ts:104`); el real 2026 es 184 500 (SSA). Las demás cifras externas —401(k) 24 500, deducción estándar 16 100 / 32 200 / 24 150— se confirmaron contra IRS. Es T4 (#91) | ley (`009_tax_tables_2026.sql`, una fila por año) | `motores/nomina-us.md` §2 y §Fuentes |
 | FIT (Pub 15-T) | completo | `filing_status` no validado → silencio-cero para cualquier valor desconocido (no sólo MFS) | ley | `fit-calculator.ts:14,20` |
 | FICA SS · Medicare · Additional Medicare · FUTA · SUTA · SIT (51) · SDI/PFL | completo | — | ley | `register-all.ts` |
 | Impuestos locales | parcial | Se calculan y **no se persisten** → la casilla 19 del W-2 siempre 0; un local > 0 descuadraría el asiento | ley | `paycheck-service.ts:229,326-336`; `w2-generator.ts:93` |
