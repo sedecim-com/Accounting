@@ -30,7 +30,7 @@ El núcleo: partida doble y posteo por una sola puerta, las siete reglas de vali
 
 ## Lo transversal
 
-Casi todo lo que existe es **mexicano en semántica y universal en código**: los motores no preguntan la jurisdicción. La ley vive en tablas por año o quemada en código. El panel gobierna criterio pero no sabe de países. Las tres cosas tienen un mismo remedio y un mismo orden: [[Jurisdicciones]].
+Casi todo lo que existe es **mexicano en semántica y universal en código**: los motores no preguntan la jurisdicción. La ley vive en tablas por año o quemada en código. El panel gobierna criterio pero no sabe de países. Las tres cosas tienen un mismo remedio y un mismo orden: [[Jurisdicciones]]. Lo que falta por país está indexado en [#124](https://github.com/sedecim-com/Accounting/issues/124) (Estados Unidos) y [#125](https://github.com/sedecim-com/Accounting/issues/125) (México); los cinco defectos nuevos, en [#126](https://github.com/sedecim-com/Accounting/issues/126)–[#130](https://github.com/sedecim-com/Accounting/issues/130).
 
 ## Para seguir
 

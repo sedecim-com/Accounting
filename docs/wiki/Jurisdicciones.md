@@ -31,7 +31,7 @@ Nadie decide la tasa de IVA y ninguna ley dice cómo deprecia un despacho. Meter
 
 ## El orden
 
-El tramo se llama **J0** y va **antes** de cualquier motor nuevo por país (*sales tax*, 1099, DIOT, retenciones): cada uno de esos motores necesita preguntar de qué jurisdicción es la entidad y leer un parámetro con vigencia, y construirlos antes es construirlos sobre el booleano y sobre constantes. Cada paso lleva su criterio ejecutable en `src/plan/criterios.ts`; nada de esta página cuenta como hecho hasta que `npm run plan:status` lo diga.
+El tramo se llama **J0** ([#123](https://github.com/sedecim-com/Accounting/issues/123)) y va **antes** de cualquier motor nuevo por país (*sales tax*, 1099, DIOT, retenciones): cada uno de esos motores necesita preguntar de qué jurisdicción es la entidad y leer un parámetro con vigencia, y construirlos antes es construirlos sobre el booleano y sobre constantes. Cada paso lleva su criterio ejecutable en `src/plan/criterios.ts`; nada de esta página cuenta como hecho hasta que `npm run plan:status` lo diga.
 
 ## Para seguir
 

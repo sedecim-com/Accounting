@@ -295,5 +295,5 @@ El coste no se estima aquí: el modelo de coste por fila vive en [`docs/plan-cat
 
 - Evidencia por subsistema: [`docs/investigacion/2026-09-06-normas-y-motores/motores/`](investigacion/2026-09-06-normas-y-motores/)
 - Las fuentes normativas: [`normas/`](investigacion/2026-09-06-normas-y-motores/) — GAAP/ASC, el delta IFRS↔NIF, fiscal MX, fiscal US
-- La secuencia completa y las issues: `docs/HISTORY.md` («Lo que sigue») y las etiquetas `via-a` / `via-b` / `jurisdiccion`
+- La secuencia completa y las issues: J0 es [#123](https://github.com/sedecim-com/Accounting/issues/123); J1/J2 son [#124](https://github.com/sedecim-com/Accounting/issues/124) y [#125](https://github.com/sedecim-com/Accounting/issues/125); N1/N2/N3 son [#131](https://github.com/sedecim-com/Accounting/issues/131), [#132](https://github.com/sedecim-com/Accounting/issues/132) y [#133](https://github.com/sedecim-com/Accounting/issues/133); los defectos T19–T23, [#126](https://github.com/sedecim-com/Accounting/issues/126)–[#130](https://github.com/sedecim-com/Accounting/issues/130). Etiqueta `jurisdiccion`; `docs/HISTORY.md` («Lo que sigue»)
 - Cómo se pregunta el estado: `npm run plan:status` — nada de este documento cuenta como hecho hasta que su criterio esté verde
