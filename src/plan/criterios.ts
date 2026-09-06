@@ -6535,6 +6535,94 @@ export const CRITERIOS: Criterio[] = [
   },
 
 
+  // ---- E1a · El predicado que se paga por fila ----
+
+  {
+    paquete: 'E2.1',
+    enunciado:
+      'El predicado que cobra cada política se inserta en línea, y sigue cualificado sin la cláusula que lo impedía',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/069_el_predicado_que_se_paga_por_fila.sql',
+        de: 'LANGUAGE sql STABLE\nAS $fn$',
+        a: 'LANGUAGE plpgsql STABLE\nAS $fn$',
+        porque:
+          'vuelve el marco de PL/pgSQL por fila. Ninguna prueba se pone roja —la respuesta es idéntica— y todo el sistema paga 6.1× en cada política',
+      },
+      {
+        archivo: 'src/database/migrations/069_el_predicado_que_se_paga_por_fila.sql',
+        de: 'LANGUAGE sql STABLE\nAS $fn$',
+        a: 'LANGUAGE sql STABLE\nSET search_path = pg_catalog, public\nAS $fn$',
+        porque:
+          'el reflejo de endurecimiento que este criterio existe para frenar: la cláusula parece gratis, impide el inline y devuelve el coste entero sin cambiar una sola respuesta',
+      },
+      {
+        archivo: 'src/database/migrations/069_el_predicado_que_se_paga_por_fila.sql',
+        de: "pg_catalog.current_setting('app.current_tenant', true)",
+        a: "current_setting('app.current_tenant', true)",
+        porque:
+          'la mitad peligrosa del cambio: sin la cláusula SET, un nombre sin cualificar SÍ es secuestrable por search_path',
+      },
+      {
+        archivo: 'src/database/migrations/069_el_predicado_que_se_paga_por_fila.sql',
+        de: 'CREATE OR REPLACE FUNCTION public.app_current_tenant() RETURNS uuid',
+        a: null,
+        porque:
+          'si la migración desaparece, la última definición vuelve a ser la de la 014: el criterio debe dar ROJO, no reventar leyendo un archivo que ya no está',
+      },
+    ],
+    evaluar: () => {
+      // E1a. `app_current_tenant()` la evalúa CADA política de aislamiento, y
+      // una política se evalúa UNA VEZ POR FILA: es la función más llamada del
+      // esquema. La 014 la escribió en PL/pgSQL con `SET search_path`, y esa
+      // cláusula IMPIDE el inline, así que cada fila pagaba un marco entero.
+      // Medido sobre 800 000 filas: 1 447 ms → 237 ms (6.1×, docs/auditorias/E1a.md).
+      //
+      // Este criterio no vigila la 069 por su nombre: vigila QUIÉN DEFINE LA
+      // FUNCIÓN AL FINAL. Una migración posterior que la «endurezca»
+      // devolviéndole la cláusula no rompe ninguna prueba —la respuesta es la
+      // misma— y sólo se nota en la factura. Es exactamente la regresión que
+      // nadie encuentra leyendo un diff.
+      const dir = 'src/database/migrations';
+      const definen = fs
+        .readdirSync(rutaDe(dir))
+        .filter((f) => f.endsWith('.sql'))
+        .sort()
+        // El overlay gobierna la EXISTENCIA pero no `readdirSync`: sin este
+        // filtro, el mutante que borra la 069 haría REVENTAR al criterio en vez
+        // de ponerlo rojo, y «no pude mirar» no es «está mal».
+        .filter((f) => existe(`${dir}/${f}`))
+        .filter((f) => /CREATE\s+OR\s+REPLACE\s+FUNCTION\s+(?:public\.)?app_current_tenant/i.test(crudoDe(dir, f)));
+
+      const ultima = definen[definen.length - 1];
+      if (!ultima) return falla('nadie define app_current_tenant: las políticas de aislamiento no tienen predicado');
+
+      // Sólo el CUERPO. `crudoDe` no quita comentarios, y la cabecera de la 069
+      // cita literalmente «LANGUAGE sql CON SET search_path» en su tabla de
+      // mediciones: juzgar el archivo entero sería acusar a la prosa que
+      // explica el cambio.
+      const texto = crudoDe(dir, ultima);
+      const i = texto.search(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+(?:public\.)?app_current_tenant/i);
+      const j = texto.indexOf('$fn$;', i);
+      const cuerpo = j > i ? texto.slice(i, j) : texto.slice(i);
+
+      if (!/LANGUAGE\s+sql\b/i.test(cuerpo)) {
+        return falla(`${ultima} devolvió app_current_tenant a un lenguaje procedural: deja de insertarse en línea y cada política vuelve a pagar un marco por fila`);
+      }
+      if (/SET\s+search_path/i.test(cuerpo)) {
+        return falla(`${ultima} le devolvió SET search_path a app_current_tenant: la cláusula impide el inline y multiplica por seis el coste de TODA política de aislamiento`);
+      }
+      // Sin la cláusula, lo que se resuelve por nombre queda expuesto: la
+      // función y el tipo del cast. `nullif` no cuenta —es gramática, no
+      // función, y no se resuelve por nombre— y cualificarlo es un error de
+      // sintaxis, no una protección.
+      if (!/pg_catalog\.current_setting\(/.test(cuerpo) || !/::\s*pg_catalog\.uuid/.test(cuerpo)) {
+        return falla(`${ultima} dejó sin cualificar la función o el tipo del cast: quitar SET search_path sin cualificar es abrir el secuestro que la cláusula cerraba`);
+      }
+      return ok(`el predicado de aislamiento se inserta en línea y va cualificado (${ultima})`);
+    },
+  },
+
 ];
 
 /**
