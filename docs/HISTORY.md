@@ -114,4 +114,4 @@ Ninguno. Los 41 PRs mergeados y los 13 commits directos a `main` quedaron ubicad
 
 ## Lo que sigue (Vía A y Vía B)
 
-El plan pendiente —qué falta arreglar y qué falta construir, con evidencia verificada línea por línea— vive ahora como Issues de este repositorio (milestones `Vía A · Lo que ya está mal` y `Vía B · Lo que falta construir`), migradas desde los artefactos de Claude Code. El detalle completo, con cita `archivo:línea` de cada hallazgo, está archivado en `docs/archive/claude-artifacts/plan-maestro.html`.
+El plan pendiente —qué falta arreglar y qué falta construir, con evidencia verificada línea por línea— vive ahora como Issues de este repositorio (milestones `Vía A · Lo que ya está mal` y `Vía B · Lo que falta construir`), migradas desde los artefactos de Claude Code. El detalle completo, con cita `archivo:línea` de cada hallazgo, está archivado en `docs/archive/claude-artifacts/plan-maestro-v6.1.html`.
