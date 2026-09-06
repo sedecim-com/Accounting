@@ -1,0 +1,1036 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found]){display:none!important}</style></head><body>
+<title>Brechas de usabilidad de mnemosine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --papel:#F7F7F4; --alto:#FFFFFF; --banda:#EFEFEA;
+  --tinta:#1B2026; --tinta-2:#4E5866; --tinta-3:#7E8794;
+  --raya:#D8DBE0; --raya-fina:#E7E9EC;
+  --azul:#2C4E80; --azul-suave:#E3EAF4;
+  --rojo:#A63D2F; --rojo-suave:#F5E6E2;
+  --verde:#37684D; --verde-suave:#E2EEE7;
+  --ambar:#8F6A1C; --ambar-suave:#F4ECD9;
+  --term:#12171F; --term-tinta:#DDE3EC; --term-tenue:#8894A6;
+  --term-verde:#7CC29A; --term-rojo:#E38A78; --term-ambar:#D8B26A;
+  --sombra:0 1px 0 var(--raya-fina), 0 10px 24px -20px rgba(27,32,38,.45);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --papel:#11151B; --alto:#171C24; --banda:#151A21;
+  --tinta:#E7EAEF; --tinta-2:#A6AEBB; --tinta-3:#737D8C;
+  --raya:#2A323E; --raya-fina:#1E2530;
+  --azul:#82A9DC; --azul-suave:#1A2B42;
+  --rojo:#D9806F; --rojo-suave:#39201B;
+  --verde:#7CB694; --verde-suave:#1B3126;
+  --ambar:#CFA34F; --ambar-suave:#32270F;
+  --term:#0C1015; --term-tinta:#DDE3EC; --term-tenue:#8894A6;
+  --sombra:0 1px 0 var(--raya-fina), 0 10px 24px -20px rgba(0,0,0,.8);
+}}
+:root[data-theme="dark"]{
+  --papel:#11151B; --alto:#171C24; --banda:#151A21;
+  --tinta:#E7EAEF; --tinta-2:#A6AEBB; --tinta-3:#737D8C;
+  --raya:#2A323E; --raya-fina:#1E2530;
+  --azul:#82A9DC; --azul-suave:#1A2B42;
+  --rojo:#D9806F; --rojo-suave:#39201B;
+  --verde:#7CB694; --verde-suave:#1B3126;
+  --ambar:#CFA34F; --ambar-suave:#32270F;
+  --term:#0C1015; --term-tinta:#DDE3EC; --term-tenue:#8894A6;
+  --sombra:0 1px 0 var(--raya-fina), 0 10px 24px -20px rgba(0,0,0,.8);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--papel); color:var(--tinta);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  font-size:16px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.env{max-width:1060px; margin:0 auto; padding:0 28px}
+h1,h2,h3,h4{font-family:"IBM Plex Serif",Georgia,serif; line-height:1.22; text-wrap:balance; margin:0}
+h1{font-size:clamp(2rem,4.5vw,2.85rem); font-weight:700}
+h2{font-size:1.45rem; font-weight:700}
+h3{font-size:1.08rem; font-weight:600}
+p{margin:0; max-width:72ch}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.86em}
+code{background:var(--banda); border:1px solid var(--raya-fina); border-radius:3px; padding:.06em .34em}
+a{color:var(--azul)}
+:focus-visible{outline:2px solid var(--azul); outline-offset:2px}
+
+header{border-bottom:2px solid var(--azul); padding:56px 0 30px}
+.sello{font-family:"IBM Plex Mono",monospace; font-size:.72rem; letter-spacing:.12em; text-transform:uppercase; color:var(--azul); margin-bottom:14px}
+.tesis{margin-top:18px; font-size:1.06rem; color:var(--tinta-2); max-width:74ch}
+.tesis b{color:var(--tinta)}
+.estampa{margin-top:20px; font-family:"IBM Plex Mono",monospace; font-size:.76rem; color:var(--tinta-3); max-width:80ch}
+
+section{padding:40px 0 6px}
+.sec-head{display:flex; align-items:baseline; gap:14px; border-top:1px solid var(--azul); padding-top:14px; margin-bottom:20px}
+.sec-num{font-family:"IBM Plex Mono",monospace; font-size:.78rem; color:var(--azul); letter-spacing:.08em}
+.nota{font-size:.92rem; color:var(--tinta-2); max-width:74ch; margin:0 0 22px}
+
+.cifras{display:flex; flex-wrap:wrap; gap:10px; margin:16px 0 0}
+.cifra{font-family:"IBM Plex Mono",monospace; font-size:.76rem; padding:5px 12px; border-radius:999px; border:1px solid var(--raya); background:var(--alto); color:var(--tinta-2); font-variant-numeric:tabular-nums}
+.cifra b{color:var(--tinta); font-weight:600}
+.cifra.r{border-color:var(--rojo); background:var(--rojo-suave); color:var(--rojo)}
+.cifra.v{border-color:var(--verde); background:var(--verde-suave); color:var(--verde)}
+
+/* la lista ordenada: es una secuencia real de prioridad */
+.orden{display:grid; gap:12px; margin:0 0 8px}
+.item{display:grid; grid-template-columns:44px minmax(0,1fr); gap:0 18px; border:1px solid var(--raya); background:var(--alto); box-shadow:var(--sombra); padding:16px 20px}
+.rango{font-family:"IBM Plex Mono",monospace; font-size:1.5rem; font-weight:600; color:var(--azul); line-height:1; padding-top:2px; font-variant-numeric:tabular-nums}
+.item h3{margin-bottom:4px}
+.item p{font-size:.9rem; color:var(--tinta-2); margin-top:6px; max-width:78ch}
+.marcas{display:flex; flex-wrap:wrap; gap:7px; margin-top:8px}
+.marca{font-family:"IBM Plex Mono",monospace; font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; padding:2px 8px; border-radius:3px; border:1px solid var(--raya); color:var(--tinta-3)}
+.marca.alta{border-color:var(--rojo); color:var(--rojo); background:var(--rojo-suave)}
+.marca.media{border-color:var(--ambar); color:var(--ambar); background:var(--ambar-suave)}
+.marca.s{border-color:var(--verde); color:var(--verde); background:var(--verde-suave)}
+
+/* la terminal: la evidencia de este documento ES salida de terminal */
+.term{background:var(--term); border-radius:6px; overflow:hidden; margin:0 0 16px; box-shadow:var(--sombra)}
+.term-cab{font-family:"IBM Plex Mono",monospace; font-size:.7rem; letter-spacing:.06em; text-transform:uppercase; color:var(--term-tenue); padding:9px 16px; border-bottom:1px solid rgba(255,255,255,.08)}
+.term pre{margin:0; padding:14px 16px; overflow-x:auto; font-family:"IBM Plex Mono",monospace; font-size:.82rem; line-height:1.65; color:var(--term-tinta)}
+.term .p{color:var(--term-tenue)}
+.term .mal{color:var(--term-rojo)}
+.term .ok{color:var(--term-verde)}
+.term .av{color:var(--term-ambar)}
+.term-pie{font-size:.88rem; color:var(--tinta-2); margin:-6px 0 26px; max-width:78ch}
+.term-pie b{color:var(--tinta)}
+
+.temas{display:grid; grid-template-columns:repeat(auto-fit,minmax(310px,1fr)); gap:14px; margin:0 0 10px}
+.tema{border:1px solid var(--raya); border-top:3px solid var(--azul); background:var(--alto); box-shadow:var(--sombra); padding:15px 18px}
+.tema h4{font-size:.98rem; margin-bottom:8px}
+.tema ul{margin:0; padding:0; list-style:none; display:grid; gap:7px}
+.tema li{font-size:.86rem; color:var(--tinta-2); padding-left:15px; position:relative}
+.tema li::before{content:"·"; position:absolute; left:3px; color:var(--azul); font-weight:700}
+.tema li b{color:var(--tinta)}
+
+.bien{border-left:3px solid var(--verde); background:var(--alto); box-shadow:var(--sombra); padding:18px 22px; margin:0 0 14px}
+.bien h3{color:var(--verde)}
+.bien ul{margin:10px 0 0; padding:0; list-style:none; display:grid; gap:8px}
+.bien li{font-size:.9rem; color:var(--tinta-2); padding-left:16px; position:relative; max-width:82ch}
+.bien li::before{content:"—"; position:absolute; left:0; color:var(--verde)}
+.bien li b{color:var(--tinta)}
+
+.decision{border-left:3px solid var(--ambar); background:var(--alto); box-shadow:var(--sombra); padding:18px 22px; margin:0 0 14px}
+.decision h3{color:var(--ambar)}
+.decision p{font-size:.92rem; color:var(--tinta-2); margin-top:6px; max-width:82ch}
+.decision p b{color:var(--tinta)}
+.opciones{display:grid; gap:9px; margin-top:12px}
+.opcion{border:1px solid var(--raya-fina); background:var(--banda); padding:10px 14px; font-size:.88rem; color:var(--tinta-2)}
+.opcion b{color:var(--tinta)}
+
+.tabla{width:100%; border-collapse:collapse; font-size:.9rem}
+.tabla th{font-family:"IBM Plex Mono",monospace; font-size:.68rem; text-transform:uppercase; letter-spacing:.07em; color:var(--tinta-3); text-align:left; font-weight:500; padding:8px 14px 8px 0; border-bottom:1px solid var(--raya)}
+.tabla td{padding:9px 14px 9px 0; border-bottom:1px solid var(--raya-fina); vertical-align:top; color:var(--tinta-2)}
+.tabla td:first-child{color:var(--tinta)}
+.tabla .num{font-variant-numeric:tabular-nums; font-family:"IBM Plex Mono",monospace; font-size:.84rem; white-space:nowrap; text-align:right}
+.desborda{overflow-x:auto}
+
+footer{margin-top:46px; border-top:1px solid var(--raya); padding:22px 0 60px; font-size:.84rem; color:var(--tinta-3)}
+footer code{background:none; border:0; padding:0}
+/* el sello de la segunda lectura: un estado por brecha, y la banda que lo explica */
+.marca.cerrada{border-color:var(--verde); color:var(--verde); background:var(--verde-suave); font-weight:600}
+.marca.parcial{border-color:var(--ambar); color:var(--ambar); background:var(--ambar-suave); font-weight:600}
+.marca.revocada{border-color:var(--azul); color:var(--azul); background:var(--azul-suave); font-weight:600}
+.item.hecho .rango{color:var(--verde)}
+.item.hecho{border-left:3px solid var(--verde)}
+.item.medias{border-left:3px solid var(--ambar)}
+.item.otra{border-left:3px solid var(--azul)}
+
+.sello-cierre{border:1px solid var(--raya); border-top:3px solid var(--verde); background:var(--alto); box-shadow:var(--sombra); padding:18px 22px; margin:0 0 16px}
+.sello-cierre h3{color:var(--verde); margin-bottom:8px}
+.sello-cierre p{font-size:.9rem; color:var(--tinta-2); margin-top:8px; max-width:82ch}
+.sello-cierre p b{color:var(--tinta)}
+.tabla .baja{color:var(--verde)}
+.tabla .sube{color:var(--rojo)}
+.tabla .quieto{color:var(--tinta-3)}
+
+.revocada-caja{border-left:3px solid var(--azul); background:var(--alto); box-shadow:var(--sombra); padding:18px 22px; margin:16px 0 0}
+.revocada-caja h3{color:var(--azul)}
+.revocada-caja p{font-size:.9rem; color:var(--tinta-2); margin-top:8px; max-width:82ch}
+.revocada-caja p b{color:var(--tinta)}
+
+/* el catálogo de capacidades: un bloque por área del oficio */
+.catalogo{display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:14px; margin:0 0 10px}
+.area{border:1px solid var(--raya); border-top:3px solid var(--verde); background:var(--alto); box-shadow:var(--sombra); padding:16px 18px; display:flex; flex-direction:column}
+.area.futuro{border-top-color:var(--ambar)}
+.area-cab{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:8px}
+.area h4{font-size:1rem}
+.area .cuenta{font-family:"IBM Plex Mono",monospace; font-size:.72rem; color:var(--tinta-3); white-space:nowrap; font-variant-numeric:tabular-nums}
+.area p{font-size:.86rem; color:var(--tinta-2); margin:0 0 9px}
+.area ul{margin:0; padding:0; list-style:none; display:grid; gap:6px}
+.area li{font-size:.82rem; color:var(--tinta-2); padding-left:15px; position:relative}
+.area li::before{content:"·"; position:absolute; left:3px; color:var(--verde); font-weight:700}
+.area.futuro li::before{color:var(--ambar)}
+.area li b{color:var(--tinta)}
+.area .fam{font-family:"IBM Plex Mono",monospace; font-size:.74rem; color:var(--tinta-3); margin-top:10px; padding-top:8px; border-top:1px solid var(--raya-fina)}
+
+.capas{display:grid; gap:10px; margin:0 0 18px}
+.capa{display:grid; grid-template-columns:minmax(0,190px) minmax(0,1fr); gap:0 18px; border:1px solid var(--raya); background:var(--alto); box-shadow:var(--sombra); padding:13px 18px}
+.capa b{font-size:.92rem}
+.capa span{font-size:.86rem; color:var(--tinta-2)}
+.capa .n{font-family:"IBM Plex Mono",monospace; font-size:.74rem; color:var(--azul); display:block; font-variant-numeric:tabular-nums}
+@media (max-width:640px){ .capa{grid-template-columns:1fr; gap:4px} }
+
+.falta{display:grid; gap:11px; margin:0 0 10px}
+.pieza{border:1px solid var(--raya); border-left:3px solid var(--ambar); background:var(--alto); box-shadow:var(--sombra); padding:14px 18px}
+.pieza h4{font-size:.98rem; margin-bottom:5px}
+.pieza p{font-size:.86rem; color:var(--tinta-2); max-width:84ch}
+.pieza p b{color:var(--tinta)}
+.pieza .ya{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--verde); background:var(--verde-suave); border:1px solid var(--verde); border-radius:3px; padding:1px 7px; margin-right:8px}
+.pieza .no{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--rojo); background:var(--rojo-suave); border:1px solid var(--rojo); border-radius:3px; padding:1px 7px; margin-right:8px}
+
+@media (max-width:640px){ .item{grid-template-columns:1fr} .rango{padding-bottom:4px} }
+</style>
+
+<header>
+  <div class="env">
+    <div class="sello">mnemosine · qué hace, qué le falta, y qué se cerró</div>
+    <h1>Brechas de usabilidad</h1>
+    <p class="tesis"><b>La tesis de esta auditoría era que casi todo lo que falta ya existe y no está
+    cableado al lugar donde el contador está parado.</b> Un redactor de remedios con dos llamadores de
+    134. Un comparador bilingüe de «sí» que ninguna compuerta llamaba. La mejor pieza de diseño del
+    producto, mostrada el único día en que no tiene datos que enseñar. <b>Esa tesis resultó cierta, y
+    resultó barata de reparar:</b> siete de las diez primeras están cerradas, y las diez piezas que
+    todavía faltan siguen exactamente el mismo patrón —cuatro PAC conectados sin una hoja que los use, un
+    generador de nómina sin nadie que lo mire, 151 puntos de API sin un tablero encima—. Esta página tiene
+    ahora tres partes: <b>lo que el sistema hace</b>, <b>lo que no</b>, y la auditoría original, que se
+    conserva entera porque es lo que hace comprobable a las otras dos.</p>
+    <div class="cifras">
+      <span class="cifra"><b>100</b>&nbsp;brechas con evidencia</span>
+      <span class="cifra"><b>41</b>&nbsp;distintas, en 8 temas</span>
+      <span class="cifra v"><b>7</b>&nbsp;de las diez primeras, cerradas</span>
+      <span class="cifra v"><b>169</b>&nbsp;de 216 hojas con ejemplos</span>
+      <span class="cifra r"><b>47</b>&nbsp;hojas sin ejemplo todavía</span>
+      <span class="cifra r"><b>28</b>&nbsp;fechas en UTC en la CLI</span>
+      <span class="cifra v"><b>22</b>&nbsp;decisiones que no hay que tocar</span>
+    </div>
+    <div class="estampa">§1 y §2 se derivan de recorrer el programa exportado y de contar los puntos
+    de la API; §3 es el sello de la segunda lectura; §4 a §9 son la auditoría del 1 de septiembre, intacta
+    · siete lentes contra las guías de diseño de CLI, las heurísticas de Nielsen y lo
+    que un despacho espera de CONTPAQi, Aspel, QuickBooks y Xero · cada brecha con el comando corrido y
+    su salida literal, o con <code>archivo:línea</code> · tres hallazgos se descartaron por estar mal
+    medidos, y dos afirmaciones del encargo quedaron corregidas por la propia auditoría<br><br>
+    <b style="color:var(--verde)">Revisión del 2 de septiembre de 2026:</b> las cifras de estado de esta
+    página ya no se leen de ella. Salen de <code>npm run ux:status</code>, que camina el programa
+    exportado — el instrumento que la brecha G2 pedía, y que ahora existe.</div>
+  </div>
+</header>
+
+<section>
+  <div class="env">
+    <div class="sec-head"><span class="sec-num">§1</span><h2>Lo que el sistema ya hace</h2></div>
+    <p class="nota">Este inventario no está escrito a mano. Sale de recorrer el <code>program</code> que
+    exporta <code>src/cli/mnemosine.ts</code> —el mismo objeto que responde en la terminal— y de contar los
+    <code>router.*</code> de <code>src/api/rest/routes</code>. <b>216 hojas en 58 familias</b> y
+    <b>151 puntos de la API</b>, sobre 65 migraciones. Cada bloque lleva las familias que lo sostienen para
+    que cualquier afirmación de esta página se pueda comprobar tecleando <code>--help</code>.</p>
+
+    <div class="capas">
+      <div class="capa"><b>La terminal<span class="n">216 hojas · 58 familias</span></b>
+        <span>La superficie donde trabaja el contador. Toda hoja de lectura tiene contrato de máquina
+        (<code>--json</code>, <code>--format</code>); toda hoja irreversible lleva <code>--dry-run</code>,
+        <code>--yes</code> e <code>--idempotency-key</code>, y el arranque se rompe si alguien marca una
+        como invocable por el agente sin ellas.</span></div>
+      <div class="capa"><b>La API REST<span class="n">151 puntos · 17 rutas</span></b>
+        <span>El mismo dominio por HTTP: cuentas, pólizas, clientes, proveedores, facturas, conciliación
+        bancaria, periodos fiscales, informes, nómina, ingesta de XML, integraciones, webhooks y la
+        verificación pública. Es el cimiento sobre el que se monta cualquier tablero gráfico.</span></div>
+      <div class="capa"><b>El agente contable<span class="n">18 familias</span></b>
+        <span>Propone, nunca escribe. Clasifica CFDI con reglas primero y modelo después, deja borradores
+        que un humano aprueba, aprende de precedentes que el despacho controla, y registra costo,
+        calibración y el rastro de cada decisión.</span></div>
+      <div class="capa"><b>Las integraciones<span class="n">8 adaptadores</span></b>
+        <span>Cuatro PAC mexicanos —Finkok, SW Sapien, Edicom, Sovos/Reachcore— con enrutador y modo de
+        simulación; Contalink como sistema contable externo; Stripe y Conekta para cobros; S3 para el
+        archivo. Los cuatro PAC ya están precargados: falta la hoja que los use.</span></div>
+      <div class="capa"><b>La verificación pública<span class="n">sin credenciales</span></b>
+        <span>Pruebas de Merkle y anclaje en Bitcoin, servidos por un router que no pide autenticación y
+        lleva su propio limitador de ritmo. Un tercero —un inversionista, un auditor— comprueba que una
+        póliza estaba ahí sin ver un solo dato interno. Es el cimiento de la arquitectura
+        pública/privada.</span></div>
+    </div>
+
+    <div class="catalogo">
+      <div class="area">
+        <div class="area-cab"><h4>El mayor y el cierre</h4><span class="cuenta">47 hojas</span></div>
+        <p>El núcleo. Todo lo demás desemboca aquí.</p>
+        <ul>
+          <li>Póliza <b>siempre borrador</b>: crear, editar, previsualizar el delta exacto de saldos,
+          validar las <b>siete reglas NIF</b>, y postear como paso humano aparte.</li>
+          <li>Corrección por reversa (<b>NIF B-1</b>): el espejo posteado queda ligado al original.</li>
+          <li>Catálogo con roles: <code>account role seed</code> crea lo que falte y mapea sin pisar nada
+          manual; los mapeos estatutarios se cargan por CSV.</li>
+          <li>Lotes en una sola transacción, y su reversa como unidad.</li>
+          <li>El cierre como proceso: ensayo de sólo lectura, catálogo de verificaciones con nombre, y
+          <code>closing explain</code>, que imprime las filas culpables <b>y el comando que las
+          arregla</b>.</li>
+          <li>No se cierra un mes con uno anterior abierto, y el checklist se evalúa dentro de la
+          transacción del cierre.</li>
+        </ul>
+        <div class="fam">account · entry · batch · ledger · period · year · closing · close</div>
+      </div>
+
+      <div class="area">
+        <div class="area-cab"><h4>Banco y tesorería</h4><span class="cuenta">38 hojas</span></div>
+        <p>La conciliación bancaria completa, de extremo a extremo. Era el hueco más citado de la auditoría
+        anterior; hoy es la familia más grande del producto.</p>
+        <ul>
+          <li>Importación de estado de cuenta con deduplicación por id nativo o hash, y <b>siete
+          verificaciones de integridad</b> que salen con código 4 nombrando la que rompió.</li>
+          <li>Motor de emparejamiento con la puntuación <b>desglosada en sus señales</b> y toda compuerta
+          visible; se aplica sólo lo que pasa el umbral, y se puede deshacer con motivo tipificado.</li>
+          <li>Sesión mensual con saldo de apertura encadenado, varianza <b>congelada</b>, firma con
+          <b>preparador ≠ aprobador</b> y sellado de las líneas del libro.</li>
+          <li>Partidas conciliatorias tipificadas —cheques en tránsito, depósitos en camino— con dueño,
+          fecha esperada y corrección cuando la propuesta automática se equivocó.</li>
+          <li>Comisiones, intereses con la <b>retención de ISR</b> como pago provisional, y el cheque que
+          se prueba contra el movimiento que lo liberó con su reclasificación de IVA.</li>
+          <li>El estado de conciliación a dos columnas, para el papel de trabajo.</li>
+          <li>Tipos de cambio como origen único de toda conversión, y flujo de efectivo NIF B-2 / ASC 230
+          amarrado al efectivo real.</li>
+        </ul>
+        <div class="fam">bank · fx · cashflow</div>
+      </div>
+
+      <div class="area">
+        <div class="area-cab"><h4>Clientes y cobranza</h4><span class="cuenta">31 hojas</span></div>
+        <p>El auxiliar de cuentas por cobrar, con su control contra el mayor.</p>
+        <ul>
+          <li>Padrón de clientes con el saldo de cada uno; factura como borrador, emisión al mayor y
+          cancelación.</li>
+          <li>Cobranza: registrar efectivo, aplicar saldo a cuenta, desaplicar, y <b>revertir un cheque
+          devuelto</b>.</li>
+          <li>Notas de crédito por devolución, descuento y corrección.</li>
+          <li><code>ar reconcile</code>: el auxiliar contra la cuenta de control, con diagnósticos con
+          nombre.</li>
+        </ul>
+        <div class="fam">customer · invoice · receipt · credit-note · ar</div>
+      </div>
+
+      <div class="area">
+        <div class="area-cab"><h4>Proveedores y pagos</h4><span class="cuenta">15 hojas</span></div>
+        <p>El auxiliar de cuentas por pagar, con la misma prueba de control.</p>
+        <ul>
+          <li>Padrón con condiciones y RFC; factura de proveedor: captura, codificación, revisión y
+          aprobación.</li>
+          <li>Pago que registra el efectivo que <b>ya salió</b> del banco y liquida la factura que
+          paga.</li>
+          <li><code>ap reconcile</code> contra la cuenta de control.</li>
+        </ul>
+        <div class="fam">vendor · bill · payment · ap</div>
+      </div>
+
+      <div class="area">
+        <div class="area-cab"><h4>Lo fiscal mexicano</h4><span class="cuenta">11 hojas</span></div>
+        <p>Lo que hace que esto sea un sistema mexicano y no una traducción.</p>
+        <ul>
+          <li>Espejo de CFDI: listar, inspeccionar, estado ante el SAT, y <b><code>cfdi explain</code></b>
+          —caso, hechos y decisiones del clasificador—, que no tiene equivalente en CONTPAQi, Aspel,
+          QuickBooks, Xero ni NetSuite.</li>
+          <li><b>IVA en base de flujo</b>, con el criterio conservador por lado del documento.</li>
+          <li>REP: qué pago no tiene su recibo, y los aparcados para reintentar.</li>
+          <li>Ceremonia de la e.firma: eco apagado, consentimiento explícito, bitácora, revocación
+          irreversible y aviso si el <code>.key</code> lo puede leer otro usuario del sistema.</li>
+          <li>Puerta de cobertura del catálogo antes del Anexo 24: qué cuentas de primer nivel siguen sin
+          mapeo.</li>
+        </ul>
+        <div class="fam">cfdi · rep · sat · account map</div>
+      </div>
+
+      <div class="area">
+        <div class="area-cab"><h4>El agente que propone</h4><span class="cuenta">34 hojas</span></div>
+        <p>El diferenciador. La regla que lo gobierna es una sola: <b>el agente propone, el humano
+        dispone</b>. Ninguna herramienta del agente llega al mayor.</p>
+        <ul>
+          <li>Ingesta por lote de CFDI: reglas primero, modelo después, borradores al final —o posteo
+          automático sólo por encima de los umbrales que el despacho fijó.</li>
+          <li>Revisión con <b>aprobar, corregir-y-aprobar o rechazar</b>, atada al hash de lo que el
+          revisor vio; el rechazo <b>siembra precedente</b>.</li>
+          <li>Memoria del despacho: enseñar un criterio sin esperar a que pregunten, corregir uno
+          —conservando el anterior en la historia—, retirar y restaurar.</li>
+          <li>Preguntas pendientes del agente, que al contestarse se guardan como precedente.</li>
+          <li>Políticas de aprobación graduadas: una vez, por sesión, o siempre.</li>
+          <li>Trabajos programados cuyo resultado <b>siempre</b> es un borrador revisable.</li>
+          <li>Costo por token del libro local, calibración de confianza, y el desglose del prompt sin
+          gastar una llamada.</li>
+          <li>Webhooks de entrada con credencial propia que despiertan a un agente <b>de sólo
+          lectura</b>.</li>
+        </ul>
+        <div class="fam">chat · ask · ingest · review · drafts · memory · question · approvals · jobs ·
+        skills · webhooks · ai · usage · compact · prompt-size · sessions · providers · lang</div>
+      </div>
+
+      <div class="area">
+        <div class="area-cab"><h4>Informes</h4><span class="cuenta">8 hojas</span></div>
+        <p>Los estados financieros y las pruebas de que cuadran.</p>
+        <ul>
+          <li>Balanza de comprobación con su suma al pie, balance general en signo natural, estado de
+          resultados, mayor movimiento a movimiento.</li>
+          <li>Antigüedad de saldos por cobrar y por pagar.</li>
+          <li><b><code>report view show</code></b>: si cada vista de reporte sigue de acuerdo con el mayor
+          <b>y por cuánto difiere</b>. Un informe que sabe cuándo está desactualizado.</li>
+          <li>Los totales se suman sobre <b>todo</b> y la página se corta después; el dinero nunca sale
+          como número JSON.</li>
+        </ul>
+        <div class="fam">report · ledger</div>
+      </div>
+
+      <div class="area">
+        <div class="area-cab"><h4>Activos y diferidos</h4><span class="cuenta">7 hojas</span></div>
+        <p>Lo que se consume con el tiempo, y su corrida mensual.</p>
+        <ul>
+          <li>Registro de activo fijo; corrida de depreciación en tres tiempos: calcular, mirar,
+          postear.</li>
+          <li>Pagos anticipados con la tabla que los saca de la 1160 mes a mes.</li>
+        </ul>
+        <div class="fam">asset · depreciation · prepaid</div>
+      </div>
+
+      <div class="area">
+        <div class="area-cab"><h4>Puesta en marcha y operación</h4><span class="cuenta">25 hojas</span></div>
+        <p>Desde una máquina vacía hasta la primera póliza.</p>
+        <ul>
+          <li><code>init</code> guiado: infraestructura, entidad, usuarios, proveedor de IA y los
+          libros.</li>
+          <li><b><code>onboard</code></b>: importa la contabilidad de un cliente desde otro sistema
+          —catálogo y saldos iniciales—.</li>
+          <li><code>doctor</code>: enumera todo aunque el primero falle, distingue falla de advertencia,
+          ordena por dependencia y <b>da el comando exacto de cada remedio</b>.</li>
+          <li><code>status</code>: config, sondas vivas al proveedor, base y RLS, redactado para poder
+          compartirse.</li>
+          <li>Respaldos lógicos que se verifican <b>ensayando la restauración</b>.</li>
+          <li>Identidad por OIDC, frontera de entidad en el SQL, <code>pending</code> como la lista de lo
+          que hay que hacer, y <code>completion</code> para bash y zsh.</li>
+        </ul>
+        <div class="fam">init · onboard · doctor · status · backup · entity · login · logout · whoami ·
+        pending · outbox · completion</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="env">
+    <div class="sec-head"><span class="sec-num">§2</span><h2>Lo que todavía no hace, y qué falta exactamente</h2></div>
+    <p class="nota">Ninguna de estas diez es una idea. Todas tienen ya una parte construida, y lo que falta
+    está nombrado: <b>por eso se pueden estimar</b>. Cuando una etiqueta dice <span class="ya">existe</span>
+    es código que corre hoy; <span class="no">falta</span> es lo que no está escrito.</p>
+
+    <div class="falta">
+      <div class="pieza">
+        <h4>Timbrar y cancelar un CFDI desde la terminal</h4>
+        <p><span class="ya">existe</span>Cuatro adaptadores de PAC —<b>Finkok, SW Sapien, Edicom,
+        Sovos/Reachcore</b>—, un enrutador entre ellos y un modo de simulación. La API REST ya los usa.
+        <span class="no">falta</span>La hoja. <code>invoice</code> y <code>credit-note</code> lo dicen en
+        su propia ayuda: «never stamped here». Un motor con cuatro proveedores conectados al que no se
+        llega desde donde trabaja el contador.</p>
+      </div>
+      <div class="pieza">
+        <h4>Descargar los CFDI del SAT</h4>
+        <p><span class="ya">existe</span>La ceremonia de la e.firma y el espejo de CFDI, listo para
+        recibirlos. <span class="no">falta</span>El cliente SOAP, el ZIP y el comando. La ayuda ya es
+        honesta —«the CFDI bulk download is not built yet»—, que es el paso previo correcto: primero se
+        deja de prometer, después se construye.</p>
+      </div>
+      <div class="pieza">
+        <h4>La DIOT</h4>
+        <p><span class="ya">existe</span>Todo lo que la alimenta: padrón de proveedores con RFC, IVA
+        acreditable en base de flujo, y el auxiliar cuadrado contra su cuenta de control.
+        <span class="no">falta</span>El módulo entero. Es de calendario fiscal, no de conveniencia: se
+        presenta cada mes.</p>
+      </div>
+      <div class="pieza">
+        <h4>El XML del catálogo y las pólizas (Anexo 24)</h4>
+        <p><span class="ya">existe</span>El mapeo por esquema estatutario, la carga masiva por CSV y la
+        <b>puerta de cobertura</b> que dice qué cuentas de primer nivel siguen sin mapear.
+        <span class="no">falta</span>El generador del XML. Lo caro —convencer al catálogo de un despacho
+        de que se deje mapear— ya está hecho.</p>
+      </div>
+      <div class="pieza">
+        <h4>La nómina: auditarla o retirarla</h4>
+        <p><span class="ya">existe</span>Un generador de CFDI de nómina y su ruta REST.
+        <span class="no">falta</span>Que diga la verdad. Hoy emite el importe exento en
+        <code>0.00</code> en cada percepción <b>y</b> en el total, deriva el tipo de nómina de un campo que
+        no significa eso, y descansa sobre tres parámetros fiscales de 2026 marcados «estimated» en la
+        propia migración. <b>Es la única parte del sistema que ya sale del edificio diciendo cifras
+        falsas</b>, y no tiene familia en la terminal: nadie la ha mirado. Auditarla o retirarla, y hasta
+        entonces no se anuncia.</p>
+      </div>
+      <div class="pieza">
+        <h4>El tablero gráfico</h4>
+        <p><span class="ya">existe</span>La API REST con 151 puntos sobre el mismo dominio, que es
+        exactamente el cimiento que un tablero necesita. <span class="no">falta</span>La interfaz. Hoy el
+        producto sólo se opera desde la terminal, y su usuario declarado —la auxiliar de captura de un
+        despacho— no necesariamente sabe de terminales.</p>
+      </div>
+      <div class="pieza">
+        <h4>El despacho como primera clase</h4>
+        <p><span class="ya">existe</span>La frontera de entidad, resuelta dentro del SQL y no en la
+        aplicación, con 404 en vez de 403 para no filtrar existencia. <span class="no">falta</span>La
+        vista cruzada. Todo es una entidad por invocación: para responder «¿a quién le falta cerrar
+        julio?» hay que escribir un bucle de shell. Cartera, cierre por lote, pendientes cruzados y
+        políticas heredables.</p>
+      </div>
+      <div class="pieza">
+        <h4>Los canales de conversación configurables</h4>
+        <p><span class="ya">existe</span><code>webhooks</code>: credenciales dedicadas que despiertan a un
+        agente restringido de sólo lectura. <span class="no">falta</span>La vuelta. El canal es de entrada;
+        falta el intercambio de ida y vuelta por el medio que el despacho ya usa, con la misma frontera de
+        permisos y el mismo rastro auditable.</p>
+      </div>
+      <div class="pieza">
+        <h4>La fecha local en el núcleo</h4>
+        <p><span class="ya">existe</span>El arreglo, escrito, probado y razonado dentro del propio
+        repositorio: «<code>toISOString()</code> lo movería un día al oeste de Greenwich».
+        <span class="no">falta</span>Subirlo. Quedan <b>28</b> <code>toISOString()</code> en
+        <code>src/cli</code> —eran 24: la superficie creció más rápido que el arreglo—. Es correctitud en
+        el corte de periodo, no presentación: una póliza del 31 de enero a las 20:00 se lee como del 1 de
+        febrero.</p>
+      </div>
+      <div class="pieza">
+        <h4>El idioma donde más pesa</h4>
+        <p><span class="ya">existe</span>La decisión tomada y la mecánica: alias en castellano en 199 de
+        216 hojas, y un censo que impide que el número suba. <span class="no">falta</span>Las <b>17
+        preguntas del panel de políticas</b>, que siguen en inglés y son el texto de mayor densidad de
+        juicio contable del producto —IEPS, REP, restaurantes—. Y los nombres de periodo, que se
+        <b>persisten</b> en inglés: cada ejercicio abierto encarece la traducción.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="env">
+    <div class="sec-head"><span class="sec-num">§3</span><h2>Lo que cerró</h2></div>
+    <p class="nota">Esta auditoría se escribió el 1 de septiembre. Esto no la reescribe: la sella. Y el
+    orden importa —<b>lo primero que se construyó fue el instrumento</b>, no el arreglo. La brecha G2 decía
+    que el guardián medía una lista escrita a mano y que sin derivarlo del árbol todo lo demás se vuelve a
+    romper. Hoy el censo camina el <code>program</code> exportado, y por eso las cifras de abajo pueden
+    contradecir a esta página sin pedirle permiso.</p>
+
+    <div class="term">
+      <div class="term-cab">npm run ux:status · el censo, sobre el programa real</div>
+<pre><span class="p">$</span> npm run ux:status
+Censo de superficie — <span class="ok">216 hojas, 288 nodos del program real.</span>
+
+medida                              hoy  base  estado
+----------------------------------  ---  ----  ------
+hojas-sin-ejemplo                    <span class="av">47</span>    47  igual
+hojas-sin-contrato-de-salida         <span class="av">21</span>    21  igual
+hojas-sin-alias-castellano           <span class="av">17</span>    17  igual
+nodos-fuera-del-idioma-canonico       <span class="av">7</span>     7  igual
+hojas-graves-sin-las-tres-banderas    <span class="ok">0</span>     0  igual
+banderas-del-diccionario-sin-hoja    <span class="av">11</span>    11  igual</pre>
+    </div>
+    <p class="term-pie">La columna <code>base</code> es un trinquete: sólo encoge. Un número que sube
+    rompe la integración, y por eso «igual» aquí significa <b>fijado</b>, no estancado. La superficie
+    creció de 134 hojas a 216 mientras tanto —el censo cuenta lo que hay, no lo que había—, así que
+    <b>47 sin ejemplo sobre 216</b> viene de 134 sobre 134.</p>
+
+    <div class="sello-cierre">
+      <h3>Siete de las diez primeras, cerradas</h3>
+      <p><b>1 · La gramática de «sí».</b> <code>src/cli/kernel/confirmacion.ts</code>: un
+      <code>esAfirmativa</code>, un <code>esNegativa</code>, y —lo que la página pedía y es lo que
+      realmente cuesta— un <code>noEntendi</code> que <b>vuelve a preguntar</b> en vez de abortar, más
+      <code>confirmarConReintento</code>. Catorce archivos de comando lo llaman. <code>salir</code> ya no
+      cierra un periodo.</p>
+      <p><b>4 · El redactor de errores y la envoltura de entidad.</b> <code>entity-context.ts</code>
+      ramifica por causa: una caída de conexión falla <b>una</b> vez, con el remedio de su causa, y el pin
+      de la entidad queda intacto. El comentario que lo guarda dice por qué —«el remedio correcto es
+      opuesto: <code>entity use</code> NECESITA la base»—, que es exactamente el hallazgo de esta
+      página.</p>
+      <p><b>5 · El binario.</b> <code>package.json</code> declara
+      <code>"bin": {"mnemosine": "dist/cli/mnemosine.js"}</code>. Los remedios que el producto imprime ya
+      citan un comando que el usuario tiene.</p>
+      <p><b>6 · El checklist que daba verde por vacuidad.</b>
+      <code>is_complete: totalBancos &gt; 0 &amp;&amp; unreconCount === 0</code>, y el comentario que lo
+      sostiene: «revisado-y-bien y nada-que-revisar no son lo mismo, y en un checklist de cierre esa
+      diferencia es el punto». De paso el checklist pasó de ocho casillas a doce: varianza congelada,
+      partidas conciliatorias vencidas, líneas de banco sin explicar, REP aparcados y REP faltantes.</p>
+      <p><b>7 · La ayuda de <code>sat</code>.</b> Ahora dice «SAT services (e.firma credentials; the CFDI
+      bulk download is not built yet)». Una promesa retirada vale lo que una capacidad entregada cuando
+      de por medio hay doce e.firmas.</p>
+      <p><b>3 · <code>tax=</code> en <code>bill create</code>.</b> La ayuda enumera la clave y la define
+      —«an AMOUNT, never a rate (invoice's <code>tax=</code> IS a rate)»—, existe
+      <code>tax-amount=</code> para escribirlo sin ambigüedad, y quien teclea <code>tax=</code> recibe un
+      aviso, <b>uno por invocación y no uno por línea</b>.</p>
+      <p><b>8 · La capa explicativa.</b> Se mudó a <code>pending -v</code> y <code>pending define</code>,
+      que es donde alguien está decidiendo. El comentario del código lo dice sin ahorrarse nada: la capa
+      y <code>previewFor</code> «existieron todo el tiempo y las dos se gastaron» en el único momento en
+      que la vista previa no tiene datos que enseñar.</p>
+      <p style="margin-top:14px"><b>Y dos que la página no había pedido, porque las daba por perdidas:</b>
+      el sugeridor de la raíz está cableado —<code>mnemosine balanza</code> ya no muere dentro de
+      <code>chat</code>—, y el contrato de códigos de salida existe de verdad:
+      <code>src/cli/kernel/exit.ts</code>, trece códigos con constructor por clase de error y
+      <code>checkExitCode</code>. Hay <code>completion</code>. Y ninguna de las hojas graves carece de las
+      tres banderas: cero, fijado en cero.</p>
+    </div>
+
+    <div class="sello-cierre" style="border-top-color:var(--ambar)">
+      <h3 style="color:var(--ambar)">Dos a medias, y la mitad que falta es la que importa</h3>
+      <p><b>2 · La fecha y el dinero.</b> El dinero está cerrado y bien:
+      <code>formatMoneyMx</code> agrupa miles y redondea a dos decimales <b>por cadena y BigInt</b>, con
+      la razón escrita —«pasar por float es exactamente el redondeo que este sistema prohíbe»— y sólo
+      sobre columnas de dinero, así que <code>json</code> y <code>csv</code> no cambiaron un byte. <b>La
+      fecha no.</b> Quedan <b>28</b> <code>toISOString()</code> en <code>src/cli</code> —eran 24—: la
+      superficie creció más rápido que el arreglo. Sigue siendo la única brecha de esta lista que corre
+      pólizas de mes.</p>
+      <p><b>10 · Los ejemplos.</b> De cero a <b>169 hojas</b> con al menos una invocación escrita.
+      Quedan 47, y el trinquete impide que vuelvan a subir.</p>
+    </div>
+
+    <div class="revocada-caja">
+      <h3>Y una recomendación revocada, con mejor argumento que el mío</h3>
+      <p><b>9 · La idempotencia.</b> Esta página pidió dos cosas: grabar la llave <b>dentro</b> de la
+      transacción del acto, y derivarla por omisión de la carga. El repositorio hizo lo contrario, en
+      los dos casos, y dejó escrito por qué en la cabecera de
+      <code>src/services/idempotency/idempotency-store.ts</code>:</p>
+      <p>· La fila se graba <b>después</b> del acto a propósito. Reservar la llave antes bloquearía el
+      reintento legítimo tras un proceso muerto a la mitad —<b>exactamente cuando más se necesita</b>—;
+      ahí la defensa vuelve a ser el estado del dominio, que es la que ya funcionaba.</p>
+      <p>· La llave <b>no</b> se autogenera de la carga, porque dos corridas legítimamente idénticas
+      —cerrar el mismo periodo tras reabrirlo, postear un asiento re-abierto— no deben deduplicarse
+      solas. El default de la bandera es «sin llave», no «hash del payload».</p>
+      <p>Lo que sí se hizo es lo que quedaba: la bandera dejó de ser decorativa. Misma llave y misma
+      carga devuelve el resultado grabado y sale 0; misma llave y otra carga lanza
+      <code>ConflictoDeIdempotencia</code>, que sale 6. <b>Se deja anotado como revocada, no como
+      pendiente</b>: una recomendación que se examinó y se venció no es deuda, y llamarla deuda haría
+      mentir al tablero.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="env">
+    <div class="sec-head"><span class="sec-num">§4</span><h2>La evidencia que más pesa</h2></div>
+    <p class="nota">Cuatro transcripciones. No son ilustraciones: son la auditoría. Todo lo demás de
+    esta página se deriva de correr el programa. <b>Se conservan tal como se corrieron el 1 de
+    septiembre</b>, incluidas las tres que ya no reproducen —el §0 dice cuáles y con qué se arreglaron—:
+    una auditoría que borra su evidencia cuando la evidencia se arregla deja de poder auditarse a sí
+    misma.</p>
+
+    <div class="term">
+      <div class="term-cab">la compuerta del cierre irreversible · close-command.ts:179</div>
+<pre><span class="p">$</span> mnemosine close --hard
+Proceed with HARD close (irreversible)? [y/N] <span class="av">salir</span>
+<span class="mal">→ el periodo se cierra</span>
+
+<span class="p"># el patrón es /^y|^s/i — la alternancia tiene menos precedencia que el anclaje,</span>
+<span class="p"># así que dice «empieza con y» O «empieza con s», no «es y o s»</span>
+  "y"              → sí        "salir"          <span class="mal">→ sí</span>
+  "s"              → sí        "stop"           <span class="mal">→ sí</span>
+  "sí"             → sí        "sale"           <span class="mal">→ sí</span>
+  "no"             → cancela   "seguro que no"  <span class="mal">→ sí</span></pre>
+    </div>
+    <p class="term-pie"><b><code>salir</code> no es una palabra cualquiera:</b> es el alias en español que
+    este mismo CLI define para <code>logout</code>. El producto le enseña al usuario que «salir» significa
+    sácame de aquí, y en la compuerta de la única operación irreversible del mes lo interpreta como
+    adelante. En la dirección contraria, las siete hojas que sí son irreversibles —<code>entry post</code>,
+    <code>invoice void</code>, <code>payment create</code>— <b>rechazan</b> <code>sí</code>: cuatro
+    predicados incompatibles detrás del mismo prompt <code>[y/N]</code>, y la correlación va en la peor
+    dirección. El <code>README</code> del CLI promete que esto está fijado por una prueba; esa prueba fija
+    alias de comandos, no respuestas.</p>
+
+    <div class="term">
+      <div class="term-cab">el comando por omisión se traga los errores de tecleo</div>
+<pre><span class="p">$</span> mnemosine balanza
+<span class="mal">error: too many arguments for 'chat'. Expected 0 arguments but got 1: balanza.</span>
+
+<span class="p"># «balanza» es un alias REAL del producto, un nivel más abajo.</span>
+<span class="p"># y el sugeridor existe y funciona ahí:</span>
+
+<span class="p">$</span> mnemosine entity lst
+<span class="mal">error: unknown command 'lst'</span>
+<span class="ok">(Did you mean list?)</span></pre>
+    </div>
+    <p class="term-pie">La CLI <b>tiene</b> sugerencia de comandos y funciona bien una capa adentro. En la
+    raíz —justo donde tropieza quien llega— nunca se ejecuta, porque <code>chat</code> es el comando por
+    omisión y se queda con el argumento antes de que nada lo trate como comando desconocido. Un cable sin
+    conectar. Lo mismo con <code>diot</code>, <code>poliza</code>, <code>conciliacion</code>,
+    <code>banco</code>: las palabras del oficio del usuario.</p>
+
+    <div class="term">
+      <div class="term-cab">un error de conexión, diagnosticado como problema de selección de empresa</div>
+<pre><span class="p">$</span> mnemosine entry post P-0042
+<span class="mal">Could not resolve the active entity (1ddac7ab-…): role "postgres" does not exist</span>
+<span class="av">The selection was kept. Use `mnemosine entity use &lt;id|name&gt;` to change it,</span>
+<span class="av">or `mnemosine entity unset` to clear it.</span>
+
+<span class="mal">role "postgres" does not exist</span></pre>
+    </div>
+    <p class="term-pie">El mismo error, dos veces, con dos voces. Y el remedio que ofrece
+    —<code>entity use</code>— <b>necesita consultar la base, que es justo lo que está caído</b>. Alcance
+    medido: <b>85 hojas</b> pasan por esa envoltura, en lectura y en mutación. Mientras tanto el binario
+    tiene un redactor de remedios cuya primera expresión casa exactamente con ese texto y devolvería
+    <code>→ mnemosine doctor (and check DATABASE_URL in .env)</code>. Tiene dos llamadores, los dos en el
+    arranque desnudo.</p>
+
+    <div class="term">
+      <div class="term-cab">las fechas salen en UTC y corren pólizas de mes · output.ts:99</div>
+<pre><span class="p">#</span> una póliza capturada el 31 de enero, 20:00, Ciudad de México
+
+  fecha_poliza   <span class="mal">2026-02-01T02:00:00.000Z</span>   <span class="p">← se lee como del 1 de febrero</span>
+
+<span class="p"># el arreglo está escrito, probado y razonado en el propio repositorio:</span>
+<span class="p"># bill-command.ts:108 «toISOString() lo movería un día al oeste de Greenwich»</span>
+<span class="p"># copiado cinco veces en los comandos, y nunca subió al kernel.</span>
+<span class="p"># entry-command.ts exporta day() en la línea 151 y usa toISOString() en la 362.</span></pre>
+    </div>
+    <p class="term-pie">No es cosmética: es <b>correctitud en el corte de periodo</b>. En un despacho de
+    cuarenta clientes, cuarenta veces cada enero. Quedan 24 <code>toISOString()</code> en
+    <code>src/cli</code>.</p>
+  </div>
+</section>
+
+<section>
+  <div class="env">
+    <div class="sec-head"><span class="sec-num">§5</span><h2>Las diez primeras</h2></div>
+    <p class="nota">Ordenadas por consecuencia para un despacho, no por facilidad de arreglo. Las cinco
+    primeras se empiezan el lunes y se terminan en la semana. Esta es la lista que alguien ejecuta.</p>
+
+    <div class="orden">
+      <div class="item"><div class="rango">1</div><div>
+        <h3>Una sola gramática de «sí», anclada, y que lo no reconocido vuelva a preguntar</h3>
+        <p>La única brecha que puede destruir estado contable por sí sola. Su gemela cuesta confianza
+        todos los días: <code>sí</code> aborta un posteo sin decir que no entendió, y el mensaje es una
+        palabra —<code>Aborted.</code>— que un contador lee como rechazo contable. El comparador ya existe
+        y ya está exportado; falta que las siete compuertas lo llamen. Para el cierre duro, subir el
+        listón como hace <code>terraform destroy</code>: escribir el nombre del periodo.</p>
+        <div class="marcas"><span class="marca alta">alta</span><span class="marca s">esfuerzo S</span><span class="marca">A1</span><span class="marca cerrada">cerrada</span></div>
+      </div></div>
+
+      <div class="item"><div class="rango">2</div><div>
+        <h3>Subir la fecha local al kernel, y formatear sólo en la rama de tabla</h3>
+        <p>Correctitud, no presentación. Junto con los importes: <code>12458930.5500</code> bajo una
+        columna que dice <code>debit_total</code>, cuando en todo el árbol hay <b>una</b> llamada a formato
+        mexicano, enterrada en un servicio. La línea que hace segura esta recomendación es aplicar el
+        formato <b>sólo</b> cuando la salida es tabla: <code>json</code>, <code>csv</code> y
+        <code>tsv</code> no cambian un byte.</p>
+        <div class="marcas"><span class="marca alta">alta</span><span class="marca s">esfuerzo S</span><span class="marca">F1 · F2</span><span class="marca parcial">dinero sí, fecha no</span></div>
+      </div></div>
+
+      <div class="item"><div class="rango">3</div><div>
+        <h3>Arreglar la ayuda y la semántica de <code>tax=</code> en <code>bill create</code></h3>
+        <p>En <code>invoice</code> es una <b>tasa</b>; en <code>bill</code> es un <b>monto</b>. Y el
+        <code>--help</code> de <code>bill create --line</code> enumera cinco de las nueve claves que
+        acepta, sin mencionar <code>tax</code>. Quien registra 16 pesos de IVA acreditable donde iban 160
+        no lo descubre hasta la declaración. Los separadores además son tres distintos: <code>:</code>,
+        <code>,</code> y <code>;</code>.</p>
+        <div class="marcas"><span class="marca alta">alta</span><span class="marca s">esfuerzo S</span><span class="marca">H3</span><span class="marca cerrada">cerrada</span></div>
+      </div></div>
+
+      <div class="item"><div class="rango">4</div><div>
+        <h3>Un solo redactor de errores, y ramificar la envoltura de entidad por causa</h3>
+        <p>134 puertas mudas y 85 hojas que diagnostican una caída de conexión como problema de selección
+        de empresa, con un remedio que no puede funcionar. El código que lo arregla existe, es puro y está
+        probado. Es un llamador más.</p>
+        <div class="marcas"><span class="marca alta">alta</span><span class="marca s">esfuerzo S</span><span class="marca">B1 · B2</span><span class="marca cerrada">cerrada</span></div>
+      </div></div>
+
+      <div class="item"><div class="rango">5</div><div>
+        <h3>Declarar <code>bin</code> en <code>package.json</code></h3>
+        <p><code>mnemosine</code> no es un comando: la única invocación real es
+        <code>npx tsx src/cli/mnemosine.ts</code>. Mientras tanto todo el producto cita el otro
+        —«<code>Run: mnemosine init</code>», «<code>→ mnemosine doctor</code>»—. Es el prerrequisito de
+        que cualquier mejora de mensajes sirva de algo: hoy los remedios citan un binario que el usuario
+        no tiene. De paso, la versión del paquete y la del CLI no coinciden.</p>
+        <div class="marcas"><span class="marca alta">alta</span><span class="marca s">esfuerzo S</span><span class="marca">C1</span><span class="marca cerrada">cerrada</span></div>
+      </div></div>
+
+      <div class="item"><div class="rango">6</div><div>
+        <h3>Que el checklist de cierre no dé verde por vacuidad</h3>
+        <p>«Bank reconciliations complete» con <b>cero</b> cuentas bancarias registradas. El
+        <code>COUNT(*)</code> de cuentas sin conciliar da 0, la partida da <code>true</code> y el cierre se
+        firma afirmando que se verificó algo que nadie miró. Lo mismo con depreciación. Es la peor mentira
+        que puede decir un sistema contable, y el aviso correcto es una línea.</p>
+        <div class="marcas"><span class="marca alta">alta</span><span class="marca s">esfuerzo S</span><span class="marca">H1</span><span class="marca cerrada">cerrada</span></div>
+      </div></div>
+
+      <div class="item"><div class="rango">7</div><div>
+        <h3>Corregir la ayuda de <code>sat</code></h3>
+        <p>Dice «SAT services (credentials and CFDI download)» y la descarga no existe: ni SOAP, ni ZIP,
+        ni comando. La wiki ya es honesta; la ayuda, que es donde el contador mira, no. Sobre esa promesa
+        se toma una decisión de compra y se entregan doce e.firmas.</p>
+        <div class="marcas"><span class="marca alta">alta</span><span class="marca s">esfuerzo S</span><span class="marca">H2</span><span class="marca cerrada">cerrada</span></div>
+      </div></div>
+
+      <div class="item"><div class="rango">8</div><div>
+        <h3>Mover la capa explicativa y la vista previa a <code>pending -v</code></h3>
+        <p>La mejor pieza de diseño del producto —explicar por qué se pregunta una política, qué hace el
+        sistema, qué pasa si no contestas, y una vista previa contra los datos del propio cliente— tiene
+        <b>un solo consumidor</b>: el asistente del día uno, que además corre antes de importar nada, así
+        que la vista previa degrada a silencio por diseño exactamente en el único momento en que se
+        muestra. A los tres meses diría «con $20,000 te habría interrumpido 43 veces este trimestre», y esa
+        superficie ya no existe. Es la mejor relación esfuerzo/impacto del repositorio.</p>
+        <div class="marcas"><span class="marca alta">alta</span><span class="marca s">esfuerzo S</span><span class="marca">E1</span><span class="marca cerrada">cerrada</span></div>
+      </div></div>
+
+      <div class="item"><div class="rango">9</div><div>
+        <h3>Idempotencia dentro de la transacción del acto, y derivada por omisión</h3>
+        <p>La llave se graba en una transacción distinta de la que protege. Para <code>entry post</code> el
+        estado del dominio hace de red; para pagos no la hay, y un reintento emite un pago nuevo sobre la
+        misma factura. Además la protección es opcional y exige teclear un UUID, que ningún contador
+        teclea. Es el único caso donde el sistema escribe a medias sin que el usuario se entere.</p>
+        <div class="marcas"><span class="marca alta">alta</span><span class="marca media">esfuerzo M</span><span class="marca">A2</span><span class="marca revocada">revocada con razón</span></div>
+      </div></div>
+
+      <div class="item"><div class="rango">10</div><div>
+        <h3>Ejemplos reales en las veinte hojas del uso diario</h3>
+        <p>Cero de 134, sobre 179 nodos de ayuda. <code>entry create --help</code> enseña doce banderas y
+        ni una póliza escrita: el usuario sale sin saber si <code>&lt;account&gt;</code> es el código, el
+        nombre o un UUID. Es la convención de <code>git</code>, <code>gh</code>, <code>docker</code> y
+        <code>stripe</code>. Y el único documento escrito para el contador no menciona ni una vez la
+        palabra <code>mnemosine</code>.</p>
+        <div class="marcas"><span class="marca alta">alta</span><span class="marca media">esfuerzo M</span><span class="marca">C2</span><span class="marca parcial">169 de 216</span></div>
+      </div></div>
+    </div>
+
+    <p class="nota" style="margin-top:20px">Si la primera semana rinde: el sugeridor en la raíz con
+    normalización de acentos; traducir las 17 preguntas del panel de políticas, que es el texto de mayor
+    densidad de juicio contable del producto; cerrar el contrato de códigos de salida; y —esto importa más
+    de lo que parece— <b>que el guardián camine el programa exportado en vez de una lista escrita a
+    mano</b>, porque sin eso todo lo anterior se vuelve a romper.</p>
+
+    <p class="nota" style="border-left:3px solid var(--verde); padding-left:14px"><b>De ese párrafo se
+    hicieron tres de cuatro.</b> El sugeridor de la raíz está cableado, el contrato de códigos de salida
+    existe, y el guardián camina el programa exportado —el que se dejó al final porque «sin eso todo lo
+    anterior se vuelve a romper» resultó ser el que había que hacer primero—. <b>Falta la traducción del
+    panel</b>, y sigue siendo el texto de mayor densidad de juicio contable del producto. El censo la
+    cuenta hoy como <code>nodos-fuera-del-idioma-canonico: 7</code>, que es una medida del envase y no del
+    contenido: las 17 preguntas siguen en inglés.</p>
+  </div>
+</section>
+
+<section>
+  <div class="env">
+    <div class="sec-head"><span class="sec-num">§6</span><h2>Los ocho temas</h2></div>
+    <p class="nota">Las 41 brechas distintas, agrupadas. Severidad = consecuencia para un despacho.
+    <b>Este apartado se conserva tal como se escribió el 1 de septiembre</b> y por tanto contiene
+    afirmaciones que ya no son ciertas; el §3 dice cuáles. Dos merecen decirse aquí para que nadie lea de
+    aquí un estado: <b>la conciliación bancaria sí existe en la terminal</b> —38 hojas, de la importación
+    del estado de cuenta a la firma con preparador ≠ aprobador—, y <b>los códigos de salida sí se
+    emiten</b>, trece, desde <code>src/cli/kernel/exit.ts</code>.</p>
+
+    <div class="temas">
+      <div class="tema"><h4>A · La compuerta que decide</h4><ul>
+        <li><b>Cuatro gramáticas de «sí»</b> detrás del mismo prompt, y la del cierre acepta «salir».</li>
+        <li><b>La idempotencia se graba fuera</b> de la transacción que protege, y es opt-in por UUID.</li>
+      </ul></div>
+
+      <div class="tema"><h4>B · El diagnóstico sin cablear</h4><ul>
+        <li><b>134 puertas mudas</b> y un redactor de remedios con dos llamadores.</li>
+        <li><b>85 hojas misdiagnostican</b> la conexión caída como selección de empresa, y repiten el error.</li>
+        <li><b>Lo barato corre después de lo caro:</b> un archivo inexistente responde con un error de Postgres.</li>
+        <li><code>doctor</code> responde «¿conecta la base?», no «¿ya puedo trabajar?».</li>
+      </ul></div>
+
+      <div class="tema"><h4>C · El binario y la ayuda</h4><ul>
+        <li><b><code>mnemosine</code> no es un comando</b> y todo el producto lo cita.</li>
+        <li><b>Cero ejemplos</b> en 179 nodos de ayuda.</li>
+        <li><b>La raíz se traga el token desconocido</b> y con él la sugerencia.</li>
+        <li>46 familias en lista plana, sin agrupar y sin autocompletado.</li>
+      </ul></div>
+
+      <div class="tema"><h4>D · El idioma</h4><ul>
+        <li><b>8 731 palabras de interfaz en inglés</b> con fugas de español en cuatro capas distintas.</li>
+        <li><b>Las 17 preguntas del panel</b> —IEPS, REP, restaurantes— en inglés, con las llaves en español.</li>
+        <li>Alias sin acentos: <code>póliza</code> imprime la ayuda raíz <b>y sale con 0</b>.</li>
+        <li><code>cargo</code> y <code>abono</code> se rechazan; los tipos de póliza son los de US GAAP.</li>
+        <li><b>Los nombres de periodo se persisten en inglés.</b> Cada cliente nuevo encarece traducir.</li>
+      </ul></div>
+
+      <div class="tema"><h4>E · El lazo del agente</h4><ul>
+        <li><b>La pantalla de revisión no trae el CFDI</b>, y el modelo de datos no lo permite: no hay
+        columna que ate el borrador al documento.</li>
+        <li><b>Revisar no escala:</b> uno por uno, sin filtros, sin lote, sin corregir-y-aprobar.</li>
+        <li><b>El rechazo no enseña:</b> el motivo se escribe y no entra a ningún lado.</li>
+        <li>La confianza es un número sin leyenda, mientras la calibración se calcula en otro comando.</li>
+        <li>El costo se calcula y no se le enseña a quien lo paga.</li>
+      </ul></div>
+
+      <div class="tema"><h4>F · La salida</h4><ul>
+        <li><b>Fechas en UTC</b> e importes sin separador de miles a cuatro decimales.</li>
+        <li><b>47 de 134 hojas</b> tienen contrato de salida, y el corte deja fuera el flujo insignia.</li>
+        <li>Banderas de paginación declaradas y no honradas: el aviso de truncamiento no se dispara.</li>
+        <li>La tabla no consulta el ancho de la terminal, aunque el banner sí lo hace.</li>
+        <li>Bajo <code>--json</code>, el error no es JSON.</li>
+      </ul></div>
+
+      <div class="tema"><h4>G · Contratos no honrados</h4><ul>
+        <li><b>Trece códigos de salida y todo sale 1.</b> Cero literales entre 2 y 11, cero
+        <code>exitOverride</code>. El código «no falló, espera a un humano» no se emite nunca.</li>
+        <li><b>El guardián mide una lista escrita a mano</b> —14 familias de 45— y pasa en verde mientras
+        13 hojas incumplen la política que dice fijar. Es la brecha que explica a las demás.</li>
+        <li>Trece banderas declaradas en el diccionario que ninguna hoja lleva.</li>
+      </ul></div>
+
+      <div class="tema"><h4>H · Los flujos que no cierran</h4><ul>
+        <li><b>La conciliación bancaria no existe en la terminal</b> —el motor sí—, y su ausencia pinta
+        el cierre de verde.</li>
+        <li><code>sat --help</code> promete la descarga de CFDI, que no existe.</li>
+        <li><code>tax=</code> significa cosas opuestas en <code>bill</code> y en <code>invoice</code>.</li>
+      </ul></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="env">
+    <div class="sec-head"><span class="sec-num">§7</span><h2>Lo que ya está bien, con nombre</h2></div>
+    <p class="nota">Esto es acreditación y también protección: son decisiones correctas que una
+    refactorización distraída puede deshacer. Van con nombre para que nadie las «mejore».</p>
+
+    <div class="bien">
+      <h3>Veintidós aciertos que no se tocan</h3>
+      <ul>
+        <li><b><code>doctor</code></b> enumera todo aunque el primero falle, distingue falla de
+        advertencia, ordena por dependencia y da el comando exacto de cada remedio. Es el modelo que el
+        resto debe copiar, no un candidato a rediseño.</li>
+        <li><b>El dinero nunca es número JSON y el truncamiento nunca es silencioso.</b> Dos reglas de
+        correctitud que QuickBooks y Xero no toman.</li>
+        <li><b>Los totales se suman sobre todo y la página se corta después</b>, y el pie de la balanza va
+        a stderr con su razón escrita: «una fila TOTAL extraviada es una mina en un csv que alguien
+        importa».</li>
+        <li><b><code>declareRisk</code> rompe el arranque</b> —no una prueba, el arranque— si alguien marca
+        como invocable por el agente un comando irreversible. Las 17 hojas graves llevan las tres banderas,
+        sin excepción, y ninguna carece de <code>--dry-run</code>.</li>
+        <li><b>La aprobación va atada al hash del contenido que el revisor vio</b>, y aprobar un borrador
+        es una transacción única con reversa completa si el estado cambió en medio.</li>
+        <li><b><code>cfdi explain</code></b> —caso, hechos y decisiones del clasificador— no tiene
+        equivalente en CONTPAQi, Aspel, QuickBooks, Xero ni NetSuite, y es material de papel de trabajo.</li>
+        <li><b>El veredicto de la sombra:</b> las compuertas corren completas, el veredicto se registra con
+        los umbrales vigentes y nada toca el mayor. Es la respuesta correcta a «¿cuándo confío en el
+        agente?».</li>
+        <li><b>El IVA en base de flujo</b>, con el default conservador por lado del documento y un
+        reconocedor que descarta «Cholula, Pue.» y «PPD-2026-04». Mejor que lo que hace CONTPAQi.</li>
+        <li><b>Los <code>501</code> honestos</b> de conciliación y cancelación: explican el daño que evitan
+        y nombran el sustituto manual. Un 501 que enseña el camino vale más que un 200 que miente.</li>
+        <li><b>No se puede cerrar un mes con uno anterior abierto</b>, y el checklist se evalúa dentro de
+        la transacción del cierre. CONTPAQi deja cerrar salteado.</li>
+        <li><b><code>NO_COLOR</code></b> con su razón citando no-color.org, y un diccionario de banderas
+        que reserva <code>-f</code> para nada porque se lee a la vez como <code>--file</code> y
+        <code>--force</code>.</li>
+        <li><b>stdout queda en cero bytes cuando el comando falla:</b> un <code>&gt; balanza.csv</code> que
+        falla deja un archivo vacío, no uno a medias.</li>
+        <li><b>Los alias contables centrales están bien elegidos</b> —<code>balanza</code>,
+        <code>mayor</code>, <code>antigüedad</code>, <code>factura-proveedor</code>—: quien los escribió
+        sabe contabilidad mexicana.</li>
+        <li><b>La ceremonia de la e.firma:</b> eco apagado, consentimiento explícito, bitácora, revocación
+        irreversible, y aviso si el <code>.key</code> es legible por otros usuarios.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="env">
+    <div class="sec-head"><span class="sec-num">§8</span><h2>Las tres decisiones que no son técnicas</h2></div>
+    <p class="nota">No las toma quien audita. Van con sus opciones y su costo.</p>
+
+    <div class="decision">
+      <h3>¿En qué idioma habla el producto?</h3>
+      <p>La respuesta escrita es «inglés, con alias en español». La respuesta ejecutada es <b>inglés con
+      fugas impredecibles</b>: 2 nodos de 179 describen en español, 19 de 460 errores, cuatro capas
+      distintas de mezcla —y el agente contesta en español por omisión.</p>
+      <div class="opciones">
+        <div class="opcion"><b>(a) Inglés puro, alias españoles completos.</b> Barata. Y la que peor
+        compite: la auxiliar lee «This cannot be undone» mientras evalúa contra CONTPAQi, que le dice
+        «¿Contabilizar la póliza P-0042?».</div>
+        <div class="opcion"><b>(b) Español completo</b>, con nombres canónicos y llaves de
+        <code>--json</code> en inglés estable. Semanas de trabajo, y es lo que el usuario declarado
+        necesita. El 21 % del texto da el 80 % del beneficio.</div>
+        <div class="opcion"><b>(c) Bilingüe gobernado por variable.</b> El costo más alto y el más
+        duradero: cada cadena nueva paga peaje para siempre.</div>
+      </div>
+      <p style="margin-top:12px"><b>Esta decisión tiene fecha de caducidad aunque nadie se la haya
+      puesto:</b> los nombres de periodo se escriben en inglés y se persisten, sin traducción al
+      renderizar. Cada ejercicio abierto y cada cliente dado de alta encarece las opciones (b) y (c).</p>
+    </div>
+
+    <div class="decision">
+      <h3>¿Es el sistema contable del despacho, o el motor auditable que se conecta al que ya tienen?</h3>
+      <p>Hoy dice ser lo primero y le faltan cuatro piezas que ningún despacho mexicano considera
+      opcionales: conciliación bancaria operable, timbrado y cancelación, Anexo 24 y DIOT. La familia
+      <code>sat</code> promete una quinta que no tiene.</p>
+      <div class="opciones">
+        <div class="opcion"><b>(a) Sistema completo.</b> Los cuatro flujos son de calendario fiscal, no de
+        conveniencia. Mientras no estén, el checklist miente por vacuidad. Ganancia: se vende contra
+        CONTPAQi.</div>
+        <div class="opcion"><b>(b) Motor auditable complementario.</b> Hay que decirlo en la ayuda, en el
+        README y en el discurso, e invertir en interoperar de verdad. Ganancia: el alcance se vuelve
+        honesto y el diferenciador —la IA que propone con rastro auditable— queda al frente.</div>
+        <div class="opcion"><b>(c) Lo de hoy: prometer (a) y entregar (b).</b> El costo ya se está pagando,
+        y se paga en el peor momento: el día 5 del mes, después de haber entregado doce e.firmas.</div>
+      </div>
+    </div>
+
+    <div class="decision">
+      <h3>¿La unidad de trabajo es la entidad o el despacho?</h3>
+      <p>Todo el producto es de una entidad por invocación —85 hojas con <code>-e</code>— sin ninguna vista
+      de cartera. El enunciado dice que el usuario es un despacho con varios clientes.</p>
+      <div class="opciones">
+        <div class="opcion"><b>(a) La entidad</b>, y el despacho se resuelve con guiones de shell. Para
+        responder «¿a quién le falta cerrar julio?» hay que escribir un bucle, en un producto cuyo usuario
+        declarado no necesariamente sabe de terminales.</div>
+        <div class="opcion"><b>(b) El despacho como primera clase:</b> estado de cartera, cierre por lote,
+        panel de pendientes cruzado, políticas heredables. Es la pantalla de inicio de QuickBooks Online
+        Accountant y de Xero Practice Manager, y es lo que separa una herramienta de contribuyente de una
+        de despacho.</div>
+      </div>
+      <p style="margin-top:12px">Arrastra una segunda decisión implícita: <b>quién teclea</b>. Si es el
+      socio técnico, bastan <code>bin</code>, autocompletado y <code>--json</code>. Si es la auxiliar de
+      captura, la decisión del idioma se resuelve sola y los ejemplos dejan de ser opcionales.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="env">
+    <div class="sec-head"><span class="sec-num">§9</span><h2>Cómo se sabrá si mejoró</h2></div>
+    <p class="nota">«La usabilidad mejoró» no es un dato hasta que hay un instrumento que lo devuelva.
+    Esta casa ya tiene la forma correcta —criterios ejecutables, líneas base que sólo encogen— y la
+    lección de la brecha G2 es que el instrumento debe <b>derivarse del árbol</b>, nunca de una lista
+    escrita a mano en paralelo. <b>Seis de estas nueve medidas ya existen y devuelven un número</b>; la
+    columna dice cuál, y las cuatro que dicen «no se mide» son la deuda real de esta página, porque una
+    brecha sin instrumento no tiene forma de volver a cerrarse cuando se reabra.</p>
+
+    <div class="desborda"><table class="tabla">
+      <tr><th>Instrumento</th><th>Qué devuelve</th><th class="num">Pedido → hoy</th></tr>
+      <tr><td><b>Existe:</b> <code>ux:status</code>, caminando el programa exportado</td><td>Hojas sin ejemplo en la ayuda</td><td class="num baja">134 → <b>47</b> de 216</td></tr>
+      <tr><td></td><td>Hojas sin contrato de salida, de las declaradas lectura</td><td class="num baja">87 → <b>21</b></td></tr>
+      <tr><td></td><td>Hojas sin alias en español</td><td class="num sube">14 → <b>17</b></td></tr>
+      <tr><td></td><td>Hojas graves sin las tres banderas</td><td class="num baja">0 → <b>0</b>, fijado</td></tr>
+      <tr><td></td><td>Banderas del diccionario que ninguna hoja declara</td><td class="num baja">13 → <b>11</b></td></tr>
+      <tr><td></td><td>Nodos con prosa fuera del idioma canónico</td><td class="num quieto">—&nbsp;→ <b>7</b></td></tr>
+      <tr><td><b>Existe:</b> gramática de confirmación</td><td>Predicados distintos detrás del mismo prompt</td><td class="num baja">4 → <b>1</b></td></tr>
+      <tr><td><b>Existe:</b> contrato de códigos de salida</td><td>Clases de error que comparten código</td><td class="num baja">10 → <b>0</b></td></tr>
+      <tr><td><b>Falta:</b> prueba de «cero errores mudos»</td><td>Hojas que fallan sin una línea de remedio</td><td class="num quieto">no se mide</td></tr>
+      <tr><td><b>Falta:</b> prueba de honramiento, no de declaración</td><td>Banderas declaradas que no llegan al servicio</td><td class="num quieto">no se mide</td></tr>
+      <tr><td><b>Falta:</b> instantáneas de presentación</td><td>Fija fecha, importe y ancho de una vez; garantiza que <code>json</code> y <code>csv</code> no cambian</td><td class="num sube">28 <code>toISOString()</code></td></tr>
+      <tr><td><b>Falta:</b> mapa de flujos del despacho</td><td><b>Pasos que no se pueden dar desde la terminal</b></td><td class="num quieto">no se mide</td></tr>
+    </table></div>
+
+    <p class="nota" style="margin-top:22px"><b>Y el único que no sale de una prueba: el tiempo hasta la
+    primera póliza contabilizada.</b> Cronometrar a un contador que no conoce el producto, con la
+    documentación que hay, desde <code>init</code> hasta un <code>entry post</code> exitoso, sin ayuda
+    humana, y anotar dónde se atora. Todo lo demás de esta página predice ese número; ninguno lo
+    sustituye. Si al terminar las diez primeras ese tiempo no baja, la tesis de esta auditoría estaba
+    mal.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="env">
+    Auditoría de usabilidad de mnemosine · siete lentes y una síntesis, cada brecha con evidencia
+    reproducida · los informes completos en <code>docs/auditorias/2026-09-01-usabilidad/</code> · el manual
+    de usuario que salió de esta auditoría, en la wiki del repositorio · el estado del producto no se lee
+    de aquí: se pregunta con <code>npm run ux:status</code>, <code>npm run plan:status</code> y
+    <code>npm run catalogo:estado</code> · revisión del 2 de septiembre de 2026 medida sobre
+    <code>origin/main</code> en <code>d8882d5</code>
+  </div>
+</footer>
+
+
+</body></html>
