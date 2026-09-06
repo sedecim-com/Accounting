@@ -156,7 +156,7 @@ guía NO obligatoria y solo se listan aquí.
 | IFRS Practice Statement 1 | Comentarios de la Administración (revisado jun-2025) | vigente | Versión revisada emitida el 23-jun-2025; guía NO obligatoria (no es norma) |
 | IFRS Practice Statement 2 | Realización de Juicios sobre Materialidad | vigente | Guía NO obligatoria (no es norma) |
 
-_72 fichas · verificado 2026-08-24_
+_72 fichas · verificado 2026-09-06_
 <!-- REGISTRY:END -->
 
 ## Cómo mantener actualizado este corpus
