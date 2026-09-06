@@ -260,6 +260,13 @@ Si algo no responde, el diagnóstico paso a paso está en [[Solucion-de-problema
 
 ---
 
+
+> **Refresco del 2026-09-06.** Esta página se escribió con la investigación del 2 de septiembre; cuatro días después se volvió a abrir cada liga y a leer el repo. El detalle está en [`practicas/conectores.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md). Lo que cambió:
+
+- **Anthropic autentica ahora con `Authorization: Bearer`** (`x-api-key` queda como *legacy fallback*) y publica `GET /v1/models` con capacidades; el perfil `anthropic` sigue con la cabecera vieja. El deep-link de `KEY_URLS` a `console.anthropic.com/settings/keys` hace 301 a `platform.claude.com/settings/keys`.
+- **Todos los proveedores relevantes exponen listado de modelos** (`GET /v1/models` o equivalente): la puerta `providers models` que la sonda del init podría usar para no adivinar el id sigue sin existir, y con ella la instantánea de deriva y una política `ia_deriva_modelo`.
+- **Siguen sin perfil** Mistral, Groq, Together, DeepSeek, Cerebras y Fireworks, y sin plantilla Azure OpenAI ni AWS Bedrock; `api_key_cmd` no tiene TTL (`config.ts:712-727`); el PKCE de OpenRouter no está en el init. La nota del perfil `openclaw` está incompleta: su endpoint sí acepta herramientas (`config.ts:473`).
+
 ## Para seguir
 
 - [[El-agente-y-sus-limites]] — qué puede y qué no puede hacer el modelo que elijas aquí.

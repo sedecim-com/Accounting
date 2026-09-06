@@ -94,6 +94,12 @@ Cuatro etapas ordenadas por dependencia, ninguna empezada:
 
 ---
 
+
+> **Refresco del 2026-09-06.** Esta página se escribió con la investigación del 2 de septiembre; cuatro días después se volvió a abrir cada liga y a leer el repo. El detalle está en [`practicas/conectores.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md). Lo que cambió:
+
+- **Apareció el Anexo 24 de la RMF 2026 en `sat.gob.mx`** (DOF 13 de enero de 2026, 37 páginas), que el 2 de septiembre no se pudo verificar: trae el código agrupador completo. Cambios respecto a 2024 según IDC: sector financiero `000`→`0` y métodos de pago a dos dígitos. Los formatos de exportación de QuickBooks (IIF) y compañía quedaron verificados en fuente oficial.
+- **En el repo, sin cambio**: `FACTORIES` sólo tiene `contalink` (`registry.ts:10-15`), los `LAYOUTS_PENDIENTES` siguen intactos (`entry-import-service.ts:24-25`), `codigo_agrupador_sat` sigue sin lector ni escritor (`037:28`) y no hay tabla c_CodAgrup con vigencia. La descarga masiva (capa 4) sigue en rojo (E3.2). Es la issue [#114](https://github.com/sedecim-com/Accounting/issues/114).
+
 ## Para seguir
 
 - [[Puesta-en-marcha]] — el asistente `init` y su sección de importación, que es lo que hoy sí corre.

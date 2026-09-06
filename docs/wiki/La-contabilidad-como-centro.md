@@ -61,6 +61,13 @@ El relato comercial que la lente habilita — y solo entonces — es el del [con
 | [REA](https://en.wikipedia.org/wiki/Resources,_Events,_Agents) y [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) | Legitiman "la agregación es vista, jamás tabla" |
 | [Triple entrada (Grigg)](https://iang.org/papers/triple_entry.html) | El recibo firmado sustituye al anclaje simulado; cero blockchain |
 
+
+> **Refresco del 2026-09-06.** Esta página se escribió con la investigación del 2 de septiembre; cuatro días después se volvió a abrir cada liga y a leer el repo. El detalle está en [`practicas/conectores.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md). Lo que cambió:
+
+- **La fuente primaria de Ijiri (1986) dice otra cosa**: su «triple entrada» es *momentum accounting* —una tercera dimensión, la tasa de cambio de la riqueza—, no el recibo compartido de Grigg. Son dos ideas distintas con el mismo nombre, y esta página las mezclaba.
+- **Anclar sin fabricar**: RFC 6962→9162 (pruebas de inclusión y consistencia), OpenTimestamps (`.ots`), Tessera (sucesor de Trillian) y RFC 3161 (sello de tiempo) son los sustitutos serios del anclaje simulado. Para inversionistas, la **BMV aloja la taxonomía XBRL mexicana** (XSD descargable) y la US GAAP 2026 está en el FASB.
+- **En el repo, sin cambio** (`001:115-125`, `001:270-273`, `041`, `orchestrator.ts:94-109`, `index.ts:184`, `public-verification.ts:49`); sin XBRL en el árbol. Todo sigue bloqueado por G1 y por [#118](https://github.com/sedecim-com/Accounting/issues/118).
+
 ## Páginas relacionadas
 
 - [[El-tablero-grafico]] — la superficie donde el despacho vería su lado privado de la misma jerarquía.

@@ -54,6 +54,13 @@ El tablero es el argumento más barato a favor de ambas, y por eso conviene prop
 
 Si el tramo entra, entra con su fila y su criterio, como todo en la casa: el comando `mnemosine web serve` con fila en el catálogo y el trinquete de [`docs/catalogo-minimos.json`](https://github.com/sedecim-com/Accounting/blob/main/docs/catalogo-minimos.json) subiendo en el mismo commit; y un criterio ejecutable en [`src/plan/criterios.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/plan/criterios.ts) con tres dientes: (a) `web/` no importa `src/database` ni `src/services` — un grep que falla si el tablero intenta volverse motor; (b) la tabla de rutas propias del gateway es exactamente las cuatro de plomería — cualquier ruta nueva rompe el criterio hasta declararse; (c) el cliente de la SPA se regenera del `openapi.json` de CI — el desfase contrato-cliente falla el build, no la demo. Así `npm run plan:status` puede responder por el tablero igual que responde por todo lo demás.
 
+
+> **Refresco del 2026-09-06.** Esta página se escribió con la investigación del 2 de septiembre; cuatro días después se volvió a abrir cada liga y a leer el repo. El detalle está en [`practicas/conectores.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md). Lo que cambió:
+
+- **`trust proxy` ya existe con criterio** (`src/api/rest/trust-proxy.ts`, `src/index.ts:61-69`, `criterios.ts:4415-4425`): la R10 que esta página pedía dentro de W0 está hecha.
+- Las veinte ligas del 2 de septiembre responden. Nuevas en la tabla: Backstage (CNCF), Retool *self-hosted* (con permisos propios: la misma objeción que Appsmith), y tres sistemas de diseño —Carbon de IBM, que usa el mismo Plex que la casa; Radix; USWDS 3.14.0—.
+- **Sigue sin `web/`, sin OpenAPI y con GraphQL vivo** (E4.2 en rojo); sin criterio de tres dientes ni tokens visuales versionados. Es la issue [#117](https://github.com/sedecim-com/Accounting/issues/117).
+
 ## Páginas relacionadas
 
 - [[Canales-de-mensajeria]] — la otra superficie investigada: el chat como adaptador, no como motor.
