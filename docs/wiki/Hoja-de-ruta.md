@@ -241,7 +241,8 @@ auditorías las elevaron a bloqueo:
   vigencia y el estrato fiscal de Estados Unidos. La investigación del
   2026-09-06 encontró que casi todo lo que existe es mexicano en semántica y
   universal en código, que la ley vive quemada o en tablas por año, y que el
-  IMSS y el INFONAVIT calculan cero en silencio cuando falta la fila del año.
+  IMSS y el INFONAVIT calculan con valores quemados, sin avisar, cuando falta la
+  fila del año.
   Construir motores por país antes de J0 es construirlos sobre el booleano y
   sobre constantes. Ver [[Jurisdicciones]] y [[Motores-contables]].
 

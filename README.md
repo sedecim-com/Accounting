@@ -289,9 +289,10 @@ Es la parte que no se puede improvisar y la razón de que el motor sea propio:
 ## Dos jurisdicciones, un motor
 
 El sistema empieza por México y Estados Unidos y aspira a más países. Hoy la
-semántica es mexicana casi en todo y Estados Unidos tiene nómina federal y
-estatal completa (FIT, FICA, FUTA, SUTA, 51 estados, 941/940/W-2) y poco más:
-sin catálogo fiscal propio, sin *sales tax*, sin 1099. El inventario verificado
+semántica es mexicana casi en todo y Estados Unidos tiene la nómina federal y
+estatal (FIT, FICA, FUTA, SUTA, 51 estados, 941/940/W-2) —con una semilla «2026»
+que trae cifras de 2024 y 2025— y poco más: sin catálogo fiscal propio, sin
+*sales tax*, sin 1099. El inventario verificado
 de qué motor existe para cada país —con sus huecos nombrados y su
 `archivo:línea`— está en
 [`docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md`](docs/investigacion/2026-09-06-normas-y-motores/motores-inventario.md).
