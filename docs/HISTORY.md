@@ -2,7 +2,7 @@
 
 Este documento reconstruye, **verificado contra `git log` y contra `gh pr view` línea por línea** (no contra la prosa de artefactos anteriores), qué se entregó y en qué PR aterrizó. La lección que obligó a este método: el artefacto "Plan de cierre" citaba commits de un "Sprint 1" y un "Sprint 2" —IVA-1, IVA-2, IVA-3, AUD-1, ESQ-1, HON-1, TEN-1, E1.1-a, E1.1-b, E2.2, E1.4-b, AUD-3— y **ninguno de esos hashes existe hoy en `main`**: el trabajo real se hizo por otro camino (una segunda sesión de agente trabajando en paralelo) y quedó documentado bajo otros nombres. Confiar en la narrativa de un artefacto sin volver a verificarla contra el árbol real habría fabricado un historial falso.
 
-**Cómo se construyó esta tabla:** `git log --first-parent origin/main` da la columna vertebral de merges; para cada commit de dos padres se calculó `git log <primer-padre>..<segundo-padre>` para obtener exactamente los commits que ese merge introdujo (no los que la rama de origen *dice* tener en la API de PRs, que puede incluir commits ya fusionados por otro camino). Resultado: 191 commits, cada uno asignado a **exactamente un** PR — verificado, cero duplicados. El método tiene una consecuencia que conviene decir: un PR mergeado hacia una rama que NO es `main` aparece con cero commits, porque nada suyo llegó a `main`. Es exactamente lo que pasó con el #54 (ver «Sin sprint / no clasificado»).
+**Cómo se construyó esta tabla:** `git log --first-parent origin/main` da la columna vertebral de merges; para cada commit de dos padres se calculó `git log <primer-padre>..<segundo-padre>` para obtener exactamente los commits que ese merge introdujo (no los que la rama de origen *dice* tener en la API de PRs, que puede incluir commits ya fusionados por otro camino). Resultado: 191 commits, cada uno asignado a **exactamente un** PR — verificado, cero duplicados. El método tiene una consecuencia que conviene decir: un PR mergeado hacia una rama que NO es `main` aparece con **cero commits propios**, aunque su contenido sí haya llegado — a través del squash de otro PR. Es exactamente el caso del #54 (A5): se mergeó hacia `sux/segundo-lote` a las 02:50Z del 2026-09-03 y catorce minutos después el #52, cuya rama de origen era esa misma, se squasheó hacia `main` como `d8882d5`. Los árboles de `main` y `sux/segundo-lote` son idénticos (`git diff --quiet` no devuelve nada): A5 está entregado, dentro del #52.
 
 Fuente de todas las filas: **inferido por fecha y por commit** (no hay un artefacto previo cuyas etiquetas de sprint sobrevivieran la verificación). Los "tramos" (códigos como `S0.1`, `F03`, `R4`, `A7`) sí son reales: son los nombres que el propio autor le dio a cada commit, y siguen la convención de `CONTRIBUTING.md` ("el asunto lleva el código del paquete").
 
@@ -90,31 +90,27 @@ Milestone: `Sprint 5 · La síntesis de la auditoría III, la armonización, y l
 | [#49](https://github.com/sedecim-com/Accounting/pull/49) | La investigación de conectores y dirección: PACs, IA, onboarding, tablero, canales y el experimento | 2026-09-02 | — | 1 commits |
 | [#50](https://github.com/sedecim-com/Accounting/pull/50) | qs 6.16.0 por override: express 4 pina el rango que excluye el parche | 2026-09-02 | — | 1 commits |
 
-## Sprint 6 — G1a, la superficie que se mide (S-UX), y A7·remate
+## Sprint 6 — G1a, la superficie que se mide (S-UX), A7·remate, y A5
 Fuente: inferido (fechas + verificación de commits contra `git log`)
 Ventana: 2026-09-02 → 2026-09-03
-Objetivo: Corregir un signo de balance que ya se publicaba mal (G1a); dar ejemplos y contrato de salida a la mayoría de la superficie CLI (S-UX); el agente lee el sistema en vez de su propia descripción (A7·remate). A5 NO forma parte de este sprint: su PR #54 se mergeó hacia `sux/segundo-lote`, no hacia `main` — ver abajo.
-Milestone: `Sprint 6 · G1a, S-UX, A7·remate` (cerrado)
+Objetivo: Corregir un signo de balance que ya se publicaba mal (G1a); dar ejemplos y contrato de salida a la mayoría de la superficie CLI (S-UX); el agente lee el sistema en vez de su propia descripción (A7·remate); el lazo de aprendizaje del agente y el failover que se comía la superficie nombrada (A5, que llegó a `main` dentro del squash del #52 — ver la fila del #54).
+Milestone: `Sprint 6 · G1a, S-UX, A7·remate, A5` (cerrado)
 
 | PR | Título | Merge | Tramos que incluye | Notas |
 |---|---|---|---|---|
 | [#51](https://github.com/sedecim-com/Accounting/pull/51) | G1a: una utilidad de 3 000 se publicaba como pérdida de 2 000, y el balance decía que cuadraba | 2026-09-02 | G1a | 1 commits |
-| [#52](https://github.com/sedecim-com/Accounting/pull/52) | S-UX lote 2 y A7·remate: la superficie que se mide, y el agente que lee el sistema en vez de su descripción | 2026-09-03 | — | 1 commits |
+| [#52](https://github.com/sedecim-com/Accounting/pull/52) | S-UX lote 2 y A7·remate: la superficie que se mide, y el agente que lee el sistema en vez de su descripción | 2026-09-03 | — | 1 commit (squash `d8882d5` de `sux/segundo-lote`, que ya contenía el #54) |
+| [#54](https://github.com/sedecim-com/Accounting/pull/54) | A5: el lazo que aprende, y la superficie que el failover se comía | 2026-09-03 → `sux/segundo-lote` | — | **0 commits propios en `main`**: se mergeó hacia `sux/segundo-lote` (02:50Z) y entró a `main` dentro del squash del #52 (03:04Z). Contenido verificado idéntico entre ambas ramas. |
 
 ## Sin sprint / no clasificado
 
-| PR | Título | Merge | Motivo |
-|---|---|---|---|
-| [#54](https://github.com/sedecim-com/Accounting/pull/54) | A5: el lazo que aprende, y la superficie que el failover se comía | 2026-09-03 → `sux/segundo-lote` | **Mergeado hacia una rama lateral, no hacia `main`.** Su merge commit (`7ca4d9f`) no es ancestro de `origin/main`; junto con él, la rama arrastra quince commits más que `main` no tiene. No hay ningún PR abierto que la traiga. Hasta que lo haya, A5 no es trabajo entregado, es trabajo en una rama. |
-
-De los 41 PRs mergeados, **40** aterrizaron en `main` y quedaron ubicados en los seis sprints de arriba, verificado por `git log`; el #54 es el único que no. Los 13 commits directos a `main` están en el Sprint 1. `PR #53` (G0 y G3) está **abierto** — ver más abajo.
+Ninguno. Los 41 PRs mergeados y los 13 commits directos a `main` quedaron ubicados en alguno de los seis sprints de arriba, verificado por `git log`. El único caso con matiz es el #54, cuyo contenido llegó a `main` por el squash del #52 y no por un merge propio — está en el Sprint 6 con esa nota, no aquí. `PR #53` (G0 y G3) está **abierto** — ver más abajo.
 
 ## En curso
 
 | PR | Título | Estado | Tramos |
 |---|---|---|---|
 | [#53](https://github.com/sedecim-com/Accounting/pull/53) | G0 y G3: poner un timeout destapó un cierre a 27 segundos de morir, y el control de cuatro ojos tenía cuatro puertas | Abierto, CI en verde | G0, G3 |
-| `sux/segundo-lote` (sin PR) | A5 (#54) y quince commits posteriores al squash del #52 — remates de A7, CodeQL, el detector de secretos | Rama lateral 16 commits por delante de `main`; **falta abrir el PR que la traiga** | A5, A7·remate |
 
 ## Lo que sigue (Vía A y Vía B)
 
