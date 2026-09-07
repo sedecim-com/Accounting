@@ -37,6 +37,9 @@ there: it was "queued".
 ## Contalink quirks
 - Responses: status 1 = success, 0 = error (inverted from the intuitive).
 - Trial balance amounts arrive as strings; the adapter already normalizes them to numbers.
+- An account ARCHIVED locally but with posted history still counts on our side of the diff: it is
+  not `only_remote`. Archiving is a catalog decision and it does not retract the movement, so a
+  difference there would be one we invented.
 - The remote trial balance uses CONTALINK'S chart: codes may not match the
   local ones — treat only_local/only_remote first as a chart-of-accounts
   difference, not a balance difference.

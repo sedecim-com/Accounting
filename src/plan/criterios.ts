@@ -579,6 +579,9 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   'src/utils/sequence.ts': { statements: 68, branches: 100, functions: 75, lines: 66 },
   'src/services/reporting/report-service.ts': { statements: 88, branches: 76, functions: 95, lines: 88 },
   'src/services/reporting/criterio-cierre.ts': { statements: 100, branches: 95, functions: 100, lines: 100 },
+  // T13. Nace protegido: un archivo nuevo sin renglón aquí puede perder su
+  // umbral en un commit posterior sin que ninguna compuerta se mueva.
+  'src/services/reporting/criterio-archivadas.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
 };
 
 /**
