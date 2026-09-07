@@ -248,8 +248,15 @@ Dos detalles del paso 4 que explican por qué la aprobación es un acto y no una
 
 El detalle del paso 2b y de lo que el agente puede y no puede hacer está en [[El-agente-y-sus-limites]]. Lo fiscal del paso 1 —CFDI 4.0, catálogos del SAT, IVA sobre base de flujo— en [[Fiscal-mexicano]].
 
+## La dimensión que las capas todavía no tienen: la jurisdicción
+
+El motor arranca con México y Estados Unidos, y ninguna de las cinco capas pregunta hoy de qué país es la entidad salvo en un sitio: al sembrarla. La pregunta canónica es `esContabilidadMexicana` en [`pais-contable.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/pais-contable.ts) —país MX, nulo o desconocido → México—, la consumen dos líneas de `entity-accounting.ts`, y cuatro copias siguen vivas sin usarla, tres de ellas con el borde nulo al revés. El cierre, los informes, el panel de políticas y el calendario fiscal no la importan; la nómina tiene su propio conmutador. La entidad sí sabe de dónde es (`legal_entities` guarda país, norma contable, moneda funcional y mes de inicio del ejercicio, este último sin lector), pero esa información no baja a los servicios.
+
+El diseño que lo corrige —un solo conmutador que devuelve una jurisdicción y no un booleano, un paquete por país, el panel con dimensión de jurisdicción y una tabla de parámetros legales con vigencia— está en [[Jurisdicciones]] y en [`docs/jurisdicciones.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/jurisdicciones.md). Aquí basta con saber que es una dimensión que atraviesa las cinco capas y que hoy sólo toca la más baja.
+
 ## Para seguir
 
+- [[Jurisdicciones]] — la dimensión por país, lo que hay y lo que se propone.
 - [[Base-de-datos-y-migraciones]] — el runner, las políticas reaplicadas y la trampa del DML bajo RLS.
 - [[Aislamiento-multi-inquilino]] — por qué la frontera es RLS y no un `WHERE` en TypeScript.
 - [[El-agente-y-sus-limites]] — qué propone, qué no puede tocar y cómo se comprueba.

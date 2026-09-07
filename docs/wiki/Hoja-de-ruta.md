@@ -224,7 +224,7 @@ completo: del orden de cincuenta sprints más y unas cinco veces el código actu
 Sigue sin recomendarse y ningún dato nuevo lo sostiene. Después de la fase 1, el
 respaldo de ~1 000 filas se atiende por demanda, no por completitud.
 
-Y dos cosas están **por delante** de seguir entregando flujos, porque las
+Y tres cosas están **por delante** de seguir entregando flujos, porque las
 auditorías las elevaron a bloqueo:
 
 - **No existe respaldo ni restauración.** Ni una línea en todo el árbol. Lo
@@ -235,6 +235,16 @@ auditorías las elevaron a bloqueo:
 - **El tramo S2 de garantías**, entre el flujo 2 y el 3: arreglar el medidor de
   coste, medir la tarifa por estado de motor, poblar la compuerta de flujos
   cerrados y darle al trinquete granularidad de criterio y no de paquete.
+- **El tramo J0, la jurisdicción como dimensión**, antes de cualquier motor
+  nuevo por país (*sales tax*, 1099, DIOT, retenciones): un solo conmutador,
+  el panel con dimensión de jurisdicción, la tabla de parámetros legales con
+  vigencia y el estrato fiscal de Estados Unidos. La investigación del
+  2026-09-06 encontró que casi todo lo que existe es mexicano en semántica y
+  universal en código, que la ley vive quemada o en tablas por año, y que el
+  IMSS y el INFONAVIT calculan con valores quemados, sin avisar, cuando falta la
+  fila del año.
+  Construir motores por país antes de J0 es construirlos sobre el booleano y
+  sobre constantes. Ver [[Jurisdicciones]] y [[Motores-contables]].
 
 ## Cómo se pregunta el estado, sin escribir un número a mano
 
@@ -264,4 +274,6 @@ trinquete» significa menos de lo que estos documentos daban por hecho.
   hace que un criterio sea creíble.
 - [[Catalogo-de-comandos]] — qué es una fila, qué es fase 1 y cómo se cuenta.
 - [[Auditorias]] — de dónde salen la mitad de las partidas de esta página.
+- [[Jurisdicciones]] y [[Motores-contables]] — qué existe para cada país y en qué
+  orden se cierra lo que falta.
 - [[Como-contribuir]] — la mecánica de cerrar y reabrir un paquete a la vista.

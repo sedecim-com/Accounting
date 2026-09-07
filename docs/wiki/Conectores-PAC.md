@@ -29,7 +29,7 @@ Cuatro adaptadores en [`src/services/integrations/mexico/pac/`](https://github.c
 
 Dos hechos incómodos que conviene decir antes que las virtudes:
 
-**Sovos está registrado a medias.** [`pac-router.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/integrations/mexico/pac/pac-router.ts) lo tiene en el diccionario `PAC_ADAPTERS` (línea 28) pero nunca lo pasa por `integrationRegistry.register()` (líneas 21-23 registran solo finkok, sw_sapien y edicom): el router lo enruta y el registry no lo conoce. Es la forma exacta de capacidad huérfana que `doctor` reporta pero nunca marca como `fail`.
+**Sovos ya está en el registry (corregido el 2026-09-06).** La versión anterior de esta página decía que el router lo enrutaba y el registry no lo conocía. Hoy [`pac-router.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/integrations/mexico/pac/pac-router.ts) recorre `PAC_ADAPTERS` —Sovos incluido, línea 26— y registra los cuatro en `integrationRegistry` (líneas 45-47, «el enrutador y el registry se alimentan de la misma lista»). El hecho incómodo que queda es el siguiente.
 
 **El terciario por omisión es el proveedor sin documentación.** Los defaults de `getPreferences()` (líneas 52-54) son `finkok → sw_sapien → edicom`, y Edicom es el único de los tres sin documentación pública verificable: su antigua página de desarrolladores hoy redirige en cadena hasta [material comercial](https://edicomgroup.com/es/) sin WSDL ni referencia de API. Un simulador como terciario de producción es una trampa esperando; el plan lo retira.
 
@@ -80,6 +80,12 @@ La clave: **precargar no es simular.** Un adaptador real sin credenciales es seg
 **La decisión que no es del código:** antes de firmar contrato, reconfirmar **a mano** en el portal del SAT la vigencia 2026 de las autorizaciones 16543 (SW) y 09763 (Prodigia). El PDF de 2019 identifica; no acredita. Ninguna fuente legible por máquina lo hace hoy.
 
 ---
+
+
+> **Refresco del 2026-09-06.** Esta página se escribió con la investigación del 2 de septiembre; cuatro días después se volvió a abrir cada liga y a leer el repo. El detalle está en [`practicas/conectores.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md). Lo que cambió:
+
+- **El SAT sigue sin listado de PAC legible por máquina**: el portal es una SPA vacía para un lector automático y el PDF de febrero de 2019 sigue siendo la única fuente oficial descargable. Los proveedores con portal de desarrolladores vivo (SW Sapien, Finkok, Facturación Moderna, Solución Factible, Prodigia…) están en la tabla del informe; las credenciales de prueba que algunos publican no se reproducen aquí.
+- **En el repo**: `edicom` sigue como terciario por omisión (`pac-router.ts:69-71,93-95`); faltan `PacProviderSpec`/`PacAdapterBase`, un adaptador de SW Sapien real contra *sandbox*, migrar `pac_preferences` al panel con lector, y la fila de catálogo. Es la issue [#115](https://github.com/sedecim-com/Accounting/issues/115).
 
 ## Para seguir
 

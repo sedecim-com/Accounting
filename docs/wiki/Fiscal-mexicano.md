@@ -236,6 +236,7 @@ Y aquí hay un rojo que un despacho tiene que conocer antes de firmar nada: el s
 - **Nómina.** Existe el generador de CFDI tipo N con complemento Nómina 1.2, que arma el XML y lo manda al enrutador de PAC — sujeto al mismo cerrojo antisimulación que todo lo demás. La taxonomía registra el asiento base (sueldos, ISR retenido, neto por pagar); el desglose fino —IMSS del trabajador, préstamos, subsidio, incapacidades— lo maneja el módulo de nómina.
 - **DIOT.** No se genera. El generador que existía se eliminó junto con el resto de `mexico/cfdi.ts`, porque estaba construido sobre el formato de devengo derogado. Lo que sí hay es la lista de bloqueadores: `mnemosine vendor list --no-tax-id` enumera los proveedores sin RFC en el expediente, que son los que impiden armar la declaración.
 - **CFDI de retenciones (tipo R).** El esquema es `retenciones:Retenciones`, no `cfdi:Comprobante`: el analizador actual lo rechazaría. Necesita su propio analizador. La taxonomía ya declara su tratamiento contable, a la espera.
+- **Los números de la ley.** El límite de 2 000 pesos en efectivo (LISR 27-III), el 8.5 % de restaurantes (LISR 28-XX) y las tasas del IVA están escritos en el código; la UMA y el salario mínimo viven en una tabla **por año**, aunque la UMA cambia el 1 de febrero. El sitio que les corresponde —una tabla con vigencia y la URL del DOF— y por qué eso no es una política del despacho, en [[Jurisdicciones]].
 - **Activo fijo.** Cuando una decisión capitaliza un desembolso, el importe llega a la cuenta de activo pero el sistema **no da de alta el activo ni calcula su depreciación mensual**. El aviso viaja con el documento para que la falta se vea en la revisión y no al cierre del ejercicio.
 
 ## Los números no se copian: se preguntan
@@ -256,4 +257,4 @@ Decide cuántas filas del catálogo de comandos son hoy invocables. La tabla ant
 
 ---
 
-Relacionado: [[Arquitectura]] · [[Base-de-datos-y-migraciones]] · [[Catalogo-de-comandos]] · [[El-tablero-y-los-criterios]] · [[Seguridad-y-credenciales]] · [[Glosario]] · [[Hoja-de-ruta]]
+Relacionado: [[Jurisdicciones]] · [[Motores-contables]] · [[Arquitectura]] · [[Base-de-datos-y-migraciones]] · [[Catalogo-de-comandos]] · [[El-tablero-y-los-criterios]] · [[Seguridad-y-credenciales]] · [[Glosario]] · [[Hoja-de-ruta]]

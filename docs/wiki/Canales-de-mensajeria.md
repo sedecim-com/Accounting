@@ -59,6 +59,12 @@ La omisión de todo es apagado. La comodidad no gana por default.
 
 Nota pendiente de la propia investigación: el detalle del payload cuando un usuario toca un botón de WhatsApp no quedó verificado en la doc consultada — quien implemente la pieza 3 debe verificarlo antes de codificar.
 
+
+> **Refresco del 2026-09-06.** Esta página se escribió con la investigación del 2 de septiembre; cuatro días después se volvió a abrir cada liga y a leer el repo. El detalle está en [`practicas/conectores.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/investigacion/2026-09-06-normas-y-motores/practicas/conectores.md). Lo que cambió:
+
+- **Se encontró la especificación del protocolo de OpenClaw** (WebSocket, JSON, v4, esquema publicado como `@openclaw/gateway-protocol`) y la interfaz de adaptador de Hermes (`BasePlatformAdapter`, `MessageEvent`). **Hermes ya ofrece WhatsApp por la Cloud API oficial** además de Baileys; OpenClaw sigue sólo con Baileys. El *payload* `button_reply` de Meta quedó verificado, que era el pendiente del 2 de septiembre.
+- **En el repo, sin cambio**: no hay `canales/`, `ai_webhook_deliveries` sigue sin columna de cuerpo (`028:60-87`) y el CHECK de `ai_external_ops.operation` sigue sin `send_message` (`014:14-17`). Es la issue [#116](https://github.com/sedecim-com/Accounting/issues/116).
+
 ## Páginas relacionadas
 
 - [[El-tablero-grafico]] — la otra superficie investigada; comparte la regla de no ser motor.
