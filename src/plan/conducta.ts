@@ -277,10 +277,10 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       {
         archivo: 'src/database/migrations/072_la_hija_que_pregunta_por_su_madre.sql',
         de: '  NEW.tenant_id := derivado;',
-        a: '  NEW.tenant_id := COALESCE(NEW.tenant_id, derivado);',
+        a: '  NEW.tenant_id := NULL;',
         porque:
-          'deja que el llamador imponga el inquilino en vez de derivarlo: una línea puede nacer declarando ' +
-          'un inquilino distinto del de su asiento, y la política directa la creería',
+          'la hija deja de heredar el inquilino de su padre: nace sin él, y una fila sin inquilino queda ' +
+          'invisible para su propio dueño en cuanto la política lo mire',
       },
     ],
     correr: async (app) => {
