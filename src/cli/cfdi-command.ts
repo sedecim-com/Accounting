@@ -13,6 +13,8 @@ import {
   declareRisk,
   gateMutation,
   render,
+  emit,
+  legible,
   withContext,
   withOutput,
   withSelection,
@@ -186,10 +188,31 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
       if (opts.format === 'xml') {
         // Los bytes EXACTOS como llegaron: para verificar sellos o
         // re-procesar afuera, cualquier re-serialización es una mentira.
-        process.stdout.write(doc.xml_content);
+        // Por `emit` y no por stdout: es un DATO, y con `-o` el archivo
+        // prometido tiene que existir y contener el XML, no quedarse sin
+        // crear mientras los bytes se van por la terminal.
+        emit(doc.xml_content, opts);
         return;
       }
       const { xml_content, lineas, ...cabecera } = doc;
+
+      // DOS TABLAS PARA UN HUMANO, UN SOLO DOCUMENTO PARA UNA MÁQUINA (#90).
+      //
+      // El comprobante y sus conceptos se leen mejor en dos tablas, y así se
+      // imprimen. Pero para cualquier destino de MÁQUINA —`--json`, `-o`, un
+      // formato pedido— dos renders son dos sobres `{schema,count,rows}`
+      // concatenados, y eso no es un JSON: es un archivo que el parser de quien
+      // lo pidió rechaza. Antes esto no se veía porque el segundo render
+      // BORRABA al primero —el archivo era JSON válido por accidente, con la
+      // mitad del documento perdida—; al hacer que `-o` acumule, el accidente
+      // se acabó y el defecto quedó a la vista.
+      //
+      // Así que en modo máquina se compone UN documento con los conceptos
+      // anidados, que es además lo que `entry show` ya hacía con sus renglones.
+      if (!legible(opts)) {
+        render([{ ...cabecera, lineas }], { ...opts, idField: 'cfdi_uuid' });
+        return;
+      }
       render([cabecera], { ...opts, idField: 'cfdi_uuid' });
       note(`${lineas.length} concepto(s):`);
       render(lineas, { ...opts, idField: 'line_number' });

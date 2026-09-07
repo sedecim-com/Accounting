@@ -75,7 +75,9 @@
     "isn-refuses-instead-of-zero",
     "integration-coverage-enforced-in-ci",
     "idempotency-key-honored-and-scoped",
-    "imss-employee-rates-match-law"
+    "imss-employee-rates-match-law",
+    "output-flag-writes-complete-output",
+    "contract-exit-codes-have-producers"
   ],
   "_f05": "F05 (frontera de banco) subio el piso de 31 a 37 criterios: los seis verdes de E2.1 que nadie protegia. Se anaden aqui porque el arreglo de la frontera bancaria estuvo a punto de regresar uno de ellos —acotaba por `req.entityId` sin montar requireEntityAccess, y acotar por una cabecera que nadie valida no es acotar—. El criterio lo cazo; el piso impide que la proxima vez dependa de que alguien mire.",
   "_f05d": "F05d subio el piso de 37 a 46: los nueve verdes de E0.0 que nadie protegia, incluido «el corpus tiene compuerta de caducidad» — que este mismo tramo estuvo a punto de volver inutil sin tocarlo. Al anadir al manual una segunda mencion de 1135 (la regla del cheque cobrado), el mutante que vigilaba la del PPD paso a mutar la nueva y el criterio, que solo comprobaba PRESENCIA del numero, seguia en verde mientras el manual podia ensenar lo contrario. Un ancla de presencia caduca en cuanto alguien escribe cerca.",
