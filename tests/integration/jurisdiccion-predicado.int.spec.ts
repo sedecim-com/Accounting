@@ -1,6 +1,8 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { query, closeDatabase } from '../../src/database/connection.js';
+import { query, getClient, closeDatabase } from '../../src/database/connection.js';
+import { entityUsesCashBasisIva } from '../../src/services/accounting/iva-cash-basis.js';
+import { crearInquilino } from './helpers/tenant-fixture.js';
 import {
   esContabilidadMexicana,
   sqlEsContabilidadMexicana,
@@ -136,5 +138,48 @@ describe('las dos consultas que llevan el predicado siguen siendo SQL válido', 
   it('la revisión de roles del doctor se planifica contra el esquema real', async () => {
     const r = await checkAccountRoles();
     expect(['ok', 'warn', 'fail']).toContain(r.level);
+  });
+});
+
+/**
+ * LA FILA AUSENTE NO PASA POR EL CONMUTADOR. `entityUsesCashBasisIva` es el
+ * único consumidor del predicado que puede recibir un id sin fila —de otro
+ * inquilino bajo RLS, o inventado— y ahí «ante la duda, mexicana» sería
+ * regalar régimen fiscal a algo que no está en los libros. Ningún llamador
+ * de producción ejercita ese borde (todos pasan la entidad de un documento
+ * que existe), así que la rama vivía sin prueba y la cobertura de ramas del
+ * archivo cayó por debajo de su umbral cuando el `||` que la acompañaba se
+ * fue al conmutador. Las tres filas de abajo fijan las dos respuestas y el
+ * borde: existe y es mexicana → true; existe y es estadounidense → false;
+ * no existe → false, sin consultar al conmutador.
+ */
+describe('entityUsesCashBasisIva lee la fila, y sin fila no hay régimen', () => {
+  it('una entidad mexicana que existe acredita IVA sobre flujo', async () => {
+    const mx = await crearInquilino('J0.1 · fila mexicana');
+    const client = await getClient();
+    try {
+      expect(await entityUsesCashBasisIva(client, mx.entityId)).toBe(true);
+    } finally {
+      client.release();
+    }
+  });
+
+  it('una entidad estadounidense que existe no lo hace, aunque exista', async () => {
+    const us = await crearInquilino('J0.1 · fila estadounidense', { pais: 'US', norma: 'us_gaap' });
+    const client = await getClient();
+    try {
+      expect(await entityUsesCashBasisIva(client, us.entityId)).toBe(false);
+    } finally {
+      client.release();
+    }
+  });
+
+  it('un id sin fila —inexistente o ajeno— no recibe régimen mexicano por la duda', async () => {
+    const client = await getClient();
+    try {
+      expect(await entityUsesCashBasisIva(client, uuidv4())).toBe(false);
+    } finally {
+      client.release();
+    }
   });
 });
