@@ -633,9 +633,9 @@ export const CRITERIOS: Criterio[] = [
         return falla('no hay línea base del idioma: `--check` no tiene contra qué comparar');
       }
       const base = JSON.parse(crudoDe('docs/language-baseline.json')) as {
-        carriles?: Record<string, number>;
+        lanes?: Record<string, number>;
       };
-      const carriles = Object.keys(base.carriles ?? {});
+      const carriles = Object.keys(base.lanes ?? {});
       if (carriles.length === 0) {
         return falla('la línea base del idioma está vacía: un trinquete sin carriles siempre pasa');
       }
