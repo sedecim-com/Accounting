@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   CRITERIOS,
@@ -99,5 +100,57 @@ describe('la lista de criterios', () => {
       expect(r.detalle, c.enunciado).toBeTruthy();
       expect(r.detalle.length, c.enunciado).toBeGreaterThan(10);
     }
+  });
+});
+
+// ============================================================
+// LA IDENTIDAD DE UN INSTRUMENTO (I0)
+//
+// El piso —docs/criterios-minimos.json— es un trinquete que sólo sube, y su
+// llave es la identidad del criterio. Hasta I0 esa llave era el ENUNCIADO EN
+// ESPAÑOL: reescribir la frase daba de baja un criterio y daba de alta otro
+// sin que nadie hubiera tocado un instrumento, y traducirla —que es lo que el
+// epic #141 va a hacer con todo el código— lo haría 136 veces de golpe.
+//
+// Con ids, la identidad deja de depender de la redacción. Estas tres pruebas
+// son lo que hace que eso sea cierto y no una intención.
+// ============================================================
+
+describe('los criterios tienen identidad, y no es su prosa', () => {
+  it('ningún id se repite: dos criterios con la misma llave son uno solo en el piso', () => {
+    const conId = CRITERIOS.filter((c) => c.id !== undefined);
+    const vistos = new Map<string, string>();
+    const choques: string[] = [];
+    for (const c of conId) {
+      const previo = vistos.get(c.id!);
+      // Un id duplicado no rompe nada visible: el piso protege UNA de las dos
+      // y la otra viaja sin red, que es la peor forma de perder un criterio.
+      if (previo !== undefined) choques.push(`${c.id}: «${previo}» y «${c.enunciado}»`);
+      else vistos.set(c.id!, c.enunciado);
+    }
+    expect(choques, 'dos criterios comparten id').toEqual([]);
+  });
+
+  it('el id es un identificador de máquina: inglés, kebab-case, sin acentos', () => {
+    const malos = CRITERIOS.filter((c) => c.id !== undefined).filter(
+      (c) => !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(c.id!)
+    );
+    expect(
+      malos.map((c) => c.id),
+      'un id con mayúsculas, acentos o espacios es prosa con otro nombre'
+    ).toEqual([]);
+  });
+
+  it('el piso se apoya en ids vivos, no en frases', () => {
+    // Lee el piso REAL, que es el que la CI comprueba.
+    const piso = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'criterios-minimos.json'), 'utf8')
+    ) as { verdes: string[] };
+    const ids = new Set(CRITERIOS.map((c) => c.id).filter((x): x is string => x !== undefined));
+    const noSonId = piso.verdes.filter((v) => !ids.has(v));
+    expect(
+      noSonId,
+      'el piso todavía nombra criterios por su enunciado: una traducción los daría de baja'
+    ).toEqual([]);
   });
 });

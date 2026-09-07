@@ -161,8 +161,19 @@ export const exigiblesAbiertos = (paquetes: Paquete[]): string[] =>
 // entero, y duplicarlos sería dos listas que se desincronizan.
 // ============================================================
 
-/** La identidad de un criterio: no hay id, así que es paquete + enunciado. */
-export const identidadDe = (c: Criterio): string => `${c.paquete} · ${c.enunciado}`;
+/**
+ * LA IDENTIDAD DE UN CRITERIO ES SU ID, y el enunciado sólo el respaldo.
+ *
+ * Era `paquete · enunciado`, es decir prosa española: el piso guardaba esa
+ * frase como llave y reescribirla —o traducirla— daba de baja un criterio y
+ * daba de alta otro, sin que nadie hubiera tocado un instrumento. Desde I0
+ * cada criterio trae `id`, que nombra lo que mide y no cómo se redacta.
+ *
+ * El respaldo se conserva a propósito y no es transición: un criterio nuevo
+ * sin id sigue teniendo identidad —la de antes— en vez de quedarse sin
+ * ninguna, que es como se pierde silenciosamente del piso.
+ */
+export const identidadDe = (c: Criterio): string => c.id ?? `${c.paquete} · ${c.enunciado}`;
 
 export interface VeredictoPiso {
   regresados: string[];

@@ -194,6 +194,19 @@ export function claveDeViolacion(v: Violation): string {
   return `${v.command}|${v.rule}|${v.detail.replace(/\d+/g, '#')}`;
 }
 
+/**
+ * LA LÍNEA BASE SON CLAVES, NO MENSAJES (I0).
+ *
+ * Cada renglón es `command|rule|detail` con los dígitos normalizados: la
+ * huella de una violación ya conocida, usada para que el trinquete sepa cuál
+ * es vieja y cuál es nueva. El `detail` PARECE una frase de usuario y no lo
+ * es — nadie lo lee en una terminal—, así que cuando el epic #141 traduzca
+ * los mensajes del CLI, ÉSTOS NO SE TOCAN: traducir una clave no cambia lo
+ * que dice, cambia a qué se parece, y la línea base entera dejaría de casar de
+ * golpe. Si algún día el texto de una regla cambia, se regenera la huella con
+ * el propio comando y se dice en el commit; no se edita a mano para que se
+ * lea mejor.
+ */
 export const LINEA_BASE: readonly string[] = [
   'entities|R1 objectless allowlist|"entities" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
   'providers|R1 objectless allowlist|"providers" is a top-level command with no object and is not in OBJECTLESS_COMMANDS.',
