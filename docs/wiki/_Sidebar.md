@@ -29,7 +29,7 @@
 - [[Jurisdicciones]]
 - [[Motores-contables]]
 - [[Normas-contables]]
-- [[El-idioma-del-codigo]]
+- [[Code-language]] · [[es|Code-language.es]]
 - [[Base-de-datos-y-migraciones]]
 - [[Seguridad-y-credenciales]]
 - [[Glosario]]

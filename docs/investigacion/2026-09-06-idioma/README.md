@@ -1,6 +1,6 @@
 # Inventario del idioma del código · 2026-09-06
 
-El pedido: *todo el código basado en inglés y, a partir de ahí, traducido a distintos idiomas dejando primero el español*. Antes de escribir un plan había que saber cuánto hay de cada cosa y qué se rompe al moverlo. Ocho lectores, uno por superficie, con la consigna de publicar **el comando exacto** de cada cifra; escépticos que volvieron a correr los comandos; y un panel de diseño (tres arquitectos con lentes distintas, dos jueces) cuya síntesis alimenta [`docs/idioma.md`](../../idioma.md), el documento rector.
+El pedido: *todo el código basado en inglés y, a partir de ahí, traducido a distintos idiomas dejando primero el español*. Antes de escribir un plan había que saber cuánto hay de cada cosa y qué se rompe al moverlo. Ocho lectores, uno por superficie, con la consigna de publicar **el comando exacto** de cada cifra; escépticos que volvieron a correr los comandos; y un panel de diseño (tres arquitectos con lentes distintas, dos jueces) cuya síntesis alimenta [`docs/language.md`](../../language.md), el documento rector (fuente inglesa; gemela [`language.es.md`](../../language.es.md)). Estos 23 informes son la primera entrada de la línea base de «páginas sin gemela» que I26 vacía.
 
 | Informe | Superficie | Lo que decide |
 |---|---|---|
