@@ -295,7 +295,7 @@ function main(argv: string[]): number {
     process.stdout.write(
       written
         ? `Bloque regenerado en ${path.relative(ROOT, GOVERNING_DOC)}.\n`
-        : `No se escribió el block: ${path.relative(ROOT, GOVERNING_DOC)} no existe o no tiene marcadores ${ABRE}.\n`
+        : `No se escribió el bloque: ${path.relative(ROOT, GOVERNING_DOC)} no existe o no tiene marcadores ${OPEN_MARK}.\n`
     );
     return 0;
   }
