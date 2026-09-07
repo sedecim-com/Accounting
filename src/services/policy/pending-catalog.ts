@@ -1453,6 +1453,35 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'They accrue with each pay run.',
     priority: 45,
   },
+  {
+    key: 'flujo_efectivo_sin_clasificar',
+    category: 'contable',
+    question:
+      'When an account moved but belongs to no section of the cash flow statement, do I publish the statement naming it, or refuse until it has one?',
+    impact:
+      'This is NOT the same question as the statement not tying to cash. Two unclassified accounts ' +
+      'whose amounts cancel leave the net tying perfectly against the bank while operating, ' +
+      'investing and financing are each wrong by the part that belonged to them. The residue is ' +
+      'invisible from the outside: nobody can catch it by comparing against the bank statement.',
+    options: [
+      { value: 'avisar', label: 'Publish it, naming every account that landed in no section' },
+      { value: 'bloquear', label: 'Refuse to emit it until every account that moved has a section' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'Refusing would leave the firm without a statement it may need for a filing deadline, and the ' +
+      'remedy — giving the account an fs_category — is a catalog edit the preparer may not be able ' +
+      'to make at that moment. Naming the accounts keeps the document usable and puts the gap where ' +
+      'the preparer sees it.',
+    whyAsking:
+      'Whether a statement with an unclassified account is publishable is your call. The one thing ' +
+      'I will not do is stay quiet about it: an account that moved and fell in no section is a ' +
+      'subtotal that is wrong without the total showing it.',
+    whatIDo: 'I publish the statement and name every account that moved without a section.',
+    ifSkipped: 'I publish it and name them.',
+    priority: 40,
+  },
+
 ];
 
 export function getPolicySpec(key: string): PolicySpec | undefined {

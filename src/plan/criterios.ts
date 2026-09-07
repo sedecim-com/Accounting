@@ -614,7 +614,8 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
   'src/services/accounting/iva-cash-basis.ts': { statements: 96, branches: 84, functions: 100, lines: 98 },
   'src/services/reporting/report-service.ts': { statements: 84, branches: 75, functions: 77, lines: 86 },
   'src/services/reporting/criterio-cierre.ts': { statements: 91, branches: 80, functions: 85, lines: 91 },
-  'src/services/reporting/cash-flow-service.ts': { statements: 94, branches: 89, functions: 96, lines: 95 },
+  // T13 lo sube al medir el caso que faltaba: 95.12 / 90.10 / 96.55 / 95.45.
+  'src/services/reporting/cash-flow-service.ts': { statements: 95, branches: 90, functions: 96, lines: 95 },
 };
 
 // ── Los criterios ───────────────────────────────────────────
@@ -5724,6 +5725,187 @@ export const CRITERIOS: Criterio[] = [
       return amarre
         ? ok('el flujo vive en la capa compartida, clasifica por rol y se contrasta contra el efectivo real con el residuo a la vista')
         : falla('desapareció el amarre contra el efectivo real: el estado de flujos vuelve a poder no tener ninguna relación con el banco sin que nadie lo diga');
+    },
+  },
+
+  // ---- T13 · El instrumento que afirma más de lo que mide ----
+
+  {
+    paquete: 'E1.2',
+    enunciado:
+      'La autocomprobación del flujo mide la LISTA de cuentas sin sección y no su suma, la política «bloquear» bloquea de verdad, y los roles de efectivo crecen en un solo sitio',
+    mutantes: [
+      {
+        // EL DIENTE EXACTO DEL TRAMO: devolver el guardia a preguntar por la
+        // SUMA. Es la línea tal como estaba escrita antes de T13.
+        archivo: 'src/services/reporting/cash-flow-service.ts',
+        de: "  if (!autoComprobacion.all_classified && policies.sinClasificar === 'bloquear') {",
+        a: "  if (!autoComprobacion.ties && policies.sinClasificar === 'bloquear') {",
+        porque:
+          'la política que el despacho puso en «bloquear» vuelve a no bloquear: dos cuentas sin ' +
+          'fs_category de +5 000 y −5 000 dejan la suma en cero y el estado sale FIRMADO bajo la ' +
+          'política que había pedido no emitirlo. Una política que no hace lo que dice es peor que ' +
+          'no tenerla, porque quien la eligió cree que hay un guardia',
+      },
+      {
+        // El otro diente, una capa más abajo: que la afirmación vuelva a
+        // derivarse de la suma. Sobrevive a cualquier criterio que sólo mire
+        // si el campo EXISTE.
+        archivo: 'src/services/reporting/cash-flow-service.ts',
+        de: '    all_classified: todasClasificadas,',
+        a: '    all_classified: netoAta,',
+        porque:
+          'la autocomprobación vuelve a medir la SUMA en vez de la LISTA, que es el defecto entero: ' +
+          'la nota firma «every account that moved was classified» sobre cuentas que nadie clasificó, ' +
+          'y los subtotales de operación, inversión y financiamiento quedan mal cada uno por su parte',
+      },
+      {
+        archivo: 'src/services/reporting/cash-flow-service.ts',
+        de: '              WHERE ar.entity_id = $1 AND ar.role = ANY($2::text[])',
+        a: "              WHERE ar.entity_id = $1 AND ar.role = 'banco'",
+        porque:
+          'el ESTADO vuelve a codificar un rol a mano mientras el AMARRE lee ROLES_DE_EFECTIVO, que ' +
+          'se declara punto único de crecimiento: hoy coinciden por casualidad —la lista tiene un ' +
+          'elemento— y el día que crezca los dos publican conjuntos de efectivo distintos del mismo ' +
+          'periodo, con un residuo inventado que nadie podrá encontrar',
+      },
+    ],
+    evaluar: async () => {
+      const cf = codigoDe('src/services/reporting/cash-flow-service.ts');
+      const rc = codigoDe('src/services/reporting/cash-flow-reconcile.ts');
+
+      // ── LA MITAD QUE MIDE ────────────────────────────────────
+      //
+      // `autoComprobar` es PURA, así que el escenario que costó este tramo
+      // cabe aquí sin base de datos: dos cuentas sin `fs_category` cuyos
+      // importes se cancelan. Se corre el camino real y se juzga lo que
+      // AFIRMA, no cómo está escrito — un criterio que sólo leyera la línea
+      // sobreviviría a que la aritmética volviera a mentir por otra puerta.
+      const { autoComprobar, construirIndirecto } = await import(
+        '../services/reporting/cash-flow-service.js'
+      );
+      const cuenta = (
+        code: string,
+        name: string,
+        account_type: string,
+        fs_category: string | null,
+        debit_total: string,
+        credit_total: string
+      ) => ({
+        account_id: `plan-${code}`,
+        code,
+        name,
+        account_type,
+        account_subtype: null,
+        fs_category,
+        debit_total,
+        credit_total,
+      });
+      // Una venta cobrada (clasificable) y DOS cuentas importadas sin
+      // categoría, de +5 000 y −5 000: la suma da cero y la lista tiene dos.
+      const compensadas = autoComprobar(
+        construirIndirecto([
+          cuenta('4100', 'Ventas', 'revenue', 'revenue', '0', '9000'),
+          cuenta('1295', 'Equipo importado', 'asset', null, '5000', '0'),
+          cuenta('2295', 'Crédito importado', 'liability', null, '0', '5000'),
+        ])
+      );
+      if (compensadas.all_classified) {
+        return falla(
+          'la autocomprobación del flujo vuelve a decir que clasificó todo con DOS cuentas sin ' +
+            'sección en la mano: le basta que sus importes se cancelen, que es exactamente cómo un ' +
+            'estado con las tres secciones mal se firma sin que nadie avise'
+        );
+      }
+      // Y NO SE EXAGERA EL DAÑO: el neto sí ata. Inventar un descuadre que el
+      // banco desmiente en dos minutos es el error simétrico, y quema el
+      // instrumento igual de rápido.
+      if (!compensadas.ties) {
+        return falla(
+          'la autocomprobación declara descuadrado un estado cuyo neto SÍ iguala la variación del ' +
+            'efectivo: un aviso que el banco desmiente deja de leerse, y con él los que sí importan'
+        );
+      }
+      if (/Every account that moved was classified/.test(compensadas.note)) {
+        return falla(
+          'la nota del flujo vuelve a afirmar que toda cuenta que se movió cayó en una sección ' +
+            'mientras dos no lo hicieron: es la frase que el instrumento firmaba sin haberla medido'
+        );
+      }
+      if (!compensadas.note.includes('1295') || !compensadas.note.includes('2295')) {
+        return falla(
+          'la nota avisa del hueco sin nombrar las cuentas que lo abren: un aviso sin códigos no es ' +
+            'una pista, y el lector no tiene por dónde empezar'
+        );
+      }
+      // El caso limpio sigue diciendo lo suyo: un instrumento que grita
+      // siempre no dice nada.
+      const limpio = autoComprobar(
+        construirIndirecto([cuenta('4100', 'Ventas', 'revenue', 'revenue', '0', '9000')])
+      );
+      if (!limpio.all_classified || !limpio.ties) {
+        return falla(
+          'la autocomprobación denuncia un estado en el que TODA cuenta cayó en su sección: un ' +
+            'instrumento que grita siempre no distingue nada'
+        );
+      }
+
+      // ── LA MITAD QUE ANCLA ───────────────────────────────────
+      //
+      // Las tres líneas que los espejos tocan. La medición de arriba corre
+      // sobre el módulo REAL —`await import` no pasa por el seam de lectura—,
+      // así que sin estas anclas los tres mutantes seguirían vivos: es la
+      // lección que este repositorio ya cobró tres veces, y por eso el
+      // criterio hace las dos cosas y no una.
+      // La política que gobierna esto es la SUYA, no la del descuadre: el
+      // desacuerdo con el efectivo y la cuenta sin sección son dos preguntas
+      // distintas, y la ficha del descuadre —«refuse until it ties»— quedaría
+      // insatisfacible por sus propios términos si rehusara un estado que ATA.
+      if (!/if \(!autoComprobacion\.all_classified && policies\.sinClasificar === 'bloquear'\)/.test(cf)) {
+        return falla(
+          'el guardia de «bloquear» dejó de preguntar por las cuentas sin sección: si vuelve a ' +
+            'mirar la suma, la política que pidió no emitir el estado lo emite'
+        );
+      }
+      if (!/all_classified: todasClasificadas,/.test(cf)) {
+        return falla(
+          'la afirmación «todo clasificado» volvió a derivarse de otra cosa que la lista de cuentas ' +
+            'sin sección: es la sustitución exacta que hacía mentir a la nota'
+        );
+      }
+      // 3. EL ROL NO SE ESCRIBE A MANO. Se comprueba sobre CADA rol de la
+      //    lista y no sobre la palabra «banco»: un ancla escrita contra un rol
+      //    concreto es la misma trampa una capa más arriba, y bendice al que
+      //    codifique el siguiente.
+      const { ROLES_DE_EFECTIVO } = await import('../services/reporting/cash-flow-reconcile.js');
+      const aMano = ROLES_DE_EFECTIVO.filter((rol) => cf.includes(`ar.role = '${rol}'`));
+      if (aMano.length > 0) {
+        return falla(
+          `el estado de flujos vuelve a codificar el rol de efectivo a mano (${aMano.join(', ')}) ` +
+            'mientras el amarre lee ROLES_DE_EFECTIVO: el día que la lista crezca, los dos ' +
+            'publicarán conjuntos de efectivo distintos del mismo periodo'
+        );
+      }
+      if (!/ar\.role = ANY\(\$2::text\[\]\)/.test(cf) || !/\[entityId, ROLES_DE_EFECTIVO\]/.test(cf)) {
+        return falla(
+          'el estado de flujos dejó de resolver el efectivo por LA LISTA de roles: el punto único de ' +
+            'crecimiento que cash-flow-reconcile declara vuelve a tener un segundo sitio'
+        );
+      }
+      // Y la lista sigue siendo de quien dice serlo: si el punto único se
+      // mudara, este criterio estaría anclando en un archivo que ya no manda.
+      if (!/export const ROLES_DE_EFECTIVO/.test(rc)) {
+        return falla(
+          'ROLES_DE_EFECTIVO dejó de vivir en cash-flow-reconcile, que es donde se declara punto ' +
+            'único de crecimiento: el estado lo importa de ahí y el ancla apunta a un archivo mudo'
+        );
+      }
+      return ok(
+        'con dos cuentas sin sección que se compensan la autocomprobación dice all_classified=false ' +
+          'y ties=true, la nota las nombra sin afirmar lo que no midió, «bloquear» pregunta por esa ' +
+          'lista y no por su suma, y el conjunto de efectivo sale de ROLES_DE_EFECTIVO y de ningún ' +
+          'rol escrito a mano'
+      );
     },
   },
 
