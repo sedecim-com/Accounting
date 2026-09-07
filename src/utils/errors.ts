@@ -66,6 +66,55 @@ export class NotImplementedError extends AppError {
   }
 }
 
+/**
+ * 502 — a service we call on the client's behalf did NOT answer usefully:
+ * the network never reached it, it timed out, it answered 5xx, it rate
+ * limited us, or it replied 200 with something that is not the JSON it
+ * promised. The act may still succeed on a later attempt, so the CLI
+ * exits 8 (EXTERNAL_FAILED) and a job runner may retry it unchanged.
+ *
+ * `provider` is not decoration: a bare `SyntaxError: Unexpected token '<'`
+ * from a proxy's HTML error page named nobody, and the operator could not
+ * tell which of the client's integrations was down.
+ */
+export class ExternalServiceError extends AppError {
+  constructor(
+    public readonly provider: string,
+    message: string,
+    details?: Record<string, unknown>
+  ) {
+    super(502, 'EXTERNAL_SERVICE_FAILED', `${provider}: ${message}`, undefined, {
+      provider,
+      ...details,
+    });
+    this.name = 'ExternalServiceError';
+  }
+}
+
+/**
+ * 424 (Failed Dependency, RFC 4918) — the service WAS reached, understood
+ * the request and REFUSED it: a bad credential, an unauthorized RFC, a
+ * payload it will never accept, or its own rejection envelope. Sending the
+ * same bytes again gets the same answer, so the CLI exits 9
+ * (EXTERNAL_REJECTED) and a job runner must NEVER blind-retry.
+ *
+ * The whole point of the pair is that 8 and 9 are the same failure to a
+ * human reading the message and OPPOSITE instructions to a cron.
+ */
+export class ExternalRejectedError extends AppError {
+  constructor(
+    public readonly provider: string,
+    message: string,
+    details?: Record<string, unknown>
+  ) {
+    super(424, 'EXTERNAL_SERVICE_REJECTED', `${provider}: ${message}`, undefined, {
+      provider,
+      ...details,
+    });
+    this.name = 'ExternalRejectedError';
+  }
+}
+
 export class AccountingError extends AppError {
   constructor(code: string, message: string, details?: Record<string, unknown>) {
     super(422, code, message, undefined, details);

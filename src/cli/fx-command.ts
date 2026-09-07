@@ -483,6 +483,7 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
   // compuertas de la MISMA hoja, que es justo lo que una declaración fija.
   declareRisk(download, {
     risk: 'externo',
+    llave: { sinLlave: 'un reintento vuelve a llamar al proveedor de tipos de cambio' },
     agent: false,
     writes: 'exchange_rates — hoy nada: falla cerrado por falta de conector',
   });

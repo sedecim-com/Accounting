@@ -40,6 +40,7 @@ import {
   type MovimientoDeCuenta,
   type LineaSinEfectivo,
 } from '../../../src/services/reporting/cash-flow-service.js';
+import { ROLES_DE_EFECTIVO } from '../../../src/services/reporting/cash-flow-reconcile.js';
 import { query } from '../../../src/database/connection.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
 import { ValidationError } from '../../../src/utils/errors.js';
@@ -358,6 +359,7 @@ describe('el residuo se imprime, no se absorbe', () => {
     // El efectivo real se movió 7 000 menos que lo que el estado publica, y
     // eso se sabe SIN consultar el mayor: lo dice la cuenta sin clasificar.
     expect(a.ties).toBe(false);
+    expect(a.all_classified).toBe(false);
     expect(a.unclassified_total).toBe('-7000.0000');
     expect(a.candidates.map((l) => l.code)).toEqual(['9999']);
     expect(a.note).toContain('cannot tie');
@@ -366,20 +368,77 @@ describe('el residuo se imprime, no se absorbe', () => {
   it('cuando todo cae en una sección, cuadra por construcción', () => {
     const a = autoComprobar(construirIndirecto(ENERO));
     expect(a.ties).toBe(true);
+    expect(a.all_classified).toBe(true);
     expect(a.unclassified_total).toBe('0.0000');
     expect(a.candidates).toHaveLength(0);
     expect(a.note).toContain('ties to cash by construction');
   });
+
+  // ============================================================
+  // ESTAS DOS PRUEBAS FIJAN LO QUE LA AUTOCOMPROBACIÓN NO MEDÍA.
+  //
+  // El instrumento afirmaba «every account that moved was classified» mirando
+  // la SUMA de la sección sin clasificar. Dos cuentas importadas sin
+  // `fs_category` —una de +5 000 y otra de −5 000— dan suma cero, y con la
+  // suma en cero el estado firmaba una frase sobre una lista que nunca miró.
+  // Lo que hay que separar con cuidado es qué sigue siendo cierto: el NETO sí
+  // ata contra el efectivo (la identidad de la partida doble no depende de que
+  // el motor sepa clasificar), y decir lo contrario sería inventar un
+  // descuadre que el banco desmentiría. Lo que NO es cierto es la frase, y lo
+  // que está roto son los tres subtotales.
+  // ============================================================
+  const importadaDeudora = mov('1295', 'Equipo importado', 'asset', null, '5000', '0');
+  const importadaAcreedora = mov('2295', 'Crédito importado', 'liability', null, '0', '5000');
+
+  it('dos cuentas sin sección que se COMPENSAN: el neto ata y la lista NO está vacía', () => {
+    const f = construirIndirecto([...ENERO, importadaDeudora, importadaAcreedora]);
+    const a = autoComprobar(f);
+
+    // Lo que sigue siendo cierto, y se dice: el neto ata.
+    expect(a.ties).toBe(true);
+    expect(a.unclassified_total).toBe('0.0000');
+    // Lo que NO era cierto y se afirmaba: que todo se había clasificado.
+    expect(a.all_classified).toBe(false);
+    expect(a.candidates.map((l) => l.code)).toEqual(['1295', '2295']);
+  });
+
+  it('y la nota deja de afirmar lo que no midió: nombra las cuentas y los subtotales', () => {
+    const a = autoComprobar(construirIndirecto([...ENERO, importadaDeudora, importadaAcreedora]));
+    // La frase vieja —la que el instrumento firmaba— ya no aparece.
+    expect(a.note).not.toContain('Every account that moved was classified');
+    // Ni se inventa el descuadre contrario: el neto ata y lo dice.
+    expect(a.note).toContain('the net still ties to cash');
+    // Y NO AFIRMA MÁS DE LO MEDIDO. Aquí se exigía «subtotals are each wrong»,
+    // que es un hecho que la autocomprobación NO comprueba: depende de si esas
+    // cuentas tocaron efectivo, y si no lo tocaron los tres subtotales están
+    // bien y lo que falta es la revelación de la operación sin efectivo. La
+    // prueba pedía al instrumento el mismo exceso que el tramo diagnostica.
+    expect(a.note).not.toContain('subtotals are each wrong');
+    expect(a.note).toContain('can be read as sound when at least one section is not');
+    // Y las cuentas salen con nombre y apellido, que es lo que convierte un
+    // aviso en una pista.
+    expect(a.note).toContain('1295 Equipo importado (-5000.0000)');
+    expect(a.note).toContain('2295 Crédito importado (5000.0000)');
+  });
 });
 
 describe('qué cuentas son efectivo', () => {
-  it('las resuelve por el rol banco, por la cuenta bancaria atada, y por el ÁRBOL', async () => {
+  // ESTA PRUEBA ANCLABA EL DEFECTO. Afirmaba `ar.role = 'banco'` como texto,
+  // que es exactamente el literal a mano que `ROLES_DE_EFECTIVO` promete que
+  // no existe («el conjunto crece aquí y en ningún otro sitio»,
+  // cash-flow-reconcile.ts:39-47). Mientras la afirmación fuera ésa, el día
+  // que la taxonomía separe caja de bancos la lista crecería, esta consulta no
+  // se enteraría, y la prueba seguiría verde defendiendo el rezago. Ahora se
+  // afirma lo que de verdad importa: que la consulta pregunta por LA LISTA, y
+  // que la lista que viaja es la del punto único de crecimiento — así, el día
+  // que crezca, esta prueba crece con ella sin que nadie la toque.
+  it('las resuelve por LA LISTA de roles de efectivo, por la cuenta bancaria atada, y por el ÁRBOL', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'id-1111', code: '1111', name: 'Banco' }] });
     await resolverCuentasDeEfectivo(ENTITY, 'rol');
 
     const s = sql(0);
     expect(s).toContain('account_roles');
-    expect(s).toContain("ar.role = 'banco'");
+    expect(s).toContain('ar.role = ANY($2::text[])');
     expect(s).toContain('bank_accounts');
     // El rol apunta a 1110 «Caja y Bancos», que es la MADRE de 1111/1112/1115,
     // donde de verdad caen los movimientos. Sin la recursiva, el conjunto de
@@ -388,7 +447,21 @@ describe('qué cuentas son efectivo', () => {
     expect(s).toContain('h.parent_id = t.id');
     // Y la frontera de entidad va dentro del SQL, también en el paso recursivo.
     expect(s).toContain('h.entity_id = $1');
-    expect(params(0)).toEqual([ENTITY]);
+    expect(params(0)).toEqual([ENTITY, ROLES_DE_EFECTIVO]);
+  });
+
+  it('no queda ni un rol de efectivo escrito a mano en la consulta', async () => {
+    // El literal, muerto. Con `ROLES_DE_EFECTIVO` = ['banco'] el conjunto de
+    // hoy es idéntico; lo que cambia es que mañana crece solo. Se comprueba
+    // sobre CADA rol de la lista, y no sobre la palabra 'banco', porque un
+    // criterio escrito contra un rol concreto es la misma trampa una capa más
+    // arriba.
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'id-1111', code: '1111', name: 'Banco' }] });
+    await resolverCuentasDeEfectivo(ENTITY, 'rol');
+    for (const rol of ROLES_DE_EFECTIVO) {
+      expect(sql(0)).not.toContain(`'${rol}'`);
+    }
+    expect(params(0)[1]).toBe(ROLES_DE_EFECTIVO);
   });
 
   it('no queda ni un ILIKE de nombre en la resolución', async () => {
@@ -454,10 +527,10 @@ describe('la consulta del movimiento', () => {
 });
 
 describe('las tres políticas tienen lector', () => {
-  it('lee las tres claves del panel', async () => {
+  it('lee las CUATRO claves del panel: el descuadre y la falta de sección son preguntas distintas', async () => {
     mockPolicy.mockImplementation(async (_ctx: unknown, key: string) => ({
       key,
-      value: { flujo_efectivo_metodo: 'indirecto', flujo_efectivo_cuentas_de_efectivo: 'rol', flujo_efectivo_descuadre: 'avisar' }[key],
+      value: { flujo_efectivo_metodo: 'indirecto', flujo_efectivo_cuentas_de_efectivo: 'rol', flujo_efectivo_descuadre: 'avisar', flujo_efectivo_sin_clasificar: 'avisar' }[key],
       defined: false,
       question: '',
       rationale: null,
@@ -468,8 +541,14 @@ describe('las tres políticas tienen lector', () => {
       'flujo_efectivo_cuentas_de_efectivo',
       'flujo_efectivo_descuadre',
       'flujo_efectivo_metodo',
+      'flujo_efectivo_sin_clasificar',
     ]);
-    expect(p).toEqual({ metodo: 'indirecto', cuentasDeEfectivo: 'rol', descuadre: 'avisar' });
+    expect(p).toEqual({
+      metodo: 'indirecto',
+      cuentasDeEfectivo: 'rol',
+      descuadre: 'avisar',
+      sinClasificar: 'avisar',
+    });
   });
 
   it('un valor que el panel no reconoce cae al defecto declarado', async () => {
@@ -478,6 +557,7 @@ describe('las tres políticas tienen lector', () => {
       metodo: 'indirecto',
       cuentasDeEfectivo: 'rol',
       descuadre: 'avisar',
+      sinClasificar: 'avisar',
     });
   });
 });

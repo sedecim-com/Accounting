@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { PRUEBAS_DE_CONDUCTA, correrConducta, type PruebaDeConducta } from './conducta.js';
 
@@ -596,7 +597,8 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
   'src/services/accounting/iva-cash-basis.ts': { statements: 96, branches: 84, functions: 100, lines: 98 },
   'src/services/reporting/report-service.ts': { statements: 84, branches: 75, functions: 77, lines: 86 },
   'src/services/reporting/criterio-cierre.ts': { statements: 91, branches: 80, functions: 85, lines: 91 },
-  'src/services/reporting/cash-flow-service.ts': { statements: 94, branches: 89, functions: 96, lines: 95 },
+  // T13 lo sube al medir el caso que faltaba: 95.12 / 90.10 / 96.55 / 95.45.
+  'src/services/reporting/cash-flow-service.ts': { statements: 95, branches: 90, functions: 96, lines: 95 },
 };
 
 // ── Los criterios ───────────────────────────────────────────
@@ -2837,7 +2839,9 @@ export const CRITERIOS: Criterio[] = [
       // cualquier prueba que la importara auditaba un programa con cero
       // declaraciones y pasaba en el vacío.
       const { program } = await import('../cli/mnemosine.js');
-      const { auditarContraLineaBase, LINEA_BASE } = await import('../cli/kernel/audit.js');
+      const { auditarContraLineaBase, LINEA_BASE, DEUDA_DE_LLAVES } = await import(
+        '../cli/kernel/audit.js'
+      );
 
       const { nuevas, obsoletas, heredadas } = auditarContraLineaBase(program);
       if (nuevas.length > 0) {
@@ -2852,10 +2856,291 @@ export const CRITERIOS: Criterio[] = [
             'que no encoge deja de ser deuda registrada y se vuelve un permiso permanente'
         );
       }
+      // La deuda congelada son ahora DOS listas: LINEA_BASE (40 violaciones de
+      // vocabulario y contrato) y DEUDA_DE_LLAVES (las hojas que aceptan
+      // --idempotency-key y no la honran, que R11 acusa desde T3). Sumarlas
+      // aquí es lo que hace que el número que se imprime siga siendo el
+      // denominador de verdad.
       return ok(
-        `sin violaciones nuevas; ${heredadas} de ${LINEA_BASE.length} heredadas siguen vivas`
+        `sin violaciones nuevas; ${heredadas} de ${LINEA_BASE.length + DEUDA_DE_LLAVES.length} heredadas siguen vivas`
       );
     },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      '`-o` entrega un archivo con la salida COMPLETA del comando: todo dato sale por una sola puerta',
+    evaluar: async () => {
+      // `-o/--output` es CONTRATO con guiones y con el agente, y mentía de
+      // tres formas medidas sobre el binario: `cfdi list --fields -o f` salía
+      // 0 sin crear `f`; una tabla de cero filas tampoco lo creaba; y
+      // `cfdi show -o f` dejaba en `f` sólo los conceptos, porque el segundo
+      // `render` truncaba al primero.
+      //
+      // ESTE CRITERIO NO CUENTA ESCRITURAS. Un censo de `out.write(` mide la
+      // ortografía de un archivo —se satisface aliaseando el flujo, o
+      // escribiendo `process.stdout`— y no afirma nada sobre `-o`. Lo que se
+      // mira aquí es el SEAM que hace imposible el escape, y luego la
+      // promesa, ejecutándola:
+      //
+      //   · quien compone el texto no recibe ningún flujo (no tiene a dónde
+      //     escribir) y devuelve un tipo TOTAL, así que una rama futura
+      //     —`--summary`, `--count`— que se olvide de producir su texto es un
+      //     error de `tsc`, no un archivo que no aparece;
+      //   · `render` no escribe el dato: se lo entrega a la puerta;
+      //   · y con `-o` el archivo existe y contiene las DOS salidas de un
+      //     comando que rinde dos veces.
+      const codigo = sinComentarios(crudoDe('src', 'cli', 'kernel', 'output.ts'));
+
+      const firma = /function compose\(([^)]*)\)\s*:\s*Composed\s*\{/.exec(codigo);
+      if (!firma) {
+        return falla(
+          'el compositor de output.ts ya no es `compose(...): Composed`: o desapareció, o su ' +
+            'tipo de retorno dejó de ser total — y con un retorno opcional el compilador deja ' +
+            'de exigirle a cada rama que produzca su texto, que es lo único que impide que la ' +
+            'siguiente nazca sin archivo'
+        );
+      }
+      if (/WriteStream/.test(firma[1])) {
+        return falla(
+          'el compositor volvió a recibir un flujo de escritura: con un `out` en el alcance, ' +
+            'cualquier rama puede imprimir por su cuenta y `-o` vuelve a no crear el archivo'
+        );
+      }
+
+      const cuerpoRender = /export function render\([\s\S]*?\n\}/.exec(codigo)?.[0] ?? '';
+      if (!/\bemit\(\s*data\s*,\s*opts\s*,\s*out\s*\)/.test(cuerpoRender)) {
+        return falla(
+          '`render` ya no entrega su texto a la puerta que conoce `--output`: el dato se escribe ' +
+            'en otro sitio, que es exactamente como se perdían la cabecera de `cfdi show` y el ' +
+            'archivo de `--fields`'
+        );
+      }
+
+      // Y ahora la promesa, EJECUTADA. Se mide por TAMAÑO y no leyendo el
+      // archivo, y no es un rodeo: el archivo tiene que pesar exactamente lo
+      // que los mismos renders habrían impreso por stdout, que es una
+      // afirmación más fuerte que «contiene tal palabra» — la cabecera de
+      // `cfdi show` se perdía entera y una palabra suelta la habría dado por
+      // buena. (Además, `fs.readFileSync` aquí subiría el conteo que vigila
+      // el meta-criterio del seam, y ése mide bien: ninguna lectura de este
+      // archivo debe rodear `leer()`.)
+      const { render, resetOutputTargets } = await import('../cli/kernel/output.js');
+      const impreso: string[] = [];
+      const espia = {
+        write: (t: string) => {
+          impreso.push(t);
+          return true;
+        },
+        isTTY: false,
+      } as unknown as NodeJS.WriteStream;
+      const callado = { write: () => true, isTTY: false } as unknown as NodeJS.WriteStream;
+      const cabecera = [{ uuid: 'AAAA', total: '1160.00' }];
+      const conceptos = [{ linea: 1, importe: '1000.00' }];
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'promesa-de-archivo-'));
+      try {
+        // Lo que este comando IMPRIME cuando nadie pidió archivo.
+        resetOutputTargets();
+        render(cabecera, { stdout: espia, stderr: callado });
+        render(conceptos, { stdout: espia, stderr: callado });
+        const esperado = Buffer.byteLength(impreso.join(''), 'utf8');
+
+        const destino = path.join(dir, 'salida.txt');
+        resetOutputTargets();
+        render(cabecera, { output: destino, stdout: callado, stderr: callado });
+        render(conceptos, { output: destino, stdout: callado, stderr: callado });
+        render([], { output: destino, stdout: callado, stderr: callado });
+        if (!fs.existsSync(destino)) return falla('`-o` salió 0 sin crear el archivo que prometió');
+        const pesa = fs.statSync(destino).size;
+        if (pesa !== esperado) {
+          return falla(
+            `el archivo de \`-o\` pesa ${pesa} byte(s) y la salida del comando son ${esperado}: ` +
+              'no contiene lo que el comando habría impreso. Con menos, una tabla borró a la ' +
+              'anterior — es el defecto con el que `cfdi show -o` devolvía los conceptos sin el ' +
+              'comprobante; con más, se está acumulando algo que no es de esta invocación'
+          );
+        }
+
+        const vacio = path.join(dir, 'vacio.txt');
+        resetOutputTargets();
+        render([], { output: vacio, stdout: callado, stderr: callado });
+        if (!fs.existsSync(vacio)) {
+          return falla(
+            'cero filas con `-o` no creó archivo: cero filas es un RESULTADO, y `-o` prometió un ' +
+              'archivo, no un contenido'
+          );
+        }
+
+        const censo = path.join(dir, 'campos.txt');
+        resetOutputTargets();
+        render(cabecera, { output: censo, fields: true, stdout: callado, stderr: callado });
+        if (!fs.existsSync(censo)) {
+          return falla('`--fields` a secas con `-o` salió 0 sin crear el archivo');
+        }
+        return ok(
+          `el compositor no tiene flujo al que escribir, \`render\` pasa por la puerta, y dos ` +
+            `renders con el mismo \`-o\` dejan los ${esperado} byte(s) completos en el archivo`
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/kernel/output.ts',
+        de: 'function compose(rows: Row[], opts: RenderOptions, p: Palette): Composed {',
+        a: 'function compose(rows: Row[], opts: RenderOptions, p: Palette, out: NodeJS.WriteStream): Composed {',
+        porque:
+          'firma-que-recupera-el-flujo: devolverle un `out` al compositor reabre la puerta de atrás ' +
+          'por la que `--fields` y la tabla vacía escribían sin pasar por `--output`',
+      },
+      {
+        archivo: 'src/cli/kernel/output.ts',
+        de: 'function compose(rows: Row[], opts: RenderOptions, p: Palette): Composed {',
+        a: 'function compose(rows: Row[], opts: RenderOptions, p: Palette): Composed | void {',
+        porque:
+          'retorno-que-deja-de-ser-total: con `| void` el compilador ya no rechaza la rama futura ' +
+          'que se olvida de producir su texto, y el guardián deja de ser tsc para volver a ser la suerte',
+      },
+      {
+        archivo: 'src/cli/kernel/output.ts',
+        de: '  emit(data, opts, out);',
+        a: '  out.write(data);',
+        porque:
+          'puerta-esquivada: escribir el dato en `render` en vez de entregarlo a `emit` es el defecto ' +
+          'original entero — el archivo de `-o` deja de existir aunque el comando salga 0',
+      },
+    ],
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'R11 comprueba que la llave se HONRE, y todo ámbito declarado llega de verdad al almacén',
+    evaluar: async () => {
+      // R11 COMPROBABA SU PROPIO EFECTO SECUNDARIO. Verificaba que un comando
+      // de riesgo llevara --dry-run, --yes e --idempotency-key, y
+      // `declareRisk` se las inyecta él mismo unas líneas antes: sobre el
+      // binario embarcado daba CERO violaciones en 36 hojas graves. Mientras
+      // tanto la promesa textual de la bandera —«a retry with the same key
+      // and payload returns the recorded result»— la cumplían 15.
+      //
+      // Este criterio vigila las DOS mitades de la reparación, y ninguna se
+      // puede satisfacer inyectando una bandera:
+      //   (a) la regla nombra la acusación, así que puede fallar;
+      //   (b) todo ámbito DECLARADO viaja hasta una llamada al almacén.
+      // (a) SE MIDE **Y** SE ANCLA, y las dos mitades hacen falta.
+      //
+      //     El ancla de texto sola no medía nada: con el literal en su sitio,
+      //     la acusación podía dejar de emitirse y el criterio seguía verde —
+      //     que habría sido, un piso más abajo, el MISMO error que denuncia.
+      //     Pero la medición sola tampoco basta: el seam del arnés gobierna la
+      //     LECTURA DE TEXTO, no los módulos importados, así que un criterio
+      //     que sólo hace `await import(...)` es inmune a su propio espejo y
+      //     sus mutantes sobreviven. Juntas: la medición caza el silencio, el
+      //     ancla deja que el arnés muerda.
+      const audit = crudoDe('src/cli/kernel/audit.ts');
+      if (!audit.includes("rule: 'R11 llave aceptada sin honrar',")) {
+        return falla(
+          'R11 volvió a comprobar sólo las banderas que declareRisk inyecta: una regla que ' +
+            'verifica su propio efecto secundario no puede fallar'
+        );
+      }
+      // Y AHORA LA MEDICIÓN. La primera versión de este criterio
+      //     comprobaba `audit.includes("rule: '…'")` sobre el fuente, y eso
+      //     habría sido, un piso más abajo, el MISMO error que denuncia:
+      //     verificar la existencia de un literal en vez de la conducta. Con
+      //     el literal en su sitio, la acusación podía dejar de emitirse y el
+      //     criterio seguía verde. Aquí se corre el auditor sobre el binario
+      //     de verdad y se CUENTAN las acusaciones.
+      const { program } = await import('../cli/mnemosine.js');
+      const { auditProgram, esDeudaDeLlave, DEUDA_DE_LLAVES } = await import('../cli/kernel/audit.js');
+      const acusadas = auditProgram(program).filter(esDeudaDeLlave);
+      if (acusadas.length === 0) {
+        return falla(
+          'R11 no acusa a ninguna hoja: o volvió a comprobar sólo las banderas que declareRisk ' +
+            'inyecta —una regla que verifica su propio efecto secundario no puede fallar— o dejó ' +
+            'de emitirse con su literal intacto'
+        );
+      }
+      if (acusadas.length !== DEUDA_DE_LLAVES.length) {
+        return falla(
+          `R11 acusa a ${acusadas.length} hojas y la deuda declarada tiene ${DEUDA_DE_LLAVES.length}: ` +
+            'la lista sólo puede ENCOGER, y encoge borrando el renglón de la hoja que se cablea, ' +
+            'nunca dejando de acusar'
+        );
+      }
+
+      // El fuente del CLI SIN comentarios y SIN las declaraciones: si no, la
+      // propia `llave: { scope: 'X' }` se encontraría a sí misma y el
+      // criterio diría que el ámbito está cableado por haberlo escrito.
+      const cli = fuentes('src/cli')
+        .map((f) => sinComentarios(leer(f)))
+        .join('\n')
+        .replace(/llave:\s*\{\s*scope:\s*'[^']*'\s*\}/g, '');
+      const declarados = [
+        ...sinComentarios(
+          fuentes('src/cli')
+            .map((f) => leer(f))
+            .join('\n')
+        ).matchAll(/llave:\s*\{\s*scope:\s*'([^']*)'\s*\}/g),
+      ].map((m) => m[1]);
+      if (declarados.length < 15) {
+        return falla(
+          `sólo ${declarados.length} hoja(s) declaran el ámbito de su llave: el censo medido eran 19`
+        );
+      }
+      // EL ÁMBITO PUEDE VIAJAR POR UNA CONSTANTE, no sólo como literal en la
+      // llamada: `receipt record` lo hace así porque lo usan DOS sitios —la
+      // consulta temprana de la llave y su consumo—, y dos literales que puedan
+      // divergir serían dos deduplicaciones distintas con el mismo nombre. Lo
+      // que este cruce defiende es que la palabra declarada ESTÉ en el fuente
+      // del manejador, no la forma sintáctica con que llega.
+      const huerfanos = declarados.filter((a) => !cli.includes(`'${a}'`));
+      if (huerfanos.length > 0) {
+        return falla(
+          `${huerfanos.length} ámbito(s) declarados que ninguna llamada a conLlave usa ` +
+            `(${huerfanos.join(', ')}): la declaración promete una deduplicación que el manejador no hace`
+        );
+      }
+      // Y las dos que duplicaban DINERO, por su nombre: son las que el issue
+      // #90 pone como ejemplo y las que se reprodujeron contra Postgres.
+      const dinero = ['receipt record', 'payment create'].filter((a) => !declarados.includes(a));
+      if (dinero.length > 0) {
+        return falla(`${dinero.join(' y ')} volvió a aceptar la llave sin honrarla`);
+      }
+      return ok(
+        `${declarados.length} ámbito(s) declarados, todos entregados al almacén; ` +
+          'R11 acusa a las que no la honran'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/kernel/audit.ts',
+        de: "rule: 'R11 llave aceptada sin honrar',",
+        a: "rule: 'R11 risk flags',",
+        porque:
+          'la acusación se disuelve dentro de la regla tautológica: R11 vuelve a decir sólo lo que ' +
+          'declareRisk acaba de inyectar y deja de poder fallar',
+      },
+      {
+        archivo: 'src/cli/receipt-command.ts',
+        de: "const AMBITO_DE_COBRO = 'receipt record';",
+        a: "const AMBITO_DE_COBRO = 'cobro';",
+        porque:
+          'el manejador consuma la llave bajo OTRO ámbito que el declarado — el escape de ' +
+          'firma-como-llamada: la declaración sigue escrita y la deduplicación de `receipt record` ' +
+          'deja de existir para quien la lea',
+      },
+      {
+        archivo: 'src/cli/payment-command.ts',
+        de: "          scope: 'payment create',",
+        a: "          scope: 'entry post',",
+        porque:
+          'dos hojas bajo el mismo ámbito se deduplican ENTRE SÍ (la unicidad de idempotency_keys ' +
+          'es por tenant+scope+clave), y el ámbito declarado por `payment create` deja de tener ' +
+          'llamada propia',
+      },
+    ],
   },
   {
     paquete: 'E5.1',
@@ -5265,6 +5550,187 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  // ---- T13 · El instrumento que afirma más de lo que mide ----
+
+  {
+    paquete: 'E1.2',
+    enunciado:
+      'La autocomprobación del flujo mide la LISTA de cuentas sin sección y no su suma, la política «bloquear» bloquea de verdad, y los roles de efectivo crecen en un solo sitio',
+    mutantes: [
+      {
+        // EL DIENTE EXACTO DEL TRAMO: devolver el guardia a preguntar por la
+        // SUMA. Es la línea tal como estaba escrita antes de T13.
+        archivo: 'src/services/reporting/cash-flow-service.ts',
+        de: "  if (!autoComprobacion.all_classified && policies.sinClasificar === 'bloquear') {",
+        a: "  if (!autoComprobacion.ties && policies.sinClasificar === 'bloquear') {",
+        porque:
+          'la política que el despacho puso en «bloquear» vuelve a no bloquear: dos cuentas sin ' +
+          'fs_category de +5 000 y −5 000 dejan la suma en cero y el estado sale FIRMADO bajo la ' +
+          'política que había pedido no emitirlo. Una política que no hace lo que dice es peor que ' +
+          'no tenerla, porque quien la eligió cree que hay un guardia',
+      },
+      {
+        // El otro diente, una capa más abajo: que la afirmación vuelva a
+        // derivarse de la suma. Sobrevive a cualquier criterio que sólo mire
+        // si el campo EXISTE.
+        archivo: 'src/services/reporting/cash-flow-service.ts',
+        de: '    all_classified: todasClasificadas,',
+        a: '    all_classified: netoAta,',
+        porque:
+          'la autocomprobación vuelve a medir la SUMA en vez de la LISTA, que es el defecto entero: ' +
+          'la nota firma «every account that moved was classified» sobre cuentas que nadie clasificó, ' +
+          'y los subtotales de operación, inversión y financiamiento quedan mal cada uno por su parte',
+      },
+      {
+        archivo: 'src/services/reporting/cash-flow-service.ts',
+        de: '              WHERE ar.entity_id = $1 AND ar.role = ANY($2::text[])',
+        a: "              WHERE ar.entity_id = $1 AND ar.role = 'banco'",
+        porque:
+          'el ESTADO vuelve a codificar un rol a mano mientras el AMARRE lee ROLES_DE_EFECTIVO, que ' +
+          'se declara punto único de crecimiento: hoy coinciden por casualidad —la lista tiene un ' +
+          'elemento— y el día que crezca los dos publican conjuntos de efectivo distintos del mismo ' +
+          'periodo, con un residuo inventado que nadie podrá encontrar',
+      },
+    ],
+    evaluar: async () => {
+      const cf = codigoDe('src/services/reporting/cash-flow-service.ts');
+      const rc = codigoDe('src/services/reporting/cash-flow-reconcile.ts');
+
+      // ── LA MITAD QUE MIDE ────────────────────────────────────
+      //
+      // `autoComprobar` es PURA, así que el escenario que costó este tramo
+      // cabe aquí sin base de datos: dos cuentas sin `fs_category` cuyos
+      // importes se cancelan. Se corre el camino real y se juzga lo que
+      // AFIRMA, no cómo está escrito — un criterio que sólo leyera la línea
+      // sobreviviría a que la aritmética volviera a mentir por otra puerta.
+      const { autoComprobar, construirIndirecto } = await import(
+        '../services/reporting/cash-flow-service.js'
+      );
+      const cuenta = (
+        code: string,
+        name: string,
+        account_type: string,
+        fs_category: string | null,
+        debit_total: string,
+        credit_total: string
+      ) => ({
+        account_id: `plan-${code}`,
+        code,
+        name,
+        account_type,
+        account_subtype: null,
+        fs_category,
+        debit_total,
+        credit_total,
+      });
+      // Una venta cobrada (clasificable) y DOS cuentas importadas sin
+      // categoría, de +5 000 y −5 000: la suma da cero y la lista tiene dos.
+      const compensadas = autoComprobar(
+        construirIndirecto([
+          cuenta('4100', 'Ventas', 'revenue', 'revenue', '0', '9000'),
+          cuenta('1295', 'Equipo importado', 'asset', null, '5000', '0'),
+          cuenta('2295', 'Crédito importado', 'liability', null, '0', '5000'),
+        ])
+      );
+      if (compensadas.all_classified) {
+        return falla(
+          'la autocomprobación del flujo vuelve a decir que clasificó todo con DOS cuentas sin ' +
+            'sección en la mano: le basta que sus importes se cancelen, que es exactamente cómo un ' +
+            'estado con las tres secciones mal se firma sin que nadie avise'
+        );
+      }
+      // Y NO SE EXAGERA EL DAÑO: el neto sí ata. Inventar un descuadre que el
+      // banco desmiente en dos minutos es el error simétrico, y quema el
+      // instrumento igual de rápido.
+      if (!compensadas.ties) {
+        return falla(
+          'la autocomprobación declara descuadrado un estado cuyo neto SÍ iguala la variación del ' +
+            'efectivo: un aviso que el banco desmiente deja de leerse, y con él los que sí importan'
+        );
+      }
+      if (/Every account that moved was classified/.test(compensadas.note)) {
+        return falla(
+          'la nota del flujo vuelve a afirmar que toda cuenta que se movió cayó en una sección ' +
+            'mientras dos no lo hicieron: es la frase que el instrumento firmaba sin haberla medido'
+        );
+      }
+      if (!compensadas.note.includes('1295') || !compensadas.note.includes('2295')) {
+        return falla(
+          'la nota avisa del hueco sin nombrar las cuentas que lo abren: un aviso sin códigos no es ' +
+            'una pista, y el lector no tiene por dónde empezar'
+        );
+      }
+      // El caso limpio sigue diciendo lo suyo: un instrumento que grita
+      // siempre no dice nada.
+      const limpio = autoComprobar(
+        construirIndirecto([cuenta('4100', 'Ventas', 'revenue', 'revenue', '0', '9000')])
+      );
+      if (!limpio.all_classified || !limpio.ties) {
+        return falla(
+          'la autocomprobación denuncia un estado en el que TODA cuenta cayó en su sección: un ' +
+            'instrumento que grita siempre no distingue nada'
+        );
+      }
+
+      // ── LA MITAD QUE ANCLA ───────────────────────────────────
+      //
+      // Las tres líneas que los espejos tocan. La medición de arriba corre
+      // sobre el módulo REAL —`await import` no pasa por el seam de lectura—,
+      // así que sin estas anclas los tres mutantes seguirían vivos: es la
+      // lección que este repositorio ya cobró tres veces, y por eso el
+      // criterio hace las dos cosas y no una.
+      // La política que gobierna esto es la SUYA, no la del descuadre: el
+      // desacuerdo con el efectivo y la cuenta sin sección son dos preguntas
+      // distintas, y la ficha del descuadre —«refuse until it ties»— quedaría
+      // insatisfacible por sus propios términos si rehusara un estado que ATA.
+      if (!/if \(!autoComprobacion\.all_classified && policies\.sinClasificar === 'bloquear'\)/.test(cf)) {
+        return falla(
+          'el guardia de «bloquear» dejó de preguntar por las cuentas sin sección: si vuelve a ' +
+            'mirar la suma, la política que pidió no emitir el estado lo emite'
+        );
+      }
+      if (!/all_classified: todasClasificadas,/.test(cf)) {
+        return falla(
+          'la afirmación «todo clasificado» volvió a derivarse de otra cosa que la lista de cuentas ' +
+            'sin sección: es la sustitución exacta que hacía mentir a la nota'
+        );
+      }
+      // 3. EL ROL NO SE ESCRIBE A MANO. Se comprueba sobre CADA rol de la
+      //    lista y no sobre la palabra «banco»: un ancla escrita contra un rol
+      //    concreto es la misma trampa una capa más arriba, y bendice al que
+      //    codifique el siguiente.
+      const { ROLES_DE_EFECTIVO } = await import('../services/reporting/cash-flow-reconcile.js');
+      const aMano = ROLES_DE_EFECTIVO.filter((rol) => cf.includes(`ar.role = '${rol}'`));
+      if (aMano.length > 0) {
+        return falla(
+          `el estado de flujos vuelve a codificar el rol de efectivo a mano (${aMano.join(', ')}) ` +
+            'mientras el amarre lee ROLES_DE_EFECTIVO: el día que la lista crezca, los dos ' +
+            'publicarán conjuntos de efectivo distintos del mismo periodo'
+        );
+      }
+      if (!/ar\.role = ANY\(\$2::text\[\]\)/.test(cf) || !/\[entityId, ROLES_DE_EFECTIVO\]/.test(cf)) {
+        return falla(
+          'el estado de flujos dejó de resolver el efectivo por LA LISTA de roles: el punto único de ' +
+            'crecimiento que cash-flow-reconcile declara vuelve a tener un segundo sitio'
+        );
+      }
+      // Y la lista sigue siendo de quien dice serlo: si el punto único se
+      // mudara, este criterio estaría anclando en un archivo que ya no manda.
+      if (!/export const ROLES_DE_EFECTIVO/.test(rc)) {
+        return falla(
+          'ROLES_DE_EFECTIVO dejó de vivir en cash-flow-reconcile, que es donde se declara punto ' +
+            'único de crecimiento: el estado lo importa de ahí y el ancla apunta a un archivo mudo'
+        );
+      }
+      return ok(
+        'con dos cuentas sin sección que se compensan la autocomprobación dice all_classified=false ' +
+          'y ties=true, la nota las nombra sin afirmar lo que no midió, «bloquear» pregunta por esa ' +
+          'lista y no por su suma, y el conjunto de efectivo sale de ROLES_DE_EFECTIVO y de ningún ' +
+          'rol escrito a mano'
+      );
+    },
+  },
+
   // ---- G1a · Los estados que ya se firman, y que hoy mentían ----
 
   {
@@ -5577,50 +6043,97 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.3',
-    enunciado: 'La deduplicación de movimientos la calcula la base, no quien escribe',
+    enunciado:
+      'La huella del movimiento la IMPONE la base, y el relleno de lo ya importado la alcanza',
     mutantes: [
       {
         archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
         de: '  NEW.content_hash := encode(',
         a: '  NEW.content_hash := COALESCE(NEW.content_hash, encode(',
-        porque: 'el llamador recupera el control del hash: mandando uno inventado en cada fila, el índice único deja de reconocer el duplicado y el dedupe se apaga desde fuera',
+        porque: 'el llamador recupera el control de la huella: mandando una inventada, deja de identificar la línea y el cotejo pierde su ancla',
       },
       {
         archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
-        de: 'CREATE UNIQUE INDEX uq_bank_tx_contenido ON bank_transactions(bank_account_id, content_hash);',
-        a: 'CREATE INDEX uq_bank_tx_contenido ON bank_transactions(bank_account_id, content_hash);',
-        porque: 'el índice deja de ser único y vuelve el defecto de la 003: se calcula un hash que a nadie le impide nada',
+        de: 'amount, description, content_hash\n  ON bank_transactions',
+        a: 'amount, description\n  ON bank_transactions',
+        porque: 'sin content_hash en la lista vigilada el disparador no corre al escribirla, así que la huella SÍ se puede forjar a mano — y la 058 y banking.md prometen por escrito que no',
+      },
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: 'UPDATE bank_transactions SET transaction_date = transaction_date;',
+        a: 'UPDATE bank_transactions SET content_hash = NULL;',
+        porque: 'EL DEFECTO QUE ORIGINÓ #88, que ningún espejo custodiaba: content_hash no está en el UPDATE OF del disparador, así que el relleno no dispara nada y el SET NOT NULL de dos líneas después revienta con 23502 en todo despacho con un solo movimiento',
+      },
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: 'SET LOCAL row_security = on;\nDO $relleno$',
+        a: 'DO $relleno$',
+        porque: 'sin el opt-in y su bucle, el relleno ve CERO filas —esta migración vacía app.current_tenant cuarenta líneas antes— mientras el SET NOT NULL escanea la tabla real y sí ve los NULL',
+      },
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: 'CREATE INDEX idx_bank_tx_contenido',
+        a: 'CREATE UNIQUE INDEX idx_bank_tx_contenido',
+        porque: 'vuelve el invariante FALSO: dos retiros idénticos el mismo día son dos hechos ciertos, y con ON CONFLICT DO NOTHING el segundo se traga en silencio y se le acusa al banco',
       },
     ],
     evaluar: () => {
-      // EL DEDUPE QUE NO DEDUPLICABA. La 003 declaraba
-      // `UNIQUE(bank_account_id, bank_transaction_id)` sobre una columna
-      // NULLABLE, y en Postgres dos NULL no colisionan: no impedía nada en
-      // cuanto el banco no publicaba id nativo, que es el caso de todo CSV. Y
-      // el guardia de aplicación fallaba por el otro lado —
-      // `WHERE bank_transaction_id = $1` con $1 nulo no casa nunca—. Dos
-      // capas, el mismo agujero: reimportar duplicaba el extracto entero.
+      // LA HUELLA Y SU RELLENO (T1, #88).
       //
-      // Se reparó donde no se puede rodear. Un hash que el llamador PROVEE es
-      // un hash que el llamador puede equivocar o falsear, y entonces el
-      // índice único deja de significar «esta línea ya está».
+      // La 003 declaraba `UNIQUE(bank_account_id, bank_transaction_id)` sobre
+      // una columna NULLABLE, y en Postgres dos NULL no colisionan: reimportar
+      // duplicaba el extracto entero. La 051 lo reparó donde no se puede
+      // rodear —una huella que calcula la BASE—, pero se pasó de frenada en un
+      // sitio y se quedó corta en tres.
       const sql = crudoDe('src/database/migrations/051_la_cuenta_y_el_extracto.sql');
 
+      // 1. LA CALCULA LA BASE, Y LA IMPONE. Una asignación directa, no un
+      //    COALESCE que respetaría lo que venga de fuera.
       if (!/CREATE TRIGGER bank_transactions_content_hash/.test(sql)) {
-        return falla('el hash de contenido dejó de calcularlo la base: vuelve a depender de que cada superficie lo mande bien');
+        return falla('la huella dejó de calcularla la base: vuelve a depender de que cada superficie la mande bien');
       }
-      // Y lo IMPONE: una asignación directa, no un COALESCE que respetaría lo
-      // que venga de fuera. Es la diferencia entre calcularlo y aceptarlo.
       if (!/NEW\.content_hash := encode\(/.test(sql)) {
-        return falla('el disparador dejó de imponer el hash: si respeta el que manda el llamador, el dedupe se apaga desde fuera');
+        return falla('el disparador dejó de imponer la huella: si respeta la que manda el llamador, deja de identificar la línea');
+      }
+      // 2. Y LA IMPONE TAMBIÉN CONTRA QUIEN LA ESCRIBE. Sin `content_hash` en
+      //    la lista vigilada, un UPDATE directo sobre la columna no dispara
+      //    nada y la huella queda forjada. Medido antes de T1: escribir
+      //    repeat('f',64) se quedaba escrito.
+      const disparador = sql.slice(sql.indexOf('CREATE TRIGGER bank_transactions_content_hash'));
+      if (!/UPDATE OF[^\n]*\bcontent_hash\b/.test(disparador.slice(0, 300))) {
+        return falla('content_hash salió de la lista vigilada del disparador: la huella se puede forjar a mano, y la 058 y banking.md prometen por escrito que no');
       }
       if (!/ALTER COLUMN content_hash SET NOT NULL/.test(sql)) {
         return falla('content_hash volvió a admitir NULL, que es la forma exacta del defecto que se venía a reparar');
       }
-      const unico = /CREATE UNIQUE INDEX uq_bank_tx_contenido/.test(sql);
-      return unico
-        ? ok('el hash lo impone un disparador y el índice único lo hace valer: el dedupe no se puede rodear desde ninguna superficie')
-        : falla('el índice de contenido dejó de ser único: se calcularía un hash que no impide ningún duplicado');
+
+      // 3. EL RELLENO ALCANZA LO YA IMPORTADO. Las dos mitades: que toque una
+      //    columna VIGILADA (si toca content_hash no dispara nada) y que corra
+      //    por INQUILINO (esta migración deja row_security=on con el contexto
+      //    vacío, así que sin bucle el UPDATE afecta cero filas en silencio).
+      //    Las dos juntas eran el issue #88, y ningún espejo las custodiaba.
+      if (/UPDATE bank_transactions SET content_hash\s*=/.test(sql)) {
+        return falla('el relleno volvió a escribir content_hash directamente: no está en el UPDATE OF del disparador, así que no dispara nada y el SET NOT NULL revienta con 23502 en todo despacho con un movimiento importado (#88)');
+      }
+      const relleno = sql.slice(sql.indexOf('$relleno$'), sql.indexOf('ALTER TABLE bank_transactions ALTER COLUMN content_hash'));
+      if (!/SET LOCAL row_security = on;[\s\S]{0,200}\$relleno\$/.test(sql) || !/FOR t IN SELECT id FROM tenants/.test(relleno)) {
+        return falla('el relleno perdió su opt-in de RLS o su bucle por inquilino: ve cero filas, y el SET NOT NULL las ve todas (#88)');
+      }
+
+      // 4. Y LA HUELLA NO ES UNA LLAVE. El hash se calcula sobre
+      //    (cuenta|fecha|importe|descripción), que no distingue dos HECHOS
+      //    distintos: dos retiros iguales el mismo día son dos retiros. Único,
+      //    este índice declaraba irrepresentable un extracto real, impedía
+      //    instalarse en el despacho que venía a reparar, y con el
+      //    `ON CONFLICT DO NOTHING` de insertarLineas se tragaba en silencio la
+      //    segunda comisión legítima acusando al banco de mandarla repetida.
+      //    Lo que impide el reimporte es UNIQUE(bank_account_id, file_sha256).
+      if (/CREATE UNIQUE INDEX \w*bank_tx_contenido/.test(sql)) {
+        return falla('la huella volvió a ser llave única: declara irrepresentable un extracto con dos movimientos legítimamente iguales, y el importador se los traga en silencio');
+      }
+      return /UNIQUE\s*\(bank_account_id,\s*file_sha256\)/.test(sql)
+        ? ok('la huella la impone la base contra cualquier escritor, el relleno la alcanza por inquilino, y quien impide el reimporte es la unicidad del ARCHIVO')
+        : falla('desapareció la unicidad del archivo: sin ella nada impide reimportar el mismo extracto, que era el defecto original de la 051');
     },
   },
 
@@ -6262,6 +6775,149 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E5.1',
     enunciado:
+      'El 8 y el 9 del contrato tienen productor de verdad: un fallo externo transitorio y un rechazo definitivo mueren con enteros distintos',
+    mutantes: [
+      {
+        archivo: 'src/services/integrations/accounting/contalink-adapter.ts',
+        de: '      throw new ExternalRejectedError(this.name, `HTTP ${response.status} at ${path}`, detalle);',
+        a: '      throw new ExternalServiceError(this.name, `HTTP ${response.status} at ${path}`, detalle);',
+        porque:
+          'rechazo-disfrazado-de-fallo: un 401 (credencial muerta) o un 422 (payload que jamás aceptará) saldrían por el 8, y el contrato dice de ese 8 «Retryable» — el cron reintentaría para siempre una petición que nunca puede salir bien',
+      },
+      {
+        archivo: 'src/services/integrations/accounting/contalink-adapter.ts',
+        // El espejo anterior aquí era un NO-OP MEDIDO: reescribía el `json()`
+        // como `Promise.resolve(response).then(...)`, que hace exactamente lo
+        // mismo dentro del mismo try. Mataba al criterio por su expresión
+        // regular, no por la conducta — que es el fallo que este proyecto
+        // persigue, cometido por el espejo que lo vigila. Éste SÍ neutraliza:
+        // saca la decodificación FUERA del try, que es el defecto literal.
+        de: '    let data: T;\n    try {\n      data = (await response.json()) as T;',
+        a: '    const data = (await response.json()) as T;\n    try {',
+        porque:
+          'el-cuarto-desenlace: el `json()` vuelve a quedar FUERA del guarda, así que un proxy o un portal cautivo que conteste 200 con HTML da un SyntaxError pelado que sale por el 1 genérico y ni siquiera nombra al proveedor',
+      },
+      {
+        archivo: 'src/cli/kernel/index.ts',
+        de: '  424: ExitCode.EXTERNAL_REJECTED,',
+        a: '  424: ExitCode.FAILURE,',
+        porque:
+          'la-puerta-tapiada: la única fila del mapa que produce el 9. Borrada, la clase ExternalRejectedError sigue existiendo intacta y el árbol compila — pero todo rechazo definitivo vuelve al 1 genérico y el 9 vuelve a ser papel',
+      },
+      {
+        archivo: 'src/ai/external-service.ts',
+        de: '    if (err instanceof ExternalRejectedError || err instanceof ExternalServiceError) {',
+        a: '    if (false) {',
+        porque:
+          'el-veredicto-aplastado-al-final: el adaptador clasifica y executeExternalOp vuelve a envolverlo en un Error pelado, así que `outbox run` —la hoja que llama un cron— pierde la distinción en el último paso pese a que todo lo anterior la calculó bien',
+      },
+      {
+        archivo: 'src/cli/kernel/exit.ts',
+        de: '  if (codes.includes(ExitCode.EXTERNAL_FAILED)) return ExitCode.EXTERNAL_FAILED;',
+        a: '  if (codes.includes(ExitCode.EXTERNAL_REJECTED)) return ExitCode.EXTERNAL_REJECTED;',
+        porque:
+          'el-lote-condenado: invierte quién domina en un lote mixto, así que un lote con UNA operación viva y una rechazada sale 9 («no reintentes nunca») y la que sí podía salir bien no se reintenta jamás',
+      },
+    ],
+    evaluar: async () => {
+      // SE MIDE **Y** SE LEE EL FUENTE, y hacen falta las dos.
+      //
+      // El arnés de mutación gobierna la LECTURA DE TEXTO, así que un criterio
+      // que sólo hiciera `await import()` sería inmune a sus propios espejos.
+      // Pero uno que sólo lea texto sobrevive a una conducta rota: éste lo
+      // hacía —seguía verde con el reparto que convierte un rechazo definitivo
+      // en «reintentable», que es LITERALMENTE el daño que describe su primer
+      // espejo—. Así que primero se ejecuta el reparto de verdad.
+      const { ExitCode, batchExitCode } = await import('../cli/kernel/exit.js');
+      const { exitCodeFor } = await import('../cli/kernel/index.js');
+      const { ExternalRejectedError, ExternalServiceError } = await import('../utils/errors.js');
+      const transitorio = exitCodeFor(new ExternalServiceError('contalink', 'unreachable'));
+      const definitivo = exitCodeFor(new ExternalRejectedError('contalink', 'HTTP 401'));
+      if (transitorio !== ExitCode.EXTERNAL_FAILED || definitivo !== ExitCode.EXTERNAL_REJECTED) {
+        return falla(
+          `un fallo transitorio muere con ${transitorio} y un rechazo definitivo con ${definitivo}: ` +
+            'el contrato publica 8=reintenta y 9=no reintentes nunca, y un cron no puede actuar sobre ' +
+            'una distinción que el binario no expresa'
+        );
+      }
+      // Y el veredicto del LOTE: uno solo que pueda reintentarse manda sobre
+      // los rechazos, porque condenar el lote entero deja sin reintento a la
+      // operación que sí podía salir bien.
+      if (
+        batchExitCode([ExitCode.EXTERNAL_REJECTED, ExitCode.EXTERNAL_FAILED]) !== ExitCode.EXTERNAL_FAILED ||
+        batchExitCode([ExitCode.EXTERNAL_REJECTED]) !== ExitCode.EXTERNAL_REJECTED
+      ) {
+        return falla('el veredicto del lote dejó de distinguir «alguna se puede reintentar» de «todas fueron rechazadas»');
+      }
+
+      // AHORA EL TEXTO, que es lo que el arnés puede mutar.
+      const ad = codigoDe('src/services/integrations/accounting/contalink-adapter.ts');
+
+      // 1. Los CUATRO desenlaces del adaptador están clasificados. Antes
+      //    los cuatro eran `new Error(...)` y salían por el 1 genérico.
+      if (/throw new Error\(/.test(ad)) {
+        return falla(
+          'el adaptador de Contalink volvió a tirar un Error pelado: ese desenlace sale por el 1 genérico y un cron no puede distinguir «reintenta» de «no reintentes nunca»'
+        );
+      }
+      if (!/catch[\s\S]{0,400}ExternalServiceError\(this\.name, `unreachable at/.test(ad)) {
+        return falla('la llamada de red quedó fuera de su guarda: un DNS caído o una conexión rechazada saldría por el 1, sin nombrar al proveedor');
+      }
+      // El cuarto desenlace, el que no estaba en el issue: response.json()
+      // vivía FUERA de todo try.
+      if (!/try \{\s*\n\s*data = \(await response\.json\(\)\) as T;/.test(ad)) {
+        return falla('response.json() volvió a quedar fuera del try: un 200 con HTML de un proxy da un SyntaxError pelado que ni siquiera nombra al proveedor');
+      }
+      if (!/esTransitorio\(response\.status\)/.test(ad) || !/ExternalRejectedError\(this\.name, `HTTP/.test(ad)) {
+        return falla('el adaptador dejó de separar el 5xx/408/429 del 4xx: un rechazo definitivo volvería a leerse como reintentable');
+      }
+
+      // 2. Las DOS puertas del mapa. La de 502 existía desde el principio y
+      //    nunca se activó por falta de productor; la de 424 es la única
+      //    que produce el 9.
+      const mapa = codigoDe('src/cli/kernel/index.ts');
+      if (!/502: ExitCode\.EXTERNAL_FAILED/.test(mapa) || !/424: ExitCode\.EXTERNAL_REJECTED/.test(mapa)) {
+        return falla('el mapa de estados perdió una de las dos puertas externas: el código publicado que la cruzaba vuelve a ser inalcanzable');
+      }
+      const errores = codigoDe('src/utils/errors.ts');
+      if (!/class ExternalServiceError extends AppError/.test(errores) ||
+          !/class ExternalRejectedError extends AppError/.test(errores)) {
+        return falla('desaparecieron las clases que llevan los estados 502/424: sin productor, las dos filas del mapa vuelven a ser decorado');
+      }
+
+      // 3. El veredicto SOBREVIVE al re-envoltorio del outbox.
+      const svc = codigoDe('src/ai/external-service.ts');
+      if (!/instanceof ExternalRejectedError \|\| err instanceof ExternalServiceError/.test(svc)) {
+        return falla('executeExternalOp volvió a aplastar el veredicto del adaptador en un Error pelado: `outbox run` pierde la distinción en el último paso');
+      }
+
+      // 4. Y la hoja que llama un cron COMPONE su código en vez de fijarlo.
+      //    `failed > 0 ? 1 : 0` no lo veía ningún censo de `shutdown(1)`.
+      const raiz = codigoDe('src/cli/mnemosine.ts');
+      if (/shutdown\(failed > 0 \? 1 : 0\)/.test(raiz)) {
+        return falla('`outbox run` volvió a fijar su código a 1: el lote entero informa lo mismo tras un corte de red que tras una credencial revocada');
+      }
+      if (!/shutdown\(batchExitCode\(veredictos\)\)/.test(raiz)) {
+        return falla('`outbox run` dejó de componer su código con batchExitCode: un lote que siguió adelante no puede lanzar, así que si no compone, miente');
+      }
+      const ex = codigoDe('src/cli/kernel/exit.ts');
+      if (!/export function batchExitCode/.test(ex) ||
+          !/if \(codes\.includes\(ExitCode\.EXTERNAL_FAILED\)\) return ExitCode\.EXTERNAL_FAILED;/.test(ex)) {
+        return falla('batchExitCode perdió la regla de que lo reintentable domina: un lote mixto saldría 9 y la operación que aún podía salir bien no se reintentaría nunca');
+      }
+
+      // 5. Y el contrato publicado dice quién los produce, en su idioma.
+      const doc = crudoDe('docs/cli-command-registry.md');
+      if (!/ExternalServiceError/.test(doc) || !/ExternalRejectedError/.test(doc)) {
+        return falla('la tabla publicada volvió a prometer el 8 y el 9 sin nombrar quién los produce: «se documenta y no ocurre» es el defecto');
+      }
+
+      return ok('el 8 y el 9 nacen en el adaptador, sobreviven al outbox y llegan distintos al process.exit; los cuatro desenlaces externos están clasificados');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
       'Ninguna hoja del CLI aplasta su código de salida: el catch devuelve el código del contrato, y el error de uso de Commander pasa por la puerta que cierra el pool',
     mutantes: [
       {
@@ -6620,6 +7276,282 @@ export const CRITERIOS: Criterio[] = [
         return falla(`${ultima} dejó sin cualificar la función o el tipo del cast: quitar SET search_path sin cualificar es abrir el secuestro que la cláusula cerraba`);
       }
       return ok(`el predicado de aislamiento se inserta en línea y va cualificado (${ultima})`);
+    },
+  },
+
+  // ---- T1 · Que la actualización vuelva a correr ----
+
+  {
+    paquete: 'E0.2',
+    enunciado: 'La guarda de numeración perdona ARCHIVOS históricos, no números',
+    mutantes: [
+      {
+        archivo: 'src/database/migrate.ts',
+        de: "  '014_rls_tenant_isolation.sql',",
+        a: "  '014',",
+        porque: 'vuelve el perdón por PREFIJO: un 014_lo_que_sea_de_hoy.sql pasa la guarda y files.sort() lo corre antes de las 015 a 069 (#88)',
+      },
+      {
+        archivo: 'src/database/migrate.ts',
+        de: 'fs.some((f) => !DUPLICADOS_HISTORICOS.has(f))',
+        a: 'fs.every((f) => !DUPLICADOS_HISTORICOS.has(f))',
+        porque: 'un choque con UN solo archivo histórico dentro deja de denunciarse: basta acompañar al intruso de un histórico para colarlo',
+      },
+    ],
+    evaluar: () => {
+      // #88. La guarda toleraba los duplicados históricos por su NÚMERO, así
+      // que el perdón cubría también a los archivos que aún no existían. Su
+      // propio comentario decía «cualquier duplicado NUEVO es un error» y el
+      // código no podía distinguirlo, porque no miraba el archivo sino su
+      // prefijo. Nueve archivos comparten cuatro números; el intruso número
+      // diez tiene que rebotar.
+      const m = codigoDe('src/database/migrate.ts');
+      if (!/DUPLICADOS_HISTORICOS/.test(m)) {
+        return falla('desapareció la lista de duplicados históricos: o la guarda dejó de existir o volvió a tolerarlo todo');
+      }
+      const lista = m.slice(m.indexOf('DUPLICADOS_HISTORICOS'), m.indexOf('export function assertNumeracionUnica'));
+      const entradas = lista.match(/'\d{3}_[a-z0-9_]+\.sql'/g) ?? [];
+      if (entradas.length === 0) {
+        return falla('la lista de perdón volvió a ser de PREFIJOS: perdona por número, así que también perdona a los archivos que todavía no existen (#88)');
+      }
+      // La lista NO CRECE: nueve, y los nueve existen. Se cuentan aquí y no se
+      // derivan del directorio a propósito — derivarlos sería preguntarle al
+      // acusado.
+      if (entradas.length !== 9) {
+        return falla(`la lista de perdón tiene ${entradas.length} archivos y son NUEVE: crecer la lista es la forma barata de silenciar un choque nuevo`);
+      }
+      const faltan = entradas
+        .map((e) => e.slice(1, -1))
+        .filter((f) => !existe(`src/database/migrations/${f}`));
+      if (faltan.length > 0) {
+        return falla(`la lista perdona archivos que ya no están (${faltan.join(', ')}): alguien renumeró un histórico y el perdón quedó apuntando a un fantasma`);
+      }
+      // Y el choque se denuncia si CUALQUIERA de sus archivos es nuevo, no sólo
+      // si lo son todos.
+      return /fs\.some\(\(f\) => !DUPLICADOS_HISTORICOS\.has\(f\)\)/.test(m)
+        ? ok('la guarda perdona nueve archivos por su nombre, y un décimo con prefijo repetido rebota')
+        : falla('el choque sólo se denuncia cuando NINGUNO de sus archivos es histórico: acompañar al intruso de un histórico lo cuela');
+    },
+  },
+
+  {
+    paquete: 'E0.2',
+    enunciado: 'La migración que cierra las corridas históricas llega a verlas',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/060_la_corrida_que_se_abre_antes.sql',
+        de: 'SET LOCAL row_security = on;\nDO $cierre$',
+        a: 'DO $cierre$',
+        porque: 'sin el opt-in, migrate.ts corre con row_security=off y el UPDATE sobre una tabla acotada lanza 42501 en vez de filtrar: revierte el archivo entero en cualquier despacho instalado (#88)',
+      },
+      {
+        archivo: 'src/database/migrations/060_la_corrida_que_se_abre_antes.sql',
+        de: 'FOR t IN SELECT id FROM tenants LOOP',
+        a: "FOR t IN SELECT '00000000-0000-0000-0000-000000000000'::uuid AS id LOOP",
+        porque: 'el bucle deja de recorrer inquilinos: la migración se aplica sin error y cierra CERO corridas, que es peor que fallar porque nadie se entera',
+      },
+    ],
+    evaluar: () => {
+      // #88. La 060 era la única de su familia sin el patrón sancionado, y por
+      // eso `npm run migrate` moría ahí en todo despacho ya instalado: quien se
+      // niega es el planificador, no un conteo, así que fallaba con la tabla
+      // llena o vacía.
+      const m = 'src/database/migrations/060_la_corrida_que_se_abre_antes.sql';
+      if (!existe(m)) return falla('la 060 desapareció');
+      const sql = crudoDe(m);
+      const dml = /UPDATE\s+ai_ingest_runs/.test(sql);
+      if (!dml) return ok('la 060 ya no escribe datos: sin DML no hay RLS que declarar');
+      // EL ORDEN IMPORTA, y es lo que un ancla de mera presencia no ve: el
+      // opt-in declarado DESPUÉS del DML no salva nada.
+      const iOptIn = sql.search(/SET LOCAL row_security = on/);
+      const iDml = sql.search(/UPDATE\s+ai_ingest_runs/);
+      if (iOptIn === -1 || iOptIn > iDml) {
+        return falla('la 060 escribe datos sobre una tabla acotada por RLS sin declarar antes su opt-in: muere con 42501 y revierte el archivo entero (#88)');
+      }
+      const cuerpo = sql.slice(iOptIn, iDml);
+      return /FOR\s+\w+\s+IN\s+SELECT\s+id\s+FROM\s+tenants/.test(cuerpo)
+        ? ok('la 060 declara su opt-in de RLS antes de escribir y recorre los inquilinos: alcanza las corridas que venía a cerrar')
+        : falla('la 060 declara el opt-in pero no recorre inquilinos: se aplica sin error y cierra cero corridas, que es peor que fallar porque nadie se entera');
+    },
+  },
+
+  // ---- T3a · La frontera de inquilino ----
+
+  {
+    paquete: 'E2.1',
+    enunciado: 'El inquilino que se pide es el inquilino que se consulta, y una hoja no puede deshacerlo',
+    mutantes: [
+      {
+        archivo: 'src/ai/context.ts',
+        de: '  const pedido = limpio(tenantFlag);',
+        a: '  const pedido = limpio(tenantFlag) ?? limpio(process.env.MNEMOSINE_TENANT);',
+        porque: 'EL DEFECTO DE #90: la ausencia de valor vuelve a ser una ORDEN de usar el entorno, así que cada hoja pisa con MNEMOSINE_TENANT el inquilino que la bandera acababa de fijar y la balanza del despacho A sale rotulada como la de B',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: '  return deLaHoja ?? deLaRaiz;',
+        a: '  return deLaRaiz ?? deLaHoja;',
+        porque: 'vuelven las DOS reglas de precedencia contrarias: el gancho rotula y comprueba con el valor de la raíz mientras la consulta corre con el de la hoja, y el aviso nombra un despacho distinto del que sale en las filas',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: '  if (deLaHoja && deLaRaiz && deLaHoja !== deLaRaiz) {',
+        a: '  if (false) {',
+        porque: 'dos órdenes contrarias del operador (--tenant X y -t Y) vuelven a resolverse por dentro y en silencio, en vez de decirse',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: '  if (inquilino.tenantId && !chatDbInitError && !SIN_COMPROBAR_INQUILINO.has(actionCommand.name())) {',
+        a: "  if (inquilino.origen === 'bandera' && inquilino.tenantId && !chatDbInitError) {",
+        porque: 'el escalón que el README y `mnemosine init` mandan usar —MNEMOSINE_TENANT— vuelve a quedar mudo: un .env que sobrevive a un re-seed devuelve el informe vacío con código 0',
+      },
+      {
+        archivo: 'src/cli/init/s1-identity.ts',
+        de: '    const fijado = currentTenant() ?? process.env.MNEMOSINE_TENANT ?? null;',
+        a: '    const fijado = process.env.MNEMOSINE_TENANT || null;',
+        porque: 'el asistente vuelve a listar las sociedades del inquilino del .env aunque se pidiera otro con --tenant, y la comprobación de RLS de init informa del inquilino equivocado',
+      },
+    ],
+    evaluar: () => {
+      // #90. La bandera se aceptaba y se ignoraba, y no por no llegar: LLEGABA,
+      // el gancho la aplicaba, y la hoja la PISABA. `bootstrapTenant` era
+      // `tenantFlag || process.env.MNEMOSINE_TENANT`, así que el `undefined` de
+      // las 81 llamadas no significaba «no me han dicho nada» sino que era una
+      // ORDEN de usar el entorno.
+      //
+      // Y había una segunda avería encajada: `--tenant` y `-t` no eran dos
+      // grafías de una bandera. La raíz declara `-T` y se queda la forma LARGA
+      // la teclee quien la teclee; la CORTA no la reconoce (la comparación
+      // distingue mayúsculas) y viaja a la hoja. Por eso `-t` funcionaba
+      // siempre y `--tenant` no funcionaba nunca.
+      const ctx = codigoDe('src/ai/context.ts');
+      const cli = codigoDe('src/cli/mnemosine.ts');
+
+      // 1. LA AUSENCIA DEJA DE SER UNA ORDEN. Un valor explícito manda; no
+      //    haberlo recibido re-entra lo que la raíz ya resolvió.
+      // Se ancla en la línea EXACTA que decide, y no en la forma vieja del
+      // defecto: escribirlo con `??` en vez de con `||` es el mismo defecto con
+      // otra sintaxis, y un ancla que persiga `||` lo dejaría pasar. `pedido`
+      // sale del ARGUMENTO y de nada más. (bootstrapTenant sí lee el entorno
+      // más abajo, pero sólo para poder decir cuál está ignorando.)
+      if (!/const pedido = limpio\(tenantFlag\);/.test(ctx)) {
+        return falla('bootstrapTenant volvió a mezclar el entorno en lo que PIDE el llamador: cada hoja pisaría con MNEMOSINE_TENANT el inquilino que la bandera fijó, y la balanza del despacho A saldría rotulada como la de B (#90)');
+      }
+      if (!/export function bootstrapTenant/.test(ctx)) {
+        return falla('bootstrapTenant desapareció: los 81 llamadores resolverían el inquilino cada uno por su cuenta');
+      }
+
+      // 2. UNA SOLA REGLA DE PRECEDENCIA. `optsWithGlobals` da globales sobre
+      //    locales; `bootstrapTenant` hace mandar a la hoja. Fijadas las dos a
+      //    la vez, el gancho rotula un inquilino y la consulta usa otro.
+      if (!/return deLaHoja \?\? deLaRaiz;/.test(cli)) {
+        return falla('el gancho volvió a resolver con globales-sobre-locales mientras bootstrapTenant hace mandar a la hoja: el aviso nombraría un despacho distinto del que sale en las filas');
+      }
+      // 3. Y UN DESACUERDO SE DICE, no se resuelve por dentro.
+      if (!/deLaHoja && deLaRaiz && deLaHoja !== deLaRaiz/.test(cli)) {
+        return falla('dos grafías con valores distintos vuelven a resolverse en silencio: elegir entre dos órdenes contrarias del operador sin decirlo es la misma clase de mentira que este tramo repara');
+      }
+
+      // 4. EL INQUILINO INEXISTENTE FALLA VENGA DE DONDE VENGA. Bajo RLS «no
+      //    existe» y «vacío» son la misma cero-filas, y el caso realista no es
+      //    la errata al teclear sino el .env que sobrevive a un re-seed.
+      // El ancla va en la GUARDA, que es lo que el mutante toca: dejar en pie la
+      // constante y estrechar el `if` a `origen === 'bandera'` volvería a dejar
+      // mudo el escalón del .env con la declaración intacta.
+      // La ventana es LA LÍNEA de la guarda de EXISTENCIA, identificada por lo
+      // único que la distingue. Dos trampas se pagaron aquí: buscar por
+      // longitud atrapaba el `const duro = inquilino.origen === 'bandera'` de
+      // tres líneas más abajo —que es correcto—, y buscar
+      // `if (inquilino.tenantId` agarraba OTRA guarda, la del validador de
+      // uuid, que aparece antes en el archivo.
+      const iGuarda = cli.indexOf('SIN_COMPROBAR_INQUILINO.has(');
+      const inicio = iGuarda === -1 ? -1 : cli.lastIndexOf('\n', iGuarda) + 1;
+      const guarda = inicio === -1 ? '' : cli.slice(inicio, cli.indexOf('\n', iGuarda));
+      if (!/inquilino\.tenantId/.test(guarda) || /origen === 'bandera'/.test(guarda)) {
+        return falla('la comprobación de existencia volvió a mirar sólo la bandera: el escalón que el README y `mnemosine init` mandan usar quedaría mudo, y un .env que sobrevive a un re-seed devolvería el informe vacío con código 0 (#90)');
+      }
+      // Con su exención declarada: los comandos que existen para ARREGLAR el
+      // inquilino no pueden morir por él.
+      const exencion = cli.slice(cli.indexOf('SIN_COMPROBAR_INQUILINO'), cli.indexOf('SIN_COMPROBAR_INQUILINO') + 400);
+      if (!/'init'/.test(exencion) || !/'doctor'/.test(exencion)) {
+        return falla('init o doctor dejaron de estar exentos de la comprobación: son los dos comandos a los que se acude cuando el .env apunta a un despacho que ya no está, y tumbarlos cierra el único camino de salida');
+      }
+
+      // 5. Y EL ASISTENTE NO SE SALTA LA PRECEDENCIA POR SU CUENTA.
+      const ident = codigoDe('src/cli/init/s1-identity.ts');
+      const infra = codigoDe('src/cli/init/s0-infra.ts');
+      const leeEntornoASecas =
+        /const fijado = process\.env\.MNEMOSINE_TENANT \|\| null/.test(ident) ||
+        /tenantId: process\.env\.MNEMOSINE_TENANT \|\| undefined/.test(ident) ||
+        /const tenant = process\.env\.MNEMOSINE_TENANT \?\?/.test(infra);
+      return leeEntornoASecas
+        ? falla('init volvió a leer MNEMOSINE_TENANT por su cuenta: lista y CREA sociedades bajo el inquilino del .env aunque se pidiera otro, y su comprobación de RLS informa del inquilino equivocado')
+        : ok('la bandera manda sobre el entorno, una sola regla de precedencia gobierna el gancho y la hoja, el inquilino inexistente falla venga de donde venga, y el asistente usa el inquilino efectivo');
+    },
+  },
+
+  // ---- T20·6 · La cuota que el trabajador no debía ----
+
+  {
+    paquete: 'E4.1',
+    enunciado: 'Las cuotas obreras del IMSS sembradas son las de la ley, y ninguna es copia de la de al lado',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql',
+        de: "to_jsonb(0.004::numeric)",
+        a: "to_jsonb(0.00625::numeric)",
+        porque: 'la corrección deja de corregir: vuelve el sobrecobro del 56 % en el ramo de enfermedades y maternidad a todo trabajador con SBC sobre tres UMA, y sale en el recibo, en el CFDI de nómina y en la línea de captura',
+      },
+      {
+        archivo: 'src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql',
+        de: "RAISE EXCEPTION 'La cuota obrera de enfermedades y maternidad sigue en 0.00625",
+        a: "RAISE NOTICE 'La cuota obrera de enfermedades y maternidad sigue en 0.00625",
+        porque: 'un relleno que no alcanzó ninguna fila deja de detener la actualización: la migración se registra como aplicada sobre datos que siguen mal, que es la clase de silencio que este proyecto persigue',
+      },
+    ],
+    evaluar: () => {
+      // T20 punto 6 (#127). `imss_employee.enfermedades_maternidad` se sembró en
+      // la 009 con 0.00625 —el valor de `invalidez_vida`, la casilla de al
+      // lado— donde el art. 106-II LSS fija 0.40 %. Un 56.25 % de más sobre el
+      // excedente de tres UMA, retenido a una persona en cada recibo.
+      //
+      // Este criterio vigila el DATO, no el motor: `imss-calculator.ts` estaba
+      // bien y no se tocó.
+      const corr = 'src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql';
+      if (!existe(corr)) {
+        return falla('desapareció la migración que corrige la cuota obrera de enfermedades y maternidad: las bases ya instaladas volverían a cobrar 0.00625 (#127)');
+      }
+      const sql = crudoDe(corr);
+      if (!/enfermedades_maternidad\}'\s*,\s*to_jsonb\(0\.004/.test(sql)) {
+        return falla('la corrección dejó de fijar 0.004: el art. 106-II LSS manda 0.40 % y cualquier otro número es dinero retenido de más');
+      }
+      // Y no puede pasar callada si no alcanzó ninguna fila: seguir sería
+      // registrar la migración como aplicada sobre datos que siguen mal.
+      if (!/RAISE EXCEPTION[\s\S]{0,120}sigue en 0\.00625/.test(sql)) {
+        return falla('la corrección dejó de detenerse cuando queda alguna fila en 0.00625: un relleno que no rellena nada volvería a pasar en silencio');
+      }
+
+      // LA SEMILLA. La 009 se deja como registro histórico, pero sus OTRAS
+      // cuatro cuotas obreras sí tienen que seguir siendo las de la ley: son
+      // las que hacen creíble que el error estaba aislado.
+      const semilla = crudoDe('src/database/migrations/009_tax_tables_2026.sql');
+      const bloque = semilla.slice(semilla.indexOf('"imss_employee"'), semilla.indexOf('"imss_employer"'));
+      const legales: Array<[string, string]> = [
+        ['prestaciones_dinero', '0.0025'],
+        ['gastos_medicos_pensionados', '0.00375'],
+        ['invalidez_vida', '0.00625'],
+        ['cesantia_vejez', '0.01125'],
+      ];
+      const torcida = legales.find(([k, v]) => !new RegExp(`"${k}"\\s*:\\s*${v.replace('.', '\\.')}\\b`).test(bloque));
+      if (torcida) {
+        return falla(`la cuota obrera «${torcida[0]}» dejó de valer ${torcida[1]}: las cuatro que estaban bien son lo que prueba que el error de enfermedades y maternidad estaba aislado`);
+      }
+      // Y LA PAREJA DEL MISMO ARTÍCULO. El 106-II fija dos cuotas sobre el
+      // mismo excedente: patrón 1.10 % y trabajador 0.40 %. Si la patronal se
+      // tuerce, la pareja deja de poder comprobarse contra sí misma.
+      return /"enfermedades_maternidad_excedente"\s*:\s*0\.011\b/.test(semilla)
+        ? ok('la cuota obrera de enfermedades y maternidad se corrige a 0.004, con las otras cuatro y la patronal del mismo artículo intactas')
+        : falla('la cuota PATRONAL del art. 106-II dejó de valer 0.011: era la mitad de la pareja que permitía comprobar la obrera contra la ley');
     },
   },
 

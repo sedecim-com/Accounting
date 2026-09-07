@@ -95,6 +95,29 @@ export const externalFailed = (message: string, detail?: unknown) =>
 export const externalRejected = (message: string, detail?: unknown) =>
   new CliError(message, ExitCode.EXTERNAL_REJECTED, detail);
 
+/**
+ * The verdict of a batch that kept going after each failure — `outbox run`
+ * with explicit ids is the one that matters, because it is the leaf a cron
+ * calls. Such a loop cannot throw (it must attempt every id), so its exit
+ * code has to be COMPOSED from what it collected, and for years it was
+ * composed as `failed > 0 ? 1 : 0` — a ternary that the ratchet hunting
+ * hardcoded exit codes never matched, and that threw away the one
+ * distinction the contract sells.
+ *
+ * A retryable failure DOMINATES. If even one operation may yet succeed the
+ * batch is worth re-running, and re-running the ones already refused is
+ * harmless: they are no longer `pending`, so their status refuses them
+ * again without a second call. Only when EVERY failure was a definitive
+ * refusal is the batch itself hopeless — that is the 9, and it is what
+ * stops a cron from hammering a rejection forever.
+ */
+export function batchExitCode(codes: readonly ExitCodeValue[]): ExitCodeValue {
+  if (codes.length === 0) return ExitCode.OK;
+  if (codes.includes(ExitCode.EXTERNAL_FAILED)) return ExitCode.EXTERNAL_FAILED;
+  if (codes.every((c) => c === ExitCode.EXTERNAL_REJECTED)) return ExitCode.EXTERNAL_REJECTED;
+  return ExitCode.FAILURE;
+}
+
 export const abortedByUser = (message = 'Aborted.') => new CliError(message, ExitCode.ABORTED);
 
 export const needsHuman = (message: string, detail?: unknown) =>
