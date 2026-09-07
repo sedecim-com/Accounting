@@ -51,6 +51,23 @@ vi.mock('../../../src/services/reporting/criterio-cierre.js', async (importOrigi
   };
 });
 
+// T13 · El criterio de las cuentas archivadas también sale del panel, y
+// leerlo es otro viaje a la base. Se sustituye por su valor POR OMISIÓN
+// —«retirar la archivada que no lleva nada»— para que estas pruebas sigan
+// contando consultas de informe y no de panel. `predicadoDeCuentaEnBalanza`
+// se deja REAL: es el SQL que las aserciones de abajo comprueban.
+vi.mock('../../../src/services/reporting/criterio-archivadas.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../src/services/reporting/criterio-archivadas.js')>();
+  return {
+    ...actual,
+    criterioDeCuentasArchivadas: vi.fn(async () => ({
+      valor: 'retirar_cuando_no_tiene_nada',
+      retirarSinCifras: true,
+    })),
+  };
+});
+
 import {
   resolvePeriodRange,
   queryTrialBalanceRows,
@@ -60,6 +77,7 @@ import {
   queryBalanceSheetRows,
   buildBalanceSheetSection,
   getBalanceSheet,
+  queryUnclosedEarnings,
   queryIncomeStatementRows,
   buildIncomeStatementSection,
   getIncomeStatement,
@@ -74,6 +92,7 @@ import {
 import { query, currentTenant } from '../../../src/database/connection.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
 import { criterioDeCierreEnInformes } from '../../../src/services/reporting/criterio-cierre.js';
+import { criterioDeCuentasArchivadas } from '../../../src/services/reporting/criterio-archivadas.js';
 import { ValidationError } from '../../../src/utils/errors.js';
 
 const mockQuery = query as unknown as Mock;
@@ -119,11 +138,92 @@ describe('the (jel JOIN je) pair — the defect that must never come back', () =
 });
 
 describe('queryTrialBalanceRows', () => {
-  it('scopes to the entity and to active accounts', async () => {
+  // ══════════════════════════════════════════════════════════
+  // T13 · ESTA PRUEBA AFIRMABA EL DEFECTO. Se reescribe, no se borra.
+  //
+  // Decía «scopes to the entity and to active accounts» y exigía, literal,
+  // `WHERE a.entity_id = $1 AND a.is_active = true`. Su gemela de más abajo
+  // —«keeps a retired account that still carries a balance»— exigía lo
+  // CONTRARIO para el balance general. Entre las dos no describían un
+  // criterio: describían una asimetría, y la sostenían en verde.
+  //
+  // Lo que esa asimetría costaba, medido: archivar sólo exige saldo de por
+  // vida cero, que es exactamente lo que tiene una cuenta de resultados
+  // barrida por el cierre. Así que `account archive 4100` pasaba sin
+  // `--force` y el estado de resultados de un ejercicio FIRMADO pasaba de
+  // Revenue 10 000 a 0.0000 —la utilidad de 6 000 a una pérdida de 4 000—
+  // mientras el balance general al 31-dic seguía cuadrando. Ningún control
+  // avisaba, y esta prueba estaba en verde durante todo el trayecto.
+  //
+  // Lo que se afirma ahora es la regla única: el informe enseña la cuenta que
+  // lleva algo EN SU PERIODO. `is_active` no puede tapar dinero; sólo decide
+  // el renglón vacío, y eso es lo que el panel bifurca.
+  // ══════════════════════════════════════════════════════════
+  it('acota a la entidad, y `is_active` deja de poder tapar una cuenta con movimiento', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await queryTrialBalanceRows(ENTITY);
-    expect(sql(0)).toMatch(/WHERE a\.entity_id = \$1 AND a\.is_active = true/);
+    // La cuenta VIVA entra siempre —la balanza conserva a propósito las que
+    // no se movieron—; la ARCHIVADA entra cuando el mayor la respalda.
+    expect(sql(0)).toMatch(/WHERE a\.entity_id = \$1 AND \(a\.is_active = true OR EXISTS \(/);
+    // El `OR` es todo el arreglo. Convertido en `AND` se pierden las dos
+    // propiedades a la vez, así que se afirma que NO es un `AND`.
+    expect(sql(0)).not.toMatch(/a\.is_active = true AND EXISTS/);
+    // Y el rescate mira el MAYOR, no el saldo: una cuenta con 100 al debe y
+    // 100 al haber tiene saldo cero y SÍ se movió.
+    expect(sql(0)).toMatch(
+      /EXISTS \(SELECT 1 FROM journal_entry_lines arch_jel JOIN journal_entries arch_je ON arch_je\.id = arch_jel\.journal_entry_id WHERE arch_jel\.account_id = a\.id AND arch_je\.status = 'posted'\)/
+    );
+    // Sin tope no hay parámetro nuevo: el rescate reaprovecha el `$n` del
+    // informe en vez de duplicar el corte.
     expect(params(0)).toEqual([ENTITY]);
+  });
+
+  it('el rescate de la archivada usa EL MISMO $n del corte, no una copia', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryTrialBalanceRows(ENTITY, { asOfDate: '2026-12-31' });
+    // `$2` aparece dos veces —el recorte del movimiento y el tope del
+    // rescate— y los parámetros siguen siendo dos. Un tercer parámetro con la
+    // misma fecha sería una copia que un día se puede mover sola.
+    expect(sql(0)).toMatch(/AND je\.entry_date <= \$2/);
+    expect(sql(0)).toMatch(/AND arch_je\.entry_date <= \$2\)\)/);
+    expect(params(0)).toEqual([ENTITY, '2026-12-31']);
+  });
+
+  it('con periodo fiscal, el tope del rescate es la FECHA FIN de ese periodo', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryTrialBalanceRows(ENTITY, { fiscalPeriodId: 'fp-3' });
+    // El movimiento se recorta por `fiscal_period_id` y el arrastre por fecha:
+    // el rescate tiene que traducir el periodo a su corte, o una archivada con
+    // saldo arrastrado se caería de la balanza y con ella su SaldoIni.
+    expect(sql(0)).toMatch(
+      /AND arch_je\.entry_date <= \(SELECT fp\.end_date FROM fiscal_periods fp WHERE fp\.id = \$2\)/
+    );
+    expect(params(0)).toEqual([ENTITY, 'fp-3']);
+  });
+
+  it('`sinceDate` a solas NO hace de tope: es cota inferior, y borraría el arrastre', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryTrialBalanceRows(ENTITY, { sinceDate: '2026-03-01' });
+    expect(sql(0)).toMatch(/AND je\.entry_date >= \$2/);
+    expect(sql(0)).toMatch(/AND arch_je\.status = 'posted'\)\)/);
+    expect(sql(0)).not.toMatch(/arch_je\.entry_date/);
+  });
+
+  it('EN CRUDO no hay criterio de catálogo: el cotejo ve todas las cuentas', async () => {
+    // LA AFIRMACIÓN QUE ESTABA AQUÍ ERA FALSA, Y MEDIDA AL REVÉS. Decía «las
+    // materializadas materializan TODO lo posteado»; no lo hacían: las dos
+    // filtraban `a.is_active = true` (comprobado con `SELECT definition FROM
+    // pg_matviews`). Dejar el mayor sin predicado contra unas vistas que sí
+    // filtraban no quitaba una deriva inventada: la INTRODUCÍA, permanente,
+    // en cualquier entidad con una cuenta archivada con movimiento, y
+    // `report view show` pedía para siempre un «rebuild» que no arreglaba nada.
+    //
+    // Ahora es cierto, porque la migración 071 alinea las vistas con la regla:
+    // los dos lados del cotejo leen el mismo juego de cuentas.
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await queryTrialBalanceRows(ENTITY, { ignoreClosingPolicy: true });
+    expect(sql(0)).toMatch(/WHERE a\.entity_id = \$1 GROUP BY/);
+    expect(sql(0)).not.toMatch(/is_active/);
   });
 
   it('keeps zero-activity accounts: a missing row is not a zero balance', async () => {
@@ -702,12 +802,51 @@ describe('the result of the period belongs to equity', () => {
     expect(bs.out_of_balance).toBe('100.0000');
   });
 
-  it('keeps a retired account that still carries a balance on the statement', async () => {
+  // ══════════════════════════════════════════════════════════
+  // T13 · LA OTRA MITAD DE LA ASIMETRÍA, tambien reescrita.
+  //
+  // Esta prueba decía «keeps a retired account that still carries a balance on
+  // the statement» y afirmaba `not.toMatch(/a.is_active/)` como si fuera una
+  // particularidad DEL BALANCE GENERAL —su comentario lo justificaba caso por
+  // caso: «filtering by is_active removed real money»—, mientras su gemela de
+  // arriba exigía el filtro para la balanza. Cada una era razonable a solas y
+  // juntas fijaban dos contabilidades dentro del mismo servicio.
+  //
+  // No era una preferencia: era la misma regla vista desde un lado. Aquí se
+  // afirma la regla ENTERA y sobre las TRES consultas que la comparten, que es
+  // lo que ninguna de las dos hacía — y el estado de resultados, que es por
+  // donde salía el daño, no tenía NI UNA prueba sobre esto.
+  // ══════════════════════════════════════════════════════════
+  it.each([
+    ['balance general', () => getBalanceSheet(ENTITY, { asOfDate: '2026-12-31' }), 2],
+    [
+      'estado de resultados',
+      () => queryIncomeStatementRows(ENTITY, { startDate: '2026-01-01', endDate: '2026-12-31' }),
+      1,
+    ],
+    ['arrastre del resultado', () => queryUnclosedEarnings(ENTITY, '2026-12-31'), 1],
+  ])(
+    '%s: ninguna cuenta se cae por estar archivada — lo que decide es llevar cifra',
+    async (_nombre, correr, consultas) => {
+      for (let n = 0; n < consultas; n++) {
+        mockQuery.mockResolvedValueOnce({ rows: n === 1 ? [{ balance: '0' }] : [] });
+      }
+      await correr();
+      // Filtrar por `is_active` aquí sólo puede borrar una cuenta que SÍ
+      // llevaba cifra: el HAVING (o el JOIN interno) ya dejó fuera a las que
+      // no. Es lo que imprimía Revenue 0.0000 sobre un ejercicio firmado.
+      expect(sql(0)).not.toMatch(/a\.is_active/);
+    }
+  );
+
+  it('el estado de resultados no consulta el panel de cuentas archivadas', async () => {
+    // Su HAVING ya incluye exactamente a las cuentas con actividad en el
+    // rango: no queda nada que un despacho pueda preferir. La bifurcación
+    // existe SÓLO en la balanza, que es la que conserva renglones vacíos.
+    vi.mocked(criterioDeCuentasArchivadas).mockClear();
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    mockQuery.mockResolvedValueOnce({ rows: [{ balance: '0' }] });
-    await getBalanceSheet(ENTITY, { asOfDate: '2026-12-31' });
-    // Filtering by is_active removed real money from the balance sheet.
-    expect(sql(0)).not.toMatch(/a\.is_active/);
+    await queryIncomeStatementRows(ENTITY, { startDate: '2026-01-01', endDate: '2026-12-31' });
+    expect(criterioDeCuentasArchivadas).not.toHaveBeenCalled();
   });
 });
 

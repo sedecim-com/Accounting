@@ -9,6 +9,10 @@ import {
   type AvisoDeCierre,
   type RangoConsultado,
 } from './criterio-cierre.js';
+import {
+  criterioDeCuentasArchivadas,
+  predicadoDeCuentaEnBalanza,
+} from './criterio-archivadas.js';
 import { getPolicy } from '../policy/policy-service.js';
 
 // ============================================================
@@ -295,16 +299,25 @@ function entryFilter(filters: TrialBalanceFilters, params: unknown[], start: num
 }
 
 /**
- * One row per active account with its posted debits, credits and
- * debit-positive ending balance. Zero-activity accounts are KEPT: a trial
- * balance that hides them hides the accounts someone forgot to use.
+ * One row per account with its posted debits, credits and debit-positive
+ * ending balance. Zero-activity accounts are KEPT: a trial balance that hides
+ * them hides the accounts someone forgot to use.
+ *
+ * T13 · `is_active` DEJÓ DE SER UN FILTRO Y PASÓ A SER UNA CORTESÍA. Antes
+ * decía `AND a.is_active = true` a secas, y con eso `account archive 4100`
+ * —que sólo exige saldo de por vida cero, justo lo que tiene una cuenta de
+ * resultados ya barrida por el cierre— borraba de la balanza del ejercicio
+ * FIRMADO una cuenta con 10 000 al haber y 10 000 al debe. La cuenta viva
+ * entra siempre; la archivada entra cuando el mayor la respalda hasta el
+ * corte. El porqué entero, y qué parte de esto decide el panel, en
+ * criterio-archivadas.ts.
  */
 export async function queryTrialBalanceRows(
   entityId: string,
   filters: TrialBalanceFilters = {}
 ): Promise<TrialBalanceQueryRow[]> {
   const params: unknown[] = [entityId];
-  let where = 'WHERE a.entity_id = $1 AND a.is_active = true';
+  let where = 'WHERE a.entity_id = $1';
   let i = 2;
 
   if (filters.maxLevel !== undefined) {
@@ -312,6 +325,12 @@ export async function queryTrialBalanceRows(
     params.push(filters.maxLevel);
   }
   const periodFilter = entryFilter(filters, params, i);
+  // EL TOPE DEL INFORME, en el `$n` que `entryFilter` acaba de ocupar. Su
+  // precedencia es la de aquél —periodo, luego corte, luego el `hasta` del
+  // rango— y `sinceDate` a solas no cuenta: es cota INFERIOR y no sirve de
+  // tope. Cero = la balanza no tiene tope por arriba.
+  const posicionDelCorte =
+    filters.fiscalPeriodId || filters.asOfDate || filters.untilDate ? params.length : 0;
 
   // El criterio del panel se aplica AQUÍ, donde pasan las tres superficies.
   // Por omisión la balanza SÍ cuenta los asientos de cierre —es lo que ata la
@@ -323,6 +342,24 @@ export async function queryTrialBalanceRows(
   // Unidos sin dejar un hueco cuando uno de los dos falta: los predicados del
   // par (jel JOIN je) se leen —y se prueban— como una sola cadena.
   const jeFilters = [periodFilter, closingFilter].filter((p) => p !== '').join(' ');
+
+  // QUÉ CUENTAS ENTRAN. Va detrás de `entryFilter` porque éste ya empujó sus
+  // parámetros y la numeración sigue donde él la dejó. `ignoreClosingPolicy`
+  // lo apaga por lo mismo que apaga el criterio del cierre: la balanza EN
+  // CRUDO del cotejo contra las materializadas no es un informe: los dos lados
+  // tienen que leer el mismo juego de cuentas o la deriva que declaran es suya
+  // y no del dato.
+  //
+  // Esto ESTUVO MAL ARGUMENTADO, y conviene que quede escrito: aquí decía que
+  // «las vistas materializan TODO lo posteado». No lo hacían — las dos
+  // filtraban `a.is_active = true` —, así que dejar el mayor sin predicado
+  // contra unas vistas filtradas no quitaba una deriva inventada sino que la
+  // INTRODUCÍA, permanente. La migración 071 alinea las vistas con la regla de
+  // T13, y sólo por eso esta rama es correcta ahora.
+  const archivadas = filters.ignoreClosingPolicy
+    ? null
+    : await criterioDeCuentasArchivadas(entityId);
+  where += predicadoDeCuentaEnBalanza(archivadas, filters, posicionDelCorte);
 
   const result = await query<TrialBalanceQueryRow>(
     `SELECT
@@ -1033,6 +1070,12 @@ export async function queryIncomeStatementRows(
   const criterio = await criterioDeCierreEnInformes(entityId);
   const closingFilter = criterio.enEstadoDeResultados ? '' : predicadoSinCierre();
 
+  // Y NO hay criterio del panel sobre cuentas archivadas AQUÍ: el estado de
+  // resultados ya incluye exactamente a las cuentas con actividad en el rango
+  // —eso es lo que decide su HAVING—, así que no queda nada que un despacho
+  // pueda preferir. La bifurcación existe sólo en la balanza, que es el
+  // informe que conserva a propósito las cuentas sin movimiento.
+
   const having =
     (opts.include ?? 'nonzero-net') === 'any-activity'
       ? `HAVING COALESCE(SUM(COALESCE(jel.debit_amount, 0)), 0) != 0
@@ -1051,7 +1094,11 @@ export async function queryIncomeStatementRows(
                 AND je.status = 'posted' AND je.entry_date BETWEEN $2 AND $3
                 ${closingFilter})
            ON jel.account_id = a.id
-    WHERE a.entity_id = $1 AND a.is_active = true
+    -- SIN el filtro por is_active. Este HAVING ya deja fuera a la cuenta
+    -- que no se movió en el rango, así que aquel filtro sólo podía borrar
+    -- una que SÍ se movió: un ejercicio cerrado imprimía Revenue 0.0000
+    -- porque alguien archivó la 4100 después. Ver criterio-archivadas.ts.
+    WHERE a.entity_id = $1
       AND a.account_type IN ('revenue', 'expense')
     GROUP BY a.id, a.account_type, a.fs_category, a.code, a.name
     ${having}
