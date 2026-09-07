@@ -5,7 +5,7 @@ import { Command } from 'commander';
 import { program } from '../../src/cli/mnemosine.js';
 import { declareRisk, riskOf } from '../../src/cli/kernel/risk.js';
 import { FLAG_DICTIONARY } from '../../src/cli/kernel/flags.js';
-import { LINEA_BASE as LINEA_BASE_AUDITORIA } from '../../src/cli/kernel/audit.js';
+import { LINEA_BASE as LINEA_BASE_AUDITORIA, DEUDA_DE_LLAVES } from '../../src/cli/kernel/audit.js';
 import { OBJECTLESS_COMMANDS, VERBS } from '../../src/cli/kernel/vocabulary.js';
 import {
   CLAVES,
@@ -226,15 +226,27 @@ describe('el censo cuenta sobre el árbol que se le da', () => {
     );
   });
 
-  it('el árbol embarcado tiene hojas «externo» de verdad, y con sus tres banderas', () => {
+  it('el árbol embarcado tiene hojas «externo» de verdad, y cada una decide sobre su llave', () => {
+    // ESTA PRUEBA NO PODÍA FALLAR. Recorría las hojas externas del binario
+    // comprobando que llevaran --dry-run, --yes e --idempotency-key, y
+    // `declareRisk` se las INYECTA él mismo unas líneas antes (risk.ts): la
+    // prueba afirmaba el efecto secundario de la función que estaba probando.
+    // El caso sintético de arriba —al que se le AMPUTA una bandera— sí prueba
+    // que el censo mide; éste sólo repetía la inyección.
+    //
+    // Lo que ahora afirma es lo que la inyección no puede fabricar: que cada
+    // hoja externa DIGA qué hace con la llave que acepta. Una hoja externa
+    // nueva que nazca sin decirlo cae aquí y en R11.
     const externas = hojasDe(program).filter((h) => riskOf(h.cmd)?.risk === 'externo');
     expect(externas.length, 'si esto baja de cuatro, alguien retiró una declaración').toBeGreaterThanOrEqual(4);
-    for (const { ruta, cmd } of externas) {
-      const declara = new Set(cmd.options.map((o) => o.long));
-      for (const bandera of ['--dry-run', '--yes', '--idempotency-key']) {
-        expect(declara.has(bandera), `${ruta} sin ${bandera}`).toBe(true);
-      }
-    }
+    const sinDecidir = externas
+      .filter((h) => !riskOf(h.cmd)?.llave)
+      .map((h) => h.ruta)
+      .filter((r) => !DEUDA_DE_LLAVES.includes(r));
+    expect(
+      sinDecidir,
+      "toda hoja externa declara `llave: { scope }` si la honra o `llave: { sinLlave }` si no"
+    ).toEqual([]);
   });
 });
 

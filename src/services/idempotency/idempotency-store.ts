@@ -60,6 +60,43 @@ export interface ActoIdempotente<T> {
  * pierde el INSERT verifica el hash del ganador y trata su propia ejecución
  * como el resultado válido (ambos ejecutaron; el dominio ya arbitró).
  */
+/**
+ * MIRAR la llave sin consumirla, para poder contestar ANTES de trabajar.
+ *
+ * `conLlave` envuelve el acto, así que sólo se consulta cuando el llamador ya
+ * llegó hasta él — y las hojas de cobro y pago corren antes un ensayo y una
+ * compuerta de estado que dependen del SALDO. Como el primer cobro ya bajó el
+ * saldo, el reintento idéntico moría en ese ensayo sin llegar nunca al almacén:
+ * la promesa «un reintento con la misma llave devuelve el resultado grabado»
+ * quedaba viva sólo en la ventana en que una segunda aplicación seguiría siendo
+ * válida —cobrar menos de la mitad del saldo—, y falsa justo en el caso más
+ * frecuente que existe, cobrar la factura entera.
+ *
+ * Esto es una lectura y no escribe nada: no consuma la llave, no arbitra
+ * carreras (de eso sigue encargándose `conLlave` con su restricción única) y no
+ * sustituye a nadie. Sólo permite contestar antes de tocar el dominio.
+ *
+ *   · hit con el MISMO hash  → el resultado grabado; el llamador lo imprime y sale 0.
+ *   · hit con OTRO hash      → lanza, que es la acusación de reuso.
+ *   · sin hit                → undefined, y el camino sigue igual que hoy.
+ */
+export async function mirarLlave<T extends Record<string, unknown>>(
+  ctx: { tenantId: string },
+  acto: { scope: string; clave?: string; payloadHash: string }
+): Promise<T | undefined> {
+  if (!acto.clave) return undefined;
+  const previa = await query<{ payload_hash: string; resultado: T }>(
+    `SELECT payload_hash, resultado FROM idempotency_keys
+     WHERE tenant_id = $1 AND scope = $2 AND clave = $3`,
+    [ctx.tenantId, acto.scope, acto.clave]
+  );
+  if (previa.rows.length === 0) return undefined;
+  if (previa.rows[0].payload_hash !== acto.payloadHash) {
+    throw new ConflictoDeIdempotencia(acto.scope, acto.clave);
+  }
+  return previa.rows[0].resultado;
+}
+
 export async function conLlave<T extends Record<string, unknown>>(
   ctx: { tenantId: string; entityId?: string },
   acto: { scope: string; clave?: string; payloadHash: string },

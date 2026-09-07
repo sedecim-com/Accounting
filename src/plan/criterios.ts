@@ -2837,7 +2837,9 @@ export const CRITERIOS: Criterio[] = [
       // cualquier prueba que la importara auditaba un programa con cero
       // declaraciones y pasaba en el vacío.
       const { program } = await import('../cli/mnemosine.js');
-      const { auditarContraLineaBase, LINEA_BASE } = await import('../cli/kernel/audit.js');
+      const { auditarContraLineaBase, LINEA_BASE, DEUDA_DE_LLAVES } = await import(
+        '../cli/kernel/audit.js'
+      );
 
       const { nuevas, obsoletas, heredadas } = auditarContraLineaBase(program);
       if (nuevas.length > 0) {
@@ -2852,10 +2854,145 @@ export const CRITERIOS: Criterio[] = [
             'que no encoge deja de ser deuda registrada y se vuelve un permiso permanente'
         );
       }
+      // La deuda congelada son ahora DOS listas: LINEA_BASE (40 violaciones de
+      // vocabulario y contrato) y DEUDA_DE_LLAVES (las hojas que aceptan
+      // --idempotency-key y no la honran, que R11 acusa desde T3). Sumarlas
+      // aquí es lo que hace que el número que se imprime siga siendo el
+      // denominador de verdad.
       return ok(
-        `sin violaciones nuevas; ${heredadas} de ${LINEA_BASE.length} heredadas siguen vivas`
+        `sin violaciones nuevas; ${heredadas} de ${LINEA_BASE.length + DEUDA_DE_LLAVES.length} heredadas siguen vivas`
       );
     },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'R11 comprueba que la llave se HONRE, y todo ámbito declarado llega de verdad al almacén',
+    evaluar: async () => {
+      // R11 COMPROBABA SU PROPIO EFECTO SECUNDARIO. Verificaba que un comando
+      // de riesgo llevara --dry-run, --yes e --idempotency-key, y
+      // `declareRisk` se las inyecta él mismo unas líneas antes: sobre el
+      // binario embarcado daba CERO violaciones en 36 hojas graves. Mientras
+      // tanto la promesa textual de la bandera —«a retry with the same key
+      // and payload returns the recorded result»— la cumplían 15.
+      //
+      // Este criterio vigila las DOS mitades de la reparación, y ninguna se
+      // puede satisfacer inyectando una bandera:
+      //   (a) la regla nombra la acusación, así que puede fallar;
+      //   (b) todo ámbito DECLARADO viaja hasta una llamada al almacén.
+      // (a) SE MIDE **Y** SE ANCLA, y las dos mitades hacen falta.
+      //
+      //     El ancla de texto sola no medía nada: con el literal en su sitio,
+      //     la acusación podía dejar de emitirse y el criterio seguía verde —
+      //     que habría sido, un piso más abajo, el MISMO error que denuncia.
+      //     Pero la medición sola tampoco basta: el seam del arnés gobierna la
+      //     LECTURA DE TEXTO, no los módulos importados, así que un criterio
+      //     que sólo hace `await import(...)` es inmune a su propio espejo y
+      //     sus mutantes sobreviven. Juntas: la medición caza el silencio, el
+      //     ancla deja que el arnés muerda.
+      const audit = crudoDe('src/cli/kernel/audit.ts');
+      if (!audit.includes("rule: 'R11 llave aceptada sin honrar',")) {
+        return falla(
+          'R11 volvió a comprobar sólo las banderas que declareRisk inyecta: una regla que ' +
+            'verifica su propio efecto secundario no puede fallar'
+        );
+      }
+      // Y AHORA LA MEDICIÓN. La primera versión de este criterio
+      //     comprobaba `audit.includes("rule: '…'")` sobre el fuente, y eso
+      //     habría sido, un piso más abajo, el MISMO error que denuncia:
+      //     verificar la existencia de un literal en vez de la conducta. Con
+      //     el literal en su sitio, la acusación podía dejar de emitirse y el
+      //     criterio seguía verde. Aquí se corre el auditor sobre el binario
+      //     de verdad y se CUENTAN las acusaciones.
+      const { program } = await import('../cli/mnemosine.js');
+      const { auditProgram, esDeudaDeLlave, DEUDA_DE_LLAVES } = await import('../cli/kernel/audit.js');
+      const acusadas = auditProgram(program).filter(esDeudaDeLlave);
+      if (acusadas.length === 0) {
+        return falla(
+          'R11 no acusa a ninguna hoja: o volvió a comprobar sólo las banderas que declareRisk ' +
+            'inyecta —una regla que verifica su propio efecto secundario no puede fallar— o dejó ' +
+            'de emitirse con su literal intacto'
+        );
+      }
+      if (acusadas.length !== DEUDA_DE_LLAVES.length) {
+        return falla(
+          `R11 acusa a ${acusadas.length} hojas y la deuda declarada tiene ${DEUDA_DE_LLAVES.length}: ` +
+            'la lista sólo puede ENCOGER, y encoge borrando el renglón de la hoja que se cablea, ' +
+            'nunca dejando de acusar'
+        );
+      }
+
+      // El fuente del CLI SIN comentarios y SIN las declaraciones: si no, la
+      // propia `llave: { scope: 'X' }` se encontraría a sí misma y el
+      // criterio diría que el ámbito está cableado por haberlo escrito.
+      const cli = fuentes('src/cli')
+        .map((f) => sinComentarios(leer(f)))
+        .join('\n')
+        .replace(/llave:\s*\{\s*scope:\s*'[^']*'\s*\}/g, '');
+      const declarados = [
+        ...sinComentarios(
+          fuentes('src/cli')
+            .map((f) => leer(f))
+            .join('\n')
+        ).matchAll(/llave:\s*\{\s*scope:\s*'([^']*)'\s*\}/g),
+      ].map((m) => m[1]);
+      if (declarados.length < 15) {
+        return falla(
+          `sólo ${declarados.length} hoja(s) declaran el ámbito de su llave: el censo medido eran 19`
+        );
+      }
+      // EL ÁMBITO PUEDE VIAJAR POR UNA CONSTANTE, no sólo como literal en la
+      // llamada: `receipt record` lo hace así porque lo usan DOS sitios —la
+      // consulta temprana de la llave y su consumo—, y dos literales que puedan
+      // divergir serían dos deduplicaciones distintas con el mismo nombre. Lo
+      // que este cruce defiende es que la palabra declarada ESTÉ en el fuente
+      // del manejador, no la forma sintáctica con que llega.
+      const huerfanos = declarados.filter((a) => !cli.includes(`'${a}'`));
+      if (huerfanos.length > 0) {
+        return falla(
+          `${huerfanos.length} ámbito(s) declarados que ninguna llamada a conLlave usa ` +
+            `(${huerfanos.join(', ')}): la declaración promete una deduplicación que el manejador no hace`
+        );
+      }
+      // Y las dos que duplicaban DINERO, por su nombre: son las que el issue
+      // #90 pone como ejemplo y las que se reprodujeron contra Postgres.
+      const dinero = ['receipt record', 'payment create'].filter((a) => !declarados.includes(a));
+      if (dinero.length > 0) {
+        return falla(`${dinero.join(' y ')} volvió a aceptar la llave sin honrarla`);
+      }
+      return ok(
+        `${declarados.length} ámbito(s) declarados, todos entregados al almacén; ` +
+          'R11 acusa a las que no la honran'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/kernel/audit.ts',
+        de: "rule: 'R11 llave aceptada sin honrar',",
+        a: "rule: 'R11 risk flags',",
+        porque:
+          'la acusación se disuelve dentro de la regla tautológica: R11 vuelve a decir sólo lo que ' +
+          'declareRisk acaba de inyectar y deja de poder fallar',
+      },
+      {
+        archivo: 'src/cli/receipt-command.ts',
+        de: "const AMBITO_DE_COBRO = 'receipt record';",
+        a: "const AMBITO_DE_COBRO = 'cobro';",
+        porque:
+          'el manejador consuma la llave bajo OTRO ámbito que el declarado — el escape de ' +
+          'firma-como-llamada: la declaración sigue escrita y la deduplicación de `receipt record` ' +
+          'deja de existir para quien la lea',
+      },
+      {
+        archivo: 'src/cli/payment-command.ts',
+        de: "          scope: 'payment create',",
+        a: "          scope: 'entry post',",
+        porque:
+          'dos hojas bajo el mismo ámbito se deduplican ENTRE SÍ (la unicidad de idempotency_keys ' +
+          'es por tenant+scope+clave), y el ámbito declarado por `payment create` deja de tener ' +
+          'llamada propia',
+      },
+    ],
   },
   {
     paquete: 'E5.1',

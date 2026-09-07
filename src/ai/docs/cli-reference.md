@@ -228,8 +228,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
   -h, --help               display help for command
 
 Examples:
@@ -267,8 +267,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
   -h, --help               display help for command
 
 Examples:
@@ -410,8 +410,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
@@ -552,8 +552,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
@@ -597,8 +597,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 ```
@@ -1152,9 +1152,8 @@ Options:
   --dry-run                  compute and show the full effect; write nothing and
                              call nothing external
   -y, --yes                  skip the confirmation prompt
-  --idempotency-key <key>    client dedupe key, stored on success: a retry with
-                             the same key and payload returns the recorded
-                             result
+  --idempotency-key <key>    NOT honored by this command yet: a retry writes
+                             again instead of returning the recorded result
   -h, --help                 display help for command
 
 Examples:
@@ -2787,8 +2786,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
   -h, --help               display help for command
 
 Examples:
@@ -3361,8 +3360,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  NOT honored by this command yet: a retry writes again
+                           instead of returning the recorded result
   -h, --help               display help for command
 
 Examples:
@@ -3391,8 +3390,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  NOT honored by this command yet: a retry writes again
+                           instead of returning the recorded result
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 
@@ -3457,8 +3456,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  NOT honored by this command yet: a retry writes again
+                           instead of returning the recorded result
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 
@@ -3707,8 +3706,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  NOT honored by this command yet: a retry writes again
+                           instead of returning the recorded result
   -h, --help               display help for command
 
 Examples:
@@ -3741,8 +3740,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  NOT honored by this command yet: a retry writes again
+                           instead of returning the recorded result
   -h, --help               display help for command
 
 Examples:
@@ -3774,8 +3773,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  NOT honored by this command yet: a retry writes again
+                           instead of returning the recorded result
   --reason <text>          justification recorded in the audit trail (required)
   -h, --help               display help for command
 
@@ -3929,8 +3928,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  NOT honored by this command yet: a retry writes again
+                           instead of returning the recorded result
   -h, --help               display help for command
 
 Examples:
@@ -6157,9 +6156,9 @@ Options:
   --dry-run                           compute and show the full effect; write
                                       nothing and call nothing external
   -y, --yes                           skip the confirmation prompt
-  --idempotency-key <key>             client dedupe key, stored on success: a
-                                      retry with the same key and payload
-                                      returns the recorded result
+  --idempotency-key <key>             NOT honored by this command yet: a retry
+                                      writes again instead of returning the
+                                      recorded result
   --live                              perform the real external effect (default
                                       is the sandbox endpoint)
   -h, --help                          display help for command
@@ -6689,11 +6688,9 @@ Options:
 
 Examples:
   # Capture Jalisco at 3%, effective from the day the reform took effect.
-  mnemosine isn rate set JAL 3% --effective-from 2026-01-01 \
-    --legal-basis "Ley de Hacienda del Estado de Jalisco art. 41, POE 2025-12-15"
+  mnemosine isn rate set JAL 3% --effective-from 2026-01-01 --legal-basis "Ley de Hacienda de Jalisco art. 41, POE 2025-12-15"
   # Close a rate the state replaced, then capture the new one.
-  mnemosine isn rate set JAL 0.03 --effective-from 2025-01-01 --superseded-on 2026-01-01 \
-    --legal-basis "Ley de Hacienda del Estado de Jalisco art. 41 (2025)"
+  mnemosine isn rate set JAL 0.03 --effective-from 2025-01-01 --superseded-on 2026-01-01 --legal-basis "Jalisco art. 41 (2025)"
   # See exactly what would be written, and who it reaches, without writing.
   mnemosine isn rate set NLE 3% --effective-from 2026-01-01 --legal-basis "..." --dry-run
 ```
@@ -7029,8 +7026,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  not needed: this command already deduplicates on the
+                           state it writes; accepted and ignored
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
@@ -7178,8 +7175,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  NOT honored by this command yet: a retry writes again
+                           instead of returning the recorded result
   -h, --help               display help for command
 ```
 
@@ -7928,8 +7925,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  NOT honored by this command yet: a retry writes again
+                           instead of returning the recorded result
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command
@@ -8220,8 +8217,8 @@ Options:
   --dry-run                compute and show the full effect; write nothing and
                            call nothing external
   -y, --yes                skip the confirmation prompt
-  --idempotency-key <key>  client dedupe key, stored on success: a retry with
-                           the same key and payload returns the recorded result
+  --idempotency-key <key>  NOT honored by this command yet: a retry writes again
+                           instead of returning the recorded result
   --live                   perform the real external effect (default is the
                            sandbox endpoint)
   -h, --help               display help for command

@@ -405,6 +405,7 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
   // --idempotency-key y (por el verbo) --reason obligatorio.
   declareRisk(reopen, {
     risk: 'irreversible',
+    llave: { scope: 'period-reopen' },
     writes: "fiscal_periods.status (cerrado → open); audit_log acción 'reopen' con motivo",
   });
   reopen.addHelpText('after', EJEMPLOS.periodReopen);
