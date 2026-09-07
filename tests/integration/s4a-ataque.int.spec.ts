@@ -355,7 +355,11 @@ describe('3 · el trinquete de cobertura', () => {
         'sobre un archivo inexistente pasa, y suma a la cifra que el criterio publica («N archivos ' +
         'con umbral propio»). Si se cierra, voltea esta aserción a «falla».'
     ).toBe('ok');
-    expect(r.detalle, 'el archivo inventado no llegó a contarse: revisa el ataque').toContain('7 archivos');
+    // El conteo sube con J0.1: `src/services/jurisdiccion/jurisdiccion.ts` gana
+    // umbral propio, así que son siete reales más el inventado. Este número
+    // vive aquí a propósito —cuenta lo que el criterio publica— y por eso se
+    // mueve en el mismo commit que añade el umbral.
+    expect(r.detalle, 'el archivo inventado no llegó a contarse: revisa el ataque').toContain('8 archivos');
   });
 
   it('HUECO · los umbrales al 100 (inalcanzables) pasan igual que los reales', async () => {

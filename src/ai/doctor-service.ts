@@ -3,6 +3,7 @@ import path from 'node:path';
 import { checkSoDViolations } from '../api/rest/middleware/auth.js';
 import { query } from '../database/connection.js';
 import { REQUIRED_BUCKETS } from '../services/payroll/common/payroll-account-mapping-seed.js';
+import { sqlEsContabilidadMexicana } from '../services/jurisdiccion/jurisdiccion.js';
 import { config } from '../config/index.js';
 import { isLocalHost, defaultSslMode } from '../database/ssl.js';
 import { DB_PROVIDERS } from '../database/providers.js';
@@ -181,6 +182,26 @@ export async function checkAccountRoles(): Promise<CheckResult> {
   // document or the release on payment throws MISSING_ROLE_ACCOUNT — and which
   // of the three breaks depends on how the entity's chart was created, so the
   // failure surfaces at the worst possible moment instead of at setup.
+  //
+  // A QUIÉN SE LE EXIGEN LOS CUATRO: al mismo conjunto al que el sembrador
+  // se los dio, y ni uno más (J0.1, docs/jurisdicciones.md §3.1).
+  //
+  // Este WHERE comparaba `e.incorporation_country` contra el literal MX a
+  // secas, sin mirar la norma, mientras `entity-accounting` decide qué sembrar
+  // con el conmutador
+  // completo —país O norma—. Las dos preguntas no coincidían y el hueco era
+  // exactamente el peor: a la filial constituida fuera que lleva libros en
+  // NIF el sembrador SÍ le crea los cuatro roles de IVA, y este diagnóstico
+  // NUNCA comprobaba que siguieran ahí. El doctor no revisaba lo que la
+  // propia máquina había construido.
+  //
+  // Ahora los dos usan el mismo predicado, así que la revisión no puede
+  // inventarse un `fail`: la entidad que entra es la que fue sembrada como
+  // mexicana, y `rolesPara(true)` le da los cuatro. Lo que sí destapa —y es
+  // el punto— es la entidad a la que se los quitaron o nunca se le
+  // sembraron. `e.is_active` se conserva: una entidad dada de baja no es una
+  // entidad mal configurada, y el conmutador de jurisdicción no sabe de
+  // altas y bajas.
   const ivaFaltante = await query<{ nombre: string; faltantes: string }>(
     `SELECT e.name AS nombre,
             (SELECT string_agg(rol, ', ') FROM unnest($1::text[]) AS rol
@@ -188,7 +209,7 @@ export async function checkAccountRoles(): Promise<CheckResult> {
                 SELECT 1 FROM account_roles ar
                  WHERE ar.entity_id = e.id AND ar.role = rol AND ar.qualifier IS NULL)) AS faltantes
      FROM legal_entities e
-     WHERE e.is_active = true AND e.incorporation_country = 'MX'`,
+     WHERE e.is_active = true AND ${sqlEsContabilidadMexicana('e')}`,
     [IVA_ROLES]
   );
   const incompletas = ivaFaltante.rows.filter((x) => x.faltantes);

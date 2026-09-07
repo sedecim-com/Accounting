@@ -579,6 +579,11 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   'src/utils/sequence.ts': { statements: 68, branches: 100, functions: 75, lines: 66 },
   'src/services/reporting/report-service.ts': { statements: 88, branches: 76, functions: 95, lines: 88 },
   'src/services/reporting/criterio-cierre.ts': { statements: 100, branches: 95, functions: 100, lines: 100 },
+  // J0.1 · El conmutador de jurisdicción nace con su trinquete puesto, y en
+  // 100 porque ahí lo dejó su tramo. Decide qué catálogo fiscal recibe una
+  // entidad y qué filas entran en el censo que reclasifica IVA: un archivo
+  // así no puede empezar a medirse el día que alguien se acuerde.
+  'src/services/jurisdiccion/jurisdiccion.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
 };
 
 /**
@@ -1951,6 +1956,86 @@ export const CRITERIOS: Criterio[] = [
   },
 
   // ---- E1.1 · Roles de cuenta ----
+
+  {
+    paquete: 'E1.1',
+    enunciado:
+      'La jurisdicción de una entidad se contesta en un solo sitio, y en SQL dice lo mismo que en TypeScript',
+    evaluar: () => {
+      // POR QUÉ NACE (J0.1, issue #123, docs/jurisdicciones.md §3.1).
+      //
+      // «¿Esta entidad lleva contabilidad mexicana?» tenía una respuesta
+      // canónica y CUATRO copias que no la usaban. No difieren en el estilo:
+      // difieren en la RESPUESTA. Con el país en minúsculas, o con un tercer
+      // país, la entidad entraba en el estrato fiscal mexicano para el
+      // sembrador y quedaba fuera para el censo de IVA y para el doctor. Es la
+      // peor clase de convención: la que parece una y son varias.
+      //
+      // Y la mitad de SQL pesa tanto como la de TypeScript. El censo de IVA
+      // PPD alimenta a `reclasificar`, que ESCRIBE asientos: si el predicado se
+      // muda a JavaScript, la consulta se trae filas de más y la frontera sale
+      // del SQL, que es donde este proyecto la exige.
+      const p = 'src/services/jurisdiccion/jurisdiccion.ts';
+      if (!existe(p)) {
+        return falla('no hay conmutador de jurisdicción: la pregunta vuelve a contestarse en cada sitio');
+      }
+      const j = codigoDe(p);
+      // Los DOS campos, anclados en su declaración y no en su nombre suelto:
+      // `libros` aparece también como variable local tres líneas más abajo, y
+      // con el ancla floja un mutante que renombrara el campo de la interfaz
+      // seguía encontrando la palabra y sobrevivía. Medir presencia donde hay
+      // gemelos textuales es exactamente lo que este arnés castiga.
+      if (!/^\s*fiscal: CodigoJurisdiccion;$/m.test(j) || !/^\s*libros: NormaContable;$/m.test(j)) {
+        return falla(
+          'el conmutador volvió a colapsar las dos preguntas: qué autoridad fiscal gobierna a la ' +
+            'entidad y bajo qué norma lleva los libros no son la misma, y una filial extranjera con ' +
+            'libros en NIF necesita las dos por separado'
+        );
+      }
+      if (!/export function sqlEsContabilidadMexicana/.test(j)) {
+        return falla(
+          'el conmutador no publica su gemelo en SQL: la próxima consulta que acote por jurisdicción ' +
+            'lo escribirá a mano, que es exactamente como nacieron las cuatro copias'
+        );
+      }
+      const copias = dondeAparece(
+        /(incorporation_country|accounting_standard)\s*(===|!==|==|=)\s*'/,
+        ['src'],
+        true
+      ).filter((f) => !f.includes(path.join('services', 'jurisdiccion')));
+      return copias.length === 0
+        ? ok('un solo conmutador, con su gemelo en SQL, y ninguna copia que compare la columna a mano')
+        : falla(
+            `${copias.length} archivo(s) vuelven a comparar la columna a mano: ${copias.join(', ')}`
+          );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/iva-ppd-reclass.ts',
+        de: "${sqlEsContabilidadMexicana('le')}",
+        a: "le.incorporation_country = 'MX'",
+        porque:
+          'la copia inline renace dentro del SQL del censo, con el borde al revés: el mes de una ' +
+          'entidad con el país en minúsculas deja de reclasificarse y nadie lo dice',
+      },
+      {
+        archivo: 'src/ai/doctor-service.ts',
+        de: "${sqlEsContabilidadMexicana('e')}",
+        a: "e.incorporation_country = 'MX'",
+        porque:
+          'el doctor vuelve a preguntar por el país a secas y deja de revisar los roles de IVA que el ' +
+          'sembrador sí creó: el diagnóstico deja de comprobar lo que la semilla hizo',
+      },
+      {
+        archivo: 'src/services/jurisdiccion/jurisdiccion.ts',
+        de: 'libros: NormaContable;',
+        a: 'librosQueNadieMira: NormaContable;',
+        porque:
+          'el conmutador vuelve a ser un booleano con otro nombre: sin `libros` no hay forma de decir ' +
+          'que una filial de Delaware lleva libros en NIF, que es la mitad que el booleano colapsaba',
+      },
+    ],
+  },
   {
     paquete: 'E1.1',
     enunciado: 'Toda ruta de alta de entidad siembra los roles, no sólo el asistente',

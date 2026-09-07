@@ -4,6 +4,7 @@ import { AccountingError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 import { matchCase, type AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import type { CfdiFacts } from '../xml-ingestion/cfdi-facts.js';
+import { esContabilidadMexicana } from '../jurisdiccion/jurisdiccion.js';
 
 // ============================================================
 // IVA ON CASH BASIS (LIVA art. 1-B and art. 5 frac. III)
@@ -296,6 +297,23 @@ export function ivaToReclassify(input: ReclassInput): string {
  * True when the entity is Mexican. The cash-basis rule is LIVA, not GAAP:
  * a US entity's tax on a bill is not creditable IVA and must keep posting
  * exactly as it did before.
+ *
+ * EL PREDICADO YA NO SE ESCRIBE AQUÍ (J0.1, docs/jurisdicciones.md §3.1).
+ * Comparaba las dos columnas contra sus literales —el país contra MX, o la
+ * norma contra mx_nif—, que es el mismo criterio del conmutador salvo en el
+ * borde: comparaba la
+ * columna en crudo, y `incorporation_country` es `CHAR(2)` sin CHECK ni
+ * normalización, así que una entidad guardada como 'mx' o como los dos
+ * espacios en blanco con que bpchar almacena la cadena vacía contestaba
+ * `false` AQUÍ y `true` en la semilla del catálogo, que usa el conmutador.
+ *
+ * QUÉ SE MOVIÓ, ENTONCES: esas entidades pasan a acreditar IVA sobre flujo,
+ * que es lo que la LIVA les exige y lo que su propio catálogo ya suponía. El
+ * cambio es un ENSANCHAMIENTO ESTRICTO —todo lo que antes daba `true` lo
+ * sigue dando— y no puede terminar en MISSING_ROLE_ACCOUNT: la entidad que
+ * ahora entra es exactamente la que el sembrador consideró mexicana, así que
+ * tiene las cuatro cuentas de IVA. Antes, las dos mitades del sistema
+ * contestaban distinto sobre la misma fila.
  */
 export async function entityUsesCashBasisIva(
   client: pg.PoolClient,
@@ -306,8 +324,15 @@ export async function entityUsesCashBasisIva(
     [entityId]
   );
   const row = rows[0];
+  // LA FILA AUSENTE NO ES UNA ENTIDAD DUDOSA, Y POR ESO NO PASA POR EL
+  // CONMUTADOR. «Ante la duda, mexicana» resuelve qué régimen tiene una
+  // entidad que existe y no declaró su país; aquí no hay entidad. La
+  // consulta filtra sólo por `id` y se apoya en RLS, de modo que un id de
+  // otro inquilino —o inexistente— devuelve cero filas: enrutarlo por
+  // `jurisdiccionDe({})` le regalaría régimen fiscal mexicano a algo que ni
+  // siquiera está en los libros del despacho.
   if (!row) return false;
-  return row.incorporation_country === 'MX' || row.accounting_standard === 'mx_nif';
+  return esContabilidadMexicana(row.incorporation_country, row.accounting_standard);
 }
 
 /**
