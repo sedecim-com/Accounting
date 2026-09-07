@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Command } from 'commander';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
-import { riskOf, resetDeclarations } from '../../src/cli/kernel/risk.js';
+import { riskOf, resetDeclarations, ambitoDeLlave } from '../../src/cli/kernel/risk.js';
 import { VERBS } from '../../src/cli/kernel/vocabulary.js';
 import { registerEntryCommand } from '../../src/cli/entry-command.js';
 import { registerPeriodCommand, registerYearCommand } from '../../src/cli/period-command.js';
@@ -112,13 +112,19 @@ describe('what the agent may and may not do with the ledger', () => {
     expect(longs).not.toContain('--yes');
   });
 
-  it('makes post, reverse and void irreversible, with their safety flags', () => {
+  it('makes post, reverse and void irreversible, and each HONOURS its key', () => {
+    // LA VERSIÓN ANTERIOR NO PODÍA FALLAR. Comprobaba que las tres hojas
+    // llevaran --dry-run, --yes e --idempotency-key, y `declareRisk` se las
+    // INYECTA él mismo (risk.ts): la prueba verificaba su propio efecto
+    // secundario. Lo que sí puede fallar —y falla si alguien descablea el
+    // manejador— es que cada una declare el ámbito bajo el que consuma la
+    // llave; tests/cli/kernel/llave-honrada.spec.ts cruza ese ámbito contra
+    // las llamadas reales a `conLlave` en el código fuente.
     const program = build();
     for (const path of ['entry post', 'entry reverse', 'entry void']) {
       const cmd = find(path, program);
       expect(riskOf(cmd)?.risk, path).toBe('irreversible');
-      const longs = cmd.options.map((o) => o.long);
-      expect(longs, path).toEqual(expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key']));
+      expect(ambitoDeLlave(cmd), `${path} acepta --idempotency-key y no dice qué hace con ella`).toBe(path);
     }
     // reverse and void undo something: the kernel makes them justify it.
     expect(find('entry reverse', program).options.map((o) => o.long)).toContain('--reason');
@@ -132,13 +138,16 @@ describe('what the agent may and may not do with the ledger', () => {
   // F06b · `period reopen` — la otra puerta del calendario, y la que un
   // auditor más pregunta: irreversible por catálogo, con las tres banderas
   // del núcleo, el --reason que el verbo exige y el --force para hard_close.
-  it('declares `period reopen` irreversible, with every safety flag it promises', () => {
+  it('declares `period reopen` irreversible, and keeps the promise its key makes', () => {
     const reopen = find('period reopen');
     expect(riskOf(reopen)?.risk).toBe('irreversible');
+    // --reason y --force NO los inyecta la clase de riesgo (--reason sale del
+    // verbo `reopen`, --force lo pone la hoja), así que comprobarlos sí dice
+    // algo. --dry-run, --yes e --idempotency-key sí los inyecta: de los tres,
+    // lo único con contenido es que la llave se HONRE, y eso es el ámbito.
     const longs = reopen.options.map((o) => o.long);
-    expect(longs).toEqual(
-      expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key', '--reason', '--force'])
-    );
+    expect(longs).toEqual(expect.arrayContaining(['--reason', '--force']));
+    expect(ambitoDeLlave(reopen)).toBe('period-reopen');
   });
 
   it('gives `period reopen` the vocabulary alias `reabrir`', () => {

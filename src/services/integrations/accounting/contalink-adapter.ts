@@ -1,3 +1,4 @@
+import { ExternalRejectedError, ExternalServiceError } from '../../../utils/errors.js';
 import type {
   ExternalTrialBalanceRow,
   FiscalDocumentsQuery,
@@ -36,22 +37,61 @@ export class ContalinkAdapter implements IExternalAccountingAdapter {
     path: string,
     body?: unknown
   ): Promise<T> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      method,
-      headers: {
-        Authorization: this.apiKey,
-        Accept: 'application/json',
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
-    if (!response.ok) {
-      throw new Error(`Contalink HTTP ${response.status} at ${path}`);
+    // Four ways out, and the caller must be able to tell them apart: the
+    // three transient ones are worth retrying and the refusal never is.
+    // Every one of them used to be a bare `Error` and therefore the
+    // generic exit 1.
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        method,
+        headers: {
+          Authorization: this.apiKey,
+          Accept: 'application/json',
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      });
+    } catch (err) {
+      // Never arrived: DNS, TLS, connection refused, socket timeout. The
+      // request did not reach Contalink, so nothing landed there either.
+      throw new ExternalServiceError(this.name, `unreachable at ${path}: ${mensajeDe(err)}`, {
+        path,
+        stage: 'connect',
+      });
     }
-    const data = (await response.json()) as T;
+
+    if (!response.ok) {
+      const detalle = { path, http_status: response.status };
+      if (esTransitorio(response.status)) {
+        throw new ExternalServiceError(this.name, `HTTP ${response.status} at ${path}`, detalle);
+      }
+      // A 4xx is Contalink refusing THESE bytes with THIS credential.
+      // Re-sending them changes nothing, so this must not read as retryable.
+      throw new ExternalRejectedError(this.name, `HTTP ${response.status} at ${path}`, detalle);
+    }
+
+    let data: T;
+    try {
+      data = (await response.json()) as T;
+    } catch (err) {
+      // A proxy, a CDN or a captive portal answered 200 with something that
+      // is not JSON. This line lived OUTSIDE any guard: the operator got a
+      // bare `Unexpected token '<'` that did not even name the provider.
+      throw new ExternalServiceError(
+        this.name,
+        `answered ${response.status} at ${path} with a body that is not JSON: ${mensajeDe(err)}`,
+        { path, http_status: response.status, stage: 'decode' }
+      );
+    }
+
     // Contalink: status 1 = success, 0 = error.
     if (data.status !== 1) {
-      throw new Error(`Contalink rejected the operation at ${path}: ${data.message || 'no message'}`);
+      throw new ExternalRejectedError(
+        this.name,
+        `rejected the operation at ${path}: ${data.message || 'no message'}`,
+        { path, envelope_status: data.status }
+      );
     }
     return data;
   }
@@ -134,6 +174,20 @@ export class ContalinkAdapter implements IExternalAccountingAdapter {
   }): Promise<Record<string, unknown>> {
     return this.request('POST', '/conciliation/create/', input);
   }
+}
+
+/**
+ * Transient by HTTP status. 408 (request timeout) and 429 (rate limited)
+ * are the server explicitly saying "come back later"; every 5xx is the
+ * server's own failure, not ours. Everything else in the 4xx range is the
+ * server saying no to what we sent, and sending it again gets the same no.
+ */
+function esTransitorio(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function mensajeDe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function toNumber(value: unknown): number {

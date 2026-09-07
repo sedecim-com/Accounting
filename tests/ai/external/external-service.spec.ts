@@ -1,3 +1,6 @@
+import { ExternalRejectedError, ExternalServiceError } from '../../../src/utils/errors.js';
+import { ExitCode } from '../../../src/cli/kernel/exit.js';
+import { exitCodeFor } from '../../../src/cli/kernel/index.js';
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('../../../src/database/connection.js', () => ({ query: vi.fn() }));
@@ -207,6 +210,34 @@ describe('outbox', () => {
     const [failSql, failParams] = mockQuery.mock.calls[1];
     expect(failSql).toMatch(/SET status = 'failed'/);
     expect(failParams[0]).toMatch(/rejected/);
+  });
+
+  // ── El veredicto del adaptador tiene que SOBREVIVIR al re-envoltorio ──
+  //
+  // Aquí moría la distinción. El adaptador clasificaba («falló, reintenta»
+  // frente a «rechazó, no reintentes»), y esta función lo aplastaba todo
+  // construyendo un `Error` pelado — que exitCodeFor traduce a 1. El
+  // trabajo del adaptador se tiraba en la última línea.
+  it.each([
+    { clase: ExternalServiceError, nombre: 'ExternalServiceError', codigo: ExitCode.EXTERNAL_FAILED, estado: 502 },
+    { clase: ExternalRejectedError, nombre: 'ExternalRejectedError', codigo: ExitCode.EXTERNAL_REJECTED, estado: 424 },
+  ])('un $nombre del adaptador llega intacto al llamador (y sigue marcando failed)', async ({ clase, codigo, estado }) => {
+    mockGetAdapter.mockReturnValueOnce({
+      createManualPolicy: vi.fn(async () => { throw new clase('contalink', 'HTTP x at /y'); }),
+    });
+    mockQuery.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [{ id: 'op-1', provider: 'contalink', operation: 'create_policy', payload: {}, status: 'executing', ai_reasoning: 'r', result: null, error: null, created_at: new Date() }],
+    });
+    mockQuery.mockResolvedValueOnce({ rowCount: 1, rows: [] });
+
+    const err = await executeExternalOp(CTX, 'op-1', 'e').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(clase);
+    expect((err as { statusCode: number }).statusCode).toBe(estado);
+    expect(exitCodeFor(err)).toBe(codigo);
+    // Y la fila se cerró igual que siempre: el arreglo toca el VEREDICTO que
+    // sale, no la transición guardada (que fijan las dos pruebas de arriba).
+    expect(mockQuery).toHaveBeenCalledTimes(2);
   });
 
   it('rejectExternalOp only rejects pending ops', async () => {

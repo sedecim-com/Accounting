@@ -595,6 +595,18 @@ const configFileSchema = z
   .object({
     /** Language for the AGENT's responses (CLI UI is English). Default: es. */
     language: z.enum(['en', 'es']).optional(),
+    /**
+     * Inquilino (despacho) por defecto — el TERCER escalón de la precedencia
+     * que publica docs/cli-command-catalog.md §3.1: bandera > MNEMOSINE_TENANT
+     * > config de proyecto > config de usuario. Existía en el contrato y no
+     * en el esquema, así que el escalón no se podía honrar: quien trabaja un
+     * despacho por repositorio tenía que ponerlo en el entorno.
+     *
+     * `loadConfigFile` ya resuelve proyecto-antes-que-usuario leyendo el
+     * PRIMER archivo que existe, así que los dos escalones de config salen
+     * de aquí en el orden publicado.
+     */
+    tenant: z.string().optional(),
     default_provider: z.string().optional(),
     providers: z.record(profileSchema).optional(),
     ingest: ingestSchema.optional(),

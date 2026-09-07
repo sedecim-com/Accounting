@@ -53,7 +53,22 @@ export const ROLES_DE_EFECTIVO = ['banco'] as const;
  * inventarios e IVA acreditable en el catálogo que este producto siembra, y
  * meterlo declararía como efectivo medio activo circulante.
  */
-const SUBTIPOS_DE_EFECTIVO = ['cash', 'cash_equivalent', 'bank'] as const;
+export const SUBTIPOS_DE_EFECTIVO = [
+  'cash',
+  'cash_equivalent',
+  'cash_and_equivalents',
+  'bank',
+  'efectivo',
+  'equivalentes_de_efectivo',
+] as const;
+// CRECE AQUÍ Y EN NINGÚN OTRO SITIO, igual que ROLES_DE_EFECTIVO y por la misma
+// razón: dos listas de subtipos son dos definiciones de efectivo para el mismo
+// periodo, que es el residuo inventado que este par de módulos existe para no
+// producir. Vivía duplicada —tres entradas aquí, SEIS en cash-flow-service.ts—
+// y la divergencia no era hipotética: una cuenta marcada `efectivo` era
+// efectivo para el estado y no lo era para el cotejo. Se conservan las seis y
+// no las tres: encoger la lista habría dejado de tratar como efectivo, EN
+// SILENCIO, a las cuentas que hoy sí lo son.
 
 export type CriterioDeEfectivo = 'rol' | 'subtipo' | 'lista';
 
@@ -96,6 +111,14 @@ export interface FlujoDerivado {
   operating_activities: { total: string };
   investing_activities: { total: string };
   financing_activities: { total: string };
+  /**
+   * La autocomprobación del motor, si viene. Este módulo COTEJA el neto contra
+   * el efectivo real y por eso no ve la cuenta que se movió sin caer en ninguna
+   * sección cuando sus importes se compensan: el neto ata igual. Pero ésta es
+   * la hoja del veredicto —la única con `--strict`—, así que lo que sólo el
+   * motor sabe tiene que llegarle, o el hallazgo no puede parar una tubería.
+   */
+  self_check?: { all_classified: boolean; candidates: Array<{ code: string }> };
 }
 
 export interface Residuo {
@@ -645,6 +668,29 @@ export async function conciliarFlujoDeEfectivo(
         aviso = frase;
         break;
     }
+  }
+
+  // LA CUENTA SIN SECCIÓN TAMBIÉN ES UN HALLAZGO, y tiene que serlo AQUÍ.
+  //
+  // `cashflow generate` la nombra por stderr, pero no lleva `--strict`: su
+  // advertencia vale 0 y ninguna tubería la nota. Esta hoja es la del
+  // VEREDICTO —la única de las dos con `--strict`, y a la que `generate` cede
+  // el juicio por escrito—, así que si no la cuenta aquí, el defecto que este
+  // tramo repara sigue siendo invisible para una máquina: el estado ata contra
+  // el efectivo, `reconcile` dice «amarra», y al menos una sección está mal.
+  //
+  // Es advertencia y no bloqueo: el neto SÍ ata, así que la conciliación —que
+  // es lo que esta hoja mide— se sostiene. Con `--strict` escala a 4, que es
+  // donde una tubería puede pararse.
+  const sinSeccion = opts.derivado.self_check && !opts.derivado.self_check.all_classified;
+  if (sinSeccion) {
+    hallazgos.warning = Math.max(hallazgos.warning, 1);
+    const suyo =
+      `${opts.derivado.self_check?.candidates.length ?? 0} cuenta(s) se movieron sin caer en ` +
+      'ninguna sección: el neto ata contra el efectivo, así que este cotejo no lo ve, pero al ' +
+      'menos una sección del estado no se sostiene. Corre `mnemosine cashflow generate` para ' +
+      'verlas por nombre.';
+    aviso = aviso ? `${aviso} ${suyo}` : suyo;
   }
 
   const conciliacion: Conciliacion = {

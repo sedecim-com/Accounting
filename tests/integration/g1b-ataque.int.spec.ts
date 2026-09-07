@@ -19,6 +19,7 @@ import {
 import {
   movimientoRealDeEfectivo,
   conciliarFlujoDeEfectivo,
+  ROLES_DE_EFECTIVO,
 } from '../../src/services/reporting/cash-flow-reconcile.js';
 
 // ============================================================
@@ -108,6 +109,10 @@ async function sembrarPoliticasDeFlujo(f: Fixture, valores: Record<string, strin
     ['flujo_efectivo_metodo', 'indirecto', 'Por qué método se construye el estado de flujos'],
     ['flujo_efectivo_cuentas_de_efectivo', 'rol', 'Qué cuentas son efectivo y equivalentes'],
     ['flujo_efectivo_descuadre', 'avisar', 'Qué hacer cuando el estado no amarra con el efectivo'],
+    // La CUARTA, de T13: son dos preguntas distintas. El descuadre pregunta qué
+    // hacer cuando el estado NO ATA; ésta, qué hacer cuando una cuenta se movió
+    // y no cayó en ninguna sección — que deja el estado atando y una sección mal.
+    ['flujo_efectivo_sin_clasificar', 'avisar', 'Qué hacer con una cuenta que se movió sin caer en ninguna sección'],
   ];
   for (const [key, defecto, pregunta] of filas) {
     const resuelto = valores[key];
@@ -1035,4 +1040,230 @@ describe('los bordes del periodo', () => {
     expect(e.net_cash_flow).toBe('4500.0000');
     expect(residuo(e.net_cash_flow, real.variacion)).toBe('0.0000');
   });
+});
+
+
+// ============================================================
+// 13 · EL INSTRUMENTO QUE AFIRMA MÁS DE LO QUE MIDE (T13)
+//
+// La autocomprobación decía «Every account that moved was classified into a
+// section» mirando la SUMA de la sección sin clasificar. Una suma en cero no
+// dice que la lista esté vacía: dos cuentas importadas sin `fs_category`, una
+// de +5 000 y otra de −5 000, la dejan en cero.
+//
+// Lo delicado es qué queda en pie. El NETO sigue atando contra el efectivo —la
+// identidad de la partida doble no depende de que el motor sepa clasificar—, y
+// negarlo sería el error simétrico: inventar un descuadre que el banco
+// desmiente. Lo que NO queda en pie es la frase, ni los tres subtotales: los
+// 5 000 del equipo eran inversión y los 5 000 del crédito, financiamiento, y
+// las dos secciones salen en cero.
+//
+// Y la política que el despacho puso en «bloquear» no bloqueaba, porque
+// preguntaba por la misma suma. Una política que no hace lo que dice es peor
+// que no tenerla: quien la eligió cree que hay un guardia.
+// ============================================================
+
+/**
+ * Julio con DOS cuentas importadas sin `fs_category`, de +5 000 y −5 000.
+ *
+ * Las dos tocan EFECTIVO —no se mueven una contra otra—, que es lo que hace la
+ * prueba dura: cada una debía caer en una sección distinta (inversión la
+ * primera, financiamiento la segunda), sus efectos sobre el efectivo se
+ * cancelan, y el neto del estado queda exacto mientras las dos secciones que
+ * las esperaban salen en cero.
+ */
+async function julioConDosSinClasificar(f: Fixture) {
+  await julioConMovimiento(f); // efectivo real +4 500
+  const equipo = await cuenta(f, '1295', 'Equipo importado', 'asset', 'debit', null, null);
+  const credito = await cuenta(f, '2295', 'Crédito importado', 'liability', 'credit', null, null);
+  await asiento(f, 7, 'Compra de equipo en efectivo', equipo, f.cuentas['1110'], '5000.0000');
+  await asiento(f, 7, 'Disposición del crédito', f.cuentas['1110'], credito, '5000.0000');
+  return { equipo, credito };
+}
+
+describe('una cuenta sin clasificar que NO se compensa', () => {
+  it('«bloquear» nombra el OTRO daño: aquí el hueco llega al neto', async () => {
+    // El caso compensado y éste tienen daños DISTINTOS y el mensaje tiene que
+    // decir cuál es. Cuando los importes se cancelan, el neto ata y lo roto son
+    // las secciones; cuando no, el hueco llega al neto y el estado no puede
+    // cuadrar contra el efectivo. Decir «no puede cuadrar» en el primer caso
+    // sería inventar un descuadre que el banco desmiente en dos minutos.
+    const f = await crearInquilino('T13 sin compensar bloquear');
+    enterTenant(f.tenantId);
+    await sembrarPoliticasDeFlujo(f, { flujo_efectivo_sin_clasificar: 'bloquear' });
+    await julioConMovimiento(f);
+    const equipo = await cuenta(f, '1296', 'Equipo sin sección', 'asset', 'debit', null, null);
+    await asiento(f, 7, 'Compra sin clasificar', equipo, f.cuentas['1110'], '5000.0000');
+
+    let error: unknown;
+    try {
+      await getCashFlowStatement(f.entityId, JULIO);
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeDefined();
+    const mensaje = String((error as Error).message);
+    expect(mensaje).toContain('1296');
+    expect(mensaje, 'sin compensación el hueco llega al NETO').toContain('no puede cuadrar');
+    expect(mensaje).not.toContain('se puede leer como sano');
+  }, 60_000);
+});
+
+describe('dos cuentas sin clasificar que se compensan', () => {
+  it('el neto SIGUE atando, y el estado deja de afirmar que clasificó lo que no clasificó', async () => {
+    const f = await crearInquilino('T13 compensadas avisar');
+    enterTenant(f.tenantId);
+    await sembrarPoliticasDeFlujo(f);
+    await julioConDosSinClasificar(f);
+
+    const e = await getCashFlowStatement(f.entityId, JULIO);
+    const real = await movimientoRealDeEfectivo(f.entityId, JULIO);
+
+    // LO QUE SIGUE SIENDO CIERTO. El efectivo se movió 4 500 y el estado
+    // publica 4 500: el amarre contra el banco no tiene nada que reprochar.
+    expect(real.variacion).toBe('4500.0000');
+    expect(e.net_cash_flow).toBe('4500.0000');
+    expect(residuo(e.net_cash_flow, real.variacion)).toBe('0.0000');
+    expect(e.self_check?.ties).toBe(true);
+    expect(e.self_check?.unclassified_total).toBe('0.0000');
+
+    // LO QUE NO ERA CIERTO Y SE AFIRMABA. Dos cuentas se movieron sin sección.
+    expect(e.self_check?.all_classified).toBe(false);
+    expect(e.unclassified.lines.map((l) => l.code)).toEqual(['1295', '2295']);
+    expect(e.self_check?.note).not.toContain('Every account that moved was classified');
+    expect(e.self_check?.note).toContain('the net still ties to cash');
+    expect(e.self_check?.note).toContain('1295');
+    expect(e.self_check?.note).toContain('2295');
+
+    // Y EL DAÑO QUE LA SUMA ESCONDÍA: las dos secciones que esperaban a esas
+    // cuentas salen en cero. Ésta es la cifra que el lector firma.
+    expect(e.investing_activities.total).toBe('0.0000');
+    expect(e.financing_activities.total).toBe('0.0000');
+  });
+
+  it('y la política del DESCUADRE no bloquea esto, porque el estado sí ata', async () => {
+    // EL OTRO LADO DE LA MISMA MONEDA, y la razón de que la ficha sea nueva.
+    // Un despacho que contestó «bloquear» a «¿qué hago cuando el estado no ata
+    // contra el efectivo?» NO contestó «¿qué hago cuando una cuenta se mueve
+    // sin caer en ninguna sección?». Aplicarle la primera respuesta a la
+    // segunda pregunta es ponerle en la boca algo que no dijo — y además
+    // rehusar un estado que, por los propios términos de esa opción, ata.
+    const f = await crearInquilino('T13 compensadas sólo descuadre');
+    enterTenant(f.tenantId);
+    await sembrarPoliticasDeFlujo(f, { flujo_efectivo_descuadre: 'bloquear' });
+    await julioConDosSinClasificar(f);
+
+    const estado = await getCashFlowStatement(f.entityId, JULIO);
+    expect(estado, 'el estado se emite: ata contra el efectivo').toBeDefined();
+    // Pero NO se calla: la autocomprobación lo dice, que es lo que T13 arregla.
+    expect(estado.self_check?.all_classified).toBe(false);
+    expect(estado.self_check?.ties).toBe(true);
+  }, 60_000);
+
+  it('«bloquear» BLOQUEA: la política que el despacho eligió hace lo que dice', async () => {
+    const f = await crearInquilino('T13 compensadas bloquear');
+    enterTenant(f.tenantId);
+    // LA POLÍTICA QUE GOBIERNA ESTO ES LA SUYA. Aquí se sembraba
+    // `flujo_efectivo_descuadre`, cuya ficha pregunta qué hacer cuando el
+    // estado NO ATA contra el efectivo y cuya opción se titula «refuse until
+    // it ties». Este estado SÍ ata —los importes se compensan—, así que
+    // rehusarlo con esa política sería rehusar por una condición que su propia
+    // etiqueta declara satisfecha: el despacho habría contestado una pregunta
+    // y se le habría aplicado otra. La pregunta nueva tiene ficha propia.
+    await sembrarPoliticasDeFlujo(f, { flujo_efectivo_sin_clasificar: 'bloquear' });
+    await julioConDosSinClasificar(f);
+
+    // Antes de T13 esto DEVOLVÍA un estado: el guardia preguntaba por la suma,
+    // la suma era cero, y el documento salía firmado bajo una política que
+    // había pedido no emitirlo.
+    let error: unknown;
+    try {
+      await getCashFlowStatement(f.entityId, JULIO);
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeDefined();
+    const mensaje = String((error as Error).message);
+    expect(mensaje).toContain('bloquear');
+    expect(mensaje, 'el mensaje nombra la política que de verdad lo bloqueó').toContain(
+      'flujo_efectivo_sin_clasificar'
+    );
+    expect(mensaje).toContain('1295');
+    expect(mensaje).toContain('2295');
+    // Y el motivo que da es el correcto: no dice «no puede cuadrar» —el neto
+    // cuadra—, dice que las tres secciones no se sostienen.
+    expect(mensaje).toContain('el neto ata contra el efectivo');
+    expect(mensaje).not.toContain('no puede cuadrar');
+  });
+
+  it('con una fs_category en cada una, el estado se emite y las secciones aparecen', async () => {
+    // La otra mitad de la afirmación: el guardia bloquea por una razón que se
+    // puede quitar, y quitarla devuelve el documento CON sus secciones.
+    const f = await crearInquilino('T13 compensadas clasificadas');
+    enterTenant(f.tenantId);
+    await sembrarPoliticasDeFlujo(f, { flujo_efectivo_descuadre: 'bloquear' });
+    const { equipo, credito } = await julioConDosSinClasificar(f);
+    await query(`UPDATE accounts SET fs_category = 'non_current_assets' WHERE id = $1`, [equipo]);
+    await query(`UPDATE accounts SET fs_category = 'long_term_liabilities' WHERE id = $1`, [credito]);
+
+    const e = await getCashFlowStatement(f.entityId, JULIO);
+    expect(e.self_check?.all_classified).toBe(true);
+    expect(e.self_check?.ties).toBe(true);
+    expect(e.investing_activities.total).toBe('-5000.0000');
+    expect(e.financing_activities.total).toBe('5000.0000');
+    // El neto no se movió: era exacto antes y sigue siéndolo. Lo que cambió es
+    // que ahora las tres secciones dicen la verdad.
+    expect(e.net_cash_flow).toBe('4500.0000');
+  });
+});
+
+// ============================================================
+// 14 · EL PUNTO ÚNICO DE CRECIMIENTO, MEDIDO SOBRE LA LISTA
+//
+// `ROLES_DE_EFECTIVO` se declara «el conjunto crece aquí y en ningún otro
+// sitio» (cash-flow-reconcile.ts:39-47) mientras `cash-flow-service` escribía
+// `ar.role = 'banco'` a mano. Hoy la lista tiene un elemento y las dos
+// consultas coinciden por casualidad; el día que la taxonomía separe caja de
+// bancos, el AMARRE vería la cuenta nueva y el ESTADO no — dos definiciones de
+// «efectivo» para el mismo periodo, que es el residuo inventado que este par
+// de módulos existe para no producir.
+//
+// La prueba recorre LA LISTA en vez de nombrar un rol: así crece sola el día
+// que la lista crezca, que es exactamente el día en que hay que notarlo.
+// ============================================================
+
+describe('los dos resolutores crecen con ROLES_DE_EFECTIVO', () => {
+  it.each([...ROLES_DE_EFECTIVO])(
+    'un rol «%s» apuntado FUERA del árbol de 1110 lo ven el estado y el amarre',
+    async (rol) => {
+      const f = await crearInquilino(`T13 rol ${rol}`);
+      enterTenant(f.tenantId);
+      await sembrarPoliticasDeFlujo(f);
+      await julioConMovimiento(f);
+
+      // Una cuenta de efectivo que NO cuelga de 1110: sólo el rol la nombra.
+      const fuera = await cuenta(
+        f, '1190', `Efectivo por rol ${rol}`, 'asset', 'debit', 'current_asset', 'current_assets'
+      );
+      await query(
+        `INSERT INTO account_roles (id, tenant_id, entity_id, role, account_id, qualifier)
+         VALUES ($1,$2,$3,$4,$5,'t13')`,
+        [uuidv4(), f.tenantId, f.entityId, rol, fuera]
+      );
+      await asiento(f, 7, 'Cobro fuera del árbol', fuera, f.cuentas['4100'], '9000.0000');
+
+      const e = await getCashFlowStatement(f.entityId, JULIO);
+      const real = await movimientoRealDeEfectivo(f.entityId, JULIO);
+
+      // Las dos definiciones de «efectivo», idénticas — y las dos incluyen la
+      // cuenta que sólo el rol nombra.
+      expect(e.cash_accounts.map((c) => c.id).sort()).toEqual(
+        real.cuentas.map((c) => c.account_id).sort()
+      );
+      expect(e.cash_accounts.map((c) => c.id)).toContain(fuera);
+      expect(real.variacion).toBe('13500.0000');
+      expect(e.net_cash_flow).toBe('13500.0000');
+      expect(residuo(e.net_cash_flow, real.variacion)).toBe('0.0000');
+    }
+  );
 });
