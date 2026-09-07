@@ -36,7 +36,7 @@ Veintiún tramos (I0–I20; epic [#141](https://github.com/sedecim-com/Accountin
 
 ## Lo que decide el dueño
 
-Ya decididas: todo al inglés de origen, incluidos comentarios, commits, documentación, informes fechados, vocabulario persistido, contratos publicados y migraciones; toda la experiencia de usuario —la ayuda del CLI incluida— se ajusta al idioma del usuario con el español primero; los términos de dominio se traducen y sólo los nombres propios se quedan. Quedan: el alcance del lint desde el día uno, y cuál es el tercer idioma.
+Ya decididas: todo al inglés de origen, incluidos comentarios, commits, documentación, informes fechados, vocabulario persistido, contratos publicados y migraciones; toda la experiencia de usuario —la ayuda del CLI incluida— se ajusta al idioma del usuario con el español primero; los términos de dominio se traducen y sólo los nombres propios se quedan. Y sólo dos idiomas por ahora, `es-MX` y `en-US`. Queda: el alcance del lint desde el día uno.
 
 ## Para seguir
 
