@@ -60,8 +60,13 @@ describe('E1b · el predicado de la hija deja de pagarse por fila', () => {
     );
     const texto = plan.rows.map((r) => r['QUERY PLAN']).join('\n');
 
-    console.log('PLAN DIRECTO:\n' + texto + '\n' +
-      `\nE1b · ${sembrado.asientos} asientos / ${sembrado.lineas} líneas sembradas en ${sembrado.ms} ms\n` +
+    // LA CIFRA ES EL PRODUCTO DE ESTA PRUEBA, no un resto de depuración.
+    // Una prueba de rendimiento que no publica lo que midió obliga a
+    // reproducirla para saber qué dijo. Lleva prefijo por la misma razón que
+    // `[ataque N]` en g3-ataque: para que se lea como evidencia y no como un
+    // console.log olvidado — que es justo lo que el triaje automático supone.
+    console.log('[E1b] PLAN DIRECTO:\n' + texto + '\n' +
+      `\n[E1b] ${sembrado.asientos} asientos / ${sembrado.lineas} líneas sembradas en ${sembrado.ms} ms\n` +
         `      subconsulta por fila: ${viejo.ms.toFixed(0)} ms\n` +
         `      predicado directo   : ${directo.ms.toFixed(0)} ms\n` +
         `      factor              : ${(viejo.ms / directo.ms).toFixed(2)}×`
