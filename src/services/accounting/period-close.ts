@@ -4,10 +4,28 @@ import { getPolicy } from '../policy/policy-service.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { createJournalEntry, attestEntryAsync, reverseWithinTransaction } from './posting.js';
 import { runLedgerChecks } from './ledger-checks.js';
+import { checkMappingCoverageDetallada } from './account-service.js';
 import { AccountingError, NotFoundError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 import { FiscalPeriodStatus } from '../../types/index.js';
 import type { FiscalPeriod, JournalEntry, JournalEntryType } from '../../types/index.js';
+
+/**
+ * EL ORIGEN QUE A LOS ASIENTOS DE CIERRE LES FALTABA.
+ *
+ * Nacían con `source_type` NULO, que en este libro significa exactamente una
+ * cosa: «alguien redactó esta póliza a mano». No es el caso — el contenido lo
+ * calcula el barrido a partir de los saldos y nadie lo elige— y la
+ * consecuencia era que el maker-checker (`autorizarPosteo`, posting.ts) los
+ * tomaría por manuales y bloquearía el cierre de ejercicio en cuanto un
+ * despacho pusiera `segregacion_de_funciones` en 'exigir'.
+ *
+ * Se marca el origen en vez de eximirlos por `entry_type`, porque
+ * `entry_type` viaja en el cuerpo de `POST /v1/journal-entries` (el enum
+ * admite 'closing') y eximir por él devolvería la misma bandera JSON que este
+ * tramo cierra. `source_type` sólo lo pone el motor.
+ */
+const ORIGEN_CIERRE = 'period_close';
 
 // ============================================================
 // EL CHECKLIST DEL CIERRE — casillas con NOMBRE ESTABLE
@@ -34,6 +52,7 @@ export const CLOSE_CHECK_CODES = [
   'ledger-integrity',
   'rep-parked',
   'rep-missing',
+  'sat-agrupador-missing',
 ] as const;
 export type CloseCheckCode = (typeof CLOSE_CHECK_CODES)[number];
 
@@ -54,6 +73,7 @@ export const CLOSE_CHECK_ITEMS: Readonly<Record<CloseCheckCode, string>> = {
   'ledger-integrity': 'Ledger passes its blocking checks',
   'rep-parked': 'Parked payment receipts (REP) resolved',
   'rep-missing': 'Payments in period have their REP',
+  'sat-agrupador-missing': 'Accounts with movement have their SAT grouping code',
 };
 
 export type CloseCheckSeverity = 'blocking' | 'warning';
@@ -69,6 +89,20 @@ export type CloseCheckSeverity = 'blocking' | 'warning';
  */
 export function severidadDeLineaSinPartida(valorDelPanel: string): CloseCheckSeverity {
   return valorDelPanel === 'bloquear_cierre' ? 'blocking' : 'warning';
+}
+
+/**
+ * Qué peso tiene, al cierre, una cuenta movida sin código agrupador del SAT.
+ *
+ * SOLO el literal 'bloquear' bloquea. 'avisar' —el defecto del panel— y
+ * cualquier valor que no sea ninguno de los dos avisan, por el mismo criterio
+ * defensivo de rep_faltante_* y de la línea de banco sin partida: un valor raro
+ * del panel no puede congelar el cierre de un despacho. Y el defecto avisa
+ * porque cerrar el mes y presentarlo ante el SAT son dos plazos distintos: la
+ * cuenta sin mapear rompe el segundo, no el primero.
+ */
+export function severidadDelAgrupadorFaltante(valorDelPanel: string): CloseCheckSeverity {
+  return valorDelPanel === 'bloquear' ? 'blocking' : 'warning';
 }
 
 export interface PeriodCloseChecklistItem {
@@ -93,6 +127,50 @@ export interface PeriodCloseStatus {
   checklist: PeriodCloseChecklistItem[];
 }
 
+/** Cuántas cuentas se nombran en el detalle antes de resumir con un «+N». */
+const AGRUPADORES_NOMBRADOS = 5;
+
+/**
+ * F07a · La casilla del agrupador, aparte y sin base de datos.
+ *
+ * Se separa del detector por lo mismo que `severidadDeLineaSinPartida`: lo que
+ * hay que poder probar renglón por renglón es el JUICIO —cuándo está completa,
+ * con qué peso y qué dice— y no la consulta que le da de comer.
+ *
+ * La distinción que esta función existe para sostener: `poblacion === 0` NO es
+ * cobertura completa. Una entidad sin un solo movimiento posteado no tiene sus
+ * cuentas bien mapeadas, tiene cero cuentas que mirar, y firmar «completo» ahí
+ * es el verde por vacuidad que las casillas de banco y depreciación ya
+ * confesaron. Revisado-y-bien y nada-que-revisar no son lo mismo.
+ */
+export function casillaDelAgrupador(
+  cobertura: { poblacion: number; huecos: Array<{ code: string; name: string }> },
+  valorDelPanel: string,
+  finDelPeriodo: string
+): PeriodCloseChecklistItem {
+  const huecos = cobertura.huecos;
+  const nombradas =
+    huecos
+      .slice(0, AGRUPADORES_NOMBRADOS)
+      .map((h) => `${h.code} ${h.name}`)
+      .join('; ') +
+    (huecos.length > AGRUPADORES_NOMBRADOS ? ` (+${huecos.length - AGRUPADORES_NOMBRADOS})` : '');
+  return {
+    codigo: 'sat-agrupador-missing',
+    item: CLOSE_CHECK_ITEMS['sat-agrupador-missing'],
+    is_complete: cobertura.poblacion > 0 && huecos.length === 0,
+    severity: severidadDelAgrupadorFaltante(valorDelPanel),
+    details:
+      cobertura.poblacion === 0
+        ? `0 cuentas con movimiento posteado hasta ${finDelPeriodo}: no se pudo comprobar`
+        : huecos.length > 0
+          ? // Las cuentas POR SU NOMBRE: un conteo manda a buscar, una lista
+            // manda a mapear. El corte en cinco es el de ledger-integrity.
+            `${huecos.length} de ${cobertura.poblacion} cuenta(s) con movimiento sin agrupador: ${nombradas}`
+          : undefined,
+  };
+}
+
 export async function getPeriodCloseStatus(
   periodId: string,
   entityId: string,
@@ -114,8 +192,8 @@ export async function getPeriodCloseStatus(
   // por pertenencia, como toda la serie TEN. La misma consulta resuelve el
   // inquilino, que varias casillas leen del panel de políticas (línea de
   // banco sin explicar, REP) y todas comparten.
-  const dueno = await q<{ tenant_id: string }>(
-    `SELECT le.tenant_id
+  const dueno = await q<{ tenant_id: string; end_date: string }>(
+    `SELECT le.tenant_id, to_char(fp.end_date, 'YYYY-MM-DD') AS end_date
        FROM fiscal_periods fp
        JOIN legal_entities le ON le.id = fp.entity_id
       WHERE fp.id = $2 AND fp.entity_id = $1`,
@@ -125,6 +203,9 @@ export async function getPeriodCloseStatus(
     throw new NotFoundError('Fiscal period', periodId);
   }
   const ctxPanel = { tenantId: dueno.rows[0].tenant_id, entityId };
+  // El corte del periodo, ya en texto ISO: la casilla del agrupador lo usa
+  // como fecha de acumulación y varios mensajes lo citan.
+  const finDelPeriodo = dueno.rows[0].end_date;
 
   // 0. NINGÚN PERIODO ANTERIOR SIGUE SIN CERRAR.
   //
@@ -585,6 +666,54 @@ export async function getPeriodCloseStatus(
   if (pagosSinRepEmitidos > 0) {
     (polEmitido.value === 'bloquear' ? blocking_issues : warnings).push(
       `${pagosSinRepEmitidos} cobro(s) sin REP emitido: obligación fiscal propia con plazo`
+    );
+  }
+
+  // 7. F07a · EL AGRUPADOR DEL ANEXO 24 EN LAS CUENTAS QUE SE MOVIERON.
+  //
+  // La casilla que faltaba en TODAS las tarjetas. El CFF art. 28 fr. IV pide
+  // entregar el catálogo de cuentas con su código agrupador, y hasta aquí el
+  // cierre no preguntaba por él ni una vez: un mes se cerraba «limpio» y la
+  // presentación era imposible, cosa que se descubría al armar el XML.
+  //
+  // POR QUÉ AVISA Y NO BLOQUEA (por omisión). Cerrar el mes y presentarlo
+  // ante el SAT son dos plazos distintos, y una cuenta sin mapear sólo rompe
+  // el segundo: congelar los libros por un catálogo fiscal confunde dos
+  // obligaciones. La política 'agrupador_faltante_al_cierre' es la que lo
+  // decide y SÓLO el literal 'bloquear' bloquea — mismo criterio defensivo
+  // que rep_faltante_* y que severidadDeLineaSinPartida: un valor raro del
+  // panel no puede congelar el cierre de un despacho.
+  //
+  // POR QUÉ LA POBLACIÓN SE FIJA AQUÍ Y NO LA ELIGE EL PANEL. El alcance de
+  // la compuerta ('agrupador_alcance_de_la_compuerta') gobierna a `map check`,
+  // que mira el CATÁLOGO entero — ahí sí cabe preferir cubrirlo antes de que
+  // se mueva. En el cierre lo que está en juego son la BALANZA y las PÓLIZAS
+  // de ESTE periodo, y su conjunto de cuentas no es una preferencia: es un
+  // hecho de los datos. Por eso la casilla pide el alcance explícito y su
+  // prosa puede afirmar lo que afirma.
+  //
+  // Y SE ACUMULA HASTA EL CORTE, no se acota al periodo: una cuenta que se
+  // movió en enero y no en marzo sigue llevando SaldoIni en la balanza de
+  // marzo, el SAT la lee, y acotar al mes la habría dejado pasar justo en el
+  // cierre donde hace falta.
+  //
+  // Va por el POOL y no por `client`, como runLedgerChecks y por lo mismo:
+  // son lecturas de datos confirmados y dentro del cierre la fila del periodo
+  // ya está bajo FOR UPDATE.
+  const polAgrupador = await getPolicy(ctxPanel, 'agrupador_faltante_al_cierre');
+  const cobertura = await checkMappingCoverageDetallada(entityId, 'sat-agrupador', {
+    tenantId: ctxPanel.tenantId,
+    hasta: finDelPeriodo,
+    alcance: 'cuentas_con_movimientos',
+  });
+  const sinAgrupador = cobertura.huecos;
+  const casillaAgrupador = casillaDelAgrupador(cobertura, polAgrupador.value, finDelPeriodo);
+  checklist.push(casillaAgrupador);
+  if (sinAgrupador.length > 0) {
+    (casillaAgrupador.severity === 'blocking' ? blocking_issues : warnings).push(
+      `${sinAgrupador.length} cuenta(s) con movimiento no tienen código agrupador del SAT: ` +
+        `el catálogo del Anexo 24 de este periodo no se puede armar hasta mapearlas ` +
+        `(account map check --check coverage las lista)`
     );
   }
 
@@ -1259,7 +1388,7 @@ async function generateClosingEntries(
       'Year-end closing entries',
       closingLines,
       userId,
-      { autoPost: true, client }
+      { autoPost: true, client, sourceType: ORIGEN_CIERRE, sourceId: periodId }
     );
     resultado.ids.push(entry.id);
   }
@@ -1289,7 +1418,7 @@ async function generateClosingEntries(
       `Close Income Summary to ${nombreDestino}`,
       barridoResumen.lineas,
       userId,
-      { autoPost: true, client }
+      { autoPost: true, client, sourceType: ORIGEN_CIERRE, sourceId: periodId }
     );
     resultado.ids.push(entry.id);
   }

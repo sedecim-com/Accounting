@@ -1,5 +1,7 @@
 # mnemosine
 
+> Verificación de acceso (2026-09-06): este clon corresponde a la rama `instrumentos-que-mienten-segun-la-maquina` de `origin`.
+
 Un agente contable que se usa desde la terminal. Lleva contabilidad de partida
 doble sobre PostgreSQL —catálogo, pólizas, clientes y proveedores, bancos,
 periodos, reportes— con el cumplimiento fiscal mexicano (CFDI 4.0, catálogos del

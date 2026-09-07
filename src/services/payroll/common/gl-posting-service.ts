@@ -1,6 +1,8 @@
+import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import { createJournalEntry, postJournalEntry } from '../../accounting/posting.js';
 import { JournalEntryType } from '../../../types/index.js';
+import { leerRegistroDelSubsidio } from '../mx/subsidio-entregado.js';
 
 // ============================================================
 // PAYROLL → GL POSTING
@@ -18,9 +20,22 @@ async function resolveAccounts(entityId: string): Promise<Record<string, string>
   return map;
 }
 
+/**
+ * EL INQUILINO ES UN PARÁMETRO, NO UNA COLUMNA QUE SE LEE DESPUÉS.
+ *
+ * Las dos consultas de abajo buscaban por `pr.id = $1` y `pay_run_id = $1` a
+ * secas. RLS las tapaba en la API, pero el agregado del que sale la póliza
+ * —`SUM(...) FROM paychecks WHERE pay_run_id = $1`— sumaba cualquier recibo
+ * colgado de esa corrida viniera de donde viniera: un verificador de F08a lo
+ * midió metiendo un recibo de 9 000 de otro inquilino en una corrida ajena y
+ * viéndolo entrar en la póliza de nómina del vecino. La puerta de entrada ya
+ * se cerró en `calculatePaycheck`; ésta es la otra mitad, y va DENTRO del SQL
+ * porque cualquier escritor futuro de `paychecks` vuelve a abrirla si no.
+ */
 export async function postPayRunToGL(
   payRunId: string,
-  userId: string
+  userId: string,
+  tenantId: string
 ): Promise<string> {
   // Load pay run + totals
   const prResult = await query<{
@@ -47,8 +62,8 @@ export async function postPayRunToGL(
      FROM pay_runs pr
      JOIN pay_periods pp ON pp.id = pr.pay_period_id
      JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
-     WHERE pr.id = $1`,
-    [payRunId]
+     WHERE pr.id = $1 AND pr.tenant_id = $2`,
+    [payRunId, tenantId]
   );
   if (prResult.rows.length === 0) throw new Error('Pay run not found');
   const pr = prResult.rows[0];
@@ -78,8 +93,8 @@ export async function postPayRunToGL(
        COALESCE(SUM(infonavit_employer), 0) AS infonavit_er,
        COALESCE(SUM(pre_tax_deductions), 0) AS benefits_pretax,
        COALESCE(SUM(post_tax_deductions), 0) AS benefits_posttax
-     FROM paychecks WHERE pay_run_id = $1`,
-    [payRunId]
+     FROM paychecks WHERE pay_run_id = $1 AND tenant_id = $2`,
+    [payRunId, tenantId]
   );
   const b = breakdownResult.rows[0];
 
@@ -136,7 +151,43 @@ export async function postPayRunToGL(
   creditIfPresent('futa_payable', n(b.futa), 'FUTA');
   creditIfPresent('suta_payable', n(b.suta), 'SUTA');
   creditIfPresent('state_tax_payable', n(b.sit) + n(b.sdi), 'State tax + SDI');
-  creditIfPresent('isr_payable', n(b.isr), 'ISR withheld (net of subsidio)');
+  // EL ISR PUEDE SER NEGATIVO, Y ENTONCES NO ES UN ABONO QUE SE DESCARTA.
+  //
+  // `b.isr` es SUM(isr_withheld − subsidio_empleo) de la corrida: el ISR que
+  // se remite. Cuando el subsidio al empleo de la corrida supera al ISR
+  // retenido, ese importe es dinero que el patrón ENTREGÓ en efectivo a sus
+  // trabajadores, y va al DEBE. Pasaba por `creditIfPresent`, que descarta lo
+  // que no es positivo, así que la póliza quedaba descuadrada por exactamente
+  // esa cifra y la corrida entera no se podía postear — el trabajador cobraba
+  // (desde F08a) y la contabilidad se negaba a registrarlo.
+  //
+  // A qué cuenta va lo decide el despacho, no este archivo.
+  const isrDeLaCorrida = new Decimal(b.isr);
+  if (isrDeLaCorrida.greaterThan(0)) {
+    creditIfPresent('isr_payable', isrDeLaCorrida.toNumber(), 'ISR withheld (net of subsidio)');
+  } else if (isrDeLaCorrida.lessThan(0)) {
+    const entregado = isrDeLaCorrida.abs();
+    const registro = await leerRegistroDelSubsidio({ tenantId, entityId: pr.entity_id });
+    const cubeta =
+      registro.valor === 'cuenta_por_cobrar_fisco' ? 'isr_payable' : 'subsidio_empleo_expense';
+    const cuenta = accounts[cubeta];
+    if (!cuenta) {
+      throw new Error(
+        `Missing payroll_account_mapping for bucket: ${cubeta}. La corrida entregó ` +
+          `${entregado.toFixed(2)} de subsidio al empleo en efectivo y la política ` +
+          `subsidio_al_empleo_entregado_registro dice registrarlo como ${registro.valor}.`
+      );
+    }
+    lines.push({
+      account_id: cuenta,
+      debit_amount: entregado.toFixed(2),
+      credit_amount: null,
+      description:
+        registro.valor === 'cuenta_por_cobrar_fisco'
+          ? 'Subsidio al empleo entregado en efectivo (acreditable contra ISR retenido)'
+          : 'Subsidio al empleo entregado en efectivo (absorbido por el patrón)',
+    });
+  }
   creditIfPresent('imss_payable', n(b.imss_ee) + n(b.imss_er), 'IMSS EE+ER');
   creditIfPresent('infonavit_payable', n(b.infonavit_ee) + n(b.infonavit_er), 'INFONAVIT');
 
@@ -150,11 +201,22 @@ export async function postPayRunToGL(
   }
 
   // Verify debits = credits
-  const totalDebits = lines.filter((l) => l.debit_amount).reduce((a, l) => a + parseFloat(l.debit_amount!), 0);
-  const totalCredits = lines.filter((l) => l.credit_amount).reduce((a, l) => a + parseFloat(l.credit_amount!), 0);
-  const diff = Math.abs(totalDebits - totalCredits);
-  if (diff > 0.01) {
-    throw new Error(`Payroll GL entry unbalanced: debits ${totalDebits} credits ${totalCredits} diff ${diff}`);
+  // El cuadre se medía restando floats, y el mensaje lo delataba: imprimía
+  // diferencias como «96.05000000000018». La tolerancia de un centavo se queda
+  // —cada renglón se redondea a dos decimales desde importes de cuatro, y en
+  // una corrida de cien trabajadores eso puede dejar un centavo honesto— pero
+  // ahora la diferencia que se compara y la que se imprime son la misma.
+  const totalDebits = lines
+    .filter((l) => l.debit_amount)
+    .reduce((a, l) => a.plus(l.debit_amount!), new Decimal(0));
+  const totalCredits = lines
+    .filter((l) => l.credit_amount)
+    .reduce((a, l) => a.plus(l.credit_amount!), new Decimal(0));
+  const diff = totalDebits.minus(totalCredits).abs();
+  if (diff.greaterThan('0.01')) {
+    throw new Error(
+      `Payroll GL entry unbalanced: debits ${totalDebits.toFixed(2)} credits ${totalCredits.toFixed(2)} diff ${diff.toFixed(2)}`
+    );
   }
 
   const entry = await createJournalEntry(

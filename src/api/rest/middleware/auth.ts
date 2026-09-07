@@ -5,7 +5,7 @@ import { UnauthorizedError, ForbiddenError, ValidationError } from '../../../uti
 import { isAsymmetric, verifyIdpToken } from '../../../auth/oidc.js';
 import { resolveIdentity, NoAccessError } from '../../../auth/provisioning.js';
 import type { JwtPayload } from '../../../types/index.js';
-import { ROLES as CATALOGO_DE_ROLES } from '../../../auth/roles.js';
+import { ROLES as CATALOGO_DE_ROLES, hasPermission, type Permission } from '../../../auth/roles.js';
 
 // Extend Express Request
 declare global {
@@ -180,11 +180,42 @@ export function assertPermissions(
   }
 }
 
+// ============================================================
+// EL PERMISO VIAJA EN EL MANEJADOR.
+//
+// Misma técnica que la clase de riesgo (../risk.ts) y que el esquema de
+// cuerpo (./async-handler.ts), y por la misma razón: quien quiera saber
+// qué permiso exige una ruta no debería tener que leer 17 archivos ni
+// mantener una tabla al lado. El permiso está donde se aplica, y el censo
+// de la pila real lo encuentra ahí o no existe.
+//
+// La marca no cambia el comportamiento: `assertPermissions` decide igual
+// que antes. Sólo deja de ser opaca desde fuera.
+// ============================================================
+const MARCA_PERMISO = Symbol('permiso-de-ruta');
+
+type GuardaDePermiso = ((req: Request, res: Response, next: NextFunction) => void) & {
+  [MARCA_PERMISO]?: readonly string[];
+};
+
+/**
+ * Los permisos que exige un manejador, si es una guarda de permiso.
+ *
+ * Se exigen TODOS (`assertPermissions` rechaza en cuanto falta uno), con
+ * la única excepción del comodín `*`. Quien publique esto tiene que
+ * decirlo así: es una conjunción, no una lista de alternativas.
+ */
+export function permisosDeManejador(h: unknown): readonly string[] | undefined {
+  return typeof h === 'function' ? (h as GuardaDePermiso)[MARCA_PERMISO] : undefined;
+}
+
 export function requirePermission(...permissions: string[]) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+  const guarda: GuardaDePermiso = (req: Request, _res: Response, next: NextFunction): void => {
     assertPermissions(req.user, permissions);
     next();
   };
+  guarda[MARCA_PERMISO] = Object.freeze([...permissions]);
+  return guarda;
 }
 
 export function requireEntityAccess(req: Request, _res: Response, next: NextFunction): void {
@@ -300,18 +331,46 @@ export const ROLES: Record<string, readonly string[]> = Object.freeze(
   )
 );
 
-// Segregation of Duties rules
+// ============================================================
+// SEGREGACIÓN POR COMPOSICIÓN DE ROL — LA REGLA QUE NO PODÍA DISPARARSE.
+//
+// Dos defectos, y los dos hacían que la severidad ALTA no se encendiera
+// JAMÁS. Una regla de segregación que no puede dispararse es peor que no
+// tenerla: ocupa el sitio donde iría una que sí, y el informe sale limpio.
+//
+//   1. Nombraba permisos INEXISTENTES. La regla alta pedía `vendors:create`
+//      y `vendors:update`, y en el catálogo (src/auth/roles.ts) no hay ni ha
+//      habido un solo permiso `vendors:*`: el alta y la edición de proveedor
+//      las guarda `bills:create` (routes/vendors.ts:93 y :109). Ningún
+//      usuario podía tener el primer grupo, así que la conjunción era falsa
+//      para todos. Ahora el tipo es `Permission` y no `string`: un permiso
+//      que no exista en el catálogo ya no compila, que es la única forma de
+//      que esto no vuelva a pudrirse en silencio.
+//
+//   2. El comodín no casaba. `owner` es `['*']` (ROLES.owner) y el detector
+//      hacía `permissions.includes(p)` contra literales: `'*'` no es igual a
+//      `'bills:approve'`, así que el ÚNICO rol que puede hacerlo todo salía
+//      sin una sola violación. Se pregunta con `hasPermission`, que es la
+//      misma función con la que el perímetro decide si te deja pasar: si un
+//      permiso te abre la puerta, cuenta para el conflicto.
+//
+// El conflicto ALTO es el clásico de compras: quien da de alta al proveedor
+// —y con él su CLABE— no debe ser quien aprueba las facturas que se le pagan,
+// porque juntas las dos facultades bastan para desviar dinero sin cómplice.
+// ============================================================
 interface SoDRule {
   name: string;
-  conflicting_permissions: [string[], string[]];
+  conflicting_permissions: [Permission[], Permission[]];
   severity: 'high' | 'medium' | 'low';
 }
 
 const SOD_RULES: SoDRule[] = [
   {
+    // `bills:create` es el permiso que guarda POST/PATCH /v1/vendors: quien
+    // lo tiene da de alta al proveedor y sus datos bancarios.
     name: 'Vendor Setup vs Payment Approval',
     conflicting_permissions: [
-      ['vendors:create', 'vendors:update'],
+      ['bills:create'],
       ['bills:approve'],
     ],
     severity: 'high',
@@ -338,8 +397,10 @@ export function checkSoDViolations(permissions: string[]): Array<{ rule: string;
   const violations: Array<{ rule: string; severity: string }> = [];
 
   for (const rule of SOD_RULES) {
-    const hasGroup1 = rule.conflicting_permissions[0].some((p) => permissions.includes(p));
-    const hasGroup2 = rule.conflicting_permissions[1].some((p) => permissions.includes(p));
+    // `hasPermission` y no `includes`: el comodín del owner autoriza verbos,
+    // y lo que autoriza, acumula.
+    const hasGroup1 = rule.conflicting_permissions[0].some((p) => hasPermission(permissions, p));
+    const hasGroup2 = rule.conflicting_permissions[1].some((p) => hasPermission(permissions, p));
 
     if (hasGroup1 && hasGroup2) {
       violations.push({ rule: rule.name, severity: rule.severity });

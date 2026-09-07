@@ -41,7 +41,7 @@ vi.mock('../../src/services/policy/policy-service.js', () => ({
   })),
 }));
 
-import { postJournalEntry } from '../../src/services/accounting/posting.js';
+import { postJournalEntry, exigirSegregacion } from '../../src/services/accounting/posting.js';
 import { getPolicy } from '../../src/services/policy/policy-service.js';
 
 const mockGetPolicy = getPolicy as unknown as Mock;
@@ -116,5 +116,66 @@ describe('segregación de funciones en el posteo', () => {
     const cf = (arnes.actual = reglas(asientoFalso({ created_by: ID.usuario } as Partial<JournalEntry>)));
     await postJournalEntry(ID.asiento, ID.usuario);
     expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(2);
+  });
+});
+
+// ============================================================
+// EL CANDADO COMPARTIDO, PROBADO POR SÍ MISMO.
+//
+// `exigirSegregacion` es la pieza que G3 extrajo para que el control de cuatro
+// ojos dejara de tener cuatro puertas: posting y batch-service preguntan a la
+// MISMA función en vez de copiar la regla. Llegó exportada y sin una sola
+// prueba directa —la cobertura de posting.ts la acusó, 96 % de funciones—, y un
+// candado sin prueba propia es el que se afloja sin que nadie lo note: basta
+// que alguien invierta una comparación para que quien prepara pueda aplicar.
+//
+// Se ejercen sus CUATRO salidas, porque cada una dice una cosa distinta:
+// no aplica, prohíbe, avisa, y permite.
+// ============================================================
+describe('exigirSegregacion: las cuatro salidas del candado', () => {
+  // El segundo usuario va literal y NO en el fixture compartido: es el único
+  // sitio que necesita DOS pares de ojos, y `ID` lo usan veinte suites que no.
+  const OTRO_USUARIO = '55555555-5555-4555-8555-555555555555';
+  const INQUILINO = '66666666-6666-4666-8666-666666666666';
+  const args = {
+    tenantId: INQUILINO,
+    entityId: ID.entidad,
+    creador: ID.usuario,
+    ejecutor: ID.usuario,
+    referencia: 'JE-2026-00007',
+  };
+
+  it('si quien aplica NO es quien preparó, no se pregunta siquiera a la política', async () => {
+    mockGetPolicy.mockClear();
+    politicaValor.actual = 'exigir';
+    await expect(exigirSegregacion({ ...args, ejecutor: OTRO_USUARIO })).resolves.toBeNull();
+    // Cuatro ojos distintos ya cumplen la regla: consultar la política ahí sería
+    // trabajo y, peor, una vía para que un fallo de lectura bloqueara lo legítimo.
+    expect(mockGetPolicy).not.toHaveBeenCalled();
+  });
+
+  it('con la política en «exigir», el mismo par de ojos NO postea', async () => {
+    politicaValor.actual = 'exigir';
+    await expect(exigirSegregacion(args)).rejects.toMatchObject({
+      code: 'SOD_QUIEN_CREA_NO_POSTEA',
+    });
+  });
+
+  it('el rechazo nombra el documento y dónde se cambia la regla', async () => {
+    // Una negativa que no dice qué hacer se acaba rodeando; ésta manda al panel.
+    politicaValor.actual = 'exigir';
+    await expect(exigirSegregacion(args)).rejects.toThrow(/JE-2026-00007/);
+    await expect(exigirSegregacion(args)).rejects.toThrow(/segregacion_de_funciones/);
+  });
+
+  it('con la política en «alertar», deja pasar y DEVUELVE el aviso', async () => {
+    politicaValor.actual = 'alertar';
+    const aviso = await exigirSegregacion(args);
+    expect(aviso).toMatch(/quien aplica es quien lo preparó/);
+  });
+
+  it('con la política apagada, no prohíbe ni avisa', async () => {
+    politicaValor.actual = 'off';
+    await expect(exigirSegregacion(args)).resolves.toBeNull();
   });
 });

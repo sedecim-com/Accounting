@@ -14,6 +14,7 @@ import {
   UPDATABLE_FIELDS,
 } from '../../../services/accounting/account-service.js';
 import type { PaginationMeta } from '../../../types/index.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 // ============================================================
 // /v1/accounts — HTTP surface over the chart-of-accounts service.
@@ -111,6 +112,7 @@ router.get(
 // POST /v1/accounts
 router.post(
   '/',
+  declararRiesgoRuta({ riesgo: 'escritura', escribe: 'accounts (alta del catalogo)' }),
   requirePermission('accounts:create'),
   requireEntityAccess,
   validateBody(createAccountSchema),
@@ -123,6 +125,7 @@ router.post(
 // PATCH /v1/accounts/:id
 router.patch(
   '/:id',
+  declararRiesgoRuta({ riesgo: 'escritura', escribe: 'accounts (campos editables)' }),
   requirePermission('accounts:update'),
   validateBody(updateAccountSchema),
   asyncHandler(async (req: Request, res: Response) => {
@@ -135,8 +138,11 @@ router.patch(
 );
 
 // DELETE /v1/accounts/:id — soft delete; refuses when the account has history.
+// Baja LOGICA, no borrado: por eso es escritura y no irreversible. Mismo
+// criterio que `mnemosine customer archive`, que tambien mueve is_active.
 router.delete(
   '/:id',
+  declararRiesgoRuta({ riesgo: 'escritura', escribe: 'accounts.is_active — baja logica reversible; se niega si la cuenta tiene historia' }),
   requirePermission('accounts:delete'),
   asyncHandler(async (req: Request, res: Response) => {
     await deactivateAccount(req.params.id, req.user!.user_id);

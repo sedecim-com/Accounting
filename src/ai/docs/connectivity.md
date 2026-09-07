@@ -1,10 +1,14 @@
 # Connectivity: database hosting and model providers
 
 ## Where the database lives
-`DATABASE_URL` points at any Postgres 14+. `DATABASE_PROVIDER` selects a
-preset that fills in the right TLS defaults and known caveats — `doctor`
-checks the connection against it. Presets: `local`, `self-hosted`, `neon`,
-`supabase`, `rds`, `cloudsql`, `crunchy`.
+`DATABASE_URL` points at any Postgres 14+. `DATABASE_PROVIDER` names a preset,
+and the preset CONFIGURES NOTHING: its declared TLS mode and CA are never read
+by the connection. Its only effect is documentary — `doctor` prints the name
+and surfaces the preset's first caveat. TLS still comes entirely from
+`DATABASE_SSL_MODE` (or the host default below), and RDS / Cloud SQL still need
+`DATABASE_SSL_CA` set by hand. A name that is not on the list is ignored in
+silence. Presets: `local`, `self-hosted`, `neon`, `supabase`, `rds`, `cloudsql`,
+`crunchy`.
 
 Provider caveats you should surface when relevant:
 - **neon** — the DEFAULT role has BYPASSRLS: tenant isolation is off until the
@@ -55,15 +59,26 @@ output when a connection problem is unclear.
   `default_provider` in config > `anthropic`.
 - Config files: `./mnemosine.config.json` (project) or
   `~/.mnemosine/config.json` (user). API keys NEVER go in the config — it
-  only names the env var (`api_key_env`). An invalid config fails loudly and
-  is quarantined, never silently replaced by defaults.
-- Inside chat, `/provider <name>` switches models mid-session.
+  only names the env var (`api_key_env`), or a command that prints the
+  credential (`api_key_cmd`, tried when the env var is empty). An invalid
+  config fails loudly and is quarantined, never silently replaced by
+  defaults.
+- Inside chat, `/provider <name>` switches models by opening a NEW
+  conversation: history is not portable across wire formats, so the current
+  context is dropped.
 - `hermes-agent` and `openclaw` run their OWN tools server-side: on those
   channels you have NO accounting tools — say so instead of citing figures.
-- A profile may declare a `failover` chain (ordered list of other profiles)
-  tried automatically on eligible errors (overload, timeouts).
+- A profile may declare a `failover` chain (ordered list of other profiles),
+  walked automatically on the eligible categories — auth, rate_limit, server,
+  timeout, billing — and NEVER on a refusal, a context overflow, a caller
+  abort or an unclassified error. It covers session setup and the FIRST turn
+  only: once a session has completed one turn it stays on that provider for
+  the rest of its life.
 
 ## Encryption at rest
-`ENCRYPTION_KEY` (32-byte hex) encrypts stored secrets (SAT credentials,
-external API keys). Rotating it invalidates already-encrypted data — that is
-a deliberate human decision, never suggest it casually.
+`ENCRYPTION_KEY` (32-byte hex) encrypts secrets stored in OUR database:
+external integration credentials, bank account numbers / CLABE / routing, and
+employee bank and national-id data. The SAT e.firma is NOT one of them — it
+lives in the secret vault (`VAULT_BACKEND`, with its own key), and this key
+would not open it. Rotating `ENCRYPTION_KEY` invalidates already-encrypted
+data — that is a deliberate human decision, never suggest it casually.

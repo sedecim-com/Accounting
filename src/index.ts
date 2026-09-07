@@ -25,24 +25,12 @@ import { formatearError } from './api/graphql/errores.js';
 import { typeDefs } from './api/graphql/schemas/schema.js';
 import { resolvers } from './api/graphql/resolvers/index.js';
 
-// Route imports
-import accountsRouter from './api/rest/routes/accounts.js';
-import journalEntriesRouter from './api/rest/routes/journal-entries.js';
-import invoicesRouter from './api/rest/routes/invoices.js';
-import billsRouter from './api/rest/routes/bills.js';
-import reportsRouter from './api/rest/routes/reports.js';
-import bankReconciliationRouter from './api/rest/routes/bank-reconciliation.js';
-import webhooksRouter from './api/rest/routes/webhooks.js';
-import vendorsRouter from './api/rest/routes/vendors.js';
-import customersRouter from './api/rest/routes/customers.js';
-import fiscalPeriodsRouter from './api/rest/routes/fiscal-periods.js';
-import xmlIngestionRouter from './api/rest/routes/xml-ingestion.js';
-import blockchainRouter from './api/rest/routes/blockchain.js';
+// Route imports. La tabla del prefijo autenticado vive en montajes.ts para
+// que la prueba del censo de riesgo monte EXACTAMENTE lo que monta esto.
+import { MONTAJES_V1 } from './api/rest/montajes.js';
+import { auditarRiesgoDeRutas } from './api/rest/risk.js';
 import publicVerificationRouter from './api/rest/routes/public-verification.js';
 import aiWebhooksRouter from './api/rest/routes/ai-webhooks.js';
-import integrationsRouter from './api/rest/routes/integrations.js';
-import payrollRouter from './api/rest/routes/payroll.js';
-import aiRouter from './api/rest/routes/ai.js';
 import './services/integrations/index.js'; // Register all adapters
 import './services/payroll/tax-engine/register-all.js'; // Register all tax calculators
 
@@ -219,24 +207,11 @@ async function bootstrap() {
   app.use(apiPrefix, rateLimiter);
   app.use(apiPrefix, auditLogMiddleware);
 
-  // Mount routes
-  app.use(`${apiPrefix}/accounts`, accountsRouter);
-  app.use(`${apiPrefix}/journal-entries`, journalEntriesRouter);
-  app.use(`${apiPrefix}/invoices`, invoicesRouter);
-  app.use(`${apiPrefix}/bills`, billsRouter);
-  app.use(`${apiPrefix}/reports`, reportsRouter);
-  app.use(`${apiPrefix}/bank-accounts`, bankReconciliationRouter);
-  app.use(`${apiPrefix}/webhooks`, webhooksRouter);
-  app.use(`${apiPrefix}/vendors`, vendorsRouter);
-  app.use(`${apiPrefix}/customers`, customersRouter);
-  app.use(`${apiPrefix}/fiscal-periods`, fiscalPeriodsRouter);
-  app.use(`${apiPrefix}/xml`, xmlIngestionRouter);
-  app.use(apiPrefix, xmlIngestionRouter);
-  app.use(`${apiPrefix}/admin/blockchain`, blockchainRouter);
-  app.use(`${apiPrefix}/admin`, blockchainRouter);
-  app.use(`${apiPrefix}/admin/integrations`, integrationsRouter);
-  app.use(`${apiPrefix}/payroll`, payrollRouter);
-  app.use(`${apiPrefix}/ai`, aiRouter);
+  // Mount routes — el orden es el de la tabla, y es significativo: dos
+  // routers se montan dos veces cada uno y Express resuelve por orden.
+  for (const [sufijo, router] of MONTAJES_V1) {
+    app.use(`${apiPrefix}${sufijo}`, router);
+  }
 
   // ============================================================
   // GraphQL API — DISABLED BY DEFAULT
@@ -336,6 +311,27 @@ async function bootstrap() {
         'user agent (the ledger trail written by the services is unaffected).'
     );
   }
+
+  // ============================================================
+  // CENSO DE RIESGO DE RUTAS — la compuerta que hace que la API declare.
+  //
+  // El gemelo de esto en el CLI no hace falta llamarlo: `declareRisk` lanza
+  // al REGISTRAR el comando, y registrar los comandos es construir el
+  // programa. Montar un router de Express, en cambio, no comprueba nada, así
+  // que aquí el equivalente se llama a mano — después de montar TODO
+  // (incluidos /public/v1 y los webhooks de IA, que no van en la tabla) y
+  // antes de escuchar.
+  //
+  // Si una ruta POST, PUT, PATCH o DELETE no declaró su clase, esto lanza y
+  // bootstrap() sale con código 1. No avisa: rompe. Un censo que sólo avisa
+  // es un censo que nadie mira, y la API llegó a postear al mayor saltándose
+  // el control de cuatro ojos precisamente porque nadie miraba.
+  // ============================================================
+  const censo = auditarRiesgoDeRutas(app);
+  logger.info('censo_riesgo_rutas', {
+    total: censo.rutas.length,
+    ...censo.porClase,
+  });
 
   // ============================================================
   // Error Handler (must be last)

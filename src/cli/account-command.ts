@@ -14,7 +14,7 @@ import {
   setAccountMapping,
   listAccountMappings,
   importAccountMappings,
-  checkMappingCoverage,
+  checkMappingCoverageDetallada,
   resolverEsquema,
   MAPPING_SCHEMES,
   ACCOUNT_TYPES,
@@ -23,6 +23,11 @@ import {
   type NormalBalance,
   type GovernanceFlags,
 } from '../services/accounting/account-service.js';
+import {
+  prepararValidacionAgrupador,
+  exigirAgrupadorValido,
+  type ResultadoValidacionAgrupador,
+} from '../services/accounting/sat-agrupadores.js';
 import {
   listAccountRoles,
   setAccountRole,
@@ -203,12 +208,19 @@ Examples:
   # Load it for real, replay-safe: the same key and file return the first result.
   mnemosine account map import ./agrupador.csv --scheme sat-agrupador --idempotency-key agrupador-2026
 `,
+  // SIN --level, y no es un detalle de estilo: F07a la retiró y hoy la hoja la
+  // RECHAZA con salida 2. Estos dos ejemplos llegaron de S-UX cuando la bandera
+  // aún recortaba, y al fusionar quedaban documentando el 100 % de las
+  // invocaciones de esta hoja con una bandera que muere. Peor: el corpus que
+  // lee el agente se regenera de aquí, así que le habríamos enseñado dos
+  // órdenes que el binario contesta con un error. La población la fija ahora la
+  // política, y eso es lo que el segundo ejemplo enseña.
   mapCheck: `
 Examples:
   # The coverage gate before any Anexo 24 catalog XML: what still lacks a code.
-  mnemosine account map check --scheme sat-agrupador --level 2
+  mnemosine account map check --scheme sat-agrupador
   # Same, but exit 4 on any gap so CI can block on it.
-  mnemosine account map check --scheme sat-agrupador --level 3 --strict
+  mnemosine account map check --scheme sat-agrupador --strict
 `,
   restore: `
 Examples:
@@ -445,6 +457,10 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
         allowWithHistory: true,
         enforceZeroBalance: opts.force !== true,
         dryRun: opts.dryRun === true,
+        // G3: `gateMutation` ya EXIGÍA esta razón —`archive` es verbo de
+        // razón— y la razón se imprimía en la terminal y ahí se moría. Ahora
+        // llega a `audit_log.reason`, que es donde alguien la va a buscar.
+        reason,
       });
       if (opts.dryRun) {
         process.stdout.write(
@@ -471,10 +487,15 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .argument('<pairs...>', 'key=value: allow-manual, header, control-account, require-subsidiary, currency')
     .description('Set the governance flags of an account (who may post to it, and how)');
   withContext(set);
-  set.option('--dry-run', 'validate and report, without writing');
+  set
+    .option('--dry-run', 'validate and report, without writing')
+    // La fila del catálogo de `account set` lista `--reason` desde siempre y
+    // no estaba declarada: cambiar quién puede postear a una cuenta es
+    // exactamente el acto que alguien pregunta después.
+    .option('--reason <text>', 'why these flags change; recorded in the audit trail');
   declareRisk(set, { risk: 'escritura', agent: false, writes: 'accounts (banderas de gobierno)' });
   set.addHelpText('after', EJEMPLOS.set);
-  set.action((code: string, pairs: string[], opts: CommonOpts & { dryRun?: boolean }) =>
+  set.action((code: string, pairs: string[], opts: CommonOpts & { dryRun?: boolean; reason?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
       const target = await resolveAccount(ctx.entityId, code);
@@ -486,7 +507,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
         );
         return;
       }
-      const updated = await setAccountGovernance(target.id, flags, reviewer.userId);
+      const updated = await setAccountGovernance(target.id, flags, reviewer.userId, opts.reason ?? null);
       process.stdout.write(
         `${deps.palette.green('✔')} ${updated.code}: ` +
           `allow_manual=${updated.allow_manual_entries} header=${updated.is_header} ` +
@@ -566,6 +587,11 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   roleSet
     .option('--qualifier <q>', 'per-context variant (NULL = the default mapping)')
     .option('--note <text>', 'why this role points here')
+    // NO se declara `--reason` aquí: la fila del catálogo de
+    // `account role set` lista exactamente `--qualifier`, `--note` y
+    // `--dry-run`, y una bandera que el catálogo no tiene no se inventa en el
+    // código. `setAccountRole` sí acepta razón —la ruta REST y el agente la
+    // van a necesitar— y la fila propuesta va en el informe de G3.
     .option('--dry-run', 'validate and report, without writing');
   declareRisk(roleSet, { risk: 'escritura', agent: false, writes: 'account_roles' });
   roleSet.addHelpText('after', EJEMPLOS.roleSet);
@@ -580,9 +606,14 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
         );
         return;
       }
+      // El autor se resuelve ANTES de escribir, no después: si no hay a quién
+      // atribuirle el reapunte, el acto no ocurre. `role seed` ya lo hacía
+      // así; `role set` —el que SÍ sobreescribe— no.
+      const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       const res = await setAccountRole(ctx.entityId, ctx.tenantId, roleName, cuenta.id, {
         qualifier: opts.qualifier ?? null,
         notes: opts.note ?? null,
+        userId: reviewer.userId,
       });
       process.stdout.write(
         `${deps.palette.green('✔')} ${res.role}${res.qualifier ? `[${res.qualifier}]` : ''} → ` +
@@ -629,29 +660,58 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   mapSet
     .requiredOption('--scheme <name>', `scheme: ${Object.keys(MAPPING_SCHEMES).join(', ')}`)
     .option('--value <v>', 'the code in that scheme; empty clears the mapping')
-    .option('--year <y>', 'catalog year (not supported yet: the versioned c_CodAgrup catalog does not exist)')
+    // F07a: la bandera existía y sólo sabía rechazarse — «el catálogo
+    // c_CodAgrup versionado no existe en el sistema», que era cierto hasta la
+    // 063. Ya existe y tiene vigencias, así que --year vuelve a significar lo
+    // que el catálogo de comandos siempre dijo: contra QUÉ ejercicio se valida.
+    .option('--year <y>', "fiscal year whose SAT catalog validates the code (default: today's)")
     .option('--dry-run', 'validate and report, without writing');
   declareRisk(mapSet, { risk: 'escritura', agent: false, writes: 'accounts (columnas estatutarias)' });
   mapSet.addHelpText('after', EJEMPLOS.mapSet);
   mapSet.action((code: string, opts: CommonOpts & { scheme: string; value?: string; year?: string; dryRun?: boolean }) =>
     run(async () => {
-      if (opts.year) {
-        throw usageError(
-          '--year aún no se soporta: el catálogo c_CodAgrup versionado no existe en el sistema. Omite la bandera.'
-        );
-      }
       resolverEsquema(opts.scheme);
+      const fecha = fechaDeCatalogo(opts.year);
       const ctx = await entityOf(opts);
       const target = await resolveAccount(ctx.entityId, code);
       const valor = opts.value?.trim() ? opts.value.trim() : null;
+      // Un aviso del validador («se guarda SIN VALIDAR porque no hay catálogo
+      // sembrado») no puede quedarse en el log del servicio: quien teclea el
+      // comando es el único que puede sembrarlo.
+      const avisar = (r: ResultadoValidacionAgrupador): void => {
+        if (r.aviso) process.stderr.write(deps.palette.yellow(`${r.aviso}\n`));
+      };
+
       if (opts.dryRun) {
+        // «validate and report, without writing» es lo que la bandera promete
+        // y hasta F07a no validaba NADA: imprimía la frase y salía, así que un
+        // ensayo limpio no decía nada sobre si la escritura pasaría. Ahora el
+        // ensayo corre la MISMA comprobación que la escritura —el c_CodAgrup
+        // vigente para el ejercicio— y lo único que se salta es el UPDATE.
+        let confirmacion = '';
+        if (opts.scheme === 'sat-agrupador' && valor !== null) {
+          const ctxVal = await prepararValidacionAgrupador(
+            { tenantId: ctx.tenantId, entityId: ctx.entityId },
+            fecha ?? new Date().toISOString().slice(0, 10)
+          );
+          // Revienta igual que reventaría la escritura: un ensayo que sale 0
+          // sobre un código que el sistema va a rechazar es peor que no tenerlo.
+          const veredicto = await exigirAgrupadorValido(ctxVal, valor);
+          avisar(veredicto);
+          // El NOMBRE oficial es la mitad útil del ensayo: confirma en pantalla
+          // que 102.01 es la cuenta que se creía, antes de escribirla.
+          if (veredicto.nombre) confirmacion = ` «${veredicto.nombre}»`;
+        }
         process.stdout.write(
-          `${deps.palette.bold(target.code)}: ${opts.scheme} ${valor === null ? 'se limpiaría' : `sería ${valor}`} (dry-run)\n`
+          `${deps.palette.bold(target.code)}: ${opts.scheme} ${valor === null ? 'se limpiaría' : `sería ${valor}${confirmacion}`} (dry-run)\n`
         );
         return;
       }
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      await setAccountMapping(target.id, opts.scheme, valor, reviewer.userId);
+      await setAccountMapping(target.id, opts.scheme, valor, reviewer.userId, {
+        fecha,
+        onAviso: avisar,
+      });
       process.stdout.write(
         `${deps.palette.green('✔')} ${target.code}: ${opts.scheme} = ${valor ?? '—'}\n`
       );
@@ -735,15 +795,18 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
   const mapCheck = map
     .command('check')
     .alias('verificar')
-    .description('Coverage gate before the Anexo 24 catalog XML: which top accounts still lack a mapping');
+    .description('Coverage gate before the Anexo 24 catalog XML: which accounts still lack a mapping');
   withOutput(withStrict(withContext(mapCheck)));
   mapCheck
     .option('--check <names>', 'named checks to run (available: coverage; empty lists them)', 'coverage')
     .option('--scheme <name>', 'scheme to verify', 'sat-agrupador')
-    .option('--level <n>', 'deepest account level required to be mapped', '2');
+    // SIN VALOR POR OMISIÓN, a propósito: la bandera ya no recorta nada y lo
+    // único honesto es decírselo a quien la escribe. Con un defecto, commander
+    // la daría por puesta siempre y el error saltaría sin que nadie la pidiera.
+    .option('--level <n>', 'retired: the gate no longer measures by account level');
   declareRisk(mapCheck, { risk: 'lectura', agent: true });
   mapCheck.addHelpText('after', EJEMPLOS.mapCheck);
-  mapCheck.action((opts: CommonOpts & { check?: string; scheme: string; level: string; strict?: boolean }) =>
+  mapCheck.action((opts: CommonOpts & { check?: string; scheme: string; level?: string; strict?: boolean }) =>
     run(async () => {
       const disponibles = ['coverage'];
       const pedidos = (opts.check ?? 'coverage').split(',').map((c) => c.trim()).filter(Boolean);
@@ -755,17 +818,50 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       if (desconocidos.length > 0) {
         throw usageError(`Verificación desconocida: ${desconocidos.join(', ')}. Disponibles: ${disponibles.join(', ')}.`);
       }
+      // F07a · --level SE RECHAZA en vez de ignorarse. El recorte por nivel de
+      // cuenta ERA el defecto: sobre una entidad real acusaba 43 huecos, 42 de
+      // ellos cuentas sin un solo movimiento, y dejaba fuera la única cuenta
+      // movida sin agrupador por vivir en el nivel 3. Aceptar la bandera y no
+      // aplicarla sería peor que el defecto —el usuario creería haber acotado
+      // algo—, así que se hace lo mismo que hacía --year: decir qué pasó y
+      // dónde se decide ahora.
+      if (opts.level !== undefined) {
+        throw usageError(
+          '--level ya no aplica: la compuerta medía por nivel de cuenta y ése era el defecto ' +
+            '(43 huecos sobre una entidad real, 42 de ellos cuentas sin un solo movimiento, ' +
+            'y la cuenta movida sin agrupador fuera de la lista por estar en nivel 3). ' +
+            'Hoy la población la fija la política agrupador_alcance_de_la_compuerta: mnemosine pending list.'
+        );
+      }
       const ctx = await entityOf(opts);
-      const nivel = parseInt(opts.level, 10);
-      if (!Number.isFinite(nivel) || nivel < 1) throw usageError(`--level ilegible: "${opts.level}".`);
-      const huecos = await checkMappingCoverage(ctx.entityId, opts.scheme, nivel);
-      render(huecos as unknown as Record<string, unknown>[], { ...opts, idField: 'code' });
+      const cobertura = await checkMappingCoverageDetallada(ctx.entityId, opts.scheme, {
+        tenantId: ctx.tenantId,
+      });
+      render(cobertura.huecos as unknown as Record<string, unknown>[], { ...opts, idField: 'code' });
+      // El alcance y de dónde salió viajan SIEMPRE en el resumen: «3 huecos» no
+      // significa lo mismo medido sobre las cuentas movidas que sobre el
+      // catálogo entero, y quien lee la compuerta tiene que saber cuál miró.
+      const comoSeEligio = cobertura.alcanceElegido ? 'elegido en el panel' : 'por omisión';
+      const contexto = `alcance "${cobertura.alcance}", ${comoSeEligio}`;
       process.stderr.write(
-        huecos.length === 0
-          ? deps.palette.green(`✔ cobertura completa (${opts.scheme}, nivel ≤ ${nivel})\n`)
-          : deps.palette.yellow(`${huecos.length} cuenta(s) sin ${opts.scheme} hasta nivel ${nivel}: el XML de catálogo saldría incompleto\n`)
+        cobertura.poblacion === 0
+          ? // Cero cuentas en el alcance no es cobertura completa: es que no
+            // había nada que mirar. El verde por vacuidad es el defecto que
+            // este tramo persigue en el checklist del cierre; aquí tampoco.
+            deps.palette.yellow(`0 cuentas en el ${contexto}: no se comprobó nada\n`)
+          : cobertura.huecos.length === 0
+            ? deps.palette.green(
+                `✔ cobertura completa: ${cobertura.poblacion} cuenta(s) con ${opts.scheme} (${contexto})\n`
+              )
+            : deps.palette.yellow(
+                `${cobertura.huecos.length} de ${cobertura.poblacion} cuenta(s) sin ${opts.scheme} (${contexto}): ` +
+                  `el XML de catálogo saldría incompleto\n`
+              )
       );
-      return checkExitCode({ blocking: huecos.length, warning: 0 }, { strict: opts.strict });
+      return checkExitCode(
+        { blocking: cobertura.huecos.length, warning: cobertura.poblacion === 0 ? 1 : 0 },
+        { strict: opts.strict }
+      );
     })
   );
 
@@ -776,17 +872,41 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .argument('<code>', 'account code or id')
     .description('Put a retired account back in service');
   withContext(restore);
+  // La fila del catálogo listaba `--reason` con la nota «no tiene dónde
+  // guardarse hoy». Ya lo tiene: `updateAccount` escribe en `audit_log`.
+  restore.option('--reason <text>', 'why the account comes back into service; recorded in the audit trail');
   declareRisk(restore, { risk: 'escritura', agent: false, writes: 'accounts.is_active' });
   restore.addHelpText('after', EJEMPLOS.restore);
-  restore.action((code: string, opts: CommonOpts) =>
+  restore.action((code: string, opts: CommonOpts & { reason?: string }) =>
     run(async () => {
       const ctx = await entityOf(opts);
       const target = await resolveAccount(ctx.entityId, code);
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      const updated = await reactivateAccount(target.id, reviewer.userId);
+      const updated = await reactivateAccount(target.id, reviewer.userId, opts.reason ?? null);
       process.stdout.write(`${deps.palette.green('✔')} ${updated.code} is active again.\n`);
     })
   );
+}
+
+/**
+ * `--year` → la fecha con la que se le pregunta al catálogo del SAT.
+ *
+ * El c_CodAgrup lo revisa la autoridad POR EJERCICIO y la tabla lo guarda con
+ * vigencias, así que la pregunta es una fecha, no un año. De un ejercicio se
+ * toma su ÚLTIMO día: el catálogo en vigor al cerrar el ejercicio es el que
+ * valida su presentación, y tomar el primero elegiría el catálogo saliente en
+ * un año en que la autoridad publique uno nuevo a mitad de camino.
+ *
+ * Devuelve `undefined` sin bandera, para que el servicio aplique su propio
+ * defecto (hoy) en vez de que la CLI fabrique una fecha equivalente por su
+ * cuenta: dos defectos que hay que mantener iguales terminan distintos.
+ */
+export function fechaDeCatalogo(year?: string): string | undefined {
+  if (year === undefined) return undefined;
+  if (!/^\d{4}$/.test(year.trim())) {
+    throw usageError(`--year tiene que ser un ejercicio de cuatro dígitos; llegó "${year}".`);
+  }
+  return `${year.trim()}-12-31`;
 }
 
 /**

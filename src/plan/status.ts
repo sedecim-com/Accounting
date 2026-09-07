@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { CRITERIOS, type Criterio, type Resultado } from './criterios.js';
+import { CRITERIOS, claseDe, type Criterio, type Resultado } from './criterios.js';
 import { palette } from '../cli/palette.js';
 
 // ============================================================
@@ -196,6 +196,66 @@ export function compararConPiso(paquetes: Paquete[], piso: string[]): VeredictoP
   return { regresados, desaparecidos, sinProteger };
 }
 
+// ============================================================
+// EL CENSO POR CLASE (S4a)
+//
+// Hasta aquí el tablero presentaba igual dos cosas que no lo son: un criterio
+// que afirma sobre el TEXTO del repositorio y uno que afirma sobre lo que el
+// programa HACE. Presentarlos igual no es una imprecisión de estilo — hace
+// invisible la única cifra que dice si el instrumento sirve. Los ~118
+// criterios de lectura pueden estar TODOS en verde con el signo del saldo
+// invertido, y esta semana lo estuvieron.
+//
+// Por eso la línea de abajo no cuenta verdes: cuenta CUÁNTOS DE CADA CLASE, y
+// cuántos de conducta llegaron a correr en esta máquina. Es la medida del
+// avance del tramo, y también su confesión: mientras la cifra de conducta sea
+// pequeña, el resto del tablero está hablando de sí mismo.
+//
+// Y CUANDO NO CORRE, SE DICE. Un criterio de conducta que se salta porque no
+// hay dónde montar la base sale `no-evaluable` —el paquete deja de estar
+// cerrado, `--exigir` lo excusa y el detalle imprime el motivo—, pero eso vive
+// dentro del bloque del paquete y se pierde entre renglones. Esta línea lo
+// pone en la última línea de la salida, que es la que se lee.
+// ============================================================
+
+/** Marca del criterio que EJECUTA, en la salida. */
+export const MARCA_CONDUCTA = '▶';
+
+export function censoDeClases(paquetes: Paquete[]): string {
+  const todas = paquetes.flatMap((x) => x.evaluaciones);
+  const conducta = todas.filter((e) => claseDe(e.criterio) === 'conducta');
+  const lectura = todas.length - conducta.length;
+
+  if (conducta.length === 0) {
+    return `${todas.length} criterios, los ${lectura} de lectura: ninguno ejecuta el camino real todavía.`;
+  }
+
+  const cabeza =
+    `${todas.length} criterios · ${lectura} leen el fuente · ` +
+    `${conducta.length} ${MARCA_CONDUCTA} ejecutan el camino real contra una base efímera`;
+
+  const corrieron = conducta.filter((e) => e.resultado.estado !== 'no-evaluable');
+  const verdes = corrieron.filter((e) => e.resultado.estado === 'ok').length;
+  // El motivo ya viene redactado como frase y suele traer su punto final; esta
+  // línea le añade el suyo, y «sembrar..» delata a un renglón cosido a mano.
+  const porQue = (e?: Evaluacion): string => (e?.resultado.detalle ?? 'sin motivo declarado').replace(/\.$/, '');
+
+  if (corrieron.length === 0) {
+    return (
+      `${cabeza} — y aquí no corrió NINGUNO: ${porQue(conducta[0])}. ` +
+      'Todo lo verde de arriba es de lectura: en esta máquina nadie midió una cifra.'
+    );
+  }
+  if (corrieron.length < conducta.length) {
+    const sinCorrer = conducta.find((e) => e.resultado.estado === 'no-evaluable');
+    return (
+      `${cabeza} — ${corrieron.length} corrieron aquí (${verdes} en verde) y ` +
+      `${conducta.length - corrieron.length} no: ${porQue(sinCorrer)}`
+    );
+  }
+  return `${cabeza} — los ${conducta.length} corrieron aquí, ${verdes} en verde.`;
+}
+
 export function formatear(paquetes: Paquete[], stream: NodeJS.WriteStream): Salida {
   const p = palette(stream);
   const lineas: string[] = [];
@@ -215,7 +275,11 @@ export function formatear(paquetes: Paquete[], stream: NodeJS.WriteStream): Sali
     for (const { criterio, resultado } of paq.evaluaciones) {
       if (resultado.estado === 'ok') continue;
       const icono = resultado.estado === 'falla' ? p.red('✘') : p.dim('?');
-      lineas.push(`     ${icono} ${criterio.enunciado}`);
+      // El que EJECUTA se marca también cuando está en rojo: enterarse de que
+      // lo que falló fue una cifra y no una expresión regular cambia por
+      // completo lo que hay que ir a mirar.
+      const marca = claseDe(criterio) === 'conducta' ? `${MARCA_CONDUCTA} ` : '';
+      lineas.push(`     ${icono} ${marca}${criterio.enunciado}`);
       const nota = bloqueadoPorEntorno({ criterio, resultado })
         ? `  (necesita ${criterio.necesita}: no cuenta para --exigir aquí)`
         : '';
@@ -233,6 +297,7 @@ export function formatear(paquetes: Paquete[], stream: NodeJS.WriteStream): Sali
         (noEvaluables ? ` · ${noEvaluables} criterio(s) no evaluable(s)` : '')
     )
   );
+  lineas.push(p.dim(censoDeClases(paquetes)));
   lineas.push(
     p.dim(
       'El estado de un paquete es el PEOR de sus criterios. Los criterios viven en ' +

@@ -8,6 +8,7 @@ import { ValidationError } from '../../../utils/errors.js';
 import { blockchainOrchestrator } from '../../../services/blockchain/orchestrator.js';
 import { CHAIN_CONFIGS, ChainId } from '../../../services/blockchain/chain-adapters.js';
 import { REDUNDANCY_MODES, VERIFICATION_LAYERS, MESSAGING_PROTOCOLS } from '../../../database/enums.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 const router = Router();
 
@@ -91,7 +92,7 @@ router.get('/config', requirePermission('settings:manage'), asyncHandler(async (
 }));
 
 // PUT /v1/admin/blockchain/config
-router.put('/config', requirePermission('settings:manage'), validateBody(blockchainConfigSchema), asyncHandler(async (req: Request, res: Response) => {
+router.put('/config', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'configuracion de cadena del inquilino' }), requirePermission('settings:manage'), validateBody(blockchainConfigSchema), asyncHandler(async (req: Request, res: Response) => {
   const {
     primary_chain, primary_chain_contract_address,
     secondary_chains, redundancy_mode, required_confirmations,
@@ -152,7 +153,9 @@ router.put('/config', requirePermission('settings:manage'), validateBody(blockch
 }));
 
 // POST /v1/admin/blockchain/config/validate
-router.post('/config/validate', requirePermission('settings:manage'), validateBody(validateConfigSchema), asyncHandler(async (req: Request, res: Response) => {
+// POST que no escribe: valida la forma de una configuracion y contesta.
+// La clase describe lo que hace, no el verbo con que se pide.
+router.post('/config/validate', declararRiesgoRuta({ riesgo: 'lectura' }), requirePermission('settings:manage'), validateBody(validateConfigSchema), asyncHandler(async (req: Request, res: Response) => {
   const { primary_chain, secondary_chains } = req.body;
   const chains: string[] = [primary_chain, ...((secondary_chains || []).map((c: { chain_id: string }) => c.chain_id))].filter(Boolean);
 
@@ -206,7 +209,7 @@ router.get('/disclosure-config', requirePermission('settings:manage'), requireEn
 }));
 
 // PUT /v1/admin/disclosure-config
-router.put('/disclosure-config', requirePermission('settings:manage'), requireEntityAccess, validateBody(disclosureConfigSchema), asyncHandler(async (req: Request, res: Response) => {
+router.put('/disclosure-config', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'configuracion de divulgacion por entidad' }), requirePermission('settings:manage'), requireEntityAccess, validateBody(disclosureConfigSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, ...body } = req.body;
   const entityId = entity_id || req.entityId;
 
@@ -263,7 +266,7 @@ router.get('/bitcoin/config', requirePermission('settings:manage'), asyncHandler
 }));
 
 // PUT /v1/admin/bitcoin/config
-router.put('/bitcoin/config', requirePermission('settings:manage'), validateBody(bitcoinConfigSchema), asyncHandler(async (req: Request, res: Response) => {
+router.put('/bitcoin/config', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'configuracion de anclaje en Bitcoin' }), requirePermission('settings:manage'), validateBody(bitcoinConfigSchema), asyncHandler(async (req: Request, res: Response) => {
   const {
     is_enabled, anchor_frequency, anchor_method,
     fee_strategy, max_fee_usd, use_own_wallet, wallet_address,
@@ -308,7 +311,7 @@ router.put('/bitcoin/config', requirePermission('settings:manage'), validateBody
 }));
 
 // POST /v1/admin/bitcoin/estimate
-router.post('/bitcoin/estimate', requirePermission('settings:manage'), validateBody(bitcoinEstimateSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/bitcoin/estimate', declararRiesgoRuta({ riesgo: 'lectura' }), requirePermission('settings:manage'), validateBody(bitcoinEstimateSchema), asyncHandler(async (req: Request, res: Response) => {
   const { frequency, feeStrategy } = req.body;
 
   const feeRates: Record<string, number> = { economy: 5, standard: 20, priority: 50 };
@@ -336,7 +339,7 @@ router.post('/bitcoin/estimate', requirePermission('settings:manage'), validateB
 }));
 
 // POST /v1/admin/bitcoin/anchor-now
-router.post('/bitcoin/anchor-now', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/bitcoin/anchor-now', declararRiesgoRuta({ riesgo: 'externo', escribe: 'anclajes de Bitcoin; el acto que nombra es emitir una transaccion en la red' }), requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
   const result = await blockchainOrchestrator.anchorToBitcoin({ tenantId: req.user!.tenant_id });
 
   if (!result) {
@@ -420,7 +423,7 @@ router.get('/attestations', requirePermission('settings:manage'), requireEntityA
 // siempre tiene valor — así que en una ruta cuyo id de entidad viaja en el
 // cuerpo validaría la cabecera y nunca el cuerpo. La pertenencia del
 // entity_id del cuerpo se comprueba explícitamente.
-router.post('/commit-period', requirePermission('periods:close'), validateBody(commitPeriodSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/commit-period', declararRiesgoRuta({ riesgo: 'externo', escribe: 'blockchain_attestations + el compromiso del periodo en cadena' }), requirePermission('periods:close'), validateBody(commitPeriodSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, period_id } = req.body;
   assertEntityAccess(req.user!, entity_id);
 
@@ -439,7 +442,10 @@ router.post('/commit-period', requirePermission('periods:close'), validateBody(c
 // Lo que esta ruta publica se sirve DESPUÉS SIN AUTENTICAR en
 // GET /public/v1/entities/:entityId/aggregates, que filtra sólo por entity_id.
 // Escribir aquí con la entidad de otro era publicar sus cifras al mundo.
-router.post('/publish-aggregates', requirePermission('periods:close'), validateBody(commitPeriodSchema), asyncHandler(async (req: Request, res: Response) => {
+// `externo` aunque no hable con ninguna cadena: publicar es sacar cifras
+// de este sistema hacia cualquiera. El efecto fuera de la casa es el mismo
+// que el de un correo enviado — y no se puede recoger.
+router.post('/publish-aggregates', declararRiesgoRuta({ riesgo: 'externo', escribe: 'agregados del periodo que GET /public/v1/entities/:id/aggregates sirve al mundo SIN autenticar' }), requirePermission('periods:close'), validateBody(commitPeriodSchema), asyncHandler(async (req: Request, res: Response) => {
   const { entity_id, period_id } = req.body;
   assertEntityAccess(req.user!, entity_id);
 
@@ -459,17 +465,33 @@ router.post('/publish-aggregates', requirePermission('periods:close'), validateB
 
 // GET /v1/admin/bitcoin/anchors
 router.get('/bitcoin/anchors', requirePermission('settings:manage'), asyncHandler(async (req: Request, res: Response) => {
+  // G3: `is_simulated` va en el SELECT y sale en la respuesta, con la misma
+  // forma que la lista de atestaciones de arriba.
+  //
+  // Aquí NO se rechaza: el administrador tiene derecho a ver el estado real
+  // de su instalación, y una lista vacía le escondería que sí hay anclajes,
+  // sólo que fabricados. Lo que no puede pasar es que los vea sin saberlo:
+  // `status: 'broadcast'` junto a un `bitcoin_txid` de 64 hex se lee como una
+  // transacción de Bitcoin, y hoy es un sha256 del payload y la hora.
   const result = await query(
     `SELECT id, anchor_type, merkle_root, entry_count,
             bitcoin_txid, bitcoin_block_height, confirmations,
-            fee_satoshis, fee_usd, status, broadcast_at, confirmed_at
+            fee_satoshis, fee_usd, status, broadcast_at, confirmed_at,
+            is_simulated
      FROM bitcoin_anchors WHERE tenant_id = $1 OR tenant_id IS NULL
      ORDER BY broadcast_at DESC NULLS LAST, created_at DESC LIMIT 100`,
     [req.user!.tenant_id]
   );
 
+  const simulados = result.rows.filter((r) => (r as { is_simulated: boolean }).is_simulated).length;
+
   res.json({
     data: result.rows,
+    aviso: simulados > 0
+      ? `${simulados} de ${result.rows.length} anclajes de esta página son SIMULADOS: su txid se ` +
+        'fabricó localmente y no existe en Bitcoin. No los publiques como prueba ante un tercero ' +
+        'ni compartas un enlace a un explorador con ellos.'
+      : undefined,
     meta: { request_id: req.headers['x-request-id'], timestamp: new Date().toISOString(), version: 'v1' },
   });
 }));

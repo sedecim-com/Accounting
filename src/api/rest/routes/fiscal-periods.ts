@@ -9,6 +9,7 @@ import {
   hardClosePeriod,
   listFiscalPeriods,
 } from '../../../services/accounting/index.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 const router = Router();
 
@@ -48,7 +49,10 @@ router.get('/:id/close-status', requirePermission('periods:close'), requireEntit
 }));
 
 // POST /v1/fiscal-periods/:id/soft-close
-router.post('/:id/soft-close', requirePermission('periods:close'), requireEntityAccess, validateBody(closePeriodSchema), asyncHandler(async (req: Request, res: Response) => {
+// El cierre blando se deshace reabriendo, pero reabrir es a su vez
+// irreversible (`mnemosine period reopen` lo declara asi): la vuelta no es
+// gratis, y una clase que dijera `escritura` prometeria que si lo es.
+router.post('/:id/soft-close', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'fiscal_periods.status' }), requirePermission('periods:close'), requireEntityAccess, validateBody(closePeriodSchema), asyncHandler(async (req: Request, res: Response) => {
   const entityId = req.body.entity_id || req.entityId;
   const period = await softClosePeriod(req.params.id, entityId, req.user!.user_id);
 
@@ -59,7 +63,7 @@ router.post('/:id/soft-close', requirePermission('periods:close'), requireEntity
 }));
 
 // POST /v1/fiscal-periods/:id/hard-close
-router.post('/:id/hard-close', requirePermission('periods:close'), requireEntityAccess, validateBody(closePeriodSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/hard-close', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'fiscal_periods.status (cierre duro) y el arrastre de saldos' }), requirePermission('periods:close'), requireEntityAccess, validateBody(closePeriodSchema), asyncHandler(async (req: Request, res: Response) => {
   const entityId = req.body.entity_id || req.entityId;
   const period = await hardClosePeriod(req.params.id, entityId, req.user!.user_id);
 

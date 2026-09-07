@@ -137,8 +137,12 @@ export const config = {
     env: process.env.PLAID_ENV || 'sandbox',
   },
 
+  // Los defectos globales del reintento saliente; la política que los usa
+  // —y los argumenta uno por uno— vive en services/webhooks/politica-
+  // reintento.ts, y cada suscripción puede sobreescribirlos con su
+  // `retry_config`. El 5 anterior agotaba la cola en 15 minutos.
   webhooks: {
-    maxRetries: parseInt(process.env.WEBHOOK_MAX_RETRIES || '5', 10),
+    maxRetries: parseInt(process.env.WEBHOOK_MAX_RETRIES || '12', 10),
     retryInterval: parseInt(process.env.WEBHOOK_RETRY_INTERVAL || '60', 10),
   },
 

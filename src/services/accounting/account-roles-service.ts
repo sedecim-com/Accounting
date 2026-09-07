@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../database/connection.js';
 import { NotFoundError, ValidationError } from '../../utils/errors.js';
+import { registrarAuditoria } from '../audit/audit-log.js';
 import { ROLE_MAP } from '../xml-ingestion/account-roles-seed.js';
 import type { AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 
@@ -80,12 +81,29 @@ export interface SetRoleResult {
   accion: 'reapuntado' | 'creado';
 }
 
+export interface SetRoleOptions {
+  qualifier?: string | null;
+  notes?: string | null;
+  /**
+   * G3 · QUIÉN REAPUNTÓ EL ROL. Obligatorio, y no por simetría con el resto
+   * del sistema: reapuntar `cxc` o `iva_pendiente_acreditar` redirige a dónde
+   * van los asientos de MEDIA CONTABILIDAD —AR/AP, REP y nómina postean por
+   * rol, nunca por código de cuenta—, y hasta hoy ese acto no dejaba una sola
+   * fila. `audit_log.user_id` es NOT NULL (001:456): un hecho sin autor no se
+   * registra, y registrarlo con un usuario inventado sería peor que no
+   * registrarlo.
+   */
+  userId: string;
+  /** Por qué se reapunta. Va tal cual a `audit_log.reason`. */
+  reason?: string | null;
+}
+
 export async function setAccountRole(
   entityId: string,
   tenantId: string,
   role: string,
   accountId: string,
-  opts: { qualifier?: string | null; notes?: string | null } = {}
+  opts: SetRoleOptions
 ): Promise<SetRoleResult> {
   assertRolConocido(role);
   const qualifier = opts.qualifier ?? null;
@@ -103,24 +121,59 @@ export async function setAccountRole(
   }
 
   return withTransaction(async (client) => {
-    const upd = await client.query(
-      `UPDATE account_roles
-          SET account_id = $1, notes = COALESCE($2, notes)
-        WHERE entity_id = $3 AND role = $4 AND qualifier IS NOT DISTINCT FROM $5`,
-      [accountId, opts.notes ?? null, entityId, role, qualifier]
+    // El ESTADO ANTERIOR se lee con FOR UPDATE antes de tocarlo, y no se
+    // deduce del `rowCount` del UPDATE. Son dos cosas distintas: el rowCount
+    // dice si HABÍA fila, y el rastro tiene que decir A QUÉ CUENTA apuntaba
+    // —que es justo el dato que hace investigable un reapunte—. Además el
+    // candado cierra la carrera entre dos reapuntes simultáneos del mismo
+    // rol, que sin él terminan con la fila de uno y el rastro del otro.
+    const antes = await client.query<{ id: string; account_id: string; notes: string | null }>(
+      `SELECT id, account_id, notes FROM account_roles
+        WHERE entity_id = $1 AND role = $2 AND qualifier IS NOT DISTINCT FROM $3
+        FOR UPDATE`,
+      [entityId, role, qualifier]
     );
-    if (upd.rowCount === 0) {
+    const previo = antes.rows[0] ?? null;
+
+    let filaId: string;
+    if (previo) {
+      await client.query(
+        `UPDATE account_roles
+            SET account_id = $1, notes = COALESCE($2, notes)
+          WHERE id = $3`,
+        [accountId, opts.notes ?? null, previo.id]
+      );
+      filaId = previo.id;
+    } else {
+      filaId = uuidv4();
       await client.query(
         `INSERT INTO account_roles (id, tenant_id, entity_id, role, account_id, qualifier, notes)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [uuidv4(), tenantId, entityId, role, accountId, qualifier, opts.notes ?? null]
+        [filaId, tenantId, entityId, role, accountId, qualifier, opts.notes ?? null]
       );
     }
+
+    // `entity_id` es la fila de `account_roles`, no la cuenta ni la entidad:
+    // el objeto que cambió es el MAPEO. Rol y calificador viajan en los
+    // valores porque el id de la fila, solo, no dice qué se reapuntó.
+    await registrarAuditoria(client, {
+      tenantId,
+      userId: opts.userId,
+      action: previo ? 'update' : 'create',
+      entityType: 'account_role',
+      entityId: filaId,
+      oldValues: previo
+        ? { role, qualifier, account_id: previo.account_id, notes: previo.notes }
+        : null,
+      newValues: { role, qualifier, account_id: accountId, notes: opts.notes ?? previo?.notes ?? null },
+      reason: opts.reason ?? null,
+    });
+
     return {
       role,
       qualifier,
       account_code: cuenta.rows[0].code,
-      accion: upd.rowCount === 0 ? 'creado' : 'reapuntado',
+      accion: previo ? 'reapuntado' : 'creado',
     };
   });
 }

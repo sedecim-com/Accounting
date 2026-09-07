@@ -116,8 +116,10 @@ describe('seedPayrollAccountMapping', () => {
   it('creates only the accounts the chart lacks', async () => {
     arrange(['1111', '2130'], []);
     const result = await seedPayrollAccountMapping(ENTITY, TENANT, 'MX', USER, { client: mockClient as never });
-    // 1111 y 2130 ya estaban; las cinco cuentas de nómina no.
-    expect(result.accountsCreated).toEqual(['2165', '2175', '2185', '6110', '6115']);
+    // 1111 y 2130 ya estaban; las seis cuentas de nómina no. La 6118 nació en
+    // F08a para el subsidio al empleo entregado que un despacho decide
+    // absorber en vez de acreditar.
+    expect(result.accountsCreated).toEqual(['2165', '2175', '2185', '6110', '6115', '6118']);
   });
 
   it('creates nothing when the chart already carries every account', async () => {

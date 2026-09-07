@@ -34,6 +34,11 @@ const PROVISTAS_POR_EL_ENTORNO = new Set([
   'TMUX_PANE', // idem
   'TZ', // zona horaria del proceso
   'PATH', // lo pone el shell; las puertas de habilidades buscan binarios en él
+  // La pone vitest en cada worker. La lee el arnés de criterios de conducta
+  // (S4a) para NO montar una base efímera dentro del proyecto unitario, que
+  // declara ser rápido y sin base. No se configura: documentarla en
+  // .env.example invitaría a ponerla a mano, que es justo lo que no debe pasar.
+  'VITEST',
 ]);
 
 /** Directorios que se recorren buscando lecturas del entorno. */

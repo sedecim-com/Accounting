@@ -4,6 +4,7 @@ import { findByIdInScope, requireByIdInScope, type Scope } from '../../database/
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
 import { encrypt } from '../../utils/encryption.js';
 import { generateEntryNumber } from '../../utils/sequence.js';
+import { registrarAuditoria, tenantDe } from '../audit/audit-log.js';
 import type { Vendor } from '../../types/index.js';
 
 // ============================================================
@@ -375,6 +376,12 @@ export interface CreateVendorInput {
   entity_id: string;
   company_name: string;
   created_by: string;
+  /**
+   * G3: por qué se dio de alta. Opcional —el alta de un proveedor no es un
+   * acto que exija justificarse, a diferencia de `--force`— pero cuando el
+   * llamador lo trae va al rastro, que es donde alguien lo va a buscar.
+   */
+  reason?: string | null;
   contact_name?: string | null;
   tax_id?: string | null;
   tax_id_type?: string | null;
@@ -396,49 +403,99 @@ export interface CreateVendorInput {
   is_1099_vendor?: boolean;
 }
 
+/**
+ * G3 · LAS COLUMNAS DEL ALTA QUE SÍ VAN AL RASTRO.
+ *
+ * Enumeradas, no un `{...row}` menos tres: el rastro de un alta se lee años
+ * después, y un `SELECT *` que mañana traiga una columna nueva la publicaría
+ * en la bitácora sin que nadie lo decidiera. Aquí falta a propósito todo lo
+ * bancario —incluidos los blobs YA CIFRADOS—: `audit_log` es de sólo agregar
+ * (033) y una CLABE que entra ahí no vuelve a salir jamás, ni rotando la
+ * llave. Lo que el rastro guarda de la parte bancaria es el HECHO de si el
+ * alta traía datos, que es lo que un investigador necesita saber.
+ */
+const VENDOR_AUDIT_FIELDS = [
+  'vendor_number', 'company_name', 'contact_name', 'tax_id', 'tax_id_type',
+  'is_1099_vendor', 'email', 'phone', 'payment_terms',
+  'default_expense_account_id', 'currency_code', 'bank_name',
+] as const;
+
+function vendorParaRastro(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of VENDOR_AUDIT_FIELDS) out[f] = row[f] ?? null;
+  out.bank_details_on_file = BANK_SECRET_COLUMNS.some(
+    (c) => row[c] !== null && row[c] !== undefined
+  );
+  return out;
+}
+
 export async function createVendor(
   input: CreateVendorInput,
   opts: VendorReadOptions = {}
 ): Promise<Record<string, unknown>> {
-  const countResult = await query<{ count: string }>(
-    'SELECT COUNT(*) as count FROM vendors WHERE entity_id = $1',
-    [input.entity_id]
-  );
-  const vendorNumber = generateEntryNumber('V', parseInt(countResult.rows[0].count, 10));
-
-  let result;
-  try {
-    result = await query<Vendor>(
-      `INSERT INTO vendors (
-        id, entity_id, vendor_number, company_name, contact_name, tax_id, tax_id_type,
-        is_1099_vendor, email, phone, payment_terms, default_expense_account_id,
-        currency_code, bank_account_number_encrypted, bank_routing_number_encrypted,
-        clabe_encrypted, bank_name, created_by
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
-      [
-        uuidv4(), input.entity_id, vendorNumber, input.company_name, input.contact_name || null,
-        input.tax_id || null, input.tax_id_type || null, input.is_1099_vendor || false,
-        input.email || null, input.phone || null, input.payment_terms || 'Net 30',
-        input.default_expense_account_id || null, input.currency_code || 'USD',
-        input.bank_account_number ? encrypt(input.bank_account_number) : null,
-        input.bank_routing_number ? encrypt(input.bank_routing_number) : null,
-        input.clabe ? encrypt(input.clabe) : null, input.bank_name || null,
-        input.created_by,
-      ]
+  // G3: el alta y su rastro en UNA transacción. `query()` saca una conexión
+  // por sentencia, así que el conteo, el INSERT y la auditoría se confirmaban
+  // por separado: si el INSERT moría, quedaba un renglón de auditoría de un
+  // proveedor que no existe; si moría la auditoría, quedaba el proveedor sin
+  // autor. Un proveedor es a DÓNDE va el dinero —la cuenta de gasto por
+  // omisión y, con `vendor bank set`, la cuenta bancaria de destino—: darlo
+  // de alta sin dejar quién lo hizo es el hueco que el argumento de venta de
+  // mnemosine no puede permitirse.
+  const row = await withTransaction(async (client) => {
+    const countResult = await client.query<{ count: string }>(
+      'SELECT COUNT(*) as count FROM vendors WHERE entity_id = $1',
+      [input.entity_id]
     );
-  } catch (err) {
-    // vendor_number comes from COUNT(*), so UNIQUE(vendor_number, entity_id)
-    // is reachable by two concurrent creates. Name it instead of letting a
-    // 23505 surface as an unexplained failure.
-    if ((err as { code?: string }).code === '23505') {
-      throw new ConflictError(
-        `Vendor number "${vendorNumber}" already exists in this entity. Two vendors were created at the same time; run the command again.`
-      );
-    }
-    throw err;
-  }
+    const vendorNumber = generateEntryNumber('V', parseInt(countResult.rows[0].count, 10));
 
-  const row = result.rows[0] as unknown as Record<string, unknown>;
+    let result;
+    try {
+      result = await client.query<Vendor>(
+        `INSERT INTO vendors (
+          id, entity_id, vendor_number, company_name, contact_name, tax_id, tax_id_type,
+          is_1099_vendor, email, phone, payment_terms, default_expense_account_id,
+          currency_code, bank_account_number_encrypted, bank_routing_number_encrypted,
+          clabe_encrypted, bank_name, created_by
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+        [
+          uuidv4(), input.entity_id, vendorNumber, input.company_name, input.contact_name || null,
+          input.tax_id || null, input.tax_id_type || null, input.is_1099_vendor || false,
+          input.email || null, input.phone || null, input.payment_terms || 'Net 30',
+          input.default_expense_account_id || null, input.currency_code || 'USD',
+          input.bank_account_number ? encrypt(input.bank_account_number) : null,
+          input.bank_routing_number ? encrypt(input.bank_routing_number) : null,
+          input.clabe ? encrypt(input.clabe) : null, input.bank_name || null,
+          input.created_by,
+        ]
+      );
+    } catch (err) {
+      // vendor_number comes from COUNT(*), so UNIQUE(vendor_number, entity_id)
+      // is reachable by two concurrent creates. Name it instead of letting a
+      // 23505 surface as an unexplained failure.
+      if ((err as { code?: string }).code === '23505') {
+        throw new ConflictError(
+          `Vendor number "${vendorNumber}" already exists in this entity. Two vendors were created at the same time; run the command again.`
+        );
+      }
+      throw err;
+    }
+
+    const creado = result.rows[0] as unknown as Record<string, unknown>;
+    await registrarAuditoria(client, {
+      tenantId: await tenantDe(client, input.entity_id),
+      userId: input.created_by,
+      action: 'create',
+      // 'vendor' en singular, como el que ya escribe `updateVendor`: dos
+      // grafías para el mismo objeto parten su historial en dos.
+      entityType: 'vendor',
+      entityId: creado.id as string,
+      oldValues: null,
+      newValues: vendorParaRastro(creado),
+      reason: input.reason ?? null,
+    });
+    return creado;
+  });
+
   return opts.includeBankSecrets ? row : redactBankSecrets(row);
 }
 

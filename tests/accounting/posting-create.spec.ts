@@ -8,10 +8,11 @@ import type { JournalEntry } from '../../src/types/index.js';
 // vi.hoisted eleva estas referencias junto con los vi.mock que las capturan:
 // sin esto haría falta un import dinámico (await de nivel superior), que bajo
 // CommonJS es un error de compilación aunque el runtime lo soporte.
-const { arnes, validateJournalEntry, attest } = vi.hoisted(() => ({
+const { arnes, validateJournalEntry, attest, politicaValor } = vi.hoisted(() => ({
   arnes: { actual: null as ClienteFalso | null },
   validateJournalEntry: vi.fn(),
   attest: vi.fn(),
+  politicaValor: { actual: 'off' },
 }));
 
 vi.mock('../../src/database/connection.js', () => ({
@@ -28,6 +29,15 @@ vi.mock('../../src/services/blockchain/orchestrator.js', () => ({
   blockchainOrchestrator: { attestJournalEntry: (...a: unknown[]) => attest(...a) },
 }));
 
+// G3: la rama `autoPost` YA atraviesa el candado de segregación de funciones
+// (`autorizarPosteo`), así que estas pruebas —que miran quién es dueño de la
+// transacción y de la atestación— necesitan una política que no bloquee.
+vi.mock('../../src/services/policy/policy-service.js', () => ({
+  getPolicy: vi.fn(async (_ctx: unknown, key: string) => ({
+    key, value: politicaValor.actual, defined: true, question: '', rationale: '',
+  })),
+}));
+
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 
 const LINEAS = [
@@ -37,9 +47,17 @@ const LINEAS = [
 
 /** Reglas mínimas para un alta completa. `postead` decide qué devuelve la
  *  relectura del asiento tras el UPDATE a 'posted'. */
-function reglasAlta(opts: { periodo?: boolean; siguienteFolio?: string; moneda?: string | null } = {}) {
-  const draft = asientoFalso({ entry_number: 'JE-2026-00007' });
-  const posted = asientoFalso({ entry_number: 'JE-2026-00007', status: 'posted' } as Partial<JournalEntry>);
+function reglasAlta(
+  opts: { periodo?: boolean; siguienteFolio?: string; moneda?: string | null; origen?: string } = {}
+) {
+  // `origen` refleja en la relectura lo que el INSERT escribió en source_type:
+  // el arnés no ejecuta SQL, así que sin esto la fila que vuelve dice siempre
+  // `source_type: null` — y es justo esa columna la que exime del candado de
+  // segregación a las pólizas del sistema.
+  const draft = asientoFalso({ entry_number: 'JE-2026-00007', source_type: opts.origen ?? null });
+  const posted = asientoFalso({
+    entry_number: 'JE-2026-00007', status: 'posted', source_type: opts.origen ?? null,
+  } as Partial<JournalEntry>);
   const lineas = [
     lineaFalsa({ line_number: 1, account_id: ID.cuentaA, debit_amount: '1000.0000' }),
     lineaFalsa({ line_number: 2, account_id: ID.cuentaB, credit_amount: '1000.0000' }),
@@ -73,6 +91,7 @@ beforeEach(() => {
   validateJournalEntry.mockResolvedValue({ isValid: true, errors: [], warnings: [] });
   attest.mockReset();
   attest.mockResolvedValue(undefined);
+  politicaValor.actual = 'off';
 });
 
 describe('createJournalEntry · rama borrador', () => {
@@ -292,3 +311,56 @@ describe('createJournalEntry · R4: el origen en moneda extranjera', () => {
   });
 });
 
+// ============================================================
+// G3 · EL CANDADO EN LA RAMA QUE NO LO ATRAVESABA.
+//
+// `segregacion_de_funciones` vivía dentro de `postJournalEntry`, así que
+// crear-y-postear en un solo acto —lo que sirven `auto_post:true` por REST y
+// `autoPost: true` por GraphQL— llegaba al mayor sin consultarla. Aquí se fija
+// la compuerta donde ahora vive: en el motor, sobre las DOS ramas.
+//
+// El espejo por mutación de estas tres: quitar la llamada a `autorizarPosteo`
+// de la rama autoPost deja pasar la primera y vacía la nota de la tercera.
+// ============================================================
+describe('createJournalEntry · el candado de segregación en la rama autoPost', () => {
+  it("con 'exigir', crear-y-postear una póliza MANUAL rebota y no toca saldos", async () => {
+    politicaValor.actual = 'exigir';
+    const cf = (arnes.actual = reglasAlta());
+    await expect(
+      createJournalEntry(
+        ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', LINEAS, ID.usuario,
+        { autoPost: true }
+      )
+    ).rejects.toThrow(/segregación de funciones/);
+    // La excepción aborta la transacción, pero además: ni UPDATE ni saldos.
+    expect(cf.coincidencias(/UPDATE journal_entries SET status = 'posted'/)).toHaveLength(0);
+    expect(cf.coincidencias(/INSERT INTO account_balances/)).toHaveLength(0);
+  });
+
+  it("con 'exigir', la póliza CON ORIGEN de sistema se auto-postea igual", async () => {
+    politicaValor.actual = 'exigir';
+    const cf = (arnes.actual = reglasAlta({ origen: 'invoice' }));
+    const entry = await createJournalEntry(
+      ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', LINEAS, ID.usuario,
+      { autoPost: true, sourceType: 'invoice', sourceId: ID.asiento }
+    );
+    expect(entry.status).toBe('posted');
+    expect(cf.coincidencias(/INSERT INTO account_balances/).length).toBeGreaterThan(0);
+  });
+
+  it("con 'alertar', postea y la fila de auditoría del posteo LLEVA la nota", async () => {
+    politicaValor.actual = 'alertar';
+    const cf = (arnes.actual = reglasAlta());
+    await createJournalEntry(
+      ID.entidad, new Date('2026-08-15'), 'standard' as never, 'x', LINEAS, ID.usuario,
+      { autoPost: true }
+    );
+    // Dos filas de bitácora: 'create' y 'post'. La nota va en la segunda.
+    const auditorias = cf.coincidencias(/INSERT INTO audit_log/);
+    expect(auditorias.length).toBeGreaterThanOrEqual(2);
+    const conNota = auditorias.filter((c) =>
+      c.params.some((v) => typeof v === 'string' && /SoD/.test(v))
+    );
+    expect(conNota).toHaveLength(1);
+  });
+});

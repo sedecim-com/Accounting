@@ -98,7 +98,12 @@ import { registerBatchCommand } from './batch-command.js';
 import { registerClosingCommand } from './closing-command.js';
 import { registerFxCommand } from './fx-command.js';
 import { registerPrepaidCommand } from './prepaid-command.js';
+import { registerEAccountingCommand } from './e-accounting-command.js';
+import { registerDiotCommand } from './diot-command.js';
+import { registerPayrollIsnCommands } from './payroll-isn-command.js';
 import { registerCashFlowCommand } from './cashflow-command.js';
+import { registerAuditCommand } from './audit-command.js';
+import { registerWebhookSweepCommand } from './webhook-sweep-command.js';
 import { registerBackupCommand } from './backup-command.js';
 import { registerReportCommand } from './report-command.js';
 import { recordUsage, estimateCostUsd, clampTokenCount } from '../ai/usage-ledger.js';
@@ -3036,7 +3041,24 @@ registerBatchCommand(program, { palette: c, shutdown, reportError });
 registerClosingCommand(program, { palette: c, shutdown, reportError });
 registerFxCommand(program, { palette: c, shutdown, reportError });
 registerPrepaidCommand(program, { palette: c, shutdown, reportError });
+registerEAccountingCommand(program, { palette: c, shutdown, reportError });
+registerDiotCommand(program, { palette: c, shutdown, reportError });
+// F08a. Registra DOS familias: `isn` (las tasas estatales y su cálculo) y
+// `tax-deposit` (el pasivo patronal, que lleva IMSS e INFONAVIT además del
+// ISN — colgarlo de `isn` habría sido mentira).
+registerPayrollIsnCommands(program, { palette: c, shutdown, reportError });
 registerCashFlowCommand(program, { palette: c, shutdown, reportError });
+registerAuditCommand(program, { palette: c, shutdown, reportError });
+// G4b · el barrido de entregas SALIENTES. Cuelga de `subscription`·`suscripcion`,
+// que es la familia de SALIDA del catálogo — `webhooks`·`ganchos` es la de
+// ENTRADA (tokens que despiertan al agente lector) y son tablas distintas: el
+// mismo sustantivo para las dos cosas habría sido el defecto de nombre que
+// esta casa lleva un mes cazando en otras formas.
+const subscription = program
+  .command('subscription')
+  .alias('suscripcion')
+  .description('Outbound event subscriptions: who we notify, and what we could not deliver');
+registerWebhookSweepCommand(subscription, { palette: c, shutdown, reportError });
 registerBackupCommand(program, { palette: c, shutdown, reportError });
 registerReportCommand(program, { palette: c, shutdown, reportError });
 registerLedgerCommand(program, { palette: c, shutdown, reportError });
@@ -3163,22 +3185,33 @@ export function veredictoDeRaiz(
 
   // Umbral de commander (suggestSimilar): a lo más 3 ediciones y similitud
   // mayor a 0.4; empates al orden alfabético para que la salida sea estable.
-  let mejor: { invocacion: string; distancia: number } | null = null;
+  //
+  // CUANDO HAY EMPATE, SE OFRECEN LAS DOS. El desempate alfabético hacía la
+  // salida estable pero elegía por el usuario, y desde F07b hay palabras que
+  // viven en dos familias: «balanza» es la de comprobación (`report`) y
+  // también la del Anexo 24 (`e-accounting`). Quien la teclea suele querer la
+  // primera, pero «suele» no es saber, y adivinar mal a alguien que ya está
+  // perdido lo manda más lejos. Se listan las candidatas empatadas, en orden
+  // alfabético para que la salida siga siendo estable.
+  let mejorDistancia = Infinity;
+  let empatadas: string[] = [];
   for (const candidato of comandos) {
     if (candidato.clave.length <= 1) continue;
     const claveNormal = normalizarToken(candidato.clave);
     const distancia = distanciaDeEdicion(normal, claveNormal);
     const largo = Math.max(normal.length, claveNormal.length);
     if (distancia > 3 || (largo - distancia) / largo <= 0.4) continue;
-    if (
-      !mejor ||
-      distancia < mejor.distancia ||
-      (distancia === mejor.distancia && candidato.invocacion < mejor.invocacion)
-    ) {
-      mejor = { invocacion: candidato.invocacion, distancia };
+    if (distancia < mejorDistancia) {
+      mejorDistancia = distancia;
+      empatadas = [candidato.invocacion];
+    } else if (distancia === mejorDistancia && !empatadas.includes(candidato.invocacion)) {
+      empatadas.push(candidato.invocacion);
     }
   }
-  return { tipo: 'desconocido', sugerencia: mejor?.invocacion ?? null };
+  empatadas.sort();
+  const sugerencia =
+    empatadas.length === 0 ? null : empatadas.length === 1 ? empatadas[0] : empatadas.join(' o ');
+  return { tipo: 'desconocido', sugerencia };
 }
 
 // Exported for scripts/generate-cli-reference.ts, which walks the command

@@ -592,6 +592,259 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 30,
   },
   {
+    key: 'diot_tipo_operacion_por_omision',
+    category: 'contable',
+    question: 'A supplier with no operation type declared: which one does the DIOT report?',
+    impact:
+      'The DIOT reports each supplier under an operation type — 03 professional services, 06 ' +
+      'property leasing, 85 other. It is per SUPPLIER, not per invoice, so a wrong default is ' +
+      'wrong for every month until someone corrects it.',
+    options: [
+      { value: '85', label: 'Other (85) — the catch-all the catalogue provides' },
+      { value: '03', label: 'Professional services (03)' },
+      { value: 'bloquear', label: 'None: refuse to build the DIOT until every supplier declares one' },
+    ],
+    defaultValue: '85',
+    defaultRationale:
+      'The catalogue itself provides 85 as the residual category, so using it is not a guess: it is ' +
+      'the answer the form expects when the operation is neither professional services nor leasing. ' +
+      'Refusing would block a monthly filing over suppliers whose classification does not change the ' +
+      'tax, and 03 or 06 asserted by default would put a specific claim in your name.',
+    whyAsking:
+      'The form classifies each supplier by the kind of operation you have with them, and most of them are neither professional services nor leasing — but the two that are, you have to tell me.',
+    whatIDo: 'I report suppliers with no declared type under 85, and list them so you can refine the ones that matter.',
+    ifSkipped: 'I use 85 and tell you which suppliers took it.',
+    priority: 35,
+  },
+  {
+    key: 'diot_tercero_sin_rfc',
+    category: 'contable',
+    question: 'A supplier with a missing, invalid or generic RFC when the DIOT is built: refuse, or report it as global?',
+    impact:
+      'The DIOT identifies each national supplier by RFC. Today the system detects an EMPTY tax id ' +
+      'and nothing else: neither a malformed one nor the generic XAXX010101000, which is precisely ' +
+      'the value that turns a real supplier into an anonymous one on the filing.',
+    options: [
+      { value: 'bloquear', label: 'Refuse to build it and name the suppliers' },
+      { value: 'declarar_global', label: 'Report them under type 15 (global, general public)' },
+    ],
+    defaultValue: 'bloquear',
+    defaultRationale:
+      'Type 15 exists for genuine sales to the general public, not as a bin for suppliers whose RFC ' +
+      'nobody captured. Using it that way files a declaration saying those operations had no ' +
+      'identifiable counterparty, which is a statement about your books rather than a formatting ' +
+      'choice — and it is the kind of thing the authority cross-checks against the suppliers own ' +
+      'filings.',
+    whyAsking:
+      'A supplier without a valid RFC cannot be identified on the filing, and the alternative to stopping is declaring that those purchases had no known counterparty.',
+    whatIDo: 'I refuse to build the DIOT and name the suppliers whose RFC is missing, malformed or generic.',
+    ifSkipped: 'I refuse and name them.',
+    priority: 30,
+  },
+  {
+    key: 'diot_iva_exento_y_base',
+    category: 'contable',
+    question: 'How is exempt activity reported when the source document did not carry its base?',
+    impact:
+      'The DIOT declares the VALUE of the acts, not only the tax. An exempt line carries no tax ' +
+      'amount and, until now, the parser dropped it entirely: a CFDI 4.0 exempt node has ' +
+      'TipoFactor="Exento" and no Importe, so it was discarded in silence.',
+    options: [
+      { value: 'exigir_base', label: 'Require the base: refuse to report a period with exempt lines whose value is unknown' },
+      { value: 'derivar_del_subtotal', label: 'Derive it from the line subtotal' },
+      { value: 'omitir_y_avisar', label: 'Leave those lines out and list them' },
+    ],
+    defaultValue: 'exigir_base',
+    defaultRationale:
+      'Exempt activity is not the absence of an operation: it is an operation the DIOT wants counted, ' +
+      'and understating it understates the total the authority reconciles against your VAT return. ' +
+      'Deriving from the subtotal is right often enough to be dangerous — it silently breaks wherever ' +
+      'a line mixes exempt and taxed concepts. Now that the base is captured at ingestion, requiring ' +
+      'it means requiring something the document already said.',
+    whyAsking:
+      'Exempt purchases still count on the filing, and they are the ones whose amount the system used to throw away without telling anyone.',
+    whatIDo: 'I stop and name the documents whose exempt base is unknown instead of guessing it.',
+    ifSkipped: 'I require the base and name what is missing.',
+    priority: 35,
+  },
+  {
+    key: 'efirma_sellado_contabilidad_electronica',
+    category: 'contable',
+    question: 'Does the system seal the Anexo 24 files with your e.firma, or do you seal them yourself?',
+    impact:
+      'Sealing means the private key of the taxpayer is loaded and used by this software. The files ' +
+      'it produces are a declaration to the tax authority signed in your name.',
+    options: [
+      {
+        value: 'nunca_sellar_en_el_sistema',
+        label: 'Never: the system produces the unsealed XML and you seal and transmit it yourself',
+      },
+      {
+        value: 'sellar_con_custodia',
+        label: 'Seal here, with the key held in the credential vault and every use logged',
+      },
+    ],
+    defaultValue: 'nunca_sellar_en_el_sistema',
+    defaultRationale:
+      'The e.firma is the taxpayer signing, not the software. Producing the file and signing it are ' +
+      'different acts and belong to different hands: this system builds the XML, shows you what it ' +
+      'contains, and stops. The vault exists for the credentials the system genuinely needs; the ' +
+      'signature on a declaration is not one of them. Firms that decide otherwise can say so here, ' +
+      'and then every decryption is logged — but the default is that your key never enters this ' +
+      'process.',
+    whyAsking:
+      'Sealing an Anexo 24 file means your private key is used by this software to sign a declaration in your name. That is not a technical detail I get to assume for you: it is your signature.',
+    whatIDo: 'I build the XML unsealed and hand it to you; the sealing and the transmission are yours.',
+    ifSkipped: 'I never seal: your key does not enter this process.',
+    priority: 15,
+  },
+  {
+    key: 'anexo24_cuenta_sin_agrupador',
+    category: 'contable',
+    question: 'Generating the Anexo 24 catalogue with accounts that have no grouping code: refuse, or emit them?',
+    impact:
+      'The CtaCatalogo node requires CodigoAgrupador on every account. An account without one either ' +
+      'gets left out of the file — so the balance references an account the catalogue does not ' +
+      'declare — or goes in empty and the XSD rejects it.',
+    options: [
+      { value: 'bloquear', label: 'Refuse to generate until every account carries its grouping code' },
+      { value: 'omitir_y_avisar', label: 'Leave them out of the file and list them' },
+    ],
+    defaultValue: 'bloquear',
+    defaultRationale:
+      'Emitting an incomplete catalogue is worse than emitting none: the balance filed afterwards ' +
+      'references accounts the catalogue never declared, and that inconsistency is exactly what the ' +
+      'authority validates across filings. Stopping costs a mapping session; filing a catalogue that ' +
+      'contradicts the balance costs a rejection with the deadline already spent.',
+    whyAsking:
+      'Every account in the file needs its SAT grouping code, and I can either stop and tell you which ones are missing or hand you a catalogue that does not match the balance you will file next.',
+    whatIDo: 'I refuse to generate and name the accounts that are missing their grouping code.',
+    ifSkipped: 'I refuse and name them.',
+    priority: 25,
+  },
+  {
+    key: 'anexo24_niveles_a_presentar',
+    category: 'contable',
+    question: 'Which levels of the chart go into the Anexo 24 catalogue?',
+    impact:
+      'The file declares the hierarchy through SubCtaDe and Nivel. Filing only the top levels hides ' +
+      'the detail the authority uses to follow an entry; filing everything exposes a chart that may ' +
+      'carry internal analytical accounts.',
+    options: [
+      { value: 'jerarquia_completa', label: 'Every account, with its parent and level' },
+      { value: 'hasta_nivel_2', label: 'Only rubros and first-level accounts' },
+      { value: 'las_que_se_mueven', label: 'Only accounts with posted movement, plus their parents' },
+    ],
+    defaultValue: 'jerarquia_completa',
+    defaultRationale:
+      'The catalogue is the map the authority reads the balance and the entries against, so an account ' +
+      'that appears in either must appear here. Trimming it creates references the file cannot ' +
+      'resolve, and the hierarchy is precisely what SubCtaDe exists to carry.',
+    whyAsking:
+      'The file has to declare the hierarchy of your chart, and how deep it goes decides whether a later filing can reference an account this catalogue never mentioned.',
+    whatIDo: 'I include the whole chart with its parent-child structure.',
+    ifSkipped: 'I include every account with its hierarchy.',
+    priority: 30,
+  },
+  {
+    key: 'agrupador_alcance_de_la_compuerta',
+    category: 'contable',
+    question: 'Which accounts must carry a SAT grouping code before the books can be filed?',
+    impact:
+      'Decides who the gate accuses. It currently filters by account_level <= 2, which on a real ' +
+      'chart reported 43 gaps of which 42 were accounts with no movement at all — while the one ' +
+      'account that HAD moved without a grouping code was not reported. It fails in both directions.',
+    options: [
+      { value: 'cuentas_con_movimientos', label: 'Only accounts with posted movement in the period' },
+      { value: 'todas_las_de_detalle', label: 'Every detail account, moved or not' },
+      { value: 'todas', label: 'Every account in the chart' },
+    ],
+    defaultValue: 'cuentas_con_movimientos',
+    defaultRationale:
+      'What the SAT reads is the balance and the entries, so an account that never moved cannot ' +
+      'misgroup anything. Accusing the whole chart buries the one account that matters under dozens ' +
+      'that do not, which is exactly how a gate stops being read.',
+    whyAsking:
+      'A chart of accounts always has rows nobody ever posts to. Telling you about those is noise, and noise is how a warning stops being read — but the account that DID move and has no grouping code is a filing you cannot make.',
+    whatIDo: 'I only flag accounts that actually moved in the period being filed.',
+    ifSkipped: 'I flag accounts with movement.',
+    priority: 30,
+  },
+  {
+    key: 'agrupador_faltante_al_cierre',
+    category: 'contable',
+    question: 'Closing a month with accounts that moved and have no SAT grouping code: warn, or refuse?',
+    impact:
+      'Without a grouping code those accounts cannot go into the Anexo 24 catalogue, so the filing ' +
+      'for that month is impossible until someone maps them.',
+    options: [
+      { value: 'avisar', label: 'Warn: the checklist item goes red and the close continues' },
+      { value: 'bloquear', label: 'Refuse to close until every moved account is mapped' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'The close is an accounting act and the grouping code is a filing requirement: blocking the ' +
+      'books because of a tax catalogue confuses two obligations with different deadlines. The ' +
+      'warning is what gives you the days between closing and filing to fix it.',
+    whyAsking:
+      'Closing the month and filing it with the SAT are two different deadlines, and an unmapped account only breaks the second one — so you may reasonably want to close anyway and map before you file.',
+    whatIDo: 'I put the item in red on the close checklist, naming the accounts, and let the close proceed.',
+    ifSkipped: 'I warn and name them.',
+    priority: 30,
+  },
+  {
+    key: 'agrupador_valor_fuera_de_catalogo',
+    category: 'contable',
+    question: 'A grouping code that is not in the official SAT catalogue for that year: accept or reject?',
+    impact:
+      'The c_CodAgrup catalogue is revised by the authority, so a code valid in 2022 may not be in ' +
+      '2026, and a filing is validated against the catalogue in force for its fiscal year.',
+    options: [
+      { value: 'rechazar', label: 'Reject: the code must exist in the catalogue in force' },
+      { value: 'avisar', label: 'Accept it and warn' },
+    ],
+    defaultValue: 'rechazar',
+    defaultRationale:
+      'An invalid grouping code does not fail here: it fails at the SAT, after the file was sealed ' +
+      'with the e.firma and transmitted, when the deadline has already run. Catching it at capture ' +
+      'costs one message; catching it at the tax authority costs a rejected filing.',
+    whyAsking:
+      'The SAT publishes and revises this catalogue, so a code that was right two years ago can be wrong today — and the file only gets rejected after you have already sealed and sent it.',
+    whatIDo: 'I refuse a grouping code that is not in the catalogue in force for that year, and say which one it is.',
+    ifSkipped: 'I reject codes outside the catalogue.',
+    priority: 35,
+  },
+  {
+    key: 'anexo24_balanza_saldo_inicial',
+    category: 'contable',
+    question: 'Where does the opening balance of the Anexo 24 trial balance come from?',
+    impact:
+      'The SAT recomputes SaldoIni + Debe − Haber = SaldoFin on the filed balance. Today the opening ' +
+      'balance is only seeded by the HARD close, so an entity that only soft-closes would file zeros ' +
+      'in every account — a sealed declaration that the company opened the month at nothing.',
+    options: [
+      {
+        value: 'derivar_del_mayor',
+        label: 'Derive it from the ledger: sum everything posted before the period starts',
+      },
+      {
+        value: 'exigir_cierre_duro',
+        label: 'Require a hard close: refuse to build the balance without a seeded opening balance',
+      },
+    ],
+    defaultValue: 'derivar_del_mayor',
+    defaultRationale:
+      'The ledger already holds the answer and the reporting layer already knows how to ask for it, ' +
+      'so deriving costs one query and is true whatever the period status. Requiring a hard close ' +
+      'would make a filing obligation depend on an internal bookkeeping ceremony that the law does ' +
+      'not mention.',
+    whyAsking:
+      'Your opening balance is only stored when a period is closed hard, and the filing needs it every month — so I either take it from the ledger or refuse to build the balance at all.',
+    whatIDo: 'I derive the opening balance from everything posted before the period, whatever its close status.',
+    ifSkipped: 'I derive it from the ledger.',
+    priority: 30,
+  },
+  {
     key: 'informes_asientos_de_cierre',
     category: 'contable',
     question:
@@ -1087,6 +1340,118 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped:
       'Shortfalls go to purchase discounts (5200). Nothing breaks, but if your criterion is to treat them as income, the cost of sales will be understated until you say so.',
     priority: 35,
+  },
+  // ---- F08a · Lo que el patrón paga y lo que el trabajador no recibió ----
+
+  {
+    key: 'subsidio_al_empleo_entregado_registro',
+    category: 'contable',
+    question:
+      'When the employment subsidy exceeds the ISR withheld and you hand the difference to the worker in cash, is that a receivable from the tax authority or an expense of the firm?',
+    impact:
+      'It decides whether the cash you hand over comes back as a credit against the ISR withheld from other workers, or lands in payroll expense and never comes back.',
+    options: [
+      {
+        value: 'cuenta_por_cobrar_fisco',
+        label: 'A receivable: it is creditable against the ISR withheld from other workers',
+      },
+      {
+        value: 'gasto_del_patron',
+        label: 'An expense: the firm absorbs it and does not credit it',
+      },
+    ],
+    defaultValue: 'cuenta_por_cobrar_fisco',
+    defaultRationale:
+      'It is what the law allows and what the money actually is: the employer advances cash that the ' +
+      'authority repays by way of credit. Expensing it is a decision to give up that credit, which ' +
+      'some firms make deliberately when the amounts are small and the paperwork is not worth it — ' +
+      'but it should be a decision, not the consequence of a default.',
+    whyAsking:
+      'When the subsidy is larger than the ISR of the period, the employer must hand the difference to the worker in cash. That money leaves the firm and comes back only if you credit it. Where you book it changes both your payroll expense and what you owe the SAT this month.',
+    whatIDo:
+      'I compute the excess per paycheck, record it on the payslip as cash delivered, and post it to the account this policy names. With "cuenta_por_cobrar_fisco" I also net it against the ISR withheld that the monthly return reports.',
+    ifSkipped:
+      'It goes to a receivable from the authority. Nothing breaks; if your criterion is to absorb it, payroll expense will be understated until you say so.',
+    priority: 42,
+  },
+  {
+    key: 'isn_estado_que_causa',
+    category: 'fiscal',
+    question:
+      'For the state payroll tax (ISN), which state does a worker belong to: the one where the work is performed, or the one of the firm\'s tax domicile?',
+    impact:
+      'It decides which state you file in and at which rate — the rates run from about 1% to 4% and each state audits its own.',
+    options: [
+      {
+        value: 'centro_de_trabajo',
+        label: 'Where the work is performed (the employee\'s work state)',
+      },
+      {
+        value: 'domicilio_fiscal',
+        label: 'The state of the firm\'s tax domicile, for every worker',
+      },
+    ],
+    defaultValue: 'centro_de_trabajo',
+    defaultRationale:
+      'The ISN is a state tax on payroll paid for work performed within that state, so the work state ' +
+      'is the one that can demand it. A firm whose workers all sit at the tax domicile gets the same ' +
+      'answer either way; one with people in several states does not, and filing everything in the ' +
+      'head office state is how a firm ends up owing another state for years without knowing.',
+    whyAsking:
+      'Remote and multi-state workforces make this a real fork, and it is not a rule the system can settle: it depends on where your establishments are and what each state\'s law says about them.',
+    whatIDo:
+      'I group each pay run by the state this policy points at, look up that state\'s rate for the period, and accrue one ISN liability per state. If a state has no rate captured, I say which state and which period rather than computing zero.',
+    ifSkipped:
+      'I use the employee\'s work state. If your establishments are all in one state, this changes nothing.',
+    priority: 43,
+  },
+  {
+    key: 'isn_momento_de_causacion',
+    category: 'contable',
+    question:
+      'Do you accrue the ISN when the payroll is earned, or when it is paid?',
+    impact:
+      'It moves the expense between months whenever a pay period straddles a month end.',
+    options: [
+      { value: 'devengo', label: 'When earned, with the payroll it belongs to' },
+      { value: 'pago', label: 'When paid, with the cash that leaves' },
+    ],
+    defaultValue: 'devengo',
+    defaultRationale:
+      'The payroll expense it rides on is accrued, and splitting the tax from its base puts the two ' +
+      'in different months for no reason. Firms on a cash criterion for state taxes can say so here.',
+    whyAsking:
+      'A pay period that starts in one month and ends in the next has to land somewhere, and the two answers give different monthly results.',
+    whatIDo:
+      'I date the ISN liability by the criterion you choose here, and the due date by the state calendar either way.',
+    ifSkipped:
+      'It accrues with the payroll that caused it.',
+    priority: 44,
+  },
+  {
+    key: 'provision_cuotas_patronales',
+    category: 'contable',
+    question:
+      'Do you accrue the employer IMSS and INFONAVIT contributions with every pay run, or once a month when they are paid?',
+    impact:
+      'It decides whether a mid-month payroll shows its employer cost immediately or only at the month end.',
+    options: [
+      { value: 'por_corrida', label: 'With every pay run, next to the payroll that caused it' },
+      { value: 'mensual_al_cierre', label: 'Once a month, matching how they are actually paid' },
+    ],
+    defaultValue: 'por_corrida',
+    defaultRationale:
+      'The employer contribution is a cost of the same work the payroll pays for, and accruing it with ' +
+      'its pay run keeps the cost of a period complete without waiting for the month end. Firms that ' +
+      'reconcile against the SUA line by line often prefer the monthly accrual, and that is a real ' +
+      'criterion, not an error.',
+    whyAsking:
+      'IMSS and INFONAVIT are paid monthly and bimonthly, not per pay run, so there is a genuine choice between matching the cost and matching the payment.',
+    whatIDo:
+      'I write one employer liability row per pay run or one per month according to this, and the SUA reconciliation reads whichever you chose.',
+    ifSkipped:
+      'They accrue with each pay run.',
+    priority: 45,
   },
 ];
 
