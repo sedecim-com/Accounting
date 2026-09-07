@@ -161,6 +161,7 @@ export function registerCloseCommand(program: Command, deps: CloseCliDeps): void
   // --dry-run, --yes e --idempotency-key, y le niega el comando al agente.
   declareRisk(close, {
     risk: 'irreversible',
+    llave: { scope: 'close' },
     writes: 'fiscal_periods; con --hard, asientos de cierre POSTEADOS y arrastre de saldos',
   });
   close.addHelpText('after', EJEMPLOS);

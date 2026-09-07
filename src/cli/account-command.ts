@@ -751,7 +751,12 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     .requiredOption('--scheme <name>', `scheme: ${Object.keys(MAPPING_SCHEMES).join(', ')}`)
     .option('--dry-run', 'parse and resolve everything, write nothing')
     .option('--idempotency-key <key>', 'replay-safe key: the same key with the same file returns the first result');
-  declareRisk(mapImport, { risk: 'escritura', agent: false, writes: 'accounts (columnas estatutarias, en lote)' });
+  declareRisk(mapImport, {
+    risk: 'escritura',
+    agent: false,
+    llave: { scope: 'account map import' },
+    writes: 'accounts (columnas estatutarias, en lote)',
+  });
   mapImport.addHelpText('after', EJEMPLOS.mapImport);
   mapImport.action((file: string, opts: CommonOpts & { scheme: string; dryRun?: boolean; idempotencyKey?: string }) =>
     run(async () => {

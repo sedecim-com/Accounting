@@ -4794,6 +4794,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .option('--json', 'JSON output');
   declareRisk(reconApprove, {
     risk: 'irreversible',
+    llave: { scope: 'bank reconciliation approve' },
     agent: false,
     writes:
       'reconciliation_sessions (status=approved + approved_by/at + approval_reason + ' +
@@ -4942,6 +4943,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   reconPost.option('--json', 'JSON output');
   declareRisk(reconPost, {
     risk: 'irreversible',
+    llave: { scope: 'bank reconciliation post' },
     agent: false,
     writes:
       'journal_entries + journal_entry_lines (POSTEADOS, por el motor); ' +
@@ -5262,6 +5264,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .option('--json', 'JSON output');
   declareRisk(feePost, {
     risk: 'irreversible',
+    llave: { scope: 'bank fee post' },
     agent: false,
     writes:
       'journal_entries + journal_entry_lines POSTEADOS (source_type=bank_fee, uno por cargo, ' +
@@ -5413,6 +5416,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .option('--json', 'JSON output');
   declareRisk(interestPost, {
     risk: 'irreversible',
+    llave: { scope: 'bank interest post' },
     agent: false,
     writes:
       'journal_entries + journal_entry_lines POSTEADOS (source_type=bank_interest, uno por abono, ' +
@@ -5568,6 +5572,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     .option('--json', 'JSON output');
   declareRisk(checkReconcile, {
     risk: 'irreversible',
+    llave: { scope: 'bank check reconcile' },
     agent: false,
     writes:
       'vendor_payments.check_cleared_date + check_cleared_tx_id (juntas, por el CHECK ' +

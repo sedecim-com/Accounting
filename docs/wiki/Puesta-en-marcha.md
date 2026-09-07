@@ -198,7 +198,9 @@ DATABASE_URL="$MIGRATION_DATABASE_URL" npm run seed
 
 ## `MNEMOSINE_TENANT`, y qué hacer sin ella
 
-Con RLS activa, cada comando necesita saber **sobre qué inquilino** trabaja. La precedencia es: bandera `-T, --tenant <uuid>` primero, variable `MNEMOSINE_TENANT` después.
+Con RLS activa, cada comando necesita saber **sobre qué inquilino** trabaja. La precedencia es: bandera `-T, --tenant <uuid>` primero, variable `MNEMOSINE_TENANT` después, y clave `tenant` de `mnemosine.config.json` al final.
+
+La bandera vale igual **antes** del comando (`-T <uuid> entity list`) que **después** (`entity list --tenant <uuid>`, o `-t <uuid>`): son la misma bandera y ganan las tres al entorno. Hasta el tramo T3 no era así —la forma larga se quedaba en la raíz, cada hoja volvía a fijar el inquilino desde `MNEMOSINE_TENANT` y lo pisaba— y pedir el despacho B devolvía, en silencio y con código 0, la balanza del A.
 
 El inquilino se fija en un gancho `preAction` de commander, es decir **antes** de que corra el comando. Eso es deliberado: si se fijara dentro de cada acción, la propia resolución de entidades ocurriría sin lentes y `entities` vería las entidades de todos los clientes.
 

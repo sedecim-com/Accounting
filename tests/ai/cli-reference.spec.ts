@@ -55,6 +55,44 @@ describe('cli-reference.md describe el binario que se embarca', () => {
     ).toEqual([]);
   });
 
+  it('la ayuda de --idempotency-key del documento es la del binario, hoja por hoja', () => {
+    // EL DOCUMENTO PODÍA ENVEJECER SIN QUE NADA SE PUSIERA ROJO. Las pruebas
+    // de arriba comprueban que cada hoja APAREZCA, no lo que dice de sus
+    // banderas — así que cuando T3b cambió la ayuda de `--idempotency-key` en
+    // veinte hojas, el agente siguió leyendo «a retry with the same key and
+    // payload returns the recorded result» para comandos que hoy la rechazan.
+    // El mismo defecto que S4b («el manual del agente no conocía tres de sus
+    // propias manos»), un piso más abajo: en el texto de las banderas.
+    const enElBinario = new Map<string, string>();
+    const caminar = (cmd: Command, ruta: string[]): void => {
+      const hijos = cmd.commands as Command[];
+      const full = [...ruta, cmd.name()].filter(Boolean).join(' ');
+      if (hijos.length === 0 && ruta.length > 0) {
+        const o = cmd.options.find((x) => x.long === '--idempotency-key');
+        if (o) enElBinario.set(full, o.description);
+      }
+      for (const h of hijos) caminar(h, [...ruta, cmd.name()].filter(Boolean));
+    };
+    caminar(program as unknown as Command, []);
+    expect(enElBinario.size).toBeGreaterThan(20);
+
+    // El generador ENVUELVE la ayuda en varias líneas para que la tabla quepa,
+    // así que se comparan los dos lados con los espacios colapsados: lo que se
+    // defiende es el TEXTO que lee el agente, no su maquetación.
+    const plano = (t: string): string => t.replace(/\s+/g, ' ').trim();
+    const docPlano = plano(DOC);
+    const desfasadas = [...enElBinario.entries()]
+      .filter(([, ayuda]) => !docPlano.includes(plano(ayuda)))
+      .map(([hoja]) => hoja);
+    expect(
+      desfasadas,
+      'El documento se le sirve al agente como la superficie EXACTA del binario, con la orden ' +
+        'de citarla literalmente. Si la ayuda de una bandera cambió y el documento no, el ' +
+        'agente le promete al contador algo que el comando ya no hace. Regenera con: ' +
+        'npx tsx scripts/generate-cli-reference.ts'
+    ).toEqual([]);
+  });
+
   it('las familias contables están, que son las que se habían caído enteras', () => {
     for (const familia of [
       'entry', 'invoice', 'payment', 'receipt', 'report',

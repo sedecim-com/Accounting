@@ -15,7 +15,7 @@ import {
   filasDelAsiento,
   filasPorActivo,
 } from '../../src/cli/depreciation-command.js';
-import { riskOf, declareRisk } from '../../src/cli/kernel/risk.js';
+import { riskOf, declareRisk, ambitoDeLlave } from '../../src/cli/kernel/risk.js';
 import { VERBS } from '../../src/cli/kernel/vocabulary.js';
 import { FLAG_DICTIONARY } from '../../src/cli/kernel/flags.js';
 import {
@@ -174,10 +174,14 @@ describe('safety declarations', () => {
     ).toThrow(/draftOnly/);
   });
 
-  it('carries the three safety flags the irreversible class requires', () => {
-    expect(longs('depreciation post')).toEqual(
-      expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key'])
-    );
+  it('honours the key it accepts, under its own scope', () => {
+    // LA VERSIÓN ANTERIOR NO PODÍA FALLAR: comprobaba banderas que
+    // `declareRisk` acaba de INYECTAR (risk.ts), o sea su propio efecto
+    // secundario. Lo que sí puede fallar es qué hace la hoja con la llave.
+    // `depreciation post` sí la honra: su manejador la entrega a `conLlave`
+    // bajo el ámbito 'depreciation post' (depreciation-command.ts). El cruce
+    // contra el código fuente lo hace tests/cli/kernel/llave-honrada.spec.ts.
+    expect(ambitoDeLlave(find('depreciation post'))).toBe('depreciation post');
   });
 
   it('gives the read-only run none of them: nothing suggests it writes', () => {

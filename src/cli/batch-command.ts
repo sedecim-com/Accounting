@@ -612,6 +612,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
     .option('--json', 'JSON output');
   declareRisk(post, {
     risk: 'irreversible',
+    llave: { scope: 'batch post' },
     agent: false,
     writes:
       'journal_entries + journal_entry_lines POSTEADOS (source_type=import_batch, source_id=fila) ' +
@@ -759,6 +760,7 @@ export function registerBatchCommand(program: Command, deps: BatchCommandDeps): 
   // exige salvo en ensayo.
   declareRisk(reverse, {
     risk: 'irreversible',
+    llave: { scope: 'batch reverse' },
     agent: false,
     writes:
       'journal_entries espejo POSTEADOS (sin source_type, como toda reversa) + ' +
