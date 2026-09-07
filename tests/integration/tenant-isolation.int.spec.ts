@@ -111,9 +111,40 @@ describe('aislamiento por inquilino con RLS', () => {
   });
 
   it('un contexto con basura tampoco abre la puerta', async () => {
-    // app_current_tenant() atrapa el error de casteo y devuelve NULL:
-    // ausencia de contexto, nunca "todas las filas".
-    const r = await comoInquilino('no-es-un-uuid', 'SELECT id FROM legal_entities');
+    // Esta prueba defiende una PROPIEDAD, no un mecanismo: basura en el
+    // contexto NUNCA devuelve filas. Fail-closed por cualquiera de las dos
+    // vías, y por eso las admite las dos.
+    //
+    // Hasta la 069 la vía era el SILENCIO: `app_current_tenant()` era plpgsql
+    // y atrapaba el error de casteo devolviendo NULL. La 069 la hizo
+    // inlineable —seis veces más barata, y `LANGUAGE sql` no tiene
+    // excepciones— así que ahora la vía es el RECHAZO. El cambio está
+    // razonado en la cabecera de la migración: el GUC lo escribe siempre
+    // nuestro código y siempre desde una columna uuid, de modo que un valor
+    // mal formado es un defecto nuestro y merece ruido en vez de un «no hay
+    // datos» indistinguible de «este inquilino no tiene datos».
+    //
+    // Lo que esta prueba sigue sin admitir, que es para lo que existe: que la
+    // basura devuelva UNA SOLA FILA.
+    const veredicto = await comoInquilino('no-es-un-uuid', 'SELECT id FROM legal_entities')
+      .then((r) => ({ rechazo: null as string | null, filas: r.rowCount }))
+      .catch((e: unknown) => ({ rechazo: String(e), filas: null as number | null }));
+
+    if (veredicto.rechazo !== null) {
+      expect(veredicto.rechazo).toMatch(/invalid input syntax for type uuid/);
+    } else {
+      expect(veredicto.filas).toBe(0);
+    }
+  });
+
+  it('el contexto VACÍO es ausencia de contexto, no un uuid inválido', async () => {
+    // Las migraciones 025, 026 y 051 cierran su bucle por inquilinos con
+    // `set_config('app.current_tenant', '', true)`, y `''::uuid` lanza. Lo
+    // único que hay entre esas tres migraciones y un error es el `nullif` de
+    // la 069 —el mismo que, ojo, NO se puede cualificar con pg_catalog porque
+    // es gramática y no función—. Sin él, la cadena vacía dejaría de ser
+    // «sin contexto» y pasaría a ser «uuid inválido».
+    const r = await comoInquilino('', 'SELECT id FROM legal_entities');
     expect(r.rowCount).toBe(0);
   });
 

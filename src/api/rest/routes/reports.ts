@@ -44,10 +44,7 @@ const meta = (req: Request) => ({
  *
  * These are exactly the columns queryTrialBalanceRows projects -- so the CSV
  * and the JSON `data.accounts` carry the same facts in two encodings, and
- * neither one invents a field. In particular beginning_balance is absent: the
- * type TrialBalanceRow declares it, but no query behind this endpoint selects
- * it, so listing it here would emit a column of blanks that reads like a real
- * zero.
+ * neither one invents a field.
  *
  * The totals block stays out of the CSV. A trailing total row is the classic
  * way to break every consumer that sums a column; callers who want the
@@ -61,6 +58,38 @@ const TRIAL_BALANCE_CSV_COLUMNS = [
   'debit_total',
   'credit_total',
   'ending_balance',
+] as const;
+
+/**
+ * F07a · LAS DOS COLUMNAS DEL ANEXO 24, Y POR QUÉ VAN Y VIENEN.
+ *
+ * El nodo Ctas de la BalanzaComprobacion pide cuatro cifras —SaldoIni, Debe,
+ * Haber y SaldoFin— y este CSV es con lo que un despacho arma el papel de
+ * trabajo de la entrega. Publicaba tres, así que la cuarta columna que el
+ * servicio ya calcula se caía en el borde de la ruta sin que nada lo dijera.
+ *
+ * Se añaden SÓLO cuando la balanza tiene un ANTES (un periodo fiscal o un
+ * rango con fecha de inicio). Emitirlas siempre pondría una celda vacía en la
+ * balanza acumulada, y una celda vacía en una hoja de cálculo se lee como un
+ * cero: sería declarar que el contribuyente abrió en nada, que es exactamente
+ * la mentira que F07a vino a matar. La cabecera cambia con el alcance porque
+ * el documento cambia con el alcance.
+ *
+ * El orden es el del Anexo 24 —SaldoIni, Debe, Haber, SaldoFin— con
+ * `ending_balance` conservado en su sitio: para un rango NO es un saldo final
+ * sino el movimiento neto (Debe menos Haber), y los consumidores que ya leen
+ * esa columna la siguen encontrando donde estaba.
+ */
+const TRIAL_BALANCE_CSV_ANEXO24 = [
+  'account_id',
+  'account_code',
+  'account_name',
+  'account_type',
+  'beginning_balance',
+  'debit_total',
+  'credit_total',
+  'ending_balance',
+  'final_balance',
 ] as const;
 
 // GET /v1/reports/trial-balance
@@ -85,7 +114,9 @@ router.get('/trial-balance', requirePermission('reports:read'), requireEntityAcc
   if (format === 'csv') {
     res.type('text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', csvAttachment(`trial-balance-${entityId}`));
-    res.send(toCsv(TRIAL_BALANCE_CSV_COLUMNS, report.rows));
+    res.send(
+      toCsv(report.inicial ? TRIAL_BALANCE_CSV_ANEXO24 : TRIAL_BALANCE_CSV_COLUMNS, report.rows)
+    );
     return;
   }
 
@@ -98,6 +129,15 @@ router.get('/trial-balance', requirePermission('reports:read'), requireEntityAcc
       // balanza lo cuenta y tiene que decirlo, o no se puede atar contra un
       // estado de resultados que lo deja fuera.
       ...(report.closing ? { closing_entries: report.closing } : {}),
+      // F07a · La cuarta columna sin su procedencia no se puede firmar. Este
+      // bloque dice de dónde salió el SaldoIni (del mayor o del arrastre del
+      // cierre duro), si ya es FIRME —lo jura el periodo ANTERIOR, no el
+      // consultado— y, sobre todo, `descuadres`: las cuentas donde
+      // SaldoIni + Debe − Haber no da el SaldoFin, que es el recálculo que la
+      // autoridad rehace sobre el archivo sellado. Calcularlo y no publicarlo
+      // dejaba la balanza con cara de correcta. Viaja por lo mismo que
+      // `closing_entries` y sólo cuando la balanza tiene un ANTES.
+      ...(report.inicial ? { opening_balance: report.inicial } : {}),
     },
     meta: meta(req),
   });

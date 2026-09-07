@@ -12,6 +12,7 @@ import {
   listQuestions, answerQuestion, dismissQuestion, searchPrecedents,
 } from '../../../ai/question-service.js';
 import type { AgentContext } from '../../../ai/context.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 const router = Router();
 
@@ -77,7 +78,12 @@ router.get('/drafts', requirePermission('journal_entries:read'), requireEntityAc
   })
 );
 
-router.post('/drafts/:id/approve', requirePermission('journal_entries:create'), requireEntityAccess,
+// LA PUERTA DE LOS CUATRO OJOS, y por eso `agente: false` esta escrito
+// aunque sea el valor por omision: esta ruta aprueba lo que el agente
+// propuso, y si el agente pudiera llamarla proponer y disponer serian el
+// mismo acto. `declararRiesgoRuta` ya lo impediria —irreversible y agente
+// juntos no compilan— pero la razon merece leerse aqui.
+router.post('/drafts/:id/approve', declararRiesgoRuta({ riesgo: 'irreversible', agente: false, escribe: 'journal_entries + journal_entry_lines POSTEADOS al aprobar el borrador; ai_drafts.status' }), requirePermission('journal_entries:create'), requireEntityAccess,
   validateBody(reviewNotesSchema),
   scoped(async (req, res, ctx) => {
     // The reviewer is the token's subject, not "the first active user": the
@@ -95,7 +101,7 @@ router.post('/drafts/:id/approve', requirePermission('journal_entries:create'), 
   })
 );
 
-router.post('/drafts/:id/reject', requirePermission('journal_entries:create'), requireEntityAccess,
+router.post('/drafts/:id/reject', declararRiesgoRuta({ riesgo: 'escritura', agente: false, escribe: 'ai_drafts.status + el motivo del revisor' }), requirePermission('journal_entries:create'), requireEntityAccess,
   validateBody(rejectSchema),
   scoped(async (req, res, ctx) => {
     const reviewer = { userId: req.user!.user_id, email: req.user!.email };
@@ -114,7 +120,7 @@ router.get('/questions', requirePermission('journal_entries:read'), requireEntit
   })
 );
 
-router.post('/questions/:id/answer', requirePermission('journal_entries:create'), requireEntityAccess,
+router.post('/questions/:id/answer', declararRiesgoRuta({ riesgo: 'escritura', agente: false, escribe: 'ai_questions.answer + precedentes' }), requirePermission('journal_entries:create'), requireEntityAccess,
   validateBody(answerSchema),
   scoped(async (req, res, ctx) => {
     await answerQuestion(ctx, req.params.id, req.body.answer, req.user!.email, req.body.is_precedent ?? true);
@@ -122,7 +128,7 @@ router.post('/questions/:id/answer', requirePermission('journal_entries:create')
   })
 );
 
-router.post('/questions/:id/dismiss', requirePermission('journal_entries:create'), requireEntityAccess,
+router.post('/questions/:id/dismiss', declararRiesgoRuta({ riesgo: 'escritura', agente: false, escribe: 'ai_questions.status' }), requirePermission('journal_entries:create'), requireEntityAccess,
   scoped(async (req, res, ctx) => {
     await dismissQuestion(ctx, req.params.id, req.user!.email);
     res.json({ data: { dismissed: true }, meta: meta(req) });

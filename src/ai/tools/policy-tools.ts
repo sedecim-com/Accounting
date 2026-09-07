@@ -68,7 +68,18 @@ export interface PoliticaDelPanel {
   default_value: string | null;
   /** De qué fila salió: la de la entidad manda sobre la del inquilino. */
   scope: 'entity' | 'tenant';
-  options: Array<{ value: string; label: string }>;
+  /**
+   * LAS ALTERNATIVAS VIAJAN SÓLO CUANDO HAY QUE ELEGIR.
+   *
+   * Presente en las políticas SIN contestar, que es donde el agente tiene que
+   * preguntar con las opciones reales delante. En una contestada se omite, por
+   * dos razones que apuntan al mismo sitio: enseñarle al agente los caminos
+   * que el despacho descartó le invita a reconsiderar una decisión que no es
+   * suya, y las listas de opciones eran la mitad del peso del panel — a 53
+   * políticas ya no cabía ninguna nota, así que el agente recibía las reglas
+   * sin una sola razón de por qué son así.
+   */
+  options?: Array<{ value: string; label: string }>;
   notes: string | null;
   /**
    * No-null = la fila DICE estar resuelta y no guarda respuesta utilizable.
@@ -226,7 +237,7 @@ export async function leerPanel(
       answered_value: respuesta,
       default_value: fila.default_value,
       scope: fila.entity_id === null ? 'tenant' : 'entity',
-      options: fila.options ?? [],
+      ...(contestada ? {} : { options: fila.options ?? [] }),
       notes: textoLlano(fila.resolution_notes),
       answer_defect: marcadaResuelta && !contestada ? DEFECTO_RESPUESTA_VACIA : null,
     };
@@ -270,7 +281,22 @@ export async function leerPanel(
 /** Bajo el tope de tools/index.ts (32000) con margen para el resto del turno. */
 const TOPE_DEL_PANEL = 30000;
 
-const ESCALONES_DE_NOTA = [400, 150, 0] as const;
+// NO HAY ESCALERA: SE BUSCA EL TOPE, NO SE ADIVINA.
+//
+// Aquí vivía `[400, 150, 60, 0]`. El 60 se añadió cuando el catálogo llegó a
+// 46 políticas porque 150 ya no cabía y la escalera saltaba directa a 0: el
+// agente recibía las 46 reglas SIN una sola razón de por qué son así. F07
+// añadió tres políticas más y el 60 tampoco cupo — el mismo fallo, el mismo
+// arreglo, un peldaño más abajo. Una escalera de peldaños fijos garantiza que
+// cada tramo que añada una política vuelva a romper esto, y que el arreglo sea
+// siempre inventar un número nuevo a mano.
+//
+// El recorte es monótono —a mayor tope de nota, mayor serialización— así que
+// el mayor tope que cabe se BUSCA por bisección en lugar de escogerse de una
+// lista. El catálogo puede crecer sin que nadie tenga que volver aquí, y la
+// nota que reciba el agente será siempre la más larga que el presupuesto
+// permita en vez de la del peldaño que alguien dejó escrito hace tres tramos.
+const TOPE_MAXIMO_DE_NOTA = 400;
 
 /** El marcador cuenta DENTRO del tope, no encima. */
 const MARCA_DE_RECORTE = ' […trimmed]';
@@ -293,9 +319,8 @@ function serializarPanel(panel: PanelDelDespacho, tope = TOPE_DEL_PANEL): string
   const entero = JSON.stringify(panel);
   if (entero.length <= tope) return entero;
 
-  let ultimo = entero;
-  for (const escalon of ESCALONES_DE_NOTA) {
-    const recortado: PanelDelDespacho = {
+  const conEscalon = (escalon: number): string =>
+    JSON.stringify({
       ...panel,
       policies: panel.policies.map((p) => ({ ...p, notes: recortarNota(p.notes, escalon) })),
       notes_trimmed:
@@ -304,10 +329,27 @@ function serializarPanel(panel: PanelDelDespacho, tope = TOPE_DEL_PANEL): string
             'value below is complete. Ask a human for the rationale of a specific key if you need it.'
           : `The rationale notes were trimmed to ${escalon} characters so the whole panel would fit; ` +
             'every key, status and value below is complete.',
-    };
-    ultimo = JSON.stringify(recortado);
-    if (ultimo.length <= tope) return ultimo;
+    } satisfies PanelDelDespacho);
+
+  // Bisección sobre el tope de nota: el mayor que quepa gana. `bajo` es
+  // siempre un tope que cabe (0 cabe salvo panel patológico) y `alto` uno que
+  // no, así que el invariante se mantiene y el resultado es el máximo exacto.
+  let bajo = 0;
+  let mejor = conEscalon(0);
+  let alto = TOPE_MAXIMO_DE_NOTA + 1;
+  if (conEscalon(TOPE_MAXIMO_DE_NOTA).length <= tope) return conEscalon(TOPE_MAXIMO_DE_NOTA);
+  while (alto - bajo > 1) {
+    const medio = Math.floor((bajo + alto) / 2);
+    const candidato = conEscalon(medio);
+    if (candidato.length <= tope) {
+      bajo = medio;
+      mejor = candidato;
+    } else {
+      alto = medio;
+    }
   }
+  const ultimo = mejor;
+  if (ultimo.length <= tope) return ultimo;
   // Panel patológico (valores libres enormes): el tope de la herramienta lo
   // cortará, y por eso el instructivo va PRIMERO — se pierde el final, nunca
   // la regla de uso.

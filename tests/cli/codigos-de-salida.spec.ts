@@ -387,7 +387,12 @@ function hojas(cmd: Command, prefijo: string[] = []): { ruta: string; cmd: Comma
  * mnemosine.ts, súbelo y dilo en el commit; si esto se pone rojo sin que hayas
  * tocado el árbol, es que una hoja se escapó de la vigilancia.
  */
-const HOJAS_PROPIAS = 17;
+// 17 -> 18 con la fusion de main: `subscription delivery sweep`. La hoja la
+// cuelga registerWebhookSweepCommand, pero la familia `subscription` la planta
+// mnemosine.ts —el barrido recibe el padre, no lo crea— y el filtro reparte por
+// el primer token de la ruta, asi que la hoja cuenta como propia. Sus ejemplos
+// viven junto a la hoja, en webhook-sweep-command.ts.
+const HOJAS_PROPIAS = 18;
 
 describe('las hojas declaradas en mnemosine.ts enseñan ejemplos', () => {
   let AJENAS = new Set<string>();

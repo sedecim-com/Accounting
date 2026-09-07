@@ -111,7 +111,11 @@ describe('el catálogo de nómina de una entidad mexicana recién creada', () =>
     expect(buckets).toEqual(
       [
         'benefits_payable', 'cash_payroll', 'garnishment_payable', 'imss_payable',
-        'infonavit_payable', 'isr_payable', 'payroll_tax_expense', 'wages_expense',
+        'infonavit_payable', 'isr_payable', 'payroll_tax_expense',
+        // F08a: la cuenta donde aterriza el subsidio al empleo entregado en
+        // efectivo cuando el despacho decide absorberlo en vez de acreditarlo.
+        'subsidio_empleo_expense',
+        'wages_expense',
       ]
     );
   });

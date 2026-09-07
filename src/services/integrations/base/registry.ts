@@ -168,12 +168,25 @@ export class IntegrationRegistry {
     );
   }
 
-  async deactivate(tenantId: string, provider: string): Promise<void> {
-    await query(
+  /**
+   * Apaga la integración. Devuelve `false` cuando no había ninguna que
+   * apagar para ese inquilino y proveedor.
+   *
+   * Devolvía `void`, y ahí estaba el defecto: un UPDATE que no encontraba
+   * fila terminaba igual de bien que uno que sí, y DELETE
+   * /v1/admin/integrations/:provider contestaba 204 «hecho». Quien
+   * escribía mal el nombre del proveedor —o desconectaba uno que nunca
+   * estuvo conectado— se quedaba creyendo que había cortado el acceso de
+   * un tercero a sus credenciales. Es la peor dirección en la que puede
+   * mentir un apagado.
+   */
+  async deactivate(tenantId: string, provider: string): Promise<boolean> {
+    const r = await query(
       `UPDATE integration_credentials SET status = 'inactive', updated_at = NOW()
        WHERE tenant_id = $1 AND provider = $2`,
       [tenantId, provider]
     );
+    return (r.rowCount ?? 0) > 0;
   }
 }
 

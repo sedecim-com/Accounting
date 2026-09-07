@@ -13,9 +13,11 @@ import {
   getAccountBalanceByPeriod,
   setAccountMapping,
   checkMappingCoverage,
+  checkMappingCoverageDetallada,
   resolveAccount,
 } from '../../src/services/accounting/account-service.js';
 import { setAccountRole, listAccountRoles } from '../../src/services/accounting/account-roles-service.js';
+import { sembrarCatalogoAgrupadores } from '../../src/services/accounting/sat-agrupadores.js';
 import { runLedgerChecks, listStaleDrafts } from '../../src/services/accounting/ledger-checks.js';
 import { parseImportFile, stageEntryImport } from '../../src/services/accounting/entry-import-service.js';
 import { seedPolicies, resolvePolicy } from '../../src/services/policy/policy-service.js';
@@ -37,6 +39,11 @@ const ctxDe = (fx: Fixture) => ({ tenantId: fx.tenantId, entityId: fx.entityId }
 
 beforeAll(async () => {
   f = await crearInquilino('F01 catálogo y mayor');
+  // F07a: el c_CodAgrup es GLOBAL y la base efímera nace sin él. Sin sembrarlo,
+  // `map set` no valida contra nada y avisa en vez de comprobar — que es lo
+  // correcto, pero deja la validación sin probar.
+  const siembra = await sembrarCatalogoAgrupadores();
+  expect(siembra.insertados).toBeGreaterThan(1000);
   segundoUsuario = uuidv4();
   await query(
     `INSERT INTO users (id, tenant_id, email, password_hash, first_name, last_name,
@@ -65,9 +72,14 @@ describe('gobierno del catálogo', () => {
 
   it('role set reapunta el default y crea la variante calificada — sin duplicar el caso común', async () => {
     const banco2 = await resolveAccount(f.entityId, '1111');
-    const r1 = await setAccountRole(f.entityId, f.tenantId, 'banco', banco2.id, {});
+    // G3: `userId` es obligatorio. Reapuntar un rol redirige a dónde van los
+    // asientos de media contabilidad, y `audit_log.user_id` es NOT NULL: un
+    // hecho sin autor no se registra.
+    const r1 = await setAccountRole(f.entityId, f.tenantId, 'banco', banco2.id, { userId: f.userId });
     expect(r1.accion).toBe('reapuntado'); // la siembra ya lo tenía
-    const r2 = await setAccountRole(f.entityId, f.tenantId, 'banco', banco2.id, { qualifier: 'usd' });
+    const r2 = await setAccountRole(f.entityId, f.tenantId, 'banco', banco2.id, {
+      qualifier: 'usd', userId: f.userId,
+    });
     expect(r2.accion).toBe('creado');
     const roles = await listAccountRoles(f.entityId, { role: 'banco' });
     expect(roles).toHaveLength(2);
@@ -75,12 +87,49 @@ describe('gobierno del catálogo', () => {
   });
 
   it('el mapeo estatutario se fija y la cobertura lo ve encogerse', async () => {
-    const antes = await checkMappingCoverage(f.entityId, 'sat-agrupador', 2);
+    // F07a: la compuerta ya no mide `account_level <= 2`, así que el alcance
+    // se dice explícitamente. Con el defecto del panel esta entidad todavía no
+    // ha posteado nada y la población sería vacía — que es justo el punto: una
+    // cuenta que nunca se movió no impide entregar el Anexo 24.
+    const alcance = { alcance: 'todas_las_de_detalle' as const, tenantId: f.tenantId };
+    const antes = await checkMappingCoverage(f.entityId, 'sat-agrupador', alcance);
     const cuenta = await resolveAccount(f.entityId, '6100');
+    // '601.84' («Otros gastos generales») existe de verdad en el c_CodAgrup:
+    // desde F07a un código inventado aquí sería RECHAZADO.
     await setAccountMapping(cuenta.id, 'sat-agrupador', '601.84', f.userId);
-    const despues = await checkMappingCoverage(f.entityId, 'sat-agrupador', 2);
+    const despues = await checkMappingCoverage(f.entityId, 'sat-agrupador', alcance);
     expect(despues.length).toBe(antes.length - 1);
     expect(despues.some((h) => h.code === '6100')).toBe(false);
+  });
+
+  it('la compuerta acusa la cuenta MOVIDA sin agrupador y calla la que nunca se movió', async () => {
+    // Las dos mitades del defecto de F07a, contra la base real: la 1120 tiene
+    // movimiento posteado y nivel 3 (invisible para el filtro viejo), y el
+    // catálogo está lleno de cuentas sin una sola línea (ruido del filtro viejo).
+    const cxc = await resolveAccount(f.entityId, '1120');
+    const banco = await resolveAccount(f.entityId, '1111');
+    const asiento = await createJournalEntry(
+      f.entityId, fechaEnPeriodo(), JournalEntryType.STANDARD, 'movimiento para la compuerta',
+      [
+        { account_id: cxc.id, debit_amount: '25.00', credit_amount: null, description: 'd' },
+        { account_id: banco.id, debit_amount: null, credit_amount: '25.00', description: 'h' },
+      ],
+      f.userId
+    );
+    await postJournalEntry(asiento.id, f.userId);
+
+    const r = await checkMappingCoverageDetallada(f.entityId, 'sat-agrupador', {
+      tenantId: f.tenantId,
+    });
+
+    expect(r.alcance).toBe('cuentas_con_movimientos'); // el defecto del panel
+    const acusadas = r.huecos.map((h) => h.code);
+    expect(acusadas).toContain('1120'); // movida, nivel 3, sin agrupador
+    // 6100 quedó mapeada en la prueba anterior, así que no debe salir…
+    expect(acusadas).not.toContain('6100');
+    // …y ninguna acusada puede tener cero líneas: eso era el 97% del ruido.
+    expect(r.huecos.every((h) => h.lineas_posteadas > 0)).toBe(true);
+    expect(r.poblacion).toBeLessThan(10); // la población es el movimiento, no el catálogo
   });
 });
 

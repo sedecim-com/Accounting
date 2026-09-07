@@ -102,6 +102,102 @@ export interface EntradaPago {
    * acepta: un pago nuestro sin aplicar es otra historia.
    */
   onAccount?: boolean;
+
+  // ── EL RASTRO DE PAGO QUE LA PÓLIZA DECLARA (F07d) ────────────────────
+  //
+  // Los cuatro campos siguientes no cambian ni un asiento: existen porque el
+  // XML de pólizas del Anexo 24 exige, DENTRO de la póliza que mueve dinero,
+  // de dónde salió y a dónde fue. Se capturan en el mismo acto en que se
+  // registra el pago porque después no hay a quién preguntárselo: el pago ya
+  // ocurrió y el que lo hizo tenía el dato delante.
+
+  /**
+   * Número del cheque. La columna `check_number` existe desde la 002 y
+   * `treasury-posting` la LEE en tres sitios (:1496, :1512, :1574) para
+   * nombrar el cheque que se cobró; el INSERT de este servicio la OMITÍA y
+   * el comando no ofrecía bandera, así que siempre valía NULL y los tres
+   * lectores caían al `payment_number`. Capacidad huérfana al revés: no es
+   * que nadie la lea, es que nadie la escribía.
+   */
+  checkNumber?: string | null;
+  /**
+   * La cuenta que RECIBIÓ el dinero (CtaDest del nodo de pago). Vive en el
+   * pago y no en el maestro del tercero a propósito (064): la póliza declara
+   * la cuenta de ESE movimiento, y leerla del maestro haría que una póliza de
+   * hace tres años cambiara de respuesta al cambiar los datos del proveedor.
+   */
+  cuentaDestino?: string | null;
+  /** Clave del banco destino en el c_Banco, cuando es nacional. */
+  bancoDestinoSat?: string | null;
+  /** Nombre del banco destino, cuando es extranjero: el Anexo 24 pide NOMBRE
+   *  para el extranjero y CLAVE para el nacional. Son dos campos, no uno. */
+  bancoDestinoExtranjero?: string | null;
+}
+
+/** Longitud de `banco_destino_sat` (VARCHAR(3), c_Banco de tres dígitos). */
+const LARGO_CLAVE_BANCO = 3;
+
+/**
+ * El rastro de pago, comprobado ANTES de tocar la base.
+ *
+ * Los dos primeros rechazos duplican restricciones que la 064 ya impone. No
+ * es redundancia: una violación de CHECK sale de Postgres como
+ * `banco_destino_nacional_o_extranjero` y un `value too long for type
+ * character varying(3)`, que no le dicen nada a quien tecleó el comando y
+ * además llegan DESPUÉS de que la transacción haya hecho medio trabajo. Lo
+ * que se gana aquí es el mensaje, no la seguridad — la seguridad ya estaba.
+ */
+function assertRastroDePago(entrada: EntradaPago, lado: 'cliente' | 'proveedor'): void {
+  const nacional = (entrada.bancoDestinoSat ?? '').trim();
+  const extranjero = (entrada.bancoDestinoExtranjero ?? '').trim();
+  const cuenta = (entrada.cuentaDestino ?? '').trim();
+
+  if (nacional !== '' && extranjero !== '') {
+    throw new ValidationError(
+      `El pago declara banco destino nacional («${nacional}») y extranjero («${extranjero}») a la vez. ` +
+        'El Anexo 24 pide la CLAVE del catálogo para el nacional y el NOMBRE para el extranjero: ' +
+        'declarar los dos afirma dos cosas incompatibles sobre el mismo movimiento, y el archivo ' +
+        'las lleva tal cual a la autoridad.'
+    );
+  }
+  if (nacional !== '' && nacional.length !== LARGO_CLAVE_BANCO) {
+    throw new ValidationError(
+      `La clave de banco destino «${nacional}» tiene ${nacional.length} caracteres y el c_Banco ` +
+        `del SAT son ${LARGO_CLAVE_BANCO}. Un banco no se identifica por su nombre en este campo: ` +
+        'si el banco es extranjero, dilo con el nombre en el campo de banco extranjero.'
+    );
+  }
+  // El banco sin la cuenta es media pista. En el nodo de transferencia del
+  // Anexo 24 la cuenta destino es lo obligatorio y el banco lo opcional, así
+  // que guardar el banco solo produce exactamente el dato que el archivo NO
+  // puede usar, y lo produce con aire de estar completo.
+  if (cuenta === '' && (nacional !== '' || extranjero !== '')) {
+    throw new ValidationError(
+      'Se indicó el banco destino y no la cuenta destino. En la póliza del Anexo 24 la cuenta ' +
+        'destino es el dato obligatorio del nodo de transferencia y el banco el opcional: el banco ' +
+        'solo no permite emitir el rastro y sí aparenta que el pago ya lo tiene.'
+    );
+  }
+
+  // El número de cheque pertenece al cheque. Escribirlo sobre una
+  // transferencia haría que la póliza emitiera un nodo `Cheque` por dinero
+  // que nunca se movió con uno — y `treasury-posting` ya lo lee dando por
+  // hecho que `payment_method = 'check'` (:1275).
+  const cheque = (entrada.checkNumber ?? '').trim();
+  if (cheque !== '' && entrada.paymentMethod !== 'check') {
+    throw new ValidationError(
+      `Se dio número de cheque («${cheque}») a un pago ${lado === 'cliente' ? 'cobrado' : 'hecho'} ` +
+        `por «${entrada.paymentMethod}». El número de cheque identifica un cheque: sobre otro método ` +
+        'la póliza del Anexo 24 declararía un cheque que no existe. Usa la referencia bancaria para ' +
+        'el folio de una transferencia.'
+    );
+  }
+}
+
+/** Normaliza a NULL lo que llegó vacío: '' en la columna no es «no hay dato». */
+function oNulo(v: string | null | undefined): string | null {
+  const t = (v ?? '').trim();
+  return t === '' ? null : t;
 }
 
 interface DocumentoAplicado {
@@ -253,6 +349,7 @@ export async function recordVendorPayment(
   // por pronto pago (contra-costo, 5200) — las dos cosas que el catálogo
   // promete en `payment create --vendor` y `payment apply --discount`.
   assertAplicaciones(entrada, 'proveedor');
+  assertRastroDePago(entrada, 'proveedor');
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     const documentos: DocumentoAplicado[] = [];
@@ -392,17 +489,25 @@ export async function recordVendorPayment(
       // R4: exchange_rate se escribe SIEMPRE — la tasa del día en extranjera,
       // 1.0 explícito en funcional. Dejarlo al DEFAULT era indistinguible de
       // «nadie lo pensó», que es exactamente lo que era.
+      // F07d: `check_number` se escribe POR FIN. Existía desde la 002 y la
+      // leían tres sitios de treasury-posting; el INSERT la omitía, así que
+      // los tres leían siempre NULL. Con ella entran las tres columnas de la
+      // 064 — el destino del dinero, que es lo que el nodo de pago de la
+      // póliza declara y de lo que antes no había ni columna.
       `INSERT INTO vendor_payments (
          id, entity_id, payment_number, vendor_id, payment_amount, currency_code,
          payment_method, reference_number, bank_account_id, payment_date, status, memo, created_by,
-         cfdi_uuid, cfdi_pago_indice, exchange_rate
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+         cfdi_uuid, cfdi_pago_indice, exchange_rate,
+         check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
       [paymentId, entrada.entityId, paymentNumber, vendorId, entrada.paymentAmount,
        monedaDe(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
        entrada.bankAccountId ?? null, entrada.paymentDate,
        ESTADO, entrada.memo ?? null, userId,
        entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null,
-       fx?.tasaPago ?? '1.0']
+       fx?.tasaPago ?? '1.0',
+       oNulo(entrada.checkNumber), oNulo(entrada.cuentaDestino),
+       oNulo(entrada.bancoDestinoSat), oNulo(entrada.bancoDestinoExtranjero)]
     );
 
     for (const app of entrada.applications) {
@@ -513,6 +618,7 @@ export async function recordCustomerPayment(
 ): Promise<ResultadoPago> {
   assertEstado(entrada.status);
   assertAplicaciones(entrada, 'cliente');
+  assertRastroDePago(entrada, 'cliente');
 
   const correr = async (client: pg.PoolClient): Promise<ResultadoPago> => {
     const documentos: DocumentoAplicado[] = [];
@@ -582,15 +688,22 @@ export async function recordCustomerPayment(
     await client.query(
       // currency_code se omitía y la columna tiene DEFAULT 'USD': un cobro en
       // pesos quedaba registrado como dólares. Regresión de la extracción.
+      // F07d: las mismas cuatro columnas que el lado proveedor. El cobro
+      // también es una póliza que mueve dinero, y la 064 añadió el destino a
+      // las DOS tablas: dejar el lado cliente sin escritor repetiría la
+      // asimetría que la 063 acababa de corregir en las líneas del gasto.
       `INSERT INTO customer_payments (
          id, entity_id, payment_number, customer_id, payment_amount, currency_code,
          payment_method, reference_number, bank_account_id, payment_date,
-         status, created_by, cfdi_uuid, cfdi_pago_indice
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+         status, created_by, cfdi_uuid, cfdi_pago_indice,
+         check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       [paymentId, entrada.entityId, paymentNumber, customerId, entrada.paymentAmount,
        monedaAnticipo ?? monedaDe(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
        entrada.bankAccountId ?? null, entrada.paymentDate, ESTADO, userId,
-       entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null]
+       entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null,
+       oNulo(entrada.checkNumber), oNulo(entrada.cuentaDestino),
+       oNulo(entrada.bancoDestinoSat), oNulo(entrada.bancoDestinoExtranjero)]
     );
 
     for (const app of entrada.applications) {

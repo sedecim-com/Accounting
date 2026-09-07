@@ -75,6 +75,11 @@ export const VERBS: Readonly<Record<string, string>> = Object.freeze({
   'restore'    : 'restaurar',
   'resume'     : 'reanudar',
   'retry'      : 'reintentar',
+  // G4b · el barrido de las entregas salientes vencidas. NO es `retry`, que
+  // ya existe y reintenta UNA entrega nombrada: `sweep` recorre todas las que
+  // vencieron. Dos actos distintos merecen dos verbos distintos, y la lista
+  // es cerrada precisamente para que esa distinción se tome a propósito.
+  'sweep'      : 'barrer',
   'reverse'    : 'reversar',
   'review'     : 'revisar',
   'revoke'     : 'revocar',

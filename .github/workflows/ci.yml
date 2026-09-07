@@ -156,6 +156,14 @@ jobs:
       # cuando cambia una fuente de un manual ya revisado — no verifica el
       # contenido (eso sería medir prosa), detecta caducidad y nombra qué releer.
       - run: npx tsx scripts/corpus-manifiesto.ts --check
+      # El contrato de la API (docs/openapi.json) se GENERA de la pila real de
+      # Express: rutas, esquemas de Zod, permisos y clase de riesgo salen de los
+      # manejadores montados. Esto falla cuando la copia publicada dejó de
+      # coincidir con las rutas — es sólo la frescura del archivo; que la
+      # especificación CUBRA todas las rutas lo exige la suite
+      # (tests/api/routes/openapi-contrato.spec.ts) y no depende de que nadie
+      # se acuerde de regenerar.
+      - run: npx tsx scripts/openapi.ts --check
       # EL CENSO DE SUPERFICIE. Seis números medidos sobre el `program` que se
       # embarca —hojas sin ejemplo, sin contrato de salida, sin alias
       # castellano, nodos fuera del idioma canónico, hojas graves sin sus tres
@@ -245,7 +253,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run migrate
-      - run: npm run test:integration
+      # S4a · la integración EJERCE su cobertura. Las 1000+ pruebas contra
+      # Postgres son las que de verdad ejercitan el dinero, y hasta este tramo
+      # no contaban para ninguna medida: era cobertura que nadie contaba.
+      - run: npm run test:integration -- --coverage
         env:
           TEST_ADMIN_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
 

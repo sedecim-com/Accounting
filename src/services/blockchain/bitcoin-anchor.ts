@@ -25,6 +25,30 @@ export interface AnchorEntry {
   entryHash: string;
 }
 
+/**
+ * La prueba de anclaje tal y como sale del servicio.
+ *
+ * `isSimulated` es OBLIGATORIA y no opcional a propósito: cualquier
+ * superficie que arme su respuesta a partir de este objeto tiene el dato
+ * delante, y la que decida no publicarlo lo estará decidiendo, no olvidando.
+ * `explorerUrl` es nulable por la misma razón —ver getBitcoinProof.
+ */
+export interface BitcoinProof {
+  entryHash: string;
+  bitcoinTxid: string;
+  blockHeight: number | null;
+  confirmations: number;
+  merkleProof: Array<{ position: string; data: string }>;
+  leafIndex: number;
+  merkleRoot: string;
+  opReturnData: string;
+  /** Si el txid se fabricó localmente en vez de difundirse a la cadena. */
+  isSimulated: boolean;
+  /** Enlace al explorador público. NULO cuando el anclaje es simulado. */
+  explorerUrl: string | null;
+  verificationCode: string;
+}
+
 export interface AnchorResult {
   anchorId: string;
   merkleRoot: string;
@@ -35,6 +59,21 @@ export interface AnchorResult {
   otsProof?: Buffer;
   status: 'pending' | 'broadcast' | 'confirmed';
 }
+
+/**
+ * G3 · ESTE SERVICIO NO DIFUNDE NADA A LA CADENA.
+ *
+ * `anchorToBitcoin` fabrica el txid con un sha256 del payload y la hora, y
+ * `confirmAnchor` recibe la altura de bloque de quien la llame. No hay
+ * bitcoinjs-lib, no hay RPC de nodo y no hay llamada a Blockstream: el
+ * comentario de cabecera del método siempre dijo «Simulate broadcast».
+ *
+ * La constante existe para que el hecho tenga UN sitio. El día que llegue la
+ * difusión de verdad, lo que cambia es esta línea y la firma que la elija —no
+ * un DEFAULT de una migración, que es donde este valor vivía sin que ningún
+ * código lo sostuviera.
+ */
+const ESTE_ANCLAJE_ES_SIMULADO = true;
 
 const PROTOCOL_ID = Buffer.from('TRPA', 'utf8');
 const PROTOCOL_VERSION = 0x01;
@@ -145,13 +184,22 @@ export class BitcoinAnchorService {
         id, tenant_id, anchor_type, merkle_root, entry_count,
         op_return_payload, protocol_version, bitcoin_txid,
         fee_satoshis, fee_usd, fee_rate_sat_vb,
-        status, broadcast_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'broadcast',NOW())`,
+        status, broadcast_at, is_simulated
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'broadcast',NOW(),$12)`,
       [
         anchorId, tenantId, isMultiTenant ? 'multi_tenant' : 'single_tenant',
         merkleRoot, entries.length,
         opReturnPayload, PROTOCOL_VERSION, bitcoinTxid,
         feeSatoshis, feeUsd, feeRate,
+        // G3: el valor va EXPLÍCITO en el INSERT, no heredado del DEFAULT de
+        // la 061. Un default es una suposición; esta columna es una
+        // afirmación, y quien la escribe es el único que sabe si el txid
+        // salió de un nodo o de un sha256 local. Mientras `bitcoinTxid` se
+        // calcule tres líneas más arriba con `crypto.createHash`, la
+        // respuesta es SIMULADO y esta constante lo dice en una palabra.
+        // El día que haya difusión real, es aquí donde se decide —igual que
+        // `anclajeSimulado()` decide en el orquestador—, no en el esquema.
+        ESTE_ANCLAJE_ES_SIMULADO,
       ]
     );
 
@@ -203,18 +251,7 @@ export class BitcoinAnchorService {
   /**
    * Get Bitcoin proof for any entry
    */
-  async getBitcoinProof(entryHash: string): Promise<{
-    entryHash: string;
-    bitcoinTxid: string;
-    blockHeight: number | null;
-    confirmations: number;
-    merkleProof: Array<{ position: string; data: string }>;
-    leafIndex: number;
-    merkleRoot: string;
-    opReturnData: string;
-    explorerUrl: string;
-    verificationCode: string;
-  } | null> {
+  async getBitcoinProof(entryHash: string): Promise<BitcoinProof | null> {
     const result = await query<{
       anchor_id: string;
       bitcoin_txid: string;
@@ -224,12 +261,14 @@ export class BitcoinAnchorService {
       merkle_proof: string;
       leaf_index: number;
       op_return_payload: string;
+      is_simulated: boolean;
     }>(
       `SELECT
         ba.id as anchor_id, ba.bitcoin_txid, ba.bitcoin_block_height,
         ba.confirmations, ba.merkle_root,
         bae.merkle_proof, bae.leaf_index,
-        encode(ba.op_return_payload, 'hex') as op_return_payload
+        encode(ba.op_return_payload, 'hex') as op_return_payload,
+        ba.is_simulated
        FROM bitcoin_anchor_entries bae
        JOIN bitcoin_anchors ba ON ba.id = bae.bitcoin_anchor_id
        WHERE bae.entry_hash = $1
@@ -254,8 +293,23 @@ export class BitcoinAnchorService {
       leafIndex: r.leaf_index,
       merkleRoot: r.merkle_root,
       opReturnData: r.op_return_payload,
-      explorerUrl: `https://mempool.space/tx/${r.bitcoin_txid}`,
-      verificationCode: `
+      isSimulated: r.is_simulated,
+      // G3: EL ENLACE ES CONDICIONAL, y es la mitad cara del arreglo.
+      //
+      // `https://mempool.space/tx/<txid>` sobre un txid fabricado localmente
+      // es la forma más cara de mentir: no falla aquí, falla en el navegador
+      // de un tercero —el auditor del cliente— que abre el enlace, ve que la
+      // transacción no existe en la cadena, y para entonces ya se la
+      // enseñaron. Un `null` con `isSimulated: true` al lado se lee mal una
+      // vez; un explorador que dice «no encontrada» se lee como fraude.
+      explorerUrl: r.is_simulated ? null : `https://mempool.space/tx/${r.bitcoin_txid}`,
+      // Las instrucciones de verificación independiente tampoco se sirven
+      // sobre un anclaje simulado: son una receta para ir a la cadena a
+      // comprobar algo que no está en la cadena.
+      verificationCode: r.is_simulated
+        ? '// Anclaje SIMULADO: el txid se fabricó localmente y no existe en Bitcoin.\n' +
+          '// No hay verificación independiente que correr hasta que el anclaje sea real.'
+        : `
 // Independent verification (Node.js / bitcoinjs-lib):
 // 1. Fetch Bitcoin transaction ${r.bitcoin_txid}
 // 2. Extract OP_RETURN output, verify it starts with "TRPA"

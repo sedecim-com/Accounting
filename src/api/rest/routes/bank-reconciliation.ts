@@ -10,6 +10,8 @@ import { autoMatchUnreconciled } from '../../../services/banking/matching.js';
 import { entityScope } from '../../../database/scope.js';
 import type { BankTransaction, ReconciliationSession } from '../../../types/index.js';
 import { MATCHED_ENTITY_TYPES } from '../../../database/enums.js';
+import { declararRiesgoRuta } from '../risk.js';
+import { arregloAcotado, MAX_MOVIMIENTOS_POR_IMPORTACION } from '../topes.js';
 
 const router = Router();
 
@@ -27,7 +29,17 @@ const bankTransactionSchema = z.object({
 }).passthrough();
 
 const importTransactionsSchema = z.object({
-  transactions: z.array(bankTransactionSchema).min(1),
+  // EL ARREGLO SIN TOPE QUE QUEDABA. Cada movimiento cuesta DOS viajes a la
+  // base —comprobar duplicado, insertar— y el manejador los hace en serie:
+  // un cuerpo de cien mil filas son doscientos mil viajes atando un worker y
+  // una conexión del pool. `xml-ingestion` cerró este mismo hueco en sus dos
+  // lotes; éste se quedó abierto. El porqué del número, en topes.ts.
+  transactions: arregloAcotado(bankTransactionSchema, {
+    tope: MAX_MOVIMIENTOS_POR_IMPORTACION,
+    plural: 'movimientos',
+    salida: 'Parte el extracto, o cárgalo con `mnemosine bank import`, que inserta por lotes.',
+    minimo: 1,
+  }),
   source: z.string().optional(),
   batch_id: z.string().optional(),
 });
@@ -100,7 +112,7 @@ async function movimientoDelLlamador(req: Request, txId: string): Promise<BankTr
 }
 
 // POST /v1/bank-accounts/:account_id/import
-router.post('/:account_id/import', requirePermission('journal_entries:create'), requireEntityAccess, validateBody(importTransactionsSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:account_id/import', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'bank_transactions (staging bancario); NUNCA journal_entries' }), requirePermission('journal_entries:create'), requireEntityAccess, validateBody(importTransactionsSchema), asyncHandler(async (req: Request, res: Response) => {
   const { transactions } = req.body;
   await cuentaDelLlamador(req, req.params.account_id);
 
@@ -218,7 +230,7 @@ router.get('/transactions/:id/suggestions', requirePermission('journal_entries:r
 }));
 
 // POST /v1/bank-transactions/:id/match
-router.post('/transactions/:id/match', requirePermission('journal_entries:create'), requireEntityAccess, validateBody(matchTransactionSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/transactions/:id/match', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'reconciliation_matches + bank_transactions.is_matched' }), requirePermission('journal_entries:create'), requireEntityAccess, validateBody(matchTransactionSchema), asyncHandler(async (req: Request, res: Response) => {
   const { matched_entity_type, matched_entity_id, matched_amount } = req.body;
   await movimientoDelLlamador(req, req.params.id);
 
@@ -244,7 +256,7 @@ router.post('/transactions/:id/match', requirePermission('journal_entries:create
 }));
 
 // POST /v1/bank-accounts/:account_id/reconciliations
-router.post('/:account_id/reconciliations', requirePermission('journal_entries:create'), requireEntityAccess, validateBody(createReconciliationSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:account_id/reconciliations', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'reconciliation_sessions (apertura de la sesion)' }), requirePermission('journal_entries:create'), requireEntityAccess, validateBody(createReconciliationSchema), asyncHandler(async (req: Request, res: Response) => {
   const { start_date, end_date, ending_balance_per_bank } = req.body;
 
   const cuenta = await cuentaDelLlamador(req, req.params.account_id);
@@ -317,7 +329,7 @@ router.get('/reconciliations/:id', requirePermission('journal_entries:read'), re
 // reconciliation_matches. Y el efecto no se queda en el banco —period-close.ts
 // lee el estado de conciliación como evidencia de cierre—, así que era una
 // escritura contable en los libros de otro.
-router.post('/:account_id/auto-match', requirePermission('journal_entries:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:account_id/auto-match', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'reconciliation_matches + bank_transactions.is_matched sobre el extracto entero' }), requirePermission('journal_entries:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const result = await autoMatchUnreconciled(req.params.account_id, {
     scope: entityScope(req.tenantId!, req.entityId!),
   });
@@ -357,7 +369,10 @@ router.post('/:account_id/auto-match', requirePermission('journal_entries:create
 // and the posting of the adjustments it uncovers. Until that exists, a
 // session cannot reach 'balanced' from here — and the close checklist
 // will keep saying the account is not reconciled, which is true.
-router.post('/reconciliations/:id/complete', requirePermission('journal_entries:create'), asyncHandler(async () => {
+// Declarada aunque hoy conteste 501: la clase describe el ACTO, no el
+// estado de la implementacion. Si alguien la vuelve a cablear, la
+// declaracion ya dice que es un cierre y no una anotacion mas.
+router.post('/reconciliations/:id/complete', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'reconciliation_sessions.status — el cierre que la lista de cierre de periodo lee como evidencia de que la cuenta cuadra. Hoy 501.' }), requirePermission('journal_entries:create'), asyncHandler(async () => {
   throw new NotImplementedError(
     'mnemosine cannot complete a bank reconciliation: it does not compute the book balance, the ' +
       'variance, outstanding checks or deposits in transit, and it does not post the bank fees, ' +

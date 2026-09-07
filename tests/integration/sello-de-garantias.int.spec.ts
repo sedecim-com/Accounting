@@ -28,7 +28,12 @@ describe('el sello de las garantías', () => {
     expect(r.detail).toMatch(/\d+ garantías en ENABLE ALWAYS/);
   });
 
-  it('las nueve garantías del esquema están marcadas y en ALWAYS', async () => {
+  // El número NO se relaja cuando crece: se sube diciendo qué entró. La
+  // décima la trae la 067 (nómina) — un disparador que impide dos vigencias
+  // solapadas del mismo estado, porque con ellas el ISN del mes sería
+  // ambiguo. Contar es la mitad de la prueba; la otra mitad es que cada una
+  // esté en ALWAYS, y eso vale igual para la que acaba de llegar.
+  it('las diez garantías del esquema están marcadas y en ALWAYS', async () => {
     const r = await query<{ relname: string; tgname: string; tgenabled: string }>(
       `SELECT c.relname, t.tgname, t.tgenabled
          FROM pg_trigger t
@@ -39,7 +44,7 @@ describe('el sello de las garantías', () => {
     // El mayor (4), la bitácora (2), las credenciales fiscales (2) y el hash
     // del extracto (1). Si alguien añade una garantía y la sella, este número
     // sube y esta prueba se actualiza a conciencia: es un censo, no un tope.
-    expect(r.rows).toHaveLength(9);
+    expect(r.rows).toHaveLength(10);
     expect(r.rows.every((t) => t.tgenabled === 'A')).toBe(true);
   });
 

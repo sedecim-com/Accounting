@@ -60,10 +60,21 @@ const TOP_LEVEL: Record<string, string> = {
   // F06b: la lectura del cierre. `closing` es el proceso; `close` (que ya
   // existía) es el acto. El alias compuesto viene del catálogo.
   closing: 'cierre-proceso',
+  // G4b: las suscripciones de SALIDA. `webhooks`·`ganchos` es la familia de
+  // ENTRADA y son tablas distintas: un solo sustantivo para las dos cosas
+  // sería el defecto de nombre que esta casa lleva un mes cazando.
+  subscription: 'suscripcion',
+  // G3: el rastro que responde «quién cambió qué». `auditoria` sin tilde,
+  // como el resto del vocabulario español del binario.
+  audit: 'auditoria',
   // G1b: el estado de flujos. `cashflow` es UNA palabra en inglés y su alias
   // español es `flujo` a secas — «efectivo» no se repite porque en español el
   // flujo contable ya es de efectivo; el catálogo lo fijó así.
   cashflow: 'flujo',
+  // F07b: la contabilidad electrónica del Anexo 24. El alias no se abrevia:
+  // «contabilidad-electronica» es como la nombra la ley y como la busca quien
+  // la necesita.
+  'e-accounting': 'contabilidad-electronica',
   // D1a: el gasto que cubre periodos futuros. El alias es «pago-anticipado»
   // y no «anticipo»: un anticipo A PROVEEDOR (1150) es otra cosa —dinero que
   // sale antes de recibir— y confundirlos en la terminal sería confundirlos
@@ -91,6 +102,11 @@ const TOP_LEVEL: Record<string, string> = {
   outbox: 'envio',
   question: 'duda',
   sat: '',
+  // F07c: la DIOT no se traduce, como sat y cfdi: es el nombre del trámite.
+  diot: '',
+  // F08a: el ISN tampoco — es la sigla del impuesto, igual en los dos idiomas.
+  isn: '',
+  'tax-deposit': 'entero',
   // F02: cfdi es la misma palabra en los dos idiomas, como sat.
   cfdi: '',
   rep: '',
@@ -154,8 +170,14 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   // R4: `rate` es calificador de `fx`, como `statement` lo es de `bank`.
   fx: { rate: 'tipo' },
   prepaid: { create: 'crear', list: 'listar', show: 'ver', run: 'ejecutar' },
+  'e-accounting': { catalog: 'catalogo', balance: 'balanza' },
+  // F08a. `rate` es la tasa del impuesto y `list`/`set` sus dos actos; el
+  // pasivo patronal vive aparte porque lleva IMSS e INFONAVIT además del ISN.
+  isn: { rate: 'tasa', calculate: 'calcular' },
+  'tax-deposit': { list: 'listar' },
   // G1b: las dos hojas de fase 1 del catálogo.
   cashflow: { generate: 'generar', reconcile: 'conciliar' },
+  subscription: { delivery: 'entrega' },
   // F05b: los tres sustantivos del cotejo. `match` es OBJETO aquí (el cotejo),
   // no acto: el verbo `cotejar` sigue reservado para `bank transaction match`.
   bank: {

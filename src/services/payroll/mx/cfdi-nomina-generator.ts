@@ -26,6 +26,7 @@ export async function generateAndStampCfdiNomina(
     net_pay: string;
     isr_withheld: string;
     subsidio_empleo: string;
+    subsidio_entregado_efectivo: string;
     imss_employee: string;
     infonavit_withheld: string;
     period_start: string;
@@ -50,7 +51,7 @@ export async function generateAndStampCfdiNomina(
   }>(
     `SELECT p.id AS paycheck_id, p.tenant_id,
             p.gross_earnings, p.net_pay,
-            p.isr_withheld, p.subsidio_empleo,
+            p.isr_withheld, p.subsidio_empleo, p.subsidio_entregado_efectivo,
             p.imss_employee, p.infonavit_withheld,
             pp.period_start, pp.period_end, pp.pay_date, pp.tax_year,
             e.first_name AS emp_first, e.last_name AS emp_last, e.second_last_name AS emp_second_last,
@@ -87,6 +88,30 @@ export async function generateAndStampCfdiNomina(
     deductions.rows.reduce((s, d) => s + parseFloat(d.amount), 0);
   const totalDeducciones = totalImpRetenidos + totalOtrasDeducciones;
 
+  // EL SUBSIDIO ENTREGADO SE DECLARA, O EL COMPROBANTE NO CUADRA CONSIGO MISMO.
+  //
+  // Desde F08a el trabajador recibe en efectivo el subsidio que excedió a su
+  // ISR, y ese importe entra en `net_pay` —que es el `Total` del comprobante—.
+  // Sin el nodo OtrosPagos, Total ≠ SubTotal − Descuento y el CFDI se cae en la
+  // validación del PAC: un verificador lo midió en 1 588.39 contra 1 464.37,
+  // exactamente los 124.02 entregados.
+  //
+  // El `SubsidioCausado` del nodo NO es el importe entregado sino el que la
+  // tabla del subsidio arroja para el periodo, que es lo que guarda la columna
+  // `subsidio_empleo`. Los dos números conviven en el mismo nodo a propósito:
+  // el SAT cruza el causado contra lo entregado.
+  const subsidioEntregado = parseFloat(r.subsidio_entregado_efectivo ?? '0');
+  const subsidioCausado = parseFloat(r.subsidio_empleo);
+  const otrosPagosXml =
+    subsidioEntregado > 0
+      ? `      <nomina12:OtrosPagos>
+        <nomina12:OtroPago TipoOtroPago="002" Clave="002" Concepto="Subsidio para el empleo (efectivamente entregado al trabajador)" Importe="${subsidioEntregado.toFixed(2)}">
+          <nomina12:SubsidioAlEmpleo SubsidioCausado="${subsidioCausado.toFixed(2)}"/>
+        </nomina12:OtroPago>
+      </nomina12:OtrosPagos>
+`
+      : '';
+
   // Days worked in period (inclusive)
   const days = Math.floor(
     (new Date(r.period_end).getTime() - new Date(r.period_start).getTime()) / 86400000
@@ -113,7 +138,7 @@ export async function generateAndStampCfdiNomina(
     <nomina12:Nomina Version="1.2" TipoNomina="${r.emp_second_last === 'EXTRAORDINARIA' ? 'E' : 'O'}"
       FechaPago="${r.pay_date}" FechaInicialPago="${r.period_start}" FechaFinalPago="${r.period_end}"
       NumDiasPagados="${days}" TotalPercepciones="${totalPercepciones.toFixed(2)}"
-      TotalDeducciones="${totalDeducciones.toFixed(2)}">
+      TotalDeducciones="${totalDeducciones.toFixed(2)}"${subsidioEntregado > 0 ? ` TotalOtrosPagos="${subsidioEntregado.toFixed(2)}"` : ''}>
       <nomina12:Emisor RegistroPatronal="B0000000000"/>
       <nomina12:Receptor Curp="${r.emp_curp || 'XAXX010101HDFNNN00'}" NumSeguridadSocial="${r.emp_nss || ''}"
         FechaInicioRelLaboral="${r.hire_date}" Antiguedad="P0W"
@@ -128,7 +153,7 @@ ${percepcionesXml}
 ${deduccionesXml}
         ${totalImpRetenidos > 0 ? `<nomina12:Deduccion TipoDeduccion="002" Clave="ISR" Concepto="ISR" Importe="${totalImpRetenidos.toFixed(2)}"/>` : ''}
       </nomina12:Deducciones>
-    </nomina12:Nomina>
+${otrosPagosXml}    </nomina12:Nomina>
   </cfdi:Complemento>
 </cfdi:Comprobante>`;
 

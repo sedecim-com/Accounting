@@ -11,6 +11,7 @@ import {
   updateCustomer,
   CUSTOMER_UPDATABLE_FIELDS,
 } from '../../../services/ar/customer-service.js';
+import { declararRiesgoRuta } from '../risk.js';
 
 // ============================================================
 // /v1/customers — HTTP surface over the AR customer service.
@@ -94,7 +95,7 @@ router.get('/', requirePermission('invoices:read'), requireEntityAccess, asyncHa
 }));
 
 // POST /v1/customers
-router.post('/', requirePermission('invoices:create'), requireEntityAccess, validateBody(createCustomerSchema), asyncHandler(async (req: Request, res: Response) => {
+router.post('/', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'customers' }), requirePermission('invoices:create'), requireEntityAccess, validateBody(createCustomerSchema), asyncHandler(async (req: Request, res: Response) => {
   const customer = await createCustomer({ ...req.body, created_by: req.user!.user_id });
   res.status(201).json({ data: customer, meta: meta(req) });
 }));
@@ -107,7 +108,7 @@ router.get('/:id', requirePermission('invoices:read'), requireEntityAccess, asyn
 }));
 
 // PATCH /v1/customers/:id
-router.patch('/:id', requirePermission('invoices:create'), requireEntityAccess, validateBody(updateCustomerSchema), asyncHandler(async (req: Request, res: Response) => {
+router.patch('/:id', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'customers' }), requirePermission('invoices:create'), requireEntityAccess, validateBody(updateCustomerSchema), asyncHandler(async (req: Request, res: Response) => {
   const patch = Object.fromEntries(
     CUSTOMER_UPDATABLE_FIELDS.filter((f) => req.body[f] !== undefined).map((f) => [f, req.body[f]])
   );
