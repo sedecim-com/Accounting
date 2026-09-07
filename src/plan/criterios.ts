@@ -5759,50 +5759,97 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E0.3',
     id: 'bank-transaction-dedupe-by-database',
-    enunciado: 'La deduplicación de movimientos la calcula la base, no quien escribe',
+    enunciado:
+      'La huella del movimiento la IMPONE la base, y el relleno de lo ya importado la alcanza',
     mutantes: [
       {
         archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
         de: '  NEW.content_hash := encode(',
         a: '  NEW.content_hash := COALESCE(NEW.content_hash, encode(',
-        porque: 'el llamador recupera el control del hash: mandando uno inventado en cada fila, el índice único deja de reconocer el duplicado y el dedupe se apaga desde fuera',
+        porque: 'el llamador recupera el control de la huella: mandando una inventada, deja de identificar la línea y el cotejo pierde su ancla',
       },
       {
         archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
-        de: 'CREATE UNIQUE INDEX uq_bank_tx_contenido ON bank_transactions(bank_account_id, content_hash);',
-        a: 'CREATE INDEX uq_bank_tx_contenido ON bank_transactions(bank_account_id, content_hash);',
-        porque: 'el índice deja de ser único y vuelve el defecto de la 003: se calcula un hash que a nadie le impide nada',
+        de: 'amount, description, content_hash\n  ON bank_transactions',
+        a: 'amount, description\n  ON bank_transactions',
+        porque: 'sin content_hash en la lista vigilada el disparador no corre al escribirla, así que la huella SÍ se puede forjar a mano — y la 058 y banking.md prometen por escrito que no',
+      },
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: 'UPDATE bank_transactions SET transaction_date = transaction_date;',
+        a: 'UPDATE bank_transactions SET content_hash = NULL;',
+        porque: 'EL DEFECTO QUE ORIGINÓ #88, que ningún espejo custodiaba: content_hash no está en el UPDATE OF del disparador, así que el relleno no dispara nada y el SET NOT NULL de dos líneas después revienta con 23502 en todo despacho con un solo movimiento',
+      },
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: 'SET LOCAL row_security = on;\nDO $relleno$',
+        a: 'DO $relleno$',
+        porque: 'sin el opt-in y su bucle, el relleno ve CERO filas —esta migración vacía app.current_tenant cuarenta líneas antes— mientras el SET NOT NULL escanea la tabla real y sí ve los NULL',
+      },
+      {
+        archivo: 'src/database/migrations/051_la_cuenta_y_el_extracto.sql',
+        de: 'CREATE INDEX idx_bank_tx_contenido',
+        a: 'CREATE UNIQUE INDEX idx_bank_tx_contenido',
+        porque: 'vuelve el invariante FALSO: dos retiros idénticos el mismo día son dos hechos ciertos, y con ON CONFLICT DO NOTHING el segundo se traga en silencio y se le acusa al banco',
       },
     ],
     evaluar: () => {
-      // EL DEDUPE QUE NO DEDUPLICABA. La 003 declaraba
-      // `UNIQUE(bank_account_id, bank_transaction_id)` sobre una columna
-      // NULLABLE, y en Postgres dos NULL no colisionan: no impedía nada en
-      // cuanto el banco no publicaba id nativo, que es el caso de todo CSV. Y
-      // el guardia de aplicación fallaba por el otro lado —
-      // `WHERE bank_transaction_id = $1` con $1 nulo no casa nunca—. Dos
-      // capas, el mismo agujero: reimportar duplicaba el extracto entero.
+      // LA HUELLA Y SU RELLENO (T1, #88).
       //
-      // Se reparó donde no se puede rodear. Un hash que el llamador PROVEE es
-      // un hash que el llamador puede equivocar o falsear, y entonces el
-      // índice único deja de significar «esta línea ya está».
+      // La 003 declaraba `UNIQUE(bank_account_id, bank_transaction_id)` sobre
+      // una columna NULLABLE, y en Postgres dos NULL no colisionan: reimportar
+      // duplicaba el extracto entero. La 051 lo reparó donde no se puede
+      // rodear —una huella que calcula la BASE—, pero se pasó de frenada en un
+      // sitio y se quedó corta en tres.
       const sql = crudoDe('src/database/migrations/051_la_cuenta_y_el_extracto.sql');
 
+      // 1. LA CALCULA LA BASE, Y LA IMPONE. Una asignación directa, no un
+      //    COALESCE que respetaría lo que venga de fuera.
       if (!/CREATE TRIGGER bank_transactions_content_hash/.test(sql)) {
-        return falla('el hash de contenido dejó de calcularlo la base: vuelve a depender de que cada superficie lo mande bien');
+        return falla('la huella dejó de calcularla la base: vuelve a depender de que cada superficie la mande bien');
       }
-      // Y lo IMPONE: una asignación directa, no un COALESCE que respetaría lo
-      // que venga de fuera. Es la diferencia entre calcularlo y aceptarlo.
       if (!/NEW\.content_hash := encode\(/.test(sql)) {
-        return falla('el disparador dejó de imponer el hash: si respeta el que manda el llamador, el dedupe se apaga desde fuera');
+        return falla('el disparador dejó de imponer la huella: si respeta la que manda el llamador, deja de identificar la línea');
+      }
+      // 2. Y LA IMPONE TAMBIÉN CONTRA QUIEN LA ESCRIBE. Sin `content_hash` en
+      //    la lista vigilada, un UPDATE directo sobre la columna no dispara
+      //    nada y la huella queda forjada. Medido antes de T1: escribir
+      //    repeat('f',64) se quedaba escrito.
+      const disparador = sql.slice(sql.indexOf('CREATE TRIGGER bank_transactions_content_hash'));
+      if (!/UPDATE OF[^\n]*\bcontent_hash\b/.test(disparador.slice(0, 300))) {
+        return falla('content_hash salió de la lista vigilada del disparador: la huella se puede forjar a mano, y la 058 y banking.md prometen por escrito que no');
       }
       if (!/ALTER COLUMN content_hash SET NOT NULL/.test(sql)) {
         return falla('content_hash volvió a admitir NULL, que es la forma exacta del defecto que se venía a reparar');
       }
-      const unico = /CREATE UNIQUE INDEX uq_bank_tx_contenido/.test(sql);
-      return unico
-        ? ok('el hash lo impone un disparador y el índice único lo hace valer: el dedupe no se puede rodear desde ninguna superficie')
-        : falla('el índice de contenido dejó de ser único: se calcularía un hash que no impide ningún duplicado');
+
+      // 3. EL RELLENO ALCANZA LO YA IMPORTADO. Las dos mitades: que toque una
+      //    columna VIGILADA (si toca content_hash no dispara nada) y que corra
+      //    por INQUILINO (esta migración deja row_security=on con el contexto
+      //    vacío, así que sin bucle el UPDATE afecta cero filas en silencio).
+      //    Las dos juntas eran el issue #88, y ningún espejo las custodiaba.
+      if (/UPDATE bank_transactions SET content_hash\s*=/.test(sql)) {
+        return falla('el relleno volvió a escribir content_hash directamente: no está en el UPDATE OF del disparador, así que no dispara nada y el SET NOT NULL revienta con 23502 en todo despacho con un movimiento importado (#88)');
+      }
+      const relleno = sql.slice(sql.indexOf('$relleno$'), sql.indexOf('ALTER TABLE bank_transactions ALTER COLUMN content_hash'));
+      if (!/SET LOCAL row_security = on;[\s\S]{0,200}\$relleno\$/.test(sql) || !/FOR t IN SELECT id FROM tenants/.test(relleno)) {
+        return falla('el relleno perdió su opt-in de RLS o su bucle por inquilino: ve cero filas, y el SET NOT NULL las ve todas (#88)');
+      }
+
+      // 4. Y LA HUELLA NO ES UNA LLAVE. El hash se calcula sobre
+      //    (cuenta|fecha|importe|descripción), que no distingue dos HECHOS
+      //    distintos: dos retiros iguales el mismo día son dos retiros. Único,
+      //    este índice declaraba irrepresentable un extracto real, impedía
+      //    instalarse en el despacho que venía a reparar, y con el
+      //    `ON CONFLICT DO NOTHING` de insertarLineas se tragaba en silencio la
+      //    segunda comisión legítima acusando al banco de mandarla repetida.
+      //    Lo que impide el reimporte es UNIQUE(bank_account_id, file_sha256).
+      if (/CREATE UNIQUE INDEX \w*bank_tx_contenido/.test(sql)) {
+        return falla('la huella volvió a ser llave única: declara irrepresentable un extracto con dos movimientos legítimamente iguales, y el importador se los traga en silencio');
+      }
+      return /UNIQUE\s*\(bank_account_id,\s*file_sha256\)/.test(sql)
+        ? ok('la huella la impone la base contra cualquier escritor, el relleno la alcanza por inquilino, y quien impide el reimporte es la unicidad del ARCHIVO')
+        : falla('desapareció la unicidad del archivo: sin ella nada impide reimportar el mismo extracto, que era el defecto original de la 051');
     },
   },
 
@@ -6821,6 +6868,102 @@ export const CRITERIOS: Criterio[] = [
         return falla(`${ultima} dejó sin cualificar la función o el tipo del cast: quitar SET search_path sin cualificar es abrir el secuestro que la cláusula cerraba`);
       }
       return ok(`el predicado de aislamiento se inserta en línea y va cualificado (${ultima})`);
+    },
+  },
+
+  // ---- T1 · Que la actualización vuelva a correr ----
+
+  {
+    paquete: 'E0.2',
+    enunciado: 'La guarda de numeración perdona ARCHIVOS históricos, no números',
+    mutantes: [
+      {
+        archivo: 'src/database/migrate.ts',
+        de: "  '014_rls_tenant_isolation.sql',",
+        a: "  '014',",
+        porque: 'vuelve el perdón por PREFIJO: un 014_lo_que_sea_de_hoy.sql pasa la guarda y files.sort() lo corre antes de las 015 a 069 (#88)',
+      },
+      {
+        archivo: 'src/database/migrate.ts',
+        de: 'fs.some((f) => !DUPLICADOS_HISTORICOS.has(f))',
+        a: 'fs.every((f) => !DUPLICADOS_HISTORICOS.has(f))',
+        porque: 'un choque con UN solo archivo histórico dentro deja de denunciarse: basta acompañar al intruso de un histórico para colarlo',
+      },
+    ],
+    evaluar: () => {
+      // #88. La guarda toleraba los duplicados históricos por su NÚMERO, así
+      // que el perdón cubría también a los archivos que aún no existían. Su
+      // propio comentario decía «cualquier duplicado NUEVO es un error» y el
+      // código no podía distinguirlo, porque no miraba el archivo sino su
+      // prefijo. Nueve archivos comparten cuatro números; el intruso número
+      // diez tiene que rebotar.
+      const m = codigoDe('src/database/migrate.ts');
+      if (!/DUPLICADOS_HISTORICOS/.test(m)) {
+        return falla('desapareció la lista de duplicados históricos: o la guarda dejó de existir o volvió a tolerarlo todo');
+      }
+      const lista = m.slice(m.indexOf('DUPLICADOS_HISTORICOS'), m.indexOf('export function assertNumeracionUnica'));
+      const entradas = lista.match(/'\d{3}_[a-z0-9_]+\.sql'/g) ?? [];
+      if (entradas.length === 0) {
+        return falla('la lista de perdón volvió a ser de PREFIJOS: perdona por número, así que también perdona a los archivos que todavía no existen (#88)');
+      }
+      // La lista NO CRECE: nueve, y los nueve existen. Se cuentan aquí y no se
+      // derivan del directorio a propósito — derivarlos sería preguntarle al
+      // acusado.
+      if (entradas.length !== 9) {
+        return falla(`la lista de perdón tiene ${entradas.length} archivos y son NUEVE: crecer la lista es la forma barata de silenciar un choque nuevo`);
+      }
+      const faltan = entradas
+        .map((e) => e.slice(1, -1))
+        .filter((f) => !existe(`src/database/migrations/${f}`));
+      if (faltan.length > 0) {
+        return falla(`la lista perdona archivos que ya no están (${faltan.join(', ')}): alguien renumeró un histórico y el perdón quedó apuntando a un fantasma`);
+      }
+      // Y el choque se denuncia si CUALQUIERA de sus archivos es nuevo, no sólo
+      // si lo son todos.
+      return /fs\.some\(\(f\) => !DUPLICADOS_HISTORICOS\.has\(f\)\)/.test(m)
+        ? ok('la guarda perdona nueve archivos por su nombre, y un décimo con prefijo repetido rebota')
+        : falla('el choque sólo se denuncia cuando NINGUNO de sus archivos es histórico: acompañar al intruso de un histórico lo cuela');
+    },
+  },
+
+  {
+    paquete: 'E0.2',
+    enunciado: 'La migración que cierra las corridas históricas llega a verlas',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/060_la_corrida_que_se_abre_antes.sql',
+        de: 'SET LOCAL row_security = on;\nDO $cierre$',
+        a: 'DO $cierre$',
+        porque: 'sin el opt-in, migrate.ts corre con row_security=off y el UPDATE sobre una tabla acotada lanza 42501 en vez de filtrar: revierte el archivo entero en cualquier despacho instalado (#88)',
+      },
+      {
+        archivo: 'src/database/migrations/060_la_corrida_que_se_abre_antes.sql',
+        de: 'FOR t IN SELECT id FROM tenants LOOP',
+        a: "FOR t IN SELECT '00000000-0000-0000-0000-000000000000'::uuid AS id LOOP",
+        porque: 'el bucle deja de recorrer inquilinos: la migración se aplica sin error y cierra CERO corridas, que es peor que fallar porque nadie se entera',
+      },
+    ],
+    evaluar: () => {
+      // #88. La 060 era la única de su familia sin el patrón sancionado, y por
+      // eso `npm run migrate` moría ahí en todo despacho ya instalado: quien se
+      // niega es el planificador, no un conteo, así que fallaba con la tabla
+      // llena o vacía.
+      const m = 'src/database/migrations/060_la_corrida_que_se_abre_antes.sql';
+      if (!existe(m)) return falla('la 060 desapareció');
+      const sql = crudoDe(m);
+      const dml = /UPDATE\s+ai_ingest_runs/.test(sql);
+      if (!dml) return ok('la 060 ya no escribe datos: sin DML no hay RLS que declarar');
+      // EL ORDEN IMPORTA, y es lo que un ancla de mera presencia no ve: el
+      // opt-in declarado DESPUÉS del DML no salva nada.
+      const iOptIn = sql.search(/SET LOCAL row_security = on/);
+      const iDml = sql.search(/UPDATE\s+ai_ingest_runs/);
+      if (iOptIn === -1 || iOptIn > iDml) {
+        return falla('la 060 escribe datos sobre una tabla acotada por RLS sin declarar antes su opt-in: muere con 42501 y revierte el archivo entero (#88)');
+      }
+      const cuerpo = sql.slice(iOptIn, iDml);
+      return /FOR\s+\w+\s+IN\s+SELECT\s+id\s+FROM\s+tenants/.test(cuerpo)
+        ? ok('la 060 declara su opt-in de RLS antes de escribir y recorre los inquilinos: alcanza las corridas que venía a cerrar')
+        : falla('la 060 declara el opt-in pero no recorre inquilinos: se aplica sin error y cierra cero corridas, que es peor que fallar porque nadie se entera');
     },
   },
 
