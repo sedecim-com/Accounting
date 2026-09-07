@@ -476,6 +476,7 @@ export function registerBackupCommand(program: Command, deps: BackupCommandDeps)
     .option('--json', 'JSON output');
   declareRisk(restore, {
     risk: 'irreversible',
+    llave: { sinLlave: 'un reintento vuelve a restaurar sobre lo ya restaurado' },
     agent: false,
     writes: 'crea una base de datos nueva y la puebla con el volcado',
   });
