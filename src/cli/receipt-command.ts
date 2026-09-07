@@ -35,7 +35,7 @@ import {
   dateOnly,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
-import { conLlave, mirarLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
+import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 
 // ============================================================
 // mnemosine receipt · cobro
@@ -304,14 +304,15 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         // sin que nadie lo note.
         // ============================================================
         const fechaDelCobro = opts.date ?? hoy();
+        // Todo lo que tecleó el operador, no una lista a mano: enumerar campos
+        // deja fuera el que nadie recuerde, y un campo persistido fuera del
+        // hash hace que dos actos distintos compartan llave. La fecha se pasa
+        // ya resuelta para que dos lecturas de `hoy()` no puedan discrepar de
+        // madrugada.
         const cargaDeLaLlave = hashDeCarga(
           target.id,
-          opts.amount,
           fechaDelCobro,
-          opts.method,
-          opts.bank ?? null,
-          opts.reference ?? null,
-          opts.onAccount === true
+          cargaDelOperador(opts as unknown as Record<string, unknown>)
         );
         if (opts.idempotencyKey && !opts.dryRun) {
           const grabado = await mirarLlave<{ pago: ResultadoPago }>(

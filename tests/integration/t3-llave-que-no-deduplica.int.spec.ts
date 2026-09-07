@@ -233,6 +233,32 @@ describe('payment create honra la llave que acepta', () => {
     );
     expect(llaves.rows.map((r) => r.scope)).toEqual(['payment create']);
   }, 60_000);
+
+  it('y un campo que el hash NO enumeraba basta para acusar reuso: memo y banco destino', async () => {
+    // LA CARGA TIENE QUE SER TODO LO QUE TECLEÓ EL OPERADOR. El hash se armaba
+    // enumerando campos a mano, y dejaba fuera `memo`, `--to-bank` y
+    // `--to-foreign-bank`, que SÍ se persisten: dos pagos con la misma llave y
+    // distinto banco destino compartían hash, de modo que al segundo se le
+    // devolvía el resultado del primero — un pago semánticamente distinto
+    // escondido tras una llave reutilizada.
+    //
+    // Enumerar es lo que falla: el campo que se olvida produce COLISIÓN, que
+    // es el error caro. La carga canónica excluye sólo el contexto, así que una
+    // bandera nueva entra sola y el peor caso es un conflicto ruidoso.
+    const folio = await gastoAprobado();
+    const antes = await contar(`SELECT count(*) n FROM vendor_payments WHERE entity_id = $1`);
+
+    const base = ['payment', 'create', folio, '--amount', '3000', '--idempotency-key', 'k-campos'];
+    const primera = await correr([...base, '--memo', 'primera transferencia']);
+    expect(primera.exitCode, primera.err).toBe(0);
+
+    // Mismo importe, misma llave, OTRO memo: es otro acto.
+    const otra = await correr([...base, '--memo', 'segunda, a otro beneficiario']);
+    expect(otra.exitCode, `el reuso con otra carga tiene que acusarse: ${otra.err}`).toBe(6);
+
+    // Y nada se escribió por el segundo intento.
+    expect(await contar(`SELECT count(*) n FROM vendor_payments WHERE entity_id = $1`)).toBe(antes + 1);
+  }, 60_000);
 });
 
 describe('la hoja que TODAVÍA no la honra se niega, en vez de fingir', () => {

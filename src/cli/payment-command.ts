@@ -28,7 +28,7 @@ import {
   dateOnly,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
-import { conLlave, mirarLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
+import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 
 // ============================================================
 // mnemosine payment
@@ -285,16 +285,14 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
         // el reuso (salida 6) en vez de callar.
         llave: {
           scope: 'payment create',
-          payloadHash: hashDeCarga(
-            target.id,
-            entrada.paymentAmount,
-            String(entrada.paymentDate),
-            entrada.paymentMethod,
-            entrada.bankAccountId,
-            entrada.checkNumber,
-            entrada.cuentaDestino,
-            opts.discount
-          ),
+          // LA CARGA ES TODO LO QUE TECLEÓ EL OPERADOR, no una lista a mano.
+          // Enumerarla campo a campo dejaba fuera `memo`, `--to-bank` y
+          // `--to-foreign-bank`, que SÍ se persisten: dos pagos con la misma
+          // llave y distinto banco destino compartían hash, y al segundo se le
+          // devolvía el resultado del primero — un pago escondido tras una
+          // llave reutilizada. `cargaDelOperador` recorre las banderas y
+          // excluye sólo el contexto, así que una bandera nueva entra sola.
+          payloadHash: hashDeCarga(target.id, cargaDelOperador(opts as unknown as Record<string, unknown>)),
         },
         registrar: recordVendorPayment,
         etiqueta: target.bill_number,

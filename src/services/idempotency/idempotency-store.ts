@@ -39,6 +39,50 @@ export class ConflictoDeIdempotencia extends Error {
   }
 }
 
+/**
+ * Las banderas que NO forman parte de la carga: contexto, presentación y la
+ * llave misma. Todo lo demás que el operador teclee ENTRA en el hash.
+ *
+ * Es una LISTA NEGRA a propósito, y la dirección importa. Con una lista blanca,
+ * una bandera nueva que altere el pago y que nadie recuerde añadir produce una
+ * COLISIÓN: dos actos distintos comparten hash y al segundo se le devuelve el
+ * resultado del primero — dinero escondido tras una llave reutilizada. Con
+ * lista negra, la bandera nueva entra sola; el peor caso es un conflicto de
+ * reuso (salida 6) que no escribe nada y se ve enseguida. Fallar ruidosamente
+ * es preferible a coincidir en silencio.
+ */
+const FUERA_DE_LA_CARGA = new Set([
+  'idempotencyKey', 'dryRun', 'yes', 'json', 'quiet', 'format', 'fields',
+  'output', 'entity', 'tenant', 'user', 'verbose', 'lang', 'strict', 'noColor',
+  'limit', 'offset', 'all',
+]);
+
+/**
+ * La carga canónica de un acto, derivada de lo que TECLEÓ el operador.
+ *
+ * Se hashea la ENTRADA y nunca un derivado del estado vivo: incluir, por
+ * ejemplo, el importe que resulta de `min(monto, saldo)` hace que el reintento
+ * idéntico calcule otro hash —porque el saldo ya bajó— y el mismo comando se
+ * acuse a sí mismo de reuso.
+ *
+ * Las claves se ordenan para que el hash no dependa del orden de escritura.
+ */
+export function cargaDelOperador(opts: Record<string, unknown>): string {
+  const partes: string[] = [];
+  for (const clave of Object.keys(opts).sort()) {
+    if (FUERA_DE_LA_CARGA.has(clave)) continue;
+    const v = opts[clave];
+    if (v === undefined) continue;
+    // Todo se serializa con JSON.stringify y no con String(): sobre un objeto,
+    // `String()` da '[object Object]' —dos objetos distintos con el mismo
+    // hash, que es exactamente la colisión que esta función existe para
+    // impedir—. Para un escalar, JSON.stringify da su forma inequívoca y
+    // distingue además la cadena "1" del número 1.
+    partes.push(`${clave}=${JSON.stringify(v)}`);
+  }
+  return partes.join('&');
+}
+
 /** SHA-256 hex de la carga canónica del acto, para payload_hash. */
 export function hashDeCarga(...partes: Array<string | number | boolean | null | undefined>): string {
   return createHash('sha256').update(partes.map((p) => String(p ?? '')).join('|')).digest('hex');
