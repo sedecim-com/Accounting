@@ -1,7 +1,11 @@
 import os from 'node:os';
 import type { Command } from 'commander';
 import { query } from '../database/connection.js';
-import { bootstrapTenant } from '../ai/context.js';
+import {
+  bootstrapTenant,
+  inquilinoDeLaSesion,
+  type OrigenDeInquilino,
+} from '../ai/context.js';
 import {
   listProfiles,
   resolveFailoverChain,
@@ -63,6 +67,14 @@ export interface StatusReport {
   rls: { active: boolean; detail: string };
   providers: ProviderStatusRow[];
 }
+
+/** Cómo se nombra en la salida cada escalón de la precedencia publicada. */
+const FUENTE_DEL_INQUILINO: Record<OrigenDeInquilino, string | null> = {
+  bandera: '--tenant',
+  entorno: 'MNEMOSINE_TENANT',
+  config: 'mnemosine.config.json',
+  ninguno: null,
+};
 
 /** Collapses the home directory to '~': home paths never leave the machine. */
 export function redactHomePath(p: string | null, home = os.homedir()): string | null {
@@ -230,9 +242,18 @@ export async function buildStatusReport(options: BuildStatusOptions = {}): Promi
         "SELECT current_setting('app.current_tenant', true) AS tenant"
       );
       const tenant = r.rows[0]?.tenant ?? null;
+      // DE DÓNDE SALIÓ, no sólo cuál es. Mientras la bandera se ignoraba en
+      // silencio, «tenant context X applied» era verdad y aun así engañaba:
+      // no decía que X venía del .env y no del `--tenant` que se tecleó.
+      const sesion = inquilinoDeLaSesion();
+      const fuente =
+        tenant && sesion.tenantId === tenant ? FUENTE_DEL_INQUILINO[sesion.origen] : null;
       rls =
         tenant && tenant.length > 0
-          ? { active: true, detail: `tenant context "${tenant}" applied` }
+          ? {
+              active: true,
+              detail: `tenant context "${tenant}" applied${fuente ? ` (from ${fuente})` : ''}`,
+            }
           : {
               active: false,
               detail: 'no tenant context (set --tenant or MNEMOSINE_TENANT to scope by RLS)',
