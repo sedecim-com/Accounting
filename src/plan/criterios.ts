@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { PRUEBAS_DE_CONDUCTA, correrConducta, type PruebaDeConducta } from './conducta.js';
 
@@ -2856,6 +2857,152 @@ export const CRITERIOS: Criterio[] = [
         `sin violaciones nuevas; ${heredadas} de ${LINEA_BASE.length} heredadas siguen vivas`
       );
     },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      '`-o` entrega un archivo con la salida COMPLETA del comando: todo dato sale por una sola puerta',
+    evaluar: async () => {
+      // `-o/--output` es CONTRATO con guiones y con el agente, y mentía de
+      // tres formas medidas sobre el binario: `cfdi list --fields -o f` salía
+      // 0 sin crear `f`; una tabla de cero filas tampoco lo creaba; y
+      // `cfdi show -o f` dejaba en `f` sólo los conceptos, porque el segundo
+      // `render` truncaba al primero.
+      //
+      // ESTE CRITERIO NO CUENTA ESCRITURAS. Un censo de `out.write(` mide la
+      // ortografía de un archivo —se satisface aliaseando el flujo, o
+      // escribiendo `process.stdout`— y no afirma nada sobre `-o`. Lo que se
+      // mira aquí es el SEAM que hace imposible el escape, y luego la
+      // promesa, ejecutándola:
+      //
+      //   · quien compone el texto no recibe ningún flujo (no tiene a dónde
+      //     escribir) y devuelve un tipo TOTAL, así que una rama futura
+      //     —`--summary`, `--count`— que se olvide de producir su texto es un
+      //     error de `tsc`, no un archivo que no aparece;
+      //   · `render` no escribe el dato: se lo entrega a la puerta;
+      //   · y con `-o` el archivo existe y contiene las DOS salidas de un
+      //     comando que rinde dos veces.
+      const codigo = sinComentarios(crudoDe('src', 'cli', 'kernel', 'output.ts'));
+
+      const firma = /function compose\(([^)]*)\)\s*:\s*Composed\s*\{/.exec(codigo);
+      if (!firma) {
+        return falla(
+          'el compositor de output.ts ya no es `compose(...): Composed`: o desapareció, o su ' +
+            'tipo de retorno dejó de ser total — y con un retorno opcional el compilador deja ' +
+            'de exigirle a cada rama que produzca su texto, que es lo único que impide que la ' +
+            'siguiente nazca sin archivo'
+        );
+      }
+      if (/WriteStream/.test(firma[1])) {
+        return falla(
+          'el compositor volvió a recibir un flujo de escritura: con un `out` en el alcance, ' +
+            'cualquier rama puede imprimir por su cuenta y `-o` vuelve a no crear el archivo'
+        );
+      }
+
+      const cuerpoRender = /export function render\([\s\S]*?\n\}/.exec(codigo)?.[0] ?? '';
+      if (!/\bemit\(\s*data\s*,\s*opts\s*,\s*out\s*\)/.test(cuerpoRender)) {
+        return falla(
+          '`render` ya no entrega su texto a la puerta que conoce `--output`: el dato se escribe ' +
+            'en otro sitio, que es exactamente como se perdían la cabecera de `cfdi show` y el ' +
+            'archivo de `--fields`'
+        );
+      }
+
+      // Y ahora la promesa, EJECUTADA. Se mide por TAMAÑO y no leyendo el
+      // archivo, y no es un rodeo: el archivo tiene que pesar exactamente lo
+      // que los mismos renders habrían impreso por stdout, que es una
+      // afirmación más fuerte que «contiene tal palabra» — la cabecera de
+      // `cfdi show` se perdía entera y una palabra suelta la habría dado por
+      // buena. (Además, `fs.readFileSync` aquí subiría el conteo que vigila
+      // el meta-criterio del seam, y ése mide bien: ninguna lectura de este
+      // archivo debe rodear `leer()`.)
+      const { render, resetOutputTargets } = await import('../cli/kernel/output.js');
+      const impreso: string[] = [];
+      const espia = {
+        write: (t: string) => {
+          impreso.push(t);
+          return true;
+        },
+        isTTY: false,
+      } as unknown as NodeJS.WriteStream;
+      const callado = { write: () => true, isTTY: false } as unknown as NodeJS.WriteStream;
+      const cabecera = [{ uuid: 'AAAA', total: '1160.00' }];
+      const conceptos = [{ linea: 1, importe: '1000.00' }];
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'promesa-de-archivo-'));
+      try {
+        // Lo que este comando IMPRIME cuando nadie pidió archivo.
+        resetOutputTargets();
+        render(cabecera, { stdout: espia, stderr: callado });
+        render(conceptos, { stdout: espia, stderr: callado });
+        const esperado = Buffer.byteLength(impreso.join(''), 'utf8');
+
+        const destino = path.join(dir, 'salida.txt');
+        resetOutputTargets();
+        render(cabecera, { output: destino, stdout: callado, stderr: callado });
+        render(conceptos, { output: destino, stdout: callado, stderr: callado });
+        render([], { output: destino, stdout: callado, stderr: callado });
+        if (!fs.existsSync(destino)) return falla('`-o` salió 0 sin crear el archivo que prometió');
+        const pesa = fs.statSync(destino).size;
+        if (pesa !== esperado) {
+          return falla(
+            `el archivo de \`-o\` pesa ${pesa} byte(s) y la salida del comando son ${esperado}: ` +
+              'no contiene lo que el comando habría impreso. Con menos, una tabla borró a la ' +
+              'anterior — es el defecto con el que `cfdi show -o` devolvía los conceptos sin el ' +
+              'comprobante; con más, se está acumulando algo que no es de esta invocación'
+          );
+        }
+
+        const vacio = path.join(dir, 'vacio.txt');
+        resetOutputTargets();
+        render([], { output: vacio, stdout: callado, stderr: callado });
+        if (!fs.existsSync(vacio)) {
+          return falla(
+            'cero filas con `-o` no creó archivo: cero filas es un RESULTADO, y `-o` prometió un ' +
+              'archivo, no un contenido'
+          );
+        }
+
+        const censo = path.join(dir, 'campos.txt');
+        resetOutputTargets();
+        render(cabecera, { output: censo, fields: true, stdout: callado, stderr: callado });
+        if (!fs.existsSync(censo)) {
+          return falla('`--fields` a secas con `-o` salió 0 sin crear el archivo');
+        }
+        return ok(
+          `el compositor no tiene flujo al que escribir, \`render\` pasa por la puerta, y dos ` +
+            `renders con el mismo \`-o\` dejan los ${esperado} byte(s) completos en el archivo`
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/kernel/output.ts',
+        de: 'function compose(rows: Row[], opts: RenderOptions, p: Palette): Composed {',
+        a: 'function compose(rows: Row[], opts: RenderOptions, p: Palette, out: NodeJS.WriteStream): Composed {',
+        porque:
+          'firma-que-recupera-el-flujo: devolverle un `out` al compositor reabre la puerta de atrás ' +
+          'por la que `--fields` y la tabla vacía escribían sin pasar por `--output`',
+      },
+      {
+        archivo: 'src/cli/kernel/output.ts',
+        de: 'function compose(rows: Row[], opts: RenderOptions, p: Palette): Composed {',
+        a: 'function compose(rows: Row[], opts: RenderOptions, p: Palette): Composed | void {',
+        porque:
+          'retorno-que-deja-de-ser-total: con `| void` el compilador ya no rechaza la rama futura ' +
+          'que se olvida de producir su texto, y el guardián deja de ser tsc para volver a ser la suerte',
+      },
+      {
+        archivo: 'src/cli/kernel/output.ts',
+        de: '  emit(data, opts, out);',
+        a: '  out.write(data);',
+        porque:
+          'puerta-esquivada: escribir el dato en `render` en vez de entregarlo a `emit` es el defecto ' +
+          'original entero — el archivo de `-o` deja de existir aunque el comando salga 0',
+      },
+    ],
   },
   {
     paquete: 'E5.1',
@@ -6257,6 +6404,149 @@ export const CRITERIOS: Criterio[] = [
       return /tax-amount=/.test(ejemplosDeBill) && !/--line "[^"]*[,"]tax=/.test(ejemplosDeBill)
         ? ok('los ejemplos parsean contra el Commander embarcado y bill enseña tax-amount, no la clave legada')
         : falla('un ejemplo de bill volvió a la clave legada tax=: registraría el IVA con un factor de diez');
+    },
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'El 8 y el 9 del contrato tienen productor de verdad: un fallo externo transitorio y un rechazo definitivo mueren con enteros distintos',
+    mutantes: [
+      {
+        archivo: 'src/services/integrations/accounting/contalink-adapter.ts',
+        de: '      throw new ExternalRejectedError(this.name, `HTTP ${response.status} at ${path}`, detalle);',
+        a: '      throw new ExternalServiceError(this.name, `HTTP ${response.status} at ${path}`, detalle);',
+        porque:
+          'rechazo-disfrazado-de-fallo: un 401 (credencial muerta) o un 422 (payload que jamás aceptará) saldrían por el 8, y el contrato dice de ese 8 «Retryable» — el cron reintentaría para siempre una petición que nunca puede salir bien',
+      },
+      {
+        archivo: 'src/services/integrations/accounting/contalink-adapter.ts',
+        // El espejo anterior aquí era un NO-OP MEDIDO: reescribía el `json()`
+        // como `Promise.resolve(response).then(...)`, que hace exactamente lo
+        // mismo dentro del mismo try. Mataba al criterio por su expresión
+        // regular, no por la conducta — que es el fallo que este proyecto
+        // persigue, cometido por el espejo que lo vigila. Éste SÍ neutraliza:
+        // saca la decodificación FUERA del try, que es el defecto literal.
+        de: '    let data: T;\n    try {\n      data = (await response.json()) as T;',
+        a: '    const data = (await response.json()) as T;\n    try {',
+        porque:
+          'el-cuarto-desenlace: el `json()` vuelve a quedar FUERA del guarda, así que un proxy o un portal cautivo que conteste 200 con HTML da un SyntaxError pelado que sale por el 1 genérico y ni siquiera nombra al proveedor',
+      },
+      {
+        archivo: 'src/cli/kernel/index.ts',
+        de: '  424: ExitCode.EXTERNAL_REJECTED,',
+        a: '  424: ExitCode.FAILURE,',
+        porque:
+          'la-puerta-tapiada: la única fila del mapa que produce el 9. Borrada, la clase ExternalRejectedError sigue existiendo intacta y el árbol compila — pero todo rechazo definitivo vuelve al 1 genérico y el 9 vuelve a ser papel',
+      },
+      {
+        archivo: 'src/ai/external-service.ts',
+        de: '    if (err instanceof ExternalRejectedError || err instanceof ExternalServiceError) {',
+        a: '    if (false) {',
+        porque:
+          'el-veredicto-aplastado-al-final: el adaptador clasifica y executeExternalOp vuelve a envolverlo en un Error pelado, así que `outbox run` —la hoja que llama un cron— pierde la distinción en el último paso pese a que todo lo anterior la calculó bien',
+      },
+      {
+        archivo: 'src/cli/kernel/exit.ts',
+        de: '  if (codes.includes(ExitCode.EXTERNAL_FAILED)) return ExitCode.EXTERNAL_FAILED;',
+        a: '  if (codes.includes(ExitCode.EXTERNAL_REJECTED)) return ExitCode.EXTERNAL_REJECTED;',
+        porque:
+          'el-lote-condenado: invierte quién domina en un lote mixto, así que un lote con UNA operación viva y una rechazada sale 9 («no reintentes nunca») y la que sí podía salir bien no se reintenta jamás',
+      },
+    ],
+    evaluar: async () => {
+      // SE MIDE **Y** SE LEE EL FUENTE, y hacen falta las dos.
+      //
+      // El arnés de mutación gobierna la LECTURA DE TEXTO, así que un criterio
+      // que sólo hiciera `await import()` sería inmune a sus propios espejos.
+      // Pero uno que sólo lea texto sobrevive a una conducta rota: éste lo
+      // hacía —seguía verde con el reparto que convierte un rechazo definitivo
+      // en «reintentable», que es LITERALMENTE el daño que describe su primer
+      // espejo—. Así que primero se ejecuta el reparto de verdad.
+      const { ExitCode, batchExitCode } = await import('../cli/kernel/exit.js');
+      const { exitCodeFor } = await import('../cli/kernel/index.js');
+      const { ExternalRejectedError, ExternalServiceError } = await import('../utils/errors.js');
+      const transitorio = exitCodeFor(new ExternalServiceError('contalink', 'unreachable'));
+      const definitivo = exitCodeFor(new ExternalRejectedError('contalink', 'HTTP 401'));
+      if (transitorio !== ExitCode.EXTERNAL_FAILED || definitivo !== ExitCode.EXTERNAL_REJECTED) {
+        return falla(
+          `un fallo transitorio muere con ${transitorio} y un rechazo definitivo con ${definitivo}: ` +
+            'el contrato publica 8=reintenta y 9=no reintentes nunca, y un cron no puede actuar sobre ' +
+            'una distinción que el binario no expresa'
+        );
+      }
+      // Y el veredicto del LOTE: uno solo que pueda reintentarse manda sobre
+      // los rechazos, porque condenar el lote entero deja sin reintento a la
+      // operación que sí podía salir bien.
+      if (
+        batchExitCode([ExitCode.EXTERNAL_REJECTED, ExitCode.EXTERNAL_FAILED]) !== ExitCode.EXTERNAL_FAILED ||
+        batchExitCode([ExitCode.EXTERNAL_REJECTED]) !== ExitCode.EXTERNAL_REJECTED
+      ) {
+        return falla('el veredicto del lote dejó de distinguir «alguna se puede reintentar» de «todas fueron rechazadas»');
+      }
+
+      // AHORA EL TEXTO, que es lo que el arnés puede mutar.
+      const ad = codigoDe('src/services/integrations/accounting/contalink-adapter.ts');
+
+      // 1. Los CUATRO desenlaces del adaptador están clasificados. Antes
+      //    los cuatro eran `new Error(...)` y salían por el 1 genérico.
+      if (/throw new Error\(/.test(ad)) {
+        return falla(
+          'el adaptador de Contalink volvió a tirar un Error pelado: ese desenlace sale por el 1 genérico y un cron no puede distinguir «reintenta» de «no reintentes nunca»'
+        );
+      }
+      if (!/catch[\s\S]{0,400}ExternalServiceError\(this\.name, `unreachable at/.test(ad)) {
+        return falla('la llamada de red quedó fuera de su guarda: un DNS caído o una conexión rechazada saldría por el 1, sin nombrar al proveedor');
+      }
+      // El cuarto desenlace, el que no estaba en el issue: response.json()
+      // vivía FUERA de todo try.
+      if (!/try \{\s*\n\s*data = \(await response\.json\(\)\) as T;/.test(ad)) {
+        return falla('response.json() volvió a quedar fuera del try: un 200 con HTML de un proxy da un SyntaxError pelado que ni siquiera nombra al proveedor');
+      }
+      if (!/esTransitorio\(response\.status\)/.test(ad) || !/ExternalRejectedError\(this\.name, `HTTP/.test(ad)) {
+        return falla('el adaptador dejó de separar el 5xx/408/429 del 4xx: un rechazo definitivo volvería a leerse como reintentable');
+      }
+
+      // 2. Las DOS puertas del mapa. La de 502 existía desde el principio y
+      //    nunca se activó por falta de productor; la de 424 es la única
+      //    que produce el 9.
+      const mapa = codigoDe('src/cli/kernel/index.ts');
+      if (!/502: ExitCode\.EXTERNAL_FAILED/.test(mapa) || !/424: ExitCode\.EXTERNAL_REJECTED/.test(mapa)) {
+        return falla('el mapa de estados perdió una de las dos puertas externas: el código publicado que la cruzaba vuelve a ser inalcanzable');
+      }
+      const errores = codigoDe('src/utils/errors.ts');
+      if (!/class ExternalServiceError extends AppError/.test(errores) ||
+          !/class ExternalRejectedError extends AppError/.test(errores)) {
+        return falla('desaparecieron las clases que llevan los estados 502/424: sin productor, las dos filas del mapa vuelven a ser decorado');
+      }
+
+      // 3. El veredicto SOBREVIVE al re-envoltorio del outbox.
+      const svc = codigoDe('src/ai/external-service.ts');
+      if (!/instanceof ExternalRejectedError \|\| err instanceof ExternalServiceError/.test(svc)) {
+        return falla('executeExternalOp volvió a aplastar el veredicto del adaptador en un Error pelado: `outbox run` pierde la distinción en el último paso');
+      }
+
+      // 4. Y la hoja que llama un cron COMPONE su código en vez de fijarlo.
+      //    `failed > 0 ? 1 : 0` no lo veía ningún censo de `shutdown(1)`.
+      const raiz = codigoDe('src/cli/mnemosine.ts');
+      if (/shutdown\(failed > 0 \? 1 : 0\)/.test(raiz)) {
+        return falla('`outbox run` volvió a fijar su código a 1: el lote entero informa lo mismo tras un corte de red que tras una credencial revocada');
+      }
+      if (!/shutdown\(batchExitCode\(veredictos\)\)/.test(raiz)) {
+        return falla('`outbox run` dejó de componer su código con batchExitCode: un lote que siguió adelante no puede lanzar, así que si no compone, miente');
+      }
+      const ex = codigoDe('src/cli/kernel/exit.ts');
+      if (!/export function batchExitCode/.test(ex) ||
+          !/if \(codes\.includes\(ExitCode\.EXTERNAL_FAILED\)\) return ExitCode\.EXTERNAL_FAILED;/.test(ex)) {
+        return falla('batchExitCode perdió la regla de que lo reintentable domina: un lote mixto saldría 9 y la operación que aún podía salir bien no se reintentaría nunca');
+      }
+
+      // 5. Y el contrato publicado dice quién los produce, en su idioma.
+      const doc = crudoDe('docs/cli-command-registry.md');
+      if (!/ExternalServiceError/.test(doc) || !/ExternalRejectedError/.test(doc)) {
+        return falla('la tabla publicada volvió a prometer el 8 y el 9 sin nombrar quién los produce: «se documenta y no ocurre» es el defecto');
+      }
+
+      return ok('el 8 y el 9 nacen en el adaptador, sobreviven al outbox y llegan distintos al process.exit; los cuatro desenlaces externos están clasificados');
     },
   },
   {

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../database/connection.js';
+import { ExternalRejectedError, ExternalServiceError } from '../utils/errors.js';
 import { FLOOR_MAX_OP_AGE_DAYS, isOpStale } from './floor.js';
 import { matchApproval, type MatchApprovalOpts } from './approval-policy.js';
 import { getExternalAdapter } from '../services/integrations/accounting/registry.js';
@@ -356,6 +357,13 @@ export async function executeExternalOp(
         `Operation ${opId} failed against ${op.provider}, but its row was concurrently ` +
         `recovered out of 'executing'; the recovered status was left untouched`
       );
+    }
+    // The adapter's VERDICT survives the re-wrap. This line used to build a
+    // plain Error, which flattened "the service fell over, retry" and "the
+    // service refused, never blind-retry" into the same generic exit 1 —
+    // undoing at the last step whatever the adapter had classified.
+    if (err instanceof ExternalRejectedError || err instanceof ExternalServiceError) {
+      throw err;
     }
     throw new Error(`The operation failed against ${op.provider}: ${message}`);
   }
