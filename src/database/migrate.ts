@@ -11,12 +11,33 @@ import { config } from '../config/index.js';
 const pool = new pg.Pool({ connectionString: config.database.migrationUrl, max: 1 });
 
 /**
- * Cuatro números quedaron duplicados antes de que existiera esta guarda y ya
- * están aplicados en bases desplegadas: renumerarlos rompería instalaciones,
- * así que se documentan y se toleran. Cualquier duplicado NUEVO es un error.
+ * Nueve archivos quedaron compartiendo cuatro números antes de que existiera
+ * esta guarda y ya están aplicados en bases desplegadas: renumerarlos rompería
+ * instalaciones, así que se documentan y se toleran.
+ *
+ * SON NOMBRES, NO PREFIJOS, Y ESA ES TODA LA GUARDA (#88). Hasta T1 esto era
+ * `new Set(['012','014','015','018'])` —los NÚMEROS—, así que el perdón cubría
+ * también a los archivos que aún no existían: un `014_migracion_nueva_de_hoy.sql`
+ * pasaba la guarda, y como el orden de ejecución es `files.sort()`, corría ANTES
+ * de las 015 a 069. El comentario ya decía «cualquier duplicado NUEVO es un
+ * error» y el código no podía distinguir nuevo de histórico, porque no miraba
+ * el archivo sino su número.
+ *
+ * Esta lista NO CRECE. Un duplicado nuevo se renumera al siguiente libre; el
+ * criterio E0.2 del tablero vigila que siga teniendo exactamente estos nueve.
  * Reparto de rangos para el plan de cierre en docs/migraciones.md.
  */
-const DUPLICADOS_HISTORICOS = new Set(['012', '014', '015', '018']);
+const DUPLICADOS_HISTORICOS = new Set([
+  '012_ai_drafts_unique_source.sql',
+  '012_fix_mv_account_balance_summary.sql',
+  '014_ai_external_ops.sql',
+  '014_fiscal_credentials.sql',
+  '014_rls_tenant_isolation.sql',
+  '015_account_roles.sql',
+  '015_identities.sql',
+  '018_ai_sessions.sql',
+  '018_fix_account_roles_unique.sql',
+]);
 
 export function assertNumeracionUnica(files: string[]): void {
   const porNumero = new Map<string, string[]>();
@@ -27,9 +48,15 @@ export function assertNumeracionUnica(files: string[]): void {
     }
     porNumero.set(n, [...(porNumero.get(n) ?? []), f]);
   }
+  // Un número con varios archivos sólo se perdona si TODOS ellos son
+  // históricos. En cuanto uno solo es nuevo, el choque se denuncia entero —y
+  // se señala cuál es el intruso, que es lo que hace accionable el mensaje.
   const choques = [...porNumero.entries()]
-    .filter(([n, fs]) => fs.length > 1 && !DUPLICADOS_HISTORICOS.has(n))
-    .map(([n, fs]) => `  ${n}: ${fs.join(', ')}`);
+    .filter(([, fs]) => fs.length > 1 && fs.some((f) => !DUPLICADOS_HISTORICOS.has(f)))
+    .map(([n, fs]) => {
+      const nuevos = fs.filter((f) => !DUPLICADOS_HISTORICOS.has(f));
+      return `  ${n}: ${fs.join(', ')}  → sobra${nuevos.length > 1 ? 'n' : ''}: ${nuevos.join(', ')}`;
+    });
   if (choques.length > 0) {
     const libre = String(
       Math.max(...[...porNumero.keys()].map(Number)) + 1
