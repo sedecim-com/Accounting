@@ -5732,6 +5732,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'cashflow-selfcheck-lists-and-policy-blocks',
     enunciado:
       'La autocomprobación del flujo mide la LISTA de cuentas sin sección y no su suma, la política «bloquear» bloquea de verdad, y los roles de efectivo crecen en un solo sitio',
     mutantes: [
