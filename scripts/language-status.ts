@@ -4,10 +4,10 @@
  *
  *   npm run language:status                 el tablero, para leerlo
  *   npm run language:status -- --json       el mismo dato, para una máquina
- *   npm run language:status -- --check      sale con 1 si algún carril CRECIÓ
- *   npm run language:status -- --apretar    baja las líneas base con holgura
- *   npm run language:status -- --escribir   reescribe el bloque del documento rector
- *   npm run language:status -- --sembrar    crea la línea base desde cero
+ *   npm run language:status -- --check      sale con 1 si algún lane CRECIÓ
+ *   npm run language:status -- --tighten    baja las líneas base con holgura
+ *   npm run language:status -- --escribir   reescribe el block del documento rector
+ *   npm run language:status -- --seed    crea la línea base desde cero
  *
  * ============================================================
  * POR QUÉ EXISTE
@@ -23,14 +23,14 @@
  * números y nadie sabe cuál miente.
  *
  * ============================================================
- * LA LÍNEA BASE SÓLO ENCOGE, Y ES UN ARCHIVO APARTE
+ * LA LÍNEA BASELINE SÓLO ENCOGE, Y ES UN ARCHIVO APARTE
  *
- * `docs/language-baseline.json`, como `docs/catalogo-minimos.json`: el bloque
+ * `docs/language-baseline.json`, como `docs/catalogo-minimos.json`: el block
  * que este comando publica se REGENERA, así que por sí solo no impide un
  * retroceso —bastaría con regenerarlo—. El trinquete es el JSON, y subir un
- * número es un ACTO MANUAL con rastro en el diff. `--apretar` sólo baja.
+ * número es un ACTO MANUAL con rastro en el diff. `--tighten` sólo baja.
  *
- * Y guarda el desglose POR ARCHIVO, no sólo el total. Sin él, bajar un carril
+ * Y guarda el desglose POR ARCHIVO, no sólo el total. Sin él, bajar un lane
  * exige tocar todos sus archivos a la vez y la deuda se queda congelada; con
  * él, cada PR cierra los archivos que toca y el trinquete lo nota.
  *
@@ -50,28 +50,28 @@ import { codeLanes } from './language/lanes/code.js';
 import { planLanes } from './language/lanes/plan.js';
 import { docsLanes } from './language/lanes/docs.js';
 
-const RAIZ = path.resolve(__dirname, '..');
-const BASE = path.join(RAIZ, 'docs', 'language-baseline.json');
-const RECTOR = path.join(RAIZ, 'docs', 'language.md');
-const ABRE = '<!-- LANGUAGE-STATUS:START -->';
-const CIERRA = '<!-- LANGUAGE-STATUS:END -->';
+const ROOT = path.resolve(__dirname, '..');
+const BASELINE = path.join(ROOT, 'docs', 'language-baseline.json');
+const GOVERNING_DOC = path.join(ROOT, 'docs', 'language.md');
+const OPEN_MARK = '<!-- LANGUAGE-STATUS:START -->';
+const CLOSE_MARK = '<!-- LANGUAGE-STATUS:END -->';
 
 interface Baseline {
   _: string;
   _por_que: string;
-  sembrada: string;
-  carriles: Record<string, number>;
-  porArchivo: Record<string, Record<string, number>>;
+  seeded: string;
+  lanes: Record<string, number>;
+  perFile: Record<string, Record<string, number>>;
 }
 
-/** Los dieciséis carriles, en el orden en que se publican. */
-export function medir(): Lane[] {
+/** Los dieciséis lanes, en el orden en que se publican. */
+export function measure(): Lane[] {
   return [...codeLanes(), ...planLanes(), ...docsLanes()];
 }
 
-function leerBase(): Baseline | null {
-  if (!fs.existsSync(BASE)) return null;
-  return JSON.parse(fs.readFileSync(BASE, 'utf8')) as Baseline;
+function readBaseline(): Baseline | null {
+  if (!fs.existsSync(BASELINE)) return null;
+  return JSON.parse(fs.readFileSync(BASELINE, 'utf8')) as Baseline;
 }
 
 /**
@@ -79,114 +79,114 @@ function leerBase(): Baseline | null {
  *
  * Las dos direcciones importan y por razones distintas. Que un número CREZCA
  * es la regresión obvia. Que una entrada de la línea base ya no corresponda a
- * ningún carril —o a ningún archivo— es la silenciosa: el trinquete se queda
+ * ningún lane —o a ningún archivo— es la silenciosa: el trinquete se queda
  * protegiendo algo que no existe, y nadie se entera hasta que alguien lee el
  * JSON y no reconoce la mitad.
  */
-export interface Hallazgo {
-  carril: string;
-  detalle: string;
+export interface Finding {
+  lane: string;
+  detail: string;
 }
 
-export function comparar(carriles: Lane[], base: Baseline): Hallazgo[] {
-  const hallazgos: Hallazgo[] = [];
-  const vivos = new Map(carriles.map((c) => [c.id, c]));
+export function compare(lanes: Lane[], base: Baseline): Finding[] {
+  const findings: Finding[] = [];
+  const alive = new Map(lanes.map((c) => [c.id, c]));
 
-  for (const c of carriles) {
-    const suelo = base.carriles[c.id];
-    if (suelo === undefined) {
-      // Un carril nuevo sin entrada no es un error: es un carril que nadie ha
-      // sembrado. Se dice, y `--sembrar` o `--apretar` lo incorporan.
-      hallazgos.push({ carril: c.id, detalle: `carril nuevo sin línea base (vale ${c.value}); siémbralo` });
+  for (const c of lanes) {
+    const floor = base.lanes[c.id];
+    if (floor === undefined) {
+      // Un lane nuevo sin entrada no es un error: es un lane que nadie ha
+      // sembrado. Se dice, y `--seed` o `--tighten` lo incorporan.
+      findings.push({ lane: c.id, detail: `lane nuevo sin línea base (vale ${c.value}); siémbralo` });
       continue;
     }
-    if (c.value > suelo) {
-      const ejemplos = (c.examples ?? []).slice(0, 3).join(' · ');
-      hallazgos.push({
-        carril: c.id,
-        detalle: `creció: ${suelo} → ${c.value}${ejemplos ? ` — ${ejemplos}` : ''}`,
+    if (c.value > floor) {
+      const examples = (c.examples ?? []).slice(0, 3).join(' · ');
+      findings.push({
+        lane: c.id,
+        detail: `creció: ${floor} → ${c.value}${examples ? ` — ${examples}` : ''}`,
       });
     }
     // EL DESGLOSE, ARCHIVO POR ARCHIVO. Un total que no crece puede esconder
     // un archivo que empeoró mientras otro mejoró, y eso es exactamente lo
     // que el trinquete por archivo existe para no dejar pasar.
-    const suelosArchivo = base.porArchivo[c.id] ?? {};
-    for (const [archivo, n] of Object.entries(c.perFile ?? {})) {
-      const previo = suelosArchivo[archivo];
-      if (previo !== undefined && n > previo) {
-        hallazgos.push({ carril: c.id, detalle: `${archivo}: creció ${previo} → ${n}` });
+    const fileFloors = base.perFile[c.id] ?? {};
+    for (const [file, n] of Object.entries(c.perFile ?? {})) {
+      const previous = fileFloors[file];
+      if (previous !== undefined && n > previous) {
+        findings.push({ lane: c.id, detail: `${file}: creció ${previous} → ${n}` });
       }
     }
-    for (const archivo of Object.keys(suelosArchivo)) {
-      if (!(archivo in (c.perFile ?? {}))) continue;
+    for (const file of Object.keys(fileFloors)) {
+      if (!(file in (c.perFile ?? {}))) continue;
     }
   }
 
-  // ENTRADAS MUERTAS: la línea base nombra carriles que ya no existen.
-  for (const id of Object.keys(base.carriles)) {
-    if (!vivos.has(id)) {
-      hallazgos.push({
-        carril: id,
-        detalle: 'la línea base protege un carril que ya no se mide: bórralo o devuélvelo',
+  // ENTRADAS MUERTAS: la línea base nombra lanes que ya no existen.
+  for (const id of Object.keys(base.lanes)) {
+    if (!alive.has(id)) {
+      findings.push({
+        lane: id,
+        detail: 'la línea base protege un lane que ya no se mide: bórralo o devuélvelo',
       });
     }
   }
-  return hallazgos;
+  return findings;
 }
 
-/** `--apretar`: baja lo que tiene holgura. NUNCA sube. */
-export function apretar(carriles: Lane[], base: Baseline): Baseline {
-  const nueva: Baseline = { ...base, carriles: { ...base.carriles }, porArchivo: {} };
-  for (const c of carriles) {
-    const suelo = base.carriles[c.id];
-    nueva.carriles[c.id] = suelo === undefined ? c.value : Math.min(suelo, c.value);
-    const suelosArchivo = base.porArchivo[c.id] ?? {};
-    const mapa: Record<string, number> = {};
-    for (const [archivo, n] of Object.entries(c.perFile ?? {})) {
-      const previo = suelosArchivo[archivo];
-      mapa[archivo] = previo === undefined ? n : Math.min(previo, n);
+/** `--tighten`: baja lo que tiene holgura. NUNCA sube. */
+export function tighten(lanes: Lane[], base: Baseline): Baseline {
+  const next: Baseline = { ...base, lanes: { ...base.lanes }, perFile: {} };
+  for (const c of lanes) {
+    const floor = base.lanes[c.id];
+    next.lanes[c.id] = floor === undefined ? c.value : Math.min(floor, c.value);
+    const fileFloors = base.perFile[c.id] ?? {};
+    const map: Record<string, number> = {};
+    for (const [file, n] of Object.entries(c.perFile ?? {})) {
+      const previous = fileFloors[file];
+      map[file] = previous === undefined ? n : Math.min(previous, n);
     }
-    // Los archivos que ya no aportan salen del desglose: si vuelven, el carril
+    // Los archivos que ya no aportan salen del desglose: si vuelven, el lane
     // los ve como nuevos y el total los acusa.
-    if (Object.keys(mapa).length > 0) nueva.porArchivo[c.id] = mapa;
+    if (Object.keys(map).length > 0) next.perFile[c.id] = map;
   }
-  // Un carril que desapareció no se conserva: su entrada dejaría de medir algo.
-  for (const id of Object.keys(nueva.carriles)) {
-    if (!carriles.some((c) => c.id === id)) delete nueva.carriles[id];
+  // Un lane que desapareció no se conserva: su entrada dejaría de measure algo.
+  for (const id of Object.keys(next.lanes)) {
+    if (!lanes.some((c) => c.id === id)) delete next.lanes[id];
   }
-  return nueva;
+  return next;
 }
 
-function sembrar(carriles: Lane[], fecha: string): Baseline {
+function seed(lanes: Lane[], date: string): Baseline {
   const b: Baseline = {
-    _: 'LÍNEA BASE DEL IDIOMA. La comprueba `npm run language:status -- --check`, que corre en CI.',
+    _: 'LÍNEA BASELINE DEL IDIOMA. La comprueba `npm run language:status -- --check`, que corre en CI.',
     _por_que:
-      'El bloque que el metro publica en el documento rector se REGENERA, así que por sí solo no ' +
+      'El block que el metro publica en el documento rector se REGENERA, así que por sí solo no ' +
       'impide un retroceso: bastaría con regenerarlo. Este archivo es el trinquete — sólo baja, y ' +
       'baja en el MISMO commit que gana el terreno, igual que docs/catalogo-minimos.json. Subir un ' +
       'número es un acto manual y su rastro es el diff.',
-    sembrada: fecha,
-    carriles: {},
-    porArchivo: {},
+    seeded: date,
+    lanes: {},
+    perFile: {},
   };
-  for (const c of carriles) {
-    b.carriles[c.id] = c.value;
-    if (c.perFile && Object.keys(c.perFile).length > 0) b.porArchivo[c.id] = { ...c.perFile };
+  for (const c of lanes) {
+    b.lanes[c.id] = c.value;
+    if (c.perFile && Object.keys(c.perFile).length > 0) b.perFile[c.id] = { ...c.perFile };
   }
   return b;
 }
 
-function bloque(carriles: Lane[], base: Baseline | null): string {
-  const fila = (c: Lane): string => {
-    const suelo = base?.carriles[c.id];
-    const holgura = suelo !== undefined && c.value < suelo ? ` (baseline ${suelo})` : '';
-    const marca = c.informational ? ' *(informational)*' : '';
-    return `| \`${c.id}\` | ${c.title}${marca} | ${c.value}${holgura} | ${c.target} |`;
+function block(lanes: Lane[], base: Baseline | null): string {
+  const row = (c: Lane): string => {
+    const floor = base?.lanes[c.id];
+    const slack = floor !== undefined && c.value < floor ? ` (baseline ${floor})` : '';
+    const mark = c.informational ? ' *(informational)*' : '';
+    return `| \`${c.id}\` | ${c.title}${mark} | ${c.value}${slack} | ${c.target} |`;
   };
-  const exigidos = carriles.filter((c) => !c.informational);
-  const observados = carriles.filter((c) => c.informational);
+  const required = lanes.filter((c) => !c.informational);
+  const observed = lanes.filter((c) => c.informational);
   return [
-    ABRE,
+    OPEN_MARK,
     '',
     '<!--',
     '  DO NOT EDIT BY HAND. Regenerate with:  npm run language:status -- --escribir',
@@ -195,107 +195,107 @@ function bloque(carriles: Lane[], base: Baseline | null): string {
     '',
     '### How much Spanish is left, and where',
     '',
-    `${exigidos.length} lanes under the ratchet and ${observados.length} measured but not yet required.`,
+    `${required.length} lanes under the ratchet and ${observed.length} measured but not yet required.`,
     'The ratchet lives in `docs/language-baseline.json` and only goes down; raising a number is a',
     'manual act and its trace is the diff.',
     '',
     '| Lane | What it counts | Today | Towards |',
     '|---|---|---:|---:|',
-    ...exigidos.map(fila),
-    ...observados.map(fila),
+    ...required.map(row),
+    ...observed.map(row),
     '',
-    CIERRA,
+    CLOSE_MARK,
   ].join('\n');
 }
 
-function escribirBloque(texto: string): boolean {
-  if (!fs.existsSync(RECTOR)) return false;
-  const doc = fs.readFileSync(RECTOR, 'utf8');
-  const i = doc.indexOf(ABRE);
-  const j = doc.indexOf(CIERRA);
+function writeBlock(text: string): boolean {
+  if (!fs.existsSync(GOVERNING_DOC)) return false;
+  const doc = fs.readFileSync(GOVERNING_DOC, 'utf8');
+  const i = doc.indexOf(OPEN_MARK);
+  const j = doc.indexOf(CLOSE_MARK);
   if (i === -1 || j === -1) {
     // Sin marcadores no se inventa un sitio: el documento decide dónde va su
-    // bloque, no el comando. Se dice y se sigue.
+    // block, no el comando. Se dice y se sigue.
     return false;
   }
-  fs.writeFileSync(RECTOR, doc.slice(0, i) + texto + doc.slice(j + CIERRA.length));
+  fs.writeFileSync(GOVERNING_DOC, doc.slice(0, i) + text + doc.slice(j + CLOSE_MARK.length));
   return true;
 }
 
-/** `--sembrar` se niega en un árbol sucio: sembraría lo que alguien no ha comprometido. */
-function arbolLimpio(): boolean {
+/** `--seed` se niega en un árbol sucio: sembraría lo que alguien no ha comprometido. */
+function treeIsClean(): boolean {
   try {
-    return execFileSync('git', ['status', '--porcelain'], { cwd: RAIZ, encoding: 'utf8' }).trim() === '';
+    return execFileSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' }).trim() === '';
   } catch {
     return false;
   }
 }
 
 function main(argv: string[]): number {
-  const tiene = (f: string): boolean => argv.includes(f);
-  const carriles = medir();
-  const base = leerBase();
+  const has = (f: string): boolean => argv.includes(f);
+  const lanes = measure();
+  const base = readBaseline();
 
-  if (tiene('--json')) {
+  if (has('--json')) {
     process.stdout.write(
-      `${JSON.stringify({ carriles, base: base?.carriles ?? null, hallazgos: base ? comparar(carriles, base) : [] }, null, 2)}\n`
+      `${JSON.stringify({ lanes, base: base?.lanes ?? null, findings: base ? compare(lanes, base) : [] }, null, 2)}\n`
     );
     return 0;
   }
 
-  if (tiene('--sembrar')) {
-    if (!arbolLimpio()) {
+  if (has('--seed')) {
+    if (!treeIsClean()) {
       process.stderr.write(
-        'El árbol tiene cambios sin comprometer. `--sembrar` congela una foto del árbol como\n' +
+        'El árbol tiene cambios sin comprometer. `--seed` congela una foto del árbol como\n' +
           'trinquete, y hacerlo sobre trabajo a medio hacer siembra deuda que nadie escribió\n' +
           'todavía — o la esconde. Comprometé o guardá lo que tengas, y vuelve a intentarlo.\n'
       );
       return 1;
     }
-    const fecha = new Date().toISOString().slice(0, 10);
-    fs.writeFileSync(BASE, `${JSON.stringify(sembrar(carriles, fecha), null, 2)}\n`);
-    process.stdout.write(`Línea base sembrada con ${carriles.length} carriles en ${path.relative(RAIZ, BASE)}.\n`);
+    const date = new Date().toISOString().slice(0, 10);
+    fs.writeFileSync(BASELINE, `${JSON.stringify(seed(lanes, date), null, 2)}\n`);
+    process.stdout.write(`Línea base sembrada con ${lanes.length} lanes en ${path.relative(ROOT, BASELINE)}.\n`);
     return 0;
   }
 
   if (base === null) {
-    process.stderr.write('No hay línea base. Créala con `npm run language:status -- --sembrar`.\n');
+    process.stderr.write('No hay línea base. Créala con `npm run language:status -- --seed`.\n');
     return 1;
   }
 
-  if (tiene('--apretar')) {
-    const antes = JSON.stringify(base.carriles);
-    const nueva = apretar(carriles, base);
-    fs.writeFileSync(BASE, `${JSON.stringify(nueva, null, 2)}\n`);
-    const bajaron = Object.keys(nueva.carriles).filter((k) => nueva.carriles[k] < (base.carriles[k] ?? Infinity));
+  if (has('--tighten')) {
+    const before = JSON.stringify(base.lanes);
+    const next = tighten(lanes, base);
+    fs.writeFileSync(BASELINE, `${JSON.stringify(next, null, 2)}\n`);
+    const lowered = Object.keys(next.lanes).filter((k) => next.lanes[k] < (base.lanes[k] ?? Infinity));
     process.stdout.write(
-      antes === JSON.stringify(nueva.carriles)
-        ? 'Ninguna línea base tenía holgura: nada que apretar.\n'
-        : `Apretados ${bajaron.length} carril(es): ${bajaron.join(', ')}.\n`
+      before === JSON.stringify(next.lanes)
+        ? 'Ninguna línea base tenía holgura: nada que tighten.\n'
+        : `Apretados ${lowered.length} lane(es): ${lowered.join(', ')}.\n`
     );
     return 0;
   }
 
-  const hallazgos = comparar(carriles, base);
+  const findings = compare(lanes, base);
 
-  if (tiene('--escribir')) {
-    const puesto = escribirBloque(bloque(carriles, base));
+  if (has('--escribir')) {
+    const written = writeBlock(block(lanes, base));
     process.stdout.write(
-      puesto
-        ? `Bloque regenerado en ${path.relative(RAIZ, RECTOR)}.\n`
-        : `No se escribió el bloque: ${path.relative(RAIZ, RECTOR)} no existe o no tiene marcadores ${ABRE}.\n`
+      written
+        ? `Bloque regenerado en ${path.relative(ROOT, GOVERNING_DOC)}.\n`
+        : `No se escribió el block: ${path.relative(ROOT, GOVERNING_DOC)} no existe o no tiene marcadores ${ABRE}.\n`
     );
     return 0;
   }
 
-  if (tiene('--check')) {
-    if (hallazgos.length === 0) {
-      process.stdout.write(`El idioma no retrocedió: ${carriles.length} carriles, ninguno por encima de su línea base.\n`);
+  if (has('--check')) {
+    if (findings.length === 0) {
+      process.stdout.write(`El idioma no retrocedió: ${lanes.length} lanes, ninguno por encima de su línea base.\n`);
       return 0;
     }
     process.stderr.write(
-      `${hallazgos.length} carril(es) por encima de su línea base:\n` +
-        hallazgos.map((h) => `  · ${h.carril}: ${h.detalle}`).join('\n') +
+      `${findings.length} lane(es) por encima de su línea base:\n` +
+        findings.map((h) => `  · ${h.lane}: ${h.detail}`).join('\n') +
         '\n\nLa línea base sólo baja. Si el crecimiento es deliberado, súbela A MANO en\n' +
         'docs/language-baseline.json y dilo en el commit: es lo único que deja rastro.\n'
     );
@@ -303,14 +303,14 @@ function main(argv: string[]): number {
   }
 
   // Sin banderas: el tablero, para leerlo.
-  const ancho = Math.max(...carriles.map((c) => c.id.length));
-  for (const c of carriles) {
-    const suelo = base.carriles[c.id];
-    const marca = c.informational ? ' (informativo)' : suelo !== undefined && c.value < suelo ? ` (base ${suelo})` : '';
-    process.stdout.write(`  ${c.id.padEnd(ancho)}  ${String(c.value).padStart(6)} → ${c.target}${marca}\n`);
+  const width = Math.max(...lanes.map((c) => c.id.length));
+  for (const c of lanes) {
+    const floor = base.lanes[c.id];
+    const mark = c.informational ? ' (informativo)' : floor !== undefined && c.value < floor ? ` (base ${floor})` : '';
+    process.stdout.write(`  ${c.id.padEnd(width)}  ${String(c.value).padStart(6)} → ${c.target}${mark}\n`);
   }
   process.stdout.write(
-    `\n${carriles.length} carriles. ${hallazgos.length === 0 ? 'Ninguno por encima de su línea base.' : `${hallazgos.length} por encima: corre --check para verlos.`}\n`
+    `\n${lanes.length} lanes. ${findings.length === 0 ? 'Ninguno por encima de su línea base.' : `${findings.length} por encima: corre --check para verlos.`}\n`
   );
   return 0;
 }

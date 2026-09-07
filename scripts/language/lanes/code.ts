@@ -234,6 +234,15 @@ export function tsFiles(tree: Tree): string[] {
     }
   };
   walk(base);
+  // SE ORDENA LA LISTA ENTERA, no sólo cada directorio. Ordenar por entrada y
+  // recurrir agrupa por carpeta, y eso no es el mismo orden: `language-status.ts`
+  // y `language/lane.ts` comparten prefijo, y el guion (0x2D) va antes que la
+  // barra (0x2F), así que el archivo tiene que salir ANTES que la carpeta. Con
+  // el orden por carpeta salía después, y la promesa de determinismo que este
+  // módulo publica —y que su propia prueba comprueba— era falsa en cuanto un
+  // archivo y un directorio empezaran igual. Lo destapó el primer caso que
+  // ocurrió; hasta entonces las dos formas coincidían por casualidad.
+  out.sort(byCodeUnit);
   return out;
 }
 
