@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Command } from 'commander';
-import { auditProgram } from '../../src/cli/kernel/audit.js';
-import { riskOf, declareRisk } from '../../src/cli/kernel/risk.js';
+import { auditProgram, DEUDA_DE_LLAVES, esDeudaDeLlave } from '../../src/cli/kernel/audit.js';
+import { riskOf, declareRisk, ambitoDeLlave } from '../../src/cli/kernel/risk.js';
 import { VERBS } from '../../src/cli/kernel/vocabulary.js';
 import { FLAG_DICTIONARY } from '../../src/cli/kernel/flags.js';
 import { ExitCode } from '../../src/cli/kernel/exit.js';
@@ -80,8 +80,15 @@ describe('the rulebook', () => {
     expect(program.commands.map((c) => c.name())).toEqual(['prepaid']);
   });
 
-  it('passes the consistency audit with no violations', () => {
-    expect(violations).toEqual([]);
+  it('passes the consistency audit, save for the key debt it declares', () => {
+    // R11 dejó de comprobar las banderas que `declareRisk` inyecta y pasó a
+    // comprobar que la hoja HONRE la llave. Las que todavía no la honran
+    // están nombradas una a una en DEUDA_DE_LLAVES y la regla las acusa: es
+    // deuda declarada, no una violación nueva. Todo lo demás sigue en cero.
+    expect(violations.filter((v) => !esDeudaDeLlave(v))).toEqual([]);
+    for (const v of violations.filter(esDeudaDeLlave)) {
+      expect(DEUDA_DE_LLAVES, `${v.command} acusada y no declarada como deuda`).toContain(v.command);
+    }
   });
 
   it('ships exactly the four leaves and no invented surface', () => {
@@ -164,10 +171,19 @@ describe('safety declarations', () => {
     }
   });
 
-  it('carries the three safety flags the irreversible class requires', () => {
-    expect(longs('prepaid run')).toEqual(
-      expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key'])
-    );
+  it('acepta la llave, y hoy R11 la acusa porque no declara qué hace con ella', () => {
+    // LA VERSIÓN ANTERIOR NO PODÍA FALLAR: comprobaba banderas que
+    // `declareRisk` acaba de INYECTAR (risk.ts), o sea su propio efecto
+    // secundario. Lo que sí puede fallar es qué hace la hoja con la llave.
+    expect(longs('prepaid run')).toEqual(expect.arrayContaining(['--dry-run', '--yes']));
+    // `prepaid run` SÍ honra la llave —su manejador la entrega a `conLlave`
+    // bajo el ámbito 'prepaid run'— pero su declaración todavía no lo dice,
+    // así que R11 la acusa como «llave sin declarar» y está nombrada en
+    // DEUDA_DE_LLAVES. Convertirla es un renglón:
+    // `llave: { scope: 'prepaid run' }` junto a su `declareRisk`, y entonces
+    // esta prueba pide el ámbito en vez de la deuda.
+    expect(ambitoDeLlave(find('prepaid run'))).toBeUndefined();
+    expect(DEUDA_DE_LLAVES).toContain('prepaid run');
   });
 
   it('gives the read-only leaves none of them: nothing suggests they write', () => {

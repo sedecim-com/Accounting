@@ -838,6 +838,7 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     risk: 'escritura',
     agent: true,
     draftOnly: true,
+    llave: { scope: 'entry import' },
     writes: 'journal_entry_import_batches + journal_entry_import_rows (staging; jamás el mayor)',
   });
   importar.addHelpText('after', EJEMPLOS.import);
@@ -892,7 +893,11 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   post.option('--json', 'JSON output');
   // Irreversible: declareRisk adds --dry-run, --yes and --idempotency-key,
   // and refuses to let the agent anywhere near this command.
-  declareRisk(post, { risk: 'irreversible', writes: 'journal_entries.status + account_balances' });
+  declareRisk(post, {
+    risk: 'irreversible',
+    llave: { scope: 'entry post' },
+    writes: 'journal_entries.status + account_balances',
+  });
   post.addHelpText('after', EJEMPLOS.post);
   post.action((number: string, opts: CommonOpts & { idempotencyKey?: string }) =>
     run(async () => {
@@ -961,7 +966,11 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
   withContext(reverse);
   reverse.option('--date <date>', 'date of the mirror entry (YYYY-MM-DD); defaults to today');
   // declareRisk adds --reason for an undo verb, and gateMutation requires it.
-  declareRisk(reverse, { risk: 'irreversible', writes: 'a new posted journal_entry + account_balances' });
+  declareRisk(reverse, {
+    risk: 'irreversible',
+    llave: { scope: 'entry reverse' },
+    writes: 'a new posted journal_entry + account_balances',
+  });
   reverse.addHelpText('after', EJEMPLOS.reverse);
   reverse.action((number: string, opts: CommonOpts & { date?: string; idempotencyKey?: string }) =>
     run(async () => {
@@ -1049,7 +1058,11 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
     .argument('<number>', 'entry number or id')
     .description('Annul an entry: a draft is marked void, a posted one gets its linked mirror');
   withContext(voidCmd);
-  declareRisk(voidCmd, { risk: 'irreversible', writes: 'journal_entries.status or a mirror entry' });
+  declareRisk(voidCmd, {
+    risk: 'irreversible',
+    llave: { scope: 'entry void' },
+    writes: 'journal_entries.status or a mirror entry',
+  });
   voidCmd.addHelpText('after', EJEMPLOS.void);
   voidCmd.action((number: string, opts: CommonOpts & { idempotencyKey?: string }) =>
     run(async () => {

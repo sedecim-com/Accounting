@@ -1804,6 +1804,7 @@ const review = program
 // --idempotency-key y le niega el comando al agente.
 declareRisk(review, {
   risk: 'irreversible',
+  llave: { innecesaria: 'cada aprobación va atada al contenido revisado (su hash) y el estado del borrador rechaza la repetición' },
   agent: false,
   writes:
     'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador; ' +
@@ -1979,6 +1980,7 @@ const ingest = program
 // evidencia, que es lo único que separa «medimos» de «posteamos».
 declareRisk(ingest, {
   risk: 'irreversible',
+  llave: { innecesaria: 'cada CFDI deduplica por su propio UUID y hash' },
   agent: false,
   writes: 'xml_documents, pre_registrations, bills; y con auto-posteo, asientos POSTEADOS',
 });
@@ -2265,6 +2267,7 @@ const onboard = program
 // --idempotency-key y le niega el comando al agente.
 declareRisk(onboard, {
   risk: 'irreversible',
+  llave: { scope: 'onboard' },
   agent: false,
   writes: 'accounts, saldos iniciales; y con --post, el asiento de apertura POSTEADO',
 });
@@ -2694,6 +2697,7 @@ const outboxRun = outbox
   .addHelpText('after', EJEMPLOS.outboxRun);
 declareRisk(outboxRun, {
   risk: 'externo',
+  llave: { innecesaria: 'cada operación se reclama atómicamente y queda atada a su fila' },
   agent: false,
   writes: 'ai_external_ops; y EJECUTA cada operación contra el sistema contable del cliente con su credencial',
 });

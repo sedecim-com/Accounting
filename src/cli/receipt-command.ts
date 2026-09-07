@@ -35,6 +35,7 @@ import {
   dateOnly,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 
 // ============================================================
 // mnemosine receipt · cobro
@@ -85,6 +86,14 @@ interface CommonOpts {
 }
 
 /** Una factura se cobra cuando ya salió al cliente y su ingreso está contabilizado. */
+/**
+ * El ámbito bajo el que `receipt record` consuma la llave: su identidad en
+ * `idempotency_keys`. En UN solo sitio a propósito — lo usan la consulta
+ * temprana y el consumo, y dos literales que puedan divergir son dos
+ * deduplicaciones distintas con el mismo nombre.
+ */
+const AMBITO_DE_COBRO = 'receipt record';
+
 const COBRABLES = ['sent', 'viewed', 'partially_paid', 'overdue'] as const;
 
 const MONEY = ['payment_amount', 'applied_amount', 'unapplied_amount', 'amount_applied'];
@@ -256,6 +265,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
   withContext(record);
   declareRisk(record, {
     risk: 'irreversible',
+    llave: { scope: 'receipt record' },
     agent: false,
     writes: 'customer_payments, payment_allocations, invoices.amount_due, journal_entries',
   });
@@ -272,6 +282,67 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
         const ctx = await writeEntityOf(opts);
         const target = await resolveInvoice(ctx.entityId, ref);
         const p = deps.palette;
+
+        // ============================================================
+        // LA LLAVE SE MIRA ANTES DE TRABAJAR.
+        //
+        // `conLlave` envuelve el acto, allá abajo, y para llegar hasta él hay
+        // que pasar antes por la compuerta de estado y por un ensayo — y los
+        // dos dependen del SALDO. Como el primer cobro ya lo bajó, el reintento
+        // idéntico moría ahí sin llegar nunca al almacén: la promesa que esta
+        // misma bandera publica —«a retry with the same key and payload returns
+        // the recorded result»— sólo se cumplía en la ventana en que una
+        // segunda aplicación seguiría siendo válida, y era FALSA justo en el
+        // caso más frecuente que hay: cobrar la factura entera.
+        //
+        // Mirar es una lectura: no consuma la llave, no arbitra carreras —de
+        // eso sigue encargándose `conLlave` con su restricción única— y no
+        // sustituye a nadie. Sólo permite contestar sin tocar el dominio.
+        //
+        // Y LA RECETA DE LA CARGA ES UNA SOLA, calculada aquí y reutilizada
+        // abajo. Dos recetas del mismo hash es cómo se rompe una idempotencia
+        // sin que nadie lo note.
+        // ============================================================
+        const fechaDelCobro = opts.date ?? hoy();
+        // Todo lo que tecleó el operador, no una lista a mano: enumerar campos
+        // deja fuera el que nadie recuerde, y un campo persistido fuera del
+        // hash hace que dos actos distintos compartan llave. La fecha se pasa
+        // ya resuelta para que dos lecturas de `hoy()` no puedan discrepar de
+        // madrugada.
+        const cargaDeLaLlave = hashDeCarga(
+          target.id,
+          fechaDelCobro,
+          cargaDelOperador(opts as unknown as Record<string, unknown>)
+        );
+        if (opts.idempotencyKey && !opts.dryRun) {
+          const grabado = await mirarLlave<{ pago: ResultadoPago }>(
+            { tenantId: ctx.tenantId },
+            { scope: AMBITO_DE_COBRO, clave: opts.idempotencyKey, payloadHash: cargaDeLaLlave }
+          );
+          if (grabado) {
+            const previoDoc = grabado.pago.documentos[0];
+            // El remanente se reconstruye de lo GRABADO, no del saldo de ahora:
+            // el saldo ya cambió, y es lo que hacía imposible contestar tarde.
+            const yaAplicado = previoDoc
+              ? new Decimal(previoDoc.saldoAnterior).minus(previoDoc.saldoNuevo)
+              : new Decimal(0);
+            process.stderr.write(
+              p.yellow(
+                `↩ Idempotency hit: la llave "${opts.idempotencyKey}" ya consumó este cobro ` +
+                  `(${grabado.pago.paymentNumber}). Nada se escribió otra vez; esto es el resultado grabado.\n`
+              )
+            );
+            imprimirRegistro(
+              grabado.pago,
+              p,
+              target.invoice_number,
+              new Decimal(opts.amount).minus(yaAplicado),
+              false,
+              opts.json === true
+            );
+            return;
+          }
+        }
 
         if (!COBRABLES.includes(target.status as (typeof COBRABLES)[number])) {
           throw blockedByState(
@@ -295,7 +366,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
           entityId: ctx.entityId,
           counterpartyId: target.customer_id,
           paymentAmount: opts.amount,
-          paymentDate: opts.date ?? hoy(),
+          paymentDate: fechaDelCobro,
           paymentMethod: opts.method,
           bankAccountId: opts.bank ?? null,
           referenceNumber: opts.reference ?? null,
@@ -323,8 +394,59 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
             ` in ${ctx.entityName}? This posts to the ledger.`
         );
 
-        const result = await recordCustomerPayment(entrada, reviewer.userId);
-        if (result.attestation) {
+        // ============================================================
+        // LA LLAVE, HONRADA. (T3)
+        //
+        // `declareRisk` inyecta --idempotency-key en toda hoja irreversible y
+        // su ayuda promete que «a retry with the same key and payload returns
+        // the recorded result». Aquí se aceptaba y se TIRABA: medido contra
+        // Postgres, `receipt record INV-2026-00001 --amount 5000
+        // --idempotency-key k` repetido dejaba DOS customer_payments, DOS
+        // payment_allocations, DOS asientos posteados y el saldo de la
+        // factura en 1,600 en vez de 6,600 — con `idempotency_keys` vacía.
+        //
+        // El patrón es el de entry-command.ts (`conLlave` + `hashDeCarga` +
+        // aviso de repetido), no uno nuevo. Dos detalles que sí son de aquí:
+        //
+        //   · LA CARGA ES EL COBRO ENTERO, no sólo el importe. Cobrar 5,000
+        //     por SPEI y cobrar 5,000 en efectivo con otra referencia son
+        //     actos distintos, y devolverle al segundo el resultado del
+        //     primero escondería un cobro tras una llave reutilizada. Con la
+        //     carga completa, `conLlave` acusa el reuso (salida 6) en vez de
+        //     callar.
+        //   · Y LA CARGA ES LA ENTRADA, NUNCA UN DERIVADO. Aquí estuvo
+        //     `aplicar.toFixed(2)`, que no es lo que teclea el operador sino
+        //     `Decimal.min(monto, saldo)` — o sea, se deriva del saldo VIVO de
+        //     la factura. Tras el primer cobro el saldo bajó, así que el
+        //     reintento idéntico calculaba otro `aplicar`, otro hash, y la
+        //     llave se leía como «usada con una carga DISTINTA»: el mismo
+        //     comando con la misma llave se acusaba de reuso (salida 6) en vez
+        //     de devolver el resultado grabado, rompiendo justo la promesa que
+        //     este tramo vino a hacer verdadera. `entrada.onAccount` ya
+        //     distingue los dos actos que había que distinguir.
+        //   · SE CONSUMA DESPUÉS DE LA CONFIRMACIÓN Y NUNCA EN --dry-run: el
+        //     ensayo sale por su `return` de más arriba sin tocar el almacén,
+        //     porque una llave consumada por un acto que no escribió haría
+        //     que el reintento de verdad contestara con el informe del ensayo.
+        // ============================================================
+        const acto = await conLlave(
+          { tenantId: ctx.tenantId, entityId: ctx.entityId },
+          {
+            scope: AMBITO_DE_COBRO,
+            clave: opts.idempotencyKey,
+            payloadHash: cargaDeLaLlave,
+          },
+          async () => ({ pago: await recordCustomerPayment(entrada, reviewer.userId) })
+        );
+        const result = acto.resultado.pago;
+        if (acto.repetido) {
+          process.stderr.write(
+            p.yellow(
+              `↩ Idempotency hit: la llave "${opts.idempotencyKey ?? ''}" ya consumó este cobro ` +
+                `(${result.paymentNumber}). Nada se escribió otra vez; esto es el resultado grabado.\n`
+            )
+          );
+        } else if (result.attestation) {
           attestEntryAsync(ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
         }
         imprimirRegistro(result, p, target.invoice_number, remanente, false, opts.json === true);
@@ -466,6 +588,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .option('--json', 'JSON output');
   declareRisk(apply, {
     risk: 'irreversible',
+    llave: { sinLlave: 'un reintento vuelve a repartir el saldo a cuenta y postea otro asiento' },
     agent: false,
     writes: 'payment_allocations, invoices.amount_due, journal_entries',
   });
@@ -522,6 +645,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .option('--json', 'JSON output');
   declareRisk(unapply, {
     risk: 'irreversible',
+    llave: { sinLlave: 'un reintento vuelve a desaplicar y postea otro espejo' },
     agent: false,
     writes: 'payment_allocations (closure), invoices.amount_due, journal_entries',
   });
@@ -601,6 +725,7 @@ export function registerReceiptCommand(program: Command, deps: ReceiptCommandDep
     .option('--json', 'JSON output');
   declareRisk(reverse, {
     risk: 'irreversible',
+    llave: { sinLlave: 'un reintento vuelve a postear los espejos de la reversa' },
     agent: false,
     writes: 'customer_payments.status, payment_allocations (closure), invoices, reversing journal_entries',
   });

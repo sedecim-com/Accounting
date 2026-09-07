@@ -28,6 +28,7 @@ import {
   dateOnly,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { conLlave, mirarLlave, hashDeCarga, cargaDelOperador } from '../services/idempotency/idempotency-store.js';
 
 // ============================================================
 // mnemosine payment
@@ -69,6 +70,8 @@ interface CommonOpts {
   json?: boolean;
   yes?: boolean;
   dryRun?: boolean;
+  /** El núcleo la inyecta en toda hoja irreversible; aquí se LEE (T3). */
+  idempotencyKey?: string;
 }
 
 interface MontoOpts extends CommonOpts {
@@ -92,7 +95,6 @@ interface AplicarOpts extends CommonOpts {
   discount?: string[];
   mode?: string;
   shortPayReason?: string;
-  idempotencyKey?: string;
 }
 
 /** `--bill A --amount 100 --bill B --amount 50` se lee por posición. */
@@ -234,6 +236,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   // --idempotency-key, y se niega a que la IA lo invoque.
   declareRisk(create, {
     risk: 'irreversible',
+    llave: { scope: 'payment create' },
     agent: false,
     writes:
       'vendor_payments (con check_number y la cuenta destino), payment_applications, ' +
@@ -275,6 +278,22 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
 
       await ejecutar({
         opts, deps, entrada, reviewer: reviewer.userId, ctx,
+        // La carga es el PAGO ENTERO, no sólo el importe: pagar 3,000 por
+        // SPEI a una cuenta y 3,000 en cheque a otra son actos distintos, y
+        // devolverle al segundo el resultado del primero escondería un pago
+        // tras una llave reutilizada. Con la carga completa, `conLlave` acusa
+        // el reuso (salida 6) en vez de callar.
+        llave: {
+          scope: 'payment create',
+          // LA CARGA ES TODO LO QUE TECLEÓ EL OPERADOR, no una lista a mano.
+          // Enumerarla campo a campo dejaba fuera `memo`, `--to-bank` y
+          // `--to-foreign-bank`, que SÍ se persisten: dos pagos con la misma
+          // llave y distinto banco destino compartían hash, y al segundo se le
+          // devolvía el resultado del primero — un pago escondido tras una
+          // llave reutilizada. `cargaDelOperador` recorre las banderas y
+          // excluye sólo el contexto, así que una bandera nueva entra sola.
+          payloadHash: hashDeCarga(target.id, cargaDelOperador(opts as unknown as Record<string, unknown>)),
+        },
         registrar: recordVendorPayment,
         etiqueta: target.bill_number,
         moneda: target.currency_code,
@@ -317,6 +336,7 @@ export function registerPaymentCommands(program: Command, deps: PaymentCommandDe
   withContext(apply);
   declareRisk(apply, {
     risk: 'irreversible',
+    llave: { sinLlave: 'un reintento vuelve a repartir el pago y postea otro asiento' },
     agent: false,
     writes: 'payment_applications, bills.amount_due, journal_entries',
   });
@@ -432,7 +452,9 @@ async function ejecutar(a: {
   deps: PaymentCommandDeps;
   entrada: EntradaPago;
   reviewer: string;
-  ctx: { tenantId: string; entityName: string };
+  ctx: { tenantId: string; entityId: string; entityName: string };
+  /** El ámbito bajo el que esta hoja consuma `--idempotency-key`. */
+  llave: { scope: string; payloadHash: string };
   registrar: (e: EntradaPago, u: string, o?: { dryRun?: boolean }) => Promise<ResultadoPago>;
   etiqueta: string;
   moneda: string;
@@ -440,6 +462,36 @@ async function ejecutar(a: {
   confirmOrAbort: (opts: CommonOpts, question: string) => Promise<void>;
 }): Promise<void> {
   const p = a.deps.palette;
+
+  // ============================================================
+  // LA LLAVE SE MIRA ANTES DE TRABAJAR.
+  //
+  // El ensayo de abajo depende del SALDO, y el primer pago ya lo bajó: el
+  // reintento idéntico moría ahí sin llegar nunca al almacén, de modo que la
+  // promesa que la propia bandera publica —«a retry with the same key and
+  // payload returns the recorded result»— era falsa justo en el caso más
+  // frecuente, pagar el documento entero.
+  //
+  // Mirar es una lectura: no consuma la llave ni arbitra carreras —de eso
+  // sigue encargándose `conLlave` con su restricción única, allá abajo—.
+  // ============================================================
+  if (a.opts.idempotencyKey && !a.opts.dryRun) {
+    const grabado = await mirarLlave<{ pago: ResultadoPago }>(
+      { tenantId: a.ctx.tenantId },
+      { scope: a.llave.scope, clave: a.opts.idempotencyKey, payloadHash: a.llave.payloadHash }
+    );
+    if (grabado) {
+      process.stderr.write(
+        p.yellow(
+          `↩ Idempotency hit: la llave "${a.opts.idempotencyKey}" ya consumó este acto ` +
+            `(${grabado.pago.paymentNumber}). Nada se escribió otra vez; esto es el resultado grabado.\n`
+        )
+      );
+      imprimir(grabado.pago, p, a.etiqueta, false, a.opts.json === true);
+      return;
+    }
+  }
+
   const previo = await a.registrar(a.entrada, a.reviewer, { dryRun: true });
   const doc = previo.documentos[0];
 
@@ -452,8 +504,33 @@ async function ejecutar(a: {
 
   await a.confirmOrAbort(a.opts, a.pregunta(doc));
 
-  const result = await a.registrar(a.entrada, a.reviewer);
-  if (result.attestation) {
+  // ============================================================
+  // LA LLAVE, HONRADA. (T3)
+  //
+  // Aquí se aceptaba y se TIRABA. Medido contra Postgres: `payment create
+  // BILL-2026-00001 --amount 3000 --idempotency-key k` repetido dejaba DOS
+  // vendor_payments (VPMT-…-00001 y 00002), DOS payment_applications, el
+  // saldo del gasto en 3,280 en vez de 6,280 — y `idempotency_keys` VACÍA.
+  //
+  // Va DESPUÉS de la confirmación y nunca en `--dry-run` (el ensayo sale por
+  // su `return` de arriba): una llave consumada por un acto que no escribió
+  // haría que el reintento de verdad contestara con el informe del ensayo.
+  // El patrón es el de entry-command.ts, no uno nuevo.
+  // ============================================================
+  const acto = await conLlave(
+    { tenantId: a.ctx.tenantId, entityId: a.ctx.entityId },
+    { scope: a.llave.scope, clave: a.opts.idempotencyKey, payloadHash: a.llave.payloadHash },
+    async () => ({ pago: await a.registrar(a.entrada, a.reviewer) })
+  );
+  const result = acto.resultado.pago;
+  if (acto.repetido) {
+    process.stderr.write(
+      p.yellow(
+        `↩ Idempotency hit: la llave "${a.opts.idempotencyKey ?? ''}" ya consumó este pago ` +
+          `(${result.paymentNumber}). Nada se escribió otra vez; esto es el resultado grabado.\n`
+      )
+    );
+  } else if (result.attestation) {
     attestEntryAsync(a.ctx.tenantId, result.attestation.entityId, result.attestation.entryId);
   }
   imprimir(result, p, a.etiqueta, false, a.opts.json === true);
