@@ -10,9 +10,11 @@ vi.mock('../../src/database/connection.js', () => ({
 }));
 vi.mock('../../src/ai/context.js', () => ({
   bootstrapTenant: vi.fn(),
+  inquilinoDeLaSesion: vi.fn(() => ({ origen: 'ninguno' })),
 }));
 
 import { query } from '../../src/database/connection.js';
+import { inquilinoDeLaSesion } from '../../src/ai/context.js';
 import {
   buildStatusReport,
   formatStatus,
@@ -128,6 +130,30 @@ describe('buildStatusReport — database and RLS', () => {
     expect(mockQuery).toHaveBeenCalledWith(
       "SELECT current_setting('app.current_tenant', true) AS tenant"
     );
+  });
+
+  // La línea de RLS decía «tenant context X applied» y con eso parecía honesta,
+  // pero mientras la bandera se ignoraba en silencio no distinguía el X que el
+  // usuario pidió del X que traía el .env. Ahora nombra el escalón.
+  it('nombra de qué escalón de la precedencia salió el inquilino', async () => {
+    writeConfig();
+    mockDbUp('tenant-acme');
+    (inquilinoDeLaSesion as unknown as Mock).mockReturnValueOnce({
+      tenantId: 'tenant-acme',
+      origen: 'bandera',
+    });
+    const r = await buildStatusReport({ cwd: tmpDir, env, probeOptions: { fetchImpl: okFetch() } });
+    expect(r.rls.detail).toBe('tenant context "tenant-acme" applied (from --tenant)');
+  });
+
+  it('no atribuye nada cuando el contexto lo puso otro (la entidad resuelta)', async () => {
+    writeConfig();
+    mockDbUp('tenant-de-la-entidad');
+    (inquilinoDeLaSesion as unknown as Mock).mockReturnValueOnce({
+      tenantId: 'otro', origen: 'entorno',
+    });
+    const r = await buildStatusReport({ cwd: tmpDir, env, probeOptions: { fetchImpl: okFetch() } });
+    expect(r.rls.detail).toBe('tenant context "tenant-de-la-entidad" applied');
   });
 
   it('reports RLS inactive when no tenant context is applied', async () => {
