@@ -6881,6 +6881,71 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  // ---- T20·6 · La cuota que el trabajador no debía ----
+
+  {
+    paquete: 'E4.1',
+    enunciado: 'Las cuotas obreras del IMSS sembradas son las de la ley, y ninguna es copia de la de al lado',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql',
+        de: "to_jsonb(0.004::numeric)",
+        a: "to_jsonb(0.00625::numeric)",
+        porque: 'la corrección deja de corregir: vuelve el sobrecobro del 56 % en el ramo de enfermedades y maternidad a todo trabajador con SBC sobre tres UMA, y sale en el recibo, en el CFDI de nómina y en la línea de captura',
+      },
+      {
+        archivo: 'src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql',
+        de: "RAISE EXCEPTION 'La cuota obrera de enfermedades y maternidad sigue en 0.00625",
+        a: "RAISE NOTICE 'La cuota obrera de enfermedades y maternidad sigue en 0.00625",
+        porque: 'un relleno que no alcanzó ninguna fila deja de detener la actualización: la migración se registra como aplicada sobre datos que siguen mal, que es la clase de silencio que este proyecto persigue',
+      },
+    ],
+    evaluar: () => {
+      // T20 punto 6 (#127). `imss_employee.enfermedades_maternidad` se sembró en
+      // la 009 con 0.00625 —el valor de `invalidez_vida`, la casilla de al
+      // lado— donde el art. 106-II LSS fija 0.40 %. Un 56.25 % de más sobre el
+      // excedente de tres UMA, retenido a una persona en cada recibo.
+      //
+      // Este criterio vigila el DATO, no el motor: `imss-calculator.ts` estaba
+      // bien y no se tocó.
+      const corr = 'src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql';
+      if (!existe(corr)) {
+        return falla('desapareció la migración que corrige la cuota obrera de enfermedades y maternidad: las bases ya instaladas volverían a cobrar 0.00625 (#127)');
+      }
+      const sql = crudoDe(corr);
+      if (!/enfermedades_maternidad\}'\s*,\s*to_jsonb\(0\.004/.test(sql)) {
+        return falla('la corrección dejó de fijar 0.004: el art. 106-II LSS manda 0.40 % y cualquier otro número es dinero retenido de más');
+      }
+      // Y no puede pasar callada si no alcanzó ninguna fila: seguir sería
+      // registrar la migración como aplicada sobre datos que siguen mal.
+      if (!/RAISE EXCEPTION[\s\S]{0,120}sigue en 0\.00625/.test(sql)) {
+        return falla('la corrección dejó de detenerse cuando queda alguna fila en 0.00625: un relleno que no rellena nada volvería a pasar en silencio');
+      }
+
+      // LA SEMILLA. La 009 se deja como registro histórico, pero sus OTRAS
+      // cuatro cuotas obreras sí tienen que seguir siendo las de la ley: son
+      // las que hacen creíble que el error estaba aislado.
+      const semilla = crudoDe('src/database/migrations/009_tax_tables_2026.sql');
+      const bloque = semilla.slice(semilla.indexOf('"imss_employee"'), semilla.indexOf('"imss_employer"'));
+      const legales: Array<[string, string]> = [
+        ['prestaciones_dinero', '0.0025'],
+        ['gastos_medicos_pensionados', '0.00375'],
+        ['invalidez_vida', '0.00625'],
+        ['cesantia_vejez', '0.01125'],
+      ];
+      const torcida = legales.find(([k, v]) => !new RegExp(`"${k}"\\s*:\\s*${v.replace('.', '\\.')}\\b`).test(bloque));
+      if (torcida) {
+        return falla(`la cuota obrera «${torcida[0]}» dejó de valer ${torcida[1]}: las cuatro que estaban bien son lo que prueba que el error de enfermedades y maternidad estaba aislado`);
+      }
+      // Y LA PAREJA DEL MISMO ARTÍCULO. El 106-II fija dos cuotas sobre el
+      // mismo excedente: patrón 1.10 % y trabajador 0.40 %. Si la patronal se
+      // tuerce, la pareja deja de poder comprobarse contra sí misma.
+      return /"enfermedades_maternidad_excedente"\s*:\s*0\.011\b/.test(semilla)
+        ? ok('la cuota obrera de enfermedades y maternidad se corrige a 0.004, con las otras cuatro y la patronal del mismo artículo intactas')
+        : falla('la cuota PATRONAL del art. 106-II dejó de valer 0.011: era la mitad de la pareja que permitía comprobar la obrera contra la ley');
+    },
+  },
+
 ];
 
 /**
