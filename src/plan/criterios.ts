@@ -606,6 +606,54 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.0',
+    enunciado: 'Nada nuevo nace en español: la puerta del idioma es un error, no un aviso',
+    evaluar: () => {
+      // POR QUÉ NACE (I3, issue #145). El metro de I2 cuenta cuánto español
+      // queda; sin puerta, sólo documenta una marea. Y una puerta en AVISO no
+      // es una puerta: con 1 117 advertencias ya toleradas, una más no la nota
+      // nadie. En error, y con línea base por archivo para que el árbol de hoy
+      // no la vuelva impasable.
+      //
+      // Lo que este criterio vigila es la CONEXIÓN, que es donde se rompe sin
+      // que nada se ponga rojo: la regla existe, corre en error, y consume el
+      // MISMO léxico que el metro. Si cada uno trae su lista, publican dos
+      // números y el día que difieran nadie sabrá cuál miente.
+      const conf = crudoDe('eslint.config.mjs');
+      if (!/house\/english-identifiers/.test(conf)) {
+        return falla('no hay puerta del idioma: lo nuevo puede nacer en español y sólo se sabrá al medirlo');
+      }
+      if (!/'house\/english-identifiers':\s*'error'/.test(conf)) {
+        return falla(
+          'la puerta del idioma no está en error: con más de mil advertencias ya toleradas, un aviso ' +
+            'más no lo ve nadie y la puerta no cierra'
+        );
+      }
+      if (!existe('scripts/language/lexicon.json')) {
+        return falla('el léxico no está publicado como dato: la regla y el metro no pueden compartir población');
+      }
+      if (!/lexicon\.json/.test(conf)) {
+        return falla(
+          'la regla no lee el léxico compartido: en cuanto traiga su propia lista, el metro y la ' +
+            'puerta cuentan cosas distintas y sus dos cifras dejan de ser comparables'
+        );
+      }
+      return ok('la puerta del idioma corre en error sobre los tres árboles y comparte el léxico del metro');
+    },
+    mutantes: [
+      {
+        archivo: 'eslint.config.mjs',
+        de: "'house/english-identifiers': 'error'",
+        a: "'house/english-identifiers': 'warn'",
+        porque:
+          'la puerta pasa a avisar, y un aviso más entre mil ciento diecisiete no lo ve nadie: el ' +
+          'español vuelve a poder entrar con la CI en verde, que es justo lo que este tramo cierra',
+      },
+    ],
+  },
+
+
+  {
+    paquete: 'E0.0',
     enunciado: 'El idioma tiene metro con línea base, y la CI lo corre',
     evaluar: () => {
       // POR QUÉ NACE (I2, issue #144). El epic #141 traduce el código en

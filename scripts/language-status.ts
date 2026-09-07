@@ -93,6 +93,16 @@ export function compare(lanes: Lane[], base: Baseline): Finding[] {
   const alive = new Map(lanes.map((c) => [c.id, c]));
 
   for (const c of lanes) {
+    // LO INFORMATIVO NO JUZGA, Y ÉSTE ERA UN DEFECTO DE ESTA MISMA FUNCIÓN.
+    //
+    // El contrato del carril dice que `informational` se mide y NO se exige
+    // —los 21 966 comentarios españoles no se tocan hasta I20— y la
+    // comparación no lo respetaba: el primer commit que añadiera un
+    // comentario en español ponía la puerta en rojo. Lo cazó el propio metro
+    // sobre el criterio que este tramo añade. Un carril que nadie puede bajar
+    // hoy, bloqueando la puerta, es exactamente cómo se acaba desactivando un
+    // trinquete entero.
+    if (c.informational) continue;
     const floor = base.lanes[c.id];
     if (floor === undefined) {
       // Un lane nuevo sin entrada no es un error: es un lane que nadie ha
