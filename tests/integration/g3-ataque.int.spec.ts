@@ -647,27 +647,45 @@ describe('ataque 6 · mnemosine_auditor', () => {
         ORDER BY 1`
     );
     // El detalle iba a stdout; va a la aserción, que es donde se lee cuando
-    // falla. Se nombran LAS DOS vistas: una materializada nueva que naciera
-    // legible por el auditor tiene que romper esto, y un `filter(legible)`
-    // vacío no lo rompería. `publica` es la otra puerta —un GRANT a PUBLIC
-    // alcanza al auditor sin nombrarlo—, así que también se afirma.
+    // falla. Se nombran LAS DOS vistas por su nombre. El
+    // `expect(r.rows.filter((x) => x.legible)).toHaveLength(0)` que había SÍ
+    // atrapaba una matview nueva LEGIBLE por el auditor —es justo lo que un
+    // filtro por `legible` mira—; lo que se le escapaba es el censo moviéndose
+    // por debajo: una matview nueva ILEGIBLE entra sin que nadie lo note, y ni
+    // el dueño ni `publica` quedaban dichos. `publica` es la otra puerta —un
+    // GRANT a PUBLIC alcanza al auditor sin nombrarlo—, y el dueño es la razón
+    // por la que estas dos vistas ven a todos los inquilinos.
     expect(
       r.rows.map((x) => `${x.relname} legible=${x.legible} publica=${x.publica} dueño=${x.duenio}`)
     ).toEqual([
       'mv_account_balance_summary legible=false publica=false dueño=mnemosine_refresher',
       'mv_trial_balance legible=false publica=false dueño=mnemosine_refresher',
     ]);
+    // El segundo despacho se crea AQUÍ y no se hereda del caso de `identities`:
+    // el orden en que corren los `it` no es un contrato, y una premisa que
+    // dependa de él se rompe el día que alguien reordene o filtre con `-t`.
+    const vecino = await crearInquilino('G3 ataque · matview de dos despachos');
+    enterTenant(f.tenantId);
+
     // Refrescada como superusuario, que es lo mismo que hace el refresher con
     // su BYPASSRLS: la vista queda con las filas de TODOS los inquilinos.
     await c.query('REFRESH MATERIALIZED VIEW mv_trial_balance');
-    const todas = await c.query<{ n: string; entidades: string }>(
-      `SELECT count(*)::text AS n, count(DISTINCT entity_id)::text AS entidades FROM mv_trial_balance`
+
+    // La premisa del caso, que estaba sólo narrada. CONTAR ENTIDADES NO LA
+    // AFIRMA, y esa fue la primera versión de esta aserción: el `beforeAll` de
+    // este archivo crea una entidad hermana DENTRO del inquilino `f`
+    // —`crearEntidadHermana` inserta `legal_entities` con `padre.tenantId`—,
+    // así que `count(DISTINCT entity_id) > 1` lo cumple UN SOLO despacho y una
+    // vista reconstruida bajo los lentes de un inquilino pasaría igual. Lo que
+    // la RLS de este esquema acota es el INQUILINO, y `mv_trial_balance` no
+    // lleva esa columna: hay que unir `legal_entities` para verlo.
+    const mezcla = await c.query<{ tenant_id: string }>(
+      `SELECT DISTINCT le.tenant_id
+         FROM mv_trial_balance mv
+         JOIN legal_entities le ON le.id = mv.entity_id`
     );
-    // La premisa del caso, que también estaba sólo narrada: refrescada por un
-    // BYPASSRLS la vista mezcla entidades de varios inquilinos. Si dejara de
-    // mezclarlas, el GRANT sobre ella ya no significaría lo mismo y este caso
-    // estaría probando otra cosa sin avisar.
-    expect(Number(todas.rows[0].entidades)).toBeGreaterThan(1);
+    const inquilinos = mezcla.rows.map((x) => x.tenant_id);
+    expect(inquilinos).toEqual(expect.arrayContaining([f.tenantId, vecino.tenantId]));
 
     await c.query('SET ROLE mnemosine_auditor');
     let leidas: string;
