@@ -4,12 +4,12 @@
 
 ## 0. El pedido, y las tres capas que esconde
 
-La instrucción es una frase: *todo el código basado en inglés y, a partir de ahí, traducido a distintos idiomas dejando primero el español*. Para cumplirla sin romper lo que ya funciona hay que separar tres capas que hoy están mezcladas, porque **no se cambian igual**:
+La instrucción son dos frases del mismo día: *todo el código basado en inglés y, a partir de ahí, traducido a distintos idiomas dejando primero el español*, y su precisión: ***todo de origen al inglés, y que pueda ajustarse todo el user experience a otro idioma, configurando español primero***. «Todo de origen» alcanza a comentarios, mensajes de commit y documentación; «todo el user experience» alcanza a la ayuda del CLI, los manuales y la wiki. Para cumplirla sin romper lo que ya funciona hay que separar tres capas que hoy están mezcladas, porque **no se cambian igual**:
 
 | Capa | Qué es | Idioma | Cómo se cambia |
 |---|---|---|---|
-| **Lo que lee la máquina y el programador** | identificadores, nombres de archivo, comentarios, claves de catálogo, códigos de error, nombres canónicos de comando, columnas y valores nuevos | **inglés**, y sólo inglés | renombrando, con *codemod* y con los instrumentos actualizados en el mismo commit |
-| **Lo que lee el usuario** | ayuda y mensajes del CLI, errores de la API, rótulos de informes, preguntas y etiquetas del panel, avisos de `doctor`, respuestas del agente | **el del usuario**: español primero y por omisión, inglés segundo, los demás después | extrayendo la fuente inglesa a un catálogo **tipado** y renderizando en el locale resuelto |
+| **Lo que lee la máquina y el programador** | identificadores, nombres de archivo, comentarios (nuevos y existentes), mensajes de commit, claves de catálogo, códigos de error, nombres canónicos de comando, columnas y valores nuevos | **inglés**, y sólo inglés | renombrando y traduciendo, con *codemod* y con los instrumentos actualizados en el mismo commit |
+| **Lo que lee el usuario** | ayuda y mensajes del CLI, errores de la API, rótulos de informes, preguntas y etiquetas del panel, avisos de `doctor`, respuestas del agente, **y la documentación**: README, manuales, wiki y rectores | **el del usuario**: español primero y por omisión, inglés segundo, los demás después | extrayendo la fuente inglesa a un catálogo **tipado** y renderizando en el locale resuelto; la documentación, con **fuente inglesa y gemela española** por página |
 | **Lo que es dato** | valores persistidos (claves y valores del panel, roles de cuenta, listas `CHECK`, nombres de migración, códigos de error publicados, verbos del CLI), textos ya escritos en la base, artefactos que una autoridad exige en su idioma (el XML del SAT en español, las formas del IRS en inglés) | **el que tiene**; lo nuevo nace inglés | ni se renombra ni se traduce: se **registra como vocabulario estable** con glosa inglesa y se renderiza con etiqueta |
 
 Confundir las capas es el error que este documento existe para evitar: traducir un valor persistido es una migración de datos bajo RLS, no una traducción; renombrar un código de error rompe a todos los clientes HTTP en silencio; y «poner la ayuda en español» sin decidir contra qué mide `ux:status` pone en rojo un trinquete que hoy vigila justamente lo contrario.
@@ -42,14 +42,14 @@ Las cifras son las **corregidas por los escépticos**; cada una tiene su comando
 
 ## 2. Las reglas
 
-1. **La capa de la máquina es inglesa, y lo nuevo nace inglés desde el día uno.** Identificadores, nombres de archivo, comentarios, claves de catálogo, códigos de error, columnas, valores, **nombres de migración, de script y de `npm run`**: en inglés. Un lint lo hace fallar en CI para lo nuevo; lo existente entra a una línea base **por archivo** que sólo encoge. Esto invierte `CONTRIBUTING.md:158` y `README.md:345`, que se reescriben en el mismo PR que instala la regla. **Los artefactos de este plan cumplen la regla desde su nombre**: `scripts/language/`, `docs/language-baseline.json`, `house/english-identifiers`, `npm run language:status`, `src/i18n/`.
+1. **La capa de la máquina es inglesa, y lo nuevo nace inglés desde el día uno.** Identificadores, nombres de archivo, comentarios —nuevos, y los existentes por tramo (I20)—, **mensajes de commit**, claves de catálogo, códigos de error, columnas, valores, **nombres de migración, de script y de `npm run`**: en inglés. Un lint lo hace fallar en CI para lo nuevo; lo existente entra a una línea base **por archivo** que sólo encoge. Esto invierte `CONTRIBUTING.md:158` y `README.md:345`, que se reescriben en el mismo PR que instala la regla. **Los artefactos de este plan cumplen la regla desde su nombre**: `scripts/language/`, `docs/language-baseline.json`, `house/english-identifiers`, `npm run language:status`, `src/i18n/`.
 2. **Toda cadena que lee un usuario tiene una clave y una fuente en inglés, y el catálogo español es completo antes de que la clave se use.** El catálogo es **tipado**: `es.ts` se declara como `Record<keyof typeof EN, string>`, de modo que una clave sin traducción es un error de `tsc`, no un aviso; una prueba de sincronía vigila lo que el tipo no ve (parámetros, vacíos, idioma equivocado, huérfanas).
 3. **Lo que se persiste se persiste como clave y parámetros, y se renderiza al leer.** Descripciones de póliza, motivos de auditoría, nombres de periodo, notas de cálculo de nómina: la fila guarda `key` + `params` **y** la prosa inglesa en la columna de siempre; la salida renderiza la clave en el locale resuelto. Lo histórico no se rellena y se muestra tal cual.
 4. **Lo que es vocabulario estable no se renombra: se registra con glosa inglesa.** Claves y valores del panel (53 + 93), los 36 roles de cuenta, 43 valores de `CHECK`, los 11 `as const`, 24 códigos de error publicados, 10 claves `x-*` del OpenAPI, 35 nombres de migración, los verbos y nombres canónicos del CLI, las ~77 columnas que espejan al SAT/IMSS/DIOT, las claves del *golden* del evaluador. Cada uno entra al registro de vocabularios (`src/database/enums.ts` ampliado, con `en:` y `why:`) y un criterio exige que todo literal español de un `CHECK` y todo rol esté ahí; los nuevos nacen en inglés.
 5. **Idioma, formato y jurisdicción son tres cosas.** El **idioma** sigue al usuario (`--locale` > `MNEMOSINE_LOCALE` > preferencia del inquilino > config > `es-MX`; en REST, `Accept-Language`). El **formato** —números, fechas, moneda— sigue a la jurisdicción y a la moneda de la entidad, nunca al idioma, y sólo en la rama `table`. Los **artefactos a terceros** siguen a la autoridad: el XML del SAT en español, las formas del IRS en inglés, aunque el usuario lea en el otro.
 6. **Los instrumentos miden la fuente, no el render.** `ux:status`, `generate-cli-reference.ts`, la matriz bilingüe y los criterios siguen viendo el inglés canónico (corren con `--locale en-US` fijado, como ya fijan el ancho); el catálogo se aplica al renderizar. La ayuda se traduce **por clave**, nunca usando la prosa inglesa como clave de búsqueda.
 7. **Identidad antes que prosa.** Nada que hoy se identifique por un texto en español —enunciados del piso, criterios buscados por enunciado, líneas base por `detail`— se traduce antes de tener un `id`.
-8. **Fuera del pedido y por decidir** (§6): comentarios existentes, mensajes de commit y documentación. El pedido dice «código»; la voz de la casa es española. Se deja como decisión del dueño con una omisión propuesta.
+8. **La documentación es experiencia de usuario.** El README, los manuales, la wiki y los documentos rectores tienen **fuente en inglés y gemela española completa** antes de publicarse (§3.8); un cambio en la fuente y su traducción viajan en el mismo PR. Los **informes fechados** —auditorías, investigaciones, el archivo de artefactos— son registro, como una migración aplicada: se quedan en el idioma en que se escribieron y los nuevos nacen en inglés. Esto fue decisión del dueño el mismo 2026-09-06 (§6, D1 y D9), no una omisión propuesta.
 
 ## 3. La maquinaria
 
@@ -91,6 +91,23 @@ Commander 15 ofrece `configureHelp`, `helpOption`, `helpCommand` y `configureOut
 
 Migración con **el número que diga el directorio** (append-only; hoy el 070 ya lo tomó otra rama): `journal_entries.description_key` + `description_params JSONB`, ídem en `journal_entry_lines`; `audit_log.reason_key`; `ai_drafts.review_kind` (sustituye al `LIKE 'auto-post by threshold%'`); `fiscal_periods.period_key` (`'2026-01'`) **conservando `period_name`** (entra en el `GROUP BY` de la vista y en la búsqueda `ILIKE`) y derivándolo. Los escritores nuevos escriben clave + parámetros **y** la prosa inglesa en la columna vieja. **Sin rellenar lo histórico** (041, 033, NIF B-1: el rastro se lee como se escribió). El **`Concepto` del Anexo 24 se renderiza en español, siempre**, desde la clave; los artefactos ya guardados con su hash no cambian y se dice en el commit.
 
+### 3.8 La documentación: gemelas por página
+
+La documentación viva son 90 archivos y 35026 líneas, casi todas en español:
+
+| Dónde | Archivos | Líneas |
+|---|---:|---:|
+| raíz (README  CONTRIBUTING  AGENTS  CLAUDE) | 4 | 617 |
+| docs/*.md (rectores  catálogo  planes) | 17 | 14 427 |
+| docs/wiki/*.md | 36 | 8 269 |
+| src/ai/docs/*.md (corpus del agente) | 28 | 11 539 |
+| skills/*/SKILL.md | 3 | 108 |
+| .github (plantillas) | 2 | 66 |
+
+El mecanismo es el de un catálogo, aplicado a páginas: la **fuente** es `Pagina.md` en inglés; la **gemela** es `Pagina.es.md` al lado, con `source_sha` en su cabecera (el hash del inglés que tradujo); `language:status` cuenta páginas sin gemela (0 siempre para README, wiki y rectores) y gemelas **desfasadas** (`source_sha` distinto del actual: 0 al fusionar, porque el mismo PR que toca la fuente toca la gemela); la wiki publicada enlaza cada página con su gemela y `Home` tiene un interruptor de idioma. Un tercer idioma es `Pagina.pt.md` y un renglón en el metro. Traducir es trabajo del agente que **propone** y de una persona que aprueba en el PR, como todo lo demás; los términos de norma (NIF, LISR, c_CodAgrup) se citan en su idioma oficial entre paréntesis en las dos gemelas. El corpus del agente (`src/ai/docs/`) sigue la misma regla: fuente inglesa —ya lo es donde es sistema— y los manuales de norma se reescriben en inglés con el término oficial español al lado, con su prueba de sincronía (`niif-registry.spec.ts`) intacta. Los **informes fechados** (`docs/auditorias/`, `docs/investigacion/`: 56 archivos, 13296 líneas) no se traducen: son registro.
+
+**Mensajes de commit**: en inglés desde el primer commit posterior a I1; el asunto conserva el código del tramo (`I7: the kernel renders help by key`); `CONTRIBUTING.md:96` y `docs/PROCESS.md:58` lo dicen; la lista bilingüe de palabras seguras del triage de Witness (`witness-triage.yml:98`) se ajusta.
+
 ### 3.7 Los renombres, por subsistema y con *codemod*
 
 `scripts/language/rename.ts` (sobre `ts-morph`: `SourceFile.move()` reescribe todos los imports de `src`, `tests` y `scripts` en una llamada) más `verify-rename.ts` (`git grep` del nombre viejo → 0, excluyendo migraciones, auditorías, HISTORY y archivo). **En el mismo commit** actualiza lo que `tsc` no ve: las regex, rutas y anclas de mutantes de `criterios.ts`, las **cuatro** tablas de umbral, los 81 `vi.mock` por cadena y las 43 rutas literales de `tests/`, los `typeof import()` de `conducta.ts`, `ci.yml` (:153-176, :225, :304, :312, :423), `CODEOWNERS` (7 rutas sin puerta), `package.json`, el bloque regenerado del catálogo (616 citas) y las rutas citadas en `docs/`. Un PR de renombre **no toca ningún literal de cadena**. El manifiesto se resella sólo cuando el `diff` del archivo sellado son especificadores de import, con `--why` obligatorio; en cualquier otro caso se relee el manual (`corpus-manifiesto.ts:171`). La red: `npm run typecheck:tests`, los cuatro `--check`, `plan:status --piso --exigir`, `npm run mutantes` 120/120, en un worktree limpio. El ensayo real es un módulo con 0 criterios, 0 umbral y 0 manifiesto (`sat/diot/hechos.ts → facts.ts`).
@@ -107,7 +124,7 @@ El orden sale del acoplamiento medido, de fuera hacia dentro: las 17 hojas sin a
 
 ## 5. La secuencia
 
-Cada tramo lleva su criterio en `src/plan/criterios.ts` en el mismo commit; cada uno deja el árbol verde y la línea base más baja, y **parar en cualquier tramo es un estado válido**. Tras I0-I6 el español ya no crece y el vocabulario está registrado; tras I7-I11 el usuario lee en su idioma; I12-I19 son los renombres; I20 sólo si el dueño lo decide.
+Cada tramo lleva su criterio en `src/plan/criterios.ts` en el mismo commit; cada uno deja el árbol verde y la línea base más baja, y **parar en cualquier tramo es un estado válido**. Tras I0-I6 el español ya no crece en el código y el vocabulario está registrado; tras I7-I11 el usuario lee en su idioma; I12-I19 son los renombres; I20-I22 llevan al inglés lo que queda en origen —comentarios, documentación, commits— con el español como primera gemela.
 
 | Tramo | Qué entrega | Criterio ejecutable | Tamaño |
 |---|---|---|---|
@@ -131,15 +148,17 @@ Cada tramo lleva su criterio en `src/plan/criterios.ts` en el mismo commit; cada
 | **I17** | Semillas y jurisdicción: `{code, nameKey}` en las cuatro semillas, render al sembrar por la jurisdicción; E1.1 y los tres mutantes reescritos | una entidad MX nueva siembra exactamente los nombres de hoy; una US, en inglés | L |
 | **I18** | El motor sellado: `criterio-cierre.ts` con sus cuatro tablas de umbral a la vez; `posting.ts`, `period-close.ts`, `ledger-checks.ts`, `report-service.ts`, `iva-cash-basis.ts`, `ar-ap-posting.ts`; siete fuentes releídas | carriles «claves de umbral españolas» y «criterios con ruta renombrable» = 0; cobertura por archivo igual o mayor | XL |
 | **I19** | `tests/` (139 nombres, 3 ayudantes, prefijo `s3-`, `HOJAS_PROPIAS`, 259 citas) y, en su PR final, `src/plan` y los ayudantes del instrumento (sólo si D6) | carril «archivos españoles en `tests/`» hacia 0; E0.0 verde; 120/120 | L |
-| **I20** | Comentarios existentes (**sólo si D1 = sí**): el carril pasa de informativo a trinquete; por archivo, con relectura de manual cuando la fuente está sellada; los 10 mutantes que inyectan comentarios en español | el número baja y la línea base se aprieta por PR | XL |
+| **I20** | Comentarios existentes: el carril pasa de informativo a trinquete (22 731 líneas + 128 SQL embebidos + ~789 en `.yml`/`.sql`); por archivo, con relectura de manual cuando la fuente está sellada; los 10 mutantes que inyectan comentarios en español | el número baja y la línea base se aprieta por PR | XL |
+| **I21** | La documentación como experiencia de usuario (§3.8): fuente inglesa y gemela española por página para README, rectores, wiki y corpus del agente; `source_sha`; interruptor de idioma en la wiki; los informes fechados quedan como registro | carril «páginas sin gemela» = 0 para README, wiki y rectores; «gemelas desfasadas» = 0 al fusionar; `niif-registry.spec.ts` verde | XL |
+| **I22** | Commits y proceso en inglés: `CONTRIBUTING.md:96`, `docs/PROCESS.md:58`, plantilla de issue, `witness-triage.yml:98`; el asunto conserva el código del tramo | criterio: `crudoDe('CONTRIBUTING.md')` no contiene «En español» en la sección de commits; los commits posteriores al tramo pasan un lint de asunto | S |
 
 **J0 nace en inglés.** `docs/jurisdicciones.md` propuso `jurisdiccionDe`, `PaqueteDeJurisdiccion`, `parametros_legales`, `src/jurisdicciones/`; con esta regla son `jurisdictionOf`, `JurisdictionPackage`, `legal_parameters`, `src/jurisdictions/` (tabla completa en la cabecera de ese documento). J0.1 (#123) **está en curso con los nombres españoles en una rama sin fusionar**: es I5 ([#147](https://github.com/sedecim-com/Accounting/issues/147)), y cuesta S antes de fusionar y un tramo después.
 
 ## 6. Lo que decide el dueño
 
-Con la omisión propuesta por el panel; ninguna bloquea I0-I4 salvo D2.
+D1 y D9 quedaron decididas por el dueño el mismo día (todo de origen al inglés; toda la experiencia de usuario ajustable, español primero). Las demás llevan la omisión propuesta por el panel; ninguna bloquea I0-I4 salvo D2.
 
-- **D1 · Comentarios existentes, documentación y commits** (`CONTRIBUTING.md:96,158`, `docs/PROCESS.md:58`; 22 731 líneas; 787 citas a paquetes). ¿También al inglés? **Omisión**: comentarios **nuevos** en inglés desde I1; los existentes no se traducen en masa (I20 queda condicionado); commits y documentación siguen en español y `CONTRIBUTING.md` lo separa de la regla del código.
+- **D1 · Comentarios existentes, documentación y commits — decidida el 2026-09-06: sí, todo de origen al inglés.** Los comentarios existentes se traducen por tramo con trinquete (I20); la documentación pasa a fuente inglesa con gemela española completa (I21); los commits en inglés desde I22. Los informes fechados quedan como registro (regla 8).
 - **D2 · Términos de dominio dentro de identificadores ingleses.** Los acrónimos (CFDI, SAT, RFC, DIOT, REP, PPD/PUE, UMA, ISN, ISR, IVA, IEPS, IMSS, INFONAVIT, PAC, CSD, INPC, Anexo 24) son neutros. ¿`poliza`, `balanza`, `nomina`, `folio`, `agrupador`? **Omisión**: se traducen (`journalEntry`, `trialBalance`, `payroll`, `folio` se queda como préstamo documentado); la lista de dominio nace vacía y crece con un porqué. Bloquea I3.
 - **D3 · Alcance del lint desde el día uno**: `src/` + `tests/` + `scripts/` (**omisión**) o sólo `src/`.
 - **D4 · J0.1**: renombrar **antes** de fusionar, pidiéndolo por su issue (**omisión**), o después como un módulo más.
@@ -147,7 +166,7 @@ Con la omisión propuesta por el panel; ninguna bloquea I0-I4 salvo D2.
 - **D6 · `tests/` y el instrumento**: ¿entran los 139 nombres de spec y los ayudantes de `criterios.ts` (`codigoDe`, `crudoDe`, `existe`…)? **Omisión**: sí, en I19, al final. Los 4 831 títulos `describe/it` son prosa y siguen a D1.
 - **D7 · Nombres de migraciones nuevas**: inglés (**omisión**: son nombres de archivo) o el título-frase español de 036-070. El número, siempre el que diga el directorio.
 - **D8 · Alias `npm`**: permanentes (**omisión**: `CLAUDE.md:8` y 91 menciones los ordenan por nombre) o un sprint.
-- **D9 · ¿Se traduce la ayuda del CLI?** Invierte `bilingual-matrix.spec.ts:310-323`, `ux-status.ts:314`, `src/cli/README.md:396` y la R8. **Omisión**: sí —es lo que dice el pedido— con los instrumentos midiendo la fuente.
+- **D9 · ¿Se traduce la ayuda del CLI? — decidida el 2026-09-06: sí, toda la experiencia de usuario.** Invierte `bilingual-matrix.spec.ts:310-323`, `ux-status.ts:314`, `src/cli/README.md:396` y la R8; los instrumentos miden la fuente inglesa (regla 6).
 - **D10 · Un solo ajuste de locale** para interfaz y agente (**omisión**) o `agent_locale` como *override*; `MNEMOSINE_LANG` alias permanente.
 - **D11 · Presentación**: código ISO de moneda y fechas ISO en tabla (**omisión**) o símbolo y locale.
 - **D12 · Un tercer idioma de prueba** (`pt-BR`, tres claves y una prueba de *fallback*) desde I6 (**omisión**: sí, mínimo) o cuando exista quien lo lea.
@@ -158,4 +177,4 @@ Con la omisión propuesta por el panel; ninguna bloquea I0-I4 salvo D2.
 - El inventario, las verificaciones, las tres propuestas y los dos juicios: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/)
 - La jurisdicción como dimensión, que este documento renombra al inglés: [`docs/jurisdicciones.md`](jurisdicciones.md)
 - La auditoría de idioma del CLI que ya existía y que este plan absorbe: `docs/auditorias/2026-09-01-usabilidad/ux-idioma.md`
-- Las issues: el epic [#141](https://github.com/sedecim-com/Accounting/issues/141) y los tramos I0–I20 en [#142](https://github.com/sedecim-com/Accounting/issues/142)–[#162](https://github.com/sedecim-com/Accounting/issues/162), etiqueta `idioma`; el estado se pregunta con `npm run language:status` cuando exista, y hasta entonces nada de este documento cuenta como hecho.
+- Las issues: el epic [#141](https://github.com/sedecim-com/Accounting/issues/141), los tramos I0–I20 en [#142](https://github.com/sedecim-com/Accounting/issues/142)–[#162](https://github.com/sedecim-com/Accounting/issues/162) y I21–I22 (documentación; commits y proceso), etiqueta `idioma`; el estado se pregunta con `npm run language:status` cuando exista, y hasta entonces nada de este documento cuenta como hecho.

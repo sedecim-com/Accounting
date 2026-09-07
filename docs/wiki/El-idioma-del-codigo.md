@@ -1,6 +1,6 @@
 # El idioma del código
 
-Desde el 2026-09-06 la regla es una frase: **el código en inglés; la interfaz en el idioma del usuario, español primero.** El documento rector es [`docs/idioma.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/idioma.md); el inventario que lo sostiene, con el comando de cada cifra, está en [`docs/investigacion/2026-09-06-idioma/`](https://github.com/sedecim-com/Accounting/tree/main/docs/investigacion/2026-09-06-idioma).
+Desde el 2026-09-06 la regla es una frase, precisada el mismo día: **todo de origen en inglés —código, comentarios, commits y documentación— y toda la experiencia de usuario ajustable a otro idioma, con el español configurado primero.** El documento rector es [`docs/idioma.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/idioma.md); el inventario que lo sostiene, con el comando de cada cifra, está en [`docs/investigacion/2026-09-06-idioma/`](https://github.com/sedecim-com/Accounting/tree/main/docs/investigacion/2026-09-06-idioma).
 
 ## Tres capas, tres tratamientos
 
@@ -28,13 +28,13 @@ Veintiún tramos (I0–I20; epic [#141](https://github.com/sedecim-com/Accountin
 2. **I6–I11, el usuario lee en su idioma**: un resolutor de locale (`--locale`, `es-MX` por omisión), un catálogo **tipado** (una clave sin traducción al español es un error de compilación) con formateador propio sobre `Intl`; el kernel del CLI y el piloto `bank`; las hojas por familia; la API con `Accept-Language` y códigos congelados; el panel preguntando en el idioma del contador sin tocar lo persistido; informes, `doctor` y agente.
 3. **I12–I15, los renombres**: el *codemod* que actualiza criterios, umbrales, manifiesto y catálogo en el mismo commit, ensayado en un módulo sin acoplamiento; `scripts/` con alias `npm` permanentes; la API interna que cruza carpetas; SAT, DIOT, Anexo 24 y nómina sin tocar un byte de lo que sale al SAT.
 4. **I16–I17, lo persistido**: clave y parámetros en pólizas, auditoría y periodos, con el `Concepto` del Anexo 24 en español desde la clave; las semillas renderizadas al sembrar por la jurisdicción.
-5. **I18–I20, el final**: el motor sellado, con sus cuatro tablas de umbral movidas a la vez; `tests/` y el instrumento; y los comentarios existentes sólo si el dueño lo decide.
+5. **I18–I22, el final**: el motor sellado, con sus cuatro tablas de umbral movidas a la vez; `tests/` y el instrumento; los comentarios existentes por tramo con trinquete; la documentación como experiencia de usuario (fuente inglesa y gemela española por página, informes fechados como registro); y los commits en inglés.
 
 **J0 nace en inglés**: `jurisdictionOf`, `JurisdictionPackage`, `legal_parameters`, `src/jurisdictions/`. El primer paso de J0 está en curso con los nombres españoles en una rama sin fusionar; renombrar antes de fusionar es el renombre más barato de todo el plan.
 
 ## Lo que decide el dueño
 
-Si los comentarios que ya existen se traducen (omisión: no en masa); si los commits y la documentación pasan al inglés (omisión: siguen en español, la voz de la casa); si la ayuda del CLI sale en español por omisión (omisión: sí); y cuál es el tercer idioma.
+Ya decididas: los comentarios existentes, los commits y la documentación pasan al inglés de origen, y toda la experiencia de usuario —la ayuda del CLI incluida— se ajusta al idioma del usuario con el español primero. Quedan: qué términos de dominio se quedan en español dentro de identificadores ingleses, el alcance del lint, y cuál es el tercer idioma.
 
 ## Para seguir
 
