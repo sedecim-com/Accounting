@@ -270,7 +270,12 @@ export function registerCfdiCommand(program: Command, deps: CfdiCommandDeps): vo
   // Clase EXTERNO (la del catálogo): un barrido que llama afuera N veces.
   // Sin --live se queda en el informe de lo que consultaría; el kernel
   // inyecta --live/--dry-run/-y y gateMutation exige la confirmación.
-  declareRisk(statusSync, { risk: 'externo', agent: false, writes: 'xml_documents (caché sat_*)' });
+  declareRisk(statusSync, {
+    risk: 'externo',
+    agent: false,
+    llave: { sinLlave: 'un reintento vuelve a consultar al SAT y reescribe la caché' },
+    writes: 'xml_documents (caché sat_*)',
+  });
   statusSync.addHelpText('after', EJEMPLOS.statusSync);
   statusSync.action((opts: CommonOpts & { limit: string; staleHours: string; live?: boolean }) =>
     run(async () => {

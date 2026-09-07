@@ -2838,7 +2838,9 @@ export const CRITERIOS: Criterio[] = [
       // cualquier prueba que la importara auditaba un programa con cero
       // declaraciones y pasaba en el vacío.
       const { program } = await import('../cli/mnemosine.js');
-      const { auditarContraLineaBase, LINEA_BASE } = await import('../cli/kernel/audit.js');
+      const { auditarContraLineaBase, LINEA_BASE, DEUDA_DE_LLAVES } = await import(
+        '../cli/kernel/audit.js'
+      );
 
       const { nuevas, obsoletas, heredadas } = auditarContraLineaBase(program);
       if (nuevas.length > 0) {
@@ -2853,8 +2855,13 @@ export const CRITERIOS: Criterio[] = [
             'que no encoge deja de ser deuda registrada y se vuelve un permiso permanente'
         );
       }
+      // La deuda congelada son ahora DOS listas: LINEA_BASE (40 violaciones de
+      // vocabulario y contrato) y DEUDA_DE_LLAVES (las hojas que aceptan
+      // --idempotency-key y no la honran, que R11 acusa desde T3). Sumarlas
+      // aquí es lo que hace que el número que se imprime siga siendo el
+      // denominador de verdad.
       return ok(
-        `sin violaciones nuevas; ${heredadas} de ${LINEA_BASE.length} heredadas siguen vivas`
+        `sin violaciones nuevas; ${heredadas} de ${LINEA_BASE.length + DEUDA_DE_LLAVES.length} heredadas siguen vivas`
       );
     },
   },
@@ -3001,6 +3008,136 @@ export const CRITERIOS: Criterio[] = [
         porque:
           'puerta-esquivada: escribir el dato en `render` en vez de entregarlo a `emit` es el defecto ' +
           'original entero — el archivo de `-o` deja de existir aunque el comando salga 0',
+      },
+    ],
+  },
+  {
+    paquete: 'E5.1',
+    enunciado:
+      'R11 comprueba que la llave se HONRE, y todo ámbito declarado llega de verdad al almacén',
+    evaluar: async () => {
+      // R11 COMPROBABA SU PROPIO EFECTO SECUNDARIO. Verificaba que un comando
+      // de riesgo llevara --dry-run, --yes e --idempotency-key, y
+      // `declareRisk` se las inyecta él mismo unas líneas antes: sobre el
+      // binario embarcado daba CERO violaciones en 36 hojas graves. Mientras
+      // tanto la promesa textual de la bandera —«a retry with the same key
+      // and payload returns the recorded result»— la cumplían 15.
+      //
+      // Este criterio vigila las DOS mitades de la reparación, y ninguna se
+      // puede satisfacer inyectando una bandera:
+      //   (a) la regla nombra la acusación, así que puede fallar;
+      //   (b) todo ámbito DECLARADO viaja hasta una llamada al almacén.
+      // (a) SE MIDE **Y** SE ANCLA, y las dos mitades hacen falta.
+      //
+      //     El ancla de texto sola no medía nada: con el literal en su sitio,
+      //     la acusación podía dejar de emitirse y el criterio seguía verde —
+      //     que habría sido, un piso más abajo, el MISMO error que denuncia.
+      //     Pero la medición sola tampoco basta: el seam del arnés gobierna la
+      //     LECTURA DE TEXTO, no los módulos importados, así que un criterio
+      //     que sólo hace `await import(...)` es inmune a su propio espejo y
+      //     sus mutantes sobreviven. Juntas: la medición caza el silencio, el
+      //     ancla deja que el arnés muerda.
+      const audit = crudoDe('src/cli/kernel/audit.ts');
+      if (!audit.includes("rule: 'R11 llave aceptada sin honrar',")) {
+        return falla(
+          'R11 volvió a comprobar sólo las banderas que declareRisk inyecta: una regla que ' +
+            'verifica su propio efecto secundario no puede fallar'
+        );
+      }
+      // Y AHORA LA MEDICIÓN. La primera versión de este criterio
+      //     comprobaba `audit.includes("rule: '…'")` sobre el fuente, y eso
+      //     habría sido, un piso más abajo, el MISMO error que denuncia:
+      //     verificar la existencia de un literal en vez de la conducta. Con
+      //     el literal en su sitio, la acusación podía dejar de emitirse y el
+      //     criterio seguía verde. Aquí se corre el auditor sobre el binario
+      //     de verdad y se CUENTAN las acusaciones.
+      const { program } = await import('../cli/mnemosine.js');
+      const { auditProgram, esDeudaDeLlave, DEUDA_DE_LLAVES } = await import('../cli/kernel/audit.js');
+      const acusadas = auditProgram(program).filter(esDeudaDeLlave);
+      if (acusadas.length === 0) {
+        return falla(
+          'R11 no acusa a ninguna hoja: o volvió a comprobar sólo las banderas que declareRisk ' +
+            'inyecta —una regla que verifica su propio efecto secundario no puede fallar— o dejó ' +
+            'de emitirse con su literal intacto'
+        );
+      }
+      if (acusadas.length !== DEUDA_DE_LLAVES.length) {
+        return falla(
+          `R11 acusa a ${acusadas.length} hojas y la deuda declarada tiene ${DEUDA_DE_LLAVES.length}: ` +
+            'la lista sólo puede ENCOGER, y encoge borrando el renglón de la hoja que se cablea, ' +
+            'nunca dejando de acusar'
+        );
+      }
+
+      // El fuente del CLI SIN comentarios y SIN las declaraciones: si no, la
+      // propia `llave: { scope: 'X' }` se encontraría a sí misma y el
+      // criterio diría que el ámbito está cableado por haberlo escrito.
+      const cli = fuentes('src/cli')
+        .map((f) => sinComentarios(leer(f)))
+        .join('\n')
+        .replace(/llave:\s*\{\s*scope:\s*'[^']*'\s*\}/g, '');
+      const declarados = [
+        ...sinComentarios(
+          fuentes('src/cli')
+            .map((f) => leer(f))
+            .join('\n')
+        ).matchAll(/llave:\s*\{\s*scope:\s*'([^']*)'\s*\}/g),
+      ].map((m) => m[1]);
+      if (declarados.length < 15) {
+        return falla(
+          `sólo ${declarados.length} hoja(s) declaran el ámbito de su llave: el censo medido eran 19`
+        );
+      }
+      // EL ÁMBITO PUEDE VIAJAR POR UNA CONSTANTE, no sólo como literal en la
+      // llamada: `receipt record` lo hace así porque lo usan DOS sitios —la
+      // consulta temprana de la llave y su consumo—, y dos literales que puedan
+      // divergir serían dos deduplicaciones distintas con el mismo nombre. Lo
+      // que este cruce defiende es que la palabra declarada ESTÉ en el fuente
+      // del manejador, no la forma sintáctica con que llega.
+      const huerfanos = declarados.filter((a) => !cli.includes(`'${a}'`));
+      if (huerfanos.length > 0) {
+        return falla(
+          `${huerfanos.length} ámbito(s) declarados que ninguna llamada a conLlave usa ` +
+            `(${huerfanos.join(', ')}): la declaración promete una deduplicación que el manejador no hace`
+        );
+      }
+      // Y las dos que duplicaban DINERO, por su nombre: son las que el issue
+      // #90 pone como ejemplo y las que se reprodujeron contra Postgres.
+      const dinero = ['receipt record', 'payment create'].filter((a) => !declarados.includes(a));
+      if (dinero.length > 0) {
+        return falla(`${dinero.join(' y ')} volvió a aceptar la llave sin honrarla`);
+      }
+      return ok(
+        `${declarados.length} ámbito(s) declarados, todos entregados al almacén; ` +
+          'R11 acusa a las que no la honran'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/kernel/audit.ts',
+        de: "rule: 'R11 llave aceptada sin honrar',",
+        a: "rule: 'R11 risk flags',",
+        porque:
+          'la acusación se disuelve dentro de la regla tautológica: R11 vuelve a decir sólo lo que ' +
+          'declareRisk acaba de inyectar y deja de poder fallar',
+      },
+      {
+        archivo: 'src/cli/receipt-command.ts',
+        de: "const AMBITO_DE_COBRO = 'receipt record';",
+        a: "const AMBITO_DE_COBRO = 'cobro';",
+        porque:
+          'el manejador consuma la llave bajo OTRO ámbito que el declarado — el escape de ' +
+          'firma-como-llamada: la declaración sigue escrita y la deduplicación de `receipt record` ' +
+          'deja de existir para quien la lea',
+      },
+      {
+        archivo: 'src/cli/payment-command.ts',
+        de: "          scope: 'payment create',",
+        a: "          scope: 'entry post',",
+        porque:
+          'dos hojas bajo el mismo ámbito se deduplican ENTRE SÍ (la unicidad de idempotency_keys ' +
+          'es por tenant+scope+clave), y el ámbito declarado por `payment create` deja de tener ' +
+          'llamada propia',
       },
     ],
   },
@@ -7053,6 +7190,121 @@ export const CRITERIOS: Criterio[] = [
       return /FOR\s+\w+\s+IN\s+SELECT\s+id\s+FROM\s+tenants/.test(cuerpo)
         ? ok('la 060 declara su opt-in de RLS antes de escribir y recorre los inquilinos: alcanza las corridas que venía a cerrar')
         : falla('la 060 declara el opt-in pero no recorre inquilinos: se aplica sin error y cierra cero corridas, que es peor que fallar porque nadie se entera');
+    },
+  },
+
+  // ---- T3a · La frontera de inquilino ----
+
+  {
+    paquete: 'E2.1',
+    enunciado: 'El inquilino que se pide es el inquilino que se consulta, y una hoja no puede deshacerlo',
+    mutantes: [
+      {
+        archivo: 'src/ai/context.ts',
+        de: '  const pedido = limpio(tenantFlag);',
+        a: '  const pedido = limpio(tenantFlag) ?? limpio(process.env.MNEMOSINE_TENANT);',
+        porque: 'EL DEFECTO DE #90: la ausencia de valor vuelve a ser una ORDEN de usar el entorno, así que cada hoja pisa con MNEMOSINE_TENANT el inquilino que la bandera acababa de fijar y la balanza del despacho A sale rotulada como la de B',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: '  return deLaHoja ?? deLaRaiz;',
+        a: '  return deLaRaiz ?? deLaHoja;',
+        porque: 'vuelven las DOS reglas de precedencia contrarias: el gancho rotula y comprueba con el valor de la raíz mientras la consulta corre con el de la hoja, y el aviso nombra un despacho distinto del que sale en las filas',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: '  if (deLaHoja && deLaRaiz && deLaHoja !== deLaRaiz) {',
+        a: '  if (false) {',
+        porque: 'dos órdenes contrarias del operador (--tenant X y -t Y) vuelven a resolverse por dentro y en silencio, en vez de decirse',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: '  if (inquilino.tenantId && !chatDbInitError && !SIN_COMPROBAR_INQUILINO.has(actionCommand.name())) {',
+        a: "  if (inquilino.origen === 'bandera' && inquilino.tenantId && !chatDbInitError) {",
+        porque: 'el escalón que el README y `mnemosine init` mandan usar —MNEMOSINE_TENANT— vuelve a quedar mudo: un .env que sobrevive a un re-seed devuelve el informe vacío con código 0',
+      },
+      {
+        archivo: 'src/cli/init/s1-identity.ts',
+        de: '    const fijado = currentTenant() ?? process.env.MNEMOSINE_TENANT ?? null;',
+        a: '    const fijado = process.env.MNEMOSINE_TENANT || null;',
+        porque: 'el asistente vuelve a listar las sociedades del inquilino del .env aunque se pidiera otro con --tenant, y la comprobación de RLS de init informa del inquilino equivocado',
+      },
+    ],
+    evaluar: () => {
+      // #90. La bandera se aceptaba y se ignoraba, y no por no llegar: LLEGABA,
+      // el gancho la aplicaba, y la hoja la PISABA. `bootstrapTenant` era
+      // `tenantFlag || process.env.MNEMOSINE_TENANT`, así que el `undefined` de
+      // las 81 llamadas no significaba «no me han dicho nada» sino que era una
+      // ORDEN de usar el entorno.
+      //
+      // Y había una segunda avería encajada: `--tenant` y `-t` no eran dos
+      // grafías de una bandera. La raíz declara `-T` y se queda la forma LARGA
+      // la teclee quien la teclee; la CORTA no la reconoce (la comparación
+      // distingue mayúsculas) y viaja a la hoja. Por eso `-t` funcionaba
+      // siempre y `--tenant` no funcionaba nunca.
+      const ctx = codigoDe('src/ai/context.ts');
+      const cli = codigoDe('src/cli/mnemosine.ts');
+
+      // 1. LA AUSENCIA DEJA DE SER UNA ORDEN. Un valor explícito manda; no
+      //    haberlo recibido re-entra lo que la raíz ya resolvió.
+      // Se ancla en la línea EXACTA que decide, y no en la forma vieja del
+      // defecto: escribirlo con `??` en vez de con `||` es el mismo defecto con
+      // otra sintaxis, y un ancla que persiga `||` lo dejaría pasar. `pedido`
+      // sale del ARGUMENTO y de nada más. (bootstrapTenant sí lee el entorno
+      // más abajo, pero sólo para poder decir cuál está ignorando.)
+      if (!/const pedido = limpio\(tenantFlag\);/.test(ctx)) {
+        return falla('bootstrapTenant volvió a mezclar el entorno en lo que PIDE el llamador: cada hoja pisaría con MNEMOSINE_TENANT el inquilino que la bandera fijó, y la balanza del despacho A saldría rotulada como la de B (#90)');
+      }
+      if (!/export function bootstrapTenant/.test(ctx)) {
+        return falla('bootstrapTenant desapareció: los 81 llamadores resolverían el inquilino cada uno por su cuenta');
+      }
+
+      // 2. UNA SOLA REGLA DE PRECEDENCIA. `optsWithGlobals` da globales sobre
+      //    locales; `bootstrapTenant` hace mandar a la hoja. Fijadas las dos a
+      //    la vez, el gancho rotula un inquilino y la consulta usa otro.
+      if (!/return deLaHoja \?\? deLaRaiz;/.test(cli)) {
+        return falla('el gancho volvió a resolver con globales-sobre-locales mientras bootstrapTenant hace mandar a la hoja: el aviso nombraría un despacho distinto del que sale en las filas');
+      }
+      // 3. Y UN DESACUERDO SE DICE, no se resuelve por dentro.
+      if (!/deLaHoja && deLaRaiz && deLaHoja !== deLaRaiz/.test(cli)) {
+        return falla('dos grafías con valores distintos vuelven a resolverse en silencio: elegir entre dos órdenes contrarias del operador sin decirlo es la misma clase de mentira que este tramo repara');
+      }
+
+      // 4. EL INQUILINO INEXISTENTE FALLA VENGA DE DONDE VENGA. Bajo RLS «no
+      //    existe» y «vacío» son la misma cero-filas, y el caso realista no es
+      //    la errata al teclear sino el .env que sobrevive a un re-seed.
+      // El ancla va en la GUARDA, que es lo que el mutante toca: dejar en pie la
+      // constante y estrechar el `if` a `origen === 'bandera'` volvería a dejar
+      // mudo el escalón del .env con la declaración intacta.
+      // La ventana es LA LÍNEA de la guarda de EXISTENCIA, identificada por lo
+      // único que la distingue. Dos trampas se pagaron aquí: buscar por
+      // longitud atrapaba el `const duro = inquilino.origen === 'bandera'` de
+      // tres líneas más abajo —que es correcto—, y buscar
+      // `if (inquilino.tenantId` agarraba OTRA guarda, la del validador de
+      // uuid, que aparece antes en el archivo.
+      const iGuarda = cli.indexOf('SIN_COMPROBAR_INQUILINO.has(');
+      const inicio = iGuarda === -1 ? -1 : cli.lastIndexOf('\n', iGuarda) + 1;
+      const guarda = inicio === -1 ? '' : cli.slice(inicio, cli.indexOf('\n', iGuarda));
+      if (!/inquilino\.tenantId/.test(guarda) || /origen === 'bandera'/.test(guarda)) {
+        return falla('la comprobación de existencia volvió a mirar sólo la bandera: el escalón que el README y `mnemosine init` mandan usar quedaría mudo, y un .env que sobrevive a un re-seed devolvería el informe vacío con código 0 (#90)');
+      }
+      // Con su exención declarada: los comandos que existen para ARREGLAR el
+      // inquilino no pueden morir por él.
+      const exencion = cli.slice(cli.indexOf('SIN_COMPROBAR_INQUILINO'), cli.indexOf('SIN_COMPROBAR_INQUILINO') + 400);
+      if (!/'init'/.test(exencion) || !/'doctor'/.test(exencion)) {
+        return falla('init o doctor dejaron de estar exentos de la comprobación: son los dos comandos a los que se acude cuando el .env apunta a un despacho que ya no está, y tumbarlos cierra el único camino de salida');
+      }
+
+      // 5. Y EL ASISTENTE NO SE SALTA LA PRECEDENCIA POR SU CUENTA.
+      const ident = codigoDe('src/cli/init/s1-identity.ts');
+      const infra = codigoDe('src/cli/init/s0-infra.ts');
+      const leeEntornoASecas =
+        /const fijado = process\.env\.MNEMOSINE_TENANT \|\| null/.test(ident) ||
+        /tenantId: process\.env\.MNEMOSINE_TENANT \|\| undefined/.test(ident) ||
+        /const tenant = process\.env\.MNEMOSINE_TENANT \?\?/.test(infra);
+      return leeEntornoASecas
+        ? falla('init volvió a leer MNEMOSINE_TENANT por su cuenta: lista y CREA sociedades bajo el inquilino del .env aunque se pidiera otro, y su comprobación de RLS informa del inquilino equivocado')
+        : ok('la bandera manda sobre el entorno, una sola regla de precedencia gobierna el gancho y la hoja, el inquilino inexistente falla venga de donde venga, y el asistente usa el inquilino efectivo');
     },
   },
 

@@ -89,6 +89,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
   // la custodia de una e.firma se autoriza escribiendo "accept", siempre.
   declareRisk(add, {
     risk: 'externo',
+    llave: { innecesaria: 'la custodia la guardan el consentimiento tipeado y el estado de la credencial' },
     agent: false,
     writes: 'fiscal_credentials + el material en la bóveda; valida el certificado localmente antes',
   });
@@ -290,6 +291,7 @@ export function registerSatCommands(program: Command, deps: SatCommandDeps): voi
   // que aterriza en audit_log vía revokeCredential.
   declareRisk(revoke, {
     risk: 'irreversible',
+    llave: { innecesaria: 'una segunda revocación se rechaza porque ya no queda credencial activa' },
     agent: false,
     writes: 'fiscal_credentials + destrucción criptográfica del material en la bóveda',
   });
