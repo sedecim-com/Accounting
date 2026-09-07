@@ -1081,6 +1081,34 @@ async function julioConDosSinClasificar(f: Fixture) {
   return { equipo, credito };
 }
 
+describe('una cuenta sin clasificar que NO se compensa', () => {
+  it('«bloquear» nombra el OTRO daño: aquí el hueco llega al neto', async () => {
+    // El caso compensado y éste tienen daños DISTINTOS y el mensaje tiene que
+    // decir cuál es. Cuando los importes se cancelan, el neto ata y lo roto son
+    // las secciones; cuando no, el hueco llega al neto y el estado no puede
+    // cuadrar contra el efectivo. Decir «no puede cuadrar» en el primer caso
+    // sería inventar un descuadre que el banco desmiente en dos minutos.
+    const f = await crearInquilino('T13 sin compensar bloquear');
+    enterTenant(f.tenantId);
+    await sembrarPoliticasDeFlujo(f, { flujo_efectivo_sin_clasificar: 'bloquear' });
+    await julioConMovimiento(f);
+    const equipo = await cuenta(f, '1296', 'Equipo sin sección', 'asset', 'debit', null, null);
+    await asiento(f, 7, 'Compra sin clasificar', equipo, f.cuentas['1110'], '5000.0000');
+
+    let error: unknown;
+    try {
+      await getCashFlowStatement(f.entityId, JULIO);
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeDefined();
+    const mensaje = String((error as Error).message);
+    expect(mensaje).toContain('1296');
+    expect(mensaje, 'sin compensación el hueco llega al NETO').toContain('no puede cuadrar');
+    expect(mensaje).not.toContain('se puede leer como sano');
+  }, 60_000);
+});
+
 describe('dos cuentas sin clasificar que se compensan', () => {
   it('el neto SIGUE atando, y el estado deja de afirmar que clasificó lo que no clasificó', async () => {
     const f = await crearInquilino('T13 compensadas avisar');
