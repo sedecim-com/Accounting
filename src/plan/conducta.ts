@@ -262,6 +262,116 @@ async function saldoDelEjercicio(app: App, inq: Inquilino, cuentaId: string): Pr
 
 export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // ----------------------------------------------------------
+  // E1b · LA HIJA NO VISITA A SU MADRE PARA SABER DE QUIÉN ES
+  //
+  // El techo de este criterio NO es un número de milisegundos. Se probó a
+  // ponerlo y no aguanta: a volumen, el predicado directo también recorre la
+  // tabla en secuencia —y es lo correcto, porque en la prueba el inquilino
+  // posee todas las filas—. Un techo en ms mide la máquina y el ruido.
+  //
+  // Lo que sí es estable, y es el mecanismo entero: la lectura de las líneas
+  // acotada al inquilino NO DEBE TOCAR `journal_entries`. Con la política
+  // vieja el plan trae al padre —y dentro de él, la subconsulta de
+  // legal_entities— una vez por fila; con la directa, el padre no aparece.
+  // ----------------------------------------------------------
+  {
+    id: 'ledger-lines-scoped-without-parent-visit',
+    paquete: 'E0.1',
+    enunciado: 'Leer las líneas del mayor acotadas al inquilino no visita la tabla de asientos',
+    mutantes: [
+      {
+        archivo: 'src/database/rls-policies.sql',
+        de: "        'CREATE POLICY tenant_isolation_child ON public.%I FOR ALL USING (tenant_id = app_current_tenant())',",
+        a: "        'CREATE POLICY tenant_isolation_child ON public.%I FOR ALL USING (EXISTS (SELECT 1 FROM public.journal_entries p WHERE p.id = journal_entry_lines.journal_entry_id))',",
+        porque:
+          'devuelve la política a la subconsulta por fila: el plan vuelve a visitar al padre por cada línea, ' +
+          'que es el techo que E1b levanta',
+      },
+    ],
+    correr: async (app) => {
+      const inq = await crearInquilino(app, 'E1b · plan sin padre');
+      const banco = inq.roles.banco;
+      const ventas = inq.cuentas['4100'];
+      if (!banco || !ventas) return falla('el catálogo base no se sembró');
+      await asiento(app, inq, 8, 'E1b', banco, ventas, '100.0000');
+
+      const { rows } = await app.conexion.query<{ plan: string }>(
+        `EXPLAIN SELECT count(*) FROM journal_entry_lines WHERE tenant_id = $1`,
+        [inq.tenantId]
+      );
+      const plan = rows.map((r) => (r as unknown as Record<string, string>)['QUERY PLAN']).join('\n');
+
+      if (/journal_entries/i.test(plan)) {
+        return falla(
+          'el plan de una lectura acotada de líneas todavía visita journal_entries: ' +
+            'el predicado sigue pagándose por fila\n' + plan
+        );
+      }
+      return ok('la lectura acotada de líneas no toca la tabla de asientos');
+    },
+  },
+  // ----------------------------------------------------------
+  // E1b · Y LA COLUMNA NO PUEDE MENTIR
+  //
+  // `tenant_id` en una hija es un HECHO DERIVADO. Si una fila pudiera nacer
+  // sin él, la política directa la escondería de su propio dueño para
+  // siempre; si pudiera cambiarlo, la frontera de aislamiento se movería sin
+  // que nada lo notara. Las dos mitades se prueban aquí.
+  // ----------------------------------------------------------
+  {
+    id: 'child-tenant-is-derived-not-declared',
+    paquete: 'E0.1',
+    enunciado: 'Una línea nace con el inquilino de su asiento aunque nadie se lo diga, y no puede cambiarlo',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/071_la_hija_que_pregunta_por_su_madre.sql',
+        de: '  NEW.tenant_id := derivado;',
+        a: '  NEW.tenant_id := COALESCE(NEW.tenant_id, derivado);',
+        porque:
+          'deja que el llamador imponga el inquilino en vez de derivarlo: una línea puede nacer declarando ' +
+          'un inquilino distinto del de su asiento, y la política directa la creería',
+      },
+    ],
+    correr: async (app) => {
+      const inq = await crearInquilino(app, 'E1b · derivada');
+      const banco = inq.roles.banco;
+      const ventas = inq.cuentas['4100'];
+      if (!banco || !ventas) return falla('el catálogo base no se sembró');
+      await asiento(app, inq, 8, 'E1b derivada', banco, ventas, '250.0000');
+
+      const { rows } = await app.conexion.query<{ n: string; ajenas: string }>(
+        `SELECT count(*)::text AS n,
+                count(*) FILTER (WHERE l.tenant_id IS DISTINCT FROM $1)::text AS ajenas
+           FROM journal_entry_lines l
+           JOIN journal_entries e ON e.id = l.journal_entry_id
+          WHERE e.entity_id = $2`,
+        [inq.tenantId, inq.entityId]
+      );
+      const n = Number(rows[0]?.n ?? 0);
+      const ajenas = Number(rows[0]?.ajenas ?? 0);
+      if (n === 0) return falla('el asiento no dejó líneas: el escenario no probó nada');
+      if (ajenas > 0) {
+        return falla(`${ajenas} de ${n} líneas no heredaron el inquilino de su asiento`);
+      }
+
+      // Y la segunda mitad: intentar moverla de inquilino tiene que fallar.
+      const otro = crypto.randomUUID();
+      try {
+        await app.conexion.query(
+          `UPDATE journal_entry_lines SET tenant_id = $1
+            WHERE id = (SELECT l.id FROM journal_entry_lines l
+                          JOIN journal_entries e ON e.id = l.journal_entry_id
+                         WHERE e.entity_id = $2 LIMIT 1)`,
+          [otro, inq.entityId]
+        );
+        return falla('una línea cambió de inquilino: la frontera se puede mover con un UPDATE');
+      } catch {
+        return ok(`${n} líneas heredaron su inquilino y ninguna se puede mover de frontera`);
+      }
+    },
+  },
+
+  // ----------------------------------------------------------
   // 1 · EL SIGNO DEL SALDO
   //
   // Invertir la resta de `ending_balance` en report-service sobrevivía a las

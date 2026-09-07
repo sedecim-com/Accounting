@@ -22,7 +22,20 @@
 --
 -- Con `tenant_id` en la propia hija el predicado pasa a ser una comparación de
 -- columna —`tenant_id = app_current_tenant()`, ya insertable en línea desde la
--- 069— y vuelve a ser una condición de índice.
+-- 069—: una sola comparación por fila, sin visitar al padre.
+--
+-- MEDIDO, y la medición corrige la explicación fácil. Sobre 20 000 asientos y
+-- 40 000 líneas (tests/integration/e1b-predicado-directo.int.spec.ts):
+--
+--     subconsulta por fila     22 ms
+--     predicado directo         4 ms      5.1× — 6.8× entre corridas
+--
+-- Pero el plan del predicado directo SIGUE SIENDO un recorrido secuencial, y
+-- es lo correcto: en esa prueba el inquilino posee las 40 000 filas, así que
+-- recorrer es óptimo y ningún índice mejora eso. La ganancia NO viene del
+-- índice: viene de no visitar al padre una vez por fila. El índice paga en el
+-- caso que la prueba no monta y la producción sí tiene —un inquilino que es
+-- una fracción de la tabla—, y por eso se crea igual.
 --
 -- ── POR QUÉ VA DESPUÉS DEL SELLO, Y POR QUÉ AHORA ───────────────────────
 --
