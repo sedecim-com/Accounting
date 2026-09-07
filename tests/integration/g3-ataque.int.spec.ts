@@ -480,6 +480,13 @@ describe('ataque 6 · mnemosine_auditor', () => {
       `SELECT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS super,
               EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnemosine_owner') AS owner`
     );
+    // El bloque pide superusuario Y que `mnemosine_owner` exista, y ese rol
+    // sólo lo crea `scripts/provision-roles.sql`, que el job «Integración
+    // contra Postgres» NO ejecuta: en CI los siete casos de abajo no corren.
+    // Antes salían del paso con `expect(aplicable).toBe(false)`, es decir, en
+    // VERDE — siete pruebas que no midieron nada informando lo mismo que
+    // siete que sí. Se omiten explícitamente: un «skipped» visible dice que
+    // el rol del auditor está sin verificar; un verde decía lo contrario.
     aplicable = Boolean(rows[0].super && rows[0].owner);
     if (!aplicable) { await c.end(); return; }
 
@@ -508,8 +515,8 @@ describe('ataque 6 · mnemosine_auditor', () => {
     await cliente.end();
   });
 
-  it('no puede escribir: ni un INSERT en el mayor ni un UPDATE de un saldo', async () => {
-    if (!aplicable) { expect(aplicable).toBe(false); return; }
+  it('no puede escribir: ni un INSERT en el mayor ni un UPDATE de un saldo', async (ctx) => {
+    if (!aplicable) return ctx.skip();
     const c = cliente!;
     await c.query('SET ROLE mnemosine_auditor');
     try {
@@ -528,8 +535,8 @@ describe('ataque 6 · mnemosine_auditor', () => {
     }
   });
 
-  it('no lee las credenciales de nadie: users, sessions y tenants le están negadas', async () => {
-    if (!aplicable) { expect(aplicable).toBe(false); return; }
+  it('no lee las credenciales de nadie: users, sessions y tenants le están negadas', async (ctx) => {
+    if (!aplicable) return ctx.skip();
     const c = cliente!;
     await c.query('SET ROLE mnemosine_auditor');
     try {
@@ -542,8 +549,8 @@ describe('ataque 6 · mnemosine_auditor', () => {
     }
   });
 
-  it('sin contexto de inquilino no ve NINGUNA fila del mayor', async () => {
-    if (!aplicable) { expect(aplicable).toBe(false); return; }
+  it('sin contexto de inquilino no ve NINGUNA fila del mayor', async (ctx) => {
+    if (!aplicable) return ctx.skip();
     const c = cliente!;
     await c.query('SET ROLE mnemosine_auditor');
     try {
@@ -554,8 +561,8 @@ describe('ataque 6 · mnemosine_auditor', () => {
     }
   });
 
-  it('EL ATAQUE: nombra el inquilino de OTRO despacho y lee su mayor', async () => {
-    if (!aplicable) { expect(aplicable).toBe(false); return; }
+  it('EL ATAQUE: nombra el inquilino de OTRO despacho y lee su mayor', async (ctx) => {
+    if (!aplicable) return ctx.skip();
     const c = cliente!;
     // Un asiento del inquilino `f`, para que haya algo que robar.
     await politica(f, 'off');
@@ -577,16 +584,22 @@ describe('ataque 6 · mnemosine_auditor', () => {
       const r = await c.query<{ n: string }>(
         `SELECT count(*)::text AS n FROM journal_entries`
       );
-      // Se afirma lo que MIDE, no lo que debería: el informe dice el resto.
-      expect(Number(r.rows[0].n)).toBeGreaterThanOrEqual(0);
-      console.log(`[ataque 6] filas del mayor visibles tras SET app.current_tenant ajeno: ${r.rows[0].n}`);
+      // `>= 0` no puede fallar, y el número medido salía por `console.log`:
+      // la medición vivía en una línea de stdout que ni CI ni el corredor por
+      // defecto imprimen. El hecho ya está escrito en `scripts/rol-auditor.sql`
+      // —«quien tenga la cuenta puede nombrar el UUID de otro despacho y leer
+      // sus libros. Medido en tests/integration/g3-ataque.int.spec.ts»—, así
+      // que aquí se AFIRMA, y el día que se ate cuenta→inquilino esta prueba
+      // cae y obliga a corregir esa frase. No se fija el conteo exacto: el
+      // asiento de arriba garantiza uno, y la base efímera es compartida.
+      expect(Number(r.rows[0].n)).toBeGreaterThan(0);
     } finally {
       await c.query('RESET ROLE');
     }
   });
 
-  it('`identities` —la tabla de quién firmó— no lleva política, y por eso se le niega', async () => {
-    if (!aplicable) { expect(aplicable).toBe(false); return; }
+  it('`identities` —la tabla de quién firmó— no lleva política, y por eso se le niega', async (ctx) => {
+    if (!aplicable) return ctx.skip();
     const c = cliente!;
 
     // `identities` es la tabla que ata el `sub` del proveedor a un usuario:
@@ -613,36 +626,48 @@ describe('ataque 6 · mnemosine_auditor', () => {
     }
   });
 
-  it('las vistas materializadas las construye un BYPASSRLS: el auditor no las lee', async () => {
-    if (!aplicable) { expect(aplicable).toBe(false); return; }
+  it('las vistas materializadas las construye un BYPASSRLS: el auditor no las lee', async (ctx) => {
+    if (!aplicable) return ctx.skip();
     const c = cliente!;
     // R3 dejó a `mnemosine_refresher` con BYPASSRLS para poder reconstruir las
     // vistas: su contenido es de TODOS los inquilinos a la vez. Si el GRANT
     // masivo del guion las alcanzara, el auditor leería la instalación entera
     // sin fijar inquilino y sin tocar una sola tabla protegida.
     const r = await c.query<{ relname: string; legible: boolean; publica: boolean;
-      duenio: string; acl: string | null }>(
+      duenio: string }>(
+      // `relacl` se seleccionaba sólo para imprimirlo; `has_table_privilege`
+      // ya contesta la pregunta y no se rompe cuando un GRANT legítimo cambia
+      // la forma del ACL.
       `SELECT c.relname,
               has_table_privilege('mnemosine_auditor', c.oid, 'SELECT') AS legible,
               has_table_privilege('public', c.oid, 'SELECT')            AS publica,
-              pg_get_userbyid(c.relowner)                               AS duenio,
-              array_to_string(c.relacl, ' ')                            AS acl
+              pg_get_userbyid(c.relowner)                               AS duenio
          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relkind = 'm'
         ORDER BY 1`
     );
-    for (const x of r.rows) {
-      console.log(`[ataque 6] matview ${x.relname}: legible=${x.legible} publica=${x.publica} ` +
-        `dueño=${x.duenio} acl=${x.acl ?? '(nula → sólo el dueño)'}`);
-    }
+    // El detalle iba a stdout; va a la aserción, que es donde se lee cuando
+    // falla. Se nombran LAS DOS vistas: una materializada nueva que naciera
+    // legible por el auditor tiene que romper esto, y un `filter(legible)`
+    // vacío no lo rompería. `publica` es la otra puerta —un GRANT a PUBLIC
+    // alcanza al auditor sin nombrarlo—, así que también se afirma.
+    expect(
+      r.rows.map((x) => `${x.relname} legible=${x.legible} publica=${x.publica} dueño=${x.duenio}`)
+    ).toEqual([
+      'mv_account_balance_summary legible=false publica=false dueño=mnemosine_refresher',
+      'mv_trial_balance legible=false publica=false dueño=mnemosine_refresher',
+    ]);
     // Refrescada como superusuario, que es lo mismo que hace el refresher con
     // su BYPASSRLS: la vista queda con las filas de TODOS los inquilinos.
     await c.query('REFRESH MATERIALIZED VIEW mv_trial_balance');
     const todas = await c.query<{ n: string; entidades: string }>(
       `SELECT count(*)::text AS n, count(DISTINCT entity_id)::text AS entidades FROM mv_trial_balance`
     );
-    console.log(`[ataque 6] mv_trial_balance materializada: ${todas.rows[0].n} filas de ` +
-      `${todas.rows[0].entidades} entidades (de todos los inquilinos)`);
+    // La premisa del caso, que también estaba sólo narrada: refrescada por un
+    // BYPASSRLS la vista mezcla entidades de varios inquilinos. Si dejara de
+    // mezclarlas, el GRANT sobre ella ya no significaría lo mismo y este caso
+    // estaría probando otra cosa sin avisar.
+    expect(Number(todas.rows[0].entidades)).toBeGreaterThan(1);
 
     await c.query('SET ROLE mnemosine_auditor');
     let leidas: string;
@@ -654,13 +679,11 @@ describe('ataque 6 · mnemosine_auditor', () => {
     } finally {
       await c.query('RESET ROLE');
     }
-    console.log(`[ataque 6] lo que el auditor lee de mv_trial_balance: ${leidas}`);
     expect(leidas).toMatch(/^denegado/);
-    expect(r.rows.filter((x) => x.legible)).toHaveLength(0);
   });
 
-  it('lo único que lee sin aislamiento es referencia global: ni un dato de nadie', async () => {
-    if (!aplicable) { expect(aplicable).toBe(false); return; }
+  it('lo único que lee sin aislamiento es referencia global: ni un dato de nadie', async (ctx) => {
+    if (!aplicable) return ctx.skip();
     const c = cliente!;
     // El censo de verdad: relaciones sin política que el auditor PUEDE leer.
     // Antes de tocar el guion aquí salían `identities` y las dos vistas
@@ -675,8 +698,6 @@ describe('ataque 6 · mnemosine_auditor', () => {
         ORDER BY 1`
     );
     const nombres = r.rows.map((x) => x.relname);
-    console.log(`[ataque 6] sin aislamiento y legibles por el auditor (${nombres.length}): ` +
-      (nombres.join(', ') || '(ninguna)'));
     expect(nombres).toEqual(
       ['exchange_rates', 'migrations', 'sat_codigos_agrupadores', 'tax_parameters', 'tax_tables']
     );
