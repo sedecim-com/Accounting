@@ -1,6 +1,6 @@
 # El idioma del código
 
-> Gemela en español de [[Code-language]] · source_sha: 122276e152a10070a262adfcf0e1e2b7063b37fc
+> Gemela en español de [[Code-language]] · source_sha: 2bfb8a7db8d33b90e98e49e8182c4c752ff2ff1e
 
 Desde el 2026-09-06 la regla es una frase, precisada dos veces el mismo día hasta no dejar excepción: **todo al inglés de origen —código, comentarios, commits, documentación, informes, vocabulario persistido, contratos publicados, migraciones— y toda la experiencia de usuario ajustable a otro idioma, con el español configurado primero.** Lo único que no va al inglés es lo que no es origen: las filas ya escritas en la base y los nombres propios (SAT, CFDI, RFC, IMSS no se traducen, como IRS no se traduce en español). El documento rector es [`docs/language.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/language.md) (con su gemela española [`language.es.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/language.es.md)); el inventario que lo sostiene, con el comando de cada cifra, está en [`docs/investigacion/2026-09-06-idioma/`](https://github.com/sedecim-com/Accounting/tree/main/docs/investigacion/2026-09-06-idioma).
 
@@ -15,17 +15,17 @@ Desde el 2026-09-06 la regla es una frase, precisada dos veces el mismo día has
 
 ## Lo que hay hoy
 
-- El 45 % de las 4 637 declaraciones de `src/` está en español, y no por capa sino por fecha: lo que se escribió en agosto es inglés; lo de septiembre, español. 41 archivos y 35 migraciones llevan nombre español (las migraciones no se renombran nunca).
-- El 78 % de las 29 309 líneas de comentario está en español **porque una regla lo ordena** (`CONTRIBUTING.md:158`). Esa regla se invierte para lo nuevo; lo existente no se traduce en masa.
+- El 45 % de las 4 637 declaraciones de `src/` está en español, y no por capa sino por fecha: lo que se escribió en agosto es inglés; lo de septiembre, español. 51 archivos y 35 migraciones llevan nombre español (el número de una migración no cambia nunca).
+- El 78 % de las 29 319 líneas de comentario está en español **porque una regla lo ordena** (`CONTRIBUTING.md:158`). Esa regla se invierte para lo nuevo; lo existente se traduce por tramo con trinquete.
 - La ayuda del CLI es inglesa al 99 % y así lo vigilan tres instrumentos; pero la ejecución contesta en español en 24 archivos, y nadie lo medía.
-- El panel de políticas está al revés del pedido: claves y valores en español (persistidos, intocables) bajo preguntas y etiquetas en inglés.
+- El panel de políticas está al revés del pedido: claves y valores en español (persistidos) bajo preguntas y etiquetas en inglés.
 - Unas 120 plantillas de descripción de póliza están en inglés y **viajan al SAT como `Concepto`** del Anexo 24, que además se persiste entero con su hash. Es un defecto fiscal antes que de idioma.
 - `account_roles.role` es un vocabulario de 36 valores españoles persistidos sin `CHECK` y leídos en 26 archivos; y los textos ingleses del panel están persistidos por inquilino, así que cambiarlos es cambiar lectores, no sólo etiquetas.
 - No hay `Intl`, ni columna de idioma, ni bandera `--lang`; el único resolutor de idioma lo usa sólo el agente.
 
 ## Lo que se propone, en orden
 
-Veintiún tramos (I0–I20; epic [#141](https://github.com/sedecim-com/Accounting/issues/141), tramos [#142](https://github.com/sedecim-com/Accounting/issues/142)–[#162](https://github.com/sedecim-com/Accounting/issues/162)), cada uno con su criterio ejecutable; cada uno deja el árbol verde y la línea base más baja, y parar en cualquiera es un estado válido.
+Veintisiete tramos (I0–I26; epic [#141](https://github.com/sedecim-com/Accounting/issues/141), tramos [#142](https://github.com/sedecim-com/Accounting/issues/142)–[#169](https://github.com/sedecim-com/Accounting/issues/169)), cada uno con su criterio ejecutable; cada uno deja el árbol verde y la línea base más baja, y parar en cualquiera es un estado válido.
 
 1. **I0–I4, los cimientos**: identidad estable para los instrumentos que hoy usan texto español como clave; el léxico y la regla escrita; el metro `language:status` con cifras que sólo bajan; el lint `house/english-identifiers` que hace fallar un identificador español nuevo, con línea base por archivo; y el vocabulario estable —claves y valores del panel, los 36 roles de cuenta, los `CHECK`, los códigos publicados, las migraciones— registrado con glosa inglesa. **I5**: J0 nace en inglés.
 2. **I6–I11, el usuario lee en su idioma**: un resolutor de locale (`--locale`, `es-MX` por omisión), un catálogo **tipado** (una clave sin traducción al español es un error de compilación) con formateador propio sobre `Intl`; el kernel del CLI y el piloto `bank`; las hojas por familia; la API con `Accept-Language` y códigos congelados; el panel preguntando en el idioma del contador sin tocar lo persistido; informes, `doctor` y agente.
@@ -34,7 +34,7 @@ Veintiún tramos (I0–I20; epic [#141](https://github.com/sedecim-com/Accountin
 5. **I18–I22**: el motor sellado, con sus cuatro tablas de umbral movidas a la vez; `tests/` y el instrumento; los comentarios existentes por tramo con trinquete; la documentación como experiencia de usuario (fuente inglesa y gemela española por página); y los commits en inglés.
 6. **I23–I26, lo que tiene red debajo**: el vocabulario persistido con migración de datos y ventana de alias; los contratos publicados con `SCHEMA_VERSION 2` y código heredado durante una versión; las migraciones y el esquema con un mapa de nombres heredados en el migrador; y los informes fechados con su gemela. Son los últimos porque cada uno toca datos de inquilinos o clientes ajenos. **La obligación de las gemelas entra con I21 e I26**; hasta entonces cada página sin gemela cuenta en la línea base del metro, que sólo baja, empezando por los 23 informes de esta investigación. Esta página y el rector ya cumplen: fuente inglesa y gemela española con `source_sha`.
 
-**J0 nace en inglés**: `jurisdictionOf`, `JurisdictionPackage`, `legal_parameters`, `src/jurisdictions/`. El primer paso de J0 está en curso con los nombres españoles en una rama sin fusionar; renombrar antes de fusionar es el renombre más barato de todo el plan.
+**J0 nace en inglés**: `jurisdictionOf`, `JurisdictionPackage`, `legal_parameters`, `src/jurisdictions/`. El primer paso de J0 se renombró al inglés en su propia rama antes de fusionar (PR #140, 2026-09-07, a petición del revisor): el renombre más barato de todo el plan.
 
 ## Lo que decide el dueño
 

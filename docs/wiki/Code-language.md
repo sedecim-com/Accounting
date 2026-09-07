@@ -15,7 +15,7 @@ Since 2026-09-06 the rule is one sentence, refined twice the same day until no e
 
 ## What exists today
 
-- 45 % of the 4,637 declarations in `src/` are Spanish, and not by layer but by date: what was written in August is English; September's is Spanish. 41 files and 35 migrations carry Spanish names (migration numbers never change).
+- 45 % of the 4,637 declarations in `src/` are Spanish, and not by layer but by date: what was written in August is English; September's is Spanish. 51 files and 35 migrations carry Spanish names (migration numbers never change).
 - 78 % of the 29,319 comment lines are Spanish **because a rule orders it** (`CONTRIBUTING.md:158`). That rule is inverted for what is new; what exists is translated by tranche with a ratchet.
 - The CLI help is 99 % English and three instruments guard that; but the execution answers in Spanish in 24 files, and nobody measured it.
 - The policy panel is the opposite of the request: keys and values in Spanish (persisted) under questions and labels in English.
@@ -34,7 +34,7 @@ Twenty-seven tranches (I0–I26; epic [#141](https://github.com/sedecim-com/Acco
 5. **I18–I22**: the sealed engine, with its four threshold tables moved at once; `tests/` and the instrument; existing comments by tranche with a ratchet; documentation as user experience (English source and Spanish twin per page); and commits in English.
 6. **I23–I26, what has a net underneath**: persisted vocabulary with a data migration and an alias window; published contracts with `SCHEMA_VERSION 2` and a legacy code for one version; migrations and schema with a legacy-name map in the migrator; and dated reports with their twin. They go last because each touches tenants' data or third-party clients. **The twin obligation enters with I21 and I26**; until then every page without a twin counts in the meter's baseline, which only lowers, starting with the 23 reports of this investigation. This page and the governing document already comply: English source and Spanish twin with `source_sha`.
 
-**J0 is born English**: `jurisdictionOf`, `JurisdictionPackage`, `legal_parameters`, `src/jurisdictions/`. The first step of J0 is in progress with the Spanish names on an unmerged branch; renaming before merging is the cheapest rename of the whole plan.
+**J0 is born English**: `jurisdictionOf`, `JurisdictionPackage`, `legal_parameters`, `src/jurisdictions/`. The first step of J0 was renamed to English on its own branch before merging (PR #140, 2026-09-07, at the reviewer's request): the cheapest rename of the whole plan.
 
 ## What the owner decides
 
