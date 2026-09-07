@@ -65,7 +65,7 @@ import {
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { riskOf, resetDeclarations } from '../../src/cli/kernel/risk.js';
 import { FLAG_DICTIONARY } from '../../src/cli/kernel/flags.js';
-import { ExitCode } from '../../src/cli/kernel/exit.js';
+import { ExitCode, checkExitCode } from '../../src/cli/kernel/exit.js';
 import { palette } from '../../src/cli/palette.js';
 import type {
   CashFlowStatement,
@@ -102,7 +102,7 @@ function estado(over: Partial<CashFlowStatement> = {}): CashFlowStatement {
     start_date: '2026-07-01',
     end_date: '2026-07-31',
     method: 'indirect',
-    policies: { metodo: 'indirecto', cuentasDeEfectivo: 'rol', descuadre: 'avisar' },
+    policies: { metodo: 'indirecto', cuentasDeEfectivo: 'rol', descuadre: 'avisar', sinClasificar: 'avisar' },
     net_income: '30000.0000',
     operating_activities: {
       net_income: '30000.0000',
@@ -127,6 +127,7 @@ function estado(over: Partial<CashFlowStatement> = {}): CashFlowStatement {
     self_check: {
       unclassified_total: '0.0000',
       candidates: [],
+      all_classified: true,
       ties: true,
       note: 'Every account that moved was classified into a section.',
     },
@@ -397,7 +398,7 @@ describe('el amarre visible', () => {
 
   it('el saldo inicial y el final se imprimen aunque la política sea «silencio»', () => {
     const filas = filasDelAmarre(
-      estado({ policies: { metodo: 'indirecto', cuentasDeEfectivo: 'rol', descuadre: 'silencio' } }),
+      estado({ policies: { metodo: 'indirecto', cuentasDeEfectivo: 'rol', descuadre: 'silencio', sinClasificar: 'avisar' } }),
       efectivo()
     );
     expect(filas.filter((f) => f.line === 'tie')).toHaveLength(3);
@@ -515,7 +516,7 @@ describe('cashflow generate — el residuo y quién decide su gravedad', () => {
   it('«bloquear»: el mismo residuo pasa a ser hallazgo y sale 4', async () => {
     conResiduo();
     vi.mocked(motor.getCashFlowStatement).mockResolvedValue(
-      estado({ policies: { metodo: 'indirecto', cuentasDeEfectivo: 'rol', descuadre: 'bloquear' } })
+      estado({ policies: { metodo: 'indirecto', cuentasDeEfectivo: 'rol', descuadre: 'bloquear', sinClasificar: 'avisar' } })
     );
     const r = await correr(['cashflow', 'generate', '--period', '2026-07']);
     expect(r.code).toBe(ExitCode.VALIDATION);
@@ -525,7 +526,7 @@ describe('cashflow generate — el residuo y quién decide su gravedad', () => {
   it('«silencio» degrada a nota y LO DICE: apagar el aviso no es no haber medido', async () => {
     conResiduo();
     vi.mocked(motor.getCashFlowStatement).mockResolvedValue(
-      estado({ policies: { metodo: 'indirecto', cuentasDeEfectivo: 'rol', descuadre: 'silencio' } })
+      estado({ policies: { metodo: 'indirecto', cuentasDeEfectivo: 'rol', descuadre: 'silencio', sinClasificar: 'avisar' } })
     );
     const r = await correr(['cashflow', 'generate', '--period', '2026-07', '--json']);
     expect(r.code).toBe(ExitCode.OK);
@@ -534,6 +535,37 @@ describe('cashflow generate — el residuo y quién decide su gravedad', () => {
     // el lector puede ver contra qué se compara el estado.
     const sobre = JSON.parse(r.out) as { rows: Array<Record<string, string>> };
     expect(sobre.rows.find((f) => f.line === 'residue')?.amount).toBe('65000.0000');
+  });
+
+  // EL CASO QUE NO TENÍA VEREDICTO: residuo CERO y secciones sin clasificar.
+  // La hoja imprimía «Ties: …» y salía 0, porque su única pregunta era si el
+  // neto igualaba la variación del mayor — y la iguala. Un lector que mira la
+  // última línea de stderr se llevaba «amarra» sobre un estado cuyos tres
+  // subtotales están mal.
+  it('residuo CERO con cuentas sin sección: avisa en vez de decir «Ties»', async () => {
+    vi.mocked(motor.getCashFlowStatement).mockResolvedValue(
+      estado({
+        unclassified: seccion('0.0000', [
+          linea('1295', 'Equipo importado', '5000.0000', '-5000.0000'),
+          linea('2295', 'Crédito importado', '-5000.0000', '5000.0000'),
+        ]),
+        self_check: {
+          unclassified_total: '0.0000',
+          candidates: [],
+          all_classified: false,
+          ties: true,
+          note: '2 account(s) moved without falling into any section, and their amounts cancel out.',
+        },
+      })
+    );
+    const r = await correr(['cashflow', 'generate', '--period', '2026-07']);
+    expect(r.err).not.toMatch(/Ties: the statement net equals/);
+    expect(r.err).toMatch(/it is not classified/);
+    expect(r.err).toMatch(/The subtotals above do not stand; the net does\./);
+    // La advertencia sin --strict no cambia el código de salida —es la misma
+    // convención que el residuo bajo «avisar»—: lo que cambia es que deja de
+    // decirse una frase que no se midió.
+    expect(r.code).toBe(checkExitCode({ blocking: 0, warning: 1 }));
   });
 });
 
