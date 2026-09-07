@@ -2,6 +2,8 @@
 
 > Documento rector. Propuesta de diseño del **panel de configuración por jurisdicción**, escrita el 2026-09-06 sobre la verificación escéptica del código que vive en [`docs/investigacion/2026-09-06-normas-y-motores/motores/`](investigacion/2026-09-06-normas-y-motores/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía y no debe leerse como capacidad. Cuando este documento y el código discrepen, gana el código — y este documento se corrige en el mismo PR.
 
+> **Nombres en inglés (2026-09-06).** Después de escribir este documento, el dueño fijó la regla de que todo el código nace en inglés ([`docs/idioma.md`](idioma.md)). Los identificadores que aquí se proponen en español se leen con su nombre inglés: `jurisdiccionDe` → `jurisdictionOf`, `Jurisdiccion` → `Jurisdiction`, `CodigoJurisdiccion` → `JurisdictionCode`, `PaqueteDeJurisdiccion` → `JurisdictionPackage`, `AjusteDeClave` → `PolicyKeyOverride`, `parametros_legales` → `legal_parameters`, `parametroLegal` → `legalParameter`, `src/jurisdicciones/` → `src/jurisdictions/`. Los valores de opciones del panel (`directo_a_acumulados`, `dos_pasos_hasta_asamblea`) son vocabulario persistido y **no** cambian.
+
 ## 0. La pregunta
 
 mnemosine arranca con dos jurisdicciones —México y Estados Unidos— y aspira a más. La instrucción de diseño es una sola frase: *mantén todo configurable para que exista un panel de configuración por jurisdicción que permita ajustar las diferencias a cada una*.
