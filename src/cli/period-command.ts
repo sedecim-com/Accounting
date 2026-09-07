@@ -24,7 +24,7 @@ import {
   declareRisk,
   gateMutation,
   render,
-  resolveFormat,
+  legible,
   withContext,
   withForce,
   withOutput,
@@ -276,7 +276,12 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
       const ctx = await entityOf(opts);
       const detail = await getPeriodDetail(ctx.entityId, name);
 
-      if (resolveFormat(opts) !== 'table' || opts.quiet) {
+      // `-o` CUENTA COMO PEDIR OTRA FORMA (#90). Esta guarda copiaba a mano
+      // TRES de las cinco cláusulas del predicado canónico, y le faltaba la
+      // que importa aquí: con `-o`, la ficha en prosa se iba por la terminal y
+      // el archivo se quedaba sin ella —o no existía siquiera—. Se pregunta al
+      // kernel, que es donde vive la definición de «modo humano».
+      if (!legible(opts)) {
         render(
           [
             {
@@ -603,7 +608,7 @@ export function registerYearCommand(program: Command, deps: PeriodCommandDeps): 
       if (!Number.isInteger(yearNumber)) throw usageError(`"${yearArg}" is not a four-digit year.`);
       const { year: fiscalYear, periods } = await getFiscalYear(ctx.entityId, yearNumber);
 
-      if (resolveFormat(opts) !== 'table' || opts.quiet) {
+      if (!legible(opts)) {
         render(
           [
             {

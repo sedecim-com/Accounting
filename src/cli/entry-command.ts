@@ -42,7 +42,7 @@ import {
   declareRisk,
   gateMutation,
   render,
-  resolveFormat,
+  legible,
   checkExitCode,
   withContext,
   withOutput,
@@ -488,7 +488,16 @@ export function registerEntryCommand(program: Command, deps: EntryCommandDeps): 
       // Machine formats get one object with the lines nested; a terminal gets
       // a header block and then the lines as a table, which is how an
       // accountant reads a póliza.
-      if (resolveFormat(opts) !== 'table' || opts.quiet) {
+      //
+      // Y `-o` CUENTA COMO PEDIR OTRA FORMA. Era la única guarda de esta
+      // familia que no lo consultaba —las otras diez pasan por un `legible()`
+      // que sí—, y le faltaba justo esa condición: con `-o` la ficha escrita a
+      // mano se iba por la terminal y al archivo llegaban sólo los renglones,
+      // sin número de póliza, sin fecha, sin estatus y sin totales. El archivo
+      // existía, y por eso el defecto no se veía: mentía por lo que le faltaba.
+      // Ahora pregunta al predicado canónico, en el kernel, en vez de a una
+      // copia a mano de tres cláusulas de las cinco.
+      if (!legible(opts)) {
         render([{ ...header, lines: opts.lines === false ? undefined : detail.lines.map(lineRow) }], {
           ...opts,
           idField: 'entry_number',
