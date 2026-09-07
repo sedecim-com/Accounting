@@ -64,7 +64,43 @@ ALTER TABLE ai_ingest_runs
 -- cerradas y completas. Sin este relleno nacerían en 'running' y la primera
 -- consulta de «corridas varadas» las delataría todas como muertas — un
 -- histórico entero convertido en falsa alarma por una migración.
-UPDATE ai_ingest_runs SET status = 'completed', closed_at = created_at;
+-- POR INQUILINO, Y DECLARÁNDOLO (#88). `ai_ingest_runs` declara tenant_id NOT
+-- NULL, así que rls-policies.sql le pone ENABLE + FORCE ROW LEVEL SECURITY con
+-- su política tenant_isolation, y el dueño del esquema —NOSUPERUSER
+-- NOBYPASSRLS por scripts/provision-roles.sql:59-60— queda SUJETO a ella.
+--
+-- Sin este bucle el UPDATE no rellenaba cero filas en silencio: REVENTABA con
+-- 42501 y revertía el archivo entero —columnas, CHECKs, índice y comentarios—
+-- en cualquier despacho ya instalado, porque migrate.ts corre la sesión con
+-- row_security=off y eso convierte el filtrado silencioso en error. Es el
+-- mismo patrón sancionado de la 025, 026, 043, 048, 051 y 053; ésta se quedó
+-- fuera, y por eso `npm run migrate` moría aquí.
+SET LOCAL row_security = on;
+DO $cierre$
+DECLARE
+    t        record;
+    cerradas bigint := 0;
+    parcial  bigint;
+BEGIN
+    FOR t IN SELECT id FROM tenants LOOP
+        PERFORM set_config('app.current_tenant', t.id::text, true);
+
+        UPDATE ai_ingest_runs
+           SET status = 'completed',
+               closed_at = created_at;
+
+        GET DIAGNOSTICS parcial = ROW_COUNT;
+        cerradas := cerradas + parcial;
+    END LOOP;
+    -- Se devuelve el contexto a vacío, como hacen las seis hermanas: dejar el
+    -- último inquilino puesto para el resto de la transacción es un residuo
+    -- que no muerde hoy —lo que sigue es DDL— y muerde el día que alguien
+    -- añada una sentencia de datos debajo.
+    PERFORM set_config('app.current_tenant', '', true);
+
+    RAISE NOTICE 'Corridas históricas cerradas: %', cerradas;
+END
+$cierre$;
 
 ALTER TABLE ai_ingest_runs
     ADD CONSTRAINT ai_ingest_runs_status_check
