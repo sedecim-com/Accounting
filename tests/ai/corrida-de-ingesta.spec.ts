@@ -798,12 +798,23 @@ describe('la 058 distingue «murió a medias» de «corrió y no encontró nada�
     // sin closed_at y el CHECK las rechazaría — la migración fallaría en toda
     // base con histórico. Y aunque pasara, un histórico entero quedaría
     // marcado como corridas muertas.
+    //
+    // El relleno se busca por su FORMA, no por una línea literal: desde T1
+    // (#88) va dentro de un bucle por inquilino —sin él la RLS lo dejaba en
+    // cero filas y la migración moría con 42501— y por tanto está partido en
+    // varias líneas. Lo que esta prueba defiende es el ORDEN, que es lo que
+    // hacía inaplicable la migración, no la maquetación del SQL.
     const s = sql();
-    const relleno = s.indexOf("UPDATE ai_ingest_runs SET status = 'completed', closed_at = created_at");
+    const relleno = s.search(/UPDATE\s+ai_ingest_runs\s+SET\s+status\s*=\s*'completed'\s*,\s*closed_at\s*=\s*created_at/);
     const check = s.indexOf('ADD CONSTRAINT ai_ingest_runs_cierre_check');
     expect(relleno, 'falta el relleno de las filas de la 044').toBeGreaterThan(-1);
     expect(check).toBeGreaterThan(-1);
     expect(relleno).toBeLessThan(check);
+    // Y el relleno alcanza a las filas: dentro del opt-in de RLS y su bucle.
+    const optIn = s.indexOf('SET LOCAL row_security = on');
+    expect(optIn, 'el relleno perdió su opt-in de RLS (#88)').toBeGreaterThan(-1);
+    expect(optIn).toBeLessThan(relleno);
+    expect(s).toMatch(/FOR\s+\w+\s+IN\s+SELECT\s+id\s+FROM\s+tenants/);
   });
 
   it('y el UPDATE de cierre no choca con ningún disparador ni con el sólo-agregar', () => {
