@@ -207,6 +207,12 @@ export function bootstrapTenant(tenantFlag?: string): void {
  * está dada de baja: son dos remedios distintos y un solo booleano los
  * confunde.
  */
+/** El mensaje de un error, si de verdad es texto. Nunca '[object Object]'. */
+function mensajeDelError(err: unknown): string {
+  const m = (err as { message?: unknown } | null)?.message;
+  return typeof m === 'string' ? m : '';
+}
+
 export async function estadoDelInquilino(
   tenantId: string
 ): Promise<'activo' | 'inactivo' | 'inexistente' | 'indeterminable'> {
@@ -231,7 +237,12 @@ export async function estadoDelInquilino(
     // base— en un fallo de conexión con código 1. Un instrumento de aviso que
     // cambia el código de salida de lo que observa es justo lo que este tramo
     // repara.
-    const codigo = String((err as { code?: unknown } | null)?.code ?? '');
+    // Se estrecha el tipo en vez de convertir `unknown` a texto: `String()`
+    // sobre un objeto da '[object Object]', que casaría con cualquier cosa o
+    // con nada según el patrón, y aquí lo que se decide es si un error se
+    // traga o se propaga.
+    const codigoCrudo = (err as { code?: unknown } | null)?.code;
+    const codigo = typeof codigoCrudo === 'string' ? codigoCrudo : '';
     // Permiso denegado y tabla ausente: el despliegue no deja preguntar.
     if (codigo === '42501' || codigo === '42P01') return 'indeterminable';
     // Y LA BASE INALCANZABLE, que es la familia que faltaba. Este chequeo corre
@@ -242,7 +253,7 @@ export async function estadoDelInquilino(
     if (
       /^(?:ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|08\d{3}|57P03)$/.test(codigo) ||
       err instanceof AggregateError ||
-      /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH/.test(String((err as { message?: unknown } | null)?.message ?? ''))
+      /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH/.test(mensajeDelError(err))
     ) {
       return 'indeterminable';
     }
