@@ -232,7 +232,19 @@ function treeIsClean(): boolean {
 }
 
 function main(argv: string[]): number {
-  const has = (f: string): boolean => argv.includes(f);
+  // NOMBRE CANÓNICO INGLÉS, ALIAS ESPAÑOL — la regla del propio epic aplicada
+  // al primer comando que nace bajo ella. El alias no es cortesía: los metros
+  // hermanos de esta casa se invocan con `--escribir`, `--apretar` y
+  // `--sembrar`, y quien los tiene en la memoria de los dedos no debería
+  // descubrir el cambio con un comando que no hace nada y sale cero.
+  const ALIAS: Record<string, string> = {
+    '--sembrar': '--seed',
+    '--apretar': '--tighten',
+    '--escribir': '--write',
+    '--comprobar': '--check',
+  };
+  const banderas = new Set(argv.map((a) => ALIAS[a] ?? a));
+  const has = (f: string): boolean => banderas.has(f);
   const lanes = measure();
   const base = readBaseline();
 
@@ -259,7 +271,7 @@ function main(argv: string[]): number {
   }
 
   if (base === null) {
-    process.stderr.write('No hay línea base. Créala con `npm run language:status -- --seed`.\n');
+    process.stderr.write('No hay línea base. Créala con `npm run language:status -- --seed` (alias: `--sembrar`).\n');
     return 1;
   }
 
@@ -278,7 +290,7 @@ function main(argv: string[]): number {
 
   const findings = compare(lanes, base);
 
-  if (has('--escribir')) {
+  if (has('--write')) {
     const written = writeBlock(block(lanes, base));
     process.stdout.write(
       written
