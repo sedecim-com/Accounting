@@ -129,6 +129,34 @@ arrendamiento** para casi todos los arrendamientos (excepciones: corto plazo
 gasto solo es correcta bajo esas excepciones — si detectas rentas recurrentes
 grandes de largo plazo, sugiere evaluar D-5 con el contador.
 
+## C-13 — Partes relacionadas
+
+Una operación con parte relacionada se registra como cualquier otra, pero
+**exige revelación**: naturaleza de la relación, monto, saldos pendientes y
+condiciones. Lo que la norma prohíbe es afirmar que fueron condiciones de
+mercado sin sustento.
+
+**Este sistema no la cubre.** No hay marca de parte relacionada en clientes ni
+proveedores, ni informe que las agrupe. Si el contador identifica una, el
+registro es correcto y la revelación se redacta fuera. Se nombra aquí para que
+la ausencia sea medible: lo que no se nombra no se echa de menos.
+
+## Lo que este sistema devenga, y lo que declara no devengar
+
+La sección de cada NIF describe la NORMA. Ésta describe el MOTOR, que es otra
+cosa y conviene no confundir.
+
+| Concepto | NIF | El sistema |
+|---|---|---|
+| Anticipos y pagos anticipados (1160) | A-2, C-5 | **Devenga**, corrida mensual idempotente por entidad-periodo |
+| Aguinaldo, vacaciones, prima vacacional | D-3 | **Cuentas sembradas** (2196-2198); el motor de provisión mensual, pendiente |
+| PTU | D-3, LFT 117 | **Cuenta sembrada** (2199); mensual sólo si el panel lo enciende (`provision_ptu_mensual`, por omisión no) |
+| Prima de antigüedad | D-3, LFT 162 | **Fuera de alcance, declarado.** Exige valuación actuarial —rotación, mortalidad, descuento—; una cuenta sin motor que la alimente es peor que ninguna, porque parece cobertura |
+| Impuestos diferidos | D-4 | **Cuentas sembradas** (1310, 2300); el cálculo es de cierre anual y con juicio, se propone como borrador |
+| Arrendamientos | D-5 | **Sin motor.** No hay activo por derecho de uso ni pasivo por arrendamiento; la renta se registra como gasto, que sólo es correcto bajo las excepciones de corto plazo y bajo valor |
+| Partes relacionadas | C-13 | **Sin motor ni revelación** (ver arriba) |
+| Otros Resultados Integrales | B-3 | **Categoría y cuenta existen** (3400, `fs_category = 'ori'`); qué se lleva al ORI lo decide cada caso |
+
 ## B-1 — Cambios contables y correcciones de errores
 
 - **Error del ejercicio EN CURSO** (detectado antes de emitir estados): se

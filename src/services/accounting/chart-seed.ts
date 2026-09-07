@@ -53,15 +53,41 @@ export const CATALOGO_UNIVERSAL: ChartAccountSpec[] = [
     { code: '1220', name: 'Equipo de Cómputo', type: 'asset', sub: 'fixed_asset', fs: 'non_current_assets', balance: 'debit', parent: '1200' },
     { code: '1230', name: 'Equipo de Transporte', type: 'asset', sub: 'fixed_asset', fs: 'non_current_assets', balance: 'debit', parent: '1200' },
     { code: '1290', name: 'Depreciación Acumulada', type: 'contra_asset', sub: null, fs: 'non_current_assets', balance: 'credit', parent: '1200' },
+    // ── LO QUE SE DEBE Y TODAVÍA NO SE PAGA (D1) ────────────────────
+    //
+    // De los 61 nombres que este catálogo sembraba no había UNA sola
+    // estimación, provisión ni cuenta diferida. Sin ellas no hay devengo
+    // posible: un despacho que no puede provisionar publica once meses de
+    // utilidad inflada y un diciembre catastrófico, y ninguno de los doce
+    // estados es firmable.
+    //
+    // Las estimaciones son CONTRA-ACTIVO y no gasto acumulado: reducen el
+    // activo que corrigen y se presentan restando en su mismo renglón, que
+    // es lo que la NIF C-3 pide para el deterioro de cuentas por cobrar.
+    { code: '1129', name: 'Estimación para Cuentas de Cobro Dudoso', type: 'contra_asset', sub: null, fs: 'current_assets', balance: 'credit', parent: '1120' },
+    { code: '1149', name: 'Estimación de Inventarios Obsoletos', type: 'contra_asset', sub: null, fs: 'current_assets', balance: 'credit', parent: '1140' },
+    { code: '1300', name: 'Activo Diferido', type: 'asset', sub: null, fs: 'non_current_assets', balance: 'debit', header: true, parent: '1000' },
+    { code: '1310', name: 'Impuestos Diferidos a Favor', type: 'asset', sub: null, fs: 'non_current_assets', balance: 'debit', parent: '1300' },
     // Liabilities
     { code: '2000', name: 'Pasivo', type: 'liability', sub: null, fs: 'current_liabilities', balance: 'credit', header: true },
     { code: '2100', name: 'Pasivo Circulante', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', header: true, parent: '2000' },
     { code: '2110', name: 'Cuentas por Pagar', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2100' },
+    // La provisión es un pasivo, no una reserva de capital: es dinero que ya
+    // se debe aunque todavía no se pague. El encabezado es universal porque
+    // toda jurisdicción devenga beneficios a empleados; los conceptos
+    // concretos —aguinaldo, PTU— son de la LFT y viven en el estrato MX.
+    { code: '2195', name: 'Provisiones de Beneficios a Empleados', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', header: true, parent: '2100' },
+    { code: '2300', name: 'Impuestos Diferidos por Pagar', type: 'liability', sub: 'long_term_liability', fs: 'long_term_liabilities', balance: 'credit', parent: '2000' },
     // Equity
     { code: '3000', name: 'Capital Contable', type: 'equity', sub: null, fs: 'equity', balance: 'credit', header: true },
     { code: '3100', name: 'Capital Social', type: 'equity', sub: 'common_stock', fs: 'equity', balance: 'credit', parent: '3000', system: true },
     { code: '3200', name: 'Resultado de Ejercicios Anteriores', type: 'equity', sub: 'retained_earnings', fs: 'equity', balance: 'credit', parent: '3000', system: true },
     { code: '3300', name: 'Resultado del Ejercicio', type: 'equity', sub: 'retained_earnings', fs: 'equity', balance: 'credit', parent: '3000' },
+    // El ORI es capital que NO pasó por el resultado del ejercicio (NIF B-3):
+    // revaluación, conversión de operaciones extranjeras y remediciones de
+    // beneficios a empleados. Su `fs` propio —que la 073 añade al CHECK— es
+    // lo que impide que una revaluación se lea como aportación de socios.
+    { code: '3400', name: 'Otros Resultados Integrales', type: 'equity', sub: null, fs: 'ori', balance: 'credit', parent: '3000' },
     { code: '3900', name: 'Resumen de Ingresos y Gastos', type: 'equity', sub: null, fs: 'equity', balance: 'credit', parent: '3000', system: true },
     // Revenue
     { code: '4000', name: 'Ingresos', type: 'revenue', sub: null, fs: 'revenue', balance: 'credit', header: true },
@@ -90,6 +116,33 @@ export const CATALOGO_UNIVERSAL: ChartAccountSpec[] = [
  * sobre la moneda funcional de la entidad.
  */
 export const ESTRATO_FISCAL_MX: ChartAccountSpec[] = [
+    // ── LO QUE LA LEY MEXICANA HACE DEBER MES A MES (D1) ────────────
+    //
+    // Cuatro conceptos que se DEVENGAN durante el año y se pagan en una sola
+    // fecha, o en ninguna hasta que el trabajador se va. Sin estas cuentas el
+    // devengo no tiene dónde escribirse:
+    //
+    //   · Aguinaldo — LFT 87: al menos 15 días, pagaderos antes del 20 de
+    //     diciembre. Se gana día a día durante todo el año.
+    //   · Vacaciones — LFT 76 (reformado 2023): 12 días desde el primer año,
+    //     subiendo con la antigüedad. El derecho nace al cumplir año.
+    //   · Prima vacacional — LFT 80: 25 % de los días de vacaciones.
+    //   · PTU — LFT 117-131 y CPEUM 123-A-IX: 10 % de la renta gravable, a
+    //     repartir dentro de los 60 días siguientes a la declaración anual.
+    //
+    // La prima de antigüedad (LFT 162) NO tiene cuenta aquí y es deliberado:
+    // es un beneficio por terminación de largo plazo que la NIF D-3 manda
+    // valuar ACTUARIALMENTE —hipótesis de rotación, mortalidad y descuento—,
+    // y una cuenta sin motor que la alimente es peor que no tenerla: parece
+    // que el sistema la cubre. Entra cuando entre la valuación, no antes.
+    { code: '2196', name: 'Provisión de Aguinaldo', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2195' },
+    { code: '2197', name: 'Provisión de Vacaciones', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2195' },
+    { code: '2198', name: 'Provisión de Prima Vacacional', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2195' },
+    { code: '2199', name: 'Provisión de PTU', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2195' },
+    // LGSM 20: 5 % de las utilidades a la reserva legal hasta que alcance el
+    // 20 % del capital social. Es capital, no pasivo, y es obligación de la
+    // sociedad mexicana, no de toda entidad: por eso vive en el estrato.
+    { code: '3150', name: 'Reserva Legal', type: 'equity', sub: null, fs: 'equity', balance: 'credit', parent: '3000' },
     { code: '1111', name: 'Banco Nacional - MXN', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1110' },
     { code: '1112', name: 'Banco Nacional - USD', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1110' },
     { code: '1130', name: 'IVA Acreditable', type: 'asset', sub: 'current_asset', fs: 'current_assets', balance: 'debit', parent: '1100' },
