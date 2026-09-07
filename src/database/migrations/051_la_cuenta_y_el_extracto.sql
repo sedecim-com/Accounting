@@ -204,17 +204,82 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER bank_transactions_content_hash
-  BEFORE INSERT OR UPDATE OF bank_account_id, transaction_date, amount, description
+  BEFORE INSERT OR UPDATE OF bank_account_id, transaction_date, amount, description, content_hash
   ON bank_transactions
   FOR EACH ROW EXECUTE FUNCTION bank_tx_content_hash();
 
--- Relleno de lo ya importado por la MISMA vía, para que no haya dos recetas.
-UPDATE bank_transactions SET content_hash = NULL;
+-- ── EL RELLENO DE LO YA IMPORTADO, POR LA MISMA VÍA ─────────────────────
+--
+-- Por la MISMA vía, para que no haya dos recetas del hash: la única receta es
+-- el disparador de arriba. Pero llegar hasta ahí cuesta dos correcciones, y
+-- las dos fueron defectos reales que abortaban esta migración entera en
+-- cualquier despacho con un solo movimiento importado (#88).
+--
+-- (1) `SET content_hash = NULL` NO DISPARABA NADA. El disparador vigila
+--     `UPDATE OF (bank_account_id, transaction_date, amount, description)`, y
+--     `content_hash` no estaba en esa lista, así que la asignación pasaba de
+--     largo y dejaba el NULL escrito. Se toca una columna VIGILADA con una
+--     asignación idéntica —no cambia ningún dato— cuyo único efecto es hacer
+--     correr el disparador.
+--
+-- (2) Y AUNQUE DISPARARA, NO VERÍA NINGUNA FILA. Cuarenta líneas más arriba
+--     esta misma migración deja `row_security = on` y vacía
+--     `app.current_tenant`; desde ahí, un UPDATE sobre una tabla acotada por
+--     RLS afecta CERO filas en silencio, mientras el `SET NOT NULL` de abajo
+--     escanea la tabla de verdad y sí ve los NULL. El bucle por inquilino es
+--     el patrón sancionado (docs/migraciones.md) y esta migración ya lo usa
+--     para su propia guarda de CLABE: es la misma trampa que su comentario
+--     explica, cayendo ciento treinta líneas después.
+SET LOCAL row_security = on;
+DO $relleno$
+DECLARE t record;
+BEGIN
+  FOR t IN SELECT id FROM tenants LOOP
+    PERFORM set_config('app.current_tenant', t.id::text, true);
+    UPDATE bank_transactions SET transaction_date = transaction_date;
+  END LOOP;
+  PERFORM set_config('app.current_tenant', '', true);
+END $relleno$;
 
 ALTER TABLE bank_transactions ALTER COLUMN content_hash SET NOT NULL;
 
-CREATE UNIQUE INDEX uq_bank_tx_contenido ON bank_transactions(bank_account_id, content_hash);
+-- ── LA HUELLA NO ES UNA LLAVE (#88) ─────────────────────────────────────
+--
+-- Este índice nació ÚNICO y no podía serlo. El hash se calcula sobre
+-- (cuenta | fecha | importe | descripción), y ahí no hay NADA que distinga dos
+-- hechos distintos: dos retiros de cajero de la misma cantidad el mismo día
+-- son dos retiros, y el extracto que los trae es correcto. Un UNIQUE ahí
+-- declara irrepresentable un documento real del banco.
+--
+-- Y no fallaba ruidosamente, que es lo peor. `insertarLineas`
+-- (bank-statement-service.ts) inserta con `ON CONFLICT DO NOTHING` sin blanco:
+-- con el índice único, la segunda comisión de manejo legítima se tragaba EN
+-- SILENCIO, se reportaba como `duplicadas: 1` —acusando al BANCO de mandar un
+-- renglón repetido— y el cotejo acababa culpando al documento del tercero de
+-- un descuadre que producía el sistema. Medido: dos comisiones de −50.00 el
+-- mismo día entraban como una, libros −50.00 contra −100.00 del banco.
+--
+-- Además impedía instalarse: en un despacho con el extracto ya duplicado —el
+-- defecto que esta migración venía a reparar—, `CREATE UNIQUE INDEX` se caía
+-- con 23505 sobre esas mismas filas y revertía el archivo entero.
+--
+-- Lo que SÍ impide el reimporte, y es donde debía estar desde el principio, es
+-- la unicidad de (cuenta, sha256 del archivo) sobre `bank_statements`, unas
+-- ochenta líneas más arriba —escrito así, sin citar el DDL literal, para no
+-- desarmar al criterio E1.2, que lo ancla por texto—: el
+-- hecho que no puede ocurrir dos veces es EL ARCHIVO, y el archivo sí tiene
+-- identidad propia — sus bytes. La ruta que no pasa por archivo (el import por
+-- REST) exige `bank_transaction_id` no vacío y la ampara el
+-- `UNIQUE (bank_account_id, bank_transaction_id)` de la 003.
+--
+-- Queda un hueco declarado, y NO se tapa aquí a dedo porque es una decisión de
+-- criterio contable: dos ARCHIVOS distintos con periodos traslapados (el
+-- trimestral que contiene al mensual, el extracto reemitido) pueden traer dos
+-- veces el mismo movimiento. Bloquearlo o sólo avisarlo es del despacho, así
+-- que va al panel de decisiones con su lector, en su propio tramo. Este índice
+-- queda para BUSCAR por huella, que es para lo que sirve una huella.
+CREATE INDEX idx_bank_tx_contenido ON bank_transactions(bank_account_id, content_hash);
 CREATE INDEX idx_bank_tx_statement ON bank_transactions(statement_id);
 
 COMMENT ON COLUMN bank_transactions.content_hash IS
-  'sha256 de (cuenta|fecha|importe|descripción), calculado por disparador y NUNCA por el llamador. El dedupe REAL: bank_transaction_id es nullable y un UNIQUE sobre NULL no impide nada, que es por lo que reimportar un CSV duplicaba el extracto.';
+  'sha256 de (cuenta|fecha|importe|descripción), calculado e IMPUESTO por disparador — escribirlo a mano lo recalcula, no lo acepta. Es la HUELLA de la línea, no su llave: dos movimientos legítimamente idénticos el mismo día comparten huella y los dos son ciertos. Lo que impide reimportar es UNIQUE(bank_account_id, file_sha256) sobre el documento.';
