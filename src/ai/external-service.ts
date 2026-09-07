@@ -45,7 +45,13 @@ async function fetchLocalBalances(
                   ON je.id = jel.journal_entry_id
                  AND je.status = 'posted' AND je.entry_date <= $2)
             ON jel.account_id = a.id
-     WHERE a.entity_id = $1 AND a.is_active = true
+     -- SIN el filtro de is_active (T13 · #100). Este cotejo compara el mayor
+     -- local contra el del sistema externo, y borrar aquí la cuenta archivada
+     -- con movimiento la publicaba como only_remote: una diferencia INVENTADA
+     -- contra el otro sistema, que es la misma clase de defecto que T13 repara
+     -- en los informes. El docblock de arriba promete «el mismo criterio que
+     -- get_trial_balance»; desde T13 ese criterio no filtra el catálogo.
+     WHERE a.entity_id = $1
      GROUP BY a.id, a.code, a.name`,
     [entityId, endDate]
   );

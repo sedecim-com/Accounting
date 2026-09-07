@@ -594,7 +594,12 @@ export async function generarCatalogoCuentas(
           ORDER BY s.vigente_desde DESC
           LIMIT 1
        ) g ON true
-      WHERE a.entity_id = $1 AND a.is_active = true`,
+      -- SIN el filtro de is_active (T13 · #100): el CtaCatalogo tiene que contener toda
+      -- cuenta que la balanza del mismo periodo pueda declarar, y desde T13 la
+      -- balanza no retira a la archivada con movimiento. Filtrar aquí dejaría
+      -- al XML de catálogo sin una cuenta que el XML de balanza sí nombra, y
+      -- la comprobación cruzada del Anexo 24 lo bloquearía.
+      WHERE a.entity_id = $1`,
     [opts.entityId, hasta]
   );
 

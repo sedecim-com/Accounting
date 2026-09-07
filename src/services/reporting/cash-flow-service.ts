@@ -8,6 +8,11 @@ import {
   predicadoSinCierre,
   type AvisoDeCierre,
 } from './criterio-cierre.js';
+// El punto ÚNICO de crecimiento de «qué rol significa efectivo». Se importa —no
+// se repite el literal— porque la lista se declara con esa promesa por escrito
+// («el conjunto crece aquí y en ningún otro sitio») y este archivo la estaba
+// incumpliendo con un `ar.role = 'banco'` a mano.
+import { ROLES_DE_EFECTIVO, SUBTIPOS_DE_EFECTIVO } from './cash-flow-reconcile.js';
 import { LEDGER_SCALE } from './report-service.js';
 
 // ============================================================
@@ -80,6 +85,8 @@ export interface PoliticasDeFlujo {
   metodo: MetodoDeFlujo;
   cuentasDeEfectivo: CriterioDeEfectivo;
   descuadre: CriterioDeDescuadre;
+  /** Qué hacer con una cuenta que se movió y no cayó en ninguna sección. */
+  sinClasificar: 'avisar' | 'bloquear';
 }
 
 /**
@@ -92,6 +99,7 @@ const POLITICAS_POR_OMISION: PoliticasDeFlujo = {
   metodo: 'indirecto',
   cuentasDeEfectivo: 'rol',
   descuadre: 'avisar',
+  sinClasificar: 'avisar',
 };
 
 function comoMetodo(v: string): MetodoDeFlujo {
@@ -104,6 +112,17 @@ function comoCriterioDeEfectivo(v: string): CriterioDeEfectivo {
 
 function comoCriterioDeDescuadre(v: string): CriterioDeDescuadre {
   return v === 'bloquear' || v === 'silencio' ? v : 'avisar';
+}
+
+/**
+ * La ficha nueva sólo ofrece dos respuestas: no hay «silencio» aquí a
+ * propósito. Una cuenta que se movió y no cayó en ninguna sección es un
+ * subtotal mal sin que el total lo delate —invisible desde fuera, a diferencia
+ * del descuadre contra el banco—, así que callarla no es una opción que este
+ * motor deba ofrecer.
+ */
+function comoCriterioDeSinClasificar(v: string): 'avisar' | 'bloquear' {
+  return v === 'bloquear' ? 'bloquear' : 'avisar';
 }
 
 async function inquilinoDe(entityId: string): Promise<string | undefined> {
@@ -160,15 +179,24 @@ export async function politicasDeFlujo(entityId: string): Promise<PoliticasDeFlu
   const tenantId = currentTenant() ?? (await inquilinoDe(entityId));
   if (!tenantId) return POLITICAS_POR_OMISION;
   const ctx = { tenantId, entityId };
-  const [metodo, efectivo, descuadre] = await Promise.all([
+  const [metodo, efectivo, descuadre, sinClasificar] = await Promise.all([
     conDefecto(() => getPolicy(ctx, 'flujo_efectivo_metodo'), POLITICAS_POR_OMISION.metodo),
     conDefecto(() => getPolicy(ctx, 'flujo_efectivo_cuentas_de_efectivo'), POLITICAS_POR_OMISION.cuentasDeEfectivo),
     conDefecto(() => getPolicy(ctx, 'flujo_efectivo_descuadre'), POLITICAS_POR_OMISION.descuadre),
+    // SON DOS PREGUNTAS, NO UNA. `flujo_efectivo_descuadre` pregunta qué hacer
+    // cuando el estado NO ATA contra el efectivo real —«refuse until it ties»—.
+    // Una cuenta sin sección cuyos importes se compensan deja el estado ATANDO,
+    // así que rehusarlo con esa política sería rehusar por una condición que su
+    // propia etiqueta declara satisfecha, y el despacho habría contestado una
+    // pregunta distinta de la que se le aplica. La pregunta nueva tiene su
+    // ficha propia en el panel.
+    conDefecto(() => getPolicy(ctx, 'flujo_efectivo_sin_clasificar'), POLITICAS_POR_OMISION.sinClasificar),
   ]);
   return {
     metodo: comoMetodo(metodo),
     cuentasDeEfectivo: comoCriterioDeEfectivo(efectivo),
     descuadre: comoCriterioDeDescuadre(descuadre),
+    sinClasificar: comoCriterioDeSinClasificar(sinClasificar),
   };
 }
 
@@ -189,14 +217,7 @@ export interface CuentaDeEfectivo {
  * Cuando no encuentra nada, el motor FALLA en vez de devolver un estado sin
  * efectivo, que es la manera elegante de mentir.
  */
-const SUBTIPOS_DE_EFECTIVO = [
-  'cash',
-  'cash_equivalent',
-  'cash_and_equivalents',
-  'bank',
-  'efectivo',
-  'equivalentes_de_efectivo',
-];
+
 
 /**
  * EL ARREGLO DEL DEFECTO DE LOS NOMBRES.
@@ -210,7 +231,8 @@ const SUBTIPOS_DE_EFECTIVO = [
  * `ar-ap-posting.ts` lo dice en su propia firma («the linked bank account's
  * gl_account_id, else the banco role»):
  *
- *   · el rol `banco`, y
+ *   · los roles que `ROLES_DE_EFECTIVO` declara efectivo —hoy sólo `banco`, y
+ *     la lista se importa en vez de repetirse: es el punto único donde crece—, y
  *   · toda cuenta de mayor atada a una `bank_accounts` de la entidad.
  *
  * Y el ÁRBOL, no la cuenta suelta: el rol `banco` apunta a 1110 «Caja y
@@ -254,7 +276,7 @@ export async function resolverCuentasDeEfectivo(
              SELECT a.id
                FROM account_roles ar
                JOIN accounts a ON a.id = ar.account_id AND a.entity_id = $1
-              WHERE ar.entity_id = $1 AND ar.role = 'banco'
+              WHERE ar.entity_id = $1 AND ar.role = ANY($2::text[])
               UNION
              SELECT a.id
                FROM bank_accounts b
@@ -270,7 +292,14 @@ export async function resolverCuentasDeEfectivo(
            SELECT a.id, a.code, a.name
              FROM accounts a JOIN arbol ON arbol.id = a.id
             ORDER BY a.code`,
-          [entityId]
+          // La LISTA, no el literal: `cash-flow-reconcile` la declara punto
+          // único de crecimiento y este archivo tiene que crecer con ella. El
+          // día que la taxonomía separe caja de bancos, un `ar.role = 'banco'`
+          // escrito aquí a mano dejaba el efectivo de la cuenta nueva fuera
+          // del ESTADO mientras el AMARRE sí lo veía: dos definiciones de
+          // «efectivo» para el mismo periodo, que es el residuo inventado que
+          // este par de módulos existe para no producir.
+          [entityId, ROLES_DE_EFECTIVO]
         );
 
   if (rows.rows.length === 0) {
@@ -728,7 +757,27 @@ export interface AutoComprobacion {
   unclassified_total: string;
   /** Las cuentas que lo causan, con nombre. */
   candidates: LineaDeFlujo[];
-  /** true cuando toda cuenta que se movió cayó en una sección. */
+  /**
+   * true cuando NINGUNA cuenta que se movió quedó fuera de las secciones.
+   *
+   * Es la afirmación que la nota lleva haciendo desde G1b —«every account that
+   * moved was classified»— y la que nadie medía: se miraba la SUMA de las
+   * cuentas sin sección, y una suma en cero no dice que la lista esté vacía.
+   * Con una cuenta importada de +5 000 y otra de −5 000, las dos sin
+   * `fs_category`, la suma daba cero y el estado afirmaba haber clasificado lo
+   * que no clasificó.
+   */
+  all_classified: boolean;
+  /**
+   * true cuando el NETO del estado ata contra el efectivo por construcción.
+   *
+   * Es una afirmación MÁS DÉBIL que `all_classified`, y por eso son dos campos
+   * y no uno: `all_classified` implica `ties`, pero `ties` no implica
+   * `all_classified`. Dos cuentas sin sección que se compensan dejan el neto
+   * exacto —el amarre contra el banco lo confirma— y las tres secciones mal
+   * cada una por su parte. Publicar un solo booleano obligaba a elegir cuál de
+   * las dos cosas se decía, y se decía la que no se había medido.
+   */
   ties: boolean;
   note: string;
 }
@@ -736,26 +785,51 @@ export interface AutoComprobacion {
 /**
  * Lo que el estado puede afirmar sobre sí mismo sin volver a la base.
  *
- * Si esto dice `ties: true`, el estado cuadra contra el efectivo POR
+ * Si esto dice `all_classified: true`, el estado cuadra contra el efectivo POR
  * CONSTRUCCIÓN —la identidad de la partida doble no deja otra opción—, y el
  * amarre de `cash-flow-reconcile` lo confirmará contra el mayor. Si dice
- * `false`, ya se sabe el importe del hueco y las cuentas que lo abren, antes
- * de que nadie compare nada contra el banco.
+ * `false`, ya se sabe qué cuentas abren el hueco antes de que nadie compare
+ * nada contra el banco, y `ties` dice si además el hueco llega al neto o se
+ * queda dentro de las secciones.
+ *
+ * LA NOTA DICE LO QUE SE MIDIÓ, NI UNA PALABRA MÁS. Son tres estados y no dos,
+ * porque el de en medio existe: cuentas sin clasificar cuyos importes se
+ * cancelan. Ahí el neto sí ata —decir lo contrario sería el error simétrico,
+ * inventar un descuadre que el banco desmentiría— y lo que está roto son los
+ * subtotales de operación, inversión y financiamiento, cada uno por la parte
+ * que le tocaba. La nota lo dice con esas palabras y con los códigos a la
+ * vista, que es lo que convierte un aviso en una pista.
  */
 export function autoComprobar(
   flujo: FlujoIndirecto,
   scale: number = LEDGER_SCALE
 ): AutoComprobacion {
   const total = new Decimal(flujo.unclassified.total);
-  const cuadra = total.isZero();
+  const sinSeccion = flujo.unclassified.lines;
+  const todasClasificadas = sinSeccion.length === 0;
+  const netoAta = total.isZero();
+  const conNombre = sinSeccion.map((l) => `${l.code} ${l.name} (${l.amount})`).join('; ');
   return {
     unclassified_total: total.toFixed(scale),
-    candidates: flujo.unclassified.lines,
-    ties: cuadra,
-    note: cuadra
+    candidates: sinSeccion,
+    all_classified: todasClasificadas,
+    ties: netoAta,
+    note: todasClasificadas
       ? 'Every account that moved was classified into a section, so the statement ties to cash by construction.'
-      : `${flujo.unclassified.lines.length} account(s) moved ${total.toFixed(scale)} without falling ` +
-        'into any section: the statement cannot tie to cash by that amount until they are classified.',
+      : netoAta
+        ? // SE DICE LO MEDIDO Y NADA MÁS. Aquí se afirmaba que «los subtotales de
+          // operación, inversión y financiamiento quedan mal cada uno por su
+          // parte», y eso NO se mide: depende de si esas cuentas tocaron
+          // efectivo, y si no lo tocaron los tres subtotales están bien y lo
+          // que falta es otra cosa (la revelación de la operación sin efectivo,
+          // NIF B-2). Afirmar más de lo que se comprueba es exactamente el
+          // defecto que esta autocomprobación existe para dejar de cometer.
+          `${sinSeccion.length} account(s) moved without falling into any section, and their ` +
+          `amounts cancel out (${total.toFixed(scale)}): the net still ties to cash, so this ` +
+          'statement can be read as sound when at least one section is not. ' +
+          `Unclassified: ${conNombre}.`
+        : `${sinSeccion.length} account(s) moved ${total.toFixed(scale)} without falling ` +
+          'into any section: the statement cannot tie to cash by that amount until they are classified.',
   };
 }
 
@@ -900,14 +974,32 @@ export async function getCashFlowStatement(
   // por sí solo —las cuentas sin sección—, no con una segunda lectura del
   // efectivo: el contraste contra el mayor lo hace `cash-flow-reconcile`, y
   // duplicarlo aquí daría dos respuestas a la misma pregunta.
-  if (!autoComprobacion.ties && policies.descuadre === 'bloquear') {
+  //
+  // LA CONDICIÓN ES `all_classified`, NO `ties`, y ésa era la falla: el guardia
+  // preguntaba por la SUMA de las cuentas sin sección, así que dos cuentas
+  // importadas de +5 000 y −5 000 la dejaban en cero y la política que el
+  // despacho puso en «bloquear» emitía el documento. Una política que no hace
+  // lo que dice es peor que no tenerla: quien la eligió cree que hay un
+  // guardia. Preguntar por `ties` además hacía redundante este guardia —el
+  // neto contra el mayor ya lo contrasta `cashflow generate` con
+  // `movimientoRealDeEfectivo`—; lo que sólo este motor sabe, y por lo que
+  // existe el guardia, es qué cuentas se quedaron sin sección.
+  if (!autoComprobacion.all_classified && policies.sinClasificar === 'bloquear') {
     const culpables = autoComprobacion.candidates
       .map((c) => `${c.code} ${c.name} (${c.amount})`)
       .join('; ');
+    // El daño se nombra como es en cada caso. Con importes que se compensan
+    // el neto SÍ ata, y decir «no puede cuadrar» sería inventar un descuadre
+    // que el banco desmentiría en dos minutos; lo que está roto son las tres
+    // secciones. Con importes que no se compensan, el hueco llega al neto.
+    const dano = autoComprobacion.ties
+      ? 'sus importes se compensan, así que el neto ata contra el efectivo y el estado se puede ' +
+        'leer como sano cuando al menos una sección no lo está'
+      : `el estado no puede cuadrar contra el efectivo por ${autoComprobacion.unclassified_total}`;
     throw new ValidationError(
-      `El estado de flujos no puede cuadrar: ${autoComprobacion.candidates.length} cuenta(s) se ` +
-        `movieron ${autoComprobacion.unclassified_total} sin caer en ninguna sección, y la ` +
-        'política `flujo_efectivo_descuadre` dice «bloquear». Las cuentas: ' +
+      `El estado de flujos no se emite: ${autoComprobacion.candidates.length} cuenta(s) se ` +
+        `movieron sin caer en ninguna sección —${dano}—, y la política ` +
+        '`flujo_efectivo_sin_clasificar` dice «bloquear». Las cuentas: ' +
         `${culpables || '—'}. Dales una fs_category en el catálogo, o cambia la política a ` +
         '«avisar» para emitirlo con la diferencia declarada.'
     );

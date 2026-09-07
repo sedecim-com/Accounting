@@ -105,10 +105,13 @@ describe('1 · el criterio que ejecuta, contra roturas que su autor NO declaró'
     // El signo de la resta —el espejo declarado— se deja intacto. Lo que se
     // rompe es el ACOTE: la balanza deja de filtrar por entidad y publica las
     // cuentas de todos los inquilinos del servidor.
+    // T13 movió esta línea: `a.is_active` dejó de vivir aquí —ahora es un
+    // predicado del catálogo, no un filtro— y el acote por entidad se quedó
+    // solo. El ataque es el mismo: quitarlo.
     mutarEnDisco(
       'src/services/reporting/report-service.ts',
-      "let where = 'WHERE a.entity_id = $1 AND a.is_active = true';",
-      "let where = 'WHERE a.is_active = true';"
+      "let where = 'WHERE a.entity_id = $1';",
+      "let where = '';"
     );
     const v = correrEscenario();
     expect(v.motivo, `el escenario no se montó: ${v.motivo ?? ''}`).toBeUndefined();
@@ -355,11 +358,17 @@ describe('3 · el trinquete de cobertura', () => {
         'sobre un archivo inexistente pasa, y suma a la cifra que el criterio publica («N archivos ' +
         'con umbral propio»). Si se cierra, voltea esta aserción a «falla».'
     ).toBe('ok');
-    // El conteo sube con J0.1: `src/services/jurisdiction/jurisdiction.ts` gana
-    // umbral propio, así que son siete reales más el inventado. Este número
-    // vive aquí a propósito —cuenta lo que el criterio publica— y por eso se
-    // mueve en el mismo commit que añade el umbral.
-    expect(r.detalle, 'el archivo inventado no llegó a contarse: revisa el ataque').toContain('8 archivos');
+    // La cifra dejó de escribirse a mano, y ese cambio de main gana sobre el
+    // número fijo que J0.1 traía: un conteo literal obliga a tocar esta prueba
+    // cada vez que un archivo gana umbral propio, y lo que el ataque afirma no
+    // es cuántos hay sino que el INVENTADO suma uno más de los declarados.
+    // La cifra sube con cada archivo que gana umbral propio (T13 añadió
+    // criterio-archivadas.ts): lo que el ataque afirma es que el INVENTADO
+    // suma uno más de los que vitest.config declara de verdad.
+    const declarados = (config.match(/'src\/[^']+\.ts':\s*\{/g) ?? []).length;
+    expect(r.detalle, 'el archivo inventado no llegó a contarse: revisa el ataque').toContain(
+      `${declarados + 1} archivos`
+    );
   });
 
   it('HUECO · los umbrales al 100 (inalcanzables) pasan igual que los reales', async () => {

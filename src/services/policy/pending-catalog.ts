@@ -1453,6 +1453,96 @@ export const POLICY_CATALOG: PolicySpec[] = [
       'They accrue with each pay run.',
     priority: 45,
   },
+  {
+    // T13 · Se añade al final, que es donde crece el catálogo.
+    //
+    // LA MITAD QUE NO SE PREGUNTA. La balanza y el estado de resultados
+    // filtraban `a.is_active = true` y el balance general no, de modo que
+    // `account archive 4100` —permitido sin `--force`, porque una cuenta de
+    // resultados barrida por el cierre tiene saldo de por vida cero— dejaba el
+    // estado de resultados de un ejercicio FIRMADO en Revenue 0.0000 mientras
+    // el balance general al 31-dic seguía cuadrando. Eso NO entra aquí: no hay
+    // despacho para el que un informe emitido deba perder dinero real porque
+    // alguien ordenó el catálogo, y ofrecerlo como opción sería poner una
+    // respuesta falsa en el menú. Se corrigió en el código.
+    //
+    // Lo que sí es criterio, y por eso vive aquí, es lo que queda cuando el
+    // dinero ya está a salvo: el renglón VACÍO.
+    key: 'informes_cuentas_archivadas',
+    category: 'contable',
+    question:
+      'Once an account is archived, does it keep its row in a trial balance where it has nothing to show?',
+    impact:
+      'Only affects an archived account that NEVER received a posted line before the cutoff — a ' +
+      'line of the chart that was opened and retired without ever being used. The moment an ' +
+      'archived account has any posted history, it is shown in every report and no setting here ' +
+      'can hide it: that is what stopped a signed income statement from changing when the chart ' +
+      'was tidied, and it is deliberately conservative — the rule errs towards showing, because ' +
+      'the failure it exists to prevent is money disappearing from a signed statement. What this ' +
+      'decides is whether the never-used retired line keeps its zero row, month after month.',
+    options: [
+      {
+        value: 'retirar_cuando_no_tiene_nada',
+        label: 'Drop it: an archived line that was never used comes off the trial balance',
+      },
+      {
+        value: 'mantener_en_la_balanza',
+        label: 'Keep it at zero, like any unused account, so the row set matches the chart every month',
+      },
+    ],
+    defaultValue: 'retirar_cuando_no_tiene_nada',
+    defaultRationale:
+      'It is what archiving is FOR — the firm retired the line to stop seeing it — and it is what ' +
+      'the reports already did, so no balanza gains rows it never had. Keeping it is a real ' +
+      'criterion for a firm that reconciles the Anexo 24 against a fixed chart and wants the same ' +
+      'set of rows every period; neither answer moves a figure, which is exactly why it is a ' +
+      'preference and not a correction.',
+    whyAsking:
+      'Retiring a line of your chart at year end is routine. What is not obvious is whether that ' +
+      'line should disappear from next year\'s trial balance or stay there at zero, and both are ' +
+      'defensible bookkeeping.',
+    whatIDo:
+      'In the trial balance I always include an archived account that the ledger backs up to the ' +
+      'report cutoff — ANY posted line up to it, not just movement in the range — so no figure ' +
+      'ever vanishes. On "retirar" I leave out the archived accounts that never received one; ' +
+      'on "mantener" I keep ' +
+      'them, at zero, alongside the unused active accounts the balanza already lists. The income ' +
+      'statement, the balance sheet and the ledger do not read this policy at all: they already ' +
+      'show exactly the accounts that carry something in the period.',
+    ifSkipped:
+      'An archived account that was never used drops off the trial balance. Every archived ' +
+      'account with posted history stays, always.',
+    priority: 22,
+  },
+  {
+    key: 'flujo_efectivo_sin_clasificar',
+    category: 'contable',
+    question:
+      'When an account moved but belongs to no section of the cash flow statement, do I publish the statement naming it, or refuse until it has one?',
+    impact:
+      'This is NOT the same question as the statement not tying to cash. Two unclassified accounts ' +
+      'whose amounts cancel leave the net tying perfectly against the bank while operating, ' +
+      'investing and financing are each wrong by the part that belonged to them. The residue is ' +
+      'invisible from the outside: nobody can catch it by comparing against the bank statement.',
+    options: [
+      { value: 'avisar', label: 'Publish it, naming every account that landed in no section' },
+      { value: 'bloquear', label: 'Refuse to emit it until every account that moved has a section' },
+    ],
+    defaultValue: 'avisar',
+    defaultRationale:
+      'Refusing would leave the firm without a statement it may need for a filing deadline, and the ' +
+      'remedy — giving the account an fs_category — is a catalog edit the preparer may not be able ' +
+      'to make at that moment. Naming the accounts keeps the document usable and puts the gap where ' +
+      'the preparer sees it.',
+    whyAsking:
+      'Whether a statement with an unclassified account is publishable is your call. The one thing ' +
+      'I will not do is stay quiet about it: an account that moved and fell in no section is a ' +
+      'subtotal that is wrong without the total showing it.',
+    whatIDo: 'I publish the statement and name every account that moved without a section.',
+    ifSkipped: 'I publish it and name them.',
+    priority: 40,
+  },
+
 ];
 
 export function getPolicySpec(key: string): PolicySpec | undefined {

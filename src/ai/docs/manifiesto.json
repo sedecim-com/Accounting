@@ -96,7 +96,7 @@
     "src/services/banking/matching.ts": "377481c3ea9dff2f4b259649fce70ebb5dd600ca",
     "src/api/rest/routes/bank-reconciliation.ts": "f276b591385bc7d9acbd7e87cd1cfccd89c0580a",
     "src/database/enums.ts": "3c30486f7d1c0f0ce5085b9a60a83df330fb9838",
-    "src/ai/external-service.ts": "a5aa6dd9bd1c1fa01b3692193ca78227093268e3",
+    "src/ai/external-service.ts": "479fdbeae482297b16e3bb816f19320ff201b7bb",
     "src/ai/tools/external-tools.ts": "283948b7b85553aff42f03cf69f59c932859b567",
     "src/services/integrations/accounting/contalink-adapter.ts": "9c2dfe880f5a8d890d9f39630c124aaea900eade",
     "src/services/ap/bill-service.ts": "28d1ab2eaf5c8a2c30be2f073b450b60d0f2ded6",
@@ -114,7 +114,7 @@
     "src/services/integrations/index.ts": "c785f9eb1596c6560eb5f5a15ebb8710e2ee8ac6",
     "src/database/rls-policies.sql": "29156dede7f923e1cf9ef9653d0c22352b20ce18",
     "src/services/fiscal-credentials/service.ts": "5427809dedc39c29abd51628ee49100c76f96b6b",
-    "src/services/reporting/report-service.ts": "821feb963eae89279c9b333ad1e4129309b0c0e1",
+    "src/services/reporting/report-service.ts": "956654a4480dd7378969e77d9af38a6ac11338ed",
     "src/services/ar/invoice-service.ts": "5ef0eeefa2c58db5b190d445a4e50d297707f2ec",
     "src/services/ar/customer-service.ts": "89e61497dafc2b3f440592fe78dfd367605840dd",
     "src/services/ar/credit-note-service.ts": "9100c26979e17cdcc059242824acd7cf03e4c8ad",
@@ -129,6 +129,8 @@
     "src/services/policy/policy-service.ts": "b1cd1c8956e275cc63859a9733b81b16e1cd239c",
     "src/ai/tools/policy-tools.ts": "6f5312c431be52088f656e44d598c51326587af8",
     "src/ai/doctor-service.ts": "d59af7edf833d02471b5d33e54999d40945ab125",
-    "src/ai/onboarding-service.ts": "7bd405ae60700ebab6bac3062002acd1cf9b4b58"
+    "src/ai/onboarding-service.ts": "7bd405ae60700ebab6bac3062002acd1cf9b4b58",
+    "src/services/reporting/cash-flow-service.ts": "489bebf55f6fb975846d6cb0bf4c75d7a4d7390d",
+    "src/services/reporting/cash-flow-reconcile.ts": "491acc77467d7409c59dd87b312dfd48af2ce401"
   }
 }

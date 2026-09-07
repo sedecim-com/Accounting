@@ -114,6 +114,11 @@ export default defineConfig({
         'src/services/reporting/criterio-cierre.ts': {
           statements: 100, branches: 95, functions: 100, lines: 100,
         },
+        // El criterio de cuentas archivadas (T13): decide qué cuenta entra en
+        // un informe, así que su suelo es el más alto que hay.
+        'src/services/reporting/criterio-archivadas.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
+        },
       },
     },
   },

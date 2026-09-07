@@ -422,6 +422,22 @@ Examples:
       // aviso no es lo mismo que no haber medido.
       const residuo = new Decimal(residuoDe(estado, efectivo));
       if (residuo.isZero()) {
+        // CUADRAR EL NETO NO ES HABER CLASIFICADO TODO, y ésta era la última
+        // superficie donde las dos cosas se decían con una sola frase. Dos
+        // cuentas sin `fs_category` de +5 000 y −5 000 dejan el residuo en
+        // cero, y esta hoja imprimía «Ties» y salía 0 mientras operación,
+        // inversión y financiamiento estaban mal cada uno por su parte. Las
+        // filas de esas cuentas ya salen en banda —`filasDelEstado` las
+        // imprime—, así que lo que faltaba era el veredicto: un lector que
+        // sólo mira la última línea de stderr se llevaba «amarra».
+        const sinSeccion = estado.self_check && !estado.self_check.all_classified;
+        if (sinSeccion) {
+          warn(
+            `The statement net ties to cash (${estado.net_cash_flow}), but it is not classified: ` +
+              `${estado.self_check?.note ?? ''} The subtotals above do not stand; the net does.`
+          );
+          return checkExitCode({ blocking: 0, warning: 1 });
+        }
         note('Ties: the statement net equals the movement of cash and equivalents in the ledger.');
         return ExitCode.OK;
       }
