@@ -4,6 +4,19 @@ import { crearInquilino } from './helpers/tenant-fixture.js';
 import { sembrarVolumen } from './helpers/volumen.js';
 
 // ============================================================
+// E1b · LOS DOS PREDICADOS, MEDIDOS — Y LO QUE ESTA MEDICIÓN **NO** DICE
+//
+// AVISO, porque una cifra sin su alcance engaña: esta prueba compara las dos
+// FORMAS DE PREDICADO escribiéndolas a mano en un WHERE. NO mide la política
+// RLS efectiva, que sigue siendo la delegada por EXISTS. Lo levantó la
+// revisión de Witness (WIT-01) sobre este mismo PR, y tenía razón: medir una
+// consulta ad hoc y titularlo «mejora entregada» es afirmar de más.
+//
+// Entonces, ¿para qué se conserva? Porque la cifra es la EVIDENCIA de que el
+// cambio de política merece su propio tramo: cuantifica lo que se ganaría, y
+// sin ella nadie sabría si vale la pena pagar el rediseño que hace falta. Lo
+// que no puede hacer es pasar por resultado de un cambio que no se hizo.
+// ============================================================
 // E1b · EL PREDICADO DIRECTO, MEDIDO
 //
 // La tarjeta de E1 afirma 840 ms → 193 ms. Esta prueba no da por buena esa
