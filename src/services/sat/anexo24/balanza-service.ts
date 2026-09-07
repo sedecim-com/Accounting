@@ -370,7 +370,7 @@ async function metadatosDeCuentas(entityId: string, alCorte: string): Promise<Fi
           ORDER BY s.vigente_desde DESC
           LIMIT 1
        ) ag ON true
-      WHERE a.entity_id = $1 AND a.is_active = true`,
+      WHERE a.entity_id = $1`,
     [entityId, alCorte]
   );
   return r.rows;
@@ -454,9 +454,21 @@ export async function catalogoSegunElPlanDeCuentas(
   // cuáles se movieron exige las cifras del periodo, que aquí no hay. Un
   // superconjunto no puede acusar de más, que es la única equivocación cara
   // que puede cometer un cotejo.
+  //
+  // Y POR ESO NO FILTRA `is_active` (T13 · #100). La balanza que este catálogo
+  // acompaña la entrega `getTrialBalance`, que desde T13 NO retira a la cuenta
+  // archivada con movimiento: un informe enseña lo que llevó en SU PERIODO, y
+  // el estado de la cuenta HOY no borra el dinero de ayer. Si el catálogo
+  // siguiera filtrando, la comprobación cruzada `cuentas-en-catalogo`
+  // encontraría una cuenta declarada en la balanza que el catálogo no contiene
+  // y emitiría BLOQUEANTE: la balanza de un mes YA PRESENTADO dejaría de poder
+  // generarse en cuanto alguien archivara una cuenta con movimiento. Es
+  // literalmente el modo de fallo que el docblock de `poblacionPorNiveles`
+  // declara prohibido — el generador produciendo una balanza que suspende su
+  // propia comprobación cruzada.
   const poblacion = poblacionPorNiveles(niveles);
   const params: unknown[] = [entityId];
-  let where = 'WHERE a.entity_id = $1 AND a.is_active = true';
+  let where = 'WHERE a.entity_id = $1';
   if (poblacion.maxLevel !== undefined) {
     params.push(poblacion.maxLevel);
     where += ` AND a.account_level <= $2`;

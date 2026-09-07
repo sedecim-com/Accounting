@@ -78,6 +78,8 @@ export interface App {
   cierre: typeof import('../services/accounting/period-close.js');
   informes: typeof import('../services/reporting/report-service.js');
   contabilidad: typeof import('../services/accounting/entity-accounting.js');
+  /** El camino real de `account archive`, con su guardián de saldo. */
+  cuentas: typeof import('../services/accounting/account-service.js');
   alcance: typeof import('../database/scope.js');
   tipos: typeof import('../types/index.js');
 }
@@ -254,7 +256,7 @@ async function saldoDelEjercicio(app: App, inq: Inquilino, cuentaId: string): Pr
 }
 
 // ============================================================
-// LAS TRES PRUEBAS SEMBRADAS
+// LAS PRUEBAS SEMBRADAS
 //
 // No son ejemplos: cada una es un defecto que YA OCURRIÓ en este repositorio y
 // que la forma anterior del tablero no podía ver.
@@ -514,6 +516,140 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       return ok(
         'con dos inquilinos vivos y 7 777.00 posteados sólo en B, los tres brazos de alcance ' +
           '(tenant_id, entity_id por entidad y por inquilino) y la balanza de A devuelven cero filas de B'
+      );
+    },
+  },
+
+  // ----------------------------------------------------------
+  // 4 · EL INFORME FIRMADO QUE CAMBIA AL ARCHIVAR UNA CUENTA (T13)
+  //
+  // La balanza y el estado de resultados filtraban `a.is_active = true`; el
+  // balance general no. Y archivar sólo exige saldo de por vida cero, que es
+  // EXACTAMENTE lo que tiene una cuenta de resultados barrida por el cierre:
+  // `account archive 4100` pasaba sin `--force` y el estado de resultados de
+  // un ejercicio ya cerrado y FIRMADO pasaba de Revenue 10 000 a 0.0000 —de
+  // 6 000 de utilidad a 4 000 de pérdida— mientras el balance general al
+  // 31-dic seguía cuadrando. Ningún control avisaba.
+  //
+  // Ninguna prueba unitaria podía verlo: las dos que tocaban `is_active`
+  // MOCKEABAN `query` y afirmaban el texto del SQL —una exigía el filtro y la
+  // otra exigía su ausencia—, así que la asimetría estaba en verde por
+  // partida doble. Aquí se postea, se cierra, se archiva por el camino real y
+  // se comparan las DOS cifras.
+  // ----------------------------------------------------------
+  {
+    id: 'informe-firmado-al-archivar',
+    paquete: 'E0.1',
+    enunciado:
+      'El estado de resultados de un ejercicio cerrado no cambia porque se archive la cuenta después, archivándola',
+    mutantes: [
+      {
+        archivo: 'src/services/reporting/report-service.ts',
+        de: "WHERE a.entity_id = $1\n      AND a.account_type IN ('revenue', 'expense')",
+        a: "WHERE a.entity_id = $1 AND a.is_active = true\n      AND a.account_type IN ('revenue', 'expense')",
+        porque:
+          'el defecto original, tal cual: el filtro por is_active en el estado de resultados. Su ' +
+          'HAVING ya deja fuera la cuenta sin actividad, así que este filtro sólo puede borrar ' +
+          'una que SÍ se movió — y borra el ingreso de un ejercicio ya firmado',
+      },
+      {
+        archivo: 'src/services/reporting/criterio-archivadas.ts',
+        de: ' OR EXISTS (SELECT 1 FROM journal_entry_lines arch_jel',
+        a: ' AND EXISTS (SELECT 1 FROM journal_entry_lines arch_jel',
+        porque:
+          'el rescate convertido en filtro. Mata las DOS propiedades de la balanza a la vez: la ' +
+          'cuenta archivada con movimiento desaparece (is_active=false anula el AND) y la cuenta ' +
+          'activa sin movimiento también (no hay EXISTS que la respalde)',
+      },
+    ],
+    correr: async (app) => {
+      const inq = await crearInquilino(app, 'T13 · informe firmado');
+      const banco = inq.roles.banco;
+      const ventas = inq.cuentas['4100'];
+      const costo = inq.cuentas['5100'];
+      const ocioso = inq.cuentas['1120'];
+      if (!banco || !ventas || !costo || !ocioso) {
+        return falla('el catálogo base no trajo banco / 4100 / 5100 / 1120: el escenario no se pudo sembrar');
+      }
+
+      await asiento(app, inq, 8, 'Venta del ejercicio', banco, ventas, '10000.0000');
+      await asiento(app, inq, 8, 'Costo de ventas', costo, banco, '4000.0000');
+      await app.posting.drainAttestations(3000);
+
+      const RANGO = { startDate: '2026-01-01', endDate: '2026-12-31' };
+      try {
+        await app.cierre.softClosePeriod(inq.periodos[12], inq.entityId, inq.userId);
+        await app.cierre.hardClosePeriod(inq.periodos[12], inq.entityId, inq.userId, 'cierre del ejercicio');
+      } catch (e) {
+        return falla(`el cierre duro se negó o reventó: ${(e as Error).message.slice(0, 220)}`);
+      }
+      await app.posting.drainAttestations(3000);
+
+      // EL PAPEL FIRMADO. Se guarda antes de tocar el catálogo.
+      const antes = await app.informes.getIncomeStatement(inq.entityId, RANGO);
+      if (antes.revenue.total !== '10000.0000' || antes.net_income !== '6000.0000') {
+        return falla(
+          `el escenario no llegó a producir el estado firmado: Revenue ${antes.revenue.total} ` +
+            `y Net income ${antes.net_income}, esperados 10000.0000 y 6000.0000`
+        );
+      }
+
+      // EL ACTO RUTINARIO DE CATÁLOGO, por el camino real y SIN --force: una
+      // cuenta de resultados barrida por el cierre tiene saldo de por vida
+      // cero, así que el guardián la deja pasar. Es correcto que la deje: lo
+      // que no puede es que eso reescriba un informe ya emitido.
+      try {
+        await app.cuentas.deactivateAccount(ventas, inq.userId, {
+          allowWithHistory: true,
+          enforceZeroBalance: true,
+          reason: 'se retira la línea del catálogo al cierre del ejercicio',
+        });
+      } catch (e) {
+        return falla(
+          `archivar la 4100 se negó: ${(e as Error).message.slice(0, 200)}. El escenario mide qué ` +
+            'pasa DESPUÉS de archivar; si archivar deja de ser posible, esto hay que reescribirlo.'
+        );
+      }
+
+      const despues = await app.informes.getIncomeStatement(inq.entityId, RANGO);
+      if (despues.revenue.total !== antes.revenue.total || despues.net_income !== antes.net_income) {
+        return falla(
+          'archivar la 4100 reescribió un estado de resultados ya emitido: Revenue ' +
+            `${antes.revenue.total} → ${despues.revenue.total} y Net income ${antes.net_income} → ` +
+            `${despues.net_income}. Un papel firmado no cambia porque alguien ordene el catálogo.`
+        );
+      }
+
+      // Y LA BALANZA DEL MISMO EJERCICIO, que es donde se ve la otra mitad:
+      // la archivada CON movimiento sigue, y la activa SIN movimiento también.
+      const balanza = await app.informes.getTrialBalance(inq.entityId, {
+        sinceDate: RANGO.startDate,
+        untilDate: RANGO.endDate,
+      });
+      const codigos = new Set(balanza.rows.map((r) => r.account_code));
+      if (!codigos.has('4100')) {
+        return falla(
+          'la 4100 desapareció de la balanza del ejercicio en el que se movió: archivar dejó de ' +
+            'ser un acto de catálogo y pasó a borrar 10 000 del debe y del haber'
+        );
+      }
+      if (!codigos.has('1120')) {
+        return falla(
+          'la balanza dejó de conservar las cuentas ACTIVAS sin movimiento (1120): esconde ' +
+            'justamente las cuentas que alguien olvidó usar'
+        );
+      }
+      if (!balanza.totals.is_balanced) {
+        return falla(
+          `la balanza del ejercicio dejó de cuadrar: debe ${balanza.totals.total_debits}, ` +
+            `haber ${balanza.totals.total_credits}`
+        );
+      }
+
+      return ok(
+        'con el ejercicio cerrado y la 4100 archivada después, el estado de resultados sigue en ' +
+          'Revenue 10000.0000 / Net income 6000.0000, la balanza conserva la 4100 (archivada, con ' +
+          'movimiento) y la 1120 (activa, sin movimiento), y cuadra'
       );
     },
   },
@@ -807,6 +943,7 @@ async function main(salida: string): Promise<void> {
     cierre: await import('../services/accounting/period-close.js'),
     informes: await import('../services/reporting/report-service.js'),
     contabilidad: await import('../services/accounting/entity-accounting.js'),
+    cuentas: await import('../services/accounting/account-service.js'),
     alcance: await import('../database/scope.js'),
     tipos: await import('../types/index.js'),
   };
