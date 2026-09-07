@@ -75,13 +75,23 @@ function readBaseline(): Baseline | null {
 }
 
 /**
- * UN HALLAZGO ES UN CARRIL QUE CRECIÓ, O UNA ENTRADA QUE YA NO MIDE NADA.
+ * UN HALLAZGO ES DEUDA QUE APARECE DONDE NO LA HABÍA.
  *
- * Las dos direcciones importan y por razones distintas. Que un número CREZCA
- * es la regresión obvia. Que una entrada de la línea base ya no corresponda a
- * ningún lane —o a ningún archivo— es la silenciosa: el trinquete se queda
- * protegiendo algo que no existe, y nadie se entera hasta que alguien lee el
- * JSON y no reconoce la mitad.
+ * Aparece de cuatro formas, y las cuatro importan por razones distintas:
+ *
+ *   1. El total del carril CRECE. La regresión obvia.
+ *   2. Un archivo del desglose crece sobre su suelo. Un total quieto puede
+ *      esconder un archivo que empeoró mientras otro mejoraba.
+ *   3. Un archivo TRAE DEUDA SIN TENER ENTRADA en la línea base. Su suelo es
+ *      cero, porque si no lo fuera el desplazamiento —una unidad que sale de
+ *      un archivo viejo y entra en uno nuevo— dejaría el total igual y el
+ *      desglose mudo, que es justo lo que el desglose existe para ver.
+ *   4. La línea base nombra un carril que ya nadie mide: el trinquete se
+ *      queda protegiendo algo que no existe y nadie se entera hasta que
+ *      alguien lee el JSON y no reconoce la mitad.
+ *
+ * Un archivo que DESAPARECE del desglose no es hallazgo: el desglose sólo
+ * lista archivos con deuda, así que desaparecer es haber llegado a cero.
  */
 export interface Finding {
   lane: string;
@@ -110,15 +120,29 @@ export function compare(lanes: Lane[], base: Baseline): Finding[] {
     // EL DESGLOSE, ARCHIVO POR ARCHIVO. Un total que no crece puede esconder
     // un archivo que empeoró mientras otro mejoró, y eso es exactamente lo
     // que el trinquete por archivo existe para no dejar pasar.
+    //
+    // UN ARCHIVO SIN ENTRADA EN LA LÍNEA BASE TIENE SUELO CERO. No es un
+    // detalle de implementación: es la misma regla que aplica el lint de
+    // identificadores («lo nuevo nace en inglés»), dicha aquí en números.
+    // Si un archivo sin entrada pudiera traer deuda gratis, bastaría con
+    // mover una unidad de un archivo viejo a uno nuevo para dejar el total
+    // del carril igual y el desglose callado — que es exactamente el
+    // desplazamiento que este bloque existe para impedir.
     const fileFloors = base.perFile[c.id] ?? {};
     for (const [file, n] of Object.entries(c.perFile ?? {})) {
       const previous = fileFloors[file];
-      if (previous !== undefined && n > previous) {
+      if (previous === undefined) {
+        if (n > 0) {
+          findings.push({
+            lane: c.id,
+            detail: `${file}: 0 → ${n} — sin entrada en la línea base; un archivo nuevo no nace con deuda`,
+          });
+        }
+        continue;
+      }
+      if (n > previous) {
         findings.push({ lane: c.id, detail: `${file}: creció ${previous} → ${n}` });
       }
-    }
-    for (const file of Object.keys(fileFloors)) {
-      if (!(file in (c.perFile ?? {}))) continue;
     }
   }
 
