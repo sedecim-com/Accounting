@@ -7511,6 +7511,12 @@ export const CRITERIOS: Criterio[] = [
         a: "RAISE NOTICE 'La cuota obrera de enfermedades y maternidad sigue en 0.00625",
         porque: 'un relleno que no alcanzó ninguna fila deja de detener la actualización: la migración se registra como aplicada sobre datos que siguen mal, que es la clase de silencio que este proyecto persigue',
       },
+      {
+        archivo: 'src/database/migrations/070_la_cuota_que_el_trabajador_no_debia.sql',
+        de: "to_jsonb(0.004::numeric)",
+        a: "to_jsonb(0.0045::numeric)",
+        porque: 'EL AGUJERO QUE ESTE ESPEJO CIERRA: el regex anterior no cerraba el número, así que 0.0045 —un 12.5 % de sobrecobro— pasaba como si fuera 0.004. Un ancla que no acota por la derecha da por buena cualquier cifra que EMPIECE por la correcta',
+      },
     ],
     evaluar: () => {
       // T20 punto 6 (#127). `imss_employee.enfermedades_maternidad` se sembró en
@@ -7525,7 +7531,7 @@ export const CRITERIOS: Criterio[] = [
         return falla('desapareció la migración que corrige la cuota obrera de enfermedades y maternidad: las bases ya instaladas volverían a cobrar 0.00625 (#127)');
       }
       const sql = crudoDe(corr);
-      if (!/enfermedades_maternidad\}'\s*,\s*to_jsonb\(0\.004/.test(sql)) {
+      if (!/enfermedades_maternidad\}'\s*,\s*to_jsonb\(0\.004::numeric\)/.test(sql)) {
         return falla('la corrección dejó de fijar 0.004: el art. 106-II LSS manda 0.40 % y cualquier otro número es dinero retenido de más');
       }
       // Y no puede pasar callada si no alcanzó ninguna fila: seguir sería
@@ -7555,6 +7561,72 @@ export const CRITERIOS: Criterio[] = [
       return /"enfermedades_maternidad_excedente"\s*:\s*0\.011\b/.test(semilla)
         ? ok('la cuota obrera de enfermedades y maternidad se corrige a 0.004, con las otras cuatro y la patronal del mismo artículo intactas')
         : falla('la cuota PATRONAL del art. 106-II dejó de valer 0.011: era la mitad de la pareja que permitía comprobar la obrera contra la ley');
+    },
+  },
+
+  {
+    paquete: 'E4.1',
+    enunciado: 'La corrección de la cuota obrera se comprueba EJECUTÁNDOLA sobre una base migrada, no leyéndola',
+    mutantes: [
+      {
+        archivo: 'tests/integration/migracion-070-cuota-obrera.int.spec.ts',
+        de: "describe('la 070 sobre una instalación que ya cobraba de más'",
+        a: null,
+        porque:
+          'si la prueba desaparece, la única defensa de un parámetro fiscal vuelve a ser un regex sobre el archivo: el criterio debe dar ROJO, no reventar leyendo una prueba que ya no está',
+      },
+      {
+        archivo: 'tests/integration/migracion-070-cuota-obrera.int.spec.ts',
+        de: 'for (const archivo of migracionesHasta(69))',
+        a: 'for (const archivo of migracionesHasta(70))',
+        porque:
+          'la base deja de ser PRE-070 y la 070 se aplica en el montaje: la prueba seguiría verde comprobando el resultado de su propio andamio en vez del efecto de la migración — el escenario que se mide a sí mismo',
+      },
+    ],
+    evaluar: () => {
+      // POR QUÉ ESTE CRITERIO EXISTE, teniendo ya el de arriba. El de arriba
+      // lee el .sql y comprueba que el número esté ESCRITO: da verde con la
+      // migración escrita y no aplicada. Es el mismo falso verde que pagaron
+      // los criterios de la 040 y la 043 —vigilaban el DML, no el efecto—
+      // hasta que se convirtieron en criterios que preguntan a los datos.
+      //
+      // Medido: con `to_jsonb(0.0045::numeric)` el tablero seguía en verde
+      // mientras la prueba de integración caía en cuatro sitios. Un parámetro
+      // fiscal que se retiene a una persona no puede quedar defendido sólo por
+      // una expresión regular.
+      const prueba = 'tests/integration/migracion-070-cuota-obrera.int.spec.ts';
+      if (!existe(prueba)) {
+        return falla('no hay prueba que EJECUTE la 070: el criterio de arriba sólo lee el archivo, y un regex da por aplicada una migración que nadie corrió (#127)');
+      }
+      const t = crudoDe(prueba);
+
+      // 1. QUE CORRA EL ARCHIVO REAL, no una copia del SQL dentro de la
+      //    prueba: una copia se queda vieja el día que alguien toque la
+      //    migración, y entonces la prueba pasa a defender el pasado.
+      if (!/readFileSync\(path\.join\(DIR, ARCHIVO_070\)/.test(t)) {
+        return falla('la prueba dejó de leer la migración de disco: si prueba una copia, deja de probar lo que se despliega');
+      }
+
+      // 2. QUE EL ESTADO SEA HISTÓRICO DE VERDAD. La fila equivocada la tiene
+      //    que sembrar la 009 sobre una base PRE-070, no la propia prueba: si
+      //    el montaje aplicara la 070, mediría su propio andamio.
+      if (!/for \(const archivo of migracionesHasta\(69\)\)/.test(t)) {
+        return falla('la prueba dejó de montar una base PRE-070: el estado histórico se lo estaría fabricando ella misma');
+      }
+
+      // 3. QUE JUZGUE LA CIFRA Y LA VECINDAD. 0.004 es el art. 106-II; que
+      //    `invalidez_vida` siga en 0.00625 es lo que impide el arreglo de
+      //    brocha gorda que borra todo 0.00625 del JSON y rompe el art. 147.
+      if (!/toBe\('0\.004'\)/.test(t) || !/invalidez_vida/.test(t)) {
+        return falla('la prueba dejó de exigir 0.004 con las otras cuatro cuotas intactas: sin la vecindad, un arreglo de brocha gorda pasaría');
+      }
+
+      // 4. Y QUE VIGILE EL REGISTRO. Lo que hace peligrosa a una migración de
+      //    datos no es fallar: es quedar ANOTADA habiendo fallado, porque
+      //    entonces nadie la reintenta.
+      return /anotadaLa070\(\)/.test(t)
+        ? ok('la 070 se ejecuta sobre una base migrada hasta la 069: corrige, respeta a las vecinas, avisa del valor ajeno, se puede reejecutar, y cuando su guarda salta no queda anotada')
+        : falla('la prueba dejó de mirar public.migrations: una migración que aborta pero queda anotada no la reintenta nadie, y la instalación se queda cobrando de más');
     },
   },
 
