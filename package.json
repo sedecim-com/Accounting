@@ -25,6 +25,7 @@
     "mutantes": "tsx scripts/mutantes.ts",
     "catalogo:estado": "tsx scripts/catalogo-estado.ts",
     "ux:status": "tsx scripts/ux-status.ts",
+    "language:status": "tsx scripts/language-status.ts",
     "costo:por-fila": "tsx scripts/costo-por-fila.ts",
     "reclass:iva-ppd": "tsx scripts/reclasificar-iva-ppd.ts",
     "backfill:account-roles": "tsx scripts/rellenar-roles-de-cuenta.ts",
