@@ -188,11 +188,33 @@ BEGIN
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', m.child);
     EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', m.child);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation_child ON public.%I', m.child);
-    EXECUTE format(
-      'CREATE POLICY tenant_isolation_child ON public.%I FOR ALL USING '
-      || '(EXISTS (SELECT 1 FROM public.%I p WHERE p.id = %I.%I))',
-      m.child, m.parent, m.child, m.fk
-    );
+
+    -- DIRECTA SI LA HIJA YA LLEVA SU INQUILINO (071/E1b), POR SUBCONSULTA SI NO.
+    --
+    -- La forma con EXISTS es una subconsulta correlacionada POR FILA, y dentro
+    -- de ella se evalúa además la política del padre —que en el mayor tampoco
+    -- es directa—: leer una línea costaba dos subconsultas anidadas. El
+    -- problema no es que sean lentas, es que el predicado deja de poder usarse
+    -- como condición de ÍNDICE y se degrada a filtro posterior.
+    --
+    -- Se comprueba la columna en vez de darla por hecha porque este archivo se
+    -- reaplica tras CADA migración: en una base a medio migrar la columna
+    -- puede no existir todavía, y una política que no se puede crear deja la
+    -- tabla SIN NINGUNA, que es abrir la frontera en vez de acelerarla.
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = m.child
+                  AND column_name = 'tenant_id') THEN
+      EXECUTE format(
+        'CREATE POLICY tenant_isolation_child ON public.%I FOR ALL USING (tenant_id = app_current_tenant())',
+        m.child
+      );
+    ELSE
+      EXECUTE format(
+        'CREATE POLICY tenant_isolation_child ON public.%I FOR ALL USING '
+        || '(EXISTS (SELECT 1 FROM public.%I p WHERE p.id = %I.%I))',
+        m.child, m.parent, m.child, m.fk
+      );
+    END IF;
     applied := applied + 1;
   END LOOP;
   RAISE NOTICE 'child RLS applied to % tables', applied;
