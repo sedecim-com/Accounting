@@ -189,7 +189,7 @@ BEGIN
     EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', m.child);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation_child ON public.%I', m.child);
 
-    -- DIRECTA SI LA HIJA YA LLEVA SU INQUILINO (071/E1b), POR SUBCONSULTA SI NO.
+    -- DIRECTA SI LA HIJA YA LLEVA SU INQUILINO (072/E1b), POR SUBCONSULTA SI NO.
     --
     -- La forma con EXISTS es una subconsulta correlacionada POR FILA, y dentro
     -- de ella se evalúa además la política del padre —que en el mayor tampoco
