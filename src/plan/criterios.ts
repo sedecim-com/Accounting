@@ -6623,6 +6623,121 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  // ---- T3a · La frontera de inquilino ----
+
+  {
+    paquete: 'E2.1',
+    enunciado: 'El inquilino que se pide es el inquilino que se consulta, y una hoja no puede deshacerlo',
+    mutantes: [
+      {
+        archivo: 'src/ai/context.ts',
+        de: '  const pedido = limpio(tenantFlag);',
+        a: '  const pedido = limpio(tenantFlag) ?? limpio(process.env.MNEMOSINE_TENANT);',
+        porque: 'EL DEFECTO DE #90: la ausencia de valor vuelve a ser una ORDEN de usar el entorno, así que cada hoja pisa con MNEMOSINE_TENANT el inquilino que la bandera acababa de fijar y la balanza del despacho A sale rotulada como la de B',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: '  return deLaHoja ?? deLaRaiz;',
+        a: '  return deLaRaiz ?? deLaHoja;',
+        porque: 'vuelven las DOS reglas de precedencia contrarias: el gancho rotula y comprueba con el valor de la raíz mientras la consulta corre con el de la hoja, y el aviso nombra un despacho distinto del que sale en las filas',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: '  if (deLaHoja && deLaRaiz && deLaHoja !== deLaRaiz) {',
+        a: '  if (false) {',
+        porque: 'dos órdenes contrarias del operador (--tenant X y -t Y) vuelven a resolverse por dentro y en silencio, en vez de decirse',
+      },
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: '  if (inquilino.tenantId && !chatDbInitError && !SIN_COMPROBAR_INQUILINO.has(actionCommand.name())) {',
+        a: "  if (inquilino.origen === 'bandera' && inquilino.tenantId && !chatDbInitError) {",
+        porque: 'el escalón que el README y `mnemosine init` mandan usar —MNEMOSINE_TENANT— vuelve a quedar mudo: un .env que sobrevive a un re-seed devuelve el informe vacío con código 0',
+      },
+      {
+        archivo: 'src/cli/init/s1-identity.ts',
+        de: '    const fijado = currentTenant() ?? process.env.MNEMOSINE_TENANT ?? null;',
+        a: '    const fijado = process.env.MNEMOSINE_TENANT || null;',
+        porque: 'el asistente vuelve a listar las sociedades del inquilino del .env aunque se pidiera otro con --tenant, y la comprobación de RLS de init informa del inquilino equivocado',
+      },
+    ],
+    evaluar: () => {
+      // #90. La bandera se aceptaba y se ignoraba, y no por no llegar: LLEGABA,
+      // el gancho la aplicaba, y la hoja la PISABA. `bootstrapTenant` era
+      // `tenantFlag || process.env.MNEMOSINE_TENANT`, así que el `undefined` de
+      // las 81 llamadas no significaba «no me han dicho nada» sino que era una
+      // ORDEN de usar el entorno.
+      //
+      // Y había una segunda avería encajada: `--tenant` y `-t` no eran dos
+      // grafías de una bandera. La raíz declara `-T` y se queda la forma LARGA
+      // la teclee quien la teclee; la CORTA no la reconoce (la comparación
+      // distingue mayúsculas) y viaja a la hoja. Por eso `-t` funcionaba
+      // siempre y `--tenant` no funcionaba nunca.
+      const ctx = codigoDe('src/ai/context.ts');
+      const cli = codigoDe('src/cli/mnemosine.ts');
+
+      // 1. LA AUSENCIA DEJA DE SER UNA ORDEN. Un valor explícito manda; no
+      //    haberlo recibido re-entra lo que la raíz ya resolvió.
+      // Se ancla en la línea EXACTA que decide, y no en la forma vieja del
+      // defecto: escribirlo con `??` en vez de con `||` es el mismo defecto con
+      // otra sintaxis, y un ancla que persiga `||` lo dejaría pasar. `pedido`
+      // sale del ARGUMENTO y de nada más. (bootstrapTenant sí lee el entorno
+      // más abajo, pero sólo para poder decir cuál está ignorando.)
+      if (!/const pedido = limpio\(tenantFlag\);/.test(ctx)) {
+        return falla('bootstrapTenant volvió a mezclar el entorno en lo que PIDE el llamador: cada hoja pisaría con MNEMOSINE_TENANT el inquilino que la bandera fijó, y la balanza del despacho A saldría rotulada como la de B (#90)');
+      }
+      if (!/export function bootstrapTenant/.test(ctx)) {
+        return falla('bootstrapTenant desapareció: los 81 llamadores resolverían el inquilino cada uno por su cuenta');
+      }
+
+      // 2. UNA SOLA REGLA DE PRECEDENCIA. `optsWithGlobals` da globales sobre
+      //    locales; `bootstrapTenant` hace mandar a la hoja. Fijadas las dos a
+      //    la vez, el gancho rotula un inquilino y la consulta usa otro.
+      if (!/return deLaHoja \?\? deLaRaiz;/.test(cli)) {
+        return falla('el gancho volvió a resolver con globales-sobre-locales mientras bootstrapTenant hace mandar a la hoja: el aviso nombraría un despacho distinto del que sale en las filas');
+      }
+      // 3. Y UN DESACUERDO SE DICE, no se resuelve por dentro.
+      if (!/deLaHoja && deLaRaiz && deLaHoja !== deLaRaiz/.test(cli)) {
+        return falla('dos grafías con valores distintos vuelven a resolverse en silencio: elegir entre dos órdenes contrarias del operador sin decirlo es la misma clase de mentira que este tramo repara');
+      }
+
+      // 4. EL INQUILINO INEXISTENTE FALLA VENGA DE DONDE VENGA. Bajo RLS «no
+      //    existe» y «vacío» son la misma cero-filas, y el caso realista no es
+      //    la errata al teclear sino el .env que sobrevive a un re-seed.
+      // El ancla va en la GUARDA, que es lo que el mutante toca: dejar en pie la
+      // constante y estrechar el `if` a `origen === 'bandera'` volvería a dejar
+      // mudo el escalón del .env con la declaración intacta.
+      // La ventana es LA LÍNEA de la guarda de EXISTENCIA, identificada por lo
+      // único que la distingue. Dos trampas se pagaron aquí: buscar por
+      // longitud atrapaba el `const duro = inquilino.origen === 'bandera'` de
+      // tres líneas más abajo —que es correcto—, y buscar
+      // `if (inquilino.tenantId` agarraba OTRA guarda, la del validador de
+      // uuid, que aparece antes en el archivo.
+      const iGuarda = cli.indexOf('SIN_COMPROBAR_INQUILINO.has(');
+      const inicio = iGuarda === -1 ? -1 : cli.lastIndexOf('\n', iGuarda) + 1;
+      const guarda = inicio === -1 ? '' : cli.slice(inicio, cli.indexOf('\n', iGuarda));
+      if (!/inquilino\.tenantId/.test(guarda) || /origen === 'bandera'/.test(guarda)) {
+        return falla('la comprobación de existencia volvió a mirar sólo la bandera: el escalón que el README y `mnemosine init` mandan usar quedaría mudo, y un .env que sobrevive a un re-seed devolvería el informe vacío con código 0 (#90)');
+      }
+      // Con su exención declarada: los comandos que existen para ARREGLAR el
+      // inquilino no pueden morir por él.
+      const exencion = cli.slice(cli.indexOf('SIN_COMPROBAR_INQUILINO'), cli.indexOf('SIN_COMPROBAR_INQUILINO') + 400);
+      if (!/'init'/.test(exencion) || !/'doctor'/.test(exencion)) {
+        return falla('init o doctor dejaron de estar exentos de la comprobación: son los dos comandos a los que se acude cuando el .env apunta a un despacho que ya no está, y tumbarlos cierra el único camino de salida');
+      }
+
+      // 5. Y EL ASISTENTE NO SE SALTA LA PRECEDENCIA POR SU CUENTA.
+      const ident = codigoDe('src/cli/init/s1-identity.ts');
+      const infra = codigoDe('src/cli/init/s0-infra.ts');
+      const leeEntornoASecas =
+        /const fijado = process\.env\.MNEMOSINE_TENANT \|\| null/.test(ident) ||
+        /tenantId: process\.env\.MNEMOSINE_TENANT \|\| undefined/.test(ident) ||
+        /const tenant = process\.env\.MNEMOSINE_TENANT \?\?/.test(infra);
+      return leeEntornoASecas
+        ? falla('init volvió a leer MNEMOSINE_TENANT por su cuenta: lista y CREA sociedades bajo el inquilino del .env aunque se pidiera otro, y su comprobación de RLS informa del inquilino equivocado')
+        : ok('la bandera manda sobre el entorno, una sola regla de precedencia gobierna el gancho y la hoja, el inquilino inexistente falla venga de donde venga, y el asistente usa el inquilino efectivo');
+    },
+  },
+
 ];
 
 /**
