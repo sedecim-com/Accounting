@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { parseInvoiceLine, dueDateFromTerms, registerInvoiceCommand } from '../../src/cli/invoice-command.js';
 import { inferTaxIdType, registerCustomerCommand } from '../../src/cli/customer-command.js';
 import { resetDeclarations, riskOf } from '../../src/cli/kernel/risk.js';
-import { auditProgram } from '../../src/cli/kernel/audit.js';
+import { auditProgram, DEUDA_DE_LLAVES, esDeudaDeLlave } from '../../src/cli/kernel/audit.js';
 
 // ============================================================
 // The AR families against the kernel's own rules: the audit that
@@ -40,8 +40,14 @@ function find(program: Command, path: string): Command {
 }
 
 describe('the kernel audit', () => {
-  it('accepts every command in both families', () => {
-    expect(auditProgram(build())).toEqual([]);
+  it('accepts every command in both families, save for the key debt they declare', () => {
+    // `invoice issue`, `invoice void` e `invoice delete` aceptan
+    // --idempotency-key y no deduplican sobre ella. R11 lo acusa desde este
+    // tramo; están nombradas en DEUDA_DE_LLAVES y la lista sólo puede
+    // encoger. Lo demás sigue en cero.
+    const v = auditProgram(build());
+    expect(v.filter((x) => !esDeudaDeLlave(x))).toEqual([]);
+    for (const x of v.filter(esDeudaDeLlave)) expect(DEUDA_DE_LLAVES).toContain(x.command);
   });
 });
 
@@ -74,7 +80,21 @@ describe('the safety property', () => {
   it('gives the ledger commands their safety flags', () => {
     const program = build();
     const longs = (path: string) => find(program, path).options.map((o) => o.long);
-    expect(longs('invoice issue')).toEqual(expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key']));
+    // LA VERSIÓN ANTERIOR NO PODÍA FALLAR: comprobaba banderas que
+    // `declareRisk` acaba de INYECTAR (risk.ts), o sea su propio efecto
+    // secundario. Lo que sí puede fallar es qué hace la hoja con la llave.
+    // `invoice issue` acepta --idempotency-key y NO deduplica sobre ella
+    // (postearía el ingreso otra vez), así que está nombrada en
+    // DEUDA_DE_LLAVES y R11 la acusa. Mientras siga ahí, pasar la llave falla
+    // en vez de fingir: eso es lo que esta prueba fija.
+    expect(riskOf(find(program, 'invoice issue'))?.llave).toEqual({
+      sinLlave: 'un reintento vuelve a emitir y postea el ingreso otra vez',
+    });
+    expect(DEUDA_DE_LLAVES).toContain('invoice issue');
+    expect(
+      auditProgram(program).filter((v) => v.command === 'invoice issue' && esDeudaDeLlave(v))
+    ).toHaveLength(1);
+    expect(longs('invoice issue')).toEqual(expect.arrayContaining(['--dry-run', '--yes']));
     expect(longs('invoice void')).toEqual(expect.arrayContaining(['--dry-run', '--yes', '--reason']));
   });
 });

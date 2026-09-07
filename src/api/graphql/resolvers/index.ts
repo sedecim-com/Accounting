@@ -1,4 +1,5 @@
 import { query } from '../../../database/connection.js';
+import { queryTrialBalanceRows } from '../../../services/reporting/report-service.js';
 import { assertEntityAccess } from '../../rest/middleware/auth.js';
 import { findByIdInScope, requireByIdInScope, entityScope } from '../../../database/scope.js';
 import {
@@ -321,26 +322,22 @@ export const resolvers = blindarCampos({
 
     async trialBalance(_: unknown, args: Record<string, unknown>, ctx: Ctx) {
       const entityId = entidadPedida(ctx, args.entityId);
-      // Delegate to report service logic
-      const result = await query(
-        `SELECT a.id as account_id, a.code as account_code, a.name as account_name, a.account_type,
-          COALESCE(SUM(jel.debit_amount), 0) as debit_total,
-          COALESCE(SUM(jel.credit_amount), 0) as credit_total,
-          COALESCE(SUM(COALESCE(jel.debit_amount,0) - COALESCE(jel.credit_amount,0)), 0) as ending_balance
-         FROM accounts a
-         LEFT JOIN journal_entry_lines jel ON jel.account_id = a.id
-         LEFT JOIN journal_entries je ON je.id = jel.journal_entry_id AND je.status = 'posted'
-         WHERE a.entity_id = $1 AND a.is_active = true
-         GROUP BY a.id, a.code, a.name, a.account_type ORDER BY a.code`,
-        [entityId]
-      );
+      // AHORA SÍ DELEGA. Este comentario decía «Delegate to report service
+      // logic» y debajo había una COPIA LITERAL del SQL de la balanza, con su
+      // propio `AND a.is_active = true`. Copiada, no envejeció igual: cuando
+      // T13 quitó ese filtro del servicio —porque archivar una cuenta estaba
+      // reescribiendo estados financieros ya firmados—, esta balanza siguió
+      // borrando la cuenta archivada con movimiento. Es un informe de usuario,
+      // no un cotejo interno, y el criterio E4.2 del tablero existe justamente
+      // para contar estas copias.
+      const filas = await queryTrialBalanceRows(entityId);
 
       return {
         entityId,
-        accounts: result.rows,
+        accounts: filas,
         totals: {
-          totalDebits: result.rows.reduce((s: number, r: Record<string, unknown>) => s + parseFloat(r.debit_total as string), 0),
-          totalCredits: result.rows.reduce((s: number, r: Record<string, unknown>) => s + parseFloat(r.credit_total as string), 0),
+          totalDebits: filas.reduce((s: number, r: { debit_total: string; credit_total: string }) => s + parseFloat(r.debit_total), 0),
+          totalCredits: filas.reduce((s: number, r: { debit_total: string; credit_total: string }) => s + parseFloat(r.credit_total), 0),
           isBalanced: true,
         },
       };

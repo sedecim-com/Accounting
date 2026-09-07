@@ -105,10 +105,13 @@ describe('1 · el criterio que ejecuta, contra roturas que su autor NO declaró'
     // El signo de la resta —el espejo declarado— se deja intacto. Lo que se
     // rompe es el ACOTE: la balanza deja de filtrar por entidad y publica las
     // cuentas de todos los inquilinos del servidor.
+    // T13 movió esta línea: `a.is_active` dejó de vivir aquí —ahora es un
+    // predicado del catálogo, no un filtro— y el acote por entidad se quedó
+    // solo. El ataque es el mismo: quitarlo.
     mutarEnDisco(
       'src/services/reporting/report-service.ts',
-      "let where = 'WHERE a.entity_id = $1 AND a.is_active = true';",
-      "let where = 'WHERE a.is_active = true';"
+      "let where = 'WHERE a.entity_id = $1';",
+      "let where = '';"
     );
     const v = correrEscenario();
     expect(v.motivo, `el escenario no se montó: ${v.motivo ?? ''}`).toBeUndefined();
@@ -355,7 +358,13 @@ describe('3 · el trinquete de cobertura', () => {
         'sobre un archivo inexistente pasa, y suma a la cifra que el criterio publica («N archivos ' +
         'con umbral propio»). Si se cierra, voltea esta aserción a «falla».'
     ).toBe('ok');
-    expect(r.detalle, 'el archivo inventado no llegó a contarse: revisa el ataque').toContain('7 archivos');
+    // La cifra sube con cada archivo que gana umbral propio (T13 añadió
+    // criterio-archivadas.ts): lo que el ataque afirma es que el INVENTADO
+    // suma uno más de los que vitest.config declara de verdad.
+    const declarados = (config.match(/'src\/[^']+\.ts':\s*\{/g) ?? []).length;
+    expect(r.detalle, 'el archivo inventado no llegó a contarse: revisa el ataque').toContain(
+      `${declarados + 1} archivos`
+    );
   });
 
   it('HUECO · los umbrales al 100 (inalcanzables) pasan igual que los reales', async () => {

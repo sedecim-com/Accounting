@@ -57,8 +57,10 @@ indistinguibles desde la consulta: eso es a propósito —un 403 confirmaría qu
 recurso existe— pero significa que un olvido de contexto se parece a una base
 vacía.
 
-**Arreglo.** Fija el inquilino. La precedencia es `--tenant` > `MNEMOSINE_TENANT`
-> lo que ya traiga la entidad resuelta.
+**Arreglo.** Fija el inquilino. La precedencia es `--tenant` (en cualquiera de
+sus tres grafías: `-T` antes del comando, `--tenant` o `-t` después) >
+`MNEMOSINE_TENANT` > la clave `tenant` de `mnemosine.config.json` > lo que ya
+traiga la entidad resuelta.
 
 ```bash
 npm run mnemosine -- -T <uuid-del-inquilino> entity list
@@ -73,6 +75,11 @@ El propio mensaje distingue los dos casos y merece leerse entero: cuando **no**
 hay contexto dice «especifica uno con `--tenant` o `MNEMOSINE_TENANT`»; cuando sí
 lo hay dice «no hay entidades activas en este inquilino». Son diagnósticos
 distintos.
+
+**Variante.** `No tenant with id <uuid>` (código 3). El inquilino que pediste
+**no existe**, y eso ya no se parece a una base vacía: se rechaza en vez de
+devolver un informe de cero filas. Si en cambio dice `The tenant must be a UUID`
+(código 2), es una errata en la bandera o en `MNEMOSINE_TENANT`.
 
 **Variante.** `La entidad X pertenece al inquilino A y el contexto activo es B`.
 Ahí el contexto está puesto y está **mal**: corrígelo o quítalo. En el servidor,

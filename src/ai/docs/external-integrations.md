@@ -12,6 +12,13 @@ list` and executes with `mnemosine outbox run --live` (no sandbox exists, so
 the real effect is opt-in). Never claim something was already applied over
 there: it was "queued".
 
+When you report the result of `mnemosine outbox run --live`, its exit code says
+what to do next and you should say it too: **8** = the remote service failed or
+was unreachable — transient, running it again is reasonable; **9** = the remote
+service REFUSED (bad credentials, a rejected payload, its own `status: 0`) —
+retrying unchanged will refuse again, so something has to change first. Any
+other non-zero is a local failure, not the provider's.
+
 ## Your tools
 - external_pull {provider, resource}: trial_balance (start/end), account_balance
   (account_code, date), documents (rfc, transaction_type E/R, document_type
@@ -37,6 +44,9 @@ there: it was "queued".
 ## Contalink quirks
 - Responses: status 1 = success, 0 = error (inverted from the intuitive).
 - Trial balance amounts arrive as strings; the adapter already normalizes them to numbers.
+- An account ARCHIVED locally but with posted history still counts on our side of the diff: it is
+  not `only_remote`. Archiving is a catalog decision and it does not retract the movement, so a
+  difference there would be one we invented.
 - The remote trial balance uses CONTALINK'S chart: codes may not match the
   local ones — treat only_local/only_remote first as a chart-of-accounts
   difference, not a balance difference.

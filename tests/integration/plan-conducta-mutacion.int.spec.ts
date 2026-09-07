@@ -83,7 +83,7 @@ const casos = PRUEBAS_DE_CONDUCTA.flatMap((p) =>
 );
 
 describe('los espejos del criterio que EJECUTA', () => {
-  it('el escenario sin mutar deja los tres en verde', () => {
+  it('el escenario sin mutar deja todos en verde', () => {
     // La línea base. Sin ella, un mutante «mata» un criterio que ya estaba
     // rojo por otra cosa —una base que no monta, un catálogo que cambió— y el
     // arnés certificaría una mordida que no existe.

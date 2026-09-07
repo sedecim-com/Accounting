@@ -278,6 +278,14 @@ function metodoPedido(valor: string): MetodoDeFlujo {
 // in a section — which is what decides whether this document can tie to the
 // bank at all. The three section keys keep their published names.
 //
+// That sentence names `self_check.all_classified`, and until T13 there was no
+// such field: the only boolean was `ties`, computed from the SUM of the
+// unclassified section, so two imported accounts of +5,000 and −5,000 left it
+// true and the body claimed a classification nobody had made. The two facts
+// are published separately now because they are two facts: `ties` is the net
+// against cash, `all_classified` is the section-by-section claim, and only the
+// second one can be read as «this statement stands».
+//
 // `method` is no longer echoed. Asking for the direct method used to return
 // the indirect one labelled as direct; now it fails with what is missing.
 router.get('/cash-flow', requirePermission('reports:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {

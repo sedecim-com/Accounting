@@ -22,6 +22,21 @@ vi.mock('../../../src/services/reporting/criterio-cierre.js', async (importOrigi
   };
 });
 
+// T13 · Mismo trato para el criterio de las cuentas archivadas: la balanza lo
+// consulta, y esta suite mockea `connection` sin `currentTenant`. Se sustituye
+// el LECTOR y se deja real el SQL que construye.
+vi.mock('../../../src/services/reporting/criterio-archivadas.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../src/services/reporting/criterio-archivadas.js')>();
+  return {
+    ...actual,
+    criterioDeCuentasArchivadas: vi.fn(async () => ({
+      valor: 'retirar_cuando_no_tiene_nada',
+      retirarSinCifras: true,
+    })),
+  };
+});
+
 import { buildTools, MAX_TOOL_RESULT_CHARS } from '../../../src/ai/tools/index.js';
 import { query } from '../../../src/database/connection.js';
 import type { AgentContext } from '../../../src/ai/context.js';
