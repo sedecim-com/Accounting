@@ -22,7 +22,7 @@ Desde el 2026-09-06 la regla es una frase: **el código en inglés; la interfaz 
 
 ## Lo que se propone, en orden
 
-Veintiún tramos (I0–I20), cada uno con su criterio ejecutable; cada uno deja el árbol verde y la línea base más baja, y parar en cualquiera es un estado válido.
+Veintiún tramos (I0–I20; epic [#141](https://github.com/sedecim-com/Accounting/issues/141), tramos [#142](https://github.com/sedecim-com/Accounting/issues/142)–[#162](https://github.com/sedecim-com/Accounting/issues/162)), cada uno con su criterio ejecutable; cada uno deja el árbol verde y la línea base más baja, y parar en cualquiera es un estado válido.
 
 1. **I0–I4, los cimientos**: identidad estable para los instrumentos que hoy usan texto español como clave; el léxico y la regla escrita; el metro `language:status` con cifras que sólo bajan; el lint `house/english-identifiers` que hace fallar un identificador español nuevo, con línea base por archivo; y el vocabulario estable —claves y valores del panel, los 36 roles de cuenta, los `CHECK`, los códigos publicados, las migraciones— registrado con glosa inglesa. **I5**: J0 nace en inglés.
 2. **I6–I11, el usuario lee en su idioma**: un resolutor de locale (`--locale`, `es-MX` por omisión), un catálogo **tipado** (una clave sin traducción al español es un error de compilación) con formateador propio sobre `Intl`; el kernel del CLI y el piloto `bank`; las hojas por familia; la API con `Accept-Language` y códigos congelados; el panel preguntando en el idioma del contador sin tocar lo persistido; informes, `doctor` y agente.

@@ -133,7 +133,7 @@ Cada tramo lleva su criterio en `src/plan/criterios.ts` en el mismo commit; cada
 | **I19** | `tests/` (139 nombres, 3 ayudantes, prefijo `s3-`, `HOJAS_PROPIAS`, 259 citas) y, en su PR final, `src/plan` y los ayudantes del instrumento (sólo si D6) | carril «archivos españoles en `tests/`» hacia 0; E0.0 verde; 120/120 | L |
 | **I20** | Comentarios existentes (**sólo si D1 = sí**): el carril pasa de informativo a trinquete; por archivo, con relectura de manual cuando la fuente está sellada; los 10 mutantes que inyectan comentarios en español | el número baja y la línea base se aprieta por PR | XL |
 
-**J0 nace en inglés.** `docs/jurisdicciones.md` propuso `jurisdiccionDe`, `PaqueteDeJurisdiccion`, `parametros_legales`, `src/jurisdicciones/`; con esta regla son `jurisdictionOf`, `JurisdictionPackage`, `legal_parameters`, `src/jurisdictions/` (tabla completa en la cabecera de ese documento). J0.1 (#123) **está en curso con los nombres españoles en una rama sin fusionar**: es I5, y cuesta S antes de fusionar y un tramo después.
+**J0 nace en inglés.** `docs/jurisdicciones.md` propuso `jurisdiccionDe`, `PaqueteDeJurisdiccion`, `parametros_legales`, `src/jurisdicciones/`; con esta regla son `jurisdictionOf`, `JurisdictionPackage`, `legal_parameters`, `src/jurisdictions/` (tabla completa en la cabecera de ese documento). J0.1 (#123) **está en curso con los nombres españoles en una rama sin fusionar**: es I5 ([#147](https://github.com/sedecim-com/Accounting/issues/147)), y cuesta S antes de fusionar y un tramo después.
 
 ## 6. Lo que decide el dueño
 
@@ -158,4 +158,4 @@ Con la omisión propuesta por el panel; ninguna bloquea I0-I4 salvo D2.
 - El inventario, las verificaciones, las tres propuestas y los dos juicios: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/)
 - La jurisdicción como dimensión, que este documento renombra al inglés: [`docs/jurisdicciones.md`](jurisdicciones.md)
 - La auditoría de idioma del CLI que ya existía y que este plan absorbe: `docs/auditorias/2026-09-01-usabilidad/ux-idioma.md`
-- Las issues: etiqueta `idioma`; el estado se pregunta con `npm run language:status` cuando exista, y hasta entonces nada de este documento cuenta como hecho.
+- Las issues: el epic [#141](https://github.com/sedecim-com/Accounting/issues/141) y los tramos I0–I20 en [#142](https://github.com/sedecim-com/Accounting/issues/142)–[#162](https://github.com/sedecim-com/Accounting/issues/162), etiqueta `idioma`; el estado se pregunta con `npm run language:status` cuando exista, y hasta entonces nada de este documento cuenta como hecho.
