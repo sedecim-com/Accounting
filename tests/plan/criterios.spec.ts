@@ -154,3 +154,59 @@ describe('los criterios tienen identidad, y no es su prosa', () => {
     ).toEqual([]);
   });
 });
+
+// ============================================================
+// NINGÚN VERDE DE PAQUETE ABIERTO SE QUEDA SIN PISO (WIT-01)
+//
+// `--exigir` protege PAQUETES enteros, así que un verde dentro de un paquete
+// que todavía tiene rojos sólo está protegido si el piso lo nombra uno a uno.
+// El tablero ya lo dice al final de su salida, pero eso NO SE VE IGUAL EN
+// TODA MÁQUINA: los criterios de conducta necesitan una base efímera y, donde
+// no la hay, quedan sin evaluar, su paquete se abre, y entonces sus vecinos
+// verdes pasan a exigir protección. El hueco de WIT-01 vivió así — invisible
+// en una máquina con base, rojo en la del revisor.
+//
+// Esta prueba mira el CASO PEOR a propósito: trata como no evaluable todo lo
+// que necesita base, que es lo que ve una CI sin ella.
+// ============================================================
+
+describe('el piso cubre lo que --exigir no alcanza', () => {
+  it('todo criterio verde de un paquete abierto está nombrado en el piso', async () => {
+    const necesitaBase = (c: (typeof CRITERIOS)[number]): boolean =>
+      c.necesita !== undefined || c.clase === 'conducta';
+
+    const estado = new Map<(typeof CRITERIOS)[number], 'ok' | 'falla' | 'sin-evaluar'>();
+    for (const c of CRITERIOS) {
+      if (necesitaBase(c)) {
+        estado.set(c, 'sin-evaluar');
+        continue;
+      }
+      const r = await c.evaluar();
+      estado.set(c, r.estado === 'ok' ? 'ok' : 'falla');
+    }
+
+    // Un paquete está ABIERTO si alguno de los suyos no está verde, y un
+    // criterio que no se pudo evaluar cuenta como no verde: es exactamente la
+    // lectura que hace la CI cuando no hay base.
+    const abiertos = new Set(
+      CRITERIOS.filter((c) => estado.get(c) !== 'ok').map((c) => c.paquete)
+    );
+
+    const piso = new Set(
+      (
+        JSON.parse(
+          fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'criterios-minimos.json'), 'utf8')
+        ) as { verdes: string[] }
+      ).verdes
+    );
+
+    const desprotegidos = CRITERIOS.filter(
+      (c) => estado.get(c) === 'ok' && abiertos.has(c.paquete) && !piso.has(c.id ?? '')
+    ).map((c) => c.id ?? `${c.paquete} · ${c.enunciado}`);
+
+    expect(
+      desprotegidos,
+      'verdes de paquete abierto sin entrada en docs/criterios-minimos.json: si retroceden, nada lo dice'
+    ).toEqual([]);
+  }, 60_000);
+});
