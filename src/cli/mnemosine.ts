@@ -57,6 +57,7 @@ import {
   usageError,
   notFound,
   exitCodeFor,
+  batchExitCode,
   CliError,
   ExitCode,
   type ExitCodeValue,
@@ -2511,7 +2512,17 @@ async function correrOutboxImpl(
       }
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       let executed = 0;
-      let failed = 0;
+      // The verdict of each failure, not just how many there were. This is
+      // the leaf a cron calls, and «8 retry» vs «9 never blind-retry» is the
+      // only thing it can act on: it cannot read our stderr.
+      //
+      // UNA SOLA FUENTE PARA EL CONTEO Y PARA EL CÓDIGO. Aquí hubo un `failed`
+      // aparte, y dos contadores paralelos hay que sincronizarlos a mano: el
+      // día que alguien añada una rama de fallo que incremente uno y olvide el
+      // otro, `batchExitCode([])` devuelve OK y el comando sale 0 con el lote
+      // entero fallado. Antes del tramo eso era imposible porque el número y
+      // el código salían de la MISMA variable; se conserva esa propiedad.
+      const veredictos: ExitCodeValue[] = [];
       for (let i = 0; i < targets.length; i++) {
         renderExternalOp(targets[i], i, targets.length);
         if (!opts.yes) {
@@ -2547,13 +2558,13 @@ async function correrOutboxImpl(
           executed++;
           console.log(`✔ Executed. Response: ${c.dim(JSON.stringify(result).slice(0, 200))}`);
         } catch (err) {
-          failed++;
+          veredictos.push(exitCodeFor(err));
           reportError(err);
           console.log(c.dim('The operation is left as-is (check outbox list --status failed); continuing.'));
         }
       }
-      console.log(c.dim(`\nDone: ${executed} executed, ${failed} failed.`));
-      await shutdown(failed > 0 ? 1 : 0);
+      console.log(c.dim(`\nDone: ${executed} executed, ${veredictos.length} failed.`));
+      await shutdown(batchExitCode(veredictos));
     }
 
     // ─── Interactive queue ───
@@ -2614,6 +2625,9 @@ async function correrOutboxImpl(
 
     let executed = 0;
     let rejected = 0;
+    // Same reason as the scripted path: a queue that failed every execution
+    // still exited 0, so `outbox run --live && next-step` chained on a lie.
+    const veredictos: ExitCodeValue[] = [];
     for (let i = 0; i < pending.length; i++) {
       renderExternalOp(pending[i], i, pending.length);
       const raw = await ask(rl, c.cyan('\n[e]xecute in the external system  [r]eject  [s]kip  [q]uit > '));
@@ -2643,14 +2657,21 @@ async function correrOutboxImpl(
         }
         // 's' or anything else: skip
       } catch (err) {
+        veredictos.push(exitCodeFor(err));
         reportError(err);
         console.log(c.dim('The operation is left as-is (check list_external_ops/failed); the queue continues.'));
       }
     }
 
     rl.close();
-    console.log(c.dim(`\nDone: ${executed} executed, ${rejected} rejected.`));
-    await shutdown(0);
+    console.log(
+      c.dim(
+        `\nDone: ${executed} executed, ${rejected} rejected` +
+          (veredictos.length > 0 ? `, ${veredictos.length} failed` : '') +
+          '.'
+      )
+    );
+    await shutdown(batchExitCode(veredictos));
   } catch (err) {
     rl?.close();
     if (isInterrupt(err)) await shutdown(130);

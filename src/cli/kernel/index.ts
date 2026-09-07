@@ -15,6 +15,7 @@ export {
   ExitCode,
   CliError,
   checkExitCode,
+  batchExitCode,
   notFound,
   usageError,
   validationFailed,
@@ -30,6 +31,9 @@ export {
 
 export {
   render,
+  emit,
+  legible,
+  resetOutputTargets,
   resolveFormat,
   fieldNames,
   dateOnly,
@@ -98,9 +102,18 @@ const STATUS_TO_EXIT: Record<number, ExitCodeValue> = {
   409: ExitCode.CONFLICT,
   422: ExitCode.VALIDATION,
   423: ExitCode.BLOCKED,
+  // The external pair. 502/503/504 were mapped from the first day and no
+  // error in the tree ever carried them, so the row was decoration: every
+  // dead PAC, timed-out bank and unreachable Contalink left by the generic
+  // 1. `ExternalServiceError` (502) is what finally walks through here.
   502: ExitCode.EXTERNAL_FAILED,
   503: ExitCode.EXTERNAL_FAILED,
   504: ExitCode.EXTERNAL_FAILED,
+  // 424 Failed Dependency: the service answered and said NO. This is the
+  // only door to 9, and 9 exists to stop a cron from blind-retrying a
+  // refusal forever (a repeated SAT 5002 burns that period's request
+  // budget permanently). `ExternalRejectedError` carries it.
+  424: ExitCode.EXTERNAL_REJECTED,
 };
 
 /**

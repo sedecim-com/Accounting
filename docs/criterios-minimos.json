@@ -55,6 +55,7 @@
     "E4.1 · Un impuesto que no se puede calcular se nombra, no se cifra en cero",
     "E4.1 · Una conciliación no se declara cuadrada sin postear su diferencia",
     "E4.2 · Postear no dispara el refresco de vistas materializadas",
+    "E5.1 · El 8 y el 9 del contrato tienen productor de verdad: un fallo externo transitorio y un rechazo definitivo mueren con enteros distintos",
     "E5.1 · El arnés del eval mide la superficie que se embarca, y no puede salir en verde sin haber medido",
     "E5.1 · El clasificador tiene vara de medir: golden set con esperado y arnés fijado",
     "E5.1 · El documento que el agente lee como «el binario exacto» reproduce la ayuda real, con los ejemplos incluidos",
@@ -74,7 +75,8 @@
     "E5.1 · Toda hoja del CLI declara su riesgo, así que hay algo sobre lo que aplicar la compuerta",
     "E5.1 · Todo camino que clasifica CFDI por lotes corre con superficie recortada y deja su fila de corrida",
     "E5.1 · Todo ejemplo de la ayuda lo acepta el Commander embarcado, en la hoja en cuya ayuda vive, y ninguno enseña la clave legada tax=",
-    "E5.1 · Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre"
+    "E5.1 · Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre",
+    "E5.1 · `-o` entrega un archivo con la salida COMPLETA del comando: todo dato sale por una sola puerta"
   ],
   "_f05": "F05 (frontera de banco) subio el piso de 31 a 37 criterios: los seis verdes de E2.1 que nadie protegia. Se anaden aqui porque el arreglo de la frontera bancaria estuvo a punto de regresar uno de ellos —acotaba por `req.entityId` sin montar requireEntityAccess, y acotar por una cabecera que nadie valida no es acotar—. El criterio lo cazo; el piso impide que la proxima vez dependa de que alguien mire.",
   "_f05d": "F05d subio el piso de 37 a 46: los nueve verdes de E0.0 que nadie protegia, incluido «el corpus tiene compuerta de caducidad» — que este mismo tramo estuvo a punto de volver inutil sin tocarlo. Al anadir al manual una segunda mencion de 1135 (la regla del cheque cobrado), el mutante que vigilaba la del PPD paso a mutar la nueva y el criterio, que solo comprobaba PRESENCIA del numero, seguia en verde mientras el manual podia ensenar lo contrario. Un ancla de presencia caduca en cuanto alguien escribe cerca.",
