@@ -283,7 +283,7 @@ describe('ivaStillParked — you cannot release what was never parked', () => {
 // ============================================================
 // QUIÉN ACREDITA SOBRE FLUJO: EL BORDE, DESDE ESTE CONSUMIDOR
 //
-// El predicado se unificó en `src/services/jurisdiccion/jurisdiccion.ts`
+// El predicado se unificó en `src/services/jurisdiction/jurisdiction.ts`
 // (J0.1). Un borde correcto en el conmutador y una comparación superviviente
 // aquí es exactamente el defecto que el tramo cierra, así que el borde se
 // prueba OTRA VEZ desde el consumidor y no sólo en el módulo.
@@ -308,7 +308,7 @@ describe('entityUsesCashBasisIva — el borde, preguntado desde el consumidor', 
    * duda, mexicana» contesta por una entidad que existe y no declaró su país;
    * aquí no hay entidad. La consulta filtra sólo por `id` y se apoya en RLS,
    * así que un id de otro inquilino devuelve cero filas: si el `!row` se
-   * enrutara por `jurisdiccionDe({})`, un id ajeno o inexistente estrenaría
+   * enrutara por `jurisdictionOf({})`, un id ajeno o inexistente estrenaría
    * régimen fiscal mexicano.
    */
   it('una entidad que no existe no tiene régimen: cero filas es false, no «mexicana por omisión»', async () => {

@@ -10,7 +10,7 @@ vi.mock('../../src/database/connection.js', () => ({
 }));
 
 import { censarIvaPpd } from '../../src/services/accounting/iva-ppd-reclass.js';
-import { sqlEsContabilidadMexicana } from '../../src/services/jurisdiccion/jurisdiccion.js';
+import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
 import { query } from '../../src/database/connection.js';
 
 const mockQuery = query as unknown as Mock;
@@ -41,7 +41,7 @@ async function sqlDelCenso(): Promise<string> {
 describe('censarIvaPpd — la frontera de jurisdicción, dentro de la consulta', () => {
   it('el predicado que acota por jurisdicción está en el WHERE, antes del ORDER BY', async () => {
     const sql = await sqlDelCenso();
-    const posicion = sql.indexOf(sqlEsContabilidadMexicana('le'));
+    const posicion = sql.indexOf(sqlKeepsMexicanBooks('le'));
     expect(posicion).toBeGreaterThan(-1);
     expect(posicion).toBeGreaterThan(sql.indexOf('WHERE'));
     expect(posicion).toBeLessThan(sql.indexOf('ORDER BY'));
@@ -55,7 +55,7 @@ describe('censarIvaPpd — la frontera de jurisdicción, dentro de la consulta',
    */
   it('el texto lo emite el conmutador, no está escrito a mano en este archivo', async () => {
     const sql = await sqlDelCenso();
-    expect(sql).toContain(sqlEsContabilidadMexicana('le'));
+    expect(sql).toContain(sqlKeepsMexicanBooks('le'));
     // Y las dos comparaciones en crudo que este archivo tenía ya no están: si
     // vuelven, es que alguien reintrodujo la copia.
     expect(sql).not.toContain("le.incorporation_country = 'MX'");

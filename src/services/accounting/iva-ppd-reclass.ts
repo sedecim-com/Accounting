@@ -3,7 +3,7 @@ import { query, withTransaction, currentTenant } from '../../database/connection
 import { createJournalEntry, attestEntryAsync } from './posting.js';
 import { reopenClosedPeriod, restorePeriodStatus } from './fiscal-calendar-service.js';
 import { JournalEntryType } from '../../types/index.js';
-import { sqlEsContabilidadMexicana } from '../jurisdiccion/jurisdiccion.js';
+import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 
 // ============================================================
 // RECLASIFICACIÓN DEL IVA DE CFDI PPD MAL ACREDITADO.
@@ -107,7 +107,7 @@ WHERE le.tenant_id = $1
   -- mexicano. Y SIGUE DENTRO DEL WHERE a propósito: este censo alimenta a
   -- reclasificar, que escribe asientos y puede reabrir periodos cerrados, así
   -- que la frontera no puede ser un filtro en memoria.
-  AND ${sqlEsContabilidadMexicana('le')}
+  AND ${sqlKeepsMexicanBooks('le')}
   AND je.status = 'posted'
   AND jel.debit_amount > 0
   AND xd.metodo_pago = 'PPD'

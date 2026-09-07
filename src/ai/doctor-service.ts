@@ -3,7 +3,7 @@ import path from 'node:path';
 import { checkSoDViolations } from '../api/rest/middleware/auth.js';
 import { query } from '../database/connection.js';
 import { REQUIRED_BUCKETS } from '../services/payroll/common/payroll-account-mapping-seed.js';
-import { sqlEsContabilidadMexicana } from '../services/jurisdiccion/jurisdiccion.js';
+import { sqlKeepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
 import { config } from '../config/index.js';
 import { isLocalHost, defaultSslMode } from '../database/ssl.js';
 import { DB_PROVIDERS } from '../database/providers.js';
@@ -209,7 +209,7 @@ export async function checkAccountRoles(): Promise<CheckResult> {
                 SELECT 1 FROM account_roles ar
                  WHERE ar.entity_id = e.id AND ar.role = rol AND ar.qualifier IS NULL)) AS faltantes
      FROM legal_entities e
-     WHERE e.is_active = true AND ${sqlEsContabilidadMexicana('e')}`,
+     WHERE e.is_active = true AND ${sqlKeepsMexicanBooks('e')}`,
     [IVA_ROLES]
   );
   const incompletas = ivaFaltante.rows.filter((x) => x.faltantes);

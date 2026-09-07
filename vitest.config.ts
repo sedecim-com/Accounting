@@ -16,7 +16,7 @@ export default defineConfig({
       // La carpeta de informes entra desde G1a: report-service.ts es el único
       // punto por el que pasan las tres superficies que publican un estado
       // firmado, y medía CERO aquí porque nadie la había incluido.
-      // J0.1 · `src/services/jurisdiccion/` entra el día que nace, y no es
+      // J0.1 · `src/services/jurisdiction/` entra el día que nace, y no es
       // cosmética: el conmutador de jurisdicción se LLEVÓ líneas que sí se
       // medían —vivían en `services/accounting/pais-contable.ts`— y sin esta
       // línea el refactor habría sacado del conjunto medido el código que
@@ -33,7 +33,7 @@ export default defineConfig({
       // alguien se acuerde.
       include: [
         'src/services/accounting/**',
-        'src/services/jurisdiccion/**',
+        'src/services/jurisdiction/**',
         'src/services/reporting/**',
         'src/utils/sequence.ts',
       ],
@@ -108,7 +108,7 @@ export default defineConfig({
         // es la pieza por la que pasan las tres superficies, y el día que
         // alguien la bifurque otra vez el número lo dirá antes que nadie.
         // Medidos hoy: 100 / 96 / 100 / 100.
-        'src/services/jurisdiccion/jurisdiccion.ts': {
+        'src/services/jurisdiction/jurisdiction.ts': {
           statements: 100, branches: 100, functions: 100, lines: 100,
         },
         'src/services/reporting/criterio-cierre.ts': {

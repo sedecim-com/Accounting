@@ -4,9 +4,9 @@ import { query, getClient, closeDatabase } from '../../src/database/connection.j
 import { entityUsesCashBasisIva } from '../../src/services/accounting/iva-cash-basis.js';
 import { crearInquilino } from './helpers/tenant-fixture.js';
 import {
-  esContabilidadMexicana,
-  sqlEsContabilidadMexicana,
-} from '../../src/services/jurisdiccion/jurisdiccion.js';
+  keepsMexicanBooks,
+  sqlKeepsMexicanBooks,
+} from '../../src/services/jurisdiction/jurisdiction.js';
 import { censarIvaPpd } from '../../src/services/accounting/iva-ppd-reclass.js';
 import { checkAccountRoles } from '../../src/ai/doctor-service.js';
 
@@ -30,36 +30,36 @@ import { checkAccountRoles } from '../../src/ai/doctor-service.js';
  */
 
 /** Los pares de la tabla de verdad, con la respuesta que da el TypeScript. */
-const PARES: Array<{ pais: string | null; norma: string | null }> = [
+const PAIRS: Array<{ country: string | null; standard: string | null }> = [
   // El caso normal, por los dos caminos.
-  { pais: 'MX', norma: 'mx_nif' },
-  { pais: 'MX', norma: 'us_gaap' },
-  { pais: 'MX', norma: 'ifrs' },
-  { pais: 'US', norma: 'us_gaap' },
-  { pais: 'US', norma: 'ifrs' },
+  { country: 'MX', standard: 'mx_nif' },
+  { country: 'MX', standard: 'us_gaap' },
+  { country: 'MX', standard: 'ifrs' },
+  { country: 'US', standard: 'us_gaap' },
+  { country: 'US', standard: 'ifrs' },
   // La filial de Delaware con libros en NIF: el «O» que no es redundante.
-  { pais: 'US', norma: 'mx_nif' },
+  { country: 'US', standard: 'mx_nif' },
   // Los bordes de la columna, que son los que las tres copias en crudo
   // contestaban al revés que el conmutador.
-  { pais: '', norma: 'us_gaap' },
-  { pais: '  ', norma: 'us_gaap' },
-  { pais: 'mx', norma: 'us_gaap' },
-  { pais: 'mx', norma: null },
+  { country: '', standard: 'us_gaap' },
+  { country: '  ', standard: 'us_gaap' },
+  { country: 'mx', standard: 'us_gaap' },
+  { country: 'mx', standard: null },
   // Un tercer país: almacenable, y fuera del estrato fiscal mexicano.
-  { pais: 'CA', norma: 'us_gaap' },
-  { pais: 'ES', norma: 'ifrs' },
-  { pais: 'DE', norma: null },
+  { country: 'CA', standard: 'us_gaap' },
+  { country: 'ES', standard: 'ifrs' },
+  { country: 'DE', standard: null },
   // Blancos que NO son el espacio ASCII. `btrim` sin segundo argumento sólo
   // quita el espacio; `String.prototype.trim` quita todo blanco Unicode. Sin
   // estas tres filas las dos mitades podían contestar distinto sobre la misma
   // columna —true en TypeScript, false en el WHERE— y ninguna prueba lo veía.
-  { pais: '\t\t', norma: 'us_gaap' },
-  { pais: '\n\n', norma: 'us_gaap' },
-  { pais: '\u00a0\u00a0', norma: 'us_gaap' },
+  { country: '\t\t', standard: 'us_gaap' },
+  { country: '\n\n', standard: 'us_gaap' },
+  { country: '\u00a0\u00a0', standard: 'us_gaap' },
   // Nulos: la columna es NOT NULL, pero un LEFT JOIN sí los produce.
-  { pais: null, norma: null },
-  { pais: null, norma: 'mx_nif' },
-  { pais: 'US', norma: null },
+  { country: null, standard: null },
+  { country: null, standard: 'mx_nif' },
+  { country: 'US', standard: null },
 ];
 
 afterAll(async () => {
@@ -71,25 +71,25 @@ describe('el predicado de jurisdicción dice lo mismo en SQL que en TypeScript',
     // Los tipos son los de legal_entities: CHAR(2) y VARCHAR(20). Sin el cast
     // la prueba mediría `text`, que no rellena con espacios, y dejaría pasar
     // exactamente el borde que se quiere fijar.
-    const valores = PARES.map((_, i) => `($${i * 2 + 1}::char(2), $${i * 2 + 2}::varchar(20))`).join(', ');
-    const params = PARES.flatMap((p) => [p.pais, p.norma]);
+    const values = PAIRS.map((_, i) => `($${i * 2 + 1}::char(2), $${i * 2 + 2}::varchar(20))`).join(', ');
+    const params = PAIRS.flatMap((p) => [p.country, p.standard]);
     const sql = `
-      SELECT v.incorporation_country AS pais,
-             v.accounting_standard   AS norma,
-             ${sqlEsContabilidadMexicana('v')} AS mexicana
-      FROM (VALUES ${valores}) AS v(incorporation_country, accounting_standard)`;
+      SELECT v.incorporation_country AS country,
+             v.accounting_standard   AS standard,
+             ${sqlKeepsMexicanBooks('v')} AS mexican_books
+      FROM (VALUES ${values}) AS v(incorporation_country, accounting_standard)`;
 
-    const r = await query<{ pais: string | null; norma: string | null; mexicana: boolean }>(sql, params);
-    expect(r.rows).toHaveLength(PARES.length);
+    const r = await query<{ country: string | null; standard: string | null; mexican_books: boolean }>(sql, params);
+    expect(r.rows).toHaveLength(PAIRS.length);
 
-    r.rows.forEach((fila, i) => {
-      const { pais, norma } = PARES[i];
-      const enTypeScript = esContabilidadMexicana(pais, norma);
+    r.rows.forEach((row, i) => {
+      const { country, standard } = PAIRS[i];
+      const inTypeScript = keepsMexicanBooks(country, standard);
       expect(
-        fila.mexicana,
-        `desacuerdo en (pais=${JSON.stringify(pais)}, norma=${JSON.stringify(norma)}): ` +
-          `SQL dice ${String(fila.mexicana)} y TypeScript dice ${String(enTypeScript)}`
-      ).toBe(enTypeScript);
+        row.mexican_books,
+        `desacuerdo en (country=${JSON.stringify(country)}, standard=${JSON.stringify(standard)}): ` +
+          `SQL dice ${String(row.mexican_books)} y TypeScript dice ${String(inTypeScript)}`
+      ).toBe(inTypeScript);
     });
   });
 
@@ -100,27 +100,27 @@ describe('el predicado de jurisdicción dice lo mismo en SQL que en TypeScript',
    * filial con libros en NIF entra por la norma.
    */
   it('y coincide en la respuesta correcta, no sólo consigo mismo', async () => {
-    const r = await query<{ mexicana: boolean }>(
-      `SELECT ${sqlEsContabilidadMexicana('v')} AS mexicana
+    const r = await query<{ mexican_books: boolean }>(
+      `SELECT ${sqlKeepsMexicanBooks('v')} AS mexican_books
          FROM (VALUES ($1::char(2), $2::varchar(20))) AS v(incorporation_country, accounting_standard)`,
       ['', 'us_gaap']
     );
     // CHAR(2) guarda la cadena vacía como dos espacios; el btrim la recupera.
-    expect(r.rows[0].mexicana).toBe(true);
+    expect(r.rows[0].mexican_books).toBe(true);
 
-    const tercero = await query<{ mexicana: boolean }>(
-      `SELECT ${sqlEsContabilidadMexicana('v')} AS mexicana
+    const thirdCountry = await query<{ mexican_books: boolean }>(
+      `SELECT ${sqlKeepsMexicanBooks('v')} AS mexican_books
          FROM (VALUES ($1::char(2), $2::varchar(20))) AS v(incorporation_country, accounting_standard)`,
       ['CA', 'us_gaap']
     );
-    expect(tercero.rows[0].mexicana).toBe(false);
+    expect(thirdCountry.rows[0].mexican_books).toBe(false);
 
-    const delaware = await query<{ mexicana: boolean }>(
-      `SELECT ${sqlEsContabilidadMexicana('v')} AS mexicana
+    const delaware = await query<{ mexican_books: boolean }>(
+      `SELECT ${sqlKeepsMexicanBooks('v')} AS mexican_books
          FROM (VALUES ($1::char(2), $2::varchar(20))) AS v(incorporation_country, accounting_standard)`,
       ['US', 'mx_nif']
     );
-    expect(delaware.rows[0].mexicana).toBe(true);
+    expect(delaware.rows[0].mexican_books).toBe(true);
   });
 });
 

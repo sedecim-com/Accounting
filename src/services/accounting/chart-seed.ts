@@ -153,7 +153,7 @@ export function catalogoBasePara(esMexicana: boolean): ChartAccountSpec[] {
  * `esMexicana` decide QUÉ catálogo se siembra, no si se siembra: una entidad
  * no mexicana recibe el mismo andamiaje de partida doble y, en lugar del
  * estrato fiscal mexicano, el neutro. Por omisión true, que es la regla de la
- * casa ante la duda (ver pais-contable.ts) y deja intacto a todo llamador que
+ * casa ante la duda (ver services/jurisdiction/jurisdiction.ts) y deja intacto a todo llamador que
  * no se entere de este parámetro.
  *
  * No abre transacción propia: trabaja sobre el cliente que recibe.

@@ -4,7 +4,7 @@
 // J0.1 de la issue #123. Diseño en docs/jurisdicciones.md §3.1.
 //
 // Hasta aquí la pregunta «¿de qué jurisdicción es esta entidad?» se
-// contestaba con un `boolean` —`esContabilidadMexicana`— y ese booleano
+// contestaba con un `boolean` —`keepsMexicanBooks`— y ese booleano
 // colapsa DOS preguntas que no son la misma:
 //
 //   · ¿QUÉ AUTORIDAD FISCAL la gobierna?  Manda sobre el catálogo fiscal,
@@ -22,7 +22,7 @@
 //
 // Este módulo devuelve las dos respuestas por separado. Lo que NO hace es
 // cambiar en silencio quién recibe qué: ver la advertencia larga sobre
-// `esContabilidadMexicana` más abajo.
+// `keepsMexicanBooks` más abajo.
 //
 // ANTE LA DUDA, MEXICANA. Es la regla de la casa (§3.1(b)) y la segura para
 // este producto: el motor es mexicano y sus informes son mexicanos. Dejar
@@ -32,19 +32,19 @@
 // ============================================================
 
 /** Autoridad fiscal que gobierna a la entidad. El producto arranca con dos. */
-export type CodigoJurisdiccion = 'MX' | 'US';
+export type JurisdictionCode = 'MX' | 'US';
 
 /** Norma bajo la que se llevan los libros. Coincide con el CHECK de
  *  `legal_entities.accounting_standard` (001_core_schema.sql). */
-export type NormaContable = 'mx_nif' | 'us_gaap' | 'ifrs';
+export type AccountingStandard = 'mx_nif' | 'us_gaap' | 'ifrs';
 
-export interface Jurisdiccion {
+export interface Jurisdiction {
   /** La que manda sobre catálogo fiscal, calendario, impuestos y formatos. */
-  fiscal: CodigoJurisdiccion;
+  fiscal: JurisdictionCode;
   /** La que manda sobre reconocimiento, medición y presentación. */
-  libros: NormaContable;
+  books: AccountingStandard;
   /** Moneda en la que se expresan los umbrales legales de `fiscal`. */
-  monedaLegal: 'MXN' | 'USD';
+  legalCurrency: 'MXN' | 'USD';
   /**
    * Sub-jurisdicción cuando la hay (estado de EE. UU.).
    *
@@ -55,22 +55,22 @@ export interface Jurisdiccion {
    * tiene un código de estado de verdad, y no es éste: `employees.work_state`
    * es VARCHAR(3) precisamente para que quepan las claves c_Estado del SAT
    * junto a las dos letras estadounidenses (migración 068), y de ahí lee el
-   * ISN su tasa. Poblar `estado` desde un campo postal sería vender como
+   * ISN su tasa. Poblar `state` desde un campo postal sería vender como
    * sub-jurisdicción validada lo que no lo es, y el síntoma de esa clase de
    * error ya lo documentó la 068: el motor diciendo que le falta un dato que
    * tiene. Se declara ahora para que el día que la entidad tenga su propio
    * código no cambie la FORMA del tipo ni haya que editar a sus consumidores;
-   * y `jurisdiccionDe` ni siquiera recibe la columna (§3.1).
+   * y `jurisdictionOf` ni siquiera recibe la columna (§3.1).
    */
-  estado?: string;
+  state?: string;
 }
 
 /**
- * Lo que `jurisdiccionDe` necesita de la entidad: las dos columnas de
+ * Lo que `jurisdictionOf` necesita de la entidad: las dos columnas de
  * `legal_entities` que la describen. Ambas opcionales porque una consulta
  * puede no traer las dos.
  */
-export interface EntidadConJurisdiccion {
+export interface EntityWithJurisdiction {
   incorporation_country?: string | null;
   accounting_standard?: string | null;
 }
@@ -85,7 +85,7 @@ export interface EntidadConJurisdiccion {
  * Colapsarlos aquí sería tomar una decisión de criterio contable dentro de
  * una función de normalización.
  */
-type PaisDeclarado = 'MX' | 'US' | 'OTRO' | 'AUSENTE';
+type DeclaredCountry = 'MX' | 'US' | 'OTHER' | 'ABSENT';
 
 /**
  * Normaliza la escritura antes de comparar. La columna es `CHAR(2) NOT NULL`
@@ -112,13 +112,13 @@ type PaisDeclarado = 'MX' | 'US' | 'OTRO' | 'AUSENTE';
  * (`normalizarPais`, cuyo dominio publicado es 'MX' | 'USA').
  *
  * Y la razón que manda sobre la anterior: admitir 'MEX' cambiaría la respuesta
- * de `esContabilidadMexicana` —esa entidad pasaría de fuera a dentro del
+ * de `keepsMexicanBooks` —esa entidad pasaría de fuera a dentro del
  * estrato fiscal mexicano— y J0.1 conserva esa respuesta bit por bit. Aceptar
  * 'USA' no la cambia: 'USA' ya contestaba `false` antes y sigue contestando
  * `false`. Un alias que sólo reordena el camino entra; uno que mueve la
  * frontera del estrato fiscal se decide con nombre propio, no aquí.
  */
-function leerPais(raw?: string | null): PaisDeclarado {
+function readCountry(raw?: string | null): DeclaredCountry {
   // SE RECORTA EL ESPACIO, Y SÓLO EL ESPACIO. Con `String.prototype.trim`
   // esta mitad quitaba TODO blanco Unicode —tabulador, salto de línea, el
   // espacio duro U+00A0— y la mitad de SQL no: `btrim` sin segundo argumento
@@ -130,20 +130,20 @@ function leerPais(raw?: string | null): PaisDeclarado {
   // único blanco que `CHAR(2)` produce por su cuenta es el relleno con
   // espacios; los demás sólo llegan de una escritura inválida, y a ésa no se
   // le regala el estrato fiscal mexicano.
-  const pais = (raw ?? '').replace(/^ +| +$/g, '').toUpperCase();
-  if (pais === '') return 'AUSENTE';
-  if (pais === 'MX') return 'MX';
-  if (pais === 'US' || pais === 'USA') return 'US';
-  return 'OTRO';
+  const country = (raw ?? '').replace(/^ +| +$/g, '').toUpperCase();
+  if (country === '') return 'ABSENT';
+  if (country === 'MX') return 'MX';
+  if (country === 'US' || country === 'USA') return 'US';
+  return 'OTHER';
 }
 
 /** Las tres normas que el CHECK de la columna admite, para no confiar en el
  *  tipo cuando el dato viene de la base o de un JSON. */
-const NORMAS: readonly NormaContable[] = ['mx_nif', 'us_gaap', 'ifrs'];
+const STANDARDS: readonly AccountingStandard[] = ['mx_nif', 'us_gaap', 'ifrs'];
 
-function leerNorma(raw?: string | null): NormaContable | null {
-  const norma = (raw ?? '').trim().toLowerCase();
-  return (NORMAS as readonly string[]).includes(norma) ? (norma as NormaContable) : null;
+function readStandard(raw?: string | null): AccountingStandard | null {
+  const standard = (raw ?? '').trim().toLowerCase();
+  return (STANDARDS as readonly string[]).includes(standard) ? (standard as AccountingStandard) : null;
 }
 
 /**
@@ -151,46 +151,46 @@ function leerNorma(raw?: string | null): NormaContable | null {
  *
  * Las reglas, EN ESTE ORDEN (§3.1):
  *
- *  (a) `accounting_standard` decide `libros`. Si no viene —o viene con un
+ *  (a) `accounting_standard` decide `books`. Si no viene —o viene con un
  *      valor que el CHECK de la columna no admite— lo decide el país:
  *      MX → mx_nif, US → us_gaap.
  *  (b) `incorporation_country` decide `fiscal`. Nulo, vacío o desconocido
  *      → MX. El tipo tiene dos valores y una filial canadiense tiene que
  *      caer en uno: cae en el del motor, que es la regla de la casa.
- *  (c) `libros` y `fiscal` PUEDEN DIFERIR. Es todo el punto del tramo.
+ *  (c) `books` y `fiscal` PUEDEN DIFERIR. Es todo el punto del tramo.
  *
- * `monedaLegal` sigue a `fiscal` y no a `functional_currency`: es la moneda
+ * `legalCurrency` sigue a `fiscal` y no a `functional_currency`: es la moneda
  * en la que están escritos los umbrales de la LEY que gobierna a la entidad
  * —los 2 000 pesos del efectivo, los 7.25 dólares del salario mínimo
  * federal— y no la moneda en la que la entidad decide medirse. Confundirlas
  * es cómo un piso de 500 en `src/ai/floor.ts` acaba valiendo un orden de
  * magnitud distinto según a quién se aplique.
  */
-export function jurisdiccionDe(e: EntidadConJurisdiccion): Jurisdiccion {
-  const pais = leerPais(e.incorporation_country);
+export function jurisdictionOf(e: EntityWithJurisdiction): Jurisdiction {
+  const country = readCountry(e.incorporation_country);
 
   // (b) primero en el código porque (a) lo necesita como respaldo; el ORDEN
   //     DE LAS REGLAS del documento describe la precedencia del DATO
   //     —la norma declarada gana sobre el país— y eso es lo que hace la
-  //     línea de `libros`, no el orden en que se calculan las variables.
-  const fiscal: CodigoJurisdiccion = pais === 'US' ? 'US' : 'MX';
+  //     línea de `books`, no el orden en que se calculan las variables.
+  const fiscal: JurisdictionCode = country === 'US' ? 'US' : 'MX';
 
   // (a) la norma declarada manda; sin ella, la deduce el país.
-  const libros: NormaContable = leerNorma(e.accounting_standard) ?? (fiscal === 'MX' ? 'mx_nif' : 'us_gaap');
+  const books: AccountingStandard = readStandard(e.accounting_standard) ?? (fiscal === 'MX' ? 'mx_nif' : 'us_gaap');
 
   return {
     fiscal,
-    libros,
-    monedaLegal: fiscal === 'MX' ? 'MXN' : 'USD',
+    books,
+    legalCurrency: fiscal === 'MX' ? 'MXN' : 'USD',
   };
 }
 
 // ============================================================
 // «¿ESTA ENTIDAD RECIBE EL ESTRATO FISCAL MEXICANO?»
 //
-// ESTA PREGUNTA NO ES `jurisdiccionDe(e).fiscal === 'MX'`, Y LA DIFERENCIA
+// ESTA PREGUNTA NO ES `jurisdictionOf(e).fiscal === 'MX'`, Y LA DIFERENCIA
 // IMPORTA. El documento rector (§3.1) y la tarjeta de este tramo proponían
-// redefinir `esContabilidadMexicana` como esa envoltura «para no tocar a sus
+// redefinir `keepsMexicanBooks` como esa envoltura «para no tocar a sus
 // dos consumidores». No es una envoltura: cambia la respuesta en las dos
 // direcciones, y en las dos rompe algo.
 //
@@ -206,8 +206,8 @@ export function jurisdiccionDe(e: EntidadConJurisdiccion): Jurisdiccion {
 //       canadiense pasaría a recibir el estrato fiscal del SAT entero y a
 //       acreditar IVA sobre flujo.
 //
-// Ninguna redefinición sobre los tres campos de `Jurisdiccion` salva las dos
-// a la vez —`fiscal === 'MX'`, `libros === 'mx_nif'` y la disyunción de
+// Ninguna redefinición sobre los tres campos de `Jurisdiction` salva las dos
+// a la vez —`fiscal === 'MX'`, `books === 'mx_nif'` y la disyunción de
 // ambas fallan cada una en un caso— porque el tipo, con dos valores, no
 // puede distinguir «país no declarado» de «país declarado y no modelado», y
 // hoy el motor los trata distinto. Añadir un cuarto campo para lograrlo
@@ -228,15 +228,15 @@ export function jurisdiccionDe(e: EntidadConJurisdiccion): Jurisdiccion {
  * `legal_entities` y una consulta puede no traer las dos. Sin ninguna de las
  * dos, la respuesta es `true` por la regla del encabezado del módulo.
  */
-export function esContabilidadMexicana(
+export function keepsMexicanBooks(
   incorporationCountry?: string | null,
   accountingStandard?: string | null
 ): boolean {
   if (accountingStandard === 'mx_nif') return true;
   // Sólo un país DECLARADO y distinto de MX saca a la entidad del estrato
   // mexicano. Ausente —nulo, vacío o en blanco— sigue siendo México.
-  const pais = leerPais(incorporationCountry);
-  return pais === 'AUSENTE' || pais === 'MX';
+  const country = readCountry(incorporationCountry);
+  return country === 'ABSENT' || country === 'MX';
 }
 
 /**
@@ -274,13 +274,13 @@ export function esContabilidadMexicana(
  *
  * @param alias alias de `legal_entities` dentro de la consulta ('le', 'e'…).
  */
-export function sqlEsContabilidadMexicana(alias: string): string {
+export function sqlKeepsMexicanBooks(alias: string): string {
   // El alias se interpola: no puede ir como parámetro ($1 liga valores, no
   // identificadores). Se valida en vez de confiar en que todo llamador pase
   // un literal — un constructor de SQL que acepta cualquier cadena está a un
   // descuido de convertirse en la vía de inyección del sistema.
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) {
-    throw new Error(`Alias de tabla inválido para el predicado de jurisdicción: ${JSON.stringify(alias)}`);
+    throw new Error(`Invalid table alias for the jurisdiction predicate: ${JSON.stringify(alias)}`);
   }
   return (
     `(coalesce(${alias}.accounting_standard, '') = 'mx_nif'` +

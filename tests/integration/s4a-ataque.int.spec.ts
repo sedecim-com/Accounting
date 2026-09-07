@@ -355,7 +355,7 @@ describe('3 · el trinquete de cobertura', () => {
         'sobre un archivo inexistente pasa, y suma a la cifra que el criterio publica («N archivos ' +
         'con umbral propio»). Si se cierra, voltea esta aserción a «falla».'
     ).toBe('ok');
-    // El conteo sube con J0.1: `src/services/jurisdiccion/jurisdiccion.ts` gana
+    // El conteo sube con J0.1: `src/services/jurisdiction/jurisdiction.ts` gana
     // umbral propio, así que son siete reales más el inventado. Este número
     // vive aquí a propósito —cuenta lo que el criterio publica— y por eso se
     // mueve en el mismo commit que añade el umbral.

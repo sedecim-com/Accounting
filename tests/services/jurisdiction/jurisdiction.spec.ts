@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  jurisdiccionDe,
-  esContabilidadMexicana,
-  sqlEsContabilidadMexicana,
-  type Jurisdiccion,
-} from '../../../src/services/jurisdiccion/jurisdiccion.js';
+  jurisdictionOf,
+  keepsMexicanBooks,
+  sqlKeepsMexicanBooks,
+  type Jurisdiction,
+} from '../../../src/services/jurisdiction/jurisdiction.js';
 
 // ============================================================
 // LA TABLA DE VERDAD DEL CONMUTADOR
@@ -22,26 +22,26 @@ import {
 // ============================================================
 
 /** Un renglón de la tabla, para que el caso se lea entero en el error. */
-function caso(pais: string | null | undefined, norma: string | null | undefined): Jurisdiccion {
-  return jurisdiccionDe({ incorporation_country: pais, accounting_standard: norma });
+function caseOf(country: string | null | undefined, standard: string | null | undefined): Jurisdiction {
+  return jurisdictionOf({ incorporation_country: country, accounting_standard: standard });
 }
 
-describe('jurisdiccionDe — los dos países por las tres normas', () => {
+describe('jurisdictionOf — los dos países por las tres normas', () => {
   it('México con cada una de las tres normas: la norma manda sobre los libros, el país sobre lo fiscal', () => {
-    expect(caso('MX', 'mx_nif')).toEqual({ fiscal: 'MX', libros: 'mx_nif', monedaLegal: 'MXN' });
-    expect(caso('MX', 'us_gaap')).toEqual({ fiscal: 'MX', libros: 'us_gaap', monedaLegal: 'MXN' });
-    expect(caso('MX', 'ifrs')).toEqual({ fiscal: 'MX', libros: 'ifrs', monedaLegal: 'MXN' });
+    expect(caseOf('MX', 'mx_nif')).toEqual({ fiscal: 'MX', books: 'mx_nif', legalCurrency: 'MXN' });
+    expect(caseOf('MX', 'us_gaap')).toEqual({ fiscal: 'MX', books: 'us_gaap', legalCurrency: 'MXN' });
+    expect(caseOf('MX', 'ifrs')).toEqual({ fiscal: 'MX', books: 'ifrs', legalCurrency: 'MXN' });
   });
 
   it('Estados Unidos con cada una de las tres normas', () => {
-    expect(caso('US', 'us_gaap')).toEqual({ fiscal: 'US', libros: 'us_gaap', monedaLegal: 'USD' });
-    expect(caso('US', 'mx_nif')).toEqual({ fiscal: 'US', libros: 'mx_nif', monedaLegal: 'USD' });
-    expect(caso('US', 'ifrs')).toEqual({ fiscal: 'US', libros: 'ifrs', monedaLegal: 'USD' });
+    expect(caseOf('US', 'us_gaap')).toEqual({ fiscal: 'US', books: 'us_gaap', legalCurrency: 'USD' });
+    expect(caseOf('US', 'mx_nif')).toEqual({ fiscal: 'US', books: 'mx_nif', legalCurrency: 'USD' });
+    expect(caseOf('US', 'ifrs')).toEqual({ fiscal: 'US', books: 'ifrs', legalCurrency: 'USD' });
   });
 
   /**
    * ESTE ES EL TRAMO ENTERO. Con un booleano hay una sola respuesta y hay que
-   * equivocarse en uno de los dos ejes: hoy `esContabilidadMexicana` dice
+   * equivocarse en uno de los dos ejes: hoy `keepsMexicanBooks` dice
    * «mexicana» de esta filial y con eso le siembra a una sociedad de Delaware
    * el estrato fiscal del SAT completo. La jurisdicción separa las dos: sus
    * libros se llevan en NIF —reconocimiento y medición mexicanos, que es lo
@@ -49,28 +49,28 @@ describe('jurisdiccionDe — los dos países por las tres normas', () => {
    * de quien recibe formatos, calendario y umbrales.
    */
   it('la filial de Delaware con libros en NIF: fiscal US y libros mx_nif, que es el caso que el booleano colapsa', () => {
-    expect(caso('US', 'mx_nif')).toEqual({ fiscal: 'US', libros: 'mx_nif', monedaLegal: 'USD' });
+    expect(caseOf('US', 'mx_nif')).toEqual({ fiscal: 'US', books: 'mx_nif', legalCurrency: 'USD' });
   });
 
   it('y su simétrica: la mexicana que reporta al corporativo en US GAAP sigue siendo fiscalmente mexicana', () => {
-    expect(caso('MX', 'us_gaap')).toEqual({ fiscal: 'MX', libros: 'us_gaap', monedaLegal: 'MXN' });
+    expect(caseOf('MX', 'us_gaap')).toEqual({ fiscal: 'MX', books: 'us_gaap', legalCurrency: 'MXN' });
   });
 });
 
-describe('jurisdiccionDe — los bordes del país', () => {
+describe('jurisdictionOf — los bordes del país', () => {
   it('nulo, indefinido, vacío y en blanco caen en México: ante la duda, mexicana', () => {
-    for (const pais of [null, undefined, '', '  ']) {
-      expect(caso(pais, null).fiscal).toBe('MX');
+    for (const country of [null, undefined, '', '  ']) {
+      expect(caseOf(country, null).fiscal).toBe('MX');
     }
     // Sin país y sin norma, la norma la deduce el país: mx_nif.
-    expect(jurisdiccionDe({})).toEqual({ fiscal: 'MX', libros: 'mx_nif', monedaLegal: 'MXN' });
+    expect(jurisdictionOf({})).toEqual({ fiscal: 'MX', books: 'mx_nif', legalCurrency: 'MXN' });
   });
 
   it('la escritura no decide: minúsculas y espacios alrededor dan la misma entidad', () => {
-    expect(caso('mx', null).fiscal).toBe('MX');
-    expect(caso(' MX ', null).fiscal).toBe('MX');
-    expect(caso('us', null).fiscal).toBe('US');
-    expect(caso(' us ', null).fiscal).toBe('US');
+    expect(caseOf('mx', null).fiscal).toBe('MX');
+    expect(caseOf(' MX ', null).fiscal).toBe('MX');
+    expect(caseOf('us', null).fiscal).toBe('US');
+    expect(caseOf(' us ', null).fiscal).toBe('US');
   });
 
   /**
@@ -82,29 +82,29 @@ describe('jurisdiccionDe — los bordes del país', () => {
    * sólo 'US', migrar aquel código lo reintroduciría con otro nombre.
    */
   it('acepta el alias USA además del alfa-2, porque el producto usa las dos grafías', () => {
-    expect(caso('USA', null).fiscal).toBe('US');
-    expect(caso('usa', null).monedaLegal).toBe('USD');
+    expect(caseOf('USA', null).fiscal).toBe('US');
+    expect(caseOf('usa', null).legalCurrency).toBe('USD');
   });
 
   /**
-   * Un tercer país no tiene dónde caer: `CodigoJurisdiccion` tiene dos
+   * Un tercer país no tiene dónde caer: `JurisdictionCode` tiene dos
    * valores y la base guarda cualquier par de caracteres. Cae en el del
    * motor, que es la regla del §3.1(b). Lo que NO hace es arrastrar a
-   * `esContabilidadMexicana` consigo — ver la tabla de abajo.
+   * `keepsMexicanBooks` consigo — ver la tabla de abajo.
    */
   it('un tercer país cae en MX por la regla de la casa, no por descuido', () => {
-    expect(caso('CA', 'us_gaap')).toEqual({ fiscal: 'MX', libros: 'us_gaap', monedaLegal: 'MXN' });
-    expect(caso('ES', 'ifrs')).toEqual({ fiscal: 'MX', libros: 'ifrs', monedaLegal: 'MXN' });
-    expect(caso('DE', null).libros).toBe('mx_nif');
+    expect(caseOf('CA', 'us_gaap')).toEqual({ fiscal: 'MX', books: 'us_gaap', legalCurrency: 'MXN' });
+    expect(caseOf('ES', 'ifrs')).toEqual({ fiscal: 'MX', books: 'ifrs', legalCurrency: 'MXN' });
+    expect(caseOf('DE', null).books).toBe('mx_nif');
   });
 });
 
-describe('jurisdiccionDe — los bordes de la norma', () => {
+describe('jurisdictionOf — los bordes de la norma', () => {
   it('sin norma, la deduce el país: MX → mx_nif, US → us_gaap', () => {
-    expect(caso('MX', null).libros).toBe('mx_nif');
-    expect(caso('MX', undefined).libros).toBe('mx_nif');
-    expect(caso('MX', '').libros).toBe('mx_nif');
-    expect(caso('US', null).libros).toBe('us_gaap');
+    expect(caseOf('MX', null).books).toBe('mx_nif');
+    expect(caseOf('MX', undefined).books).toBe('mx_nif');
+    expect(caseOf('MX', '').books).toBe('mx_nif');
+    expect(caseOf('US', null).books).toBe('us_gaap');
   });
 
   /**
@@ -114,13 +114,13 @@ describe('jurisdiccionDe — los bordes de la norma', () => {
    * trata como ausente y decide el país, en vez de colarse en el tipo.
    */
   it('una norma que el CHECK no admite se trata como ausente, no se cuela en el tipo', () => {
-    expect(caso('US', 'gaap').libros).toBe('us_gaap');
-    expect(caso('MX', 'nif').libros).toBe('mx_nif');
-    expect(caso('US', 'IFRS').libros).toBe('ifrs'); // la escritura sí se normaliza
+    expect(caseOf('US', 'gaap').books).toBe('us_gaap');
+    expect(caseOf('MX', 'nif').books).toBe('mx_nif');
+    expect(caseOf('US', 'IFRS').books).toBe('ifrs'); // la escritura sí se normaliza
   });
 });
 
-describe('jurisdiccionDe — la moneda legal', () => {
+describe('jurisdictionOf — la moneda legal', () => {
   /**
    * Sigue a `fiscal` y no a `functional_currency`, y la diferencia no es
    * teórica: los umbrales que esta moneda denomina son los de la LEY —los
@@ -129,12 +129,12 @@ describe('jurisdiccionDe — la moneda legal', () => {
    * legales en pesos.
    */
   it('la denomina la autoridad fiscal, no la moneda en la que la entidad se mide', () => {
-    expect(caso('MX', 'us_gaap').monedaLegal).toBe('MXN');
-    expect(caso('US', 'mx_nif').monedaLegal).toBe('USD');
+    expect(caseOf('MX', 'us_gaap').legalCurrency).toBe('MXN');
+    expect(caseOf('US', 'mx_nif').legalCurrency).toBe('USD');
   });
 });
 
-describe('jurisdiccionDe — el estado', () => {
+describe('jurisdictionOf — el estado', () => {
   /**
    * Se declara en el tipo y no se puebla. `legal_entities.state_province`
    * existe (032_schema_contract.sql:24) pero es texto libre sin CHECK: sirve
@@ -143,8 +143,8 @@ describe('jurisdiccionDe — el estado', () => {
    * tiene una sub-jurisdicción validada.
    */
   it('se declara en el tipo y se deja sin poblar mientras no haya un código de estado de verdad', () => {
-    expect(caso('US', 'us_gaap').estado).toBeUndefined();
-    expect(Object.prototype.hasOwnProperty.call(caso('US', 'us_gaap'), 'estado')).toBe(false);
+    expect(caseOf('US', 'us_gaap').state).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(caseOf('US', 'us_gaap'), 'state')).toBe(false);
   });
 });
 
@@ -152,45 +152,45 @@ describe('jurisdiccionDe — el estado', () => {
 // LA ENVOLTURA QUE NO ES UNA ENVOLTURA
 //
 // El documento rector y la tarjeta de este tramo proponían redefinir
-// `esContabilidadMexicana` como `jurisdiccionDe(e).fiscal === 'MX'` «para no
+// `keepsMexicanBooks` como `jurisdictionOf(e).fiscal === 'MX'` «para no
 // tocar a sus dos consumidores». Estas dos pruebas existen para que esa
 // redefinición no se haga por descuido: son los dos renglones donde la
 // supuesta envoltura cambia de respuesta, cada uno en una dirección.
 // ============================================================
 
-describe('esContabilidadMexicana — se conserva, y NO es `fiscal === MX`', () => {
+describe('keepsMexicanBooks — se conserva, y NO es `fiscal === MX`', () => {
   it('la filial con libros en NIF sigue siendo mexicana para el estrato fiscal, aunque su jurisdicción fiscal sea US', () => {
-    expect(esContabilidadMexicana('US', 'mx_nif')).toBe(true);
+    expect(keepsMexicanBooks('US', 'mx_nif')).toBe(true);
     // Y aquí está la divergencia, escrita: si esto fuera una envoltura, esta
     // entidad perdería ESTRATO_FISCAL_MX y los doce ROLES_FISCALES_MX, y su
     // primera factura moriría con MISSING_ROLE_ACCOUNT.
-    expect(jurisdiccionDe({ incorporation_country: 'US', accounting_standard: 'mx_nif' }).fiscal).toBe('US');
+    expect(jurisdictionOf({ incorporation_country: 'US', accounting_standard: 'mx_nif' }).fiscal).toBe('US');
   });
 
   it('el tercer país NO recibe el estrato fiscal mexicano, aunque su jurisdicción fiscal caiga en MX', () => {
-    expect(esContabilidadMexicana('CA', 'us_gaap')).toBe(false);
+    expect(keepsMexicanBooks('CA', 'us_gaap')).toBe(false);
     // La otra dirección de la misma divergencia: con la envoltura, la filial
     // canadiense recibiría el estrato fiscal del SAT entero.
-    expect(jurisdiccionDe({ incorporation_country: 'CA', accounting_standard: 'us_gaap' }).fiscal).toBe('MX');
+    expect(jurisdictionOf({ incorporation_country: 'CA', accounting_standard: 'us_gaap' }).fiscal).toBe('MX');
   });
 
   it('la tabla completa, tal como la contestaba pais-contable.ts antes de moverse', () => {
     // País declarado México, en cualquier escritura.
-    expect(esContabilidadMexicana('MX', 'us_gaap')).toBe(true);
-    expect(esContabilidadMexicana('mx', 'us_gaap')).toBe(true);
-    expect(esContabilidadMexicana(' MX ', 'ifrs')).toBe(true);
+    expect(keepsMexicanBooks('MX', 'us_gaap')).toBe(true);
+    expect(keepsMexicanBooks('mx', 'us_gaap')).toBe(true);
+    expect(keepsMexicanBooks(' MX ', 'ifrs')).toBe(true);
     // Sin país: ante la duda, mexicana.
-    expect(esContabilidadMexicana(null, null)).toBe(true);
-    expect(esContabilidadMexicana(undefined, undefined)).toBe(true);
-    expect(esContabilidadMexicana('', 'us_gaap')).toBe(true);
-    expect(esContabilidadMexicana('  ', 'us_gaap')).toBe(true);
-    expect(esContabilidadMexicana()).toBe(true);
+    expect(keepsMexicanBooks(null, null)).toBe(true);
+    expect(keepsMexicanBooks(undefined, undefined)).toBe(true);
+    expect(keepsMexicanBooks('', 'us_gaap')).toBe(true);
+    expect(keepsMexicanBooks('  ', 'us_gaap')).toBe(true);
+    expect(keepsMexicanBooks()).toBe(true);
     // País declarado y distinto de México: fuera, salvo que los libros sean NIF.
-    expect(esContabilidadMexicana('US', 'us_gaap')).toBe(false);
-    expect(esContabilidadMexicana('USA', 'us_gaap')).toBe(false);
-    expect(esContabilidadMexicana('US', 'ifrs')).toBe(false);
-    expect(esContabilidadMexicana('CA', null)).toBe(false);
-    expect(esContabilidadMexicana('ES', 'ifrs')).toBe(false);
+    expect(keepsMexicanBooks('US', 'us_gaap')).toBe(false);
+    expect(keepsMexicanBooks('USA', 'us_gaap')).toBe(false);
+    expect(keepsMexicanBooks('US', 'ifrs')).toBe(false);
+    expect(keepsMexicanBooks('CA', null)).toBe(false);
+    expect(keepsMexicanBooks('ES', 'ifrs')).toBe(false);
   });
 
   /**
@@ -200,8 +200,8 @@ describe('esContabilidadMexicana — se conserva, y NO es `fiscal === MX`', () =
    * objeto por error la prueba lo diga.
    */
   it('la norma sólo cuenta escrita exactamente como el CHECK la admite', () => {
-    expect(esContabilidadMexicana('US', 'MX_NIF')).toBe(false);
-    expect(esContabilidadMexicana('mx_nif', 'US')).toBe(false);
+    expect(keepsMexicanBooks('US', 'MX_NIF')).toBe(false);
+    expect(keepsMexicanBooks('mx_nif', 'US')).toBe(false);
   });
 });
 
@@ -209,9 +209,9 @@ describe('esContabilidadMexicana — se conserva, y NO es `fiscal === MX`', () =
 // EL MISMO PREDICADO, EN SQL
 // ============================================================
 
-describe('sqlEsContabilidadMexicana', () => {
+describe('sqlKeepsMexicanBooks', () => {
   it('normaliza la columna igual que el TypeScript: btrim, upper y el nulo como ausente', () => {
-    const sql = sqlEsContabilidadMexicana('le');
+    const sql = sqlKeepsMexicanBooks('le');
     // La cadena vacía y las minúsculas entran, que es donde las tres copias
     // en crudo diferían del conmutador.
     expect(sql).toContain("upper(btrim(le.incorporation_country))");
@@ -251,12 +251,12 @@ describe('sqlEsContabilidadMexicana', () => {
   });
 
   it('el alias es un identificador, y el que no lo sea no llega a la consulta', () => {
-    expect(sqlEsContabilidadMexicana('e')).toContain('e.accounting_standard');
-    expect(sqlEsContabilidadMexicana('legal_entities')).toContain('legal_entities.accounting_standard');
+    expect(sqlKeepsMexicanBooks('e')).toContain('e.accounting_standard');
+    expect(sqlKeepsMexicanBooks('legal_entities')).toContain('legal_entities.accounting_standard');
     // Interpolar un identificador es la vía de inyección clásica de un
     // constructor de SQL. Se cierra aquí y no en la confianza del llamador.
-    expect(() => sqlEsContabilidadMexicana("le'; DROP TABLE accounts; --")).toThrow(/Alias de tabla inválido/);
-    expect(() => sqlEsContabilidadMexicana('')).toThrow(/Alias de tabla inválido/);
-    expect(() => sqlEsContabilidadMexicana('1le')).toThrow(/Alias de tabla inválido/);
+    expect(() => sqlKeepsMexicanBooks("le'; DROP TABLE accounts; --")).toThrow(/Invalid table alias/);
+    expect(() => sqlKeepsMexicanBooks('')).toThrow(/Invalid table alias/);
+    expect(() => sqlKeepsMexicanBooks('1le')).toThrow(/Invalid table alias/);
   });
 });

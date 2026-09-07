@@ -17,7 +17,7 @@ import { runDoctor,
   LOOKUP_TABLES,
 } from '../../src/ai/doctor-service.js';
 import { query } from '../../src/database/connection.js';
-import { sqlEsContabilidadMexicana } from '../../src/services/jurisdiccion/jurisdiccion.js';
+import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
 
 const mockQuery = query as unknown as Mock;
 
@@ -392,7 +392,7 @@ describe('checkAccountRoles', () => {
     const sqls = mockQuery.mock.calls.map((c) => String(c[0]));
     const ivaSql = sqls.find((q) => q.includes('unnest'));
     expect(ivaSql).toBeDefined();
-    expect(ivaSql).toContain(sqlEsContabilidadMexicana('e'));
+    expect(ivaSql).toContain(sqlKeepsMexicanBooks('e'));
     // La comparación en crudo que este archivo tenía ya no está. Si vuelve,
     // el doctor deja otra vez de revisar la entidad que el sembrador sembró.
     expect(ivaSql).not.toMatch(/incorporation_country\s*=\s*'MX'/);

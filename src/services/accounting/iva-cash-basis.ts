@@ -4,7 +4,7 @@ import { AccountingError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 import { matchCase, type AccountRole } from '../xml-ingestion/cfdi-taxonomy.js';
 import type { CfdiFacts } from '../xml-ingestion/cfdi-facts.js';
-import { esContabilidadMexicana } from '../jurisdiccion/jurisdiccion.js';
+import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 
 // ============================================================
 // IVA ON CASH BASIS (LIVA art. 1-B and art. 5 frac. III)
@@ -329,10 +329,10 @@ export async function entityUsesCashBasisIva(
   // entidad que existe y no declaró su país; aquí no hay entidad. La
   // consulta filtra sólo por `id` y se apoya en RLS, de modo que un id de
   // otro inquilino —o inexistente— devuelve cero filas: enrutarlo por
-  // `jurisdiccionDe({})` le regalaría régimen fiscal mexicano a algo que ni
+  // `jurisdictionOf({})` le regalaría régimen fiscal mexicano a algo que ni
   // siquiera está en los libros del despacho.
   if (!row) return false;
-  return esContabilidadMexicana(row.incorporation_country, row.accounting_standard);
+  return keepsMexicanBooks(row.incorporation_country, row.accounting_standard);
 }
 
 /**
