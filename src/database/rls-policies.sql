@@ -15,7 +15,7 @@
 --
 -- Vive aquí arriba y no dentro del bucle que la usa porque AMBOS bucles la
 -- necesitan: el de abajo para darles su política, y el directo para NO
--- dárselas. Desde la 072 las hijas llevan `tenant_id`, así que el bucle
+-- dárselas. Desde la 077 las hijas llevan `tenant_id`, así que el bucle
 -- directo —que selecciona por «tiene la columna»— empezaría a reclamarlas y
 -- les crearía `tenant_isolation` ADEMÁS de `tenant_isolation_child`.
 --

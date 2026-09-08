@@ -277,7 +277,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
     enunciado: 'Una línea nace con el inquilino de su asiento aunque nadie se lo diga, y no puede cambiarlo',
     mutantes: [
       {
-        archivo: 'src/database/migrations/072_la_hija_que_pregunta_por_su_madre.sql',
+        archivo: 'src/database/migrations/077_la_hija_que_pregunta_por_su_madre.sql',
         de: '  NEW.tenant_id := derivado;',
         a: '  NEW.tenant_id := NULL;',
         porque:

@@ -1,5 +1,5 @@
 -- ============================================================
--- 072 · LA HIJA QUE PREGUNTA POR SU MADRE, UNA VEZ POR FILA (E1b)
+-- 077 · LA HIJA QUE PREGUNTA POR SU MADRE, UNA VEZ POR FILA (E1b)
 --
 -- La 069 (E1a) abarató la EVALUACIÓN del predicado de inquilino. Esta abarata
 -- el predicado mismo, que en las tablas hija tiene otra forma y otro coste.
@@ -171,7 +171,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION hija_hereda_inquilino() IS
-  'Deriva tenant_id del padre en las tablas hija (072/E1b). La columna es un hecho derivado, no un dato del llamador: así ningún INSERT puede olvidarla ni contradecir al padre.';
+  'Deriva tenant_id del padre en las tablas hija (077/E1b). La columna es un hecho derivado, no un dato del llamador: así ningún INSERT puede olvidarla ni contradecir al padre.';
 
 -- ── 3. LAS DIECINUEVE: COLUMNA, DISPARADOR, RELLENO, ÍNDICE Y POLÍTICA ───
 --
