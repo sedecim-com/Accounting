@@ -15,6 +15,7 @@ import {
   ivaToReclassify,
   CONSERVATIVE_METODO,
   ivaStillParked,
+  entityUsesCashBasisIva,
 } from '../../src/services/accounting/iva-cash-basis.js';
 
 // ============================================================
@@ -274,6 +275,86 @@ describe('ivaStillParked — you cannot release what was never parked', () => {
     const [sql, params] = c.query.mock.calls[0];
     expect(sql).toMatch(/je\.entity_id = \$1/);
     expect(sql).toMatch(/ar\.entity_id = \$1/);
+    expect(params?.[0]).toBe(ENTITY);
+  });
+});
+
+
+// ============================================================
+// QUIÉN ACREDITA SOBRE FLUJO: EL BORDE, DESDE ESTE CONSUMIDOR
+//
+// El predicado se unificó en `src/services/jurisdiction/jurisdiction.ts`
+// (J0.1). Un borde correcto en el conmutador y una comparación superviviente
+// aquí es exactamente el defecto que el tramo cierra, así que el borde se
+// prueba OTRA VEZ desde el consumidor y no sólo en el módulo.
+// ============================================================
+
+describe('entityUsesCashBasisIva — el borde, preguntado desde el consumidor', () => {
+  const ENTITY = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+  function client(rows: Array<Record<string, string>>) {
+    return { query: vi.fn(async (_sql: string, _params?: unknown[]) => ({ rows })) };
+  }
+
+  async function conEntidad(pais: string, norma: string): Promise<boolean> {
+    return entityUsesCashBasisIva(
+      client([{ incorporation_country: pais, accounting_standard: norma }]) as never,
+      ENTITY
+    );
+  }
+
+  /**
+   * LA FILA AUSENTE NO PASA POR EL CONMUTADOR, Y ESO ES DELIBERADO. «Ante la
+   * duda, mexicana» contesta por una entidad que existe y no declaró su país;
+   * aquí no hay entidad. La consulta filtra sólo por `id` y se apoya en RLS,
+   * así que un id de otro inquilino devuelve cero filas: si el `!row` se
+   * enrutara por `jurisdictionOf({})`, un id ajeno o inexistente estrenaría
+   * régimen fiscal mexicano.
+   */
+  it('una entidad que no existe no tiene régimen: cero filas es false, no «mexicana por omisión»', async () => {
+    expect(await entityUsesCashBasisIva(client([]) as never, ENTITY)).toBe(false);
+  });
+
+  it('el caso normal por los dos caminos: el país mexicano, o los libros en NIF', async () => {
+    expect(await conEntidad('MX', 'mx_nif')).toBe(true);
+    expect(await conEntidad('MX', 'us_gaap')).toBe(true);
+    expect(await conEntidad('US', 'mx_nif')).toBe(true);
+  });
+
+  it('la entidad estadounidense sigue fuera: su impuesto sobre una factura no es IVA acreditable', async () => {
+    expect(await conEntidad('US', 'us_gaap')).toBe(false);
+    expect(await conEntidad('CA', 'us_gaap')).toBe(false);
+  });
+
+  /**
+   * QUÉ SE MOVIÓ AQUÍ, y por qué se eligió así.
+   *
+   * Antes de J0.1 estas dos filas daban `false`, porque el predicado
+   * comparaba la columna en crudo contra 'MX'. `incorporation_country` es
+   * `CHAR(2)` sin CHECK: la cadena vacía se guarda como dos espacios y nada
+   * obliga a las mayúsculas. Esas entidades quedaban en la peor postura
+   * posible — la semilla del catálogo (que sí usa el conmutador) las trata
+   * como mexicanas y les crea las cuatro cuentas de IVA, y el posteo las
+   * trataba como extranjeras y acreditaba el IVA al emitir en vez de al
+   * pagar. Dos mitades del sistema contestando distinto sobre la misma fila.
+   *
+   * Se elige el `true` —y no arreglar el conmutador hacia el `false`— porque
+   * es lo que la LIVA le exige a esa entidad y lo que su propio catálogo ya
+   * suponía; y porque el cambio es un ensanchamiento estricto que no puede
+   * acabar en MISSING_ROLE_ACCOUNT: la entidad que ahora entra es exactamente
+   * la que fue sembrada como mexicana, así que tiene las cuatro cuentas.
+   */
+  it('el país en blanco o en minúsculas ya no queda fuera: es el borde que este tramo movió', async () => {
+    expect(await conEntidad('  ', 'us_gaap')).toBe(true);
+    expect(await conEntidad('mx', 'us_gaap')).toBe(true);
+  });
+
+  it('sigue preguntando por las dos columnas y sólo por esta entidad', async () => {
+    const c = client([{ incorporation_country: 'MX', accounting_standard: 'mx_nif' }]);
+    await entityUsesCashBasisIva(c as never, ENTITY);
+    const [sql, params] = c.query.mock.calls[0];
+    expect(sql).toMatch(/incorporation_country, accounting_standard/);
+    expect(sql).toMatch(/WHERE id = \$1/);
     expect(params?.[0]).toBe(ENTITY);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Command } from 'commander';
-import { auditProgram } from '../../src/cli/kernel/audit.js';
+import { auditProgram, DEUDA_DE_LLAVES, esDeudaDeLlave } from '../../src/cli/kernel/audit.js';
 import { registerVendorCommand } from '../../src/cli/vendor-command.js';
 import { registerBillCommand, parseLineSpec } from '../../src/cli/bill-command.js';
 import { registerApCommand } from '../../src/cli/ap-command.js';
@@ -72,8 +72,15 @@ describe('the rulebook', () => {
     expect(program.commands.map((c) => c.name()).sort()).toEqual(['ap', 'bill', 'vendor']);
   });
 
-  it('passes the consistency audit with no violations', () => {
-    expect(violations).toEqual([]);
+  it('passes the consistency audit, save for the key debt it declares', () => {
+    // R11 dejó de comprobar las banderas que `declareRisk` inyecta y pasó a
+    // comprobar que la hoja HONRE la llave. Las que todavía no la honran
+    // están nombradas una a una en DEUDA_DE_LLAVES y la regla las acusa: es
+    // deuda declarada, no una violación nueva. Todo lo demás sigue en cero.
+    expect(violations.filter((v) => !esDeudaDeLlave(v))).toEqual([]);
+    for (const v of violations.filter(esDeudaDeLlave)) {
+      expect(DEUDA_DE_LLAVES, `${v.command} acusada y no declarada como deuda`).toContain(v.command);
+    }
   });
 
   it('ends every leaf command in a verb from the closed list', () => {
@@ -162,9 +169,30 @@ describe('safety declarations', () => {
     expect(risks.get('bill approve')?.risk).toBe('irreversible');
   });
 
-  it('carries the safety flags that class requires', () => {
+  it('says the truth about the key it accepts, and R11 does NOT accuse it', () => {
+    // LA VERSIÓN ANTERIOR NO PODÍA FALLAR: comprobaba banderas que
+    // `declareRisk` acaba de INYECTAR (risk.ts), o sea su propio efecto
+    // secundario. Lo que sí puede fallar es qué hace la hoja con la llave.
     const longs = find('bill approve').options.map((o) => o.long);
-    expect(longs).toEqual(expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key']));
+    expect(longs).toEqual(expect.arrayContaining(['--dry-run', '--yes']));
+
+    // Y LO QUE DICE ES QUE NO LE HACE FALTA, no que un reintento reescribe.
+    // Esta prueba afirmaba lo segundo, y el propio fuente de la hoja lo
+    // desmentía: `bill approve` ya escribe su aviso «--idempotency-key was not
+    // needed: approval is idempotent behind the bill status and its
+    // journal_entry_id». La aprobación es idempotente por el ESTADO de la
+    // factura, así que un reintento no reconoce el pasivo dos veces.
+    //
+    // De ahí la tercera respuesta de `Llave`: `{ innecesaria }` mantiene la
+    // bandera funcionando (el guion que ya la pasa sigue corriendo), la ayuda
+    // dice que no hace falta en vez de prometer el resultado grabado, y R11 no
+    // la acusa porque no hay de qué acusarla.
+    const llave = riskOf(find('bill approve'))?.llave;
+    expect(llave !== undefined && 'innecesaria' in llave, 'declara que no le hace falta').toBe(true);
+    expect(DEUDA_DE_LLAVES).not.toContain('bill approve');
+    const ayuda = find('bill approve').options.find((o) => o.long === '--idempotency-key')?.description;
+    expect(ayuda).toContain('not needed');
+    expect(ayuda).not.toContain('returns the recorded result');
   });
 
   it('would REFUSE to ship if someone let the agent approve a bill', () => {

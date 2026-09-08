@@ -68,14 +68,92 @@ function toContext(row: EntityRow): AgentContext {
   };
 }
 
+// ============================================================
+// EL INQUILINO DE LA INVOCACIÓN
+//
+// UNA sola resolución por proceso, con la precedencia que publica
+// docs/cli-command-catalog.md §3.1: bandera > MNEMOSINE_TENANT > config.
+//
+// POR QUÉ HAY ESTADO Y NO SÓLO UNA FUNCIÓN PURA. `bootstrapTenant` tiene 81
+// llamadores en las hojas y casi todos le pasan `opts.tenant`, que en
+// commander v15 vale `undefined` aunque el usuario haya tecleado
+// `--tenant <uuid>`: la raíz declara `-T, --tenant` y su parseOptions se come
+// TODA la forma larga, la teclee quien la teclee y esté donde esté en la
+// línea (medido: `p bank import --tenant X` deja el valor en la raíz y la
+// hoja ve undefined; sólo la forma corta `-t` llega a la hoja, porque el
+// corto de la raíz es `-T` y no coincide).
+//
+// Con la versión anterior —`tenantFlag || process.env.MNEMOSINE_TENANT`— ese
+// `undefined` no era «no me han dicho nada» sino una ORDEN de usar el
+// entorno: la hoja PISABA con MNEMOSINE_TENANT el inquilino que el gancho de
+// la raíz acababa de fijar desde la bandera. Medido sobre el binario, con
+// tres entidades en el inquilino del .env:
+//     mnemosine -T <ceros> entities .......... «No active entities» (bien:
+//                                              `entities` no vuelve a llamar)
+//     mnemosine -T <ceros> entity list ....... 3 filas (mal: la hoja pisó)
+// Es decir: se publicaba la balanza del despacho A rotulada como la que se
+// pidió para B, y el `||` es todo el defecto.
+//
+// La regla ahora: un valor explícito manda y se registra; la AUSENCIA de
+// valor no degrada nunca lo que ya se decidió. Por eso los 81 sitios quedan
+// arreglados sin tocarlos.
+// ============================================================
+
+/** De dónde salió el inquilino con el que se está trabajando. */
+export type OrigenDeInquilino = 'bandera' | 'entorno' | 'config' | 'ninguno';
+
+export interface InquilinoDeLaSesion {
+  tenantId?: string;
+  origen: OrigenDeInquilino;
+  /** El valor de MNEMOSINE_TENANT cuando la bandera lo deja de lado. */
+  entornoIgnorado?: string;
+}
+
+let sesion: InquilinoDeLaSesion | null = null;
+
+const limpio = (v?: string | null): string | undefined => {
+  const t = v?.trim();
+  return t ? t : undefined;
+};
+
 /**
- * Sets the tenant before any query, so that entity resolution itself is
- * scoped by RLS. Without this, listEntities() would see the entities of
- * every tenant — which is the leak this closes.
- *
- * Precedence order: --tenant > MNEMOSINE_TENANT > whatever the already
- * resolved entity carries.
+ * Fija el inquilino de la invocación. La llama el programa UNA vez, desde la
+ * raíz, con el valor que el usuario tecleó (en cualquiera de las dos
+ * posiciones) y con el de la configuración de proyecto/usuario.
  */
+export function fijarInquilinoDeLaSesion(
+  bandera?: string,
+  deConfig?: string
+): InquilinoDeLaSesion {
+  const entorno = limpio(process.env.MNEMOSINE_TENANT);
+  const flag = limpio(bandera);
+  const cfg = limpio(deConfig);
+  const resuelto: InquilinoDeLaSesion = flag
+    ? { tenantId: flag, origen: 'bandera', ...(entorno && entorno !== flag ? { entornoIgnorado: entorno } : {}) }
+    : entorno
+      ? { tenantId: entorno, origen: 'entorno' }
+      : cfg
+        ? { tenantId: cfg, origen: 'config' }
+        : { origen: 'ninguno' };
+  sesion = resuelto;
+  if (resuelto.tenantId) enterTenant(resuelto.tenantId);
+  return resuelto;
+}
+
+/** Qué inquilino rige y de dónde salió. Para `status`, banners y mensajes. */
+export function inquilinoDeLaSesion(): InquilinoDeLaSesion {
+  return sesion ?? { origen: 'ninguno' };
+}
+
+/**
+ * Borra la decisión. Sólo para pruebas y para procesos que sirven más de una
+ * invocación; en el servidor el inquilino lo fija `withTenant` por petición y
+ * esto no se usa.
+ */
+export function olvidarInquilinoDeLaSesion(): void {
+  sesion = null;
+}
+
 /**
  * Under RLS, "not found" and "out of scope" are indistinguishable from the
  * query's point of view. The message has to say what is missing, or it sends
@@ -87,9 +165,109 @@ function alcanceHint(): string {
     : ' If the database enforces tenant isolation, specify one: --tenant <uuid> or MNEMOSINE_TENANT.';
 }
 
+/**
+ * Deja puesto el contexto de inquilino antes de la primera consulta.
+ *
+ * Con argumento: es un valor que el usuario tecleó (la forma corta `-t` sí
+ * llega a la hoja, y `globalsOf` recupera la larga), así que manda.
+ *
+ * SIN argumento: no es una orden. Si la raíz ya resolvió, se RE-ENTRA lo
+ * resuelto —idempotente— y no se consulta el entorno; si nadie resolvió
+ * todavía (pruebas, scripts que importan este módulo), se resuelve con la
+ * misma precedencia y se recuerda.
+ */
 export function bootstrapTenant(tenantFlag?: string): void {
-  const tenantId = tenantFlag || process.env.MNEMOSINE_TENANT;
-  if (tenantId) enterTenant(tenantId);
+  const pedido = limpio(tenantFlag);
+  if (pedido) {
+    if (!sesion || sesion.tenantId !== pedido) {
+      const entorno = limpio(process.env.MNEMOSINE_TENANT);
+      sesion = {
+        tenantId: pedido,
+        origen: 'bandera',
+        ...(entorno && entorno !== pedido ? { entornoIgnorado: entorno } : {}),
+      };
+    }
+    enterTenant(pedido);
+    return;
+  }
+  if (sesion) {
+    if (sesion.tenantId) enterTenant(sesion.tenantId);
+    return;
+  }
+  fijarInquilinoDeLaSesion(undefined);
+}
+
+/**
+ * ¿Existe de verdad el inquilino que se pidió? Bajo RLS, un uuid inventado no
+ * da error: da CERO FILAS, que se lee igual que «este despacho no tiene
+ * nada». `tenants` es la tabla de la frontera y su fila propia es visible
+ * desde su propio contexto, así que la pregunta se puede hacer.
+ *
+ * Devuelve 'inexistente' cuando no hay fila e 'inactivo' cuando la hay pero
+ * está dada de baja: son dos remedios distintos y un solo booleano los
+ * confunde.
+ */
+/** El mensaje de un error, si de verdad es texto. Nunca '[object Object]'. */
+function mensajeDelError(err: unknown): string {
+  const m = (err as { message?: unknown } | null)?.message;
+  return typeof m === 'string' ? m : '';
+}
+
+export async function estadoDelInquilino(
+  tenantId: string
+): Promise<'activo' | 'inactivo' | 'inexistente' | 'indeterminable'> {
+  let r;
+  try {
+    r = await query<{ is_active: boolean }>(
+      'SELECT is_active FROM tenants WHERE id = $1',
+      [tenantId]
+    );
+  } catch (err) {
+    // NO PODER COMPROBAR NO ES PODER ACUSAR. Un despliegue puede negarle a
+    // este rol la lectura de `tenants` (42501) o no tener la tabla (42P01);
+    // convertir eso en «ese inquilino no existe» sería exactamente el error
+    // que esta comprobación viene a impedir, con el signo cambiado. Se calla
+    // y sigue: el aislamiento no depende de esta consulta, sólo el aviso.
+    // Y se calla ante CUALQUIER motivo de no poder preguntar, no sólo ante los
+    // dos permisos. El aislamiento lo garantiza RLS; esta consulta sólo
+    // alimenta un AVISO, así que ningún fallo suyo puede ser peor que el aviso
+    // que deja de darse. En particular la base INALCANZABLE: este chequeo corre
+    // en el gancho, antes de que la hoja valide sus propios argumentos, y
+    // dejarlo lanzar convertía un error de USO —que debe salir 2 sin tocar la
+    // base— en un fallo de conexión con código 1. Un instrumento de aviso que
+    // cambia el código de salida de lo que observa es justo lo que este tramo
+    // repara.
+    // Se estrecha el tipo en vez de convertir `unknown` a texto: `String()`
+    // sobre un objeto da '[object Object]', que casaría con cualquier cosa o
+    // con nada según el patrón, y aquí lo que se decide es si un error se
+    // traga o se propaga.
+    const codigoCrudo = (err as { code?: unknown } | null)?.code;
+    const codigo = typeof codigoCrudo === 'string' ? codigoCrudo : '';
+    // Permiso denegado y tabla ausente: el despliegue no deja preguntar.
+    if (codigo === '42501' || codigo === '42P01') return 'indeterminable';
+    // Y LA BASE INALCANZABLE, que es la familia que faltaba. Este chequeo corre
+    // en el gancho, ANTES de que la hoja valide sus propios argumentos: dejarlo
+    // lanzar convertía un error de USO —que debe salir 2 sin tocar la base— en
+    // un fallo de conexión con código 1. Un instrumento de aviso que cambia el
+    // desenlace de lo que observa es justo lo que este tramo repara.
+    if (
+      /^(?:ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|08\d{3}|57P03)$/.test(codigo) ||
+      err instanceof AggregateError ||
+      /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH/.test(mensajeDelError(err))
+    ) {
+      return 'indeterminable';
+    }
+    // Cualquier otro motivo SÍ se propaga: un fallo genuino de esta consulta
+    // que se tragara dejaría el aviso mudo para siempre y nadie se enteraría.
+    throw err;
+  }
+  // Y TAMPOCO ACUSA CUANDO NO HAY RESPUESTA QUE LEER. Un `query` simulado
+  // —media suite del CLI lo está— devuelve undefined, y leerle `.rows` haría
+  // reventar a comandos que jamás dependieron de esta pregunta. Es el mismo
+  // principio que el catch de arriba: no poder comprobar no es poder acusar.
+  if (!r || !Array.isArray(r.rows)) return 'indeterminable';
+  if (r.rows.length === 0) return 'inexistente';
+  return r.rows[0].is_active ? 'activo' : 'inactivo';
 }
 
 export async function listEntities(): Promise<EntityRow[]> {

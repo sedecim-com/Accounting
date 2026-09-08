@@ -12,7 +12,14 @@ import { config } from '../config/index.js';
 import { loginWithPkce, loginWithDeviceCode } from '../auth/login-flows.js';
 import { saveToken, loadToken, clearToken, isFresh, credentialsPath } from '../auth/token-store.js';
 import { drainAttestations } from '../services/accounting/posting.js';
-import { resolveEntity, listEntities, bootstrapTenant, type AgentContext } from '../ai/context.js';
+import {
+  resolveEntity,
+  listEntities,
+  fijarInquilinoDeLaSesion,
+  estadoDelInquilino,
+  type InquilinoDeLaSesion,
+  type AgentContext,
+} from '../ai/context.js';
 import {
   createLlmSession,
   createLlmSessionWithFailover,
@@ -20,7 +27,7 @@ import {
   listProfiles,
   type LlmSession,
 } from '../ai/providers/index.js';
-import { resolveLanguage, setLanguage } from '../ai/providers/config.js';
+import { resolveLanguage, setLanguage, configFilePaths } from '../ai/providers/config.js';
 import {
   createSession,
   latestSession,
@@ -50,6 +57,7 @@ import {
   usageError,
   notFound,
   exitCodeFor,
+  batchExitCode,
   CliError,
   ExitCode,
   type ExitCodeValue,
@@ -822,7 +830,7 @@ program
   .version(CLI_VERSION)
   .option(
     '-T, --tenant <uuid>',
-    'Tenant to operate on (or MNEMOSINE_TENANT). Scopes EVERY query via RLS'
+    'Tenant to operate on. Precedence: this flag > MNEMOSINE_TENANT > mnemosine.config.json. Scopes EVERY query via RLS'
   );
 
 // The tenant is set before any command runs, so that even entity resolution
@@ -831,14 +839,146 @@ program
 // SSH tunnel): `lang` reads/writes config JSON and nothing else.
 const NO_DB_COMMANDS = new Set(['lang', 'idioma']);
 
+/**
+ * Hojas a las que NO se les comprueba que el inquilino exista.
+ *
+ * Dos familias, y las dos por la misma razón: comprobar les quita más de lo que
+ * les da.
+ *
+ * · LAS QUE NO MIRAN DATOS ACOTADOS. `whoami`, `login`, `logout`, `completion`,
+ *   `providers` no consultan nada bajo RLS; hacerlas morir con código 3 por un
+ *   id tecleado en una bandera que no usan es un modo de fallo nuevo a cambio
+ *   de nada.
+ * · LAS QUE EXISTEN PARA ARREGLAR EL INQUILINO. `init` y `doctor` son los dos
+ *   comandos a los que se acude cuando el .env apunta a un despacho que ya no
+ *   está —un re-seed, una restauración—. Que la comprobación los tumbara antes
+ *   de arrancar convertiría la reparación en una trampa cerrada: el único
+ *   camino de salida bloqueado por el defecto que viene a diagnosticar.
+ */
+const SIN_COMPROBAR_INQUILINO = new Set([
+  'init', 'iniciar', 'doctor', 'whoami', 'login', 'logout', 'completion', 'providers',
+]);
+
 // A failed initDatabase for CHAT is stashed instead of thrown: on a virgin
 // machine the chat action routes to the first-run rescue, which needs the
 // process alive to diagnose and offer the wizard. Every other command keeps
 // today's fail-fast behavior.
 let chatDbInitError: Error | null = null;
 
+const UUID_DE_INQUILINO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * El inquilino que el usuario pidió, teclee donde teclee.
+ *
+ * `optsWithGlobals` y no `thisCommand.opts()`: la forma LARGA `--tenant` se la
+ * queda la raíz (su parseOptions recorre toda la línea y `_findOption` acierta
+ * antes de despachar), y la CORTA `-t` se la queda la hoja (el corto de la
+ * raíz es `-T`, que no coincide). Leer sólo una de las dos deja fuera la mitad
+ * de las grafías que el diccionario publica.
+ */
+export function inquilinoPedido(actionCommand: Command): string | undefined {
+  // UNA SOLA REGLA DE PRECEDENCIA. `optsWithGlobals` mezcla GLOBALES SOBRE
+  // LOCALES —gana la raíz—, pero `bootstrapTenant` hace mandar el valor que
+  // recibe la hoja. Fijadas las dos a la vez, el gancho rotularía y comprobaría
+  // un inquilino y la consulta correría con otro: el aviso nombraría un
+  // despacho distinto del que sale en las filas, que es la misma clase de
+  // mentira que este tramo repara. Manda la HOJA, como en bootstrapTenant.
+  const deLaRaiz = actionCommand.optsWithGlobals<{ tenant?: string }>().tenant;
+  const deLaHoja = actionCommand.opts<{ tenant?: string }>().tenant;
+  // Y si se teclearon las DOS grafías con valores distintos, no se elige por
+  // dentro: se dice. Elegir en silencio entre dos órdenes contrarias del
+  // operador es exactamente lo que hacía el defecto.
+  if (deLaHoja && deLaRaiz && deLaHoja !== deLaRaiz) {
+    throw usageError(
+      `--tenant says ${deLaRaiz} and -t says ${deLaHoja}. Pick one: they are the same flag ` +
+        'and two different tenants.'
+    );
+  }
+  return deLaHoja ?? deLaRaiz;
+}
+
+/**
+ * El tercer escalón de la precedencia: mnemosine.config.json (proyecto > usuario).
+ *
+ * SE RESUELVE POR CLAVE, NO POR FICHERO. `loadConfigFile` devuelve el PRIMER
+ * ARCHIVO QUE EXISTE, así que un config de proyecto que sólo fije `language`
+ * ANULARÍA el `tenant` del config de usuario y el resultado sería quedarse sin
+ * inquilino —cero filas, código 0, en silencio—. Sombrear por fichero no es
+ * precedencia por clave, y lo que el catálogo publica es lo segundo.
+ *
+ * Y SE LEE SIN EFECTOS SECUNDARIOS. `loadConfigFile` pasa por
+ * `quarantineInvalidConfig`, que ante un JSON malformado ESCRIBE una copia
+ * `.rejected-<hash>` junto al original. Ese módulo falla cerrado a propósito,
+ * pero llamarlo desde un gancho que corre en TODOS los comandos convertía un
+ * config roto en un fichero nuevo en el árbol del usuario, escrito por un
+ * comando que nunca tocaba la configuración, y sin decir nada. Aquí se lee el
+ * archivo y punto: si está roto, este escalón simplemente no aporta inquilino,
+ * y quien de verdad use la config seguirá encontrando su error donde debe.
+ */
+function inquilinoDeConfig(): string | undefined {
+  for (const ruta of configFilePaths()) {
+    try {
+      const crudo = fs.readFileSync(ruta, 'utf-8');
+      const tenant = (JSON.parse(crudo) as { tenant?: unknown }).tenant;
+      if (typeof tenant === 'string' && tenant.trim() !== '') return tenant.trim();
+    } catch {
+      // No existe, no se puede leer o no es JSON: este archivo no aporta el
+      // escalón. Se sigue con el siguiente.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resuelve el inquilino de ESTA invocación y lo deja puesto, antes de la
+ * primera consulta. Exportada para que se pueda probar sin abrir base: es la
+ * mitad síncrona del gancho y es donde vive la precedencia.
+ */
+export function fijarInquilinoDeLaOrden(actionCommand: Command): InquilinoDeLaSesion {
+  const inquilino = fijarInquilinoDeLaSesion(inquilinoPedido(actionCommand), inquilinoDeConfig());
+
+  // UN UUID MAL TECLEADO NO PUEDE SALIR EN SILENCIO. set_config acepta
+  // cualquier cadena, RLS no casa con nada y el resultado es un informe VACÍO
+  // que se lee como «este despacho no tiene movimientos» (medido:
+  // `entity list -t basura` devolvía `"rows": []` y código 0).
+  if (inquilino.tenantId && !UUID_DE_INQUILINO.test(inquilino.tenantId)) {
+    const de =
+      inquilino.origen === 'bandera'
+        ? '--tenant'
+        : inquilino.origen === 'entorno'
+          ? 'MNEMOSINE_TENANT'
+          : 'the `tenant` key in mnemosine.config.json';
+    throw usageError(
+      `The tenant must be a UUID; ${de} carries "${inquilino.tenantId}".\n` +
+        '  → mnemosine entity list --tenant <uuid>   (the id `mnemosine init` printed)'
+    );
+  }
+  return inquilino;
+}
+
 program.hook('preAction', async (thisCommand, actionCommand) => {
-  bootstrapTenant(thisCommand.opts().tenant as string | undefined);
+  const inquilino = fijarInquilinoDeLaOrden(actionCommand);
+
+  // DE DÓNDE SALIÓ EL INQUILINO, dicho cuando importa. El caso peligroso es
+  // exactamente el que este tramo repara: se pidió un despacho por bandera y
+  // el entorno nombra otro. Antes ganaba el entorno y no se notaba; ahora gana
+  // la bandera y se DICE, para que quien lea la cifra sepa de quién es.
+  if (inquilino.entornoIgnorado) {
+    stderr.write(
+      ce.dim(
+        `  tenant ${inquilino.tenantId} (--tenant); MNEMOSINE_TENANT=${inquilino.entornoIgnorado} ignored\n`
+      )
+    );
+  } else if (actionCommand.optsWithGlobals<{ verbose?: boolean }>().verbose) {
+    stderr.write(
+      ce.dim(
+        inquilino.tenantId
+          ? `  tenant ${inquilino.tenantId} (${inquilino.origen})\n`
+          : '  no tenant context: every RLS-scoped query will return zero rows\n'
+      )
+    );
+  }
+
   if (NO_DB_COMMANDS.has(actionCommand.name())) return;
   // The tunnel must be up BEFORE the first query; since the pool is lazy,
   // bringing it up here is enough.
@@ -849,6 +989,51 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
   } catch (err) {
     if (actionCommand.name() !== 'chat') throw err;
     chatDbInitError = err instanceof Error ? err : new Error(String(err));
+  }
+
+  // PEDIR UN DESPACHO QUE NO EXISTE FALLA, no devuelve un informe vacío.
+  //
+  // SE COMPRUEBA VENGA DE DONDE VENGA, y no sólo de la bandera. El caso
+  // realista no es la errata al teclear: es un `.env` que sobrevive a un
+  // re-seed o a una restauración y sigue apuntando a un id que ya no existe —y
+  // `MNEMOSINE_TENANT` es justo el escalón que el README y `mnemosine init`
+  // mandan usar—. Dejar mudo ese escalón es dejar mudo el camino que el
+  // producto empuja. Cuesta una lectura por clave primaria sobre una tabla sin
+  // RLS, y sólo en los comandos que ya iban a abrir base.
+  if (inquilino.tenantId && !chatDbInitError && !SIN_COMPROBAR_INQUILINO.has(actionCommand.name())) {
+    const estado = await estadoDelInquilino(inquilino.tenantId);
+    // DURO PARA LO QUE SE TECLEÓ, RUIDOSO PARA LO QUE SE HEREDÓ.
+    //
+    // La bandera es donde vive la ERRATA: se escribió hace un segundo, nadie
+    // más la usa, y seguir adelante publicaría un informe vacío por un dedazo.
+    // Ahí se falla.
+    //
+    // `MNEMOSINE_TENANT` y la config son otra cosa: un .env que sobrevive a un
+    // re-seed o a una restauración es una CONDICIÓN del despliegue, no un
+    // desliz de esta invocación, y convertirla en muerte súbita deja al
+    // operador sin poder correr nada —incluidas las lecturas con las que
+    // averiguaría qué pasó—. Ahí se avisa, fuerte y por stderr, y se sigue: el
+    // informe saldrá vacío, pero saldrá con la razón escrita al lado.
+    const duro = inquilino.origen === 'bandera';
+    if (estado === 'inexistente') {
+      const texto =
+        `No tenant with id ${inquilino.tenantId}. Nothing would be visible under it, ` +
+        'and an empty report is not the same as an empty ledger.';
+      if (duro) {
+        throw notFound(`${texto}\n  → check the id \`mnemosine init\` printed, or MNEMOSINE_TENANT in .env`);
+      }
+      console.error(
+        ce.yellow(
+          `${texto} (from ${inquilino.origen === 'entorno' ? 'MNEMOSINE_TENANT' : 'mnemosine.config.json'})`
+        )
+      );
+    } else if (estado === 'inactivo') {
+      const texto =
+        `Tenant ${inquilino.tenantId} exists but is not active. Its data stays where it is; ` +
+        'reactivate it before operating on it.';
+      if (duro) throw notFound(texto);
+      console.error(ce.yellow(texto));
+    }
   }
 });
 
@@ -1620,6 +1805,7 @@ const review = program
 // --idempotency-key y le niega el comando al agente.
 declareRisk(review, {
   risk: 'irreversible',
+  llave: { innecesaria: 'cada aprobación va atada al contenido revisado (su hash) y el estado del borrador rechaza la repetición' },
   agent: false,
   writes:
     'journal_entries + journal_entry_lines POSTEADOS al aprobar un borrador; ' +
@@ -1795,6 +1981,7 @@ const ingest = program
 // evidencia, que es lo único que separa «medimos» de «posteamos».
 declareRisk(ingest, {
   risk: 'irreversible',
+  llave: { innecesaria: 'cada CFDI deduplica por su propio UUID y hash' },
   agent: false,
   writes: 'xml_documents, pre_registrations, bills; y con auto-posteo, asientos POSTEADOS',
 });
@@ -2081,6 +2268,7 @@ const onboard = program
 // --idempotency-key y le niega el comando al agente.
 declareRisk(onboard, {
   risk: 'irreversible',
+  llave: { scope: 'onboard' },
   agent: false,
   writes: 'accounts, saldos iniciales; y con --post, el asiento de apertura POSTEADO',
 });
@@ -2324,7 +2512,17 @@ async function correrOutboxImpl(
       }
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
       let executed = 0;
-      let failed = 0;
+      // The verdict of each failure, not just how many there were. This is
+      // the leaf a cron calls, and «8 retry» vs «9 never blind-retry» is the
+      // only thing it can act on: it cannot read our stderr.
+      //
+      // UNA SOLA FUENTE PARA EL CONTEO Y PARA EL CÓDIGO. Aquí hubo un `failed`
+      // aparte, y dos contadores paralelos hay que sincronizarlos a mano: el
+      // día que alguien añada una rama de fallo que incremente uno y olvide el
+      // otro, `batchExitCode([])` devuelve OK y el comando sale 0 con el lote
+      // entero fallado. Antes del tramo eso era imposible porque el número y
+      // el código salían de la MISMA variable; se conserva esa propiedad.
+      const veredictos: ExitCodeValue[] = [];
       for (let i = 0; i < targets.length; i++) {
         renderExternalOp(targets[i], i, targets.length);
         if (!opts.yes) {
@@ -2360,13 +2558,13 @@ async function correrOutboxImpl(
           executed++;
           console.log(`✔ Executed. Response: ${c.dim(JSON.stringify(result).slice(0, 200))}`);
         } catch (err) {
-          failed++;
+          veredictos.push(exitCodeFor(err));
           reportError(err);
           console.log(c.dim('The operation is left as-is (check outbox list --status failed); continuing.'));
         }
       }
-      console.log(c.dim(`\nDone: ${executed} executed, ${failed} failed.`));
-      await shutdown(failed > 0 ? 1 : 0);
+      console.log(c.dim(`\nDone: ${executed} executed, ${veredictos.length} failed.`));
+      await shutdown(batchExitCode(veredictos));
     }
 
     // ─── Interactive queue ───
@@ -2427,6 +2625,9 @@ async function correrOutboxImpl(
 
     let executed = 0;
     let rejected = 0;
+    // Same reason as the scripted path: a queue that failed every execution
+    // still exited 0, so `outbox run --live && next-step` chained on a lie.
+    const veredictos: ExitCodeValue[] = [];
     for (let i = 0; i < pending.length; i++) {
       renderExternalOp(pending[i], i, pending.length);
       const raw = await ask(rl, c.cyan('\n[e]xecute in the external system  [r]eject  [s]kip  [q]uit > '));
@@ -2456,14 +2657,21 @@ async function correrOutboxImpl(
         }
         // 's' or anything else: skip
       } catch (err) {
+        veredictos.push(exitCodeFor(err));
         reportError(err);
         console.log(c.dim('The operation is left as-is (check list_external_ops/failed); the queue continues.'));
       }
     }
 
     rl.close();
-    console.log(c.dim(`\nDone: ${executed} executed, ${rejected} rejected.`));
-    await shutdown(0);
+    console.log(
+      c.dim(
+        `\nDone: ${executed} executed, ${rejected} rejected` +
+          (veredictos.length > 0 ? `, ${veredictos.length} failed` : '') +
+          '.'
+      )
+    );
+    await shutdown(batchExitCode(veredictos));
   } catch (err) {
     rl?.close();
     if (isInterrupt(err)) await shutdown(130);
@@ -2510,6 +2718,7 @@ const outboxRun = outbox
   .addHelpText('after', EJEMPLOS.outboxRun);
 declareRisk(outboxRun, {
   risk: 'externo',
+  llave: { innecesaria: 'cada operación se reclama atómicamente y queda atada a su fila' },
   agent: false,
   writes: 'ai_external_ops; y EJECUTA cada operación contra el sistema contable del cliente con su credencial',
 });

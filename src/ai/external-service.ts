@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../database/connection.js';
+import { ExternalRejectedError, ExternalServiceError } from '../utils/errors.js';
 import { FLOOR_MAX_OP_AGE_DAYS, isOpStale } from './floor.js';
 import { matchApproval, type MatchApprovalOpts } from './approval-policy.js';
 import { getExternalAdapter } from '../services/integrations/accounting/registry.js';
@@ -44,7 +45,13 @@ async function fetchLocalBalances(
                   ON je.id = jel.journal_entry_id
                  AND je.status = 'posted' AND je.entry_date <= $2)
             ON jel.account_id = a.id
-     WHERE a.entity_id = $1 AND a.is_active = true
+     -- SIN el filtro de is_active (T13 · #100). Este cotejo compara el mayor
+     -- local contra el del sistema externo, y borrar aquí la cuenta archivada
+     -- con movimiento la publicaba como only_remote: una diferencia INVENTADA
+     -- contra el otro sistema, que es la misma clase de defecto que T13 repara
+     -- en los informes. El docblock de arriba promete «el mismo criterio que
+     -- get_trial_balance»; desde T13 ese criterio no filtra el catálogo.
+     WHERE a.entity_id = $1
      GROUP BY a.id, a.code, a.name`,
     [entityId, endDate]
   );
@@ -356,6 +363,13 @@ export async function executeExternalOp(
         `Operation ${opId} failed against ${op.provider}, but its row was concurrently ` +
         `recovered out of 'executing'; the recovered status was left untouched`
       );
+    }
+    // The adapter's VERDICT survives the re-wrap. This line used to build a
+    // plain Error, which flattened "the service fell over, retry" and "the
+    // service refused, never blind-retry" into the same generic exit 1 —
+    // undoing at the last step whatever the adapter had classified.
+    if (err instanceof ExternalRejectedError || err instanceof ExternalServiceError) {
+      throw err;
     }
     throw new Error(`The operation failed against ${op.provider}: ${message}`);
   }

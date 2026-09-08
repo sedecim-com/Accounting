@@ -125,7 +125,22 @@ describe('F05a · dedupe', () => {
     expect(n.rows[0].c).toBe('2');
   });
 
-  it('una línea repetida dentro del MISMO archivo entra una sola vez', async () => {
+  it('dos líneas legítimamente iguales del MISMO archivo entran las dos (#88)', async () => {
+    // ESTA PRUEBA AFIRMABA EL DEFECTO. Hasta T1 exigía `importadas: 1` y
+    // `duplicadas: 1`, es decir que el sistema se tragara una de las dos
+    // comisiones. Y el propio archivo la desmiente: el saldo corrido va
+    // 700.00 → 650.00, o sea que el banco cobró −50.00 DOS VECES y las dos
+    // son ciertas.
+    //
+    // Lo que lo causaba: `uq_bank_tx_contenido` era ÚNICO sobre un hash de
+    // (cuenta|fecha|importe|descripción), que no distingue dos hechos
+    // distintos; e `insertarLineas` inserta con `ON CONFLICT DO NOTHING` sin
+    // blanco, así que la segunda se perdía EN SILENCIO y se reportaba como
+    // duplicada — acusando al banco de mandar un renglón repetido cuando el
+    // renglón era bueno y el descuadre lo producía el sistema.
+    //
+    // Lo que impide reimportar sigue en pie y lo prueba el caso de arriba
+    // («el mismo archivo dos veces no duplica»): la unicidad es del ARCHIVO.
     const ruta = escribir('repetida.csv', [
       'fecha,descripcion,importe,saldo',
       '2026-02-01,COMISION,-50.00,700.00',
@@ -137,8 +152,17 @@ describe('F05a · dedupe', () => {
       { leer }
     );
     expect(r.lineasLeidas).toBe(2);
-    expect(r.importadas).toBe(1);
-    expect(r.duplicadas).toBe(1);
+    expect(r.importadas).toBe(2);
+    expect(r.duplicadas).toBe(0);
+
+    // Y los libros suman lo que el banco cobró, que es el punto entero.
+    const suma = await query<{ total: string }>(
+      `SELECT COALESCE(SUM(amount), 0)::text AS total
+         FROM bank_transactions
+        WHERE bank_account_id = $1 AND description = 'COMISION'`,
+      [cuentaA]
+    );
+    expect(Number(suma.rows[0].total)).toBe(-100);
   });
 
   it('content_hash lo pone el disparador, no el llamador', async () => {
