@@ -3258,6 +3258,73 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E4.2',
+    id: 'agent-balance-sheet-foots',
+    enunciado: 'El balance que lee el agente cuadra, y publica con qué notar que no',
+    evaluar: () => {
+      // T14 (#101). De las tres superficies del balance —CLI, REST y la
+      // herramienta del agente— sólo ésta ensamblaba su propio total: una
+      // consulta, sin queryUnclosedEarnings, y
+      // `total_liabilities_and_equity = pasivo + capital`. Medido sobre un
+      // mayor SANO de activo 100 000 con 6 000 de resultado sin barrer,
+      // publicaba 94 000.00 contra 100 000.00 — y ni un campo con el que
+      // notarlo, mientras la CLI firmaba 100 000.00 sobre los mismos datos.
+      const t = codigoDe('src/ai/tools/report-tools.ts');
+      if (!/await getBalanceSheet\(ctx\.entityId/.test(t)) {
+        return falla('la herramienta del agente volvió a ensamblar su propio balance en vez de proyectar el informe que firman la CLI y el REST');
+      }
+      if (!/out_of_balance:/.test(t) || !/is_balanced:/.test(t)) {
+        return falla('el balance del agente dejó de publicar out_of_balance/is_balanced: el modelo no tendría con qué notar un descuadre');
+      }
+      // El estado de resultados suma el LIBRO, no sus propios redondeos. Con
+      // el `reduce` sobre las filas ya redondeadas publicaba 0.06 donde el
+      // gasto posteado es 0.0400: una cifra falsa, no un formato.
+      if (!/crudoGastos\.reduce\(\(s, r\) => s\.plus\(netMovement\(r\)\)/.test(t)) {
+        return falla('el estado de resultados del agente volvió a sumar filas ya redondeadas: publicaría la suma de los redondeos en vez del redondeo de la suma');
+      }
+      // Y el detalle a la escala que la cabecera del archivo promete desde
+      // que existe, con el residuo NOMBRADO cuando las filas no suman.
+      if (!/ending_balance: aEscala\(/.test(t) || !/amount_due: aEscala\(/.test(t)) {
+        return falla('las filas de detalle del agente volvieron a publicarse en crudo: DECIMAL(19,4) bajo totales a dos decimales');
+      }
+      if (!/rounding_residual/.test(t)) {
+        return falla('el residuo de redondeo dejó de nombrarse: las filas no sumarían su total y nadie diría por qué');
+      }
+      // La misma ceguera vivía en el sobre REST, que CALCULABA las dos claves
+      // y las tiraba.
+      if (!/out_of_balance: report\.out_of_balance/.test(codigoDe('src/api/rest/routes/reports.ts'))) {
+        return falla('el sobre REST del balance volvió a descartar out_of_balance/is_balanced: un tablero no podría saber si el estado cuadra');
+      }
+      return ok('el balance del agente proyecta el informe ensamblado, publica su cuadre, y el detalle sale a escala con su residuo nombrado');
+    },
+    mutantes: [
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: 'await getBalanceSheet(ctx.entityId',
+        a: 'await queryBalanceSheetRows(ctx.entityId',
+        porque: 'la herramienta vuelve a calcularse su propio balance: publicaría pasivo+capital y se comería el resultado del ejercicio',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: 'crudoGastos.reduce((s, r) => s.plus(netMovement(r))',
+        a: 'expenseRows.reduce((s, r) => s.plus(r.amount)',
+        porque: 'el estado de resultados vuelve a sumar sus propios redondeos: publica 0.06 donde el libro dice 0.05',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: 'ending_balance: aEscala(',
+        a: 'ending_balance: String(',
+        porque: 'el detalle vuelve a salir en crudo a cuatro decimales bajo totales de dos, que es lo que tapaba el descuadre',
+      },
+      {
+        archivo: 'src/api/rest/routes/reports.ts',
+        de: 'out_of_balance: report.out_of_balance',
+        a: 'as_of_date_bis: report.as_of_date',
+        porque: 'el sobre REST vuelve a tirar el cuadre que su propio informe calcula',
+      },
+    ],
+  },
+  {
+    paquete: 'E4.2',
     id: 'single-report-query-layer',
     enunciado: 'Las superficies de reportes consumen una sola capa de consulta',
     evaluar: () => {

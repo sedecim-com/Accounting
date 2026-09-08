@@ -4,6 +4,7 @@
   "_reglas": "Tres direcciones, porque un trinquete que solo mira una se vacia por las otras dos: (1) un criterio del piso que se pone rojo falla; (2) un criterio del piso cuyo enunciado ya no existe falla —el renombre silencioso vaciaria la lista—; (3) un criterio verde de un paquete ABIERTO que no este aqui falla: el piso sube en el mismo commit que gana el terreno. Los criterios de paquetes RESUELTOS no se listan: --exigir ya los cubre enteros.",
   "_s2": "Nace en S2 con los 17 verdes desprotegidos del HEAD que lo introduce. Cuando un paquete rojo se cierre, sus criterios salen de aqui y entran a --exigir con el paquete.",
   "verdes": [
+    "agent-balance-sheet-foots",
     "agent-corpus-staleness-gate",
     "cost-per-row-band-split",
     "rls-silent-backfill-repaired",
