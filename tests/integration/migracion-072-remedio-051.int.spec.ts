@@ -54,6 +54,13 @@ const USER = randomUUID();
 const ENTIDAD = randomUUID();
 const CUENTA = randomUUID();
 const BANCARIA = randomUUID();
+const TENANT_B = randomUUID();
+const ORG_B = randomUUID();
+const USER_B = randomUUID();
+const ENTIDAD_B = randomUUID();
+const CUENTA_B = randomUUID();
+const BANCARIA_B = randomUUID();
+const SONDA = `sonda_072_${randomBytes(3).toString('hex')}`;
 
 function urlConBase(url: string, base: string): string {
   const u = new URL(url);
@@ -169,6 +176,12 @@ beforeAll(async () => {
     await db.query('INSERT INTO public.migrations (filename) VALUES ($1)', [archivo]);
     await db.query('COMMIT');
   }
+
+  // Y LAS POLÍTICAS, que es lo que distingue una instalación de un esqueleto:
+  // `migrate.ts` aplica `rls-policies.sql` en el `finally` de CADA corrida, así
+  // que toda base ya instalada las tiene. Sin ellas, un rol NOBYPASSRLS vería
+  // el clúster entero y la trampa del cero por filtrado no se podría enseñar.
+  await db.query(fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'database', 'rls-policies.sql'), 'utf-8'));
 
   // ── EL ESTADO VIEJO, DESHECHO A MANO ────────────────────────────────
   // Las tres cosas que T1 cambió en la 051, devueltas a como estaban. Es el
@@ -325,5 +338,87 @@ describe('la 072 sobre una instalación que registró la 051 vieja', () => {
       [fila.rows[0].id]
     );
     expect(despues.rows[0].h, 'el disparador ignora lo que mande el llamador').toBe(fila.rows[0].h);
+  });
+});
+
+describe('el hueco visto desde el diagnóstico, bajo RLS y con dos despachos', () => {
+  // WIT-02. `doctor` corre con el pool de la aplicación, como `mnemosine_app`,
+  // que NO ignora la RLS. Sin `app.current_tenant` la consulta del hueco no
+  // falla: devuelve CERO FILAS — y un cero por filtrado se leería como «no
+  // falta ninguna línea», que es justo el daño que el diagnóstico existe para
+  // nombrar. Esta suite corre como superusuario, así que la trampa sólo se ve
+  // bajando a un rol NOBYPASSRLS, que es lo que hace este bloque.
+  const hueco = `SELECT s.file_name, s.line_count - count(t.id) AS faltan
+                   FROM bank_statements s
+                   LEFT JOIN bank_transactions t ON t.statement_id = s.id
+                  GROUP BY s.id, s.file_name, s.line_count
+                 HAVING count(t.id) < s.line_count`;
+
+  beforeAll(async () => {
+    // Un segundo despacho, para que «no ver» y «ver lo ajeno» sean distintos.
+    await db.query(`INSERT INTO tenants (id, name, subdomain, schema_name) VALUES ($1,'Otro','o','t_o')`, [TENANT_B]);
+    await db.query(`INSERT INTO organizations (id, tenant_id, name, type) VALUES ($1,$2,'GrupoB','holding')`, [ORG_B, TENANT_B]);
+    await db.query(`INSERT INTO users (id, tenant_id, email, password_hash) VALUES ($1,$2,'b@b.c','x')`, [USER_B, TENANT_B]);
+    await db.query(
+      `INSERT INTO legal_entities (id, organization_id, tenant_id, name, entity_type, tax_id, tax_id_type, incorporation_country)
+       VALUES ($1,$2,$3,'Beta','corporation','BBB010101BBB','rfc','MX')`,
+      [ENTIDAD_B, ORG_B, TENANT_B]
+    );
+    await db.query(
+      `INSERT INTO accounts (id, entity_id, code, name, account_type, normal_balance, created_by)
+       VALUES ($1,$2,'1110','Bancos','asset','debit',$3)`,
+      [CUENTA_B, ENTIDAD_B, USER_B]
+    );
+    await db.query(
+      `INSERT INTO bank_accounts (id, entity_id, account_name, bank_name, gl_account_id)
+       VALUES ($1,$2,'CtaB','Banco',$3)`,
+      [BANCARIA_B, ENTIDAD_B, CUENTA_B]
+    );
+
+    // Un extracto por despacho que DECLARA más líneas de las que tiene: es el
+    // rastro que deja el índice único cuando se tragó un renglón bueno.
+    for (const [ent, cta, nombre, quien] of [
+      [ENTIDAD, BANCARIA, 'a.csv', USER],
+      [ENTIDAD_B, BANCARIA_B, 'b.csv', USER_B],
+    ] as const) {
+      await db.query(
+        `INSERT INTO bank_statements
+           (entity_id, bank_account_id, period_start, period_end, opening_balance,
+            closing_balance, currency_code, source_format, file_name, file_sha256,
+            line_count, imported_by)
+         VALUES ($1,$2,'2026-07-01','2026-07-31',0,-100,'MXN','csv',$3,$4,4,$5)`,
+        [ent, cta, nombre, randomBytes(32).toString('hex'), quien]
+      );
+    }
+
+    await db.query(`CREATE ROLE ${SONDA} NOLOGIN NOBYPASSRLS`);
+    await db.query(`GRANT SELECT ON bank_statements, bank_transactions, bank_accounts, legal_entities TO ${SONDA}`);
+  });
+
+  afterAll(async () => {
+    await db.query(`REVOKE ALL ON bank_statements, bank_transactions, bank_accounts, legal_entities FROM ${SONDA}`);
+    await db.query(`DROP ROLE IF EXISTS ${SONDA}`);
+  });
+
+  it('sin contexto de inquilino la consulta del hueco no falla: devuelve CERO, que es la trampa', async () => {
+    await db.query('BEGIN');
+    await db.query(`SET LOCAL ROLE ${SONDA}`);
+    const r = await db.query(hueco);
+    await db.query('ROLLBACK');
+    // Los dos extractos existen y a los dos les faltan líneas. Un diagnóstico
+    // que preguntara así diría «ningún extracto incompleto».
+    expect(r.rowCount, 'cero filas SIN error: por eso el cero no puede leerse como salud').toBe(0);
+  });
+
+  it('con el contexto puesto ve el hueco de SU despacho, y sólo el suyo', async () => {
+    for (const [inquilino, archivo] of [[TENANT, 'a.csv'], [TENANT_B, 'b.csv']] as const) {
+      await db.query('BEGIN');
+      await db.query(`SET LOCAL ROLE ${SONDA}`);
+      await db.query(`SELECT set_config('app.current_tenant', $1, true)`, [inquilino]);
+      const r = await db.query<{ file_name: string }>(hueco);
+      await db.query('ROLLBACK');
+
+      expect(r.rows.map((x) => x.file_name), 've el suyo y ninguno más').toEqual([archivo]);
+    }
   });
 });

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkSoDViolations } from '../api/rest/middleware/auth.js';
-import { query } from '../database/connection.js';
+import { query, withTenant } from '../database/connection.js';
 import { REQUIRED_BUCKETS } from '../services/payroll/common/payroll-account-mapping-seed.js';
 import { sqlKeepsMexicanBooks } from '../services/jurisdiction/jurisdiction.js';
 import { config } from '../config/index.js';
@@ -1000,31 +1000,58 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
   );
   const { unico, ciego } = forma.rows[0] ?? { unico: false, ciego: false };
 
-  // 2. LOS DATOS. Lo que el archivo declaraba contra lo que quedó.
-  const cortos = await query<{
-    file_name: string | null;
-    period_start: string;
-    declaradas: string;
-    presentes: string;
-  }>(
-    `SELECT s.file_name, s.period_start::text AS period_start,
-            s.line_count::text AS declaradas,
-            count(t.id)::text AS presentes
-       FROM bank_statements s
-       LEFT JOIN bank_transactions t ON t.statement_id = s.id
-      GROUP BY s.id, s.file_name, s.period_start, s.line_count
-     HAVING count(t.id) < s.line_count
-      ORDER BY s.period_start
-      LIMIT 20`
-  );
+  // 2. LOS DATOS, Y AQUÍ POR INQUILINO CON CONTEXTO EXPLÍCITO.
+  //
+  // `bank_statements` está acotada por RLS y `bank_transactions` cuelga de
+  // ella por su política hija. `doctor` corre con el pool normal como
+  // `mnemosine_app`, que NO ignora la RLS: sin `app.current_tenant` la
+  // política no devuelve error, devuelve CERO FILAS — y un cero por filtrado
+  // se leería aquí como «no falta ninguna línea», que es precisamente el
+  // daño que este chequeo existe para nombrar. Es la misma trampa que la 051
+  // y la 060 pagaron en su relleno.
+  //
+  // `tenants` está fuera de la RLS por construcción (rls-policies.sql la
+  // excluye junto a users, sessions y migrations), así que enumerarla es
+  // legítimo, y cada recuento va dentro de su `withTenant`.
+  const inquilinos = await query<{ id: string }>('SELECT id FROM tenants ORDER BY created_at');
 
-  const faltan = cortos.rows.reduce(
+  const cortos: Array<{ file_name: string | null; period_start: string; declaradas: string; presentes: string }> = [];
+  let ciegos = 0;
+  for (const t of inquilinos.rows) {
+    try {
+      const r = await withTenant(t.id, () =>
+        query<{ file_name: string | null; period_start: string; declaradas: string; presentes: string }>(
+          `SELECT s.file_name, s.period_start::text AS period_start,
+                  s.line_count::text AS declaradas,
+                  count(t.id)::text AS presentes
+             FROM bank_statements s
+             LEFT JOIN bank_transactions t ON t.statement_id = s.id
+            GROUP BY s.id, s.file_name, s.period_start, s.line_count
+           HAVING count(t.id) < s.line_count
+            ORDER BY s.period_start
+            LIMIT 20`
+        )
+      );
+      cortos.push(...r.rows);
+    } catch {
+      // Un inquilino que no se pudo mirar NO es un inquilino sano: se cuenta
+      // aparte y baja el veredicto, en vez de desaparecer del promedio.
+      ciegos++;
+    }
+  }
+
+  const faltan = cortos.reduce(
     (n, r) => n + (Number(r.declaradas) - Number(r.presentes)),
     0
   );
-  const detalle = cortos.rows
+  const detalle = cortos
     .map((r) => `${r.file_name ?? '(sin nombre)'} ${r.period_start}: ${r.presentes}/${r.declaradas}`)
     .join('; ');
+  // El verde tiene que decir CUÁNTO miró: uno que no lo diga es verde por no
+  // mirar, y aquí mirar de menos es exactamente el modo de fallo.
+  const alcance =
+    `${inquilinos.rows.length} inquilino(s) revisado(s)` +
+    (ciegos > 0 ? `, ${ciegos} sin poder mirarse` : '');
 
   if (unico || ciego) {
     return {
@@ -1034,7 +1061,8 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
         'esta base registró la 051 antes de su corrección' +
         (unico ? '; el índice de contenido es ÚNICO y se traga movimientos legítimamente idénticos' : '') +
         (ciego ? '; el disparador no vigila content_hash, así que la huella se puede forjar a mano' : '') +
-        (faltan > 0 ? `; ya faltan ${faltan} línea(s) en ${cortos.rows.length} extracto(s): ${detalle}` : ''),
+        (faltan > 0 ? `; ya faltan ${faltan} línea(s) en ${cortos.length} extracto(s): ${detalle}` : '') +
+        `; ${alcance}`,
       fix: 'npm run migrate  — aplica la 072; las líneas ya perdidas hay que reimportarlas a mano, el remedio devuelve la capacidad, no el dato',
     };
   }
@@ -1043,15 +1071,26 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
     return {
       name: nombre,
       level: 'warn',
-      detail: `faltan ${faltan} línea(s) en ${cortos.rows.length} extracto(s) ya importado(s): ${detalle}`,
+      detail: `faltan ${faltan} línea(s) en ${cortos.length} extracto(s) ya importado(s) (${alcance}): ${detalle}`,
       fix: 'el catálogo ya está reparado, así que esto es daño anterior: reimporta esos extractos (hay que soltar antes su fila de bank_statements, que lleva UNIQUE por file_sha256)',
+    };
+  }
+
+  if (ciegos > 0) {
+    return {
+      name: nombre,
+      level: 'warn',
+      detail: `el catálogo está reparado, pero ${alcance}: sin poder leer sus extractos no puedo decir que estén completos`,
+      fix: 'revisa que el rol de la aplicación pueda consultar bank_statements con contexto de inquilino',
     };
   }
 
   return {
     name: nombre,
     level: 'ok',
-    detail: 'el índice de contenido no es único, el disparador impone la huella, y ningún extracto tiene menos líneas de las que declaró',
+    detail:
+      'el índice de contenido no es único, el disparador impone la huella, y ningún extracto tiene menos líneas de las que declaró' +
+      ` (${alcance})`,
   };
 }
 
