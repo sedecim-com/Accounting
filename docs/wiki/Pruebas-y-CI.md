@@ -115,7 +115,7 @@ Antes de los trabajos, tres decisiones del encabezado:
 | **Pruebas unitarias** | `npm test` y después `npx vitest run --coverage` | La suite, y el trinquete de cobertura por archivo |
 | **Estado del plan** | `npm run plan:status -- --exigir=…` y `npx tsx scripts/catalogo-estado.ts --check` | Los dos marcadores de la casa, como compuerta y no como informe |
 | **Ensayo de restauración** | Servicio propio, instala el cliente `postgresql-15`, migra, y corre `tests/integration/s3-` | Que los libros se puedan recuperar, probado **restaurándolos** |
-| **Integración contra Postgres** | Servicio `postgres:15`, `npm run migrate`, `npm run test:integration` | La conducta contra una base real |
+| **Integración contra Postgres** | Servicio `postgres:15`, aprovisiona roles, `npm run migrate`, `npm run test:integration` | La conducta contra una base real |
 | **Aislamiento por inquilino** | Servicio propio, aprovisiona roles, migra, siembra, y `scripts/verify-isolation.sh` | Comprobar la RLS **como rol no privilegiado** |
 
 Tres trabajos merecen detalle.
@@ -224,6 +224,8 @@ Y un cuarto, más chico pero de la misma familia: `--max-warnings 1239` en `pack
 **La prueba del respaldo corre en dos trabajos.** `tests/integration/s3-respaldo.int.spec.ts` casa el `include` de la configuración de integración, así que la suite completa también lo ejecuta. No es desperdicio del todo —el ensayo la corre sola, con el cliente 15 fijado y el rol que vuelca, y da su veredicto sin esperar a la suite entera— pero conviene saberlo por dos motivos: un fallo del respaldo pone rojos **dos** trabajos, y quien lea el YAML buscando dónde se prueba la restauración la encontrará en dos sitios.
 
 **La base que el trabajo de integración migra no es la que usan las pruebas.** El trabajo corre `npm run migrate` sobre `mnemosine_test`, y después el `globalSetup` crea su propia base efímera a partir de `TEST_ADMIN_DATABASE_URL` y migra **ésa**. La migración previa no es inútil —falla el trabajo temprano si la cadena no aplica limpio sobre una base vacía— pero no es la base contra la que se prueba, y leer el YAML sin saberlo confunde.
+
+Ese mismo rodeo es lo que hace que el paso de **aprovisionar roles** del trabajo funcione, y por eso vale la pena decirlo aquí y no sólo en el YAML: `provision-roles.sql` se ejecuta contra `mnemosine_test` —sus `GRANT` y su traspaso de propiedad se quedan ahí y **no** alcanzan a la base efímera—, pero los **roles** son objetos de nivel clúster, así que sí existen cuando el `globalSetup` migra la suya. De eso dependen dos cosas: que `ataque 6 · mnemosine_auditor` se active —exige `mnemosine_owner`, y sin él sus siete casos salían omitidos, dejando `scripts/rol-auditor.sql` sin ninguna verificación automática— y que el bloque de vistas de `rls-policies.sql`, que empieza con «si no existe `mnemosine_owner`, `RETURN`», deje de salirse y ponga las dos vistas materializadas a nombre de `mnemosine_refresher` dentro de la efímera.
 
 **El plan se evalúa sin base de datos.** El trabajo `plan` no levanta Postgres, así que todo criterio que declare `necesita: 'base-de-datos'` se reporta como no evaluable ahí. Está manejado a propósito —esos criterios no cuentan para `--exigir`— pero significa que la parte del tablero que observa el sistema corriendo **no se comprueba en CI**.
 
