@@ -651,6 +651,79 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.0',
+    id: 'language-rule-written-and-lexicon-shared',
+    enunciado: 'La regla del idioma está escrita donde se lee, y el léxico que la mide existe',
+    evaluar: () => {
+      // POR QUÉ NACE (I1, issue #143). El repositorio tenía la regla contraria
+      // ESCRITA y en tres sitios: «Los comentarios y la documentación van en
+      // español» (CONTRIBUTING, README) y «el español es una capa de alias»
+      // (la wiki). Con esa frase en pie, cada PR nuevo nacía en español con
+      // razón, y el epic #141 habría sido un tramo peleando contra la propia
+      // documentación del proyecto. Cambiar la regla escrita no es papeleo: es
+      // lo único que hace que lo NUEVO deje de crecer en español.
+      //
+      // Y la regla sola no basta, porque «español» no es medible a ojo: hace
+      // falta la lista contra la que se mide. El metro (I2) y el lint (I3) van
+      // a consumir ESTE léxico y no cada uno el suyo — dos listas distintas
+      // publican dos números distintos y entonces nadie sabe cuál miente.
+      const contrib = crudoDe('CONTRIBUTING.md');
+      if (/Los comentarios y la documentación van en español/.test(contrib)) {
+        return falla(
+          'CONTRIBUTING vuelve a pedir que los comentarios vayan en español: la regla escrita ' +
+            'contradice al epic, y gana la escrita porque es la que se lee al contribuir'
+        );
+      }
+      if (!/nacen en inglés/.test(contrib)) {
+        return falla('CONTRIBUTING no dice en qué idioma nace lo nuevo: la regla se quedó sin sustituto');
+      }
+      // AGENTS.md heredaba la regla por referencia y no tenía la suya. La
+      // frontera que tiene que nombrar no es «inglés en el código»: es QUIÉN
+      // LEE cada cosa, que es lo que decide de qué capa es.
+      const agents = crudoDe('AGENTS.md');
+      if (!/Lo que identifica no se traduce nunca/.test(agents)) {
+        return falla(
+          'AGENTS.md no nombra la frontera entre lo que identifica y lo que se lee: sin ella, el ' +
+            'primer tramo que traduzca una clave rompe todo lo que casaba contra ella'
+        );
+      }
+      const p = 'scripts/language/lexicon.ts';
+      if (!existe(p)) return falla('no hay léxico: la regla del idioma no se puede medir');
+      const lex = codigoDe(p);
+      if (!/export const SPANISH_ROOTS/.test(lex) || !/export function classify/.test(lex)) {
+        return falla('el léxico no publica ni sus raíces ni su clasificador: no hay una sola población que medir');
+      }
+      return ok('la regla escrita dice inglés de origen, nombra la frontera, y el léxico que la mide existe');
+    },
+    mutantes: [
+      {
+        archivo: 'CONTRIBUTING.md',
+        de: 'Los comentarios y la documentación **nacen en inglés**',
+        a: 'Los comentarios y la documentación van en español',
+        porque:
+          'la regla vieja vuelve al sitio donde se lee antes de contribuir, y con ella cada PR nuevo ' +
+          'nace en español con razón: el epic entero pasaría a pelear contra la documentación del proyecto',
+      },
+      {
+        archivo: 'AGENTS.md',
+        de: 'Lo que identifica no se traduce nunca',
+        a: 'Lo que identifica también se traduce',
+        porque:
+          'traducir una clave no cambia lo que dice, cambia a qué se parece: todo lo que casaba contra ' +
+          'ella deja de casar en silencio, y ésa es la advertencia que este archivo existe para dar',
+      },
+      {
+        archivo: 'scripts/language/lexicon.ts',
+        de: 'export const SPANISH_ROOTS',
+        a: 'const SPANISH_ROOTS',
+        porque:
+          'el léxico deja de publicar su lista y cada consumidor se hace la suya: el metro y el lint ' +
+          'pasan a contar poblaciones distintas y sus dos números dejan de ser comparables',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E0.0',
     id: 'instrument-identity-is-not-prose',
     enunciado: 'La identidad de un criterio es un id estable, no la frase con que se enuncia',
     evaluar: () => {

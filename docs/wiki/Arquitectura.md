@@ -119,7 +119,11 @@ Antes, la única comprobación iba guardada por `if (resolved && …)`, así que
 [`kernel/vocabulary.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/cli/kernel/vocabulary.ts) fija una lista cerrada de verbos con dos propiedades que el auditor comprueba:
 
 1. **Cerrada.** Un comando cuyo último token no está en la lista se rechaza. Sin lista cerrada aparecen `list`, `ls`, `show` y `get` haciendo lo mismo, y la superficie deja de ser aprendible: quien ya sabe `account list` tiene que volver a aprender cómo se listan los proveedores.
-2. **Biyectiva.** Exactamente una palabra en español por verbo en inglés, y ninguna palabra española sirviendo a dos verbos. El español es una capa de alias, nunca una segunda superficie; un alias reclamado por dos comandos es un fallo duro de la matriz bilingüe, no una cuestión de estilo.
+2. **Biyectiva.** Exactamente una palabra en español por verbo en inglés, y ninguna palabra española sirviendo a dos verbos. El español es una capa de alias sobre el
+   nombre canónico, nunca una segunda superficie — y desde el epic #141 esa
+   frase describe la FORMA, no el idioma en que se lee: el canónico es inglés
+   porque es el nombre de máquina, y lo que el contador ve se resuelve por
+   clave contra su idioma, con el español primero; un alias reclamado por dos comandos es un fallo duro de la matriz bilingüe, no una cuestión de estilo.
 
 Añadir un verbo es un acto deliberado, y se nota: cada incorporación lleva su fecha y su razón en el propio archivo. `merge` entró porque tres comandos funden el historial de un registro en otro y ningún verbo existente lo absorbía —`apply` es idempotente, `import` lee de fuera, `correct` enmienda uno solo en vez de colapsar dos—. `stats` entró porque el nombre ya estaba embarcado.
 
