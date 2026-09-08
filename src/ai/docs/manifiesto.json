@@ -48,7 +48,9 @@
       "src/services/payroll/mx/cfdi-nomina-generator.ts"
     ],
     "reports.md": [
-      "src/services/reporting/report-service.ts"
+      "src/services/reporting/report-service.ts",
+      "src/services/reporting/cash-flow-service.ts",
+      "src/services/reporting/cash-flow-reconcile.ts"
     ],
     "mnemosine.md": [
       "src/ai/draft-service.ts",
