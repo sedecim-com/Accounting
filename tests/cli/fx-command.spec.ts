@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Command } from 'commander';
-import { auditProgram } from '../../src/cli/kernel/audit.js';
+import { auditProgram, DEUDA_DE_LLAVES, esDeudaDeLlave } from '../../src/cli/kernel/audit.js';
 import { registerFxCommand } from '../../src/cli/fx-command.js';
 import { riskOf, declareRisk } from '../../src/cli/kernel/risk.js';
 import { VERBS } from '../../src/cli/kernel/vocabulary.js';
@@ -60,8 +60,15 @@ describe('the rulebook', () => {
     expect(program.commands.map((c) => c.name())).toEqual(['fx']);
   });
 
-  it('passes the consistency audit with no violations', () => {
-    expect(violations).toEqual([]);
+  it('passes the consistency audit, save for the key debt it declares', () => {
+    // R11 dejó de comprobar las banderas que `declareRisk` inyecta y pasó a
+    // comprobar que la hoja HONRE la llave. Las que todavía no la honran
+    // están nombradas una a una en DEUDA_DE_LLAVES y la regla las acusa: es
+    // deuda declarada, no una violación nueva. Todo lo demás sigue en cero.
+    expect(violations.filter((v) => !esDeudaDeLlave(v))).toEqual([]);
+    for (const v of violations.filter(esDeudaDeLlave)) {
+      expect(DEUDA_DE_LLAVES, `${v.command} acusada y no declarada como deuda`).toContain(v.command);
+    }
   });
 
   it('ends every leaf command in a verb from the closed list, and ships exactly the four phase-1 leaves', () => {
@@ -141,11 +148,21 @@ describe('safety declarations', () => {
     expect(risks.get('fx rate download')?.writes).toMatch(/falla cerrado/);
   });
 
-  it('carries the safety flags the external class requires', () => {
+  it('carries the live gate, and says the truth about the key it accepts', () => {
+    // LA VERSIÓN ANTERIOR NO PODÍA FALLAR: comprobaba banderas que
+    // `declareRisk` acaba de INYECTAR (risk.ts), o sea su propio efecto
+    // secundario. Lo que sí puede fallar es qué hace la hoja con la llave.
     const longs = find('fx rate download').options.map((o) => o.long);
-    expect(longs).toEqual(
-      expect.arrayContaining(['--dry-run', '--yes', '--idempotency-key', '--live'])
-    );
+    expect(longs).toEqual(expect.arrayContaining(['--dry-run', '--yes', '--live']));
+    // La llave se acepta y NO deduplica: un reintento vuelve a llamar al
+    // proveedor. Está nombrada en DEUDA_DE_LLAVES, R11 la acusa, y su ayuda
+    // lo dice en vez de prometer «returns the recorded result».
+    const llave = riskOf(find('fx rate download'))?.llave;
+    expect(llave !== undefined && 'sinLlave' in llave, 'declara que NO la honra').toBe(true);
+    expect(DEUDA_DE_LLAVES).toContain('fx rate download');
+    expect(
+      find('fx rate download').options.find((o) => o.long === '--idempotency-key')?.description
+    ).toContain('NOT honored');
   });
 
   it('gives set its --dry-run and the catalog flags, without the external gates', () => {

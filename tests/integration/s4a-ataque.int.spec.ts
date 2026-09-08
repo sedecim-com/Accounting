@@ -105,16 +105,19 @@ describe('1 · el criterio que ejecuta, contra roturas que su autor NO declaró'
     // El signo de la resta —el espejo declarado— se deja intacto. Lo que se
     // rompe es el ACOTE: la balanza deja de filtrar por entidad y publica las
     // cuentas de todos los inquilinos del servidor.
+    // T13 movió esta línea: `a.is_active` dejó de vivir aquí —ahora es un
+    // predicado del catálogo, no un filtro— y el acote por entidad se quedó
+    // solo. El ataque es el mismo: quitarlo.
     mutarEnDisco(
       'src/services/reporting/report-service.ts',
-      "let where = 'WHERE a.entity_id = $1 AND a.is_active = true';",
-      "let where = 'WHERE a.is_active = true';"
+      "let where = 'WHERE a.entity_id = $1';",
+      "let where = '';"
     );
     const v = correrEscenario();
     expect(v.motivo, `el escenario no se montó: ${v.motivo ?? ''}`).toBeUndefined();
     expect(
-      v.resultados?.['frontera-de-inquilino']?.estado,
-      `siguió VERDE con la balanza sin acotar: ${v.resultados?.['frontera-de-inquilino']?.detalle ?? ''}`
+      v.resultados?.['cross-tenant-query-returns-nothing']?.estado,
+      `siguió VERDE con la balanza sin acotar: ${v.resultados?.['cross-tenant-query-returns-nothing']?.detalle ?? ''}`
     ).toBe('falla');
   }, 240_000);
 
@@ -129,8 +132,8 @@ describe('1 · el criterio que ejecuta, contra roturas que su autor NO declaró'
     const v = correrEscenario();
     expect(v.motivo, `el escenario no se montó: ${v.motivo ?? ''}`).toBeUndefined();
     expect(
-      v.resultados?.['barrido-del-cierre']?.estado,
-      `siguió VERDE sin barrer los gastos: ${v.resultados?.['barrido-del-cierre']?.detalle ?? ''}`
+      v.resultados?.['closed-year-nets-exactly-zero']?.estado,
+      `siguió VERDE sin barrer los gastos: ${v.resultados?.['closed-year-nets-exactly-zero']?.detalle ?? ''}`
     ).toBe('falla');
   }, 240_000);
 
@@ -146,8 +149,8 @@ describe('1 · el criterio que ejecuta, contra roturas que su autor NO declaró'
     const v = correrEscenario();
     expect(v.motivo, `el escenario no se montó: ${v.motivo ?? ''}`).toBeUndefined();
     expect(
-      v.resultados?.['frontera-de-inquilino']?.estado,
-      `siguió VERDE con el alcance de entidad anulado: ${v.resultados?.['frontera-de-inquilino']?.detalle ?? ''}`
+      v.resultados?.['cross-tenant-query-returns-nothing']?.estado,
+      `siguió VERDE con el alcance de entidad anulado: ${v.resultados?.['cross-tenant-query-returns-nothing']?.detalle ?? ''}`
     ).toBe('falla');
   }, 240_000);
 });
@@ -180,7 +183,7 @@ describe('2 · el escenario que se monta y luego se cae', () => {
       v.motivo,
       'el ataque no reprodujo la condición: el hijo no murió al importar'
     ).toBeUndefined();
-    for (const id of ['saldo-con-signo', 'barrido-del-cierre', 'frontera-de-inquilino']) {
+    for (const id of ['trial-balance-sign-convention', 'closed-year-nets-exactly-zero', 'cross-tenant-query-returns-nothing']) {
       expect(
         v.resultados?.[id]?.estado,
         `«${id}» quedó fuera de --exigir con el motor roto: ${v.resultados?.[id]?.detalle ?? 'sin veredicto'}`
@@ -279,16 +282,23 @@ describe('2 · el escenario que se monta y luego se cae', () => {
 // En memoria, por el seam: no hace falta tocar vitest.config.ts en disco.
 // ============================================================
 
-const CRITERIO_COBERTURA = 'La cobertura del motor contable tiene trinquete por archivo';
-function criterioPorEnunciado(e: string): Criterio {
-  const c = CRITERIOS.find((x) => x.enunciado === e);
-  if (!c) throw new Error(`no existe el criterio «${e}»: el ataque quedó desanclado`);
+// EL ATAQUE SE ANCLA EN EL ID, NO EN LA FRASE.
+//
+// Buscaba el criterio por su enunciado literal en español, así que reescribir
+// esa línea —o traducirla, que es lo que el epic #141 hará con todo el
+// código— dejaba el ataque apuntando a nada y el error decía «no existe el
+// criterio», que es exactamente el diagnóstico equivocado. Desde I0 la
+// identidad es el id, y el id nombra lo que el criterio mide.
+const CRITERIO_COBERTURA = 'per-file-unit-coverage-ratchet';
+function criterioPorId(id: string): Criterio {
+  const c = CRITERIOS.find((x) => x.id === id);
+  if (!c) throw new Error(`no existe el criterio con id «${id}»: el ataque quedó desanclado`);
   return c;
 }
 
 const conConfig = async (texto: string): Promise<{ estado: string; detalle: string }> =>
   conFuenteMutada({ 'vitest.config.ts': texto }, () =>
-    criterioPorEnunciado(CRITERIO_COBERTURA).evaluar()
+    criterioPorId(CRITERIO_COBERTURA).evaluar()
   );
 
 describe('3 · el trinquete de cobertura', () => {
@@ -355,7 +365,17 @@ describe('3 · el trinquete de cobertura', () => {
         'sobre un archivo inexistente pasa, y suma a la cifra que el criterio publica («N archivos ' +
         'con umbral propio»). Si se cierra, voltea esta aserción a «falla».'
     ).toBe('ok');
-    expect(r.detalle, 'el archivo inventado no llegó a contarse: revisa el ataque').toContain('7 archivos');
+    // La cifra dejó de escribirse a mano, y ese cambio de main gana sobre el
+    // número fijo que J0.1 traía: un conteo literal obliga a tocar esta prueba
+    // cada vez que un archivo gana umbral propio, y lo que el ataque afirma no
+    // es cuántos hay sino que el INVENTADO suma uno más de los declarados.
+    // La cifra sube con cada archivo que gana umbral propio (T13 añadió
+    // criterio-archivadas.ts): lo que el ataque afirma es que el INVENTADO
+    // suma uno más de los que vitest.config declara de verdad.
+    const declarados = (config.match(/'src\/[^']+\.ts':\s*\{/g) ?? []).length;
+    expect(r.detalle, 'el archivo inventado no llegó a contarse: revisa el ataque').toContain(
+      `${declarados + 1} archivos`
+    );
   });
 
   it('HUECO · los umbrales al 100 (inalcanzables) pasan igual que los reales', async () => {

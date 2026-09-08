@@ -618,6 +618,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   // and --idempotency-key, and refuses to let the agent near this command.
   declareRisk(issue, {
     risk: 'irreversible',
+    llave: { sinLlave: 'un reintento vuelve a emitir y postea el ingreso otra vez' },
     writes: 'journal_entries + account_balances + invoices.status',
   });
   issue.addHelpText('after', EJEMPLOS.issue);
@@ -716,6 +717,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   // declareRisk adds --reason for an undo verb, and gateMutation requires it.
   declareRisk(voidCmd, {
     risk: 'irreversible',
+    llave: { sinLlave: 'un reintento vuelve a postear el espejo de la anulación' },
     writes: 'invoices.status + a reversing journal_entry',
   });
   voidCmd.addHelpText('after', EJEMPLOS.void);
@@ -881,6 +883,7 @@ export function registerInvoiceCommand(program: Command, deps: InvoiceCommandDep
   // --reason obligatorio (verbo de deshacer) y jamás del agente.
   declareRisk(del, {
     risk: 'irreversible',
+    llave: { sinLlave: 'el borrado sólo es irrepetible por estado del borrador, no por llave' },
     writes: 'invoices + invoice_lines (hard delete, audit-logged)',
   });
   del.addHelpText('after', EJEMPLOS.delete);

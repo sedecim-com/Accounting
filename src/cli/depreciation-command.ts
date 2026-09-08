@@ -516,6 +516,7 @@ export function registerDepreciationCommand(
   // y `declareRisk` REHÚSA arrancar si alguien intenta darle acceso al agente.
   declareRisk(contabilizar, {
     risk: 'irreversible',
+    llave: { scope: 'depreciation post' },
     agent: false,
     writes: 'journal_entries + journal_entry_lines (una póliza por activo), depreciation_schedules, fixed_assets',
   });
