@@ -45,6 +45,41 @@ describe('comparar — qué cuenta como retroceso', () => {
     expect(compare([lane('a', 10)], baselineOf({ a: 10 }))).toEqual([]);
   });
 
+  it('UN CARRIL INFORMATIVO QUE CRECE NO FALLA; UNO EXIGIDO SÍ', () => {
+    // WIT-01 de la revisión de I2. El contrato de `Lane` dice que un carril
+    // `informational` se MIDE y no se EXIGE —los comentarios españoles no se
+    // tocan hasta I20— pero la comparación los trataba igual que a los demás.
+    // Como también están sembrados en la línea base, el primer commit que
+    // añadiera un comentario en español ponía `--check` en rojo y bloqueaba
+    // CI años antes de que ese tramo existiera.
+    //
+    // Lo que hace caro el defecto no es el rojo: es que el carril NO SE PUEDE
+    // BAJAR HOY. Una puerta que nadie puede abrir se acaba quitando, y con
+    // ella se van los quince carriles que sí exigen algo.
+    const informationalLane: Lane = { ...lane('comentarios', 500), informational: true };
+    const requiredLane = lane('identificadores', 500);
+    const floor = baselineOf({ comentarios: 400, identificadores: 400 });
+
+    // Los dos crecen EXACTAMENTE lo mismo, 400 → 500, y se comparan en la
+    // misma llamada: así lo único que puede explicar la diferencia es la
+    // bandera. Un solo hallazgo, y es el del carril exigido.
+    const h = compare([informationalLane, requiredLane], floor);
+    expect(h).toHaveLength(1);
+    expect(h[0].lane).toBe('identificadores');
+    expect(h[0].detail).toContain('400 → 500');
+  });
+
+  it('un carril informativo tampoco arrastra su desglose por archivo', () => {
+    // La otra puerta del mismo carril: si el total no juzga pero el desglose
+    // sí, la exención sería sólo aparente y el primer archivo con un comentario
+    // nuevo volvería a poner CI en rojo.
+    const informationalLane: Lane = {
+      ...lane('comentarios', 500, { 'x.ts': 300, 'nuevo.ts': 200 }),
+      informational: true,
+    };
+    expect(compare([informationalLane], baselineOf({ comentarios: 400 }, { comentarios: { 'x.ts': 100 } }))).toEqual([]);
+  });
+
   it('UN ARCHIVO QUE EMPEORA SE ACUSA AUNQUE EL TOTAL NO CREZCA', () => {
     // Es la razón de ser del desglose. Con sólo el total, traducir un archivo
     // y ensuciar otro sale gratis, y el carril se queda quieto mientras la
@@ -57,7 +92,7 @@ describe('comparar — qué cuenta como retroceso', () => {
     expect(h[0].detail).toContain('x.ts: creció 4 → 8');
   });
 
-  it('LA DEUDA NO SE ESCAPA A UN ARCHIVO NUEVO: sin entrada, el suelo es cero', () => {
+  it('LA DEUDA NO SE ESCAPA A UN ARCHIVO NUEVO: sin entrada, el floor es cero', () => {
     // El agujero que encontró la revisión de I2 (WIT-01). El desglose sólo
     // auditaba archivos que YA tenían entrada, así que la deuda tenía una
     // salida: sacar una unidad de un archivo vigilado y meterla en uno que
@@ -65,7 +100,7 @@ describe('comparar — qué cuenta como retroceso', () => {
     // el desglose no dice nada, que es exactamente el desplazamiento que el
     // desglose existe para impedir.
     //
-    // Con el suelo cero implícito, el archivo nuevo tiene que justificarse.
+    // Con el floor cero implícito, el archivo nuevo tiene que justificarse.
     const h = compare(
       [lane('a', 10, { 'x.ts': 9, 'nuevo.ts': 1 })],
       baselineOf({ a: 10 }, { a: { 'x.ts': 10 } })
