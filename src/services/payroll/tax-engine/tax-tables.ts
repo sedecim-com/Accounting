@@ -64,36 +64,36 @@ export async function getBrackets(
 }
 
 /**
- * Los parámetros legales vigentes en una FECHA.
+ * The legal parameters in force on a given DATE.
  *
- * Dos cambios sobre lo que había, y los dos por la misma razón.
+ * Two changes over what was here before, both for the same reason.
  *
- * 1. LA FECHA, y no el ejercicio. Desde la 073, `tax_parameters` tiene ventana
- *    de vigencia porque un año puede tener dos juegos: la UMA entra en vigor
- *    el 1 DE FEBRERO, así que 2026 vale 113.14 en enero y 117.31 desde
- *    febrero. Preguntar por el AÑO devolvería una de las dos filas al azar.
+ * 1. THE DATE, not the tax year. Since migration 073, `tax_parameters` has a
+ *    validity window, because one year can hold two sets: the UMA takes effect
+ *    on FEBRUARY 1st, so 2026 is 113.14 in January and 117.31 from February.
+ *    Asking by YEAR would return one of the two rows at random.
  *
- * 2. LANZA, no devuelve `{}`. Antes, un ejercicio sin sembrar daba un objeto
- *    vacío en silencio y cada motor rellenaba a su manera: `isr-calculator`
- *    lanzaba, `imss-calculator` usaba `uma_daily || 113.14` y
- *    `infonavit-calculator` `|| 0.05`. El MISMO dato ausente producía un error
- *    en un motor y una cifra inventada en los otros dos — y la inventada llega
- *    al recibo, al CFDI de nómina y a la línea de captura. Un parámetro fiscal
- *    que no se puede leer se nombra, no se sustituye (la doctrina de F08a).
+ * 2. IT THROWS instead of returning `{}`. Before, an unseeded year yielded an
+ *    empty object in silence and each engine filled the gap its own way:
+ *    `isr-calculator` threw, `imss-calculator` used `uma_daily || 113.14` and
+ *    `infonavit-calculator` `|| 0.05`. The SAME missing datum produced an error
+ *    in one engine and an invented figure in the other two — and the invented
+ *    one reaches the payslip, the payroll CFDI and the IMSS payment line. A tax
+ *    parameter that cannot be read is named, not substituted (the F08a rule).
  *
- * `efectiva` es la fecha DEL ACTO —el día del recibo—, no la de hoy: un recibo
- * del 15 de enero recalculado en marzo tiene que seguir usando enero. Se deja
- * con valor por omisión de hoy porque los motores que todavía no la reciben
- * calculan el periodo corriente; llevarla hasta cada uno es trabajo de T4b, y
- * hasta entonces esa omisión es explícita en vez de tácita.
+ * `effectiveDate` is the date OF THE ACT — the day of the payslip — not today:
+ * a January 15th payslip recomputed in March must still use January. It
+ * defaults to today because the engines that do not yet receive it compute the
+ * current period; threading it down to each one is T4b's work, and until then
+ * the omission is explicit rather than tacit.
  */
 export async function getTaxParameters(
   jurisdiction: string,
   taxYear: number,
-  efectiva?: string
+  effectiveDate?: string
 ): Promise<Record<string, unknown>> {
-  const dia = efectiva ?? new Date().toISOString().slice(0, 10);
-  const key = `${jurisdiction}|${dia}`;
+  const day = effectiveDate ?? new Date().toISOString().slice(0, 10);
+  const key = `${jurisdiction}|${day}`;
   const cached = paramCache.get(key);
   if (cached) return cached;
 
@@ -104,19 +104,19 @@ export async function getTaxParameters(
         AND (effective_to IS NULL OR effective_to >= $2::date)
       ORDER BY effective_from DESC
       LIMIT 1`,
-    [jurisdiction, dia]
+    [jurisdiction, day]
   );
 
-  const fila = result.rows[0];
-  if (!fila) {
+  const row = result.rows[0];
+  if (!row) {
     throw new Error(
-      `No hay parámetros fiscales de ${jurisdiction} vigentes el ${dia} (ejercicio ${taxYear}): ` +
+      `No hay parámetros fiscales de ${jurisdiction} vigentes el ${day} (ejercicio ${taxYear}): ` +
       'siembra la fila en tax_parameters antes de calcular. Sin ella no se puede retener, ' +
       'y una cifra inventada sale en el recibo, en el CFDI y en la línea de captura.'
     );
   }
-  paramCache.set(key, fila.params);
-  return fila.params;
+  paramCache.set(key, row.params);
+  return row.params;
 }
 
 /**
