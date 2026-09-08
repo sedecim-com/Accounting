@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
-import { NotFoundError } from '../../../utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { getPolicy, getPolicyNumber, type PolicyContext } from '../../policy/policy-service.js';
 import {
   aFechaUtc,
@@ -25,6 +25,14 @@ import { getTaxParameters } from '../tax-engine/tax-tables.js';
 // comprobar un tramo de la tabla del art. 76 había que sembrar un empleado, y
 // por eso la tabla llevaba años pagando de menos sin que nadie lo notara.
 // ============================================================
+
+/** Los cuatro supuestos que el cálculo distingue, para validarlos en frontera. */
+export const MOTIVOS_DE_BAJA: readonly MotivoDeBaja[] = [
+  'renuncia',
+  'despido',
+  'rescision_por_el_trabajador',
+  'muerte',
+];
 
 export interface FiniquitoInput {
   employee_id: string;
@@ -166,6 +174,23 @@ export async function calculateFiniquito(
   // porque este esquema todavía no guarda la zona donde se presta el trabajo
   // —el art. 486 mide el tope con el mínimo de esa zona— así que el desglose
   // deja dicho con cuál se calculó, en vez de callarlo.
+  // EL TIPO NO ES UNA COMPROBACIÓN (WIT-02). `termination_reason` es
+  // obligatorio en TypeScript, pero `POST /finiquito` pasa `req.body` tal cual:
+  // una petición vieja o mal formada llega con el campo AUSENTE, y
+  // `devengaPrimaDeAntiguedad(undefined, años)` lo lee como «no es renuncia» y
+  // concede la prima como si fuera un despido. Sobre el caso medido son
+  // 113 414.40 pagados de más a quien renunció con menos de quince años.
+  //
+  // Se valida aquí y no en la ruta porque la cáscara es lo que TODOS los
+  // llamadores atraviesan; la ruta sólo traduce el error a 4xx.
+  if (!MOTIVOS_DE_BAJA.includes(input.termination_reason)) {
+    throw new ValidationError(
+      `termination_reason inválido o ausente: se esperaba ${MOTIVOS_DE_BAJA.join(', ')}. ` +
+      'Decide si hay prima de antigüedad, que en un trabajador antiguo es la prestación más ' +
+      'grande del finiquito, así que no tiene valor por omisión.'
+    );
+  }
+
   const anioBaja = new Date(input.termination_date).getUTCFullYear();
   const params = await getTaxParameters('MX', anioBaja, input.termination_date);
   const minimoGeneral = params.salario_minimo_general_diario;

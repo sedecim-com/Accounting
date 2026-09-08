@@ -165,3 +165,29 @@ describe('los parámetros legales tienen fecha', () => {
     );
   });
 });
+
+describe('el ejercicio que se pide es el ejercicio que se devuelve', () => {
+  it('una fecha de 2026 NO cuela parámetros de 2026 en un recálculo de 2025', async () => {
+    // WIT-03: la ventana selecciona la fila, pero el AÑO es lo que pidió quien
+    // llama. Con el predicado suelto, un recálculo de 2025 al que se le pasara
+    // una fecha de 2026 recibía la UMA de 2026.
+    await expect(getTaxParameters('MX', 2025, '2025-06-15')).rejects.toThrow(
+      /No hay parámetros fiscales de MX vigentes el 2025-06-15/
+    );
+  });
+
+  it('sin fecha, un ejercicio histórico no toma la de hoy', async () => {
+    // Antes, omitir la fecha usaba `new Date()`: recalcular un recibo de 2025
+    // en 2026 tomaba en silencio los parámetros del año corriente. Ahora el
+    // valor por omisión se queda DENTRO del ejercicio pedido.
+    await expect(getTaxParameters('MX', 2025)).rejects.toThrow(/vigentes el 2025-12-31/);
+  });
+
+  it('y el ejercicio sembrado sí se encuentra, con y sin fecha', async () => {
+    const conFecha = await getTaxParameters('MX', 2026, '2026-03-15');
+    const sinFecha = await getTaxParameters('MX', 2026);
+    expect(Number(conFecha.uma_daily)).toBe(117.31);
+    // Hoy cae dentro de 2026, así que el valor por omisión es hoy.
+    expect(Number(sinFecha.uma_daily)).toBe(117.31);
+  });
+});

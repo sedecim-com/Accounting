@@ -237,3 +237,46 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
     expect(r.total).toBe('13742.4657');
   });
 });
+
+describe('el motivo de la baja se valida en tiempo de EJECUCIÓN', () => {
+  // WIT-02. `termination_reason` es obligatorio en TypeScript, pero
+  // `POST /finiquito` pasa `req.body` tal cual: una petición vieja llega sin el
+  // campo, y `devengaPrimaDeAntiguedad(undefined, años)` lo lee como «no es
+  // renuncia» y concede la prima como si fuera un despido. Sobre el caso
+  // medido son 113 414.40 pagados de más a quien renunció sin quince años.
+  const TRABAJADOR = {
+    sbc: '528.7671', hire_date: '2014-07-16', annual_salary: '182500', entity_id: 'e-del-empleado',
+  };
+  beforeEach(() => { panelPorDefecto(); });
+
+  it('ausente: se rechaza en vez de conceder la prima', async () => {
+    conParametros({ rows: [TRABAJADOR] });
+    await expect(
+      calculateFiniquito(
+        { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' } as never,
+        CTX
+      )
+    ).rejects.toThrow(/termination_reason inválido o ausente/);
+  });
+
+  it('inventado: tampoco', async () => {
+    conParametros({ rows: [TRABAJADOR] });
+    await expect(
+      calculateFiniquito(
+        { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15',
+          termination_reason: 'porque si' } as never,
+        CTX
+      )
+    ).rejects.toThrow(/se esperaba renuncia, despido/);
+  });
+
+  it('y el error dice POR QUÉ no tiene valor por omisión', async () => {
+    conParametros({ rows: [TRABAJADOR] });
+    await expect(
+      calculateFiniquito(
+        { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' } as never,
+        CTX
+      )
+    ).rejects.toThrow(/prestación más\s+grande del finiquito/);
+  });
+});

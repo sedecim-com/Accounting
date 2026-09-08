@@ -92,8 +92,18 @@ export async function getTaxParameters(
   taxYear: number,
   effectiveDate?: string
 ): Promise<Record<string, unknown>> {
-  const day = effectiveDate ?? new Date().toISOString().slice(0, 10);
-  const key = `${jurisdiction}|${day}`;
+  // THE YEAR IS NOT DECORATION (WIT-03). The window is what selects the row,
+  // but `taxYear` is what the CALLER asked for, and dropping it opened two
+  // holes: a 2025 recomputation handed a 2026 date got 2026 parameters, and an
+  // omitted date fell back to TODAY — so recomputing a 2025 payslip in 2026
+  // silently used this year's UMA.
+  //
+  // So: the cache key carries the year, and when no date is given the default
+  // stays INSIDE the requested year — today if today belongs to it, and its
+  // last day otherwise. A historical exercise never borrows the present.
+  const today = new Date().toISOString().slice(0, 10);
+  const day = effectiveDate ?? (today.startsWith(`${taxYear}-`) ? today : `${taxYear}-12-31`);
+  const key = `${jurisdiction}|${taxYear}|${day}`;
   const cached = paramCache.get(key);
   if (cached) return cached;
 
