@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { checkDatabase, checkMigrations, checkEncryptionKey } from '../../ai/doctor-service.js';
 import type { CheckResult } from '../../ai/doctor-service.js';
-import { query, enterTenant } from '../../database/connection.js';
+import { query, enterTenant, currentTenant } from '../../database/connection.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -83,7 +83,13 @@ export class InfraSection implements SetupSection {
    * note instead of alarming on a half-finished install.
    */
   private async checkRlsContext(): Promise<CheckResult> {
-    const tenant = process.env.MNEMOSINE_TENANT ?? readEnvVar(this.envPath, 'MNEMOSINE_TENANT');
+    // EL INQUILINO EFECTIVO, no el del entorno (#90). El gancho de la raíz ya
+    // resolvió la precedencia —bandera > entorno > config— y dejó el contexto
+    // puesto; leer `process.env` aquí volvía a poner el del .env encima del que
+    // se pidió con `--tenant`, y entonces la comprobación de RLS —que existe
+    // justamente para demostrar QUÉ inquilino está acotado— informaba del
+    // inquilino equivocado.
+    const tenant = currentTenant() ?? process.env.MNEMOSINE_TENANT ?? readEnvVar(this.envPath, 'MNEMOSINE_TENANT');
     if (!tenant) {
       return {
         name: 'RLS context',
