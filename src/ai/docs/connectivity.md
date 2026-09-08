@@ -62,7 +62,9 @@ output when a connection problem is unclear.
   only names the env var (`api_key_env`), or a command that prints the
   credential (`api_key_cmd`, tried when the env var is empty). An invalid
   config fails loudly and is quarantined, never silently replaced by
-  defaults.
+  defaults. The config may also carry `tenant`, the LAST step of the tenant
+  chain: `--tenant`/`-T` flag > `MNEMOSINE_TENANT` env > `tenant` in config.
+  The flag wins; when it leaves an env value aside, the command says so.
 - Inside chat, `/provider <name>` switches models by opening a NEW
   conversation: history is not portable across wire formats, so the current
   context is dropped.

@@ -415,7 +415,7 @@ itself pins one short flag to two long names, the higher-count, root-level use w
 |---|---|---|---|
 | `--format <table\|json\|ndjson\|csv\|tsv\|xlsx\|pdf\|xml\|md>` | none | output rendering. **Absorbs `--fmt`** | every read |
 | `--json` | none | documented shorthand for `--format json` (already shipped in 12 places) | every read |
-| `--output <path>` | `-o` | write output to a file. **`--out` (fiscal-mx.md:13, 16 rows) loses** | every read that can produce a file |
+| `--output <path>` | `-o` | write output to a file instead of stdout. It is a redirection, not a dump: the file holds exactly what the command would have printed, so a command that renders more than once (`cfdi show`: header, then lines) appends within the run — and a fresh run truncates, like `>`. Notes and warnings stay on stderr. **`--out` (fiscal-mx.md:13, 16 rows) loses** | every read that can produce a file |
 | `--file <path>` / `--dir <path>` | none | read input from a file / a directory. **`--from-file` (ar, ap, platform, payroll) loses** | every `import`, `apply`, `create --file` |
 | `--generate-skeleton` | none | emit an empty commented JSON document for a complex object | `entry`, `cfdi`, `pay-run`, `bill`, `invoice`, `report definition` |
 | `--jq <expr>` | none | post-filter JSON; requires a JSON format | every read |
@@ -462,8 +462,8 @@ per-file schemes. Published **once**, in the catalog preamble, and repeated in n
 | `5` | blocked by state — period closed or locked, lock date, entry already posted, credential expired | |
 | `6` | conflict — same idempotency key, different payload | |
 | `7` | permission denied — RLS, role, entity access, approval policy | |
-| `8` | external service failed — PAC, SAT, bank, Contalink timed out or errored. **Retryable** | |
-| `9` | external service rejected — SAT 5002, CFDI rejected. **Not retryable** | |
+| `8` | external service failed — PAC, SAT, bank, Contalink was unreachable, timed out, answered 5xx/408/429, or replied with a body that is not the JSON it promised. **Retryable** | `ExternalServiceError` (HTTP 502) is the producer; `STATUS_TO_EXIT` maps 502/503/504 here. `scripts/eval-clasificador.ts` also exits 8 when the model provider fails |
+| `9` | external service rejected — SAT 5002, CFDI rejected, a 4xx from the provider (bad credential, unauthorized RFC, payload it will never accept), or a provider envelope that says no. **Not retryable — never blind-retry** | `ExternalRejectedError` (HTTP 424 Failed Dependency) is the producer; `STATUS_TO_EXIT` maps 424 here |
 | `10` | aborted by user — declined confirmation | |
 | `11` | **needs human** — a question was raised or a draft awaits review. `--json` carries both the successes and the open items | the code that makes an agent-driven workflow safe |
 | `130` | interrupted (SIGINT) | |
@@ -479,6 +479,24 @@ and a `jobs` runner unchanged (`git diff --exit-code`'s trick, named at `cli-ux.
 - warning-only findings → `0`, **unless `--strict`, which makes them `4`**
 - the check could not run (no connection, bad selector) → `1`, `2`, `3` or `8` as appropriate — never `4`
 - findings that require a human decision rather than a fix → `11`
+
+### 4.2 The external pair, and what a batch returns
+
+`8` and `9` read alike to a human and mean opposite things to a cron: `8` says *try again*, `9`
+says *this will never work, stop*. They are only worth publishing if the binary can actually tell
+them apart, so the classification is made once, at the boundary where the evidence exists — the
+adapter that made the call — and is preserved from there to `process.exit`:
+
+- the adapter throws `ExternalServiceError` (502) or `ExternalRejectedError` (424);
+- `executeExternalOp` re-raises those two unchanged rather than flattening them into a plain
+  `Error`, which used to erase the verdict at the last step;
+- `exitCodeFor` maps the status to `8` or `9`.
+
+A command that keeps going after each failure (`outbox run` with explicit ids — the leaf a job
+runner calls) cannot throw, so it **composes** its code with `batchExitCode`: a retryable failure
+dominates, because if one operation may yet succeed the batch is worth re-running, and the
+operations already refused are no longer `pending` and so are not called a second time. Only when
+every failure was a definitive refusal does the batch itself exit `9`.
 
 **Deleted:** ap.md:71 (`bill match` exits 2), close-controls.md:75 (0/2/3), report.md:227 (2 =
 precondition unmet, 3 = integrity error), bank.md:50 ("1 on failure, never on warn"), ledger.md:8

@@ -95,6 +95,12 @@ const ROOT = path.resolve(__dirname, '..', '..', '..');
 
 /** Los archivos que este módulo lee, con su ruta relativa como la publica. */
 const CRITERIA_TS = 'src/plan/criterios.ts';
+// La OTRA mitad de los mutantes. `criterios.ts` los declara a mano en
+// criterios literales; `conducta.ts` los trae en `PRUEBAS_DE_CONDUCTA`, que
+// entra a CRITERIOS por un spread que el AST no puede seguir. Leer sólo el
+// primero es lo que hacía que este metro publicara 12 mientras el módulo
+// importado tenía 13.
+const CONDUCT_TS = 'src/plan/conducta.ts';
 const VITEST_UNIT = 'vitest.config.ts';
 const VITEST_INTEGRATION = 'vitest.integration.config.ts';
 const MANIFEST = 'src/ai/docs/manifiesto.json';
@@ -287,6 +293,8 @@ interface Criterion {
   packageName: string;
   statement: string;
   line: number;
+  /** De qué archivo se leyó: los mutantes viven en dos, y el ejemplo lo dice. */
+  source: string;
   evaluate?: ts.Expression;
   /** Anclas de mutante, con el campo del que salen (los dos arneses cuentan). */
   mutants: { file: string; field: string; line: number }[];
@@ -342,9 +350,12 @@ function criteria(sf: ts.SourceFile): Criterion[] {
   for (const element of array.elements) {
     // Un `...PRUEBAS_DE_CONDUCTA.map(...)` no es un objeto literal: sus
     // criterios se construyen en tiempo de ejecución y no hay nada estático que
-    // leer. Se saltan, y por eso los mutantes EN DISCO que ese spread trae no
-    // entran al carril 3 desde aquí — los que sí se declaran a mano en un
-    // criterio literal, sí.
+    // leer, y aquí se saltan. Sus mutantes NO se pierden: los lee
+    // `conductCriteria` de `conducta.ts`, donde sí están escritos como
+    // literales. Antes se daban por perdidos con esa excusa escrita, y el
+    // carril publicaba 12 mientras el módulo importado tenía 13 — el hueco no
+    // se notó hasta que un tramo ancló el primer mutante de conducta sobre un
+    // archivo de nombre español.
     if (!ts.isObjectLiteralExpression(element)) continue;
     const mutants: Criterion['mutants'] = [];
     for (const field of ['mutantes', 'mutantesEnDisco']) {
@@ -360,7 +371,67 @@ function criteria(sf: ts.SourceFile): Criterion[] {
       packageName: stringOf(property(element, 'paquete')) ?? '(sin paquete)',
       statement: stringOf(property(element, 'enunciado')) ?? '',
       line: lineOf(sf, element),
+      source: CRITERIA_TS,
       evaluate: property(element, 'evaluar'),
+      mutants,
+    });
+  }
+  return out;
+}
+
+/**
+ * LOS MUTANTES DE CONDUCTA, que viven en el otro archivo.
+ *
+ * `PRUEBAS_DE_CONDUCTA` sí es un arreglo de literales, así que se lee igual que
+ * `CRITERIOS`; lo que no se puede seguir es el spread que las convierte en
+ * criterios. Sólo se sacan los mutantes: los otros dos carriles que usan
+ * `Criterion` miran `evaluar`, que aquí no existe.
+ *
+ * Se exige el archivo por su nombre, como toda fuente de este módulo: si
+ * desaparece, el carril bajaría «solo» y el primer `--apretar` clavaría una
+ * cifra que ya nadie puede reproducir.
+ */
+function conductCriteria(sf: ts.SourceFile): Criterion[] {
+  let array: ts.ArrayLiteralExpression | undefined;
+  const search = (n: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === 'PRUEBAS_DE_CONDUCTA' &&
+      n.initializer !== undefined &&
+      ts.isArrayLiteralExpression(n.initializer)
+    ) {
+      array = n.initializer;
+    }
+    ts.forEachChild(n, search);
+  };
+  search(sf);
+  if (array === undefined) {
+    throw new Error(
+      `${CONDUCT_TS} ya no declara «export const PRUEBAS_DE_CONDUCTA = [...]»: el carril de ` +
+        'mutantes volvería a contar sólo la mitad, y su comando publicaría otra cifra.'
+    );
+  }
+
+  const out: Criterion[] = [];
+  for (const element of array.elements) {
+    if (!ts.isObjectLiteralExpression(element)) continue;
+    const mutants: Criterion['mutants'] = [];
+    for (const field of ['mutantes', 'mutantesEnDisco']) {
+      const list = property(element, field);
+      if (list === undefined || !ts.isArrayLiteralExpression(list)) continue;
+      for (const m of list.elements) {
+        if (!ts.isObjectLiteralExpression(m)) continue;
+        const file = stringOf(property(m, 'archivo'));
+        if (file !== undefined) mutants.push({ file, field, line: lineOf(sf, m) });
+      }
+    }
+    if (mutants.length === 0) continue;
+    out.push({
+      packageName: stringOf(property(element, 'paquete')) ?? '(conducta)',
+      statement: stringOf(property(element, 'enunciado')) ?? '',
+      line: lineOf(sf, element),
+      source: CONDUCT_TS,
       mutants,
     });
   }
@@ -612,7 +683,7 @@ function mutantsLane(list: Criterion[]): Lane {
       if (renameableSegment(m.file) === undefined) continue;
       total++;
       perFile[m.file] = (perFile[m.file] ?? 0) + 1;
-      examples.push(`${CRITERIA_TS}:${m.line} · ${c.packageName} · ${m.field} → ${m.file}`);
+      examples.push(`${c.source}:${m.line} · ${c.packageName} · ${m.field} → ${m.file}`);
     }
   }
 
@@ -937,10 +1008,13 @@ function sortKeys(m: Record<string, number>): Record<string, number> {
 export const planLanes: LaneMeter = (): Lane[] => {
   const sf = ast(CRITERIA_TS);
   const list = criteria(sf);
+  // El carril de mutantes cuenta LAS DOS fuentes; los otros dos miran `evaluar`,
+  // que sólo existe en criterios.ts.
+  const withConduct = [...list, ...conductCriteria(ast(CONDUCT_TS))];
   return [
     grepsLane(sf, list),
     pathsLane(sf, list),
-    mutantsLane(list),
+    mutantsLane(withConduct),
     thresholdsLane(sf),
     corpusLane(),
     mocksLane(),

@@ -58,6 +58,87 @@ export interface RiskDeclaration {
   draftOnly?: boolean;
   /** Human-readable summary of what it writes, for the audit record. */
   writes?: string;
+  /**
+   * QUÉ HACE ESTA HOJA CON `--idempotency-key`.
+   *
+   * El núcleo inyecta la bandera en toda hoja irreversible o externa y su
+   * ayuda PROMETE, con estas palabras, que «a retry with the same key and
+   * payload returns the recorded result». Hasta hoy la promesa la hacía la
+   * inyección y la cumplía —o no— cada manejador por su cuenta: 36 hojas la
+   * aceptaban, 15 la honraban, y las 21 restantes duplicaban dinero en un
+   * reintento sin que nada lo dijera.
+   *
+   * Por eso la declaración ahora TIENE QUE DECIDIRLO, y no hay opción por
+   * omisión que sea silenciosa:
+   *
+   *   · `{ scope: 'receipt record' }` — la honra. El manejador entrega la
+   *     llave a `conLlave` bajo ESE ámbito, que es su identidad en
+   *     `idempotency_keys`; por eso R11 exige que dos hojas no lo compartan
+   *     (compartirlo las deduplicaría ENTRE SÍ) y la prueba de
+   *     tests/cli/kernel/llave-honrada.spec.ts exige que el ámbito aparezca
+   *     de verdad en una llamada al almacén — un texto que ninguna inyección
+   *     puede fabricar.
+   *
+   *   · `{ sinLlave: '<motivo>' }` — NO la honra. La bandera se sigue
+   *     declarando (retirarla rompería guiones publicados) pero su ayuda dice
+   *     la verdad y PASARLA FALLA con salida 2, en vez de aceptar la llave y
+   *     escribir dos veces. R11 la acusa además con una violación por hoja,
+   *     congelada en la línea base: la lista sólo puede encoger.
+   */
+  llave?: Llave;
+}
+
+/**
+ * Las tres únicas respuestas posibles a «¿qué haces con la llave?».
+ *
+ * Son tres y no dos porque hay tres situaciones REALES, y meter la tercera en
+ * el saco de la segunda hacía que la ayuda publicara lo contrario de lo que el
+ * código hacía: siete hojas —`review`, `ingest`, `outbox run`,
+ * `subscription delivery sweep`, `bill approve`, `sat cred add` y
+ * `sat cred revoke`— YA eran idempotentes por su dominio y lo explicaban por
+ * escrito en un aviso propio, y declararlas `{ sinLlave }` les habría dicho a
+ * sus operadores «un reintento vuelve a escribir» cuando su propio fuente dice
+ * que no.
+ */
+export type Llave =
+  /** La honra bajo este ámbito, que es su identidad en `idempotency_keys`. */
+  | { scope: string }
+  /**
+   * NO LA NECESITA: el dominio ya deduplica por sí mismo —el estado de la
+   * factura y su `journal_entry_id`, el UUID del CFDI, el `X-Webhook-ID` de
+   * cada entrega, la ausencia de credencial activa tras revocar—. La bandera
+   * SIGUE FUNCIONANDO (no rompe el guion que ya la pasa) y no miente: la ayuda
+   * dice que no hace falta y por qué.
+   */
+  | { innecesaria: string }
+  /**
+   * NO LA HONRA y un reintento SÍ vuelve a escribir. La bandera se acepta
+   * —retirarla rompería guiones publicados— pero pasarla FALLA, porque quien
+   * la pasaba se creía protegido y no lo estaba.
+   */
+  | { sinLlave: string };
+
+/** El ámbito bajo el que esta hoja consuma la llave, si la honra. */
+export function ambitoDeLlave(cmd: Command): string | undefined {
+  const llave = REGISTRY.get(cmd)?.llave;
+  return llave && 'scope' in llave ? llave.scope : undefined;
+}
+
+/**
+ * La ruta completa de la hoja, subiendo por sus padres.
+ *
+ * El mensaje de negativa decía `cmd.name()`, o sea el nombre suelto: «add»,
+ * «apply», «run-due». Hay más de una hoja llamada `apply`, así que el error no
+ * decía CUÁL se negó — y un error que no nombra su comando obliga a adivinar
+ * justo cuando el operador ya está desconcertado.
+ */
+function rutaDeLaHoja(cmd: Command): string {
+  const partes: string[] = [];
+  for (let c: Command | null = cmd; c; c = c.parent) {
+    const nombre = c.name();
+    if (nombre) partes.unshift(nombre);
+  }
+  return partes.join(' ');
 }
 
 export interface ResolvedRisk extends RiskDeclaration {
@@ -132,13 +213,57 @@ export function declareRisk(cmd: Command, decl: RiskDeclaration): Command {
     cmd.option(flags, desc);
   };
 
+  /**
+   * LA BANDERA QUE MIENTE SE NIEGA A FUNCIONAR.
+   *
+   * Una hoja declarada `{ sinLlave }` sigue ACEPTANDO `--idempotency-key`
+   * —retirarla de 21 comandos publicados rompería guiones que ya la pasan—
+   * pero deja de fingir: la ayuda dice que no la honra y el parser de
+   * Commander, que corre ANTES de la acción y por tanto antes de cualquier
+   * escritura, aborta con el contrato de USAGE. Fallar es estrictamente
+   * mejor que aceptar la llave y escribir dos veces: quien la pasaba creía
+   * estar protegido y no lo estaba.
+   */
+  const anadirLlaveQueMiente = (): void => {
+    // La ayuda va en INGLÉS y sin el motivo: es el idioma canónico del nodo, y
+    // el censo de superficie (scripts/ux-status.ts) cuenta como defecto toda
+    // prosa de ayuda fuera de él. El motivo, que es donde está la información,
+    // viaja en el error de `gateMutation`.
+    //
+    // EL RECHAZO NO VIVE AQUÍ. Estuvo en el `parseArg` de esta opción, que
+    // corre mientras Commander aún no ha terminado de leer la línea: allí no se
+    // sabe si además vino `--dry-run`, así que reventaba también el ENSAYO —y
+    // un ensayo no escribe nada, de modo que negárselo al operador cuyo guion
+    // ya trae la llave escrita es coste sin beneficio—. Vive en `gateMutation`,
+    // que ve las opciones ya resueltas, sigue corriendo antes de cualquier
+    // escritura, y es el sitio donde este repo falla cerrado.
+    anadir(
+      '--idempotency-key <key>',
+      'NOT honored by this command yet: a retry writes again instead of returning the recorded result'
+    );
+  };
+
+  /** La bandera funciona, y la ayuda dice por qué no hace falta. */
+  const anadirLlaveInnecesaria = (): void => {
+    anadir(
+      '--idempotency-key <key>',
+      'not needed: this command already deduplicates on the state it writes; accepted and ignored'
+    );
+  };
+
   if (resolved.requiresDryRun) {
     anadir('--dry-run', 'compute and show the full effect; write nothing and call nothing external');
     anadir('-y, --yes', 'skip the confirmation prompt');
-    anadir(
-      '--idempotency-key <key>',
-      'client dedupe key, stored on success: a retry with the same key and payload returns the recorded result'
-    );
+    if (decl.llave && 'sinLlave' in decl.llave) {
+      anadirLlaveQueMiente();
+    } else if (decl.llave && 'innecesaria' in decl.llave) {
+      anadirLlaveInnecesaria();
+    } else {
+      anadir(
+        '--idempotency-key <key>',
+        'client dedupe key, stored on success: a retry with the same key and payload returns the recorded result'
+      );
+    }
   }
   if (resolved.requiresLiveGate) {
     anadir('--live', 'perform the real external effect (default is the sandbox endpoint)');
@@ -189,6 +314,31 @@ export function gateMutation(
   // Un comando que llama a `gateMutation` está diciendo que muta. Si no
   // declaró su riesgo, lo correcto no es dejarlo pasar sino romper: el fallo
   // aparece en el primer uso, no en la primera auditoría.
+  // LA LLAVE QUE MIENTE SE NIEGA AQUÍ, con las opciones ya resueltas.
+  //
+  // Una hoja `{ sinLlave }` acepta la bandera —retirarla de comandos publicados
+  // rompería guiones que ya la pasan— pero pasarla FALLA, porque quien la
+  // pasaba se creía protegido y no lo estaba. Fallar es estrictamente mejor que
+  // fingir.
+  //
+  // Y NO SE NIEGA EL ENSAYO. `--dry-run` no escribe, así que negárselo al
+  // operador cuyo guion ya trae la llave escrita es coste sin beneficio: le
+  // impediría incluso mirar qué haría el comando. Ésta es la razón de que el
+  // rechazo viva aquí y no en el `parseArg` de la opción, donde Commander
+  // todavía no sabe si vino `--dry-run`. Sigue corriendo antes de cualquier
+  // escritura.
+  const llaveDeclarada = REGISTRY.get(cmd)?.llave;
+  const clavePasada = typeof opts.idempotencyKey === 'string' ? opts.idempotencyKey.trim() : '';
+  if (llaveDeclarada && 'sinLlave' in llaveDeclarada && clavePasada !== '' && opts.dryRun !== true) {
+    throw new CliError(
+      `"${rutaDeLaHoja(cmd)}" acepta --idempotency-key porque su clase de riesgo la exige, pero TODAVÍA NO LA HONRA: ` +
+        `${llaveDeclarada.sinLlave}. La llave "${clavePasada}" no deduplicaría nada: un reintento volvería a ` +
+        'escribir. Vuelve a ejecutar SIN la llave y comprueba antes el estado del dominio ' +
+        '(el documento, el saldo o el asiento que este comando toca), o repite con --dry-run para ver qué haría.',
+      ExitCode.USAGE
+    );
+  }
+
   if (!resolved) {
     throw new CliError(
       `"${cmd.name()}" pide una compuerta de mutación sin haber declarado su riesgo. ` +

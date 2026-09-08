@@ -349,6 +349,20 @@ export interface DeactivateOptions {
    * historia, pero no saldo vivo: archivar una cuenta con saldo esconde
    * dinero del catálogo activo. `--force` con razón lo salta a sabiendas.
    * Actividad de por vida (Σ cargos − Σ abonos), invariante al arrastre.
+   *
+   * T13 · POR QUÉ ESTE GUARDIÁN SE QUEDA COMO ESTÁ, dicho aquí porque la
+   * pregunta vuelve. Una cuenta de resultados barrida por el cierre cumple
+   * SIEMPRE el saldo de por vida cero, así que `account archive 4100` pasa
+   * sin `--force`, y durante un tiempo eso reescribió el estado de resultados
+   * de un ejercicio ya firmado. La tentación era endurecer aquí —prohibir
+   * archivar una cuenta con movimiento—, y habría sido el remedio equivocado:
+   * retirar una línea del catálogo al cierre del ejercicio es el acto normal
+   * que `allowWithHistory` existe para permitir, y el que lo hacía peligroso
+   * no era este guardián sino los INFORMES, que leían `is_active` para decidir
+   * qué dinero enseñar. Corregido eso (ver reporting/criterio-archivadas.ts),
+   * archivar no puede mover ninguna cifra de ningún informe emitido: lo único
+   * que cambia es si un renglón en cero sigue apareciendo en la balanza, y eso
+   * lo decide el panel. Un archivado inerte no necesita un candado más duro.
    */
   enforceZeroBalance?: boolean;
   /** Corre las verificaciones y NO escribe: el informe de `--dry-run`. */

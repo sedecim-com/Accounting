@@ -21,7 +21,9 @@ Hay una tercera clase que conviene nombrar para no meterla donde no va: las **co
 
 ### 1.1 El conmutador
 
-La pregunta «¿lleva contabilidad mexicana?» tiene una respuesta canónica y booleana: `esContabilidadMexicana(incorporation_country, accounting_standard)` en [`src/services/accounting/pais-contable.ts:35-44`](../src/services/accounting/pais-contable.ts) — verdadero si la norma es `mx_nif` **o** si el país es MX, nulo, vacío o desconocido («ante la duda, mexicana»). La consumen exactamente dos sitios: `entity-accounting.ts:75` (qué catálogo sembrar) y `:172` (qué roles).
+> Estado al 2026-09-06, antes de J0.1. Desde el PR #140 (2026-09-07) el conmutador vive en `src/services/jurisdiction/jurisdiction.ts` con nombres ingleses —`jurisdictionOf`, `keepsMexicanBooks`, `sqlKeepsMexicanBooks`; ver #147—, `pais-contable.ts` desapareció y tres de las cuatro copias de la tabla están borradas (la de nómina, `normalizarPais`, es otro conmutador y sigue). Lo que sigue describe lo que había.
+
+La pregunta «¿lleva contabilidad mexicana?» tiene una respuesta canónica y booleana: `esContabilidadMexicana(incorporation_country, accounting_standard)` en `src/services/jurisdiction/jurisdiction.ts:35-44` (archivo borrado en el PR #140) — verdadero si la norma es `mx_nif` **o** si el país es MX, nulo, vacío o desconocido («ante la duda, mexicana»). La consumen exactamente dos sitios: `entity-accounting.ts:75` (qué catálogo sembrar) y `:172` (qué roles).
 
 Pero el encabezado del archivo (`:4-12`) dice haber unificado cuatro copias y **cuatro siguen vivas sin usarlo**, tres de ellas con el borde nulo al revés:
 
@@ -81,32 +83,32 @@ Y una cuarta, que ya es ley de la casa y aquí sólo se extiende: **la jurisdicc
 
 ### 3.1 Un solo conmutador, y devuelve una jurisdicción, no un booleano
 
-Se propone `src/services/jurisdiccion/jurisdiccion.ts`:
+Se propone `src/services/jurisdiction/jurisdiction.ts`:
 
 ```ts
-export type CodigoJurisdiccion = 'MX' | 'US';
-export type NormaContable = 'mx_nif' | 'us_gaap' | 'ifrs';
+export type JurisdictionCode = 'MX' | 'US';
+export type AccountingStandard = 'mx_nif' | 'us_gaap' | 'ifrs';
 
-export interface Jurisdiccion {
+export interface Jurisdiction {
   /** La que manda sobre catálogo fiscal, calendario, impuestos y formatos. */
-  fiscal: CodigoJurisdiccion;
+  fiscal: JurisdictionCode;
   /** La que manda sobre reconocimiento, medición y presentación. */
-  libros: NormaContable;
+  books: AccountingStandard;
   /** Moneda en la que se expresan los umbrales legales de `fiscal`. */
-  monedaLegal: 'MXN' | 'USD';
+  legalCurrency: 'MXN' | 'USD';
   /** Sub-jurisdicción cuando la hay (estado de EE. UU.). Se lee de la entidad cuando exista la columna. */
-  estado?: string;
+  state?: string;
 }
 
-export function jurisdiccionDe(e: {
+export function jurisdictionOf(e: {
   incorporation_country?: string | null;
   accounting_standard?: string | null;
-}): Jurisdiccion;
+}): Jurisdiction;
 ```
 
-Reglas, en este orden: (a) `accounting_standard` decide `libros`; si viene nulo, lo decide el país (`MX → mx_nif`, `US → us_gaap`). (b) `incorporation_country` decide `fiscal`; nulo, vacío o desconocido → `MX`, que es la regla que hoy ya rige en `pais-contable.ts:41-44` y la segura para este producto. (c) `libros` y `fiscal` **pueden diferir**: la filial constituida fuera que lleva libros en NIF necesita catálogo fiscal de su país y reconocimiento mexicano; hoy el booleano colapsa ambas cosas.
+Reglas, en este orden: (a) `accounting_standard` decide `books`; si viene nulo, lo decide el país (`MX → mx_nif`, `US → us_gaap`). (b) `incorporation_country` decide `fiscal`; nulo, vacío o desconocido → `MX`, que es la regla que hoy ya rige en `src/services/jurisdiction/jurisdiction.ts` (`keepsMexicanBooks`; antes `pais-contable.ts:35-44`) y la segura para este producto. (c) `books` y `fiscal` **pueden diferir**: la filial constituida fuera que lleva libros en NIF necesita catálogo fiscal de su país y reconocimiento mexicano; hoy el booleano colapsa ambas cosas.
 
-`esContabilidadMexicana` se conserva como envoltura —`jurisdiccionDe(e).fiscal === 'MX'`— para no tocar a sus dos consumidores, y **las cuatro copias del §1.1 se borran** y pasan a llamarla. El criterio que lo vigila: `grep -rn "incorporation_country = 'MX'\|accounting_standard === 'mx_nif'\|country === 'MX'" src/` (todo `src/`, no sólo `services/`: la copia del doctor vive en `src/ai/`) devuelve cero fuera de `jurisdiccion.ts`; la inferencia del tipo de identificador fiscal por país (`vendor-service.ts:63-64`, `'USA' → 'ein'`) no es un conmutador de jurisdicción y queda fuera del criterio —o pasa a leer `jurisdiccionDe`, que es lo limpio—.
+`keepsMexicanBooks` se conserva como envoltura —`jurisdictionOf(e).fiscal === 'MX'`— para no tocar a sus dos consumidores, y **las cuatro copias del §1.1 se borran** y pasan a llamarla. El criterio que lo vigila: `grep -rn "incorporation_country = 'MX'\|accounting_standard === 'mx_nif'\|country === 'MX'" src/` (todo `src/`, no sólo `services/`: la copia del doctor vive en `src/ai/`) devuelve cero fuera de `jurisdiction.ts`; la inferencia del tipo de identificador fiscal por país (`vendor-service.ts:63-64`, `'USA' → 'ein'`) no es un conmutador de jurisdicción y queda fuera del criterio —o pasa a leer `jurisdictionOf`, que es lo limpio—.
 
 ### 3.2 El paquete de jurisdicción
 
@@ -115,7 +117,7 @@ Todo lo que varía por jurisdicción y **lo fija la casa o la ley** se agrupa en
 ```ts
 // src/jurisdicciones/mx/index.ts · src/jurisdicciones/us/index.ts
 export interface PaqueteDeJurisdiccion {
-  codigo: CodigoJurisdiccion;
+  codigo: JurisdictionCode;
   /** Cambia cuando cambia la ley sembrada o el catálogo. Va al informe de `jurisdiction show`. */
   version: string;
   catalogo: {
@@ -135,7 +137,7 @@ export interface PaqueteDeJurisdiccion {
   informes: { idioma: 'es' | 'en'; formatos: string[] }; // 'anexo24-xml', 'balanza-4col' / '941', 'w2'
   corpus: string[];                         // los src/ai/docs que el agente abre para esta jurisdicción
 }
-export const JURISDICCIONES: Record<CodigoJurisdiccion, PaqueteDeJurisdiccion>;
+export const JURISDICCIONES: Record<JurisdictionCode, PaqueteDeJurisdiccion>;
 ```
 
 Añadir una tercera jurisdicción es añadir una carpeta, una migración con sus parámetros legales y su corpus para el agente — y ninguna línea en el motor común. Es el patrón de las localizaciones de Odoo (`l10n_*`) y de las regionales de ERPNext; el informe [`practicas/arquitectura.md`](investigacion/2026-09-06-normas-y-motores/practicas/arquitectura.md) recoge lo que la industria hace y lo que no conviene copiar.
@@ -156,7 +158,7 @@ interface AjusteDeClave {
 }
 interface PolicySpec {
   // … lo de hoy …
-  jurisdicciones?: Partial<Record<CodigoJurisdiccion, AjusteDeClave>>;
+  jurisdicciones?: Partial<Record<JurisdictionCode, AjusteDeClave>>;
 }
 ```
 
@@ -179,7 +181,7 @@ SELECT … FROM policy_decisions
  LIMIT 1;
 ```
 
-`$4` **no lo pasa nadie a mano**: `getPolicy` lo deriva con `jurisdiccionDe` cuando el contexto trae `entityId`; una lectura de alcance inquilino sin entidad sigue resolviendo la fila universal. El fallback sin fila es `spec.jurisdicciones?.[j]?.defaultValue ?? spec.defaultValue`.
+`$4` **no lo pasa nadie a mano**: `getPolicy` lo deriva con `jurisdictionOf` cuando el contexto trae `entityId`; una lectura de alcance inquilino sin entidad sigue resolviendo la fila universal. El fallback sin fila es `spec.jurisdicciones?.[j]?.defaultValue ?? spec.defaultValue`.
 
 **Siembra.** `seedPolicies(ctx)` siembra sólo las claves que **aplican** a las jurisdicciones de las entidades del inquilino. Un despacho sin entidades mexicanas no ve `rep_*` en `/pendientes`.
 
@@ -244,7 +246,7 @@ Puerta: `mnemosine parametros list --jurisdiction MX [--vigentes-al 2026-02-01]`
 
 ### 3.5 El catálogo y los roles por jurisdicción
 
-`catalogoBasePara(esMexicana: boolean)` pasa a `catalogoBasePara(j: Jurisdiccion)` y compone `CATALOGO_UNIVERSAL + JURISDICCIONES[j.fiscal].catalogo.estratoFiscal`. Nace `ESTRATO_FISCAL_US` con lo que una PyME estadounidense necesita para postear desde el primer día: *Sales Tax Payable*, *Federal Income Tax Payable*, *State Income Tax Payable*, *Accrued Liabilities*, *Prepaid Income Tax*, y el estrato de nómina que `US_PAYROLL_ACCOUNTS` ya siembra (se coordina para no duplicar). La 3300 «Resultado del Ejercicio» **se queda en el universal**: el cierre la busca por código y quitársela a una entidad rompería su cierre anual; lo que cambia es el **default por jurisdicción** de `destino_del_resultado_del_ejercicio` (§3.3), que para US pasa a `directo_a_acumulados` y deja la 3300 en cero sin tocarla. `ESTRATO_FISCAL_NEUTRO` queda para jurisdicciones sin paquete, que es lo que hoy debería ser Estados Unidos y no lo es.
+`catalogoBasePara(esMexicana: boolean)` pasa a `catalogoBasePara(j: Jurisdiction)` y compone `CATALOGO_UNIVERSAL + JURISDICCIONES[j.fiscal].catalogo.estratoFiscal`. Nace `ESTRATO_FISCAL_US` con lo que una PyME estadounidense necesita para postear desde el primer día: *Sales Tax Payable*, *Federal Income Tax Payable*, *State Income Tax Payable*, *Accrued Liabilities*, *Prepaid Income Tax*, y el estrato de nómina que `US_PAYROLL_ACCOUNTS` ya siembra (se coordina para no duplicar). La 3300 «Resultado del Ejercicio» **se queda en el universal**: el cierre la busca por código y quitársela a una entidad rompería su cierre anual; lo que cambia es el **default por jurisdicción** de `destino_del_resultado_del_ejercicio` (§3.3), que para US pasa a `directo_a_acumulados` y deja la 3300 en cero sin tocarla. `ESTRATO_FISCAL_NEUTRO` queda para jurisdicciones sin paquete, que es lo que hoy debería ser Estados Unidos y no lo es.
 
 Códigos oficiales: México tiene un catálogo obligatorio (c_CodAgrup del Anexo 24) y hoy **dos columnas para el mismo dato** —`mx_nif_code` (`001:130`, la que escribe `account-service.ts:455`) y `codigo_agrupador_sat` (`037:27-31`, sin lector ni escritor)—; consolidarlas es del tramo F07 (issue [#112](https://github.com/sedecim-com/Accounting/issues/112)). Estados Unidos no tiene catálogo obligatorio: lo que tiene es la línea de la forma (1120/1065) y `account map set --scheme us-tax-line` ya la escribe (`account-service.ts:456`).
 
@@ -273,7 +275,7 @@ Cada paso añade su criterio a `src/plan/criterios.ts` **en el mismo commit que 
 
 | Paso | Qué entrega | Criterio ejecutable |
 |---|---|---|
-| **J0.1** | `jurisdiccionDe` en `src/services/jurisdiccion/`; `esContabilidadMexicana` como envoltura; las tres copias del §1.1 borradas | grep cero predicados inline en `src/services` fuera de `jurisdiccion.ts`; prueba de borde: nulo → MX en **todos** los consumidores |
+| **J0.1** | `jurisdictionOf` en `src/services/jurisdiction/` (nombres ingleses desde el PR #140, #147); `keepsMexicanBooks` como envoltura; las tres copias del §1.1 borradas | grep cero predicados inline en `src/services` fuera de `jurisdiction.ts`; prueba de borde: nulo → MX en **todos** los consumidores |
 | **J0.2** | Migración `06x_la_jurisdiccion_como_dimension.sql` (la siguiente libre; `docs/migraciones.md` manda): `policy_decisions.jurisdiction` + índice; `parametros_legales`; `tax_parameters.effective_from/to` rellenados | la columna existe **y tiene lector** (`policy-service.ts`); la tabla existe y tiene escritor (la semilla) y lector |
 | **J0.3** | `PolicySpec.jurisdicciones`; resolución de cinco eslabones; siembra filtrada; `pending --jurisdiction`, `pending explain`; reclasificación de las 39 claves | prueba de integración: dos entidades del mismo inquilino, MX y US, resuelven **distinto** `destino_del_resultado_del_ejercicio` sin fila alguna; la US no tiene `rep_*` sembradas |
 | **J0.4** | UMA, SMG, subsidio, tasas de IVA, 2 000, 8.5 %, SS wage base, FUTA, FMW y CCPA a `parametros_legales`; lectura por fecha; fallo cerrado; `doctor` | mutación en memoria: borrar la vigencia → **error**, no cero ni un valor quemado (en IMSS, INFONAVIT y en el clasificador CFDI); `tax_tables` se busca por fecha, no por `tax_year` |
@@ -286,7 +288,7 @@ El coste no se estima aquí: el modelo de coste por fila vive en [`docs/plan-cat
 
 ## 6. Preguntas que se deciden después, y dónde
 
-- **¿Entidad con libros IFRS?** El CHECK lo admite, `Country` lo impide. Se mantiene impedido hasta que un cliente lo necesite; entonces `libros: 'ifrs'` ya tiene sitio en `Jurisdiccion` y el corpus NIIF ya existe.
+- **¿Entidad con libros IFRS?** El CHECK lo admite, `Country` lo impide. Se mantiene impedido hasta que un cliente lo necesite; entonces `books: 'ifrs'` ya tiene sitio en `Jurisdiction` y el corpus NIIF ya existe.
 - **¿El estado como sub-jurisdicción?** `tax_tables.jurisdiction` ya habla en `US-CA`; `legal_entities` no tiene columna de estado. Para SIT/SUTA basta el estado del empleado (ya en nómina); para *sales tax* hace falta la lista de estados con nexo, que es una **decisión del despacho** → clave del panel, no columna.
 - **¿Renombrar las claves `_mxn`?** No en el primer tramo. Si se hace, con alias y migración que copie filas; nunca rompiendo lectores.
 - **¿Fundir `tax_parameters` en `parametros_legales`?** Después de J0.4, cuando ambas tengan la misma disciplina de vigencia y se vea si sobra una.

@@ -360,10 +360,16 @@ const EDGE_CASES: readonly EdgeCase[] = [
 let gate: LexiconTwin;
 let corpus: Corpus;
 
+// El `beforeAll` cosecha el árbol entero —740 y pico archivos— y compila el
+// gemelo del lint. En una máquina cargada eso pasa de los DIEZ SEGUNDOS que
+// vitest da por omisión a un hook, y entonces el archivo entero ni siquiera
+// carga: la suite reporta «FAIL … [ archivo ]» sin una sola prueba corrida,
+// que se lee como si el conformance estuviera roto. Las PRUEBAS ya llevaban su
+// propio límite ampliado; al hook se le había olvidado, y tiene el suyo aparte.
 beforeAll(async () => {
   gate = await loadGateTwin();
   corpus = harvest();
-});
+}, 120_000);
 
 /** Cuántas divergencias se imprimen. Bastantes para ver el patrón, pocas para leer. */
 const MAX_REPORTED = 12;

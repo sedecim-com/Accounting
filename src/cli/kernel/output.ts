@@ -1,5 +1,6 @@
-import { writeFileSync } from 'node:fs';
-import { palette } from '../palette.js';
+import { appendFileSync, writeFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
+import { palette, type Palette } from '../palette.js';
 import { CliError, ExitCode } from './exit.js';
 
 // ============================================================
@@ -24,6 +25,27 @@ import { CliError, ExitCode } from './exit.js';
 //
 // Data goes to stdout; every note, warning and diagnostic goes to
 // stderr, so one stray message never corrupts a pipeline.
+//
+//   UN DATO SALE POR UNA SOLA PUERTA, Y ESA PUERTA CONOCE `-o`.
+//   `-o/--output` promete un archivo con la salida del comando, y
+//   mentía de tres maneras: dos ramas de `render` volvían escribiendo
+//   directo a stdout —`--fields` a secas y la tabla sin filas—, así que
+//   el comando salía 0 y el archivo NO EXISTÍA; y como cada escritura
+//   truncaba, un comando que rinde dos veces (`cfdi show`: cabecera y
+//   conceptos) dejaba en el archivo sólo la ÚLTIMA tabla.
+//   La regla que lo cierra: quien COMPONE el texto (`compose`) no
+//   recibe ningún flujo y devuelve `Composed`, un tipo que bajo
+//   `strict` obliga al compilador a rechazar cualquier rama futura
+//   (`--summary`, `--count`) que se olvide de producir su texto. La
+//   única escritura de datos vive en `emit`.
+//
+//   Y ESO NO ES UNA GARANTÍA ESTRUCTURAL, dicho para que nadie se
+//   confíe: `process.stdout` es global, así que `compose` PODRÍA
+//   escribir por ahí y devolver la cadena vacía, y ni el compilador ni
+//   el tipo lo verían. Lo que sí lo ve es una prueba que espía los dos
+//   flujos mientras compone cada formato y cada rama, y exige CERO
+//   escrituras (tests/cli/kernel/salida-prometida.spec.ts). El tipo
+//   ayuda; la prueba es la que cierra.
 // ============================================================
 
 export const FORMATS = ['table', 'json', 'ndjson', 'csv', 'tsv', 'md'] as const;
@@ -188,8 +210,7 @@ function inferNumeric(rows: Row[], cols: string[]): Set<string> {
   return numeric;
 }
 
-function toTable(rows: Row[], cols: string[], numeric: Set<string>, stream: NodeJS.WriteStream): string {
-  const p = palette(stream);
+function toTable(rows: Row[], cols: string[], numeric: Set<string>, p: Palette): string {
   // SOLO aquí (la rama para humanos) el dinero se viste de presentación;
   // los formatos de máquina reciben la cadena de almacenamiento intacta.
   const display = (col: string, value: unknown): string => {
@@ -242,88 +263,235 @@ function toMarkdown(rows: Row[], cols: string[]): string {
 }
 
 /**
- * Renders a result set under the output contract. Returns nothing; writes
- * to stdout (or --output) and puts every note on stderr.
+ * Una nota: SIEMPRE va por stderr, nunca al archivo de `-o`.
+ *
+ * Lleva su tono en vez de venir ya coloreada porque quien la compone no
+ * conoce el destino —esa es justamente la propiedad que hace imposible que
+ * una rama nueva escriba por su cuenta—, y el color depende de si stderr es
+ * una terminal.
  */
-export function render(rows: Row[], opts: RenderOptions = {}): void {
-  const out = opts.stdout ?? process.stdout;
-  const err = opts.stderr ?? process.stderr;
-  const p = palette(err);
+interface Note {
+  tone: 'dim' | 'yellow';
+  text: string;
+}
 
+/**
+ * Lo que un renderizado PRODUCE, antes de saber a dónde va.
+ *
+ * `data` son los bytes que el usuario pidió: los que salen por stdout, o los
+ * que `-o` prometió en un archivo. `notes` son los avisos, que van a stderr
+ * siempre. La separación es el contrato. `compose` no recibe ningún flujo, lo
+ * que lo hace difícil de saltarse por accidente — pero no imposible a
+ * propósito, porque `process.stdout` es global: quien vigila eso de verdad es
+ * la prueba que espía los dos flujos mientras compone.
+ */
+interface Composed {
+  data: string;
+  notes: Note[];
+}
+
+/**
+ * Un destino que NO es una terminal.
+ *
+ * Con `-o` el dato va a un archivo, así que el color se decide contra el
+ * ARCHIVO y no contra el stdout de quien invoca: desde una terminal, la tabla
+ * entraba al archivo con los códigos ANSI dentro (`\x1b[1m` eran sus primeros
+ * bytes) y ningún `diff` ni ningún `awk` sobrevivía a eso.
+ */
+const NO_ES_TERMINAL = { isTTY: false } as unknown as NodeJS.WriteStream;
+
+/**
+ * TODO EL TEXTO DE DATOS DE UN RENDERIZADO, EN UNA FUNCIÓN QUE NO PUEDE
+ * ESCRIBIR.
+ *
+ * No recibe `NodeJS.WriteStream` a propósito: ésa es la garantía. Una rama
+ * nueva —`--summary`, `--count`— se escribe aquí porque aquí se deciden los
+ * formatos, y aquí no hay a dónde escribir; lo único que puede hacer es
+ * devolver su texto, que sale por la única puerta. Y como el tipo de retorno
+ * es `Composed` y el proyecto compila en `strict`, una rama que se olvide de
+ * devolverlo no es un defecto silencioso: es un error de `tsc`.
+ */
+function compose(rows: Row[], opts: RenderOptions, p: Palette): Composed {
   // Bare --fields: free schema discovery, for humans and for the agent.
+  // Es DATO —una lista de columnas que un guion consume—, así que sale por la
+  // puerta como cualquier otra: antes volvía escribiendo a stdout y `-o` se
+  // quedaba sin crear el archivo que había prometido.
   if (opts.fields === true) {
-    out.write(fieldNames(rows).join('\n') + '\n');
-    return;
+    return { data: fieldNames(rows).join('\n') + '\n', notes: [] };
   }
 
   const truncated = typeof opts.total === 'number' && opts.total > rows.length;
+  const aviso: Note[] = truncated
+    ? [
+        {
+          tone: 'yellow',
+          text:
+            `Showing ${rows.length} of ${opts.total as number} rows. ` +
+            'Raise --limit, page with --offset, or use --all to see the rest.\n',
+        },
+      ]
+    : [];
 
   if (opts.quiet) {
     const cols = fieldNames(rows);
     const id = opts.idField ?? (cols.includes('id') ? 'id' : cols.includes('code') ? 'code' : cols[0]);
     const text = rows.map((r) => cell(r[id])).join('\n');
-    emit(text ? text + '\n' : '', opts, out);
-    if (truncated) warnTruncation(err, p, rows.length, opts.total as number);
-    return;
+    return { data: text ? text + '\n' : '', notes: aviso };
   }
 
   const format = resolveFormat(opts);
   const cols = selectFields(rows, opts.fields);
-  let text: string;
 
   if (format === 'json') {
     // Envelope, not a bare array: truncation and counts must be visible to
     // a machine, and a versioned shape can evolve without breaking readers.
-    text = JSON.stringify(
-      {
-        schema: SCHEMA_VERSION,
-        count: rows.length,
-        ...(typeof opts.total === 'number' ? { total: opts.total, truncated } : {}),
-        rows: rows.map((r) => Object.fromEntries(cols.map((c) => [c, jsonCell(r[c])]))),
-      },
-      null,
-      2
-    ) + '\n';
-  } else if (format === 'ndjson') {
-    text = rows
-      .map((r) => JSON.stringify(Object.fromEntries(cols.map((c) => [c, jsonCell(r[c])]))))
-      .join('\n') + (rows.length ? '\n' : '');
-  } else if (format === 'csv' || format === 'tsv') {
-    text = toDelimited(rows, cols, format === 'csv' ? ',' : '\t') + '\n';
-  } else if (format === 'md') {
-    text = toMarkdown(rows, cols) + '\n';
-  } else {
-    if (!rows.length) {
-      err.write(p.dim('No rows.\n'));
-      return;
-    }
-    const numeric = new Set(opts.numeric ?? [...inferNumeric(rows, cols)]);
-    text = toTable(rows, cols, numeric, out) + '\n';
+    // Machine formats carry truncation in the payload; humans need to be told.
+    return {
+      data:
+        JSON.stringify(
+          {
+            schema: SCHEMA_VERSION,
+            count: rows.length,
+            ...(typeof opts.total === 'number' ? { total: opts.total, truncated } : {}),
+            rows: rows.map((r) => Object.fromEntries(cols.map((c) => [c, jsonCell(r[c])]))),
+          },
+          null,
+          2
+        ) + '\n',
+      notes: [],
+    };
   }
 
-  emit(text, opts, out);
+  if (format === 'ndjson') {
+    return {
+      data:
+        rows
+          .map((r) => JSON.stringify(Object.fromEntries(cols.map((c) => [c, jsonCell(r[c])]))))
+          .join('\n') + (rows.length ? '\n' : ''),
+      notes: aviso,
+    };
+  }
 
-  // Machine formats carry truncation in the payload; humans need to be told.
-  if (truncated && format !== 'json') warnTruncation(err, p, rows.length, opts.total as number);
+  if (format === 'csv' || format === 'tsv') {
+    return { data: toDelimited(rows, cols, format === 'csv' ? ',' : '\t') + '\n', notes: aviso };
+  }
+
+  if (format === 'md') {
+    return { data: toMarkdown(rows, cols) + '\n', notes: aviso };
+  }
+
+  if (!rows.length) {
+    // Cero filas es un RESULTADO, no una ausencia de salida: el humano lee la
+    // nota por stderr y `-o` recibe su archivo, vacío. Vacío y no truncado:
+    // `emit` sabe si esta invocación ya escribió ahí (`cfdi show` rinde dos
+    // veces), y en ese caso añade nada en vez de borrar lo anterior.
+    return { data: '', notes: [{ tone: 'dim', text: 'No rows.\n' }, ...aviso] };
+  }
+
+  const numeric = new Set(opts.numeric ?? [...inferNumeric(rows, cols)]);
+  return { data: toTable(rows, cols, numeric, p) + '\n', notes: aviso };
 }
 
-function warnTruncation(
-  err: NodeJS.WriteStream,
-  p: ReturnType<typeof palette>,
-  shown: number,
-  total: number
-): void {
-  err.write(
-    p.yellow(
-      `Showing ${shown} of ${total} rows. Raise --limit, page with --offset, or use --all to see the rest.\n`
-    )
+/**
+ * Renders a result set under the output contract. Returns nothing; writes
+ * the DATA to stdout (or to `-o`) through `emit`, and every note to stderr.
+ */
+export function render(rows: Row[], opts: RenderOptions = {}): void {
+  const out = opts.stdout ?? process.stdout;
+  const err = opts.stderr ?? process.stderr;
+  // El estilo del dato lo decide su DESTINO, no el stdout de quien invoca.
+  const { data, notes } = compose(rows, opts, palette(opts.output ? NO_ES_TERMINAL : out));
+  emit(data, opts, out);
+  const p = palette(err);
+  for (const n of notes) err.write(n.tone === 'yellow' ? p.yellow(n.text) : p.dim(n.text));
+}
+
+/**
+ * Rutas que ESTE proceso ya abrió por `-o`.
+ *
+ * `-o` es una redirección, no un volcado: promete que el archivo contiene lo
+ * que el comando habría impreso. `cfdi show` imprime dos tablas —la cabecera
+ * del CFDI y sus conceptos— y con `writeFileSync` en cada render la segunda
+ * BORRABA a la primera: el archivo salía con los conceptos y sin el
+ * comprobante, en silencio y con código 0.
+ *
+ * De ahí las dos mitades de la regla, y por qué son dos:
+ *
+ *   · DENTRO de una invocación se ACUMULA. La primera escritura crea o trunca
+ *     y las siguientes añaden, de modo que el archivo tenga la salida
+ *     COMPLETA del comando. Fallar en vez de acumular —tratar el segundo
+ *     render como un error del programador— era la otra salida posible y se
+ *     descarta: convertiría `cfdi show -o` en un error de uso para quien no
+ *     hizo nada mal, cambiando una pérdida silenciosa por una negativa a
+ *     obedecer una combinación de banderas documentada.
+ *   · ENTRE invocaciones NO se acumula. Este conjunto nace vacío con el
+ *     proceso, así que correr el mismo comando dos veces sobre el mismo
+ *     archivo lo deja con UNA salida, como haría `>`. Acumular entre
+ *     corridas sería el defecto siguiente: un guion en cron duplicando su
+ *     extracto cada noche.
+ */
+const abiertos = new Set<string>();
+
+/**
+ * LA ÚNICA PUERTA POR DONDE SALE UN DATO. La conoce `-o`, y por eso nada que
+ * sea dato puede escribirse fuera de aquí.
+ *
+ * Se exporta porque hay una salida que no pasa por `render` y sí es dato: los
+ * bytes exactos del XML en `cfdi show --format xml`, que no se re-serializan
+ * jamás. Con `-o` iban íntegros a stdout y el archivo tampoco existía.
+ */
+export function emit(text: string, opts: RenderOptions, out?: NodeJS.WriteStream): void {
+  if (opts.output) {
+    // Por ruta RESUELTA: `./x.csv` y `x.csv` son el mismo archivo, y la
+    // segunda tabla de un comando no puede truncar a la primera por haberse
+    // escrito con otra forma del mismo nombre.
+    const destino = resolvePath(opts.output);
+    if (abiertos.has(destino)) {
+      appendFileSync(destino, text, 'utf8');
+    } else {
+      writeFileSync(destino, text, 'utf8');
+      abiertos.add(destino);
+    }
+    return;
+  }
+  (out ?? opts.stdout ?? process.stdout).write(text);
+}
+
+/**
+ * ¿El usuario sigue queriendo la FICHA ESCRITA A MANO, o ya pidió otra forma?
+ *
+ * Diez hojas llevaban esta misma predicado copiado —`ap reconcile`, `closing
+ * preview`, `diot`, `bank`, `batch`…— y la undécima, `entry show`, lo tenía
+ * escrito a mano y le faltaba una cláusula: no consultaba `-o`. El efecto era
+ * el defecto de este tramo con otra cara: con `-o`, la cabecera de la póliza
+ * (número, fecha, estatus, totales) se iba por la terminal y al archivo
+ * llegaban sólo los renglones. El archivo existía, así que la mentira era por
+ * omisión y no se veía.
+ *
+ * Vive aquí, junto a la puerta, porque es una decisión del CONTRATO DE SALIDA
+ * y no de ninguna hoja: pedir un archivo es pedir otra forma. Las diez copias
+ * se quedan donde están —una de ellas con una excepción documentada, la de
+ * `e-accounting generate`, donde `-o` nombra el XML y no la salida—; lo que
+ * esta función da es un lugar canónico al que converger.
+ */
+export function legible(opts: RenderOptions): boolean {
+  return (
+    !opts.json &&
+    (opts.format ?? 'table') === 'table' &&
+    !opts.quiet &&
+    opts.output === undefined &&
+    opts.fields === undefined
   );
 }
 
-function emit(text: string, opts: RenderOptions, out: NodeJS.WriteStream): void {
-  if (opts.output) {
-    writeFileSync(opts.output, text, 'utf8');
-    return;
-  }
-  out.write(text);
+/**
+ * SOLO PRUEBAS: olvida qué rutas abrió `-o`, que es como nace un proceso.
+ *
+ * Existe porque la mitad «entre invocaciones NO se acumula» sólo se puede
+ * afirmar desde otro proceso, y una prueba que no puede expresar el fallo que
+ * vigila no es una prueba. La otra mitad se comprueba de verdad, lanzando el
+ * binario dos veces.
+ */
+export function resetOutputTargets(): void {
+  abiertos.clear();
 }

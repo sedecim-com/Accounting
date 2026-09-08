@@ -6,7 +6,15 @@ vi.mock('../../src/database/connection.js', () => ({
   currentTenant: vi.fn(),
 }));
 
-import { resolveEntity, listEntities, bootstrapTenant } from '../../src/ai/context.js';
+import {
+  resolveEntity,
+  listEntities,
+  bootstrapTenant,
+  fijarInquilinoDeLaSesion,
+  inquilinoDeLaSesion,
+  olvidarInquilinoDeLaSesion,
+  estadoDelInquilino,
+} from '../../src/ai/context.js';
 import { query, enterTenant } from '../../src/database/connection.js';
 
 const mockQuery = query as unknown as Mock;
@@ -85,7 +93,13 @@ describe('listEntities', () => {
 });
 
 describe('isolation: the tenant context is set automatically', () => {
-  beforeEach(() => { mockQuery.mockReset(); mockEnterTenant.mockReset(); });
+  // La resolución del inquilino es UNA por proceso y se recuerda; sin
+  // olvidarla entre pruebas, cada una heredaría la decisión de la anterior.
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockEnterTenant.mockReset();
+    olvidarInquilinoDeLaSesion();
+  });
 
   it('resolveEntity enters the entity tenant context', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [ENTITY_ROW] });
@@ -112,5 +126,132 @@ describe('isolation: the tenant context is set automatically', () => {
     delete process.env.MNEMOSINE_TENANT;
     bootstrapTenant(undefined);
     expect(mockEnterTenant).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+// LA FRONTERA DE INQUILINO, DEL LADO DE LA BIBLIOTECA
+//
+// Cada prueba de este bloque es una medición hecha sobre el binario antes de
+// existir el arreglo. La de abajo es la que importa: `mnemosine entity list
+// --tenant <ceros>` devolvía las TRES entidades del inquilino del .env,
+// código 0 y sin un aviso. Se pidió el despacho B y salió la balanza del A.
+// ============================================================
+describe('el inquilino de la invocación', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockEnterTenant.mockReset();
+    olvidarInquilinoDeLaSesion();
+    delete process.env.MNEMOSINE_TENANT;
+  });
+
+  it('la ausencia de bandera NO degrada lo que la raíz decidió', () => {
+    process.env.MNEMOSINE_TENANT = 'del-entorno';
+    fijarInquilinoDeLaSesion('de-la-bandera');
+    mockEnterTenant.mockReset();
+
+    // Esto es LITERALMENTE lo que hacen las 81 hojas: `opts.tenant` vale
+    // undefined porque la raíz se quedó con la forma larga. Antes esa llamada
+    // era una orden de usar el entorno y PISABA la bandera.
+    bootstrapTenant(undefined);
+
+    expect(mockEnterTenant).toHaveBeenCalledWith('de-la-bandera');
+    expect(mockEnterTenant).not.toHaveBeenCalledWith('del-entorno');
+    expect(inquilinoDeLaSesion()).toMatchObject({
+      tenantId: 'de-la-bandera',
+      origen: 'bandera',
+      entornoIgnorado: 'del-entorno',
+    });
+  });
+
+  it('ochenta y una llamadas seguidas sin bandera siguen sin degradarlo', () => {
+    process.env.MNEMOSINE_TENANT = 'del-entorno';
+    fijarInquilinoDeLaSesion('de-la-bandera');
+    mockEnterTenant.mockReset();
+    for (let i = 0; i < 81; i++) bootstrapTenant(undefined);
+    const entradas = mockEnterTenant.mock.calls as [string][];
+    expect(new Set(entradas.map((c) => c[0]))).toEqual(new Set(['de-la-bandera']));
+  });
+
+  it('la precedencia publicada, entera: bandera > entorno > config', () => {
+    process.env.MNEMOSINE_TENANT = 'del-entorno';
+    expect(fijarInquilinoDeLaSesion('de-la-bandera', 'de-config')).toMatchObject({
+      tenantId: 'de-la-bandera', origen: 'bandera',
+    });
+    olvidarInquilinoDeLaSesion();
+    expect(fijarInquilinoDeLaSesion(undefined, 'de-config')).toMatchObject({
+      tenantId: 'del-entorno', origen: 'entorno',
+    });
+    olvidarInquilinoDeLaSesion();
+    delete process.env.MNEMOSINE_TENANT;
+    expect(fijarInquilinoDeLaSesion(undefined, 'de-config')).toMatchObject({
+      tenantId: 'de-config', origen: 'config',
+    });
+    olvidarInquilinoDeLaSesion();
+    expect(fijarInquilinoDeLaSesion(undefined, undefined)).toEqual({ origen: 'ninguno' });
+  });
+
+  it('una hoja que SÍ recibe el valor (la forma corta -t) manda sobre la raíz', () => {
+    fijarInquilinoDeLaSesion('de-la-raiz');
+    mockEnterTenant.mockReset();
+    bootstrapTenant('de-la-hoja');
+    expect(mockEnterTenant).toHaveBeenCalledWith('de-la-hoja');
+    expect(inquilinoDeLaSesion().tenantId).toBe('de-la-hoja');
+  });
+
+  it('una cadena vacía o de espacios no es un inquilino', () => {
+    process.env.MNEMOSINE_TENANT = 'del-entorno';
+    expect(fijarInquilinoDeLaSesion('   ')).toMatchObject({
+      tenantId: 'del-entorno', origen: 'entorno',
+    });
+  });
+
+  it('sin nada que fijar no se toca el contexto: resolveEntity lo pondrá', () => {
+    fijarInquilinoDeLaSesion(undefined);
+    mockEnterTenant.mockReset();
+    bootstrapTenant(undefined);
+    expect(mockEnterTenant).not.toHaveBeenCalled();
+  });
+
+  it('estadoDelInquilino distingue inexistente de inactivo', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    expect(await estadoDelInquilino('t1')).toBe('inexistente');
+    mockQuery.mockResolvedValueOnce({ rows: [{ is_active: false }] });
+    expect(await estadoDelInquilino('t1')).toBe('inactivo');
+    mockQuery.mockResolvedValueOnce({ rows: [{ is_active: true }] });
+    expect(await estadoDelInquilino('t1')).toBe('activo');
+    const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/FROM tenants WHERE id = \$1/);
+    expect(params).toEqual(['t1']);
+  });
+
+  it('un despliegue que no deja leer `tenants` no acusa: se calla', async () => {
+    // Fail-open A PROPÓSITO, y sólo aquí: negarle SELECT sobre `tenants` a
+    // este rol no puede convertirse en «tu inquilino no existe». El
+    // aislamiento lo sigue haciendo RLS; esto es el aviso, no la puerta.
+    mockQuery.mockRejectedValueOnce(Object.assign(new Error('permission denied'), { code: '42501' }));
+    expect(await estadoDelInquilino('t1')).toBe('indeterminable');
+    // Un motivo DESCONOCIDO sí se propaga. El ejemplar importa: aquí decía
+    // `08006`, que es `connection_failure` —o sea, justo una de las familias
+    // que TIENE que callarse (ver la prueba siguiente)—, así que afirmaba el
+    // principio correcto con el caso equivocado. Se usa un error de sintaxis,
+    // que es lo que de verdad nadie debe tragarse.
+    mockQuery.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '42601' }));
+    await expect(estadoDelInquilino('t1')).rejects.toThrow('boom');
+  });
+
+  it('una base INALCANZABLE tampoco acusa, ni cambia el desenlace de lo que observa', async () => {
+    // Este chequeo corre en el gancho, antes de que la hoja valide sus propios
+    // argumentos. Si dejara escapar el fallo de conexión, `usage --since 7w`
+    // —un error de USO, que debe salir 2 sin tocar la base— saldría 1 por no
+    // poder conectar. Un instrumento de aviso no puede cambiar el código de
+    // salida de lo que está mirando.
+    const boom = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:1'), { code: 'ECONNREFUSED' });
+    vi.mocked(query).mockRejectedValueOnce(boom);
+    expect(await estadoDelInquilino('t1')).toBe('indeterminable');
+    // Y un motivo DESCONOCIDO sí se propaga: tragárselo dejaría el aviso mudo
+    // para siempre sin que nadie se entere.
+    vi.mocked(query).mockRejectedValueOnce(new Error('syntax error at or near'));
+    await expect(estadoDelInquilino('t1')).rejects.toThrow(/syntax error/);
   });
 });

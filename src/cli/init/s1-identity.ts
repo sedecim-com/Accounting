@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { query, enterTenant } from '../../database/connection.js';
+import { query, enterTenant, currentTenant } from '../../database/connection.js';
 import { checkEntities } from '../../ai/doctor-service.js';
 import { ensureEntityAccounting } from '../../services/accounting/entity-accounting.js';
 import { createEntity as createEntityService } from '../../services/entity/entity-service.js';
@@ -67,7 +67,10 @@ export class IdentidadSection implements SetupSection {
     // con varios despachos listaba las entidades de todos y adoptaba el
     // inquilino de la PRIMERA POR NOMBRE, que no tiene por qué ser la del
     // usuario que está corriendo el asistente.
-    const fijado = process.env.MNEMOSINE_TENANT || null;
+    // El inquilino EFECTIVO, no el del entorno (#90): el gancho ya resolvió la
+    // precedencia, y filtrar este SELECT por el .env enseñaba las sociedades de
+    // otro despacho cuando se había pedido `--tenant`.
+    const fijado = currentTenant() ?? process.env.MNEMOSINE_TENANT ?? null;
     const existing = await query<{ id: string; name: string; tax_id: string; tenant_id: string }>(
       `SELECT id, name, tax_id, tenant_id FROM legal_entities
         WHERE is_active AND ($1::uuid IS NULL OR tenant_id = $1::uuid)
@@ -146,7 +149,9 @@ export class IdentidadSection implements SetupSection {
       currency: input.currency,
       // Si el asistente ya fijó inquilino —o venía de .env— se respeta; si no,
       // el servicio decide, y con varios exige elegir en vez de adivinar.
-      tenantId: process.env.MNEMOSINE_TENANT || undefined,
+      // Y la sociedad se CREA bajo el inquilino efectivo: crearla bajo el del
+      // .env mientras se pidió otro es escribir en el despacho equivocado.
+      tenantId: currentTenant() ?? process.env.MNEMOSINE_TENANT ?? undefined,
     });
     return { tenantId: r.tenantId, entityId: r.entityId };
   }

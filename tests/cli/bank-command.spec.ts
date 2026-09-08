@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { registerBankCommand, type BankCommandDeps } from '../../src/cli/bank-command.js';
-import { riskOf, declareRisk } from '../../src/cli/kernel/risk.js';
+import { riskOf, declareRisk, ambitoDeLlave } from '../../src/cli/kernel/risk.js';
 import { VERBS } from '../../src/cli/kernel/vocabulary.js';
 // `condicionDeAlcance` deduce la columna de frontera UNA vez por proceso y la
 // cachea; con dobles, esa caché se llena de lo que contestó el primer
@@ -449,7 +449,16 @@ describe('safety declarations', () => {
     ).toThrow(/never post to the ledger|permission must never depend/);
   });
 
-  it('las cinco llevan las tres banderas que el núcleo exige de una irreversible', () => {
+  it('las cinco HONRAN la llave que aceptan, cada una bajo su propio ámbito', () => {
+    // LA VERSIÓN ANTERIOR NO PODÍA FALLAR: comprobaba banderas que
+    // `declareRisk` acaba de INYECTAR (risk.ts), o sea su propio efecto
+    // secundario. Lo que sí puede fallar es qué hace la hoja con la llave.
+    // Las cinco la honran de verdad (`bajoLlave` → `conLlave`), y sus cinco
+    // ámbitos son distintos: compartir uno las deduplicaría ENTRE SÍ, porque
+    // la unicidad de `idempotency_keys` es por (tenant, scope, clave).
+    const ambitos = F05D.map((path) => ambitoDeLlave(find(path)));
+    expect(ambitos).toEqual(F05D);
+    expect(new Set(ambitos).size).toBe(F05D.length);
     for (const path of F05D) {
       const largas = find(path).options.map((o) => o.long);
       expect(largas, path).toEqual(

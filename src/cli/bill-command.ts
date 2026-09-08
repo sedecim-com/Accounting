@@ -764,7 +764,12 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   withContext(approve);
   // irreversible ⇒ the kernel adds --dry-run, --yes and --idempotency-key,
   // and refuses at startup to let the agent invoke this.
-  declareRisk(approve, { risk: 'irreversible', agent: false, writes: 'bills.status, journal_entries' });
+  declareRisk(approve, {
+    risk: 'irreversible',
+    agent: false,
+    llave: { innecesaria: 'la aprobación ya es idempotente por el estado de la factura y su journal_entry_id' },
+    writes: 'bills.status, journal_entries',
+  });
   approve.addHelpText('after', EJEMPLOS.approve);
   approve.action(
     (ref: string, opts: CommonOpts & { dryRun?: boolean; yes?: boolean; idempotencyKey?: string }) =>
@@ -965,6 +970,7 @@ export function registerBillCommand(program: Command, deps: BillCommandDeps): vo
   // lo que va al rastro de auditoría.
   declareRisk(inboxRun, {
     risk: 'escritura',
+    llave: { scope: 'bill inbox run' },
     agent: false,
     writes:
       'pre_registrations; con --action process además bills, bill_lines, ASIENTOS POSTEADOS y, ' +
