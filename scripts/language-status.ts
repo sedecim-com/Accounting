@@ -52,7 +52,13 @@ import { docsLanes } from './language/lanes/docs.js';
 
 const ROOT = path.resolve(__dirname, '..');
 const BASELINE = path.join(ROOT, 'docs', 'language-baseline.json');
-const GOVERNING_DOC = path.join(ROOT, 'docs', 'language.md');
+// LAS DOS PÁGINAS, no una. La issue #144 pide el bloque en el rector inglés Y
+// en su gemela española, y publicar sólo en una las desincroniza: quien lea la
+// española vería cifras viejas sin ninguna señal de que lo son.
+const GOVERNING_DOCS = [
+  path.join(ROOT, 'docs', 'language.md'),
+  path.join(ROOT, 'docs', 'language.es.md'),
+];
 const OPEN_MARK = '<!-- LANGUAGE-STATUS:START -->';
 const CLOSE_MARK = '<!-- LANGUAGE-STATUS:END -->';
 
@@ -245,18 +251,39 @@ function block(lanes: Lane[], base: Baseline | null): string {
   ].join('\n');
 }
 
-function writeBlock(text: string): boolean {
-  if (!fs.existsSync(GOVERNING_DOC)) return false;
-  const doc = fs.readFileSync(GOVERNING_DOC, 'utf8');
-  const i = doc.indexOf(OPEN_MARK);
-  const j = doc.indexOf(CLOSE_MARK);
-  if (i === -1 || j === -1) {
-    // Sin marcadores no se inventa un sitio: el documento decide dónde va su
-    // block, no el comando. Se dice y se sigue.
-    return false;
+/**
+ * PUBLICAR ES UNA PROMESA, ASÍ QUE NO PUEDE FALLAR EN SILENCIO.
+ *
+ * Devuelve la lista de páginas que NO se pudieron escribir, con el motivo.
+ * Vacía significa que las dos se publicaron.
+ *
+ * La versión anterior devolvía un booleano, imprimía «no se escribió» y salía
+ * con CERO. Un comando que promete publicar un artefacto y termina bien sin
+ * haberlo publicado es la avería que este mismo repositorio llama «el cero que
+ * parece una victoria»: quien lo corre en un guion no se entera, y el bloque
+ * del rector se queda con las cifras del mes pasado sin que nada lo diga.
+ *
+ * Sin marcadores no se inventa un sitio —el documento decide dónde va su
+ * bloque, no el comando— pero eso se ACUSA en vez de tolerarse.
+ */
+export function writeBlock(text: string, targets: string[] = GOVERNING_DOCS): string[] {
+  const failures: string[] = [];
+  for (const target of targets) {
+    const rel = path.relative(ROOT, target);
+    if (!fs.existsSync(target)) {
+      failures.push(`${rel}: no existe`);
+      continue;
+    }
+    const doc = fs.readFileSync(target, 'utf8');
+    const i = doc.indexOf(OPEN_MARK);
+    const j = doc.indexOf(CLOSE_MARK);
+    if (i === -1 || j === -1) {
+      failures.push(`${rel}: no tiene los marcadores ${OPEN_MARK} … ${CLOSE_MARK}`);
+      continue;
+    }
+    fs.writeFileSync(target, doc.slice(0, i) + text + doc.slice(j + CLOSE_MARK.length));
   }
-  fs.writeFileSync(GOVERNING_DOC, doc.slice(0, i) + text + doc.slice(j + CLOSE_MARK.length));
-  return true;
+  return failures;
 }
 
 /** `--seed` se niega en un árbol sucio: sembraría lo que alguien no ha comprometido. */
@@ -328,13 +355,21 @@ function main(argv: string[]): number {
   const findings = compare(lanes, base);
 
   if (has('--write')) {
-    const written = writeBlock(block(lanes, base));
-    process.stdout.write(
-      written
-        ? `Bloque regenerado en ${path.relative(ROOT, GOVERNING_DOC)}.\n`
-        : `No se escribió el bloque: ${path.relative(ROOT, GOVERNING_DOC)} no existe o no tiene marcadores ${OPEN_MARK}.\n`
+    const failures = writeBlock(block(lanes, base));
+    if (failures.length === 0) {
+      process.stdout.write(
+        `Bloque regenerado en ${GOVERNING_DOCS.map((d) => path.relative(ROOT, d)).join(' y ')}.\n`
+      );
+      return 0;
+    }
+    process.stderr.write(
+      `No se publicó el bloque en ${failures.length} de ${GOVERNING_DOCS.length} página(s):\n` +
+        failures.map((f) => `  · ${f}`).join('\n') +
+        '\n\nEl medidor publica su cifra en el rector y en su gemela; sin eso mide para\n' +
+        'nadie. Se sale con 1 a propósito: un comando que promete publicar y termina\n' +
+        'bien sin haber publicado deja el bloque con las cifras viejas y nadie se entera.\n'
     );
-    return 0;
+    return 1;
   }
 
   if (has('--check')) {
