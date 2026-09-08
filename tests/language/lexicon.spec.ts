@@ -26,7 +26,14 @@ function declaracionesDe(archivo: string): string[] {
   const bruto = fs.readFileSync(archivo, 'utf8');
   const sinComentarios = bruto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[^\n]*?\/\/[^\n]*$/gm, '');
   const nombres: string[] = [];
-  for (const m of sinComentarios.matchAll(/\b(?:const|let|var|function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g)) {
+  // `\p{L}` y no `[A-Za-z]`: con el rango ASCII este extractor NO PODÍA VER un
+  // nombre acentuado. `añoDeDocumento` casaba hasta la `ñ` y devolvía `a`, así
+  // que la autoprueba de más abajo declaraba inglesa a `src/utils` sin haber
+  // mirado nunca el nombre más español que hay dentro. El instrumento se
+  // aprobaba a sí mismo con el defecto puesto.
+  for (const m of sinComentarios.matchAll(
+    /\b(?:const|let|var|function|class|interface|type|enum)\s+([\p{L}_$][\p{L}\p{N}_$]*)/gu
+  )) {
     nombres.push(m[1]);
   }
   return nombres;
@@ -53,7 +60,46 @@ describe('tokenize — el nombre se parte donde el idioma cambia', () => {
     expect(tokenize('CuentaPorCobrar')).toEqual(['cuenta', 'por', 'cobrar']);
     expect(tokenize('amount_due')).toEqual(['amount', 'due']);
     expect(tokenize('MAX_DECIMALES_FACTOR')).toEqual(['max', 'decimales', 'factor']);
-    expect(tokenize('tasa8')).toEqual(['tasa8']);
+    // LA FRONTERA LETRA↔DÍGITO: manda el docstring, no la conducta heredada.
+    // Esta prueba fijaba `['tasa8']`, y ese token no está en ninguna lista: al
+    // tener más de dos letras se clasificaba INGLÉS. El nombre más español
+    // posible salía inglés, y para taparlo alguien había metido `iva0`, `iva8`
+    // e `iva16` en la lista de neutros. Partido, `tasa` es raíz española y el
+    // identificador se señala como lo que es.
+    expect(tokenize('tasa8')).toEqual(['tasa', '8']);
+    expect(tokenize('iva16')).toEqual(['iva', '16']);
+    expect(isFlagged('tasa8'), 'un nombre español con dígito pegado debe señalarse').toBe(true);
+  });
+
+  it('EL ACENTO Y LA EÑE SOBREVIVEN, y el nombre se clasifica por lo que es', () => {
+    // El defecto que más caro salía, porque fallaba en la dirección que halaga.
+    // `tokenize` partía por «todo lo que no sea ASCII», así que `diseño` daba
+    // ['dise','o'] y `añoFiscal` daba ['a','o','fiscal']. Ninguno de esos
+    // residuos casa con una raíz española, y un token desconocido de más de dos
+    // letras se clasifica INGLÉS por omisión: los nombres MÁS españoles del
+    // árbol se contaban como ingleses, y el metro publicaba menos deuda de la
+    // que hay.
+    expect(tokenize('añoFiscal')).toEqual(['año', 'fiscal']);
+    expect(tokenize('diseño')).toEqual(['diseño']);
+    expect(tokenize('añoDeDocumento')).toEqual(['año', 'de', 'documento']);
+    expect(tokenize('PROMEDIO_AÑOS')).toEqual(['promedio', 'años']);
+
+    // Y la mitad que el tokenizador solo no arregla: si el token sale entero
+    // pero no está en la lista, cae en inglés igual. Las cuatro acentuadas que
+    // el árbol declara están ahora en SPANISH_ROOTS.
+    expect(classify('añoFiscal')).toBe('es');
+    expect(isFlagged('añoDeDocumento')).toBe(true);
+    expect(isFlagged('señalados')).toBe(true);
+  });
+
+  it('un token con dígito pegado no se esconde detrás de su número', () => {
+    // Sin el corte, `tasa8` es un token que ninguna lista conoce y por tanto
+    // inglés. Con el corte, `tasa` es raíz española. La prueba mira las dos
+    // mitades —los tokens y el veredicto— porque partir bien y clasificar mal
+    // deja el mismo falso negativo.
+    expect(tokenize('isr2026')).toEqual(['isr', '2026']);
+    expect(isFlagged('tasa8')).toBe(true);
+    expect(isFlagged('saldo2024')).toBe(true);
   });
 
   it('una sigla pegada a una palabra no la esconde', () => {
@@ -121,7 +167,17 @@ describe('el instrumento no acusa en falso', () => {
     'src/ai/jobs',
     'src/ai/webhooks',
     'src/types',
-    'src/utils',
+    // `src/utils` SALIÓ de la lista, y no para conservar el verde. Declara
+    // `añoDeDocumento` (src/utils/sequence.ts), que es español de verdad: con
+    // el extractor arreglado el léxico lo señala, y señalarlo es un acierto,
+    // no un falso positivo. Lo que ya no puede es servir de patrón de oro de
+    // «carpeta escrita en inglés», que es lo único que esta lista mide.
+    //
+    // Antes pasaba por inglesa por DOS defectos encadenados: el extractor
+    // cortaba el nombre en la `ñ` y devolvía `a`, y aunque lo hubiera visto,
+    // `tokenize` habría tirado el acento. El instrumento se aprobaba a sí
+    // mismo con el defecto puesto. Renombrar la declaración es de los tramos
+    // I12–I18; sacarla de la referencia es de aquí.
     'src/services/vault',
     'src/services/integrations/base',
     'src/services/payroll/tax-engine',
@@ -129,11 +185,21 @@ describe('el instrumento no acusa en falso', () => {
 
   it.each(INGLESAS)('%s no tiene una sola declaración señalada por error', (dir) => {
     const señalados: string[] = [];
-    for (const f of tsDe(dir)) {
+    let examined = 0;
+    const files = tsDe(dir);
+    for (const f of files) {
       for (const n of declaracionesDe(f)) {
+        examined++;
         if (isFlagged(n)) señalados.push(`${path.relative(RAIZ, f)}: ${n}`);
       }
     }
+    // AFIRMAR PRIMERO QUE SE MIRÓ ALGO. Estas nueve rutas son literales y este
+    // epic va a renombrar carpetas: el día que una se mueva, `tsDe` devuelve
+    // cero files, el bucle no da una vuelta y la prueba pasa EN VERDE sin
+    // haber comprobado nada. Un cero indistinguible de la victoria es la avería
+    // que el resto de la casa ya tiene nombrada.
+    expect(files.length, `${dir} no existe o no tiene .ts: la prueba pasaría sin mirar nada`).toBeGreaterThan(0);
+    expect(examined, `${dir} no declaró nada que revisar`).toBeGreaterThan(0);
     // Si esto se pone rojo, la respuesta NO es bajar el número: es mirar el
     // token culpable y decidir si de verdad es español.
     expect(señalados, 'declaraciones inglesas que el léxico señalaría').toEqual([]);

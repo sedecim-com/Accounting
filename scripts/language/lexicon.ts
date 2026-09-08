@@ -55,6 +55,12 @@ export const SPANISH_ROOTS: ReadonlySet<string> = new Set([
   'alta', 'alternativa', 'alto', 'amarre', 'ambiguos', 'amortizacion', 'anadir',
   'analizador', 'analizar', 'ancho', 'anclaje', 'anidado', 'anio', 'anios', 'aniversario',
   'anota', 'anotar', 'anterior', 'anteriores', 'antes', 'anticipado', 'anticipados',
+  // LAS CUATRO ACENTUADAS. Nunca estuvieron en esta lista, y no por olvido:
+  // `tokenize` tiraba las letras no ASCII, así que estos tokens no se
+  // producían jamás y añadirlos no habría cambiado nada. Con el tokenizador
+  // arreglado sí se producen, y son las únicas cuatro que el árbol declara —
+  // medido sobre las 28 342 declaraciones de src/, tests/ y scripts/.
+  'acompañantes', 'año', 'años', 'señalados',
   'anticipo', 'anticipos', 'antiguedad', 'antiguo', 'anual', 'anuales', 'apagada',
   'apagado', 'apagados', 'aparcado', 'aparcados', 'aparece', 'apariciones', 'apertura',
   'aplastan', 'aplazada', 'aplicable', 'aplicables', 'aplicacion', 'aplicaciones',
@@ -347,7 +353,11 @@ export const NEUTRAL_TOKENS: ReadonlySet<string> = new Set([
   'hsa', 'html', 'http', 'ia', 'iat', 'iban', 'iden', 'idp', 'idse', 'idx', 'ieps',
   'iface', 'ifrs', 'imp', 'impl', 'imss', 'inf', 'info', 'infonavit', 'ing', 'ini', 'init',
   'inpc', 'int', 'inv', 'inversion', 'ip', 'is1099', 'isn', 'iso', 'iso2', 'isr', 'iv',
-  'iva', 'iva0', 'iva16', 'iva8', 'jaccard', 'je', 'jel', 'json', 'jul', 'jun', 'juris',
+  // `iva0`, `iva8` e `iva16` estaban aquí como parche del corte letra↔dígito
+  // que `tokenize` prometía y no hacía. Con el corte puesto, ese token no se
+  // puede producir: `iva16` da ['iva','16']. Se retiran para que la lista no
+  // guarde entradas inalcanzables — que es como una lista deja de leerse.
+  'iva', 'jaccard', 'je', 'jel', 'json', 'jul', 'jun', 'juris',
   'jwks', 'jwt', 'kase', 'kms', 'ku', 'lang', 'lateral', 'lc', 'lcs', 'legal', 'legible',
   'len', 'lev', 'levenshtein', 'lisr', 'llm', 'loc', 'local', 'locales', 'macrs', 'manual',
   'mar', 'mate', 'material', 'may', 'mb', 'med', 'media', 'medicare', 'mem', 'menu',
@@ -433,10 +443,23 @@ export const DOMAIN_TERMS: ReadonlyMap<string, string> = new Map([]);
  */
 export function tokenize(identifier: string): string[] {
   const conEspacios = identifier
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+    .replace(/([\p{Ll}\p{N}])([\p{Lu}])/gu, '$1 $2')
+    .replace(/([\p{Lu}]+)([\p{Lu}][\p{Ll}])/gu, '$1 $2')
+    // LA FRONTERA LETRA↔DÍGITO, que este docstring prometía y el código no
+    // hacía. `tasa8` daba un solo token que no está en ninguna lista, y un
+    // token desconocido de más de dos letras se clasifica INGLÉS: el nombre
+    // más español posible salía inglés. Se ve en el léxico mismo, donde
+    // alguien tuvo que añadir `iva0`, `iva8` e `iva16` como neutros — parches
+    // del corte que faltaba.
+    .replace(/(\p{L})(\p{N})/gu, '$1 $2')
+    .replace(/(\p{N})(\p{L})/gu, '$1 $2');
   return conEspacios
-    .split(/[^A-Za-z0-9]+|\s+/)
+    // `\p{L}` y no `A-Za-z`: partir por «todo lo que no sea ASCII» tiraba los
+    // acentos y la eñe, y el residuo no casaba con ninguna raíz. `diseño` daba
+    // ['dise','o'] y se clasificaba INGLÉS; `añoFiscal` daba ['a','o','fiscal']
+    // y salía neutro. El sesgo caía justo sobre los nombres MÁS españoles del
+    // árbol, y siempre en la dirección que halaga: menos español del que hay.
+    .split(/[^\p{L}\p{N}]+|\s+/u)
     .filter((t) => t.length > 0)
     .map((t) => t.toLowerCase());
 }
