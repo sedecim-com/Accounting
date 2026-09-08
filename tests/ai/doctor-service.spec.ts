@@ -7,19 +7,24 @@ vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(),
   enterTenant: vi.fn(),
   currentTenant: vi.fn(),
+  // El doble CORRE el callback: si sólo devolviera un valor, el recuento por
+  // inquilino nunca se ejecutaría y la prueba mediría el doble, no el código.
+  withTenant: vi.fn(async (_t: string, fn: () => Promise<unknown>) => fn()),
 }));
 
 import { runDoctor,
   checkAccountRoles,
+  checkExtractosCompletos,
   checkLookupTables,
   checkOrphanedCapability,
   claseDe,
   LOOKUP_TABLES,
 } from '../../src/ai/doctor-service.js';
-import { query } from '../../src/database/connection.js';
+import { query, withTenant } from '../../src/database/connection.js';
 import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
 
 const mockQuery = query as unknown as Mock;
+const mockWithTenant = withTenant as unknown as Mock;
 
 /** Answers by mentioned table; defensive with missing args. */
 function mockDb(over: Partial<Record<string, unknown[]>> = {}) {
@@ -47,6 +52,10 @@ function mockDb(over: Partial<Record<string, unknown[]>> = {}) {
     if (q.includes('pg_roles')) return Promise.resolve({ rows: over.roles ?? [{ current_user: 'app', is_super: false, bypass: false, rls_tables: '57' }] });
     if (q.includes('ai_drafts')) return Promise.resolve({ rows: over.pending ?? [{ drafts: '0', questions: '0', ops: '0' }] });
     if (q.includes('fiscal_credentials')) return Promise.resolve({ rows: over.creds ?? [{ n: '0', soonest: null }] });
+    // checkExtractosCompletos: la forma del catálogo, los inquilinos y el hueco.
+    if (q.includes('uq_bank_tx_contenido')) return Promise.resolve({ rows: over.formaBanco ?? [{ unico: false, ciego: false }] });
+    if (q.includes('FROM tenants')) return Promise.resolve({ rows: over.inquilinos ?? [{ id: 't1' }] });
+    if (q.includes('bank_statements')) return Promise.resolve({ rows: over.extractos ?? [] });
     return Promise.resolve({ rows: [] });
   });
 }
@@ -56,6 +65,7 @@ const ENV = { ...process.env };
 
 beforeEach(() => {
   mockQuery.mockReset();
+  mockWithTenant.mockClear();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-'));
   delete process.env.MNEMOSINE_PROVIDER;
   process.env.ENCRYPTION_KEY = 'a'.repeat(64);
@@ -613,5 +623,63 @@ describe('employer_tax_liabilities, graduada a LOOKUP_TABLES', () => {
     // Lo que la distingue de las demás huérfanas: la forma se PRESENTA.
     expect(spec.breaks).toMatch(/940|941/);
     expect(spec.breaks).toMatch(/ZERO|zero/);
+  });
+});
+
+describe('checkExtractosCompletos', () => {
+  it('acusa el catálogo sin reparar y dice a cuántos inquilinos miró', async () => {
+    mockDb({ formaBanco: [{ unico: true, ciego: true }], inquilinos: [{ id: 't1' }, { id: 't2' }] });
+    const c = await checkExtractosCompletos();
+    expect(c.level).toBe('fail');
+    expect(c.detail).toMatch(/índice de contenido es ÚNICO/);
+    expect(c.detail).toMatch(/huella se puede forjar/);
+    expect(c.detail).toMatch(/2 inquilino\(s\) revisado\(s\)/);
+  });
+
+  it('con el catálogo reparado, nombra los extractos cortos de CADA inquilino', async () => {
+    mockDb({
+      inquilinos: [{ id: 't1' }, { id: 't2' }],
+      extractos: [{ file_name: 'bbva.csv', period_start: '2026-07-01', declaradas: '4', presentes: '3' }],
+    });
+    const c = await checkExtractosCompletos();
+    // ESTA ES LA ASERCIÓN DE WIT-02, y la que el chequeo anterior no pasaba:
+    // el recuento se hace DENTRO del contexto de cada inquilino. Sin él, bajo
+    // RLS la consulta no falla, devuelve cero filas — y el diagnóstico daba
+    // «ok» sobre una instalación con extractos incompletos.
+    const vistos = mockWithTenant.mock.calls.map((llamada) => String(llamada[0]));
+    expect(vistos).toEqual(['t1', 't2']);
+    // Dos inquilinos, una fila corta cada uno: el recuento NO se queda en el primero.
+    expect(c.level).toBe('warn');
+    // No dice «faltan»: el recuento no distingue una línea perdida de una que
+    // `insertarLineas` descartó porque su id nativo ya estaba en la cuenta —el
+    // trimestral que contiene al mensual—, y ésa cuelga de otro extracto. Lo
+    // que sí se afirma es la CIFRA, que es lo que WIT-02 vino a arreglar.
+    expect(c.detail).toMatch(/2 línea\(s\) declaradas y no presentes/);
+    expect(c.fix).not.toMatch(/soltar|DROP|borrar/i);
+    expect(c.detail).toMatch(/bbva\.csv/);
+  });
+
+  it('un inquilino que no se pudo mirar baja el veredicto: el cero por filtrado NO es salud', async () => {
+    // ES EL HALLAZGO WIT-02. Antes, este chequeo preguntaba una sola vez y sin
+    // contexto de inquilino: bajo RLS eso devuelve cero filas SIN error, y el
+    // diagnóstico daba «ok» sobre una instalación con extractos incompletos.
+    mockQuery.mockImplementation((sql?: unknown) => {
+      const q = typeof sql === 'string' ? sql : '';
+      if (q.includes('uq_bank_tx_contenido')) return Promise.resolve({ rows: [{ unico: false, ciego: false }] });
+      if (q.includes('FROM tenants')) return Promise.resolve({ rows: [{ id: 't1' }] });
+      if (q.includes('bank_statements')) return Promise.reject(new Error('permission denied'));
+      return Promise.resolve({ rows: [] });
+    });
+    const c = await checkExtractosCompletos();
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/sin poder mirarse/);
+    expect(c.detail).not.toMatch(/ningún extracto/);
+  });
+
+  it('sin nada que reprochar, el verde dice cuánto miró', async () => {
+    mockDb({ inquilinos: [{ id: 't1' }] });
+    const c = await checkExtractosCompletos();
+    expect(c.level).toBe('ok');
+    expect(c.detail).toMatch(/1 inquilino\(s\) revisado\(s\)/);
   });
 });
