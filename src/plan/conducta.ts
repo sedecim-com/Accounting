@@ -273,7 +273,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // mock: se postea y se le pregunta a la balanza qué número publica.
   // ----------------------------------------------------------
   {
-    id: 'saldo-con-signo',
+    id: 'trial-balance-sign-convention',
     paquete: 'E0.1',
     enunciado: 'La balanza publica el saldo con el signo del mayor, posteando y preguntando',
     mutantes: [
@@ -347,7 +347,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // verificación de cuadre lo veía. Sólo lo ve el residuo del ejercicio.
   // ----------------------------------------------------------
   {
-    id: 'barrido-del-cierre',
+    id: 'closed-year-nets-exactly-zero',
     paquete: 'E0.1',
     enunciado: 'Un ejercicio con contra-naturales queda EXACTAMENTE en cero tras cerrar, cerrándolo',
     mutantes: [
@@ -436,7 +436,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // otros dos. Es la lección del conteo, aplicada a una frontera.
   // ----------------------------------------------------------
   {
-    id: 'frontera-de-inquilino',
+    id: 'cross-tenant-query-returns-nothing',
     paquete: 'E0.1',
     enunciado: 'Una consulta acotada al inquilino A no devuelve ni una fila de B, con dos inquilinos vivos',
     mutantes: [
