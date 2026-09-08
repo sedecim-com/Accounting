@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
@@ -222,6 +223,13 @@ async function ivaAcreditableDelMes(entityId: string, mes: number): Promise<stri
 }
 
 const periodoDe = (mes: number): string => `2026-${String(mes).padStart(2, '0')}`;
+
+// `inpc_serie` es GLOBAL —sin tenant_id ni entity_id—, así que la comparte
+// toda la corrida, y este archivo escribe en la serie del INPC.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
+// una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
+// suyo. El porqué entero, en helpers/catalogos-globales.ts.
+apartarCatalogos('inpc_serie');
 
 beforeAll(async () => {
   f = await crearInquilino('F07cd ataque');
@@ -1108,10 +1116,21 @@ describe('las tablas globales: lectura compartida, escritura sin gobierno', () =
   });
 
   it('el c_Banco nace vacío y NO tiene quién lo siembre', async () => {
-    // `sat_bancos` sólo aparece en la 064 y en dos lecturas de F07d: no hay
-    // importador, ni semilla, ni comando. Así que `bancos_sembrados` vale
-    // false en toda instalación recién migrada y la comprobación de la clave
-    // de banco nunca afirma nada.
+    // EL HALLAZGO, que es sobre el CÓDIGO DE PRODUCCIÓN y sigue en pie: no hay
+    // importador, ni semilla, ni comando que siembre `sat_bancos`. La tabla
+    // sólo aparece en la 064 que la crea y en las lecturas del generador de
+    // pólizas. Así que `bancos_sembrados` vale false en toda instalación
+    // recién migrada y la comprobación de la clave de banco nunca afirma nada.
+    //
+    // QUE AQUÍ EL CONTEO SEA CERO es OTRA cosa, y confundirlas costó un fallo
+    // intermitente: `f07d` —un archivo HERMANO de PRUEBAS, no código que se
+    // entregue— sí la siembra con dos claves para ejercitar los dos lados de
+    // esa validación, y esta suite comparte UNA base entre todos sus archivos.
+    // El cero no lo sostiene el alfabeto: lo sostiene que f07d la devuelva
+    // como la encontró y que el vigilante haga fallar al archivo que no lo
+    // haga (ver helpers/catalogos-globales.ts). Sin eso, esta línea fallaba
+    // con «expected 2 to be +0» en las corridas en que el sequencer ponía a
+    // f07d primero — y acusaba a este archivo de un descuido ajeno.
     const filas = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
     expect(Number(filas.rows[0].n)).toBe(0);
 
