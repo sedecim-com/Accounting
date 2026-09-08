@@ -307,20 +307,53 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         return falla(`${ajenas} de ${n} líneas no heredaron el inquilino de su asiento`);
       }
 
-      // Y la segunda mitad: intentar moverla de inquilino tiene que fallar.
+      // Y LA SEGUNDA MITAD: LA COLUMNA NO SE PUEDE MOVER — NI EN UN BORRADOR.
+      //
+      // La versión anterior de esta comprobación intentaba moverla en una
+      // línea cualquiera y se conformaba con que LANZARA. Pasaba, pero por el
+      // guardián equivocado: el de la 041 rechaza los UPDATE de una línea cuyo
+      // asiento está POSTEADO, así que la prueba medía ESE candado y no la
+      // derivación. Sobre un BORRADOR —que no pasa por la 041— la columna se
+      // movía sin que nada lo notara. Lo encontró WIT-02.
+      //
+      // Ahora se prueba donde duele: un asiento en borrador, se intenta
+      // moverlo, y se comprueba el VALOR resultante. No basta con que no
+      // lance: el disparador impone el derivado en silencio, así que lo que
+      // hay que afirmar es que la fila SIGUE siendo de su inquilino.
       const otro = crypto.randomUUID();
-      try {
-        await app.conexion.query(
-          `UPDATE journal_entry_lines SET tenant_id = $1
-            WHERE id = (SELECT l.id FROM journal_entry_lines l
-                          JOIN journal_entries e ON e.id = l.journal_entry_id
-                         WHERE e.entity_id = $2 LIMIT 1)`,
-          [otro, inq.entityId]
+      const borrador = await app.posting.createJournalEntry(
+        inq.entityId,
+        fechaEnPeriodo(8),
+        app.tipos.JournalEntryType.STANDARD,
+        'E1b · borrador para el ataque',
+        [
+          { account_id: banco, debit_amount: '10.0000', credit_amount: null, description: 'b' },
+          { account_id: ventas, debit_amount: null, credit_amount: '10.0000', description: 'b' },
+        ],
+        inq.userId,
+        { autoPost: false }
+      );
+
+      await app.conexion.query(
+        `UPDATE journal_entry_lines SET tenant_id = $1 WHERE journal_entry_id = $2`,
+        [otro, borrador.id]
+      );
+
+      const { rows: tras } = await app.conexion.query<{ ajenas: string }>(
+        `SELECT count(*) FILTER (WHERE tenant_id IS DISTINCT FROM $1)::text AS ajenas
+           FROM journal_entry_lines WHERE journal_entry_id = $2`,
+        [inq.tenantId, borrador.id]
+      );
+      if (Number(tras[0]?.ajenas ?? 0) > 0) {
+        return falla(
+          'una línea de BORRADOR cambió de inquilino con un UPDATE: la columna derivada diverge de su ' +
+            'asiento justo donde el guardián de la 041 no llega'
         );
-        return falla('una línea cambió de inquilino: la frontera se puede mover con un UPDATE');
-      } catch {
-        return ok(`${n} líneas heredaron su inquilino y ninguna se puede mover de frontera`);
       }
+
+      return ok(
+        `${n} líneas heredaron su inquilino, y una de borrador resistió el intento de moverla`
+      );
     },
   },
 

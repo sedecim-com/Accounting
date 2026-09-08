@@ -165,6 +165,23 @@ BEGIN
       padre) INTO derivado USING fk_valor;
   END IF;
 
+  -- SE IMPONE TAMBIÉN AL ACTUALIZAR, Y NO SÓLO AL INSERTAR.
+  --
+  -- Con el disparador sólo en INSERT, la columna se podía mover después: el
+  -- guardián de inmutabilidad de la 041 rechaza los UPDATE de una línea cuyo
+  -- asiento está POSTEADO, pero un BORRADOR no pasa por ahí, así que
+  -- `UPDATE … SET tenant_id = <otro uuid>` sobre una línea en borrador se
+  -- escribía sin que nada comprobara que coincidiera con su padre. La columna
+  -- quedaba divergible justo donde yo había escrito que no podía divergir.
+  --
+  -- SE IMPONE EL VALOR DERIVADO EN VEZ DE RECHAZAR EL AJENO. Es la diferencia
+  -- entre prohibir un estado malo y hacer que no exista: un UPDATE que traiga
+  -- otro inquilino no falla, simplemente no tiene efecto sobre esta columna,
+  -- porque el valor del llamador para un dato DERIVADO no es autoritativo.
+  -- Y así un UPDATE legítimo que toque muchas columnas no revienta por
+  -- arrastrar ésta sin querer.
+  --
+  -- Lo encontró WIT-02 en la revisión de este PR.
   NEW.tenant_id := derivado;
   RETURN NEW;
 END;
@@ -231,7 +248,7 @@ BEGIN
                               WHERE table_schema='public' AND table_name=m.parent AND column_name='tenant_id')
                 THEN 'propio' ELSE 'entidad' END INTO via;
     EXECUTE format(
-      'CREATE TRIGGER %I BEFORE INSERT ON public.%I FOR EACH ROW EXECUTE FUNCTION hija_hereda_inquilino(%L, %L, %L)',
+      'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION hija_hereda_inquilino(%L, %L, %L)',
       m.child || '_hereda_inquilino', m.child, m.fk, m.parent, via);
 
     -- El relleno, inquilino por inquilino y sólo donde falta.
