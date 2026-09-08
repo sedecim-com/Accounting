@@ -103,6 +103,27 @@ export async function getTaxParameters(
   // last day otherwise. A historical exercise never borrows the present.
   const today = new Date().toISOString().slice(0, 10);
   const day = effectiveDate ?? (today.startsWith(`${taxYear}-`) ? today : `${taxYear}-12-31`);
+
+  // AND THE TWO ARGUMENTS MUST AGREE (WIT-04).
+  //
+  // The window is what selects the row, and it is NOT filtered by `tax_year`
+  // on purpose: `tax_year` labels the exercise a row was seeded for, and a
+  // window legitimately crosses the calendar — the 2026 UMA runs from
+  // 1 February 2026 to 31 January 2027, so a January-2027 date is correctly
+  // served by a row labelled 2026. Adding `AND tax_year = $3` would break that.
+  //
+  // What must NOT happen is the caller asking for one exercise and handing a
+  // date from another: `getTaxParameters('MX', 2025, '2026-03-15')` used to
+  // answer with the 2026 row. That is not a lookup, it is a contradiction, and
+  // neither answer is right — so it is refused instead of resolved.
+  if (!day.startsWith(`${taxYear}-`)) {
+    throw new Error(
+      `Se pidieron los parámetros de ${jurisdiction} para el ejercicio ${taxYear} con una fecha de ` +
+      `otro año (${day}): el ejercicio y la fecha del acto tienen que ser el mismo, o el recálculo ` +
+      'de un recibo viejo tomaría los parámetros de hoy.'
+    );
+  }
+
   const key = `${jurisdiction}|${taxYear}|${day}`;
   const cached = paramCache.get(key);
   if (cached) return cached;

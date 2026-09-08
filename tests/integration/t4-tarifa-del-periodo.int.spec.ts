@@ -168,9 +168,18 @@ describe('los parámetros legales tienen fecha', () => {
 
 describe('el ejercicio que se pide es el ejercicio que se devuelve', () => {
   it('una fecha de 2026 NO cuela parámetros de 2026 en un recálculo de 2025', async () => {
-    // WIT-03: la ventana selecciona la fila, pero el AÑO es lo que pidió quien
-    // llama. Con el predicado suelto, un recálculo de 2025 al que se le pasara
-    // una fecha de 2026 recibía la UMA de 2026.
+    // WIT-04, y esta vez el caso de verdad: el ejercicio pedido es 2025 y la
+    // fecha es de 2026. Antes devolvía la fila de 2026 —la UMA de 117.31— para
+    // un recálculo de 2025. No es una búsqueda, es una contradicción, y
+    // ninguna de las dos respuestas sería correcta.
+    await expect(getTaxParameters('MX', 2025, '2026-03-15')).rejects.toThrow(
+      /ejercicio 2025 con una fecha de otro año \(2026-03-15\)/
+    );
+    // Y no devuelve la UMA de 2026 por ninguna vía.
+    await expect(getTaxParameters('MX', 2025, '2026-03-15')).rejects.toThrow();
+  });
+
+  it('un ejercicio sin sembrar se nombra, con su fecha dentro del año', async () => {
     await expect(getTaxParameters('MX', 2025, '2025-06-15')).rejects.toThrow(
       /No hay parámetros fiscales de MX vigentes el 2025-06-15/
     );
