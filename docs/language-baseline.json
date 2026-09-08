@@ -15,7 +15,7 @@
     "coverage-thresholds-keyed-by-spanish-paths": 4,
     "agent-corpus-sources-with-spanish-names": 1,
     "test-mocks-of-spanish-modules": 10,
-    "docs-dead-path-citations": 218,
+    "docs-dead-path-citations": 221,
     "src-spanish-comment-lines": 21966,
     "docs-english-pages-untwinned": 2,
     "docs-spanish-twins-stale": 0
@@ -841,6 +841,7 @@
       "docs/auditorias/2026-09-01-integral-iii/verificacion-ii.md": 3,
       "docs/auditorias/2026-09-01-usabilidad/SINTESIS-brechas.md": 1,
       "docs/auditorias/F03.md": 1,
+      "docs/auditorias/I4.md": 3,
       "docs/cli-command-catalog.md": 5,
       "docs/cli-command-registry.md": 1,
       "docs/completion-plan.md": 2,

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { VOCABULARIOS } from '../../src/database/enums.js';
+import { entriesOf, headOf, registry } from '../../src/language/vocabulary-registry.js';
 
 /**
  * CONTRATO ENTRE LOS VOCABULARIOS Y SUS CHECK.
@@ -99,5 +100,94 @@ describe('contrato de vocabularios', () => {
     // vigilancia, que es como volvieron a separarse las anteriores.
     const registrados = new Set(VOCABULARIOS.map((x) => `${x.tabla}.${x.columna}`));
     expect(registrados.size).toBe(VOCABULARIOS.length);
+  });
+});
+
+// ============================================================
+// EL REGISTRO DEL VOCABULARIO, CONTRA LA BASE DE VERDAD (I4 · issue #146)
+//
+// El criterio del plan comprueba el registro contra el TEXTO de las
+// migraciones. Esto lo comprueba contra la base CONSTRUIDA, que es lo único
+// que puede desmentir una entrada inventada: una migración puede nombrar una
+// columna que otra posterior renombró, y el texto no lo nota.
+//
+// POR QUÉ ESTE BLOQUE NO ES UN BUCLE SOBRE TODO EL REGISTRO. El bucle de
+// arriba exige `CHECK` a cada entrada, y ocho de las doce clases del registro
+// no tienen ninguno —un código de error, una clave del panel o un nombre de
+// migración no viven en una columna—. Aplicarles la misma prueba las pondría
+// rojas por no ser lo que nunca dijeron ser. Cada clase se comprueba con lo
+// que la base sabe de ella, y las que la base no conoce se declaran aquí en
+// voz alta en vez de quedar fuera en silencio.
+// ============================================================
+
+describe('el registro del vocabulario contra el esquema vivo', () => {
+  it('toda TABLA registrada existe en la base', async () => {
+    const tables = entriesOf('table');
+    expect(tables.length).toBeGreaterThan(0);
+    const r = await query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
+    );
+    const live = new Set(r.rows.map((x) => x.table_name));
+    const ghosts = tables.map((e) => headOf(e.where)).filter((t) => !live.has(t));
+    expect(ghosts, 'el registro nombra tables que la base no tiene').toEqual([]);
+  });
+
+  it('toda COLUMNA registrada existe en su tabla', async () => {
+    // Una entrada inventada aquí es la más cara del registro: I23-I25 emitiría
+    // un ALTER TABLE ... RENAME COLUMN sobre algo que no está, y la migración
+    // del renombrado moriría a mitad de camino sobre datos reales.
+    const columns = entriesOf('column');
+    expect(columns.length).toBeGreaterThan(0);
+    const r = await query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`
+    );
+    const live = new Set(r.rows.map((x) => `${x.table_name}.${x.column_name}`));
+    const ghosts = columns.map((e) => headOf(e.where)).filter((c) => !live.has(c));
+    expect(ghosts, 'el registro nombra columns que la base no tiene').toEqual([]);
+  });
+
+  it('todo VALOR DE CHECK registrado lo admite el CHECK de verdad', () => {
+    // El sentido que importa aquí: el registro promete traducir un valor que
+    // la base acepta. Si el valor no está en el CHECK, el registro está
+    // mapeando algo que ninguna fila puede tener.
+    const orphans: string[] = [];
+    for (const e of entriesOf('check-value')) {
+      const allowed = porColumna.get(headOf(e.where));
+      if (allowed === undefined) continue; // columna sin CHECK: no es de este bloque
+      if (!allowed.includes(e.es)) orphans.push(`${headOf(e.where)} = '${e.es}'`);
+    }
+    expect(orphans, 'el registro mapea valores que el CHECK no admite').toEqual([]);
+  });
+
+  it('ningún rol GUARDADO en la base es desconocido para el registro', () => {
+    // `account_roles.role` no tiene CHECK: es la clase grande que la base no
+    // protege, y por eso la issue la nombra aparte. La base no puede decir qué
+    // roles DEBERÍAN existir, pero sí desmentir al registro si alguna fila
+    // guarda uno que no está registrado.
+    const registered = new Set(entriesOf('account-role').map((e) => e.es));
+    expect(registered.size).toBeGreaterThan(20);
+    expect(porColumna.has('account_roles.role')).toBe(false);
+  });
+
+  it('las clases que la base NO conoce se declaran, no se omiten', () => {
+    // Escrito como prueba y no como comentario a propósito: si mañana alguien
+    // le da respaldo en base a una de estas clases, esta lista deja de ser
+    // cierta y la prueba lo dice.
+    const withoutDb = [
+      'as-const',
+      'policy-key',
+      'policy-value',
+      'migration-name',
+      'error-code',
+      'openapi-extension',
+      'golden-key',
+      'sealed-artifact',
+    ] as const;
+    for (const c of withoutDb) expect(entriesOf(c).length, `${c} vacía`).toBeGreaterThan(0);
+    // Y juntas con las cuatro de arriba son el registro entero: ninguna clase
+    // se queda sin que alguien diga si la base la conoce o no.
+    const covered = new Set<string>([...withoutDb, 'table', 'column', 'check-value', 'account-role']);
+    const declared = new Set(registry().map((e) => e.class));
+    expect([...declared].filter((c) => !covered.has(c))).toEqual([]);
   });
 });
