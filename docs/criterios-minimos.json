@@ -57,6 +57,7 @@
     "outbound-webhook-delivery-hardening",
     "output-flag-writes-complete-output",
     "payroll-account-mapping-seeded",
+    "payroll-engines-fail-closed-on-missing-law",
     "pending-explains-policy-with-preview",
     "per-file-unit-coverage-ratchet",
     "policy-panel-governs-writeoff-account",

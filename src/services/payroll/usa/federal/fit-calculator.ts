@@ -1,10 +1,30 @@
-import type { ITaxCalculator, TaxInput, TaxOutput } from '../../tax-engine/tax-engine.interface.js';
+import type { ITaxCalculator, TaxInput, TaxOutput, FilingStatus } from '../../tax-engine/tax-engine.interface.js';
 import { getBrackets, applyBrackets, periodsPerYear } from '../../tax-engine/tax-tables.js';
 
 // ============================================================
 // US Federal Income Tax — IRS Publication 15-T
 // Percentage Method for automated payroll systems (post-2020 W-4).
 // ============================================================
+
+/** Los cuatro estados civiles que el Anexo del IRS tabula y la base admite. */
+const FILING_STATUSES = ['single', 'married_jointly', 'head_of_household', 'married_separately'] as const;
+
+/**
+ * El estado civil con el que se busca la tarifa, o un error con su nombre.
+ *
+ * `single` sigue siendo el valor por omisión cuando NO se declara ninguno —es
+ * el supuesto del propio W-4 cuando el trabajador no marca casilla—, pero un
+ * valor DECLARADO y desconocido ya no se acepta: eso era lo que caía a cero.
+ */
+export function validFilingStatus(declarado: string | undefined | null): FilingStatus {
+  if (declarado === undefined || declarado === null) return 'single';
+  if ((FILING_STATUSES as readonly string[]).includes(declarado)) return declarado as FilingStatus;
+  throw new Error(
+    `Unknown filing_status «${declarado}»: expected ${FILING_STATUSES.join(', ')}. ` +
+    'An unrecognised status used to withhold $0.00 FIT for the whole year, ' +
+    'leaving the employer liable as a non-withholding agent.'
+  );
+}
 
 export class UsFederalFitCalculator implements ITaxCalculator {
   jurisdiction = 'US-FEDERAL';
@@ -30,7 +50,14 @@ export class UsFederalFitCalculator implements ITaxCalculator {
       };
     }
 
-    const filingStatus = w4_data?.filing_status || input.filing_status || 'single';
+    // EL ESTADO CIVIL SE VALIDA, NO SE PASA TAL CUAL (T20 punto 4 · #127).
+    //
+    // Antes cualquier valor llegaba a `getBrackets`, que devolvía una tabla
+    // VACÍA, y `applyBrackets` sobre una tabla vacía da cero: un empleado con
+    // un `filing_status` fuera de catálogo tenía FIT = $0.00 todo el año, con
+    // el patrón como retenedor omiso ante el IRS. El defecto no es que el
+    // valor sea raro: es que el cero no se distinga de una retención legítima.
+    const filingStatus = validFilingStatus(w4_data?.filing_status ?? input.filing_status);
     const ppy = periodsPerYear(pay_frequency);
 
     // Annualize
