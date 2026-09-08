@@ -74,6 +74,23 @@ export type Clase = 'lectura' | 'conducta';
 
 export interface Criterio {
   paquete: string;
+  /**
+   * IDENTIDAD DE MÁQUINA, y por eso en inglés y estable.
+   *
+   * Hasta I0 la identidad de un criterio era su ENUNCIADO EN ESPAÑOL: el piso
+   * (docs/criterios-minimos.json) guardaba esa prosa como llave de un
+   * trinquete que sólo sube, y una prueba de ataque buscaba un criterio por su
+   * texto literal. Con eso, reescribir una frase —o traducirla, que es lo que
+   * el epic #141 va a hacer con todo el código— ponía el piso en rojo y
+   * desanclaba el ataque sin que nadie hubiera tocado un instrumento.
+   *
+   * El id nombra LO QUE EL CRITERIO MIDE, no cómo está redactado hoy: la
+   * prueba de un buen id es que sobreviva a una reescritura del enunciado. Es
+   * opcional en el tipo para que un criterio nuevo no se caiga al compilar,
+   * pero hay una prueba que exige que los ids sean únicos y otra que vigila
+   * que el piso se apoye en ellos.
+   */
+  id?: string;
   /** Qué se afirma, en términos de comportamiento observable. */
   enunciado: string;
   /**
@@ -613,8 +630,60 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
 
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
+
   {
     paquete: 'E0.0',
+    id: 'instrument-identity-is-not-prose',
+    enunciado: 'La identidad de un criterio es un id estable, no la frase con que se enuncia',
+    evaluar: () => {
+      // POR QUÉ NACE (I0, issue #142). El piso de criterios es un trinquete que
+      // sólo sube, y su llave era `paquete · enunciado`: PROSA ESPAÑOLA. Con
+      // eso, reescribir una frase daba de baja un criterio y daba de alta otro
+      // sin que nadie hubiera tocado un instrumento — y el epic #141, que va a
+      // traducir el código entero al inglés, lo habría hecho 136 veces de
+      // golpe, dejando el piso vacío y la CI en verde.
+      //
+      // Este criterio vigila las dos mitades del arreglo: que el resolutor de
+      // identidad PREFIERA el id, y que el piso esté escrito en ids y no en
+      // frases. La unicidad y la forma las cubren las pruebas de
+      // tests/plan/criterios.spec.ts, que es donde se pueden nombrar los
+      // choques uno por uno.
+      const st = codigoDe('src/plan/status.ts');
+      if (!/c\.id \?\?/.test(st)) {
+        return falla(
+          'identidadDe no prefiere el id: la identidad vuelve a ser la frase, y traducirla da de ' +
+            'baja el criterio sin tocar el instrumento'
+        );
+      }
+      const piso = JSON.parse(crudoDe('docs/criterios-minimos.json')) as { verdes: string[] };
+      const ids = new Set(CRITERIOS.map((c) => c.id).filter((x): x is string => x !== undefined));
+      const frases = piso.verdes.filter((v) => !ids.has(v));
+      if (frases.length > 0) {
+        return falla(
+          `${frases.length} entrada(s) del piso siguen siendo prosa y no ids: ${frases.slice(0, 2).join(' | ')}`
+        );
+      }
+      const sinId = CRITERIOS.filter((c) => c.id === undefined).length;
+      return ok(
+        `${ids.size} criterios con id estable y ${piso.verdes.length} entradas del piso escritas en ids` +
+          (sinId > 0 ? `; ${sinId} sin id todavía` : '')
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/plan/status.ts',
+        de: 'c.id ?? `${c.paquete} · ${c.enunciado}`',
+        a: '`${c.paquete} · ${c.enunciado}`',
+        porque:
+          'la identidad vuelve a ser la frase española: el piso entero, escrito en ids, dejaría de ' +
+          'casar con un solo criterio y el trinquete se quedaría protegiendo nada',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E0.0',
+    id: 'repository-declares-git-remote',
     enunciado: 'El repositorio tiene remoto, así que la CI puede dispararse',
     evaluar: () => {
       // EN UN ÁRBOL VINCULADO, `.git` ES UN ARCHIVO.
@@ -645,6 +714,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
+    id: 'dotenv-ignored-except-example',
     // Esto exigía la línea literal `^\.env$` y la cadena `.env.backup`. Se
     // puso en rojo el día que alguien SUSTITUYÓ esa lista por `.env*` con
     // `!.env.example` — un patrón estrictamente más fuerte, que además cubre
@@ -676,6 +746,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
+    id: 'ci-gates-single-workflow',
     enunciado: 'Los checks viven en un solo ci.yml, que declara sus cinco jobs',
     evaluar: () => {
       // Lo que E0.0-b compró no fue «un archivo en .github/workflows»: fue que
@@ -747,6 +818,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
+    id: 'isolation-job-unprivileged-role',
     enunciado: 'La aplicación conecta como rol NO privilegiado en el job que prueba el aislamiento',
     evaluar: () => {
       const y = crudoDe('.github', 'workflows', 'ci.yml');
@@ -758,6 +830,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
+    id: 'audit-record-per-closed-flow',
     enunciado: 'Un flujo no se declara cerrado sin su auditoría adversarial registrada',
     evaluar: () => {
       // S1 lo escribió como INVITACIÓN y por eso no acusó a nadie: la lista de
@@ -872,6 +945,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E0.1 · Red de pruebas ----
   {
     paquete: 'E0.2',
+    id: 'dead-tables-dropped-or-claimed',
     enunciado: 'Toda tabla muerta está enterrada o reclamada con nombre y dueño',
     evaluar: () => {
       // El censo de AUD-6 encontró siete tablas sin un solo escritor NI
@@ -922,6 +996,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.2',
+    id: 'migration-apply-and-record-atomic',
     enunciado: 'Ejecutar una migración y registrarla son un solo acto',
     evaluar: () => {
       // migrate.ts corría el .sql y lo anotaba en public.migrations en DOS
@@ -947,6 +1022,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.2',
+    id: 'migration-fails-loud-under-rls',
     enunciado: 'Una migración de datos que olvide la RLS truena en vez de correr filtrada',
     mutantes: [
       {
@@ -996,6 +1072,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.1',
+    id: 'separate-unit-integration-suites',
     enunciado: 'Los proyectos unitario y de integración están separados',
     evaluar: () =>
       existe('vitest.config.ts') && existe('vitest.integration.config.ts')
@@ -1004,6 +1081,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'per-file-unit-coverage-ratchet',
     enunciado: 'La cobertura del motor contable tiene trinquete por archivo',
     evaluar: () => {
       // S4a: este criterio CONTABA LLAVES —cuántas entradas `'src/…ts':` hay—
@@ -1051,6 +1129,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'integration-coverage-enforced-in-ci',
     enunciado: 'La suite de integración declara su cobertura y la ejerce en CI',
     evaluar: () => {
       // POR QUÉ NACE ESTE CRITERIO (S4a). vitest.integration.config.ts no tenía
@@ -1113,6 +1192,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'ephemeral-integration-database',
     enunciado: 'La suite de integración usa una base efímera, no la de desarrollo',
     evaluar: () => {
       if (!existe('tests/integration/global-setup.ts')) return falla('no hay global-setup de integración');
@@ -1124,6 +1204,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'period-seal-entry-count-matches',
     enunciado: 'Ningún sello de periodo declara menos asientos de los que su periodo cerrado tiene',
     necesita: 'base-de-datos',
     evaluar: async () => {
@@ -1208,6 +1289,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'commitment-hides-its-value',
     enunciado: 'El compromiso no persiste el valor que promete ocultar',
     evaluar: async () => {
       // S1 (E1.4-a rescatada): el range proof placeholder incluía
@@ -1239,6 +1321,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'posted-journal-entries-immutable',
     enunciado: 'Un asiento posteado no admite UPDATE ni DELETE fuera de su lista blanca',
     evaluar: () => {
       // R1: la 033 blindó la bitácora y el mayor —lo que la bitácora
@@ -1263,6 +1346,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'ledger-balances-match-posted-lines',
     enunciado: 'Los saldos materializados se verifican contra las líneas, y la deriva es fail',
     evaluar: () => {
       // R1: account_balances es tabla load-bearing del cierre y nada la
@@ -1288,6 +1372,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'posting-and-close-lock-period',
     enunciado: 'El posteo y el cierre no se cruzan: el candado del periodo vive en ambas transacciones',
     mutantes: [
       {
@@ -1318,6 +1403,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'reporting-refresh-is-explicit-callable',
     enunciado: 'Ningún posteo paga el refresco de las vistas de reporte de todos',
     evaluar: () => {
       // R3 (decidido en el plan de cierre, ejecutado aquí): el trigger de la
@@ -1350,6 +1436,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'numbering-series-from-document-date',
     enunciado: 'La serie del folio la fija la fecha del documento, no el reloj',
     evaluar: async () => {
       // R3: «JE-2026-00042» insinuaba serie anual y el año lo ponía el
@@ -1390,6 +1477,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.1',
+    id: 'materialized-refresh-sees-all-tenants',
     enunciado: 'El refresco de las materializadas ve el clúster entero, no el inquilino de la sesión',
     evaluar: () => {
       // R3, medido por el detector de deriva: con las 'm' reasignadas a
@@ -1426,6 +1514,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.1',
+    id: 'single-maker-checker-gate',
     enunciado: 'El maker-checker vive en el panel, en UN candado que todas las puertas al mayor atraviesan',
     mutantes: [
       {
@@ -1501,6 +1590,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.1',
+    id: 'entity-scoped-cfdi-sat-status',
     enunciado: 'El espejo del CFDI es por entidad y el estatus SAT dice la verdad',
     evaluar: () => {
       // F02: la unicidad fiscal era GLOBAL (005) y mataba el caso normal de
@@ -1548,6 +1638,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.2',
+    id: 'orphan-export-baseline-only-shrinks',
     enunciado: 'La capacidad huérfana conocida sólo encoge',
     evaluar: () => {
       // S1: §7 prometía «doctor sin huérfanos nuevos entra como criterio» y
@@ -1592,6 +1683,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E0.2 · Contrato código ↔ esquema ----
   {
     paquete: 'E0.2',
+    id: 'sql-scanner-resolves-alias-columns',
     enunciado: 'El escáner resuelve columnas calificadas por alias, no sólo consultas de una tabla',
     evaluar: () => {
       const p = 'tests/integration/helpers/sql-scan.ts';
@@ -1603,6 +1695,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.2',
+    id: 'entities-table-never-queried',
     enunciado: 'Ninguna consulta nombra la tabla `entities`, que no existe',
     evaluar: () => {
       const hits = dondeAparece(/\b(?:FROM|JOIN|INTO|UPDATE)\s+entities\b/i, ['src'], true);
@@ -1613,6 +1706,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.2',
+    id: 'code-enums-match-check-constraints',
     // Nació como el único criterio NO EVALUABLE de los quince paquetes, y su
     // detalle nombraba cinco «divergencias conocidas» — una de ellas mal, era
     // matched_entity_type y no match_type. E0.2-j las cerró todas y creó lo
@@ -1737,6 +1831,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E0.3 · Bitácora de auditoría ----
   {
     paquete: 'E0.3',
+    id: 'posting-audits-in-same-transaction',
     enunciado: 'El motor de posteo deja rastro en la misma transacción que el asiento',
     evaluar: () => {
       const p = 'src/services/accounting/posting.ts';
@@ -1749,6 +1844,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.3',
+    id: 'audit-log-immutable-in-database',
     enunciado: 'La bitácora no se puede reescribir: UPDATE y DELETE fallan en Postgres',
     evaluar: () => {
       const migs = fs.readdirSync(rutaDe('src/database/migrations'));
@@ -1763,6 +1859,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.3',
+    id: 'append-only-triggers-match-grants',
     enunciado:
       'Toda bitácora de sólo agregar lleva disparador, y la lista de privilegios la refleja',
     evaluar: () => {
@@ -1917,6 +2014,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.3',
+    id: 'audit-log-redacts-encrypted-fields',
     enunciado: 'La bitácora no guarda en claro lo que las tablas cifran',
     evaluar: () => {
       // S1: el middleware de auditoría escribía JSON.stringify(req.body)
@@ -1941,6 +2039,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.3',
+    id: 'money-lifecycle-audit-trail',
     enunciado: 'Los ciclos de vida del dinero dejan su propio rastro, no sólo su asiento',
     evaluar: () => {
       // R1: emitir/anular una factura, aprobar la del proveedor y registrar
@@ -1964,6 +2063,10 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.1',
+    // La identidad la exige I0, que entró en main mientras este tramo
+    // esperaba revisión: sin `id`, el piso no puede protegerlo y traducir su
+    // enunciado lo daría de baja sin tocar el instrumento.
+    id: 'single-jurisdiction-switch',
     enunciado:
       'La jurisdicción de una entidad se contesta en un solo sitio, y en SQL dice lo mismo que en TypeScript',
     evaluar: () => {
@@ -2043,6 +2146,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.1',
+    id: 'entity-creation-seeds-accounting',
     enunciado: 'Toda ruta de alta de entidad siembra los roles, no sólo el asistente',
     evaluar: () => {
       if (!existe('src/services/entity/entity-service.ts')) {
@@ -2056,6 +2160,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.1',
+    id: 'iva-accounts-seeded-mexican-entities',
     enunciado:
       'Las cuatro cuentas de IVA se siembran en toda entidad MEXICANA, también sobre catálogo importado',
     mutantes: [
@@ -2104,6 +2209,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.1',
+    id: 'account-code-single-name',
     enunciado: 'Un código de cuenta significa UNA cuenta en todas las semillas',
     mutantes: [
       {
@@ -2194,6 +2300,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E1.2 · Cerebro fiscal del CFDI ----
   {
     paquete: 'E1.2',
+    id: 'ppd-iva-parked-until-payment',
     enunciado: 'El IVA de un documento PPD se aparca y sólo el pago lo acredita',
     evaluar: () => {
       if (!existe('src/services/accounting/iva-cash-basis.ts')) {
@@ -2207,6 +2314,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.2',
+    id: 'iva-release-capped-at-parked',
     enunciado: 'No se libera IVA que el documento nunca aparcó',
     evaluar: () => {
       const p = 'src/services/accounting/iva-cash-basis.ts';
@@ -2219,6 +2327,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'cfdi-classification-persisted',
     enunciado: 'El cerebro fiscal deja el rastro que prometió',
     evaluar: () => {
       // ROJO HONESTO NUEVO. E1.2 figura cerrado porque sus criterios miden la
@@ -2243,6 +2352,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E1.3 · Políticas con consumidor ----
   {
     paquete: 'E1.3',
+    id: 'every-policy-key-has-reader',
     // La versión anterior de este criterio preguntaba si `getPolicy` tenía
     // llamadores. Es un proxy, y uno malo: se puede llamar getPolicy una vez y
     // dejar nueve políticas muertas, y el criterio quedaría en verde. Lo que
@@ -2323,6 +2433,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E1.4 · Módulos sin puerta ----
   {
     paquete: 'E1.4',
+    id: 'monthly-depreciation-command-reachable',
     enunciado: 'La depreciación mensual tiene por dónde invocarse, y la puerta llega al binario',
     mutantes: [
       {
@@ -2372,6 +2483,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.4',
+    id: 'no-faked-external-act-success',
     enunciado: 'Ninguna función reporta éxito de un acto externo que no realiza',
     evaluar: () => {
       // «email service» no estaba en la lista y por eso el TODO de
@@ -2390,6 +2502,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E2.1 · Perímetro ----
   {
     paquete: 'E2.1',
+    id: 'tenant-context-mounted-globally',
     enunciado: 'El contexto de inquilino se monta una sola vez para todo /v1',
     evaluar: () => {
       if (!existe('src/api/rest/middleware/tenant-context.ts')) return falla('no existe el middleware');
@@ -2401,6 +2514,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.1',
+    id: 'route-entity-access-verified',
     // La primera versión decía que la guarda «es un no-op porque req.entityId
     // sale del encabezado». Era falso: la guarda SÍ comprueba que la entidad
     // del encabezado pertenezca al usuario. El defecto es otro, y peor —
@@ -2471,6 +2585,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.1',
+    id: 'graphql-mounted-behind-flag',
     enunciado: 'GraphQL no expone mutaciones al mayor fuera del prefijo auditado',
     evaluar: () => {
       const idx = codigoDe('src/index.ts');
@@ -2482,6 +2597,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.1',
+    id: 'graphql-mutation-permission-gate',
     enunciado: 'Ninguna mutación de GraphQL entra al motor sin permiso, y una nueva no puede nacer sin él',
     evaluar: () => {
       // La bandera del criterio anterior compra tiempo, no seguridad: el día
@@ -2616,6 +2732,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.1',
+    id: 'startup-rejects-rls-bypass-role',
     enunciado: 'El arranque falla cerrado ante un rol que ignora RLS',
     evaluar: () => {
       // S1 (E2.1-e rescatada): el aislamiento entero cuelga de que el rol de
@@ -2640,6 +2757,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.1',
+    id: 'counterparty-webhook-tenant-scope',
     enunciado: 'Las contrapartes y los webhooks por id llevan la frontera dentro del SQL',
     evaluar: () => {
       // R2: dentro de un inquilino multi-entidad, conocer el UUID bastaba
@@ -2671,6 +2789,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.1',
+    id: 'outbound-webhook-delivery-hardening',
     enunciado: 'Los webhooks salientes no alcanzan la red privada, firman contra el replay y no regalan su secreto',
     evaluar: () => {
       // R2: la URL de suscripción sólo pasaba un .url() de zod y el servidor
@@ -2702,6 +2821,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.1',
+    id: 'public-verification-verifier-role',
     enunciado: 'La verificación pública tiene camino sancionado, no un empujón al rol que ignora RLS',
     evaluar: () => {
       // R2: /public/v1 corre sin contexto de inquilino y bajo RLS forzada
@@ -2738,6 +2858,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E2.2 · Catálogo de autorización ----
   {
     paquete: 'E2.2',
+    id: 'single-role-permission-catalog',
     // No pregunta si existe src/auth/roles.ts. Que exista un archivo no le da
     // permisos a nadie; lo que importa es si el rol que el CLI reparte
     // significa algo del otro lado.
@@ -2767,6 +2888,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.2',
+    id: 'production-boot-rejects-dev-secret',
     enunciado: 'La aplicación no arranca en producción con el secreto de desarrollo',
     evaluar: () => {
       const s = codigoDe('src/config/index.ts');
@@ -2779,6 +2901,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E3.1 · Timbrado real ----
   {
     paquete: 'E3.1',
+    id: 'pac-anti-simulation-guard',
     enunciado: 'Un adaptador simulado no puede producir un timbre ni un acuse',
     evaluar: () => {
       const p = 'src/services/integrations/mexico/pac/pac-router.ts';
@@ -2794,6 +2917,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E3.1',
+    id: 'cfdi-cancellation-requires-pac',
     enunciado: 'Cancelar un CFDI no marca la factura como cancelada sin llamar al PAC',
     evaluar: () => {
       const s = codigoDe('src/api/rest/routes/invoices.ts');
@@ -2806,6 +2930,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E3.2 · Descarga del SAT ----
   {
     paquete: 'E3.2',
+    id: 'sat-bulk-cfdi-download',
     enunciado: 'El despacho puede traer del SAT los CFDI que no le llegaron',
     evaluar: () => {
       // ROJO HONESTO (S1). La versión anterior de este criterio pasó VERDE
@@ -2841,6 +2966,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E4.1 · Ciclos de banca y nómina ----
   {
     paquete: 'E4.1',
+    id: 'bank-reconciliation-posts-difference',
     enunciado: 'Una conciliación no se declara cuadrada sin postear su diferencia',
     evaluar: () => {
       const p = 'src/api/rest/routes/bank-reconciliation.ts';
@@ -2855,6 +2981,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E4.1',
+    id: 'payroll-account-mapping-seeded',
     enunciado: 'El mapeo contable de nómina se siembra en el alta',
     evaluar: () => {
       const cons = consumidoresDe('seedPayrollAccountMapping', 'payroll-account-mapping-seed.ts');
@@ -2866,6 +2993,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'payroll-output-tables-have-writers',
     enunciado: 'La nómina escribe los impuestos que sus formularios reportan',
     evaluar: () => {
       // ROJO HONESTO NUEVO. Los dos criterios anteriores de E4.1 miden la
@@ -2893,6 +3021,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E4.2 · Trabajos y reportes ----
   {
     paquete: 'E4.2',
+    id: 'posting-code-without-matview-refresh',
     enunciado: 'Postear no dispara el refresco de vistas materializadas',
     evaluar: () => {
       const s = codigoDe('src/services/accounting/posting.ts');
@@ -2903,6 +3032,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E4.2',
+    id: 'single-report-query-layer',
     enunciado: 'Las superficies de reportes consumen una sola capa de consulta',
     evaluar: () => {
       const cons = consumidoresDe('getTrialBalance', 'report-service.ts');
@@ -2918,6 +3048,7 @@ export const CRITERIOS: Criterio[] = [
   // ---- E5.1 · Madurez del agente ----
   {
     paquete: 'E5.1',
+    id: 'cli-audit-baseline-ratchet',
     enunciado: 'La auditoría de consistencia corre contra el binario que se embarca, y su deuda no crece',
     evaluar: async () => {
       // `auditProgram` existía desde el principio y el programa real nunca
@@ -2956,6 +3087,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'output-flag-writes-complete-output',
     enunciado:
       '`-o` entrega un archivo con la salida COMPLETA del comando: todo dato sale por una sola puerta',
     evaluar: async () => {
@@ -3102,6 +3234,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'idempotency-key-honored-and-scoped',
     enunciado:
       'R11 comprueba que la llave se HONRE, y todo ámbito declarado llega de verdad al almacén',
     evaluar: async () => {
@@ -3232,6 +3365,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'every-cli-leaf-declares-risk',
     enunciado: 'Toda hoja del CLI declara su riesgo, así que hay algo sobre lo que aplicar la compuerta',
     evaluar: async () => {
       // Se mide sobre el PROGRAMA EMBARCADO, no sobre un árbol de juguete.
@@ -3269,6 +3403,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'agent-tools-from-risk-registry',
     enunciado: 'Las herramientas del agente se derivan del registro de riesgo del CLI',
     evaluar: () => {
       // FALSO VERDE CORREGIDO. La versión anterior contaba cualquier mención
@@ -3298,6 +3433,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'unattended-named-tool-surface',
     enunciado: 'La corrida desatendida corre con una superficie nombrada, no con «todas»',
     evaluar: () => {
       // La sesión desatendida recibía todas las herramientas porque la
@@ -3328,6 +3464,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'dangerous-commands-gated-and-keyed',
     enunciado: 'Los graves declaran junto a su registro, con la compuerta cableada y la llave guardada',
     evaluar: () => {
       // S0.6, tres afirmaciones mecánicas sobre el mismo borde.
@@ -3371,6 +3508,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'amounts-survive-context-compaction',
     enunciado: 'Los importes sobreviven a la compactación por construcción',
     evaluar: () => {
       // S1 (hueco confesado de E5.1-c): el backstop determinista de la
@@ -3389,6 +3527,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'resumed-session-rehydrates-history',
     enunciado: 'El «--continue» rehidrata el contexto que promete',
     evaluar: () => {
       // ROJO HONESTO (S1, hueco confesado de E5.1-b): la propia opción lo
@@ -3412,6 +3551,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'model-prices-effective-date-shown',
     enunciado: 'Los precios del ledger declaran su vigencia, y el reporte la muestra',
     evaluar: () => {
       // S1 (hueco confesado de E5.1-f): la tabla de precios llevaba su fecha
@@ -3428,6 +3568,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'agent-tools-propose-never-execute',
     enunciado: 'Ninguna herramienta del agente alcanza el mayor ni ejecuta hacia fuera',
     mutantes: [
       {
@@ -3518,6 +3659,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E5.1',
+    id: 'cfdi-classifier-golden-set',
     enunciado: 'El clasificador tiene vara de medir: golden set con esperado y arnés fijado',
     evaluar: () => {
       // A1: «medir antes de soltar» era doctrina sin instrumento — la brecha
@@ -3555,6 +3697,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'confidence-calibration-buckets-with-delta',
     enunciado: 'La calibración se lee del rastro: ai stats por bucket, con delta',
     evaluar: () => {
       // A2: la confianza que el modelo reporta contra lo que el despacho
@@ -3589,6 +3732,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'agent-work-leaves-measurable-trace',
     enunciado: 'Lo que el agente hace deja rastro medible: duración, corridas y eventos',
     evaluar: () => {
       // A2: las métricas que faltaban. duration_ms en el ledger de uso (los
@@ -3645,6 +3789,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E5.1',
+    id: 'single-auto-approval-authorizer',
     enunciado: 'Un solo autorizador: la vía de política lleva tope obligatorio y su «no casó» tiene nombre',
     mutantes: [
       {
@@ -3689,6 +3834,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'budget-enforced-at-session-chokepoint',
     enunciado: 'El presupuesto corta donde nacen las sesiones, y desatendido el tope es tope',
     mutantes: [
       {
@@ -3739,6 +3885,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'shadow-verdicts-gate-auto-post',
     enunciado: 'La sombra opina sin postear, y encender el auto-posteo exige su historial',
     mutantes: [
       {
@@ -3818,6 +3965,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.1',
+    id: 'credit-note-posts-at-issue',
     enunciado: 'La nota de crédito postea al emitir por la vía única, y su aplicación no toca efectivo',
     mutantes: [
       {
@@ -3865,6 +4013,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.1',
+    id: 'invoice-gap-and-tax-profile',
     enunciado: 'El folio eliminado deja hueco explicado, y el perfil fiscal se valida contra catálogo antes de escribir',
     mutantes: [
       {
@@ -3931,6 +4080,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.2',
+    id: 'payment-application-immutable-history',
     enunciado: 'El cobro es historia: la aplicación se clausura, su IVA viaja en la fila y la reversa es por espejos',
     mutantes: [
       {
@@ -3988,6 +4138,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E3.1',
+    id: 'no-simulated-email-delivery',
     enunciado: 'Lo que no envía no existe: el adaptador de correo simulado está retirado',
     mutantes: [
       {
@@ -4027,6 +4178,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.0',
+    id: 'criteria-mutation-harness',
     enunciado: 'Los criterios tienen espejo ejecutable: un mutante declarado los pone en rojo',
     evaluar: () => {
       // S2: §7 prometía desde el principio que «cada criterio llega con su
@@ -4079,6 +4231,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
+    id: 'agent-corpus-staleness-gate',
     enunciado: 'El corpus que instruye al agente tiene compuerta de caducidad',
     evaluar: () => {
       // S2: el agente lee src/ai/docs como VERDAD —grounding.ts incluso lo
@@ -4142,6 +4295,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.0',
+    id: 'rls-silent-backfill-repaired',
     enunciado: 'El migrador no puede rellenar cero filas en silencio: Postgres se lo impide',
     evaluar: () => {
       // EL DEFECTO. Las migraciones corren como un rol NOBYPASSRLS que además
@@ -4205,6 +4359,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
+    id: 'backup-verified-by-restore',
     enunciado: 'Un respaldo se prueba restaurándolo, y dice lo que no lleva',
     evaluar: () => {
       // S3: el mayor es inmutable a propósito (041 no admite UPDATE ni
@@ -4268,6 +4423,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.3',
+    id: 'policy-panel-owns-auto-post',
     enunciado: 'Encender el auto-posteo es del panel: la bandera y el archivo sólo pueden ser más estrictos',
     evaluar: () => {
       // A7: el piso de evidencia (A4) vive en el panel, así que cualquier capa
@@ -4316,6 +4472,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.3',
+    id: 'shadow-evidence-matches-enabled-mode',
     enunciado: 'La sombra mide el modo que se va a encender, y la decisión se escribe donde se midió',
     evaluar: () => {
       // A7, dos mitades de la misma idea: la evidencia sólo autoriza si mide
@@ -4365,6 +4522,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
+    id: 'cost-per-row-band-split',
     enunciado: 'El costo por fila publica su banda y separa entrega de garantía',
     evaluar: () => {
       // S2: el instrumento publicaba 0,7 % de cola correctiva —y bajando,
@@ -4408,6 +4566,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'treasury-entry-date-local-midnight',
     enunciado: 'El asiento de tesorería cae en el día que ocurrió, no en la víspera',
     mutantes: [
       {
@@ -4453,6 +4612,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.3',
+    id: 'reconciliation-approval-sealed-snapshot',
     enunciado: 'La firma congela lo que se firmó, y su hash no depende del orden',
     mutantes: [
       {
@@ -4510,6 +4670,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'treasury-posting-matches-its-movement',
     enunciado: 'Contabilizar una comisión ata su movimiento, o el mismo cargo se cuenta dos veces',
     mutantes: [
       {
@@ -4560,6 +4721,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.3',
+    id: 'reconciliation-balanced-requires-arithmetic',
     enunciado: 'Una sesión no puede declararse cuadrada sin que la aritmética conste',
     mutantes: [
       {
@@ -4609,6 +4771,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.3',
+    id: 'reconciliation-adjustment-never-posts',
     enunciado: 'Crear un ajuste de conciliación no alcanza el mayor: nace borrador',
     mutantes: [
       {
@@ -4647,6 +4810,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'reconciling-item-datable-and-correctable',
     enunciado: 'La partida conciliatoria se puede fechar y corregir, o `close` es inalcanzable',
     mutantes: [
       {
@@ -4690,6 +4854,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'reconciliation-session-covers-period',
     enunciado: 'La casilla del cierre exige que la sesión CUBRA el periodo, no que termine después',
     mutantes: [
       {
@@ -4725,6 +4890,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'text-similarity-never-auto-applies',
     enunciado: 'Ningún cotejo se aplica solo cuando su única señal es el parecido del texto',
     mutantes: [
       {
@@ -4774,6 +4940,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'book-item-bank-account-scoped',
     enunciado: 'Una partida de libros sólo se coteja si es de la cuenta de mayor del banco',
     mutantes: [
       {
@@ -4810,6 +4977,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'match-candidate-uses-open-balance',
     enunciado: 'Una factura cobrada a medias puede casar, porque el candidato se compara contra su saldo',
     mutantes: [
       {
@@ -4839,6 +5007,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.3',
+    id: 'reconciled-mark-atomic-unapply-closes',
     enunciado: 'El sello de una partida es todo o nada, y desaplicar lo libera sin borrar el cotejo',
     mutantes: [
       {
@@ -4889,6 +5058,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'close-checklist-period-scoped',
     enunciado: 'El checklist del cierre mira su propio periodo, consume el mayor y no fabrica veredictos ajenos',
     mutantes: [
       {
@@ -4946,6 +5116,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'import-batch-respects-state-flow',
     enunciado: 'El lote respeta su flujo —staged, checked, posted— y se reversa como unidad',
     mutantes: [
       {
@@ -5009,6 +5180,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'employment-subsidy-cash-delivery',
     enunciado:
       'El subsidio al empleo que excede al ISR llega al trabajador, se declara en su CFDI y se puede postear',
     evaluar: () => {
@@ -5081,6 +5253,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E4.1',
+    id: 'isn-refuses-instead-of-zero',
     enunciado: 'Un impuesto que no se puede calcular se nombra, no se cifra en cero',
     evaluar: () => {
       // POR QUÉ NACE (F08a). El ISN —impuesto estatal sobre nóminas, carga del
@@ -5119,6 +5292,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'dirty-value-fails-one-row',
     enunciado: 'Un dato sucio ensucia su renglón y no el archivo del mes, y un factor de INPC no cruza bases',
     mutantes: [
       {
@@ -5184,6 +5358,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E2.1',
+    id: 'anexo24-balance-scope-and-nature',
     enunciado: 'La contabilidad electrónica no cruza inquilinos, y el recálculo del SAT respeta la naturaleza de la cuenta',
     mutantes: [
       {
@@ -5246,6 +5421,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'sat-grouping-code-single-column',
     enunciado: 'El agrupador del SAT vive en una sola columna, y la balanza publica su saldo inicial y sus descuadres',
     mutantes: [
       {
@@ -5300,6 +5476,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'prepaid-schedule-backed-by-ledger',
     enunciado: 'La amortización vale lo que el mayor respalda, y las prestaciones se calculan como manda la ley',
     mutantes: [
       {
@@ -5356,6 +5533,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.3',
+    id: 'guard-triggers-enable-always-watched',
     enunciado: 'Toda garantía del esquema está sellada con ENABLE ALWAYS, y doctor vigila que siga estándolo',
     mutantes: [
       {
@@ -5425,6 +5603,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E2.1',
+    id: 'openapi-census-and-delivery-retry',
     enunciado: 'El contrato de la API se deriva del censo de rutas, y la entrega saliente vencida se reintenta',
     mutantes: [
       {
@@ -5483,6 +5662,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E2.1',
+    id: 'mutating-route-risk-declaration',
     enunciado: 'La API declara el riesgo de cada ruta que muta, en el primer manejador, y el arranque muere si alguna no lo hace',
     mutantes: [
       {
@@ -5537,6 +5717,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'close-lock-without-row-rewrite',
     enunciado: 'El candado del cierre bloquea sin reescribir la tabla, y el perímetro no confía en una cabecera que escribe quien llama',
     mutantes: [
       {
@@ -5598,6 +5779,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'cash-flow-classified-by-role',
     enunciado: 'El estado de flujos clasifica por ROL, no por el nombre en inglés de la cuenta, y se amarra contra el efectivo real',
     mutantes: [
       {
@@ -5642,6 +5824,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'cashflow-selfcheck-lists-and-policy-blocks',
     enunciado:
       'La autocomprobación del flujo mide la LISTA de cuentas sin sección y no su suma, la política «bloquear» bloquea de verdad, y los roles de efectivo crecen en un solo sitio',
     mutantes: [
@@ -5823,6 +6006,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'close-sweeps-by-balance-sign',
     enunciado: 'El cierre barre por el SIGNO del saldo, comprueba que barrió, y los informes no cuentan el cierre como actividad',
     mutantes: [
       {
@@ -5935,6 +6119,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'foreign-currency-origin-preserved',
     enunciado: 'El asiento en moneda extranjera nace con su origen, la conversión se verifica y la reversa lo conserva cruzado',
     mutantes: [
       {
@@ -5993,6 +6178,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'depreciation-month-posted-once',
     enunciado: 'El mismo mes no se carga dos veces al mayor, ni cambiando la política entre corridas',
     mutantes: [
       {
@@ -6033,6 +6219,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'depreciation-final-row-absorbs-rounding',
     enunciado: 'La vida del activo suma exacta: doce filas en doce meses y el tapón cierra al peso',
     mutantes: [
       {
@@ -6083,6 +6270,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'bank-statement-document-with-balances',
     enunciado: 'El extracto es un documento con sus dos saldos, y el mismo archivo no entra dos veces',
     mutantes: [
       {
@@ -6131,6 +6319,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.3',
+    id: 'bank-transaction-dedupe-by-database',
     enunciado:
       'La huella del movimiento la IMPONE la base, y el relleno de lo ya importado la alcanza',
     mutantes: [
@@ -6227,6 +6416,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'bank-statement-integrity-suite',
     enunciado: 'Las siete pruebas del extracto existen todas y su hallazgo bloqueante sale 4',
     mutantes: [
       {
@@ -6279,6 +6469,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.3',
+    id: 'statement-import-draft-only',
     enunciado: 'Importar un extracto no alcanza el mayor, que es lo único que se lo permite al agente',
     mutantes: [
       {
@@ -6328,6 +6519,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.3',
+    id: 'clabe-encrypted-and-masked',
     enunciado: 'La CLABE se guarda cifrada, como el número de cuenta que es',
     mutantes: [
       {
@@ -6365,6 +6557,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.3',
+    id: 'new-supplier-requires-explicit-authorization',
     enunciado: 'Un CFDI de fuera no da de alta a su propio emisor: el alta de contraparte la autoriza quien llama',
     mutantes: [
       {
@@ -6447,6 +6640,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'early-payment-discount-capped',
     enunciado: 'El descuento por pronto pago tiene cuenta, asiento y un techo que las condiciones fijan',
     mutantes: [
       {
@@ -6516,6 +6710,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'short-payment-clears-parked-iva',
     enunciado: 'Un gasto cerrado con pago corto no deja IVA vivo en la cuenta de pendientes',
     mutantes: [
       {
@@ -6578,6 +6773,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.3',
+    id: 'policy-panel-governs-writeoff-account',
     enunciado: 'A qué cuenta va un saldo condonado lo decide el panel, y sin motivo escrito no se condona',
     mutantes: [
       {
@@ -6657,6 +6853,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.2',
+    id: 'payment-applied-without-moving-cash',
     enunciado: 'Un pago ya hecho se puede repartir después, sin volver a mover el efectivo',
     mutantes: [
       {
@@ -6748,6 +6945,7 @@ export const CRITERIOS: Criterio[] = [
   // ══════════════════════════════════════════════════════════
   {
     paquete: 'E5.1',
+    id: 'shell-completion-from-shipped-tree',
     enunciado:
       'El guion de completado se genera del árbol embarcado entero, y su cuerpo no le devuelve la lista al shell para que la expanda',
     mutantes: [
@@ -6797,6 +6995,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'cli-reference-mirrors-real-help',
     enunciado:
       'El documento que el agente lee como «el binario exacto» reproduce la ayuda real, con los ejemplos incluidos',
     mutantes: [
@@ -6827,6 +7026,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'every-help-example-parses',
     enunciado:
       'Todo ejemplo de la ayuda lo acepta el Commander embarcado, en la hoja en cuya ayuda vive, y ninguno enseña la clave legada tax=',
     mutantes: [
@@ -6862,6 +7062,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'contract-exit-codes-have-producers',
     enunciado:
       'El 8 y el 9 del contrato tienen productor de verdad: un fallo externo transitorio y un rechazo definitivo mueren con enteros distintos',
     mutantes: [
@@ -7005,6 +7206,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'cli-leaf-preserves-exit-code',
     enunciado:
       'Ninguna hoja del CLI aplasta su código de salida: el catch devuelve el código del contrato, y el error de uso de Commander pasa por la puerta que cierra el pool',
     mutantes: [
@@ -7043,6 +7245,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.3',
+    id: 'pending-explains-policy-with-preview',
     enunciado:
       'La capa explicativa vive donde se decide, no sólo en el alta: pending imprime los tres campos del catálogo, pide el preview con el contexto de la entidad y no enseña prosa sin envolver',
     mutantes: [
@@ -7091,6 +7294,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
+    id: 'ux-surface-census-ci-ratchet',
     enunciado:
       'El censo de superficie corre en CI, y su trinquete está apretado contra lo medido',
     mutantes: [
@@ -7132,6 +7336,7 @@ export const CRITERIOS: Criterio[] = [
   // ══════════════════════════════════════════════════════════
   {
     paquete: 'E5.1',
+    id: 'eval-harness-measures-shipped-surface',
     enunciado:
       'El arnés del eval mide la superficie que se embarca, y no puede salir en verde sin haber medido',
     mutantes: [
@@ -7172,6 +7377,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.3',
+    id: 'policy-panel-reaches-deciding-turn',
     enunciado:
       'El panel del despacho llega al turno que decide, y una política sin contestar se pregunta en vez de aplicarse el defecto',
     mutantes: [
@@ -7203,6 +7409,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E5.1',
+    id: 'batch-cfdi-scoped-and-recorded',
     enunciado:
       'Todo camino que clasifica CFDI por lotes corre con superficie recortada y deja su fila de corrida',
     mutantes: [
@@ -7250,6 +7457,7 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.3',
+    id: 'blank-policy-value-never-decides',
     enunciado:
       'Una política contestada en blanco no está contestada, y el motor no la lee como cero',
     mutantes: [
@@ -7283,6 +7491,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E2.1',
+    id: 'tenant-predicate-inlinable-and-qualified',
     enunciado:
       'El predicado que cobra cada política se inserta en línea, y sigue cualificado sin la cláusula que lo impedía',
     mutantes: [
@@ -7371,6 +7580,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.2',
+    id: 'migration-numbering-guard-forgives-files-not-numbers',
     enunciado: 'La guarda de numeración perdona ARCHIVOS históricos, no números',
     mutantes: [
       {
@@ -7424,6 +7634,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.2',
+    id: 'historic-runs-backfill-sees-its-rows',
     enunciado: 'La migración que cierra las corridas históricas llega a verlas',
     mutantes: [
       {
@@ -7467,6 +7678,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E2.1',
+    id: 'requested-tenant-is-the-queried-tenant',
     enunciado: 'El inquilino que se pide es el inquilino que se consulta, y una hoja no puede deshacerlo',
     mutantes: [
       {
@@ -7582,6 +7794,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'imss-employee-rates-match-law',
     enunciado: 'Las cuotas obreras del IMSS sembradas son las de la ley, y ninguna es copia de la de al lado',
     mutantes: [
       {
@@ -7651,6 +7864,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'imss-rate-fix-verified-by-running-it',
     enunciado: 'La corrección de la cuota obrera se comprueba EJECUTÁNDOLA sobre una base migrada, no leyéndola',
     mutantes: [
       {
@@ -7731,6 +7945,9 @@ export const CRITERIOS: Criterio[] = [
 function criterioDeConducta(p: PruebaDeConducta): Criterio {
   return {
     paquete: p.paquete,
+    // La prueba de conducta ya tenía id —`correrConducta` la busca por él—, así
+    // que la identidad del criterio es la misma y no se inventa otra.
+    id: p.id,
     enunciado: p.enunciado,
     clase: 'conducta',
     necesita: 'base-efimera',
