@@ -55,4 +55,6 @@ Cuando un PR cierra el último ítem de un sprint (milestone), añade su fila a 
 
 ## Mensajes de commit
 
-En español, con el código del tramo cuando exista (ver `CONTRIBUTING.md` para ejemplos). El cuerpo explica el **porqué**, no el diff.
+Con el código del tramo cuando exista (ver `CONTRIBUTING.md` para ejemplos). El cuerpo explica el **porqué**, no el diff.
+
+El idioma pasa al inglés con I22 del epic [#141](https://github.com/sedecim-com/Accounting/issues/141) — decidido, no pendiente. Hasta que ese tramo entre, los commits siguen en español y el que llegue después no se reescribe: un mensaje de commit es registro, y el registro no se retoca.

@@ -2,7 +2,7 @@ import type pg from 'pg';
 import { withTransaction } from '../../database/connection.js';
 import { ensureBaseChart } from './chart-seed.js';
 import { seedAccountRoles, type SeedResult } from '../xml-ingestion/account-roles-seed.js';
-import { esContabilidadMexicana } from './pais-contable.js';
+import { keepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 import { getPolicy } from '../policy/policy-service.js';
 import {
   seedPayrollAccountMapping,
@@ -72,7 +72,7 @@ export async function ensureEntityAccounting(
       [entityId]
     );
     const pais = datos[0]?.incorporation_country ?? 'MX';
-    const esMexicana = esContabilidadMexicana(pais, datos[0]?.accounting_standard);
+    const esMexicana = keepsMexicanBooks(pais, datos[0]?.accounting_standard);
 
     // QUÉ recibe una entidad no mexicana es criterio del despacho, no del
     // código: puede querer el catálogo de la casa para que postee desde el
@@ -169,7 +169,7 @@ export async function rolesSinMapear(
     'SELECT incorporation_country, accounting_standard FROM legal_entities WHERE id = $1',
     [entityId]
   );
-  const esMexicana = esContabilidadMexicana(
+  const esMexicana = keepsMexicanBooks(
     datos[0]?.incorporation_country,
     datos[0]?.accounting_standard
   );

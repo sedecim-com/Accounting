@@ -7,18 +7,24 @@ vi.mock('../../src/database/connection.js', () => ({
   query: vi.fn(),
   enterTenant: vi.fn(),
   currentTenant: vi.fn(),
+  // El doble CORRE el callback: si sólo devolviera un valor, el recuento por
+  // inquilino nunca se ejecutaría y la prueba mediría el doble, no el código.
+  withTenant: vi.fn(async (_t: string, fn: () => Promise<unknown>) => fn()),
 }));
 
 import { runDoctor,
   checkAccountRoles,
+  checkExtractosCompletos,
   checkLookupTables,
   checkOrphanedCapability,
   claseDe,
   LOOKUP_TABLES,
 } from '../../src/ai/doctor-service.js';
-import { query } from '../../src/database/connection.js';
+import { query, withTenant } from '../../src/database/connection.js';
+import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
 
 const mockQuery = query as unknown as Mock;
+const mockWithTenant = withTenant as unknown as Mock;
 
 /** Answers by mentioned table; defensive with missing args. */
 function mockDb(over: Partial<Record<string, unknown[]>> = {}) {
@@ -46,6 +52,10 @@ function mockDb(over: Partial<Record<string, unknown[]>> = {}) {
     if (q.includes('pg_roles')) return Promise.resolve({ rows: over.roles ?? [{ current_user: 'app', is_super: false, bypass: false, rls_tables: '57' }] });
     if (q.includes('ai_drafts')) return Promise.resolve({ rows: over.pending ?? [{ drafts: '0', questions: '0', ops: '0' }] });
     if (q.includes('fiscal_credentials')) return Promise.resolve({ rows: over.creds ?? [{ n: '0', soonest: null }] });
+    // checkExtractosCompletos: la forma del catálogo, los inquilinos y el hueco.
+    if (q.includes('uq_bank_tx_contenido')) return Promise.resolve({ rows: over.formaBanco ?? [{ unico: false, ciego: false }] });
+    if (q.includes('FROM tenants')) return Promise.resolve({ rows: over.inquilinos ?? [{ id: 't1' }] });
+    if (q.includes('bank_statements')) return Promise.resolve({ rows: over.extractos ?? [] });
     return Promise.resolve({ rows: [] });
   });
 }
@@ -55,6 +65,7 @@ const ENV = { ...process.env };
 
 beforeEach(() => {
   mockQuery.mockReset();
+  mockWithTenant.mockClear();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-'));
   delete process.env.MNEMOSINE_PROVIDER;
   process.env.ENCRYPTION_KEY = 'a'.repeat(64);
@@ -364,6 +375,62 @@ describe('checkAccountRoles', () => {
     mockQuery.mockResolvedValue({ rows: [] });
     expect((await checkAccountRoles()).level).toBe('ok');
   });
+
+  // ============================================================
+  // A QUIÉN SE LE EXIGEN LOS CUATRO ROLES DE IVA (J0.1)
+  //
+  // Esta revisión preguntaba por `incorporation_country` comparado a secas
+  // contra MX, sin mirar la norma, mientras `entity-accounting` decide qué
+  // sembrar con el conmutador completo. Las dos preguntas no coincidían, y el
+  // hueco era el peor posible: a la filial constituida fuera con libros en
+  // NIF el sembrador SÍ le crea los cuatro roles, y el doctor NUNCA los
+  // comprobaba. El diagnóstico no revisaba lo que la propia máquina había
+  // construido.
+  // ============================================================
+
+  /** Primera consulta: el censo de roles por entidad. Segunda: los cuatro de IVA. */
+  function dosConsultas(censo: unknown[], faltantes: unknown[]) {
+    mockQuery.mockImplementation((sql?: unknown) => {
+      const q = typeof sql === 'string' ? sql : '';
+      return Promise.resolve({ rows: q.includes('unnest') ? faltantes : censo });
+    });
+  }
+
+  it('pregunta por la jurisdicción con el predicado del conmutador, no con una copia', async () => {
+    dosConsultas([{ entidad: 'e1', nombre: 'Demo', mapeados: '31', total: '31' }], []);
+    await checkAccountRoles();
+    const sqls = mockQuery.mock.calls.map((c) => String(c[0]));
+    const ivaSql = sqls.find((q) => q.includes('unnest'));
+    expect(ivaSql).toBeDefined();
+    expect(ivaSql).toContain(sqlKeepsMexicanBooks('e'));
+    // La comparación en crudo que este archivo tenía ya no está. Si vuelve,
+    // el doctor deja otra vez de revisar la entidad que el sembrador sembró.
+    expect(ivaSql).not.toMatch(/incorporation_country\s*=\s*'MX'/);
+  });
+
+  /**
+   * `e.is_active` NO viaja en el predicado de jurisdicción y tiene que
+   * sobrevivir aparte: una entidad dada de baja no es una entidad mal
+   * configurada, y el conmutador no sabe de altas y bajas. Se fija porque es
+   * justo la clase de filtro que se pierde al sustituir un WHERE.
+   */
+  it('conserva el filtro de entidad activa, que el conmutador de jurisdicción no sabe', async () => {
+    dosConsultas([{ entidad: 'e1', nombre: 'Demo', mapeados: '31', total: '31' }], []);
+    await checkAccountRoles();
+    const ivaSql = mockQuery.mock.calls.map((c) => String(c[0])).find((q) => q.includes('unnest'));
+    expect(ivaSql).toContain('e.is_active = true');
+  });
+
+  it('reporta con nombre y rol la entidad mexicana a la que le faltan roles de IVA', async () => {
+    dosConsultas(
+      [{ entidad: 'e1', nombre: 'Demo Corp MX', mapeados: '29', total: '29' }],
+      [{ nombre: 'Demo Corp MX', faltantes: 'iva_pendiente_acreditar, iva_trasladado_no_cobrado' }]
+    );
+    const r = await checkAccountRoles();
+    expect(r.level).toBe('fail');
+    expect(r.detail).toContain('Demo Corp MX');
+    expect(r.detail).toContain('iva_pendiente_acreditar');
+  });
 });
 
 // ============================================================
@@ -556,5 +623,63 @@ describe('employer_tax_liabilities, graduada a LOOKUP_TABLES', () => {
     // Lo que la distingue de las demás huérfanas: la forma se PRESENTA.
     expect(spec.breaks).toMatch(/940|941/);
     expect(spec.breaks).toMatch(/ZERO|zero/);
+  });
+});
+
+describe('checkExtractosCompletos', () => {
+  it('acusa el catálogo sin reparar y dice a cuántos inquilinos miró', async () => {
+    mockDb({ formaBanco: [{ unico: true, ciego: true }], inquilinos: [{ id: 't1' }, { id: 't2' }] });
+    const c = await checkExtractosCompletos();
+    expect(c.level).toBe('fail');
+    expect(c.detail).toMatch(/índice de contenido es ÚNICO/);
+    expect(c.detail).toMatch(/huella se puede forjar/);
+    expect(c.detail).toMatch(/2 inquilino\(s\) revisado\(s\)/);
+  });
+
+  it('con el catálogo reparado, nombra los extractos cortos de CADA inquilino', async () => {
+    mockDb({
+      inquilinos: [{ id: 't1' }, { id: 't2' }],
+      extractos: [{ file_name: 'bbva.csv', period_start: '2026-07-01', declaradas: '4', presentes: '3' }],
+    });
+    const c = await checkExtractosCompletos();
+    // ESTA ES LA ASERCIÓN DE WIT-02, y la que el chequeo anterior no pasaba:
+    // el recuento se hace DENTRO del contexto de cada inquilino. Sin él, bajo
+    // RLS la consulta no falla, devuelve cero filas — y el diagnóstico daba
+    // «ok» sobre una instalación con extractos incompletos.
+    const vistos = mockWithTenant.mock.calls.map((llamada) => String(llamada[0]));
+    expect(vistos).toEqual(['t1', 't2']);
+    // Dos inquilinos, una fila corta cada uno: el recuento NO se queda en el primero.
+    expect(c.level).toBe('warn');
+    // No dice «faltan»: el recuento no distingue una línea perdida de una que
+    // `insertarLineas` descartó porque su id nativo ya estaba en la cuenta —el
+    // trimestral que contiene al mensual—, y ésa cuelga de otro extracto. Lo
+    // que sí se afirma es la CIFRA, que es lo que WIT-02 vino a arreglar.
+    expect(c.detail).toMatch(/2 línea\(s\) declaradas y no presentes/);
+    expect(c.fix).not.toMatch(/soltar|DROP|borrar/i);
+    expect(c.detail).toMatch(/bbva\.csv/);
+  });
+
+  it('un inquilino que no se pudo mirar baja el veredicto: el cero por filtrado NO es salud', async () => {
+    // ES EL HALLAZGO WIT-02. Antes, este chequeo preguntaba una sola vez y sin
+    // contexto de inquilino: bajo RLS eso devuelve cero filas SIN error, y el
+    // diagnóstico daba «ok» sobre una instalación con extractos incompletos.
+    mockQuery.mockImplementation((sql?: unknown) => {
+      const q = typeof sql === 'string' ? sql : '';
+      if (q.includes('uq_bank_tx_contenido')) return Promise.resolve({ rows: [{ unico: false, ciego: false }] });
+      if (q.includes('FROM tenants')) return Promise.resolve({ rows: [{ id: 't1' }] });
+      if (q.includes('bank_statements')) return Promise.reject(new Error('permission denied'));
+      return Promise.resolve({ rows: [] });
+    });
+    const c = await checkExtractosCompletos();
+    expect(c.level).toBe('warn');
+    expect(c.detail).toMatch(/sin poder mirarse/);
+    expect(c.detail).not.toMatch(/ningún extracto/);
+  });
+
+  it('sin nada que reprochar, el verde dice cuánto miró', async () => {
+    mockDb({ inquilinos: [{ id: 't1' }] });
+    const c = await checkExtractosCompletos();
+    expect(c.level).toBe('ok');
+    expect(c.detail).toMatch(/1 inquilino\(s\) revisado\(s\)/);
   });
 });

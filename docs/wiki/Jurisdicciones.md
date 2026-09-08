@@ -15,7 +15,7 @@ Nadie decide la tasa de IVA y ninguna ley dice cómo deprecia un despacho. Meter
 
 ## Lo que hay hoy
 
-- **Una sola pregunta, con cuatro copias.** «¿Lleva contabilidad mexicana?» tiene respuesta canónica en [`pais-contable.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/pais-contable.ts) (país MX, nulo o desconocido → México; norma `mx_nif` → México). La usan dos sitios al sembrar una entidad. Cuatro copias siguen vivas sin usarla —en el IVA de flujo, en la reclasificación PPD, en `doctor` y en la nómina— y tres de ellas responden **lo contrario** cuando el país viene nulo.
+- **Una sola pregunta, con cuatro copias.** «¿Lleva contabilidad mexicana?» tenía respuesta canónica en `pais-contable.ts` (hasta J0.1; desde el PR #140 vive en [`src/services/jurisdiction/jurisdiction.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/jurisdiction/jurisdiction.ts) como `keepsMexicanBooks`, con nombres ingleses por #147) (país MX, nulo o desconocido → México; norma `mx_nif` → México). Hasta J0.1 la usaban dos sitios al sembrar una entidad y cuatro copias vivían sin usarla —IVA de flujo, reclasificación PPD, `doctor` y nómina—, tres de ellas respondiendo **lo contrario** con el país en blanco; desde el PR #140 las tres primeras la llaman y la nómina conserva su propio conmutador (`normalizarPais`).
 - **La entidad ya sabe de dónde es.** `legal_entities` guarda país (ISO-2), norma contable (`us_gaap`, `mx_nif`, `ifrs`), moneda funcional, tipo de sociedad, tipo de identificador fiscal y mes de inicio del ejercicio. Ese último campo **no lo lee nadie**: el calendario es siempre el año natural.
 - **El catálogo es mexicano o neutro.** Una entidad estadounidense recibe tres cuentas de marcador («impuestos por pagar»), no un catálogo de su país. La nómina sí distingue: tiene catálogo MX y catálogo US.
 - **El panel no sabe de países.** 39 políticas, todas sembradas en toda entidad; catorce sólo tienen sentido en México (las siete `rep_*`, IEPS, e.firma, restaurantes…) y cuatro umbrales están en pesos aunque la entidad lleve dólares.
@@ -23,7 +23,7 @@ Nadie decide la tasa de IVA y ninguna ley dice cómo deprecia un despacho. Meter
 
 ## El diseño, en cinco piezas
 
-1. **Un solo conmutador que devuelve una jurisdicción**, no un booleano: `jurisdiccionDe(entidad)` → `{ fiscal: 'MX' | 'US', libros: 'mx_nif' | 'us_gaap' | 'ifrs', monedaLegal }`. Las copias se borran.
+1. **Un solo conmutador que devuelve una jurisdicción**, no un booleano: `jurisdictionOf(entity)` → `{ fiscal: 'MX' | 'US', books: 'mx_nif' | 'us_gaap' | 'ifrs', legalCurrency }`. Las copias se borran.
 2. **Un paquete por jurisdicción** (`src/jurisdicciones/mx`, `/us`): estrato fiscal del catálogo, roles, reglas de calendario, ajustes del panel, parámetros legales sembrados con su fuente, motores fiscales, formatos de informe y el corpus que el agente abre. Añadir un país es añadir una carpeta.
 3. **El panel gana la dimensión.** Cada política puede declarar por jurisdicción si aplica, su default y su texto. La resolución pasa a ser *entidad > inquilino × jurisdicción > inquilino > default de la jurisdicción > default universal*, y `mnemosine pending --jurisdiction US` lista sólo lo que aplica. Ninguna clave existente cambia de nombre.
 4. **Una tabla de parámetros legales con vigencia**, no una fila por año: `parametros_legales(jurisdiction, clave, valor, effective_from, effective_to, fuente_url)`. Se lee por la fecha del hecho y, sin vigencia que la cubra, **lanza** — el fallo cerrado que hoy sólo tiene el ISR.

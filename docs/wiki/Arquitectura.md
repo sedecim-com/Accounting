@@ -119,7 +119,11 @@ Antes, la única comprobación iba guardada por `if (resolved && …)`, así que
 [`kernel/vocabulary.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/cli/kernel/vocabulary.ts) fija una lista cerrada de verbos con dos propiedades que el auditor comprueba:
 
 1. **Cerrada.** Un comando cuyo último token no está en la lista se rechaza. Sin lista cerrada aparecen `list`, `ls`, `show` y `get` haciendo lo mismo, y la superficie deja de ser aprendible: quien ya sabe `account list` tiene que volver a aprender cómo se listan los proveedores.
-2. **Biyectiva.** Exactamente una palabra en español por verbo en inglés, y ninguna palabra española sirviendo a dos verbos. El español es una capa de alias, nunca una segunda superficie; un alias reclamado por dos comandos es un fallo duro de la matriz bilingüe, no una cuestión de estilo.
+2. **Biyectiva.** Exactamente una palabra en español por verbo en inglés, y ninguna palabra española sirviendo a dos verbos. El español es una capa de alias sobre el
+   nombre canónico, nunca una segunda superficie — y desde el epic #141 esa
+   frase describe la FORMA, no el idioma en que se lee: el canónico es inglés
+   porque es el nombre de máquina, y lo que el contador ve se resuelve por
+   clave contra su idioma, con el español primero; un alias reclamado por dos comandos es un fallo duro de la matriz bilingüe, no una cuestión de estilo.
 
 Añadir un verbo es un acto deliberado, y se nota: cada incorporación lleva su fecha y su razón en el propio archivo. `merge` entró porque tres comandos funden el historial de un registro en otro y ningún verbo existente lo absorbía —`apply` es idempotente, `import` lee de fuera, `correct` enmienda uno solo en vez de colapsar dos—. `stats` entró porque el nombre ya estaba embarcado.
 
@@ -250,7 +254,7 @@ El detalle del paso 2b y de lo que el agente puede y no puede hacer está en [[E
 
 ## La dimensión que las capas todavía no tienen: la jurisdicción
 
-El motor arranca con México y Estados Unidos, y ninguna de las cinco capas pregunta hoy de qué país es la entidad salvo en un sitio: al sembrarla. La pregunta canónica es `esContabilidadMexicana` en [`pais-contable.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/accounting/pais-contable.ts) —país MX, nulo o desconocido → México—, la consumen dos líneas de `entity-accounting.ts`, y cuatro copias siguen vivas sin usarla, tres de ellas con el borde nulo al revés. El cierre, los informes, el panel de políticas y el calendario fiscal no la importan; la nómina tiene su propio conmutador. La entidad sí sabe de dónde es (`legal_entities` guarda país, norma contable, moneda funcional y mes de inicio del ejercicio, este último sin lector), pero esa información no baja a los servicios.
+El motor arranca con México y Estados Unidos, y ninguna de las cinco capas pregunta hoy de qué país es la entidad salvo en un sitio: al sembrarla. La pregunta canónica es `keepsMexicanBooks` en [`src/services/jurisdiction/jurisdiction.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/services/jurisdiction/jurisdiction.ts) (hasta J0.1 vivía en `pais-contable.ts` como `esContabilidadMexicana`; nombres ingleses por #147) —país MX, nulo o desconocido → México—, la consumen `entity-accounting.ts`, el IVA de flujo, la reclasificación PPD y `doctor` (desde J0.1; antes eran cuatro copias divergentes, tres con el borde nulo al revés). El cierre, los informes, el panel de políticas y el calendario fiscal no la importan; la nómina tiene su propio conmutador. La entidad sí sabe de dónde es (`legal_entities` guarda país, norma contable, moneda funcional y mes de inicio del ejercicio, este último sin lector), pero esa información no baja a los servicios.
 
 El diseño que lo corrige —un solo conmutador que devuelve una jurisdicción y no un booleano, un paquete por país, el panel con dimensión de jurisdicción y una tabla de parámetros legales con vigencia— está en [[Jurisdicciones]] y en [`docs/jurisdicciones.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/jurisdicciones.md). Aquí basta con saber que es una dimensión que atraviesa las cinco capas y que hoy sólo toca la más baja.
 
