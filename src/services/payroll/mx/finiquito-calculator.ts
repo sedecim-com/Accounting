@@ -9,7 +9,9 @@ import {
   diasDeVacacionesPorAnio,
   salarioDiarioDesdeSbc,
   type DesgloseFiniquito,
+  type MotivoDeBaja,
 } from './finiquito-math.js';
+import { getTaxParameters } from '../tax-engine/tax-tables.js';
 
 // ============================================================
 // MX — Finiquito (termination settlement)
@@ -27,6 +29,13 @@ import {
 export interface FiniquitoInput {
   employee_id: string;
   termination_date: string;
+  /**
+   * POR QUÉ SE SEPARA. Obligatorio: decide si hay prima de antigüedad, que en
+   * un trabajador antiguo es la prestación más grande del finiquito. La
+   * renuncia la paga sólo con quince años cumplidos; el despido la paga
+   * siempre, justificado o no (LFT art. 162 fr. III).
+   */
+  termination_reason: MotivoDeBaja;
   last_paid_through: string;
   pending_vacation_days?: number;
   /**
@@ -55,6 +64,13 @@ export interface FiniquitoResult {
   prima_vacacional_days: string;
   prima_vacacional_amount: string;
   vacation_pending_amount: string;
+  /** Días de prima de antigüedad: 12 por año de servicio (LFT art. 162 fr. I). */
+  seniority_premium_days: number;
+  /** Base diaria ya topada por el art. 486, o null si no se pudo calcular. */
+  seniority_premium_daily_base: string | null;
+  seniority_premium_amount: string;
+  /** Por qué vale lo que vale — o por qué no se pudo calcular. */
+  seniority_premium_note: string;
   total: string;
   /** Cómo se llegó al número: qué antigüedad, qué tabla y qué salario diario. */
   basis: {
@@ -143,6 +159,21 @@ export async function calculateFiniquito(
     fuente = 'annual_salary';
   }
 
+  // EL MÍNIMO CON EL QUE SE TOPA LA PRIMA, A LA FECHA DE LA BAJA.
+  //
+  // A la fecha de la baja y no a la de hoy: un finiquito de enero recalculado
+  // en marzo tiene que seguir topándose con el mínimo de enero. Y del GENERAL,
+  // porque este esquema todavía no guarda la zona donde se presta el trabajo
+  // —el art. 486 mide el tope con el mínimo de esa zona— así que el desglose
+  // deja dicho con cuál se calculó, en vez de callarlo.
+  const anioBaja = new Date(input.termination_date).getUTCFullYear();
+  const params = await getTaxParameters('MX', anioBaja, input.termination_date);
+  const minimoGeneral = params.salario_minimo_general_diario;
+  const salarioMinimo =
+    typeof minimoGeneral === 'number' || typeof minimoGeneral === 'string'
+      ? String(minimoGeneral)
+      : undefined;
+
   const d: DesgloseFiniquito = calcularFiniquito({
     fecha_alta: e.hire_date,
     fecha_baja: input.termination_date,
@@ -151,6 +182,8 @@ export async function calculateFiniquito(
     dias_vacaciones_pendientes: input.pending_vacation_days ?? 0,
     dias_aguinaldo_por_anio: diasAguinaldo,
     prima_vacacional_pct: primaPct,
+    motivo_baja: input.termination_reason,
+    salario_minimo_diario: salarioMinimo,
   });
 
   return {
@@ -161,6 +194,10 @@ export async function calculateFiniquito(
     prima_vacacional_days: d.prima_vacacional_dias,
     prima_vacacional_amount: d.prima_vacacional_importe,
     vacation_pending_amount: d.vacaciones_pendientes_importe,
+    seniority_premium_days: d.prima_antiguedad_dias,
+    seniority_premium_daily_base: d.prima_antiguedad_base_diaria,
+    seniority_premium_amount: d.prima_antiguedad_importe,
+    seniority_premium_note: d.prima_antiguedad_nota,
     total: d.total,
     basis: {
       years_of_service: d.antiguedad_anios_cumplidos,

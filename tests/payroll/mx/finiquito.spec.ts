@@ -18,6 +18,23 @@ const mockGetPolicyNumber = getPolicyNumber as unknown as Mock;
 
 const CTX = { tenantId: 't1', entityId: 'e-de-la-peticion' };
 
+/**
+ * Desde T4b la cáscara lee además el salario mínimo vigente a la fecha de la
+ * baja, del que cuelga el tope de la prima de antigüedad (LFT art. 486). El
+ * doble tiene que contestarlo: si no, la lectura cae fuera del mock y revienta
+ * con «Cannot read properties of undefined».
+ */
+function conParametros(...respuestas: Array<{ rows: unknown[] }>): void {
+  let i = 0;
+  mockQuery.mockImplementation((sql?: unknown) => {
+    const q = typeof sql === 'string' ? sql : '';
+    if (q.includes('tax_parameters')) {
+      return Promise.resolve({ rows: [{ params: { salario_minimo_general_diario: 315.04 } }] });
+    }
+    return Promise.resolve(respuestas[i++] ?? { rows: [] });
+  });
+}
+
 /** Lo que el panel contesta cuando nadie ha tocado las políticas. */
 function panelPorDefecto(): void {
   mockGetPolicyNumber.mockResolvedValue(15);
@@ -51,9 +68,9 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
   };
 
   it('el inquilino va dentro del SQL, no en un filtro posterior', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [EMPLEADO] });
+    conParametros({ rows: [EMPLEADO] });
     await calculateFiniquito(
-      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' },
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
     );
     const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
@@ -62,9 +79,9 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
   });
 
   it('lee los dos parámetros del panel, que antes estaban muertos', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [EMPLEADO] });
+    conParametros({ rows: [EMPLEADO] });
     await calculateFiniquito(
-      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' },
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
     );
     expect(mockGetPolicyNumber).toHaveBeenCalledWith(expect.anything(), 'dias_aguinaldo');
@@ -72,9 +89,9 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
   });
 
   it('la política se resuelve en la entidad DEL EMPLEADO, no en la de la petición', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [EMPLEADO] });
+    conParametros({ rows: [EMPLEADO] });
     await calculateFiniquito(
-      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' },
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
     );
     expect(mockGetPolicyNumber).toHaveBeenCalledWith(
@@ -87,13 +104,13 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
     // 30 días de aguinaldo y 100 % de prima: el doble y el cuádruple.
     mockQuery.mockResolvedValue({ rows: [EMPLEADO] });
     const conMinimos = await calculateFiniquito(
-      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' },
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
     );
     mockGetPolicyNumber.mockResolvedValue(30);
     mockGetPolicy.mockResolvedValue({ value: '1.00', key: '', defined: true, question: '', rationale: null });
     const conElContrato = await calculateFiniquito(
-      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' },
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
     );
     expect(conMinimos.aguinaldo_amount).toBe('5609.5890');
@@ -103,11 +120,12 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
   });
 
   it('el llamador puede sobrescribir el panel con el dato del contrato', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [EMPLEADO] });
+    conParametros({ rows: [EMPLEADO] });
     const r = await calculateFiniquito(
       {
         employee_id: 'emp1',
         termination_date: '2026-09-30',
+        termination_reason: 'renuncia' as const,
         last_paid_through: '2026-09-15',
         aguinaldo_days_per_year: 20,
         prima_vacacional_pct: 0.5,
@@ -123,9 +141,9 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
   it('el salario diario sale del contrato, NO del SBC', async () => {
     // El empleado trae los dos. El cálculo anterior prefería el SBC —el
     // salario INTEGRADO— y cobraba aguinaldo sobre el aguinaldo.
-    mockQuery.mockResolvedValueOnce({ rows: [EMPLEADO] });
+    conParametros({ rows: [EMPLEADO] });
     const r = await calculateFiniquito(
-      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' },
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
     );
     expect(r.basis.daily_wage).toBe('500.0000');
@@ -135,9 +153,9 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
   });
 
   it('sin salario contratado, des-integra el SBC en vez de usarlo tal cual', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ ...EMPLEADO, annual_salary: null }] });
+    conParametros({ rows: [{ ...EMPLEADO, annual_salary: null }] });
     const r = await calculateFiniquito(
-      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' },
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
     );
     // 528.7671 / ((365 + 15 + 24 × 0.25) / 365) = 500.0000
@@ -150,16 +168,16 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
       rows: [{ ...EMPLEADO, annual_salary: null, sbc: null }],
     });
     const r = await calculateFiniquito(
-      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' },
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
     );
     expect(r.total).toBe('0.0000');
   });
 
   it('devuelve la base del cálculo: antigüedad, tabla y salario', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [EMPLEADO] });
+    conParametros({ rows: [EMPLEADO] });
     const r = await calculateFiniquito(
-      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' },
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
     );
     expect(r.basis.years_of_service).toBe(12);
@@ -169,11 +187,12 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
   });
 
   it('los importes son cadenas de cuatro decimales, no números', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [EMPLEADO] });
+    conParametros({ rows: [EMPLEADO] });
     const r = await calculateFiniquito(
       {
         employee_id: 'emp1',
         termination_date: '2026-09-30',
+        termination_reason: 'renuncia' as const,
         last_paid_through: '2026-09-15',
         pending_vacation_days: 5,
       },
@@ -195,7 +214,12 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
     await expect(
       calculateFiniquito(
-        { employee_id: 'missing', termination_date: '2026-01-15', last_paid_through: '2026-01-01' },
+        {
+          employee_id: 'missing',
+          termination_date: '2026-01-15',
+          last_paid_through: '2026-01-01',
+          termination_reason: 'renuncia' as const,
+        },
         CTX
       )
     ).rejects.toThrow('Employee not found');
@@ -206,7 +230,7 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
       rows: [{ ...EMPLEADO, hire_date: new Date(2014, 6, 16) }],
     });
     const r = await calculateFiniquito(
-      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15' },
+      { employee_id: 'emp1', termination_date: '2026-09-30', last_paid_through: '2026-09-15', termination_reason: 'renuncia' },
       CTX
     );
     expect(r.basis.years_of_service).toBe(12);

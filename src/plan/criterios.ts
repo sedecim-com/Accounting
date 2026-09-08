@@ -7864,6 +7864,69 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'seniority-premium-is-paid-and-capped-by-zone',
+    enunciado: 'El finiquito paga la prima de antigüedad, topada por el art. 486, y no la cifra en cero cuando no la puede calcular',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: "  return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;",
+        a: "  return motivo === 'renuncia' && aniosCumplidos >= 15;",
+        porque:
+          'vuelve a no pagarse la prima al DESPEDIDO, que es la mitad del art. 162 fr. III que más se pasa por alto: se paga «independientemente de la justificación o injustificación del despido». Un despedido con tres años pierde 22 682.88',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: '  return Decimal.min(piso, salarioMinimo.times(2));',
+        a: '  return piso;',
+        porque:
+          'desaparece el tope del art. 486 y la prima se calcula sobre el salario entero: para un salario de 1 000 con quince años son 180 000 en vez de 113 414.40 — pagar de más también es un defecto, y aquí lo paga el patrón',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: "      'SIN CALCULAR: faltó el salario mínimo de la zona",
+        a: "      'sin prima de antigüedad en este finiquito. Faltó el mínimo de la zona",
+        porque:
+          'el cero por no saber vuelve a ser indistinguible del cero por no deberse: sin el mínimo de la zona no se puede fijar el tope, y callarlo le paga de menos al trabajador sin que nadie lo note',
+      },
+    ],
+    evaluar: () => {
+      // T4b (#91). `calcularFiniquito` sumaba cuatro conceptos y llamaba
+      // `total` al resultado. Faltaba la prima de antigüedad —doce días por
+      // año de servicio, art. 162 LFT—, que en el caso medido (quince años,
+      // salario diario 1 000) son 113 414.40 contra un finiquito de 24 610.96:
+      // faltaba más de cuatro veces lo que se pagaba.
+      const math = 'src/services/payroll/mx/finiquito-math.ts';
+      if (!existe(math)) return falla('desapareció la aritmética del finiquito');
+      const src = codigoDe(math);
+
+      // 1. QUE SE CALCULE Y ENTRE EN EL TOTAL.
+      if (!/prima_antiguedad_importe/.test(src)) {
+        return falla('el finiquito volvió a no pagar la prima de antigüedad: son doce días por año de servicio y en un trabajador antiguo es la prestación más grande (#91)');
+      }
+      // 2. QUE EL TOPE SEA DEL ART. 486 Y SOBRE EL SALARIO, no sobre el
+      //    resultado: «se considerará esa cantidad como salario MÁXIMO».
+      if (!/Decimal\.min\(piso, salarioMinimo\.times\(2\)\)/.test(src)) {
+        return falla('la base de la prima dejó de topar el salario en dos mínimos (LFT art. 486): topar el resultado da otra cifra, y no topar nada se lo cobra al patrón');
+      }
+      // 3. QUE EL DESPIDO LA COBRE SIN UMBRAL.
+      if (!/motivo === 'renuncia' \? aniosCumplidos >= 15 : true/.test(src)) {
+        return falla('sólo la renuncia tiene umbral de quince años: el despido paga prima «independientemente de la justificación o injustificación» (art. 162 fr. III)');
+      }
+      // 4. Y QUE EL CERO POR NO SABER SE NOMBRE. El tope cuelga del salario
+      //    mínimo DE LA ZONA, que este esquema todavía no guarda: suponer el
+      //    general le paga 45 298.80 de menos a un trabajador fronterizo.
+      if (!/SIN CALCULAR/.test(src)) {
+        return falla('un finiquito sin el salario mínimo de la zona vuelve a devolver cero sin decirlo: indistinguible de no deberse');
+      }
+
+      return existe('tests/payroll/mx/prima-de-antiguedad.spec.ts')
+        ? ok('la prima de antigüedad se paga con su tope del art. 486, el despido la cobra sin umbral, y lo que no se puede calcular se nombra')
+        : falla('no hay prueba de la prima de antigüedad: la prestación más grande del finiquito quedaría sin vigilar');
+    },
+  },
+
+  {
+    paquete: 'E4.1',
     id: 'isr-tariff-matches-the-pay-period',
     enunciado: 'A cada periodo de pago se le aplica SU tarifa del art. 96, y el periodo sin tabla publicada se niega',
     mutantes: [

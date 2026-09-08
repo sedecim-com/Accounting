@@ -223,7 +223,39 @@ export interface EntradaFiniquito {
   dias_aguinaldo_por_anio: number;
   /** Política `prima_vacacional_pct` (LFT art. 80 fija 0.25 como mínimo). */
   prima_vacacional_pct: string;
+  /**
+   * POR QUÉ SE SEPARA, y no es un adorno: decide si hay prima de antigüedad.
+   *
+   * El art. 162 fr. III la paga a quien RENUNCIA sólo con quince años
+   * cumplidos, pero a quien es DESPEDIDO «independientemente de la
+   * justificación o injustificación del despido» —sin umbral—, a quien se
+   * separa por causa justificada (art. 51) y, por la fr. V, a los
+   * beneficiarios en caso de muerte, «cualquiera que sea su antigüedad».
+   *
+   * Es OBLIGATORIO a propósito: sin él no se puede saber si se debe la
+   * prestación más grande del finiquito, y un valor por omisión la callaría
+   * justo en el caso que más dinero mueve.
+   */
+  motivo_baja: MotivoDeBaja;
+  /**
+   * Salario mínimo diario de la ZONA donde se presta el trabajo, con el que se
+   * topa la base de la prima (arts. 485 y 486 LFT).
+   *
+   * Va como entrada y no se lee de la base aquí porque esta función es PURA:
+   * quien la llama trae el parámetro vigente A LA FECHA DE LA BAJA y dice con
+   * cuál calculó. Si falta, no se inventa: la prima sale sin calcular y el
+   * desglose lo dice.
+   */
+  salario_minimo_diario?: string;
 }
+
+/**
+ * Los supuestos del art. 162 fr. III y V que este cálculo distingue.
+ *
+ * `renuncia` es el único con umbral de antigüedad (quince años). El despido
+ * paga prima sea justificado o no — es la mitad que más se pasa por alto.
+ */
+export type MotivoDeBaja = 'renuncia' | 'despido' | 'rescision_por_el_trabajador' | 'muerte';
 
 /** Todo el dinero en cadenas de cuatro decimales. Ni un `number` de importe. */
 export interface DesgloseFiniquito {
@@ -239,7 +271,53 @@ export interface DesgloseFiniquito {
   prima_vacacional_dias: string;
   prima_vacacional_importe: string;
   vacaciones_pendientes_importe: string;
+  /** Días de prima de antigüedad: 12 por año de servicio (LFT art. 162 fr. I). */
+  prima_antiguedad_dias: number;
+  /** Base diaria ya topada por el art. 486, o null si no se pudo calcular. */
+  prima_antiguedad_base_diaria: string | null;
+  prima_antiguedad_importe: string;
+  /**
+   * Por qué la prima vale lo que vale — o por qué no se pudo calcular.
+   *
+   * Un cero sin explicación es indistinguible de un cero por no saber, y aquí
+   * las dos cosas ocurren: hay bajas que no la devengan y hay bajas que sí,
+   * pero cuyo tope no se puede fijar sin el salario mínimo de la zona.
+   */
+  prima_antiguedad_nota: string;
   total: string;
+}
+
+
+/**
+ * ¿Devenga prima de antigüedad esta baja? (LFT art. 162 fr. III y V)
+ *
+ * La renuncia es el ÚNICO supuesto con umbral: quince años cumplidos. El
+ * despido la paga «independientemente de la justificación o injustificación»,
+ * la rescisión por causa imputable al patrón (art. 51) también, y la muerte
+ * «cualquiera que sea su antigüedad» (fr. V).
+ */
+export function devengaPrimaDeAntiguedad(motivo: MotivoDeBaja, aniosCumplidos: number): boolean {
+  return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;
+}
+
+/**
+ * La base diaria de la prima, acotada por los arts. 485 y 486 LFT.
+ *
+ * SE TOPA EL SALARIO, NO EL RESULTADO. El 486 lo dice sin ambigüedad: si el
+ * salario «excede del doble del salario mínimo … se considerará esa cantidad
+ * como SALARIO MÁXIMO». Topar los 113 414.40 finales en vez de la base diaria
+ * es un error clásico y da una cifra distinta.
+ *
+ * Y hay piso además de techo: el 485 manda que la base «no podrá ser inferior
+ * al salario mínimo».
+ *
+ * El mínimo es el DE LA ZONA donde se presta el trabajo (486), no el general
+ * por defecto. Este esquema todavía no guarda esa zona; quien llama pasa el
+ * que aplique y el desglose deja dicho con cuál se calculó.
+ */
+export function baseDiariaDePrima(salarioDiario: Decimal, salarioMinimo: Decimal): Decimal {
+  const piso = Decimal.max(salarioDiario, salarioMinimo);
+  return Decimal.min(piso, salarioMinimo.times(2));
 }
 
 export function calcularFiniquito(entrada: EntradaFiniquito): DesgloseFiniquito {
@@ -312,11 +390,46 @@ export function calcularFiniquito(entrada: EntradaFiniquito): DesgloseFiniquito 
     salarioDiario
   );
 
+  // ── 5 · Prima de antigüedad (LFT art. 162) ──
+  //
+  // Es la prestación más grande del finiquito de un trabajador antiguo —doce
+  // días por año, sin tope de años— y hasta este tramo no se calculaba: el
+  // «total» sumaba cuatro conceptos y se quedaba corto en, por ejemplo,
+  // 113 414.40 para quince años de servicio.
+  const devenga = devengaPrimaDeAntiguedad(entrada.motivo_baja, cumplidos);
+  const primaAntiguedadDias = devenga ? 12 * cumplidos : 0;
+  let primaAntiguedadBase: Decimal | null = null;
+  let primaAntiguedadImporte = new Decimal(0);
+  let primaAntiguedadNota: string;
+
+  if (!devenga) {
+    primaAntiguedadNota =
+      'no se devenga: la renuncia paga prima de antigüedad sólo con quince años cumplidos (LFT art. 162 fr. III)';
+  } else if (entrada.salario_minimo_diario === undefined) {
+    // NO SE INVENTA. El tope del art. 486 cuelga del salario mínimo de la zona,
+    // y suponer el general le paga de menos a un trabajador fronterizo: 180
+    // días × 630.08 contra × 881.74 son 45 298.80 de diferencia. Un importe que
+    // no se puede calcular se nombra, no se cifra en cero en silencio.
+    primaAntiguedadNota =
+      'SIN CALCULAR: faltó el salario mínimo de la zona, del que cuelga el tope del art. 486. ' +
+      `Se deben ${primaAntiguedadDias} días de prima de antigüedad y NO están en este total`;
+  } else {
+    primaAntiguedadBase = baseDiariaDePrima(salarioDiario, new Decimal(entrada.salario_minimo_diario));
+    primaAntiguedadImporte = primaAntiguedadBase.times(primaAntiguedadDias);
+    primaAntiguedadNota =
+      `${primaAntiguedadDias} días × ${primaAntiguedadBase.toFixed(DECIMALES)} ` +
+      `(LFT art. 162 fr. I, base topada por el 486 con un mínimo de ${entrada.salario_minimo_diario})`;
+  }
+
   // El total suma lo REDONDEADO, no los intermedios: así el importe que se
   // paga es siempre la suma exacta de los conceptos que el recibo enumera.
-  const conceptos = [salarioImporte, aguinaldoImporte, primaImporte, vacacionesPendientes].map(
-    (d) => new Decimal(d.toFixed(DECIMALES))
-  );
+  const conceptos = [
+    salarioImporte,
+    aguinaldoImporte,
+    primaImporte,
+    vacacionesPendientes,
+    primaAntiguedadImporte,
+  ].map((d) => new Decimal(d.toFixed(DECIMALES)));
   const total = conceptos.reduce((suma, c) => suma.plus(c), new Decimal(0));
 
   return {
@@ -332,6 +445,10 @@ export function calcularFiniquito(entrada: EntradaFiniquito): DesgloseFiniquito 
     prima_vacacional_dias: primaDias.toFixed(DECIMALES),
     prima_vacacional_importe: primaImporte.toFixed(DECIMALES),
     vacaciones_pendientes_importe: vacacionesPendientes.toFixed(DECIMALES),
+    prima_antiguedad_dias: primaAntiguedadDias,
+    prima_antiguedad_base_diaria: primaAntiguedadBase ? primaAntiguedadBase.toFixed(DECIMALES) : null,
+    prima_antiguedad_importe: primaAntiguedadImporte.toFixed(DECIMALES),
+    prima_antiguedad_nota: primaAntiguedadNota,
     total: total.toFixed(DECIMALES),
   };
 }
