@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
@@ -222,6 +223,14 @@ async function ivaAcreditableDelMes(entityId: string, mes: number): Promise<stri
 }
 
 const periodoDe = (mes: number): string => `2026-${String(mes).padStart(2, '0')}`;
+
+// `inpc_serie` es GLOBAL —sin tenant_id ni entity_id—, así que
+// la comparte toda la corrida. Este archivo escribe en la serie del INPC.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado
+// en una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que
+// no es suyo — y el orden de esta suite lo decide el resultado de la corrida
+// anterior, no el alfabeto. Ver helpers/catalogos-globales.ts.
+apartarCatalogos('inpc_serie');
 
 beforeAll(async () => {
   f = await crearInquilino('F07cd ataque');

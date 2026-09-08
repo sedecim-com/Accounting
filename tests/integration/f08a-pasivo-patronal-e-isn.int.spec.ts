@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../src/database/connection.js';
 import { crearEntidadHermana, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
@@ -134,6 +135,14 @@ async function pasivosDe(payRunId: string | null): Promise<FilaPasivo[]> {
   );
   return rows;
 }
+
+// `mx_isn_tasas_estatales` es GLOBAL —sin tenant_id ni entity_id—, así que
+// la comparte toda la corrida. Este archivo siembra tasas de ISN.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado
+// en una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que
+// no es suyo — y el orden de esta suite lo decide el resultado de la corrida
+// anterior, no el alfabeto. Ver helpers/catalogos-globales.ts.
+apartarCatalogos('mx_isn_tasas_estatales');
 
 beforeAll(async () => {
   f = await crearInquilino('F08a · pasivo patronal e ISN');
