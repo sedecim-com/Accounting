@@ -1131,8 +1131,19 @@ export const CRITERIOS: Criterio[] = [
             || Number(f.slice(0, 3)) < 20;
           return !declara;
         });
+      if (sinDeclarar.length === 0 && !existe('tests/integration/migracion-071-actualizacion-bajo-rls.int.spec.ts')) {
+        // LA MITAD DINÁMICA, Y NO ES ADORNO (WIT-03). Lo de arriba es
+        // PRESENCIA de texto: da verde con el archivo escrito y jamás
+        // ejecutado en el estado que lo rompía. La prueba monta las tres cosas
+        // que hacen falta para que el defecto exista —rol NOBYPASSRLS que es
+        // DUEÑO, políticas con su FORCE, y el piso `row_security = off`— y
+        // cae al neutralizar el `SET LOCAL ROLE`, el `RESET ROLE` o la
+        // devolución del ACL. Sin ella, una regresión en ese baile bloquearía
+        // toda actualización instalada y CI seguiría en verde.
+        return falla('no hay prueba que EJECUTE la 071 sobre una base endurecida: leer el archivo no demuestra que la actualización sobreviva');
+      }
       return sinDeclarar.length === 0
-        ? ok('ninguna migración puebla una vista materializada sin decir cómo esquiva el 42501 del piso')
+        ? ok('ninguna migración puebla una vista materializada sin decir cómo esquiva el 42501 del piso, y hay prueba que lo ejecuta bajo FORCE RLS')
         : falla(`vista materializada creada sin declarar cómo sobrevive a «row_security = off»: ${sinDeclarar.join(', ')} — muere con 42501 en toda base ya endurecida, y en instalación nueva no se nota`);
     },
   },
