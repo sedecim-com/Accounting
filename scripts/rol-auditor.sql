@@ -256,9 +256,16 @@ DECLARE
   -- El auditor las necesita para rehacer un cálculo, y no dicen nada de nadie.
   -- Es la única lista a mano de este archivo, y añadir aquí una tabla es
   -- afirmar que sus filas no son de ningún cliente.
+  --
+  -- `legal_parameters` entra con la 075 (J0.2) y la afirmación se hace
+  -- explícita: sus filas son LEY —la tasa del IVA, la UMA, el salario
+  -- mínimo—, cada una con la URL del DOF o del SAT de la que salió. No hay
+  -- una sola fila de un cliente ahí, y el auditor la necesita justamente
+  -- para rehacer un cálculo: sin ella puede ver la cifra resultante y no la
+  -- vigencia con la que se hizo, que es la mitad que se audita.
   referencia_global text[] := ARRAY[
     'migrations', 'exchange_rates', 'tax_parameters', 'tax_tables',
-    'sat_codigos_agrupadores'
+    'sat_codigos_agrupadores', 'legal_parameters'
   ];
   r record;
   negadas int := 0;

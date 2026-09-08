@@ -88,6 +88,12 @@ const GLOBALES: Record<string, string> = {
   inpc_serie: 'el INPC lo publica el INEGI: es una serie nacional, no del inquilino',
   sat_bancos: 'catálogo de bancos publicado por el SAT, idéntico para todos',
   sat_codigos_agrupadores: 'catálogo de códigos agrupadores del SAT, idéntico para todos',
+  legal_parameters:
+    'lo que fija la LEY con su fecha de entrada (J0.2, migración 075): la UMA, el salario ' +
+    'mínimo y la tasa del IVA valen igual para todo despacho mexicano. Entra por la misma ' +
+    'razón que tax_parameters y sat_codigos_agrupadores — un hecho publicado por la ' +
+    'autoridad, no un dato del inquilino—, y por eso la 075 la crea SIN tenant_id: no es que ' +
+    'se le olvidara la política, es que no hay columna por la que filtrar.',
 };
 
 /**
