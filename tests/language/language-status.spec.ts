@@ -57,6 +57,39 @@ describe('comparar — qué cuenta como retroceso', () => {
     expect(h[0].detail).toContain('x.ts: creció 4 → 8');
   });
 
+  it('LA DEUDA NO SE ESCAPA A UN ARCHIVO NUEVO: sin entrada, el suelo es cero', () => {
+    // El agujero que encontró la revisión de I2 (WIT-01). El desglose sólo
+    // auditaba archivos que YA tenían entrada, así que la deuda tenía una
+    // salida: sacar una unidad de un archivo vigilado y meterla en uno que
+    // nadie vigila. El total del carril no se mueve —10 sigue siendo 10— y
+    // el desglose no dice nada, que es exactamente el desplazamiento que el
+    // desglose existe para impedir.
+    //
+    // Con el suelo cero implícito, el archivo nuevo tiene que justificarse.
+    const h = compare(
+      [lane('a', 10, { 'x.ts': 9, 'nuevo.ts': 1 })],
+      baselineOf({ a: 10 }, { a: { 'x.ts': 10 } })
+    );
+    expect(h).toHaveLength(1);
+    expect(h[0].lane).toBe('a');
+    expect(h[0].detail).toContain('nuevo.ts');
+    expect(h[0].detail).toContain('0 → 1');
+    // Y que haya hallazgo es que `--check` sale con 1: ese es su único
+    // criterio (`findings.length === 0`), no hay otra puerta.
+    expect(h.length).toBeGreaterThan(0);
+  });
+
+  it('un archivo que DESAPARECE del desglose no es hallazgo: desaparecer es llegar a cero', () => {
+    // La otra cara de la misma regla. El desglose sólo lista archivos con
+    // deuda; si `y.ts` se traduce entero, deja la lista. Acusarlo convertiría
+    // cada traducción terminada en un rojo, y el trinquete se borraría.
+    const h = compare(
+      [lane('a', 4, { 'x.ts': 4 })],
+      baselineOf({ a: 10 }, { a: { 'x.ts': 4, 'y.ts': 6 } })
+    );
+    expect(h).toEqual([]);
+  });
+
   it('UNA ENTRADA MUERTA SE ACUSA: el trinquete no puede cuidar lo que ya no se mide', () => {
     // El fallo silencioso: se borra un carril, su entrada se queda, y la línea
     // base protege algo que no existe. Se ve verde para siempre.
