@@ -360,10 +360,20 @@ const EDGE_CASES: readonly EdgeCase[] = [
 let gate: LexiconTwin;
 let corpus: Corpus;
 
+// EL HOOK TIENE SU PROPIO LÍMITE, Y NO ES EL DE LAS PRUEBAS. Este `beforeAll`
+// cosecha el árbol entero —setecientos y pico archivos— y además compila el
+// gemelo del lint. Las PRUEBAS ya llevaban su límite ampliado; al hook se le
+// había olvidado, y vitest le da DIEZ SEGUNDOS por omisión.
+//
+// Cuando se agotan no falla una prueba: falla el ARCHIVO al cargar, y la suite
+// reporta «FAIL … [ archivo ]» sin haber corrido ninguna. Se lee como si el
+// conformance estuviera roto. Pasó en CI (corrida 34183268942, «Pruebas
+// unitarias»), no sólo en una máquina cargada: 5 657 pruebas en verde y este
+// archivo sin arrancar.
 beforeAll(async () => {
   gate = await loadGateTwin();
   corpus = harvest();
-});
+}, 120_000);
 
 /** Cuántas divergencias se imprimen. Bastantes para ver el patrón, pocas para leer. */
 const MAX_REPORTED = 12;
