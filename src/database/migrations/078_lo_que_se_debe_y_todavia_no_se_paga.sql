@@ -1,5 +1,5 @@
 -- ============================================================
--- 073 · LO QUE SE DEBE Y TODAVÍA NO SE PAGA (D1)
+-- 078 · LO QUE SE DEBE Y TODAVÍA NO SE PAGA (D1)
 --
 -- El devengo es la diferencia entre una contabilidad y un registro de caja. Un
 -- despacho que paga el aguinaldo en diciembre y no lo provisiona durante el

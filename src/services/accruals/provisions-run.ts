@@ -76,7 +76,7 @@ import {
 //     y el día que el esquema guarde esas fechas, la bifurcación es del panel.
 //
 // TODA LECTURA Y ESCRITURA ACOTADA POR ENTIDAD DENTRO DEL SQL, y además en las
-// foráneas compuestas de la 074: el esquema es la segunda línea, no la primera.
+// foráneas compuestas de la 079: el esquema es la segunda línea, no la primera.
 // ============================================================
 
 /** El nombre de esta corrida en los mensajes de error del periodo. */
@@ -450,7 +450,7 @@ export async function runMonthlyProvisions(
       // legítimos: bajo la convención `aniversario`, once meses de cada doce; y
       // con una ficha en salario cero —un permiso sin goce, una captura a
       // medias—. Escribir la fila obligaría a levantar el CHECK
-      // `provision_no_vacia` de la 074, y un renglón que documenta que no pasó
+      // `provision_no_vacia` de la 079, y un renglón que documenta que no pasó
       // nada no documenta nada.
       if (esProvisionCero(provision)) {
         skipped++;
@@ -476,7 +476,7 @@ export async function runMonthlyProvisions(
 
   const entryId = await withTransaction(async (client) => {
     // EL ASIENTO PRIMERO Y LAS FILAS DESPUÉS con su id: lo exige el CHECK
-    // `provision_posteada_con_asiento` de la 074, y es el orden correcto — una
+    // `provision_posteada_con_asiento` de la 079, y es el orden correcto — una
     // fila que dice estar en el mayor sin poder decir dónde es indistinguible
     // de una marcada a mano.
     //

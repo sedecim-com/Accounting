@@ -1,7 +1,7 @@
 -- ============================================================
--- 074 · EL PASIVO QUE NACE EL DÍA TRABAJADO (D1 · NIF D-3)
+-- 079 · EL PASIVO QUE NACE EL DÍA TRABAJADO (D1 · NIF D-3)
 --
--- La 073 dejó los cimientos —la categoría del ORI y, en el catálogo, las
+-- La 078 dejó los cimientos —la categoría del ORI y, en el catálogo, las
 -- cuentas 2196/2197/2198/2199 que ningún sembrador tenía— y dijo por escrito
 -- que «el motor va aparte». Esto es la mitad de esquema que ese motor necesita:
 -- la CÉDULA. Sin ella, la corrida podría postear el asiento y no habría manera

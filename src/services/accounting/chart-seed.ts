@@ -105,7 +105,7 @@ export const CATALOGO_UNIVERSAL: ChartAccountSpec[] = [
     //
     // El ORI es capital que NO pasó por el resultado del ejercicio (NIF B-3):
     // revaluación, conversión de operaciones extranjeras y remediciones de
-    // beneficios a empleados. Su `fs` propio —que la 073 añade al CHECK— es
+    // beneficios a empleados. Su `fs` propio —que la 078 añade al CHECK— es
     // lo que impide que una revaluación se lea como aportación de socios.
     { code: '3600', name: 'Otros Resultados Integrales', type: 'equity', sub: null, fs: 'ori', balance: 'credit', parent: '3000' },
     { code: '3900', name: 'Resumen de Ingresos y Gastos', type: 'equity', sub: null, fs: 'equity', balance: 'credit', parent: '3000', system: true },
