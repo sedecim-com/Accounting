@@ -29,6 +29,7 @@
     "reclass:iva-ppd": "tsx scripts/reclasificar-iva-ppd.ts",
     "backfill:account-roles": "tsx scripts/rellenar-roles-de-cuenta.ts",
     "corpus:estado": "tsx scripts/corpus-manifiesto.ts",
+    "historial:estado": "tsx scripts/historial-estado.ts",
     "openapi": "tsx scripts/openapi.ts",
     "eval": "tsx scripts/eval-clasificador.ts"
   },

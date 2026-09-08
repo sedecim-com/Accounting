@@ -6,6 +6,7 @@
   "verdes": [
     "agent-corpus-staleness-gate",
     "cost-per-row-band-split",
+    "delivery-history-completeness-gate",
     "rls-silent-backfill-repaired",
     "repository-declares-git-remote",
     "isolation-job-unprivileged-role",
