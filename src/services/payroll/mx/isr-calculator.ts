@@ -1,5 +1,5 @@
 import type { ITaxCalculator, TaxInput, TaxOutput, PayFrequency } from '../tax-engine/tax-engine.interface.js';
-import { getBrackets, applyBrackets } from '../tax-engine/tax-tables.js';
+import { getBrackets, applyBrackets, periodsPerYear } from '../tax-engine/tax-tables.js';
 
 // ============================================================
 // MX — ISR (Impuesto Sobre la Renta)
@@ -87,21 +87,25 @@ export class MexicoIsrCalculator implements ITaxCalculator {
 // ============================================================
 
 /**
- * Días que cubre un periodo de pago, para prorratear lo que se tabula por mes.
+ * Cuántos periodos de éstos caben en un MES, para prorratear lo que se tabula
+ * mensualmente.
  *
- * `annual` no aparece: un subsidio anual no es un periodo de nómina, y si
- * llegara aquí se estaría prorrateando un año como si fuera un mes.
+ * SE DERIVA DE `periodsPerYear`, Y ESO ES DELIBERADO. La primera versión de
+ * este arreglo prorrateaba por días entre 30.4 —el divisor con el que el
+ * Anexo 8 construye las tarifas del periodo— y con eso la quincena pasaba de
+ * la mitad de un mes (0.5) a 15/30.4 = 0.4934. Es un 1.3 % menos de subsidio,
+ * y lo cazó F08a, que fija la conducta ya verificada del subsidio quincenal:
+ * `expected '98.68' to be '100.00'`.
+ *
+ * Cuál de los dos manda para el SUBSIDIO no está resuelto —el decreto ordena
+ * el 30.4 para el prorrateo diario, pero la quincena tabulada como media
+ * mensualidad es la práctica que este repositorio ya tenía medida—, así que
+ * este tramo NO lo decide: conserva la proporción que ya estaba verificada
+ * (24 periodos al año ⇒ media mensualidad) y se limita a arreglar lo que sí
+ * estaba roto, que era tratar una SEMANA como si fuera un MES.
  */
-export function diasDelPeriodo(freq: PayFrequency): number {
-  switch (freq) {
-    case 'weekly': return 7;
-    case 'biweekly': return 14;
-    case 'semimonthly': return 15;
-    case 'quincenal': return 15;
-    case 'monthly': return 30.4;
-    default:
-      throw new Error(`No sé cuántos días cubre el periodo «${freq}» para prorratear el subsidio al empleo`);
-  }
+export function periodosPorMes(freq: PayFrequency): number {
+  return periodsPerYear(freq) / 12;
 }
 
 export class MexicoSubsidioEmpleoCalculator implements ITaxCalculator {
@@ -124,8 +128,8 @@ export class MexicoSubsidioEmpleoCalculator implements ITaxCalculator {
     // empleo, que manda dividir entre 30.4 y multiplicar por los días del
     // periodo. Es el mismo divisor con el que el Anexo 8 construye las
     // tarifas diaria y de 7, 10 y 15 días desde la mensual.
-    const dias = diasDelPeriodo(pay_frequency);
-    const monthlyBase = (taxable_wages / dias) * 30.4;
+    const porMes = periodosPorMes(pay_frequency);
+    const monthlyBase = taxable_wages * porMes;
 
     const brackets = await getBrackets('MX', 'subsidio_empleo', tax_year, null, 'monthly');
     if (brackets.length === 0) {
@@ -141,8 +145,8 @@ export class MexicoSubsidioEmpleoCalculator implements ITaxCalculator {
       }
     }
 
-    // Y de vuelta al periodo, por la misma vía.
-    const subsidy = (monthlySubsidy / 30.4) * dias;
+    // Y de vuelta al periodo, por la misma proporción.
+    const subsidy = monthlySubsidy / porMes;
 
     return {
       jurisdiction: 'MX',
