@@ -3,6 +3,7 @@ import { query, withTransaction, currentTenant } from '../../database/connection
 import { createJournalEntry, attestEntryAsync } from './posting.js';
 import { reopenClosedPeriod, restorePeriodStatus } from './fiscal-calendar-service.js';
 import { JournalEntryType } from '../../types/index.js';
+import { sqlKeepsMexicanBooks } from '../jurisdiction/jurisdiction.js';
 
 // ============================================================
 // RECLASIFICACIÓN DEL IVA DE CFDI PPD MAL ACREDITADO.
@@ -98,7 +99,15 @@ WHERE le.tenant_id = $1
   -- El IVA sobre base de flujo es LIVA, no GAAP: una entidad no mexicana
   -- no tiene IVA acreditable que aparcar. El resto del mecanismo ya la
   -- excluye (ar-ap-posting), y el censo no lo hacía.
-  AND (le.incorporation_country = 'MX' OR le.accounting_standard = 'mx_nif')
+  --
+  -- EL PREDICADO SE INTERPOLA, NO SE ESCRIBE (J0.1, jurisdicciones.md 3.1):
+  -- estaba copiado aquí y en iva-cash-basis, y las dos copias comparaban la
+  -- columna en crudo, de modo que un país guardado en minúsculas o en blanco
+  -- —CHAR(2) sin CHECK— quedaba fuera del censo aunque su catálogo fuera
+  -- mexicano. Y SIGUE DENTRO DEL WHERE a propósito: este censo alimenta a
+  -- reclasificar, que escribe asientos y puede reabrir periodos cerrados, así
+  -- que la frontera no puede ser un filtro en memoria.
+  AND ${sqlKeepsMexicanBooks('le')}
   AND je.status = 'posted'
   AND jel.debit_amount > 0
   AND xd.metodo_pago = 'PPD'

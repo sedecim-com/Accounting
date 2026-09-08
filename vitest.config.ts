@@ -16,8 +16,24 @@ export default defineConfig({
       // La carpeta de informes entra desde G1a: report-service.ts es el único
       // punto por el que pasan las tres superficies que publican un estado
       // firmado, y medía CERO aquí porque nadie la había incluido.
+      // J0.1 · `src/services/jurisdiction/` entra el día que nace, y no es
+      // cosmética: el conmutador de jurisdicción se LLEVÓ líneas que sí se
+      // medían —vivían en `services/accounting/pais-contable.ts`— y sin esta
+      // línea el refactor habría sacado del conjunto medido el código que
+      // decide qué catálogo fiscal recibe una entidad. Es una ADICIÓN al
+      // include, no una bajada de umbral.
+      //
+      // Y NACE CON SU TRINQUETE, en 100/100/100/100, que es donde su tramo lo
+      // dejó. Ponerlo exige mover TRES piezas a la vez —el umbral de aquí, la
+      // entrada de SUELO_COBERTURA_UNITARIA en src/plan/criterios.ts, y el
+      // conteo a mano del ataque 3c de tests/integration/s4a-ataque.int.spec.ts,
+      // que verifica cuántos archivos tienen umbral propio—; moverlas por
+      // separado pone en rojo el ataque. Se mueven juntas: un módulo que decide
+      // qué catálogo fiscal recibe una entidad no empieza a medirse el día que
+      // alguien se acuerde.
       include: [
         'src/services/accounting/**',
+        'src/services/jurisdiction/**',
         'src/services/reporting/**',
         'src/utils/sequence.ts',
       ],
@@ -92,6 +108,9 @@ export default defineConfig({
         // es la pieza por la que pasan las tres superficies, y el día que
         // alguien la bifurque otra vez el número lo dirá antes que nadie.
         // Medidos hoy: 100 / 96 / 100 / 100.
+        'src/services/jurisdiction/jurisdiction.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
+        },
         'src/services/reporting/criterio-cierre.ts': {
           statements: 100, branches: 95, functions: 100, lines: 100,
         },

@@ -90,7 +90,7 @@
     "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
     "src/services/accounting/fiscal-calendar-service.ts": "b6ac67a12cbd54dd417d0738d6cd25414e0a0f2a",
     "src/cli/entry-command.ts": "835c877d5c45a9af2bb15e1b2343bad854f91b9e",
-    "src/services/accounting/iva-cash-basis.ts": "0a9c6cc57c218f765e65b46cb9238c8127917153",
+    "src/services/accounting/iva-cash-basis.ts": "233a51947fd8e96bd2fc0d50d45fc4c518c7eba7",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "9a79011ea89f79fa2f19ccacad6c7114dbfba3f3",
     "src/services/integrations/mexico/pac/pac-router.ts": "d4e73952e123807caf206889a59c802f8bc04a73",
     "src/api/rest/routes/invoices.ts": "05b5fa5938873e95eea22ce9de6c91a8cdfc6e25",
@@ -130,7 +130,7 @@
     "src/ai/floor.ts": "f1a5ebed1e5d3e8f4bdea31b831c812d86e4c6b7",
     "src/services/policy/policy-service.ts": "b1cd1c8956e275cc63859a9733b81b16e1cd239c",
     "src/ai/tools/policy-tools.ts": "6f5312c431be52088f656e44d598c51326587af8",
-    "src/ai/doctor-service.ts": "9f2a89b5b86e7cf47301c071a7473184ba3db7dd",
+    "src/ai/doctor-service.ts": "218642b5bf112715ea8c12ba2627a61ebf605206",
     "src/ai/onboarding-service.ts": "7bd405ae60700ebab6bac3062002acd1cf9b4b58",
     "src/services/reporting/cash-flow-service.ts": "489bebf55f6fb975846d6cb0bf4c75d7a4d7390d",
     "src/services/reporting/cash-flow-reconcile.ts": "491acc77467d7409c59dd87b312dfd48af2ce401"
