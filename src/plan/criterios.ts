@@ -2592,6 +2592,156 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.1',
+    id: 'jurisdiction-module-born-english',
+    // I5 (issue #147). J0.1 se renombró al inglés EN SU PROPIA RAMA antes de
+    // fusionar, a petición del revisor (WIT-140-01), y ése fue el punto: el
+    // módulo tenía diez consumidores y CERO criterios por ruta, así que
+    // renombrarlo antes costó S y después habría entrado a la línea base y
+    // costado un tramo entero de I14.
+    //
+    // Lo que queda de aquel tramo es esto: la guarda de que no vuelva. Un
+    // renombrado sin criterio es una decisión que dura hasta el primer
+    // `git revert` o el primer archivo nuevo que copie el nombre de al lado.
+    //
+    // TRES AFIRMACIONES, y la tercera es la que hace que el tramo valga:
+    // entrar sin deuda es distinto de entrar traducido. Un módulo puede estar
+    // en inglés y aun así pesar en un carril; si pesa, el trinquete lo protege
+    // y renombrarlo deja de ser gratis.
+    enunciado:
+      'El módulo de la jurisdicción no conserva un nombre español, ni pesa en un carril exigido del idioma',
+    evaluar: () => {
+      // 1 · LOS NOMBRES VIEJOS, TODOS. No sólo `esContabilidadMexicana`, que
+      // es el que la issue nombra: los siete exportados y el directorio. Un
+      // criterio que vigila uno de siete deja seis puertas abiertas, y el
+      // `git revert` que las abriría las abre todas a la vez.
+      const OLD_NAMES = [
+        'jurisdiccionDe',
+        'CodigoJurisdiccion',
+        'NormaContable',
+        'EntidadConJurisdiccion',
+        'esContabilidadMexicana',
+        'sqlEsContabilidadMexicana',
+        // `Jurisdiccion` va al final y con frontera de palabra: es subcadena de
+        // los dos anteriores, y sin `\b` se contaría tres veces cada aparición.
+        'Jurisdiccion',
+      ];
+      const revived: string[] = [];
+      for (const name of OLD_NAMES) {
+        const hits = dondeAparece(new RegExp(`\\b${name}\\b`), ['src'], true);
+        if (hits.length) revived.push(`${name} (${hits.length} archivo(s): ${hits[0]})`);
+      }
+
+      // 2 · NI EL DIRECTORIO. El renombrado de la carpeta es la mitad que un
+      // codemod de identificadores no hace, y la que rompe diez imports.
+      const oldFolder = fuentes('src').filter((f) =>
+        /(^|\/)jurisdiccion(\/|$)/.test(path.relative(RAIZ, f).split(path.sep).join('/'))
+      );
+
+      // 3 · SIN ENTRADA EN UN CARRIL EXIGIDO.
+      //
+      // «Sin entrada» a secas sería falso y pondría el criterio rojo por algo
+      // que el epic bendice: el módulo SÍ tiene 176 líneas de comentario en
+      // español, y ese carril está declarado `informational` —los comentarios
+      // no se tocan hasta I20—. Lo que I5 promete es que no pese donde se
+      // EXIGE: identificadores, nombres de archivo, anclas del plan.
+      //
+      // Qué carril es informativo no se escribe aquí: se lee de donde se
+      // declara, para que añadir o quitar uno no deje este criterio mintiendo.
+      const informationalLanes = new Set<string>();
+      for (const file of ['scripts/language/lanes/docs.ts', 'scripts/language/lanes/code.ts', 'scripts/language/lanes/plan.ts']) {
+        if (!existe(file)) continue;
+        const text = crudoDe(file);
+        for (const m of text.matchAll(/informational:\s*true/g)) {
+          const before = text.slice(0, m.index ?? 0);
+          const id = [...before.matchAll(/\bid:\s*'([^']+)'/g)].pop();
+          if (id) informationalLanes.add(id[1]);
+        }
+      }
+      if (informationalLanes.size === 0) {
+        return noEvaluable(
+          'ningún carril se declara `informational`: sin esa distinción este criterio exigiría ' +
+            'cero comentarios españoles en la jurisdicción, que es I20 y no I5'
+        );
+      }
+
+      const rel = 'docs/language-baseline.json';
+      if (!existe(rel)) return noEvaluable(`no existe ${rel}: el metro de I2 todavía no está en este árbol`);
+      let baseline: { perFile?: Record<string, Record<string, number>> };
+      try {
+        baseline = JSON.parse(crudoDe(rel)) as typeof baseline;
+      } catch {
+        return falla(`${rel} no es JSON válido`);
+      }
+      // EXIGIR EL DESGLOSE ANTES DE AFIRMAR NADA SOBRE ÉL. Sin esto, una línea
+      // base sin `perFile` —o con el desglose vacío— hacía que la tercera
+      // afirmación pasara MIDIENDO CERO ARCHIVOS y el criterio cantara
+      // victoria. Es «el cero que parece una victoria» que el propio metro
+      // tiene escrito en scripts/language/lanes/plan.ts, y lo encontré
+      // atacando este criterio con el desglose vaciado a mano.
+      const breakdown = baseline.perFile ?? {};
+      if (Object.keys(breakdown).length < 5) {
+        return noEvaluable(
+          `${rel} trae ${Object.keys(breakdown).length} carril(es) con breakdown por archivo: ` +
+            'sin él la tercera afirmación pasaría sin mirar un solo archivo'
+        );
+      }
+      const weighs: string[] = [];
+      for (const [lane, perFile] of Object.entries(breakdown)) {
+        if (informationalLanes.has(lane)) continue;
+        for (const [file, n] of Object.entries(perFile)) {
+          // LAS DOS GRAFÍAS. `jurisdicci?on` casa «jurisdiccion» y NO casa
+          // «jurisdiction»: le falta la `t`. Lo cazó el arnés de mutación en
+          // la primera corrida —el mutante que mete el módulo en un carril
+          // exigido sobrevivía— y es el error exacto que este criterio existe
+          // para impedir: vigilar sólo el nombre viejo y quedarse ciego ante
+          // el nuevo, que es el que hoy puede coger deuda.
+          if (/(^|\/)jurisdic(?:c?ion|tion)(\/|$|\.)/i.test(file) && n > 0) {
+            weighs.push(`${lane} · ${file} = ${n}`);
+          }
+        }
+      }
+
+      const problems: string[] = [];
+      if (revived.length) {
+        problems.push(
+          `${revived.length} nombre(s) español(es) de vuelta en src/: ${revived.slice(0, 3).join(', ')}`
+        );
+      }
+      if (oldFolder.length) {
+        problems.push(`la carpeta \`jurisdiccion\` reapareció en ${oldFolder.length} ruta(s) de src/`);
+      }
+      if (weighs.length) {
+        problems.push(
+          `el módulo pesa en ${weighs.length} carril(es) EXIGIDO(s) (${weighs.slice(0, 2).join(' · ')}): ` +
+            'dejó de entrar sin deuda, y renombrarlo ya no es gratis'
+        );
+      }
+      if (problems.length) return falla(problems.join(' · '));
+
+      return ok(
+        `los ${OLD_NAMES.length} nombres viejos y la carpeta siguen en cero, y el módulo no pesa en ` +
+          `ninguno de los carriles exigidos (${informationalLanes.size} informativo(s) exento(s) por contrato)`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/jurisdiction/jurisdiction.ts',
+        de: 'export function keepsMexicanBooks(',
+        a: 'export function esContabilidadMexicana(',
+        porque:
+          'el revert del renombrado: vuelve el nombre que la issue nombra, y con él los otros seis por el mismo camino',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"src/ai/agent-events.ts": 4',
+        a: '"src/services/jurisdiction/jurisdiction.ts": 4',
+        porque:
+          'el módulo entra a la línea base de un carril EXIGIDO: sigue en inglés y ya no es gratis renombrarlo',
+      },
+    ],
+  },
+  {
+    paquete: 'E1.1',
     id: 'entity-creation-seeds-accounting',
     enunciado: 'Toda ruta de alta de entidad siembra los roles, no sólo el asistente',
     evaluar: () => {
