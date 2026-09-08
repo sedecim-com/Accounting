@@ -225,12 +225,19 @@ describe('los seis carriles sobre el árbol real', () => {
     }
   });
 
-  it('el carril de umbrales encuentra las CUATRO entradas y ni una más', () => {
-    // Las dos tablas de suelo y los dos vitest.config, todas apuntando al mismo
-    // archivo. El primer intento —una regex `'src/….ts':` sobre el fuente
-    // entero— publicaba SEIS: se tragaba el `de:` y el `a:` de un mutante que
-    // cita literalmente una entrada de la tabla. Por eso se lee el AST.
+  it('el carril de umbrales encuentra las SEIS entradas y ni una más', () => {
+    // Las dos tablas de suelo y los dos vitest.config. El primer intento —una
+    // regex `'src/….ts':` sobre el fuente entero— publicaba de más: se tragaba
+    // el `de:` y el `a:` de un mutante que cita literalmente una entrada de la
+    // tabla. Por eso se lee el AST.
+    //
+    // Eran cuatro sobre un solo archivo hasta que main trajo
+    // `criterio-archivadas.ts` con su umbral en vitest.config.ts:119 y su suelo
+    // en criterios.ts:607. La cifra sube porque la POBLACIÓN creció, no porque
+    // el carril cuente distinto: se comprueba el desglose y no el total
+    // justamente para que esa diferencia se vea.
     expect(byId('coverage-thresholds-keyed-by-spanish-paths').perFile).toEqual({
+      'src/services/reporting/criterio-archivadas.ts': 2,
       'src/services/reporting/criterio-cierre.ts': 4,
     });
   });
