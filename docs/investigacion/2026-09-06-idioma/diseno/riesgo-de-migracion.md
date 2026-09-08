@@ -119,13 +119,13 @@ El criterio que lo protege ya casi existe (`criterios.ts:1615-1668`, «vocabular
 
 ### 2.5 Cómo convive con J0 (`docs/jurisdicciones.md`)
 
-J0.1 está **en curso y sin commit** en este árbol: `src/services/jurisdiccion/jurisdiccion.ts` (sin rastrear), `tests/services/jurisdiccion/`, `tests/integration/jurisdiccion-predicado.int.spec.ts`, más el `include` de `vitest.config.ts:27` y 166 líneas nuevas en `criterios.ts`. Consumidores hoy (`grep -rn "esContabilidadMexicana\|jurisdiccionDe\|sqlEsContabilidadMexicana" src --include='*.ts' | grep -v jurisdiccion/ | cut -d: -f1 | sort | uniq -c`): `doctor-service.ts` 2, `entity-accounting.ts` 3, `iva-cash-basis.ts` 3, `iva-ppd-reclass.ts` 2, `pais-contable.ts` 2; 5 specs importan `services/jurisdiccion`. Docs que nombran los identificadores propuestos: 6 archivos (`docs/jurisdicciones.md` 16 menciones, `wiki/Jurisdicciones.md` 2, tres informes de `investigacion/`). Ninguno de los nombres ingleses de abajo colisiona con nada declarado en `src` (`grep -rnE "\b(AccountingStandard|Jurisdiction|JurisdictionCode|LegalParameter|jurisdictionOf)\b" src --include='*.ts'` → sólo dos comentarios).
+J0.1 está **en curso y sin commit** en este árbol: `src/services/jurisdiction/jurisdiction.ts` (sin rastrear), `tests/services/jurisdiccion/`, `tests/integration/jurisdiction-predicate.int.spec.ts`, más el `include` de `vitest.config.ts:27` y 166 líneas nuevas en `criterios.ts`. Consumidores hoy (`grep -rn "esContabilidadMexicana\|jurisdiccionDe\|sqlEsContabilidadMexicana" src --include='*.ts' | grep -v jurisdiccion/ | cut -d: -f1 | sort | uniq -c`): `doctor-service.ts` 2, `entity-accounting.ts` 3, `iva-cash-basis.ts` 3, `iva-ppd-reclass.ts` 2, `pais-contable.ts` 2; 5 specs importan `services/jurisdiccion`. Docs que nombran los identificadores propuestos: 6 archivos (`docs/jurisdicciones.md` 16 menciones, `wiki/Jurisdicciones.md` 2, tres informes de `investigacion/`). Ninguno de los nombres ingleses de abajo colisiona con nada declarado en `src` (`grep -rnE "\b(AccountingStandard|Jurisdiction|JurisdictionCode|LegalParameter|jurisdictionOf)\b" src --include='*.ts'` → sólo dos comentarios).
 
 Nombres ingleses que tendrían las propuestas de `docs/jurisdicciones.md` §3:
 
 | propuesto en el documento | inglés | nota |
 |---|---|---|
-| `src/services/jurisdiccion/jurisdiccion.ts` (§3.1) | `src/services/jurisdiction/jurisdiction.ts` | carpeta y archivo; `vitest.config.ts:27` `include` cambia con él |
+| `src/services/jurisdiction/jurisdiction.ts` (§3.1) | `src/services/jurisdiction/jurisdiction.ts` | carpeta y archivo; `vitest.config.ts:27` `include` cambia con él |
 | `CodigoJurisdiccion` | `JurisdictionCode` | |
 | `NormaContable` | `AccountingStandard` | coincide con la columna `legal_entities.accounting_standard` |
 | `Jurisdiccion { fiscal, libros, monedaLegal, estado }` | `Jurisdiction { fiscal, books, legalCurrency, state }` | `fiscal` ya es palabra inglesa |

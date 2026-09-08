@@ -134,7 +134,7 @@ Comando: mismo clasificador sobre el *basename* sin extensión (`datos/archivos_
 Los 9 `.sql` que la heurística marcó «mixto» son títulos en castellano con palabras que coinciden con web2 (`036_pagos_rep`, `041_el_mayor_inviolable`, `042_el_refresco_sale_del_posteo`, `060_la_corrida_que_se_abre_antes`, `061_quien_firma_y_quien_solo_mira`, `063_el_agrupador_con_una_sola_verdad`, `067_lo_que_el_patron_paga_y_nadie_apunta`, `068_el_estado_no_cabe_en_dos_letras`, `069_el_predicado_que_se_paga_por_fila`); revisados uno a uno: todos españoles. Corte temporal nítido: migraciones **001–035 en inglés** (`001_core_schema.sql` … `035_fiscal_credential_log_append_only.sql`, salvo `034_atestaciones_simuladas.sql`), **036–069 en español** (título-frase). Números duplicados: `ls src/database/migrations | sed -E 's/^([0-9]+)_.*/\1/' | sort | uniq -d` → **012, 014, 015, 018**.
 
 Los 41 `.ts` con nombre español (lista completa en `datos/archivos_clasificados.tsv`, `awk '$3=="es"'`):
-`src/ai/eval/puntuacion.ts`, `src/ai/tools/superficie.ts`, `src/api/graphql/permisos.ts`, `src/api/rest/middleware/idempotencia.ts`, `src/api/rest/montajes.ts`, `src/auth/sujeto-activo.ts`, `src/cli/kernel/confirmacion.ts`, `src/database/consulta-publica.ts`, `src/plan/conducta.ts`, `src/plan/criterios.ts`, `src/services/accounting/moneda-origen.ts`, `src/services/accounting/pais-contable.ts`, `src/services/accounting/sat-agrupadores.ts`, `src/services/accounting/sat-agrupadores-catalogo.ts`, `src/services/backup/exportacion-inquilino.ts`, `src/services/banking/parsers/{avisos,fecha,importe,perfiles-csv,texto,tipos}.ts`, `src/services/fiscal/inpc/{parseo,periodo}.ts`, `src/services/integrations/mexico/pac/simulacion.ts`, `src/services/jurisdiccion/jurisdiccion.ts`, `src/services/payroll/mx/subsidio-entregado.ts`, `src/services/reporting/criterio-cierre.ts`, `src/services/sat/anexo24/{balanza-xml,catalogo-cuentas,polizas-auxiliar-xml,polizas-xml}.ts`, `src/services/sat/diot/{desglose,hallazgos,hechos,serializador,tercero}.ts`, `src/services/webhooks/{barrido-entregas,politica-reintento}.ts`.
+`src/ai/eval/puntuacion.ts`, `src/ai/tools/superficie.ts`, `src/api/graphql/permisos.ts`, `src/api/rest/middleware/idempotencia.ts`, `src/api/rest/montajes.ts`, `src/auth/sujeto-activo.ts`, `src/cli/kernel/confirmacion.ts`, `src/database/consulta-publica.ts`, `src/plan/conducta.ts`, `src/plan/criterios.ts`, `src/services/accounting/moneda-origen.ts`, `src/services/jurisdiction/jurisdiction.ts`, `src/services/accounting/sat-agrupadores.ts`, `src/services/accounting/sat-agrupadores-catalogo.ts`, `src/services/backup/exportacion-inquilino.ts`, `src/services/banking/parsers/{avisos,fecha,importe,perfiles-csv,texto,tipos}.ts`, `src/services/fiscal/inpc/{parseo,periodo}.ts`, `src/services/integrations/mexico/pac/simulacion.ts`, `src/services/jurisdiction/jurisdiction.ts`, `src/services/payroll/mx/subsidio-entregado.ts`, `src/services/reporting/criterio-cierre.ts`, `src/services/sat/anexo24/{balanza-xml,catalogo-cuentas,polizas-auxiliar-xml,polizas-xml}.ts`, `src/services/sat/diot/{desglose,hallazgos,hechos,serializador,tercero}.ts`, `src/services/webhooks/{barrido-entregas,politica-reintento}.ts`.
 Mixtos (10): `cli/kernel/riesgos-retrofit.ts`, `services/backup/ledger-en-base.ts`, `services/payroll/mx/{cfdi-nomina-generator,finiquito-calculator,finiquito-math}.ts`, `services/sat/anexo24/{balanza-invariantes,balanza-service,polizas-invariantes,polizas-service}.ts`, `services/xml-ingestion/rep-pendientes.ts`.
 
 Además hay una **carpeta** con nombre español: `src/services/jurisdiccion/` (y `src/services/sat/anexo24`, `diot`, `inpc` son acrónimos de dominio).
@@ -153,7 +153,7 @@ Además hay una **carpeta** con nombre español: `src/services/jurisdiccion/` (y
 
 | archivo:línea | identificador | ámbito/tipo | clase | idioma |
 |---|---|---|---|---|
-| `src/services/jurisdiccion/jurisdiccion.ts:201` | `esContabilidadMexicana` | export function | identificador | es |
+| `src/services/jurisdiction/jurisdiction.ts:201` | `esContabilidadMexicana` | export function | identificador | es |
 | `src/services/accounting/chart-seed.ts:141` | `catalogoBasePara` | export function | identificador | es |
 | `src/services/accounting/moneda-origen.ts:237` | `resolverTipoCambio` | export function | identificador | es |
 | `src/services/banking/reconciliation-service.ts:2530` | `AsientoDeAjuste` | export interface | identificador | es |
@@ -175,7 +175,7 @@ Además hay una **carpeta** con nombre español: `src/services/jurisdiccion/` (y
 | `src/services/payments/payment-service.ts:799` | `monedaDe` | function interna | identificador | es |
 | `src/ai/question-service.ts:39` | `createQuestion` | export function | identificador | en |
 | `src/services/sat/anexo24/validador.ts:70` | `NS_XSI` | export const | identificador | neutro |
-| `src/services/accounting/pais-contable.ts` | — | archivo | nombre_de_archivo | es |
+| `src/services/jurisdiction/jurisdiction.ts` | — | archivo | nombre_de_archivo | es |
 | `src/services/backup/exportacion-inquilino.ts` | — | archivo | nombre_de_archivo | es |
 | `src/services/sat/anexo24/balanza-service.ts` | — | archivo | nombre_de_archivo | mixto |
 | `src/database/migrations/051_la_cuenta_y_el_extracto.sql` | — | archivo (citado 7 veces por criterios) | nombre_de_archivo | es |

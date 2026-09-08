@@ -11,7 +11,7 @@ git status --short          → 7 modificados + 4 sin seguimiento (11 líneas)
 git ls-tree -r HEAD --name-only | grep -c services/jurisdiccion   → 0
 ```
 
-`src/services/jurisdiccion/jurisdiccion.ts` y `tests/services/jurisdiccion/jurisdiccion.spec.ts` están **sin seguimiento** (`??`), y `vitest.config.ts` está modificado sin commit (`git diff --stat`: +17). El informe cita `jurisdiccion.ts:10-12,27,41-47,159` como «la única derivación jurisdicción→moneda del sistema» y `vitest.config.ts:27` (`include: src/services/jurisdiccion/**`) como reglas vigentes: son trabajo de otra sesión que no existe en `b31e62a`. Las líneas citadas sí existen en el árbol de trabajo (verificadas con `sed -n`), pero cualquier plan que las tome como base debe saber que pueden desaparecer o cambiar antes de fusionarse (ver memoria «Árbol compartido»).
+`src/services/jurisdiction/jurisdiction.ts` y `tests/services/jurisdiction/jurisdiction.spec.ts` están **sin seguimiento** (`??`), y `vitest.config.ts` está modificado sin commit (`git diff --stat`: +17). El informe cita `jurisdiccion.ts:10-12,27,41-47,159` como «la única derivación jurisdicción→moneda del sistema» y `vitest.config.ts:27` (`include: src/services/jurisdiccion/**`) como reglas vigentes: son trabajo de otra sesión que no existe en `b31e62a`. Las líneas citadas sí existen en el árbol de trabajo (verificadas con `sed -n`), pero cualquier plan que las tome como base debe saber que pueden desaparecer o cambiar antes de fusionarse (ver memoria «Árbol compartido»).
 
 ## 1. Veredictos por conteo
 

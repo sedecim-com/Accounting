@@ -3,7 +3,7 @@
 Informe verificado: `/tmp/investigacion-idioma/inventario/pruebas-criterios-ci.md`.
 Árbol: `/Users/victor/projects/Accounting` en `b31e62a`, sucio (11 entradas en `git status --short`), el
 MISMO que midió el inventario. Diferencia: el inventario omite en su lista de no rastreados
-`tests/integration/jurisdiccion-predicado.int.spec.ts` (mtime 21:20, anterior al informe de 21:33); sus
+`tests/integration/jurisdiction-predicate.int.spec.ts` (mtime 21:20, anterior al informe de 21:33); sus
 conteos sí lo incluyen (88 `.int.spec.ts` sólo cuadran con él).
 Nada del repositorio se editó; sólo modos de lectura (`plan:status` sin banderas, `mutantes` en memoria,
 `corpus-manifiesto.ts --check`). Salidas crudas en `/tmp/investigacion-idioma/verificacion/pcc-work/`.

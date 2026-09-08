@@ -25,7 +25,7 @@ Hay una tercera clase que conviene nombrar para no meterla donde no va: las **co
 
 > Estado al 2026-09-06, antes de J0.1. Desde el PR #140 (2026-09-07) el conmutador vive en `src/services/jurisdiction/jurisdiction.ts` con nombres ingleses —`jurisdictionOf`, `keepsMexicanBooks`, `sqlKeepsMexicanBooks`; ver #147—, `pais-contable.ts` desapareció y tres de las cuatro copias de la tabla están borradas (la de nómina, `normalizarPais`, es otro conmutador y sigue). Lo que sigue describe lo que había.
 
-La pregunta «¿lleva contabilidad mexicana?» tiene una respuesta canónica y booleana: `esContabilidadMexicana(incorporation_country, accounting_standard)` en `src/services/accounting/pais-contable.ts:35-44` (archivo borrado en el PR #140) — verdadero si la norma es `mx_nif` **o** si el país es MX, nulo, vacío o desconocido («ante la duda, mexicana»). La consumen exactamente dos sitios: `entity-accounting.ts:75` (qué catálogo sembrar) y `:172` (qué roles).
+La pregunta «¿lleva contabilidad mexicana?» tiene una respuesta canónica y booleana: `esContabilidadMexicana(incorporation_country, accounting_standard)` en `src/services/jurisdiction/jurisdiction.ts:35-44` (archivo borrado en el PR #140) — verdadero si la norma es `mx_nif` **o** si el país es MX, nulo, vacío o desconocido («ante la duda, mexicana»). La consumen exactamente dos sitios: `entity-accounting.ts:75` (qué catálogo sembrar) y `:172` (qué roles).
 
 Pero el encabezado del archivo (`:4-12`) dice haber unificado cuatro copias y **cuatro siguen vivas sin usarlo**, tres de ellas con el borde nulo al revés:
 
