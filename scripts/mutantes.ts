@@ -156,7 +156,7 @@ export function formatear(
     lineas.push('');
     for (const c of sobrevivientes) {
       lineas.push(
-        `  ${p.red('✘')} ${p.bold(c.criterio.paquete)} «${c.criterio.enunciado}»  ${p.dim(`[${c.suerte}]`)}`
+        `  ${p.red('✘')} ${p.bold(c.criterio.paquete)} ${p.dim(c.criterio.id ?? '(sin id)')}\n     «${c.criterio.enunciado}»  ${p.dim(`[${c.suerte}]`)}`
       );
       lineas.push(
         `      ${c.mutante.archivo}: ${p.dim(`«${recorta(c.mutante.de)}» → «${recorta(String(c.mutante.a))}»`)}`
@@ -172,7 +172,7 @@ export function formatear(
     lineas.push('');
     lineas.push(p.bold('Criterios sin espejo — no se midieron, y por eso siguen siendo deuda'));
     for (const c of sinEspejo) {
-      lineas.push(`  ${p.dim('·')} ${c.paquete} · ${c.enunciado}`);
+      lineas.push(`  ${p.dim('·')} ${c.id ?? `${c.paquete} · ${c.enunciado}`}`);
     }
   }
 

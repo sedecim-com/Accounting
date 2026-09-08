@@ -263,7 +263,7 @@ export interface PayrollSeedResult {
  * que el asistente y COUNTRY_PROFILES nombran al país.
  *
  * Cualquier otro país sigue siendo México, que es la regla de la casa ante la
- * duda (ver pais-contable.ts).
+ * duda (ver services/jurisdiction/jurisdiction.ts).
  *
  * ES FUNCIÓN Y NO UNA LÍNEA SUELTA porque la comparación estaba escrita DOS
  * VECES —aquí y en el `country:` del resultado— y las dos copias divergieron:
