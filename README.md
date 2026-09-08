@@ -342,7 +342,9 @@ no la aprobación que exige la regla. Si tu cambio cierra un paquete del plan,
 añádelo a la lista `--exigir` de `.github/workflows/ci.yml` en el mismo commit;
 si lo reabre, quítalo ahí mismo y di por qué.
 
-Los comentarios y la documentación van en español. Nada de emoji, nada de
+Los comentarios y la documentación **nacen en inglés** (epic
+[#141](https://github.com/sedecim-com/Accounting/issues/141)); la superficie que
+lee el contador habla su idioma, y el español va primero. Nada de emoji, nada de
 `feat:` ni `chore:`.
 
 ## Seguridad
