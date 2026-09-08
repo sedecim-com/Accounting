@@ -33,7 +33,7 @@ export interface PolicyRow {
   /**
    * A qué jurisdicción aplica esta respuesta. NULL = universal (J0.2, 075).
    *
-   * Todas las filas anteriores a la 075 son NULL, y no se les inventa un país:
+   * Todas las filas anteriores a la 080 son NULL, y no se les inventa un país:
    * se contestaron sin pensar en ninguno.
    */
   jurisdiction: string | null;
@@ -58,7 +58,7 @@ export interface PolicyContext {
    *
    * ESTE TRAMO SÓLO ABRE EL ESLABÓN. La cascada completa —`PolicySpec` con sus
    * jurisdicciones, la siembra filtrada, `pending --jurisdiction`— es J0.3; lo
-   * que aquí se garantiza es que la columna que la 075 creó tiene lector y que
+   * que aquí se garantiza es que la columna que la 080 creó tiene lector y que
    * una respuesta marcada 'US' no puede gobernar a quien no preguntó por US.
    */
   jurisdiction?: JurisdictionCode;
@@ -79,7 +79,7 @@ export async function seedPolicies(ctx: PolicyContext): Promise<{ inserted: numb
        ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, 'seed')
        -- No target: uniqueness lives in three indexes —los dos parciales de
        -- la 017 (alcance de inquilino con entity_id NULL, y alcance de
-       -- entidad) más el de la 075, que añade la jurisdicción con COALESCE—,
+       -- entidad) más el de la 080, que añade la jurisdicción con COALESCE—,
        -- y ON CONFLICT DO NOTHING los cubre a los tres sin nombrar ninguno.
        --
        -- OJO, Y ES DE J0.3: los dos índices de la 017 NO llevan la
@@ -186,7 +186,7 @@ export async function getPolicy(
     // El WHERE deja pasar la fila universal (jurisdiction NULL) y la de la
     // jurisdicción preguntada, nada más. Sin jurisdicción en el contexto, $4
     // es NULL y `jurisdiction = NULL` no es cierto en SQL: quedan sólo las
-    // universales, que es exactamente lo que hoy hay en la tabla —la 075 deja
+    // universales, que es exactamente lo que hoy hay en la tabla —la 080 deja
     // la columna en NULL para toda fila anterior—. Por eso este añadido no
     // mueve ninguna respuesta existente.
     //

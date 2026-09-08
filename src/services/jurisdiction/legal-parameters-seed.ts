@@ -7,7 +7,7 @@ import type { JurisdictionCode } from './jurisdiction.js';
 //
 // `legal_parameters` necesita escritor —una tabla sin escritor es una promesa,
 // y `doctor` la acusa (src/ai/orphan-scan.ts)— y el escritor necesita datos
-// ciertos. `source_url` es NOT NULL en la 075 por una razón que se cumple
+// ciertos. `source_url` es NOT NULL en la 080 por una razón que se cumple
 // aquí y no en el esquema: un parámetro legal sin fuente oficial es una cifra
 // inventada con mejor presentación, y la presentación es justo lo que hace que
 // nadie la revise.
@@ -57,7 +57,7 @@ import type { JurisdictionCode } from './jurisdiction.js';
  *  lo hace significar algo. */
 type LegalParameterUnit = 'rate' | 'MXN';
 
-/** Una fila de la semilla: lo que la 075 exige, con la fuente obligatoria. */
+/** Una fila de la semilla: lo que la 080 exige, con la fuente obligatoria. */
 export interface LegalParameterSeedRow {
   jurisdiction: JurisdictionCode;
   key: string;
@@ -199,7 +199,7 @@ export interface LegalParametersSeedResult {
 
 /**
  * Siembra los parámetros legales de arriba. Idempotente por
- * (jurisdiction, key, effective_from), que es la unicidad que la 075 declara.
+ * (jurisdiction, key, effective_from), que es la unicidad que la 080 declara.
  *
  * NO PISA LO QUE YA ESTÉ, y es deliberado: `DO NOTHING` en vez de `DO UPDATE`.
  * Si alguien cargó otro valor para esa misma fecha de entrada, esta semilla no

@@ -257,7 +257,7 @@ DECLARE
   -- Es la única lista a mano de este archivo, y añadir aquí una tabla es
   -- afirmar que sus filas no son de ningún cliente.
   --
-  -- `legal_parameters` entra con la 075 (J0.2) y la afirmación se hace
+  -- `legal_parameters` entra con la 080 (J0.2) y la afirmación se hace
   -- explícita: sus filas son LEY —la tasa del IVA, la UMA, el salario
   -- mínimo—, cada una con la URL del DOF o del SAT de la que salió. No hay
   -- una sola fila de un cliente ahí, y el auditor la necesita justamente

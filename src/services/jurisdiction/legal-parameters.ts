@@ -6,7 +6,7 @@ import type { JurisdictionCode } from './jurisdiction.js';
 // ============================================================
 // LA LEY SE LEE EN LA FECHA DEL HECHO (J0.2)
 //
-// Lector de `legal_parameters`, la tabla que la 075 creó. El diseño vive en
+// Lector de `legal_parameters`, la tabla que la 080 creó. El diseño vive en
 // docs/jurisdicciones.md §3.4 y el porqué del modelo, entero, en la cabecera
 // de la migración; aquí sólo lo que hay que tener presente para leer el
 // código:
@@ -108,7 +108,7 @@ export type LegalParameterGap =
    * espacios, o texto.
    *
    * Es el cuarto hueco y se descubrió atacando al tercero. `value` es TEXT sin
-   * CHECK en la 075 —la unicidad y la fuente sí están en el esquema, la forma
+   * CHECK en la 080 —la unicidad y la fuente sí están en el esquema, la forma
    * del número no—, así que una fila a medio llenar entra sin protestar. Y una
    * cadena vacía NO se comporta como «no hay dato» río abajo: `Number('')` y
    * `Number('   ')` valen CERO, que es exactamente la cifra inventada que

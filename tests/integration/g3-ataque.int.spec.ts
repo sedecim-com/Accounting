@@ -717,7 +717,7 @@ describe('ataque 6 · mnemosine_auditor', () => {
     );
     const nombres = r.rows.map((x) => x.relname);
     expect(nombres).toEqual(
-      // `legal_parameters` entra con la 075 (J0.2): la ley con su fecha de
+      // `legal_parameters` entra con la 080 (J0.2): la ley con su fecha de
       // entrada. Es referencia global igual que las otras cinco —la UMA no es
       // de nadie— y por eso el auditor la ve sin aislamiento.
       ['exchange_rates', 'legal_parameters', 'migrations', 'sat_codigos_agrupadores',

@@ -1,5 +1,5 @@
 -- ============================================================
--- 075 · LA LEY TIENE FECHA DE ENTRADA (J0.2)
+-- 080 · LA LEY TIENE FECHA DE ENTRADA (J0.2)
 --
 -- Hoy la ley vive en dos sitios y ninguno sabe desde cuándo rige: quemada en
 -- el código (16 % de IVA, 2 000 MXN de efectivo, 8.5 % de restaurantes) o en

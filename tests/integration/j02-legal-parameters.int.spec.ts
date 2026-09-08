@@ -23,7 +23,7 @@ import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
  * frontera.
  *
  * Y hay una razón más para que esta prueba exista: la tabla NO tiene tenant_id
- * ni RLS. Es la excepción declarada de la 075 —la UMA vale igual para todo
+ * ni RLS. Es la excepción declarada de la 080 —la UMA vale igual para todo
  * despacho— y una excepción sin prueba es una excepción que mañana alguien
  * confunde con un descuido.
  */
@@ -33,7 +33,7 @@ import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
  *  sobre una clave de verdad contaminaría a quien lea después. */
 const CLAVE = 'test.j02.timeline_rate';
 const DEROGADA = 'test.j02.repealed_rate';
-/** Una fila a medio llenar: `value` es TEXT sin CHECK en la 075, así que ésta
+/** Una fila a medio llenar: `value` es TEXT sin CHECK en la 080, así que ésta
  *  ENTRA en la tabla. Quien la cierra es el lector. */
 const EN_BLANCO = 'test.j02.blank_rate';
 
@@ -52,7 +52,7 @@ beforeAll(async () => {
        -- dato»: es «alguien la derogó en esta fecha», y consta.
        ('MX', $2, '2019-01-01', '0.0800', 'rate', 'https://dof.gob.mx/prueba-2019', 'la tasa que hubo'),
        ('MX', $2, '2022-01-01', NULL,     'rate', 'https://dof.gob.mx/prueba-2022', 'derogada'),
-       -- Y la fila a medio llenar. No es hipotética: la 075 pone CHECK a la
+       -- Y la fila a medio llenar. No es hipotética: la 080 pone CHECK a la
        -- fuente y unicidad a la fecha, pero la columna value es TEXT pelado,
        -- así que esto entra sin que nada proteste.
        ('MX', $3, '2020-01-01', '',       'rate', 'https://dof.gob.mx/prueba-blanco', 'a medio llenar')
@@ -149,7 +149,7 @@ describe('derogado no es cero, y no es lo mismo que «nadie la cargó»', () => 
   });
 
   it('UNA CADENA VACÍA TAMPOCO ES UN VALOR: cuarto hueco, y el que se cuela solo', async () => {
-    // Postgres aceptó la fila: `value` es TEXT sin CHECK y la 075 no se toca.
+    // Postgres aceptó la fila: `value` es TEXT sin CHECK y la 080 no se toca.
     const guardado = await query<{ value: string }>(
       'SELECT value FROM legal_parameters WHERE key = $1',
       [EN_BLANCO]
