@@ -872,6 +872,105 @@ export const CRITERIOS: Criterio[] = [
       },
     ],
   },
+  {
+    paquete: 'E0.0',
+    id: 'user-language-has-one-door',
+    // I6 (issue #148). El catálogo tipado y el resolutor de locale, vigilados
+    // por lo que de verdad se puede romper sin que nadie lo note.
+    //
+    // NO VIGILA QUE LAS CADENAS ESTÉN TRADUCIDAS —de eso se encarga `tsc`, y
+    // mejor: `ES` es `Record<keyof typeof EN, string>`, así que una clave sin
+    // traducir no compila—. Vigila las TRES cosas que sí se pueden perder en
+    // silencio, y cada una se perdió de verdad durante la construcción de este
+    // tramo:
+    //
+    //   1. Que el idioma se DERIVE y no se congele al importar. La primera
+    //      versión fijaba `activeLanguage = LANGUAGES[0]` en la línea 97 y
+    //      `setLanguage` no tenía un solo llamador: el catálogo existía, sus
+    //      cuarenta pruebas estaban en verde, y no traducía nada.
+    //   2. Que el nombre de la variable de entorno viva en UN sitio. Con dos,
+    //      la precedencia se implementa dos veces y se desincroniza; era el
+    //      estado ANTES de este tramo (config.ts y mnemosine.ts).
+    //   3. Que el español siga siendo el primero. Es el pedido del dueño, y es
+    //      una línea que cualquiera reordena sin querer al añadir un idioma.
+    enunciado:
+      'El idioma del usuario se deriva del locale, y el nombre de su variable de entorno vive en un solo archivo',
+    evaluar: () => {
+      const missing = ['src/i18n/en.ts', 'src/i18n/es.ts', 'src/i18n/index.ts', 'src/i18n/locale.ts'].filter(
+        (f) => !existe(f)
+      );
+      if (missing.length) return falla(`el catálogo no está: falta ${missing.join(', ')}`);
+
+      // 1 · EL IDIOMA SE DERIVA. Si `t()` toma su idioma de una variable de
+      // módulo, el valor queda clavado al importar y ningún cambio de locale
+      // lo mueve. La forma que se exige es que la omisión sea una LLAMADA.
+      const index = codigoDe('src/i18n/index.ts');
+      if (!/=\s*getLanguage\(\)/.test(index)) {
+        return falla(
+          'el idioma por omisión de `t()` no sale de una llamada: si es una variable de módulo, ' +
+            'queda decidido al importar y el catálogo no traduce nada aunque sus pruebas estén verdes'
+        );
+      }
+      if (!/resolveLocale\s*\(/.test(index)) {
+        return falla('el catálogo no consulta `resolveLocale`: el idioma no se deriva del locale');
+      }
+
+      // 2 · UNA SOLA PUERTA AL ENTORNO. Se cuenta el nombre EN POSICIÓN DE
+      // VALOR —`X = 'MNEMOSINE_LOCALE'` o `{ k: 'MNEMOSINE_LANG' }`—, no cada
+      // vez que aparece.
+      //
+      // Y NO SE CONFÍA EN `codigoDe` PARA ESTO, aunque quite comentarios: lo
+      // probé y NO los quitó aquí. Los dos comentarios de mnemosine.ts que
+      // nombran la variable la escriben entre acentos graves —`MNEMOSINE_LANG`,
+      // al estilo markdown— y el escáner de `sinComentarios` toma ese acento
+      // por el inicio de una plantilla y deja de ver el comentario. Es un
+      // defecto del instrumento del plan, no de este tramo; aquí sólo se evita
+      // depender de él. La posición de valor la prosa no la imita.
+      const doors = fuentes('src').filter((f) =>
+        /(?:=|:)\s*['"]MNEMOSINE_(?:LOCALE|LANG)['"]/.test(crudoDe(path.relative(RAIZ, f)))
+      );
+      if (doors.length !== 1) {
+        return falla(
+          `${doors.length} archivo(s) de src/ nombran la variable de entorno del idioma ` +
+            `(${doors.map((f) => path.relative(RAIZ, f)).join(', ')}): con más de uno la precedencia ` +
+            'se implementa dos veces y se desincroniza, que es como estaba antes de I6'
+        );
+      }
+
+      // 3 · ESPAÑOL PRIMERO. El pedido del dueño, en una línea que se reordena
+      // sin querer.
+      if (!/LANGUAGES\s*=\s*\[\s*'es'/.test(index)) {
+        return falla('`LANGUAGES` ya no empieza por `es`: el español dejó de ser el primero');
+      }
+
+      return ok(
+        'el idioma se deriva del locale en cada llamada, su variable de entorno se nombra en un ' +
+          `solo archivo (${path.relative(RAIZ, doors[0])}) y el español sigue primero`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/i18n/index.ts',
+        de: 'export const LANGUAGES = [\'es\', \'en\'] as const;',
+        a: 'export const LANGUAGES = [\'en\', \'es\'] as const;',
+        porque: 'el español deja de ser el primero, que es el pedido del dueño y una línea que se reordena sin querer',
+      },
+      {
+        // LA SEGUNDA PUERTA, encarnada donde de verdad estuvo hasta este tramo:
+        // `config.ts` leía la variable por su cuenta, en paralelo a
+        // `mnemosine.ts`, y por eso la precedencia estaba implementada dos
+        // veces. El mutante la devuelve.
+        archivo: 'src/ai/providers/config.ts',
+        de: 'export function resolveLanguage(cwd = process.cwd()): AgentLanguage {',
+        a:
+          "const SEGUNDA_PUERTA = 'MNEMOSINE_LANG';\n" +
+          'export function resolveLanguage(cwd = process.cwd()): AgentLanguage {\n' +
+          '  void SEGUNDA_PUERTA;',
+        porque:
+          'segunda-puerta: un segundo archivo nombra la variable del idioma y la precedencia vuelve a implementarse dos veces',
+      },
+    ],
+  },
 
 
   {

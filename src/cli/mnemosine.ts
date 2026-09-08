@@ -29,6 +29,14 @@ import {
 } from '../ai/providers/index.js';
 import { resolveLanguage, setLanguage, configFilePaths } from '../ai/providers/config.js';
 import {
+  DEFAULT_LOCALE,
+  LOCALES,
+  LOCALE_ENV_VAR,
+  LOCALE_ENV_VAR_ALIAS,
+  describeLocale,
+  languageOfLocale,
+} from '../i18n/locale.js';
+import {
   createSession,
   latestSession,
   getSession,
@@ -831,6 +839,27 @@ program
   .option(
     '-T, --tenant <uuid>',
     'Tenant to operate on. Precedence: this flag > MNEMOSINE_TENANT > mnemosine.config.json. Scopes EVERY query via RLS'
+  )
+  // ── I6 · `--locale`, y por qué la declara LA RAÍZ ──────────────────────
+  //
+  // Es global por la misma razón que `-T, --tenant`: una hoja no puede
+  // imprimir en un idioma distinto del que pidió su padre. `FLAG_DICTIONARY`
+  // (src/cli/kernel/flags.ts) congeló la grafía antes de que existiera el
+  // resolutor, y dejó dicho que `npx tsx scripts/ux-status.ts --check` estaría
+  // en rojo —una bandera prometida que el binario no acepta— hasta que la raíz
+  // la declarara. Esto es esa declaración.
+  //
+  // Declararla aquí es lo que hace que commander la ACEPTE y la enseñe en
+  // `--help`; el valor NO se lee de commander sino de `process.argv`, dentro de
+  // `describeLocale`, porque a ese resolutor se le llama desde formateadores
+  // que no tienen el objeto Command a mano y desde antes de que commander
+  // despache. Sin validador propio a propósito: quien juzga una etiqueta de
+  // locale es `normalizeLocale`, en un solo sitio, y una bandera inservible
+  // avisa y cae al escalón siguiente igual que una variable de entorno
+  // inservible — dos caminos para el mismo dato no pueden tener dos veredictos.
+  .option(
+    '--locale <tag>',
+    `Language and formatting of what is PRINTED (${LOCALES.join('|')}). Precedence: this flag > ${LOCALE_ENV_VAR} (${LOCALE_ENV_VAR_ALIAS} is a permanent alias) > ~/.mnemosine/config.json > ./mnemosine.config.json > the tenant setting > ${DEFAULT_LOCALE}. Never changes what is filed with an authority`
   );
 
 // The tenant is set before any command runs, so that even entity resolution
@@ -2230,14 +2259,39 @@ program
     try {
       if (!language) {
         console.log(`Agent response language: ${c.bold(resolveLanguage())}`);
-        console.log(c.dim("Change it with: mnemosine lang en|es (or MNEMOSINE_LANG env var)"));
+        // El nombre de la variable sale de la constante y no de una cadena
+        // literal: I6 exige que `MNEMOSINE_LANG` se escriba en UN solo archivo
+        // de `src/`, y una mención en un console.log cuenta para el grep tanto
+        // como una lectura. El texto que se imprime no cambia ni un byte
+        // —docs/wiki/Manual-Trabajar-con-el-agente.md:21 lo cita literal—: este
+        // comando es `lang`, y el alias es el nombre que le corresponde.
+        console.log(c.dim(`Change it with: mnemosine lang en|es (or ${LOCALE_ENV_VAR_ALIAS} env var)`));
       } else if (language === 'en' || language === 'es') {
         const file = setLanguage(language);
         console.log(`✔ Agent will now answer in ${c.bold(language === 'es' ? 'Spanish' : 'English')} ${c.dim(`(${file})`)}`);
         console.log(c.dim('Takes effect on the next session.'));
-        const env = process.env.MNEMOSINE_LANG;
-        if (env && env.trim().toLowerCase() !== language) {
-          console.log(c.dim(`  ⚠ MNEMOSINE_LANG=${env} is set and takes precedence — unset it for this change to apply.`));
+        // EL AVISO SE LO PREGUNTA AL RESOLUTOR, NO AL ENTORNO (I6).
+        //
+        // Aquí se leía la variable de entorno a mano —el segundo lector del
+        // dial, mnemosine.ts:2238— y por leerla a mano mentía dos veces:
+        // anunciaba precedencia para un valor que `resolveLanguage` estaba
+        // DESCARTANDO por inservible, y callaba cuando quien mandaba era
+        // `MNEMOSINE_LOCALE`, que es el nombre canónico del mismo dial.
+        //
+        // Se vuelve a resolver DESPUÉS de escribir, que es la única pregunta
+        // que importa: «con el archivo ya guardado, ¿sigue ganándole algo?».
+        const winner = describeLocale();
+        if (languageOfLocale(winner.locale) !== language && winner.label !== null) {
+          // La bandera de esta misma invocación no «tiene precedencia» sobre
+          // nada futuro: se muere con el proceso. Avisar de ella sería mandar a
+          // desactivar algo que ya no existe.
+          const advice =
+            winner.kind === 'env'
+              ? `${winner.label}=${winner.raw} is set and takes precedence — unset it for this change to apply.`
+              : winner.kind === 'flag'
+                ? null
+                : `${winner.label} is "${winner.raw}" and takes precedence — remove it for this change to apply.`;
+          if (advice !== null) console.log(c.dim(`  ⚠ ${advice}`));
         }
       } else {
         throw usageError(`Unsupported language "${language}". Options: en, es`);

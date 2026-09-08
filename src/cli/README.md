@@ -386,19 +386,62 @@ who you are; the application says what you can touch.
 
 ## Language
 
-Two independent surfaces:
+One dial, and three surfaces that consume it to very different degrees today.
+A single resolver (`src/i18n/locale.ts`) decides the locale; the agent's
+answer language already follows it, the money format deliberately does not
+(it hangs off the entity's jurisdiction), and the CLI's own visible text does
+not follow it **yet** — the message catalog exists and derives its language
+from the same resolver, but no emission point in `src/` reads from it, so the
+prose you see is still the English written where it is printed. That wiring is
+a later tranche, not something this section is describing as done.
 
-- **Agent answers** — `mnemosine lang es|en` (alias: `idioma`), default `es`.
-  Resolution order: `MNEMOSINE_LANG` env var > `language` in
-  `mnemosine.config.json` > `es`. An invalid env value is ignored with a
-  warning; `lang <x>` warns when the env var will keep overriding it. Takes
+- **The locale** — `mnemosine lang es|en` (alias: `idioma`), default `es-MX`.
+  Accepted tags are `es-MX`/`es` and `en-US`/`en`, case-insensitive and
+  trimmed; `es-ES` and `pt-BR` are rejected rather than folded into a
+  language, because whoever writes them also expects European formatting and
+  formatting is not what this dial sets. Resolution order, highest first:
+
+  1. `--locale <tag>` — declared on the root command, so a leaf can never
+     print in a language its parent did not ask for.
+  2. `MNEMOSINE_LOCALE`, then `MNEMOSINE_LANG`. The second is a **permanent
+     alias**, not a deprecation: it is written in shell profiles and Docker
+     images, and keeping it costs one row. The canonical name wins when both
+     are set; an empty value counts as unset.
+  3. `locale` in `~/.mnemosine/config.json`, then `locale` in
+     `./mnemosine.config.json`. **The user file beats the project file here**,
+     the opposite of `--entity` and `--tenant`: the tenant and the provider
+     are properties of the repository, but the language belongs to the human
+     reading the screen, and a committed `mnemosine.config.json` must not
+     force an accountant who installed their own config into Spanish.
+  4. `language` in the first config file that exists. The legacy key keeps
+     its legacy order — project before user — so migrating to the new key
+     changes nobody's language behind their back.
+  5. `tenants.settings.locale`. The resolver accepts it as an argument, but
+     no caller in `src/` passes it today, so this rung never fires yet.
+  6. `es-MX`.
+
+  An unsupported value is **not** replaced by the default: it warns on stderr
+  and falls through to the next rung. `lang <x>` re-resolves after writing and
+  warns when something still outranks the file it just wrote — but never about
+  the `--locale` of that same invocation, which dies with the process. Takes
   effect on the next session. `lang` needs no database.
+
+  What the locale does **not** decide: nothing that is filed with an
+  authority (the Anexo 24 XML and the DIOT are byte-identical under
+  `--locale en-US`), and not the money format either — thousands separators,
+  currency symbol and date order come from the entity's jurisdiction
+  (`src/i18n/format.ts`), so a Mexican entity keeps printing `es-MX` amounts
+  for a firm working in English.
 - **CLI chrome** — the canonical NAME of every command and flag is English,
-  because that is the machine's identity and what scripts pin. What the
-  reader SEES — help, prose, runtime output — follows the user's language,
-  Spanish first (D9 of epic #141): it is resolved **by key**, never by
-  rewriting the prose where it is emitted, so the instruments keep measuring
-  the English source and not the render. The complete Spanish surface is provided by aliases, which
+  because that is the machine's identity and what scripts pin. The direction
+  for what the reader SEES — help, prose, runtime output — is that it follow
+  the user's language, Spanish first (D9 of epic #141), resolved **by key** so
+  that the instruments keep measuring the English source and not the render.
+  Measured state today: the catalog (`src/i18n/index.ts`) and its two
+  languages exist and derive from the resolver above, and **nothing in `src/`
+  reads them yet** — every visible string is still the English literal at its
+  emission point. So the Spanish a user actually gets today is the alias
+  surface below, not translated output. The complete Spanish surface is provided by aliases, which
   always work regardless of `lang`: every command has one where the word
   differs (`entidades`, `proveedores`, `pregunta`, `sesiones`, `borradores`,
   `revisar`, `ingesta`, `idioma`, `alta`, `envios`, `dudas`, `pendientes`,

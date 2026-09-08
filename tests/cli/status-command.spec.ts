@@ -73,7 +73,13 @@ beforeEach(() => {
   mockQuery.mockReset();
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'status-'));
   delete process.env.MNEMOSINE_PROVIDER;
+  // Las DOS grafías del mismo dial. `MNEMOSINE_LANG` es alias permanente de
+  // `MNEMOSINE_LOCALE` (I6/D10) y desde I6 las dos las lee el mismo resolutor,
+  // así que borrar sólo una deja la otra decidiendo el idioma del informe. Y
+  // `vitest.config.ts` exporta MNEMOSINE_LOCALE=en-US a la suite entera: sin
+  // esta línea, `language` sale 'en' aquí por el entorno de la suite.
   delete process.env.MNEMOSINE_LANG;
+  delete process.env.MNEMOSINE_LOCALE;
 });
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { z } from 'zod';
 import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
+import { languageOfLocale, resolveLocale } from '../../i18n/locale.js';
 
 // ============================================================
 // PROVIDER CONFIG
@@ -596,6 +597,23 @@ const configFileSchema = z
     /** Language for the AGENT's responses (CLI UI is English). Default: es. */
     language: z.enum(['en', 'es']).optional(),
     /**
+     * Locale del USUARIO — el idioma en que le habla el binario y, de rebote,
+     * las convenciones con que se imprime lo que lee (I6). NO es la jurisdicción
+     * de la entidad, que es la que fija moneda y calendario fiscal, y no toca lo
+     * que se entrega a una autoridad. Precedencia completa y alias aceptados en
+     * `src/i18n/locale.ts`.
+     *
+     * CADENA LIBRE Y NO UN `z.enum`, a propósito. El enum tendría que repetir
+     * aquí la tabla de alias (`es`, `en`) y la insensibilidad a mayúsculas que
+     * ya vive en `normalizeLocale`, y dos tablas del mismo dato se separan: la
+     * primera vez que entrara un locale nuevo por un lado, el otro lo
+     * rechazaría. Además el esquema es `.strict()` y falla CERRADO: un `es_MX`
+     * mal tecleado en una clave de PRESENTACIÓN tumbaría todos los comandos,
+     * incluidos los que no imprimen un solo número formateado. Aquí se acepta la
+     * cadena; `normalizeLocale` la juzga y avisa, y el escalón siguiente manda.
+     */
+    locale: z.string().optional(),
+    /**
      * Inquilino (despacho) por defecto — el TERCER escalón de la precedencia
      * que publica docs/cli-command-catalog.md §3.1: bandera > MNEMOSINE_TENANT
      * > config de proyecto > config de usuario. Existía en el contrato y no
@@ -1126,20 +1144,25 @@ export function compactacionParaPerfil(
 
 export type AgentLanguage = 'en' | 'es';
 
-/** Language the AGENT answers in. CLI/UI text is always English; Spanish
- *  command aliases exist regardless. Default 'es' (Mexican accounting firms). */
+/**
+ * Language the AGENT answers in. CLI/UI text is always English; Spanish
+ * command aliases exist regardless. Default 'es' (Mexican accounting firms).
+ *
+ * DESDE I6 NO LEE NI EL ENTORNO NI EL ARCHIVO: los delega en
+ * `src/i18n/locale.ts`, que es el único lector de `MNEMOSINE_LANG` en `src/`.
+ * Esta función leía la variable por su cuenta (config.ts:1132) y
+ * `src/cli/mnemosine.ts:2238` la leía otra vez para su aviso; las dos lecturas
+ * ya habían derivado —el aviso anunciaba precedencia para valores que ESTA
+ * descartaba—, que es lo que pasa siempre con dos lectores del mismo dial.
+ *
+ * El idioma es una PROYECCIÓN del locale, no un dato aparte (D10): quien pone
+ * `MNEMOSINE_LOCALE=en-US` no tiene que acordarse además de `MNEMOSINE_LANG`.
+ * La conducta visible no cambia: `MNEMOSINE_LANG=en` sigue dando 'en', un valor
+ * inservible sigue avisando y cayendo al archivo, y la clave `language` del
+ * archivo conserva su precedencia de siempre (proyecto antes que usuario).
+ */
 export function resolveLanguage(cwd = process.cwd()): AgentLanguage {
-  const env = process.env.MNEMOSINE_LANG?.trim().toLowerCase();
-  if (env === 'en' || env === 'es') return env;
-  if (env) {
-    // An invalid value silently falling back to the default would make the
-    // agent answer in the wrong language with no clue why.
-    console.warn(
-      `[mnemosine] MNEMOSINE_LANG="${process.env.MNEMOSINE_LANG}" is not supported (use en|es); ignoring it.`
-    );
-  }
-  const { config } = loadConfigFile(cwd);
-  return config.language ?? 'es';
+  return languageOfLocale(resolveLocale({ cwd }));
 }
 
 /**
