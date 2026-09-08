@@ -106,12 +106,15 @@ export function compare(lanes: Lane[], base: Baseline): Finding[] {
     // LO INFORMATIVO NO JUZGA, Y ÉSTE ERA UN DEFECTO DE ESTA MISMA FUNCIÓN.
     //
     // El contrato del carril dice que `informational` se mide y NO se exige
-    // —los 21 966 comentarios españoles no se tocan hasta I20— y la
-    // comparación no lo respetaba: el primer commit que añadiera un
-    // comentario en español ponía la puerta en rojo. Lo cazó el propio metro
-    // sobre el criterio que este tramo añade. Un carril que nadie puede bajar
-    // hoy, bloqueando la puerta, es exactamente cómo se acaba desactivando un
-    // trinquete entero.
+    // —los comentarios españoles no se tocan hasta I20— y la comparación no lo
+    // respetaba: con el carril sembrado también en la línea base, el primer
+    // commit que añadiera un comentario en español ponía la puerta en rojo y
+    // bloqueaba CI años antes de que ese tramo existiera.
+    //
+    // Un carril que NADIE PUEDE BAJAR HOY, bloqueando la puerta, es
+    // exactamente cómo se acaba desactivando un trinquete entero: el primero
+    // que necesite fusionar lo quita, y con él se van los quince que sí
+    // exigen algo. Se mide, se publica, y no juzga.
     if (c.informational) continue;
     const floor = base.lanes[c.id];
     if (floor === undefined) {
