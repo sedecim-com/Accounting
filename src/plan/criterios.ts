@@ -1085,6 +1085,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.2',
+    id: 'matview-migration-survives-rls-floor',
     enunciado: 'Toda migración que recree una vista materializada declara cómo sobrevive al piso de RLS',
     mutantes: [
       {
@@ -1133,6 +1134,7 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.2',
+    id: 'distributed-migration-repaired-by-new-file',
     enunciado: 'La reparación de una migración ya distribuida llega por archivo nuevo, y repone el sello que arranca',
     mutantes: [
       {
