@@ -61,33 +61,53 @@ export const CATALOGO_UNIVERSAL: ChartAccountSpec[] = [
     // utilidad inflada y un diciembre catastrófico, y ninguno de los doce
     // estados es firmable.
     //
+    // CUELGAN DEL CIRCULANTE, NO DE LA CUENTA QUE CORRIGEN, y no es un
+    // descuido: en el catálogo del SAT la «Estimación de cuentas incobrables»
+    // (108) y la «Estimación de inventarios obsoletos» (116) son cuentas de
+    // NIVEL 1 por derecho propio, no subcuentas del activo que ajustan.
+    // Colgarlas de 1120 y 1140 —que es donde la intuición contable las pone—
+    // las volvía hijas de una cuenta que el Anexo 24 puede omitir, y una hija
+    // cuyo padre no viaja en el archivo sale HUÉRFANA y bloquea la entrega
+    // entera (regla CAT-HUERFANA). Lo destapó f07b-ataque.
+    //
     // Las estimaciones son CONTRA-ACTIVO y no gasto acumulado: reducen el
     // activo que corrigen y se presentan restando en su mismo renglón, que
     // es lo que la NIF C-3 pide para el deterioro de cuentas por cobrar.
-    { code: '1129', name: 'Estimación para Cuentas de Cobro Dudoso', type: 'contra_asset', sub: null, fs: 'current_assets', balance: 'credit', parent: '1120' },
-    { code: '1149', name: 'Estimación de Inventarios Obsoletos', type: 'contra_asset', sub: null, fs: 'current_assets', balance: 'credit', parent: '1140' },
+    { code: '1129', name: 'Estimación para Cuentas de Cobro Dudoso', type: 'contra_asset', sub: null, fs: 'current_assets', balance: 'credit', parent: '1100' },
+    { code: '1149', name: 'Estimación de Inventarios Obsoletos', type: 'contra_asset', sub: null, fs: 'current_assets', balance: 'credit', parent: '1100' },
     { code: '1300', name: 'Activo Diferido', type: 'asset', sub: null, fs: 'non_current_assets', balance: 'debit', header: true, parent: '1000' },
     { code: '1310', name: 'Impuestos Diferidos a Favor', type: 'asset', sub: null, fs: 'non_current_assets', balance: 'debit', parent: '1300' },
     // Liabilities
     { code: '2000', name: 'Pasivo', type: 'liability', sub: null, fs: 'current_liabilities', balance: 'credit', header: true },
     { code: '2100', name: 'Pasivo Circulante', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', header: true, parent: '2000' },
     { code: '2110', name: 'Cuentas por Pagar', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2100' },
+    // 2201-2205 Y NO 2195-2205: la 2199 la usa un escenario de
+    // tests/integration/f07b-ataque. El catálogo sembrado comparte espacio de
+    // nombres con las cuentas que las pruebas crean a mano, así que un código
+    // libre lo es sólo si lo es en `src/` Y en `tests/`. Dos semillas —o una
+    // semilla y una prueba— que reclaman el mismo código corrompen en silencio.
+    //
     // La provisión es un pasivo, no una reserva de capital: es dinero que ya
     // se debe aunque todavía no se pague. El encabezado es universal porque
     // toda jurisdicción devenga beneficios a empleados; los conceptos
     // concretos —aguinaldo, PTU— son de la LFT y viven en el estrato MX.
-    { code: '2195', name: 'Provisiones de Beneficios a Empleados', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', header: true, parent: '2100' },
+    { code: '2201', name: 'Provisiones de Beneficios a Empleados', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', header: true, parent: '2100' },
     { code: '2300', name: 'Impuestos Diferidos por Pagar', type: 'liability', sub: 'long_term_liability', fs: 'long_term_liabilities', balance: 'credit', parent: '2000' },
     // Equity
     { code: '3000', name: 'Capital Contable', type: 'equity', sub: null, fs: 'equity', balance: 'credit', header: true },
     { code: '3100', name: 'Capital Social', type: 'equity', sub: 'common_stock', fs: 'equity', balance: 'credit', parent: '3000', system: true },
     { code: '3200', name: 'Resultado de Ejercicios Anteriores', type: 'equity', sub: 'retained_earnings', fs: 'equity', balance: 'credit', parent: '3000', system: true },
     { code: '3300', name: 'Resultado del Ejercicio', type: 'equity', sub: 'retained_earnings', fs: 'equity', balance: 'credit', parent: '3000' },
+    // 3600 Y NO 3400: la 3400 la usa un escenario de acciones propias en
+    // tests/integration/g1b-ataque, y el catálogo sembrado comparte espacio de
+    // nombres con lo que las pruebas crean a mano. Buscar códigos libres sólo
+    // en `src/` deja fuera la mitad del espacio: hay que mirar `tests/` también.
+    //
     // El ORI es capital que NO pasó por el resultado del ejercicio (NIF B-3):
     // revaluación, conversión de operaciones extranjeras y remediciones de
     // beneficios a empleados. Su `fs` propio —que la 073 añade al CHECK— es
     // lo que impide que una revaluación se lea como aportación de socios.
-    { code: '3400', name: 'Otros Resultados Integrales', type: 'equity', sub: null, fs: 'ori', balance: 'credit', parent: '3000' },
+    { code: '3600', name: 'Otros Resultados Integrales', type: 'equity', sub: null, fs: 'ori', balance: 'credit', parent: '3000' },
     { code: '3900', name: 'Resumen de Ingresos y Gastos', type: 'equity', sub: null, fs: 'equity', balance: 'credit', parent: '3000', system: true },
     // Revenue
     { code: '4000', name: 'Ingresos', type: 'revenue', sub: null, fs: 'revenue', balance: 'credit', header: true },
@@ -135,10 +155,26 @@ export const ESTRATO_FISCAL_MX: ChartAccountSpec[] = [
     // valuar ACTUARIALMENTE —hipótesis de rotación, mortalidad y descuento—,
     // y una cuenta sin motor que la alimente es peor que no tenerla: parece
     // que el sistema la cubre. Entra cuando entre la valuación, no antes.
-    { code: '2196', name: 'Provisión de Aguinaldo', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2195' },
-    { code: '2197', name: 'Provisión de Vacaciones', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2195' },
-    { code: '2198', name: 'Provisión de Prima Vacacional', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2195' },
-    { code: '2199', name: 'Provisión de PTU', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2195' },
+    { code: '2202', name: 'Provisión de Aguinaldo', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2201' },
+    { code: '2203', name: 'Provisión de Vacaciones', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2201' },
+    { code: '2204', name: 'Provisión de Prima Vacacional', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2201' },
+    { code: '2205', name: 'Provisión de PTU', type: 'liability', sub: 'current_liability', fs: 'current_liabilities', balance: 'credit', parent: '2201' },
+    // Y LA CONTRAPARTIDA DEL CARGO, que faltaba: las cuatro provisiones de
+    // arriba son el ABONO de un asiento cuyo cargo no tenía dónde ir.
+    //
+    // NO SE CARGA A 6110 «Sueldos y Salarios», y el motivo es el mismo por el
+    // que 6115 sacó de ahí las cuotas patronales: la 6110 se concilia contra
+    // los CFDI de nómina timbrados, y una provisión es precisamente lo que
+    // todavía no se pagó ni se timbró. Fundirlas rompe el único amarre que un
+    // despacho tiene entre su gasto de nómina y lo que declaró al SAT.
+    //
+    // Una sola cuenta de gasto para los tres conceptos, y no tres: el desglose
+    // que un auditor necesita está en el lado del PASIVO —2202, 2203 y 2204 se
+    // extinguen con hechos distintos y se concilian por separado—, mientras que
+    // en el estado de resultados los tres son la misma línea: costo laboral
+    // devengado. Tres renglones de gasto que siempre se mueven juntos no
+    // informan de nada y sí obligan a mantener tres mapeos.
+    { code: '6116', name: 'Provisión de Prestaciones al Personal', type: 'expense', sub: 'operating_expense', fs: 'operating_expenses', balance: 'debit', parent: '6100' },
     // LGSM 20: 5 % de las utilidades a la reserva legal hasta que alcance el
     // 20 % del capital social. Es capital, no pasivo, y es obligación de la
     // sociedad mexicana, no de toda entidad: por eso vive en el estrato.

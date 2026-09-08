@@ -31,6 +31,20 @@ export type AccountRole =
   | 'impuestos_locales_gasto' | 'impuestos_locales_por_pagar'
   // Payroll
   | 'sueldos_gasto' | 'sueldos_por_pagar' | 'isr_nomina_por_pagar' | 'imss_por_pagar'
+  // Provisiones de beneficios a empleados (D1 · NIF D-3). El pasivo se abre en
+  // tres porque cada uno se extingue con un hecho distinto —el aguinaldo se
+  // paga antes del 20 de diciembre, las vacaciones se disfrutan o se liquidan
+  // en el finiquito, la prima acompaña al disfrute— y por tanto se concilia por
+  // separado. El cargo es UNO: en el estado de resultados los tres son la
+  // misma línea de costo laboral devengado.
+  //
+  // No hay rol para la PTU (2199) ni para la prima de antigüedad: la primera
+  // no se devenga por trabajador sino sobre la renta gravable de la entidad
+  // (LFT 120) y la segunda exige valuación actuarial (NIF D-3), así que
+  // ninguna de las dos tiene motor. Un rol sin motor es una cuenta que alguien
+  // acabará cableando a mano.
+  | 'provision_aguinaldo' | 'provision_vacaciones' | 'provision_prima_vacacional'
+  | 'provision_prestaciones_gasto'
   // Exchange differences
   | 'utilidad_cambiaria' | 'perdida_cambiaria'
   // Tesorería (F05d): lo que cuesta mover el dinero y lo que el dinero produce.

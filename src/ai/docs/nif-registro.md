@@ -108,9 +108,13 @@ manual al capital, pide el documento que la soporta.
   Infonavit, SAR, impuesto sobre nómina) · Abono Sueldos por pagar · Abono
   ISR retenido · Abono IMSS retenido.
 - **Aguinaldo, vacaciones, prima vacacional**: se devengan DURANTE el año
-  (provisión mensual), no de golpe en diciembre (A-2 devengación).
+  (provisión mensual), no de golpe en diciembre (A-2 devengación). El sistema
+  lo hace: `runMonthlyProvisions` postea un asiento por corrida y deja la
+  cédula por trabajador y periodo.
 - **PTU**: 10% de la renta gravable; la causada del ejercicio se provisiona
-  contra resultados del mismo ejercicio.
+  contra resultados del mismo ejercicio. La base es de la ENTIDAD, no del
+  salario de cada trabajador, así que NO cae en la corrida mensual de
+  prestaciones — ver la tabla de abajo.
 - Beneficios post-empleo / prima de antigüedad: cálculo actuarial — fuera del
   registro automático; refiere al actuario.
 
@@ -149,8 +153,8 @@ cosa y conviene no confundir.
 | Concepto | NIF | El sistema |
 |---|---|---|
 | Anticipos y pagos anticipados (1160) | A-2, C-5 | **Devenga**, corrida mensual idempotente por entidad-periodo |
-| Aguinaldo, vacaciones, prima vacacional | D-3 | **Cuentas sembradas** (2196-2198); el motor de provisión mensual, pendiente |
-| PTU | D-3, LFT 117 | **Cuenta sembrada** (2199); mensual sólo si el panel lo enciende (`provision_ptu_mensual`, por omisión no) |
+| Aguinaldo, vacaciones, prima vacacional | D-3 | **Devenga**, corrida mensual idempotente por entidad-periodo (`provisions-run.ts`): un asiento por corrida con cargo a 6116 y abono a 2202/2203/2204, cuentas resueltas por rol. El mes del aniversario se parte en dos tramos del art. 76. La base salarial (`provision_base_salarial`) y el momento del reconocimiento de vacaciones (`devengo_vacaciones`) los fija el panel |
+| PTU | D-3, LFT 117 | **Cuenta sembrada** (2205) y SIN motor, también con el panel encendido: la PTU es el 10 % de la renta gravable de la ENTIDAD (LFT 120), no una proporción del salario de cada persona, así que no se prorratea por trabajador. La corrida mensual declara la ausencia en su resultado en vez de dejar un cero mudo; el reconocimiento es al cierre |
 | Prima de antigüedad | D-3, LFT 162 | **Fuera de alcance, declarado.** Exige valuación actuarial —rotación, mortalidad, descuento—; una cuenta sin motor que la alimente es peor que ninguna, porque parece cobertura |
 | Impuestos diferidos | D-4 | **Cuentas sembradas** (1310, 2300); el cálculo es de cierre anual y con juicio, se propone como borrador |
 | Arrendamientos | D-5 | **Sin motor.** No hay activo por derecho de uso ni pasivo por arrendamiento; la renta se registra como gasto, que sólo es correcto bajo las excepciones de corto plazo y bajo valor |

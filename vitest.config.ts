@@ -9,6 +9,14 @@ export default defineConfig({
     environment: 'node',
     coverage: {
       provider: 'v8',
+      // LA COBERTURA SE INFORMA AUNQUE LA SUITE FALLE.
+      //
+      // Por omisión vitest omite el informe cuando hay pruebas en rojo, y eso
+      // vuelve CONDICIONALES todos los trinquetes de abajo: una regresión de
+      // cobertura queda escondida detrás de cualquier fallo, y reaparece —ya
+      // fusionada— cuando alguien arregla el rojo que la tapaba. Un trinquete
+      // que sólo mide cuando todo va bien no es un trinquete.
+      reportOnFailure: true,
       reporter: ['text', 'lcov'],
       // Solo el motor contable: medir todo el árbol produce un porcentaje
       // global que baja cuando alguien agrega un archivo y sube cuando lo
@@ -36,6 +44,13 @@ export default defineConfig({
         'src/services/jurisdiction/**',
         'src/services/reporting/**',
         'src/utils/sequence.ts',
+        // D1 entra por UN ARCHIVO, no por la carpeta. `provisions-math.ts` es
+        // aritmética pura y se mide entera desde su propio banco; sus dos
+        // vecinos de `accruals/` viven contra Postgres y aquí medirían casi
+        // cero, así que incluir la carpeta sólo movería un porcentaje global
+        // que nadie mira —el promedio que esta configuración evita a propósito—
+        // sin proteger nada.
+        'src/services/accruals/provisions-math.ts',
       ],
       // ============================================================
       // UMBRALES POR ARCHIVO, FIJADOS DONDE YA ESTÁN GANADOS
@@ -117,6 +132,17 @@ export default defineConfig({
         // El criterio de cuentas archivadas (T13): decide qué cuenta entra en
         // un informe, así que su suelo es el más alto que hay.
         'src/services/reporting/criterio-archivadas.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
+        },
+        // La aritmética del devengo de prestaciones (D1) nace con el suelo
+        // arriba y no puede bajar de ahí: es dinero que se calcula por
+        // trabajador y por mes, se postea a un mayor inmutable (041) y tiene
+        // que extinguirse al centavo contra el finiquito. Una rama sin probar
+        // aquí —el mes del aniversario, el denominador del bisiesto, la baja a
+        // mitad de mes— no se ve en ninguna prueba de integración, porque
+        // ninguna de las tres necesita base de datos para equivocarse.
+        // Medidos hoy: 100 / 100 / 100 / 100.
+        'src/services/accruals/provisions-math.ts': {
           statements: 100, branches: 100, functions: 100, lines: 100,
         },
       },

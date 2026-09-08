@@ -7,6 +7,7 @@ import {
   diasDeVacacionesPorAnio,
   factorDeIntegracion,
   salarioDiarioDesdeSbc,
+  salarioDiarioDesdeSueldoAnual,
 } from '../../../src/services/payroll/mx/finiquito-math.js';
 
 // ============================================================
@@ -128,6 +129,57 @@ describe('Factor de integración (LSS art. 27) y su inversa', () => {
     // diarios de más en TODOS los conceptos del finiquito.
     const inflado = 528.7671 / 500 - 1;
     expect(inflado).toBeCloseTo(0.0575, 4);
+  });
+});
+
+// ============================================================
+// EL DIVISOR DEL SUELDO ANUAL, QUE AHORA COMPARTEN DOS MOTORES (D1)
+//
+// La conversión vivía suelta dentro de `calculateFiniquito` como
+// `new Decimal(annual_salary).dividedBy(365)`. Sale de ahí porque el motor de
+// provisiones necesita EL MISMO número: si los dos dividen por su cuenta y uno
+// elige otro divisor, la provisión de doce meses no extingue lo que el
+// finiquito liquida, y la cuenta de aguinaldo por pagar queda con un residuo
+// que ningún cierre limpia. El defecto no se vería en las pruebas de ninguno de
+// los dos módulos por separado — sólo en el saldo, y meses después.
+// ============================================================
+describe('El salario diario desde el sueldo anual (D1) — un divisor, dos motores', () => {
+  it('divide entre 365 y devuelve cuatro decimales, como todo el dinero de aquí', () => {
+    expect(salarioDiarioDesdeSueldoAnual('365000')).toBe('1000.0000');
+    expect(salarioDiarioDesdeSueldoAnual('182500.00')).toBe('500.0000');
+  });
+
+  it('no redondea a dos: el salario diario multiplica todos los conceptos', () => {
+    // 100 000 / 365 = 273.972602..., y las diezmilésimas importan porque este
+    // número se multiplica por quince días de aguinaldo y por los días de
+    // vacaciones de la tabla del art. 76.
+    expect(salarioDiarioDesdeSueldoAnual('100000')).toBe('273.9726');
+  });
+
+  it('acepta cadena y número, porque las dos formas llegan de la columna', () => {
+    // `employees.annual_salary` es NUMERIC y el driver la entrega como cadena;
+    // un llamador con el dato en memoria pasa el número.
+    expect(salarioDiarioDesdeSueldoAnual(365000)).toBe('1000.0000');
+    expect(salarioDiarioDesdeSueldoAnual('365000')).toBe(
+      salarioDiarioDesdeSueldoAnual(365000)
+    );
+  });
+
+  it('un sueldo en cero da cero, no un error', () => {
+    // Una ficha a medio capturar o un permiso sin goce son aritmética bien
+    // definida: cero por lo que sea es cero. Parar el cierre de doscientos
+    // trabajadores por una ficha en blanco es peor que un renglón en cero.
+    expect(salarioDiarioDesdeSueldoAnual('0')).toBe('0.0000');
+  });
+
+  it('la convención de 360 daría un 1.39 % más — por eso el divisor es uno solo', () => {
+    // La lectura habitual de la LFT toma el mes de treinta días, así que el
+    // anual entre 360 es defendible y da MÁS. No es la que usa este sistema, y
+    // lo que importa no es cuál se elija sino que los dos motores elijan la
+    // misma: aquí queda medida la diferencia que costaría no hacerlo.
+    const a365 = Number(salarioDiarioDesdeSueldoAnual('365000'));
+    const a360 = 365000 / 360;
+    expect(a360 / a365 - 1).toBeCloseTo(0.0139, 4);
   });
 });
 

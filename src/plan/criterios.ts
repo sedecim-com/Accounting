@@ -605,6 +605,13 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   // T13. Nace protegido: un archivo nuevo sin renglón aquí puede perder su
   // umbral en un commit posterior sin que ninguna compuerta se mueva.
   'src/services/reporting/criterio-archivadas.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  // D1. La aritmética del devengo nace protegida por la misma razón que la de
+  // arriba, y con una propia: sus 55 casos existen porque un error de un
+  // diezmilésimo en un doceavo no se ve en ninguna prueba de integración y se
+  // queda vivo en una cuenta de pasivo que ningún cierre limpia. Un umbral que
+  // sólo viviera en vitest.config.ts se podría bajar sin que ninguna compuerta
+  // se moviera; aquí no.
+  'src/services/accruals/provisions-math.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
 };
 
 /**
@@ -630,6 +637,76 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
 
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
+
+  {
+    paquete: 'E4.1',
+    id: 'employee-benefits-accrue-monthly',
+    enunciado: 'El aguinaldo, las vacaciones y la prima vacacional se devengan mes a mes, no el día que se pagan',
+    evaluar: () => {
+      // POR QUÉ NACE (D1, issue #111). Un despacho que paga el aguinaldo en
+      // diciembre y no lo provisiona durante el año publica once meses de
+      // utilidad inflada y un diciembre catastrófico, y ninguno de los doce
+      // estados es firmable. La NIF D-3 reconoce el beneficio a corto plazo
+      // conforme el trabajador PRESTA EL SERVICIO, no cuando se paga.
+      //
+      // El criterio vigila las tres propiedades sin las cuales el motor sería
+      // decorativo: que la ley no esté escrita dos veces, que el criterio del
+      // despacho se lea del panel en vez de quemarse, y que las cuentas se
+      // resuelvan por rol. La aritmética la prueban sus 55 casos unitarios; la
+      // idempotencia, la prueba de integración.
+      const run = codigoDe('src/services/accruals/provisions-run.ts');
+      const math = codigoDe('src/services/accruals/provisions-math.ts');
+
+      // (a) LA LEY, UNA SOLA VEZ. La tabla del art. 76 vive en finiquito-math
+      // desde D1a. Una segunda copia divergiría el día que el legislador la
+      // toque —y la tocó en 2023—, y entonces el finiquito y la provisión
+      // pagarían distinto por el mismo derecho.
+      if (!/from '\.\.\/payroll\/mx\/finiquito-math\.js'/.test(math)) {
+        return falla(
+          'provisions-math no importa de finiquito-math: la tabla del art. 76 o el factor de ' +
+            'integración están escritos por segunda vez, y dos copias de una ley divergen'
+        );
+      }
+
+      // (b) EL CRITERIO DEL DESPACHO SE PREGUNTA, NO SE DECIDE. Sobre qué
+      // salario se provisiona y cuándo nace el pasivo de vacaciones son
+      // bifurcaciones contables, y en esta casa van al panel con su lector.
+      for (const clave of ['provision_base_salarial', 'devengo_vacaciones']) {
+        if (!new RegExp(`getPolicy\\([^)]*'${clave}'`).test(run)) {
+          return falla(`la provisión no lee '${clave}' del panel: la bifurcación quedó quemada en el motor`);
+        }
+      }
+
+      // (c) LAS CUENTAS, POR ROL. Un código quemado ata el motor a un catálogo
+      // concreto y revienta en la primera entidad que renumere.
+      if (/(debit|credit|account)[^\n]*'21(96|97|98|99)'/.test(run)) {
+        return falla('la provisión nombra una cuenta por su código: el catálogo de otra entidad la deja sin destino');
+      }
+
+      return ok(
+        'el devengo de prestaciones importa la ley de finiquito-math, lee sus dos bifurcaciones del panel ' +
+          'y resuelve las cuentas por rol'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accruals/provisions-run.ts',
+        de: "  const base = await getPolicy(ctx, 'provision_base_salarial');",
+        a: "  const base = { value: 'nominal' };",
+        porque:
+          'quema la base salarial en el motor: el despacho que provisiona sobre salario integrado deja de ' +
+          'poder decirlo, y su pasivo sale corto todos los meses sin que nada lo acuse',
+      },
+      {
+        archivo: 'src/services/accruals/provisions-math.ts',
+        de: "from '../payroll/mx/finiquito-math.js'",
+        a: "from './tabla-del-art-76-propia.js'",
+        porque:
+          'la tabla del art. 76 pasaría a estar escrita dos veces: el finiquito y la provisión pagarían ' +
+          'distinto por el mismo derecho en cuanto una de las dos se actualice',
+      },
+    ],
+  },
 
   {
     paquete: 'E0.0',

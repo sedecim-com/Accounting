@@ -18,6 +18,10 @@ import {
   type ConvencionPrimerMes,
   type DepreciationInput,
 } from './depreciation-math.js';
+import {
+  periodoDeLaCorrida,
+  type PeriodoDeCorrida,
+} from '../accounting/periodo-de-corrida.js';
 
 // ============================================================
 // LA CORRIDA MENSUAL: DE LA ARITMÉTICA AL MAYOR (F06a)
@@ -99,41 +103,30 @@ export function medianocheLocal(valor: Date | string): Date {
   return new Date(valor.getFullYear(), valor.getMonth(), valor.getDate());
 }
 
-export interface PeriodoDeCorrida {
-  id: string;
-  inicio: Date;
-  fin: Date;
-  nombre: string;
-}
-
 /**
- * El periodo que se está corriendo, ACOTADO POR ENTIDAD.
+ * EL PERIODO, ACOTADO POR ENTIDAD — AHORA DESDE UN SOLO SITIO.
  *
- * La consulta anterior era `WHERE id = $1` a secas: con el id de un periodo de
- * otra entidad, la corrida habría fechado y numerado asientos de esta contra
- * el calendario de aquella. Que la corrida ya filtre los activos por entidad
- * no cubre esto —el periodo es el otro extremo del par—.
+ * La consulta vivía aquí y `amortization-run.ts` la copió en D1a, dejando
+ * escrito que si aparecía un TERCER motor periódico había que subirla a un
+ * módulo común con el nombre del llamador como parámetro en vez de hacer una
+ * tercera copia. El motor de provisiones de prestaciones (D1) es ese tercero,
+ * así que la consulta subió a `accounting/periodo-de-corrida.ts` y aquí queda
+ * la envoltura que pone «depreciación» en el mensaje: es lo único que
+ * distinguía a las copias, y el mensaje lo lee un operador en mitad de un
+ * cierre.
+ *
+ * Lo que la consulta defiende no cambia: con el id de un periodo de otra
+ * entidad, la corrida habría fechado y numerado asientos de ésta contra el
+ * calendario de aquélla. Que la corrida ya filtre los activos por entidad no
+ * cubre esto —el periodo es el otro extremo del par—.
  */
-export async function periodoDeLaEntidad(entityId: string, fiscalPeriodId: string): Promise<PeriodoDeCorrida> {
-  const r = await query<{ id: string; start_date: Date; end_date: Date; period_name: string }>(
-    `SELECT id, start_date, end_date, period_name
-       FROM fiscal_periods
-      WHERE id = $1 AND entity_id = $2`,
-    [fiscalPeriodId, entityId]
-  );
-  const fila = r.rows[0];
-  if (!fila) {
-    throw new ValidationError(
-      `El periodo fiscal ${fiscalPeriodId} no existe o no es de esta entidad. La corrida de ` +
-        'depreciación no cruza entidades.'
-    );
-  }
-  return {
-    id: fila.id,
-    inicio: medianocheLocal(fila.start_date),
-    fin: medianocheLocal(fila.end_date),
-    nombre: fila.period_name,
-  };
+export type { PeriodoDeCorrida };
+
+export async function periodoDeLaEntidad(
+  entityId: string,
+  fiscalPeriodId: string
+): Promise<PeriodoDeCorrida> {
+  return periodoDeLaCorrida(entityId, fiscalPeriodId, 'depreciación');
 }
 
 /**
