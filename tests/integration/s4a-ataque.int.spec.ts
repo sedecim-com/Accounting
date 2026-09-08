@@ -365,6 +365,10 @@ describe('3 · el trinquete de cobertura', () => {
         'sobre un archivo inexistente pasa, y suma a la cifra que el criterio publica («N archivos ' +
         'con umbral propio»). Si se cierra, voltea esta aserción a «falla».'
     ).toBe('ok');
+    // La cifra dejó de escribirse a mano, y ese cambio de main gana sobre el
+    // número fijo que J0.1 traía: un conteo literal obliga a tocar esta prueba
+    // cada vez que un archivo gana umbral propio, y lo que el ataque afirma no
+    // es cuántos hay sino que el INVENTADO suma uno más de los declarados.
     // La cifra sube con cada archivo que gana umbral propio (T13 añadió
     // criterio-archivadas.ts): lo que el ataque afirma es que el INVENTADO
     // suma uno más de los que vitest.config declara de verdad.
