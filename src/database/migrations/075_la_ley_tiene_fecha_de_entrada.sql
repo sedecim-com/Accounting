@@ -108,8 +108,23 @@ COMMENT ON COLUMN policy_decisions.jurisdiction IS
 -- chocarían y el panel tendría dos respuestas para la misma pregunta sin que
 -- nada lo impidiera. Los centinelas hacen comparable lo que no lo es.
 --
--- Y no había NINGUNA restricción de unicidad antes de esto: `policy_decisions`
--- sólo tenía su clave primaria por `id`.
+-- CORRECCIÓN A UNA AFIRMACIÓN QUE ESTA MISMA CABECERA HIZO EN FALSO. Decía
+-- que no había ninguna restricción de unicidad antes de esto. La hay: la
+-- migración 017 creó DOS ÍNDICES ÚNICOS PARCIALES —`uq_policy_tenant_scope`
+-- (tenant_id, key) WHERE entity_id IS NULL y `uq_policy_entity_scope`
+-- (tenant_id, entity_id, key) WHERE entity_id IS NOT NULL— para cerrar el
+-- duplicado que `seedPolicies` producía al re-sembrar.
+--
+-- El error salió de preguntarle a `pg_constraint`, que lista RESTRICCIONES y
+-- no ÍNDICES: un índice único parcial no aparece ahí. La consulta correcta es
+-- a `pg_indexes`. Queda escrito porque quien vaya a retirar esos dos índices
+-- —J0.3, cuando la jurisdicción entre en la identidad de una decisión— tiene
+-- que saber que existen.
+--
+-- Y por eso el índice de abajo CONVIVE con ellos en vez de sustituirlos: los
+-- dos de la 017 siguen impidiendo dos jurisdicciones para la misma clave, que
+-- es justo lo que J0.3 necesita poder hacer. Retirarlos es su trabajo, no el
+-- de este tramo, y hay una prueba de hueco conocido que lo fija.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_policy_decisions_una_respuesta
     ON policy_decisions (
         tenant_id,

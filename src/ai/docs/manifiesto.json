@@ -128,7 +128,7 @@
     "src/ai/question-service.ts": "320a614fe4b7ae52646b1298b4e3339710ddc56c",
     "src/ai/budget.ts": "501401dcfc093c50e86ab33976d41ba7805010b6",
     "src/ai/floor.ts": "f1a5ebed1e5d3e8f4bdea31b831c812d86e4c6b7",
-    "src/services/policy/policy-service.ts": "b273fd0e44bd07ebc50cae789100ffcef2c28b45",
+    "src/services/policy/policy-service.ts": "b293824c3a5ec767420e60d64824dc7f341a2aa6",
     "src/ai/tools/policy-tools.ts": "6f5312c431be52088f656e44d598c51326587af8",
     "src/ai/doctor-service.ts": "d59af7edf833d02471b5d33e54999d40945ab125",
     "src/ai/onboarding-service.ts": "7bd405ae60700ebab6bac3062002acd1cf9b4b58",

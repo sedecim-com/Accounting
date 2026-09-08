@@ -245,6 +245,23 @@ export async function getPolicyNumber(ctx: PolicyContext, key: string): Promise<
   return n;
 }
 
+// ASIMETRÍA DECLARADA, Y ES TRABAJO DE J0.3 (no un olvido de J0.2).
+//
+// `getPolicy` ya sabe que la jurisdicción forma parte de la identidad de una
+// decisión: la selecciona, la acota y la propaga. Las funciones que ESCRIBEN
+// esas mismas filas —`resolvePolicy`, `listPolicies`, `listPending`— todavía
+// no: acotan por inquilino y, como mucho, por entidad.
+//
+// Hoy no hace daño y por eso no se cierra aquí: NINGUNA fila lleva
+// jurisdicción, porque nada la escribe —la siembra filtrada por país es J0.3—,
+// así que leer con jurisdicción y escribir sin ella resuelve exactamente la
+// misma fila que antes. El día que J0.3 siembre respuestas por país, esta
+// asimetría deja de ser latente: `getPolicy` leería la respuesta mexicana y
+// `resolvePolicy` escribiría sobre la universal.
+//
+// Se escribe aquí, junto al escritor, en vez de en una tarjeta: quien venga a
+// hacer J0.3 abre este archivo, no la issue. Lo encontró el verificador
+// adversario del tramo; el implementador no lo había reportado.
 export async function resolvePolicy(
   ctx: PolicyContext,
   key: string,
