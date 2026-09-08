@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import {
   clasificarAtraso,
+  soloHistoria,
   diasEntre,
   prDe,
   prsNombrados,
@@ -78,6 +79,39 @@ El PR #999 se menciona aquí sin enlace.
     // Es deliberado. La tabla enlaza cada PR; aceptar «#999» a secas dejaría
     // pasar una fila escrita a medias, que es la que nadie vuelve a completar.
     expect(prsNombrados(doc).has(999)).toBe(false);
+  });
+});
+
+describe('soloHistoria — la punta todavía no es historia', () => {
+  const c = (asunto: string, pr: number | null): Entrada => ({
+    sha: `sha-${asunto}`,
+    commit: asunto.slice(0, 7),
+    fecha: '2026-09-08',
+    pr,
+    asunto,
+  });
+
+  it('descarta el commit de fusión que CI fabrica para refs/pull/N/merge', () => {
+    // Reproducido en CI y luego en local: ese commit no declara PR, así que se
+    // contaba como «commit directo a main» y el censo daba 14 donde el árbol
+    // tiene 13. El documento era correcto y la compuerta salía en rojo.
+    const walk = [c('Merge 1b47d1c into 5fbb272', null), c('algo (#208)', 208), c('Línea base', null)];
+    expect(soloHistoria(walk).map((e) => e.pr)).toEqual([208, null]);
+  });
+
+  it('y los commits propios de la rama en la que se trabaja', () => {
+    const walk = [c('mi trabajo en curso', null), c('otro mío', null), c('algo (#208)', 208)];
+    expect(soloHistoria(walk).map((e) => e.pr)).toEqual([208]);
+  });
+
+  it('pero NO los trece directos de la raíz, que sí son historia', () => {
+    // Sólo se corta el prefijo de la PUNTA. Los directos viven en la raíz.
+    const walk = [c('algo (#208)', 208), c('E0.3: el motor deja rastro', null), c('Línea base', null)];
+    expect(soloHistoria(walk)).toHaveLength(3);
+  });
+
+  it('un árbol sin ningún PR no tiene historia que contar', () => {
+    expect(soloHistoria([c('sólo trabajo local', null)])).toEqual([]);
   });
 });
 

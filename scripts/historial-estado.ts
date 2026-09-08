@@ -212,6 +212,24 @@ export function diasEntre(desde: string, hasta: string): number {
 }
 
 /**
+ * Quita de la punta lo que todavía NO ES HISTORIA.
+ *
+ * En CI el checkout es `refs/pull/N/merge`: GitHub fabrica un commit de fusión
+ * cuyo asunto no declara ningún PR, y en local la punta son los commits de la
+ * rama en la que se trabaja, que tampoco lo declaran. Sin quitarlos se cuentan
+ * como «commits directos a `main`» y el censo sale con un 14 donde el árbol
+ * tiene 13 — que fue exactamente lo que puso en rojo la primera ejecución de
+ * esta compuerta en CI, con el documento correcto.
+ *
+ * Se corta sólo el PREFIJO de la punta: los trece directos de verdad están en
+ * la RAÍZ de la historia, no en la punta, así que no los toca.
+ */
+export function soloHistoria(entradas: Entrada[]): Entrada[] {
+  const primera = entradas.findIndex((e) => e.pr !== null);
+  return primera < 0 ? [] : entradas.slice(primera);
+}
+
+/**
  * Reparte los PRs sin fila entre los que ya son deuda y los que aún no.
  *
  * Puro a propósito: la regla de gracia es lo único de este guardián que puede
@@ -233,7 +251,7 @@ export function clasificarAtraso(
 }
 
 export function medir(md: string): Censo {
-  const vertebral = columnaVertebral();
+  const vertebral = soloHistoria(columnaVertebral());
   const conPr = vertebral.filter((e) => e.pr !== null);
   const nombrados = prsNombrados(md);
 
