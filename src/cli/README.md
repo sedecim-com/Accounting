@@ -393,8 +393,12 @@ Two independent surfaces:
   `mnemosine.config.json` > `es`. An invalid env value is ignored with a
   warning; `lang <x>` warns when the env var will keep overriding it. Takes
   effect on the next session. `lang` needs no database.
-- **CLI chrome** — always English (canonical command names, flags, help and
-  runtime output). The complete Spanish surface is provided by aliases, which
+- **CLI chrome** — the canonical NAME of every command and flag is English,
+  because that is the machine's identity and what scripts pin. What the
+  reader SEES — help, prose, runtime output — follows the user's language,
+  Spanish first (D9 of epic #141): it is resolved **by key**, never by
+  rewriting the prose where it is emitted, so the instruments keep measuring
+  the English source and not the render. The complete Spanish surface is provided by aliases, which
   always work regardless of `lang`: every command has one where the word
   differs (`entidades`, `proveedores`, `pregunta`, `sesiones`, `borradores`,
   `revisar`, `ingesta`, `idioma`, `alta`, `envios`, `dudas`, `pendientes`,
