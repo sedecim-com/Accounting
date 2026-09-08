@@ -38,7 +38,7 @@ export type AccountRole =
   // separado. El cargo es UNO: en el estado de resultados los tres son la
   // misma línea de costo laboral devengado.
   //
-  // No hay rol para la PTU (2199) ni para la prima de antigüedad: la primera
+  // No hay rol para la PTU (2205) ni para la prima de antigüedad: la primera
   // no se devenga por trabajador sino sobre la renta gravable de la entidad
   // (LFT 120) y la segunda exige valuación actuarial (NIF D-3), así que
   // ninguna de las dos tiene motor. Un rol sin motor es una cuenta que alguien
