@@ -650,7 +650,12 @@ describe('checkExtractosCompletos', () => {
     expect(vistos).toEqual(['t1', 't2']);
     // Dos inquilinos, una fila corta cada uno: el recuento NO se queda en el primero.
     expect(c.level).toBe('warn');
-    expect(c.detail).toMatch(/faltan 2 línea\(s\)/);
+    // No dice «faltan»: el recuento no distingue una línea perdida de una que
+    // `insertarLineas` descartó porque su id nativo ya estaba en la cuenta —el
+    // trimestral que contiene al mensual—, y ésa cuelga de otro extracto. Lo
+    // que sí se afirma es la CIFRA, que es lo que WIT-02 vino a arreglar.
+    expect(c.detail).toMatch(/2 línea\(s\) declaradas y no presentes/);
+    expect(c.fix).not.toMatch(/soltar|DROP|borrar/i);
     expect(c.detail).toMatch(/bbva\.csv/);
   });
 

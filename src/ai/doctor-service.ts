@@ -1071,8 +1071,25 @@ export async function checkExtractosCompletos(): Promise<CheckResult> {
     return {
       name: nombre,
       level: 'warn',
-      detail: `faltan ${faltan} línea(s) en ${cortos.length} extracto(s) ya importado(s) (${alcance}): ${detalle}`,
-      fix: 'el catálogo ya está reparado, así que esto es daño anterior: reimporta esos extractos (hay que soltar antes su fila de bank_statements, que lleva UNIQUE por file_sha256)',
+      detail:
+        `${faltan} línea(s) declaradas y no presentes en ${cortos.length} extracto(s) (${alcance}): ${detalle}`,
+      // NO DICE «FALTAN», Y NO MANDA BORRAR NADA.
+      //
+      // Este recuento no distingue dos casos, y uno de los dos es SANO: una
+      // línea que `insertarLineas` descartó porque su id nativo ya estaba en
+      // la cuenta —el trimestral que contiene al mensual, el extracto
+      // reemitido— no se perdió, cuelga de otro `statement_id`. La 051 nombra
+      // ese traslape como hueco DECLARADO y abierto. Afirmar «faltan» sobre
+      // una base sana sería el mismo modo de fallo que este chequeo denuncia,
+      // trasladado al diagnóstico.
+      //
+      // Y el `fix` anterior mandaba soltar la fila de `bank_statements` para
+      // reimportar: es evidencia fiscal y es el padre de
+      // `bank_transactions.statement_id`. Sobre el caso sano, ese consejo
+      // destruye el documento y reimporta un archivo que descartaría las
+      // mismas líneas otra vez.
+      fix:
+        'compara antes de tocar nada: si esas líneas están en la cuenta bajo OTRO extracto de periodo traslapado, la base está sana y esto es el hueco declarado de la 051. Sólo si no aparecen en ninguna parte hubo pérdida, y entonces se reimporta el archivo con la cuenta a la vista de un humano — nunca soltando la fila de bank_statements, que es evidencia',
     };
   }
 

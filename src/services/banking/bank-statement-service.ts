@@ -42,17 +42,24 @@ import {
 // quien audite tiene que poder demostrar que el archivo del banco y lo que
 // entró al sistema son el mismo documento.
 //
-// EL DEDUPE ES DE DOS NIVELES Y NINGUNO ES DE APLICACIÓN.
-//   · Documento: UNIQUE(bank_account_id, file_sha256). El mismo archivo no
-//     entra dos veces, y el rechazo dice CUÁNDO entró la primera vez.
-//   · Documento: UNIQUE(bank_account_id, file_sha256). Es el ÚNICO dedupe real
-//     051. Aquí se usa `ON CONFLICT DO NOTHING` SIN blanco de conflicto a
-//     propósito: cubre a la vez el hash de contenido y el id nativo del banco,
-//     que son las dos llaves que el catálogo nombra («deduplicando por id
-//     nativo o por hash de contenido determinista»).
+// EL DEDUPE ES DE DOS NIVELES, NINGUNO ES DE APLICACIÓN, Y YA SÓLO UNO
+// DEDUPLICA DE VERDAD.
+//   · Documento: UNIQUE(bank_account_id, file_sha256) sobre `bank_statements`.
+//     El mismo archivo no entra dos veces, y el rechazo dice CUÁNDO entró la
+//     primera vez. Éste es el dedupe real.
+//   · Línea: UNIQUE(bank_account_id, bank_transaction_id) —el id nativo del
+//     banco, 001_core_schema.sql— y nada más. `uq_bank_tx_contenido` YA NO
+//     cuenta: la 072 lo suelta y pone `idx_bank_tx_contenido`, NO único,
+//     porque la huella de contenido es una HUELLA y no una llave —dos
+//     comisiones legítimamente idénticas el mismo día la comparten y las dos
+//     son ciertas—. El `ON CONFLICT DO NOTHING` de `insertarLineas` va SIN
+//     blanco de conflicto a propósito, así que cubre las restricciones únicas
+//     que existan; hoy es esa sola. Lo que el catálogo llama «deduplicando por
+//     id nativo o por hash de contenido determinista» describe el mundo
+//     anterior a la 072.
 //   NUNCA se escribe `content_hash`: no es un campo de entrada, es una función
-//   de la fila, y mandarlo sería devolverle al llamador la capacidad de
-//   falsear el dedupe que la 051 le quitó.
+//   de la fila que calcula el disparador, y mandarlo devolvería al llamador la
+//   capacidad de forjar la huella que la 051 le quitó.
 //
 // QUÉ RECHAZA EL IMPORT Y QUÉ SÓLO REPORTA. Las siete pruebas corren sobre el
 // documento RECIÉN PARSEADO, antes de escribir. De sus hallazgos sólo dos
@@ -600,7 +607,7 @@ export async function importarEstadoDeCuenta(
     const avisos = [...norm.avisos];
     if (duplicadas > 0) {
       avisos.push(
-        `${duplicadas} línea(s) ya estaban en la cuenta (mismo id nativo o mismo hash de contenido) y no se reinsertaron; ` +
+        `${duplicadas} línea(s) ya estaban en la cuenta (mismo id nativo del banco) y no se reinsertaron; ` +
           `siguen colgando del estado por el que entraron`
       );
     }
