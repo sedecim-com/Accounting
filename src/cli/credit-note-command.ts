@@ -382,6 +382,7 @@ export function registerCreditNoteCommand(program: Command, deps: CreditNoteComm
   issue.option('--json', 'JSON output');
   declareRisk(issue, {
     risk: 'irreversible',
+    llave: { sinLlave: 'un reintento vuelve a emitir la nota y postea otro asiento' },
     writes: 'journal_entries + account_balances + credit_notes.status',
   });
   issue.addHelpText('after', EJEMPLOS.issue);

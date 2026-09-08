@@ -99,7 +99,7 @@ export default defineConfig({
         },
         // Medidos: 94.91 / 89.65 / 96.42 / 95.28.
         'src/services/reporting/cash-flow-service.ts': {
-          statements: 94, branches: 89, functions: 96, lines: 95,
+          statements: 95, branches: 90, functions: 96, lines: 95,
         },
       },
     },

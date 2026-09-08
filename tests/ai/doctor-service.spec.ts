@@ -17,6 +17,7 @@ import { runDoctor,
   LOOKUP_TABLES,
 } from '../../src/ai/doctor-service.js';
 import { query } from '../../src/database/connection.js';
+import { sqlKeepsMexicanBooks } from '../../src/services/jurisdiction/jurisdiction.js';
 
 const mockQuery = query as unknown as Mock;
 
@@ -363,6 +364,62 @@ describe('checkAccountRoles', () => {
   it('no se queja si no hay entidades activas', async () => {
     mockQuery.mockResolvedValue({ rows: [] });
     expect((await checkAccountRoles()).level).toBe('ok');
+  });
+
+  // ============================================================
+  // A QUIÉN SE LE EXIGEN LOS CUATRO ROLES DE IVA (J0.1)
+  //
+  // Esta revisión preguntaba por `incorporation_country` comparado a secas
+  // contra MX, sin mirar la norma, mientras `entity-accounting` decide qué
+  // sembrar con el conmutador completo. Las dos preguntas no coincidían, y el
+  // hueco era el peor posible: a la filial constituida fuera con libros en
+  // NIF el sembrador SÍ le crea los cuatro roles, y el doctor NUNCA los
+  // comprobaba. El diagnóstico no revisaba lo que la propia máquina había
+  // construido.
+  // ============================================================
+
+  /** Primera consulta: el censo de roles por entidad. Segunda: los cuatro de IVA. */
+  function dosConsultas(censo: unknown[], faltantes: unknown[]) {
+    mockQuery.mockImplementation((sql?: unknown) => {
+      const q = typeof sql === 'string' ? sql : '';
+      return Promise.resolve({ rows: q.includes('unnest') ? faltantes : censo });
+    });
+  }
+
+  it('pregunta por la jurisdicción con el predicado del conmutador, no con una copia', async () => {
+    dosConsultas([{ entidad: 'e1', nombre: 'Demo', mapeados: '31', total: '31' }], []);
+    await checkAccountRoles();
+    const sqls = mockQuery.mock.calls.map((c) => String(c[0]));
+    const ivaSql = sqls.find((q) => q.includes('unnest'));
+    expect(ivaSql).toBeDefined();
+    expect(ivaSql).toContain(sqlKeepsMexicanBooks('e'));
+    // La comparación en crudo que este archivo tenía ya no está. Si vuelve,
+    // el doctor deja otra vez de revisar la entidad que el sembrador sembró.
+    expect(ivaSql).not.toMatch(/incorporation_country\s*=\s*'MX'/);
+  });
+
+  /**
+   * `e.is_active` NO viaja en el predicado de jurisdicción y tiene que
+   * sobrevivir aparte: una entidad dada de baja no es una entidad mal
+   * configurada, y el conmutador no sabe de altas y bajas. Se fija porque es
+   * justo la clase de filtro que se pierde al sustituir un WHERE.
+   */
+  it('conserva el filtro de entidad activa, que el conmutador de jurisdicción no sabe', async () => {
+    dosConsultas([{ entidad: 'e1', nombre: 'Demo', mapeados: '31', total: '31' }], []);
+    await checkAccountRoles();
+    const ivaSql = mockQuery.mock.calls.map((c) => String(c[0])).find((q) => q.includes('unnest'));
+    expect(ivaSql).toContain('e.is_active = true');
+  });
+
+  it('reporta con nombre y rol la entidad mexicana a la que le faltan roles de IVA', async () => {
+    dosConsultas(
+      [{ entidad: 'e1', nombre: 'Demo Corp MX', mapeados: '29', total: '29' }],
+      [{ nombre: 'Demo Corp MX', faltantes: 'iva_pendiente_acreditar, iva_trasladado_no_cobrado' }]
+    );
+    const r = await checkAccountRoles();
+    expect(r.level).toBe('fail');
+    expect(r.detail).toContain('Demo Corp MX');
+    expect(r.detail).toContain('iva_pendiente_acreditar');
   });
 });
 

@@ -101,6 +101,11 @@ vi.mock('../../../src/database/scope.js', () => ({
 
 vi.mock('../../../src/database/connection.js', () => ({
   query: ((...a) => consulta(...a)) as Doble,
+  // Desde T13, `trialBalance` DELEGA en el servicio de informes en vez de
+  // repetir su SQL —era una copia que no envejeció igual y seguía borrando la
+  // cuenta archivada con movimiento—, y ese servicio resuelve el inquilino del
+  // contexto para leer la política de cuentas archivadas.
+  currentTenant: () => undefined,
 }));
 
 // `auth.js` NO se simula: la gracia de la puerta es que pregunta con el MISMO

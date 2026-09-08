@@ -175,6 +175,7 @@ export function registerJobsCommand(program: Command, deps: JobsDeps): void {
   // kernel añade --dry-run, --yes, --idempotency-key y --live.
   declareRisk(runDue, {
     risk: 'externo',
+    llave: { sinLlave: 'un reintento vuelve a ejecutar los trabajos vencidos' },
     agent: false,
     writes: 'job_runs; y ejecuta el trabajo de cada job vencido — con --live, con lecturas al sistema externo del cliente',
   });
