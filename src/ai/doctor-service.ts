@@ -61,6 +61,7 @@ export async function runDoctor(deps: DoctorDeps = {}): Promise<DoctorReport> {
     checks.push(await checkTenantIsolation());
     checks.push(await checkLedgerIntegrity());
     checks.push(await checkSelloDeGarantias());
+    checks.push(await checkExtractosCompletos());
     checks.push(await checkRolAuditor());
     checks.push(await checkPermisosEnConflicto());
     checks.push(await checkReopenedPeriods());
@@ -933,6 +934,106 @@ export async function checkPermisosEnConflicto(): Promise<CheckResult> {
  * paralela se desincroniza el día que alguien añade la garantía número diez
  * y no la apunta.
  */
+/**
+ * ¿Falta alguna línea de un extracto bancario ya importado?
+ *
+ * Dos preguntas en una, porque son causa y consecuencia.
+ *
+ * LA CAUSA está en el CATÁLOGO. La 051 se distribuyó con un índice ÚNICO sobre
+ * (cuenta, huella de contenido), y esa huella se calcula sobre
+ * (cuenta|fecha|importe|descripción), donde no hay NADA que distinga dos
+ * hechos distintos: dos comisiones de manejo de -50.00 el mismo día son dos
+ * cobros, no uno repetido. `insertarLineas` inserta con `ON CONFLICT DO
+ * NOTHING` sin blanco de conflicto, así que la segunda no entra Y NO FALLA: se
+ * reporta como «duplicada», acusando al banco de repetir un renglón bueno.
+ * T1 lo corrigió en la 051, pero editándola EN SU SITIO — y el corredor omite
+ * por nombre de archivo—, así que la instalación que ya la tenía registrada se
+ * quedó con el índice único. La 072 es el remedio; este chequeo dice si hizo
+ * falta y si llegó.
+ *
+ * LA CONSECUENCIA está en los DATOS, y el remedio no la deshace: las líneas
+ * que el índice ya se tragó no están, y reimportar el archivo lo bloquea
+ * `UNIQUE (bank_account_id, file_sha256)`. Lo único que se puede hacer es
+ * NOMBRARLAS, comparando lo que el archivo declaraba (`line_count`) contra lo
+ * que hay. Por eso este chequeo existe y no basta con la migración: un WARNING
+ * de `npm run migrate` no lo lee nadie.
+ */
+export async function checkExtractosCompletos(): Promise<CheckResult> {
+  const nombre = 'Bank statements complete';
+
+  // 1. EL CATÁLOGO. Se pregunta a pg_index y pg_trigger, no al repositorio:
+  //    el criterio del tablero lee el .sql y da verde en una base que carga el
+  //    índice único, porque mira el archivo y no la instalación.
+  const forma = await query<{ unico: boolean; ciego: boolean }>(
+    `SELECT
+       EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+                WHERE i.indrelid = 'bank_transactions'::regclass
+                  AND i.indisunique AND c.relname = 'uq_bank_tx_contenido') AS unico,
+       EXISTS (SELECT 1 FROM pg_trigger t
+                WHERE t.tgrelid = 'bank_transactions'::regclass
+                  AND t.tgname = 'bank_transactions_content_hash'
+                  AND cardinality(t.tgattr::smallint[]) > 0
+                  AND NOT (SELECT a.attnum FROM pg_attribute a
+                            WHERE a.attrelid = t.tgrelid AND a.attname = 'content_hash')
+                          = ANY (t.tgattr::smallint[])) AS ciego`
+  );
+  const { unico, ciego } = forma.rows[0] ?? { unico: false, ciego: false };
+
+  // 2. LOS DATOS. Lo que el archivo declaraba contra lo que quedó.
+  const cortos = await query<{
+    file_name: string | null;
+    period_start: string;
+    declaradas: string;
+    presentes: string;
+  }>(
+    `SELECT s.file_name, s.period_start::text AS period_start,
+            s.line_count::text AS declaradas,
+            count(t.id)::text AS presentes
+       FROM bank_statements s
+       LEFT JOIN bank_transactions t ON t.statement_id = s.id
+      GROUP BY s.id, s.file_name, s.period_start, s.line_count
+     HAVING count(t.id) < s.line_count
+      ORDER BY s.period_start
+      LIMIT 20`
+  );
+
+  const faltan = cortos.rows.reduce(
+    (n, r) => n + (Number(r.declaradas) - Number(r.presentes)),
+    0
+  );
+  const detalle = cortos.rows
+    .map((r) => `${r.file_name ?? '(sin nombre)'} ${r.period_start}: ${r.presentes}/${r.declaradas}`)
+    .join('; ');
+
+  if (unico || ciego) {
+    return {
+      name: nombre,
+      level: 'fail',
+      detail:
+        'esta base registró la 051 antes de su corrección' +
+        (unico ? '; el índice de contenido es ÚNICO y se traga movimientos legítimamente idénticos' : '') +
+        (ciego ? '; el disparador no vigila content_hash, así que la huella se puede forjar a mano' : '') +
+        (faltan > 0 ? `; ya faltan ${faltan} línea(s) en ${cortos.rows.length} extracto(s): ${detalle}` : ''),
+      fix: 'npm run migrate  — aplica la 072; las líneas ya perdidas hay que reimportarlas a mano, el remedio devuelve la capacidad, no el dato',
+    };
+  }
+
+  if (faltan > 0) {
+    return {
+      name: nombre,
+      level: 'warn',
+      detail: `faltan ${faltan} línea(s) en ${cortos.rows.length} extracto(s) ya importado(s): ${detalle}`,
+      fix: 'el catálogo ya está reparado, así que esto es daño anterior: reimporta esos extractos (hay que soltar antes su fila de bank_statements, que lleva UNIQUE por file_sha256)',
+    };
+  }
+
+  return {
+    name: nombre,
+    level: 'ok',
+    detail: 'el índice de contenido no es único, el disparador impone la huella, y ningún extracto tiene menos líneas de las que declaró',
+  };
+}
+
 export async function checkSelloDeGarantias(): Promise<CheckResult> {
   const r = await query<{ tgname: string; relname: string; tgenabled: string }>(
     `SELECT t.tgname, c.relname, t.tgenabled

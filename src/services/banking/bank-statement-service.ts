@@ -45,7 +45,7 @@ import {
 // EL DEDUPE ES DE DOS NIVELES Y NINGUNO ES DE APLICACIÓN.
 //   · Documento: UNIQUE(bank_account_id, file_sha256). El mismo archivo no
 //     entra dos veces, y el rechazo dice CUÁNDO entró la primera vez.
-//   · Línea: uq_bank_tx_contenido, con el hash que calcula el disparador de la
+//   · Documento: UNIQUE(bank_account_id, file_sha256). Es el ÚNICO dedupe real
 //     051. Aquí se usa `ON CONFLICT DO NOTHING` SIN blanco de conflicto a
 //     propósito: cubre a la vez el hash de contenido y el id nativo del banco,
 //     que son las dos llaves que el catálogo nombra («deduplicando por id
@@ -720,9 +720,13 @@ async function insertarLineas(
       );
     });
 
-    // SIN blanco de conflicto a propósito: así cubre a la vez
-    // uq_bank_tx_contenido (hash del disparador) y UNIQUE(cuenta, id nativo),
-    // que son las dos llaves de dedupe que el catálogo nombra.
+    // SIN blanco de conflicto a propósito, pero lo que cubre ya no es lo que
+    // decía: T1 (#136) convirtió `uq_bank_tx_contenido` en un índice NO único
+    // —la huella de contenido es una HUELLA, no una llave: dos comisiones
+    // legítimamente idénticas el mismo día la comparten y las dos son
+    // ciertas—, así que aquí sólo queda UNIQUE(cuenta, id nativo). Lo que
+    // impide reimportar un archivo es UNIQUE(bank_account_id, file_sha256)
+    // sobre `bank_statements`, y ése es el dedupe de verdad.
     // `content_hash` NO va en la lista de columnas: lo pone el disparador.
     const r = await client.query<{ id: string }>(
       `INSERT INTO bank_transactions (
