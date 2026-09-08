@@ -189,6 +189,24 @@ export function crudoDe(...p: string[]): string {
   return leer(rutaDe(...p));
 }
 
+/**
+ * El SQL sin sus comentarios de línea.
+ *
+ * Un criterio que pregunta QUÉ HACE un archivo .sql tiene que leer el SQL, no
+ * la prosa que lo rodea. Dos veces en el mismo tramo un comentario que CITABA
+ * el ancla dejó su criterio verde: el que prohibía `CREATE OR REPLACE TRIGGER`
+ * se disparó contra el comentario que explica por qué está prohibido, y el que
+ * exigía el cambio de rol lo encontró en una tabla de mediciones comentada. Es
+ * la misma familia que la lección `_f05d` del piso: un ancla de presencia
+ * caduca en cuanto alguien escribe cerca.
+ *
+ * Sólo se quitan los comentarios que ABREN la línea: un `--` a media línea
+ * puede vivir dentro de un literal.
+ */
+export function sinProsa(sql: string): string {
+  return sql.replace(/^[ \t]*--.*$/gm, '');
+}
+
 export function existe(rel: string): boolean {
   // El overlay también gobierna la EXISTENCIA: así un espejo puede fingir
   // que un registro de auditoría o una migración desaparecieron.
@@ -1140,6 +1158,141 @@ export const CRITERIOS: Criterio[] = [
       return sinOptIn.length === 0
         ? ok('el corredor convierte el filtrado silencioso en 42501 y las siembras por inquilino declaran su opt-in')
         : falla(`bucle por inquilino sin «SET LOCAL row_security = on» — contra el piso mueren en el catch-up: ${sinOptIn.join(', ')}`);
+    },
+  },
+
+  {
+    paquete: 'E0.2',
+    id: 'matview-migration-survives-rls-floor',
+    enunciado: 'Toda migración que recree una vista materializada declara cómo sobrevive al piso de RLS',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/071_las_vistas_que_perdian_la_archivada.sql',
+        de: "EXECUTE 'SET LOCAL ROLE mnemosine_refresher';",
+        a: "RAISE NOTICE 'sin cambiar de rol';",
+        porque:
+          'EL DEFECTO MEDIDO: sin el traje del refrescador, `CREATE MATERIALIZED VIEW ... AS SELECT ... FROM accounts` muere con 42501 contra el piso `row_security = off` y la actualización de TODO despacho instalado se detiene ahí — en instalación nueva no se nota, porque las políticas aún no existen cuando corre',
+      },
+    ],
+    evaluar: () => {
+      // LA MINA QUE ESTE CRITERIO CIERRA, Y POR QUÉ EL DE ARRIBA NO LA VIO.
+      // El criterio anterior sólo inspecciona migraciones que iteran
+      // inquilinos con `set_config('app.current_tenant')`. La 071 no menciona
+      // ninguna: crea dos vistas materializadas leyendo `accounts`, y bajo el
+      // piso `row_security = off` eso no filtra en silencio, LANZA 42501. Pasó
+      // por debajo del instrumento y llegó a main, donde bloqueaba la
+      // actualización de cualquier instalación viva. Medido como
+      // `mnemosine_owner` con las políticas puestas.
+      //
+      // Una instalación NUEVA nunca lo veía —rls-policies.sql corre en el
+      // `finally`, después—, que es justo por lo que CI tampoco: su base nace
+      // sin políticas. El criterio mira el texto porque la conducta sólo
+      // aparece con un rol no superusuario y una base ya endurecida.
+      const dir = rutaDe('src', 'database', 'migrations');
+      const sinDeclarar = fs.readdirSync(dir)
+        .filter((f) => f.endsWith('.sql'))
+        .filter((f) => {
+          const sql = sinProsa(crudoDe('src/database/migrations', f));
+          if (!/CREATE\s+MATERIALIZED\s+VIEW/i.test(sql)) return false;
+          // Tres formas legítimas de sobrevivir al piso, y ninguna es
+          // desarmar la RLS: vestirse del rol que la ignora por contrato,
+          // no poblar la vista al crearla, o correr antes de que exista
+          // política alguna — que es el caso de las migraciones tempranas,
+          // donde las tablas que la vista lee todavía no están acotadas.
+          const declara = /SET LOCAL ROLE mnemosine_refresher/.test(sql)
+            || /WITH NO DATA/i.test(sql)
+            || Number(f.slice(0, 3)) < 20;
+          return !declara;
+        });
+      if (sinDeclarar.length === 0 && !existe('tests/integration/migracion-071-actualizacion-bajo-rls.int.spec.ts')) {
+        // LA MITAD DINÁMICA, Y NO ES ADORNO (WIT-03). Lo de arriba es
+        // PRESENCIA de texto: da verde con el archivo escrito y jamás
+        // ejecutado en el estado que lo rompía. La prueba monta las tres cosas
+        // que hacen falta para que el defecto exista —rol NOBYPASSRLS que es
+        // DUEÑO, políticas con su FORCE, y el piso `row_security = off`— y
+        // cae al neutralizar el `SET LOCAL ROLE`, el `RESET ROLE` o la
+        // devolución del ACL. Sin ella, una regresión en ese baile bloquearía
+        // toda actualización instalada y CI seguiría en verde.
+        return falla('no hay prueba que EJECUTE la 071 sobre una base endurecida: leer el archivo no demuestra que la actualización sobreviva');
+      }
+      return sinDeclarar.length === 0
+        ? ok('ninguna migración puebla una vista materializada sin decir cómo esquiva el 42501 del piso, y hay prueba que lo ejecuta bajo FORCE RLS')
+        : falla(`vista materializada creada sin declarar cómo sobrevive a «row_security = off»: ${sinDeclarar.join(', ')} — muere con 42501 en toda base ya endurecida, y en instalación nueva no se nota`);
+    },
+  },
+
+  {
+    paquete: 'E0.2',
+    id: 'distributed-migration-repaired-by-new-file',
+    enunciado: 'La reparación de una migración ya distribuida llega por archivo nuevo, y repone el sello que arranca',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/072_la_huella_que_se_podia_forjar.sql',
+        de: 'ALTER TABLE bank_transactions ENABLE ALWAYS TRIGGER bank_transactions_content_hash;',
+        a: '-- sin reponer el ENABLE ALWAYS',
+        porque:
+          'la trampa medida: recrear el disparador se lleva por delante el `ENABLE ALWAYS` de la 058, y el remedio dejaría el sello «garantia-sellada» colgado de un disparador que vuelve a poder apagarse con session_replication_role',
+      },
+      {
+        archivo: 'src/database/migrations/072_la_huella_que_se_podia_forjar.sql',
+        de: 'DROP INDEX IF EXISTS uq_bank_tx_contenido;',
+        a: '-- el índice único se queda',
+        porque:
+          'el remedio deja de reparar lo que cuesta dinero: con el índice ÚNICO, la segunda comisión legítima del mismo día no entra y el sistema la reporta como duplicada, acusando al banco',
+      },
+      {
+        archivo: 'src/database/migrations/072_la_huella_que_se_podia_forjar.sql',
+        de: 'DO $huellas$',
+        a: null,
+        porque:
+          'si el remedio desaparece, la instalación que registró la 051 vieja se queda para siempre con la huella forjable: el criterio debe dar ROJO, no reventar leyendo un archivo que ya no está',
+      },
+    ],
+    evaluar: () => {
+      // WIT-01 CRÍTICO DE #136. T1 reparó la 051 EDITÁNDOLA EN SU SITIO, y el
+      // corredor omite por NOMBRE sin checksum: donde la vieja quedó
+      // registrada —toda instalación cuyo `bank_transactions` estaba vacío—,
+      // la reparada no corre jamás. El remedio sólo puede llegar por archivo
+      // nuevo, y este criterio vigila que ese archivo siga existiendo y siga
+      // haciendo las cuatro cosas que tiene que hacer.
+      const remedio = 'src/database/migrations/072_la_huella_que_se_podia_forjar.sql';
+      if (!existe(remedio)) {
+        return falla('desapareció el remedio de la 051: la instalación que registró la vieja se queda con la huella forjable y el índice que se traga movimientos legítimos (#136)');
+      }
+      const sql = sinProsa(crudoDe(remedio));
+
+      // 1. EL ÍNDICE, en el orden que no rompe: soltar el único ANTES de crear
+      //    el llano. Al revés fallaría con 23505 justo donde hace falta.
+      if (!/DROP INDEX IF EXISTS uq_bank_tx_contenido/.test(sql)
+          || !/CREATE INDEX IF NOT EXISTS idx_bank_tx_contenido/.test(sql)) {
+        return falla('el remedio dejó de sustituir el índice único: dos movimientos bancarios legítimamente idénticos siguen siendo irrepresentables');
+      }
+
+      // 2. EL DISPARADOR, Y NUNCA CON «CREATE OR REPLACE». Medido: esa forma
+      //    degrada `tgenabled` de 'A' a 'O' EN SILENCIO y conserva el
+      //    comentario — deja el sello sobre un disparador que ya se puede
+      //    apagar, que es peor que no tenerlo.
+      if (/CREATE\s+OR\s+REPLACE\s+TRIGGER/i.test(sql)) {
+        return falla('el remedio usa CREATE OR REPLACE TRIGGER: degrada el ENABLE ALWAYS de la 058 en silencio y deja la garantía sellada sobre un disparador apagable');
+      }
+      if (!/ENABLE ALWAYS TRIGGER bank_transactions_content_hash/.test(sql)
+          || !/COMMENT ON TRIGGER bank_transactions_content_hash/.test(sql)) {
+        return falla('el remedio recrea el disparador sin reponer el sello de la 058: doctor dejaría de contar una garantía que nadie repuso');
+      }
+
+      // 3. Y SI TOCA DATOS, CON EL OPT-IN DECLARADO. El corredor corre con
+      //    `row_security = off`: un UPDATE pelado sobre una tabla acotada
+      //    muere con 42501 y revierte el archivo entero.
+      if (/UPDATE bank_transactions/.test(sql)
+          && !(/SET LOCAL row_security = on/.test(sql) && /set_config\('app\.current_tenant'/.test(sql))) {
+        return falla('el remedio escribe en una tabla acotada sin declarar su opt-in ni recorrer inquilinos: moriría con 42501 en la primera base endurecida');
+      }
+
+      // 4. Y SE PRUEBA EJECUTÁNDOLO. Un remedio de migración que sólo se lee
+      //    es la misma clase de falso verde que este tramo vino a cerrar.
+      return existe('tests/integration/migracion-072-remedio-051.int.spec.ts')
+        ? ok('el remedio llega por archivo nuevo, sustituye el índice, recrea el disparador reponiendo el sello de la 058, declara su opt-in y se prueba corriéndolo')
+        : falla('el remedio no tiene prueba que lo EJECUTE sobre una base que traiga la 051 vieja: leerlo no demuestra que repare');
     },
   },
 
