@@ -63,22 +63,60 @@ export async function getBrackets(
   return brackets;
 }
 
+/**
+ * Los parámetros legales vigentes en una FECHA.
+ *
+ * Dos cambios sobre lo que había, y los dos por la misma razón.
+ *
+ * 1. LA FECHA, y no el ejercicio. Desde la 073, `tax_parameters` tiene ventana
+ *    de vigencia porque un año puede tener dos juegos: la UMA entra en vigor
+ *    el 1 DE FEBRERO, así que 2026 vale 113.14 en enero y 117.31 desde
+ *    febrero. Preguntar por el AÑO devolvería una de las dos filas al azar.
+ *
+ * 2. LANZA, no devuelve `{}`. Antes, un ejercicio sin sembrar daba un objeto
+ *    vacío en silencio y cada motor rellenaba a su manera: `isr-calculator`
+ *    lanzaba, `imss-calculator` usaba `uma_daily || 113.14` y
+ *    `infonavit-calculator` `|| 0.05`. El MISMO dato ausente producía un error
+ *    en un motor y una cifra inventada en los otros dos — y la inventada llega
+ *    al recibo, al CFDI de nómina y a la línea de captura. Un parámetro fiscal
+ *    que no se puede leer se nombra, no se sustituye (la doctrina de F08a).
+ *
+ * `efectiva` es la fecha DEL ACTO —el día del recibo—, no la de hoy: un recibo
+ * del 15 de enero recalculado en marzo tiene que seguir usando enero. Se deja
+ * con valor por omisión de hoy porque los motores que todavía no la reciben
+ * calculan el periodo corriente; llevarla hasta cada uno es trabajo de T4b, y
+ * hasta entonces esa omisión es explícita en vez de tácita.
+ */
 export async function getTaxParameters(
   jurisdiction: string,
-  taxYear: number
+  taxYear: number,
+  efectiva?: string
 ): Promise<Record<string, unknown>> {
-  const key = `${jurisdiction}|${taxYear}`;
+  const dia = efectiva ?? new Date().toISOString().slice(0, 10);
+  const key = `${jurisdiction}|${dia}`;
   const cached = paramCache.get(key);
   if (cached) return cached;
 
   const result = await query<{ params: Record<string, unknown> }>(
-    `SELECT params FROM tax_parameters WHERE jurisdiction = $1 AND tax_year = $2`,
-    [jurisdiction, taxYear]
+    `SELECT params FROM tax_parameters
+      WHERE jurisdiction = $1
+        AND effective_from <= $2::date
+        AND (effective_to IS NULL OR effective_to >= $2::date)
+      ORDER BY effective_from DESC
+      LIMIT 1`,
+    [jurisdiction, dia]
   );
 
-  const params = result.rows[0]?.params || {};
-  paramCache.set(key, params);
-  return params;
+  const fila = result.rows[0];
+  if (!fila) {
+    throw new Error(
+      `No hay parámetros fiscales de ${jurisdiction} vigentes el ${dia} (ejercicio ${taxYear}): ` +
+      'siembra la fila en tax_parameters antes de calcular. Sin ella no se puede retener, ' +
+      'y una cifra inventada sale en el recibo, en el CFDI y en la línea de captura.'
+    );
+  }
+  paramCache.set(key, fila.params);
+  return fila.params;
 }
 
 /**

@@ -7864,6 +7864,70 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'isr-tariff-matches-the-pay-period',
+    enunciado: 'A cada periodo de pago se le aplica SU tarifa del art. 96, y el periodo sin tabla publicada se niega',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/isr-calculator.ts',
+        de: "    case 'weekly': return 'weekly';",
+        a: "    case 'weekly': return 'monthly';",
+        porque:
+          'EL DEFECTO MEDIDO (#91): la tarifa MENSUAL aplicada a la base de una SEMANA. Con ella, 3 000 semanales retenían 0.00 y 7 000 retenían 190.96 — subretención de entre el 85 % y el 100 % en cada recibo, que se le cobra al patrón con recargos',
+      },
+      {
+        archivo: 'src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql',
+        de: "('MX','isr',2026,NULL,'monthly', 1,      0.01,     844.59,",
+        a: "('MX','isr',2026,NULL,'monthly', 1,      0.01,     746.04,",
+        porque:
+          'vuelve la tarifa de 2025 sembrada como 2026 — el defecto que la 009 arrastraba y que hace que TODA retención del ejercicio salga con la tabla del año pasado',
+      },
+    ],
+    evaluar: () => {
+      // T4 (#91). `isr-calculator.ts` hacía
+      // `pay_frequency === 'quincenal' ? 'quincenal' : 'monthly'`, así que tres
+      // periodos de pago recibían la tarifa mensual sobre la base de una
+      // semana. Y debajo había algo peor: la tarifa sembrada como 2026 era la
+      // de 2025 al centavo, y la «quincenal» no era la de ningún año —el
+      // archivo lo confesaba: «same structure, divided by 2»—, cuando el
+      // Anexo 8 la construye como la diaria por 15.
+      const calc = 'src/services/payroll/mx/isr-calculator.ts';
+      if (!existe(calc)) return falla('desapareció la calculadora de ISR');
+      const src = codigoDe(calc);
+
+      // 1. LA SUSTITUCIÓN SILENCIOSA, MUERTA. Ese ternario ERA el defecto.
+      if (/pay_frequency === 'quincenal' \? 'quincenal' : 'monthly'/.test(src)) {
+        return falla('la calculadora vuelve a mandar weekly, biweekly y semimonthly a la tarifa MENSUAL: subretiene entre el 85 % y el 100 % en cada recibo (#91)');
+      }
+      // 2. Y EL PERIODO SIN TABLA SE NOMBRA, no se adivina.
+      if (!/No hay tarifa del art\. 96 publicada para el periodo/.test(src)) {
+        return falla('el periodo sin tarifa publicada dejó de negarse: la catorcena no tiene tabla en el Anexo 8, y sustituirla en silencio es el defecto original con otro número');
+      }
+      if (!/case 'weekly': return 'weekly';/.test(src)) {
+        return falla('el sueldo semanal dejó de usar la tarifa semanal del Anexo 8');
+      }
+
+      // 3. LA TARIFA SEMBRADA ES LA DE ESTE AÑO. 844.59 es el primer límite de
+      //    2026; 746.04 es el de 2025, que es lo que había.
+      const mig = 'src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql';
+      if (!existe(mig)) {
+        return falla('desapareció la migración que corrige la tarifa: la instalación vuelve a retener con la tabla del año pasado (#91)');
+      }
+      const sql = crudoDe(mig);
+      if (!/'monthly', 1,\s+0\.01,\s+844\.59,/.test(sql)) {
+        return falla('la tarifa mensual de 2026 dejó de ser la publicada en el Anexo 8: toda retención del ejercicio saldría con otra tabla');
+      }
+
+      // 4. Y SE COMPRUEBA CORRIENDO. Las cuatro tarifas del periodo se DERIVAN
+      //    de la mensual, así que lo que hay que vigilar no es la
+      //    transcripción sino que la derivación siga reproduciendo lo publicado.
+      return existe('tests/integration/t4-tarifa-del-periodo.int.spec.ts')
+        ? ok('cada periodo usa su tarifa del Anexo 8, el que no tiene tabla se niega, la sembrada es la de 2026 y hay prueba que lo ejecuta contra la base')
+        : falla('no hay prueba que EJECUTE la retención por periodo: leer la calculadora no demuestra qué se le retiene a un sueldo semanal');
+    },
+  },
+
+  {
+    paquete: 'E4.1',
     id: 'imss-rate-fix-verified-by-running-it',
     enunciado: 'La corrección de la cuota obrera se comprueba EJECUTÁNDOLA sobre una base migrada, no leyéndola',
     mutantes: [
