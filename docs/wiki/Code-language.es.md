@@ -1,6 +1,6 @@
 # El idioma del código
 
-> Gemela en español de [[Code-language]] · source_sha: 2bfb8a7db8d33b90e98e49e8182c4c752ff2ff1e
+> Gemela en español de [[Code-language]] · source_sha: a22ae9c2062d7dd471fc751d223b8ac163347b6f
 
 Desde el 2026-09-06 la regla es una frase, precisada dos veces el mismo día hasta no dejar excepción: **todo al inglés de origen —código, comentarios, commits, documentación, informes, vocabulario persistido, contratos publicados, migraciones— y toda la experiencia de usuario ajustable a otro idioma, con el español configurado primero.** Lo único que no va al inglés es lo que no es origen: las filas ya escritas en la base y los nombres propios (SAT, CFDI, RFC, IMSS no se traducen, como IRS no se traduce en español). El documento rector es [`docs/language.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/language.md) (con su gemela española [`language.es.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/language.es.md)); el inventario que lo sostiene, con el comando de cada cifra, está en [`docs/investigacion/2026-09-06-idioma/`](https://github.com/sedecim-com/Accounting/tree/main/docs/investigacion/2026-09-06-idioma).
 
