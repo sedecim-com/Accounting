@@ -2063,6 +2063,10 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E1.1',
+    // La identidad la exige I0, que entró en main mientras este tramo
+    // esperaba revisión: sin `id`, el piso no puede protegerlo y traducir su
+    // enunciado lo daría de baja sin tocar el instrumento.
+    id: 'single-jurisdiction-switch',
     enunciado:
       'La jurisdicción de una entidad se contesta en un solo sitio, y en SQL dice lo mismo que en TypeScript',
     evaluar: () => {
