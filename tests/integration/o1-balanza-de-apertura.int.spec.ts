@@ -9,6 +9,7 @@ import { importSatChart } from '../../src/services/accounting/sat-chart-import.j
 import {
   importOpeningBalance,
   type OpeningDocument,
+  type OpeningBalanceReport,
 } from '../../src/services/accounting/opening-balance.js';
 import {
   compareToSource,
@@ -393,6 +394,95 @@ describe('la apertura se carga al primer día del ejercicio', () => {
 // ============================================================
 // 4 · LA PRUEBA QUE CIERRA EL TRAMO: IGUALES AL PESO
 // ============================================================
+
+// ============================================================
+// LA CARRERA · DOS CARGAS A LA VEZ (WIT-01 de #217)
+// ============================================================
+
+describe('dos aperturas concurrentes de la misma entidad', () => {
+  it('sólo UNA escribe: la otra recibe informe, no excepción, y los saldos no se duplican', async () => {
+    // La comprobación previa de `importOpeningBalance` vive FUERA de la
+    // transacción que postea, así que entre ella y el INSERT cabe otra corrida
+    // entera: las dos verían cero filas, las dos postearían, y los saldos de
+    // apertura quedarían DUPLICADOS de una sola vez. Una apertura mueve el
+    // balance entero; no puede depender de una ventana TOCTOU.
+    //
+    // Una entidad PROPIA, para no arrastrar lo que cargaron las pruebas de
+    // arriba y poder afirmar sobre el libro entero.
+    const solo = await crearEntidadHermana(f, 'O1 la carrera de la apertura');
+    await importSatChart(ctxDe(solo), {
+      entityId: solo.entityId,
+      xml: XML_CATALOGO,
+      userId: solo.userId,
+      reason: 'migración O1 · carrera',
+    });
+
+    const cargar = (): Promise<OpeningBalanceReport> =>
+      importOpeningBalance(ctxDe(solo), {
+        entityId: solo.entityId,
+        xml: balanzaDeOrigen(),
+        userId: solo.userId,
+        documentos: AUXILIAR,
+      });
+
+    // A LA VEZ, no una detrás de otra: en serie la comprobación previa basta y
+    // la prueba pasaría con el defecto puesto.
+    const [a, b] = await Promise.allSettled([cargar(), cargar()]);
+
+    // NINGUNA revienta con una excepción de Postgres: la que pierde la carrera
+    // recibe un informe que dice qué pasó.
+    for (const r of [a, b]) {
+      expect(
+        r.status,
+        `una de las dos cargas lanzó en vez de informar: ${
+          r.status === 'rejected' ? String((r.reason as Error).message) : ''
+        }`
+      ).toBe('fulfilled');
+    }
+    const informes = [a, b]
+      .filter((r): r is PromiseFulfilledResult<OpeningBalanceReport> => r.status === 'fulfilled')
+      .map((r) => r.value);
+
+    // Exactamente una escribió.
+    const escritas = informes.filter((i) => i.escrito);
+    expect(escritas.length, 'las dos cargas escribieron, o ninguna lo hizo').toBe(1);
+
+    // Y la que no, lo NOMBRA: un `escrito: false` mudo no le dice al operador
+    // si su apertura entró o se perdió.
+    const perdedora = informes.find((i) => !i.escrito);
+    expect(
+      perdedora?.findings.map((h) => h.regla),
+      'la carga que perdió la carrera no nombró por qué no escribió'
+    ).toContain('APE-YA-CARGADA');
+
+    // EL LIBRO: un solo asiento de apertura, y ni una línea de más.
+    const asientos = await query<{ n: string }>(
+      `SELECT COUNT(*)::text AS n FROM journal_entries
+        WHERE entity_id = $1 AND source_type = 'opening_balance' AND status <> 'void'`,
+      [solo.entityId]
+    );
+    expect(asientos.rows[0].n, 'la apertura se posteó dos veces').toBe('1');
+
+    // Y LOS SALDOS NO SE DUPLICARON: el activo vale lo que el archivo decía.
+    const activo = await query<{ s: string }>(
+      `SELECT COALESCE(SUM(COALESCE(l.debit_amount, 0) - COALESCE(l.credit_amount, 0)), 0)::text AS s
+         FROM journal_entry_lines l
+         JOIN journal_entries e ON e.id = l.journal_entry_id
+         JOIN accounts a ON a.id = l.account_id
+        WHERE e.entity_id = $1 AND e.source_type = 'opening_balance'
+          AND e.status <> 'void' AND a.code = '102-001'`,
+      [solo.entityId]
+    );
+    expect(
+      activo.rows[0].s,
+      'el banco quedó con el doble: los dos asientos entraron aunque el conteo dijera uno'
+    ).toBe('50000.0000');
+    // Nota para quien toque esta consulta: los `COALESCE` van DENTRO de la
+    // resta. Con `debit - credit` a secas, una línea de sólo abono da NULL, la
+    // suma entera da NULL y el `COALESCE` de fuera la vuelve 0 — la aserción
+    // pasaría por la razón equivocada el día que el saldo esperado fuera cero.
+  });
+});
 
 describe('la balanza del sistema viejo y la nuestra', () => {
   it('SaldoFin del primer periodo, CUENTA POR CUENTA, iguales al peso', async () => {

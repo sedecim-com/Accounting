@@ -1016,7 +1016,17 @@ export async function importOpeningBalance(
   if (!puedeCargarse || opts.dryRun === true) return base;
 
   const fechaDelAsiento = new Date(`${ejercicio.startDate}T00:00:00`);
-  const asiento = await withTransaction(async (client) => {
+  // EL `SELECT` DE ARRIBA ES EL DIAGNÓSTICO; LA GARANTÍA ES EL ÍNDICE (WIT-01
+  // de #217). Aquella consulta vive FUERA de esta transacción, así que entre
+  // ella y el INSERT cabe otra corrida entera: las dos verían cero filas, las
+  // dos postearían, y los saldos de apertura quedarían duplicados de una sola
+  // vez. La 081 pone `uq_je_apertura_por_entidad_y_fecha` detrás; aquí se
+  // traduce su rechazo a la MISMA respuesta que habría dado el diagnóstico,
+  // para que quien pierda la carrera reciba un informe y no una excepción de
+  // Postgres.
+  let asiento: { id: string; entry_number: string };
+  try {
+    asiento = await withTransaction(async (client) => {
     const tenantId = await tenantDe(client, opts.entityId);
     const entry = await createJournalEntry(
       opts.entityId,
@@ -1068,7 +1078,30 @@ export async function importOpeningBalance(
     });
 
     return entry;
-  });
+    });
+  } catch (e) {
+    if (!esAperturaDuplicada(e)) throw e;
+    // Perdimos la carrera: otra corrida posteó la apertura de esta entidad y
+    // esta fecha mientras ésta calculaba. No es un error del operador ni un
+    // fallo del sistema —es la defensa funcionando—, así que se contesta con
+    // el mismo hallazgo que el diagnóstico habría dado y NADA queda escrito:
+    // la transacción entera se deshizo sola.
+    return {
+      ...base,
+      puedeCargarse: false,
+      findings: [
+        ...base.findings,
+        finding(
+          'APE-YA-CARGADA',
+          'bloquea',
+          undefined,
+          `Otra carga posteó la apertura de esta entidad el ${ejercicio.startDate} mientras ésta ` +
+            `calculaba, así que ésta no escribió nada. Vuelve a consultarla: si aquélla estaba mal, ` +
+            `anúlala —queda el rastro de quién y por qué— y corre ésta otra vez.`
+        ),
+      ],
+    };
+  }
 
   // La atestación mira el asiento YA confirmado, así que se lanza después del
   // commit: dentro de la transacción leería una fila que todavía no existe.
@@ -1079,6 +1112,23 @@ export async function importOpeningBalance(
     asiento: { id: asiento.id, entry_number: asiento.entry_number },
     escrito: true,
   };
+}
+
+/**
+ * ¿Es este error el índice de apertura diciendo que ya hay una?
+ *
+ * Se mira el NOMBRE del índice y no sólo el código 23505: en la misma
+ * transacción se insertan también las líneas y la cabecera, y confundir
+ * cualquier choque de unicidad con «ya estaba cargada» convertiría un defecto
+ * distinto en un mensaje tranquilizador.
+ */
+function esAperturaDuplicada(e: unknown): boolean {
+  const err = e as { code?: string; constraint?: string; message?: string };
+  return (
+    err?.code === '23505' &&
+    (err.constraint === 'uq_je_apertura_por_entidad_y_fecha' ||
+      (err.message ?? '').includes('uq_je_apertura_por_entidad_y_fecha'))
+  );
 }
 
 /**
