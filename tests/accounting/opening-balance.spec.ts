@@ -508,6 +508,44 @@ describe('la negativa a cargar CxC agregada', () => {
     expect(p.puedeCargarse).toBe(false);
   });
 
+  it('un importe con MÁS DE CUATRO DECIMALES bloquea: el mayor no lo redondea en silencio', () => {
+    // WIT-02 de #217. `OpeningDocument.importe` viene del llamador, no del XML,
+    // así que no pasa por `LEC-BAL-ESCALA`. Sin la guarda, este documento
+    // cuadraba el residuo de su cuenta de control EN MEMORIA con precisión
+    // completa y `DECIMAL(19,4)` lo redondeaba AL ESCRIBIR: el auxiliar que la
+    // carga dio por cuadrado dejaba de estarlo en el mayor.
+    const p = plan(balanza, cxcYBanco, [
+      { cuenta: '1120', documento: 'A-1', contraparte: 'X', fecha: '2025-11-02', importe: '6000.00005' },
+    ]);
+    expect(reglas(p)).toContain('APE-DOCUMENTO-ESCALA');
+    expect(p.puedeCargarse).toBe(false);
+    // Y el mensaje dice CUÁNTOS decimales trae y cuántos caben: sin las dos
+    // cifras, quien lo lee no sabe qué corregir.
+    const h = p.findings.find((f) => f.regla === 'APE-DOCUMENTO-ESCALA');
+    expect(h?.mensaje).toContain('5 decimales');
+    expect(h?.mensaje).toContain('DECIMAL(19,4)');
+  });
+
+  it('CUATRO decimales exactos SÍ entran: el límite es el del mayor, no uno más estricto', () => {
+    // El borde por el lado bueno. Una guarda que se pasara de celosa rechazaría
+    // auxiliares perfectamente representables, que es el defecto simétrico.
+    const p = plan(balanza, cxcYBanco, [
+      { cuenta: '1120', documento: 'A-1', contraparte: 'X', fecha: '2025-11-02', importe: '6000.0001' },
+    ]);
+    expect(reglas(p)).not.toContain('APE-DOCUMENTO-ESCALA');
+  });
+
+  it('un importe que no cabe en DECIMAL(19,4) bloquea antes de reventar en Postgres', () => {
+    // Dieciséis enteros: uno más de los quince que caben. Sin la guarda, esto
+    // no se redondea — revienta al escribir, con un error de la base en vez de
+    // un hallazgo con el folio a la vista.
+    const p = plan(balanza, cxcYBanco, [
+      { cuenta: '1120', documento: 'A-1', contraparte: 'X', fecha: '2025-11-02', importe: '1000000000000000.00' },
+    ]);
+    expect(reglas(p)).toContain('APE-DOCUMENTO-FUERA-DE-RANGO');
+    expect(p.puedeCargarse).toBe(false);
+  });
+
   it('un documento con saldo cero bloquea: saldría abierto en la antigüedad', () => {
     const p = plan(balanza, cxcYBanco, [
       { cuenta: '1120', documento: 'A-1', contraparte: 'X', fecha: '2025-11-02', importe: '0.00' },

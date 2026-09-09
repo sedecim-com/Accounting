@@ -111,7 +111,14 @@ const IMPORTE = /^-?[0-9]+(\.[0-9]+)?$/;
  * un archivo con más de cuatro no se redondea en silencio, porque redondear
  * ochocientas cuentas es cómo se pierde el peso que esta capa promete.
  */
-const ESCALA_DEL_MAYOR = 4;
+export const ESCALA_DEL_MAYOR = 4;
+
+/**
+ * Los enteros que caben en DECIMAL(19,4): 19 dígitos en total, cuatro de ellos
+ * decimales. Se exporta con la escala porque quien valide un importe fuera de
+ * este lector necesita las DOS mitades del mismo límite.
+ */
+export const ENTEROS_DEL_MAYOR = 19 - ESCALA_DEL_MAYOR;
 
 /** Cada columna con su nombre de atributo, para leerlas de una pasada. */
 const COLUMNAS = ['SaldoIni', 'Debe', 'Haber', 'SaldoFin'] as const;

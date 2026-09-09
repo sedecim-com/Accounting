@@ -12,6 +12,8 @@ import {
   type BalanceFileRead,
   type BalanceFileRow,
   type BalanceReadFinding,
+  ESCALA_DEL_MAYOR,
+  ENTEROS_DEL_MAYOR,
 } from '../sat/anexo24/balance-reader.js';
 import { naturDe, saldoDelMayor } from '../sat/anexo24/balanza-invariantes.js';
 
@@ -543,6 +545,50 @@ export function planOpeningBalance(
           'bloquea',
           d.cuenta,
           `El documento "${d.documento}" trae el importe "${d.importe}", que no es una cifra decimal.`
+        )
+      );
+      continue;
+    }
+    // LA ESCALA DEL AUXILIAR NO SE REDONDEA EN SILENCIO (WIT-02 de #217).
+    //
+    // `OpeningDocument.importe` viene del llamador, no del XML, así que NO pasa
+    // por `LEC-BAL-ESCALA` —el lector sí bloquea ahí—. Sin esta guarda, un
+    // "4000.00005" cuadraba el residuo de su cuenta de control EN MEMORIA con
+    // precisión completa y `DECIMAL(19,4)` lo redondeaba AL ESCRIBIR: el
+    // auxiliar que la carga dio por cuadrado dejaba de estarlo en el mayor, y
+    // por una diferencia que nadie nombró.
+    //
+    // Es el mismo límite y el mismo argumento que el lector: redondear cada uno
+    // de ochocientos documentos es exactamente cómo se pierde el peso que esta
+    // carga promete cuadrar.
+    if (importe.decimalPlaces() > ESCALA_DEL_MAYOR) {
+      documentosInvalidos++;
+      findings.push(
+        finding(
+          'APE-DOCUMENTO-ESCALA',
+          'bloquea',
+          d.cuenta,
+          `El documento "${d.documento}" de "${d.cuenta}" trae el importe "${d.importe}", con ` +
+            `${importe.decimalPlaces()} decimales, y el mayor guarda ${ESCALA_DEL_MAYOR} ` +
+            `(DECIMAL(19,4)). No se redondea en silencio: el auxiliar dejaría de cuadrar con su ` +
+            `cuenta de control por una diferencia que nadie nombró.`
+        )
+      );
+      continue;
+    }
+    // Y EL RANGO, por el otro extremo. Un importe con más enteros de los que
+    // caben no se redondea: revienta al escribir, con un error de Postgres en
+    // vez de un hallazgo. Se rehúsa aquí, con el folio a la vista.
+    if (importe.abs().gte(new Decimal(10).pow(ENTEROS_DEL_MAYOR))) {
+      documentosInvalidos++;
+      findings.push(
+        finding(
+          'APE-DOCUMENTO-FUERA-DE-RANGO',
+          'bloquea',
+          d.cuenta,
+          `El documento "${d.documento}" de "${d.cuenta}" trae "${d.importe}", que no cabe en ` +
+            `DECIMAL(19,4): el mayor admite ${ENTEROS_DEL_MAYOR} dígitos enteros. Revisa el ` +
+            `auxiliar: casi siempre es un separador de miles leído como parte del número.`
         )
       );
       continue;
