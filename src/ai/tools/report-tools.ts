@@ -7,13 +7,13 @@ import type { ToolObserver } from './observer.js';
 import {
   queryTrialBalanceRows,
   totalTrialBalance,
-  queryBalanceSheetRows,
+  getBalanceSheet,
+  type BalanceSheetReport,
   queryIncomeStatementRows,
   netMovement,
   queryAgedReceivableRows,
   queryAgedPayableRows,
   queryLedgerRows,
-  type BalanceSheetQueryRow,
 } from '../../services/reporting/report-service.js';
 import { avisoDeCierreEnRango } from '../../services/reporting/criterio-cierre.js';
 
@@ -41,6 +41,55 @@ import { avisoDeCierreEnRango } from '../../services/reporting/criterio-cierre.j
 /** What the agent gets to see. More digits is not more truth. */
 const AGENT_SCALE = 2;
 
+/**
+ * Un importe, a la escala que el agente lee.
+ *
+ * La cabecera de arriba prometía esto desde el principio y sólo se cumplía en
+ * los TOTALES: las filas de detalle se copiaban tal cual desde la consulta, que
+ * devuelve DECIMAL(19,4). Así que el mismo objeto publicaba `ending_balance`
+ * con cuatro decimales y `total_debits` con dos — y el detalle a cuatro tapaba
+ * que las dos cifras ya no cuadraban entre sí.
+ */
+const aEscala = (x: string | number | null | undefined): string =>
+  new Decimal(x ?? 0).toFixed(AGENT_SCALE);
+
+/**
+ * El día que la columna guarda, no el instante en que el proceso lo lee.
+ *
+ * `node-postgres` convierte una columna DATE en un Date a medianoche LOCAL, y
+ * JSON.stringify lo publica como marca de tiempo UTC: la base guarda
+ * `2026-02-01` y el agente recibía `"2026-02-01T06:00:00.000Z"`. Se leen los
+ * componentes LOCALES a propósito — recortar la cadena ISO daría el día
+ * correcto en México y el día ANTERIOR en cualquier zona al este de Greenwich,
+ * donde esa medianoche local cae la tarde del día previo en UTC.
+ */
+const soloFecha = (v: Date | string | null | undefined): string | null => {
+  if (v === null || v === undefined) return null;
+  if (v instanceof Date) {
+    const mes = String(v.getMonth() + 1).padStart(2, '0');
+    const dia = String(v.getDate()).padStart(2, '0');
+    return `${v.getFullYear()}-${mes}-${dia}`;
+  }
+  return v.slice(0, 10);
+};
+
+/**
+ * Lo que le sobra a la suma de las filas publicadas frente al total publicado.
+ *
+ * El total se calcula sobre las filas CRUDAS —es el redondeo de la suma, la
+ * verdad del mayor— y las filas se publican redondeadas. Las dos cosas son
+ * correctas y no tienen por qué coincidir al céntimo. Antes la diferencia
+ * existía igual y quedaba escondida detrás de los dos dígitos de más; ahora se
+ * NOMBRA, que es la regla de la casa: un dato que no cuadra no se reparte.
+ *
+ * Se omite cuando es cero, que es casi siempre.
+ */
+function residuoDeRedondeo(filas: Array<string | null | undefined>, total: string): string | null {
+  const suma = filas.reduce<Decimal>((s, x) => s.plus(new Decimal(x ?? 0)), new Decimal(0));
+  const residuo = suma.minus(new Decimal(total));
+  return residuo.isZero() ? null : residuo.toFixed(AGENT_SCALE);
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const dateInput = (desc: string) => z.string().regex(DATE_RE).describe(desc);
 
@@ -65,10 +114,15 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         account_code: r.account_code,
         account_name: r.account_name,
         account_type: r.account_type,
-        debit_total: r.debit_total,
-        credit_total: r.credit_total,
-        ending_balance: r.ending_balance,
+        debit_total: aEscala(r.debit_total),
+        credit_total: aEscala(r.credit_total),
+        ending_balance: aEscala(r.ending_balance),
       }));
+      // Los totales siguen calculándose sobre `kept`, que son las filas CRUDAS:
+      // el total es el del libro, no la suma de lo que se muestra.
+      const totales = totalTrialBalance(kept, AGENT_SCALE);
+      const residuoDebe = residuoDeRedondeo(rows.map((r) => r.debit_total), totales.total_debits);
+      const residuoHaber = residuoDeRedondeo(rows.map((r) => r.credit_total), totales.total_credits);
 
       // El agente ve la misma nota que la CLI y el REST: sin ella explicaría
       // como discrepancia la diferencia normal entre una balanza que cuenta el
@@ -83,7 +137,10 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         as_of_date: input.as_of_date ?? null,
         currency: ctx.currency,
         accounts: rows,
-        totals: totalTrialBalance(kept, AGENT_SCALE),
+        totals: totales,
+        ...(residuoDebe || residuoHaber
+          ? { rounding_residual: { debit_total: residuoDebe, credit_total: residuoHaber } }
+          : {}),
         ...(closing ? { closing_entries: closing } : {}),
       });
     },
@@ -92,7 +149,10 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
   const balanceSheet = betaZodTool({
     name: 'get_balance_sheet',
     description:
-      'Balance sheet (statement of financial position) as of a cutoff date. ' +
+      'Balance sheet (statement of financial position) as of a cutoff date. It FOOTS: ' +
+      'the result of the period not yet swept into equity is included there, as ' +
+      '`equity.result_of_the_period`. Read `is_balanced` / `out_of_balance` to tell whether ' +
+      'the books themselves are sound. ' +
       "Amounts in each section's natural sign: a negative amount is a contra " +
       'account that subtracts from its section (e.g. accumulated depreciation in assets).',
     inputSchema: z.object({
@@ -100,35 +160,94 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
     }),
     run: async (input) => {
       observe?.('get_balance_sheet', input);
-      const rows = await queryBalanceSheetRows(ctx.entityId, input.as_of_date);
 
-      // Flat by account code, not grouped into fs_category subsections: the
-      // agent reads a list, and the REST envelope's nesting only costs tokens.
-      // naturalSign converts the debit-positive raw balance into the section's
-      // natural sign, so contra accounts NET against their section total.
-      const section = (types: string[], naturalSign: 1 | -1) => {
-        const accounts = rows.filter((r: BalanceSheetQueryRow) => types.includes(r.account_type));
-        const total = accounts
-          .reduce((s, a) => s.plus(a.balance), new Decimal(0))
-          .times(naturalSign);
+      // AHORA PROYECTA, NO ENSAMBLA.
+      //
+      // Antes hacía su propia consulta y publicaba
+      // `total_liabilities_and_equity = pasivo + capital`, sin llamar a
+      // queryUnclosedEarnings: el resultado del ejercicio no barrido se quedaba
+      // fuera y el estado no cuadraba. Medido sobre un mayor sano de activo
+      // 100 000 con 6 000 de resultado sin barrer, publicaba 94 000.00 contra
+      // 100 000.00 y NINGÚN campo con el que notar la diferencia — mientras la
+      // CLI y el REST, que sí consumen getBalanceSheet, firmaban 100 000.00.
+      //
+      // Lo que esta herramienta aporta es la PROYECCIÓN —lista plana por código
+      // y dos decimales—, no una aritmética propia. `getBalanceSheet` acepta la
+      // escala, así que proyectar no cuesta una consulta de más.
+      // A ESCALA DEL LIBRO, Y SE REDONDEA UNA SOLA VEZ AL PUBLICAR.
+      //
+      // `getBalanceSheet` acepta `scale`, y pasarle 2 sería lo cómodo — pero
+      // suma los subtotales YA redondeados de cada subsección, así que el total
+      // de sección sale de una suma de redondeos. Medido sobre un catálogo con
+      // seis subsecciones: 18477.11 pasando escala 2, contra 18477.12 sumando en
+      // crudo y redondeando al final. La aritmética se hace entera y el
+      // redondeo es lo último que ocurre, que es la regla del resto del archivo.
+      const bs = await getBalanceSheet(ctx.entityId, { asOfDate: input.as_of_date });
+
+      // Plana por cuenta, no anidada en subsecciones: el agente lee una lista y
+      // el anidamiento del sobre REST sólo cuesta tokens. `category` conserva el
+      // valor crudo que esta herramienta ya publicaba (`current_assets`), que la
+      // subsección embellece para imprimir.
+      type Seccion = BalanceSheetReport['assets'];
+      const aplanar = (sec: Seccion) => {
+        const accounts = sec.subsections.flatMap((sub: Seccion['subsections'][number]) =>
+          sub.accounts.map((a: Seccion['subsections'][number]['accounts'][number]) => ({
+            code: a.code,
+            name: a.name,
+            category: sub.name.toLowerCase().replace(/ /g, '_'),
+            balance: aEscala(a.balance),
+          }))
+        );
+        const total = aEscala(sec.total);
+        // El residuo compara el total contra TODO LO PUBLICADO, no sólo contra
+        // las cuentas: «Result Of The Period» es una subsección sin cuentas —no
+        // hay ninguna que la contenga hasta que alguien cierre— y sale como
+        // campo propio. Medirlo contra las cuentas solas daría un residuo de
+        // 6 000 en un balance perfectamente cuadrado, que es peor que no
+        // publicarlo: nombraría como descuadre lo que es la cifra principal.
+        const sinCuentas = sec.subsections
+          .filter((sub: Seccion['subsections'][number]) => sub.accounts.length === 0)
+          .map((sub: Seccion['subsections'][number]) => aEscala(sub.total));
         return {
-          total: total.toFixed(AGENT_SCALE),
-          accounts: accounts.map((a) => ({
-            code: a.code, name: a.name, category: a.fs_category,
-            balance: new Decimal(a.balance).times(naturalSign).toFixed(AGENT_SCALE),
-          })),
+          seccion: { total, accounts },
+          residuo: residuoDeRedondeo([...accounts.map((a) => a.balance), ...sinCuentas], total),
         };
       };
 
-      const assets = section(['asset', 'contra_asset'], 1);
-      const liabilities = section(['liability', 'contra_liability'], -1);
-      const equity = section(['equity', 'contra_equity'], -1);
+      const activo = aplanar(bs.assets);
+      const pasivo = aplanar(bs.liabilities);
+      const capital = aplanar(bs.equity);
+
+      // «Result Of The Period» es una subsección SIN cuentas —no hay ninguna que
+      // la contenga hasta que alguien cierre el ejercicio—, así que al aplanar
+      // se perdería. Se publica como campo propio: es la cifra con la que el
+      // agente puede explicar por qué el capital no es el del catálogo.
+      const resultado = bs.equity.subsections.find(
+        (x: Seccion['subsections'][number]) => x.name === 'Result Of The Period'
+      );
+
+      const residuos = {
+        ...(activo.residuo ? { assets: activo.residuo } : {}),
+        ...(pasivo.residuo ? { liabilities: pasivo.residuo } : {}),
+        ...(capital.residuo ? { equity: capital.residuo } : {}),
+      };
 
       return JSON.stringify({
-        as_of_date: input.as_of_date,
+        as_of_date: bs.as_of_date,
         currency: ctx.currency,
-        assets, liabilities, equity,
-        total_liabilities_and_equity: new Decimal(liabilities.total).plus(equity.total).toFixed(AGENT_SCALE),
+        assets: activo.seccion,
+        liabilities: pasivo.seccion,
+        equity: {
+          ...capital.seccion,
+          ...(resultado ? { result_of_the_period: aEscala(resultado.total) } : {}),
+        },
+        total_liabilities_and_equity: aEscala(bs.total_liabilities_and_equity),
+        out_of_balance: aEscala(bs.out_of_balance),
+        // Se decide sobre la cifra ENTERA del libro, no sobre la redondeada: un
+        // descuadre de menos de un centavo sale con out_of_balance «0.00» y
+        // is_balanced en falso, y esa pareja es la señal, no una contradicción.
+        is_balanced: bs.is_balanced,
+        ...(Object.keys(residuos).length > 0 ? { rounding_residual: residuos } : {}),
       });
     },
   });
@@ -153,15 +272,39 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
       });
 
       // Revenue is credit-natural, expenses debit-natural — report both positive.
-      const revenueRows = rows
-        .filter((r) => r.account_type === 'revenue')
-        .map((r) => ({ code: r.code, name: r.name, amount: netMovement(r).negated().toFixed(AGENT_SCALE) }));
-      const expenseRows = rows
-        .filter((r) => r.account_type === 'expense')
-        .map((r) => ({ code: r.code, name: r.name, amount: netMovement(r).toFixed(AGENT_SCALE) }));
+      // LOS TOTALES SE SUMAN EN CRUDO Y SE REDONDEAN AL FINAL.
+      //
+      // Antes el `reduce` corría sobre las cadenas YA redondeadas de las filas,
+      // así que publicaba la suma de los redondeos en vez del redondeo de la
+      // suma. No es una diferencia de presentación: medido sobre un gasto
+      // posteado de 0.0400 repartido en dos cuentas, publicaba `expenses.total`
+      // 0.06 y `net_income` 18477.06 donde el libro dice 0.04 y 18477.08 — y
+      // contradecía a `get_trial_balance`, que sobre los mismos asientos los
+      // contaba bien. Es el convenio del resto del archivo, y el único que no
+      // miente hacia el mayor.
+      const crudoIngresos = rows.filter((r) => r.account_type === 'revenue');
+      const crudoGastos = rows.filter((r) => r.account_type === 'expense');
 
-      const totalRevenue = revenueRows.reduce((s, r) => s.plus(r.amount), new Decimal(0));
-      const totalExpenses = expenseRows.reduce((s, r) => s.plus(r.amount), new Decimal(0));
+      const revenueRows = crudoIngresos.map((r) => ({
+        code: r.code, name: r.name, amount: netMovement(r).negated().toFixed(AGENT_SCALE),
+      }));
+      const expenseRows = crudoGastos.map((r) => ({
+        code: r.code, name: r.name, amount: netMovement(r).toFixed(AGENT_SCALE),
+      }));
+
+      const totalRevenue = crudoIngresos.reduce(
+        (s, r) => s.plus(netMovement(r).negated()),
+        new Decimal(0)
+      );
+      const totalExpenses = crudoGastos.reduce((s, r) => s.plus(netMovement(r)), new Decimal(0));
+      const residuoIngresos = residuoDeRedondeo(
+        revenueRows.map((r) => r.amount),
+        totalRevenue.toFixed(AGENT_SCALE)
+      );
+      const residuoGastos = residuoDeRedondeo(
+        expenseRows.map((r) => r.amount),
+        totalExpenses.toFixed(AGENT_SCALE)
+      );
 
       const closing = await avisoDeCierreEnRango(
         ctx.entityId,
@@ -176,6 +319,9 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         revenue: { total: totalRevenue.toFixed(AGENT_SCALE), accounts: revenueRows },
         expenses: { total: totalExpenses.toFixed(AGENT_SCALE), accounts: expenseRows },
         net_income: totalRevenue.minus(totalExpenses).toFixed(AGENT_SCALE),
+        ...(residuoIngresos || residuoGastos
+          ? { rounding_residual: { revenue: residuoIngresos, expenses: residuoGastos } }
+          : {}),
         ...(closing ? { closing_entries: closing } : {}),
       });
     },
@@ -197,16 +343,19 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         customer_name: r.customer_name,
         customer_number: r.customer_number,
         invoice_number: r.invoice_number,
-        invoice_date: r.invoice_date,
-        due_date: r.due_date,
-        total_amount: r.total_amount,
-        amount_due: r.amount_due,
+        invoice_date: soloFecha(r.invoice_date),
+        due_date: soloFecha(r.due_date),
+        total_amount: aEscala(r.total_amount),
+        amount_due: aEscala(r.amount_due),
         days_overdue: r.days_overdue,
       }));
+      // El total, sobre las filas CRUDAS: es lo que se debe, no lo que se lee.
       const totalDue = all.reduce((s, r) => s.plus(new Decimal(r.amount_due)), new Decimal(0));
+      const residuo = residuoDeRedondeo(invoices.map((i) => i.amount_due), totalDue.toFixed(AGENT_SCALE));
       return envolverDatosDeTerceros({
         as_of_date: asOf, currency: ctx.currency,
         total_due: totalDue.toFixed(AGENT_SCALE), count: invoices.length, invoices,
+        ...(residuo ? { rounding_residual: { amount_due: residuo } } : {}),
       });
     },
   });
@@ -227,16 +376,18 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         vendor_name: r.vendor_name,
         vendor_number: r.vendor_number,
         bill_number: r.bill_number,
-        bill_date: r.bill_date,
-        due_date: r.due_date,
-        total_amount: r.total_amount,
-        amount_due: r.amount_due,
+        bill_date: soloFecha(r.bill_date),
+        due_date: soloFecha(r.due_date),
+        total_amount: aEscala(r.total_amount),
+        amount_due: aEscala(r.amount_due),
         days_overdue: r.days_overdue,
       }));
       const totalDue = all.reduce((s, r) => s.plus(new Decimal(r.amount_due)), new Decimal(0));
+      const residuo = residuoDeRedondeo(bills.map((b) => b.amount_due), totalDue.toFixed(AGENT_SCALE));
       return envolverDatosDeTerceros({
         as_of_date: asOf, currency: ctx.currency,
         total_due: totalDue.toFixed(AGENT_SCALE), count: bills.length, bills,
+        ...(residuo ? { rounding_residual: { amount_due: residuo } } : {}),
       });
     },
   });
@@ -269,19 +420,30 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
       const rows = fetched.slice(0, 100);
       const movements = rows.map((r) => ({
         entry_number: r.entry_number,
-        entry_date: r.entry_date,
+        entry_date: soloFecha(r.entry_date),
         entry_description: r.entry_description,
-        debit_amount: r.debit_amount,
-        credit_amount: r.credit_amount,
+        debit_amount: aEscala(r.debit_amount),
+        credit_amount: aEscala(r.credit_amount),
         line_description: r.line_description,
       }));
       const debits = rows.reduce((s, r) => s.plus(new Decimal(r.debit_amount ?? 0)), new Decimal(0));
       const credits = rows.reduce((s, r) => s.plus(new Decimal(r.credit_amount ?? 0)), new Decimal(0));
+      const residuoDebe = residuoDeRedondeo(
+        movements.map((m) => m.debit_amount),
+        debits.toFixed(AGENT_SCALE)
+      );
+      const residuoHaber = residuoDeRedondeo(
+        movements.map((m) => m.credit_amount),
+        credits.toFixed(AGENT_SCALE)
+      );
 
       return envolverDatosDeTerceros({
         account_code: input.account_code, truncated, count: movements.length,
         period_debits: debits.toFixed(AGENT_SCALE), period_credits: credits.toFixed(AGENT_SCALE),
         movements,
+        ...(residuoDebe || residuoHaber
+          ? { rounding_residual: { period_debits: residuoDebe, period_credits: residuoHaber } }
+          : {}),
       });
     },
   });

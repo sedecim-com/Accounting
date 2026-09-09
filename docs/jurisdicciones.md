@@ -187,7 +187,7 @@ SELECT … FROM policy_decisions
 
 **Siembra.** `seedPolicies(ctx)` siembra sólo las claves que **aplican** a las jurisdicciones de las entidades del inquilino. Un despacho sin entidades mexicanas no ve `rep_*` en `/pendientes`.
 
-**Puerta.** `mnemosine pending [--jurisdiction MX|US]` lista lo que aplica; `pending define <clave> <valor> --jurisdiction US` escribe la fila inquilino×jurisdicción; `pending explain <clave> --entity X` imprime la cadena completa de resolución y qué eslabón ganó. La bandera `--jurisdiction <código>` entra al diccionario único de banderas del kernel con ese único significado (hoy no existe ni `--country` ni `--jurisdiction` en `src/cli/kernel/`). REST y GraphQL siguen sin escribir políticas, como hoy (ninguna ruta `polic*` en `src/api/rest/routes/`, ningún tipo de política en `schema.ts`), y el agente sólo las lee (`src/ai/tools/policy-tools.ts:319-330`).
+**Puerta.** `mnemosine pending [--jurisdiction MX|US]` lista lo que aplica; `pending define <clave> <valor> --jurisdiction US` escribe la fila inquilino×jurisdicción; `pending explain <clave> --entity X` imprime la cadena completa de resolución y qué eslabón ganó. La bandera `--jurisdiction <código>` entra al diccionario único de banderas del kernel con ese único significado (hoy no existe ni `--country` ni `--jurisdiction` en `src/cli/kernel/`). REST sigue sin escribir políticas, como hoy (ninguna ruta `polic*` en `src/api/rest/routes/`; la superficie GraphQL, que tampoco las escribía, se retiró en T14b), y el agente sólo las lee (`src/ai/tools/policy-tools.ts:319-330`).
 
 **Reclasificación de las 39 claves.** Es la parte del trabajo que no admite atajo: cada clave se lee y se decide.
 

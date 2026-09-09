@@ -8,7 +8,6 @@ import { crearInquilino, crearEntidadHermana, fechaEnPeriodo, type Fixture } fro
 import { levantar, pedir, sesionDe } from './helpers/servidor.js';
 import journalEntriesRouter from '../../src/api/rest/routes/journal-entries.js';
 import publicVerificationRouter from '../../src/api/rest/routes/public-verification.js';
-import { resolvers } from '../../src/api/graphql/resolvers/index.js';
 import { createJournalEntry, postJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { seedPolicies, resolvePolicy, reopenPolicy } from '../../src/services/policy/policy-service.js';
 import { parseImportFile, stageEntryImport } from '../../src/services/accounting/entry-import-service.js';
@@ -183,28 +182,10 @@ describe('ataque 1 · pedir la exención en el JSON', () => {
     }
   });
 
-  it('la mutación GraphQL postJournalEntry atraviesa el mismo candado', async () => {
-    await politica(f, 'exigir');
-    const borrador = await createJournalEntry(
-      f.entityId, fechaEnPeriodo(), JournalEntryType.STANDARD, 'ataque: GraphQL post',
-      [
-        { account_id: f.roles.banco, debit_amount: '13.00', credit_amount: null, description: 'cargo' },
-        { account_id: f.roles.cxc, debit_amount: null, credit_amount: '13.00', description: 'abono' },
-      ],
-      f.userId
-    );
-    const ctx = {
-      user: { user_id: f.userId, entities: [f.entityId], permissions: ['*'] },
-      tenantId: f.tenantId,
-      entityId: f.entityId,
-    };
-    const mutaciones = resolvers.Mutation as unknown as Record<
-      string, (p: unknown, a: unknown, c: unknown) => Promise<unknown>
-    >;
-    await expect(
-      mutaciones.postJournalEntry(null, { id: borrador.id }, ctx)
-    ).rejects.toMatchObject({ code: 'SOD_QUIEN_CREA_NO_POSTEA' });
-  });
+  // Aquí vivía el ataque por la mutación de GraphQL. La superficie se retiró
+  // en T14b (#101): el ataque se queda sin puerta por la que entrar. Los dos
+  // de arriba, por REST, siguen siendo los que importan.
+
 });
 
 // ============================================================

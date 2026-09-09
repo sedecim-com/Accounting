@@ -155,8 +155,24 @@ siguen.
 
 ## Documentación
 
-Los comentarios y la documentación van en español, y explican el **porqué**. El
-qué ya lo dice el código; si no lo dice, arregla el código.
+Los comentarios y la documentación **nacen en inglés**, y explican el
+**porqué**. El qué ya lo dice el código; si no lo dice, arregla el código.
+
+Ésa es la regla desde el epic [#141](https://github.com/sedecim-com/Accounting/issues/141),
+y tiene tres capas que no se mezclan:
+
+- **La capa de la máquina es inglesa**: identificadores, nombres de archivo,
+  comentarios, claves, códigos de error. Lo nuevo nace inglés; lo que ya está
+  escrito en español entra a una línea base por archivo que **sólo encoge**.
+- **La capa del usuario habla el idioma del usuario**, y el español va primero:
+  la ayuda del CLI, los mensajes, el panel. Se traduce **por clave**, nunca
+  reescribiendo la prosa en el sitio donde se emite.
+- **Lo que es dato no se toca**: los informes ya fechados, los artefactos que
+  van a una autoridad y los valores ya persistidos en la base de un despacho.
+
+Lo que decide de qué capa es algo no es dónde vive, sino **quién lo lee**: si
+lo lee la máquina —o quien mantiene la máquina— va en inglés; si lo lee el
+contador, va en su idioma.
 
 ## Licencia de lo que aportas
 

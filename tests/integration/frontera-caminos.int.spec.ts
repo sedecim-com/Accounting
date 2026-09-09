@@ -13,8 +13,6 @@ import { drainAttestations } from '../../src/services/accounting/posting.js';
 import { validateJournalEntry } from '../../src/services/accounting/validation.js';
 import { findBestMatch } from '../../src/services/banking/matching.js';
 import { entityScope } from '../../src/database/scope.js';
-import { resolvers } from '../../src/api/graphql/resolvers/index.js';
-import { permissionsOf } from '../../src/auth/roles.js';
 import bankReconciliationRouter from '../../src/api/rest/routes/bank-reconciliation.js';
 import blockchainRouter from '../../src/api/rest/routes/blockchain.js';
 import xmlIngestionRouter from '../../src/api/rest/routes/xml-ingestion.js';
@@ -282,159 +280,22 @@ async function asientoBorrador(f: Fixture): Promise<string> {
   return id;
 }
 
-describe('camino 3 — las mutaciones de GraphQL', () => {
-  const ctxDe = (f: Fixture, otra?: Fixture) => ({
-    user: {
-      user_id: f.userId,
-      entities: [f.entityId, ...(otra ? [otra.entityId] : [])],
-      permissions: ['*'],
-    },
-    tenantId: f.tenantId,
-    entityId: f.entityId,
-  });
+// EL CAMINO 3 ERA GRAPHQL, Y LA PUERTA SE RETIRÓ (T14b · #101).
+//
+// Trece pruebas afirmaban que las mutaciones de GraphQL respetaban la frontera
+// de entidad y los permisos del rol. La superficie ya no existe, así que el
+// sujeto de esas afirmaciones desapareció con ella — no la defensa:
+//
+//   · la FRONTERA DE ENTIDAD la siguen afirmando los caminos 1, 2, 4 y 5 de
+//     este mismo archivo, por REST y por los servicios;
+//   · que un rol de sólo lectura NO escriba en el mayor y que cerrar un
+//     periodo no lo pueda hacer cualquiera lo afirma `tests/auth/roles.spec.ts`
+//     sobre el catálogo de permisos, y `openapi-contrato.spec.ts` exige que
+//     toda ruta declare el suyo.
+//
+// Lo que se pierde es la comprobación de que ESA puerta los respetaba, y es
+// justo lo que sobra cuando la puerta no está.
 
-  it('postJournalEntry sobre un asiento ajeno lanza NotFound y lo deja en borrador', async () => {
-    // Su único control era leer `SELECT entity_id FROM journal_entries WHERE
-    // id = $1` sin acotar y comparar después: ventana entre la comprobación y
-    // la escritura, y 403 sobre un asiento ajeno frente a 404 sobre uno
-    // inventado, que convierte la mutación en oráculo del mayor ajeno.
-    const ajeno = await asientoBorrador(b);
-    await expect(
-      resolvers.Mutation.postJournalEntry(null, { id: ajeno }, ctxDe(a))
-    ).rejects.toThrow(/not found/i);
-
-    const bd = await query<{ status: string }>(
-      'SELECT status FROM journal_entries WHERE id = $1',
-      [ajeno]
-    );
-    expect(bd.rows[0].status).toBe('draft');
-  });
-
-  it('voidJournalEntry, igual', async () => {
-    const ajeno = await asientoBorrador(b);
-    await expect(
-      resolvers.Mutation.voidJournalEntry(null, { id: ajeno, reason: 'x' }, ctxDe(a))
-    ).rejects.toThrow(/not found/i);
-    const bd = await query<{ status: string }>(
-      'SELECT status FROM journal_entries WHERE id = $1',
-      [ajeno]
-    );
-    expect(bd.rows[0].status).toBe('draft');
-  });
-
-  it('el asiento ajeno tampoco se lee: la consulta por id devuelve null', async () => {
-    const ajeno = await asientoBorrador(b);
-    expect(await resolvers.Query.journalEntry(null, { id: ajeno }, ctxDe(a))).toBeNull();
-  });
-
-  it('tener la entidad concedida NO basta si no es la entidad activa', async () => {
-    // El alcance de la petición es UNO. Que el token conceda varias entidades
-    // no convierte cada mutación en una sobre todas ellas.
-    const ajeno = await asientoBorrador(b);
-    await expect(
-      resolvers.Mutation.postJournalEntry(null, { id: ajeno }, ctxDe(a, b))
-    ).rejects.toThrow(/not found/i);
-  });
-
-  it('sin inquilino o sin entidad la petición no se acota, y no se sigue', async () => {
-    const propio = await asientoBorrador(a);
-    await expect(
-      resolvers.Mutation.postJournalEntry(null, { id: propio }, {
-        user: { user_id: a.userId, entities: [a.entityId], permissions: ['*'] },
-        tenantId: undefined,
-        entityId: undefined,
-      })
-    ).rejects.toThrow(/no puede acotarse/);
-  });
-
-  it('sobre lo suyo, la lectura sigue devolviendo el asiento', async () => {
-    const propio = await asientoBorrador(a);
-    const leido = await resolvers.Query.journalEntry(null, { id: propio }, ctxDe(a));
-    expect((leido as { id: string } | null)?.id).toBe(propio);
-  });
-
-  // ── El otro eje: PERMISO, no pertenencia ────────────────────────────────
-  //
-  // Los casos de arriba prueban la frontera de ENTIDAD sobre su propio
-  // asiento. Lo que faltaba era el eje perpendicular: los resolutores
-  // declaraban `permissions` en el contexto y no lo leían jamás, así que un
-  // rol de sólo lectura sobre SU PROPIA entidad —donde la pertenencia no
-  // objeta nada— posteaba al mayor. Aquí se prueba contra Postgres lo que la
-  // prueba unitaria no puede: que el asiento sigue en borrador después del
-  // 403. Un 403 concedido después de escribir no es un 403.
-  const ctxLector = (f: Fixture) => ({
-    ...ctxDe(f),
-    user: { user_id: f.userId, entities: [f.entityId], permissions: [...permissionsOf('viewer')] },
-  });
-
-  it('un lector no postea su propio asiento, y el asiento no se mueve', async () => {
-    const propio = await asientoBorrador(a);
-    await expect(
-      resolvers.Mutation.postJournalEntry(null, { id: propio }, ctxLector(a))
-    ).rejects.toThrow(/Insufficient permissions/);
-
-    const bd = await query<{ status: string }>(
-      'SELECT status FROM journal_entries WHERE id = $1',
-      [propio]
-    );
-    expect(bd.rows[0].status).toBe('draft');
-  });
-
-  it('ni lo anula, ni cierra el periodo', async () => {
-    const propio = await asientoBorrador(a);
-    await expect(
-      resolvers.Mutation.voidJournalEntry(null, { id: propio, reason: 'x' }, ctxLector(a))
-    ).rejects.toThrow(/Insufficient permissions/);
-    await expect(
-      resolvers.Mutation.hardClosePeriod(
-        null,
-        { periodId: a.periodos[8], entityId: a.entityId },
-        ctxLector(a)
-      )
-    ).rejects.toThrow(/Insufficient permissions/);
-
-    const bd = await query<{ status: string }>(
-      'SELECT status FROM fiscal_periods WHERE id = $1',
-      [a.periodos[8]]
-    );
-    expect(bd.rows[0].status).not.toBe('hard_close');
-  });
-
-  it('y sí lee lo que su rol concede, sobre lo suyo', async () => {
-    const propio = await asientoBorrador(a);
-    const leido = await resolvers.Query.journalEntry(null, { id: propio }, ctxLector(a));
-    expect((leido as { id: string } | null)?.id).toBe(propio);
-  });
-
-  // Las consultas de lista recibían `entityId` del cliente y lo metían en el
-  // WHERE sin mirar nada: RLS acota por INQUILINO, así que pedir la entidad
-  // hermana devolvía su mayor entero. Es el escenario que midió la auditoría
-  // III, palabra por palabra.
-  it('el balance de comprobación de la entidad hermana ya no se sirve por pedirlo', async () => {
-    await expect(
-      resolvers.Query.trialBalance(null, { entityId: b.entityId }, ctxDe(a))
-    ).rejects.toThrow(/Access denied to this entity/);
-  });
-
-  it('tampoco su libro diario ni su catálogo de cuentas', async () => {
-    await expect(
-      resolvers.Query.journalEntries(null, { entityId: b.entityId }, ctxDe(a))
-    ).rejects.toThrow(/Access denied to this entity/);
-    await expect(
-      resolvers.Query.accounts(null, { entityId: b.entityId }, ctxDe(a))
-    ).rejects.toThrow(/Access denied to this entity/);
-  });
-
-  it('sobre la suya, la lista sigue respondiendo', async () => {
-    const propio = await asientoBorrador(a);
-    const filas = (await resolvers.Query.journalEntries(
-      null,
-      { entityId: a.entityId },
-      ctxDe(a)
-    )) as Array<{ id: string }>;
-    expect(filas.some((f) => f.id === propio)).toBe(true);
-  });
-});
 
 // ── Camino 4: carga de pre-registros ────────────────────────────────────
 

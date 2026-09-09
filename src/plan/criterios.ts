@@ -651,6 +651,79 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.0',
+    id: 'language-rule-written-and-lexicon-shared',
+    enunciado: 'La regla del idioma está escrita donde se lee, y el léxico que la mide existe',
+    evaluar: () => {
+      // POR QUÉ NACE (I1, issue #143). El repositorio tenía la regla contraria
+      // ESCRITA y en tres sitios: «Los comentarios y la documentación van en
+      // español» (CONTRIBUTING, README) y «el español es una capa de alias»
+      // (la wiki). Con esa frase en pie, cada PR nuevo nacía en español con
+      // razón, y el epic #141 habría sido un tramo peleando contra la propia
+      // documentación del proyecto. Cambiar la regla escrita no es papeleo: es
+      // lo único que hace que lo NUEVO deje de crecer en español.
+      //
+      // Y la regla sola no basta, porque «español» no es medible a ojo: hace
+      // falta la lista contra la que se mide. El metro (I2) y el lint (I3) van
+      // a consumir ESTE léxico y no cada uno el suyo — dos listas distintas
+      // publican dos números distintos y entonces nadie sabe cuál miente.
+      const contrib = crudoDe('CONTRIBUTING.md');
+      if (/Los comentarios y la documentación van en español/.test(contrib)) {
+        return falla(
+          'CONTRIBUTING vuelve a pedir que los comentarios vayan en español: la regla escrita ' +
+            'contradice al epic, y gana la escrita porque es la que se lee al contribuir'
+        );
+      }
+      if (!/nacen en inglés/.test(contrib)) {
+        return falla('CONTRIBUTING no dice en qué idioma nace lo nuevo: la regla se quedó sin sustituto');
+      }
+      // AGENTS.md heredaba la regla por referencia y no tenía la suya. La
+      // frontera que tiene que nombrar no es «inglés en el código»: es QUIÉN
+      // LEE cada cosa, que es lo que decide de qué capa es.
+      const agents = crudoDe('AGENTS.md');
+      if (!/Lo que identifica no se traduce nunca/.test(agents)) {
+        return falla(
+          'AGENTS.md no nombra la frontera entre lo que identifica y lo que se lee: sin ella, el ' +
+            'primer tramo que traduzca una clave rompe todo lo que casaba contra ella'
+        );
+      }
+      const p = 'scripts/language/lexicon.ts';
+      if (!existe(p)) return falla('no hay léxico: la regla del idioma no se puede medir');
+      const lex = codigoDe(p);
+      if (!/export const SPANISH_ROOTS/.test(lex) || !/export function classify/.test(lex)) {
+        return falla('el léxico no publica ni sus raíces ni su clasificador: no hay una sola población que medir');
+      }
+      return ok('la regla escrita dice inglés de origen, nombra la frontera, y el léxico que la mide existe');
+    },
+    mutantes: [
+      {
+        archivo: 'CONTRIBUTING.md',
+        de: 'Los comentarios y la documentación **nacen en inglés**',
+        a: 'Los comentarios y la documentación van en español',
+        porque:
+          'la regla vieja vuelve al sitio donde se lee antes de contribuir, y con ella cada PR nuevo ' +
+          'nace en español con razón: el epic entero pasaría a pelear contra la documentación del proyecto',
+      },
+      {
+        archivo: 'AGENTS.md',
+        de: 'Lo que identifica no se traduce nunca',
+        a: 'Lo que identifica también se traduce',
+        porque:
+          'traducir una clave no cambia lo que dice, cambia a qué se parece: todo lo que casaba contra ' +
+          'ella deja de casar en silencio, y ésa es la advertencia que este archivo existe para dar',
+      },
+      {
+        archivo: 'scripts/language/lexicon.ts',
+        de: 'export const SPANISH_ROOTS',
+        a: 'const SPANISH_ROOTS',
+        porque:
+          'el léxico deja de publicar su lista y cada consumidor se hace la suya: el metro y el lint ' +
+          'pasan a contar poblaciones distintas y sus dos números dejan de ser comparables',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E0.0',
     id: 'instrument-identity-is-not-prose',
     enunciado: 'La identidad de un criterio es un id estable, no la frase con que se enuncia',
     evaluar: () => {
@@ -2655,6 +2728,161 @@ export const CRITERIOS: Criterio[] = [
   // ---- E2.1 · Perímetro ----
   {
     paquete: 'E2.1',
+    id: 'graphql-surface-withdrawn',
+    enunciado: 'La segunda puerta al mayor está retirada, y no puede volver en silencio',
+    evaluar: () => {
+      // T14b (#101). Aquí vivían DOS criterios sobre una superficie GraphQL
+      // apagada tras `GRAPHQL_ENABLED`. Se retiró entera —1 862 líneas y cero
+      // consumidores: ningún cliente en el árbol, ningún .graphql, y
+      // `npm run graphql:codegen` sin siquiera binario— y con ella se fue el
+      // argumento escrito para conservarla, que decía «this repository has no
+      // version control, and 891 lines are not recoverable once removed». Hay
+      // git, y las líneas eran el doble de las que ese comentario contaba.
+      //
+      // POR QUÉ ESTE CRITERIO MIDE HECHOS POSITIVOS. El que sustituye empezaba
+      // así:
+      //     if (!/graphql/i.test(idx)) return ok('GraphQL no está montado');
+      // Verde por AUSENCIA DE UNA PALABRA en un archivo. Reproducido: mudando
+      // el montaje a otro fichero la superficie seguía sirviendo —401 en
+      // /graphql sin credencial, 200 con un JWT de owner— y el tablero no
+      // cambiaba un carácter. Y con una asimetría que lo remata: quitar la
+      // bandera EN SU SITIO lo ponía en ROJO, y mudar el montaje además de
+      // quitarla lo ponía en VERDE, siendo la segunda estrictamente peor.
+      //
+      // Y NO SE MIDE CON EL CENSO DE RUTAS, que era la reparación evidente:
+      // `censarRutas` recorre `layer.route`, y un `app.use(ruta, manejador)` no
+      // crea ninguna. Medido: 185 rutas censadas y ninguna era /graphql. El
+      // repositorio ya lo tenía fijado por escrito en
+      // tests/integration/g4a-ataque.int.spec.ts, «lo que el censo NO alcanza».
+      // ── LO PRIMERO: CONTAR. UN CENSO VACÍO NO ABSUELVE ──────────────
+      //
+      // Es la mitad que le faltaba al criterio anterior y la razón de que se
+      // pudiera cegar: «no encontré nada» y «no miré» daban el mismo verde. Si
+      // los barridos vuelven vacíos o casi, esto es un instrumento roto, no una
+      // puerta retirada, y se dice en rojo. Medido hoy: 369 fuentes, 67 claves
+      // en package.json y 482 paquetes en el lock; los suelos van holgados para
+      // no romperse con el crecimiento normal.
+      const censoFuentes = fuentes('src').length;
+      if (censoFuentes < 200) {
+        return falla(
+          `el barrido de fuentes sólo vio ${censoFuentes} archivos: el instrumento no miró, y no haber mirado no es haber retirado`
+        );
+      }
+      const paquete = crudoDe('package.json');
+      const censoClaves = [...paquete.matchAll(/^ {4}"[^"]+":\s*"/gm)].length;
+      if (censoClaves < 30) {
+        return falla(
+          `package.json se leyó con ${censoClaves} claves: no se pudo censar lo que declara, así que no se puede afirmar que no declare Apollo`
+        );
+      }
+
+      // ── EL CINTURÓN: EL ÁRBOL ───────────────────────────────────────
+      //
+      // Sin mordida por construcción, y se dice: el arnés de mutación puede
+      // fingir que un archivo DESAPARECE, nunca que aparece. Esta rama no la
+      // cubre ningún espejo, y por eso no es la carga del criterio.
+      if (existe('src/api/graphql')) {
+        return falla('src/api/graphql volvió al árbol: la segunda puerta al mayor está de vuelta');
+      }
+
+      // ── LA CARGA: LA DEPENDENCIA, EN LOS DOS SITIOS QUE INSTALAN ────
+      //
+      // El directorio se renombra; un servidor de Apollo no se monta sin su
+      // paquete. Y se miran los DOS archivos: package.json es la intención y el
+      // lock es lo que `npm ci` instala de verdad — quitarlo de uno y olvidar
+      // el otro deja los paquetes entrando por la puerta de atrás.
+      const vueltas: string[] = [];
+      if (/"@apollo\/server"\s*:/.test(paquete)) vueltas.push('@apollo/server');
+      if (/"@graphql-tools\/[^"]+"\s*:/.test(paquete)) vueltas.push('@graphql-tools/*');
+      if (/"@as-integrations\/[^"]+"\s*:/.test(paquete)) vueltas.push('@as-integrations/*');
+      if (/"graphql"\s*:/.test(paquete)) vueltas.push('graphql');
+      if (vueltas.length > 0) {
+        return falla(
+          `${vueltas.join(', ')} volvió a package.json: sin paquete no hay puerta, así que esto es lo primero ` +
+            'que aparece cuando alguien la remonta, se llame como se llame el directorio'
+        );
+      }
+      // El lock se lee como el JSON que es, no por líneas: así el censo depende
+      // de la CLAVE que lo estructura, y cegarlo —renombrar `packages`— deja el
+      // conteo en cero y el criterio en rojo, que es lo que se quiere. Contarlo
+      // con una expresión regular por línea no se podía cegar de una sola
+      // pieza, y un censo que no se puede cegar tampoco se puede probar.
+      let paquetesDelLock: string[];
+      try {
+        const lock = JSON.parse(crudoDe('package-lock.json')) as {
+          packages?: Record<string, unknown>;
+        };
+        paquetesDelLock = Object.keys(lock.packages ?? {});
+      } catch {
+        return falla('package-lock.json no se pudo leer: sin él no se sabe qué instala `npm ci`, y eso no es un verde');
+      }
+      if (paquetesDelLock.length < 200) {
+        return falla(
+          `el lock se censó con ${paquetesDelLock.length} paquetes: sin censo no se puede afirmar que \`npm ci\` no instale Apollo`
+        );
+      }
+      const enLock = paquetesDelLock.filter((k) =>
+        /(^|\/)(@apollo\/|@graphql-tools\/|@as-integrations\/|graphql)($|\/)/.test(k)
+      );
+      if (enLock.length > 0) {
+        return falla(
+          `${enLock.length} paquete(s) de la puerta retirada siguen en package-lock.json (${enLock.slice(0, 3).join(', ')}): ` +
+            '`npm ci` los instalaría aunque package.json ya no los declare'
+        );
+      }
+
+      // ── Y QUE NINGÚN FUENTE LA IMPORTE ──────────────────────────────
+      //
+      // Sobre CÓDIGO y no comentarios: los que cuentan esta historia son
+      // deliberados y se quedan. Tres cegueras conocidas, dichas en vez de
+      // ocultadas — un especificador compuesto (`'@apollo' + '/server'`), un
+      // import dentro de `src/plan` (que `fuentes()` excluye a propósito) y un
+      // archivo .js (que `fuentes()` no recoge, y que sin `allowJs` tampoco
+      // compila). Ninguna de las tres pasa el censo del lock de arriba, que es
+      // por lo que la carga del criterio está ahí y no aquí.
+      const importadores = dondeAparece(/@apollo\/|from 'graphql'|api\/graphql\//, ['src'], true);
+      if (importadores.length > 0) {
+        return falla(
+          `${importadores.length} fuente(s) vuelven a importar la puerta retirada: ${importadores.slice(0, 4).join(', ')}`
+        );
+      }
+      if (/['"]\/graphql['"]/.test(codigoDe('src/index.ts'))) {
+        return falla('algo volvió a montarse en /graphql, la ruta que quedaba fuera del prefijo auditado');
+      }
+      return ok(
+        `${censoFuentes} fuentes y ${paquetesDelLock.length} paquetes censados: la segunda puerta no está en el árbol, ni en package.json, ni en el lock, ni la importa nadie, ni hay nada montado en /graphql`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'package.json',
+        de: '"express":',
+        a: '"@apollo/server": "^5.5.1",\n    "express":',
+        porque: 'el paquete vuelve: es el ancla que no depende de dónde se ponga el montaje, y tiene que acusar sola',
+      },
+      {
+        archivo: 'package-lock.json',
+        de: '"packages": {',
+        a: '"paquetes": {',
+        porque: 'el censo del lock se queda a oscuras: sin contar antes de absolver, «no encontré Apollo» y «no miré» darían el mismo verde — que es exactamente cómo se cegaba el criterio anterior',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: "import express from 'express';",
+        a: "import express from 'express';\nimport { ApolloServer } from '@apollo/server';",
+        porque: 'un fuente vuelve a importar la puerta retirada: el barrido tiene que verlo aunque el paquete no esté declarado',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: 'app.use(helmet());',
+        a: "app.use('/graphql', helmet());",
+        porque: 'algo vuelve a montarse en /graphql — y el censo de rutas NO lo ve, que es exactamente lo que cegaba al criterio anterior',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E2.1',
     id: 'tenant-context-mounted-globally',
     enunciado: 'El contexto de inquilino se monta una sola vez para todo /v1',
     evaluar: () => {
@@ -2735,153 +2963,6 @@ export const CRITERIOS: Criterio[] = [
               '. Basta la cabecera x-entity-id para trabajar sobre otra entidad del mismo inquilino'
           );
     },
-  },
-  {
-    paquete: 'E2.1',
-    id: 'graphql-mounted-behind-flag',
-    enunciado: 'GraphQL no expone mutaciones al mayor fuera del prefijo auditado',
-    evaluar: () => {
-      const idx = codigoDe('src/index.ts');
-      if (!/graphql/i.test(idx)) return ok('GraphQL no está montado');
-      return /graphqlEnabled/.test(idx)
-        ? ok('montado sólo tras GRAPHQL_ENABLED, apagado por omisión')
-        : falla('GraphQL montado sin compuerta: dos mutaciones llegan al motor de posteo sin permisos');
-    },
-  },
-  {
-    paquete: 'E2.1',
-    id: 'graphql-mutation-permission-gate',
-    enunciado: 'Ninguna mutación de GraphQL entra al motor sin permiso, y una nueva no puede nacer sin él',
-    evaluar: () => {
-      // La bandera del criterio anterior compra tiempo, no seguridad: el día
-      // que alguien la encienda, lo que decide es esto. Los resolutores
-      // declaraban `permissions` en su contexto y NO LO LEÍAN: las cinco
-      // mutaciones comprobaban pertenencia de entidad y ninguna comprobaba
-      // permiso, de modo que un `viewer` posteaba al mayor y cerraba el
-      // ejercicio en duro donde REST le habría dado 403.
-      //
-      // Lo que se vigila aquí NO es que las de hoy estén tapadas —eso lo
-      // prueban las pruebas—: es que la SIGUIENTE no pueda nacer abierta. El
-      // esquema declara quince mutaciones; cuando esto se escribió había cinco
-      // y entre las diez ausentes estaban timbrar y cancelar un CFDI ante el
-      // SAT. Hoy hay doce y TRES ausencias dichas: las dos del SAT se
-      // implementaron y se retiraron al ver que no hay servicio en el que
-      // delegar —copiarían una regla fiscal— y que por esta puerta el acto
-      // irreversible quedaría sin autor. Así que se lee el
-      // ESQUEMA, que es el contrato, y se exige de cada mutación declarada una
-      // de dos cosas: resolutor CON permiso declarado, o ausencia dicha con su
-      // motivo. Y que la puerta siga siendo una, y siga lanzando.
-      const esquema = crudoDe('src/api/graphql/schemas/schema.ts');
-      const bloque = /type Mutation \{([\s\S]*?)\n {2}\}/.exec(esquema);
-      if (!bloque) {
-        return falla('no se pudo leer `type Mutation` del esquema: sin contrato que leer, la compuerta no juzga nada');
-      }
-      const declaradas = [...bloque[1].matchAll(/^\s+(\w+)\s*[(:]/gm)].map((m) => m[1]);
-      if (declaradas.length === 0) return falla('el esquema no declara ninguna mutación: el bloque se leyó vacío');
-
-      const puerta = codigoDe('src/api/graphql/permisos.ts');
-      const resolutores = codigoDe('src/api/graphql/resolvers/index.ts');
-
-      // UNA sola puerta, no cinco comprobaciones repartidas: las raíces
-      // enteras entran por ella, o el resto de este criterio no significa nada.
-      // Se miran las TRES —Subscription incluida, que hoy no tiene resolutores
-      // y declara cuatro campos en el esquema—: una suscripción es una lectura
-      // continua, y el día que alguien escriba `Subscription: {` por fuera,
-      // esto es lo que lo acusa.
-      const sueltas = ['Query', 'Mutation', 'Subscription'].filter(
-        (r) =>
-          new RegExp(`^ {2}${r}:`, 'm').test(resolutores) &&
-          !new RegExp(`${r}:\\s*blindar\\(\\s*'${r}'`).test(resolutores)
-      );
-      if (sueltas.length > 0) {
-        return falla(
-          `${sueltas.join(', ')}: raíz de GraphQL servida por fuera de la puerta única. Cada resolutor vuelve ` +
-            'a decidir por su cuenta, que es como se olvidó el permiso en las cinco primeras'
-        );
-      }
-      if (!/Mutation:\s*blindar\(\s*'Mutation'/.test(resolutores) ||
-          !/Query:\s*blindar\(\s*'Query'/.test(resolutores)) {
-        return falla(
-          'las dos raíces que hoy se sirven dejaron de pasar por la puerta única de permisos'
-        );
-      }
-
-      // Y la compuerta se alimenta del esquema y LANZA. Si sólo avisara, la
-      // mutación nueva sin permiso se montaría igual.
-      // El ancla nombra la llamada EXACTA que audita la raíz y lanza. Bastaba
-      // con «hay un throw de CompuertaAbiertaError en el archivo» hasta que
-      // `blindarCampos` añadió el suyo para los resolutores de campo: entonces
-      // desarmar el de la raíz dejaba el criterio en verde porque seguía viendo
-      // el otro. Un criterio que se satisface con el guardia de al lado no
-      // vigila al suyo.
-      const raizAuditaYLanza =
-        /auditarRaiz\(\s*typeDefs/.test(puerta) &&
-        /throw new CompuertaAbiertaError\(huecos\);/.test(puerta);
-      const camposLanzan = /sinCatalogo\.length > 0[\s\S]{0,200}?throw new CompuertaAbiertaError/.test(
-        puerta
-      );
-      if (!raizAuditaYLanza || !camposLanzan) {
-        return falla(
-          'la compuerta dejó de contrastar el esquema o de lanzar al cargar: una mutación sin permiso volvería ' +
-            'a poder montarse'
-        );
-      }
-
-      const implementada = (n: string): boolean => new RegExp(`\\basync ${n}\\s*\\(`).test(resolutores);
-      // Un permiso declarado es una lista con al menos un `recurso:accion`
-      // dentro: `n: []` es una puerta que pregunta por nada.
-      const conPermiso = (n: string): boolean => new RegExp(`\\b${n}:\\s*\\['[a-z_]+:[a-z_*]+'`).test(puerta);
-      // Una ausencia declarada es el nombre seguido de su motivo en prosa.
-      const ausenciaDicha = (n: string): boolean => new RegExp(`\\b${n}:\\s*'`).test(puerta);
-
-      const sinPuerta = declaradas.filter((n) => implementada(n) && !conPermiso(n));
-      if (sinPuerta.length > 0) {
-        return falla(
-          `${sinPuerta.join(', ')}: tienen resolutor y ningún permiso declarado. Llegan al motor con sólo ` +
-            'pertenencia de entidad, igual que antes'
-        );
-      }
-
-      const huerfanas = declaradas.filter((n) => !implementada(n) && !ausenciaDicha(n));
-      if (huerfanas.length > 0) {
-        return falla(
-          `${huerfanas.join(', ')}: el esquema las declara y no están ni implementadas con permiso ni ` +
-            'declaradas ausentes con su motivo. La siguiente se implementa sin puerta'
-        );
-      }
-
-      const conResolutor = declaradas.filter(implementada).length;
-      return ok(
-        `${declaradas.length} mutaciones declaradas: ${conResolutor} con permiso exigido por la puerta única y ` +
-          `${declaradas.length - conResolutor} con su ausencia dicha`
-      );
-    },
-    mutantes: [
-      {
-        archivo: 'src/api/graphql/resolvers/index.ts',
-        de: "Mutation: blindar('Mutation', {",
-        a: 'Mutation: ({',
-        porque: 'la puerta se desmonta y cada resolutor vuelve a decidir solo: el criterio no puede medir el catálogo y bendecirlo',
-      },
-      {
-        archivo: 'src/api/graphql/permisos.ts',
-        de: 'throw new CompuertaAbiertaError(huecos);',
-        a: 'void huecos;',
-        porque: 'la compuerta pasa de lanzar a callar: un aviso que nadie lee no impide montar la mutación nueva',
-      },
-      {
-        archivo: 'src/api/graphql/permisos.ts',
-        de: "postJournalEntry: ['journal_entries:post'],",
-        a: 'postJournalEntry: [],',
-        porque: 'el permiso se vacía sin quitar la entrada: la puerta sigue puesta y no pregunta nada (presencia donde hacía falta contenido)',
-      },
-      {
-        archivo: 'src/api/graphql/schemas/schema.ts',
-        de: '    hardClosePeriod(periodId: ID!, entityId: ID!): FiscalPeriod!',
-        a: '    hardClosePeriod(periodId: ID!, entityId: ID!): FiscalPeriod!\n    approveBill(id: ID!): Boolean!',
-        porque: 'la mutación nueva que nadie declaró en el catálogo: es el escape que este criterio existe para acusar',
-      },
-    ],
   },
   {
     paquete: 'E2.1',
@@ -3182,6 +3263,73 @@ export const CRITERIOS: Criterio[] = [
         ? falla('cada posteo refresca las vistas: el coste crece con el volumen y bloquea')
         : ok('el refresco no vive en el camino de posteo');
     },
+  },
+  {
+    paquete: 'E4.2',
+    id: 'agent-balance-sheet-foots',
+    enunciado: 'El balance que lee el agente cuadra, y publica con qué notar que no',
+    evaluar: () => {
+      // T14 (#101). De las tres superficies del balance —CLI, REST y la
+      // herramienta del agente— sólo ésta ensamblaba su propio total: una
+      // consulta, sin queryUnclosedEarnings, y
+      // `total_liabilities_and_equity = pasivo + capital`. Medido sobre un
+      // mayor SANO de activo 100 000 con 6 000 de resultado sin barrer,
+      // publicaba 94 000.00 contra 100 000.00 — y ni un campo con el que
+      // notarlo, mientras la CLI firmaba 100 000.00 sobre los mismos datos.
+      const t = codigoDe('src/ai/tools/report-tools.ts');
+      if (!/await getBalanceSheet\(ctx\.entityId/.test(t)) {
+        return falla('la herramienta del agente volvió a ensamblar su propio balance en vez de proyectar el informe que firman la CLI y el REST');
+      }
+      if (!/out_of_balance:/.test(t) || !/is_balanced:/.test(t)) {
+        return falla('el balance del agente dejó de publicar out_of_balance/is_balanced: el modelo no tendría con qué notar un descuadre');
+      }
+      // El estado de resultados suma el LIBRO, no sus propios redondeos. Con
+      // el `reduce` sobre las filas ya redondeadas publicaba 0.06 donde el
+      // gasto posteado es 0.0400: una cifra falsa, no un formato.
+      if (!/crudoGastos\.reduce\(\(s, r\) => s\.plus\(netMovement\(r\)\)/.test(t)) {
+        return falla('el estado de resultados del agente volvió a sumar filas ya redondeadas: publicaría la suma de los redondeos en vez del redondeo de la suma');
+      }
+      // Y el detalle a la escala que la cabecera del archivo promete desde
+      // que existe, con el residuo NOMBRADO cuando las filas no suman.
+      if (!/ending_balance: aEscala\(/.test(t) || !/amount_due: aEscala\(/.test(t)) {
+        return falla('las filas de detalle del agente volvieron a publicarse en crudo: DECIMAL(19,4) bajo totales a dos decimales');
+      }
+      if (!/rounding_residual/.test(t)) {
+        return falla('el residuo de redondeo dejó de nombrarse: las filas no sumarían su total y nadie diría por qué');
+      }
+      // La misma ceguera vivía en el sobre REST, que CALCULABA las dos claves
+      // y las tiraba.
+      if (!/out_of_balance: report\.out_of_balance/.test(codigoDe('src/api/rest/routes/reports.ts'))) {
+        return falla('el sobre REST del balance volvió a descartar out_of_balance/is_balanced: un tablero no podría saber si el estado cuadra');
+      }
+      return ok('el balance del agente proyecta el informe ensamblado, publica su cuadre, y el detalle sale a escala con su residuo nombrado');
+    },
+    mutantes: [
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: 'await getBalanceSheet(ctx.entityId',
+        a: 'await queryBalanceSheetRows(ctx.entityId',
+        porque: 'la herramienta vuelve a calcularse su propio balance: publicaría pasivo+capital y se comería el resultado del ejercicio',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: 'crudoGastos.reduce((s, r) => s.plus(netMovement(r))',
+        a: 'expenseRows.reduce((s, r) => s.plus(r.amount)',
+        porque: 'el estado de resultados vuelve a sumar sus propios redondeos: publica 0.06 donde el libro dice 0.05',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: 'ending_balance: aEscala(',
+        a: 'ending_balance: String(',
+        porque: 'el detalle vuelve a salir en crudo a cuatro decimales bajo totales de dos, que es lo que tapaba el descuadre',
+      },
+      {
+        archivo: 'src/api/rest/routes/reports.ts',
+        de: 'out_of_balance: report.out_of_balance',
+        a: 'as_of_date_bis: report.as_of_date',
+        porque: 'el sobre REST vuelve a tirar el cuadre que su propio informe calcula',
+      },
+    ],
   },
   {
     paquete: 'E4.2',
@@ -4441,6 +4589,97 @@ export const CRITERIOS: Criterio[] = [
         de: 'sellado !== hoy',
         a: 'sellado === hoy',
         porque: 'la comparación de hashes se invierte: la compuerta pasaría a acusar lo que NO cambió',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'delivery-history-completeness-gate',
+    enunciado: 'El historial de entrega no puede quedarse atrás de lo entregado',
+    evaluar: () => {
+      // docs/HISTORY.md se reconstruyó una vez contra el árbol, porque el
+      // artefacto anterior narraba sprints cuyos hashes no existen en `main`.
+      // Quedó bien, y volvió a caducar por la única vía que quedaba: nadie lo
+      // miró. Medido el 2026-09-08 decía que el PR #53 estaba ABIERTO —llevaba
+      // un día fusionado— y no nombraba los dieciséis siguientes. Un historial
+      // de entrega equivocado sobre lo entregado es exactamente el artefacto
+      // contra el que advierte su propia cabecera.
+      if (!existe('scripts/historial-estado.ts') || !existe('docs/HISTORY.md')) {
+        return falla('el guardián del historial desapareció: el documento volvería a caducar en silencio');
+      }
+      const script = codigoDe('scripts/historial-estado.ts');
+      // LO QUE EXIGE, que es lo único que impide que falte una fila.
+      if (!/censo\.atrasados\.length > 0/.test(script)) {
+        return falla('el guardián dejó de exigir los PRs atrasados: sólo verificaría que su censo cuadra consigo mismo');
+      }
+      // Y la deuda tiene TECHO. Sin él, la gracia sería una amnistía: bastaría
+      // subirla para que el documento no volviera a caducar «todavía».
+      if (!/const DIAS_DE_GRACIA = \d+;/.test(script)) {
+        return falla('la gracia del historial dejó de tener techo declarado: el atraso podría crecer sin límite');
+      }
+      // Y LA GRACIA SE MIDE CONTRA EL RELOJ, no contra el árbol. La primera
+      // versión usaba la fecha del commit más reciente, y así el PR sin fila
+      // que ERA la punta tenía antigüedad 0 para siempre: la compuerta prometía
+      // fallar a los siete días y no fallaba nunca para justo el último, que es
+      // el que más importa.
+      if (!/const hoy = new Date\(\)\.toISOString\(\)/.test(script)) {
+        return falla('la gracia volvió a medirse contra la fecha del árbol: un PR sin fila que sea la punta no envejecería nunca');
+      }
+      // Y QUE NO SE SALTE CUANDO NO PUEDE MIRAR. `actions/checkout` clona a
+      // profundidad 1 por omisión: sin esto el recorrido vería UN commit y el
+      // documento saldría verde sin comprobarse. Es el falso verde que tenía
+      // `doctor` antes del T1b, contando sin contexto de inquilino.
+      if (!/cortesSuperficiales\(\)\.has/.test(script)) {
+        return falla('el guardián dejó de detectar la historia truncada: en un clon superficial saldría en verde sin haber contado nada');
+      }
+      // La compuerta corre en CI o es un comando que nadie teclea. Se mide
+      // sobre el YAML SIN sus comentarios: si no, la propia prosa que explica
+      // el paso lo pondría verde aunque el paso se hubiera borrado — el modo
+      // exacto en que nacieron verdes por accidente otros dos criterios.
+      const ci = crudoDe('.github', 'workflows', 'ci.yml').replace(/^[ \t]*#.*$/gm, '');
+      if (!/historial-estado\.ts --check/.test(ci)) {
+        return falla('la compuerta del historial no está en CI: sería una comprobación optativa');
+      }
+      if (!/fetch-depth: 0/.test(ci)) {
+        return falla('el checkout dejó de pedir profundidad completa: el guardián no podría recorrer la historia');
+      }
+      if (!/HISTORIAL-GENERADO:INICIO/.test(crudoDe('docs/HISTORY.md'))) {
+        return falla('el documento perdió los marcadores del censo: nadie podría regenerarlo ni compararlo');
+      }
+      return ok(
+        'el historial se verifica contra `git log --first-parent` en CI, con profundidad completa y fallando cuando no puede mirar'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'censo.atrasados.length > 0',
+        a: 'censo.atrasados.length > 99999',
+        porque: 'la compuerta deja de acusar los PRs que faltan: el historial podría volver a quedarse dieciséis PRs atrás, en verde',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'const hoy = new Date().toISOString()',
+        a: 'const hoy = (vertebral[0]?.fecha ?? new Date().toISOString())',
+        porque: 'la gracia vuelve a medirse contra el árbol: el PR sin fila que sea la punta tendría antigüedad cero para siempre y la compuerta no fallaría jamás por él',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'const DIAS_DE_GRACIA = 7;',
+        a: 'const GRACIA_SIN_TECHO = 7;',
+        porque: 'la gracia deja de tener techo declarado: pasaría de ser una deuda acotada a una amnistía',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'cortesSuperficiales().has',
+        a: 'new Set<string>().has',
+        porque: 'el guardián deja de ver que la historia está truncada: en el checkout por omisión de CI contaría un commit y firmaría el verde',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'historial-estado.ts --check',
+        a: 'historial-estado.ts # --check',
+        porque: 'el paso deja de verificar y pasa a REGENERAR: saldría siempre en verde reescribiendo el censo en vez de exigirlo',
       },
     ],
   },
