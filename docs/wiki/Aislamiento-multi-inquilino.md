@@ -221,7 +221,8 @@ Tres decisiones más del mismo archivo:
 
 - **Vive en la capa de datos, no en un middleware.** Los cinco caminos que
   necesitan frontera —REST, GraphQL, la terminal, las herramientas del agente y
-  los webhooks— no pueden importar de `src/api/rest/middleware`.
+  los webhooks— no pueden importar de `src/api/rest/middleware`. (GraphQL era
+  uno de los cinco cuando esto se escribió; se retiró en T14b y quedan cuatro.)
 - **El mapa de qué columna acota cada tabla se deduce del esquema**, con el mismo
   criterio que usan las políticas: si hay `entity_id`, acota por entidad; si sólo
   hay `tenant_id`, por inquilino. Una tabla que nazca en una migración futura

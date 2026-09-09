@@ -35,7 +35,7 @@ node -e "const p=require('./package.json'); console.log(p.name, p.version, p.eng
 
 - **Runtime**: Node ≥ 20 (`engines` en `package.json`), TypeScript, `tsx` para ejecución directa.
 - **Base de datos**: PostgreSQL 15, con Row-Level Security como perímetro multi-inquilino (no un filtro en la capa de aplicación).
-- **Superficies**: CLI (`src/cli/`, comando `mnemosine`), REST (`src/api/rest/`, Express), GraphQL (`src/api/graphql/`, Apollo Server — apagado por bandera por omisión).
+- **Superficies**: CLI (`src/cli/`, comando `mnemosine`) y REST (`src/api/rest/`, Express). Hubo una tercera, GraphQL con Apollo Server, apagada tras una bandera y sin un solo consumidor: se **retiró** en T14b ([#101](https://github.com/sedecim-com/Accounting/issues/101)). Una superficie que nadie ejerce no se blinda, se quita — y mientras existía, el criterio que la vigilaba se ponía verde con sólo mudar su montaje de archivo.
 - **Pruebas**: Vitest (unitarias + integración contra Postgres real), con umbrales de cobertura **por archivo** sobre el motor contable (`vitest.config.ts`) que sólo pueden endurecerse, nunca aflojarse.
 - **El plan mismo es código**: `src/plan/criterios.ts` declara ~130 criterios ejecutables; `npm run plan:status` los evalúa contra el árbol real. Ver `docs/PROCESS.md`.
 
