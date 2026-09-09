@@ -4,7 +4,6 @@ import { query, closeDatabase, enterTenant } from '../../src/database/connection
 import { crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
 import { levantar, pedir, sesionDe } from './helpers/servidor.js';
 import journalEntriesRouter from '../../src/api/rest/routes/journal-entries.js';
-import { resolvers } from '../../src/api/graphql/resolvers/index.js';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -239,38 +238,17 @@ describe('la puerta REST cuando la política lo permite', () => {
   });
 });
 
-describe('la tercera puerta: GraphQL', () => {
-  it('la mutación createJournalEntry(autoPost:true) atraviesa el MISMO candado', async () => {
-    await politica(f, 'exigir');
+// LA TERCERA PUERTA SE RETIRÓ, NO SE DEJÓ DE PROBAR (T14b · #101).
+//
+// Aquí vivía el bloque que afirmaba que la mutación de GraphQL atravesaba el
+// mismo candado. La superficie GraphQL ya no existe —ningún cliente la
+// consumía y estaba apagada tras una bandera—, así que el aserto se quedó sin
+// sujeto: no hay puerta que pueda eludirlo. El HECHO que importa —que el
+// candado de cuatro ojos es uno solo y lo atraviesan todas las puertas— lo
+// siguen afirmando los bloques de arriba, por REST y por el motor que usa el
+// CLI, y el criterio `single-maker-checker-gate` ancla que el candado siga
+// extraído en `autorizarPosteo`.
 
-    const ctx = {
-      user: { user_id: f.userId, entities: [f.entityId], permissions: ['*'] },
-      tenantId: f.tenantId,
-      entityId: f.entityId,
-    };
-    const input = {
-      entityId: f.entityId,
-      entryDate: iso(fechaEnPeriodo()),
-      entryType: 'standard',
-      description: 'GraphQL autoPost bajo exigir',
-      autoPost: true,
-      lines: [
-        { accountId: f.roles.banco, debitAmount: '500.00', description: 'cargo' },
-        { accountId: f.roles.cxc, creditAmount: '500.00', description: 'abono' },
-      ],
-    };
-
-    const antes = await contarAsientos(f.entityId);
-    const mutaciones = resolvers.Mutation as unknown as Record<
-      string,
-      (p: unknown, a: unknown, c: unknown) => Promise<unknown>
-    >;
-    await expect(mutaciones.createJournalEntry(null, { input }, ctx)).rejects.toMatchObject({
-      code: 'SOD_QUIEN_CREA_NO_POSTEA',
-    });
-    expect(await contarAsientos(f.entityId)).toBe(antes);
-  });
-});
 
 describe('lo que el candado NO debe morder', () => {
   it("con 'exigir', la póliza CON ORIGEN de sistema se auto-postea igual", async () => {
