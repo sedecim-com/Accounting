@@ -2754,14 +2754,43 @@ export const CRITERIOS: Criterio[] = [
       // crea ninguna. Medido: 185 rutas censadas y ninguna era /graphql. El
       // repositorio ya lo tenía fijado por escrito en
       // tests/integration/g4a-ataque.int.spec.ts, «lo que el censo NO alcanza».
+      // ── LO PRIMERO: CONTAR. UN CENSO VACÍO NO ABSUELVE ──────────────
+      //
+      // Es la mitad que le faltaba al criterio anterior y la razón de que se
+      // pudiera cegar: «no encontré nada» y «no miré» daban el mismo verde. Si
+      // los barridos vuelven vacíos o casi, esto es un instrumento roto, no una
+      // puerta retirada, y se dice en rojo. Medido hoy: 369 fuentes, 67 claves
+      // en package.json y 482 paquetes en el lock; los suelos van holgados para
+      // no romperse con el crecimiento normal.
+      const censoFuentes = fuentes('src').length;
+      if (censoFuentes < 200) {
+        return falla(
+          `el barrido de fuentes sólo vio ${censoFuentes} archivos: el instrumento no miró, y no haber mirado no es haber retirado`
+        );
+      }
+      const paquete = crudoDe('package.json');
+      const censoClaves = [...paquete.matchAll(/^ {4}"[^"]+":\s*"/gm)].length;
+      if (censoClaves < 30) {
+        return falla(
+          `package.json se leyó con ${censoClaves} claves: no se pudo censar lo que declara, así que no se puede afirmar que no declare Apollo`
+        );
+      }
+
+      // ── EL CINTURÓN: EL ÁRBOL ───────────────────────────────────────
+      //
+      // Sin mordida por construcción, y se dice: el arnés de mutación puede
+      // fingir que un archivo DESAPARECE, nunca que aparece. Esta rama no la
+      // cubre ningún espejo, y por eso no es la carga del criterio.
       if (existe('src/api/graphql')) {
         return falla('src/api/graphql volvió al árbol: la segunda puerta al mayor está de vuelta');
       }
-      // EL ANCLA DURA ES LA DEPENDENCIA. El directorio se renombra; un servidor
-      // de Apollo no se monta sin su paquete. Esto es lo que hace que el
-      // criterio no dependa de DÓNDE viva el montaje, que es justo lo que
-      // cegaba al anterior.
-      const paquete = crudoDe('package.json');
+
+      // ── LA CARGA: LA DEPENDENCIA, EN LOS DOS SITIOS QUE INSTALAN ────
+      //
+      // El directorio se renombra; un servidor de Apollo no se monta sin su
+      // paquete. Y se miran los DOS archivos: package.json es la intención y el
+      // lock es lo que `npm ci` instala de verdad — quitarlo de uno y olvidar
+      // el otro deja los paquetes entrando por la puerta de atrás.
       const vueltas: string[] = [];
       if (/"@apollo\/server"\s*:/.test(paquete)) vueltas.push('@apollo/server');
       if (/"@graphql-tools\/[^"]+"\s*:/.test(paquete)) vueltas.push('@graphql-tools/*');
@@ -2773,8 +2802,44 @@ export const CRITERIOS: Criterio[] = [
             'que aparece cuando alguien la remonta, se llame como se llame el directorio'
         );
       }
-      // Y que ningún fuente la importe, mirando CÓDIGO y no comentarios: los
-      // comentarios que cuentan esta historia son deliberados y se quedan.
+      // El lock se lee como el JSON que es, no por líneas: así el censo depende
+      // de la CLAVE que lo estructura, y cegarlo —renombrar `packages`— deja el
+      // conteo en cero y el criterio en rojo, que es lo que se quiere. Contarlo
+      // con una expresión regular por línea no se podía cegar de una sola
+      // pieza, y un censo que no se puede cegar tampoco se puede probar.
+      let paquetesDelLock: string[];
+      try {
+        const lock = JSON.parse(crudoDe('package-lock.json')) as {
+          packages?: Record<string, unknown>;
+        };
+        paquetesDelLock = Object.keys(lock.packages ?? {});
+      } catch {
+        return falla('package-lock.json no se pudo leer: sin él no se sabe qué instala `npm ci`, y eso no es un verde');
+      }
+      if (paquetesDelLock.length < 200) {
+        return falla(
+          `el lock se censó con ${paquetesDelLock.length} paquetes: sin censo no se puede afirmar que \`npm ci\` no instale Apollo`
+        );
+      }
+      const enLock = paquetesDelLock.filter((k) =>
+        /(^|\/)(@apollo\/|@graphql-tools\/|@as-integrations\/|graphql)($|\/)/.test(k)
+      );
+      if (enLock.length > 0) {
+        return falla(
+          `${enLock.length} paquete(s) de la puerta retirada siguen en package-lock.json (${enLock.slice(0, 3).join(', ')}): ` +
+            '`npm ci` los instalaría aunque package.json ya no los declare'
+        );
+      }
+
+      // ── Y QUE NINGÚN FUENTE LA IMPORTE ──────────────────────────────
+      //
+      // Sobre CÓDIGO y no comentarios: los que cuentan esta historia son
+      // deliberados y se quedan. Tres cegueras conocidas, dichas en vez de
+      // ocultadas — un especificador compuesto (`'@apollo' + '/server'`), un
+      // import dentro de `src/plan` (que `fuentes()` excluye a propósito) y un
+      // archivo .js (que `fuentes()` no recoge, y que sin `allowJs` tampoco
+      // compila). Ninguna de las tres pasa el censo del lock de arriba, que es
+      // por lo que la carga del criterio está ahí y no aquí.
       const importadores = dondeAparece(/@apollo\/|from 'graphql'|api\/graphql\//, ['src'], true);
       if (importadores.length > 0) {
         return falla(
@@ -2785,7 +2850,7 @@ export const CRITERIOS: Criterio[] = [
         return falla('algo volvió a montarse en /graphql, la ruta que quedaba fuera del prefijo auditado');
       }
       return ok(
-        'la segunda puerta está retirada: no está en el árbol, no está en las dependencias, ningún fuente la importa y nada se monta en /graphql'
+        `${censoFuentes} fuentes y ${paquetesDelLock.length} paquetes censados: la segunda puerta no está en el árbol, ni en package.json, ni en el lock, ni la importa nadie, ni hay nada montado en /graphql`
       );
     },
     mutantes: [
@@ -2794,6 +2859,12 @@ export const CRITERIOS: Criterio[] = [
         de: '"express":',
         a: '"@apollo/server": "^5.5.1",\n    "express":',
         porque: 'el paquete vuelve: es el ancla que no depende de dónde se ponga el montaje, y tiene que acusar sola',
+      },
+      {
+        archivo: 'package-lock.json',
+        de: '"packages": {',
+        a: '"paquetes": {',
+        porque: 'el censo del lock se queda a oscuras: sin contar antes de absolver, «no encontré Apollo» y «no miré» darían el mismo verde — que es exactamente cómo se cegaba el criterio anterior',
       },
       {
         archivo: 'src/index.ts',
