@@ -623,6 +623,12 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   // T13. Nace protegido: un archivo nuevo sin renglón aquí puede perder su
   // umbral en un commit posterior sin que ninguna compuerta se mueva.
   'src/services/reporting/criterio-archivadas.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  // J0.2. La ley y su semilla nacen protegidas: un umbral que sólo vive en
+  // vitest.config.ts se puede bajar sin que ninguna compuerta se mueva, y el
+  // ataque 3e de s4a exige que toda entrada de `thresholds` esté también
+  // aquí — lo cazó cuando faltaban estas dos.
+  'src/services/jurisdiction/legal-parameters.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/jurisdiction/legal-parameters-seed.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
 };
 
 /**
@@ -648,6 +654,73 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
 
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
+
+  {
+    paquete: 'E1.1',
+    id: 'law-is-read-by-date-and-fails-closed',
+    enunciado: 'La ley se lee por la fecha del hecho, y sin vigencia falla en vez de devolver cero',
+    evaluar: () => {
+      // POR QUÉ NACE (J0.2, issue #123). La ley vivía quemada en el código o en
+      // `tax_parameters`, que la guarda POR AÑO aunque la UMA cambie el 1 de
+      // febrero. Y donde faltaba la fila, el sistema no se detenía: el IMSS
+      // dejaba las tasas en CERO y el INFONAVIT aplicaba un 5 % quemado. Una
+      // cifra inventada que cuadra es peor que un error, porque nadie la busca.
+      //
+      // Este criterio vigila las tres propiedades que hacen que la tabla no
+      // nazca huérfana ni mienta: que se lea por FECHA, que falle CERRADO, y
+      // que la columna del panel tenga quien la lea.
+      const lector = codigoDe('src/services/jurisdiction/legal-parameters.ts');
+      const panel = codigoDe('src/services/policy/policy-service.ts');
+
+      // (a) POR LA FECHA DEL HECHO. Un recálculo de mayo tiene que leer la ley
+      // de mayo. Sin `effective_from <= fecha` ordenado descendente, la lectura
+      // devolvería la más reciente y reexpediría el pasado con la ley de hoy.
+      if (!/AND effective_from <= \$3::date/.test(lector) || !/ORDER BY[^;]*effective_from DESC/i.test(lector)) {
+        return falla(
+          'el lector de la ley no elige por fecha del hecho: o no compara effective_from, o no toma la ' +
+            'más reciente que la precede'
+        );
+      }
+
+      // (b) FALLA CERRADO. Es el corazón del tramo: sin vigencia, LANZA.
+      if (!/'never_loaded',/.test(lector) || !/if \(row === null\) \{/.test(lector)) {
+        return falla(
+          'el lector no lanza cuando no hay vigencia: si devuelve cero o un valor por omisión, repite el ' +
+            'defecto del IMSS en cero que J0 viene a cerrar'
+        );
+      }
+
+      // (c) LA COLUMNA TIENE LECTOR. Una columna que nadie selecciona es
+      // capacidad huérfana, y `doctor` la acusa.
+      if (!/jurisdiction/.test(panel)) {
+        return falla('policy_decisions.jurisdiction no tiene lector en el servicio de políticas: nace muerta');
+      }
+
+      return ok(
+        'la ley se lee por la fecha del hecho, falla cerrado sin vigencia, y la jurisdicción del panel ' +
+          'tiene quien la lea'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/jurisdiction/legal-parameters.ts',
+        de: "        'never_loaded',",
+        a: "        'ninguno', // el hueco deja de nombrarse",
+        porque:
+          'el lector deja de fallar cerrado: una clave sin vigencia pasaría a devolver un hueco en vez de ' +
+          'detener el cálculo, que es exactamente cómo el IMSS acabó cotizando en cero',
+      },
+      {
+        archivo: 'src/services/jurisdiction/legal-parameters.ts',
+        de: 'AND effective_from <= $3::date',
+        a: 'AND effective_from >= $3::date',
+        porque:
+          'invierte la fecha: la lectura devolvería la PRIMERA vigencia posterior al hecho en vez de la que ' +
+          'regía, y un recálculo de mayo se haría con la ley que entró en junio',
+      },
+    ],
+  },
+
 
   {
     paquete: 'E0.0',
