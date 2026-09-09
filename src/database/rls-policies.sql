@@ -10,6 +10,63 @@
 -- It is idempotent: DROP POLICY IF EXISTS + CREATE on every pass.
 -- ============================================================
 
+-- ============================================================
+-- LA LISTA DE HIJAS, UNA SOLA VEZ (E1b)
+--
+-- Vive aquí arriba y no dentro del bucle que la usa porque AMBOS bucles la
+-- necesitan: el de abajo para darles su política, y el directo para NO
+-- dárselas. Desde la 077 las hijas llevan `tenant_id`, así que el bucle
+-- directo —que selecciona por «tiene la columna»— empezaría a reclamarlas y
+-- les crearía `tenant_isolation` ADEMÁS de `tenant_isolation_child`.
+--
+-- Y eso no es redundancia inofensiva: dos políticas PERMISIVAS sobre la misma
+-- tabla SE COMBINAN CON OR. Una fila que cualquiera de las dos admita pasa, de
+-- modo que el EXISTS cuidadoso de la hija —el que comprueba que el padre sea
+-- visible— queda puenteado por la comparación directa, y al revés. Medido: un
+-- cotejo que apunta al movimiento bancario de OTRO inquilino se insertaba sin
+-- error bajo el contexto del primero.
+--
+-- Copiar la lista en los dos sitios habría sido la otra forma de romperlo: dos
+-- listas que se desincronizan el día que alguien añada la hija número veinte.
+-- ============================================================
+DROP TABLE IF EXISTS _rls_hijas;
+CREATE TEMP TABLE _rls_hijas(child text, fk text, parent text);
+INSERT INTO _rls_hijas(child, fk, parent) VALUES
+      ('journal_entry_lines',          'journal_entry_id',           'journal_entries'),
+      ('invoice_lines',                'invoice_id',                 'invoices'),
+      ('bill_lines',                   'bill_id',                    'bills'),
+      ('payment_allocations',          'payment_id',                 'customer_payments'),
+      ('payment_applications',         'payment_id',                 'vendor_payments'),
+      ('credit_note_applications',     'credit_note_id',             'credit_notes'),
+      ('inventory_layers',             'item_id',                    'inventory_items'),
+      ('inventory_layer_consumption',  'item_id',                    'inventory_items'),
+      ('depreciation_schedules',       'asset_id',                   'fixed_assets'),
+      ('bank_transactions',            'bank_account_id',            'bank_accounts'),
+      -- POR EL MOVIMIENTO, NO POR LA SESIÓN.
+      --
+      -- Colgaba de `reconciliation_session_id`, y esa columna la insertan sus
+      -- dos únicos escritores SIEMPRE EN NULL. La política es `FOR ALL USING`
+      -- sin `WITH CHECK`, así que en Postgres el USING hace también de check de
+      -- INSERT: con la FK nula el EXISTS es falso y **ningún cotejo se puede
+      -- insertar** bajo mnemosine_app. No se notaba porque la suite de
+      -- integración corre como superusuario, con RLS inerte.
+      --
+      -- El padre correcto es el movimiento: `bank_transaction_id` es NOT NULL y
+      -- existe siempre, mientras que la sesión es opcional por diseño (se cotea
+      -- antes de abrirla). Y encadena bien: `bank_transactions` tiene su propia
+      -- política por `bank_account_id`, así que el inquilino se deriva en dos
+      -- saltos sin duplicar el predicado.
+      ('reconciliation_matches',       'bank_transaction_id',        'bank_transactions'),
+      ('paycheck_earnings',            'paycheck_id',                'paychecks'),
+      ('paycheck_deductions',          'paycheck_id',                'paychecks'),
+      ('paycheck_taxes',               'paycheck_id',                'paychecks'),
+      ('garnishments',                 'employee_id',                'employees'),
+      ('employee_benefit_elections',   'employee_id',                'employees'),
+      ('employee_compensation_history','employee_id',                'employees'),
+      ('ai_messages',                  'session_id',                 'ai_sessions'),
+      ('xml_document_lines',           'xml_document_id',            'xml_documents'),
+      ('webhook_deliveries',           'webhook_id',                 'webhook_subscriptions');
+
 DO $mig$
 DECLARE
   r          record;
@@ -32,6 +89,8 @@ BEGIN
       AND NOT c.relispartition         -- partitions inherit from the parent
       AND a.attname IN ('tenant_id', 'entity_id')
       AND c.relname <> ALL (excluded)
+      -- Las hijas tienen la suya y dos permisivas se suman con OR (E1b).
+      AND c.relname NOT IN (SELECT child FROM _rls_hijas)
     GROUP BY c.relname
     ORDER BY c.relname
   LOOP
@@ -145,48 +204,19 @@ DECLARE
   applied int := 0;
 BEGIN
   FOR m IN
-    SELECT * FROM (VALUES
-      ('journal_entry_lines',          'journal_entry_id',           'journal_entries'),
-      ('invoice_lines',                'invoice_id',                 'invoices'),
-      ('bill_lines',                   'bill_id',                    'bills'),
-      ('payment_allocations',          'payment_id',                 'customer_payments'),
-      ('payment_applications',         'payment_id',                 'vendor_payments'),
-      ('credit_note_applications',     'credit_note_id',             'credit_notes'),
-      ('inventory_layers',             'item_id',                    'inventory_items'),
-      ('inventory_layer_consumption',  'item_id',                    'inventory_items'),
-      ('depreciation_schedules',       'asset_id',                   'fixed_assets'),
-      ('bank_transactions',            'bank_account_id',            'bank_accounts'),
-      -- POR EL MOVIMIENTO, NO POR LA SESIÓN.
-      --
-      -- Colgaba de `reconciliation_session_id`, y esa columna la insertan sus
-      -- dos únicos escritores SIEMPRE EN NULL. La política es `FOR ALL USING`
-      -- sin `WITH CHECK`, así que en Postgres el USING hace también de check de
-      -- INSERT: con la FK nula el EXISTS es falso y **ningún cotejo se puede
-      -- insertar** bajo mnemosine_app. No se notaba porque la suite de
-      -- integración corre como superusuario, con RLS inerte.
-      --
-      -- El padre correcto es el movimiento: `bank_transaction_id` es NOT NULL y
-      -- existe siempre, mientras que la sesión es opcional por diseño (se cotea
-      -- antes de abrirla). Y encadena bien: `bank_transactions` tiene su propia
-      -- política por `bank_account_id`, así que el inquilino se deriva en dos
-      -- saltos sin duplicar el predicado.
-      ('reconciliation_matches',       'bank_transaction_id',        'bank_transactions'),
-      ('paycheck_earnings',            'paycheck_id',                'paychecks'),
-      ('paycheck_deductions',          'paycheck_id',                'paychecks'),
-      ('paycheck_taxes',               'paycheck_id',                'paychecks'),
-      ('garnishments',                 'employee_id',                'employees'),
-      ('employee_benefit_elections',   'employee_id',                'employees'),
-      ('employee_compensation_history','employee_id',                'employees'),
-      ('ai_messages',                  'session_id',                 'ai_sessions'),
-      ('xml_document_lines',           'xml_document_id',            'xml_documents'),
-      ('webhook_deliveries',           'webhook_id',                 'webhook_subscriptions')
-    ) AS t(child, fk, parent)
+    SELECT child, fk, parent FROM _rls_hijas ORDER BY child
   LOOP
     IF to_regclass('public.' || m.child) IS NULL THEN
       CONTINUE;  -- table not created yet in this environment
     END IF;
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', m.child);
     EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', m.child);
+    -- Y SE BORRA LA DIRECTA SI QUEDÓ DE UNA CORRIDA ANTERIOR. Al excluir a
+    -- las hijas del bucle directo, ese bucle ya no las visita y por tanto ya
+    -- no las limpia: una base que corrió la versión anterior se quedaría con
+    -- las dos políticas para siempre, que es justo el defecto que se cierra.
+    -- Quien deja de crear algo tiene que seguir sabiendo retirarlo.
+    EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON public.%I', m.child);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation_child ON public.%I', m.child);
     EXECUTE format(
       'CREATE POLICY tenant_isolation_child ON public.%I FOR ALL USING '
