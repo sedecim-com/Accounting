@@ -160,6 +160,12 @@ router.get('/balance-sheet', requirePermission('reports:read'), requireEntityAcc
       liabilities: report.liabilities,
       equity: report.equity,
       total_liabilities_and_equity: report.total_liabilities_and_equity,
+      // El sobre CALCULABA estas dos y las tiraba: getBalanceSheet las publica
+      // (report-service.ts:1031-1032) y aquí se quedaban fuera, así que un
+      // tablero que lea este extremo no tiene con qué saber si el estado cuadra
+      // — el mismo hueco que la herramienta del agente, en la otra superficie.
+      out_of_balance: report.out_of_balance,
+      is_balanced: report.is_balanced,
     },
     meta: meta(req),
   });
