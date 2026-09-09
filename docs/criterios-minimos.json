@@ -28,6 +28,7 @@
     "credit-note-posts-at-issue",
     "criteria-mutation-harness",
     "dangerous-commands-gated-and-keyed",
+    "delivery-history-completeness-gate",
     "dotenv-ignored-except-example",
     "employment-subsidy-cash-delivery",
     "entities-table-never-queried",
