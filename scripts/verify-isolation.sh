@@ -68,6 +68,14 @@ check "la escritura hacia otro tenant se rechaza" "$escritura" "1"
 # Cobertura: una tabla con alcance y sin política es una fuga silenciosa.
 # Pasó de verdad — una migración de otra sesión creó ai_external_ops después
 # del endurecimiento inicial.
+#
+# EL NOMBRE NO ES EXACTO, ES UN PREFIJO (E1b). Desde la 072 las tablas hija
+# llevan `tenant_id` propio, así que esta consulta —que selecciona por «tiene la
+# columna»— empezó a mirarlas; y su política se llama `tenant_isolation_child`,
+# no `tenant_isolation`. Exigir el nombre exacto las daba por desprotegidas
+# teniéndolo todo. Lo que rls-policies.sql garantiza es que cada tabla tenga UNA
+# política de aislamiento, y que no tenga DOS: dos permisivas se suman con OR y
+# se puentean entre sí, que es el defecto que este tramo cerró.
 sin_politica=$(psql "$SUPERUSER_URL" -tAc "
   SELECT coalesce(string_agg(c.relname, ', '), '')
   FROM pg_class c
@@ -78,7 +86,7 @@ sin_politica=$(psql "$SUPERUSER_URL" -tAc "
     AND c.relname <> ALL (ARRAY['users','sessions','tenants','migrations'])
     AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity
          OR NOT EXISTS (SELECT 1 FROM pg_policy p
-                        WHERE p.polrelid = c.oid AND p.polname = 'tenant_isolation'))")
+                        WHERE p.polrelid = c.oid AND p.polname LIKE 'tenant_isolation%'))")
 check "todas las tablas con alcance tienen política" "$sin_politica" ""
 
 # Las vistas PLANAS corren su consulta con los permisos de su dueño en cada

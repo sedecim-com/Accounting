@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { closeDatabase, query } from './connection.js';
+import { seedLegalParameters } from '../services/jurisdiction/legal-parameters-seed.js';
 
 const TENANT_ID = uuidv4();
 const ORG_ID = uuidv4();
@@ -173,6 +174,18 @@ async function seed() {
      VALUES ($1, $2, 'Cuenta Principal BBVA', 'BBVA', $3, 'MXN', '4567')
      ON CONFLICT DO NOTHING`,
     [uuidv4(), ENTITY_ID, accountIds['1111']]
+  );
+
+  // 11. Los parámetros legales (J0.2). NO son datos del inquilino demo: la
+  // tabla no tiene tenant_id porque la UMA vale igual para todo despacho
+  // mexicano. Se siembran aquí porque es el único runner global que hay hoy;
+  // J0.4 los mueve detrás de `mnemosine parametros import`, con su fuente
+  // obligatoria y su `gateMutation`. Idempotente: correr `npm run seed` dos
+  // veces no duplica ni pisa.
+  const ley = await seedLegalParameters();
+  console.log(
+    `Legal parameters: ${ley.inserted} inserted, ${ley.alreadyPresent} already there ` +
+      `(of ${ley.offered} offered)`
   );
 
   console.log('Seed complete!');
