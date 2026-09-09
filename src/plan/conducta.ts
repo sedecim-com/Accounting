@@ -810,7 +810,7 @@ async function main(salida: string): Promise<void> {
   // de que exista un `config`, y config sólo se puede importar cuando
   // DATABASE_URL ya apunta a la base efímera.
   const { default: dotenv } = await import('dotenv');
-  dotenv.config();
+  dotenv.config({ quiet: true });
 
   const admin =
     process.env.TEST_ADMIN_DATABASE_URL ||
