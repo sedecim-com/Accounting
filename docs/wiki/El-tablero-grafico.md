@@ -59,7 +59,7 @@ Si el tramo entra, entra con su fila y su criterio, como todo en la casa: el com
 
 - **`trust proxy` ya existe con criterio** (`src/api/rest/trust-proxy.ts`, `src/index.ts:61-69`, `criterios.ts:4415-4425`): la R10 que esta página pedía dentro de W0 está hecha.
 - Las veinte ligas del 2 de septiembre responden. Nuevas en la tabla: Backstage (CNCF), Retool *self-hosted* (con permisos propios: la misma objeción que Appsmith), y tres sistemas de diseño —Carbon de IBM, que usa el mismo Plex que la casa; Radix; USWDS 3.14.0—.
-- **Sigue sin `web/`, sin OpenAPI y con GraphQL vivo** (E4.2 en rojo); sin criterio de tres dientes ni tokens visuales versionados. Es la issue [#117](https://github.com/sedecim-com/Accounting/issues/117).
+- **Sigue sin `web/`** y sin criterio de tres dientes ni tokens visuales versionados. Es la issue [#117](https://github.com/sedecim-com/Accounting/issues/117). Dos de las tres carencias de esta línea ya cayeron: OpenAPI se genera y se verifica en CI, y GraphQL —cuya supervivencia esta misma página recomendaba no revivir— se retiró en T14b.
 
 ## Páginas relacionadas
 
