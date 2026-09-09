@@ -160,7 +160,7 @@ cosa y conviene no confundir.
 | Impuestos diferidos | D-4 | **Cuentas sembradas** (1310, 2300); el cálculo es de cierre anual y con juicio, se propone como borrador |
 | Arrendamientos | D-5 | **Sin motor.** No hay activo por derecho de uso ni pasivo por arrendamiento; la renta se registra como gasto, que sólo es correcto bajo las excepciones de corto plazo y bajo valor |
 | Partes relacionadas | C-13 | **Sin motor ni revelación** (ver arriba) |
-| Otros Resultados Integrales | B-3 | **Categoría y cuenta existen** (3400, `fs_category = 'ori'`); qué se lleva al ORI lo decide cada caso |
+| Otros Resultados Integrales | B-3 | **Categoría y cuenta existen** (3600, `fs_category = 'ori'`); qué se lleva al ORI lo decide cada caso |
 
 ## B-1 — Cambios contables y correcciones de errores
 

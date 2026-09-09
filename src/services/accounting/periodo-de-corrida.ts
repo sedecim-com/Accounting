@@ -1,5 +1,6 @@
 import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
+import { FiscalPeriodStatus } from '../../types/index.js';
 
 // ============================================================
 // EL PERIODO QUE SE ESTÁ CORRIENDO, ACOTADO POR ENTIDAD (D1)
@@ -34,6 +35,18 @@ export interface PeriodoDeCorrida {
   numero: number;
   /** 'regular' | 'adjustment' | 'closing' (CHECK de la 001). */
   tipo: string;
+  /**
+   * El estado del periodo, tal cual lo guarda `fiscal_periods.status`.
+   *
+   * Un «periodo de la corrida» que no sabe si está cerrado está a medio
+   * describir: el motor tiene que poder negarse ANTES de calcular, en vez de
+   * dejar que la negativa aparezca al postear —donde el ensayo ya no la ve—.
+   *
+   * Va tipado con el enum y no como `string` a propósito: comparar una cadena
+   * contra `FiscalPeriodStatus` compila, pasa el lint como advertencia y se
+   * equivoca en silencio el día que alguien teclee 'hardclose'.
+   */
+  estado: FiscalPeriodStatus;
 }
 
 /**
@@ -76,8 +89,9 @@ export async function periodoDeLaCorrida(
     period_name: string;
     period_number: number;
     period_type: string;
+    status: FiscalPeriodStatus;
   }>(
-    `SELECT id, start_date, end_date, period_name, period_number, period_type
+    `SELECT id, start_date, end_date, period_name, period_number, period_type, status
        FROM fiscal_periods
       WHERE id = $1 AND entity_id = $2`,
     [fiscalPeriodId, entityId]
@@ -96,5 +110,6 @@ export async function periodoDeLaCorrida(
     nombre: fila.period_name,
     numero: fila.period_number,
     tipo: fila.period_type,
+    estado: fila.status,
   };
 }

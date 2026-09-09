@@ -85,7 +85,7 @@ async function saldoAcreedor(entityId: string, accountId: string): Promise<strin
 /**
  * Los tres saldos de provisión de una entidad, de una vez.
  *
- * Se piden POR ROL y no por código: preguntar por el '2196' en la prueba
+ * Se piden POR ROL y no por código: preguntar por el '2202' en la prueba
  * dejaría pasar un motor que cablea el código, que es exactamente lo que el
  * encargo prohíbe.
  */

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { FiscalPeriodStatus } from '../../src/types/index.js';
 import { Command } from 'commander';
 import {
   criteriosParaLeer,
@@ -54,6 +55,7 @@ function planDePrueba(parcial: Partial<ProvisionPlan> = {}): ProvisionPlan {
       nombre: 'Periodo 3/2026',
       numero: 3,
       tipo: 'regular',
+      estado: FiscalPeriodStatus.OPEN,
     },
     criterios: {
       base_salarial: 'nominal',

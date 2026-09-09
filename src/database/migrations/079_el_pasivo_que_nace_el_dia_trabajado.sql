@@ -2,7 +2,8 @@
 -- 079 · EL PASIVO QUE NACE EL DÍA TRABAJADO (D1 · NIF D-3)
 --
 -- La 078 dejó los cimientos —la categoría del ORI y, en el catálogo, las
--- cuentas 2196/2197/2198/2199 que ningún sembrador tenía— y dijo por escrito
+-- cuentas de provisión que ningún sembrador tenía; hoy son la 2202 a la 2205,
+-- bajo el encabezado 2201— y dijo por escrito
 -- que «el motor va aparte». Esto es la mitad de esquema que ese motor necesita:
 -- la CÉDULA. Sin ella, la corrida podría postear el asiento y no habría manera
 -- de decir de quién es cada peso del pasivo.
@@ -53,7 +54,7 @@
 --
 -- ── LO QUE ESTA TABLA NO GUARDA, Y ES DELIBERADO ────────────────────────
 --
---   · LA PTU (2199). No se devenga por trabajador: es el 10 % de la renta
+--   · LA PTU (2205). No se devenga por trabajador: es el 10 % de la renta
 --     gravable DE LA ENTIDAD (LFT 120), y no existe hasta la declaración anual.
 --     La política `provision_ptu_mensual` está apagada por omisión y el motor
 --     declara su ausencia en el resultado de cada corrida, que no es lo mismo
@@ -169,7 +170,7 @@ COMMENT ON COLUMN benefit_provision_schedules.total_amount IS
   'GENERADA. La suma de los tres conceptos no se escribe, se deriva: dos columnas mantenidas a mano pueden discrepar.';
 
 COMMENT ON COLUMN benefit_provision_schedules.journal_entry_id IS
-  'El asiento que devengó este mes (DR 6116 / CR 2196, 2197, 2198). El CHECK provision_posteada_con_asiento lo exige para is_posted, y lo comparten todas las filas del mismo periodo.';
+  'El asiento que devengó este mes (DR 6116 / CR 2202, 2203, 2204). El CHECK provision_posteada_con_asiento lo exige para is_posted, y lo comparten todas las filas del mismo periodo.';
 
 COMMENT ON COLUMN benefit_provision_schedules.calculation_metadata IS
   'Con qué se calculó: base salarial y convención de vacaciones vigentes en el panel ese día, salario diario, fuente del salario y los tramos del mes con su escalón del art. 76. Sin esto el importe es un número que nadie puede reconstruir.';

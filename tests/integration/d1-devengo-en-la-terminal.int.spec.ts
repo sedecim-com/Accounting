@@ -337,7 +337,7 @@ describe('payroll accrue · el mismo mes tecleado dos veces', () => {
 
 // ── 3 · LA LLAVE QUE LA HOJA DECLARA HONRAR ─────────────────────────────
 describe('payroll accrue --idempotency-key', () => {
-  it('la misma llave sobre otro mes devuelve el resultado GRABADO y no vuelve a devengar', async () => {
+  it('un reintento con la misma llave no escribe una segunda vez —lo frena el motor, no la llave—', async () => {
     // Abril, que todavía no se ha corrido: la llave se consuma con él.
     const primera = await correr([
       'payroll', 'accrue', '--period', '2026-04', '--yes', '--idempotency-key', 'devengo-abril',
@@ -355,8 +355,17 @@ describe('payroll accrue --idempotency-key', () => {
       'payroll', 'accrue', '--period', '2026-04', '--yes', '--idempotency-key', 'devengo-abril',
     ]);
     // El mes ya está devengado, así que la cédula viene vacía y la hoja sale
-    // por su propia puerta antes de consumar la llave. Lo que se afirma es lo
+    // por su propia puerta ANTES de consumar la llave. Lo que se afirma es lo
     // que el operador necesita: un reintento NO escribe una segunda vez.
+    //
+    // Y se afirma SÓLO eso, que es lo que esta prueba puede demostrar. Quien
+    // frena aquí es el motor —`trabajadoresYaProvisionados` sobre renglones
+    // vigentes—, no `--idempotency-key`: el `conLlave` de la hoja queda detrás
+    // de esta puerta y no se alcanza por este camino. El título decía antes
+    // «devuelve el resultado GRABADO», que es lo que la ayuda promete y lo que
+    // ni el código hace ni esta prueba comprueba. La semántica de la llave en
+    // esta hoja está abierta en su tarjeta; hasta que se decida, la prueba
+    // nombra lo que mide.
     expect(segunda.exitCode, `${segunda.out}${segunda.err}`).toBe(ExitCode.OK);
     expect(await tamanoDelLibro()).toEqual(antes);
   });
@@ -392,6 +401,40 @@ describe('payroll accrue --dry-run · una ficha rota', () => {
       await query(`DELETE FROM employees WHERE entity_id = $1 AND employee_number = 'A-ROTO'`, [
         f.entityId,
       ]);
+    }
+  });
+
+  it('un mes CERRADO se niega en el ensayo igual que en la corrida, y no por accidente', async () => {
+    // LA MISMA DIVERGENCIA, POR OTRA PUERTA. El rechazo del mes cerrado vive en
+    // `validateJournalEntry` (regla `periodStatus`), que sólo corre dentro de
+    // `createJournalEntry`: en la corrida. El ensayo no postea, así que nunca
+    // llegaba a la regla y salía 0 de un mes en el que la corrida sale 4.
+    //
+    // Agosto, que ninguna otra prueba de este archivo toca.
+    const { rows } = await query<{ id: string; status: string }>(
+      `SELECT fp.id, fp.status FROM fiscal_periods fp
+        WHERE fp.entity_id = $1 AND fp.period_number = 8 AND fp.period_type = 'regular'`,
+      [f.entityId]
+    );
+    const agosto = rows[0];
+    expect(agosto, 'el escenario no sembró un agosto regular').toBeDefined();
+    await query(`UPDATE fiscal_periods SET status = 'hard_close' WHERE id = $1`, [agosto.id]);
+    try {
+      const antes = await tamanoDelLibro();
+      const ensayo = await correr(['payroll', 'accrue', '--period', '2026-08', '--dry-run']);
+      const real = await correr(['payroll', 'accrue', '--period', '2026-08', '--yes']);
+      expect(real.exitCode, `${real.out}${real.err}`).toBe(ExitCode.VALIDATION);
+      expect(ensayo.exitCode, `${ensayo.out}${ensayo.err}`).toBe(real.exitCode);
+      // Y NOMBRA el estado, para que quien lo lea sepa qué reabrir. El mensaje
+      // del motor viaja por `reportError`, no por stderr.
+      const dicho = ensayo.errs.map((e) => (e as Error).message).join(' | ');
+      expect(dicho).toContain('hard_close');
+      // Las dos dicen LO MISMO: es la prueba de que sale de una sola guarda.
+      expect(real.errs.map((e) => (e as Error).message).join(' | ')).toBe(dicho);
+      // Ninguna de las dos escribió: el mes cerrado sigue cerrado y vacío.
+      expect(await tamanoDelLibro()).toEqual(antes);
+    } finally {
+      await query(`UPDATE fiscal_periods SET status = $2 WHERE id = $1`, [agosto.id, agosto.status]);
     }
   });
 });

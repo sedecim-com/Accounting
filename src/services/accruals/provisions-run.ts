@@ -8,7 +8,7 @@ import {
 } from '../accounting/periodo-de-corrida.js';
 import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
 import { ValidationError } from '../../utils/errors.js';
-import { JournalEntryType } from '../../types/index.js';
+import { JournalEntryType, FiscalPeriodStatus } from '../../types/index.js';
 import { salarioDiarioDesdeSueldoAnual } from '../payroll/mx/finiquito-math.js';
 import { RENGLON_VIGENTE, inquilinoDeLaEntidad } from './prepaid-service.js';
 import {
@@ -478,6 +478,32 @@ export async function planMonthlyProvisions(
       `El periodo "${periodo.nombre}" es de tipo "${periodo.tipo}", no un mes de operación. La ` +
         'provisión de prestaciones se devenga por días trabajados, y correrla sobre un periodo ' +
         'de ajuste volvería a contar los días que su mes de calendario ya provisionó.'
+    );
+  }
+
+  // UN MES CERRADO TAMPOCO ES UN MES DE OPERACIÓN, Y POR LA MISMA RAZÓN.
+  //
+  // El rechazo del mes cerrado vive en `validateJournalEntry` (regla
+  // `periodStatus`), que sólo corre DENTRO de `createJournalEntry`. Es decir,
+  // sólo en la corrida: el ensayo no postea, así que nunca llegaba a la regla y
+  // salía 0 de un mes en el que la corrida sale 4. Es exactamente la misma
+  // divergencia que este tramo cerró para la ficha rota, por otra puerta —y la
+  // guarda de arriba ya dice por qué no se tolera: «un `--dry-run` que enseñara
+  // la cédula de un periodo sobre el que la corrida se va a negar le enseñaría
+  // al operador un mes que no va a existir».
+  //
+  // Se bloquea EXACTAMENTE en los dos estados que `periodStatus` trata como
+  // error, ni uno más: `soft_close` y `future` sólo levantan advertencia allí y
+  // el asiento SÍ se postea, así que negarse aquí sería negar un mes que la
+  // corrida habría devengado —la divergencia al revés—.
+  if (
+    periodo.estado === FiscalPeriodStatus.HARD_CLOSE ||
+    periodo.estado === FiscalPeriodStatus.LOCKED
+  ) {
+    throw new ValidationError(
+      `El periodo "${periodo.nombre}" está en "${periodo.estado}" y el mayor no admite asientos ` +
+        'ahí, así que la provisión no se puede escribir. Reabre el periodo si el devengo de ese ' +
+        'mes falta de verdad; si ya se devengó antes de cerrarlo, no hay nada que hacer.'
     );
   }
 
