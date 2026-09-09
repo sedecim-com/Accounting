@@ -50,7 +50,8 @@
     "reports.md": [
       "src/services/reporting/report-service.ts",
       "src/services/reporting/cash-flow-service.ts",
-      "src/services/reporting/cash-flow-reconcile.ts"
+      "src/services/reporting/cash-flow-reconcile.ts",
+      "src/ai/tools/report-tools.ts"
     ],
     "mnemosine.md": [
       "src/ai/draft-service.ts",
@@ -135,6 +136,7 @@
     "src/ai/onboarding-service.ts": "7bd405ae60700ebab6bac3062002acd1cf9b4b58",
     "src/services/reporting/cash-flow-service.ts": "489bebf55f6fb975846d6cb0bf4c75d7a4d7390d",
     "src/services/reporting/cash-flow-reconcile.ts": "491acc77467d7409c59dd87b312dfd48af2ce401",
-    "src/index.ts": "44fb1055a200556cca571a46f52a36f90cdc00bb"
+    "src/index.ts": "44fb1055a200556cca571a46f52a36f90cdc00bb",
+    "src/ai/tools/report-tools.ts": "5a42fb9e33b729d5935e073f27fdbd427d4dfa25"
   }
 }
