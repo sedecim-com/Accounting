@@ -697,8 +697,38 @@ export const CRITERIOS: Criterio[] = [
 
       // (c) LAS CUENTAS, POR ROL. Un código quemado ata el motor a un catálogo
       // concreto y revienta en la primera entidad que renumere.
-      if (/(debit|credit|account)[^\n]*'21(96|97|98|99)'/.test(run)) {
-        return falla('la provisión nombra una cuenta por su código: el catálogo de otra entidad la deja sin destino');
+      //
+      // LOS CÓDIGOS NO SE TRANSCRIBEN AQUÍ: SE DERIVAN. La primera versión de
+      // este chequeo los escribió a mano —2196 a 2199— en el MISMO commit que
+      // los renumeraba a 2202-2205, así que NACIÓ MUERTO: la expresión no podía
+      // acusar ningún cableado real, y como este chequeo tampoco tenía espejo
+      // propio, los 168 mutantes del tablero lo daban por vivo. Es la familia
+      // de T14b —«el criterio que la vigilaba se cegaba solo»—, y en este caso
+      // pesa el doble porque el criterio entra al piso obligatorio: publicaba
+      // «resuelve las cuentas por rol» con un tercio de la frase inverificable.
+      //
+      // Leyendo la lista de la que salen las cuentas, renumerar el catálogo
+      // vuelve a mover el chequeo solo. Y se cae la exigencia de que
+      // `debit|credit|account` aparezca en la MISMA línea: un cableado con
+      // nombre español —`aguinaldo: await cuentaPorCodigo(...)`— se escapaba
+      // por ahí aunque los códigos hubieran estado al día.
+      const seed = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
+      const codigosDeProvision = [...seed.matchAll(/provision_\w+:\s*'(\d+)'/g)].map((m) => m[1]);
+      if (codigosDeProvision.length === 0) {
+        // FALLA CERRADO. Si el mapa cambia de forma, el chequeo se queda sin
+        // nada que buscar y saldría verde sobre un motor cableado: es
+        // exactamente como nació. Antes que eso, rojo.
+        return falla(
+          'no se derivó ni un código de provisión de account-roles-seed.ts: el chequeo de las ' +
+            'cuentas por rol se quedaría sin nada que buscar, que es como nació muerto la primera vez'
+        );
+      }
+      const quemado = codigosDeProvision.find((c) => run.includes(`'${c}'`));
+      if (quemado !== undefined) {
+        return falla(
+          `la provisión nombra la cuenta '${quemado}' por su código: el catálogo de otra entidad ` +
+            'la deja sin destino'
+        );
       }
 
       return ok(
@@ -707,6 +737,28 @@ export const CRITERIOS: Criterio[] = [
       );
     },
     mutantes: [
+      {
+        archivo: 'src/services/accruals/provisions-run.ts',
+        de: '  const mapa = new Map(r.rows.map((f) => [f.role, f.account_id]));',
+        a: "  const mapa = new Map([...r.rows.map((f) => [f.role, f.account_id]), [ROL_AGUINALDO, '2202']]);",
+        porque:
+          'la cuenta del aguinaldo cableada por su código en vez de resuelta por rol: es el defecto ' +
+          'que el chequeo (c) nombra, y durante todo este tramo no tuvo espejo que lo comprobara',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: `  provision_aguinaldo: '2202',
+  provision_vacaciones: '2203',
+  provision_prima_vacacional: '2204',
+  provision_prestaciones_gasto: '6116',`,
+        a: `  provisionAguinaldo: '2202',
+  provisionVacaciones: '2203',
+  provisionPrimaVacacional: '2204',
+  provisionPrestacionesGasto: '6116',`,
+        porque:
+          'el mapa cambia de forma y el chequeo se queda sin códigos que buscar: tiene que ponerse ' +
+          'ROJO por no poder medir, no verde por no encontrar nada',
+      },
       {
         archivo: 'src/services/accruals/provisions-run.ts',
         de: "  const base = await getPolicy(ctx, 'provision_base_salarial');",
