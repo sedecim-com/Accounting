@@ -109,14 +109,14 @@ export async function getTaxParameters(
   // So: the cache key carries the year, and when no date is given the default
   // stays INSIDE the requested year — today if today belongs to it, and its
   // last day otherwise. A historical exercise never borrows the present.
-  // La fecha llega como cadena o como Date: J0.2 la pasa construida con
-  // `new Date(Date.UTC(...))` y el resto del subsistema en `YYYY-MM-DD`. Se
-  // normaliza aquí en vez de obligar a cada llamador, que es como se cuelan las
-  // conversiones de zona horaria.
-  const pedida =
+  // The date arrives as a string or as a Date: J0.2 builds it with
+  // `new Date(Date.UTC(...))` and the rest of the subsystem speaks
+  // `YYYY-MM-DD`. It is normalised here rather than at every call site, which
+  // is how timezone conversions creep in.
+  const requested =
     effectiveDate instanceof Date ? effectiveDate.toISOString().slice(0, 10) : effectiveDate;
   const today = new Date().toISOString().slice(0, 10);
-  const day = pedida ?? (today.startsWith(`${taxYear}-`) ? today : `${taxYear}-12-31`);
+  const day = requested ?? (today.startsWith(`${taxYear}-`) ? today : `${taxYear}-12-31`);
 
   // AND THE TWO ARGUMENTS MUST AGREE (WIT-04).
   //
