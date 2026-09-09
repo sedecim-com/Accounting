@@ -118,7 +118,7 @@ Sólo para `npm run test:integration`, que crea y destruye una base efímera por
 
 ### Lo que `.env.example` no lista
 
-El ejemplo es el mínimo para trabajar, no el inventario completo. `src/config/index.ts` también lee, entre otras: `DATABASE_SSL_MODE` y `DATABASE_SSL_CA` (TLS; sin valor explícito se infiere `disable` en local y `verify-full` fuera), `DATABASE_SSH_HOST` y compañía (túnel SSH hacia una base autoalojada, para no exponer el 5432 a internet), `DATABASE_PROVIDER`, `AUTH_OIDC_*` (identidad externa), `PAC_*`, `SAT_STATUS_MODE`, `RATE_LIMIT_*`, y las dos banderas de apagado que menciona [[Home]]: `GRAPHQL_ENABLED` y `PUBLIC_VERIFICATION_ENABLED`.
+El ejemplo es el mínimo para trabajar, no el inventario completo. `src/config/index.ts` también lee, entre otras: `DATABASE_SSL_MODE` y `DATABASE_SSL_CA` (TLS; sin valor explícito se infiere `disable` en local y `verify-full` fuera), `DATABASE_SSH_HOST` y compañía (túnel SSH hacia una base autoalojada, para no exponer el 5432 a internet), `DATABASE_PROVIDER`, `AUTH_OIDC_*` (identidad externa), `PAC_*`, `SAT_STATUS_MODE`, `RATE_LIMIT_*`, y la bandera de apagado que menciona [[Home]]: `PUBLIC_VERIFICATION_ENABLED`. (Hubo una segunda, `GRAPHQL_ENABLED`, que ya no enciende nada: la superficie se retiró en T14b.)
 
 ---
 

@@ -2728,6 +2728,90 @@ export const CRITERIOS: Criterio[] = [
   // ---- E2.1 · Perímetro ----
   {
     paquete: 'E2.1',
+    id: 'graphql-surface-withdrawn',
+    enunciado: 'La segunda puerta al mayor está retirada, y no puede volver en silencio',
+    evaluar: () => {
+      // T14b (#101). Aquí vivían DOS criterios sobre una superficie GraphQL
+      // apagada tras `GRAPHQL_ENABLED`. Se retiró entera —1 862 líneas y cero
+      // consumidores: ningún cliente en el árbol, ningún .graphql, y
+      // `npm run graphql:codegen` sin siquiera binario— y con ella se fue el
+      // argumento escrito para conservarla, que decía «this repository has no
+      // version control, and 891 lines are not recoverable once removed». Hay
+      // git, y las líneas eran el doble de las que ese comentario contaba.
+      //
+      // POR QUÉ ESTE CRITERIO MIDE HECHOS POSITIVOS. El que sustituye empezaba
+      // así:
+      //     if (!/graphql/i.test(idx)) return ok('GraphQL no está montado');
+      // Verde por AUSENCIA DE UNA PALABRA en un archivo. Reproducido: mudando
+      // el montaje a otro fichero la superficie seguía sirviendo —401 en
+      // /graphql sin credencial, 200 con un JWT de owner— y el tablero no
+      // cambiaba un carácter. Y con una asimetría que lo remata: quitar la
+      // bandera EN SU SITIO lo ponía en ROJO, y mudar el montaje además de
+      // quitarla lo ponía en VERDE, siendo la segunda estrictamente peor.
+      //
+      // Y NO SE MIDE CON EL CENSO DE RUTAS, que era la reparación evidente:
+      // `censarRutas` recorre `layer.route`, y un `app.use(ruta, manejador)` no
+      // crea ninguna. Medido: 185 rutas censadas y ninguna era /graphql. El
+      // repositorio ya lo tenía fijado por escrito en
+      // tests/integration/g4a-ataque.int.spec.ts, «lo que el censo NO alcanza».
+      if (existe('src/api/graphql')) {
+        return falla('src/api/graphql volvió al árbol: la segunda puerta al mayor está de vuelta');
+      }
+      // EL ANCLA DURA ES LA DEPENDENCIA. El directorio se renombra; un servidor
+      // de Apollo no se monta sin su paquete. Esto es lo que hace que el
+      // criterio no dependa de DÓNDE viva el montaje, que es justo lo que
+      // cegaba al anterior.
+      const paquete = crudoDe('package.json');
+      const vueltas: string[] = [];
+      if (/"@apollo\/server"\s*:/.test(paquete)) vueltas.push('@apollo/server');
+      if (/"@graphql-tools\/[^"]+"\s*:/.test(paquete)) vueltas.push('@graphql-tools/*');
+      if (/"@as-integrations\/[^"]+"\s*:/.test(paquete)) vueltas.push('@as-integrations/*');
+      if (/"graphql"\s*:/.test(paquete)) vueltas.push('graphql');
+      if (vueltas.length > 0) {
+        return falla(
+          `${vueltas.join(', ')} volvió a package.json: sin paquete no hay puerta, así que esto es lo primero ` +
+            'que aparece cuando alguien la remonta, se llame como se llame el directorio'
+        );
+      }
+      // Y que ningún fuente la importe, mirando CÓDIGO y no comentarios: los
+      // comentarios que cuentan esta historia son deliberados y se quedan.
+      const importadores = dondeAparece(/@apollo\/|from 'graphql'|api\/graphql\//, ['src'], true);
+      if (importadores.length > 0) {
+        return falla(
+          `${importadores.length} fuente(s) vuelven a importar la puerta retirada: ${importadores.slice(0, 4).join(', ')}`
+        );
+      }
+      if (/['"]\/graphql['"]/.test(codigoDe('src/index.ts'))) {
+        return falla('algo volvió a montarse en /graphql, la ruta que quedaba fuera del prefijo auditado');
+      }
+      return ok(
+        'la segunda puerta está retirada: no está en el árbol, no está en las dependencias, ningún fuente la importa y nada se monta en /graphql'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'package.json',
+        de: '"express":',
+        a: '"@apollo/server": "^5.5.1",\n    "express":',
+        porque: 'el paquete vuelve: es el ancla que no depende de dónde se ponga el montaje, y tiene que acusar sola',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: "import express from 'express';",
+        a: "import express from 'express';\nimport { ApolloServer } from '@apollo/server';",
+        porque: 'un fuente vuelve a importar la puerta retirada: el barrido tiene que verlo aunque el paquete no esté declarado',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: 'app.use(helmet());',
+        a: "app.use('/graphql', helmet());",
+        porque: 'algo vuelve a montarse en /graphql — y el censo de rutas NO lo ve, que es exactamente lo que cegaba al criterio anterior',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E2.1',
     id: 'tenant-context-mounted-globally',
     enunciado: 'El contexto de inquilino se monta una sola vez para todo /v1',
     evaluar: () => {
@@ -2808,153 +2892,6 @@ export const CRITERIOS: Criterio[] = [
               '. Basta la cabecera x-entity-id para trabajar sobre otra entidad del mismo inquilino'
           );
     },
-  },
-  {
-    paquete: 'E2.1',
-    id: 'graphql-mounted-behind-flag',
-    enunciado: 'GraphQL no expone mutaciones al mayor fuera del prefijo auditado',
-    evaluar: () => {
-      const idx = codigoDe('src/index.ts');
-      if (!/graphql/i.test(idx)) return ok('GraphQL no está montado');
-      return /graphqlEnabled/.test(idx)
-        ? ok('montado sólo tras GRAPHQL_ENABLED, apagado por omisión')
-        : falla('GraphQL montado sin compuerta: dos mutaciones llegan al motor de posteo sin permisos');
-    },
-  },
-  {
-    paquete: 'E2.1',
-    id: 'graphql-mutation-permission-gate',
-    enunciado: 'Ninguna mutación de GraphQL entra al motor sin permiso, y una nueva no puede nacer sin él',
-    evaluar: () => {
-      // La bandera del criterio anterior compra tiempo, no seguridad: el día
-      // que alguien la encienda, lo que decide es esto. Los resolutores
-      // declaraban `permissions` en su contexto y NO LO LEÍAN: las cinco
-      // mutaciones comprobaban pertenencia de entidad y ninguna comprobaba
-      // permiso, de modo que un `viewer` posteaba al mayor y cerraba el
-      // ejercicio en duro donde REST le habría dado 403.
-      //
-      // Lo que se vigila aquí NO es que las de hoy estén tapadas —eso lo
-      // prueban las pruebas—: es que la SIGUIENTE no pueda nacer abierta. El
-      // esquema declara quince mutaciones; cuando esto se escribió había cinco
-      // y entre las diez ausentes estaban timbrar y cancelar un CFDI ante el
-      // SAT. Hoy hay doce y TRES ausencias dichas: las dos del SAT se
-      // implementaron y se retiraron al ver que no hay servicio en el que
-      // delegar —copiarían una regla fiscal— y que por esta puerta el acto
-      // irreversible quedaría sin autor. Así que se lee el
-      // ESQUEMA, que es el contrato, y se exige de cada mutación declarada una
-      // de dos cosas: resolutor CON permiso declarado, o ausencia dicha con su
-      // motivo. Y que la puerta siga siendo una, y siga lanzando.
-      const esquema = crudoDe('src/api/graphql/schemas/schema.ts');
-      const bloque = /type Mutation \{([\s\S]*?)\n {2}\}/.exec(esquema);
-      if (!bloque) {
-        return falla('no se pudo leer `type Mutation` del esquema: sin contrato que leer, la compuerta no juzga nada');
-      }
-      const declaradas = [...bloque[1].matchAll(/^\s+(\w+)\s*[(:]/gm)].map((m) => m[1]);
-      if (declaradas.length === 0) return falla('el esquema no declara ninguna mutación: el bloque se leyó vacío');
-
-      const puerta = codigoDe('src/api/graphql/permisos.ts');
-      const resolutores = codigoDe('src/api/graphql/resolvers/index.ts');
-
-      // UNA sola puerta, no cinco comprobaciones repartidas: las raíces
-      // enteras entran por ella, o el resto de este criterio no significa nada.
-      // Se miran las TRES —Subscription incluida, que hoy no tiene resolutores
-      // y declara cuatro campos en el esquema—: una suscripción es una lectura
-      // continua, y el día que alguien escriba `Subscription: {` por fuera,
-      // esto es lo que lo acusa.
-      const sueltas = ['Query', 'Mutation', 'Subscription'].filter(
-        (r) =>
-          new RegExp(`^ {2}${r}:`, 'm').test(resolutores) &&
-          !new RegExp(`${r}:\\s*blindar\\(\\s*'${r}'`).test(resolutores)
-      );
-      if (sueltas.length > 0) {
-        return falla(
-          `${sueltas.join(', ')}: raíz de GraphQL servida por fuera de la puerta única. Cada resolutor vuelve ` +
-            'a decidir por su cuenta, que es como se olvidó el permiso en las cinco primeras'
-        );
-      }
-      if (!/Mutation:\s*blindar\(\s*'Mutation'/.test(resolutores) ||
-          !/Query:\s*blindar\(\s*'Query'/.test(resolutores)) {
-        return falla(
-          'las dos raíces que hoy se sirven dejaron de pasar por la puerta única de permisos'
-        );
-      }
-
-      // Y la compuerta se alimenta del esquema y LANZA. Si sólo avisara, la
-      // mutación nueva sin permiso se montaría igual.
-      // El ancla nombra la llamada EXACTA que audita la raíz y lanza. Bastaba
-      // con «hay un throw de CompuertaAbiertaError en el archivo» hasta que
-      // `blindarCampos` añadió el suyo para los resolutores de campo: entonces
-      // desarmar el de la raíz dejaba el criterio en verde porque seguía viendo
-      // el otro. Un criterio que se satisface con el guardia de al lado no
-      // vigila al suyo.
-      const raizAuditaYLanza =
-        /auditarRaiz\(\s*typeDefs/.test(puerta) &&
-        /throw new CompuertaAbiertaError\(huecos\);/.test(puerta);
-      const camposLanzan = /sinCatalogo\.length > 0[\s\S]{0,200}?throw new CompuertaAbiertaError/.test(
-        puerta
-      );
-      if (!raizAuditaYLanza || !camposLanzan) {
-        return falla(
-          'la compuerta dejó de contrastar el esquema o de lanzar al cargar: una mutación sin permiso volvería ' +
-            'a poder montarse'
-        );
-      }
-
-      const implementada = (n: string): boolean => new RegExp(`\\basync ${n}\\s*\\(`).test(resolutores);
-      // Un permiso declarado es una lista con al menos un `recurso:accion`
-      // dentro: `n: []` es una puerta que pregunta por nada.
-      const conPermiso = (n: string): boolean => new RegExp(`\\b${n}:\\s*\\['[a-z_]+:[a-z_*]+'`).test(puerta);
-      // Una ausencia declarada es el nombre seguido de su motivo en prosa.
-      const ausenciaDicha = (n: string): boolean => new RegExp(`\\b${n}:\\s*'`).test(puerta);
-
-      const sinPuerta = declaradas.filter((n) => implementada(n) && !conPermiso(n));
-      if (sinPuerta.length > 0) {
-        return falla(
-          `${sinPuerta.join(', ')}: tienen resolutor y ningún permiso declarado. Llegan al motor con sólo ` +
-            'pertenencia de entidad, igual que antes'
-        );
-      }
-
-      const huerfanas = declaradas.filter((n) => !implementada(n) && !ausenciaDicha(n));
-      if (huerfanas.length > 0) {
-        return falla(
-          `${huerfanas.join(', ')}: el esquema las declara y no están ni implementadas con permiso ni ` +
-            'declaradas ausentes con su motivo. La siguiente se implementa sin puerta'
-        );
-      }
-
-      const conResolutor = declaradas.filter(implementada).length;
-      return ok(
-        `${declaradas.length} mutaciones declaradas: ${conResolutor} con permiso exigido por la puerta única y ` +
-          `${declaradas.length - conResolutor} con su ausencia dicha`
-      );
-    },
-    mutantes: [
-      {
-        archivo: 'src/api/graphql/resolvers/index.ts',
-        de: "Mutation: blindar('Mutation', {",
-        a: 'Mutation: ({',
-        porque: 'la puerta se desmonta y cada resolutor vuelve a decidir solo: el criterio no puede medir el catálogo y bendecirlo',
-      },
-      {
-        archivo: 'src/api/graphql/permisos.ts',
-        de: 'throw new CompuertaAbiertaError(huecos);',
-        a: 'void huecos;',
-        porque: 'la compuerta pasa de lanzar a callar: un aviso que nadie lee no impide montar la mutación nueva',
-      },
-      {
-        archivo: 'src/api/graphql/permisos.ts',
-        de: "postJournalEntry: ['journal_entries:post'],",
-        a: 'postJournalEntry: [],',
-        porque: 'el permiso se vacía sin quitar la entrada: la puerta sigue puesta y no pregunta nada (presencia donde hacía falta contenido)',
-      },
-      {
-        archivo: 'src/api/graphql/schemas/schema.ts',
-        de: '    hardClosePeriod(periodId: ID!, entityId: ID!): FiscalPeriod!',
-        a: '    hardClosePeriod(periodId: ID!, entityId: ID!): FiscalPeriod!\n    approveBill(id: ID!): Boolean!',
-        porque: 'la mutación nueva que nadie declaró en el catálogo: es el escape que este criterio existe para acusar',
-      },
-    ],
   },
   {
     paquete: 'E2.1',
