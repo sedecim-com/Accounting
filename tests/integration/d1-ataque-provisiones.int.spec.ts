@@ -444,6 +444,56 @@ describe('dos entidades del mismo inquilino', () => {
 });
 
 // ── 5 · LA PTU APAGADA: NI UN RENGLÓN, Y DICHO ──────────────────────────
+describe('la frontera de entidad, comprobada contra POSTGRES y no contra la consulta', () => {
+  it('una cédula de una entidad NO puede apuntar al asiento de su hermana', async () => {
+    // WIT-01 de #180. La cédula apuntaba al asiento con una foránea SIMPLE
+    // —`REFERENCES journal_entries(id)`—, y eso deja pasar lo que las otras dos
+    // foráneas de la misma tabla ya impiden. RLS no lo tapa: acota por
+    // INQUILINO, y estas dos entidades viven bajo el mismo. Un despacho con dos
+    // sociedades es el caso normal, no el raro.
+    //
+    // SE ATACA POR SQL CRUDO A PROPÓSITO. Lo que se afirma no es que el motor
+    // escriba bien —eso ya lo miden las pruebas de arriba—, sino que la BASE se
+    // niegue aunque el código se equivoque. Si esto se comprobara llamando al
+    // motor, mediría la consulta y no la frontera.
+    enterTenant(A.tenantId);
+
+    // Un asiento REAL de la hermana, con su propia entidad.
+    const { rows: deLaHermana } = await query<{ id: string }>(
+      `SELECT id FROM journal_entries WHERE entity_id = $1 LIMIT 1`,
+      [HERMANA.entityId]
+    );
+    const asientoAjeno = deLaHermana[0]?.id;
+    expect(asientoAjeno, 'la hermana no tiene ningún asiento que intentar robar').toBeDefined();
+
+    // Y un trabajador y un periodo PROPIOS de A, para que lo único ajeno sea
+    // el asiento: si fallara por otra cosa, la prueba no diría nada.
+    const { rows: propios } = await query<{ emp: string; per: string }>(
+      `SELECT e.id AS emp, fp.id AS per
+         FROM employees e
+         JOIN fiscal_periods fp ON fp.entity_id = e.entity_id
+        WHERE e.entity_id = $1 AND fp.period_number = 11
+        LIMIT 1`,
+      [A.entityId]
+    );
+    expect(propios[0], 'el escenario de A no tiene trabajador y periodo propios').toBeDefined();
+
+    await expect(
+      query(
+        `INSERT INTO benefit_provision_schedules
+           (id, entity_id, employee_id, fiscal_period_id, provision_date, days_accrued,
+            aguinaldo_amount, vacaciones_amount, prima_vacacional_amount,
+            is_posted, journal_entry_id)
+         VALUES ($1, $2, $3, $4, '2026-11-30', 30,
+                 '100.0000', '100.0000', '25.0000', true, $5)`,
+        [uuidv4(), A.entityId, propios[0].emp, propios[0].per, asientoAjeno]
+      ),
+      'Postgres aceptó una cédula de A colgada del asiento de su hermana: la frontera de ' +
+        'entidad no está en el esquema, sólo en la consulta que alguien recuerde escribir'
+    ).rejects.toThrow(/fk_provision_asiento_entidad|foreign key|violates/i);
+  });
+});
+
 describe('la PTU con el panel en su valor por omisión', () => {
   it('no aparece en ninguna línea del mayor de la entidad, y el resultado lo declara', async () => {
     enterTenant(A.tenantId);

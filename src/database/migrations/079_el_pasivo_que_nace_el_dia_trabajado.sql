@@ -77,6 +77,22 @@
 CREATE UNIQUE INDEX IF NOT EXISTS uq_employees_id_entity
     ON employees (id, entity_id);
 
+-- ── 0b. Y EL BLANCO SOBRE `journal_entries` (WIT-01 de #180) ────────────
+--
+-- La cédula apuntaba al asiento con una foránea SIMPLE, `REFERENCES
+-- journal_entries(id)`, y eso deja pasar lo que las otras dos foráneas de esta
+-- misma tabla ya impiden: una cédula de la entidad A referenciando el asiento
+-- de la entidad B. Las compuestas de trabajador y periodo no cubren ese
+-- vínculo, y RLS tampoco —acota por INQUILINO, y dos entidades hermanas viven
+-- bajo el mismo—. Un despacho con dos sociedades es el caso normal, no el raro.
+--
+-- El daño no es teórico: `journal_entry_id` es lo que la cédula usa para decir
+-- de quién es cada peso del pasivo y para saber si el renglón sigue vigente
+-- tras una reversa. Apuntando a un asiento ajeno, el auxiliar de una sociedad
+-- se explicaría con el mayor de otra.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_journal_entries_id_entity
+    ON journal_entries (id, entity_id);
+
 -- ── 1. LA CÉDULA: UN TRABAJADOR, UN PERIODO, TRES CONCEPTOS ─────────────
 CREATE TABLE benefit_provision_schedules (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -121,7 +137,8 @@ CREATE TABLE benefit_provision_schedules (
         (aguinaldo_amount + vacaciones_amount + prima_vacacional_amount) STORED,
 
     is_posted BOOLEAN NOT NULL DEFAULT false,
-    journal_entry_id UUID REFERENCES journal_entries(id),
+    -- SIN foránea suelta aquí: la lleva compuesta con la entidad, abajo.
+    journal_entry_id UUID,
 
     -- CON QUÉ SE CALCULÓ ESTE RENGLÓN: la base salarial y la convención de
     -- vacaciones que el panel decía el día de la corrida, el salario diario, y
@@ -148,7 +165,14 @@ CREATE TABLE benefit_provision_schedules (
         REFERENCES employees (id, entity_id),
     CONSTRAINT fk_provision_periodo_entidad
         FOREIGN KEY (fiscal_period_id, entity_id)
-        REFERENCES fiscal_periods (id, entity_id)
+        REFERENCES fiscal_periods (id, entity_id),
+    -- LA TERCERA, QUE FALTABA. Con la foránea simple, una cédula de A podía
+    -- apuntar al asiento de B y Postgres la aceptaba. Ahora el par tiene que
+    -- coincidir, y quien lo comprueba es la base, no la consulta que alguien
+    -- se acuerde de escribir.
+    CONSTRAINT fk_provision_asiento_entidad
+        FOREIGN KEY (journal_entry_id, entity_id)
+        REFERENCES journal_entries (id, entity_id)
 );
 
 CREATE INDEX idx_provision_trabajador ON benefit_provision_schedules (employee_id);
