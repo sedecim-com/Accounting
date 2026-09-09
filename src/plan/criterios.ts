@@ -4659,6 +4659,97 @@ export const CRITERIOS: Criterio[] = [
       },
     ],
   },
+  {
+    paquete: 'E0.0',
+    id: 'delivery-history-completeness-gate',
+    enunciado: 'El historial de entrega no puede quedarse atrás de lo entregado',
+    evaluar: () => {
+      // docs/HISTORY.md se reconstruyó una vez contra el árbol, porque el
+      // artefacto anterior narraba sprints cuyos hashes no existen en `main`.
+      // Quedó bien, y volvió a caducar por la única vía que quedaba: nadie lo
+      // miró. Medido el 2026-09-08 decía que el PR #53 estaba ABIERTO —llevaba
+      // un día fusionado— y no nombraba los dieciséis siguientes. Un historial
+      // de entrega equivocado sobre lo entregado es exactamente el artefacto
+      // contra el que advierte su propia cabecera.
+      if (!existe('scripts/historial-estado.ts') || !existe('docs/HISTORY.md')) {
+        return falla('el guardián del historial desapareció: el documento volvería a caducar en silencio');
+      }
+      const script = codigoDe('scripts/historial-estado.ts');
+      // LO QUE EXIGE, que es lo único que impide que falte una fila.
+      if (!/censo\.atrasados\.length > 0/.test(script)) {
+        return falla('el guardián dejó de exigir los PRs atrasados: sólo verificaría que su censo cuadra consigo mismo');
+      }
+      // Y la deuda tiene TECHO. Sin él, la gracia sería una amnistía: bastaría
+      // subirla para que el documento no volviera a caducar «todavía».
+      if (!/const DIAS_DE_GRACIA = \d+;/.test(script)) {
+        return falla('la gracia del historial dejó de tener techo declarado: el atraso podría crecer sin límite');
+      }
+      // Y LA GRACIA SE MIDE CONTRA EL RELOJ, no contra el árbol. La primera
+      // versión usaba la fecha del commit más reciente, y así el PR sin fila
+      // que ERA la punta tenía antigüedad 0 para siempre: la compuerta prometía
+      // fallar a los siete días y no fallaba nunca para justo el último, que es
+      // el que más importa.
+      if (!/const hoy = new Date\(\)\.toISOString\(\)/.test(script)) {
+        return falla('la gracia volvió a medirse contra la fecha del árbol: un PR sin fila que sea la punta no envejecería nunca');
+      }
+      // Y QUE NO SE SALTE CUANDO NO PUEDE MIRAR. `actions/checkout` clona a
+      // profundidad 1 por omisión: sin esto el recorrido vería UN commit y el
+      // documento saldría verde sin comprobarse. Es el falso verde que tenía
+      // `doctor` antes del T1b, contando sin contexto de inquilino.
+      if (!/cortesSuperficiales\(\)\.has/.test(script)) {
+        return falla('el guardián dejó de detectar la historia truncada: en un clon superficial saldría en verde sin haber contado nada');
+      }
+      // La compuerta corre en CI o es un comando que nadie teclea. Se mide
+      // sobre el YAML SIN sus comentarios: si no, la propia prosa que explica
+      // el paso lo pondría verde aunque el paso se hubiera borrado — el modo
+      // exacto en que nacieron verdes por accidente otros dos criterios.
+      const ci = crudoDe('.github', 'workflows', 'ci.yml').replace(/^[ \t]*#.*$/gm, '');
+      if (!/historial-estado\.ts --check/.test(ci)) {
+        return falla('la compuerta del historial no está en CI: sería una comprobación optativa');
+      }
+      if (!/fetch-depth: 0/.test(ci)) {
+        return falla('el checkout dejó de pedir profundidad completa: el guardián no podría recorrer la historia');
+      }
+      if (!/HISTORIAL-GENERADO:INICIO/.test(crudoDe('docs/HISTORY.md'))) {
+        return falla('el documento perdió los marcadores del censo: nadie podría regenerarlo ni compararlo');
+      }
+      return ok(
+        'el historial se verifica contra `git log --first-parent` en CI, con profundidad completa y fallando cuando no puede mirar'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'censo.atrasados.length > 0',
+        a: 'censo.atrasados.length > 99999',
+        porque: 'la compuerta deja de acusar los PRs que faltan: el historial podría volver a quedarse dieciséis PRs atrás, en verde',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'const hoy = new Date().toISOString()',
+        a: 'const hoy = (vertebral[0]?.fecha ?? new Date().toISOString())',
+        porque: 'la gracia vuelve a medirse contra el árbol: el PR sin fila que sea la punta tendría antigüedad cero para siempre y la compuerta no fallaría jamás por él',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'const DIAS_DE_GRACIA = 7;',
+        a: 'const GRACIA_SIN_TECHO = 7;',
+        porque: 'la gracia deja de tener techo declarado: pasaría de ser una deuda acotada a una amnistía',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'cortesSuperficiales().has',
+        a: 'new Set<string>().has',
+        porque: 'el guardián deja de ver que la historia está truncada: en el checkout por omisión de CI contaría un commit y firmaría el verde',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'historial-estado.ts --check',
+        a: 'historial-estado.ts # --check',
+        porque: 'el paso deja de verificar y pasa a REGENERAR: saldría siempre en verde reescribiendo el censo en vez de exigirlo',
+      },
+    ],
+  },
   // ---- S3 · Respaldo, restauración y el corredor que no rellenaba ----
 
   {
