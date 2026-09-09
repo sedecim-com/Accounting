@@ -2,11 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import { ApolloServer } from '@apollo/server';
-// Apollo Server 5 retiró el subpath `@apollo/server/express4`: la integración con
-// Express vive ahora en un paquete propio. Seguimos en Express 4, así que el
-// paquete es el de la versión 4, no el de la 5.
-import { expressMiddleware } from '@as-integrations/express4';
 import { config } from './config/index.js';
 import { query, closeDatabase, initDatabase } from './database/connection.js';
 import { verificarRolSujetoARls } from './database/rls-guard.js';
@@ -21,9 +16,6 @@ import { resolverTrustProxy } from './api/rest/trust-proxy.js';
 import { metricsMiddleware, metricsHandler } from './api/rest/middleware/metrics.js';
 import { correlationIdMiddleware, enrichLogContextMiddleware } from './api/rest/middleware/correlation.js';
 import { logger } from './utils/logger.js';
-import { formatearError } from './api/graphql/errores.js';
-import { typeDefs } from './api/graphql/schemas/schema.js';
-import { resolvers } from './api/graphql/resolvers/index.js';
 
 // Route imports. La tabla del prefijo autenticado vive en montajes.ts para
 // que la prueba del censo de riesgo monte EXACTAMENTE lo que monta esto.
@@ -70,33 +62,17 @@ async function bootstrap() {
   // ============================================================
   // Middleware
   // ============================================================
-  // CSP ENCENDIDO EN TODOS LOS ENTORNOS, con una sola excepción declarada.
+  // CSP ENCENDIDO EN TODOS LOS ENTORNOS, y ya sin excepciones.
   //
   // Estaba apagado fuera de producción —`js/insecure-helmet-configuration`— y
-  // la razón original era el playground de GraphQL, cuya landing page carga
-  // scripts de un CDN que CSP bloquea. Pero GraphQL ya viene APAGADO por
-  // omisión, así que la excepción sólo hace falta cuando alguien lo enciende
-  // a propósito en desarrollo. La API sirve JSON: encender CSP no le cuesta
-  // nada y quita una diferencia entre lo que se prueba y lo que se despliega.
-  //
-  // Y la excepción NO apaga CSP: lo declara. Poner
-  // `contentSecurityPolicy: false` seguía siendo la misma alerta
-  // (`js/insecure-helmet-configuration`) escrita más pequeña — dejaba una
-  // ruta de ejecución sin ninguna política. En vez de eso, el playground
-  // recibe las directivas por omisión de helmet con el CDN que su landing
-  // necesita añadido a script/style/img, y nada más. La política sigue
-  // aplicándose en los dos caminos; lo único que cambia es cuánto permite.
-  const playgroundGraphql = process.env.GRAPHQL_ENABLED === 'true' && config.env !== 'production';
-  const CDN_PLAYGROUND = 'https://cdn.jsdelivr.net';
-  const cspPlayground = {
-    directives: {
-      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      'script-src': ["'self'", "'unsafe-inline'", CDN_PLAYGROUND],
-      'style-src': ["'self'", "'unsafe-inline'", CDN_PLAYGROUND],
-      'img-src': ["'self'", 'data:', CDN_PLAYGROUND],
-    },
-  };
-  app.use(helmet({ contentSecurityPolicy: playgroundGraphql ? cspPlayground : undefined }));
+  // la razón era el playground de GraphQL, cuya landing page cargaba scripts de
+  // un CDN que CSP bloquea. Con la segunda puerta retirada (T14b) esa excepción
+  // se queda sin motivo: desaparecen el CDN de `script-src`, `style-src` e
+  // `img-src`, y con ellos el `'unsafe-inline'` que la landing exigía. La API
+  // sirve JSON; CSP no le cuesta nada y ya no hay ninguna ruta de ejecución con
+  // una política más floja que la que se despliega.
+  // ============================================================
+  app.use(helmet());
   // CORS explícito por entorno (S1): `cors()` a secas publica
   // Access-Control-Allow-Origin: * también en producción. La API la consumen
   // el CLI y agentes (sin navegador), así que producción sin ALLOWED_ORIGINS
@@ -214,105 +190,6 @@ async function bootstrap() {
   }
 
   // ============================================================
-  // GraphQL API — DISABLED BY DEFAULT
-  //
-  // This is a second door into the same engine, and it is measurably the
-  // less safe one:
-  //   · it is mounted at /graphql, OUTSIDE the /v1 prefix, so it bypasses the
-  //     AUDIT middleware every REST route carries: lo que pasa por aquí no deja
-  //     la fila de PETICIÓN —la que lleva IP, agente y request_id—. La fila del
-  //     HECHO contable sí queda: la escriben los servicios dentro de su propia
-  //     transacción. Los dos frenos —por IP y por inquilino— sí los
-  //     lleva ya, uno a cada lado de `authenticate`, igual que /v1;
-  //     y hasta TEN-2 también se saltaba `tenantContext`, que es el que abre
-  //     el contexto que leen las políticas de RLS. Sin él la consulta viaja
-  //     directa al pool SIN inquilino: con el rol mnemosine_app habría
-  //     devuelto cero filas y con un rol dueño o superusuario —que ignora
-  //     RLS— las de TODOS los inquilinos. Ya va montado;
-  //   · sus mutaciones llegaban al motor de posteo con `authenticate` y nada
-  //     más: ni un `requirePermission` en los 393 renglones de resolutores, de
-  //     modo que un `viewer` posteaba al mayor y cerraba el ejercicio. YA NO:
-  //     todos los campos de Query y Mutation entran por `blindar`
-  //     (api/graphql/permisos.ts), que exige el MISMO permiso que la ruta REST
-  //     equivalente con el MISMO código (`assertPermissions`), y que al cargar
-  //     contrasta el esquema contra el catálogo: una mutación declarada que no
-  //     esté implementada-con-permiso o listada como ausente impide que los
-  //     resolutores se carguen. Lo que sigue faltando aquí es la fila de
-  //     `audit_log` que escribe `auditLogMiddleware` con IP y agente; el rastro
-  //     CONTABLE no falta, porque posting.ts y period-close.ts escriben su
-  //     renglón dentro de la misma transacción del hecho;
-  //   · nothing in this repository consumes it. There is no web, ui, client
-  //     or frontend directory; the only importer is this file.
-  //
-  // It is gated rather than deleted because this repository has no version
-  // control, and 891 lines are not recoverable once removed. Set
-  // GRAPHQL_ENABLED=true to bring it back — ya no «exactly as it was»: las
-  // mutaciones ya piden permiso. Lo que falta antes de exponerlo de verdad es
-  // mover el montaje dentro del prefijo auditado y tapar los campos del
-  // esquema que no existen (están inventariados, uno por uno, en
-  // api/graphql/permisos.ts).
-  // ============================================================
-  const graphqlEnabled = process.env.GRAPHQL_ENABLED === 'true';
-  type GraphqlContext = {
-    user: import('./types/index.js').JwtPayload | undefined;
-    tenantId: string | undefined;
-    entityId: string | undefined;
-    entidadDeCabecera: string | undefined;
-  };
-  const apolloServer = new ApolloServer<GraphqlContext>({
-    typeDefs,
-    resolvers,
-    // La traducción vive en su propio módulo para poder probarla: aquí
-    // dentro de bootstrap() no la alcanza ninguna prueba.
-    formatError: formatearError,
-  });
-
-  await apolloServer.start();
-
-  if (graphqlEnabled) {
-    app.use(
-      '/graphql',
-      preAuthRateLimiter,
-      authenticate,
-      // Igual que en /v1: justo después de authenticate y antes de nada que
-      // toque la base. Que esta puerta esté fuera del prefijo auditado no es
-      // razón para que además corra sin inquilino.
-      tenantContext,
-      // EL SEGUNDO FRENO, el que acota POR INQUILINO. `preAuthRateLimiter` va
-      // arriba y cuenta por IP, que es lo que impide que verificar un JWT sea
-      // trabajo gratis para el no autenticado; éste cuenta por inquilino y por
-      // eso va DESPUÉS de authenticate, que es quien dice de quién es la
-      // petición. /v1 lleva los dos desde siempre y esta puerta sólo llevaba el
-      // primero: medido, un principal autenticado que rota de IP pasaba las
-      // ocho peticiones por aquí y ninguna por /v1.
-      //
-      // No se pone para callar a `js/missing-rate-limiting`: esa regla no
-      // reconoce estos middlewares —modela cinco paquetes que este repo no usa—
-      // y sigue abierta sobre /v1, que ya los tiene ambos. Se pone porque el
-      // hueco es real.
-      rateLimiter,
-      expressMiddleware(apolloServer, {
-        context: async ({ req }) => ({
-          user: req.user,
-          tenantId: req.tenantId,
-          entityId: req.entityId,
-          // La cabecera CRUDA, aparte de `entityId`. `authenticate` deja
-          // `req.entityId = cabecera || entities[0]`, así que ese campo no dice
-          // si el cliente pidió algo o se le puso de relleno — y la regla de
-          // «una petición nombra una sola entidad» distingue justo eso.
-          entidadDeCabecera:
-            typeof req.headers['x-entity-id'] === 'string' ? req.headers['x-entity-id'] : undefined,
-        }),
-      })
-    );
-    logger.warn(
-      'GraphQL is mounted at /graphql. Its mutations now demand the same permissions as their REST ' +
-        'equivalents, but it still sits outside the audited /v1 prefix: no audit_log row with IP and ' +
-        'user agent (the ledger trail written by the services is unaffected).'
-    );
-  }
-
-  // ============================================================
   // CENSO DE RIESGO DE RUTAS — la compuerta que hace que la API declare.
   //
   // El gemelo de esto en el CLI no hace falta llamarlo: `declareRisk` lanza
@@ -348,7 +225,6 @@ async function bootstrap() {
 ║         Accounting Core API Server               ║
 ║══════════════════════════════════════════════════║
 ║  REST API:    http://localhost:${config.port}/v1          ║
-${graphqlEnabled ? `║  GraphQL:     http://localhost:${config.port}/graphql     ║` : '║  GraphQL:     disabled (GRAPHQL_ENABLED=true to mount)   ║'}
 ║  Health:      http://localhost:${config.port}/health      ║
 ║  Live:        http://localhost:${config.port}/live        ║
 ║  Ready:       http://localhost:${config.port}/ready       ║
@@ -374,7 +250,6 @@ ${graphqlEnabled ? `║  GraphQL:     http://localhost:${config.port}/graphql   
       await new Promise<void>((resolve, reject) =>
         server.close((err) => (err ? reject(err) : resolve()))
       );
-      await apolloServer.stop();
       // Las atestaciones en vuelo, antes de cerrar el pool.
       //
       // `attestEntryAsync` es dispara-y-olvida: la promesa vive fuera de la
