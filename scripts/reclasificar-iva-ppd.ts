@@ -1,5 +1,8 @@
 #!/usr/bin/env tsx
-import 'dotenv/config';
+import dotenv from 'dotenv';
+// No `import 'dotenv/config'`: esa forma no acepta opciones y desde dotenv 17
+// imprime su anuncio en stdout, que aquí es la salida del guion.
+dotenv.config({ quiet: true });
 import { query, enterTenant, closeDatabase } from '../src/database/connection.js';
 import {
   censarIvaPpd,
