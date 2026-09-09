@@ -664,6 +664,51 @@ describe('importOpeningBalance · lo que LANZA', () => {
   });
 });
 
+describe('importOpeningBalance · la carrera que el índice de la 081 corta', () => {
+  it('el choque de unicidad se contesta con APE-YA-CARGADA, no con una excepción de Postgres', async () => {
+    // Quien pierde la carrera tiene que recibir un INFORME. Una excepción de
+    // Postgres saliendo por la superficie le diría al operador «algo reventó»
+    // de un caso que el sistema entiende perfectamente.
+    mockTx.mockImplementation(() => {
+      const e = new Error('duplicate key value violates unique constraint "uq_je_apertura_por_entidad_y_fecha"') as Error & {
+        code?: string;
+        constraint?: string;
+      };
+      e.code = '23505';
+      e.constraint = 'uq_je_apertura_por_entidad_y_fecha';
+      throw e;
+    });
+    const r = await importOpeningBalance(CTX, OPTS);
+    expect(r.escrito).toBe(false);
+    expect(r.asiento).toBeNull();
+    expect(r.findings.map((f) => f.regla)).toContain('APE-YA-CARGADA');
+    expect(r.findings.find((f) => f.regla === 'APE-YA-CARGADA')?.mensaje).toContain('mientras ésta');
+  });
+
+  it('se reconoce por el NOMBRE del índice: otro choque de unicidad SÍ sale', async () => {
+    // En la misma transacción entran la cabecera y las líneas. Tragarse
+    // cualquier 23505 como «ya estaba cargada» convertiría un defecto distinto
+    // —una llave de asiento repetida, por ejemplo— en un mensaje tranquilizador.
+    mockTx.mockImplementation(() => {
+      const e = new Error('duplicate key value violates unique constraint "uq_je_entry_number"') as Error & {
+        code?: string;
+        constraint?: string;
+      };
+      e.code = '23505';
+      e.constraint = 'uq_je_entry_number';
+      throw e;
+    });
+    await expect(importOpeningBalance(CTX, OPTS)).rejects.toThrow(/uq_je_entry_number/);
+  });
+
+  it('un error que no es de unicidad tampoco se disfraza', async () => {
+    mockTx.mockImplementation(() => {
+      throw new Error('la conexión se cayó');
+    });
+    await expect(importOpeningBalance(CTX, OPTS)).rejects.toThrow(/la conexión se cayó/);
+  });
+});
+
 describe('importOpeningBalance · lo que ESCRIBE', () => {
   it('postea UN asiento de ajuste, al primer día del ejercicio y con su source_type', async () => {
     const r = await importOpeningBalance(CTX, { ...OPTS, reason: 'migración desde CONTPAQi' });
