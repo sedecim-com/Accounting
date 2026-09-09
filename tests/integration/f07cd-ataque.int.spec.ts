@@ -1112,11 +1112,25 @@ describe('las tablas globales: lectura compartida, escritura sin gobierno', () =
     // importador, ni semilla, ni comando. Así que `bancos_sembrados` vale
     // false en toda instalación recién migrada y la comprobación de la clave
     // de banco nunca afirma nada.
-    const filas = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
-    expect(Number(filas.rows[0].n)).toBe(0);
+    // SE MIDE EL DELTA, NO EL ESTADO. La afirmación de esta prueba es que
+    // generar pólizas NO ESCRIBE en `sat_bancos` —escritura sin gobierno—, y
+    // exigir que la tabla esté VACÍA antes no es esa afirmación: es una
+    // precondición que depende de qué spec corrió primero. La suite comparte
+    // base, así que basta con que otro archivo la siembre para que ésta falle
+    // por una razón que no es la suya (pasa sola, falla acompañada).
+    //
+    // Contando antes y después se prueba lo que se quiere probar, con la tabla
+    // vacía o llena.
+    const antes = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
 
     const r = await generarPolizas(f.entityId, { periodo: periodoDe(10), solicitud: SOLICITUD });
     expect(r.meta.bancos_sembrados).toBe(false);
+
+    const despues = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
+    expect(
+      Number(despues.rows[0].n),
+      'generar pólizas escribió en sat_bancos: es un catálogo global y su escritura tiene que estar gobernada'
+    ).toBe(Number(antes.rows[0].n));
     const aviso = r.hallazgos.find((h) => h.check === 'banco-en-catalogo');
     expect(aviso?.severity).toBe('warning');
     expect(aviso?.detalle).toContain('sat_bancos');

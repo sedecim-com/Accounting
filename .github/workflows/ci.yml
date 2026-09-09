@@ -102,7 +102,16 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_plan
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_plan
     steps:
+      # PROFUNDIDAD COMPLETA, que aquí no es un lujo.
+      #
+      # `historial-estado.ts` cuenta los PRs que entraron a `main` recorriendo
+      # `git log --first-parent`. Con la profundidad por omisión (1) vería UN
+      # commit. No saldría en verde —falla a propósito cuando no puede mirar—,
+      # pero fallaría siempre. El repositorio son 261 commits: clonarlo entero
+      # cuesta menos que el `npm ci` de la línea siguiente.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -156,6 +165,16 @@ jobs:
       # cuando cambia una fuente de un manual ya revisado — no verifica el
       # contenido (eso sería medir prosa), detecta caducidad y nombra qué releer.
       - run: npx tsx scripts/corpus-manifiesto.ts --check
+      # EL HISTORIAL DE ENTREGA, que ya caducó una vez por no tener quien lo
+      # mirara: decía que el PR #53 estaba abierto cuando llevaba un día
+      # fusionado, y no nombraba los dieciséis siguientes. Esto no juzga las
+      # filas —a qué sprint pertenece cada PR, qué tramos incluye— porque eso no
+      # es mecánico; falla cuando un PR lleva más de SIETE DÍAS fusionado sin
+      # aparecer en el documento. La gracia no es indulgencia: esto corre sobre
+      # la punta de `main`, así que exigir la fila el mismo día pondría en rojo
+      # todos los demás PRs abiertos —había dieciocho— hasta que alguien la
+      # escribiera, y una compuerta que rompe el trabajo ajeno se desactiva.
+      - run: npx tsx scripts/historial-estado.ts --check
       # El contrato de la API (docs/openapi.json) se GENERA de la pila real de
       # Express: rutas, esquemas de Zod, permisos y clase de riesgo salen de los
       # manejadores montados. Esto falla cuando la copia publicada dejó de
@@ -203,8 +222,8 @@ jobs:
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_restore
       BACKUP_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_restore
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm

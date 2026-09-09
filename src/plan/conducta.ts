@@ -264,6 +264,100 @@ async function saldoDelEjercicio(app: App, inq: Inquilino, cuentaId: string): Pr
 
 export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // ----------------------------------------------------------
+  // E1b · Y LA COLUMNA NO PUEDE MENTIR
+  //
+  // `tenant_id` en una hija es un HECHO DERIVADO. Si una fila pudiera nacer
+  // sin él, la política directa la escondería de su propio dueño para
+  // siempre; si pudiera cambiarlo, la frontera de aislamiento se movería sin
+  // que nada lo notara. Las dos mitades se prueban aquí.
+  // ----------------------------------------------------------
+  {
+    id: 'child-tenant-is-derived-not-declared',
+    paquete: 'E0.1',
+    enunciado: 'Una línea nace con el inquilino de su asiento aunque nadie se lo diga, y no puede cambiarlo',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/077_la_hija_que_pregunta_por_su_madre.sql',
+        de: '  NEW.tenant_id := derivado;',
+        a: '  NEW.tenant_id := NULL;',
+        porque:
+          'la hija deja de heredar el inquilino de su padre: nace sin él, y una fila sin inquilino queda ' +
+          'invisible para su propio dueño en cuanto la política lo mire',
+      },
+    ],
+    correr: async (app) => {
+      const inq = await crearInquilino(app, 'E1b · derivada');
+      const banco = inq.roles.banco;
+      const ventas = inq.cuentas['4100'];
+      if (!banco || !ventas) return falla('el catálogo base no se sembró');
+      await asiento(app, inq, 8, 'E1b derivada', banco, ventas, '250.0000');
+
+      const { rows } = await app.conexion.query<{ n: string; ajenas: string }>(
+        `SELECT count(*)::text AS n,
+                count(*) FILTER (WHERE l.tenant_id IS DISTINCT FROM $1)::text AS ajenas
+           FROM journal_entry_lines l
+           JOIN journal_entries e ON e.id = l.journal_entry_id
+          WHERE e.entity_id = $2`,
+        [inq.tenantId, inq.entityId]
+      );
+      const n = Number(rows[0]?.n ?? 0);
+      const ajenas = Number(rows[0]?.ajenas ?? 0);
+      if (n === 0) return falla('el asiento no dejó líneas: el escenario no probó nada');
+      if (ajenas > 0) {
+        return falla(`${ajenas} de ${n} líneas no heredaron el inquilino de su asiento`);
+      }
+
+      // Y LA SEGUNDA MITAD: LA COLUMNA NO SE PUEDE MOVER — NI EN UN BORRADOR.
+      //
+      // La versión anterior de esta comprobación intentaba moverla en una
+      // línea cualquiera y se conformaba con que LANZARA. Pasaba, pero por el
+      // guardián equivocado: el de la 041 rechaza los UPDATE de una línea cuyo
+      // asiento está POSTEADO, así que la prueba medía ESE candado y no la
+      // derivación. Sobre un BORRADOR —que no pasa por la 041— la columna se
+      // movía sin que nada lo notara. Lo encontró WIT-02.
+      //
+      // Ahora se prueba donde duele: un asiento en borrador, se intenta
+      // moverlo, y se comprueba el VALOR resultante. No basta con que no
+      // lance: el disparador impone el derivado en silencio, así que lo que
+      // hay que afirmar es que la fila SIGUE siendo de su inquilino.
+      const otro = crypto.randomUUID();
+      const borrador = await app.posting.createJournalEntry(
+        inq.entityId,
+        fechaEnPeriodo(8),
+        app.tipos.JournalEntryType.STANDARD,
+        'E1b · borrador para el ataque',
+        [
+          { account_id: banco, debit_amount: '10.0000', credit_amount: null, description: 'b' },
+          { account_id: ventas, debit_amount: null, credit_amount: '10.0000', description: 'b' },
+        ],
+        inq.userId,
+        { autoPost: false }
+      );
+
+      await app.conexion.query(
+        `UPDATE journal_entry_lines SET tenant_id = $1 WHERE journal_entry_id = $2`,
+        [otro, borrador.id]
+      );
+
+      const { rows: tras } = await app.conexion.query<{ ajenas: string }>(
+        `SELECT count(*) FILTER (WHERE tenant_id IS DISTINCT FROM $1)::text AS ajenas
+           FROM journal_entry_lines WHERE journal_entry_id = $2`,
+        [inq.tenantId, borrador.id]
+      );
+      if (Number(tras[0]?.ajenas ?? 0) > 0) {
+        return falla(
+          'una línea de BORRADOR cambió de inquilino con un UPDATE: la columna derivada diverge de su ' +
+            'asiento justo donde el guardián de la 041 no llega'
+        );
+      }
+
+      return ok(
+        `${n} líneas heredaron su inquilino, y una de borrador resistió el intento de moverla`
+      );
+    },
+  },
+
+  // ----------------------------------------------------------
   // 1 · EL SIGNO DEL SALDO
   //
   // Invertir la resta de `ending_balance` en report-service sobrevivía a las
@@ -810,7 +904,7 @@ async function main(salida: string): Promise<void> {
   // de que exista un `config`, y config sólo se puede importar cuando
   // DATABASE_URL ya apunta a la base efímera.
   const { default: dotenv } = await import('dotenv');
-  dotenv.config();
+  dotenv.config({ quiet: true });
 
   const admin =
     process.env.TEST_ADMIN_DATABASE_URL ||

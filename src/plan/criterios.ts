@@ -623,6 +623,12 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   // T13. Nace protegido: un archivo nuevo sin renglón aquí puede perder su
   // umbral en un commit posterior sin que ninguna compuerta se mueva.
   'src/services/reporting/criterio-archivadas.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  // J0.2. La ley y su semilla nacen protegidas: un umbral que sólo vive en
+  // vitest.config.ts se puede bajar sin que ninguna compuerta se mueva, y el
+  // ataque 3e de s4a exige que toda entrada de `thresholds` esté también
+  // aquí — lo cazó cuando faltaban estas dos.
+  'src/services/jurisdiction/legal-parameters.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/jurisdiction/legal-parameters-seed.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
 };
 
 /**
@@ -648,6 +654,73 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
 
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
+
+  {
+    paquete: 'E1.1',
+    id: 'law-is-read-by-date-and-fails-closed',
+    enunciado: 'La ley se lee por la fecha del hecho, y sin vigencia falla en vez de devolver cero',
+    evaluar: () => {
+      // POR QUÉ NACE (J0.2, issue #123). La ley vivía quemada en el código o en
+      // `tax_parameters`, que la guarda POR AÑO aunque la UMA cambie el 1 de
+      // febrero. Y donde faltaba la fila, el sistema no se detenía: el IMSS
+      // dejaba las tasas en CERO y el INFONAVIT aplicaba un 5 % quemado. Una
+      // cifra inventada que cuadra es peor que un error, porque nadie la busca.
+      //
+      // Este criterio vigila las tres propiedades que hacen que la tabla no
+      // nazca huérfana ni mienta: que se lea por FECHA, que falle CERRADO, y
+      // que la columna del panel tenga quien la lea.
+      const lector = codigoDe('src/services/jurisdiction/legal-parameters.ts');
+      const panel = codigoDe('src/services/policy/policy-service.ts');
+
+      // (a) POR LA FECHA DEL HECHO. Un recálculo de mayo tiene que leer la ley
+      // de mayo. Sin `effective_from <= fecha` ordenado descendente, la lectura
+      // devolvería la más reciente y reexpediría el pasado con la ley de hoy.
+      if (!/AND effective_from <= \$3::date/.test(lector) || !/ORDER BY[^;]*effective_from DESC/i.test(lector)) {
+        return falla(
+          'el lector de la ley no elige por fecha del hecho: o no compara effective_from, o no toma la ' +
+            'más reciente que la precede'
+        );
+      }
+
+      // (b) FALLA CERRADO. Es el corazón del tramo: sin vigencia, LANZA.
+      if (!/'never_loaded',/.test(lector) || !/if \(row === null\) \{/.test(lector)) {
+        return falla(
+          'el lector no lanza cuando no hay vigencia: si devuelve cero o un valor por omisión, repite el ' +
+            'defecto del IMSS en cero que J0 viene a cerrar'
+        );
+      }
+
+      // (c) LA COLUMNA TIENE LECTOR. Una columna que nadie selecciona es
+      // capacidad huérfana, y `doctor` la acusa.
+      if (!/jurisdiction/.test(panel)) {
+        return falla('policy_decisions.jurisdiction no tiene lector en el servicio de políticas: nace muerta');
+      }
+
+      return ok(
+        'la ley se lee por la fecha del hecho, falla cerrado sin vigencia, y la jurisdicción del panel ' +
+          'tiene quien la lea'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/jurisdiction/legal-parameters.ts',
+        de: "        'never_loaded',",
+        a: "        'ninguno', // el hueco deja de nombrarse",
+        porque:
+          'el lector deja de fallar cerrado: una clave sin vigencia pasaría a devolver un hueco en vez de ' +
+          'detener el cálculo, que es exactamente cómo el IMSS acabó cotizando en cero',
+      },
+      {
+        archivo: 'src/services/jurisdiction/legal-parameters.ts',
+        de: 'AND effective_from <= $3::date',
+        a: 'AND effective_from >= $3::date',
+        porque:
+          'invierte la fecha: la lectura devolvería la PRIMERA vigencia posterior al hecho en vez de la que ' +
+          'regía, y un recálculo de mayo se haría con la ley que entró en junio',
+      },
+    ],
+  },
+
 
   {
     paquete: 'E0.0',
@@ -4589,6 +4662,97 @@ export const CRITERIOS: Criterio[] = [
         de: 'sellado !== hoy',
         a: 'sellado === hoy',
         porque: 'la comparación de hashes se invierte: la compuerta pasaría a acusar lo que NO cambió',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'delivery-history-completeness-gate',
+    enunciado: 'El historial de entrega no puede quedarse atrás de lo entregado',
+    evaluar: () => {
+      // docs/HISTORY.md se reconstruyó una vez contra el árbol, porque el
+      // artefacto anterior narraba sprints cuyos hashes no existen en `main`.
+      // Quedó bien, y volvió a caducar por la única vía que quedaba: nadie lo
+      // miró. Medido el 2026-09-08 decía que el PR #53 estaba ABIERTO —llevaba
+      // un día fusionado— y no nombraba los dieciséis siguientes. Un historial
+      // de entrega equivocado sobre lo entregado es exactamente el artefacto
+      // contra el que advierte su propia cabecera.
+      if (!existe('scripts/historial-estado.ts') || !existe('docs/HISTORY.md')) {
+        return falla('el guardián del historial desapareció: el documento volvería a caducar en silencio');
+      }
+      const script = codigoDe('scripts/historial-estado.ts');
+      // LO QUE EXIGE, que es lo único que impide que falte una fila.
+      if (!/censo\.atrasados\.length > 0/.test(script)) {
+        return falla('el guardián dejó de exigir los PRs atrasados: sólo verificaría que su censo cuadra consigo mismo');
+      }
+      // Y la deuda tiene TECHO. Sin él, la gracia sería una amnistía: bastaría
+      // subirla para que el documento no volviera a caducar «todavía».
+      if (!/const DIAS_DE_GRACIA = \d+;/.test(script)) {
+        return falla('la gracia del historial dejó de tener techo declarado: el atraso podría crecer sin límite');
+      }
+      // Y LA GRACIA SE MIDE CONTRA EL RELOJ, no contra el árbol. La primera
+      // versión usaba la fecha del commit más reciente, y así el PR sin fila
+      // que ERA la punta tenía antigüedad 0 para siempre: la compuerta prometía
+      // fallar a los siete días y no fallaba nunca para justo el último, que es
+      // el que más importa.
+      if (!/const hoy = new Date\(\)\.toISOString\(\)/.test(script)) {
+        return falla('la gracia volvió a medirse contra la fecha del árbol: un PR sin fila que sea la punta no envejecería nunca');
+      }
+      // Y QUE NO SE SALTE CUANDO NO PUEDE MIRAR. `actions/checkout` clona a
+      // profundidad 1 por omisión: sin esto el recorrido vería UN commit y el
+      // documento saldría verde sin comprobarse. Es el falso verde que tenía
+      // `doctor` antes del T1b, contando sin contexto de inquilino.
+      if (!/cortesSuperficiales\(\)\.has/.test(script)) {
+        return falla('el guardián dejó de detectar la historia truncada: en un clon superficial saldría en verde sin haber contado nada');
+      }
+      // La compuerta corre en CI o es un comando que nadie teclea. Se mide
+      // sobre el YAML SIN sus comentarios: si no, la propia prosa que explica
+      // el paso lo pondría verde aunque el paso se hubiera borrado — el modo
+      // exacto en que nacieron verdes por accidente otros dos criterios.
+      const ci = crudoDe('.github', 'workflows', 'ci.yml').replace(/^[ \t]*#.*$/gm, '');
+      if (!/historial-estado\.ts --check/.test(ci)) {
+        return falla('la compuerta del historial no está en CI: sería una comprobación optativa');
+      }
+      if (!/fetch-depth: 0/.test(ci)) {
+        return falla('el checkout dejó de pedir profundidad completa: el guardián no podría recorrer la historia');
+      }
+      if (!/HISTORIAL-GENERADO:INICIO/.test(crudoDe('docs/HISTORY.md'))) {
+        return falla('el documento perdió los marcadores del censo: nadie podría regenerarlo ni compararlo');
+      }
+      return ok(
+        'el historial se verifica contra `git log --first-parent` en CI, con profundidad completa y fallando cuando no puede mirar'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'censo.atrasados.length > 0',
+        a: 'censo.atrasados.length > 99999',
+        porque: 'la compuerta deja de acusar los PRs que faltan: el historial podría volver a quedarse dieciséis PRs atrás, en verde',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'const hoy = new Date().toISOString()',
+        a: 'const hoy = (vertebral[0]?.fecha ?? new Date().toISOString())',
+        porque: 'la gracia vuelve a medirse contra el árbol: el PR sin fila que sea la punta tendría antigüedad cero para siempre y la compuerta no fallaría jamás por él',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'const DIAS_DE_GRACIA = 7;',
+        a: 'const GRACIA_SIN_TECHO = 7;',
+        porque: 'la gracia deja de tener techo declarado: pasaría de ser una deuda acotada a una amnistía',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'cortesSuperficiales().has',
+        a: 'new Set<string>().has',
+        porque: 'el guardián deja de ver que la historia está truncada: en el checkout por omisión de CI contaría un commit y firmaría el verde',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'historial-estado.ts --check',
+        a: 'historial-estado.ts # --check',
+        porque: 'el paso deja de verificar y pasa a REGENERAR: saldría siempre en verde reescribiendo el censo en vez de exigirlo',
       },
     ],
   },
