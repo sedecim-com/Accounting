@@ -5,6 +5,8 @@ import { createJournalEntry, drainAttestations } from '../../src/services/accoun
 import { blockchainOrchestrator } from '../../src/services/blockchain/orchestrator.js';
 import { cryptoService } from '../../src/services/blockchain/crypto-service.js';
 import { JournalEntryType } from '../../src/types/index.js';
+import { levantar, pedir, sesionDe, type Servidor } from './helpers/servidor.js';
+import publicVerificationRouter from '../../src/api/rest/routes/public-verification.js';
 
 /**
  * LO QUE SE PUBLICA A UN TERCERO (X0).
@@ -206,6 +208,157 @@ describe('X0 · lo que se publica lleva su sello, su signo y su historia', () =>
           'o una publicación se perdió, o dos se dieron el mismo número'
       ).toBe(esperada);
     }
+  });
+
+  // ── EL CONTRATO PÚBLICO, QUE ES LO ÚNICO QUE UN TERCERO VE (WIT-02) ──
+  describe('lo que sale por la puerta pública', () => {
+    let s: Servidor;
+    beforeAll(async () => {
+      // EL SELLO SE SIEMBRA, y hay que decir por qué. `commitPeriod` se niega
+      // —con razón— mientras quede un asiento sin atestar, y este inquilino no
+      // tiene configuración de anclaje, así que nunca se le escribe un hash y
+      // el periodo no es sellable por el camino real. Lo que estas pruebas
+      // miden NO es el sellado —eso es de G3 y ya tiene las suyas— sino qué
+      // proyecta el contrato público sobre los agregados. Se siembra el sello
+      // mínimo que la ruta exige para llegar a la parte que sí se está
+      // midiendo, con el mismo INSERT que usa anclaje-simulado-superficies.
+      // `is_simulated = false` porque la ruta se NIEGA (501) a presentar un
+      // anclaje simulado como prueba, y hace bien: eso lo vigila G3.
+      await query(
+        `INSERT INTO period_commitments (
+           id, tenant_id, entity_id, period_id, merkle_root, entry_count, tree_depth,
+           balance_commitment, status, committed_at, is_simulated
+         ) VALUES (gen_random_uuid(),$1,$2,$3,$4,1,1,'bc','committed',NOW(),false)
+         ON CONFLICT DO NOTHING`,
+        [f.tenantId, f.entityId, f.periodos[8]!, `0x${'c'.repeat(64)}`]
+      );
+      s = await levantar([['/public/v1', publicVerificationRouter]], sesionDe(f));
+    });
+    afterAll(async () => {
+      await s.cerrar();
+    });
+
+    it('la cifra pública sale con su MONEDA y su VERSIÓN, no desnuda', async () => {
+      // Un importe público sin unidad no se puede comparar ni auditar, y uno
+      // sin versión no se puede citar: si mañana se republica, el tercero no
+      // tiene forma de decir cuál verificó.
+      const r = await pedir(
+        s,
+        'GET',
+        `/public/v1/entities/${f.entityId}/periods/${f.periodos[8]!}`
+      );
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      const data = r.body.data as { aggregates: Array<Record<string, unknown>> };
+      expect(data.aggregates.length, 'la ruta no devolvió ningún agregado').toBeGreaterThan(0);
+      for (const a of data.aggregates) {
+        expect(a.currencyCode, `agregado sin moneda: ${JSON.stringify(a)}`).toBeTruthy();
+        expect(
+          typeof a.version === 'number' && (a.version as number) >= 1,
+          `agregado sin versión utilizable: ${JSON.stringify(a)}`
+        ).toBe(true);
+      }
+    });
+
+    it('tras republicar, el tercero ve UNA fila por dimensión — la vigente, no el historial', async () => {
+      // ES UNA REGRESIÓN QUE ESTE PR PUDO INTRODUCIR. Antes de la 076 la
+      // unicidad garantizaba una fila por dimensión; al meter `version` en la
+      // llave para que republicar AÑADA en vez de pisar, el contrato público
+      // pasó a devolver la versión 1 y la 2 de la misma dimensión, con
+      // importes y sellos distintos y nada que las distinguiera.
+      const antes = await pedir(
+        s, 'GET', `/public/v1/entities/${f.entityId}/periods/${f.periodos[8]!}`
+      );
+      const dimsAntes = (antes.body.data as { aggregates: Array<{ dimensionValue: string }> })
+        .aggregates.map((a) => a.dimensionValue).sort();
+
+      await publicar();
+
+      const despues = await pedir(
+        s, 'GET', `/public/v1/entities/${f.entityId}/periods/${f.periodos[8]!}`
+      );
+      const ags = (despues.body.data as {
+        aggregates: Array<{ dimensionValue: string; version: number }>;
+      }).aggregates;
+      const dimsDespues = ags.map((a) => a.dimensionValue).sort();
+
+      // Ni una fila de más: el mismo conjunto de dimensiones que antes.
+      expect(
+        dimsDespues,
+        'republicar duplicó filas ante el tercero: está viendo el historial mezclado con lo vigente'
+      ).toEqual(dimsAntes);
+      expect(new Set(dimsDespues).size, 'una dimensión aparece dos veces').toBe(dimsDespues.length);
+
+      // Y lo que ve es la ÚLTIMA versión, no la primera.
+      const enBase = await query<{ dimension_value: string; maxv: string }>(
+        `SELECT dimension_value, MAX(version)::text AS maxv FROM published_aggregates
+          WHERE tenant_id = $1 AND entity_id = $2 AND period_id = $3
+          GROUP BY dimension_value`,
+        [f.tenantId, f.entityId, f.periodos[8]!]
+      );
+      const vigente = new Map(enBase.rows.map((x) => [x.dimension_value, Number(x.maxv)]));
+      for (const a of ags) {
+        expect(
+          a.version,
+          `la ruta entrega la versión ${a.version} de "${a.dimensionValue}" cuando la vigente es ` +
+            `${vigente.get(a.dimensionValue)}`
+        ).toBe(vigente.get(a.dimensionValue));
+      }
+    });
+
+    it('el listado por entidad tampoco mezcla versiones, y también lleva moneda', async () => {
+      // EL LISTADO SE NIEGA A PRESENTAR ANCLAJE SIMULADO (`is_simulated = false`),
+      // y este inquilino no tiene configuración de anclaje, así que todo lo que
+      // publica nace simulado. Sin esta línea la consulta devolvía CERO filas y
+      // los bucles de abajo no se ejecutaban: la prueba pasaba EN VACÍO y dejaba
+      // vivos los dos mutantes del listado. Lo comprobé mutando.
+      //
+      // Que el anclaje simulado no se presente como prueba lo vigila G3; lo que
+      // se mide aquí es qué versión proyecta el contrato.
+      await query(
+        `UPDATE published_aggregates SET is_simulated = false WHERE entity_id = $1`,
+        [f.entityId]
+      );
+
+      const r = await pedir(s, 'GET', `/public/v1/entities/${f.entityId}/aggregates`);
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      const filas = r.body.data as Array<{
+        dimension_value: string; period_id: string; version: number; currency_code: string | null;
+      }>;
+      // Y NO PUEDE PASAR EN VACÍO: si el listado no trae nada, no hay nada que
+      // afirmar y los bucles de abajo mienten por omisión.
+      expect(filas.length, 'el listado no devolvió ninguna fila: la prueba no mide nada').toBeGreaterThan(0);
+      const claves = filas.map((x) => `${x.period_id}|${x.dimension_value}`);
+      expect(new Set(claves).size, 'el listado repite dimensión+periodo: está mezclando versiones').toBe(
+        claves.length
+      );
+      for (const x of filas) {
+        expect(x.currency_code, `fila del listado sin moneda: ${JSON.stringify(x)}`).toBeTruthy();
+        expect(typeof x.version).toBe('number');
+      }
+
+      // Y LA VERSIÓN ES LA VIGENTE, NO UNA CUALQUIERA. Sin esto la prueba se
+      // conformaba con «una fila por dimensión» y dejaba vivo el mutante que
+      // ordena por versión ASCENDENTE: seguiría dando una sola fila, pero la
+      // MÁS VIEJA — el tercero verificaría contra un sello ya sustituido.
+      const maximos = await query<{ period_id: string; dimension_value: string; maxv: string }>(
+        `SELECT period_id, dimension_value, MAX(version)::text AS maxv
+           FROM published_aggregates
+          WHERE entity_id = $1 AND is_simulated = false
+          GROUP BY period_id, dimension_value`,
+        [f.entityId]
+      );
+      const vigentes = new Map(
+        maximos.rows.map((x) => [`${x.period_id}|${x.dimension_value}`, Number(x.maxv)])
+      );
+      for (const x of filas) {
+        const clave = `${x.period_id}|${x.dimension_value}`;
+        expect(
+          x.version,
+          `el listado entrega la versión ${x.version} de "${x.dimension_value}" cuando la vigente ` +
+            `es ${vigentes.get(clave)}`
+        ).toBe(vigentes.get(clave));
+      }
+    });
   });
 
   it('lo publicado dice en qué moneda está', async () => {
