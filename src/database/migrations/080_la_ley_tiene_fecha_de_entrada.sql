@@ -136,17 +136,54 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_policy_decisions_una_respuesta
 -- ── 3. LO QUE `tax_parameters` GUARDABA POR AÑO, FECHADO ────────────────
 --
 -- `UNIQUE(jurisdiction, tax_year)` da un valor por ejercicio, y la UMA cambia
--- el 1 de febrero. Se le añade la fecha de entrada y se rellena con el 1 de
--- enero del ejercicio que ya declaraba: es lo que esa fila SIGNIFICABA, no una
--- suposición. El día que J0.4 traiga la UMA de febrero, la fila nueva entra
--- con su fecha y la vieja deja de regir sola.
+-- el 1 de febrero. Se le añaden las DOS fechas y se rellenan con el 1 de enero
+-- y el 31 de diciembre del ejercicio que ya declaraba: es lo que esa fila
+-- SIGNIFICABA, no una suposición.
+--
+-- ANTES ESTE COMENTARIO PROMETÍA ALGO QUE EL ESQUEMA NO PERMITE. Decía «el día
+-- que J0.4 traiga la UMA de febrero, la fila nueva entra con su fecha y la
+-- vieja deja de regir sola», y no puede: `UNIQUE(jurisdiction, tax_year)`
+-- rechaza la segunda fila del mismo año. Lo que estas dos columnas compran hoy
+-- es que la vigencia de cada fila sea EXPLÍCITA y se pueda LEER por fecha del
+-- hecho —fuera de su rango no contesta—; caber dos veces en un año es lo que
+-- J0.4 abre al retirar esa unicidad.
 ALTER TABLE tax_parameters ADD COLUMN IF NOT EXISTS effective_from DATE;
+ALTER TABLE tax_parameters ADD COLUMN IF NOT EXISTS effective_to DATE;
 
 UPDATE tax_parameters
-   SET effective_from = make_date(tax_year, 1, 1)
- WHERE effective_from IS NULL;
+   SET effective_from = COALESCE(effective_from, make_date(tax_year, 1, 1)),
+       effective_to   = COALESCE(effective_to,   make_date(tax_year, 12, 31))
+ WHERE effective_from IS NULL OR effective_to IS NULL;
 
 ALTER TABLE tax_parameters ALTER COLUMN effective_from SET NOT NULL;
 
+-- `effective_to` SE QUEDA NULABLE, y no es descuido: una fila que rige «hasta
+-- nuevo aviso» no tiene fin, y ponerle uno inventado es exactamente la clase de
+-- dato falso que este tramo persigue. Las filas que YA existían sí lo llevan
+-- relleno, porque las suyas sí tenían fin: significaban un ejercicio entero.
+
 COMMENT ON COLUMN tax_parameters.effective_from IS
-  'Fecha desde la que rige esta fila (J0.2). Rellenada con el 1 de enero de su tax_year, que es lo que la fila significaba cuando sólo había año. No hay effective_to: rige hasta que otra fila con fecha posterior la sustituye.';
+  'Fecha desde la que rige esta fila (J0.2). Rellenada con el 1 de enero de su tax_year, que es lo que la fila significaba cuando sólo había año.';
+
+COMMENT ON COLUMN tax_parameters.effective_to IS
+  'Último día en que rige, o NULL si rige hasta nuevo aviso (J0.2). Rellenada con el 31 de diciembre de su tax_year. Se lee con getTaxParameters(jurisdiction, year, asOf).';
+
+-- ── POR QUÉ AQUÍ SÍ HAY DOS EXTREMOS Y EN `legal_parameters` NO ─────────
+--
+-- `legal_parameters` nace como LÍNEA DE TIEMPO: una fila rige hasta que otra
+-- con fecha posterior la sustituye, y por eso no lleva fin. `tax_parameters`
+-- no nace: se traduce. Cada una de sus filas ya significaba «el ejercicio
+-- 2026 entero», y eso es un RANGO CERRADO. Escribirlo con sus dos fechas dice
+-- lo que la fila decía; dejarlo abierto le añadiría una vigencia que nunca
+-- tuvo —la de todos los años siguientes sin fila—, que es el fallo abierto
+-- que el propio issue #123 censa en el IMSS y el INFONAVIT.
+--
+-- ── LO QUE ESTE TRAMO NO HACE, Y ES DE J0.4 ─────────────────────────────
+--
+-- `UNIQUE(jurisdiction, tax_year)` (008) SIGUE PUESTO, así que dos vigencias
+-- dentro del mismo año todavía no caben. Eso es literal del reparto de #123:
+-- J0.2 pide «effective_from/to rellenados» con evidencia «columna con lector»,
+-- y J0.4 pide «lectura por fecha del hecho» y «tax_tables por fecha, no por
+-- tax_year». Retirar esa unicidad es su trabajo, no el de este tramo, y hay
+-- una prueba de hueco conocido que lo fija: si alguien la retira, se pone roja
+-- y el mensaje le dice que la voltee.

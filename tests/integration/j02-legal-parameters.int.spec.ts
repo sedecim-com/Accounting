@@ -10,6 +10,7 @@ import {
   seedLegalParameters,
 } from '../../src/services/jurisdiction/legal-parameters-seed.js';
 import { getPolicy } from '../../src/services/policy/policy-service.js';
+import { getTaxParameters } from '../../src/services/payroll/tax-engine/tax-tables.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 
 /**
@@ -468,5 +469,92 @@ describe('policy_decisions.jurisdiction tiene lector (J0.2), y la resolución de
         [f.tenantId, clave]
       )
     ).rejects.toThrow(/uq_policy_tenant_scope|duplicate key/i);
+  });
+});
+
+// ── `tax_parameters`, CON SUS DOS FECHAS Y CON QUIEN LAS LEA ────────────
+//
+// WIT-01 de #199 tenía razón: la 080 añadía `effective_from` y NADIE lo leía.
+// Una columna sin lector es una promesa de esquema que ningún camino cumple, y
+// el reparto de #123 pide para J0.2 «effective_from/to rellenados» con
+// evidencia «columna CON lector». Estas dos pruebas son ese lector medido, y
+// la tercera nombra lo que queda para J0.4.
+describe('tax_parameters lleva su vigencia, y se lee por la fecha del hecho', () => {
+  const JURIS = 'ZZ-J02';
+  const ANIO = 2031;
+
+  beforeAll(async () => {
+    await query(
+      `INSERT INTO tax_parameters (jurisdiction, tax_year, params, effective_from, effective_to)
+       VALUES ($1, $2, '{"uma_daily": "113.14"}'::jsonb, make_date($2, 1, 1), make_date($2, 12, 31))
+       ON CONFLICT (jurisdiction, tax_year) DO NOTHING`,
+      [JURIS, ANIO]
+    );
+  });
+
+  it('un parámetro fiscal NO PUEDE entrar sin fecha de vigencia, y la fila trae sus dos extremos', async () => {
+    // El esquema se niega a guardar una ley sin decir desde cuándo rige. Es la
+    // mitad estructural de lo que J0.2 promete: la otra es que alguien la lea,
+    // y eso lo mide la prueba de abajo.
+    await expect(
+      query(
+        `INSERT INTO tax_parameters (jurisdiction, tax_year, params)
+         VALUES ($1, $2, '{"uma_daily": "1.00"}'::jsonb)`,
+        [`${JURIS}-SIN-FECHA`, ANIO]
+      )
+    ).rejects.toThrow(/effective_from|not-null|null value/i);
+
+    const { rows } = await query<{ desde: string; hasta: string }>(
+      `SELECT effective_from::text AS desde, effective_to::text AS hasta
+         FROM tax_parameters WHERE jurisdiction = $1 AND tax_year = $2`,
+      [JURIS, ANIO]
+    );
+    expect(rows[0]).toEqual({ desde: `${ANIO}-01-01`, hasta: `${ANIO}-12-31` });
+  });
+
+  it('LA FRONTERA: dentro de la vigencia contesta, fuera NO — y el último día sí cuenta', async () => {
+    // Sin fecha, como llaman hoy los ocho consumidores: contesta por ejercicio.
+    expect(await getTaxParameters(JURIS, ANIO)).toEqual({ uma_daily: '113.14' });
+
+    // Dentro, y en los dos extremos INCLUSIVE: la vigencia de un día es un día.
+    expect(await getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO, 5, 15)))).toEqual({
+      uma_daily: '113.14',
+    });
+    expect(await getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO, 0, 1)))).toEqual({
+      uma_daily: '113.14',
+    });
+    expect(await getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO, 11, 31)))).toEqual({
+      uma_daily: '113.14',
+    });
+
+    // Fuera, por un solo día a cada lado. Si esto contestara, la columna
+    // seguiría sin lector aunque el SQL la nombrara.
+    expect(
+      await getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO - 1, 11, 31))),
+      'una fecha ANTERIOR a la entrada en vigor recibió los parámetros'
+    ).toEqual({});
+    expect(
+      await getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO + 1, 0, 1))),
+      'una fecha POSTERIOR al fin de vigencia recibió los parámetros'
+    ).toEqual({});
+  });
+
+  it('HUECO · dos vigencias dentro del MISMO año todavía no caben, y es de J0.4', async () => {
+    // `UNIQUE(jurisdiction, tax_year)` (008) sigue puesto, así que la UMA que
+    // cambia el 1 de febrero no se puede representar todavía. No es olvido: el
+    // reparto de #123 pone «lectura por fecha del hecho» y «tax_tables por
+    // fecha, no por tax_year» en J0.4, y J0.2 pide las columnas rellenadas con
+    // lector — que es lo que las dos pruebas de arriba miden.
+    //
+    // Queda fijado aquí en vez de en la memoria de quien lo encontró: el día
+    // que J0.4 retire esa unicidad, esta prueba se pone roja y el mensaje dice
+    // que hay que voltearla a «entra».
+    await expect(
+      query(
+        `INSERT INTO tax_parameters (jurisdiction, tax_year, params, effective_from, effective_to)
+         VALUES ($1, $2, '{"uma_daily": "120.00"}'::jsonb, make_date($2, 2, 1), NULL)`,
+        [JURIS, ANIO]
+      )
+    ).rejects.toThrow(/tax_parameters_jurisdiction_tax_year_key|duplicate key/i);
   });
 });
