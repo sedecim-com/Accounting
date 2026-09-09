@@ -114,9 +114,17 @@ export default defineConfig({
         // umbral puede perderlo en un commit posterior sin que ninguna
         // compuerta se mueva. El suelo es el ENTERO INFERIOR de lo medido por
         // su propia suite (d1-provisiones.int.spec.ts, 14 pruebas en verde),
-        // no una aspiración. Medidos: 95.6 / 78 / 100 / 95.4.
+        // no una aspiración. Nació en 95 / 78 / 100 / 95.
+        //
+        // D1·puerta LO APRIETA a 96 / 86 / 100 / 95 en el mismo commit que gana
+        // el terreno, que es la regla de la casa. Lo que ganó las ocho décimas
+        // de rama no fue una prueba más del motor: fue la HOJA. `payroll
+        // accrue` calcula la cédula con `planMonthlyProvisions` antes de
+        // postear y después corre, así que un solo mes tecleado recorre el
+        // camino de la previa y el de la escritura — y su ensayo, la mitad que
+        // no escribe. Medidos con la suite entera: 96.03 / 86 / 100 / 95.78.
         'src/services/accruals/provisions-run.ts': {
-          statements: 95, branches: 78, functions: 100, lines: 95,
+          statements: 96, branches: 86, functions: 100, lines: 95,
         },
         // La consulta del periodo acotada por entidad, que desde D1 comparten
         // los TRES motores periódicos —depreciación, amortización y

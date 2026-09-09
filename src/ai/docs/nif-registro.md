@@ -110,7 +110,8 @@ manual al capital, pide el documento que la soporta.
 - **Aguinaldo, vacaciones, prima vacacional**: se devengan DURANTE el año
   (provisión mensual), no de golpe en diciembre (A-2 devengación). El sistema
   lo hace: `runMonthlyProvisions` postea un asiento por corrida y deja la
-  cédula por trabajador y periodo.
+  cédula por trabajador y periodo, y se pide con `mnemosine payroll accrue
+  --period <YYYY-MM>` (con `--dry-run` para ver la cédula antes de postear).
 - **PTU**: 10% de la renta gravable; la causada del ejercicio se provisiona
   contra resultados del mismo ejercicio. La base es de la ENTIDAD, no del
   salario de cada trabajador, así que NO cae en la corrida mensual de

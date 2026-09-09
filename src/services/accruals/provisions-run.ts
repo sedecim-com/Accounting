@@ -109,7 +109,7 @@ const ROL_AGUINALDO = 'provision_aguinaldo';
 const ROL_VACACIONES = 'provision_vacaciones';
 const ROL_PRIMA = 'provision_prima_vacacional';
 
-interface CuentasDeProvision {
+export interface CuentasDeProvision {
   gasto: string;
   aguinaldo: string;
   vacaciones: string;
@@ -125,8 +125,15 @@ interface CuentasDeProvision {
  * a la que le falta la 2203 corriera once meses en verde y reventara en el
  * duodécimo, que es el peor momento posible para descubrirlo. Fallar el primer
  * día y decir qué falta es más barato que fallar en el cierre anual.
+ *
+ * SE EXPORTA PARA LA VISTA PREVIA de `payroll accrue`, no por comodidad: un
+ * asiento que se enseña con UUIDs no se puede revisar, y una segunda consulta
+ * de roles escrita en el CLI sería una segunda definición de «las cuatro
+ * cuentas del devengo» —la que se enseña y la que se postea— con licencia para
+ * divergir. La previa pregunta lo mismo que la corrida, y falla con el mismo
+ * mensaje si falta un rol.
  */
-async function cuentasDeProvisiones(entityId: string): Promise<CuentasDeProvision> {
+export async function cuentasDeProvisiones(entityId: string): Promise<CuentasDeProvision> {
   const roles = [ROL_GASTO, ROL_AGUINALDO, ROL_VACACIONES, ROL_PRIMA];
   const r = await query<{ role: string; account_id: string }>(
     `SELECT role, account_id FROM account_roles
@@ -327,7 +334,16 @@ export interface ResultadoDeProvisiones {
   criterios: CriteriosDeProvision;
 }
 
-function declararPtu(panel: string): DeclaracionDePtu {
+/**
+ * SE EXPORTA PARA QUE LA HOJA LA DIGA ANTES, no sólo después.
+ *
+ * El resultado de la corrida ya llevaba esta declaración, pero un operador que
+ * la lee cuando el asiento ya está posteado la lee tarde: la pregunta «¿y la
+ * PTU?» se hace mirando el ensayo. La nota viaja desde aquí y no se reescribe
+ * en el CLI porque es una afirmación LEGAL —por qué la 2205 no se toca— y dos
+ * copias de una afirmación legal divergen el día que alguien retoque una.
+ */
+export function declararPtu(panel: string): DeclaracionDePtu {
   const encendida = panel === 'si';
   return {
     panel,
@@ -348,40 +364,102 @@ function declararPtu(panel: string): DeclaracionDePtu {
 }
 
 // ============================================================
-// La corrida
+// La cédula, calculada antes de que exista el asiento
 // ============================================================
 
+/** De dónde salió la base diaria de un trabajador, tal como la anota la cédula. */
+export interface SalaryOfRecord {
+  diario: string | undefined;
+  sbc: string | undefined;
+  fuente: string;
+}
+
+/** Un trabajador que SÍ devenga este mes, con su importe ya calculado. */
+export interface ProvisionPlanRow {
+  worker: TrabajadorParaProvision;
+  provision: ProvisionMensual;
+  salary: SalaryOfRecord;
+}
+
+/** Un trabajador que no entra, y por cuál de las dos razones legítimas. */
+export interface ProvisionPlanSkip {
+  worker: TrabajadorParaProvision;
+  /**
+   * `already-accrued`: ya tiene renglón vigente de este mes, y lo frena la
+   * misma consulta que frena la doble corrida. `zero-month`: la aritmética dio
+   * cero —once meses de cada doce bajo la convención `aniversario`, o una ficha
+   * en salario cero—, y un renglón que documenta que no pasó nada no documenta
+   * nada.
+   */
+  reason: 'already-accrued' | 'zero-month';
+}
+
+export interface ProvisionPlan {
+  /** El inquilino de la entidad, resuelto una vez y reutilizado por la corrida. */
+  tenantId: string;
+  periodo: PeriodoDeCorrida;
+  criterios: CriteriosDeProvision;
+  rows: ProvisionPlanRow[];
+  skipped: ProvisionPlanSkip[];
+  /** Un renglón por trabajador cuya ficha impide calcularle el devengo. */
+  errors: string[];
+  aguinaldo: string;
+  vacaciones: string;
+  prima_vacacional: string;
+  total: string;
+}
+
 /**
- * LA CORRIDA MENSUAL: un renglón de cédula por trabajador y UN asiento.
+ * LA CÉDULA DEL MES, CALCULADA SIN ESCRIBIR UNA SOLA FILA.
  *
- * Devuelve lo procesado y los errores por trabajador en vez de abortar entera:
- * una ficha sin salario capturado no puede impedir que los otros ciento noventa
- * y nueve devenguen, y el hueco se ve porque el trabajador sale nombrado en
- * `errors` y sin fila en la cédula.
+ * Existe porque el mayor es inmutable (041): un devengo que sólo se puede
+ * mirar DESPUÉS de postearlo obliga a reversar para revisarlo, y una reversa
+ * deja dos asientos más en un libro que nadie limpia. `payroll accrue
+ * --dry-run` enseña esto —quién devenga, cuántos días y cuánto por concepto—
+ * y no toca la base.
+ *
+ * Y ES LA MISMA FUNCIÓN QUE USA LA CORRIDA, no una copia suya. El motor gemelo
+ * dejó escrito el defecto que aquí se evita: la hoja de la amortización arma su
+ * previa con las funciones puras del motor y reconoce que «queda un cálculo
+ * repetido», de modo que la previa y la corrida pueden separarse en silencio y
+ * hay que compararlas al final para enterarse. Aquí no hay dos bucles:
+ * `runMonthlyProvisions` llama a éste y postea exactamente lo que éste
+ * devuelve. Lo único que un ensayo no puede prometer es que el mundo no cambie
+ * entre mirar y postear —alguien da de alta a un trabajador, alguien contesta
+ * el panel—, y de eso se ocupa la hoja comparando al terminar.
+ *
+ * LAS GUARDAS SE QUEDAN AQUÍ Y NO EN EL TECLADO. El periodo 13 se rechaza y la
+ * plantilla vacía devuelve una cédula vacía: son reglas del devengo, no de la
+ * terminal, y volver a escribirlas en el CLI es exactamente cómo dos copias de
+ * una regla acaban diciendo cosas distintas.
  */
-export async function runMonthlyProvisions(
+export async function planMonthlyProvisions(
   entityId: string,
-  fiscalPeriodId: string,
-  userId: string
-): Promise<ResultadoDeProvisiones> {
+  fiscalPeriodId: string
+): Promise<ProvisionPlan> {
   const errors: string[] = [];
-  let skipped = 0;
+  const skipped: ProvisionPlanSkip[] = [];
+  const rows: ProvisionPlanRow[] = [];
+  let aguinaldo = new Decimal(0);
+  let vacaciones = new Decimal(0);
+  let prima = new Decimal(0);
 
   const periodo = await periodoDeLaCorrida(entityId, fiscalPeriodId, MOTOR);
   const tenantId = await inquilinoDeLaEntidad(entityId);
   const criterios = await criteriosDeLaProvision(tenantId, entityId);
-  const vacio: ResultadoDeProvisiones = {
-    processed: 0,
-    skipped: 0,
-    total: '0.0000',
-    errors,
-    aguinaldo: '0.0000',
-    vacaciones: '0.0000',
-    prima_vacacional: '0.0000',
-    journalEntryId: null,
-    ptu: declararPtu(criterios.ptu_mensual),
+
+  const cerrar = (): ProvisionPlan => ({
+    tenantId,
+    periodo,
     criterios,
-  };
+    rows,
+    skipped,
+    errors,
+    aguinaldo: aguinaldo.toFixed(4),
+    vacaciones: vacaciones.toFixed(4),
+    prima_vacacional: prima.toFixed(4),
+    total: aguinaldo.plus(vacaciones).plus(prima).toFixed(4),
+  });
 
   // EL PERIODO 13 NO ES UN MES DE OPERACIÓN.
   //
@@ -391,6 +469,10 @@ export async function runMonthlyProvisions(
   // duplicado sin que el balance dejara de cuadrar —la forma exacta del defecto
   // que este tramo vino a cerrar—. Los ajustes anuales caben en el periodo 13;
   // el devengo mes a mes, no.
+  //
+  // SE RECHAZA TAMBIÉN EN EL ENSAYO, y a propósito: un `--dry-run` que
+  // enseñara la cédula de un periodo sobre el que la corrida se va a negar le
+  // enseñaría al operador un mes que no va a existir.
   if (periodo.tipo !== 'regular') {
     throw new ValidationError(
       `El periodo "${periodo.nombre}" es de tipo "${periodo.tipo}", no un mes de operación. La ` +
@@ -400,31 +482,21 @@ export async function runMonthlyProvisions(
   }
 
   const plantilla = await plantillaQueDevenga(entityId, periodo);
-  // SIN TRABAJADORES NO SE POSTEA NADA. Un asiento en cero —o peor, un asiento
-  // de una sola línea que no cuadra— es ruido en el mayor, y la ausencia se lee
-  // igual de bien en `processed: 0`. La consulta de roles ni siquiera se hace:
-  // una entidad sin nómina mexicana no tiene por qué fallar por unas cuentas
-  // que no va a usar.
-  if (plantilla.length === 0) return vacio;
+  // SIN TRABAJADORES NO HAY NADA QUE POSTEAR. Un asiento en cero —o peor, un
+  // asiento de una sola línea que no cuadra— es ruido en el mayor, y la
+  // ausencia se lee igual de bien en una cédula sin renglones. La consulta de
+  // roles ni siquiera se hace: una entidad sin nómina mexicana no tiene por qué
+  // fallar por unas cuentas que no va a usar.
+  if (plantilla.length === 0) return cerrar();
 
   // El freno de doble corrida, resuelto de una sola consulta para todo el mes.
   const yaCorridos = await trabajadoresYaProvisionados(entityId, periodo.id);
-
-  interface Renglon {
-    trabajador: TrabajadorParaProvision;
-    provision: ProvisionMensual;
-    salario: { diario: string | undefined; sbc: string | undefined; fuente: string };
-  }
-  const renglones: Renglon[] = [];
-  let aguinaldo = new Decimal(0);
-  let vacaciones = new Decimal(0);
-  let prima = new Decimal(0);
 
   for (const t of plantilla) {
     const etiqueta = `${t.employee_number} ${t.nombre}`.trim();
     try {
       if (yaCorridos.has(t.id)) {
-        skipped++;
+        skipped.push({ worker: t, reason: 'already-accrued' });
         continue;
       }
       if (t.status === 'terminated' && !t.termination_date) {
@@ -434,13 +506,13 @@ export async function runMonthlyProvisions(
             'que ya no está.'
         );
       }
-      const salario = salarioDelTrabajador(t);
+      const salary = salarioDelTrabajador(t);
       const provision = calcularProvisionMensual({
         fecha_alta: t.hire_date,
         fecha_baja: t.termination_date,
         periodo: { inicio: periodo.inicio, fin: periodo.fin },
-        salario_diario: salario.diario,
-        sbc: salario.sbc,
+        salario_diario: salary.diario,
+        sbc: salary.sbc,
         dias_aguinaldo_por_anio: criterios.dias_aguinaldo,
         prima_vacacional_pct: criterios.prima_vacacional_pct,
         base_salarial: criterios.base_salarial,
@@ -453,10 +525,10 @@ export async function runMonthlyProvisions(
       // `provision_no_vacia` de la 079, y un renglón que documenta que no pasó
       // nada no documenta nada.
       if (esProvisionCero(provision)) {
-        skipped++;
+        skipped.push({ worker: t, reason: 'zero-month' });
         continue;
       }
-      renglones.push({ trabajador: t, provision, salario });
+      rows.push({ worker: t, provision, salary });
       aguinaldo = aguinaldo.plus(provision.aguinaldo);
       vacaciones = vacaciones.plus(provision.vacaciones);
       prima = prima.plus(provision.prima_vacacional);
@@ -465,13 +537,58 @@ export async function runMonthlyProvisions(
     }
   }
 
-  // SIN NÓMINA QUE DEVENGAR TAMPOCO SE POSTEA. Todos omitidos, todos en cero, o
-  // todos con ficha rota: en los tres casos el asiento sería de importe cero.
-  if (renglones.length === 0) {
-    return { ...vacio, skipped, errors };
-  }
+  return cerrar();
+}
 
-  const total = aguinaldo.plus(vacaciones).plus(prima);
+// ============================================================
+// La corrida
+// ============================================================
+
+/**
+ * LA CORRIDA MENSUAL: un renglón de cédula por trabajador y UN asiento.
+ *
+ * Devuelve lo procesado y los errores por trabajador en vez de abortar entera:
+ * una ficha sin salario capturado no puede impedir que los otros ciento noventa
+ * y nueve devenguen, y el hueco se ve porque el trabajador sale nombrado en
+ * `errors` y sin fila en la cédula.
+ *
+ * NO CALCULA NADA POR SU CUENTA: la cédula la arma `planMonthlyProvisions`, que
+ * es la misma que enseña el ensayo de la hoja. Lo que queda aquí es lo único
+ * que sólo la corrida hace: resolver las cuentas, postear el asiento y escribir
+ * los renglones.
+ */
+export async function runMonthlyProvisions(
+  entityId: string,
+  fiscalPeriodId: string,
+  userId: string
+): Promise<ResultadoDeProvisiones> {
+  const plan = await planMonthlyProvisions(entityId, fiscalPeriodId);
+  const { periodo, criterios, tenantId, errors } = plan;
+  const skipped = plan.skipped.length;
+
+  const vacio: ResultadoDeProvisiones = {
+    processed: 0,
+    skipped,
+    total: '0.0000',
+    errors,
+    aguinaldo: '0.0000',
+    vacaciones: '0.0000',
+    prima_vacacional: '0.0000',
+    journalEntryId: null,
+    ptu: declararPtu(criterios.ptu_mensual),
+    criterios,
+  };
+
+  // SIN NÓMINA QUE DEVENGAR NO SE POSTEA. Sin plantilla, todos omitidos, todos
+  // en cero, o todos con ficha rota: en los cuatro casos el asiento sería de
+  // importe cero.
+  if (plan.rows.length === 0) return vacio;
+
+  const renglones = plan.rows;
+  const aguinaldo = new Decimal(plan.aguinaldo);
+  const vacaciones = new Decimal(plan.vacaciones);
+  const prima = new Decimal(plan.prima_vacacional);
+  const total = new Decimal(plan.total);
   const cuentas = await cuentasDeProvisiones(entityId);
 
   const entryId = await withTransaction(async (client) => {
@@ -570,7 +687,7 @@ export async function runMonthlyProvisions(
             AND s.entity_id = $3
             AND je.id = s.journal_entry_id
             AND (je.reversed_by_entry_id IS NOT NULL OR je.status <> 'posted')`,
-        [r.trabajador.id, periodo.id, entityId]
+        [r.worker.id, periodo.id, entityId]
       );
 
       // EL ALCANCE POR ENTIDAD DENTRO DEL SQL: el id del trabajador no entra
@@ -588,7 +705,7 @@ export async function runMonthlyProvisions(
           WHERE e.id = $2 AND e.entity_id = $3`,
         [
           uuidv4(),
-          r.trabajador.id,
+          r.worker.id,
           entityId,
           periodo.id,
           fechaISO(periodo.fin),
@@ -601,7 +718,7 @@ export async function runMonthlyProvisions(
             metadatosDeProvision({
               provision: r.provision,
               criterios,
-              salario: r.salario,
+              salario: r.salary,
               periodo,
             })
           ),
@@ -609,7 +726,7 @@ export async function runMonthlyProvisions(
       );
       if (insercion.rowCount !== 1) {
         throw new ValidationError(
-          `El trabajador ${r.trabajador.employee_number} no es de esta entidad: no se escribió ` +
+          `El trabajador ${r.worker.employee_number} no es de esta entidad: no se escribió ` +
             'su renglón, y la corrida entera se deshace en vez de postear un asiento cuya cédula ' +
             'no cuadra.'
         );
@@ -677,11 +794,7 @@ async function trabajadoresYaProvisionados(
  * en silencio por una ficha sin sueldo es exactamente el hueco que nadie
  * encuentra: la cuenta no cuadra al cierre y no hay pista de por qué.
  */
-function salarioDelTrabajador(t: TrabajadorParaProvision): {
-  diario: string | undefined;
-  sbc: string | undefined;
-  fuente: string;
-} {
+function salarioDelTrabajador(t: TrabajadorParaProvision): SalaryOfRecord {
   const diario =
     t.annual_salary !== null ? salarioDiarioDesdeSueldoAnual(t.annual_salary) : undefined;
   const sbc = t.sbc !== null ? new Decimal(t.sbc).toFixed(4) : undefined;
@@ -720,7 +833,7 @@ function salarioDelTrabajador(t: TrabajadorParaProvision): {
 export function metadatosDeProvision(a: {
   provision: ProvisionMensual;
   criterios: CriteriosDeProvision;
-  salario: { diario: string | undefined; sbc: string | undefined; fuente: string };
+  salario: SalaryOfRecord;
   periodo: PeriodoDeCorrida;
 }): Record<string, unknown> {
   return {
