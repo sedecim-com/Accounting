@@ -4617,6 +4617,14 @@ export const CRITERIOS: Criterio[] = [
       if (!/const DIAS_DE_GRACIA = \d+;/.test(script)) {
         return falla('la gracia del historial dejó de tener techo declarado: el atraso podría crecer sin límite');
       }
+      // Y LA GRACIA SE MIDE CONTRA EL RELOJ, no contra el árbol. La primera
+      // versión usaba la fecha del commit más reciente, y así el PR sin fila
+      // que ERA la punta tenía antigüedad 0 para siempre: la compuerta prometía
+      // fallar a los siete días y no fallaba nunca para justo el último, que es
+      // el que más importa.
+      if (!/const hoy = new Date\(\)\.toISOString\(\)/.test(script)) {
+        return falla('la gracia volvió a medirse contra la fecha del árbol: un PR sin fila que sea la punta no envejecería nunca');
+      }
       // Y QUE NO SE SALTE CUANDO NO PUEDE MIRAR. `actions/checkout` clona a
       // profundidad 1 por omisión: sin esto el recorrido vería UN commit y el
       // documento saldría verde sin comprobarse. Es el falso verde que tenía
@@ -4648,6 +4656,12 @@ export const CRITERIOS: Criterio[] = [
         de: 'censo.atrasados.length > 0',
         a: 'censo.atrasados.length > 99999',
         porque: 'la compuerta deja de acusar los PRs que faltan: el historial podría volver a quedarse dieciséis PRs atrás, en verde',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'const hoy = new Date().toISOString()',
+        a: 'const hoy = (vertebral[0]?.fecha ?? new Date().toISOString())',
+        porque: 'la gracia vuelve a medirse contra el árbol: el PR sin fila que sea la punta tendría antigüedad cero para siempre y la compuerta no fallaría jamás por él',
       },
       {
         archivo: 'scripts/historial-estado.ts',

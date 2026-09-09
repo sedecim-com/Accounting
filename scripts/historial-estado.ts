@@ -254,11 +254,23 @@ export function medir(md: string): Censo {
   const conPr = vertebral.filter((e) => e.pr !== null);
   const nombrados = prsNombrados(md);
 
-  // «Hoy» es la fecha del commit más reciente del ÁRBOL, no la del reloj. Así
-  // el veredicto es reproducible —el mismo árbol da mañana el mismo resultado—
-  // y la gracia se mide en actividad del proyecto, no en tiempo de pared, que
-  // es lo que importa cuando se fusionan dieciséis PRs en dos días.
-  const hoy = vertebral[0]?.fecha ?? null;
+  // «HOY» ES EL RELOJ, Y LA PRIMERA VERSIÓN SE EQUIVOCÓ AQUÍ.
+  //
+  // Medía la gracia contra la fecha del commit más reciente del ÁRBOL, buscando
+  // un veredicto reproducible. El agujero lo encontró la revisión: si el PR sin
+  // fila ES el commit más reciente, su antigüedad vale 0 — y sigue valiendo 0
+  // dentro de seis meses sin actividad. La compuerta prometía fallar a los
+  // siete días de fusionado y nunca fallaría para justo el que más importa, el
+  // último.
+  //
+  // Con el reloj sí avanza. Lo que motivó la otra elección —que el bloque
+  // publicado saliera igual en la rama y en el `refs/pull/N/merge` de CI— ya no
+  // depende de esto: el bloque se deriva del DOCUMENTO y no del recorrido. Y la
+  // asimetría sigue jugando a favor: el recorrido de una rama ve menos PRs que
+  // el de CI, así que la compuerta es más indulgente en la rama, nunca al
+  // revés. La reproducibilidad de las PRUEBAS se conserva porque quien decide
+  // —`clasificarAtraso`— recibe la fecha, no la busca.
+  const hoy = new Date().toISOString().slice(0, 10);
 
   const { atrasados, recientes } = clasificarAtraso(
     conPr.filter((e) => !nombrados.has(e.pr as number)),

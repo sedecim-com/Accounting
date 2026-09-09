@@ -145,6 +145,23 @@ describe('la gracia — por qué esta compuerta no rompe el trabajo ajeno', () =
     expect(clasificarAtraso([pr(1, '2026-09-07')], HOY).atrasados).toHaveLength(1);
   });
 
+  it('el PR omitido que es la PUNTA envejece igual: la gracia mira el reloj, no el árbol', () => {
+    // WIT-01 de la revisión, y tenía razón. La primera versión medía la gracia
+    // contra la fecha del commit más reciente del ÁRBOL: si el PR sin fila ERA
+    // ese commit, su antigüedad valía 0 — y seguía valiendo 0 seis meses
+    // después, sin una sola actividad. La compuerta prometía fallar a los siete
+    // días de fusionado y jamás fallaría para justo el que más importa.
+    //
+    // Aquí el PR omitido es el más reciente que hay y aun así se acusa, porque
+    // quien decide recibe la fecha de HOY y no la deduce del árbol.
+    const soloUno = [pr(214, '2026-09-09')];
+    expect(clasificarAtraso(soloUno, '2026-09-09').atrasados).toHaveLength(0);
+    expect(clasificarAtraso(soloUno, '2026-09-16').atrasados).toHaveLength(0);
+    expect(clasificarAtraso(soloUno, '2026-09-17').atrasados.map((e) => e.pr)).toEqual([214]);
+    // Y meses después sigue acusado, que es lo que antes no pasaba.
+    expect(clasificarAtraso(soloUno, '2027-03-01').atrasados.map((e) => e.pr)).toEqual([214]);
+  });
+
   it('sin fecha con la que medir, TODO es deuda', () => {
     // No se firma en verde lo que no se pudo mirar. Es la misma regla que hace
     // que el guardián falle ante una historia truncada.
