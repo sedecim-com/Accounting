@@ -142,6 +142,72 @@ describe('X0 · lo que se publica lleva su sello, su signo y su historia', () =>
     expect(Number(despues.rows[0]!.minv), 'la primera versión desapareció').toBe(1);
   });
 
+  it('CINCO publicaciones simultáneas terminan todas, y las versiones salen 1..5 sin hueco ni repetida', async () => {
+    // WIT-01 de #210. `INSERT … SELECT COALESCE(MAX(version),0)+1` parece
+    // atómico y no lo es: bajo READ COMMITTED el SELECT no bloquea, así que
+    // dos publicaciones simultáneas leen el MISMO máximo y la segunda revienta
+    // contra `uq_published_aggregates_version`. Republicar dejaba de estar
+    // disponible justo cuando dos personas lo intentan a la vez.
+    //
+    // SE LANZAN CINCO Y NO DOS a propósito. Con dos, la ventana de carrera es
+    // real pero estrecha y una corrida podría no dar con ella; con cinco, sin
+    // el candado la colisión es prácticamente segura. Y la aserción es
+    // DETERMINISTA en verde: cinco publicaciones serializadas tienen que
+    // producir exactamente cinco versiones consecutivas.
+    //
+    // Se publica sobre el periodo 8, que es el que tiene movimiento —el 9 está
+    // vacío y no habría nada que versionar—. Para no depender de cuántas
+    // publicaciones dejaron las pruebas de arriba, la aserción es RELATIVA: se
+    // lee el máximo antes y se exige que después la serie llegue hasta
+    // `antes + 5`, contigua y sin repetir.
+    const periodo = f.periodos[8]!;
+    const previo = await query<{ dimension_value: string; maxv: string }>(
+      `SELECT dimension_value, MAX(version)::text AS maxv FROM published_aggregates
+        WHERE tenant_id = $1 AND entity_id = $2 AND period_id = $3
+        GROUP BY dimension_value`,
+      [f.tenantId, f.entityId, periodo]
+    );
+    const antes = new Map(previo.rows.map((r) => [r.dimension_value, Number(r.maxv)]));
+    const publicarEn = (): Promise<{ published: number }> =>
+      blockchainOrchestrator.publishAggregates({
+        tenantId: f.tenantId,
+        entityId: f.entityId,
+        periodId: periodo,
+      });
+
+    const resultados = await Promise.allSettled(Array.from({ length: 5 }, publicarEn));
+    const caidas = resultados
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      .map((r) => String((r.reason as Error).message));
+    expect(
+      caidas,
+      `${caidas.length} de 5 publicaciones simultáneas fallaron: republicar no aguanta que dos ` +
+        `personas lo intenten a la vez. ${caidas.slice(0, 2).join(' | ')}`
+    ).toEqual([]);
+
+    // Y las versiones, por dimensión, tienen que ser 1..5: ni repetida (la
+    // llave única lo impediría) ni con hueco (que sería una publicación
+    // perdida en silencio).
+    const { rows } = await query<{ dimension_value: string; versiones: string }>(
+      `SELECT dimension_value, string_agg(version::text, ',' ORDER BY version) AS versiones
+         FROM published_aggregates
+        WHERE tenant_id = $1 AND entity_id = $2 AND period_id = $3
+        GROUP BY dimension_value
+        ORDER BY dimension_value`,
+      [f.tenantId, f.entityId, periodo]
+    );
+    expect(rows.length, 'ninguna dimensión quedó publicada').toBeGreaterThan(0);
+    for (const d of rows) {
+      const hasta = (antes.get(d.dimension_value) ?? 0) + 5;
+      const esperada = Array.from({ length: hasta }, (_, i) => i + 1).join(',');
+      expect(
+        d.versiones,
+        `la dimensión "${d.dimension_value}" no quedó con la serie contigua hasta ${hasta}: ` +
+          'o una publicación se perdió, o dos se dieron el mismo número'
+      ).toBe(esperada);
+    }
+  });
+
   it('lo publicado dice en qué moneda está', async () => {
     const { rows } = await query<{ sin_moneda: string }>(
       `SELECT count(*)::text AS sin_moneda FROM published_aggregates
