@@ -1122,20 +1122,34 @@ describe('las tablas globales: lectura compartida, escritura sin gobierno', () =
     // pólizas. Así que `bancos_sembrados` vale false en toda instalación
     // recién migrada y la comprobación de la clave de banco nunca afirma nada.
     //
-    // QUE AQUÍ EL CONTEO SEA CERO es OTRA cosa, y confundirlas costó un fallo
-    // intermitente: `f07d` —un archivo HERMANO de PRUEBAS, no código que se
-    // entregue— sí la siembra con dos claves para ejercitar los dos lados de
-    // esa validación, y esta suite comparte UNA base entre todos sus archivos.
-    // El cero no lo sostiene el alfabeto: lo sostiene que f07d la devuelva
-    // como la encontró y que el vigilante haga fallar al archivo que no lo
-    // haga (ver helpers/catalogos-globales.ts). Sin eso, esta línea fallaba
-    // con «expected 2 to be +0» en las corridas en que el sequencer ponía a
-    // f07d primero — y acusaba a este archivo de un descuido ajeno.
-    const filas = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
-    expect(Number(filas.rows[0].n)).toBe(0);
+    // SE MIDE EL DELTA, NO EL ESTADO. La afirmación de esta prueba es que
+    // generar pólizas NO ESCRIBE en `sat_bancos` —escritura sin gobierno—, y
+    // exigir que la tabla esté VACÍA antes no es esa afirmación: es una
+    // precondición que depende de qué spec corrió primero. Contando antes y
+    // después se prueba lo que se quiere probar, con la tabla vacía o llena.
+    //
+    // PERO LA PRECONDICIÓN NO DESAPARECE ENTERA, y callarlo dejaría el mismo
+    // fallo con otra cara: las DOS afirmaciones de abajo —`bancos_sembrados`
+    // en false y el aviso en `warning`— sí necesitan el catálogo vacío.
+    // `bancos_sembrados` es `catalogoBancos.sembrado`, y con la '012' sembrada
+    // la clave de esta prueba pasa a 'valido', así que no se emite aviso
+    // ninguno y `aviso?.severity` queda undefined. Lo que sostiene ese vacío
+    // no es el alfabeto —el sequencer ordena por el resultado de la corrida
+    // anterior—: es que `f07d`, un archivo HERMANO de PRUEBAS y no código que
+    // se entregue, devuelva la tabla como la encontró después de sembrarle las
+    // dos claves con que ejercita los dos lados de la validación, y que el
+    // vigilante haga fallar al archivo que no lo haga. Ver
+    // helpers/catalogos-globales.ts.
+    const antes = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
 
     const r = await generarPolizas(f.entityId, { periodo: periodoDe(10), solicitud: SOLICITUD });
     expect(r.meta.bancos_sembrados).toBe(false);
+
+    const despues = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
+    expect(
+      Number(despues.rows[0].n),
+      'generar pólizas escribió en sat_bancos: es un catálogo global y su escritura tiene que estar gobernada'
+    ).toBe(Number(antes.rows[0].n));
     const aviso = r.hallazgos.find((h) => h.check === 'banco-en-catalogo');
     expect(aviso?.severity).toBe('warning');
     expect(aviso?.detalle).toContain('sat_bancos');

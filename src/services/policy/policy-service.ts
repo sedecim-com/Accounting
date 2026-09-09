@@ -4,6 +4,7 @@ import { ValidationError } from '../../utils/errors.js';
 import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
 import { FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_VEREDICTOS } from '../../ai/floor.js';
 import { POLICY_CATALOG, getPolicySpec } from './pending-catalog.js';
+import type { JurisdictionCode } from '../jurisdiction/jurisdiction.js';
 
 // ============================================================
 // POLICY SERVICE
@@ -29,14 +30,38 @@ export interface PolicyRow {
   resolution_notes: string | null;
   priority: number;
   entity_id: string | null;
+  /**
+   * A qué jurisdicción aplica esta respuesta. NULL = universal (J0.2, 075).
+   *
+   * Todas las filas anteriores a la 080 son NULL, y no se les inventa un país:
+   * se contestaron sin pensar en ninguno.
+   */
+  jurisdiction: string | null;
 }
 
 const COLUMNS = `id, key, category, question, impact, options, default_value, default_rationale,
-  status, resolved_value, resolved_by, resolved_at, resolution_notes, priority, entity_id`;
+  status, resolved_value, resolved_by, resolved_at, resolution_notes, priority, entity_id,
+  jurisdiction`;
 
 export interface PolicyContext {
   tenantId: string;
   entityId?: string;
+  /**
+   * LA JURISDICCIÓN DE LA PREGUNTA (J0.2). Opcional, y su ausencia significa
+   * algo: «contéstame sólo con lo universal».
+   *
+   * Sale de `jurisdictionOf(entidad).fiscal` — es la autoridad la que hace que
+   * la pregunta sea otra. Un despacho con una sociedad mexicana y otra de
+   * Delaware contestaba UNA vez a «¿el resultado del ejercicio va directo a
+   * acumulados?» y esa respuesta gobernaba a las dos, aunque una tenga
+   * asamblea que esperar (LGSM 19-20) y la otra no.
+   *
+   * ESTE TRAMO SÓLO ABRE EL ESLABÓN. La cascada completa —`PolicySpec` con sus
+   * jurisdicciones, la siembra filtrada, `pending --jurisdiction`— es J0.3; lo
+   * que aquí se garantiza es que la columna que la 080 creó tiene lector y que
+   * una respuesta marcada 'US' no puede gobernar a quien no preguntó por US.
+   */
+  jurisdiction?: JurisdictionCode;
 }
 
 /**
@@ -52,9 +77,19 @@ export async function seedPolicies(ctx: PolicyContext): Promise<{ inserted: numb
          tenant_id, entity_id, key, category, question, impact, options,
          default_value, default_rationale, priority, source
        ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, 'seed')
-       -- No target: uniqueness lives in two partial indexes (one for
-       -- tenant scope with entity_id NULL, another for entity scope), and
-       -- ON CONFLICT DO NOTHING covers both without naming them.
+       -- No target: uniqueness lives in three indexes —los dos parciales de
+       -- la 017 (alcance de inquilino con entity_id NULL, y alcance de
+       -- entidad) más el de la 080, que añade la jurisdicción con COALESCE—,
+       -- y ON CONFLICT DO NOTHING los cubre a los tres sin nombrar ninguno.
+       --
+       -- OJO, Y ES DE J0.3: los dos índices de la 017 NO llevan la
+       -- jurisdicción, así que hoy siguen impidiendo que un inquilino tenga
+       -- una respuesta 'MX' y otra 'US' para la misma clave. La columna de la
+       -- 075 tiene lector (getPolicy), pero la cascada no podrá sembrar dos
+       -- jurisdicciones hasta que esos dos índices se reemplacen por sus
+       -- equivalentes con jurisdicción. Está anotado también en la prueba de
+       -- integración de este tramo, que lo deja fijado en vez de en la
+       -- memoria de quien lo encontró.
        ON CONFLICT DO NOTHING`,
       [
         ctx.tenantId, ctx.entityId ?? null, spec.key, spec.category,
@@ -95,6 +130,16 @@ export interface EffectivePolicy {
   defined: boolean;
   question: string;
   rationale: string | null;
+  /**
+   * De qué jurisdicción era la fila que contestó; NULL = universal, y también
+   * cuando contestó el catálogo porque no había fila.
+   *
+   * Se propaga y no se calla porque el llamador tiene que poder distinguir
+   * «me contestó la respuesta de MI jurisdicción» de «me contestó la
+   * universal»: son la misma cifra con distinta autoridad detrás, y es lo que
+   * `pending explain` (J0.3) va a imprimir.
+   */
+  jurisdiction: string | null;
 }
 
 /**
@@ -132,12 +177,31 @@ export async function getPolicy(
     //
     // La fila de la entidad gana sobre la del inquilino, que es lo que el
     // orden pretendía decir.
+    //
+    // ── ── ──
+    //
+    // J0.2 · LA JURISDICCIÓN SE ACOTA IGUAL QUE LA ENTIDAD, Y SE ORDENA
+    // DESPUÉS DE ELLA.
+    //
+    // El WHERE deja pasar la fila universal (jurisdiction NULL) y la de la
+    // jurisdicción preguntada, nada más. Sin jurisdicción en el contexto, $4
+    // es NULL y `jurisdiction = NULL` no es cierto en SQL: quedan sólo las
+    // universales, que es exactamente lo que hoy hay en la tabla —la 080 deja
+    // la columna en NULL para toda fila anterior—. Por eso este añadido no
+    // mueve ninguna respuesta existente.
+    //
+    // Y el ORDER BY mantiene la precedencia que ya funcionaba: la ENTIDAD
+    // gana primero, y sólo dentro del mismo alcance decide la jurisdicción.
+    // Al revés, una respuesta de inquilino marcada 'MX' le ganaría a la
+    // respuesta específica de la entidad, que es la regresión que este tramo
+    // tiene prohibido introducir.
     `SELECT ${COLUMNS} FROM policy_decisions
      WHERE tenant_id = $1 AND key = $2
        AND (entity_id IS NULL OR entity_id = $3::uuid)
-     ORDER BY entity_id IS NULL ASC
+       AND (jurisdiction IS NULL OR jurisdiction = $4)
+     ORDER BY entity_id IS NULL ASC, jurisdiction IS NULL ASC
      LIMIT 1`,
-    [ctx.tenantId, key, ctx.entityId ?? null]
+    [ctx.tenantId, key, ctx.entityId ?? null, ctx.jurisdiction ?? null]
   );
   const row = r.rows[0];
   const spec = getPolicySpec(key);
@@ -147,6 +211,7 @@ export async function getPolicy(
       key, value: row.resolved_value, defined: true,
       question: row.question,
       rationale: row.resolution_notes,
+      jurisdiction: row.jurisdiction,
     };
   }
   const fallback = row?.default_value ?? spec?.defaultValue;
@@ -157,6 +222,10 @@ export async function getPolicy(
     key, value: fallback, defined: false,
     question: row?.question ?? spec?.question ?? key,
     rationale: row?.default_rationale ?? spec?.defaultRationale ?? null,
+    // Sin fila, contestó el catálogo, y el catálogo todavía no sabe de
+    // jurisdicciones: `PolicySpec.jurisdicciones` es de J0.3. Universal, que
+    // es lo que de verdad es.
+    jurisdiction: row?.jurisdiction ?? null,
   };
 }
 
@@ -176,6 +245,23 @@ export async function getPolicyNumber(ctx: PolicyContext, key: string): Promise<
   return n;
 }
 
+// ASIMETRÍA DECLARADA, Y ES TRABAJO DE J0.3 (no un olvido de J0.2).
+//
+// `getPolicy` ya sabe que la jurisdicción forma parte de la identidad de una
+// decisión: la selecciona, la acota y la propaga. Las funciones que ESCRIBEN
+// esas mismas filas —`resolvePolicy`, `listPolicies`, `listPending`— todavía
+// no: acotan por inquilino y, como mucho, por entidad.
+//
+// Hoy no hace daño y por eso no se cierra aquí: NINGUNA fila lleva
+// jurisdicción, porque nada la escribe —la siembra filtrada por país es J0.3—,
+// así que leer con jurisdicción y escribir sin ella resuelve exactamente la
+// misma fila que antes. El día que J0.3 siembre respuestas por país, esta
+// asimetría deja de ser latente: `getPolicy` leería la respuesta mexicana y
+// `resolvePolicy` escribiría sobre la universal.
+//
+// Se escribe aquí, junto al escritor, en vez de en una tarjeta: quien venga a
+// hacer J0.3 abre este archivo, no la issue. Lo encontró el verificador
+// adversario del tramo; el implementador no lo había reportado.
 export async function resolvePolicy(
   ctx: PolicyContext,
   key: string,

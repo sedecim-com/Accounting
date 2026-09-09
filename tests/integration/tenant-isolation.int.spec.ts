@@ -185,7 +185,13 @@ describe('aislamiento por inquilino con RLS', () => {
         AND c.relname <> ALL (ARRAY['users','sessions','tenants','migrations'])
         AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity
              OR NOT EXISTS (SELECT 1 FROM pg_policy p
-                            WHERE p.polrelid = c.oid AND p.polname = 'tenant_isolation'))
+                            -- CUALQUIERA DE LAS DOS AÍSLA (E1b). Desde la 072 las
+                            -- hijas llevan tenant_id, y su politica sigue siendo
+                            -- tenant_isolation_child: exigir el nombre exacto
+                            -- las daría por desprotegidas teniéndolo todo. Lo
+                            -- que sí garantiza rls-policies.sql es que tengan
+                            -- UNA, no dos: dos permisivas se suman con OR.
+                            WHERE p.polrelid = c.oid AND p.polname LIKE 'tenant_isolation%'))
       GROUP BY c.relname ORDER BY c.relname`);
     const desprotegidas = r.rows.map((x) => x.relname);
     expect(

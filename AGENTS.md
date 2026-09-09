@@ -24,6 +24,29 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
 
 **7. Ninguna credencial real entra al repositorio ni al chat.** Ni una e.firma, ni un CSD, ni su contraseña. Los fixtures de `tests/fixtures/certs/` son autofirmados y sintéticos.
 
+## El idioma: dónde va cada cosa
+
+Tres capas, y lo que decide de cuál es algo no es dónde vive sino **quién lo
+lee** (epic [#141](https://github.com/sedecim-com/Accounting/issues/141)):
+
+| Lo lee | Idioma | Ejemplos |
+|---|---|---|
+| La máquina, o quien la mantiene | **Inglés**, y lo nuevo nace así | identificadores, archivos, comentarios, claves, códigos de error, ids de criterio |
+| El contador | **Su idioma**, español primero | ayuda del CLI, mensajes, el panel de políticas, los informes |
+| Nadie más lo puede reescribir | **Se queda como está** | informes ya fechados, artefactos que van al SAT, valores ya persistidos en la base de un despacho |
+
+Dos consecuencias que se olvidan y cuestan caro:
+
+- **La superficie se traduce por CLAVE, no por prosa.** Reescribir el texto en
+  el sitio donde se emite deja al instrumento midiendo el render en vez de la
+  fuente, y entonces el metro dice que ya no hay español porque lo tradujo.
+- **Lo que identifica no se traduce nunca**: una clave, un id, un código de
+  error. Traducir una llave no cambia lo que dice, cambia a qué se parece — y
+  todo lo que casaba contra ella deja de casar, en silencio y de golpe.
+
+Lo existente no se traduce a mano y a ojo: entra a una línea base por archivo
+que **sólo encoge**, tramo a tramo.
+
 ## Verificación, no afirmación
 
 - Un criterio nuevo en `src/plan/criterios.ts` **se verifica por mutación en ambos sentidos**: rómpelo a propósito con un mutante en memoria (guardar/restaurar, nunca `git checkout --`, que puede destruir el trabajo de otra sesión sobre el mismo árbol) y exige que la prueba falle. Un criterio que no muerde no protege nada.

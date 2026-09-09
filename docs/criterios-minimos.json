@@ -4,8 +4,10 @@
   "_reglas": "Tres direcciones, porque un trinquete que solo mira una se vacia por las otras dos: (1) un criterio del piso que se pone rojo falla; (2) un criterio del piso cuyo enunciado ya no existe falla —el renombre silencioso vaciaria la lista—; (3) un criterio verde de un paquete ABIERTO que no este aqui falla: el piso sube en el mismo commit que gana el terreno. Los criterios de paquetes RESUELTOS no se listan: --exigir ya los cubre enteros.",
   "_s2": "Nace en S2 con los 17 verdes desprotegidos del HEAD que lo introduce. Cuando un paquete rojo se cierre, sus criterios salen de aqui y entran a --exigir con el paquete.",
   "verdes": [
+    "agent-balance-sheet-foots",
     "agent-corpus-staleness-gate",
     "cost-per-row-band-split",
+    "graphql-surface-withdrawn",
     "rls-silent-backfill-repaired",
     "repository-declares-git-remote",
     "isolation-job-unprivileged-role",
@@ -42,12 +44,10 @@
     "no-faked-external-act-success",
     "startup-rejects-rls-bypass-role",
     "tenant-context-mounted-globally",
-    "graphql-mounted-behind-flag",
     "mutating-route-risk-declaration",
     "public-verification-verifier-role",
     "counterparty-webhook-tenant-scope",
     "outbound-webhook-delivery-hardening",
-    "graphql-mutation-permission-gate",
     "route-entity-access-verified",
     "payroll-account-mapping-seeded",
     "bank-reconciliation-posts-difference",
@@ -78,7 +78,8 @@
     "imss-employee-rates-match-law",
     "output-flag-writes-complete-output",
     "contract-exit-codes-have-producers",
-    "imss-rate-fix-verified-by-running-it"
+    "imss-rate-fix-verified-by-running-it",
+    "delivery-history-completeness-gate"
   ],
   "_f05": "F05 (frontera de banco) subio el piso de 31 a 37 criterios: los seis verdes de E2.1 que nadie protegia. Se anaden aqui porque el arreglo de la frontera bancaria estuvo a punto de regresar uno de ellos —acotaba por `req.entityId` sin montar requireEntityAccess, y acotar por una cabecera que nadie valida no es acotar—. El criterio lo cazo; el piso impide que la proxima vez dependa de que alguien mire.",
   "_f05d": "F05d subio el piso de 37 a 46: los nueve verdes de E0.0 que nadie protegia, incluido «el corpus tiene compuerta de caducidad» — que este mismo tramo estuvo a punto de volver inutil sin tocarlo. Al anadir al manual una segunda mencion de 1135 (la regla del cheque cobrado), el mutante que vigilaba la del PPD paso a mutar la nueva y el criterio, que solo comprobaba PRESENCIA del numero, seguia en verde mientras el manual podia ensenar lo contrario. Un ancla de presencia caduca en cuanto alguien escribe cerca.",
