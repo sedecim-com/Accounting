@@ -16,8 +16,8 @@ en `src/ai/floor.ts` y sólo se combinan con `Math.min`, así que ninguna
 configuración, política guardada ni bandera futura puede subirlos.
 
 El repositorio se llama `Accounting` y el paquete `accounting-core` por su
-origen: un servidor REST/GraphQL. Ese motor sigue ahí y es el que el agente
-opera, pero el producto es el CLI.
+origen: un servidor REST (y, hasta T14b, también GraphQL). Ese motor sigue ahí
+y es el que el agente opera, pero el producto es el CLI.
 
 ---
 
@@ -80,25 +80,10 @@ Se dice aquí porque descubrirlo leyendo el código sería peor:
 - **La nómina reporta ceros en 941/940.** `paycheck_taxes`,
   `employer_tax_liabilities` y `garnishments` se leen y ningún camino las
   escribe.
-- **GraphQL está desmontado por omisión** (`GRAPHQL_ENABLED=true` lo devuelve).
-  Sus mutaciones ya exigen el mismo permiso que su ruta REST, y una compuerta
-  contrasta el esquema al cargar: una mutación declarada que no esté
-  implementada-con-permiso o listada como ausente impide cargar los
-  resolutores. Sigue apagado por lo que falta: vive fuera del prefijo auditado
-  `/v1` —no deja la fila de PETICIÓN en `audit_log`, aunque el hecho contable
-  sí queda registrado por los servicios en las vías que pasan por ellos—. De
-  sus quince mutaciones hay doce, delegando en los mismos servicios que usa
-  REST. Las tres que faltan no faltan por descuido:
-
-  - `sendInvoice` — la ruta que sirve ese acto MARCA la factura como enviada y
-    no transmite nada; el esquema pide asunto y mensaje y devuelve un tipo sin
-    sitio para decirlo, así que servirla devolvería la mentira que se purgó.
-  - `stampCfdi` y `cancelCfdi` — timbrar y cancelar ante el SAT. No hay servicio
-    en el que delegar: la lógica del comprobante vive DENTRO de la ruta REST, y
-    copiarla aquí daría dos versiones de una regla fiscal. Por esta puerta el
-    acto irreversible quedaría además sin autor, porque `auditLogMiddleware`
-    sólo cuelga de `/v1`. Vuelven cuando el timbrado viva en un servicio que las
-    dos puertas llamen y que audite.
+- **GraphQL se retiró** ([#101](https://github.com/sedecim-com/Accounting/issues/101)).
+  Era una segunda puerta al mismo motor, apagada tras una bandera y sin un solo
+  consumidor: ningún cliente en el árbol, ningún `.graphql`, y un script de
+  generación sin binario. La única superficie HTTP es REST `/v1`.
 - De los 151 manejadores REST, **7 están retirados** y lanzan
   `NotImplementedError` en vez de fingir que hicieron algo.
 - **No hay respaldo ni restauración.** Ni una línea en todo el árbol. Y lo que
