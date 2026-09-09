@@ -1122,6 +1122,12 @@ export const CRITERIOS: Criterio[] = [
         a: "await client.query('SET row_security = on');",
         porque: 'apagar el piso es exactamente la regresión que costó cuatro siembras silenciosas',
       },
+      {
+        archivo: 'src/database/migrations/075_el_embargo_que_no_retenia.sql',
+        de: 'SET LOCAL row_security = on;',
+        a: '-- sin declarar el opt-in;',
+        porque: 'una migración vuelve a escribir en una tabla acotada sin declarar el opt-in: es el caso que este criterio NO veía, y el que mató a la 075 en un despacho endurecido',
+      },
     ],
     evaluar: () => {
       // Tres veces una siembra corrió como dueño bajo FORCE RLS sin GUC de
@@ -1145,6 +1151,7 @@ export const CRITERIOS: Criterio[] = [
       // un bucle sin declaración muere con 42501 en el primer catch-up de
       // una base rezagada — una regresión que sólo muerde en el campo.
       const dir = rutaDe('src', 'database', 'migrations');
+      const archivosSql = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).length;
       const sinOptIn = fs.readdirSync(dir)
         .filter((f) => f.endsWith('.sql'))
         .filter((f) => {
@@ -1155,8 +1162,52 @@ export const CRITERIOS: Criterio[] = [
           return sql.includes("set_config('app.current_tenant'")
             && !/SET LOCAL row_security = on/.test(sql);
         });
+      // Y EL PUNTO CIEGO QUE ESTO TENÍA, cerrado (WIT-01 de #200).
+      //
+      // Lo de arriba sólo mira migraciones que YA fijan el contexto de
+      // inquilino, y les exige además el opt-in. Una que escriba en una tabla
+      // acotada y no haga NINGUNA DE LAS DOS COSAS le era invisible — que es
+      // exactamente lo que era la 075: dos UPDATE sobre `garnishments`, sin
+      // contexto y sin opt-in. Medido sobre una base al día en la 074, con el
+      // corredor NOBYPASSRLS y DUEÑO y las políticas ya aplicadas, moría con
+      // «query would be affected by row-level security policy for table
+      // "garnishments"» y revertía el archivo entero.
+      //
+      // La pregunta correcta no es «¿el que fija contexto declara el opt-in?»
+      // sino «¿el que ESCRIBE en una tabla acotada lo declara?».
+      const acotadas = new Set(
+        [
+          ...crudoDe('src/database/rls-policies.sql').matchAll(
+            /\(\s*'([a-z_]+)'\s*,\s*'[a-z_]*'\s*,/g
+          ),
+        ].map((m) => m[1])
+      );
+      // Se CUENTA antes de absolver: un censo vacío diría que ninguna migración
+      // escribe a ciegas por no haber leído ninguna tabla.
+      if (acotadas.size < 10) {
+        return falla(
+          `sólo se censaron ${acotadas.size} tablas acotadas de rls-policies.sql: sin censo no se puede afirmar que ninguna migración escriba a ciegas`
+        );
+      }
+      const escribenACiegas = fs
+        .readdirSync(dir)
+        .filter((f) => f.endsWith('.sql'))
+        .filter((f) => {
+          const sql = sinProsa(crudoDe('src/database/migrations', f));
+          if (/SET LOCAL row_security = on/.test(sql)) return false;
+          return [
+            ...sql.matchAll(/\b(?:UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+(?:public\.)?([a-z_]+)/gi),
+          ].some((m) => acotadas.has(m[1].toLowerCase()));
+        });
+      if (escribenACiegas.length > 0) {
+        return falla(
+          `${escribenACiegas.length} migración(es) escriben en una tabla con política de RLS sin declarar ` +
+            `«SET LOCAL row_security = on»: ${escribenACiegas.slice(0, 4).join(', ')}. Con el corredor ` +
+            'NOBYPASSRLS mueren con 42501 y revierten el archivo entero: el despacho ya instalado no puede actualizar'
+        );
+      }
       return sinOptIn.length === 0
-        ? ok('el corredor convierte el filtrado silencioso en 42501 y las siembras por inquilino declaran su opt-in')
+        ? ok(`el corredor convierte el filtrado silencioso en 42501, y ninguna de las ${archivosSql} migraciones escribe en las ${acotadas.size} tablas acotadas sin declarar su opt-in`)
         : falla(`bucle por inquilino sin «SET LOCAL row_security = on» — contra el piso mueren en el catch-up: ${sinOptIn.join(', ')}`);
     },
   },

@@ -44,33 +44,82 @@
 -- GUARDAR, en vez de guardarse y retener cero.
 -- ============================================================
 
+-- ── 0 · EL OPT-IN, SIN EL CUAL ESTO NO CORRE EN UN DESPACHO REAL ────────
+--
+-- `garnishments` está en `rls-policies.sql` (:177, acotada por `employee_id`
+-- contra `employees`), y `migrate.ts` abre la sesión con `SET row_security =
+-- off` (:90). Esa combinación NO desactiva RLS: PostgreSQL LANZA 42501 en
+-- cuanto la consulta sería afectada por una política. Los dos UPDATE de abajo
+-- abortaban el archivo entero antes de normalizar nada y antes de instalar los
+-- CHECK.
+--
+-- MEDIDO, y no deducido: sobre una base al día en la 074, con el corredor como
+-- rol NOBYPASSRLS y DUEÑO de las tablas y `rls-policies.sql` ya aplicado —que
+-- es el estado en que `migrate.ts` deja toda instalación—, la 075 moría con
+-- «query would be affected by row-level security policy for table
+-- "garnishments"». La prueba que lo fija es
+-- tests/integration/migracion-075-embargo-bajo-rls.int.spec.ts, y comprueba
+-- ANTES su propio banco: que el rol no sea superusuario, que la tabla esté
+-- FORCE, y que una lectura suya lance. Sin esas tres, la prueba pasaría
+-- siempre.
+--
+-- El patrón es el de la 025, 026, 043, 048, 051 y 053: declarar el opt-in y
+-- recorrer los inquilinos fijando el contexto. `SET LOCAL` muere con la
+-- transacción que `migrate.ts` abre alrededor de este archivo.
+SET LOCAL row_security = on;
+
 -- ── 1 · LO QUE YA ESTÉ GUARDADO, AL VOCABULARIO BUENO ───────────────────
 --
 -- `percentage` era lo único que el motor entendía, y lo trataba como
--- porcentaje del ingreso DISPONIBLE: se traduce a lo que significaba.
-UPDATE garnishments SET amount_type = 'percent_disposable' WHERE amount_type = 'percentage';
--- Y los dos tipos que el motor entendía y la columna no documentaba.
-UPDATE garnishments SET garnishment_type = 'tax_levy_federal' WHERE garnishment_type = 'tax_levy';
+-- porcentaje del ingreso DISPONIBLE: se traduce a lo que significaba. Y los
+-- dos tipos que el motor entendía y la columna no documentaba.
+--
+-- Por inquilino, que es lo que da contexto a la política. `tenants` queda
+-- fuera de RLS a propósito, así que el bucle sí se puede leer.
+DO $normaliza$
+DECLARE
+  t record;
+BEGIN
+  FOR t IN SELECT id FROM tenants LOOP
+    PERFORM set_config('app.current_tenant', t.id::text, true);
+    UPDATE garnishments SET amount_type = 'percent_disposable' WHERE amount_type = 'percentage';
+    UPDATE garnishments SET garnishment_type = 'tax_levy_federal' WHERE garnishment_type = 'tax_levy';
+  END LOOP;
+END
+$normaliza$;
 
 -- ── 2 · LAS RESTRICCIONES ───────────────────────────────────────────────
 DO $vocabulario$
 DECLARE
-  huerfanos text;
+  t         record;
+  sueltos   text;
+  importes  text := '';
+  tipos     text := '';
 BEGIN
   -- No se añade un CHECK sobre datos que no lo cumplen: se para y se nombra.
-  SELECT string_agg(DISTINCT amount_type, ', ') INTO huerfanos
-    FROM garnishments
-   WHERE amount_type NOT IN ('fixed', 'percent_disposable', 'percent_gross');
-  IF huerfanos IS NOT NULL THEN
-    RAISE EXCEPTION '075: hay ordenes de embargo con amount_type fuera del vocabulario (%): revisese antes de restringir la columna', huerfanos;
-  END IF;
+  -- El censo también va por inquilino — con RLS puesta, una consulta sin
+  -- contexto no vería las filas de nadie y absolvería a ciegas, que es la
+  -- misma trampa por la que existía este arreglo.
+  FOR t IN SELECT id FROM tenants LOOP
+    PERFORM set_config('app.current_tenant', t.id::text, true);
 
-  SELECT string_agg(DISTINCT garnishment_type, ', ') INTO huerfanos
-    FROM garnishments
-   WHERE garnishment_type NOT IN ('child_support', 'pension_alimenticia', 'tax_levy_federal',
-                                  'tax_levy_state', 'bankruptcy', 'creditor', 'student_loan');
-  IF huerfanos IS NOT NULL THEN
-    RAISE EXCEPTION '075: hay ordenes de embargo con garnishment_type fuera del vocabulario (%): revisese antes de restringir la columna', huerfanos;
+    SELECT string_agg(DISTINCT amount_type, ', ') INTO sueltos
+      FROM garnishments
+     WHERE amount_type NOT IN ('fixed', 'percent_disposable', 'percent_gross');
+    IF sueltos IS NOT NULL THEN importes := importes || sueltos || ' '; END IF;
+
+    SELECT string_agg(DISTINCT garnishment_type, ', ') INTO sueltos
+      FROM garnishments
+     WHERE garnishment_type NOT IN ('child_support', 'pension_alimenticia', 'tax_levy_federal',
+                                    'tax_levy_state', 'bankruptcy', 'creditor', 'student_loan');
+    IF sueltos IS NOT NULL THEN tipos := tipos || sueltos || ' '; END IF;
+  END LOOP;
+
+  IF importes <> '' THEN
+    RAISE EXCEPTION '075: hay ordenes de embargo con amount_type fuera del vocabulario (%): revisese antes de restringir la columna', importes;
+  END IF;
+  IF tipos <> '' THEN
+    RAISE EXCEPTION '075: hay ordenes de embargo con garnishment_type fuera del vocabulario (%): revisese antes de restringir la columna', tipos;
   END IF;
 END
 $vocabulario$;
