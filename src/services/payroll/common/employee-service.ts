@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../../database/connection.js';
 import { encrypt } from '../../../utils/encryption.js';
-import { ValidationError, NotFoundError } from '../../../utils/errors.js';
+import { ValidationError } from '../../../utils/errors.js';
+import { requireByIdInScope, type Scope } from '../../../database/scope.js';
 
 // ============================================================
 // EMPLOYEE SERVICE
@@ -108,21 +109,34 @@ export async function createEmployee(input: EmployeeInput): Promise<string> {
   return id;
 }
 
-export async function getEmployee(id: string): Promise<Record<string, unknown>> {
-  const result = await query(
-    `SELECT id, tenant_id, entity_id, employee_number,
+/**
+ * Un empleado, si el alcance lo alcanza (T9 · #96).
+ *
+ * Antes tomaba el id y nada más: `GET /payroll/employees/:id` devolvía RFC,
+ * CURP, NSS y `annual_salary` de la plantilla de la sociedad hermana con sólo
+ * conocer su UUID. Medido — y entre entidades del MISMO inquilino, o sea donde
+ * la RLS no acota nada, porque acota por inquilino.
+ *
+ * El alcance va DENTRO de la consulta, no en una comprobación previa, y la
+ * ausencia se contesta como inexistencia: 404 y no 403, para que la respuesta
+ * no delate qué empleados tienen las otras sociedades.
+ */
+export async function getEmployee(id: string, scope: Scope): Promise<Record<string, unknown>> {
+  // `employees` lleva `entity_id` propio, así que el ayudante de la casa
+  // deduce la columna del esquema y mete el filtro en la misma sentencia.
+  return await requireByIdInScope(
+    'employees',
+    id,
+    scope,
+    { columns: `id, tenant_id, entity_id, employee_number,
             first_name, last_name, second_last_name, email, phone,
             hire_date, termination_date, status, country_code,
             rfc, curp, nss, sbc, tipo_regimen_sat, riesgo_puesto,
             infonavit_credit_number, infonavit_credit_type, infonavit_credit_value,
             w4_data, work_state, residence_state, work_city,
             salary_type, annual_salary, hourly_rate, currency_code, pay_schedule_id,
-            bank_name, metadata, created_at, updated_at
-     FROM employees WHERE id = $1`,
-    [id]
+            bank_name, metadata, created_at, updated_at` }
   );
-  if (result.rows.length === 0) throw new NotFoundError('Employee', id);
-  return result.rows[0];
 }
 
 export async function listEmployees(

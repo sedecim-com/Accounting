@@ -2948,6 +2948,18 @@ export const CRITERIOS: Criterio[] = [
           // aparece dentro del cuerpo por cualquier otra razón.
           const montada = /requireEntityAccess/.test(cuerpo.slice(0, 300));
           const comprobadaDentro = /assertEntityAccess\s*\(/.test(cuerpo);
+          // NO SE ADMITE UNA TERCERA FORMA, y lo escribo porque lo intenté.
+          //
+          // Acotar la consulta con `entityScope(req.tenantId!, req.entityId!)`
+          // parece una guarda mejor —el filtro va dentro del SQL, sin ventana
+          // entre comprobar y usar— y NO sustituye a ésta: `req.entityId` sale
+          // de la cabecera `x-entity-id`, y quien comprueba que esa cabecera
+          // esté concedida por el token es `requireEntityAccess`. Sin ella,
+          // acotar por `req.entityId` acota por lo que el atacante escribió.
+          //
+          // Son las dos: la cabecera se valida contra el token, y la consulta
+          // acota. Es lo que hace journal-entries.ts:160 y lo que T9 lleva a
+          // nómina.
           if (!montada && !comprobadaDentro) {
             desprotegidas.push(`${path.basename(f)} ${m[1].toUpperCase()} ${m[2]}`);
           }
