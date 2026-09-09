@@ -156,9 +156,15 @@ describe('1 · el censo sale de la pila de Express, no de una lista', () => {
   it('lo que el censo NO alcanza: una puerta montada como middleware', () => {
     // Límite REAL y con nombre. `censarRutas` recorre `layer.route`, y un
     // `app.use(ruta, manejador)` no crea ninguna: crea una capa suelta que
-    // atiende TODOS los verbos. GraphQL se monta exactamente así
-    // (src/index.ts, `app.use('/graphql', …, expressMiddleware(...))`) y sus
-    // mutaciones postean al mayor.
+    // atiende TODOS los verbos.
+    //
+    // Así se montaba GraphQL —`app.use('/graphql', …, expressMiddleware(...))`,
+    // con mutaciones que posteaban al mayor— y por eso el censo nunca lo vio:
+    // medido, 185 rutas censadas y ninguna era la suya. Esa puerta se retiró en
+    // T14b (#101), así que el ejemplo es histórico; el HUECO no, y por eso esta
+    // prueba se queda con una puerta de laboratorio. También es la razón de que
+    // el criterio que sustituyó a los de GraphQL NO se apoye en el censo: mide
+    // la dependencia y el árbol, que es lo que el censo no puede ver.
     //
     // Esta prueba no bendice el hueco: lo fija por escrito para que el día
     // que se cierre, falle aquí y se lea el porqué.
