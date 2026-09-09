@@ -118,6 +118,26 @@ export default defineConfig({
         'src/services/jurisdiction/jurisdiction.ts': {
           statements: 100, branches: 100, functions: 100, lines: 100,
         },
+        // J0.2 · El lector de la ley y su semilla, con el mismo criterio: un
+        // archivo que decide qué tasa se aplica —y otro que decide qué dice
+        // la ley que se guardó— no empieza a medirse el día que alguien se
+        // acuerde. Medidos hoy: 100 / 100 / 100 / 100 en los dos, que es donde
+        // los dejó su tramo.
+        //
+        // Entran aquí SIN renglón en SUELO_COBERTURA_UNITARIA, y conviene
+        // decir qué compra y qué no: `contraSuelo` exige a los archivos DEL
+        // SUELO que no bajen, y a los demás sólo que ninguna métrica esté en
+        // cero. Así que hoy estos dos umbrales los sostiene la corrida de
+        // cobertura —que se pone roja si bajan— pero no el trinquete del
+        // tablero: alguien podría bajarlos EDITANDO ESTA LÍNEA sin que ningún
+        // criterio se moviera. Cerrarlo es añadirles su renglón en
+        // src/plan/criterios.ts, que es de quien cierra el criterio del tramo.
+        'src/services/jurisdiction/legal-parameters.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
+        },
+        'src/services/jurisdiction/legal-parameters-seed.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
+        },
         'src/services/reporting/criterio-cierre.ts': {
           statements: 100, branches: 95, functions: 100, lines: 100,
         },

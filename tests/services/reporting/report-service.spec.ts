@@ -352,6 +352,10 @@ const DERIVAR = {
   defined: false,
   question: '',
   rationale: null,
+  // J0.2: la respuesta dice ahora de qué jurisdicción es. Nula = universal,
+  // que es lo que contesta el catálogo mientras `PolicySpec.jurisdicciones`
+  // (J0.3) no exista.
+  jurisdiction: null,
 };
 
 describe('queryAccumulatedBalances — la suma del mayor para TODAS las cuentas', () => {
