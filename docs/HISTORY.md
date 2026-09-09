@@ -12,8 +12,8 @@ Este documento reconstruye, **verificado contra `git log` y contra `gh pr view` 
 
 **Censo, medido sobre el árbol** (`npm run historial:estado`):
 
-- **58** PRs registrados aquí, y los 58 están en `main`.
-- El más reciente registrado es el **#208**, del **2026-09-08** (UTC).
+- **60** PRs registrados aquí.
+- El más alto registrado es el **#214**.
 - **13** commits directos a `main`, de antes del flujo por PR (la fila «—» del Sprint 1).
 
 CI lo verifica con `--check`, que falla cuando un PR lleva más de **7 días** fusionado sin aparecer aquí. La gracia existe para que una fusión no ponga en rojo los demás PRs abiertos; el techo, para que el documento no pueda pudrirse.
@@ -153,6 +153,7 @@ Milestone: **ninguno**. Los hitos de sprint se detienen en el 7, y no es un desc
 | [#186](https://github.com/sedecim-com/Accounting/pull/186) | T1b: la reparación no llegaba a quien la necesitaba, y la 071 no dejaba llegar nada (WIT-01 crítico de #136) | 2026-09-08 | T1b | squash `3f2695c`, 7 commits. Cierra el crítico que dejó abierto el #136, y de camino destapó una regresión que bloqueaba las migraciones. |
 | [#174](https://github.com/sedecim-com/Accounting/pull/174) | I1: el léxico compartido y la regla escrita, que decía lo contrario | 2026-09-08 | I1 | squash `704351e`, 3 commits. |
 | [#208](https://github.com/sedecim-com/Accounting/pull/208) | La ñ era un separador, así que las palabras más españolas se contaban en inglés | 2026-09-08 | I2·remate | squash `5fbb272`, 1 commit. El metro del idioma partía las palabras por la `ñ` y contaba como inglesas las mitades resultantes. |
+| [#214](https://github.com/sedecim-com/Accounting/pull/214) | T14b: la segunda puerta al mayor se retira, y el criterio que la vigilaba se cegaba solo | 2026-09-09 | T14b | squash `5816559`, 2 commits. **−4 265 líneas**: la superficie GraphQL entera, sus cuatro dependencias y 870 renglones del lock. El criterio que la vigilaba se ponía verde por AUSENCIA de una palabra en `src/index.ts`; el que lo sustituye cuenta antes de absolver. |
 
 ## Sin sprint / no clasificado
 

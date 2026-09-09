@@ -168,22 +168,27 @@ describe('diasEntre', () => {
 });
 
 describe('el censo que se publica en el documento', () => {
-  it('publica lo que el DOCUMENTO registra, no el tamaño de `main`', () => {
-    // Deliberado: si el bloque publicara «cuántos PRs hay en main», cada fusión
-    // lo dejaría desfasado y volvería a poner en rojo todos los PRs abiertos —
-    // justo lo que la gracia viene a evitar.
+  it('publica lo que el DOCUMENTO registra, no lo que el recorrido alcanza', () => {
+    // Deliberado, y por una causa medida: al fusionar `main` en una rama, los
+    // PRs que entraron mientras tanto llegan por el SEGUNDO padre, así que el
+    // recorrido de primer padre de la rama no los ve — pero el
+    // `refs/pull/N/merge` de CI sí, porque allí el primer padre es la punta de
+    // `main`. Un bloque que contara el recorrido daría un número en la rama y
+    // otro en CI, y `--check` se pondría rojo por un bloque «desfasado» que
+    // estaba bien. Aquí se comprueba que el render no recibe nada del árbol.
     const bloque = render({
-      nombrados: 58,
+      nombrados: 60,
       directos: 13,
-      ultimoPr: 208,
-      ultimaFecha: '2026-09-08',
+      ultimoPr: 214,
       atrasados: [],
       recientes: [],
     });
-    expect(bloque).toContain('**58** PRs registrados aquí');
+    expect(bloque).toContain('**60** PRs registrados aquí');
     expect(bloque).toContain('**13** commits directos');
-    expect(bloque).toContain('#208');
+    expect(bloque).toContain('#214');
     expect(bloque).toContain('7 días');
+    // Y NINGUNA fecha: era el último dato que ataba el bloque al árbol.
+    expect(bloque).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 });
 

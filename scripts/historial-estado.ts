@@ -193,13 +193,12 @@ export function prsNombrados(md: string): Set<number> {
 }
 
 export interface Censo {
-  /** PRs que el documento nombra y que están de verdad en `main`. */
+  /** PRs que el DOCUMENTO nombra. Derivado del documento, no del árbol. */
   nombrados: number;
-  /** Commits directos a `main`, de antes del flujo por PR. */
-  directos: number;
-  /** El más reciente de los NOMBRADOS — no el más reciente de `main`. */
+  /** El número más alto que nombra. También del documento. */
   ultimoPr: number | null;
-  ultimaFecha: string | null;
+  /** Commits directos a `main`, de antes del flujo por PR. Constante histórica. */
+  directos: number;
   /** Fusionados, sin fila, y ya fuera de la gracia. Esto es lo que falla. */
   atrasados: Entrada[];
   /** Fusionados, sin fila, todavía dentro de la gracia. Sólo se informa. */
@@ -266,13 +265,22 @@ export function medir(md: string): Censo {
     hoy
   );
 
-  const conFila = conPr.filter((e) => nombrados.has(e.pr as number));
-  const ultimo = conFila[0] ?? null;
+  // EL BLOQUE PUBLICADO SE DERIVA DEL DOCUMENTO, NO DEL RECORRIDO.
+  //
+  // Y es una corrección con causa: al fusionar `main` en una rama, los PRs que
+  // entraron mientras tanto llegan por el SEGUNDO padre, así que el recorrido
+  // de primer padre de la rama no los ve — pero el `refs/pull/N/merge` que CI
+  // construye sí, porque allí su primer padre es la punta de `main`. Un censo
+  // que contara el recorrido daría un número en la rama y otro en CI, y
+  // `--check` se pondría rojo por un bloque «desfasado» que estaba bien.
+  //
+  // Lo que sí depende del árbol —quién se atrasó y cuánto— vive en el veredicto
+  // y no en el bloque, y sólo puede ser MÁS indulgente en la rama que en CI:
+  // nunca al revés, así que no fabrica rojos.
   return {
-    nombrados: conFila.length,
+    nombrados: nombrados.size,
+    ultimoPr: nombrados.size > 0 ? Math.max(...nombrados) : null,
     directos: vertebral.length - conPr.length,
-    ultimoPr: ultimo ? ultimo.pr : null,
-    ultimaFecha: ultimo ? ultimo.fecha : null,
     atrasados,
     recientes,
   };
@@ -283,10 +291,8 @@ export function render(c: Censo): string {
   l.push('');
   l.push('**Censo, medido sobre el árbol** (`npm run historial:estado`):');
   l.push('');
-  l.push(`- **${c.nombrados}** PRs registrados aquí, y los ${c.nombrados} están en \`main\`.`);
-  l.push(
-    `- El más reciente registrado es el **#${c.ultimoPr ?? '—'}**, del **${c.ultimaFecha ?? '—'}** (UTC).`
-  );
+  l.push(`- **${c.nombrados}** PRs registrados aquí.`);
+  l.push(`- El más alto registrado es el **#${c.ultimoPr ?? '—'}**.`);
   l.push(
     `- **${c.directos}** commits directos a \`main\`, de antes del flujo por PR (la fila «—» del Sprint 1).`
   );
