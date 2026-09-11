@@ -61,6 +61,7 @@
     "payroll-engines-fail-closed-on-missing-law",
     "pending-explains-policy-with-preview",
     "per-file-unit-coverage-ratchet",
+    "permission-gate-has-behavioural-proof",
     "policy-panel-governs-writeoff-account",
     "policy-panel-owns-auto-post",
     "policy-panel-reaches-deciding-turn",

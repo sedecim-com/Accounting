@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { NotFoundError } from '../../../utils/errors.js';
 import { query } from '../../../database/connection.js';
 import { createJournalEntry, postJournalEntry } from '../../accounting/posting.js';
 import { JournalEntryType } from '../../../types/index.js';
@@ -35,7 +36,8 @@ async function resolveAccounts(entityId: string): Promise<Record<string, string>
 export async function postPayRunToGL(
   payRunId: string,
   userId: string,
-  tenantId: string
+  tenantId: string,
+  entityId: string
 ): Promise<string> {
   // Load pay run + totals
   const prResult = await query<{
@@ -62,10 +64,27 @@ export async function postPayRunToGL(
      FROM pay_runs pr
      JOIN pay_periods pp ON pp.id = pr.pay_period_id
      JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
-     WHERE pr.id = $1 AND pr.tenant_id = $2`,
-    [payRunId, tenantId]
+     WHERE pr.id = $1 AND pr.tenant_id = $2 AND ps.entity_id = $3`,
+    [payRunId, tenantId, entityId]
   );
-  if (prResult.rows.length === 0) throw new Error('Pay run not found');
+  // T9 (#96): LA ENTIDAD LA DECIDE EL TOKEN, NO EL ID QUE SE MANDA.
+  //
+  // Este SELECT filtraba sólo por `pr.tenant_id` y sacaba `ps.entity_id` del
+  // JOIN, así que la entidad del asiento salía de la FILA. Medido: un contador
+  // con acceso sólo a la sociedad A mandaba `POST /pay-runs/<corrida de B>/
+  // post-to-gl`, recibía 200, y a B le quedaba una póliza POSTEADA de 10 029.92
+  // en su mayor — cambiando su balanza, su estado de resultados y el ISR e IMSS
+  // que de ahí se reportan. Y como el asiento está posteado, sólo se deshace
+  // con una reversa que también queda en libros.
+  //
+  // El filtro va DENTRO del SQL y no en una comprobación previa a propósito:
+  // este servicio es quien llama a `createJournalEntry(pr.entity_id, …)`, y
+  // comprobar antes en la ruta deja una ventana entre mirar y escribir.
+  //
+  // No encuentra = no existe: el llamador no puede distinguir la corrida ajena
+  // de una inventada, que es lo que impide usar esta puerta para descubrir qué
+  // sociedades hay.
+  if (prResult.rows.length === 0) throw new NotFoundError('Pay run', payRunId);
   const pr = prResult.rows[0];
 
   // Aggregate tax breakdown across all paychecks

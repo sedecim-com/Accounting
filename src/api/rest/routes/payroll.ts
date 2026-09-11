@@ -4,6 +4,7 @@ import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError, ValidationError } from '../../../utils/errors.js';
+import { entityScope } from '../../../database/scope.js';
 import {
   createEmployee,
   getEmployee,
@@ -117,8 +118,8 @@ router.get('/employees', requirePermission('payroll:read'), requireEntityAccess,
   res.json({ data: rows, meta: meta(req) });
 }));
 
-router.get('/employees/:id', requirePermission('payroll:read'), asyncHandler(async (req: Request, res: Response) => {
-  const emp = await getEmployee(req.params.id);
+router.get('/employees/:id', requirePermission('payroll:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  const emp = await getEmployee(req.params.id, entityScope(req.tenantId!, req.entityId!));
   res.json({ data: emp, meta: meta(req) });
 }));
 
@@ -237,8 +238,14 @@ router.post(
   '/pay-runs/:id/post-to-gl',
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries POSTEADOS + account_balances' }),
   requirePermission('payroll:approve'),
-  asyncHandler(async (req: Request, res: Response) => {
-    const journalEntryId = await postPayRunToGL(req.params.id, req.user!.user_id, req.user!.tenant_id);
+  requireEntityAccess,
+    asyncHandler(async (req: Request, res: Response) => {
+    const journalEntryId = await postPayRunToGL(
+      req.params.id,
+      req.user!.user_id,
+      req.user!.tenant_id,
+      req.entityId!
+    );
     res.json({ data: { journal_entry_id: journalEntryId }, meta: meta(req) });
   })
 );

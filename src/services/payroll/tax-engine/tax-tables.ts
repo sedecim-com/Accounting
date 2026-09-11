@@ -63,17 +63,49 @@ export async function getBrackets(
   return brackets;
 }
 
+/**
+ * Tax parameters for a jurisdiction, optionally AS OF A DATE.
+ *
+ * THE READER THE VALIDITY COLUMNS DID NOT HAVE (J0.2, #123). Migration 080 added
+ * `effective_from`/`effective_to` and backfilled them, but nothing read them: a
+ * column with no reader is a schema promise no code path keeps, and the issue
+ * asks for a "column WITH a reader".
+ *
+ * Without `asOf` it answers as before — by tax year — which is what today's
+ * eight callers do. With `asOf`, the row answers only if that date falls INSIDE
+ * its validity window; outside it, there are no parameters.
+ *
+ * `ORDER BY effective_from DESC LIMIT 1` even though `UNIQUE(jurisdiction,
+ * tax_year)` guarantees a single row today: once J0.4 retires that constraint
+ * and two windows fit in one year, this query already returns the LATEST one in
+ * force rather than an arbitrary one.
+ *
+ * STILL J0.4's: making a missing row FAIL instead of returning `{}`. That open
+ * failure — the one that leaves IMSS rates at zero — is closed by J0.4 with
+ * `PARAMETRO_LEGAL_SIN_VIGENCIA`; changing it here would redden callers this
+ * tramo does not touch.
+ */
 export async function getTaxParameters(
   jurisdiction: string,
-  taxYear: number
+  taxYear: number,
+  asOf?: Date
 ): Promise<Record<string, unknown>> {
-  const key = `${jurisdiction}|${taxYear}`;
+  // The date goes into the cache key: without it, the first lookup for a year
+  // would answer every later date too, validity window included.
+  const day = asOf === undefined ? undefined : asOf.toISOString().slice(0, 10);
+  const key = `${jurisdiction}|${taxYear}|${day ?? '*'}`;
   const cached = paramCache.get(key);
   if (cached) return cached;
 
   const result = await query<{ params: Record<string, unknown> }>(
-    `SELECT params FROM tax_parameters WHERE jurisdiction = $1 AND tax_year = $2`,
-    [jurisdiction, taxYear]
+    `SELECT params FROM tax_parameters
+      WHERE jurisdiction = $1 AND tax_year = $2
+        AND ($3::date IS NULL
+             OR (effective_from <= $3::date
+                 AND (effective_to IS NULL OR $3::date <= effective_to)))
+      ORDER BY effective_from DESC
+      LIMIT 1`,
+    [jurisdiction, taxYear, day ?? null]
   );
 
   const params = result.rows[0]?.params || {};
