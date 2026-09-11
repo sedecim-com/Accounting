@@ -1,5 +1,6 @@
+import Decimal from 'decimal.js';
 import { v4 as uuidv4 } from 'uuid';
-import { query } from '../../database/connection.js';
+import { query, withTransaction } from '../../database/connection.js';
 import { requireByIdInScope, tenantScope } from '../../database/scope.js';
 import { cryptoService } from './crypto-service.js';
 import { chainAdapterFactory, ChainId, ChainTransactionResult } from './chain-adapters.js';
@@ -412,13 +413,33 @@ export class BlockchainOrchestrator {
     await this.exigirEntidadDelInquilino(params.tenantId, params.entityId);
 
     // Aggregate by account type (simple dimension)
-    const aggregates = await query<{ account_type: string; total: string; count: string }>(
+    // EL SIGNO LO DA LA NATURALEZA DE LA CUENTA, NO LA RESTA CRUDA.
+    //
+    // Era `SUM(debit - credit)` para TODO tipo de cuenta, así que los ingresos
+    // y los pasivos —de naturaleza acreedora— salían publicados EN NEGATIVO.
+    // Es la misma clase de signo que G1a mató en el cierre, y aquí duele más:
+    // el cierre se lee dentro de casa, esto se publica a un tercero que no
+    // tiene cómo saber que el menos es una convención y no una pérdida.
+    //
+    // `normal_balance` está en la propia cuenta desde la 001; no hay que
+    // adivinarlo por el tipo.
+    const aggregates = await query<{
+      account_type: string;
+      total: string;
+      count: string;
+      currency_code: string | null;
+    }>(
       `SELECT a.account_type,
-              COALESCE(SUM(COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)), 0)::text as total,
-              COUNT(*)::text as count
+              COALESCE(SUM(CASE WHEN a.normal_balance = 'credit'
+                                THEN COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)
+                                ELSE COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)
+                           END), 0)::text as total,
+              COUNT(*)::text as count,
+              MAX(le.functional_currency) as currency_code
        FROM journal_entry_lines jel
        JOIN journal_entries je ON je.id = jel.journal_entry_id
        JOIN accounts a ON a.id = jel.account_id
+       JOIN legal_entities le ON le.id = je.entity_id
        WHERE je.entity_id = $1 AND je.fiscal_period_id = $2 AND je.status = 'posted'
        GROUP BY a.account_type`,
       [params.entityId, params.periodId]
@@ -431,42 +452,104 @@ export class BlockchainOrchestrator {
     );
 
     const minCount = disclosure.rows[0]?.minimum_aggregation_count || 5;
-    const roundTo = disclosure.rows[0]?.round_to_nearest ? parseFloat(disclosure.rows[0].round_to_nearest) : 1000;
+    // EL REDONDEO ES DINERO Y VIAJA COMO DECIMAL, no como float. `parseFloat`
+    // sobre una cantidad es la regla que este repositorio no admite en ningún
+    // sitio, y aquí además decide la cifra que sale publicada.
+    const roundTo = new Decimal(disclosure.rows[0]?.round_to_nearest ?? '1000');
 
     // Se resuelve aquí, no dentro del bucle: la marca de simulación es la
     // misma para todas las dimensiones de una publicación.
     const config = await this.getConfig(params.tenantId);
 
     let published = 0;
-    for (const agg of aggregates.rows) {
-      const count = parseInt(agg.count, 10);
-      if (count < minCount) continue; // Privacy: below threshold
+    // ────────────────────────────────────────────────────────────────
+    // EL CANDADO QUE FALTABA: «se calcula en el mismo INSERT» NO CIERRA LA
+    // CARRERA (WIT-01 de #210).
+    //
+    // `INSERT … SELECT COALESCE(MAX(version),0)+1` parece atómico y no lo es:
+    // bajo READ COMMITTED el SELECT no bloquea nada, así que dos
+    // publicaciones simultáneas de la misma dimensión leen el MISMO máximo,
+    // las dos escriben el mismo número y la segunda revienta contra
+    // `uq_published_aggregates_version`. Republicar dejaba de estar
+    // disponible justo cuando dos personas lo intentan a la vez.
+    //
+    // Se serializa con un candado consultivo de TRANSACCIÓN —se suelta solo
+    // al terminar, no hay que acordarse—, y se toma por (inquilino, entidad,
+    // periodo) y no por dimensión: con un candado por dimensión, dos
+    // publicaciones podrían intercalarse y dejar la versión 2 en unas
+    // dimensiones y la 3 en otras, del mismo periodo y la misma publicación.
+    // Una colisión de `hashtext` sólo cuesta una espera de más; nunca una
+    // versión repetida.
+    //
+    // Y AHORA LA PUBLICACIÓN ES ATÓMICA, que antes tampoco lo era: cada
+    // INSERT iba en su propia transacción implícita, así que un fallo en la
+    // cuarta dimensión dejaba tres publicadas y ninguna manera de saberlo
+    // desde fuera.
+    // ────────────────────────────────────────────────────────────────
+    await withTransaction(async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+        `${params.tenantId}:${params.entityId}`,
+        params.periodId,
+      ]);
+      for (const agg of aggregates.rows) {
+        const count = parseInt(agg.count, 10);
+        if (count < minCount) continue; // Privacy: below threshold
 
-      const total = parseFloat(agg.total);
-      const rounded = Math.round(total / roundTo) * roundTo;
+        // EL SELLO CUBRE LO QUE SE PUBLICA, Y ANTES NO.
+        //
+        // Se sellaba `total` y se publicaba `rounded`: dos números distintos, y
+        // el compromiso criptográfico certificaba el que nadie veía. Un tercero
+        // que verificara el sello contra la cifra publicada obtenía un fallo, y
+        // uno que se fiara del sello estaba creyendo una cifra que el sello no
+        // cubre. Es peor que no sellar: presta credibilidad a un número que no
+        // ampara.
+        //
+        // Y todo en Decimal: el importe es dinero, y el redondeo también.
+        const total = new Decimal(agg.total);
+        const publicado = total.dividedBy(roundTo).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).times(roundTo);
+        const publicadoTexto = publicado.toFixed(4);
 
-      const dimensionHash = cryptoService.hashDimension('account_type', agg.account_type);
-      const aggregateCommitment = cryptoService.sha256Hex(`${dimensionHash}:${params.periodId}:${total}`);
+        const dimensionHash = cryptoService.hashDimension('account_type', agg.account_type);
+        const aggregateCommitment = cryptoService.sha256Hex(
+          `${dimensionHash}:${params.periodId}:${publicadoTexto}`
+        );
 
-      await query(
-        `INSERT INTO published_aggregates (
-          id, tenant_id, entity_id, period_id,
-          dimension_type, dimension_value, dimension_hash,
-          aggregate_commitment, transaction_count, public_amount, is_simulated
-        ) VALUES ($1, $2, $3, $4, 'account_type', $5, $6, $7, $8, $9, $10)
-        ON CONFLICT (tenant_id, entity_id, period_id, dimension_type, dimension_value)
-        DO UPDATE SET
-          aggregate_commitment = $7, transaction_count = $8, public_amount = $9,
-          is_simulated = $10, published_at = NOW()`,
-        [
-          uuidv4(), params.tenantId, params.entityId, params.periodId,
-          agg.account_type, dimensionHash,
-          aggregateCommitment, count, rounded,
-          config ? this.anclajeSimulado(config) : true,
-        ]
-      );
-      published++;
-    }
+        // REPUBLICAR AÑADE UNA VERSIÓN; NO PISA LA ANTERIOR.
+        //
+        // El `ON CONFLICT … DO UPDATE` de antes sobrescribía la fila: la cifra
+        // que un tercero pudo haber leído —y citado— desaparecía sin dejar
+        // rastro, y el sello viejo con ella. Eso no es actualizar, es reescribir
+        // lo que ya se dijo en público. La 076 mete `version` en la llave única,
+        // así que cada publicación cabe junto a las que la preceden y el
+        // historial queda entero.
+        //
+        // La versión se calcula en el mismo INSERT, no leyendo antes y sumando
+        // uno. Eso NO basta por sí solo —el candado de arriba es el que cierra
+        // la carrera—, pero evita el viaje de ida y vuelta.
+        await client.query(
+          `INSERT INTO published_aggregates (
+            id, tenant_id, entity_id, period_id,
+            dimension_type, dimension_value, dimension_hash,
+            aggregate_commitment, transaction_count, public_amount, is_simulated,
+            version, currency_code
+          )
+          SELECT $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'account_type', $5::varchar, $6::varchar,
+                 $7::varchar, $8::integer, $9::numeric, $10::boolean,
+                 COALESCE(MAX(pa.version), 0) + 1, $11::char(3)
+            FROM published_aggregates pa
+           WHERE pa.tenant_id = $2 AND pa.entity_id = $3 AND pa.period_id = $4
+             AND pa.dimension_type = 'account_type' AND pa.dimension_value = $5::varchar`,
+          [
+            uuidv4(), params.tenantId, params.entityId, params.periodId,
+            agg.account_type, dimensionHash,
+            aggregateCommitment, count, publicadoTexto,
+            config ? this.anclajeSimulado(config) : true,
+            agg.currency_code,
+          ]
+        );
+        published++;
+      }
+    });
 
     return { published };
   }
