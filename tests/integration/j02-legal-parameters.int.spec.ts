@@ -12,6 +12,7 @@ import {
 import { getPolicy } from '../../src/services/policy/policy-service.js';
 import { getTaxParameters } from '../../src/services/payroll/tax-engine/tax-tables.js';
 import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 
 /**
  * J0.2 · LA LEY TIENE FECHA DE ENTRADA, CONTRA POSTGRES DE VERDAD
@@ -39,6 +40,18 @@ const DEROGADA = 'test.j02.repealed_rate';
 const EN_BLANCO = 'test.j02.blank_rate';
 
 let f: Fixture;
+
+// `legal_parameters` y `tax_parameters` son GLOBALES —sin tenant_id ni
+// entity_id, y la 080 lo declara a propósito: la UMA vale igual para todo
+// despacho—, así que las comparte toda la corrida.
+//
+// El `afterAll` de abajo borra las claves sintéticas de este archivo
+// (`test.j02.%`), y eso NO alcanza: las pruebas de la semilla llaman a
+// `seedLegalParameters()`, que escribe las claves DE VERDAD, y las de
+// `tax_parameters` insertan a mano. Esas filas sobrevivían al archivo. Se
+// apunta la tabla entera al entrar y se devuelve igual al salir, que es lo
+// único que sigue siendo correcto cuando alguien añada una prueba más.
+apartarCatalogos('legal_parameters', 'tax_parameters');
 
 beforeAll(async () => {
   f = await crearInquilino('J0.2 · parámetros legales');

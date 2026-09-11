@@ -629,6 +629,17 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   // aquí — lo cazó cuando faltaban estas dos.
   'src/services/jurisdiction/legal-parameters.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
   'src/services/jurisdiction/legal-parameters-seed.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  // O1 · Las seis piezas por las que entra una contabilidad entera desde el
+  // XML del SAT: los dos lectores, el importador del catálogo, el deductor de
+  // tipo por agrupador, la carga de la apertura y su cotejo. Nacen con suelo
+  // porque son las que deciden si un peso entra, con qué signo y bajo qué
+  // padre; la cifra sale de la corrida completa, no del redondeo cómodo.
+  'src/services/accounting/opening-balance.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/accounting/opening-balance-check.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/accounting/sat-chart-import.ts': { statements: 99, branches: 94, functions: 100, lines: 99 },
+  'src/services/accounting/sat-agrupador-account-type.ts': { statements: 97, branches: 97, functions: 100, lines: 97 },
+  'src/services/sat/anexo24/balance-reader.ts': { statements: 98, branches: 88, functions: 100, lines: 100 },
+  'src/services/sat/anexo24/catalog-reader.ts': { statements: 98, branches: 81, functions: 100, lines: 100 },
 };
 
 /**
@@ -655,6 +666,70 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
 
+  // ---------------------------------------------------------------
+  // O1 lo encontró: UN BYTE INVISIBLE QUE APAGA `grep` SOBRE UN ARCHIVO ENTERO
+  //
+  // La verificación adversaria de O1 halló un NUL crudo escrito como separador
+  // de una clave compuesta, con el byte de verdad dentro del literal. Es la
+  // decisión CORRECTA —un NUL no cabe en un código de cuenta ni en un folio—
+  // escrita del modo equivocado: convierte el fuente en BINARIO para `grep` y
+  // para `file`, y mil ciento sesenta y seis líneas —el archivo que escribe el
+  // asiento de apertura— dejaron de aparecer en ninguna búsqueda del
+  // repositorio. Se descubrió por accidente, buscando otra cosa.
+  //
+  // NINGUNA PUERTA LO VIO: pasa tsc, pasa eslint, pasa vitest, pasa la
+  // cobertura. Y `git diff` tampoco avisa, porque la heurística de binario de
+  // git sólo mira los primeros 8 000 bytes y el NUL caía en el 22 381: la
+  // revisión humana habría visto un diff perfectamente normal.
+  //
+  // Se busca SÓLO el NUL, no la familia entera de bytes de control: es el que
+  // apaga las herramientas, y un criterio que caza de más se desactiva a la
+  // primera falsa alarma. La lectura va por `crudoDe` —el seam— para que el
+  // espejo pueda inyectar uno y comprobar que este criterio muerde.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E0.0',
+    id: 'sources-carry-no-nul-bytes',
+    enunciado:
+      'Ningún fuente lleva un byte NUL, que lo saca entero del alcance de grep sin que ninguna puerta se mueva',
+    evaluar: () => {
+      const rutas: string[] = [];
+      const caminar = (rel: string): void => {
+        const abs = rutaDe(rel);
+        if (!fs.existsSync(abs)) return;
+        for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+          if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
+          const hijo = path.join(rel, e.name);
+          if (e.isDirectory()) caminar(hijo);
+          else if (/[.](ts|sql|json|ya?ml)$/.test(e.name)) rutas.push(hijo);
+        }
+      };
+      for (const raiz of ['src', 'tests', 'scripts']) caminar(raiz);
+
+      const binarios = rutas.filter((r) => crudoDe(r).includes('\u0000'));
+      if (binarios.length > 0) {
+        return falla(
+          `${binarios.length} fuente(s) llevan un byte NUL y están fuera del alcance de grep: ` +
+            `${binarios.slice(0, 4).join(', ')}. Escríbelo como el escape \\u0000 dentro del ` +
+            `literal: el separador sigue siendo el mismo y el archivo vuelve a ser texto.`
+        );
+      }
+      return ok(
+        `${rutas.length} fuentes de src/, tests/ y scripts/ barridos y ninguno lleva un byte NUL: ` +
+          `todos siguen siendo alcanzables por grep`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/plan/conducta.ts',
+        de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
+        a: "'conducta.ts necesita\u0000--salida=<archivo.json>\\n'",
+        porque:
+          'un NUL inyectado en un fuente real: si el barrido dejara de mirar, o mirara el disco en ' +
+          'vez del seam, este criterio seguiría verde sobre un archivo que grep ya no encuentra',
+      },
+    ],
+  },
   {
     paquete: 'E1.1',
     id: 'law-is-read-by-date-and-fails-closed',
@@ -2801,6 +2876,73 @@ export const CRITERIOS: Criterio[] = [
   // ---- E2.1 · Perímetro ----
   {
     paquete: 'E2.1',
+    id: 'permission-gate-has-behavioural-proof',
+    enunciado: 'La puerta de permisos y la frontera por id se prueban ejerciéndolas, no sólo declarándolas',
+    evaluar: () => {
+      // T14b·remate. La amputación de GraphQL (#101) se llevó por delante algo
+      // que su PR afirmó que no se llevaba: las ÚNICAS pruebas de conducta de
+      // `assertPermissions`. Medido después de fusionarla, sobre `main`:
+      // convertida en un no-op que no compara nada, la suite unitaria entera
+      // pasaba —253 archivos, 5 457 pruebas—. La puerta de permisos de todo el
+      // producto podía dejar de preguntar sin que nada chistara.
+      //
+      // Lo mismo con la frontera POR ID: vaciando `assertEntryAccess`, postear
+      // o anular el asiento de la sociedad hermana conociendo su UUID no lo
+      // acusaba ninguna prueba. Y quitando `requirePermission('periods:close')`
+      // de la ruta de CIERRE DURO —irreversible— tampoco.
+      //
+      // La red que sí existía era ESTRUCTURAL: `roles.spec.ts` comprueba que el
+      // catálogo no conceda el permiso, y `openapi-contrato.spec.ts` que toda
+      // ruta declare el suyo. Ninguna de las dos ejerce la NEGATIVA, y ésa es
+      // la diferencia que este criterio existe para no volver a perder.
+      if (!existe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts')) {
+        return falla(
+          'desapareció la prueba de conducta de la puerta de permisos: con ella fuera, `assertPermissions` puede dejar de comparar y la suite entera sigue verde — medido'
+        );
+      }
+      const spec = crudoDe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts');
+      // Los dos ejes, cada uno con su marca: el 403 del permiso y el 404 de la
+      // frontera. Y el 404 NO puede ser 403: distinguirlos delataría que el
+      // recurso ajeno existe.
+      if (!/403/.test(spec) || !/404/.test(spec)) {
+        return falla('la prueba dejó de ejercer alguno de los dos ejes: el 403 del permiso o el 404 de la frontera por id');
+      }
+      // Y RELEE LA FILA. Un 403 concedido después de escribir no es un 403.
+      if (!/const estadoDe = async/.test(spec)) {
+        return falla('la prueba dejó de releer el asiento tras el rechazo: un 403 que ya posteó no es un 403');
+      }
+      // La puerta sigue siendo UNA. Si `requirePermission` dejara de delegar,
+      // la prueba de arriba seguiría verde vigilando código muerto.
+      const auth = codigoDe('src/api/rest/middleware/auth.ts');
+      if (!/assertPermissions\(req\.user, permissions\)/.test(auth)) {
+        return falla('`requirePermission` dejó de pasar por `assertPermissions`: la prueba vigilaría una puerta que ya no se usa');
+      }
+      return ok('el permiso y la frontera por id se ejercen contra Postgres, releyendo la fila, y la puerta sigue siendo una');
+    },
+    mutantes: [
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'el eje del PERMISO',
+        a: null,
+        porque: 'la prueba de conducta desaparece — que es exactamente lo que pasó al retirar GraphQL, y lo que nadie acusó',
+      },
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'const estadoDe = async',
+        a: 'const noRelee = async',
+        porque: 'la prueba deja de releer la fila tras el rechazo: bendeciría un 403 concedido después de haber escrito',
+      },
+      {
+        archivo: 'src/api/rest/middleware/auth.ts',
+        de: 'assertPermissions(req.user, permissions)',
+        a: 'assertPermissions(req.user, [])',
+        porque: '`requirePermission` deja de exigir lo que declara: la puerta sigue ahí y ya no pregunta nada',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E2.1',
     id: 'graphql-surface-withdrawn',
     enunciado: 'La segunda puerta al mayor está retirada, y no puede volver en silencio',
     evaluar: () => {
@@ -3021,6 +3163,18 @@ export const CRITERIOS: Criterio[] = [
           // aparece dentro del cuerpo por cualquier otra razón.
           const montada = /requireEntityAccess/.test(cuerpo.slice(0, 300));
           const comprobadaDentro = /assertEntityAccess\s*\(/.test(cuerpo);
+          // NO SE ADMITE UNA TERCERA FORMA, y lo escribo porque lo intenté.
+          //
+          // Acotar la consulta con `entityScope(req.tenantId!, req.entityId!)`
+          // parece una guarda mejor —el filtro va dentro del SQL, sin ventana
+          // entre comprobar y usar— y NO sustituye a ésta: `req.entityId` sale
+          // de la cabecera `x-entity-id`, y quien comprueba que esa cabecera
+          // esté concedida por el token es `requireEntityAccess`. Sin ella,
+          // acotar por `req.entityId` acota por lo que el atacante escribió.
+          //
+          // Son las dos: la cabecera se valida contra el token, y la consulta
+          // acota. Es lo que hace journal-entries.ts:160 y lo que T9 lleva a
+          // nómina.
           if (!montada && !comprobadaDentro) {
             desprotegidas.push(`${path.basename(f)} ${m[1].toUpperCase()} ${m[2]}`);
           }

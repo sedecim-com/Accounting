@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
@@ -36,6 +37,14 @@ let f: Fixture;
 let segundoUsuario: string;
 
 const ctxDe = (fx: Fixture) => ({ tenantId: fx.tenantId, entityId: fx.entityId });
+
+// `sat_codigos_agrupadores` es GLOBAL —sin tenant_id ni entity_id—, así que la
+// comparte toda la corrida, y este archivo siembra el c_CodAgrup entero para
+// probar el mapeo del agrupador.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
+// una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
+// suyo. El porqué entero, en helpers/catalogos-globales.ts.
+apartarCatalogos('sat_codigos_agrupadores');
 
 beforeAll(async () => {
   f = await crearInquilino('F01 catálogo y mayor');
