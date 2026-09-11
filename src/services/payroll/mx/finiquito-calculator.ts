@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
-import { NotFoundError } from '../../../utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { getPolicy, getPolicyNumber, type PolicyContext } from '../../policy/policy-service.js';
 import {
   aFechaUtc,
@@ -9,7 +9,9 @@ import {
   diasDeVacacionesPorAnio,
   salarioDiarioDesdeSbc,
   type DesgloseFiniquito,
+  type MotivoDeBaja,
 } from './finiquito-math.js';
+import { getTaxParameters } from '../tax-engine/tax-tables.js';
 
 // ============================================================
 // MX — Finiquito (termination settlement)
@@ -24,9 +26,24 @@ import {
 // por eso la tabla llevaba años pagando de menos sin que nadie lo notara.
 // ============================================================
 
+/** Los cuatro supuestos que el cálculo distingue, para validarlos en frontera. */
+export const MOTIVOS_DE_BAJA: readonly MotivoDeBaja[] = [
+  'renuncia',
+  'despido',
+  'rescision_por_el_trabajador',
+  'muerte',
+];
+
 export interface FiniquitoInput {
   employee_id: string;
   termination_date: string;
+  /**
+   * POR QUÉ SE SEPARA. Obligatorio: decide si hay prima de antigüedad, que en
+   * un trabajador antiguo es la prestación más grande del finiquito. La
+   * renuncia la paga sólo con quince años cumplidos; el despido la paga
+   * siempre, justificado o no (LFT art. 162 fr. III).
+   */
+  termination_reason: MotivoDeBaja;
   last_paid_through: string;
   pending_vacation_days?: number;
   /**
@@ -55,6 +72,13 @@ export interface FiniquitoResult {
   prima_vacacional_days: string;
   prima_vacacional_amount: string;
   vacation_pending_amount: string;
+  /** Días de prima de antigüedad: 12 por año de servicio (LFT art. 162 fr. I). */
+  seniority_premium_days: number;
+  /** Base diaria ya topada por el art. 486, o null si no se pudo calcular. */
+  seniority_premium_daily_base: string | null;
+  seniority_premium_amount: string;
+  /** Por qué vale lo que vale — o por qué no se pudo calcular. */
+  seniority_premium_note: string;
   total: string;
   /** Cómo se llegó al número: qué antigüedad, qué tabla y qué salario diario. */
   basis: {
@@ -143,6 +167,38 @@ export async function calculateFiniquito(
     fuente = 'annual_salary';
   }
 
+  // EL MÍNIMO CON EL QUE SE TOPA LA PRIMA, A LA FECHA DE LA BAJA.
+  //
+  // A la fecha de la baja y no a la de hoy: un finiquito de enero recalculado
+  // en marzo tiene que seguir topándose con el mínimo de enero. Y del GENERAL,
+  // porque este esquema todavía no guarda la zona donde se presta el trabajo
+  // —el art. 486 mide el tope con el mínimo de esa zona— así que el desglose
+  // deja dicho con cuál se calculó, en vez de callarlo.
+  // EL TIPO NO ES UNA COMPROBACIÓN (WIT-02). `termination_reason` es
+  // obligatorio en TypeScript, pero `POST /finiquito` pasa `req.body` tal cual:
+  // una petición vieja o mal formada llega con el campo AUSENTE, y
+  // `devengaPrimaDeAntiguedad(undefined, años)` lo lee como «no es renuncia» y
+  // concede la prima como si fuera un despido. Sobre el caso medido son
+  // 113 414.40 pagados de más a quien renunció con menos de quince años.
+  //
+  // Se valida aquí y no en la ruta porque la cáscara es lo que TODOS los
+  // llamadores atraviesan; la ruta sólo traduce el error a 4xx.
+  if (!MOTIVOS_DE_BAJA.includes(input.termination_reason)) {
+    throw new ValidationError(
+      `termination_reason inválido o ausente: se esperaba ${MOTIVOS_DE_BAJA.join(', ')}. ` +
+      'Decide si hay prima de antigüedad, que en un trabajador antiguo es la prestación más ' +
+      'grande del finiquito, así que no tiene valor por omisión.'
+    );
+  }
+
+  const anioBaja = new Date(input.termination_date).getUTCFullYear();
+  const params = await getTaxParameters('MX', anioBaja, input.termination_date);
+  const minimoGeneral = params.salario_minimo_general_diario;
+  const salarioMinimo =
+    typeof minimoGeneral === 'number' || typeof minimoGeneral === 'string'
+      ? String(minimoGeneral)
+      : undefined;
+
   const d: DesgloseFiniquito = calcularFiniquito({
     fecha_alta: e.hire_date,
     fecha_baja: input.termination_date,
@@ -151,6 +207,8 @@ export async function calculateFiniquito(
     dias_vacaciones_pendientes: input.pending_vacation_days ?? 0,
     dias_aguinaldo_por_anio: diasAguinaldo,
     prima_vacacional_pct: primaPct,
+    motivo_baja: input.termination_reason,
+    salario_minimo_diario: salarioMinimo,
   });
 
   return {
@@ -161,6 +219,10 @@ export async function calculateFiniquito(
     prima_vacacional_days: d.prima_vacacional_dias,
     prima_vacacional_amount: d.prima_vacacional_importe,
     vacation_pending_amount: d.vacaciones_pendientes_importe,
+    seniority_premium_days: d.prima_antiguedad_dias,
+    seniority_premium_daily_base: d.prima_antiguedad_base_diaria,
+    seniority_premium_amount: d.prima_antiguedad_importe,
+    seniority_premium_note: d.prima_antiguedad_nota,
     total: d.total,
     basis: {
       years_of_service: d.antiguedad_anios_cumplidos,

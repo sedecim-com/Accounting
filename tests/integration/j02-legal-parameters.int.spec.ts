@@ -500,7 +500,7 @@ describe('tax_parameters lleva su vigencia, y se lee por la fecha del hecho', ()
     await query(
       `INSERT INTO tax_parameters (jurisdiction, tax_year, params, effective_from, effective_to)
        VALUES ($1, $2, '{"uma_daily": "113.14"}'::jsonb, make_date($2, 1, 1), make_date($2, 12, 31))
-       ON CONFLICT (jurisdiction, tax_year) DO NOTHING`,
+       ON CONFLICT (jurisdiction, effective_from) DO NOTHING`,
       [JURIS, ANIO]
     );
   });
@@ -519,14 +519,28 @@ describe('tax_parameters lleva su vigencia, y se lee por la fecha del hecho', ()
 
     const { rows } = await query<{ desde: string; hasta: string }>(
       `SELECT effective_from::text AS desde, effective_to::text AS hasta
-         FROM tax_parameters WHERE jurisdiction = $1 AND tax_year = $2`,
+         FROM tax_parameters WHERE jurisdiction = $1 AND tax_year = $2
+        ORDER BY effective_from`,
       [JURIS, ANIO]
     );
     expect(rows[0]).toEqual({ desde: `${ANIO}-01-01`, hasta: `${ANIO}-12-31` });
   });
 
-  it('LA FRONTERA: dentro de la vigencia contesta, fuera NO — y el último día sí cuenta', async () => {
-    // Sin fecha, como llaman hoy los ocho consumidores: contesta por ejercicio.
+  it('LA FRONTERA: dentro de la vigencia contesta, y fuera SE NIEGA', async () => {
+    // REESCRITA POR T4a (#91), y el porqué queda aquí porque cambia el
+    // contrato que esta prueba fijaba. J0.2 dejó para J0.4 que una fila
+    // ausente FALLARA en vez de devolver `{}`; T4a lo adelanta, porque el
+    // hueco está vivo: los trece llamadores de producción llaman SIN fecha y,
+    // con `{}`, cada motor rellenaba a su manera —`uma_daily || 113.14` en
+    // imss-calculator, `|| 0.05` en infonavit— y esa cifra inventada sale en
+    // el recibo, en el CFDI de nómina y en la línea de captura.
+    //
+    // Lo que esta prueba afirmaba —«dentro contesta, fuera no»— se conserva
+    // entero. Lo único que cambia es la FORMA del «no»: antes un objeto vacío
+    // que el llamador confundía con «no hay nada que retener», ahora una
+    // negativa con nombre.
+
+    // Sin fecha: contesta por el ejercicio pedido, como los consumidores de hoy.
     expect(await getTaxParameters(JURIS, ANIO)).toEqual({ uma_daily: '113.14' });
 
     // Dentro, y en los dos extremos INCLUSIVE: la vigencia de un día es un día.
@@ -540,34 +554,70 @@ describe('tax_parameters lleva su vigencia, y se lee por la fecha del hecho', ()
       uma_daily: '113.14',
     });
 
-    // Fuera, por un solo día a cada lado. Si esto contestara, la columna
-    // seguiría sin lector aunque el SQL la nombrara.
-    expect(
-      await getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO - 1, 11, 31))),
-      'una fecha ANTERIOR a la entrada en vigor recibió los parámetros'
-    ).toEqual({});
-    expect(
-      await getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO + 1, 0, 1))),
-      'una fecha POSTERIOR al fin de vigencia recibió los parámetros'
-    ).toEqual({});
+    // FUERA DE LA VENTANA PERO DENTRO DEL EJERCICIO: es el caso que de verdad
+    // prueba que la columna tiene lector, y ahora se niega en vez de callar.
+    const ESTRECHO = `${JURIS}-ESTRECHO`;
+    await query(
+      `INSERT INTO tax_parameters (jurisdiction, tax_year, params, effective_from, effective_to)
+       VALUES ($1, $2, '{"uma_daily": "1.00"}'::jsonb, make_date($2, 6, 1), make_date($2, 6, 30))
+       ON CONFLICT (jurisdiction, effective_from) DO NOTHING`,
+      [ESTRECHO, ANIO]
+    );
+    expect(await getTaxParameters(ESTRECHO, ANIO, new Date(Date.UTC(ANIO, 5, 15)))).toEqual({
+      uma_daily: '1.00',
+    });
+    await expect(
+      getTaxParameters(ESTRECHO, ANIO, new Date(Date.UTC(ANIO, 6, 1))),
+      'un día DESPUÉS del fin de vigencia recibió los parámetros'
+    ).rejects.toThrow(/No hay parámetros fiscales/);
+
+    // Y pedir un ejercicio con la fecha de OTRO no es una búsqueda fuera de
+    // rango: es una contradicción, y ninguna de las dos respuestas sería
+    // correcta. Se rechaza por lo que es.
+    await expect(
+      getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO - 1, 11, 31)))
+    ).rejects.toThrow(/ejercicio 2031 con una fecha de otro año/);
+    await expect(
+      getTaxParameters(JURIS, ANIO, new Date(Date.UTC(ANIO + 1, 0, 1)))
+    ).rejects.toThrow(/ejercicio 2031 con una fecha de otro año/);
   });
 
-  it('HUECO · dos vigencias dentro del MISMO año todavía no caben, y es de J0.4', async () => {
-    // `UNIQUE(jurisdiction, tax_year)` (008) sigue puesto, así que la UMA que
-    // cambia el 1 de febrero no se puede representar todavía. No es olvido: el
-    // reparto de #123 pone «lectura por fecha del hecho» y «tax_tables por
-    // fecha, no por tax_year» en J0.4, y J0.2 pide las columnas rellenadas con
-    // lector — que es lo que las dos pruebas de arriba miden.
+  it('DOS VIGENCIAS EN EL MISMO AÑO YA CABEN: el hueco que J0.2 dejó abierto', async () => {
+    // ESTA PRUEBA ESTABA ESCRITA AL REVÉS, y su propia nota decía qué hacer:
+    // «el día que J0.4 retire esa unicidad, esta prueba se pone roja y el
+    // mensaje dice que hay que voltearla a entra». La retiró T4a (#91), no
+    // J0.4: la migración 073 cambia `UNIQUE(jurisdiction, tax_year)` por
+    // `UNIQUE(jurisdiction, effective_from)`, porque la UMA de 2026 cambia el
+    // 1 de FEBRERO y el ejercicio necesita dos filas para poder decirlo.
     //
-    // Queda fijado aquí en vez de en la memoria de quien lo encontró: el día
-    // que J0.4 retire esa unicidad, esta prueba se pone roja y el mensaje dice
-    // que hay que voltearla a «entra».
-    await expect(
-      query(
-        `INSERT INTO tax_parameters (jurisdiction, tax_year, params, effective_from, effective_to)
-         VALUES ($1, $2, '{"uma_daily": "120.00"}'::jsonb, make_date($2, 2, 1), NULL)`,
-        [JURIS, ANIO]
-      )
-    ).rejects.toThrow(/tax_parameters_jurisdiction_tax_year_key|duplicate key/i);
+    // Volteada, entonces, y midiendo lo que ahora sí se puede: que la segunda
+    // ventana ENTRA, y que cada fecha recibe la suya.
+    const DOS = `${JURIS}-DOS`;
+    await query(
+      `INSERT INTO tax_parameters (jurisdiction, tax_year, params, effective_from, effective_to)
+       VALUES ($1, $2, '{"uma_daily": "113.14"}'::jsonb, make_date($2, 1, 1), make_date($2, 1, 31))
+       ON CONFLICT (jurisdiction, effective_from) DO NOTHING`,
+      [DOS, ANIO]
+    );
+    await query(
+      `INSERT INTO tax_parameters (jurisdiction, tax_year, params, effective_from, effective_to)
+       VALUES ($1, $2, '{"uma_daily": "120.00"}'::jsonb, make_date($2, 2, 1), NULL)
+       ON CONFLICT (jurisdiction, effective_from) DO NOTHING`,
+      [DOS, ANIO]
+    );
+
+    const { rows } = await query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM tax_parameters WHERE jurisdiction = $1 AND tax_year = $2`,
+      [DOS, ANIO]
+    );
+    expect(Number(rows[0].n), 'la segunda vigencia del mismo año no entró').toBe(2);
+
+    // Y cada fecha del hecho recibe la que regía ESE día, que es el punto.
+    expect(await getTaxParameters(DOS, ANIO, new Date(Date.UTC(ANIO, 0, 15)))).toEqual({
+      uma_daily: '113.14',
+    });
+    expect(await getTaxParameters(DOS, ANIO, new Date(Date.UTC(ANIO, 2, 15)))).toEqual({
+      uma_daily: '120.00',
+    });
   });
 });

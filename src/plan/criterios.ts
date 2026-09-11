@@ -8483,6 +8483,133 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'seniority-premium-is-paid-and-capped-by-zone',
+    enunciado: 'El finiquito paga la prima de antigüedad, topada por el art. 486, y no la cifra en cero cuando no la puede calcular',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: "  return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;",
+        a: "  return motivo === 'renuncia' && aniosCumplidos >= 15;",
+        porque:
+          'vuelve a no pagarse la prima al DESPEDIDO, que es la mitad del art. 162 fr. III que más se pasa por alto: se paga «independientemente de la justificación o injustificación del despido». Un despedido con tres años pierde 22 682.88',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: '  return Decimal.min(piso, salarioMinimo.times(2));',
+        a: '  return piso;',
+        porque:
+          'desaparece el tope del art. 486 y la prima se calcula sobre el salario entero: para un salario de 1 000 con quince años son 180 000 en vez de 113 414.40 — pagar de más también es un defecto, y aquí lo paga el patrón',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: "      'SIN CALCULAR: faltó el salario mínimo de la zona",
+        a: "      'sin prima de antigüedad en este finiquito. Faltó el mínimo de la zona",
+        porque:
+          'el cero por no saber vuelve a ser indistinguible del cero por no deberse: sin el mínimo de la zona no se puede fijar el tope, y callarlo le paga de menos al trabajador sin que nadie lo note',
+      },
+    ],
+    evaluar: () => {
+      // T4b (#91). `calcularFiniquito` sumaba cuatro conceptos y llamaba
+      // `total` al resultado. Faltaba la prima de antigüedad —doce días por
+      // año de servicio, art. 162 LFT—, que en el caso medido (quince años,
+      // salario diario 1 000) son 113 414.40 contra un finiquito de 24 610.96:
+      // faltaba más de cuatro veces lo que se pagaba.
+      const math = 'src/services/payroll/mx/finiquito-math.ts';
+      if (!existe(math)) return falla('desapareció la aritmética del finiquito');
+      const src = codigoDe(math);
+
+      // 1. QUE SE CALCULE Y ENTRE EN EL TOTAL.
+      if (!/prima_antiguedad_importe/.test(src)) {
+        return falla('el finiquito volvió a no pagar la prima de antigüedad: son doce días por año de servicio y en un trabajador antiguo es la prestación más grande (#91)');
+      }
+      // 2. QUE EL TOPE SEA DEL ART. 486 Y SOBRE EL SALARIO, no sobre el
+      //    resultado: «se considerará esa cantidad como salario MÁXIMO».
+      if (!/Decimal\.min\(piso, salarioMinimo\.times\(2\)\)/.test(src)) {
+        return falla('la base de la prima dejó de topar el salario en dos mínimos (LFT art. 486): topar el resultado da otra cifra, y no topar nada se lo cobra al patrón');
+      }
+      // 3. QUE EL DESPIDO LA COBRE SIN UMBRAL.
+      if (!/motivo === 'renuncia' \? aniosCumplidos >= 15 : true/.test(src)) {
+        return falla('sólo la renuncia tiene umbral de quince años: el despido paga prima «independientemente de la justificación o injustificación» (art. 162 fr. III)');
+      }
+      // 4. Y QUE EL CERO POR NO SABER SE NOMBRE. El tope cuelga del salario
+      //    mínimo DE LA ZONA, que este esquema todavía no guarda: suponer el
+      //    general le paga 45 298.80 de menos a un trabajador fronterizo.
+      if (!/SIN CALCULAR/.test(src)) {
+        return falla('un finiquito sin el salario mínimo de la zona vuelve a devolver cero sin decirlo: indistinguible de no deberse');
+      }
+
+      return existe('tests/payroll/mx/prima-de-antiguedad.spec.ts')
+        ? ok('la prima de antigüedad se paga con su tope del art. 486, el despido la cobra sin umbral, y lo que no se puede calcular se nombra')
+        : falla('no hay prueba de la prima de antigüedad: la prestación más grande del finiquito quedaría sin vigilar');
+    },
+  },
+
+  {
+    paquete: 'E4.1',
+    id: 'isr-tariff-matches-the-pay-period',
+    enunciado: 'A cada periodo de pago se le aplica SU tarifa del art. 96, y el periodo sin tabla publicada se niega',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/isr-calculator.ts',
+        de: "    case 'weekly': return 'weekly';",
+        a: "    case 'weekly': return 'monthly';",
+        porque:
+          'EL DEFECTO MEDIDO (#91): la tarifa MENSUAL aplicada a la base de una SEMANA. Con ella, 3 000 semanales retenían 0.00 y 7 000 retenían 190.96 — subretención de entre el 85 % y el 100 % en cada recibo, que se le cobra al patrón con recargos',
+      },
+      {
+        archivo: 'src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql',
+        de: "('MX','isr',2026,NULL,'monthly', 1,      0.01,     844.59,",
+        a: "('MX','isr',2026,NULL,'monthly', 1,      0.01,     746.04,",
+        porque:
+          'vuelve la tarifa de 2025 sembrada como 2026 — el defecto que la 009 arrastraba y que hace que TODA retención del ejercicio salga con la tabla del año pasado',
+      },
+    ],
+    evaluar: () => {
+      // T4 (#91). `isr-calculator.ts` hacía
+      // `pay_frequency === 'quincenal' ? 'quincenal' : 'monthly'`, así que tres
+      // periodos de pago recibían la tarifa mensual sobre la base de una
+      // semana. Y debajo había algo peor: la tarifa sembrada como 2026 era la
+      // de 2025 al centavo, y la «quincenal» no era la de ningún año —el
+      // archivo lo confesaba: «same structure, divided by 2»—, cuando el
+      // Anexo 8 la construye como la diaria por 15.
+      const calc = 'src/services/payroll/mx/isr-calculator.ts';
+      if (!existe(calc)) return falla('desapareció la calculadora de ISR');
+      const src = codigoDe(calc);
+
+      // 1. LA SUSTITUCIÓN SILENCIOSA, MUERTA. Ese ternario ERA el defecto.
+      if (/pay_frequency === 'quincenal' \? 'quincenal' : 'monthly'/.test(src)) {
+        return falla('la calculadora vuelve a mandar weekly, biweekly y semimonthly a la tarifa MENSUAL: subretiene entre el 85 % y el 100 % en cada recibo (#91)');
+      }
+      // 2. Y EL PERIODO SIN TABLA SE NOMBRA, no se adivina.
+      if (!/No hay tarifa del art\. 96 publicada para el periodo/.test(src)) {
+        return falla('el periodo sin tarifa publicada dejó de negarse: la catorcena no tiene tabla en el Anexo 8, y sustituirla en silencio es el defecto original con otro número');
+      }
+      if (!/case 'weekly': return 'weekly';/.test(src)) {
+        return falla('el sueldo semanal dejó de usar la tarifa semanal del Anexo 8');
+      }
+
+      // 3. LA TARIFA SEMBRADA ES LA DE ESTE AÑO. 844.59 es el primer límite de
+      //    2026; 746.04 es el de 2025, que es lo que había.
+      const mig = 'src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql';
+      if (!existe(mig)) {
+        return falla('desapareció la migración que corrige la tarifa: la instalación vuelve a retener con la tabla del año pasado (#91)');
+      }
+      const sql = crudoDe(mig);
+      if (!/'monthly', 1,\s+0\.01,\s+844\.59,/.test(sql)) {
+        return falla('la tarifa mensual de 2026 dejó de ser la publicada en el Anexo 8: toda retención del ejercicio saldría con otra tabla');
+      }
+
+      // 4. Y SE COMPRUEBA CORRIENDO. Las cuatro tarifas del periodo se DERIVAN
+      //    de la mensual, así que lo que hay que vigilar no es la
+      //    transcripción sino que la derivación siga reproduciendo lo publicado.
+      return existe('tests/integration/t4-tarifa-del-periodo.int.spec.ts')
+        ? ok('cada periodo usa su tarifa del Anexo 8, el que no tiene tabla se niega, la sembrada es la de 2026 y hay prueba que lo ejecuta contra la base')
+        : falla('no hay prueba que EJECUTE la retención por periodo: leer la calculadora no demuestra qué se le retiene a un sueldo semanal');
+    },
+  },
+
+  {
+    paquete: 'E4.1',
     id: 'imss-rate-fix-verified-by-running-it',
     enunciado: 'La corrección de la cuota obrera se comprueba EJECUTÁNDOLA sobre una base migrada, no leyéndola',
     mutantes: [
@@ -8548,6 +8675,131 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E4.1',
+    id: 'garnishment-vocabulary-is-the-persisted-one',
+    enunciado: 'El motor de embargos lee el vocabulario que la columna documenta, y el que no sabe tratar lo lanza',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
+        de: "    case 'pension_alimenticia':\n      return 'child_support';",
+        a: "      return 'creditor';",
+        porque:
+          'la pensión alimenticia deja de tratarse como lo que es y pierde su tope de la CCPA: era el caso que MEDIDO retenía 0 contra 500, dinero que un juez adjudicó y no llegaba',
+      },
+      {
+        archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
+        de: '      throw new Error(\n        `Unknown garnishment amount_type',
+        a: '      return 0; // eslint-disable-line\n      throw new Error(\n        `Unhandled amount_type',
+        porque:
+          'vuelve el cero silencioso: un vocabulario que el motor no entiende retiene nada en vez de negarse, que es el defecto original de T20 y su principio entero',
+      },
+      {
+        archivo: 'src/database/migrations/075_el_embargo_que_no_retenia.sql',
+        de: "  CHECK (amount_type IN ('fixed', 'percent_disposable', 'percent_gross'));",
+        a: '  CHECK (true);',
+        porque:
+          'la columna vuelve a admitir cualquier cadena, y con ella vuelve a poder guardarse la orden que no retiene: un vocabulario sin restricción es una sugerencia',
+      },
+    ],
+    evaluar: () => {
+      // T20 punto 2 (#127). MEDIDO sobre una orden del 25 % con 2 000 de
+      // ingreso disponible: `pension_alimenticia` retenía 0 y `child_support`
+      // 500; `tax_levy_federal` retenía 0 y `tax_levy` 1 800. El motor leía un
+      // vocabulario y la columna documentaba otro, ninguna de las dos tenía
+      // CHECK, y `garnishments` no tiene un solo escritor en `src/` — así que
+      // quien da de alta una orden sigue el comentario de la columna, que era
+      // el camino que devolvía cero.
+      const motor = 'src/services/payroll/usa/garnishments/garnishment-engine.ts';
+      if (!existe(motor)) return falla('desapareció el motor de embargos');
+      const src = codigoDe(motor);
+
+      if (/amount_type = 'percentage'/.test(src)) {
+        return falla('el motor vuelve a leer «percentage», que no es el vocabulario que la columna documenta: una orden guardada como manda el esquema retiene CERO (#127)');
+      }
+      if (!/case 'pension_alimenticia':/.test(src) || !/case 'tax_levy_federal':/.test(src)) {
+        return falla('el motor dejó de tratar los tipos que la columna documenta: una pensión alimenticia o un embargo fiscal federal no retendrían nada');
+      }
+      if (!/Unknown garnishment amount_type/.test(src)) {
+        return falla('un vocabulario desconocido vuelve a retener cero en silencio en vez de lanzar: es el principio entero de T20');
+      }
+      // Y la restricción, que es lo que impide que se pueda volver a guardar.
+      const mig = 'src/database/migrations/075_el_embargo_que_no_retenia.sql';
+      if (!existe(mig) || !/CHECK \(amount_type IN/.test(crudoDe(mig))) {
+        return falla('la columna del embargo volvió a quedarse sin CHECK: un vocabulario sin restricción es una sugerencia');
+      }
+
+      return existe('tests/integration/t20-embargo-que-no-retenia.int.spec.ts')
+        ? ok('el embargo se lee con el vocabulario persistido, el desconocido se lanza, la columna lo restringe y hay prueba que lo ejecuta contra la base')
+        : falla('no hay prueba que EJECUTE el motor de embargos contra la base: leerlo no demuestra qué retiene');
+    },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'payroll-engines-fail-closed-on-missing-law',
+    enunciado: 'Ante un parámetro legal ausente, los motores de nómina se niegan en vez de inventar una cifra',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/imss-calculator.ts',
+        de: "const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);",
+        a: "const uma = parseFloat(String(params.uma_daily || 113.14));",
+        porque:
+          'vuelve la UMA quemada: una corrida de un ejercicio no sembrado produce cuotas con days_worked correctos sobre una UMA de 2025, y esa cifra sale en el recibo, en el CFDI de nómina y en la línea de captura del SUA',
+      },
+      {
+        archivo: 'src/services/payroll/usa/federal/fit-calculator.ts',
+        de: 'export function validFilingStatus(',
+        a: 'export function noValidaNada(',
+        porque:
+          'el estado civil deja de validarse y un valor fuera de catálogo vuelve a caer en una tabla vacía: FIT de 0.00 todo el año, con el patrón como retenedor omiso ante el IRS',
+      },
+      {
+        archivo: 'src/services/payroll/common/gl-posting-service.ts',
+        de: 'n(b.sit) + n(b.sdi) + n(b.local_tax)',
+        a: 'n(b.sit) + n(b.sdi)',
+        porque:
+          'el impuesto local sale del asiento y los débitos dejan de igualar a los créditos: cualquier corrida con un recibo de local > 0 vuelve a no poder postearse («Payroll GL entry unbalanced»)',
+      },
+    ],
+    evaluar: () => {
+      // T20 puntos 1, 3 y 4 (#127). El principio es uno: fallar cerrado, como
+      // ya hacía el ISR. Un cero por dato ausente es indistinguible de una
+      // retención legítima, y un recibo con `days_worked` correctos y cuota
+      // cero parece bueno: lo firma el despacho y viaja al SAT y al IMSS.
+      const imss = 'src/services/payroll/mx/imss-calculator.ts';
+      const infonavit = 'src/services/payroll/mx/infonavit-calculator.ts';
+      const fit = 'src/services/payroll/usa/federal/fit-calculator.ts';
+      const gl = 'src/services/payroll/common/gl-posting-service.ts';
+      for (const f of [imss, infonavit, fit, gl]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      // 1. NI UMA NI TASAS QUEMADAS.
+      for (const f of [imss, infonavit]) {
+        const src = codigoDe(f);
+        if (/\|\|\s*113\.14|\|\|\s*0\.05|\|\|\s*278\.80/.test(src)) {
+          return falla(`${f} vuelve a sustituir un parámetro legal ausente por un valor quemado: la cifra inventada sale en el recibo y en la línea de captura (#127)`);
+        }
+      }
+      if (!/requiredRates\(params, 'imss_employee'/.test(codigoDe(imss))) {
+        return falla('las cuotas obreras del IMSS vuelven a leerse con «|| 0»: una tasa ausente no es una tasa de cero');
+      }
+
+      // 2. EL ESTADO CIVIL SE VALIDA.
+      if (!/export function validFilingStatus\(/.test(codigoDe(fit))) {
+        return falla('el filing_status del W-4 dejó de validarse: un valor fuera de catálogo cae en una tabla vacía y retiene 0.00 todo el año');
+      }
+
+      // 3. Y EL IMPUESTO LOCAL ENTRA AL ASIENTO.
+      if (!/n\(b\.local_tax\)/.test(codigoDe(gl))) {
+        return falla('el impuesto local volvió a quedarse fuera del asiento de nómina: la corrida no se puede postear y el mayor se queda sin la nómina entera');
+      }
+
+      return existe('tests/payroll/fallar-cerrado.spec.ts')
+        ? ok('los motores se niegan ante un parámetro ausente, el estado civil se valida y el impuesto local entra al asiento')
+        : falla('no hay prueba del principio de fallar cerrado: es lo único que distingue el cero por no saber del cero legítimo');
+    },
+  },
 ];
 
 /**
