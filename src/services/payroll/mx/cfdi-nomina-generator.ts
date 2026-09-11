@@ -1,4 +1,6 @@
 import { query } from '../../../database/connection.js';
+import type { Scope } from '../../../database/scope.js';
+import { NotFoundError } from '../../../utils/errors.js';
 import { pacRouter } from '../../integrations/mexico/pac/pac-router.js';
 import { estadoParaPersistir } from '../../integrations/mexico/pac/simulacion.js';
 
@@ -15,10 +17,32 @@ interface CfdiStampResult {
   no_certificado_sat: string;
 }
 
+/**
+ * EL TIMBRE ES IRREVERSIBLE Y SALE DEL SISTEMA, y la consulta decía
+ * `WHERE p.id = $1` (T9c · #96).
+ *
+ * Recibía `tenantId` en el contexto y NO lo usaba en el SQL: un id de recibo
+ * bastaba para armar el CFDI de nómina de cualquier despacho —con el RFC, la
+ * CURP y el NSS de su empleado dentro— y mandarlo a timbrar. Medido, una
+ * sesión de la sociedad A sobre el recibo de la B llegaba hasta el final y
+ * sólo la paraba el guardián del PAC simulado, que es otra puerta que da la
+ * casualidad de estar en medio: con un PAC de verdad configurado, el
+ * comprobante se emitía.
+ *
+ * El `JOIN employees e` ya estaba: la entidad no necesita camino aquí, sólo
+ * la columna que el JOIN ya trae.
+ */
 export async function generateAndStampCfdiNomina(
   paycheckId: string,
-  context: { tenantId: string; userId: string }
+  context: { tenantId: string; userId: string },
+  scope: Scope
 ): Promise<CfdiStampResult> {
+  // El eje de entidad va sobre `employees`, que el JOIN ya trae. Un alcance de
+  // inquilino no añade nada: `p.tenant_id` ya lo acota.
+  const predicadoEntidad =
+    scope.kind === 'entity'
+      ? { sql: 'e.entity_id = $3', valores: [scope.entityId] }
+      : { sql: 'TRUE', valores: [] as string[] };
   const result = await query<{
     paycheck_id: string;
     tenant_id: string;
@@ -65,10 +89,10 @@ export async function generateAndStampCfdiNomina(
      JOIN pay_periods pp ON pp.id = pr.pay_period_id
      JOIN employees e ON e.id = p.employee_id
      JOIN legal_entities ent ON ent.id = e.entity_id
-     WHERE p.id = $1`,
-    [paycheckId]
+     WHERE p.id = $1 AND p.tenant_id = $2 AND ${predicadoEntidad.sql}`,
+    [paycheckId, scope.tenantId, ...predicadoEntidad.valores]
   );
-  if (result.rows.length === 0) throw new Error('Paycheck not found');
+  if (result.rows.length === 0) throw new NotFoundError('Paycheck', paycheckId);
   const r = result.rows[0];
 
   // Load earnings and deductions

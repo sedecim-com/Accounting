@@ -16,6 +16,7 @@ import { runMonthlyAmortization } from '../../src/services/accruals/amortization
 import { calcularAmortizacion } from '../../src/services/accruals/amortization-math.js';
 import { calculateFiniquito } from '../../src/services/payroll/mx/finiquito-calculator.js';
 import { diasDeVacacionesPorAnio } from '../../src/services/payroll/mx/finiquito-math.js';
+import { NotFoundError } from '../../src/utils/errors.js';
 
 /**
  * ATAQUE ADVERSARIAL A D1a · «EL DEVENGO EXISTE».
@@ -1013,9 +1014,14 @@ describe('los céntimos que un float redondea mal', () => {
 describe('el panel gobierna el finiquito de verdad', () => {
   it('`dias_aguinaldo` a 30 duplica el aguinaldo, y la política es la de la ENTIDAD DEL EMPLEADO', async () => {
     enterTenant(B.tenantId);
-    // El empleado es de B; la petición viene con el alcance de A. La política
-    // que tiene que regir es la de B, o un despacho con dos sociedades paga
-    // con el criterio de la de al lado.
+    // La política que rige es la de la entidad del EMPLEADO, o un despacho
+    // con dos sociedades paga con el criterio de la de al lado.
+    //
+    // Esta prueba lo enseñaba pidiendo el finiquito de un empleado de B con
+    // el alcance de A, y eso ya no se puede: desde T9c la consulta acota por
+    // entidad y ese contexto cruzado no devuelve empleado ninguno. Que ya no
+    // se pueda ES el arreglo —la prueba se apoyaba en el agujero—, así que se
+    // queda escrito abajo como lo que ahora tiene que pasar.
     await resolvePolicy(
       { tenantId: B.tenantId, entityId: B.entityId },
       'dias_aguinaldo',
@@ -1023,9 +1029,15 @@ describe('el panel gobierna el finiquito de verdad', () => {
       B.userId
     );
     const emp = await altaEmpleado(B, { hire: '2019-03-04', annual: ANUAL_500 });
+    await expect(
+      calculateFiniquito(
+        { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31', termination_reason: 'renuncia' as const },
+        { tenantId: B.tenantId, entityId: A.entityId }
+      )
+    ).rejects.toThrow(NotFoundError);
     const f = await calculateFiniquito(
       { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31', termination_reason: 'renuncia' as const },
-      { tenantId: B.tenantId, entityId: A.entityId }
+      { tenantId: B.tenantId, entityId: B.entityId }
     );
     expect(f.basis.aguinaldo_days_per_year).toBe(30);
     expect(f.aguinaldo_days).toBe('30.0000');

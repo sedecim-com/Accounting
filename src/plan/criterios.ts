@@ -3193,6 +3193,209 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.1',
+    id: 'payroll-run-scope-is-a-path-not-a-column',
+    // POR QUÉ ESTE CRITERIO NO ES EL ANTERIOR OTRA VEZ.
+    //
+    // `route-entity-access-verified` pregunta si la ruta MONTA la guarda.
+    // `POST /finiquito` la montaba desde D1a y aun así liquidaba a la
+    // plantilla de la sociedad hermana: la guarda valida la entidad DECLARADA
+    // en la cabecera, y acotar la consulta por ella es OTRA defensa. Hacen
+    // falta las dos, y ésta vigila la segunda.
+    //
+    // Y vigila justo donde el ayudante genérico de la casa NO sirve.
+    // `pay_runs`, `pay_periods` y `paychecks` no tienen `entity_id`: sólo
+    // `tenant_id`. `columnaDeAlcance` deduce la columna del esquema, así que
+    // `requireByIdInScope('pay_runs', <id ajeno>, entityScope(A))` DEVUELVE la
+    // fila de la sociedad hermana — medido, no supuesto. Una reparación
+    // escrita con él contesta 404 sobre otro inquilino y 200 sobre la sociedad
+    // de al lado: cerrada en el diff, verde en CI, abierta en producción. Por
+    // eso la frontera aquí es un CAMINO —corrida → periodo → calendario→
+    // entidad— y por eso el camino tiene que seguir llegando a una columna de
+    // entidad de verdad.
+    enunciado:
+      'Las escrituras de la corrida de nómina acotan por la entidad, que en esas tablas es un camino y no una columna',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/common/alcance-nomina.ts',
+        de: 'JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id',
+        a: 'LEFT JOIN pay_schedules ps ON TRUE',
+        porque:
+          'el camino deja de llegar al calendario de la entidad y el EXISTS se cumple para cualquier corrida del inquilino: aprobar, marcar pagada y leer la corrida de la sociedad hermana vuelven a contestar 200',
+      },
+      {
+        archivo: 'src/services/payroll/common/pay-run-service.ts',
+        de: 'WHERE id = $1 AND ${alcance.sql} FOR UPDATE',
+        a: 'WHERE id = $1 FOR UPDATE',
+        porque:
+          'la aprobación vuelve a tomar la corrida por su id a secas: con ella se acumula el pasivo patronal ajeno y se habilita el posteo y el pago de una corrida que no es de quien la aprueba',
+      },
+      {
+        archivo: 'src/services/payroll/common/pay-run-service.ts',
+        de: "WHERE id = $1 AND ${alcance.sql} AND status = 'approved' RETURNING tenant_id",
+        a: "WHERE id = $1 AND status = 'approved' RETURNING tenant_id",
+        porque:
+          '`status = paid` AFIRMA QUE EL DINERO SALIÓ, y vuelve a poder afirmarse sobre la corrida de cualquier entidad: la mentira queda escrita en la fila de otro despacho',
+      },
+      {
+        archivo: 'src/services/payroll/common/pay-run-service.ts',
+        de: "UPDATE pay_runs SET status = 'calculating' WHERE id = $1 AND ${alcance.sql}",
+        a: "UPDATE pay_runs SET status = 'calculating' WHERE id = $1",
+        porque:
+          'recalcular vuelve a poder hacerse sobre la corrida de otra entidad, y no sólo la mira: medido, le dejó `total_gross` en 0.00 y `employee_count` en 0 — reescribe los libros de al lado',
+      },
+      {
+        archivo: 'src/services/payroll/mx/cfdi-nomina-generator.ts',
+        de: 'WHERE p.id = $1 AND p.tenant_id = $2 AND ${predicadoEntidad.sql}',
+        a: 'WHERE p.id = $1',
+        porque:
+          'el CFDI de nómina vuelve a armarse desde cualquier recibo del sistema, con el RFC, la CURP y el NSS de su empleado dentro, y se manda a timbrar: un comprobante emitido no se deshace',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-calculator.ts',
+        de: "WHERE id = $1 AND tenant_id = $2${porEntidad ? ' AND entity_id = $3' : ''}",
+        a: 'WHERE id = $1 AND tenant_id = $2',
+        porque:
+          'el finiquito vuelve a leer al empleado por inquilino: con la guarda de entidad montada y todo, basta cambiar x-entity-id para liquidar a alguien de la sociedad hermana y ver su sueldo en la respuesta',
+      },
+    ],
+    evaluar: () => {
+      const camino = 'src/services/payroll/common/alcance-nomina.ts';
+      const corridas = 'src/services/payroll/common/pay-run-service.ts';
+      const finiquito = 'src/services/payroll/mx/finiquito-calculator.ts';
+      const rutas = 'src/api/rest/routes/payroll.ts';
+      const prueba = 'tests/integration/t9c-la-cadena-de-la-corrida.int.spec.ts';
+      for (const f of [camino, corridas, finiquito, rutas]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      // 1. CADA SALTO DEL CAMINO LLEVA SU LLAVE.
+      //
+      // La primera redacción comprobaba sólo el DESTINO —que el predicado
+      // tocara `ps.entity_id`— y su propio mutante la sobrevivió: cambiar el
+      // JOIN por `LEFT JOIN pay_schedules ps ON TRUE` deja la columna escrita
+      // y el EXISTS cumpliéndose para cualquier calendario del inquilino. Un
+      // camino sin llave no es un camino: es un EXISTS que siempre dice que
+      // sí mientras parece que acota.
+      //
+      // Aquí se fija el TEXTO del predicado a propósito, y no es la falta que
+      // `route-entity-access-verified` narra en su cuarta redacción. Aquella
+      // leía las tripas de una guarda que cambió tres veces; esto son tres
+      // fragmentos de SQL de tres líneas que NO tienen tripas: el texto es la
+      // conducta entera. Si el camino se reescribe, esta lista se reescribe
+      // con él — y quien lo haga tendrá que mirar cada salto, que es justo lo
+      // que se quiere.
+      const c = codigoDe(camino);
+      const saltos: Array<[string, string[]]> = [
+        [
+          'corridaEnEntidad',
+          ['pp.id = ${columnaId}', 'ps.id = pp.pay_schedule_id', 'ps.entity_id = $${indice}'],
+        ],
+        [
+          'periodoEnEntidad',
+          ['pp2.id = ${columnaId}', 'ps2.id = pp2.pay_schedule_id', 'ps2.entity_id = $${indice}'],
+        ],
+        ['reciboEnEntidad', ['e2.id = ${columnaId}', 'e2.entity_id = $${indice}']],
+      ];
+      for (const [nombre, llaves] of saltos) {
+        const desde = c.indexOf(`export const ${nombre}`);
+        if (desde < 0) return falla(`${camino} ya no exporta ${nombre}`);
+        const cuerpo = c.slice(desde, desde + 400);
+        for (const llave of llaves) {
+          if (!cuerpo.includes(llave)) {
+            return falla(
+              `${nombre} perdió un salto del camino («${llave}»): el EXISTS se cumple para filas que no son de la entidad y la sociedad hermana vuelve a caer`
+            );
+          }
+        }
+      }
+      // Y el predicado completo conserva LOS DOS EJES. Quitar `tenant_id` no
+      // abre nada hoy —el camino ya acota—, pero deja la consulta apoyada en
+      // un solo salto y sin el índice que ya usaba.
+      const compuesto = c.slice(c.indexOf('export function alcanceDeCorrida'));
+      if (!/tenant_id = \$\$\{indice\}/.test(compuesto) || !/corridaEnEntidad\(/.test(compuesto)) {
+        return falla(
+          'alcanceDeCorrida dejó de componer los dos ejes (inquilino y camino a la entidad): uno solo de los dos no es la frontera'
+        );
+      }
+
+      // 2. LAS DOS ESCRITURAS DE ESTADO LO LLEVAN DENTRO DEL SQL.
+      //
+      // Dentro y no en una comprobación previa: la aprobación puede mirar y
+      // escribir después porque el FOR UPDATE de su misma sentencia tiene la
+      // fila tomada; `markPayRunPaid` no corre en transacción con bloqueo, y
+      // ahí mirar primero deja la ventana entre las dos sentencias abierta.
+      const r = codigoDe(corridas);
+      if (!/WHERE id = \$1 AND \$\{alcance\.sql\} FOR UPDATE/.test(r)) {
+        return falla(
+          'approvePayRun volvió a tomar la corrida por su id sin alcance en la MISMA sentencia que la bloquea: se aprueba y se acumula el pasivo de la corrida ajena'
+        );
+      }
+      if (!/UPDATE pay_runs SET status = 'paid'[\s\S]{0,200}\$\{alcance\.sql\}/.test(r)) {
+        return falla(
+          "markPayRunPaid volvió a escribir `status = 'paid'` sin acotar: afirma que el dinero salió sobre la corrida de cualquier entidad"
+        );
+      }
+
+      // 2 bis. Y LAS DOS PUERTAS QUE NO CAMBIAN DE ESTADO PERO ESCRIBEN.
+      //
+      // `calculatePayRun` abre con la transición a `calculating`: esa es la
+      // puerta, y sin cerradura el recálculo REESCRIBE los totales de la
+      // corrida ajena (medido: 10.000,00 → 0,00). El timbrado no cambia
+      // estado y es peor, porque sale del sistema: un CFDI emitido no se
+      // deshace, se cancela ante el SAT.
+      if (!/UPDATE pay_runs SET status = 'calculating' WHERE id = \$1 AND \$\{alcance\.sql\}/.test(r)) {
+        return falla(
+          'calculatePayRun volvió a abrir por `id` a secas: recalcular la corrida ajena no sólo la mira, le reescribe los totales a cero'
+        );
+      }
+      const cfdi = 'src/services/payroll/mx/cfdi-nomina-generator.ts';
+      if (!existe(cfdi)) return falla(`desapareció ${cfdi}`);
+      if (!/WHERE p\.id = \$1 AND p\.tenant_id = \$2 AND \$\{predicadoEntidad\.sql\}/.test(codigoDe(cfdi))) {
+        return falla(
+          'el CFDI de nómina volvió a armarse con `WHERE p.id = $1`: cualquier recibo del sistema, con el RFC y el NSS de su empleado, se manda a timbrar — y timbrado no se deshace'
+        );
+      }
+
+      // 3. Y EL FINIQUITO ACOTA POR LA COLUMNA, que ésa sí la tiene.
+      const fq = codigoDe(finiquito);
+      if (!/FROM employees\s+WHERE id = \$1 AND tenant_id = \$2\$\{porEntidad/.test(fq)) {
+        return falla(
+          'el finiquito volvió a leer al empleado sólo por inquilino: es la ruta que desmiente la regla fácil, porque monta requireEntityAccess y aun así liquidaba a la plantilla de al lado'
+        );
+      }
+
+      // 4. LAS TRES CONSULTAS DE RUTA QUE ACOTAN POR EL CAMINO.
+      const rt = codigoDe(rutas);
+      const usos = (rt.match(/corridaEnEntidad\(|periodoEnEntidad\(|reciboEnEntidad\(/g) ?? []).length;
+      if (usos < 3) {
+        return falla(
+          `las rutas de nómina sólo usan ${usos} de los 3 predicados de camino: leer la corrida, leer el recibo y crear sobre un periodo ajeno vuelven a no acotar por entidad`
+        );
+      }
+
+      // 5. Y HAY CONDUCTA QUE LO AFIRMA, EN 404 Y NO EN 403.
+      //
+      // 403 dice «existe y no es tuyo», y frente a un id ya conocido esa es
+      // justo la pregunta del atacante. La serie TEN dice 404.
+      if (!existe(prueba)) {
+        return falla(
+          'no hay reproducción de la cadena de la corrida: sin ella, el arreglo es una lectura del diff y no una medición'
+        );
+      }
+      const t = crudoDe(prueba);
+      if (/toBe\(403\)/.test(t) || !/toBe\(404\)/.test(t)) {
+        return falla(
+          'la reproducción dejó de exigir 404: un 403 confirma que la corrida de la otra entidad existe, que es lo único que el atacante no sabía'
+        );
+      }
+
+      return ok(
+        'el camino llega a la entidad; el cálculo, la aprobación, el pago, el timbrado y el finiquito lo llevan dentro del SQL; las rutas lo usan y hay reproducción que exige 404'
+      );
+    },
+  },
+  {
+    paquete: 'E2.1',
     id: 'startup-rejects-rls-bypass-role',
     enunciado: 'El arranque falla cerrado ante un rol que ignora RLS',
     evaluar: () => {
