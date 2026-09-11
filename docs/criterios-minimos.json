@@ -8,6 +8,7 @@
     "agent-corpus-staleness-gate",
     "cost-per-row-band-split",
     "graphql-surface-withdrawn",
+    "permission-gate-has-behavioural-proof",
     "rls-silent-backfill-repaired",
     "repository-declares-git-remote",
     "isolation-job-unprivileged-role",

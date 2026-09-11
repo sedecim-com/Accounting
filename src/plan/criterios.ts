@@ -623,6 +623,23 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   // T13. Nace protegido: un archivo nuevo sin renglón aquí puede perder su
   // umbral en un commit posterior sin que ninguna compuerta se mueva.
   'src/services/reporting/criterio-archivadas.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  // J0.2. La ley y su semilla nacen protegidas: un umbral que sólo vive en
+  // vitest.config.ts se puede bajar sin que ninguna compuerta se mueva, y el
+  // ataque 3e de s4a exige que toda entrada de `thresholds` esté también
+  // aquí — lo cazó cuando faltaban estas dos.
+  'src/services/jurisdiction/legal-parameters.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/jurisdiction/legal-parameters-seed.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  // O1 · Las seis piezas por las que entra una contabilidad entera desde el
+  // XML del SAT: los dos lectores, el importador del catálogo, el deductor de
+  // tipo por agrupador, la carga de la apertura y su cotejo. Nacen con suelo
+  // porque son las que deciden si un peso entra, con qué signo y bajo qué
+  // padre; la cifra sale de la corrida completa, no del redondeo cómodo.
+  'src/services/accounting/opening-balance.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/accounting/opening-balance-check.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/accounting/sat-chart-import.ts': { statements: 99, branches: 94, functions: 100, lines: 99 },
+  'src/services/accounting/sat-agrupador-account-type.ts': { statements: 97, branches: 97, functions: 100, lines: 97 },
+  'src/services/sat/anexo24/balance-reader.ts': { statements: 98, branches: 88, functions: 100, lines: 100 },
+  'src/services/sat/anexo24/catalog-reader.ts': { statements: 98, branches: 81, functions: 100, lines: 100 },
 };
 
 /**
@@ -648,6 +665,137 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
 
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
+
+  // ---------------------------------------------------------------
+  // O1 lo encontró: UN BYTE INVISIBLE QUE APAGA `grep` SOBRE UN ARCHIVO ENTERO
+  //
+  // La verificación adversaria de O1 halló un NUL crudo escrito como separador
+  // de una clave compuesta, con el byte de verdad dentro del literal. Es la
+  // decisión CORRECTA —un NUL no cabe en un código de cuenta ni en un folio—
+  // escrita del modo equivocado: convierte el fuente en BINARIO para `grep` y
+  // para `file`, y mil ciento sesenta y seis líneas —el archivo que escribe el
+  // asiento de apertura— dejaron de aparecer en ninguna búsqueda del
+  // repositorio. Se descubrió por accidente, buscando otra cosa.
+  //
+  // NINGUNA PUERTA LO VIO: pasa tsc, pasa eslint, pasa vitest, pasa la
+  // cobertura. Y `git diff` tampoco avisa, porque la heurística de binario de
+  // git sólo mira los primeros 8 000 bytes y el NUL caía en el 22 381: la
+  // revisión humana habría visto un diff perfectamente normal.
+  //
+  // Se busca SÓLO el NUL, no la familia entera de bytes de control: es el que
+  // apaga las herramientas, y un criterio que caza de más se desactiva a la
+  // primera falsa alarma. La lectura va por `crudoDe` —el seam— para que el
+  // espejo pueda inyectar uno y comprobar que este criterio muerde.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E0.0',
+    id: 'sources-carry-no-nul-bytes',
+    enunciado:
+      'Ningún fuente lleva un byte NUL, que lo saca entero del alcance de grep sin que ninguna puerta se mueva',
+    evaluar: () => {
+      const rutas: string[] = [];
+      const caminar = (rel: string): void => {
+        const abs = rutaDe(rel);
+        if (!fs.existsSync(abs)) return;
+        for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+          if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
+          const hijo = path.join(rel, e.name);
+          if (e.isDirectory()) caminar(hijo);
+          else if (/[.](ts|sql|json|ya?ml)$/.test(e.name)) rutas.push(hijo);
+        }
+      };
+      for (const raiz of ['src', 'tests', 'scripts']) caminar(raiz);
+
+      const binarios = rutas.filter((r) => crudoDe(r).includes('\u0000'));
+      if (binarios.length > 0) {
+        return falla(
+          `${binarios.length} fuente(s) llevan un byte NUL y están fuera del alcance de grep: ` +
+            `${binarios.slice(0, 4).join(', ')}. Escríbelo como el escape \\u0000 dentro del ` +
+            `literal: el separador sigue siendo el mismo y el archivo vuelve a ser texto.`
+        );
+      }
+      return ok(
+        `${rutas.length} fuentes de src/, tests/ y scripts/ barridos y ninguno lleva un byte NUL: ` +
+          `todos siguen siendo alcanzables por grep`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/plan/conducta.ts',
+        de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
+        a: "'conducta.ts necesita\u0000--salida=<archivo.json>\\n'",
+        porque:
+          'un NUL inyectado en un fuente real: si el barrido dejara de mirar, o mirara el disco en ' +
+          'vez del seam, este criterio seguiría verde sobre un archivo que grep ya no encuentra',
+      },
+    ],
+  },
+  {
+    paquete: 'E1.1',
+    id: 'law-is-read-by-date-and-fails-closed',
+    enunciado: 'La ley se lee por la fecha del hecho, y sin vigencia falla en vez de devolver cero',
+    evaluar: () => {
+      // POR QUÉ NACE (J0.2, issue #123). La ley vivía quemada en el código o en
+      // `tax_parameters`, que la guarda POR AÑO aunque la UMA cambie el 1 de
+      // febrero. Y donde faltaba la fila, el sistema no se detenía: el IMSS
+      // dejaba las tasas en CERO y el INFONAVIT aplicaba un 5 % quemado. Una
+      // cifra inventada que cuadra es peor que un error, porque nadie la busca.
+      //
+      // Este criterio vigila las tres propiedades que hacen que la tabla no
+      // nazca huérfana ni mienta: que se lea por FECHA, que falle CERRADO, y
+      // que la columna del panel tenga quien la lea.
+      const lector = codigoDe('src/services/jurisdiction/legal-parameters.ts');
+      const panel = codigoDe('src/services/policy/policy-service.ts');
+
+      // (a) POR LA FECHA DEL HECHO. Un recálculo de mayo tiene que leer la ley
+      // de mayo. Sin `effective_from <= fecha` ordenado descendente, la lectura
+      // devolvería la más reciente y reexpediría el pasado con la ley de hoy.
+      if (!/AND effective_from <= \$3::date/.test(lector) || !/ORDER BY[^;]*effective_from DESC/i.test(lector)) {
+        return falla(
+          'el lector de la ley no elige por fecha del hecho: o no compara effective_from, o no toma la ' +
+            'más reciente que la precede'
+        );
+      }
+
+      // (b) FALLA CERRADO. Es el corazón del tramo: sin vigencia, LANZA.
+      if (!/'never_loaded',/.test(lector) || !/if \(row === null\) \{/.test(lector)) {
+        return falla(
+          'el lector no lanza cuando no hay vigencia: si devuelve cero o un valor por omisión, repite el ' +
+            'defecto del IMSS en cero que J0 viene a cerrar'
+        );
+      }
+
+      // (c) LA COLUMNA TIENE LECTOR. Una columna que nadie selecciona es
+      // capacidad huérfana, y `doctor` la acusa.
+      if (!/jurisdiction/.test(panel)) {
+        return falla('policy_decisions.jurisdiction no tiene lector en el servicio de políticas: nace muerta');
+      }
+
+      return ok(
+        'la ley se lee por la fecha del hecho, falla cerrado sin vigencia, y la jurisdicción del panel ' +
+          'tiene quien la lea'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/jurisdiction/legal-parameters.ts',
+        de: "        'never_loaded',",
+        a: "        'ninguno', // el hueco deja de nombrarse",
+        porque:
+          'el lector deja de fallar cerrado: una clave sin vigencia pasaría a devolver un hueco en vez de ' +
+          'detener el cálculo, que es exactamente cómo el IMSS acabó cotizando en cero',
+      },
+      {
+        archivo: 'src/services/jurisdiction/legal-parameters.ts',
+        de: 'AND effective_from <= $3::date',
+        a: 'AND effective_from >= $3::date',
+        porque:
+          'invierte la fecha: la lectura devolvería la PRIMERA vigencia posterior al hecho en vez de la que ' +
+          'regía, y un recálculo de mayo se haría con la ley que entró en junio',
+      },
+    ],
+  },
+
 
   {
     paquete: 'E0.0',
@@ -2726,6 +2874,73 @@ export const CRITERIOS: Criterio[] = [
   },
 
   // ---- E2.1 · Perímetro ----
+  {
+    paquete: 'E2.1',
+    id: 'permission-gate-has-behavioural-proof',
+    enunciado: 'La puerta de permisos y la frontera por id se prueban ejerciéndolas, no sólo declarándolas',
+    evaluar: () => {
+      // T14b·remate. La amputación de GraphQL (#101) se llevó por delante algo
+      // que su PR afirmó que no se llevaba: las ÚNICAS pruebas de conducta de
+      // `assertPermissions`. Medido después de fusionarla, sobre `main`:
+      // convertida en un no-op que no compara nada, la suite unitaria entera
+      // pasaba —253 archivos, 5 457 pruebas—. La puerta de permisos de todo el
+      // producto podía dejar de preguntar sin que nada chistara.
+      //
+      // Lo mismo con la frontera POR ID: vaciando `assertEntryAccess`, postear
+      // o anular el asiento de la sociedad hermana conociendo su UUID no lo
+      // acusaba ninguna prueba. Y quitando `requirePermission('periods:close')`
+      // de la ruta de CIERRE DURO —irreversible— tampoco.
+      //
+      // La red que sí existía era ESTRUCTURAL: `roles.spec.ts` comprueba que el
+      // catálogo no conceda el permiso, y `openapi-contrato.spec.ts` que toda
+      // ruta declare el suyo. Ninguna de las dos ejerce la NEGATIVA, y ésa es
+      // la diferencia que este criterio existe para no volver a perder.
+      if (!existe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts')) {
+        return falla(
+          'desapareció la prueba de conducta de la puerta de permisos: con ella fuera, `assertPermissions` puede dejar de comparar y la suite entera sigue verde — medido'
+        );
+      }
+      const spec = crudoDe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts');
+      // Los dos ejes, cada uno con su marca: el 403 del permiso y el 404 de la
+      // frontera. Y el 404 NO puede ser 403: distinguirlos delataría que el
+      // recurso ajeno existe.
+      if (!/403/.test(spec) || !/404/.test(spec)) {
+        return falla('la prueba dejó de ejercer alguno de los dos ejes: el 403 del permiso o el 404 de la frontera por id');
+      }
+      // Y RELEE LA FILA. Un 403 concedido después de escribir no es un 403.
+      if (!/const estadoDe = async/.test(spec)) {
+        return falla('la prueba dejó de releer el asiento tras el rechazo: un 403 que ya posteó no es un 403');
+      }
+      // La puerta sigue siendo UNA. Si `requirePermission` dejara de delegar,
+      // la prueba de arriba seguiría verde vigilando código muerto.
+      const auth = codigoDe('src/api/rest/middleware/auth.ts');
+      if (!/assertPermissions\(req\.user, permissions\)/.test(auth)) {
+        return falla('`requirePermission` dejó de pasar por `assertPermissions`: la prueba vigilaría una puerta que ya no se usa');
+      }
+      return ok('el permiso y la frontera por id se ejercen contra Postgres, releyendo la fila, y la puerta sigue siendo una');
+    },
+    mutantes: [
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'el eje del PERMISO',
+        a: null,
+        porque: 'la prueba de conducta desaparece — que es exactamente lo que pasó al retirar GraphQL, y lo que nadie acusó',
+      },
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'const estadoDe = async',
+        a: 'const noRelee = async',
+        porque: 'la prueba deja de releer la fila tras el rechazo: bendeciría un 403 concedido después de haber escrito',
+      },
+      {
+        archivo: 'src/api/rest/middleware/auth.ts',
+        de: 'assertPermissions(req.user, permissions)',
+        a: 'assertPermissions(req.user, [])',
+        porque: '`requirePermission` deja de exigir lo que declara: la puerta sigue ahí y ya no pregunta nada',
+      },
+    ],
+  },
+
   {
     paquete: 'E2.1',
     id: 'graphql-surface-withdrawn',
