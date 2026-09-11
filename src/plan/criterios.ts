@@ -2801,6 +2801,73 @@ export const CRITERIOS: Criterio[] = [
   // ---- E2.1 · Perímetro ----
   {
     paquete: 'E2.1',
+    id: 'permission-gate-has-behavioural-proof',
+    enunciado: 'La puerta de permisos y la frontera por id se prueban ejerciéndolas, no sólo declarándolas',
+    evaluar: () => {
+      // T14b·remate. La amputación de GraphQL (#101) se llevó por delante algo
+      // que su PR afirmó que no se llevaba: las ÚNICAS pruebas de conducta de
+      // `assertPermissions`. Medido después de fusionarla, sobre `main`:
+      // convertida en un no-op que no compara nada, la suite unitaria entera
+      // pasaba —253 archivos, 5 457 pruebas—. La puerta de permisos de todo el
+      // producto podía dejar de preguntar sin que nada chistara.
+      //
+      // Lo mismo con la frontera POR ID: vaciando `assertEntryAccess`, postear
+      // o anular el asiento de la sociedad hermana conociendo su UUID no lo
+      // acusaba ninguna prueba. Y quitando `requirePermission('periods:close')`
+      // de la ruta de CIERRE DURO —irreversible— tampoco.
+      //
+      // La red que sí existía era ESTRUCTURAL: `roles.spec.ts` comprueba que el
+      // catálogo no conceda el permiso, y `openapi-contrato.spec.ts` que toda
+      // ruta declare el suyo. Ninguna de las dos ejerce la NEGATIVA, y ésa es
+      // la diferencia que este criterio existe para no volver a perder.
+      if (!existe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts')) {
+        return falla(
+          'desapareció la prueba de conducta de la puerta de permisos: con ella fuera, `assertPermissions` puede dejar de comparar y la suite entera sigue verde — medido'
+        );
+      }
+      const spec = crudoDe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts');
+      // Los dos ejes, cada uno con su marca: el 403 del permiso y el 404 de la
+      // frontera. Y el 404 NO puede ser 403: distinguirlos delataría que el
+      // recurso ajeno existe.
+      if (!/403/.test(spec) || !/404/.test(spec)) {
+        return falla('la prueba dejó de ejercer alguno de los dos ejes: el 403 del permiso o el 404 de la frontera por id');
+      }
+      // Y RELEE LA FILA. Un 403 concedido después de escribir no es un 403.
+      if (!/const estadoDe = async/.test(spec)) {
+        return falla('la prueba dejó de releer el asiento tras el rechazo: un 403 que ya posteó no es un 403');
+      }
+      // La puerta sigue siendo UNA. Si `requirePermission` dejara de delegar,
+      // la prueba de arriba seguiría verde vigilando código muerto.
+      const auth = codigoDe('src/api/rest/middleware/auth.ts');
+      if (!/assertPermissions\(req\.user, permissions\)/.test(auth)) {
+        return falla('`requirePermission` dejó de pasar por `assertPermissions`: la prueba vigilaría una puerta que ya no se usa');
+      }
+      return ok('el permiso y la frontera por id se ejercen contra Postgres, releyendo la fila, y la puerta sigue siendo una');
+    },
+    mutantes: [
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'el eje del PERMISO',
+        a: null,
+        porque: 'la prueba de conducta desaparece — que es exactamente lo que pasó al retirar GraphQL, y lo que nadie acusó',
+      },
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'const estadoDe = async',
+        a: 'const noRelee = async',
+        porque: 'la prueba deja de releer la fila tras el rechazo: bendeciría un 403 concedido después de haber escrito',
+      },
+      {
+        archivo: 'src/api/rest/middleware/auth.ts',
+        de: 'assertPermissions(req.user, permissions)',
+        a: 'assertPermissions(req.user, [])',
+        porque: '`requirePermission` deja de exigir lo que declara: la puerta sigue ahí y ya no pregunta nada',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E2.1',
     id: 'graphql-surface-withdrawn',
     enunciado: 'La segunda puerta al mayor está retirada, y no puede volver en silencio',
     evaluar: () => {
