@@ -46,6 +46,7 @@ que promete un paso inexistente es peor que no tener manual—.
 - **[[Jurisdicciones]]** — México y Estados Unidos como paquetes sobre un motor común: lo que fija la ley va a una tabla con vigencia, lo que decide el despacho va al panel, y por qué el panel de hoy no sabe de países.
 - **[[Motores-contables]]** — qué motor existe para cada jurisdicción, cuál está a medias y cuál no existe bajo ningún nombre; verificado por escépticos, con `archivo:línea`.
 - **[[Normas-contables]]** — NIF, US GAAP y NIIF: quién lleva qué, lo que se parametriza por libro y no por país, qué sabe el agente hoy y cómo se mantiene al día.
+- **[[Code-language]]** ([[español|Code-language.es]]) — todo al inglés de origen, la interfaz en el idioma del usuario con el español primero, y lo que no es origen y no se toca: tres capas, tres tratamientos, y el orden para llegar.
 - **[[Base-de-datos-y-migraciones]]** — la cadena de migraciones, los cuatro duplicados históricos que no se pueden renumerar, y por qué las políticas de RLS se reaplican después de cada corrida.
 - **[[Seguridad-y-credenciales]]** — la bóveda cifrada, la bitácora de accesos, y por qué el proceso se niega a arrancar en producción con los secretos del repositorio.
 - **[[Glosario]]** — RFC, CFDI, PUE, PPD, REP, CSD, inquilino, entidad. En ese orden de necesidad.
