@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
@@ -222,6 +223,13 @@ async function ivaAcreditableDelMes(entityId: string, mes: number): Promise<stri
 }
 
 const periodoDe = (mes: number): string => `2026-${String(mes).padStart(2, '0')}`;
+
+// `inpc_serie` es GLOBAL —sin tenant_id ni entity_id—, así que la comparte
+// toda la corrida, y este archivo escribe en la serie del INPC.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
+// una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
+// suyo. El porqué entero, en helpers/catalogos-globales.ts.
+apartarCatalogos('inpc_serie');
 
 beforeAll(async () => {
   f = await crearInquilino('F07cd ataque');
@@ -1108,19 +1116,30 @@ describe('las tablas globales: lectura compartida, escritura sin gobierno', () =
   });
 
   it('el c_Banco nace vacío y NO tiene quién lo siembre', async () => {
-    // `sat_bancos` sólo aparece en la 064 y en dos lecturas de F07d: no hay
-    // importador, ni semilla, ni comando. Así que `bancos_sembrados` vale
-    // false en toda instalación recién migrada y la comprobación de la clave
-    // de banco nunca afirma nada.
+    // EL HALLAZGO, que es sobre el CÓDIGO DE PRODUCCIÓN y sigue en pie: no hay
+    // importador, ni semilla, ni comando que siembre `sat_bancos`. La tabla
+    // sólo aparece en la 064 que la crea y en las lecturas del generador de
+    // pólizas. Así que `bancos_sembrados` vale false en toda instalación
+    // recién migrada y la comprobación de la clave de banco nunca afirma nada.
+    //
     // SE MIDE EL DELTA, NO EL ESTADO. La afirmación de esta prueba es que
     // generar pólizas NO ESCRIBE en `sat_bancos` —escritura sin gobierno—, y
     // exigir que la tabla esté VACÍA antes no es esa afirmación: es una
-    // precondición que depende de qué spec corrió primero. La suite comparte
-    // base, así que basta con que otro archivo la siembre para que ésta falle
-    // por una razón que no es la suya (pasa sola, falla acompañada).
+    // precondición que depende de qué spec corrió primero. Contando antes y
+    // después se prueba lo que se quiere probar, con la tabla vacía o llena.
     //
-    // Contando antes y después se prueba lo que se quiere probar, con la tabla
-    // vacía o llena.
+    // PERO LA PRECONDICIÓN NO DESAPARECE ENTERA, y callarlo dejaría el mismo
+    // fallo con otra cara: las DOS afirmaciones de abajo —`bancos_sembrados`
+    // en false y el aviso en `warning`— sí necesitan el catálogo vacío.
+    // `bancos_sembrados` es `catalogoBancos.sembrado`, y con la '012' sembrada
+    // la clave de esta prueba pasa a 'valido', así que no se emite aviso
+    // ninguno y `aviso?.severity` queda undefined. Lo que sostiene ese vacío
+    // no es el alfabeto —el sequencer ordena por el resultado de la corrida
+    // anterior—: es que `f07d`, un archivo HERMANO de PRUEBAS y no código que
+    // se entregue, devuelva la tabla como la encontró después de sembrarle las
+    // dos claves con que ejercita los dos lados de la validación, y que el
+    // vigilante haga fallar al archivo que no lo haga. Ver
+    // helpers/catalogos-globales.ts.
     const antes = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
 
     const r = await generarPolizas(f.entityId, { periodo: periodoDe(10), solicitud: SOLICITUD });
