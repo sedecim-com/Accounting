@@ -1,5 +1,5 @@
 import type { ITaxCalculator, TaxInput, TaxOutput } from '../tax-engine/tax-engine.interface.js';
-import { getTaxParameters } from '../tax-engine/tax-tables.js';
+import { getTaxParameters, requiredParameter, requiredRates } from '../tax-engine/tax-tables.js';
 
 // ============================================================
 // MX — IMSS employer/employee contributions (cuotas obrero-patronales)
@@ -8,14 +8,6 @@ import { getTaxParameters } from '../tax-engine/tax-tables.js';
 // Employee (obrero) pays some ramos; employer (patronal) pays more.
 // Reference: Ley del Seguro Social Arts. 25, 71, 106, 107, 146, 147, 168.
 // ============================================================
-
-interface ImssRates {
-  enfermedades_maternidad: number;
-  prestaciones_dinero: number;
-  gastos_medicos_pensionados: number;
-  invalidez_vida: number;
-  cesantia_vejez: number;
-}
 
 interface ImssEmployerRates {
   enfermedades_maternidad_fija: number;
@@ -48,6 +40,15 @@ function riesgoRate(rates: ImssEmployerRates, clase: string | undefined): number
 // Employee portion (obrero)
 // ============================================================
 
+/** Los cinco ramos de la cuota OBRERA que la LSS exige (arts. 25, 106, 107, 147, 168). */
+const RAMOS_OBRERO = [
+  'enfermedades_maternidad',
+  'prestaciones_dinero',
+  'gastos_medicos_pensionados',
+  'invalidez_vida',
+  'cesantia_vejez',
+] as const;
+
 export class MexicoImssEmployeeCalculator implements ITaxCalculator {
   jurisdiction = 'MX';
   taxType = 'imss_employee';
@@ -59,25 +60,30 @@ export class MexicoImssEmployeeCalculator implements ITaxCalculator {
     }
 
     const params = await getTaxParameters('MX', tax_year);
-    const uma = parseFloat(String(params.uma_daily || 113.14));
+    const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);
     const topeSbc = uma * 25;
     const sbcCapped = Math.min(sbc_daily, topeSbc);
     const excedente3uma = Math.max(0, sbcCapped - 3 * uma);
 
-    const ee = (params.imss_employee as ImssRates) || ({} as ImssRates);
+    // LAS CINCO CUOTAS OBRERAS, TODAS OBLIGATORIAS (T20 punto 1 · #127).
+    //
+    // Cada una llevaba `|| 0`, así que una fila sin sembrar producía una
+    // retención de CERO con `days_worked` correctos: un recibo creíble y
+    // falso. Ahora falta una y no hay cuota: se nombra cuál.
+    const ee = requiredRates(params, 'imss_employee', RAMOS_OBRERO, tax_year);
 
     const breakdown: Record<string, number> = {};
 
     // Sickness and maternity (enfermedades y maternidad, employee): quota on the excess over 3 UMA
-    breakdown.em_excedente = excedente3uma * (ee.enfermedades_maternidad || 0) * days_in_period;
+    breakdown.em_excedente = excedente3uma * ee.enfermedades_maternidad * days_in_period;
     // Cash benefits (prestaciones en dinero)
-    breakdown.prestaciones_dinero = sbcCapped * (ee.prestaciones_dinero || 0) * days_in_period;
+    breakdown.prestaciones_dinero = sbcCapped * ee.prestaciones_dinero * days_in_period;
     // Medical expenses for pensioners (gastos medicos pensionados)
-    breakdown.gmp = sbcCapped * (ee.gastos_medicos_pensionados || 0) * days_in_period;
+    breakdown.gmp = sbcCapped * ee.gastos_medicos_pensionados * days_in_period;
     // Disability and life (invalidez y vida)
-    breakdown.invalidez_vida = sbcCapped * (ee.invalidez_vida || 0) * days_in_period;
+    breakdown.invalidez_vida = sbcCapped * ee.invalidez_vida * days_in_period;
     // Severance and old age (cesantia y vejez)
-    breakdown.cesantia_vejez = sbcCapped * (ee.cesantia_vejez || 0) * days_in_period;
+    breakdown.cesantia_vejez = sbcCapped * ee.cesantia_vejez * days_in_period;
 
     const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
 
@@ -107,7 +113,7 @@ export class MexicoImssEmployerCalculator implements ITaxCalculator {
     }
 
     const params = await getTaxParameters('MX', tax_year);
-    const uma = parseFloat(String(params.uma_daily || 113.14));
+    const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);
     const topeSbc = uma * 25;
     const sbcCapped = Math.min(sbc_daily, topeSbc);
     const excedente3uma = Math.max(0, sbcCapped - 3 * uma);

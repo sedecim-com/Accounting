@@ -8675,6 +8675,131 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E4.1',
+    id: 'garnishment-vocabulary-is-the-persisted-one',
+    enunciado: 'El motor de embargos lee el vocabulario que la columna documenta, y el que no sabe tratar lo lanza',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
+        de: "    case 'pension_alimenticia':\n      return 'child_support';",
+        a: "      return 'creditor';",
+        porque:
+          'la pensión alimenticia deja de tratarse como lo que es y pierde su tope de la CCPA: era el caso que MEDIDO retenía 0 contra 500, dinero que un juez adjudicó y no llegaba',
+      },
+      {
+        archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
+        de: '      throw new Error(\n        `Unknown garnishment amount_type',
+        a: '      return 0; // eslint-disable-line\n      throw new Error(\n        `Unhandled amount_type',
+        porque:
+          'vuelve el cero silencioso: un vocabulario que el motor no entiende retiene nada en vez de negarse, que es el defecto original de T20 y su principio entero',
+      },
+      {
+        archivo: 'src/database/migrations/075_el_embargo_que_no_retenia.sql',
+        de: "  CHECK (amount_type IN ('fixed', 'percent_disposable', 'percent_gross'));",
+        a: '  CHECK (true);',
+        porque:
+          'la columna vuelve a admitir cualquier cadena, y con ella vuelve a poder guardarse la orden que no retiene: un vocabulario sin restricción es una sugerencia',
+      },
+    ],
+    evaluar: () => {
+      // T20 punto 2 (#127). MEDIDO sobre una orden del 25 % con 2 000 de
+      // ingreso disponible: `pension_alimenticia` retenía 0 y `child_support`
+      // 500; `tax_levy_federal` retenía 0 y `tax_levy` 1 800. El motor leía un
+      // vocabulario y la columna documentaba otro, ninguna de las dos tenía
+      // CHECK, y `garnishments` no tiene un solo escritor en `src/` — así que
+      // quien da de alta una orden sigue el comentario de la columna, que era
+      // el camino que devolvía cero.
+      const motor = 'src/services/payroll/usa/garnishments/garnishment-engine.ts';
+      if (!existe(motor)) return falla('desapareció el motor de embargos');
+      const src = codigoDe(motor);
+
+      if (/amount_type = 'percentage'/.test(src)) {
+        return falla('el motor vuelve a leer «percentage», que no es el vocabulario que la columna documenta: una orden guardada como manda el esquema retiene CERO (#127)');
+      }
+      if (!/case 'pension_alimenticia':/.test(src) || !/case 'tax_levy_federal':/.test(src)) {
+        return falla('el motor dejó de tratar los tipos que la columna documenta: una pensión alimenticia o un embargo fiscal federal no retendrían nada');
+      }
+      if (!/Unknown garnishment amount_type/.test(src)) {
+        return falla('un vocabulario desconocido vuelve a retener cero en silencio en vez de lanzar: es el principio entero de T20');
+      }
+      // Y la restricción, que es lo que impide que se pueda volver a guardar.
+      const mig = 'src/database/migrations/075_el_embargo_que_no_retenia.sql';
+      if (!existe(mig) || !/CHECK \(amount_type IN/.test(crudoDe(mig))) {
+        return falla('la columna del embargo volvió a quedarse sin CHECK: un vocabulario sin restricción es una sugerencia');
+      }
+
+      return existe('tests/integration/t20-embargo-que-no-retenia.int.spec.ts')
+        ? ok('el embargo se lee con el vocabulario persistido, el desconocido se lanza, la columna lo restringe y hay prueba que lo ejecuta contra la base')
+        : falla('no hay prueba que EJECUTE el motor de embargos contra la base: leerlo no demuestra qué retiene');
+    },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'payroll-engines-fail-closed-on-missing-law',
+    enunciado: 'Ante un parámetro legal ausente, los motores de nómina se niegan en vez de inventar una cifra',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/imss-calculator.ts',
+        de: "const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);",
+        a: "const uma = parseFloat(String(params.uma_daily || 113.14));",
+        porque:
+          'vuelve la UMA quemada: una corrida de un ejercicio no sembrado produce cuotas con days_worked correctos sobre una UMA de 2025, y esa cifra sale en el recibo, en el CFDI de nómina y en la línea de captura del SUA',
+      },
+      {
+        archivo: 'src/services/payroll/usa/federal/fit-calculator.ts',
+        de: 'export function validFilingStatus(',
+        a: 'export function noValidaNada(',
+        porque:
+          'el estado civil deja de validarse y un valor fuera de catálogo vuelve a caer en una tabla vacía: FIT de 0.00 todo el año, con el patrón como retenedor omiso ante el IRS',
+      },
+      {
+        archivo: 'src/services/payroll/common/gl-posting-service.ts',
+        de: 'n(b.sit) + n(b.sdi) + n(b.local_tax)',
+        a: 'n(b.sit) + n(b.sdi)',
+        porque:
+          'el impuesto local sale del asiento y los débitos dejan de igualar a los créditos: cualquier corrida con un recibo de local > 0 vuelve a no poder postearse («Payroll GL entry unbalanced»)',
+      },
+    ],
+    evaluar: () => {
+      // T20 puntos 1, 3 y 4 (#127). El principio es uno: fallar cerrado, como
+      // ya hacía el ISR. Un cero por dato ausente es indistinguible de una
+      // retención legítima, y un recibo con `days_worked` correctos y cuota
+      // cero parece bueno: lo firma el despacho y viaja al SAT y al IMSS.
+      const imss = 'src/services/payroll/mx/imss-calculator.ts';
+      const infonavit = 'src/services/payroll/mx/infonavit-calculator.ts';
+      const fit = 'src/services/payroll/usa/federal/fit-calculator.ts';
+      const gl = 'src/services/payroll/common/gl-posting-service.ts';
+      for (const f of [imss, infonavit, fit, gl]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      // 1. NI UMA NI TASAS QUEMADAS.
+      for (const f of [imss, infonavit]) {
+        const src = codigoDe(f);
+        if (/\|\|\s*113\.14|\|\|\s*0\.05|\|\|\s*278\.80/.test(src)) {
+          return falla(`${f} vuelve a sustituir un parámetro legal ausente por un valor quemado: la cifra inventada sale en el recibo y en la línea de captura (#127)`);
+        }
+      }
+      if (!/requiredRates\(params, 'imss_employee'/.test(codigoDe(imss))) {
+        return falla('las cuotas obreras del IMSS vuelven a leerse con «|| 0»: una tasa ausente no es una tasa de cero');
+      }
+
+      // 2. EL ESTADO CIVIL SE VALIDA.
+      if (!/export function validFilingStatus\(/.test(codigoDe(fit))) {
+        return falla('el filing_status del W-4 dejó de validarse: un valor fuera de catálogo cae en una tabla vacía y retiene 0.00 todo el año');
+      }
+
+      // 3. Y EL IMPUESTO LOCAL ENTRA AL ASIENTO.
+      if (!/n\(b\.local_tax\)/.test(codigoDe(gl))) {
+        return falla('el impuesto local volvió a quedarse fuera del asiento de nómina: la corrida no se puede postear y el mayor se queda sin la nómina entera');
+      }
+
+      return existe('tests/payroll/fallar-cerrado.spec.ts')
+        ? ok('los motores se niegan ante un parámetro ausente, el estado civil se valida y el impuesto local entra al asiento')
+        : falla('no hay prueba del principio de fallar cerrado: es lo único que distingue el cero por no saber del cero legítimo');
+    },
+  },
 ];
 
 /**

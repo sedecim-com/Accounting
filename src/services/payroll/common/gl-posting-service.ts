@@ -90,6 +90,7 @@ export async function postPayRunToGL(
   // Aggregate tax breakdown across all paychecks
   const breakdownResult = await query<{
     fit: string; fica_ss_ee: string; fica_med_ee: string; addl_med: string; sit: string; sdi: string;
+    local_tax: string;
     fica_ss_er: string; fica_med_er: string; futa: string; suta: string;
     isr: string; imss_ee: string; infonavit_ee: string; imss_er: string; infonavit_er: string;
     benefits_pretax: string; benefits_posttax: string;
@@ -101,6 +102,7 @@ export async function postPayRunToGL(
        COALESCE(SUM(additional_medicare_withheld), 0) AS addl_med,
        COALESCE(SUM(state_tax_withheld), 0) AS sit,
        COALESCE(SUM(sdi_withheld), 0) AS sdi,
+       COALESCE(SUM(local_tax_withheld), 0) AS local_tax,
        COALESCE(SUM(fica_ss_employer), 0) AS fica_ss_er,
        COALESCE(SUM(fica_medicare_employer), 0) AS fica_med_er,
        COALESCE(SUM(futa), 0) AS futa,
@@ -169,7 +171,19 @@ export async function postPayRunToGL(
   creditIfPresent('fica_payable', n(b.fica_ss_ee) + n(b.fica_med_ee) + n(b.addl_med) + n(b.fica_ss_er) + n(b.fica_med_er), 'FICA EE+ER');
   creditIfPresent('futa_payable', n(b.futa), 'FUTA');
   creditIfPresent('suta_payable', n(b.suta), 'SUTA');
-  creditIfPresent('state_tax_payable', n(b.sit) + n(b.sdi), 'State tax + SDI');
+  // EL IMPUESTO LOCAL ENTRA AQUÍ, Y SU AUSENCIA IMPEDÍA POSTEAR (T20 · #127).
+  //
+  // `local_tax_withheld` se calcula y SE PERSISTE en el recibo desde F08a, así
+  // que el neto del trabajador ya lo descuenta — pero este agregado no lo
+  // sumaba, de modo que al asiento le faltaba ese abono y los débitos dejaban
+  // de igualar a los créditos: `Payroll GL entry unbalanced`, y la corrida
+  // entera no llegaba al mayor. Cualquier recibo con impuesto local > 0
+  // bloqueaba el posteo de su nómina.
+  //
+  // Va a la misma cubeta que el estatal porque la cuenta se llama así: 2154
+  // «State and Local Tax Payable». No hace falta cuenta nueva ni semilla
+  // nueva; hacía falta mandarle el importe.
+  creditIfPresent('state_tax_payable', n(b.sit) + n(b.sdi) + n(b.local_tax), 'State + local tax + SDI');
   // EL ISR PUEDE SER NEGATIVO, Y ENTONCES NO ES UN ABONO QUE SE DESCARTA.
   //
   // `b.isr` es SUM(isr_withheld − subsidio_empleo) de la corrida: el ISR que

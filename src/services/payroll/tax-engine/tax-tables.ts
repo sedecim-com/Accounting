@@ -164,6 +164,79 @@ export async function getTaxParameters(
   return row.params;
 }
 
+
+/**
+ * A legal parameter that MUST be there, or the calculation stops.
+ *
+ * THE DEFECT THIS CLOSES (T20 point 1 · #127): `getTaxParameters` returns `{}`
+ * when the year has no row, and each engine filled the gap its own way —
+ * `isr-calculator` threw, `imss-calculator` used `uma_daily || 113.14` and the
+ * rates `|| 0`, `infonavit-calculator` `|| 0.05`. The SAME missing datum
+ * produced an error in one engine and an INVENTED FIGURE in the other two, and
+ * the invented one reaches the payslip, the payroll CFDI and the IMSS payment
+ * line with the right `days_worked` — which is what makes it credible.
+ *
+ * The rule of this repository, already applied to the ISN in F08a: a tax that
+ * cannot be computed is NAMED, not zeroed.
+ */
+export function requiredParameter(
+  params: Record<string, unknown>,
+  key: string,
+  jurisdiction: string,
+  taxYear: number
+): number {
+  const raw = params[key];
+  const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? parseFloat(raw) : NaN;
+  if (!Number.isFinite(value)) {
+    throw new Error(
+      `Falta el parámetro fiscal «${key}» de ${jurisdiction} para ${taxYear}: sin él no se puede ` +
+      'calcular la cuota. Antes se sustituía por un valor quemado y la cifra inventada salía en ' +
+      'el recibo, en el CFDI de nómina y en la línea de captura.'
+    );
+  }
+  return value;
+}
+
+
+/**
+ * A block of rates that must be complete, with the missing one NAMED.
+ *
+ * `params.imss_employee` used to be read as `|| {}` and every rate as `|| 0`,
+ * so an unseeded year produced a contribution of ZERO with the right
+ * `days_worked` — a payslip that is credible and false. Naming which rate is
+ * missing is the difference between a fixable error and a silent one.
+ */
+export function requiredRates(
+  params: Record<string, unknown>,
+  block: string,
+  keys: readonly string[],
+  taxYear: number
+): Record<string, number> {
+  const raw = params[block];
+  if (!raw || typeof raw !== 'object') {
+    throw new Error(
+      `Falta el bloque de tasas «${block}» de MX para ${taxYear}: sin él la cuota saldría en cero ` +
+      'con los días cotizados correctos, que es un recibo creíble y falso.'
+    );
+  }
+  const source = raw as Record<string, unknown>;
+  const out: Record<string, number> = {};
+  const missing: string[] = [];
+  for (const k of keys) {
+    const v = source[k];
+    const n = typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v) : NaN;
+    if (!Number.isFinite(n)) missing.push(k);
+    else out[k] = n;
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `Faltan tasas en «${block}» de MX para ${taxYear}: ${missing.join(', ')}. ` +
+      'Una tasa ausente no es una tasa de cero.'
+    );
+  }
+  return out;
+}
+
 /**
  * Apply a progressive tax bracket table.
  * Returns tax owed on the given taxable wages.
