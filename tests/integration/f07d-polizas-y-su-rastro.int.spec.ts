@@ -7,6 +7,7 @@ import {
   fechaEnPeriodo,
   type Fixture,
 } from './helpers/tenant-fixture.js';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { JournalEntryType } from '../../src/types/index.js';
@@ -61,6 +62,19 @@ async function cuentaPorCodigo(entityId: string, code: string): Promise<string> 
   if (r.rows.length === 0) throw new Error(`falta la cuenta ${code}`);
   return r.rows[0].id;
 }
+
+// `sat_bancos` es GLOBAL —sin tenant_id ni entity_id, por diseño de la 064: el
+// c_Banco es un hecho publicado por la autoridad—, así que la comparte toda la
+// corrida. Este archivo la VACÍA y luego la siembra con dos claves para probar
+// los dos lados de la validación de la clave de banco, y tiene que devolverla
+// como la encontró.
+//
+// ESTE ES EL DESCUIDO QUE COSTÓ EL FALLO INTERMITENTE: sin esta línea, las dos
+// claves sobrevivían al archivo y `f07cd-ataque` —que afirma que el c_Banco
+// nace VACÍO en una instalación recién migrada— fallaba en las corridas en que
+// el sequencer lo colocaba después de éste. El informe acusaba a la víctima, y
+// el orden lo decide el resultado de la corrida anterior, no el alfabeto.
+apartarCatalogos('sat_bancos');
 
 beforeAll(async () => {
   f = await crearInquilino('F07d pólizas');

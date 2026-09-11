@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query } from '../../src/database/connection.js';
@@ -140,6 +141,14 @@ async function reciboDe(paycheckId: string): Promise<FilaRecibo> {
   );
   return rows[0];
 }
+
+// `mx_isn_tasas_estatales` y `tax_tables` son GLOBALES —sin tenant_id ni
+// entity_id—, así que las comparte toda la corrida, y este archivo siembra
+// tarifas de ISR de un año sintético y tasas de ISN de estados que no existen.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
+// una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
+// suyo. El porqué entero, en helpers/catalogos-globales.ts.
+apartarCatalogos('mx_isn_tasas_estatales', 'tax_tables');
 
 beforeAll(async () => {
   f = await crearInquilino('F08a · ataque');
@@ -343,20 +352,20 @@ describe('C · la corrida con subsidio entregado se puede postear al mayor', () 
   it('control: cuando el ISR retenido supera al subsidio entregado, el asiento cuadra', async () => {
     // 1 500 (entrega 124.02) + 8 000 (retiene 874.80): el ISR gana.
     const { payRunId } = await corridaCompleta('2026-04-01', '2026-04-15', '2026-04-15', [1500, 8000]);
-    const entryId = await postPayRunToGL(payRunId, f.userId, f.tenantId);
+    const entryId = await postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId);
     expect(entryId).toBeTruthy();
   });
 
   it('la corrida de PURO subsidio entregado también se tiene que poder postear', async () => {
     // Dos trabajadores de 1 500: nadie retiene ISR y el patrón entrega 248.04.
     const { payRunId } = await corridaCompleta('2026-05-01', '2026-05-15', '2026-05-15', [1500, 1500]);
-    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId)).resolves.toBeTruthy();
+    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId)).resolves.toBeTruthy();
   });
 
   it('la corrida MIXTA en la que el subsidio entregado gana también se postea', async () => {
     // 1 500 (entrega 124.02) + 3 000 (retiene 27.98): el subsidio gana por 96.04.
     const { payRunId } = await corridaCompleta('2026-06-01', '2026-06-15', '2026-06-15', [1500, 3000]);
-    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId)).resolves.toBeTruthy();
+    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId)).resolves.toBeTruthy();
   });
 });
 

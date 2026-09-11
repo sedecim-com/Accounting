@@ -45,13 +45,13 @@ jobs:
       # Token de la GitHub App witness-vic → el comentario de triage sale
       # firmado `witness-vic[bot]` (no github-actions[bot] ni vic2099).
       # Requiere los secrets del repo WITNESS_APP_ID y WITNESS_APP_PRIVATE_KEY.
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         with:
           app-id: ${{ secrets.WITNESS_APP_ID }}
           private-key: ${{ secrets.WITNESS_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Necesitamos la base para diff correcto.
           fetch-depth: 0

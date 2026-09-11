@@ -629,12 +629,21 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   // aquí — lo cazó cuando faltaban estas dos.
   'src/services/jurisdiction/legal-parameters.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
   'src/services/jurisdiction/legal-parameters-seed.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
-  // D1. La aritmética del devengo nace protegida por la misma razón que la de
-  // arriba, y con una propia: sus 55 casos existen porque un error de un
-  // diezmilésimo en un doceavo no se ve en ninguna prueba de integración y se
-  // queda vivo en una cuenta de pasivo que ningún cierre limpia. Un umbral que
-  // sólo viviera en vitest.config.ts se podría bajar sin que ninguna compuerta
-  // se moviera; aquí no.
+  // O1 · Las seis piezas por las que entra una contabilidad entera desde el
+  // XML del SAT: los dos lectores, el importador del catálogo, el deductor de
+  // tipo por agrupador, la carga de la apertura y su cotejo. Nacen con suelo
+  // porque son las que deciden si un peso entra, con qué signo y bajo qué
+  // padre; la cifra sale de la corrida completa, no del redondeo cómodo.
+  'src/services/accounting/opening-balance.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/accounting/opening-balance-check.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/accounting/sat-chart-import.ts': { statements: 99, branches: 94, functions: 100, lines: 99 },
+  'src/services/accounting/sat-agrupador-account-type.ts': { statements: 97, branches: 97, functions: 100, lines: 97 },
+  'src/services/sat/anexo24/balance-reader.ts': { statements: 98, branches: 88, functions: 100, lines: 100 },
+  'src/services/sat/anexo24/catalog-reader.ts': { statements: 98, branches: 81, functions: 100, lines: 100 },
+  // La aritmética del devengo de prestaciones (D1) nace con el suelo arriba y no
+  // puede bajar de ahí: es dinero que se calcula por trabajador y por mes, se
+  // postea a un mayor inmutable (041) y tiene que extinguirse al centavo contra
+  // el finiquito. Medidos hoy: 100 / 100 / 100 / 100.
   'src/services/accruals/provisions-math.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
 };
 
@@ -8522,6 +8531,240 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E4.1',
+    id: 'garnishment-vocabulary-is-the-persisted-one',
+    enunciado: 'El motor de embargos lee el vocabulario que la columna documenta, y el que no sabe tratar lo lanza',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
+        de: "    case 'pension_alimenticia':\n      return 'child_support';",
+        a: "      return 'creditor';",
+        porque:
+          'la pensión alimenticia deja de tratarse como lo que es y pierde su tope de la CCPA: era el caso que MEDIDO retenía 0 contra 500, dinero que un juez adjudicó y no llegaba',
+      },
+      {
+        archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
+        de: '      throw new Error(\n        `Unknown garnishment amount_type',
+        a: '      return 0; // eslint-disable-line\n      throw new Error(\n        `Unhandled amount_type',
+        porque:
+          'vuelve el cero silencioso: un vocabulario que el motor no entiende retiene nada en vez de negarse, que es el defecto original de T20 y su principio entero',
+      },
+      {
+        archivo: 'src/database/migrations/075_el_embargo_que_no_retenia.sql',
+        de: "  CHECK (amount_type IN ('fixed', 'percent_disposable', 'percent_gross'));",
+        a: '  CHECK (true);',
+        porque:
+          'la columna vuelve a admitir cualquier cadena, y con ella vuelve a poder guardarse la orden que no retiene: un vocabulario sin restricción es una sugerencia',
+      },
+    ],
+    evaluar: () => {
+      // T20 punto 2 (#127). MEDIDO sobre una orden del 25 % con 2 000 de
+      // ingreso disponible: `pension_alimenticia` retenía 0 y `child_support`
+      // 500; `tax_levy_federal` retenía 0 y `tax_levy` 1 800. El motor leía un
+      // vocabulario y la columna documentaba otro, ninguna de las dos tenía
+      // CHECK, y `garnishments` no tiene un solo escritor en `src/` — así que
+      // quien da de alta una orden sigue el comentario de la columna, que era
+      // el camino que devolvía cero.
+      const motor = 'src/services/payroll/usa/garnishments/garnishment-engine.ts';
+      if (!existe(motor)) return falla('desapareció el motor de embargos');
+      const src = codigoDe(motor);
+
+      if (/amount_type = 'percentage'/.test(src)) {
+        return falla('el motor vuelve a leer «percentage», que no es el vocabulario que la columna documenta: una orden guardada como manda el esquema retiene CERO (#127)');
+      }
+      if (!/case 'pension_alimenticia':/.test(src) || !/case 'tax_levy_federal':/.test(src)) {
+        return falla('el motor dejó de tratar los tipos que la columna documenta: una pensión alimenticia o un embargo fiscal federal no retendrían nada');
+      }
+      if (!/Unknown garnishment amount_type/.test(src)) {
+        return falla('un vocabulario desconocido vuelve a retener cero en silencio en vez de lanzar: es el principio entero de T20');
+      }
+      // Y la restricción, que es lo que impide que se pueda volver a guardar.
+      const mig = 'src/database/migrations/075_el_embargo_que_no_retenia.sql';
+      if (!existe(mig) || !/CHECK \(amount_type IN/.test(crudoDe(mig))) {
+        return falla('la columna del embargo volvió a quedarse sin CHECK: un vocabulario sin restricción es una sugerencia');
+      }
+
+      return existe('tests/integration/t20-embargo-que-no-retenia.int.spec.ts')
+        ? ok('el embargo se lee con el vocabulario persistido, el desconocido se lanza, la columna lo restringe y hay prueba que lo ejecuta contra la base')
+        : falla('no hay prueba que EJECUTE el motor de embargos contra la base: leerlo no demuestra qué retiene');
+    },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'payroll-engines-fail-closed-on-missing-law',
+    enunciado: 'Ante un parámetro legal ausente, los motores de nómina se niegan en vez de inventar una cifra',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/imss-calculator.ts',
+        de: "const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);",
+        a: "const uma = parseFloat(String(params.uma_daily || 113.14));",
+        porque:
+          'vuelve la UMA quemada: una corrida de un ejercicio no sembrado produce cuotas con days_worked correctos sobre una UMA de 2025, y esa cifra sale en el recibo, en el CFDI de nómina y en la línea de captura del SUA',
+      },
+      {
+        archivo: 'src/services/payroll/usa/federal/fit-calculator.ts',
+        de: 'export function validFilingStatus(',
+        a: 'export function noValidaNada(',
+        porque:
+          'el estado civil deja de validarse y un valor fuera de catálogo vuelve a caer en una tabla vacía: FIT de 0.00 todo el año, con el patrón como retenedor omiso ante el IRS',
+      },
+      {
+        archivo: 'src/services/payroll/common/gl-posting-service.ts',
+        de: 'n(b.sit) + n(b.sdi) + n(b.local_tax)',
+        a: 'n(b.sit) + n(b.sdi)',
+        porque:
+          'el impuesto local sale del asiento y los débitos dejan de igualar a los créditos: cualquier corrida con un recibo de local > 0 vuelve a no poder postearse («Payroll GL entry unbalanced»)',
+      },
+    ],
+    evaluar: () => {
+      // T20 puntos 1, 3 y 4 (#127). El principio es uno: fallar cerrado, como
+      // ya hacía el ISR. Un cero por dato ausente es indistinguible de una
+      // retención legítima, y un recibo con `days_worked` correctos y cuota
+      // cero parece bueno: lo firma el despacho y viaja al SAT y al IMSS.
+      const imss = 'src/services/payroll/mx/imss-calculator.ts';
+      const infonavit = 'src/services/payroll/mx/infonavit-calculator.ts';
+      const fit = 'src/services/payroll/usa/federal/fit-calculator.ts';
+      const gl = 'src/services/payroll/common/gl-posting-service.ts';
+      for (const f of [imss, infonavit, fit, gl]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      // 1. NI UMA NI TASAS QUEMADAS.
+      for (const f of [imss, infonavit]) {
+        const src = codigoDe(f);
+        if (/\|\|\s*113\.14|\|\|\s*0\.05|\|\|\s*278\.80/.test(src)) {
+          return falla(`${f} vuelve a sustituir un parámetro legal ausente por un valor quemado: la cifra inventada sale en el recibo y en la línea de captura (#127)`);
+        }
+      }
+      if (!/requiredRates\(params, 'imss_employee'/.test(codigoDe(imss))) {
+        return falla('las cuotas obreras del IMSS vuelven a leerse con «|| 0»: una tasa ausente no es una tasa de cero');
+      }
+
+      // 2. EL ESTADO CIVIL SE VALIDA.
+      if (!/export function validFilingStatus\(/.test(codigoDe(fit))) {
+        return falla('el filing_status del W-4 dejó de validarse: un valor fuera de catálogo cae en una tabla vacía y retiene 0.00 todo el año');
+      }
+
+      // 3. Y EL IMPUESTO LOCAL ENTRA AL ASIENTO.
+      if (!/n\(b\.local_tax\)/.test(codigoDe(gl))) {
+        return falla('el impuesto local volvió a quedarse fuera del asiento de nómina: la corrida no se puede postear y el mayor se queda sin la nómina entera');
+      }
+
+      return existe('tests/payroll/fallar-cerrado.spec.ts')
+        ? ok('los motores se niegan ante un parámetro ausente, el estado civil se valida y el impuesto local entra al asiento')
+        : falla('no hay prueba del principio de fallar cerrado: es lo único que distingue el cero por no saber del cero legítimo');
+    },
+  },
+  {
+    paquete: 'E2.1',
+    id: 'permission-gate-has-behavioural-proof',
+    enunciado: 'La puerta de permisos y la frontera por id se prueban ejerciéndolas, no sólo declarándolas',
+    evaluar: () => {
+      // T14b·remate. La amputación de GraphQL (#101) se llevó por delante algo
+      // que su PR afirmó que no se llevaba: las ÚNICAS pruebas de conducta de
+      // `assertPermissions`. Medido después de fusionarla, sobre `main`:
+      // convertida en un no-op que no compara nada, la suite unitaria entera
+      // pasaba —253 archivos, 5 457 pruebas—. La puerta de permisos de todo el
+      // producto podía dejar de preguntar sin que nada chistara.
+      //
+      // Lo mismo con la frontera POR ID: vaciando `assertEntryAccess`, postear
+      // o anular el asiento de la sociedad hermana conociendo su UUID no lo
+      // acusaba ninguna prueba. Y quitando `requirePermission('periods:close')`
+      // de la ruta de CIERRE DURO —irreversible— tampoco.
+      //
+      // La red que sí existía era ESTRUCTURAL: `roles.spec.ts` comprueba que el
+      // catálogo no conceda el permiso, y `openapi-contrato.spec.ts` que toda
+      // ruta declare el suyo. Ninguna de las dos ejerce la NEGATIVA, y ésa es
+      // la diferencia que este criterio existe para no volver a perder.
+      if (!existe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts')) {
+        return falla(
+          'desapareció la prueba de conducta de la puerta de permisos: con ella fuera, `assertPermissions` puede dejar de comparar y la suite entera sigue verde — medido'
+        );
+      }
+      const spec = crudoDe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts');
+      // Los dos ejes, cada uno con su marca: el 403 del permiso y el 404 de la
+      // frontera. Y el 404 NO puede ser 403: distinguirlos delataría que el
+      // recurso ajeno existe.
+      if (!/403/.test(spec) || !/404/.test(spec)) {
+        return falla('la prueba dejó de ejercer alguno de los dos ejes: el 403 del permiso o el 404 de la frontera por id');
+      }
+      // Y RELEE LA FILA. Un 403 concedido después de escribir no es un 403.
+      if (!/const estadoDe = async/.test(spec)) {
+        return falla('la prueba dejó de releer el asiento tras el rechazo: un 403 que ya posteó no es un 403');
+      }
+      // La puerta sigue siendo UNA. Si `requirePermission` dejara de delegar,
+      // la prueba de arriba seguiría verde vigilando código muerto.
+      const auth = codigoDe('src/api/rest/middleware/auth.ts');
+      if (!/assertPermissions\(req\.user, permissions\)/.test(auth)) {
+        return falla('`requirePermission` dejó de pasar por `assertPermissions`: la prueba vigilaría una puerta que ya no se usa');
+      }
+      return ok('el permiso y la frontera por id se ejercen contra Postgres, releyendo la fila, y la puerta sigue siendo una');
+    },
+    mutantes: [
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'el eje del PERMISO',
+        a: null,
+        porque: 'la prueba de conducta desaparece — que es exactamente lo que pasó al retirar GraphQL, y lo que nadie acusó',
+      },
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'const estadoDe = async',
+        a: 'const noRelee = async',
+        porque: 'la prueba deja de releer la fila tras el rechazo: bendeciría un 403 concedido después de haber escrito',
+      },
+      {
+        archivo: 'src/api/rest/middleware/auth.ts',
+        de: 'assertPermissions(req.user, permissions)',
+        a: 'assertPermissions(req.user, [])',
+        porque: '`requirePermission` deja de exigir lo que declara: la puerta sigue ahí y ya no pregunta nada',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'sources-carry-no-nul-bytes',
+    enunciado:
+      'Ningún fuente lleva un byte NUL, que lo saca entero del alcance de grep sin que ninguna puerta se mueva',
+    evaluar: () => {
+      const rutas: string[] = [];
+      const caminar = (rel: string): void => {
+        const abs = rutaDe(rel);
+        if (!fs.existsSync(abs)) return;
+        for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+          if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
+          const hijo = path.join(rel, e.name);
+          if (e.isDirectory()) caminar(hijo);
+          else if (/[.](ts|sql|json|ya?ml)$/.test(e.name)) rutas.push(hijo);
+        }
+      };
+      for (const raiz of ['src', 'tests', 'scripts']) caminar(raiz);
+
+      const binarios = rutas.filter((r) => crudoDe(r).includes('\u0000'));
+      if (binarios.length > 0) {
+        return falla(
+          `${binarios.length} fuente(s) llevan un byte NUL y están fuera del alcance de grep: ` +
+            `${binarios.slice(0, 4).join(', ')}. Escríbelo como el escape \\u0000 dentro del ` +
+            `literal: el separador sigue siendo el mismo y el archivo vuelve a ser texto.`
+        );
+      }
+      return ok(
+        `${rutas.length} fuentes de src/, tests/ y scripts/ barridos y ninguno lleva un byte NUL: ` +
+          `todos siguen siendo alcanzables por grep`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/plan/conducta.ts',
+        de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
+        a: "'conducta.ts necesita\u0000--salida=<archivo.json>\\n'",
+        porque:
+          'un NUL inyectado en un fuente real: si el barrido dejara de mirar, o mirara el disco en ' +
+          'vez del seam, este criterio seguiría verde sobre un archivo que grep ya no encuentra',
+      },
+    ],
+  },
 ];
 
 /**

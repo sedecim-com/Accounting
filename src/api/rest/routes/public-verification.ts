@@ -247,16 +247,35 @@ router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Req
     return;
   }
 
-  // Get published aggregates
+  // LO PUBLICADO LLEVA SU MONEDA Y SU VERSIÓN, Y SÓLO SALE LA VIGENTE (WIT-02).
+  //
+  // La 076 metió `version` en la llave única para que republicar AÑADA en vez
+  // de pisar. El efecto secundario, que este contrato no absorbió, es que
+  // dejó de haber UNA fila por dimensión: sin filtrar, tras republicar esta
+  // ruta devolvía la versión 1 y la 2 de la misma dimensión, con importes y
+  // sellos distintos y nada que las distinguiera. Un tercero no podía saber
+  // cuál estaba verificando — y antes de la 076 no podía pasarle, porque la
+  // unicidad se lo impedía. Es una regresión de contrato, no una carencia.
+  //
+  // `DISTINCT ON` se queda con la MAYOR versión de cada dimensión, y la cifra
+  // sale acompañada de su `version` y su `currencyCode`: un importe público
+  // sin unidad no se puede comparar ni auditar, y uno sin versión no se puede
+  // citar. El historial sigue entero en la tabla; exponerlo es una superficie
+  // pública nueva y se decide aparte, no de rebote.
   const aggregates = await consultaPublica<{
     dimension_type: string;
     dimension_value: string;
     public_amount: string | null;
     transaction_count: number;
     published_at: Date;
+    version: number;
+    currency_code: string | null;
   }>(
-    `SELECT dimension_type, dimension_value, public_amount, transaction_count, published_at
-     FROM published_aggregates WHERE entity_id = $1 AND period_id = $2`,
+    `SELECT DISTINCT ON (dimension_type, dimension_value)
+            dimension_type, dimension_value, public_amount, transaction_count,
+            published_at, version, currency_code
+     FROM published_aggregates WHERE entity_id = $1 AND period_id = $2
+     ORDER BY dimension_type, dimension_value, version DESC`,
     [entityId, periodId]
   );
 
@@ -276,6 +295,8 @@ router.get('/entities/:entityId/periods/:periodId', asyncHandler(async (req: Req
         dimensionType: a.dimension_type,
         dimensionValue: a.dimension_value,
         publicAmount: a.public_amount,
+        currencyCode: a.currency_code,
+        version: a.version,
         transactionCount: a.transaction_count,
         publishedAt: a.published_at,
       })),
@@ -374,14 +395,30 @@ router.get('/entities/:entityId/aggregates', asyncHandler(async (req: Request, r
   //    rango devuelve lo mismo que devolvía.
   // Y se pide UNA fila de más que el tope, para declarar el truncamiento en
   // vez de presentar un listado parcial como si fuera el conjunto entero.
+  // LA MISMA REGLA QUE EL DETALLE, Y AQUÍ MUERDE MÁS (WIT-02).
+  //
+  // Sin quedarse con la vigente, republicar no sólo mezclaba versiones
+  // indistinguibles: cada republicación consumía un renglón del tope de 100 y
+  // podía EMPUJAR FUERA DEL LISTADO a dimensiones enteras que nunca se
+  // republicaron. El truncamiento se declara, pero declararlo no arregla que
+  // lo truncado sea historia repetida en vez de dimensiones distintas.
+  //
+  // El `DISTINCT ON` va en una subconsulta porque el orden que elige la fila
+  // (por versión, dentro de cada dimensión) no es el orden en que se entrega
+  // el listado (por fecha de publicación).
   const LIMIT = 100;
   const result = await consultaPublica(
-    `SELECT pa.dimension_type, pa.dimension_value, pa.public_amount, pa.transaction_count,
-            pa.period_id, pa.published_at, pa.aggregate_commitment
-     FROM published_aggregates pa
-     JOIN fiscal_periods fp ON fp.id = pa.period_id
-     ${where} AND pa.is_simulated = false
-     ORDER BY pa.published_at DESC LIMIT ${LIMIT + 1}`,
+    `SELECT * FROM (
+       SELECT DISTINCT ON (pa.period_id, pa.dimension_type, pa.dimension_value)
+              pa.dimension_type, pa.dimension_value, pa.public_amount, pa.currency_code,
+              pa.version, pa.transaction_count, pa.period_id, pa.published_at,
+              pa.aggregate_commitment
+         FROM published_aggregates pa
+         JOIN fiscal_periods fp ON fp.id = pa.period_id
+         ${where} AND pa.is_simulated = false
+        ORDER BY pa.period_id, pa.dimension_type, pa.dimension_value, pa.version DESC
+     ) vigentes
+     ORDER BY published_at DESC LIMIT ${LIMIT + 1}`,
     params
   );
 

@@ -6,6 +6,10 @@ export default defineConfig({
   test: {
     include: ['tests/integration/**/*.int.spec.ts'],
     globalSetup: ['tests/integration/global-setup.ts'],
+    // Corre dentro de CADA archivo y vigila que ninguno deje sucio un catálogo
+    // global — las tablas sin tenant_id ni entity_id que comparte toda la
+    // corrida. El porqué, en tests/integration/helpers/catalogos-globales.ts.
+    setupFiles: ['tests/integration/vigilante-catalogos.ts'],
     environment: 'node',
     testTimeout: 30_000,
     hookTimeout: 60_000,

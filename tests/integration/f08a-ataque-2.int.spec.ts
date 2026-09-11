@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Command } from 'commander';
 import { query } from '../../src/database/connection.js';
@@ -129,6 +130,14 @@ async function reciboManual(
 // entraba, el agregado del asiento al mayor lo sumaba en la póliza del
 // inquilino invadido, y el pasivo del inquilino DUEÑO se quedaba sin él.
 // ============================================================
+// `mx_isn_tasas_estatales` es GLOBAL —sin tenant_id ni entity_id—, así que la
+// comparte toda la corrida, y este archivo siembra —y ACTUALIZA— tasas de ISN
+// de estados sintéticos.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
+// una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
+// suyo. El porqué entero, en helpers/catalogos-globales.ts.
+apartarCatalogos('mx_isn_tasas_estatales');
+
 describe('1 · la corrida de otro inquilino no admite recibos ajenos', () => {
   let a: Escenario;
   let b: Escenario;
