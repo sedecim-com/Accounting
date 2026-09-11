@@ -144,6 +144,7 @@ router.post(
   '/employees/:id/compensation',
   declararRiesgoRuta({ riesgo: 'escritura', escribe: 'employees + el historial salarial' }),
   requirePermission('payroll:update'),
+  requireEntityAccess,
   validateBody(compensationChangeSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { effective_date, salary_type, annual_salary, hourly_rate, reason } = req.body;
@@ -152,16 +153,22 @@ router.post(
       { salary_type, annual_salary, hourly_rate },
       effective_date,
       reason || '',
+      entityScope(req.tenantId!, req.entityId!),
       req.user!.user_id
     );
     res.json({ data: { ok: true }, meta: meta(req) });
   })
 );
 
-router.post('/employees/:id/terminate', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'employees.termination_date/status; ninguna poliza' }), requirePermission('payroll:update'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/employees/:id/terminate', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'employees.termination_date/status; ninguna poliza' }), requirePermission('payroll:update'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { termination_date, termination_reason } = req.body;
   if (!termination_date) throw new ValidationError('termination_date required');
-  await terminateEmployee(req.params.id, termination_date, termination_reason || '');
+  await terminateEmployee(
+    req.params.id,
+    termination_date,
+    termination_reason || '',
+    entityScope(req.tenantId!, req.entityId!)
+  );
   res.json({ data: { ok: true }, meta: meta(req) });
 }));
 
@@ -307,10 +314,10 @@ router.post('/finiquito', declararRiesgoRuta({ riesgo: 'lectura' }), requirePerm
 }));
 
 // ---------- USA W-2 ----------
-router.post('/w2', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings' }), requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/w2', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { employee_id, tax_year } = req.body;
   if (!employee_id || !tax_year) throw new ValidationError('employee_id, tax_year required');
-  const result = await generateW2(employee_id, tax_year);
+  const result = await generateW2(employee_id, tax_year, entityScope(req.tenantId!, req.entityId!));
   res.json({ data: result, meta: meta(req) });
 }));
 
