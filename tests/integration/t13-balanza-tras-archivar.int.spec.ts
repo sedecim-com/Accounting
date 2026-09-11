@@ -60,7 +60,7 @@ beforeAll(async () => {
   // `--force` porque su saldo de por vida es cero en cuanto el cierre la barre
   // — aquí basta `allowWithHistory`, que es lo que el despacho usa al retirar
   // una línea del catálogo a fin de ejercicio.
-  await deactivateAccount(cuentaIngreso, f.userId, { allowWithHistory: true });
+  await deactivateAccount(f.entityId, cuentaIngreso, f.userId, { allowWithHistory: true });
 }, 120_000);
 
 afterAll(async () => {

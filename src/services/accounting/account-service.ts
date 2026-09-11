@@ -116,7 +116,19 @@ export interface GetAccountOptions {
   includeHierarchy?: boolean;
 }
 
+/**
+ * Una cuenta por su id, DENTRO de una entidad (TEN-10, #188).
+ *
+ * `entityId` va primero y es obligatorio, como en `resolveAccount`. No es
+ * estética: añadirlo al final y opcional habría dejado a cada llamador con el
+ * agujero abierto en silencio. Así el compilador los nombra uno a uno.
+ *
+ * El filtro entra en el SQL, así que cero filas significa a la vez «no existe»
+ * y «no es tuya»: quien llama devuelve 404 sin ramificar, y no hay oráculo que
+ * diga si ese UUID vive en la sociedad hermana.
+ */
 export async function getAccountById(
+  entityId: string,
   id: string,
   opts: GetAccountOptions = {}
 ): Promise<Record<string, unknown> | null> {
@@ -125,7 +137,10 @@ export async function getAccountById(
     : 'SELECT a.*';
   const join = opts.includeHierarchy ? ' LEFT JOIN accounts p ON p.id = a.parent_id' : '';
 
-  const result = await query<Account>(`${select} FROM accounts a${join} WHERE a.id = $1`, [id]);
+  const result = await query<Account>(
+    `${select} FROM accounts a${join} WHERE a.id = $1 AND a.entity_id = $2`,
+    [id, entityId]
+  );
   if (result.rows.length === 0) return null;
   const account = result.rows[0] as unknown as Record<string, unknown>;
 
@@ -135,8 +150,8 @@ export async function getAccountById(
     // Activity totals are carryforward-invariant.
     const balance = await query<{ balance: string }>(
       `SELECT COALESCE(SUM(debit_total - credit_total), 0) AS balance
-       FROM account_balances WHERE account_id = $1`,
-      [id]
+       FROM account_balances WHERE account_id = $1 AND entity_id = $2`,
+      [id, entityId]
     );
     account.current_balance = balance.rows[0].balance;
   }
@@ -276,7 +291,16 @@ export type UpdatableField = (typeof UPDATABLE_FIELDS)[number];
 
 export type AccountPatch = Partial<Record<UpdatableField, unknown>>;
 
+/**
+ * Edita los campos editables de una cuenta, DENTRO de una entidad (TEN-10).
+ *
+ * `entityId` obligatorio y primero, por lo mismo que en `getAccountById`. Y el
+ * filtro entra en el `SELECT … FOR UPDATE` y también en el `UPDATE`: acotar
+ * sólo la lectura dejaría la ventana entre comprobar y escribir, que es el
+ * defecto que la serie TEN ya cerró en el lote de XML.
+ */
 export async function updateAccount(
+  entityId: string,
   id: string,
   patch: AccountPatch,
   userId: string,
@@ -294,8 +318,8 @@ export async function updateAccount(
     // el candado que impide que dos ediciones simultáneas dejen el estado de
     // una y el antes de la otra.
     const antes = await client.query<Account>(
-      'SELECT * FROM accounts WHERE id = $1 FOR UPDATE',
-      [id]
+      'SELECT * FROM accounts WHERE id = $1 AND entity_id = $2 FOR UPDATE',
+      [id, entityId]
     );
     if (antes.rows.length === 0) throw new NotFoundError('Account', id);
     const previa = antes.rows[0] as unknown as Record<string, unknown>;
@@ -309,10 +333,10 @@ export async function updateAccount(
     }
     sets.push('updated_at = NOW()');
     sets.push(`updated_by = $${i++}`);
-    params.push(userId, id);
+    params.push(userId, id, entityId);
 
     const result = await client.query<Account>(
-      `UPDATE accounts SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
+      `UPDATE accounts SET ${sets.join(', ')} WHERE id = $${i} AND entity_id = $${i + 1} RETURNING *`,
       params
     );
     const despues = result.rows[0] as unknown as Record<string, unknown>;
@@ -375,11 +399,29 @@ export interface DeactivateOptions {
   reason?: string | null;
 }
 
+/**
+ * Baja lógica de una cuenta, DENTRO de una entidad (TEN-10).
+ *
+ * LA FRONTERA VA LA PRIMERA, antes que los conteos, y no sólo dentro de la
+ * transacción. Con `dryRun` esta función devuelve historia y saldo SIN entrar
+ * nunca en ella: comprobar el alcance más abajo dejaba que un ensayo sobre la
+ * cuenta de la sociedad hermana contestara cuántos asientos tiene y cuánto
+ * suma. El `FOR UPDATE` y el `UPDATE` se acotan TAMBIÉN, porque esta lectura
+ * previa no cierra la ventana entre comprobar y escribir — sólo evita la fuga
+ * del ensayo.
+ */
 export async function deactivateAccount(
+  entityId: string,
   id: string,
   userId: string,
   opts: DeactivateOptions = {}
 ): Promise<{ hadHistory: boolean; balance: string }> {
+  const suya = await query<{ uno: number }>(
+    'SELECT 1 AS uno FROM accounts WHERE id = $1 AND entity_id = $2',
+    [id, entityId]
+  );
+  if (suya.rows.length === 0) throw new NotFoundError('Account', id);
+
   const lines = await query<{ count: string }>(
     'SELECT COUNT(*) AS count FROM journal_entry_lines WHERE account_id = $1',
     [id]
@@ -406,15 +448,16 @@ export async function deactivateAccount(
 
   await withTransaction(async (client) => {
     const antes = await client.query<{ entity_id: string; code: string; is_active: boolean }>(
-      'SELECT entity_id, code, is_active FROM accounts WHERE id = $1 FOR UPDATE',
-      [id]
+      'SELECT entity_id, code, is_active FROM accounts WHERE id = $1 AND entity_id = $2 FOR UPDATE',
+      [id, entityId]
     );
     if (antes.rows.length === 0) throw new NotFoundError('Account', id);
     const previa = antes.rows[0];
 
     await client.query(
-      `UPDATE accounts SET is_active = false, updated_at = NOW(), updated_by = $1 WHERE id = $2`,
-      [userId, id]
+      `UPDATE accounts SET is_active = false, updated_at = NOW(), updated_by = $1
+        WHERE id = $2 AND entity_id = $3`,
+      [userId, id, entityId]
     );
 
     // Archivar es 'update', no 'delete': la cuenta sigue ahí y su historia
@@ -448,11 +491,12 @@ export async function deactivateAccount(
 }
 
 export async function reactivateAccount(
+  entityId: string,
   id: string,
   userId: string,
   reason?: string | null
 ): Promise<Account> {
-  return updateAccount(id, { is_active: true }, userId, reason);
+  return updateAccount(entityId, id, { is_active: true }, userId, reason);
 }
 
 // ============================================================

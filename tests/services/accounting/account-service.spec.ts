@@ -87,13 +87,25 @@ describe('listAccounts', () => {
 describe('getAccountById', () => {
   it('returns null instead of throwing, so callers choose the error', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    expect(await getAccountById('x')).toBeNull();
+    expect(await getAccountById(ENTITY, 'x')).toBeNull();
+  });
+
+  it('TEN-10: la entidad entra en el SQL, y también en la consulta del saldo', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1', code: '1110' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: '0' }] });
+    await getAccountById(ENTITY, 'a1', { includeBalance: true });
+    expect(sql(0)).toMatch(/WHERE a\.id = \$1 AND a\.entity_id = \$2/);
+    expect(params(0)).toEqual(['a1', ENTITY]);
+    // El saldo también: leerlo por `account_id` a secas devolvía el de por vida
+    // de la cuenta ajena aunque la cabecera ya estuviera acotada.
+    expect(sql(1)).toMatch(/WHERE account_id = \$1 AND entity_id = \$2/);
+    expect(params(1)).toEqual(['a1', ENTITY]);
   });
 
   it('computes balance as lifetime ACTIVITY, never a sum of ending balances', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1', code: '1110' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ balance: '1500.00' }] });
-    const account = await getAccountById('a1', { includeBalance: true });
+    const account = await getAccountById(ENTITY, 'a1', { includeBalance: true });
     expect(account?.current_balance).toBe('1500.00');
     // Summing ending_balance would double-count carried-forward periods.
     expect(sql(1)).toMatch(/SUM\(debit_total - credit_total\)/);
@@ -102,12 +114,12 @@ describe('getAccountById', () => {
 
   it('joins the parent only when the hierarchy was asked for', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1' }] });
-    await getAccountById('a1');
+    await getAccountById(ENTITY, 'a1');
     expect(sql(0)).not.toMatch(/LEFT JOIN/);
 
     mockQuery.mockReset();
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1' }] });
-    await getAccountById('a1', { includeHierarchy: true });
+    await getAccountById(ENTITY, 'a1', { includeHierarchy: true });
     expect(sql(0)).toMatch(/LEFT JOIN accounts p ON p\.id = a\.parent_id/);
   });
 });
@@ -203,20 +215,27 @@ describe('updateAccount', () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1', entity_id: 'e-1', name: 'Viejo' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1', name: 'Nuevo' }] });
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await updateAccount('a1', { name: 'Nuevo' }, USER);
-    expect(sql(0)).toMatch(/SELECT \* FROM accounts WHERE id = \$1 FOR UPDATE/);
+    await updateAccount(ENTITY, 'a1', { name: 'Nuevo' }, USER);
+    expect(sql(0)).toMatch(/SELECT \* FROM accounts WHERE id = \$1 AND entity_id = \$2 FOR UPDATE/);
+    // TEN-10: LA ENTIDAD VA EN LAS DOS, no sólo en el candado. Acotar sólo la
+    // lectura deja la ventana entre comprobar y escribir, que es el defecto que
+    // la serie TEN ya cerró en el lote de XML; y el `entity_id` tiene que llegar
+    // como PARÁMETRO, no interpolado.
+    expect(sql(1)).toMatch(/WHERE id = \$\d+ AND entity_id = \$\d+ RETURNING \*/);
+    expect(params(0)).toEqual(['a1', ENTITY]);
+    expect(params(1)).toContain(ENTITY);
   });
 
   it('writes only whitelisted fields', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1', entity_id: 'e-1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await updateAccount('a1', { name: 'Nuevo', is_active: false }, USER);
+    await updateAccount(ENTITY, 'a1', { name: 'Nuevo', is_active: false }, USER);
     expect(sql(1)).toMatch(/SET name = \$1, is_active = \$2, updated_at = NOW\(\), updated_by = \$3/);
   });
 
   it('names the updatable fields when given none of them', async () => {
-    await expect(updateAccount('a1', {}, USER)).rejects.toThrow(
+    await expect(updateAccount(ENTITY, 'a1', {}, USER)).rejects.toThrow(
       new RegExp(UPDATABLE_FIELDS.join(', '))
     );
     expect(mockQuery).not.toHaveBeenCalled();
@@ -226,13 +245,13 @@ describe('updateAccount', () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1', entity_id: 'e-1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'a1' }] });
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await updateAccount('a1', { tags: ['a', 'b'] }, USER);
+    await updateAccount(ENTITY, 'a1', { tags: ['a', 'b'] }, USER);
     expect(params(1)[0]).toBe('["a","b"]');
   });
 
   it('throws NotFound when the row does not exist', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await expect(updateAccount('gone', { name: 'x' }, USER)).rejects.toThrow(NotFoundError);
+    await expect(updateAccount(ENTITY, 'gone', { name: 'x' }, USER)).rejects.toThrow(NotFoundError);
     // Y no llegó a intentar el UPDATE: la fila inexistente se detecta al
     // leerla, no por un rowCount después de escribir.
     expect(mockQuery.mock.calls).toHaveLength(1);
@@ -248,7 +267,7 @@ describe('updateAccount', () => {
       rows: [{ id: 'a1', entity_id: 'e-1', name: 'Nuevo', description: 'igual' }],
     });
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await updateAccount('a1', { name: 'Nuevo' }, USER, 'error de captura');
+    await updateAccount(ENTITY, 'a1', { name: 'Nuevo' }, USER, 'error de captura');
 
     expect(sql(2)).toMatch(/INSERT INTO audit_log/);
     const p = params(2);
@@ -259,11 +278,43 @@ describe('updateAccount', () => {
 });
 
 describe('deactivateAccount — retiring is not deleting', () => {
+  // TEN-10: la PRIMERA consulta de `deactivateAccount` es la de pertenencia, y
+  // va antes que los conteos a propósito — con `dryRun` la función devuelve
+  // historia y saldo sin entrar nunca en la transacción, así que comprobar el
+  // alcance más abajo dejaba que un ensayo sobre la cuenta de la sociedad
+  // hermana contestara cuántos asientos tiene y cuánto suma.
+  const SUYA = { rows: [{ uno: 1 }] };
+  it('TEN-10: la PRIMERA consulta es la de pertenencia, acotada y por parámetro', async () => {
+    mockQuery.mockResolvedValueOnce(SUYA);
+    mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: '0' }] });
+    mockQuery.mockResolvedValueOnce(ANTES);
+    mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await deactivateAccount(ENTITY, 'a1', USER);
+    expect(sql(0)).toMatch(/FROM accounts WHERE id = \$1 AND entity_id = \$2/);
+    expect(params(0)).toEqual(['a1', ENTITY]);
+  });
+
+  it('TEN-10: un ENSAYO sobre la cuenta de otra entidad no contesta nada, ni historia ni saldo', async () => {
+    // Es la razón de que el chequeo de pertenencia vaya ANTES de los conteos.
+    // Con `dryRun` esta función devuelve historia y saldo sin entrar nunca en
+    // la transacción, así que si el alcance se comprobara dentro del
+    // `FOR UPDATE`, el ensayo ya habría contestado cuántos asientos tiene la
+    // cuenta de la hermana y cuánto suma.
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // no es suya
+    await expect(
+      deactivateAccount(ENTITY, 'ajena', USER, { allowWithHistory: true, dryRun: true })
+    ).rejects.toThrow(NotFoundError);
+    expect(mockQuery.mock.calls, 'preguntó algo más después de saber que no era suya').toHaveLength(1);
+  });
+
   it('refuses an account with history by default (the DELETE rule)', async () => {
+    mockQuery.mockResolvedValueOnce(SUYA);
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '7' }] });
-    await expect(deactivateAccount('a1', USER)).rejects.toThrow(ValidationError);
+    await expect(deactivateAccount(ENTITY, 'a1', USER)).rejects.toThrow(ValidationError);
     // Nothing was written.
-    expect(mockQuery.mock.calls).toHaveLength(1);
+    expect(mockQuery.mock.calls).toHaveLength(2);
   });
 
   // F01: entre el conteo de historia y el UPDATE viaja ahora la consulta del
@@ -274,72 +325,78 @@ describe('deactivateAccount — retiring is not deleting', () => {
   const ANTES = { rows: [{ entity_id: 'e-1', code: '5100', is_active: true }] };
 
   it('allows it when the caller can justify itself, and reports history and balance', async () => {
+    mockQuery.mockResolvedValueOnce(SUYA);
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '7' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ balance: '150.0000' }] });
     mockQuery.mockResolvedValueOnce(ANTES);
     mockQuery.mockResolvedValueOnce({ rowCount: 1 });
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    const result = await deactivateAccount('a1', USER, { allowWithHistory: true });
+    const result = await deactivateAccount(ENTITY, 'a1', USER, { allowWithHistory: true });
     expect(result.hadHistory).toBe(true);
     expect(result.balance).toBe('150.0000');
-    expect(sql(3)).toMatch(/SET is_active = false/);
+    expect(sql(4)).toMatch(/SET is_active = false/);
   });
 
   it('never issues a DELETE — history has to survive', async () => {
+    mockQuery.mockResolvedValueOnce(SUYA);
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ balance: '0' }] });
     mockQuery.mockResolvedValueOnce(ANTES);
     mockQuery.mockResolvedValueOnce({ rowCount: 1 });
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await deactivateAccount('a1', USER);
-    expect(sql(3)).not.toMatch(/DELETE/i);
+    await deactivateAccount(ENTITY, 'a1', USER);
+    expect(sql(4)).not.toMatch(/DELETE/i);
     // Y el rastro llama al acto 'update', no 'delete': archivar no borra, y
     // un lector que filtre por acción no puede leer una cosa por la otra.
-    expect(params(4)[3]).toBe('update');
+    expect(params(5)[3]).toBe('update');
   });
 
   it('throws NotFound when the account is gone', async () => {
+    mockQuery.mockResolvedValueOnce(SUYA);
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '0' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ balance: '0' }] });
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await expect(deactivateAccount('gone', USER)).rejects.toThrow(NotFoundError);
+    await expect(deactivateAccount(ENTITY, 'gone', USER)).rejects.toThrow(NotFoundError);
   });
 
   // G3: el rastro guarda el saldo y si había historia — las dos condiciones
   // que el archivado evalúa— para no tener que recalcularlas medio año
   // después, cuando alguien pregunte por qué se archivó con saldo vivo.
   it('records the balance and the history flag it decided on', async () => {
+    mockQuery.mockResolvedValueOnce(SUYA);
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '7' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ balance: '150.0000' }] });
     mockQuery.mockResolvedValueOnce(ANTES);
     mockQuery.mockResolvedValueOnce({ rowCount: 1 });
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await deactivateAccount('a1', USER, { allowWithHistory: true, reason: 'cierre' });
+    await deactivateAccount(ENTITY, 'a1', USER, { allowWithHistory: true, reason: 'cierre' });
 
-    expect(sql(4)).toMatch(/INSERT INTO audit_log/);
-    const nuevos = JSON.parse(String(params(4)[7])) as Record<string, unknown>;
+    expect(sql(5)).toMatch(/INSERT INTO audit_log/);
+    const nuevos = JSON.parse(String(params(5)[7])) as Record<string, unknown>;
     expect(nuevos.is_active).toBe(false);
     expect(nuevos.had_history).toBe(true);
     expect(nuevos.balance_at_archive).toBe('150.0000');
     expect(nuevos.forced_with_balance).toBe(true);
-    expect(params(4)[8]).toBe('cierre');
+    expect(params(5)[8]).toBe('cierre');
   });
 
   it('F01: la regla del archivado — saldo vivo bloquea salvo fuerza, y dry-run no escribe', async () => {
+    mockQuery.mockResolvedValueOnce(SUYA);
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '7' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ balance: '150.0000' }] });
     await expect(
-      deactivateAccount('a1', USER, { allowWithHistory: true, enforceZeroBalance: true })
+      deactivateAccount(ENTITY, 'a1', USER, { allowWithHistory: true, enforceZeroBalance: true })
     ).rejects.toThrow(/saldo vivo/);
-    expect(mockQuery.mock.calls).toHaveLength(2); // nada se escribió
+    expect(mockQuery.mock.calls).toHaveLength(3); // nada se escribió
 
     mockQuery.mockClear();
+    mockQuery.mockResolvedValueOnce(SUYA);
     mockQuery.mockResolvedValueOnce({ rows: [{ count: '7' }] });
     mockQuery.mockResolvedValueOnce({ rows: [{ balance: '0.0000' }] });
-    const seco = await deactivateAccount('a1', USER, {
+    const seco = await deactivateAccount(ENTITY, 'a1', USER, {
       allowWithHistory: true, enforceZeroBalance: true, dryRun: true,
     });
     expect(seco.balance).toBe('0.0000');
-    expect(mockQuery.mock.calls).toHaveLength(2); // dry-run: sin UPDATE
+    expect(mockQuery.mock.calls).toHaveLength(3); // dry-run: sin UPDATE
   });
 });
