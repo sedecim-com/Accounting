@@ -641,9 +641,8 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   'src/services/sat/anexo24/balance-reader.ts': { statements: 98, branches: 88, functions: 100, lines: 100 },
   'src/services/sat/anexo24/catalog-reader.ts': { statements: 98, branches: 81, functions: 100, lines: 100 },
   // La aritmética del devengo de prestaciones (D1) nace con el suelo arriba y no
-  // puede bajar de ahí: es dinero que se calcula por trabajador y por mes, se
-  // postea a un mayor inmutable (041) y tiene que extinguirse al centavo contra
-  // el finiquito. Medidos hoy: 100 / 100 / 100 / 100.
+  // puede bajar de ahí: es dinero por trabajador y por mes, se postea a un mayor
+  // inmutable (041) y tiene que extinguirse al centavo contra el finiquito.
   'src/services/accruals/provisions-math.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
 };
 
@@ -671,124 +670,67 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
 
+  // ---------------------------------------------------------------
+  // O1 lo encontró: UN BYTE INVISIBLE QUE APAGA `grep` SOBRE UN ARCHIVO ENTERO
+  //
+  // La verificación adversaria de O1 halló un NUL crudo escrito como separador
+  // de una clave compuesta, con el byte de verdad dentro del literal. Es la
+  // decisión CORRECTA —un NUL no cabe en un código de cuenta ni en un folio—
+  // escrita del modo equivocado: convierte el fuente en BINARIO para `grep` y
+  // para `file`, y mil ciento sesenta y seis líneas —el archivo que escribe el
+  // asiento de apertura— dejaron de aparecer en ninguna búsqueda del
+  // repositorio. Se descubrió por accidente, buscando otra cosa.
+  //
+  // NINGUNA PUERTA LO VIO: pasa tsc, pasa eslint, pasa vitest, pasa la
+  // cobertura. Y `git diff` tampoco avisa, porque la heurística de binario de
+  // git sólo mira los primeros 8 000 bytes y el NUL caía en el 22 381: la
+  // revisión humana habría visto un diff perfectamente normal.
+  //
+  // Se busca SÓLO el NUL, no la familia entera de bytes de control: es el que
+  // apaga las herramientas, y un criterio que caza de más se desactiva a la
+  // primera falsa alarma. La lectura va por `crudoDe` —el seam— para que el
+  // espejo pueda inyectar uno y comprobar que este criterio muerde.
+  // ---------------------------------------------------------------
   {
-    paquete: 'E4.1',
-    id: 'employee-benefits-accrue-monthly',
-    enunciado: 'El aguinaldo, las vacaciones y la prima vacacional se devengan mes a mes, no el día que se pagan',
+    paquete: 'E0.0',
+    id: 'sources-carry-no-nul-bytes',
+    enunciado:
+      'Ningún fuente lleva un byte NUL, que lo saca entero del alcance de grep sin que ninguna puerta se mueva',
     evaluar: () => {
-      // POR QUÉ NACE (D1, issue #111). Un despacho que paga el aguinaldo en
-      // diciembre y no lo provisiona durante el año publica once meses de
-      // utilidad inflada y un diciembre catastrófico, y ninguno de los doce
-      // estados es firmable. La NIF D-3 reconoce el beneficio a corto plazo
-      // conforme el trabajador PRESTA EL SERVICIO, no cuando se paga.
-      //
-      // El criterio vigila las tres propiedades sin las cuales el motor sería
-      // decorativo: que la ley no esté escrita dos veces, que el criterio del
-      // despacho se lea del panel en vez de quemarse, y que las cuentas se
-      // resuelvan por rol. La aritmética la prueban sus 55 casos unitarios; la
-      // idempotencia, la prueba de integración.
-      const run = codigoDe('src/services/accruals/provisions-run.ts');
-      const math = codigoDe('src/services/accruals/provisions-math.ts');
-
-      // (a) LA LEY, UNA SOLA VEZ. La tabla del art. 76 vive en finiquito-math
-      // desde D1a. Una segunda copia divergiría el día que el legislador la
-      // toque —y la tocó en 2023—, y entonces el finiquito y la provisión
-      // pagarían distinto por el mismo derecho.
-      if (!/from '\.\.\/payroll\/mx\/finiquito-math\.js'/.test(math)) {
-        return falla(
-          'provisions-math no importa de finiquito-math: la tabla del art. 76 o el factor de ' +
-            'integración están escritos por segunda vez, y dos copias de una ley divergen'
-        );
-      }
-
-      // (b) EL CRITERIO DEL DESPACHO SE PREGUNTA, NO SE DECIDE. Sobre qué
-      // salario se provisiona y cuándo nace el pasivo de vacaciones son
-      // bifurcaciones contables, y en esta casa van al panel con su lector.
-      for (const clave of ['provision_base_salarial', 'devengo_vacaciones']) {
-        if (!new RegExp(`getPolicy\\([^)]*'${clave}'`).test(run)) {
-          return falla(`la provisión no lee '${clave}' del panel: la bifurcación quedó quemada en el motor`);
+      const rutas: string[] = [];
+      const caminar = (rel: string): void => {
+        const abs = rutaDe(rel);
+        if (!fs.existsSync(abs)) return;
+        for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+          if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
+          const hijo = path.join(rel, e.name);
+          if (e.isDirectory()) caminar(hijo);
+          else if (/[.](ts|sql|json|ya?ml)$/.test(e.name)) rutas.push(hijo);
         }
-      }
+      };
+      for (const raiz of ['src', 'tests', 'scripts']) caminar(raiz);
 
-      // (c) LAS CUENTAS, POR ROL. Un código quemado ata el motor a un catálogo
-      // concreto y revienta en la primera entidad que renumere.
-      //
-      // LOS CÓDIGOS NO SE TRANSCRIBEN AQUÍ: SE DERIVAN. La primera versión de
-      // este chequeo los escribió a mano —2196 a 2199— en el MISMO commit que
-      // los renumeraba a 2202-2205, así que NACIÓ MUERTO: la expresión no podía
-      // acusar ningún cableado real, y como este chequeo tampoco tenía espejo
-      // propio, los 168 mutantes del tablero lo daban por vivo. Es la familia
-      // de T14b —«el criterio que la vigilaba se cegaba solo»—, y en este caso
-      // pesa el doble porque el criterio entra al piso obligatorio: publicaba
-      // «resuelve las cuentas por rol» con un tercio de la frase inverificable.
-      //
-      // Leyendo la lista de la que salen las cuentas, renumerar el catálogo
-      // vuelve a mover el chequeo solo. Y se cae la exigencia de que
-      // `debit|credit|account` aparezca en la MISMA línea: un cableado con
-      // nombre español —`aguinaldo: await cuentaPorCodigo(...)`— se escapaba
-      // por ahí aunque los códigos hubieran estado al día.
-      const seed = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
-      const codigosDeProvision = [...seed.matchAll(/provision_\w+:\s*'(\d+)'/g)].map((m) => m[1]);
-      if (codigosDeProvision.length === 0) {
-        // FALLA CERRADO. Si el mapa cambia de forma, el chequeo se queda sin
-        // nada que buscar y saldría verde sobre un motor cableado: es
-        // exactamente como nació. Antes que eso, rojo.
+      const binarios = rutas.filter((r) => crudoDe(r).includes('\u0000'));
+      if (binarios.length > 0) {
         return falla(
-          'no se derivó ni un código de provisión de account-roles-seed.ts: el chequeo de las ' +
-            'cuentas por rol se quedaría sin nada que buscar, que es como nació muerto la primera vez'
+          `${binarios.length} fuente(s) llevan un byte NUL y están fuera del alcance de grep: ` +
+            `${binarios.slice(0, 4).join(', ')}. Escríbelo como el escape \\u0000 dentro del ` +
+            `literal: el separador sigue siendo el mismo y el archivo vuelve a ser texto.`
         );
       }
-      const quemado = codigosDeProvision.find((c) => run.includes(`'${c}'`));
-      if (quemado !== undefined) {
-        return falla(
-          `la provisión nombra la cuenta '${quemado}' por su código: el catálogo de otra entidad ` +
-            'la deja sin destino'
-        );
-      }
-
       return ok(
-        'el devengo de prestaciones importa la ley de finiquito-math, lee sus dos bifurcaciones del panel ' +
-          'y resuelve las cuentas por rol'
+        `${rutas.length} fuentes de src/, tests/ y scripts/ barridos y ninguno lleva un byte NUL: ` +
+          `todos siguen siendo alcanzables por grep`
       );
     },
     mutantes: [
       {
-        archivo: 'src/services/accruals/provisions-run.ts',
-        de: '  const mapa = new Map(r.rows.map((f) => [f.role, f.account_id]));',
-        a: "  const mapa = new Map([...r.rows.map((f) => [f.role, f.account_id]), [ROL_AGUINALDO, '2202']]);",
+        archivo: 'src/plan/conducta.ts',
+        de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
+        a: "'conducta.ts necesita\u0000--salida=<archivo.json>\\n'",
         porque:
-          'la cuenta del aguinaldo cableada por su código en vez de resuelta por rol: es el defecto ' +
-          'que el chequeo (c) nombra, y durante todo este tramo no tuvo espejo que lo comprobara',
-      },
-      {
-        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
-        de: `  provision_aguinaldo: '2202',
-  provision_vacaciones: '2203',
-  provision_prima_vacacional: '2204',
-  provision_prestaciones_gasto: '6116',`,
-        a: `  provisionAguinaldo: '2202',
-  provisionVacaciones: '2203',
-  provisionPrimaVacacional: '2204',
-  provisionPrestacionesGasto: '6116',`,
-        porque:
-          'el mapa cambia de forma y el chequeo se queda sin códigos que buscar: tiene que ponerse ' +
-          'ROJO por no poder medir, no verde por no encontrar nada',
-      },
-      {
-        archivo: 'src/services/accruals/provisions-run.ts',
-        de: "  const base = await getPolicy(ctx, 'provision_base_salarial');",
-        a: "  const base = { value: 'nominal' };",
-        porque:
-          'quema la base salarial en el motor: el despacho que provisiona sobre salario integrado deja de ' +
-          'poder decirlo, y su pasivo sale corto todos los meses sin que nada lo acuse',
-      },
-      {
-        archivo: 'src/services/accruals/provisions-math.ts',
-        de: "from '../payroll/mx/finiquito-math.js'",
-        a: "from './tabla-del-art-76-propia.js'",
-        porque:
-          'la tabla del art. 76 pasaría a estar escrita dos veces: el finiquito y la provisión pagarían ' +
-          'distinto por el mismo derecho en cuanto una de las dos se actualice',
+          'un NUL inyectado en un fuente real: si el barrido dejara de mirar, o mirara el disco en ' +
+          'vez del seam, este criterio seguiría verde sobre un archivo que grep ya no encuentra',
       },
     ],
   },
@@ -2938,6 +2880,73 @@ export const CRITERIOS: Criterio[] = [
   // ---- E2.1 · Perímetro ----
   {
     paquete: 'E2.1',
+    id: 'permission-gate-has-behavioural-proof',
+    enunciado: 'La puerta de permisos y la frontera por id se prueban ejerciéndolas, no sólo declarándolas',
+    evaluar: () => {
+      // T14b·remate. La amputación de GraphQL (#101) se llevó por delante algo
+      // que su PR afirmó que no se llevaba: las ÚNICAS pruebas de conducta de
+      // `assertPermissions`. Medido después de fusionarla, sobre `main`:
+      // convertida en un no-op que no compara nada, la suite unitaria entera
+      // pasaba —253 archivos, 5 457 pruebas—. La puerta de permisos de todo el
+      // producto podía dejar de preguntar sin que nada chistara.
+      //
+      // Lo mismo con la frontera POR ID: vaciando `assertEntryAccess`, postear
+      // o anular el asiento de la sociedad hermana conociendo su UUID no lo
+      // acusaba ninguna prueba. Y quitando `requirePermission('periods:close')`
+      // de la ruta de CIERRE DURO —irreversible— tampoco.
+      //
+      // La red que sí existía era ESTRUCTURAL: `roles.spec.ts` comprueba que el
+      // catálogo no conceda el permiso, y `openapi-contrato.spec.ts` que toda
+      // ruta declare el suyo. Ninguna de las dos ejerce la NEGATIVA, y ésa es
+      // la diferencia que este criterio existe para no volver a perder.
+      if (!existe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts')) {
+        return falla(
+          'desapareció la prueba de conducta de la puerta de permisos: con ella fuera, `assertPermissions` puede dejar de comparar y la suite entera sigue verde — medido'
+        );
+      }
+      const spec = crudoDe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts');
+      // Los dos ejes, cada uno con su marca: el 403 del permiso y el 404 de la
+      // frontera. Y el 404 NO puede ser 403: distinguirlos delataría que el
+      // recurso ajeno existe.
+      if (!/403/.test(spec) || !/404/.test(spec)) {
+        return falla('la prueba dejó de ejercer alguno de los dos ejes: el 403 del permiso o el 404 de la frontera por id');
+      }
+      // Y RELEE LA FILA. Un 403 concedido después de escribir no es un 403.
+      if (!/const estadoDe = async/.test(spec)) {
+        return falla('la prueba dejó de releer el asiento tras el rechazo: un 403 que ya posteó no es un 403');
+      }
+      // La puerta sigue siendo UNA. Si `requirePermission` dejara de delegar,
+      // la prueba de arriba seguiría verde vigilando código muerto.
+      const auth = codigoDe('src/api/rest/middleware/auth.ts');
+      if (!/assertPermissions\(req\.user, permissions\)/.test(auth)) {
+        return falla('`requirePermission` dejó de pasar por `assertPermissions`: la prueba vigilaría una puerta que ya no se usa');
+      }
+      return ok('el permiso y la frontera por id se ejercen contra Postgres, releyendo la fila, y la puerta sigue siendo una');
+    },
+    mutantes: [
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'el eje del PERMISO',
+        a: null,
+        porque: 'la prueba de conducta desaparece — que es exactamente lo que pasó al retirar GraphQL, y lo que nadie acusó',
+      },
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'const estadoDe = async',
+        a: 'const noRelee = async',
+        porque: 'la prueba deja de releer la fila tras el rechazo: bendeciría un 403 concedido después de haber escrito',
+      },
+      {
+        archivo: 'src/api/rest/middleware/auth.ts',
+        de: 'assertPermissions(req.user, permissions)',
+        a: 'assertPermissions(req.user, [])',
+        porque: '`requirePermission` deja de exigir lo que declara: la puerta sigue ahí y ya no pregunta nada',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E2.1',
     id: 'graphql-surface-withdrawn',
     enunciado: 'La segunda puerta al mayor está retirada, y no puede volver en silencio',
     evaluar: () => {
@@ -3158,6 +3167,18 @@ export const CRITERIOS: Criterio[] = [
           // aparece dentro del cuerpo por cualquier otra razón.
           const montada = /requireEntityAccess/.test(cuerpo.slice(0, 300));
           const comprobadaDentro = /assertEntityAccess\s*\(/.test(cuerpo);
+          // NO SE ADMITE UNA TERCERA FORMA, y lo escribo porque lo intenté.
+          //
+          // Acotar la consulta con `entityScope(req.tenantId!, req.entityId!)`
+          // parece una guarda mejor —el filtro va dentro del SQL, sin ventana
+          // entre comprobar y usar— y NO sustituye a ésta: `req.entityId` sale
+          // de la cabecera `x-entity-id`, y quien comprueba que esa cabecera
+          // esté concedida por el token es `requireEntityAccess`. Sin ella,
+          // acotar por `req.entityId` acota por lo que el atacante escribió.
+          //
+          // Son las dos: la cabecera se valida contra el token, y la consulta
+          // acota. Es lo que hace journal-entries.ts:160 y lo que T9 lleva a
+          // nómina.
           if (!montada && !comprobadaDentro) {
             desprotegidas.push(`${path.basename(f)} ${m[1].toUpperCase()} ${m[2]}`);
           }
@@ -8466,6 +8487,133 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'seniority-premium-is-paid-and-capped-by-zone',
+    enunciado: 'El finiquito paga la prima de antigüedad, topada por el art. 486, y no la cifra en cero cuando no la puede calcular',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: "  return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;",
+        a: "  return motivo === 'renuncia' && aniosCumplidos >= 15;",
+        porque:
+          'vuelve a no pagarse la prima al DESPEDIDO, que es la mitad del art. 162 fr. III que más se pasa por alto: se paga «independientemente de la justificación o injustificación del despido». Un despedido con tres años pierde 22 682.88',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: '  return Decimal.min(piso, salarioMinimo.times(2));',
+        a: '  return piso;',
+        porque:
+          'desaparece el tope del art. 486 y la prima se calcula sobre el salario entero: para un salario de 1 000 con quince años son 180 000 en vez de 113 414.40 — pagar de más también es un defecto, y aquí lo paga el patrón',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: "      'SIN CALCULAR: faltó el salario mínimo de la zona",
+        a: "      'sin prima de antigüedad en este finiquito. Faltó el mínimo de la zona",
+        porque:
+          'el cero por no saber vuelve a ser indistinguible del cero por no deberse: sin el mínimo de la zona no se puede fijar el tope, y callarlo le paga de menos al trabajador sin que nadie lo note',
+      },
+    ],
+    evaluar: () => {
+      // T4b (#91). `calcularFiniquito` sumaba cuatro conceptos y llamaba
+      // `total` al resultado. Faltaba la prima de antigüedad —doce días por
+      // año de servicio, art. 162 LFT—, que en el caso medido (quince años,
+      // salario diario 1 000) son 113 414.40 contra un finiquito de 24 610.96:
+      // faltaba más de cuatro veces lo que se pagaba.
+      const math = 'src/services/payroll/mx/finiquito-math.ts';
+      if (!existe(math)) return falla('desapareció la aritmética del finiquito');
+      const src = codigoDe(math);
+
+      // 1. QUE SE CALCULE Y ENTRE EN EL TOTAL.
+      if (!/prima_antiguedad_importe/.test(src)) {
+        return falla('el finiquito volvió a no pagar la prima de antigüedad: son doce días por año de servicio y en un trabajador antiguo es la prestación más grande (#91)');
+      }
+      // 2. QUE EL TOPE SEA DEL ART. 486 Y SOBRE EL SALARIO, no sobre el
+      //    resultado: «se considerará esa cantidad como salario MÁXIMO».
+      if (!/Decimal\.min\(piso, salarioMinimo\.times\(2\)\)/.test(src)) {
+        return falla('la base de la prima dejó de topar el salario en dos mínimos (LFT art. 486): topar el resultado da otra cifra, y no topar nada se lo cobra al patrón');
+      }
+      // 3. QUE EL DESPIDO LA COBRE SIN UMBRAL.
+      if (!/motivo === 'renuncia' \? aniosCumplidos >= 15 : true/.test(src)) {
+        return falla('sólo la renuncia tiene umbral de quince años: el despido paga prima «independientemente de la justificación o injustificación» (art. 162 fr. III)');
+      }
+      // 4. Y QUE EL CERO POR NO SABER SE NOMBRE. El tope cuelga del salario
+      //    mínimo DE LA ZONA, que este esquema todavía no guarda: suponer el
+      //    general le paga 45 298.80 de menos a un trabajador fronterizo.
+      if (!/SIN CALCULAR/.test(src)) {
+        return falla('un finiquito sin el salario mínimo de la zona vuelve a devolver cero sin decirlo: indistinguible de no deberse');
+      }
+
+      return existe('tests/payroll/mx/prima-de-antiguedad.spec.ts')
+        ? ok('la prima de antigüedad se paga con su tope del art. 486, el despido la cobra sin umbral, y lo que no se puede calcular se nombra')
+        : falla('no hay prueba de la prima de antigüedad: la prestación más grande del finiquito quedaría sin vigilar');
+    },
+  },
+
+  {
+    paquete: 'E4.1',
+    id: 'isr-tariff-matches-the-pay-period',
+    enunciado: 'A cada periodo de pago se le aplica SU tarifa del art. 96, y el periodo sin tabla publicada se niega',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/isr-calculator.ts',
+        de: "    case 'weekly': return 'weekly';",
+        a: "    case 'weekly': return 'monthly';",
+        porque:
+          'EL DEFECTO MEDIDO (#91): la tarifa MENSUAL aplicada a la base de una SEMANA. Con ella, 3 000 semanales retenían 0.00 y 7 000 retenían 190.96 — subretención de entre el 85 % y el 100 % en cada recibo, que se le cobra al patrón con recargos',
+      },
+      {
+        archivo: 'src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql',
+        de: "('MX','isr',2026,NULL,'monthly', 1,      0.01,     844.59,",
+        a: "('MX','isr',2026,NULL,'monthly', 1,      0.01,     746.04,",
+        porque:
+          'vuelve la tarifa de 2025 sembrada como 2026 — el defecto que la 009 arrastraba y que hace que TODA retención del ejercicio salga con la tabla del año pasado',
+      },
+    ],
+    evaluar: () => {
+      // T4 (#91). `isr-calculator.ts` hacía
+      // `pay_frequency === 'quincenal' ? 'quincenal' : 'monthly'`, así que tres
+      // periodos de pago recibían la tarifa mensual sobre la base de una
+      // semana. Y debajo había algo peor: la tarifa sembrada como 2026 era la
+      // de 2025 al centavo, y la «quincenal» no era la de ningún año —el
+      // archivo lo confesaba: «same structure, divided by 2»—, cuando el
+      // Anexo 8 la construye como la diaria por 15.
+      const calc = 'src/services/payroll/mx/isr-calculator.ts';
+      if (!existe(calc)) return falla('desapareció la calculadora de ISR');
+      const src = codigoDe(calc);
+
+      // 1. LA SUSTITUCIÓN SILENCIOSA, MUERTA. Ese ternario ERA el defecto.
+      if (/pay_frequency === 'quincenal' \? 'quincenal' : 'monthly'/.test(src)) {
+        return falla('la calculadora vuelve a mandar weekly, biweekly y semimonthly a la tarifa MENSUAL: subretiene entre el 85 % y el 100 % en cada recibo (#91)');
+      }
+      // 2. Y EL PERIODO SIN TABLA SE NOMBRA, no se adivina.
+      if (!/No hay tarifa del art\. 96 publicada para el periodo/.test(src)) {
+        return falla('el periodo sin tarifa publicada dejó de negarse: la catorcena no tiene tabla en el Anexo 8, y sustituirla en silencio es el defecto original con otro número');
+      }
+      if (!/case 'weekly': return 'weekly';/.test(src)) {
+        return falla('el sueldo semanal dejó de usar la tarifa semanal del Anexo 8');
+      }
+
+      // 3. LA TARIFA SEMBRADA ES LA DE ESTE AÑO. 844.59 es el primer límite de
+      //    2026; 746.04 es el de 2025, que es lo que había.
+      const mig = 'src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql';
+      if (!existe(mig)) {
+        return falla('desapareció la migración que corrige la tarifa: la instalación vuelve a retener con la tabla del año pasado (#91)');
+      }
+      const sql = crudoDe(mig);
+      if (!/'monthly', 1,\s+0\.01,\s+844\.59,/.test(sql)) {
+        return falla('la tarifa mensual de 2026 dejó de ser la publicada en el Anexo 8: toda retención del ejercicio saldría con otra tabla');
+      }
+
+      // 4. Y SE COMPRUEBA CORRIENDO. Las cuatro tarifas del periodo se DERIVAN
+      //    de la mensual, así que lo que hay que vigilar no es la
+      //    transcripción sino que la derivación siga reproduciendo lo publicado.
+      return existe('tests/integration/t4-tarifa-del-periodo.int.spec.ts')
+        ? ok('cada periodo usa su tarifa del Anexo 8, el que no tiene tabla se niega, la sembrada es la de 2026 y hay prueba que lo ejecuta contra la base')
+        : falla('no hay prueba que EJECUTE la retención por periodo: leer la calculadora no demuestra qué se le retiene a un sueldo semanal');
+    },
+  },
+
+  {
+    paquete: 'E4.1',
     id: 'imss-rate-fix-verified-by-running-it',
     enunciado: 'La corrección de la cuota obrera se comprueba EJECUTÁNDOLA sobre una base migrada, no leyéndola',
     mutantes: [
@@ -8657,111 +8805,123 @@ export const CRITERIOS: Criterio[] = [
     },
   },
   {
-    paquete: 'E2.1',
-    id: 'permission-gate-has-behavioural-proof',
-    enunciado: 'La puerta de permisos y la frontera por id se prueban ejerciéndolas, no sólo declarándolas',
+    paquete: 'E4.1',
+    id: 'employee-benefits-accrue-monthly',
+    enunciado: 'El aguinaldo, las vacaciones y la prima vacacional se devengan mes a mes, no el día que se pagan',
     evaluar: () => {
-      // T14b·remate. La amputación de GraphQL (#101) se llevó por delante algo
-      // que su PR afirmó que no se llevaba: las ÚNICAS pruebas de conducta de
-      // `assertPermissions`. Medido después de fusionarla, sobre `main`:
-      // convertida en un no-op que no compara nada, la suite unitaria entera
-      // pasaba —253 archivos, 5 457 pruebas—. La puerta de permisos de todo el
-      // producto podía dejar de preguntar sin que nada chistara.
+      // POR QUÉ NACE (D1, issue #111). Un despacho que paga el aguinaldo en
+      // diciembre y no lo provisiona durante el año publica once meses de
+      // utilidad inflada y un diciembre catastrófico, y ninguno de los doce
+      // estados es firmable. La NIF D-3 reconoce el beneficio a corto plazo
+      // conforme el trabajador PRESTA EL SERVICIO, no cuando se paga.
       //
-      // Lo mismo con la frontera POR ID: vaciando `assertEntryAccess`, postear
-      // o anular el asiento de la sociedad hermana conociendo su UUID no lo
-      // acusaba ninguna prueba. Y quitando `requirePermission('periods:close')`
-      // de la ruta de CIERRE DURO —irreversible— tampoco.
-      //
-      // La red que sí existía era ESTRUCTURAL: `roles.spec.ts` comprueba que el
-      // catálogo no conceda el permiso, y `openapi-contrato.spec.ts` que toda
-      // ruta declare el suyo. Ninguna de las dos ejerce la NEGATIVA, y ésa es
-      // la diferencia que este criterio existe para no volver a perder.
-      if (!existe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts')) {
-        return falla(
-          'desapareció la prueba de conducta de la puerta de permisos: con ella fuera, `assertPermissions` puede dejar de comparar y la suite entera sigue verde — medido'
-        );
-      }
-      const spec = crudoDe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts');
-      // Los dos ejes, cada uno con su marca: el 403 del permiso y el 404 de la
-      // frontera. Y el 404 NO puede ser 403: distinguirlos delataría que el
-      // recurso ajeno existe.
-      if (!/403/.test(spec) || !/404/.test(spec)) {
-        return falla('la prueba dejó de ejercer alguno de los dos ejes: el 403 del permiso o el 404 de la frontera por id');
-      }
-      // Y RELEE LA FILA. Un 403 concedido después de escribir no es un 403.
-      if (!/const estadoDe = async/.test(spec)) {
-        return falla('la prueba dejó de releer el asiento tras el rechazo: un 403 que ya posteó no es un 403');
-      }
-      // La puerta sigue siendo UNA. Si `requirePermission` dejara de delegar,
-      // la prueba de arriba seguiría verde vigilando código muerto.
-      const auth = codigoDe('src/api/rest/middleware/auth.ts');
-      if (!/assertPermissions\(req\.user, permissions\)/.test(auth)) {
-        return falla('`requirePermission` dejó de pasar por `assertPermissions`: la prueba vigilaría una puerta que ya no se usa');
-      }
-      return ok('el permiso y la frontera por id se ejercen contra Postgres, releyendo la fila, y la puerta sigue siendo una');
-    },
-    mutantes: [
-      {
-        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
-        de: 'el eje del PERMISO',
-        a: null,
-        porque: 'la prueba de conducta desaparece — que es exactamente lo que pasó al retirar GraphQL, y lo que nadie acusó',
-      },
-      {
-        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
-        de: 'const estadoDe = async',
-        a: 'const noRelee = async',
-        porque: 'la prueba deja de releer la fila tras el rechazo: bendeciría un 403 concedido después de haber escrito',
-      },
-      {
-        archivo: 'src/api/rest/middleware/auth.ts',
-        de: 'assertPermissions(req.user, permissions)',
-        a: 'assertPermissions(req.user, [])',
-        porque: '`requirePermission` deja de exigir lo que declara: la puerta sigue ahí y ya no pregunta nada',
-      },
-    ],
-  },
-  {
-    paquete: 'E0.0',
-    id: 'sources-carry-no-nul-bytes',
-    enunciado:
-      'Ningún fuente lleva un byte NUL, que lo saca entero del alcance de grep sin que ninguna puerta se mueva',
-    evaluar: () => {
-      const rutas: string[] = [];
-      const caminar = (rel: string): void => {
-        const abs = rutaDe(rel);
-        if (!fs.existsSync(abs)) return;
-        for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
-          if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
-          const hijo = path.join(rel, e.name);
-          if (e.isDirectory()) caminar(hijo);
-          else if (/[.](ts|sql|json|ya?ml)$/.test(e.name)) rutas.push(hijo);
-        }
-      };
-      for (const raiz of ['src', 'tests', 'scripts']) caminar(raiz);
+      // El criterio vigila las tres propiedades sin las cuales el motor sería
+      // decorativo: que la ley no esté escrita dos veces, que el criterio del
+      // despacho se lea del panel en vez de quemarse, y que las cuentas se
+      // resuelvan por rol. La aritmética la prueban sus 55 casos unitarios; la
+      // idempotencia, la prueba de integración.
+      const run = codigoDe('src/services/accruals/provisions-run.ts');
+      const math = codigoDe('src/services/accruals/provisions-math.ts');
 
-      const binarios = rutas.filter((r) => crudoDe(r).includes('\u0000'));
-      if (binarios.length > 0) {
+      // (a) LA LEY, UNA SOLA VEZ. La tabla del art. 76 vive en finiquito-math
+      // desde D1a. Una segunda copia divergiría el día que el legislador la
+      // toque —y la tocó en 2023—, y entonces el finiquito y la provisión
+      // pagarían distinto por el mismo derecho.
+      if (!/from '\.\.\/payroll\/mx\/finiquito-math\.js'/.test(math)) {
         return falla(
-          `${binarios.length} fuente(s) llevan un byte NUL y están fuera del alcance de grep: ` +
-            `${binarios.slice(0, 4).join(', ')}. Escríbelo como el escape \\u0000 dentro del ` +
-            `literal: el separador sigue siendo el mismo y el archivo vuelve a ser texto.`
+          'provisions-math no importa de finiquito-math: la tabla del art. 76 o el factor de ' +
+            'integración están escritos por segunda vez, y dos copias de una ley divergen'
         );
       }
+
+      // (b) EL CRITERIO DEL DESPACHO SE PREGUNTA, NO SE DECIDE. Sobre qué
+      // salario se provisiona y cuándo nace el pasivo de vacaciones son
+      // bifurcaciones contables, y en esta casa van al panel con su lector.
+      for (const clave of ['provision_base_salarial', 'devengo_vacaciones']) {
+        if (!new RegExp(`getPolicy\\([^)]*'${clave}'`).test(run)) {
+          return falla(`la provisión no lee '${clave}' del panel: la bifurcación quedó quemada en el motor`);
+        }
+      }
+
+      // (c) LAS CUENTAS, POR ROL. Un código quemado ata el motor a un catálogo
+      // concreto y revienta en la primera entidad que renumere.
+      //
+      // LOS CÓDIGOS NO SE TRANSCRIBEN AQUÍ: SE DERIVAN. La primera versión de
+      // este chequeo los escribió a mano —2196 a 2199— en el MISMO commit que
+      // los renumeraba a 2202-2205, así que NACIÓ MUERTO: la expresión no podía
+      // acusar ningún cableado real, y como este chequeo tampoco tenía espejo
+      // propio, los 168 mutantes del tablero lo daban por vivo. Es la familia
+      // de T14b —«el criterio que la vigilaba se cegaba solo»—, y en este caso
+      // pesa el doble porque el criterio entra al piso obligatorio: publicaba
+      // «resuelve las cuentas por rol» con un tercio de la frase inverificable.
+      //
+      // Leyendo la lista de la que salen las cuentas, renumerar el catálogo
+      // vuelve a mover el chequeo solo. Y se cae la exigencia de que
+      // `debit|credit|account` aparezca en la MISMA línea: un cableado con
+      // nombre español —`aguinaldo: await cuentaPorCodigo(...)`— se escapaba
+      // por ahí aunque los códigos hubieran estado al día.
+      const seed = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
+      const codigosDeProvision = [...seed.matchAll(/provision_\w+:\s*'(\d+)'/g)].map((m) => m[1]);
+      if (codigosDeProvision.length === 0) {
+        // FALLA CERRADO. Si el mapa cambia de forma, el chequeo se queda sin
+        // nada que buscar y saldría verde sobre un motor cableado: es
+        // exactamente como nació. Antes que eso, rojo.
+        return falla(
+          'no se derivó ni un código de provisión de account-roles-seed.ts: el chequeo de las ' +
+            'cuentas por rol se quedaría sin nada que buscar, que es como nació muerto la primera vez'
+        );
+      }
+      const quemado = codigosDeProvision.find((c) => run.includes(`'${c}'`));
+      if (quemado !== undefined) {
+        return falla(
+          `la provisión nombra la cuenta '${quemado}' por su código: el catálogo de otra entidad ` +
+            'la deja sin destino'
+        );
+      }
+
       return ok(
-        `${rutas.length} fuentes de src/, tests/ y scripts/ barridos y ninguno lleva un byte NUL: ` +
-          `todos siguen siendo alcanzables por grep`
+        'el devengo de prestaciones importa la ley de finiquito-math, lee sus dos bifurcaciones del panel ' +
+          'y resuelve las cuentas por rol'
       );
     },
     mutantes: [
       {
-        archivo: 'src/plan/conducta.ts',
-        de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
-        a: "'conducta.ts necesita\u0000--salida=<archivo.json>\\n'",
+        archivo: 'src/services/accruals/provisions-run.ts',
+        de: '  const mapa = new Map(r.rows.map((f) => [f.role, f.account_id]));',
+        a: "  const mapa = new Map([...r.rows.map((f) => [f.role, f.account_id]), [ROL_AGUINALDO, '2202']]);",
         porque:
-          'un NUL inyectado en un fuente real: si el barrido dejara de mirar, o mirara el disco en ' +
-          'vez del seam, este criterio seguiría verde sobre un archivo que grep ya no encuentra',
+          'la cuenta del aguinaldo cableada por su código en vez de resuelta por rol: es el defecto ' +
+          'que el chequeo (c) nombra, y durante todo este tramo no tuvo espejo que lo comprobara',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: `  provision_aguinaldo: '2202',
+  provision_vacaciones: '2203',
+  provision_prima_vacacional: '2204',
+  provision_prestaciones_gasto: '6116',`,
+        a: `  provisionAguinaldo: '2202',
+  provisionVacaciones: '2203',
+  provisionPrimaVacacional: '2204',
+  provisionPrestacionesGasto: '6116',`,
+        porque:
+          'el mapa cambia de forma y el chequeo se queda sin códigos que buscar: tiene que ponerse ' +
+          'ROJO por no poder medir, no verde por no encontrar nada',
+      },
+      {
+        archivo: 'src/services/accruals/provisions-run.ts',
+        de: "  const base = await getPolicy(ctx, 'provision_base_salarial');",
+        a: "  const base = { value: 'nominal' };",
+        porque:
+          'quema la base salarial en el motor: el despacho que provisiona sobre salario integrado deja de ' +
+          'poder decirlo, y su pasivo sale corto todos los meses sin que nada lo acuse',
+      },
+      {
+        archivo: 'src/services/accruals/provisions-math.ts',
+        de: "from '../payroll/mx/finiquito-math.js'",
+        a: "from './tabla-del-art-76-propia.js'",
+        porque:
+          'la tabla del art. 76 pasaría a estar escrita dos veces: el finiquito y la provisión pagarían ' +
+          'distinto por el mismo derecho en cuanto una de las dos se actualice',
       },
     ],
   },

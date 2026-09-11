@@ -64,53 +64,104 @@ export async function getBrackets(
 }
 
 /**
- * Tax parameters for a jurisdiction, optionally AS OF A DATE.
+ * The legal parameters in force on a given DATE.
  *
- * THE READER THE VALIDITY COLUMNS DID NOT HAVE (J0.2, #123). Migration 080 added
- * `effective_from`/`effective_to` and backfilled them, but nothing read them: a
- * column with no reader is a schema promise no code path keeps, and the issue
- * asks for a "column WITH a reader".
+ * Two changes over what was here before, both for the same reason.
  *
- * Without `asOf` it answers as before — by tax year — which is what today's
- * eight callers do. With `asOf`, the row answers only if that date falls INSIDE
- * its validity window; outside it, there are no parameters.
+ * 1. THE DATE, not the tax year. Since migration 073, `tax_parameters` has a
+ *    validity window, because one year can hold two sets: the UMA takes effect
+ *    on FEBRUARY 1st, so 2026 is 113.14 in January and 117.31 from February.
+ *    Asking by YEAR would return one of the two rows at random.
  *
- * `ORDER BY effective_from DESC LIMIT 1` even though `UNIQUE(jurisdiction,
- * tax_year)` guarantees a single row today: once J0.4 retires that constraint
- * and two windows fit in one year, this query already returns the LATEST one in
- * force rather than an arbitrary one.
+ * 2. IT THROWS instead of returning `{}`. Before, an unseeded year yielded an
+ *    empty object in silence and each engine filled the gap its own way:
+ *    `isr-calculator` threw, `imss-calculator` used `uma_daily || 113.14` and
+ *    `infonavit-calculator` `|| 0.05`. The SAME missing datum produced an error
+ *    in one engine and an invented figure in the other two — and the invented
+ *    one reaches the payslip, the payroll CFDI and the IMSS payment line. A tax
+ *    parameter that cannot be read is named, not substituted (the F08a rule).
  *
- * STILL J0.4's: making a missing row FAIL instead of returning `{}`. That open
- * failure — the one that leaves IMSS rates at zero — is closed by J0.4 with
- * `PARAMETRO_LEGAL_SIN_VIGENCIA`; changing it here would redden callers this
- * tramo does not touch.
+ * `effectiveDate` is the date OF THE ACT — the day of the payslip — not today:
+ * a January 15th payslip recomputed in March must still use January. It
+ * defaults to today because the engines that do not yet receive it compute the
+ * current period; threading it down to each one is T4b's work, and until then
+ * the omission is explicit rather than tacit.
+ *
+ * Y CONVIVE CON J0.2 (#199), que llegó por otro camino al mismo sitio. Su
+ * migración 080 añade estas dos columnas y las rellena con el 1 de enero y el
+ * 31 de diciembre del ejercicio — con `COALESCE` y `WHERE ... IS NULL`, así que
+ * sobre las ventanas que siembra la 073 no toca nada. Lo que J0.2 dejaba para
+ * J0.4 —que una fila ausente FALLE en vez de devolver `{}`— se adelanta aquí,
+ * porque es la regla F08a y porque el hueco está vivo: los trece llamadores de
+ * producción llaman sin fecha, y con `{}` cada motor rellenaba a su manera.
  */
 export async function getTaxParameters(
   jurisdiction: string,
   taxYear: number,
-  asOf?: Date
+  effectiveDate?: string | Date
 ): Promise<Record<string, unknown>> {
-  // The date goes into the cache key: without it, the first lookup for a year
-  // would answer every later date too, validity window included.
-  const day = asOf === undefined ? undefined : asOf.toISOString().slice(0, 10);
-  const key = `${jurisdiction}|${taxYear}|${day ?? '*'}`;
+  // THE YEAR IS NOT DECORATION (WIT-03). The window is what selects the row,
+  // but `taxYear` is what the CALLER asked for, and dropping it opened two
+  // holes: a 2025 recomputation handed a 2026 date got 2026 parameters, and an
+  // omitted date fell back to TODAY — so recomputing a 2025 payslip in 2026
+  // silently used this year's UMA.
+  //
+  // So: the cache key carries the year, and when no date is given the default
+  // stays INSIDE the requested year — today if today belongs to it, and its
+  // last day otherwise. A historical exercise never borrows the present.
+  // The date arrives as a string or as a Date: J0.2 builds it with
+  // `new Date(Date.UTC(...))` and the rest of the subsystem speaks
+  // `YYYY-MM-DD`. It is normalised here rather than at every call site, which
+  // is how timezone conversions creep in.
+  const requested =
+    effectiveDate instanceof Date ? effectiveDate.toISOString().slice(0, 10) : effectiveDate;
+  const today = new Date().toISOString().slice(0, 10);
+  const day = requested ?? (today.startsWith(`${taxYear}-`) ? today : `${taxYear}-12-31`);
+
+  // AND THE TWO ARGUMENTS MUST AGREE (WIT-04).
+  //
+  // The window is what selects the row, and it is NOT filtered by `tax_year`
+  // on purpose: `tax_year` labels the exercise a row was seeded for, and a
+  // window legitimately crosses the calendar — the 2026 UMA runs from
+  // 1 February 2026 to 31 January 2027, so a January-2027 date is correctly
+  // served by a row labelled 2026. Adding `AND tax_year = $3` would break that.
+  //
+  // What must NOT happen is the caller asking for one exercise and handing a
+  // date from another: `getTaxParameters('MX', 2025, '2026-03-15')` used to
+  // answer with the 2026 row. That is not a lookup, it is a contradiction, and
+  // neither answer is right — so it is refused instead of resolved.
+  if (!day.startsWith(`${taxYear}-`)) {
+    throw new Error(
+      `Se pidieron los parámetros de ${jurisdiction} para el ejercicio ${taxYear} con una fecha de ` +
+      `otro año (${day}): el ejercicio y la fecha del acto tienen que ser el mismo, o el recálculo ` +
+      'de un recibo viejo tomaría los parámetros de hoy.'
+    );
+  }
+
+  const key = `${jurisdiction}|${taxYear}|${day}`;
   const cached = paramCache.get(key);
   if (cached) return cached;
 
   const result = await query<{ params: Record<string, unknown> }>(
     `SELECT params FROM tax_parameters
-      WHERE jurisdiction = $1 AND tax_year = $2
-        AND ($3::date IS NULL
-             OR (effective_from <= $3::date
-                 AND (effective_to IS NULL OR $3::date <= effective_to)))
+      WHERE jurisdiction = $1
+        AND effective_from <= $2::date
+        AND (effective_to IS NULL OR effective_to >= $2::date)
       ORDER BY effective_from DESC
       LIMIT 1`,
-    [jurisdiction, taxYear, day ?? null]
+    [jurisdiction, day]
   );
 
-  const params = result.rows[0]?.params || {};
-  paramCache.set(key, params);
-  return params;
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(
+      `No hay parámetros fiscales de ${jurisdiction} vigentes el ${day} (ejercicio ${taxYear}): ` +
+      'siembra la fila en tax_parameters antes de calcular. Sin ella no se puede retener, ' +
+      'y una cifra inventada sale en el recibo, en el CFDI y en la línea de captura.'
+    );
+  }
+  paramCache.set(key, row.params);
+  return row.params;
 }
 
 

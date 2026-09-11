@@ -191,7 +191,7 @@ describe('Aguinaldo proporcional (LFT art. 87) — la fecha de alta cuenta', () 
       pagado_hasta: '2026-12-31',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
 
   it('alta en enero: el año entero, 15 días exactos', () => {
@@ -258,7 +258,7 @@ describe('Aguinaldo proporcional (LFT art. 87) — la fecha de alta cuenta', () 
       pagado_hasta: '2024-12-31',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.aguinaldo_dias_trabajados).toBe(366);
     expect(r.aguinaldo_dias).toBe('15.0000');
@@ -271,7 +271,7 @@ describe('Aguinaldo proporcional (LFT art. 87) — la fecha de alta cuenta', () 
       pagado_hasta: '2026-12-31',
       salario_diario: SD,
       dias_aguinaldo_por_anio: 30, // el despacho contestó «un mes»
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.aguinaldo_dias).toBe('30.0000');
     expect(r.aguinaldo_importe).toBe('15000.0000');
@@ -302,7 +302,7 @@ describe('Antigüedad y prima vacacional (LFT arts. 79 y 80)', () => {
       pagado_hasta: '2026-09-15',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.anio_de_servicio_en_curso).toBe(13);
     expect(r.dias_vacaciones_del_anio).toBe(24);
@@ -318,8 +318,8 @@ describe('Antigüedad y prima vacacional (LFT arts. 79 y 80)', () => {
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
     };
-    const alMinimo = calcularFiniquito({ ...base, prima_vacacional_pct: '0.25' });
-    const alDoble = calcularFiniquito({ ...base, prima_vacacional_pct: '0.50' });
+    const alMinimo = calcularFiniquito({ ...base, prima_vacacional_pct: '0.25', motivo_baja: 'renuncia' });
+    const alDoble = calcularFiniquito({ ...base, prima_vacacional_pct: '0.50', motivo_baja: 'renuncia' });
     // 632.8767 × 2 = 1 265.7534
     expect(alMinimo.prima_vacacional_importe).toBe('632.8767');
     expect(alDoble.prima_vacacional_importe).toBe('1265.7534');
@@ -347,7 +347,7 @@ describe('El dinero es cadena de cuatro decimales, nunca float', () => {
       salario_diario: '333.3333',
       dias_vacaciones_pendientes: 7,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     for (const importe of [
       r.salario_pendiente_importe,
@@ -373,7 +373,7 @@ describe('El dinero es cadena de cuatro decimales, nunca float', () => {
       salario_diario: '287.6543',
       dias_vacaciones_pendientes: 3,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     const suma = [
       r.salario_pendiente_importe,
@@ -398,7 +398,7 @@ describe('El caso realista: 12 años de antigüedad y alta a mitad de año', () 
     salario_diario: SD,
     dias_vacaciones_pendientes: 0,
     dias_aguinaldo_por_anio: AGUINALDO,
-    prima_vacacional_pct: PRIMA,
+    motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
   });
 
   it('12 años cumplidos, año 13 en curso, 24 días de vacaciones', () => {
@@ -449,7 +449,7 @@ describe('Bordes', () => {
       pagado_hasta: '2026-01-01',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.aguinaldo_dias_trabajados).toBe(0);
     expect(r.aguinaldo_importe).toBe('0.0000');
@@ -463,7 +463,7 @@ describe('Bordes', () => {
       pagado_hasta: '2026-01-15',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.salario_pendiente_dias).toBe(0);
     expect(r.salario_pendiente_importe).toBe('0.0000');
@@ -479,7 +479,7 @@ describe('Bordes', () => {
       pagado_hasta: '2026-12-31',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.aguinaldo_dias_trabajados).toBe(184);
   });
@@ -492,7 +492,7 @@ describe('Bordes', () => {
       salario_diario: SD,
       dias_vacaciones_pendientes: 24,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     // 24 × 500 = 12 000.0000
     expect(r.vacaciones_pendientes_importe).toBe('12000.0000');
