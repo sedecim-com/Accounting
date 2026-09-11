@@ -343,20 +343,20 @@ describe('C · la corrida con subsidio entregado se puede postear al mayor', () 
   it('control: cuando el ISR retenido supera al subsidio entregado, el asiento cuadra', async () => {
     // 1 500 (entrega 124.02) + 8 000 (retiene 874.80): el ISR gana.
     const { payRunId } = await corridaCompleta('2026-04-01', '2026-04-15', '2026-04-15', [1500, 8000]);
-    const entryId = await postPayRunToGL(payRunId, f.userId, f.tenantId);
+    const entryId = await postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId);
     expect(entryId).toBeTruthy();
   });
 
   it('la corrida de PURO subsidio entregado también se tiene que poder postear', async () => {
     // Dos trabajadores de 1 500: nadie retiene ISR y el patrón entrega 248.04.
     const { payRunId } = await corridaCompleta('2026-05-01', '2026-05-15', '2026-05-15', [1500, 1500]);
-    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId)).resolves.toBeTruthy();
+    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId)).resolves.toBeTruthy();
   });
 
   it('la corrida MIXTA en la que el subsidio entregado gana también se postea', async () => {
     // 1 500 (entrega 124.02) + 3 000 (retiene 27.98): el subsidio gana por 96.04.
     const { payRunId } = await corridaCompleta('2026-06-01', '2026-06-15', '2026-06-15', [1500, 3000]);
-    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId)).resolves.toBeTruthy();
+    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId)).resolves.toBeTruthy();
   });
 });
 
