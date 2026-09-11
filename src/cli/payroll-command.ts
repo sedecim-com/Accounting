@@ -7,7 +7,8 @@ import { bootstrapTenant } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
 import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
-import { conLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
+import { conLlave, mirarLlave, hashDeCarga } from '../services/idempotency/idempotency-store.js';
+import { query } from '../database/connection.js';
 import {
   cuentasDeProvisiones,
   declararPtu,
@@ -251,6 +252,31 @@ Examples:
   mnemosine payroll accrue --period 2026-03 --yes --idempotency-key devengo-2026-03
 `,
 };
+/** Lo que `conLlave` graba de una corrida de devengo. */
+interface ResultadoGrabado extends Record<string, unknown> {
+  processed: number;
+  skipped: number;
+  total: string;
+  errors: string[];
+  journalEntryId: string | null;
+}
+
+/**
+ * ¿El asiento que aquella corrida posteó SIGUE EN PIE?
+ *
+ * Es el mismo predicado que `RENGLON_VIGENTE` aplica a la cédula: posteado y
+ * sin reversa. Un resultado grabado cuyo asiento se reversó ya no describe el
+ * mundo, y reproducirlo diría que el mes está devengado cuando no lo está.
+ */
+async function asientoVigente(id: string): Promise<boolean> {
+  const r = await query<{ uno: number }>(
+    `SELECT 1 AS uno FROM journal_entries
+      WHERE id = $1 AND status = 'posted' AND reversed_by_entry_id IS NULL`,
+    [id]
+  );
+  return r.rows.length > 0;
+}
+
 
 export function registerPayrollCommand(program: Command, deps: PayrollCommandDeps): void {
   const payroll = program
@@ -446,6 +472,78 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
         err.write(deps.palette.dim(`PTU: ${ptu.nota}\n`));
       }
 
+      // ── LA LLAVE SE MIRA ANTES DE TRABAJAR (WIT-180-02) ────────────────
+      //
+      // `conLlave` envuelve el acto, así que sólo se consultaba cuando el
+      // manejador llegaba hasta él — y aquí no llegaba: un reintento encuentra
+      // el mes YA devengado, `trabajadoresYaProvisionados` manda a todos a
+      // `skipped`, `previstos` queda en cero, y la hoja salía por la puerta de
+      // abajo con «Nada que devengar» y total 0.0000. Es decir: la promesa que
+      // la ayuda de esta hoja publica —«un reintento tras perder la conexión
+      // devuelve el resultado grabado»— era falsa justo en el ÚNICO caso en que
+      // alguien reintenta.
+      //
+      // `mirarLlave` existe para esto y lo dice en su cabecera: las hojas de
+      // cobro y pago tenían el mismo defecto con su compuerta de saldo. Es una
+      // lectura: no consuma la llave, no arbitra carreras —de eso sigue
+      // encargándose `conLlave` con su restricción única— y sólo permite
+      // contestar antes de tocar el dominio. Una llave con OTRA carga sigue
+      // saliendo en conflicto, que es la acusación de reuso.
+      // LA CARGA ES LA ORDEN, NO SU RESULTADO (WIT-180-02).
+      //
+      // Antes incluía `previstos` y `plan.total`, con el argumento de que
+      // «reintentar la misma orden sobre otros importes no es un reintento».
+      // El argumento suena bien y hacía la llave IMPOSIBLE DE CASAR: esas dos
+      // cifras son el resultado del estado actual, no de la petición, y
+      // colapsan a cero en el reintento —precisamente porque la primera
+      // corrida funcionó y el motor ya no ve a nadie por devengar—. El hash del
+      // reintento nunca era el de la corrida grabada.
+      //
+      // La orden es «devenga este periodo de esta entidad», y eso es lo que
+      // identifica el acto. La misma llave sobre OTRO periodo sigue siendo
+      // reuso y sigue saliendo en conflicto, que es lo que la llave tiene que
+      // acusar.
+      const llave = {
+        scope: 'payroll accrue',
+        clave: opts.idempotencyKey,
+        payloadHash: hashDeCarga(ctx.entityId, plan.periodo.id),
+      };
+      const grabado = await mirarLlave<ResultadoGrabado>({ tenantId: ctx.tenantId }, llave);
+      if (grabado !== undefined) {
+        // Y NO SE REPRODUCE UN RESULTADO QUE YA NO ES VERDAD. Si el asiento que
+        // aquella corrida posteó fue REVERSADO, devolverlo diría «✔ devengados»
+        // con el id de un asiento anulado, y el mes seguiría sin devengar. El
+        // motor está hecho para que una reversa permita volver a correr —«una
+        // reversa es una corrección, no una condena»—, así que aquí se acusa en
+        // vez de mentir: con una llave nueva, el mes se devenga otra vez.
+        if (grabado.journalEntryId !== null && !(await asientoVigente(grabado.journalEntryId))) {
+          throw usageError(
+            `La llave "${opts.idempotencyKey ?? ''}" grabó el asiento ${grabado.journalEntryId}, que ` +
+              `después se reversó. Devolver ese resultado diría que el mes está devengado cuando no ` +
+              `lo está. Vuelve a correr con una llave nueva —es otra corrida, no un reintento— o sin ` +
+              `--idempotency-key.`
+          );
+        }
+        err.write(
+          deps.palette.dim(
+            'Llave de idempotencia ya consumada: se devuelve el resultado grabado y no se volvió ' +
+              'a devengar.\n'
+          )
+        );
+        render(
+          [
+            {
+              devengan: grabado.processed,
+              omitidos: grabado.skipped,
+              total: grabado.total,
+              asiento: grabado.journalEntryId ?? '—',
+            },
+          ],
+          { ...opts, idField: 'asiento', numeric: ['total'] }
+        );
+        return ExitCode.OK;
+      }
+
       if (previstos === 0) {
         err.write(
           deps.palette.dim(
@@ -507,11 +605,7 @@ export function registerPayrollCommand(program: Command, deps: PayrollCommandDep
         journalEntryId: string | null;
       }>(
         { tenantId: ctx.tenantId, entityId: ctx.entityId },
-        {
-          scope: 'payroll accrue',
-          clave: opts.idempotencyKey,
-          payloadHash: hashDeCarga(ctx.entityId, plan.periodo.id, previstos, plan.total),
-        },
+        llave,
         async () => {
           const r = await runMonthlyProvisions(ctx.entityId, plan.periodo.id, reviewer.userId);
           // Se copia a un objeto llano porque `conLlave` lo guarda como JSON y

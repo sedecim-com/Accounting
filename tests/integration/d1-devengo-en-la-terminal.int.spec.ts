@@ -337,7 +337,7 @@ describe('payroll accrue · el mismo mes tecleado dos veces', () => {
 
 // ── 3 · LA LLAVE QUE LA HOJA DECLARA HONRAR ─────────────────────────────
 describe('payroll accrue --idempotency-key', () => {
-  it('un reintento con la misma llave no escribe una segunda vez —lo frena el motor, no la llave—', async () => {
+  it('un reintento con la misma llave DEVUELVE EL RESULTADO GRABADO, con su mismo asiento', async () => {
     // Abril, que todavía no se ha corrido: la llave se consuma con él.
     const primera = await correr([
       'payroll', 'accrue', '--period', '2026-04', '--yes', '--idempotency-key', 'devengo-abril',
@@ -354,20 +354,66 @@ describe('payroll accrue --idempotency-key', () => {
     const segunda = await correr([
       'payroll', 'accrue', '--period', '2026-04', '--yes', '--idempotency-key', 'devengo-abril',
     ]);
-    // El mes ya está devengado, así que la cédula viene vacía y la hoja sale
-    // por su propia puerta ANTES de consumar la llave. Lo que se afirma es lo
-    // que el operador necesita: un reintento NO escribe una segunda vez.
-    //
-    // Y se afirma SÓLO eso, que es lo que esta prueba puede demostrar. Quien
-    // frena aquí es el motor —`trabajadoresYaProvisionados` sobre renglones
-    // vigentes—, no `--idempotency-key`: el `conLlave` de la hoja queda detrás
-    // de esta puerta y no se alcanza por este camino. El título decía antes
-    // «devuelve el resultado GRABADO», que es lo que la ayuda promete y lo que
-    // ni el código hace ni esta prueba comprueba. La semántica de la llave en
-    // esta hoja está abierta en su tarjeta; hasta que se decida, la prueba
-    // nombra lo que mide.
+    // WIT-180-02. Antes, la hoja salía por la puerta de `previstos === 0` ANTES
+    // de consumar la llave: un reintento contestaba «Nada que devengar» y total
+    // 0.0000 —una ejecución DISTINTA— en vez del resultado grabado que la ayuda
+    // promete. Con `mirarLlave` delante, el reintento devuelve lo grabado, con
+    // su mismo id de asiento, y el mayor sigue con UNA sola corrida.
     expect(segunda.exitCode, `${segunda.out}${segunda.err}`).toBe(ExitCode.OK);
     expect(await tamanoDelLibro()).toEqual(antes);
+
+    // EL MISMO RESULTADO LÓGICO, no uno nuevo que diga «nada». El id del
+    // asiento es el de la primera corrida, y es lo que un guion registra.
+    const asientoDeAbril = await query<{ id: string }>(
+      `SELECT id FROM journal_entries
+        WHERE entity_id = $1 AND source_type = 'benefit_provision' AND source_id = $2`,
+      [f.entityId, f.periodos[4]]
+    );
+    const salida = `${segunda.out}${segunda.err}`;
+    expect(salida, 'el reintento no devolvió el asiento grabado').toContain(
+      asientoDeAbril.rows[0].id
+    );
+    expect(salida, 'el reintento contestó «nada que devengar» en vez de lo grabado').toContain(
+      'ya consumada'
+    );
+  });
+
+  it('la misma llave con OTRA carga sigue saliendo en conflicto', async () => {
+    // La otra mitad del contrato: mirar antes no puede relajar la acusación de
+    // reuso. Mayo es otro periodo, así que la carga difiere de la de abril.
+    const r = await correr([
+      'payroll', 'accrue', '--period', '2026-05', '--yes', '--idempotency-key', 'devengo-abril',
+    ]);
+    expect(r.exitCode, `${r.out}${r.err}`).not.toBe(ExitCode.OK);
+    // El mensaje del conflicto viaja por `reportError`, no por stderr.
+    const dicho = r.errs.map((e) => (e as Error).message).join(' | ');
+    expect(dicho.toLowerCase(), 'no acusó el reuso de la llave').toMatch(/idempotenc|llave|conflict/);
+  });
+
+  it('un resultado grabado cuyo asiento se REVERSÓ no se reproduce: se acusa', async () => {
+    // Devolverlo diría «✔ devengados» con el id de un asiento anulado, y el mes
+    // seguiría sin devengar. El motor está hecho para que una reversa permita
+    // volver a correr, así que la llave no puede contestar por él.
+    const asientoDeAbril = await query<{ id: string }>(
+      `SELECT id FROM journal_entries
+        WHERE entity_id = $1 AND source_type = 'benefit_provision' AND source_id = $2`,
+      [f.entityId, f.periodos[4]]
+    );
+    const original = asientoDeAbril.rows[0].id;
+    await query(
+      `UPDATE journal_entries SET reversed_by_entry_id = $1 WHERE id = $1`,
+      [original]
+    );
+    try {
+      const r = await correr([
+        'payroll', 'accrue', '--period', '2026-04', '--yes', '--idempotency-key', 'devengo-abril',
+      ]);
+      expect(r.exitCode, `${r.out}${r.err}`).not.toBe(ExitCode.OK);
+      const dicho = r.errs.map((e) => (e as Error).message).join(' | ');
+      expect(dicho, 'no dijo que el asiento grabado se había reversado').toMatch(/revers/i);
+    } finally {
+      await query(`UPDATE journal_entries SET reversed_by_entry_id = NULL WHERE id = $1`, [original]);
+    }
   });
 });
 
