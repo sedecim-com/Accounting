@@ -290,6 +290,10 @@ describe('aguinaldo (LFT art. 87): el ejercicio en el denominador', () => {
     );
     const finiquito = calcularFiniquito({
       fecha_alta: alta,
+      // El motivo sólo mueve la prima de antigüedad (T4a); el aguinaldo que
+      // este caso compara no depende de él. `renuncia` es lo que usan las
+      // demás pruebas de finiquito.
+      motivo_baja: 'renuncia' as const,
       fecha_baja: '2025-12-31',
       pagado_hasta: '2025-12-31',
       salario_diario: SD,
