@@ -629,6 +629,17 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   // aquí — lo cazó cuando faltaban estas dos.
   'src/services/jurisdiction/legal-parameters.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
   'src/services/jurisdiction/legal-parameters-seed.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  // O1 · Las seis piezas por las que entra una contabilidad entera desde el
+  // XML del SAT: los dos lectores, el importador del catálogo, el deductor de
+  // tipo por agrupador, la carga de la apertura y su cotejo. Nacen con suelo
+  // porque son las que deciden si un peso entra, con qué signo y bajo qué
+  // padre; la cifra sale de la corrida completa, no del redondeo cómodo.
+  'src/services/accounting/opening-balance.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/accounting/opening-balance-check.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/accounting/sat-chart-import.ts': { statements: 99, branches: 94, functions: 100, lines: 99 },
+  'src/services/accounting/sat-agrupador-account-type.ts': { statements: 97, branches: 97, functions: 100, lines: 97 },
+  'src/services/sat/anexo24/balance-reader.ts': { statements: 98, branches: 88, functions: 100, lines: 100 },
+  'src/services/sat/anexo24/catalog-reader.ts': { statements: 98, branches: 81, functions: 100, lines: 100 },
 };
 
 /**
@@ -655,6 +666,70 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
 
+  // ---------------------------------------------------------------
+  // O1 lo encontró: UN BYTE INVISIBLE QUE APAGA `grep` SOBRE UN ARCHIVO ENTERO
+  //
+  // La verificación adversaria de O1 halló un NUL crudo escrito como separador
+  // de una clave compuesta, con el byte de verdad dentro del literal. Es la
+  // decisión CORRECTA —un NUL no cabe en un código de cuenta ni en un folio—
+  // escrita del modo equivocado: convierte el fuente en BINARIO para `grep` y
+  // para `file`, y mil ciento sesenta y seis líneas —el archivo que escribe el
+  // asiento de apertura— dejaron de aparecer en ninguna búsqueda del
+  // repositorio. Se descubrió por accidente, buscando otra cosa.
+  //
+  // NINGUNA PUERTA LO VIO: pasa tsc, pasa eslint, pasa vitest, pasa la
+  // cobertura. Y `git diff` tampoco avisa, porque la heurística de binario de
+  // git sólo mira los primeros 8 000 bytes y el NUL caía en el 22 381: la
+  // revisión humana habría visto un diff perfectamente normal.
+  //
+  // Se busca SÓLO el NUL, no la familia entera de bytes de control: es el que
+  // apaga las herramientas, y un criterio que caza de más se desactiva a la
+  // primera falsa alarma. La lectura va por `crudoDe` —el seam— para que el
+  // espejo pueda inyectar uno y comprobar que este criterio muerde.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E0.0',
+    id: 'sources-carry-no-nul-bytes',
+    enunciado:
+      'Ningún fuente lleva un byte NUL, que lo saca entero del alcance de grep sin que ninguna puerta se mueva',
+    evaluar: () => {
+      const rutas: string[] = [];
+      const caminar = (rel: string): void => {
+        const abs = rutaDe(rel);
+        if (!fs.existsSync(abs)) return;
+        for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+          if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
+          const hijo = path.join(rel, e.name);
+          if (e.isDirectory()) caminar(hijo);
+          else if (/[.](ts|sql|json|ya?ml)$/.test(e.name)) rutas.push(hijo);
+        }
+      };
+      for (const raiz of ['src', 'tests', 'scripts']) caminar(raiz);
+
+      const binarios = rutas.filter((r) => crudoDe(r).includes('\u0000'));
+      if (binarios.length > 0) {
+        return falla(
+          `${binarios.length} fuente(s) llevan un byte NUL y están fuera del alcance de grep: ` +
+            `${binarios.slice(0, 4).join(', ')}. Escríbelo como el escape \\u0000 dentro del ` +
+            `literal: el separador sigue siendo el mismo y el archivo vuelve a ser texto.`
+        );
+      }
+      return ok(
+        `${rutas.length} fuentes de src/, tests/ y scripts/ barridos y ninguno lleva un byte NUL: ` +
+          `todos siguen siendo alcanzables por grep`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/plan/conducta.ts',
+        de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
+        a: "'conducta.ts necesita\u0000--salida=<archivo.json>\\n'",
+        porque:
+          'un NUL inyectado en un fuente real: si el barrido dejara de mirar, o mirara el disco en ' +
+          'vez del seam, este criterio seguiría verde sobre un archivo que grep ya no encuentra',
+      },
+    ],
+  },
   {
     paquete: 'E1.1',
     id: 'law-is-read-by-date-and-fails-closed',

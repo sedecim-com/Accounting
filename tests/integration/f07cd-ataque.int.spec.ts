@@ -1143,7 +1143,21 @@ describe('las tablas globales: lectura compartida, escritura sin gobierno', () =
     const antes = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
 
     const r = await generarPolizas(f.entityId, { periodo: periodoDe(10), solicitud: SOLICITUD });
-    expect(r.meta.bancos_sembrados).toBe(false);
+    // ESTA LÍNEA SE QUEDÓ LEYENDO ESTADO cuando el resto del caso ya medía el
+    // delta, y por eso seguía dependiendo del orden: `f07d-polizas-y-su-rastro`
+    // SIEMBRA `sat_bancos`, así que corriendo después de él `bancos_sembrados`
+    // vale true y esto fallaba por una razón que no es la suya. Pasa sola,
+    // falla acompañada — exactamente lo que el comentario de arriba dice que
+    // había que dejar de hacer.
+    //
+    // Lo que sí se puede afirmar sin precondiciones es que el flag DICE LA
+    // VERDAD sobre la tabla, esté vacía o llena. Es más fuerte que el `false`
+    // de antes: aquél sólo era cierto en una instalación recién migrada; éste
+    // caza además que el flag mienta.
+    expect(
+      r.meta.bancos_sembrados,
+      `bancos_sembrados dice ${r.meta.bancos_sembrados} con ${antes.rows[0].n} banco(s) en la tabla`
+    ).toBe(Number(antes.rows[0].n) > 0);
 
     const despues = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
     expect(
