@@ -3,6 +3,10 @@ import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../database/connection.js';
 import { createJournalEntry, attestEntryAsync } from '../accounting/posting.js';
 import { getPolicy } from '../policy/policy-service.js';
+import {
+  periodoDeLaCorrida as periodoDeLaCorridaComun,
+  type PeriodoDeCorrida,
+} from '../accounting/periodo-de-corrida.js';
 import { ValidationError } from '../../utils/errors.js';
 import { JournalEntryType } from '../../types/index.js';
 import { indiceDeCalendario, primerDiaDelMes } from '../assets/depreciation-math.js';
@@ -68,52 +72,28 @@ import {
 // segunda línea y no la primera.
 // ============================================================
 
-export interface PeriodoDeCorrida {
-  id: string;
-  inicio: Date;
-  fin: Date;
-  nombre: string;
-}
-
 /**
- * El periodo que se está corriendo, ACOTADO POR ENTIDAD.
+ * EL PERIODO, ACOTADO POR ENTIDAD — AHORA DESDE UN SOLO SITIO.
  *
- * Con el id de un periodo de otra entidad, la corrida fecharía y numeraría
- * asientos de ésta contra el calendario de aquélla. Que la corrida ya filtre
- * los anticipos por entidad no cubre esto: el periodo es el otro extremo del
- * par.
+ * Este archivo llevaba su propia copia de la consulta, con esta nota:
+ * «si aparece un tercer motor periódico, lo que toca es subir este ayudante a
+ * un módulo común con el nombre del llamador como parámetro, no una tercera
+ * copia». El motor de provisiones de prestaciones (D1) es ese tercer motor, así
+ * que la consulta subió a `accounting/periodo-de-corrida.ts` y aquí queda la
+ * envoltura que le pone nombre a ESTA corrida en el mensaje de error — que era
+ * lo único que separaba a las dos copias.
  *
- * ESTO ES CASI GEMELO DE `periodoDeLaEntidad` (depreciation.ts:103-125) y no
- * se importa por una sola razón: aquel mensaje de error dice «La corrida de
- * depreciación no cruza entidades», y un operador que corre el devengo no
- * puede leer que le habla la depreciación. La sustancia es idéntica y no puede
- * divergir —una consulta de dos columnas contra una tabla—; si aparece un
- * tercer motor periódico, lo que toca es subir este ayudante a un módulo común
- * con el nombre del llamador como parámetro, no una tercera copia.
+ * Se conserva el nombre exportado porque `cli/prepaid-command.ts` lo importa de
+ * aquí, y porque el que llama a esta corrida no tiene por qué saber en qué
+ * módulo vive la consulta.
  */
+export type { PeriodoDeCorrida };
+
 export async function periodoDeLaCorrida(
   entityId: string,
   fiscalPeriodId: string
 ): Promise<PeriodoDeCorrida> {
-  const r = await query<{ id: string; start_date: Date; end_date: Date; period_name: string }>(
-    `SELECT id, start_date, end_date, period_name
-       FROM fiscal_periods
-      WHERE id = $1 AND entity_id = $2`,
-    [fiscalPeriodId, entityId]
-  );
-  const fila = r.rows[0];
-  if (!fila) {
-    throw new ValidationError(
-      `El periodo fiscal ${fiscalPeriodId} no existe o no es de esta entidad. La corrida de ` +
-        'amortización de pagos anticipados no cruza entidades.'
-    );
-  }
-  return {
-    id: fila.id,
-    inicio: medianocheLocal(fila.start_date),
-    fin: medianocheLocal(fila.end_date),
-    nombre: fila.period_name,
-  };
+  return periodoDeLaCorridaComun(entityId, fiscalPeriodId, 'amortización de pagos anticipados');
 }
 
 /**

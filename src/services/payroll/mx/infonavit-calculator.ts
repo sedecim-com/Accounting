@@ -1,5 +1,5 @@
 import type { ITaxCalculator, TaxInput, TaxOutput } from '../tax-engine/tax-engine.interface.js';
-import { getTaxParameters } from '../tax-engine/tax-tables.js';
+import { getTaxParameters, requiredParameter } from '../tax-engine/tax-tables.js';
 
 // ============================================================
 // MX — INFONAVIT
@@ -28,8 +28,8 @@ export class MexicoInfonavitEmployerCalculator implements ITaxCalculator {
     }
 
     const params = await getTaxParameters('MX', tax_year);
-    const uma = parseFloat(String(params.uma_daily || 113.14));
-    const rate = parseFloat(String(params.infonavit_employer_rate || 0.05));
+    const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);
+    const rate = requiredParameter(params, 'infonavit_employer_rate', 'MX', tax_year);
     const topeSbc = uma * 25;
     const sbcCapped = Math.min(sbc_daily, topeSbc);
 
@@ -58,8 +58,8 @@ export class MexicoInfonavitCreditCalculator implements ITaxCalculator {
     }
 
     const params = await getTaxParameters('MX', tax_year);
-    const smg = parseFloat(String(params.salario_minimo_general_diario || 278.80));
-    const uma = parseFloat(String(params.uma_daily || 113.14));
+    const smg = requiredParameter(params, 'salario_minimo_general_diario', 'MX', tax_year);
+    const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);
     const sbcCapped = Math.min(sbc_daily, uma * 25);
 
     let amount = 0;

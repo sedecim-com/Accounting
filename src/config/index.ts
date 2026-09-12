@@ -1,6 +1,12 @@
 import dotenv from 'dotenv';
 
-dotenv.config();
+// `quiet` NO es cosmética: desde dotenv 17 la carga IMPRIME en stdout
+// —«injected env (N) from .env // tip: … dotenv[x].com»—, y la salida de este
+// binario se consume por tubería. Medido: rompía el guion de completado que
+// `tests/cli/codigos-de-salida.spec.ts` genera ejecutando el binario, porque el
+// anuncio salía mezclado con el bash. Un CLI cuya salida es su producto no
+// puede llevar publicidad dentro.
+dotenv.config({ quiet: true });
 
 // ============================================================
 // DEVELOPMENT DEFAULTS FOR SECRETS

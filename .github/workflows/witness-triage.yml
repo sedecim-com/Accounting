@@ -24,18 +24,34 @@ jobs:
     name: Triage determinista
     runs-on: ubuntu-latest
     # No correr en drafts; ready_for_review lo recoge al salir de borrador.
-    if: github.event.pull_request.draft == false
+    #
+    # NI EN LOS PR DE DEPENDABOT, y no por gusto: GitHub NO entrega los secretos
+    # del repositorio a un `pull_request` abierto por `dependabot[bot]`, así que
+    # `actions/create-github-app-token` recibe un `app-id` vacío y el job muere
+    # en su primer paso con «[@octokit/auth-app] appId option is required».
+    # Medido: los seis PR de Dependabot abiertos —#202 a #207— tenían este check
+    # en rojo, TODOS por esta causa y ninguno por su dependencia. Un check que
+    # sólo puede fallar hace de semáforo averiado: se mira una vez, se aprende
+    # que siempre está rojo, y deja de mirarse.
+    #
+    # Saltarlo es además lo correcto por contenido: el triage mide diff de
+    # código —`src/**/*.ts`, `tests/**/*.ts`— y un bump de dependencia no toca
+    # ninguno. No es una puerta requerida en main (lo son `Tipos` y `Pruebas
+    # unitarias`), así que omitirlo no abre nada.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.actor != 'dependabot[bot]'
     steps:
       # Token de la GitHub App witness-vic → el comentario de triage sale
       # firmado `witness-vic[bot]` (no github-actions[bot] ni vic2099).
       # Requiere los secrets del repo WITNESS_APP_ID y WITNESS_APP_PRIVATE_KEY.
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         with:
           app-id: ${{ secrets.WITNESS_APP_ID }}
           private-key: ${{ secrets.WITNESS_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Necesitamos la base para diff correcto.
           fetch-depth: 0

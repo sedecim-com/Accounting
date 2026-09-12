@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, closeDatabase } from '../../src/database/connection.js';
@@ -122,6 +123,13 @@ async function gastoUsd(
   expect(entryId, 'la aprobación del gasto USD debe generar asiento').toBeTruthy();
   return { billId, numero: `BILL-USD-${marca}`, total, entryId };
 }
+
+// `exchange_rates` es GLOBAL —sin tenant_id ni entity_id—, así que la comparte
+// toda la corrida, y este archivo escribe tipos de cambio.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
+// una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
+// suyo. El porqué entero, en helpers/catalogos-globales.ts.
+apartarCatalogos('exchange_rates');
 
 beforeAll(async () => {
   f = await crearInquilino('R4 ataque');

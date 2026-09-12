@@ -51,6 +51,33 @@ export {
   type EstadoAgrupador,
 } from './catalogo-cuentas.js';
 
+// O1 · el lector, que es el espejo de `catalogo-cuentas.ts`. Sale por aquí
+// porque la puerta de entrada del onboarding —`sat-chart-import.ts`— lo
+// consume desde `services/accounting`, y porque leer el propio archivo que
+// este módulo escribe es la comprobación que cualquiera va a querer hacer.
+export {
+  readCtaCatalogo,
+  normalizarAtributo,
+  type CatalogFileRead,
+  type CatalogFileRow,
+  type CatalogFileHeader,
+  type CatalogReadFinding,
+  type ReadSeverity,
+} from './catalog-reader.js';
+
+// O1 · capa 2 · el lector de la BalanzaComprobacion, espejo de `balanza-xml.ts`.
+// Sale por aquí porque la carga de la apertura vive en `services/accounting` y
+// porque releer con él la balanza que este módulo GENERA es exactamente cómo
+// se comprueba, al peso, que la migración quedó bien.
+export {
+  readBalanzaComprobacion,
+  cuadraEnAlgunaNaturaleza,
+  type BalanceFileRead,
+  type BalanceFileRow,
+  type BalanceFileHeader,
+  type BalanceReadFinding,
+} from './balance-reader.js';
+
 export {
   archivarArtefacto,
   ultimoArtefacto,

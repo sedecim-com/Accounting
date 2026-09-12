@@ -225,18 +225,27 @@ describe('los seis carriles sobre el árbol real', () => {
     }
   });
 
-  it('el carril de umbrales encuentra las SEIS entradas y ni una más', () => {
+  it('el carril de umbrales encuentra las NUEVE entradas y ni una más', () => {
     // Las dos tablas de suelo y los dos vitest.config. El primer intento —una
     // regex `'src/….ts':` sobre el fuente entero— publicaba de más: se tragaba
     // el `de:` y el `a:` de un mutante que cita literalmente una entrada de la
     // tabla. Por eso se lee el AST.
     //
-    // Eran cuatro sobre un solo archivo hasta que main trajo
-    // `criterio-archivadas.ts` con su umbral en vitest.config.ts:119 y su suelo
-    // en criterios.ts:607. La cifra sube porque la POBLACIÓN creció, no porque
-    // el carril cuente distinto: se comprueba el desglose y no el total
-    // justamente para que esa diferencia se vea.
+    // La cifra sube porque la POBLACIÓN creció, no porque el carril cuente
+    // distinto, y por eso se comprueba el DESGLOSE y no el total: así esa
+    // diferencia se ve. Cada entrada, con su procedencia medida:
+    //
+    //   criterio-cierre (4) y criterio-archivadas (2) — los dos de siempre.
+    //   sat-agrupador-account-type (2) — nació con O1 (#217): umbral en
+    //     vitest.config.ts:179 y suelo en criterios.ts:640.
+    //   periodo-de-corrida (1) — nació con D1 (#180), y es el PRIMER TESTIGO
+    //     VIVO de la cuarta fuente: su única entrada está en
+    //     `vitest.integration.config.ts:138`. Hasta esta fusión el carril
+    //     declaraba leer los dos config y ningún hallazgo lo demostraba; si
+    //     alguien quitara esa fuente, este renglón es el que se pondría rojo.
     expect(byId('coverage-thresholds-keyed-by-spanish-paths').perFile).toEqual({
+      'src/services/accounting/periodo-de-corrida.ts': 1,
+      'src/services/accounting/sat-agrupador-account-type.ts': 2,
       'src/services/reporting/criterio-archivadas.ts': 2,
       'src/services/reporting/criterio-cierre.ts': 4,
     });
@@ -262,14 +271,36 @@ describe('los seis carriles sobre el árbol real', () => {
   });
 
   it('renombrar un módulo baja varios carriles a la vez, y eso no es contar dos veces', () => {
-    // `permisos.ts` sale en el carril de rutas (1 cita) y en el de mutantes
-    // (2 anclas). Son tres ediciones en tres sitios: el desglose las suma por
-    // el archivo que se va a renombrar justamente para que quien lo renombre
-    // vea el precio completo antes de empezar.
-    expect(byId('plan-criteria-pinned-to-spanish-paths').perFile?.['src/api/graphql/permisos.ts'])
-      .toBe(1);
-    expect(byId('plan-mutants-anchored-to-spanish-files').perFile?.['src/api/graphql/permisos.ts'])
-      .toBe(2);
+    // `finiquito-math.ts` sale en el carril de rutas (2 fijaciones: el
+    // `codigoDe(...)` de criterios.ts:6383 y el `const math = '…'` de :8776) y
+    // en el de mutantes (4 anclas `archivo:`, en :6375, :8749, :8756 y :8763).
+    // Son SEIS ediciones en seis sitios: el desglose las suma por el archivo
+    // que se va a renombrar justamente para que quien lo renombre vea el
+    // precio completo antes de empezar. Las seis se contaron a mano contra el
+    // fuente, no preguntándole al carril por sí mismo, que no probaría nada.
+    //
+    // EL EJEMPLAR ANTERIOR ERA `src/api/graphql/permisos.ts` (1 + 2), y lo
+    // BORRÓ main en 5816559 (T14b, #214). Ese es el modo de fallo de una
+    // prueba clavada al árbol real: main gana terreno y el testigo desaparece
+    // con él. Por eso debajo va además la PROPIEDAD, que no depende de que un
+    // archivo concreto siga vivo — pero el ejemplar con nombre se queda,
+    // porque sólo él caza un cambio de DEFINICIÓN que dejara la intersección
+    // en pie contando otra cosa.
+    const criteria = byId('plan-criteria-pinned-to-spanish-paths').perFile ?? {};
+    const mutants = byId('plan-mutants-anchored-to-spanish-files').perFile ?? {};
+    const math = 'src/services/payroll/mx/finiquito-math.ts';
+    expect(criteria[math]).toBe(2);
+    expect(mutants[math]).toBe(4);
+
+    // La propiedad: hay solape, y en el solape los dos carriles cuentan de
+    // verdad. Un cero o un negativo aquí sería un archivo «que sale en los dos»
+    // sin coste en ninguno, que es justamente el doble conteo que se niega.
+    const both = Object.keys(criteria).filter((f) => f in mutants);
+    expect(both.length).toBeGreaterThan(0);
+    for (const f of both) {
+      expect(criteria[f], `criterios cuenta ${f}`).toBeGreaterThan(0);
+      expect(mutants[f], `mutantes cuenta ${f}`).toBeGreaterThan(0);
+    }
   });
 
   it('el desglose del carril de greps apunta al archivo LEÍDO, no a criterios.ts', () => {

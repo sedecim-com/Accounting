@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Command } from 'commander';
 import { query } from '../../src/database/connection.js';
@@ -11,6 +12,7 @@ import { registerPayrollIsnCommands } from '../../src/cli/payroll-isn-command.js
 // Las calculadoras se registran por efecto de importación: sin esto el
 // registro está vacío y `getRequired('MX','isr')` truena.
 import '../../src/services/payroll/tax-engine/register-all.js';
+import { entityScope } from '../../src/database/scope.js';
 
 // ============================================================
 // F08a · ATAQUE (2) · LA FRONTERA, LA TRANSACCIÓN Y LO QUE LA POLÍTICA FIRMA
@@ -129,6 +131,14 @@ async function reciboManual(
 // entraba, el agregado del asiento al mayor lo sumaba en la póliza del
 // inquilino invadido, y el pasivo del inquilino DUEÑO se quedaba sin él.
 // ============================================================
+// `mx_isn_tasas_estatales` es GLOBAL —sin tenant_id ni entity_id—, así que la
+// comparte toda la corrida, y este archivo siembra —y ACTUALIZA— tasas de ISN
+// de estados sintéticos.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
+// una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
+// suyo. El porqué entero, en helpers/catalogos-globales.ts.
+apartarCatalogos('mx_isn_tasas_estatales');
+
 describe('1 · la corrida de otro inquilino no admite recibos ajenos', () => {
   let a: Escenario;
   let b: Escenario;
@@ -281,7 +291,7 @@ describe('3 · una corrida no queda aprobada sin su pasivo', () => {
   });
 
   it('la aprobación falla y la corrida sigue en calculated', async () => {
-    await expect(approvePayRun(e.payRunId, e.f.userId)).rejects.toThrow(
+    await expect(approvePayRun(e.payRunId, e.f.userId, entityScope(e.f.tenantId, e.f.entityId))).rejects.toThrow(
       /el pasivo no se puede escribir/
     );
     const { rows } = await query<{ status: string }>(`SELECT status FROM pay_runs WHERE id = $1`, [

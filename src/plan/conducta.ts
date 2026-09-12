@@ -82,6 +82,10 @@ export interface App {
   cuentas: typeof import('../services/accounting/account-service.js');
   alcance: typeof import('../database/scope.js');
   tipos: typeof import('../types/index.js');
+  /** O1 · las dos puertas del XML del SAT y la balanza que se le contesta. */
+  catalogoSat: typeof import('../services/accounting/sat-chart-import.js');
+  apertura: typeof import('../services/accounting/opening-balance.js');
+  balanza: typeof import('../services/sat/anexo24/balanza-service.js');
 }
 
 /**
@@ -262,7 +266,279 @@ async function saldoDelEjercicio(app: App, inq: Inquilino, cuentaId: string): Pr
 // que la forma anterior del tablero no podía ver.
 // ============================================================
 
+// ------------------------------------------------------------
+// O1 · EL DESPACHO QUE MIGRA, EN DIECISIETE CUENTAS
+//
+// Una migración pequeña y COMPLETA: bancos, clientes con dos facturas
+// abiertas, activo fijo con su depreciación acumulada colgando del MISMO
+// padre —que es la trampa del signo—, proveedores con dos facturas,
+// impuestos, capital y el resultado ya llevado a ejercicios anteriores.
+//
+//   ACTIVO   102-001 Banco          50 000 D
+//            105-001 Clientes       12 000 D   (A-123 4 000 + A-456 8 000)
+//            153-001 Torno         200 000 D
+//            171     Depreciación   30 000 A
+//            → 100 Activo          232 000 D
+//   PASIVO   201-001 Proveedores    14 000 A   (F-77 9 000 + F-88 5 000)
+//            213     Impuestos       3 000 A
+//            → 200 Pasivo           17 000 A
+//   CAPITAL  301     Capital social 100 000 A
+//            304     Resultado ant. 115 000 A
+//            → 300 Capital         215 000 A
+//
+// 232 000 = 17 000 + 215 000: el asiento cuadra SOLO, sin cuenta puente. Las
+// de resultado vienen en ceros porque el ejercicio se cerró en el origen, que
+// es lo que la carga exige para no estrenar el año con las cifras del pasado.
+//
+// El corte es diciembre de 2025 a propósito: el día siguiente es el 1 de enero
+// de 2026, que es el `start_date` del ejercicio que siembra `crearInquilino`.
+// ------------------------------------------------------------
+
+interface CuentaDeApertura {
+  num: string;
+  desc: string;
+  padre?: string;
+  agrup: string;
+  nivel: number;
+  natur: 'D' | 'A';
+  /** SaldoFin al corte, POSITIVO en la naturaleza de la cuenta. */
+  saldo: string;
+}
+
+const CATALOGO_DE_APERTURA: readonly CuentaDeApertura[] = [
+  { num: '100', desc: 'Activo', agrup: '100', nivel: 1, natur: 'D', saldo: '232000.00' },
+  { num: '102', desc: 'Bancos', padre: '100', agrup: '102', nivel: 2, natur: 'D', saldo: '50000.00' },
+  { num: '102-001', desc: 'Banco del Bajio', padre: '102', agrup: '102.01', nivel: 3, natur: 'D', saldo: '50000.00' },
+  { num: '105', desc: 'Clientes', padre: '100', agrup: '105', nivel: 2, natur: 'D', saldo: '12000.00' },
+  { num: '105-001', desc: 'Clientes nacionales', padre: '105', agrup: '105.01', nivel: 3, natur: 'D', saldo: '12000.00' },
+  { num: '153', desc: 'Maquinaria y equipo', padre: '100', agrup: '153', nivel: 2, natur: 'D', saldo: '200000.00' },
+  { num: '153-001', desc: 'Torno CNC', padre: '153', agrup: '153.01', nivel: 3, natur: 'D', saldo: '200000.00' },
+  { num: '171', desc: 'Depreciacion acumulada', padre: '100', agrup: '171', nivel: 2, natur: 'A', saldo: '30000.00' },
+  { num: '200', desc: 'Pasivo', agrup: '200', nivel: 1, natur: 'A', saldo: '17000.00' },
+  { num: '201', desc: 'Proveedores', padre: '200', agrup: '201', nivel: 2, natur: 'A', saldo: '14000.00' },
+  { num: '201-001', desc: 'Proveedores nacionales', padre: '201', agrup: '201.01', nivel: 3, natur: 'A', saldo: '14000.00' },
+  { num: '213', desc: 'Impuestos por pagar', padre: '200', agrup: '213', nivel: 2, natur: 'A', saldo: '3000.00' },
+  { num: '300', desc: 'Capital contable', agrup: '300', nivel: 1, natur: 'A', saldo: '215000.00' },
+  { num: '301', desc: 'Capital social', padre: '300', agrup: '301', nivel: 2, natur: 'A', saldo: '100000.00' },
+  { num: '304', desc: 'Resultado de ejercicios anteriores', padre: '300', agrup: '304', nivel: 2, natur: 'A', saldo: '115000.00' },
+  { num: '400', desc: 'Ingresos', agrup: '400', nivel: 1, natur: 'A', saldo: '0.00' },
+  { num: '401', desc: 'Ventas', padre: '400', agrup: '401', nivel: 2, natur: 'A', saldo: '0.00' },
+];
+
+/** El auxiliar abierto de las dos cuentas de control, documento a documento. */
+const AUXILIAR_DE_APERTURA = [
+  { cuenta: '105-001', documento: 'A-123', contraparte: 'Aceros del Norte SA', fecha: '2025-11-02', vencimiento: '2025-12-02', importe: '4000.00' },
+  { cuenta: '105-001', documento: 'A-456', contraparte: 'Bravo Servicios SC', fecha: '2025-11-20', vencimiento: '2026-01-19', importe: '8000.00' },
+  { cuenta: '201-001', documento: 'F-77', contraparte: 'Papelera del Centro', fecha: '2025-12-01', vencimiento: '2026-01-15', importe: '9000.00' },
+  { cuenta: '201-001', documento: 'F-88', contraparte: 'Tornillos Industriales', fecha: '2025-12-10', vencimiento: '2026-01-24', importe: '5000.00' },
+] as const;
+
+const RFC_DEL_ESCENARIO = 'XAXX010101000';
+const NS_CATALOGO = 'http://www.sat.gob.mx/esquemas/ContabilidadE/1_3/CatalogoCuentas';
+const NS_BALANZA = 'http://www.sat.gob.mx/esquemas/ContabilidadE/1_3/BalanzaComprobacion';
+
+function xmlDelCatalogo(): string {
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<catalogocuentas:Catalogo xmlns:catalogocuentas="${NS_CATALOGO}" Version="1.3" ` +
+    `RFC="${RFC_DEL_ESCENARIO}" Mes="12" Anio="2025">` +
+    CATALOGO_DE_APERTURA.map(
+      (c) =>
+        `<catalogocuentas:Ctas CodAgrup="${c.agrup}" NumCta="${c.num}" Desc="${c.desc}"` +
+        `${c.padre === undefined ? '' : ` SubCtaDe="${c.padre}"`} Nivel="${c.nivel}" Natur="${c.natur}"/>`
+    ).join('') +
+    `</catalogocuentas:Catalogo>`
+  );
+}
+
+/**
+ * La balanza del sistema viejo al 31 de diciembre. SaldoIni = SaldoFin y sin
+ * movimiento: lo que la apertura consume es el SaldoFin, y así el recálculo
+ * del lector cuadra sin inventar un ejercicio entero de asientos.
+ */
+function xmlDeLaBalanza(): string {
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<BCE:Balanza xmlns:BCE="${NS_BALANZA}" Version="1.3" RFC="${RFC_DEL_ESCENARIO}" ` +
+    `Mes="12" Anio="2025" TipoEnvio="N">` +
+    CATALOGO_DE_APERTURA.map(
+      (c) =>
+        `<BCE:Ctas NumCta="${c.num}" SaldoIni="${c.saldo}" Debe="0.00" Haber="0.00" SaldoFin="${c.saldo}"/>`
+    ).join('') +
+    `</BCE:Balanza>`
+  );
+}
+
+const POR_NUMERO = new Map(CATALOGO_DE_APERTURA.map((c) => [c.num, c]));
+const HIJAS_DE = new Map<string, string[]>();
+for (const c of CATALOGO_DE_APERTURA) {
+  if (c.padre !== undefined) HIJAS_DE.set(c.padre, [...(HIJAS_DE.get(c.padre) ?? []), c.num]);
+}
+
+/** Deudor positivo. Es el único eje en el que un árbol contable se suma. */
+const ejeDelMayor = (natur: 'D' | 'A'): number => (natur === 'D' ? 1 : -1);
+
+/**
+ * Lo que NUESTRA balanza publica, sacado del XML con un regex.
+ *
+ * A propósito no se usa `readBalanzaComprobacion`: es código de este mismo
+ * tramo, y un juez que comparte piezas con el juzgado no es un juez.
+ */
+function importesPublicados(
+  xml: string,
+  columna: 'SaldoIni' | 'Debe' | 'Haber' | 'SaldoFin'
+): Map<string, Decimal> {
+  const encontrados = new Map<string, Decimal>();
+  const patron = new RegExp(`NumCta="([^"]+)"[^>]*?${columna}="([^"]+)"`, 'g');
+  for (const m of xml.matchAll(patron)) {
+    const num = m[1];
+    const importe = m[2];
+    if (num !== undefined && importe !== undefined) encontrados.set(num, new Decimal(importe));
+  }
+  return encontrados;
+}
+
+/**
+ * El acumulado de una cuenta CON SU SUBÁRBOL, en el eje del mayor.
+ *
+ * Hace falta porque `generarBalanza` NO agrega —lo declara `verificarMayorSinAgregar`
+ * de F07b— mientras que el Anexo 24 declara cada mayor INCLUYENDO sus
+ * subcuentas. Sin esta suma, las nueve cuentas de nivel 1 y 2 darían un falso
+ * descuadre; y sin el eje, «171 Depreciación» (acreedora) bajo «100 Activo»
+ * (deudor) sumaría en vez de restar y el activo saldría 292 000 en vez de
+ * 232 000.
+ */
+/**
+ * El movimiento del subárbol, `Debe − Haber`, SIN traducir naturaleza.
+ *
+ * Es el hermano imprescindible del cotejo de saldos, y la razón es fina: una
+ * inversión GLOBAL de la naturaleza —leer `Natur="D"` como acreedora— se
+ * cancela sola en la ida y la vuelta. La apertura postea invertida y
+ * `generarBalanza` publica con la MISMA convención invertida, así que el
+ * SaldoFin que sale del XML es idéntico al del archivo mientras el mayor
+ * queda con el activo de saldo acreedor por dentro.
+ *
+ * `Debe − Haber` no tiene convención que invertir: ES el eje del mayor por
+ * definición. Comparado contra la naturaleza que declara el ARCHIVO —la
+ * única referencia de fuera— dice de qué lado entró cada peso.
+ */
+function movimientoDelSubarbol(
+  num: string,
+  debe: ReadonlyMap<string, Decimal>,
+  haber: ReadonlyMap<string, Decimal>
+): Decimal {
+  const propio = (debe.get(num) ?? new Decimal(0)).minus(haber.get(num) ?? new Decimal(0));
+  return (HIJAS_DE.get(num) ?? []).reduce(
+    (suma, hija) => suma.plus(movimientoDelSubarbol(hija, debe, haber)),
+    propio
+  );
+}
+
+function acumuladoDelSubarbol(num: string, publicado: ReadonlyMap<string, Decimal>): Decimal {
+  const cuenta = POR_NUMERO.get(num);
+  if (cuenta === undefined) return new Decimal(0);
+  const propio = (publicado.get(num) ?? new Decimal(0)).times(ejeDelMayor(cuenta.natur));
+  return (HIJAS_DE.get(num) ?? []).reduce(
+    (suma, hija) => suma.plus(acumuladoDelSubarbol(hija, publicado)),
+    propio
+  );
+}
+
 export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
+  // ----------------------------------------------------------
+  // E1b · Y LA COLUMNA NO PUEDE MENTIR
+  //
+  // `tenant_id` en una hija es un HECHO DERIVADO. Si una fila pudiera nacer
+  // sin él, la política directa la escondería de su propio dueño para
+  // siempre; si pudiera cambiarlo, la frontera de aislamiento se movería sin
+  // que nada lo notara. Las dos mitades se prueban aquí.
+  // ----------------------------------------------------------
+  {
+    id: 'child-tenant-is-derived-not-declared',
+    paquete: 'E0.1',
+    enunciado: 'Una línea nace con el inquilino de su asiento aunque nadie se lo diga, y no puede cambiarlo',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/077_la_hija_que_pregunta_por_su_madre.sql',
+        de: '  NEW.tenant_id := derivado;',
+        a: '  NEW.tenant_id := NULL;',
+        porque:
+          'la hija deja de heredar el inquilino de su padre: nace sin él, y una fila sin inquilino queda ' +
+          'invisible para su propio dueño en cuanto la política lo mire',
+      },
+    ],
+    correr: async (app) => {
+      const inq = await crearInquilino(app, 'E1b · derivada');
+      const banco = inq.roles.banco;
+      const ventas = inq.cuentas['4100'];
+      if (!banco || !ventas) return falla('el catálogo base no se sembró');
+      await asiento(app, inq, 8, 'E1b derivada', banco, ventas, '250.0000');
+
+      const { rows } = await app.conexion.query<{ n: string; ajenas: string }>(
+        `SELECT count(*)::text AS n,
+                count(*) FILTER (WHERE l.tenant_id IS DISTINCT FROM $1)::text AS ajenas
+           FROM journal_entry_lines l
+           JOIN journal_entries e ON e.id = l.journal_entry_id
+          WHERE e.entity_id = $2`,
+        [inq.tenantId, inq.entityId]
+      );
+      const n = Number(rows[0]?.n ?? 0);
+      const ajenas = Number(rows[0]?.ajenas ?? 0);
+      if (n === 0) return falla('el asiento no dejó líneas: el escenario no probó nada');
+      if (ajenas > 0) {
+        return falla(`${ajenas} de ${n} líneas no heredaron el inquilino de su asiento`);
+      }
+
+      // Y LA SEGUNDA MITAD: LA COLUMNA NO SE PUEDE MOVER — NI EN UN BORRADOR.
+      //
+      // La versión anterior de esta comprobación intentaba moverla en una
+      // línea cualquiera y se conformaba con que LANZARA. Pasaba, pero por el
+      // guardián equivocado: el de la 041 rechaza los UPDATE de una línea cuyo
+      // asiento está POSTEADO, así que la prueba medía ESE candado y no la
+      // derivación. Sobre un BORRADOR —que no pasa por la 041— la columna se
+      // movía sin que nada lo notara. Lo encontró WIT-02.
+      //
+      // Ahora se prueba donde duele: un asiento en borrador, se intenta
+      // moverlo, y se comprueba el VALOR resultante. No basta con que no
+      // lance: el disparador impone el derivado en silencio, así que lo que
+      // hay que afirmar es que la fila SIGUE siendo de su inquilino.
+      const otro = crypto.randomUUID();
+      const borrador = await app.posting.createJournalEntry(
+        inq.entityId,
+        fechaEnPeriodo(8),
+        app.tipos.JournalEntryType.STANDARD,
+        'E1b · borrador para el ataque',
+        [
+          { account_id: banco, debit_amount: '10.0000', credit_amount: null, description: 'b' },
+          { account_id: ventas, debit_amount: null, credit_amount: '10.0000', description: 'b' },
+        ],
+        inq.userId,
+        { autoPost: false }
+      );
+
+      await app.conexion.query(
+        `UPDATE journal_entry_lines SET tenant_id = $1 WHERE journal_entry_id = $2`,
+        [otro, borrador.id]
+      );
+
+      const { rows: tras } = await app.conexion.query<{ ajenas: string }>(
+        `SELECT count(*) FILTER (WHERE tenant_id IS DISTINCT FROM $1)::text AS ajenas
+           FROM journal_entry_lines WHERE journal_entry_id = $2`,
+        [inq.tenantId, borrador.id]
+      );
+      if (Number(tras[0]?.ajenas ?? 0) > 0) {
+        return falla(
+          'una línea de BORRADOR cambió de inquilino con un UPDATE: la columna derivada diverge de su ' +
+            'asiento justo donde el guardián de la 041 no llega'
+        );
+      }
+
+      return ok(
+        `${n} líneas heredaron su inquilino, y una de borrador resistió el intento de moverla`
+      );
+    },
+  },
+
   // ----------------------------------------------------------
   // 1 · EL SIGNO DEL SALDO
   //
@@ -599,7 +875,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       // cero, así que el guardián la deja pasar. Es correcto que la deje: lo
       // que no puede es que eso reescriba un informe ya emitido.
       try {
-        await app.cuentas.deactivateAccount(ventas, inq.userId, {
+        await app.cuentas.deactivateAccount(inq.entityId, ventas, inq.userId, {
           allowWithHistory: true,
           enforceZeroBalance: true,
           reason: 'se retira la línea del catálogo al cierre del ejercicio',
@@ -650,6 +926,180 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         'con el ejercicio cerrado y la 4100 archivada después, el estado de resultados sigue en ' +
           'Revenue 10000.0000 / Net income 6000.0000, la balanza conserva la 4100 (archivada, con ' +
           'movimiento) y la 1120 (activa, sin movimiento), y cuadra'
+      );
+    },
+  },
+  // ----------------------------------------------------------
+  // 4 · LA BALANZA VIEJA Y LA NUESTRA, IGUALES AL PESO
+  //
+  // Es el criterio de aceptación de O1 (#114) escrito como ejecución, y el
+  // JUEZ ES INDEPENDIENTE a propósito: el importe esperado sale de la tabla
+  // de aquí abajo, el árbol sale de la misma tabla, y lo que publicamos se
+  // saca del XML con un regex. Ni una pieza del tramo participa en el
+  // veredicto —ni `readBalanzaComprobacion`, ni `compareToSource`—, así que
+  // el cotejo del tramo no puede declararse a sí mismo en paz.
+  //
+  // Las 172 unitarias de O1 mockean `query`, así que no ven lo que sólo
+  // decide la base: el CHECK de cuadre, el disparador de `account_level`, el
+  // periodo fiscal y, sobre todo, QUÉ NÚMERO PUBLICA `generarBalanza` sobre
+  // el mayor que quedó escrito. Aquí se postea y se le pregunta.
+  //
+  // Y se pregunta DOS VECES. El SaldoFin de enero dice que la apertura entró;
+  // el SaldoIni de febrero dice que se convirtió en saldo y no se quedó en
+  // movimiento de un mes. Una migración que sólo cumple la primera pasa el
+  // corte del primer mes y miente en todos los demás.
+  // ----------------------------------------------------------
+  {
+    id: 'opening-balance-matches-source',
+    // El paquete es el de la arquitectura, no el del tramo: la conducta vive
+    // toda en E0.1 (la red de pruebas). El tramo que la paga —O1, issue
+    // #114— se nombra en la cabecera de arriba, igual que J0.1 se nombra en
+    // el suyo dentro de E1.1.
+    paquete: 'E0.1',
+    enunciado:
+      'La balanza del sistema viejo y la nuestra, iguales al peso: se carga el XML del SAT y se le pregunta al mayor',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/opening-balance.ts',
+        de: 'const residuo = saldoDelMayor(f.saldoFin, natur).minus(declaradoPorLasHijas ?? new Decimal(0));',
+        a: 'const residuo = saldoDelMayor(f.saldoFin, natur);',
+        porque:
+          'el dinero contado dos veces: el Anexo 24 declara el mayor INCLUYENDO sus subcuentas, así ' +
+          'que postear lo declarado en vez del residuo duplica cada nivel del árbol. Suma bien las ' +
+          'hojas y miente en los padres, que es exactamente lo que un cotejo por totales no ve',
+      },
+      {
+        archivo: 'src/services/accounting/opening-balance.ts',
+        de: 'const siguiente = m === 12 ? { a: a + 1, m: 1 } : { a, m: m + 1 };',
+        a: 'const siguiente = { a, m };',
+        porque:
+          'la apertura cae el día del corte y no el siguiente: el asiento se va al ejercicio VIEJO, ' +
+          'que en una migración no existe en este sistema',
+      },
+      {
+        archivo: 'src/services/accounting/opening-balance.ts',
+        de: `    debit: positivo ? enElMayor.toFixed(4) : null,
+    credit: positivo ? null : enElMayor.negated().toFixed(4),`,
+        a: `    debit: positivo ? null : enElMayor.negated().toFixed(4),
+    credit: positivo ? enElMayor.toFixed(4) : null,`,
+        porque:
+          'cargo y abono intercambiados. El asiento sigue cuadrando —todo se invierte a la vez— y ' +
+          'el mayor lo acepta: sólo la balanza publicada delata que el activo quedó de abono',
+      },
+      {
+        archivo: 'src/services/accounting/sat-chart-import.ts',
+        de: "const normalBalance: NormalBalance = r.natur === 'D' ? 'debit' : 'credit';",
+        a: "const normalBalance: NormalBalance = r.natur === 'A' ? 'debit' : 'credit';",
+        porque:
+          'la naturaleza que el archivo declara, leída al revés. La capa 1 es la que le dice al ' +
+          'mayor de qué signo es cada cuenta, y con ella invertida la balanza que publicamos sale ' +
+          'con el signo cambiado en las diecisiete',
+      },
+    ],
+    correr: async (app) => {
+      const inq = await crearInquilino(app, 'O1 · apertura al peso');
+      // El inquilino AMBIENTAL se fija aquí y no dentro de `crearInquilino`:
+      // `enterTenant` es `AsyncLocalStorage.enterWith`, que manda en el
+      // contexto donde se llama y en sus descendientes, NO en el de quien
+      // esperó la promesa. Sin esta línea, `generarBalanza` —que acota por
+      // `currentTenant()`— pregunta con el inquilino que dejó la prueba
+      // anterior y no encuentra la entidad. Falla ruidosamente, que es lo
+      // correcto, pero el rojo hablaría del arnés y no de la apertura.
+      app.conexion.enterTenant(inq.tenantId);
+      const ctx = { tenantId: inq.tenantId, entityId: inq.entityId };
+      const razon = 'plan · conducta O1';
+
+      // ── LA CAPA 1: el catálogo del despacho, con SUS códigos ──────────
+      const catalogo = await app.catalogoSat.importSatChart(ctx, {
+        entityId: inq.entityId,
+        xml: xmlDelCatalogo(),
+        userId: inq.userId,
+        reason: razon,
+      });
+      if (!catalogo.escrito) {
+        return falla(
+          `el catálogo del despacho no entró, así que no hay dónde posar la apertura: ` +
+            catalogo.omitidas.map((o) => `${o.code} (${o.motivo}): ${o.detalle}`).join('; ')
+        );
+      }
+      if (catalogo.creadas.length !== CATALOGO_DE_APERTURA.length) {
+        return falla(
+          `entraron ${catalogo.creadas.length} cuentas de las ${CATALOGO_DE_APERTURA.length} que ` +
+            `declara el archivo: la apertura se posaría sobre un catálogo con huecos`
+        );
+      }
+
+      // ── LA CAPA 2: la balanza al corte, con su auxiliar abierto ───────
+      const carga = await app.apertura.importOpeningBalance(ctx, {
+        entityId: inq.entityId,
+        xml: xmlDeLaBalanza(),
+        userId: inq.userId,
+        documentos: AUXILIAR_DE_APERTURA,
+        reason: razon,
+      });
+      if (!carga.escrito) {
+        return falla(
+          `la apertura no se escribió: ` +
+            carga.findings.map((h) => `[${h.regla}] ${h.mensaje}`).slice(0, 4).join('; ')
+        );
+      }
+      await app.posting.drainAttestations(3000);
+
+      // ── EL COTEJO, calculado aquí y no pedido al tramo ────────────────
+      const diferencias: string[] = [];
+      for (const [mes, columna] of [
+        [1, 'SaldoFin'],
+        [2, 'SaldoIni'],
+      ] as const) {
+        const periodo = inq.periodos[mes];
+        if (periodo === undefined) return falla(`el escenario no sembró el periodo ${mes}`);
+        const nuestra = await app.balanza.generarBalanza(inq.entityId, { periodo });
+        const publicado = importesPublicados(nuestra.xml, columna);
+        for (const c of CATALOGO_DE_APERTURA) {
+          const esperado = new Decimal(c.saldo).times(ejeDelMayor(c.natur));
+          const obtenido = acumuladoDelSubarbol(c.num, publicado);
+          if (!obtenido.equals(esperado)) {
+            diferencias.push(
+              `${columna} de ${c.num} "${c.desc}": el archivo dice ${esperado.toFixed(2)} y ` +
+                `publicamos ${obtenido.toFixed(2)} (${obtenido.minus(esperado).toFixed(2)})`
+            );
+          }
+        }
+      }
+
+      // ── Y DE QUÉ LADO ENTRÓ CADA PESO ───────────────────────────────
+      // La apertura cae DENTRO del primer periodo, así que en la balanza de
+      // enero es movimiento: `Debe − Haber` del subárbol tiene que dar el
+      // saldo que el archivo declara, en el eje del mayor.
+      const primero = inq.periodos[1];
+      if (primero === undefined) return falla('el escenario no sembró el primer periodo');
+      const enero = await app.balanza.generarBalanza(inq.entityId, { periodo: primero });
+      const debe = importesPublicados(enero.xml, 'Debe');
+      const haber = importesPublicados(enero.xml, 'Haber');
+      for (const c of CATALOGO_DE_APERTURA) {
+        const esperado = new Decimal(c.saldo).times(ejeDelMayor(c.natur));
+        const obtenido = movimientoDelSubarbol(c.num, debe, haber);
+        if (!obtenido.equals(esperado)) {
+          diferencias.push(
+            `Debe−Haber de ${c.num} "${c.desc}": el archivo declara ${esperado.toFixed(2)} y la ` +
+              `apertura movió ${obtenido.toFixed(2)}`
+          );
+        }
+      }
+
+      if (diferencias.length > 0) {
+        return falla(
+          `${diferencias.length} cuenta(s) no cuadran al peso contra el archivo de origen: ` +
+            `${diferencias.slice(0, 6).join('; ')}. Las cifras están en el eje del mayor (deudor ` +
+            `positivo) y el acumulado incluye el subárbol, porque el Anexo 24 declara el mayor ` +
+            `con sus subcuentas dentro.`
+        );
+      }
+      return ok(
+        `${CATALOGO_DE_APERTURA.length} cuentas cargadas desde el XML del SAT y publicadas de ` +
+          `vuelta: SaldoFin del primer periodo, SaldoIni del segundo y el Debe−Haber de la propia ` +
+          `apertura, los tres iguales AL PESO contra el archivo de origen, en los tres niveles ` +
+          `del árbol y con la depreciación acumulada (acreedora) colgando de un padre deudor`
       );
     },
   },
@@ -810,7 +1260,7 @@ async function main(salida: string): Promise<void> {
   // de que exista un `config`, y config sólo se puede importar cuando
   // DATABASE_URL ya apunta a la base efímera.
   const { default: dotenv } = await import('dotenv');
-  dotenv.config();
+  dotenv.config({ quiet: true });
 
   const admin =
     process.env.TEST_ADMIN_DATABASE_URL ||
@@ -946,6 +1396,9 @@ async function main(salida: string): Promise<void> {
     cuentas: await import('../services/accounting/account-service.js'),
     alcance: await import('../database/scope.js'),
     tipos: await import('../types/index.js'),
+    catalogoSat: await import('../services/accounting/sat-chart-import.js'),
+    apertura: await import('../services/accounting/opening-balance.js'),
+    balanza: await import('../services/sat/anexo24/balanza-service.js'),
   };
 
   const { config } = await import('../config/index.js');

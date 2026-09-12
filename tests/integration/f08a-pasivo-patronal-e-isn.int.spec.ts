@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../src/database/connection.js';
 import { crearEntidadHermana, crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
@@ -8,6 +9,7 @@ import {
   hallazgosQueBloquean,
 } from '../../src/services/payroll/common/employer-liability-service.js';
 import { approvePayRun } from '../../src/services/payroll/common/pay-run-service.js';
+import { entityScope } from '../../src/database/scope.js';
 
 // ============================================================
 // F08a · LO QUE EL PATRÓN DEBE, CONTRA UN POSTGRES DE VERDAD
@@ -134,6 +136,13 @@ async function pasivosDe(payRunId: string | null): Promise<FilaPasivo[]> {
   );
   return rows;
 }
+
+// `mx_isn_tasas_estatales` es GLOBAL —sin tenant_id ni entity_id—, así que la
+// comparte toda la corrida, y este archivo siembra tasas de ISN.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
+// una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
+// suyo. El porqué entero, en helpers/catalogos-globales.ts.
+apartarCatalogos('mx_isn_tasas_estatales');
 
 beforeAll(async () => {
   f = await crearInquilino('F08a · pasivo patronal e ISN');
@@ -302,7 +311,7 @@ describe('provision_cuotas_patronales · mensual al cierre', () => {
 
     // La segunda corrida del mismo mes no añade un segundo renglón: reescribe
     // el del mes con el total recalculado desde los recibos ya cerrados.
-    await approvePayRun(segunda.payRunId, f.userId);
+    await approvePayRun(segunda.payRunId, f.userId, entityScope(f.tenantId, f.entityId));
     const trasSegunda = (await pasivosDe(null)).filter(
       (x) => x.pay_run_id === null && x.period_start === '2026-05-01'
     );
@@ -368,7 +377,7 @@ describe('aprobar la corrida es lo que apunta el pasivo', () => {
 
     expect(await pasivosDe(corrida.payRunId)).toEqual([]);
 
-    const r = await approvePayRun(corrida.payRunId, f.userId);
+    const r = await approvePayRun(corrida.payRunId, f.userId, entityScope(f.tenantId, f.entityId));
     expect(r.entityId).toBe(f.entityId);
 
     const { rows } = await query<{ status: string }>(
