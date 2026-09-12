@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { compare, tighten } from '../../scripts/language-status.js';
+import { compare, tighten, writeBlock } from '../../scripts/language-status.js';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { Lane } from '../../scripts/language/lane.js';
 
 // ============================================================
@@ -166,5 +169,86 @@ describe('apretar — sólo baja', () => {
   it('un carril que desapareció sale de la línea base en vez de quedarse de adorno', () => {
     const b = tighten([lane('a', 1)], baselineOf({ a: 1, fantasma: 7 }));
     expect(Object.keys(b.lanes)).toEqual(['a']);
+  });
+});
+
+// ============================================================
+// PUBLICAR EL BLOQUE, Y ACUSAR CUANDO NO SE PUDO (WIT-02 de #179)
+//
+// El medidor promete publicar su cifra en el rector inglés y en su gemela
+// española (#144). La versión revisada escribía en UNA página y, si faltaba el
+// archivo o sus marcadores, imprimía un aviso y SALÍA CON CERO — un comando que
+// promete publicar y termina bien sin publicar deja el bloque con las cifras
+// del mes pasado y nadie se entera.
+// ============================================================
+describe('publicar el bloque en el rector y su gemela', () => {
+  const withTempDocs = (contents: (string | null)[], run: (paths: string[]) => void): void => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lang-block-'));
+    const paths = contents.map((c, i) => {
+      const p = path.join(dir, `doc${i}.md`);
+      if (c !== null) fs.writeFileSync(p, c);
+      return p;
+    });
+    try {
+      run(paths);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  const OPEN = '<!-- LANGUAGE-STATUS:START -->';
+  const CLOSE = '<!-- LANGUAGE-STATUS:END -->';
+  const withMarkers = `# Rector\n\nantes\n${OPEN}\nviejo\n${CLOSE}\ndespués\n`;
+
+  it('reemplaza el bloque entre marcadores y NO toca el resto de la página', () => {
+    withTempDocs([withMarkers], ([p]) => {
+      const failures = writeBlock(`${OPEN}\nnuevo\n${CLOSE}`, [p]);
+      expect(failures).toEqual([]);
+      const out = fs.readFileSync(p, 'utf8');
+      expect(out).toContain('nuevo');
+      expect(out).not.toContain('viejo');
+      // Lo de fuera del bloque sobrevive: el documento decide qué dice, el
+      // comando sólo mantiene su recuadro al día.
+      expect(out).toContain('# Rector');
+      expect(out).toContain('antes');
+      expect(out).toContain('después');
+    });
+  });
+
+  it('publica en LAS DOS páginas, no en una', () => {
+    // Publicar sólo en el rector deja la gemela con cifras viejas y sin ninguna
+    // señal de que lo son, que es peor que no publicar.
+    withTempDocs([withMarkers, withMarkers], (ps) => {
+      expect(writeBlock(`${OPEN}\nnuevo\n${CLOSE}`, ps)).toEqual([]);
+      for (const p of ps) expect(fs.readFileSync(p, 'utf8')).toContain('nuevo');
+    });
+  });
+
+  it('UN ARCHIVO QUE NO EXISTE ES UN FALLO, no un aviso', () => {
+    withTempDocs([null], ([p]) => {
+      const failures = writeBlock(`${OPEN}\nx\n${CLOSE}`, [p]);
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toContain('no existe');
+    });
+  });
+
+  it('UN ARCHIVO SIN MARCADORES ES UN FALLO: no se inventa dónde va el bloque', () => {
+    withTempDocs(['# Rector\n\nsin recuadro\n'], ([p]) => {
+      const failures = writeBlock(`${OPEN}\nx\n${CLOSE}`, [p]);
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toContain('marcadores');
+      // Y no se escribe nada: una página sin sitio declarado se queda como está.
+      expect(fs.readFileSync(p, 'utf8')).not.toContain('LANGUAGE-STATUS');
+    });
+  });
+
+  it('si una de las dos falla, la otra sí se publica y el fallo se nombra', () => {
+    // El caso mixto importa: publicar la mitad y callar la otra es cómo se
+    // desincronizan las gemelas sin que nadie lo note.
+    withTempDocs([withMarkers, null], (ps) => {
+      const failures = writeBlock(`${OPEN}\nnuevo\n${CLOSE}`, ps);
+      expect(failures).toHaveLength(1);
+      expect(fs.readFileSync(ps[0], 'utf8')).toContain('nuevo');
+    });
   });
 });
