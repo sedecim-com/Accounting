@@ -3,6 +3,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { PRUEBAS_DE_CONDUCTA, correrConducta, type PruebaDeConducta } from './conducta.js';
+import {
+  headOf,
+  problemsIn,
+  type VocabularyClass,
+  type VocabularyEntry,
+} from '../language/vocabulary-registry.js';
 
 // ============================================================
 // CRITERIOS DE CIERRE, EJECUTABLES
@@ -664,6 +670,178 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
   // T13 lo sube al medir el caso que faltaba: 95.12 / 90.10 / 96.55 / 95.45.
   'src/services/reporting/cash-flow-service.ts': { statements: 95, branches: 90, functions: 96, lines: 95 },
 };
+
+// ── El registro del vocabulario, leído por el mismo seam que todo lo demás ──
+//
+// SE LEE, NO SE IMPORTA, Y ESA ES LA DECISIÓN QUE HACE POSIBLE EL MUTANTE.
+//
+// `crudoDe` pasa por `leer()`, que honra el overlay de `sobreescrituras`: es
+// lo que permite al arnés de mutación fingir que una fila del registro no
+// está y comprobar que el criterio se pone rojo. Un `import` del módulo
+// devolvería siempre el archivo de disco, el overlay no lo alcanzaría, y el
+// mutante que la issue #146 exige moriría vivo — verde para siempre.
+//
+// De ese módulo se importa SÓLO `problemsIn`, que es lógica pura y no datos:
+// así la validación no se duplica y la lectura sigue pasando por el seam.
+
+interface LoadedRegistry {
+  total: number;
+  kept: number;
+  problems: string[];
+  has: (cls: VocabularyClass, where: string, es: string) => boolean;
+}
+
+export function readVocabularyRegistry(): LoadedRegistry | null {
+  const rel = 'src/language/vocabulary-registry.json';
+  if (!existe(rel)) return null;
+  let entries: VocabularyEntry[];
+  try {
+    const doc = JSON.parse(crudoDe(rel)) as { entries?: VocabularyEntry[] };
+    entries = Array.isArray(doc.entries) ? doc.entries : [];
+  } catch {
+    return { total: 0, kept: 0, problems: ['no es JSON válido'], has: () => false };
+  }
+  const problems = entries.flatMap((e, i) => problemsIn(e, i));
+  const index = new Set(entries.map((e) => `${e.class}\u0000${headOf(e.where)}\u0000${e.es}`));
+  return {
+    total: entries.length,
+    kept: entries.filter((e) => e.en === null).length,
+    problems,
+    has: (cls, where, es) => index.has(`${cls}\u0000${headOf(where)}\u0000${es}`),
+  };
+}
+
+/**
+ * El léxico de I1 tal como este archivo lo necesita: las raíces para decidir
+ * español, los términos de dominio para exceptuar, y `known` —la unión de las
+ * TRES listas— para que el corte por dígitos parta lo mismo que allá.
+ */
+interface Lexicon {
+  roots: Set<string>;
+  domain: Set<string>;
+  known: Set<string>;
+}
+
+/**
+ * El léxico de I1, leído de sus DATOS y no de su código.
+ *
+ * `scripts/language/lexicon.ts` no se puede importar desde aquí: `rootDir` es
+ * `./src` y un import fuera de él no compila. Se lee el JSON, que es la misma
+ * fuente que ese módulo carga.
+ */
+export function readLexicon(): Lexicon | null {
+  const rel = 'scripts/language/lexicon.json';
+  if (!existe(rel)) return null;
+  try {
+    const doc = JSON.parse(crudoDe(rel)) as {
+      spanishRoots?: string[];
+      // LAS OTRAS DOS LISTAS NO SON DECORADO: el corte por dígitos de
+      // `tokenize` (#197) sólo parte lo que el léxico NO reconoce, y
+      // «reconoce» son las TRES listas. Con sólo las raíces, `sha256` —neutro
+      // curado— se partiría aquí y no allá, y las dos implementaciones
+      // volverían a divergir justo en los acrónimos.
+      neutralTokens?: string[];
+      englishExtra?: string[];
+      // OJO: es un MAPA término → razón escrita, no una lista. Lo que cuenta
+      // son sus CLAVES, que es lo que `DOMAIN_TERMS.has(t)` consulta en
+      // lexicon.ts. Leerlo como arreglo hacía explotar `new Set({})` y el
+      // criterio salía «no evaluable» sin decir por qué — el catch se comía
+      // el motivo.
+      domainTerms?: Record<string, string>;
+    };
+    if (!Array.isArray(doc.spanishRoots)) return null;
+    const domain = doc.domainTerms ?? {};
+    return {
+      roots: new Set(doc.spanishRoots),
+      domain: new Set(Object.keys(domain)),
+      known: new Set([
+        ...doc.spanishRoots,
+        ...(doc.neutralTokens ?? []),
+        ...(doc.englishExtra ?? []),
+      ]),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * LA MISMA REGLA QUE `isFlagged`, aplicada aquí porque su módulo vive fuera
+ * de `rootDir`. `isFlagged` es `classify(x) ∈ {es, mixed}`, y las dos clases
+ * se producen exactamente cuando ALGÚN token es raíz española y no es término
+ * de dominio: con eso `es` queda en verdadero, y el resto de tokens sólo
+ * decide entre «es» y «mixed», que se señalan igual.
+ *
+ * Que las dos implementaciones coincidan NO SE SUPONE: lo prueba
+ * tests/language/vocabulary-registry.spec.ts contra el `isFlagged` de verdad,
+ * sobre las 200 declaraciones etiquetadas a mano y sobre todos los valores de
+ * CHECK del esquema. Si alguien cambia el clasificador, esa prueba se pone
+ * roja aquí antes de que este criterio empiece a mentir.
+ */
+export function tokenizeLikeLexicon(identifier: string, known: ReadonlySet<string>): string[] {
+  return identifier
+    .replace(/(\p{Ll}|\p{N})(\p{Lu})/gu, '$1 $2')
+    .replace(/(\p{Lu}+)(\p{Lu}\p{Ll})/gu, '$1 $2')
+    .split(/[^\p{L}\p{N}]+|\s+/u)
+    .filter((t) => t.length > 0)
+    .map((t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
+    .flatMap((t) => {
+      if (!/\p{L}/u.test(t) || !/\p{N}/u.test(t) || known.has(t)) return [t];
+      return t
+        .replace(/(\p{L})(\p{N})/gu, '$1 $2')
+        .replace(/(\p{N})(\p{L})/gu, '$1 $2')
+        .split(' ')
+        .filter((x) => x.length > 0);
+    });
+}
+
+export function flagsAsSpanish(value: string, lexicon: Lexicon): boolean {
+  return tokenizeLikeLexicon(value, lexicon.known).some(
+    (t) => !lexicon.domain.has(t) && lexicon.roots.has(t)
+  );
+}
+
+/**
+ * Los vocabularios `CHECK (col IN (...))` de las migraciones, EN ORDEN: la
+ * base se construye ejecutándolas así y dos columnas se redefinen más tarde.
+ * Gana la última, igual que en Postgres.
+ */
+export function readSchemaVocabularies(): Map<string, string[]> {
+  const literals = (s: string): string[] =>
+    [...s.matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1].replace(/''/g, "'"));
+  const dir = 'src/database/migrations';
+  const out = new Map<string, string[]>();
+  for (const f of fs.readdirSync(rutaDe(dir)).filter((n) => n.endsWith('.sql')).sort()) {
+    const sql = crudoDe(dir, f).replace(/--[^\n]*/g, '');
+    const note = (table: string, column: string, list: string): void => {
+      const values = literals(list);
+      if (values.length) out.set(`${table.replace(/^public\./i, '')}.${column}`, values);
+    };
+    for (const t of sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w.]+)\s*\(([\s\S]*?)\n\);/gi)) {
+      for (const c of t[2].matchAll(/CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi)) note(t[1], c[1], c[2]);
+    }
+    for (const a of sql.matchAll(
+      /ALTER\s+TABLE\s+(?:ONLY\s+)?([\w.]+)[^;]*?ADD\s+(?:CONSTRAINT|COLUMN)[^;]*?CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi
+    )) {
+      note(a[1], a[2], a[3]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Los valores de `AccountRole`. Se leen del FUENTE porque son una unión de
+ * TypeScript: no existen en tiempo de ejecución y la base no los protege con
+ * ningún CHECK — que es justo por lo que la issue los nombra aparte.
+ */
+export function readAccountRoleValues(): string[] {
+  const rel = 'src/services/xml-ingestion/cfdi-taxonomy.ts';
+  if (!existe(rel)) return [];
+  const code = codigoDe(rel);
+  const m = /export\s+type\s+AccountRole\s*=([\s\S]*?);/.exec(code);
+  if (!m) return [];
+  return [...new Set([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]))];
+}
 
 // ── Los criterios ───────────────────────────────────────────
 
@@ -2306,6 +2484,136 @@ export const CRITERIOS: Criterio[] = [
           `de ${enElEsquema.size} leídos de las migraciones`
       );
     },
+  },
+  {
+    paquete: 'E0.2',
+    // EL MAPA DEL RENOMBRADO, EXIGIDO COMPLETO (I4 · issue #146).
+    //
+    // El criterio de arriba pregunta si el vocabulario del CÓDIGO coincide con
+    // el CHECK. Éste pregunta otra cosa, y por eso vive aparte en vez de
+    // sustituirlo: si cada término español que este sistema PERSISTE tiene ya
+    // decidido su nombre inglés, o escrita la razón de no tenerlo.
+    //
+    // Sin esta lista, I23–I25 renombran a ciegas: cada tramo elige el nombre
+    // de su clase cuando le toca, y el mismo concepto acaba con dos
+    // traducciones en dos tablas. Eso ya no se arregla renombrando; se
+    // arregla con otro renombrado, sobre datos de despachos reales.
+    //
+    // NO SE ANCLA A NINGUNA CIFRA. Cuenta lo que encuentra hoy y exige que el
+    // registro lo cubra: una migración nueva con un valor español entra en la
+    // cuenta sola, sin que nadie actualice un número aquí.
+    enunciado:
+      'Todo literal español de un CHECK y todo value de AccountRole está en el registro del vocabulario',
+    evaluar: () => {
+      const reg = readVocabularyRegistry();
+      if (reg === null) {
+        return falla('no existe src/language/vocabulary-registry.json: el renombrado de I23–I25 no tiene mapa');
+      }
+      if (reg.problems.length) {
+        return falla(
+          `el registro tiene ${reg.problems.length} entrada(s) inválida(s): ` +
+            reg.problems.slice(0, 3).join(' · ')
+        );
+      }
+
+      // EL DETECTOR DE ESPAÑOL ES EL DE I1, NO UNO NUEVO. Se lee su léxico de
+      // datos —scripts/language/lexicon.json— y se aplica su misma regla:
+      // `isFlagged` devuelve verdadero cuando ALGÚN token es raíz española y
+      // no es término de dominio, porque esos son exactamente los casos «es»
+      // y «mixed». Que las dos implementaciones coincidan no se supone: lo
+      // prueba tests/language/vocabulary-registry.spec.ts sobre las 200
+      // declaraciones etiquetadas a mano y sobre todos los valores de CHECK.
+      const lexicon = readLexicon();
+      if (lexicon === null) {
+        return noEvaluable('no se pudo leer scripts/language/lexicon.json: sin léxico no hay veredicto de idioma');
+      }
+      if (lexicon.roots.size < 1000) {
+        return noEvaluable(`el léxico trae ${lexicon.roots.size} raíces: no tiene la forma que este criterio sabe leer`);
+      }
+
+      const inSchema = readSchemaVocabularies();
+      if (inSchema.size < 20) {
+        return noEvaluable(
+          `sólo se leyeron ${inSchema.size} CHECK de vocabulario: ya no tienen la forma que este criterio sabe leer`
+        );
+      }
+
+      const missing: string[] = [];
+      let spanish = 0;
+      for (const [key, values] of inSchema) {
+        for (const v of values) {
+          if (!flagsAsSpanish(v, lexicon)) continue;
+          spanish++;
+          if (!reg.has('check-value', key, v)) missing.push(`${key} = '${v}'`);
+        }
+      }
+
+      // AccountRole no tiene CHECK —sus 36 valores viven en una unión de
+      // TypeScript y en filas sembradas—, así que se lee del fuente. Es la
+      // población que el issue nombra aparte por eso mismo: es la única clase
+      // grande que la base no protege.
+      const roleValues = readAccountRoleValues();
+      if (roleValues.length < 20) {
+        return noEvaluable(
+          `sólo se leyeron ${roleValues.length} values de AccountRole en cfdi-taxonomy.ts: cambió de forma`
+        );
+      }
+      const missingRoles = roleValues.filter((r) => !reg.has('account-role', 'account_roles.role', r));
+
+      if (missing.length || missingRoles.length) {
+        const parts: string[] = [];
+        if (missing.length) {
+          parts.push(
+            `${missing.length} literal(es) español(es) de CHECK sin entrada en el registro ` +
+              `(${missing.slice(0, 3).join(', ')}): I23–I25 los renombrarían sin mapa`
+          );
+        }
+        if (missingRoles.length) {
+          parts.push(
+            `${missingRoles.length} value(es) de AccountRole sin registrar ` +
+              `(${missingRoles.slice(0, 3).join(', ')}): son roleValues que 26 archivos leen y la base no protege`
+          );
+        }
+        return falla(parts.join(' · '));
+      }
+
+      return ok(
+        `${reg.total} entries registradas cubren los ${spanish} literals españoles de ` +
+          `${inSchema.size} CHECK y los ${roleValues.length} values de AccountRole; ` +
+          `${reg.kept} de ellas no se renombran y todas dicen por qué`
+      );
+    },
+    // LOS DOS ESPEJOS QUE LA ISSUE #146 PIDE: «borrar una fila del registro →
+    // rojo». Se borra corrompiendo la LLAVE de la fila y no el bloque entero,
+    // por dos razones que importan:
+    //
+    //   · El JSON sigue siendo válido, así que el criterio falla por FALTA DE
+    //     COBERTURA y no por «no es JSON válido». Un espejo que mata por el
+    //     motivo equivocado no prueba lo que dice probar.
+    //   · La entrada sigue bien formada, así que tampoco muere por
+    //     `problemsIn`. Lo único que cambia es que el término deja de estar
+    //     en el índice — que es exactamente lo que pasa cuando alguien borra
+    //     una fila de verdad.
+    //
+    // Uno por cada población que el criterio vigila, porque fallan por caminos
+    // distintos: el CHECK se lee de las migraciones y AccountRole del fuente
+    // de una unión de TypeScript.
+    mutantes: [
+      {
+        archivo: 'src/language/vocabulary-registry.json',
+        de: '"es": "cfdi_retencion",',
+        a: '"es": "cfdi_retencion_BORRADA",',
+        porque:
+          'fila-borrada: un literal español de un CHECK deja de estar registrado y I23–I25 lo renombrarían sin mapa',
+      },
+      {
+        archivo: 'src/language/vocabulary-registry.json',
+        de: '"es": "depreciacion_acumulada",',
+        a: '"es": "depreciacion_acumulada_BORRADA",',
+        porque:
+          'fila-borrada: un valor de AccountRole deja de estar registrado, y es la clase que ningún CHECK protege',
+      },
+    ],
   },
 
   // ---- E0.3 · Bitácora de auditoría ----
