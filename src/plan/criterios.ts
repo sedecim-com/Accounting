@@ -189,6 +189,24 @@ export function crudoDe(...p: string[]): string {
   return leer(rutaDe(...p));
 }
 
+/**
+ * El SQL sin sus comentarios de línea.
+ *
+ * Un criterio que pregunta QUÉ HACE un archivo .sql tiene que leer el SQL, no
+ * la prosa que lo rodea. Dos veces en el mismo tramo un comentario que CITABA
+ * el ancla dejó su criterio verde: el que prohibía `CREATE OR REPLACE TRIGGER`
+ * se disparó contra el comentario que explica por qué está prohibido, y el que
+ * exigía el cambio de rol lo encontró en una tabla de mediciones comentada. Es
+ * la misma familia que la lección `_f05d` del piso: un ancla de presencia
+ * caduca en cuanto alguien escribe cerca.
+ *
+ * Sólo se quitan los comentarios que ABREN la línea: un `--` a media línea
+ * puede vivir dentro de un literal.
+ */
+export function sinProsa(sql: string): string {
+  return sql.replace(/^[ \t]*--.*$/gm, '');
+}
+
 export function existe(rel: string): boolean {
   // El overlay también gobierna la EXISTENCIA: así un espejo puede fingir
   // que un registro de auditoría o una migración desaparecieron.
@@ -605,6 +623,27 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   // T13. Nace protegido: un archivo nuevo sin renglón aquí puede perder su
   // umbral en un commit posterior sin que ninguna compuerta se mueva.
   'src/services/reporting/criterio-archivadas.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  // J0.2. La ley y su semilla nacen protegidas: un umbral que sólo vive en
+  // vitest.config.ts se puede bajar sin que ninguna compuerta se mueva, y el
+  // ataque 3e de s4a exige que toda entrada de `thresholds` esté también
+  // aquí — lo cazó cuando faltaban estas dos.
+  'src/services/jurisdiction/legal-parameters.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/jurisdiction/legal-parameters-seed.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  // O1 · Las seis piezas por las que entra una contabilidad entera desde el
+  // XML del SAT: los dos lectores, el importador del catálogo, el deductor de
+  // tipo por agrupador, la carga de la apertura y su cotejo. Nacen con suelo
+  // porque son las que deciden si un peso entra, con qué signo y bajo qué
+  // padre; la cifra sale de la corrida completa, no del redondeo cómodo.
+  'src/services/accounting/opening-balance.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/accounting/opening-balance-check.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
+  'src/services/accounting/sat-chart-import.ts': { statements: 99, branches: 94, functions: 100, lines: 99 },
+  'src/services/accounting/sat-agrupador-account-type.ts': { statements: 97, branches: 97, functions: 100, lines: 97 },
+  'src/services/sat/anexo24/balance-reader.ts': { statements: 98, branches: 88, functions: 100, lines: 100 },
+  'src/services/sat/anexo24/catalog-reader.ts': { statements: 98, branches: 81, functions: 100, lines: 100 },
+  // La aritmética del devengo de prestaciones (D1) nace con el suelo arriba y no
+  // puede bajar de ahí: es dinero por trabajador y por mes, se postea a un mayor
+  // inmutable (041) y tiene que extinguirse al centavo contra el finiquito.
+  'src/services/accruals/provisions-math.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
 };
 
 /**
@@ -630,6 +669,210 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
 
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
+
+  // ---------------------------------------------------------------
+  // O1 lo encontró: UN BYTE INVISIBLE QUE APAGA `grep` SOBRE UN ARCHIVO ENTERO
+  //
+  // La verificación adversaria de O1 halló un NUL crudo escrito como separador
+  // de una clave compuesta, con el byte de verdad dentro del literal. Es la
+  // decisión CORRECTA —un NUL no cabe en un código de cuenta ni en un folio—
+  // escrita del modo equivocado: convierte el fuente en BINARIO para `grep` y
+  // para `file`, y mil ciento sesenta y seis líneas —el archivo que escribe el
+  // asiento de apertura— dejaron de aparecer en ninguna búsqueda del
+  // repositorio. Se descubrió por accidente, buscando otra cosa.
+  //
+  // NINGUNA PUERTA LO VIO: pasa tsc, pasa eslint, pasa vitest, pasa la
+  // cobertura. Y `git diff` tampoco avisa, porque la heurística de binario de
+  // git sólo mira los primeros 8 000 bytes y el NUL caía en el 22 381: la
+  // revisión humana habría visto un diff perfectamente normal.
+  //
+  // Se busca SÓLO el NUL, no la familia entera de bytes de control: es el que
+  // apaga las herramientas, y un criterio que caza de más se desactiva a la
+  // primera falsa alarma. La lectura va por `crudoDe` —el seam— para que el
+  // espejo pueda inyectar uno y comprobar que este criterio muerde.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E0.0',
+    id: 'sources-carry-no-nul-bytes',
+    enunciado:
+      'Ningún fuente lleva un byte NUL, que lo saca entero del alcance de grep sin que ninguna puerta se mueva',
+    evaluar: () => {
+      const rutas: string[] = [];
+      const caminar = (rel: string): void => {
+        const abs = rutaDe(rel);
+        if (!fs.existsSync(abs)) return;
+        for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+          if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
+          const hijo = path.join(rel, e.name);
+          if (e.isDirectory()) caminar(hijo);
+          else if (/[.](ts|sql|json|ya?ml)$/.test(e.name)) rutas.push(hijo);
+        }
+      };
+      for (const raiz of ['src', 'tests', 'scripts']) caminar(raiz);
+
+      const binarios = rutas.filter((r) => crudoDe(r).includes('\u0000'));
+      if (binarios.length > 0) {
+        return falla(
+          `${binarios.length} fuente(s) llevan un byte NUL y están fuera del alcance de grep: ` +
+            `${binarios.slice(0, 4).join(', ')}. Escríbelo como el escape \\u0000 dentro del ` +
+            `literal: el separador sigue siendo el mismo y el archivo vuelve a ser texto.`
+        );
+      }
+      return ok(
+        `${rutas.length} fuentes de src/, tests/ y scripts/ barridos y ninguno lleva un byte NUL: ` +
+          `todos siguen siendo alcanzables por grep`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/plan/conducta.ts',
+        de: "'conducta.ts necesita --salida=<archivo.json>\\n'",
+        a: "'conducta.ts necesita\u0000--salida=<archivo.json>\\n'",
+        porque:
+          'un NUL inyectado en un fuente real: si el barrido dejara de mirar, o mirara el disco en ' +
+          'vez del seam, este criterio seguiría verde sobre un archivo que grep ya no encuentra',
+      },
+    ],
+  },
+  {
+    paquete: 'E1.1',
+    id: 'law-is-read-by-date-and-fails-closed',
+    enunciado: 'La ley se lee por la fecha del hecho, y sin vigencia falla en vez de devolver cero',
+    evaluar: () => {
+      // POR QUÉ NACE (J0.2, issue #123). La ley vivía quemada en el código o en
+      // `tax_parameters`, que la guarda POR AÑO aunque la UMA cambie el 1 de
+      // febrero. Y donde faltaba la fila, el sistema no se detenía: el IMSS
+      // dejaba las tasas en CERO y el INFONAVIT aplicaba un 5 % quemado. Una
+      // cifra inventada que cuadra es peor que un error, porque nadie la busca.
+      //
+      // Este criterio vigila las tres propiedades que hacen que la tabla no
+      // nazca huérfana ni mienta: que se lea por FECHA, que falle CERRADO, y
+      // que la columna del panel tenga quien la lea.
+      const lector = codigoDe('src/services/jurisdiction/legal-parameters.ts');
+      const panel = codigoDe('src/services/policy/policy-service.ts');
+
+      // (a) POR LA FECHA DEL HECHO. Un recálculo de mayo tiene que leer la ley
+      // de mayo. Sin `effective_from <= fecha` ordenado descendente, la lectura
+      // devolvería la más reciente y reexpediría el pasado con la ley de hoy.
+      if (!/AND effective_from <= \$3::date/.test(lector) || !/ORDER BY[^;]*effective_from DESC/i.test(lector)) {
+        return falla(
+          'el lector de la ley no elige por fecha del hecho: o no compara effective_from, o no toma la ' +
+            'más reciente que la precede'
+        );
+      }
+
+      // (b) FALLA CERRADO. Es el corazón del tramo: sin vigencia, LANZA.
+      if (!/'never_loaded',/.test(lector) || !/if \(row === null\) \{/.test(lector)) {
+        return falla(
+          'el lector no lanza cuando no hay vigencia: si devuelve cero o un valor por omisión, repite el ' +
+            'defecto del IMSS en cero que J0 viene a cerrar'
+        );
+      }
+
+      // (c) LA COLUMNA TIENE LECTOR. Una columna que nadie selecciona es
+      // capacidad huérfana, y `doctor` la acusa.
+      if (!/jurisdiction/.test(panel)) {
+        return falla('policy_decisions.jurisdiction no tiene lector en el servicio de políticas: nace muerta');
+      }
+
+      return ok(
+        'la ley se lee por la fecha del hecho, falla cerrado sin vigencia, y la jurisdicción del panel ' +
+          'tiene quien la lea'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/jurisdiction/legal-parameters.ts',
+        de: "        'never_loaded',",
+        a: "        'ninguno', // el hueco deja de nombrarse",
+        porque:
+          'el lector deja de fallar cerrado: una clave sin vigencia pasaría a devolver un hueco en vez de ' +
+          'detener el cálculo, que es exactamente cómo el IMSS acabó cotizando en cero',
+      },
+      {
+        archivo: 'src/services/jurisdiction/legal-parameters.ts',
+        de: 'AND effective_from <= $3::date',
+        a: 'AND effective_from >= $3::date',
+        porque:
+          'invierte la fecha: la lectura devolvería la PRIMERA vigencia posterior al hecho en vez de la que ' +
+          'regía, y un recálculo de mayo se haría con la ley que entró en junio',
+      },
+    ],
+  },
+
+
+  {
+    paquete: 'E0.0',
+    id: 'language-rule-written-and-lexicon-shared',
+    enunciado: 'La regla del idioma está escrita donde se lee, y el léxico que la mide existe',
+    evaluar: () => {
+      // POR QUÉ NACE (I1, issue #143). El repositorio tenía la regla contraria
+      // ESCRITA y en tres sitios: «Los comentarios y la documentación van en
+      // español» (CONTRIBUTING, README) y «el español es una capa de alias»
+      // (la wiki). Con esa frase en pie, cada PR nuevo nacía en español con
+      // razón, y el epic #141 habría sido un tramo peleando contra la propia
+      // documentación del proyecto. Cambiar la regla escrita no es papeleo: es
+      // lo único que hace que lo NUEVO deje de crecer en español.
+      //
+      // Y la regla sola no basta, porque «español» no es medible a ojo: hace
+      // falta la lista contra la que se mide. El metro (I2) y el lint (I3) van
+      // a consumir ESTE léxico y no cada uno el suyo — dos listas distintas
+      // publican dos números distintos y entonces nadie sabe cuál miente.
+      const contrib = crudoDe('CONTRIBUTING.md');
+      if (/Los comentarios y la documentación van en español/.test(contrib)) {
+        return falla(
+          'CONTRIBUTING vuelve a pedir que los comentarios vayan en español: la regla escrita ' +
+            'contradice al epic, y gana la escrita porque es la que se lee al contribuir'
+        );
+      }
+      if (!/nacen en inglés/.test(contrib)) {
+        return falla('CONTRIBUTING no dice en qué idioma nace lo nuevo: la regla se quedó sin sustituto');
+      }
+      // AGENTS.md heredaba la regla por referencia y no tenía la suya. La
+      // frontera que tiene que nombrar no es «inglés en el código»: es QUIÉN
+      // LEE cada cosa, que es lo que decide de qué capa es.
+      const agents = crudoDe('AGENTS.md');
+      if (!/Lo que identifica no se traduce nunca/.test(agents)) {
+        return falla(
+          'AGENTS.md no nombra la frontera entre lo que identifica y lo que se lee: sin ella, el ' +
+            'primer tramo que traduzca una clave rompe todo lo que casaba contra ella'
+        );
+      }
+      const p = 'scripts/language/lexicon.ts';
+      if (!existe(p)) return falla('no hay léxico: la regla del idioma no se puede medir');
+      const lex = codigoDe(p);
+      if (!/export const SPANISH_ROOTS/.test(lex) || !/export function classify/.test(lex)) {
+        return falla('el léxico no publica ni sus raíces ni su clasificador: no hay una sola población que medir');
+      }
+      return ok('la regla escrita dice inglés de origen, nombra la frontera, y el léxico que la mide existe');
+    },
+    mutantes: [
+      {
+        archivo: 'CONTRIBUTING.md',
+        de: 'Los comentarios y la documentación **nacen en inglés**',
+        a: 'Los comentarios y la documentación van en español',
+        porque:
+          'la regla vieja vuelve al sitio donde se lee antes de contribuir, y con ella cada PR nuevo ' +
+          'nace en español con razón: el epic entero pasaría a pelear contra la documentación del proyecto',
+      },
+      {
+        archivo: 'AGENTS.md',
+        de: 'Lo que identifica no se traduce nunca',
+        a: 'Lo que identifica también se traduce',
+        porque:
+          'traducir una clave no cambia lo que dice, cambia a qué se parece: todo lo que casaba contra ' +
+          'ella deja de casar en silencio, y ésa es la advertencia que este archivo existe para dar',
+      },
+      {
+        archivo: 'scripts/language/lexicon.ts',
+        de: 'export const SPANISH_ROOTS',
+        a: 'const SPANISH_ROOTS',
+        porque:
+          'el léxico deja de publicar su lista y cada consumidor se hace la suya: el metro y el lint ' +
+          'pasan a contar poblaciones distintas y sus dos números dejan de ser comparables',
+      },
+    ],
+  },
 
   {
     paquete: 'E0.0',
@@ -1241,6 +1484,141 @@ export const CRITERIOS: Criterio[] = [
       return sinOptIn.length === 0
         ? ok('el corredor convierte el filtrado silencioso en 42501 y las siembras por inquilino declaran su opt-in')
         : falla(`bucle por inquilino sin «SET LOCAL row_security = on» — contra el piso mueren en el catch-up: ${sinOptIn.join(', ')}`);
+    },
+  },
+
+  {
+    paquete: 'E0.2',
+    id: 'matview-migration-survives-rls-floor',
+    enunciado: 'Toda migración que recree una vista materializada declara cómo sobrevive al piso de RLS',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/071_las_vistas_que_perdian_la_archivada.sql',
+        de: "EXECUTE 'SET LOCAL ROLE mnemosine_refresher';",
+        a: "RAISE NOTICE 'sin cambiar de rol';",
+        porque:
+          'EL DEFECTO MEDIDO: sin el traje del refrescador, `CREATE MATERIALIZED VIEW ... AS SELECT ... FROM accounts` muere con 42501 contra el piso `row_security = off` y la actualización de TODO despacho instalado se detiene ahí — en instalación nueva no se nota, porque las políticas aún no existen cuando corre',
+      },
+    ],
+    evaluar: () => {
+      // LA MINA QUE ESTE CRITERIO CIERRA, Y POR QUÉ EL DE ARRIBA NO LA VIO.
+      // El criterio anterior sólo inspecciona migraciones que iteran
+      // inquilinos con `set_config('app.current_tenant')`. La 071 no menciona
+      // ninguna: crea dos vistas materializadas leyendo `accounts`, y bajo el
+      // piso `row_security = off` eso no filtra en silencio, LANZA 42501. Pasó
+      // por debajo del instrumento y llegó a main, donde bloqueaba la
+      // actualización de cualquier instalación viva. Medido como
+      // `mnemosine_owner` con las políticas puestas.
+      //
+      // Una instalación NUEVA nunca lo veía —rls-policies.sql corre en el
+      // `finally`, después—, que es justo por lo que CI tampoco: su base nace
+      // sin políticas. El criterio mira el texto porque la conducta sólo
+      // aparece con un rol no superusuario y una base ya endurecida.
+      const dir = rutaDe('src', 'database', 'migrations');
+      const sinDeclarar = fs.readdirSync(dir)
+        .filter((f) => f.endsWith('.sql'))
+        .filter((f) => {
+          const sql = sinProsa(crudoDe('src/database/migrations', f));
+          if (!/CREATE\s+MATERIALIZED\s+VIEW/i.test(sql)) return false;
+          // Tres formas legítimas de sobrevivir al piso, y ninguna es
+          // desarmar la RLS: vestirse del rol que la ignora por contrato,
+          // no poblar la vista al crearla, o correr antes de que exista
+          // política alguna — que es el caso de las migraciones tempranas,
+          // donde las tablas que la vista lee todavía no están acotadas.
+          const declara = /SET LOCAL ROLE mnemosine_refresher/.test(sql)
+            || /WITH NO DATA/i.test(sql)
+            || Number(f.slice(0, 3)) < 20;
+          return !declara;
+        });
+      if (sinDeclarar.length === 0 && !existe('tests/integration/migracion-071-actualizacion-bajo-rls.int.spec.ts')) {
+        // LA MITAD DINÁMICA, Y NO ES ADORNO (WIT-03). Lo de arriba es
+        // PRESENCIA de texto: da verde con el archivo escrito y jamás
+        // ejecutado en el estado que lo rompía. La prueba monta las tres cosas
+        // que hacen falta para que el defecto exista —rol NOBYPASSRLS que es
+        // DUEÑO, políticas con su FORCE, y el piso `row_security = off`— y
+        // cae al neutralizar el `SET LOCAL ROLE`, el `RESET ROLE` o la
+        // devolución del ACL. Sin ella, una regresión en ese baile bloquearía
+        // toda actualización instalada y CI seguiría en verde.
+        return falla('no hay prueba que EJECUTE la 071 sobre una base endurecida: leer el archivo no demuestra que la actualización sobreviva');
+      }
+      return sinDeclarar.length === 0
+        ? ok('ninguna migración puebla una vista materializada sin decir cómo esquiva el 42501 del piso, y hay prueba que lo ejecuta bajo FORCE RLS')
+        : falla(`vista materializada creada sin declarar cómo sobrevive a «row_security = off»: ${sinDeclarar.join(', ')} — muere con 42501 en toda base ya endurecida, y en instalación nueva no se nota`);
+    },
+  },
+
+  {
+    paquete: 'E0.2',
+    id: 'distributed-migration-repaired-by-new-file',
+    enunciado: 'La reparación de una migración ya distribuida llega por archivo nuevo, y repone el sello que arranca',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/072_la_huella_que_se_podia_forjar.sql',
+        de: 'ALTER TABLE bank_transactions ENABLE ALWAYS TRIGGER bank_transactions_content_hash;',
+        a: '-- sin reponer el ENABLE ALWAYS',
+        porque:
+          'la trampa medida: recrear el disparador se lleva por delante el `ENABLE ALWAYS` de la 058, y el remedio dejaría el sello «garantia-sellada» colgado de un disparador que vuelve a poder apagarse con session_replication_role',
+      },
+      {
+        archivo: 'src/database/migrations/072_la_huella_que_se_podia_forjar.sql',
+        de: 'DROP INDEX IF EXISTS uq_bank_tx_contenido;',
+        a: '-- el índice único se queda',
+        porque:
+          'el remedio deja de reparar lo que cuesta dinero: con el índice ÚNICO, la segunda comisión legítima del mismo día no entra y el sistema la reporta como duplicada, acusando al banco',
+      },
+      {
+        archivo: 'src/database/migrations/072_la_huella_que_se_podia_forjar.sql',
+        de: 'DO $huellas$',
+        a: null,
+        porque:
+          'si el remedio desaparece, la instalación que registró la 051 vieja se queda para siempre con la huella forjable: el criterio debe dar ROJO, no reventar leyendo un archivo que ya no está',
+      },
+    ],
+    evaluar: () => {
+      // WIT-01 CRÍTICO DE #136. T1 reparó la 051 EDITÁNDOLA EN SU SITIO, y el
+      // corredor omite por NOMBRE sin checksum: donde la vieja quedó
+      // registrada —toda instalación cuyo `bank_transactions` estaba vacío—,
+      // la reparada no corre jamás. El remedio sólo puede llegar por archivo
+      // nuevo, y este criterio vigila que ese archivo siga existiendo y siga
+      // haciendo las cuatro cosas que tiene que hacer.
+      const remedio = 'src/database/migrations/072_la_huella_que_se_podia_forjar.sql';
+      if (!existe(remedio)) {
+        return falla('desapareció el remedio de la 051: la instalación que registró la vieja se queda con la huella forjable y el índice que se traga movimientos legítimos (#136)');
+      }
+      const sql = sinProsa(crudoDe(remedio));
+
+      // 1. EL ÍNDICE, en el orden que no rompe: soltar el único ANTES de crear
+      //    el llano. Al revés fallaría con 23505 justo donde hace falta.
+      if (!/DROP INDEX IF EXISTS uq_bank_tx_contenido/.test(sql)
+          || !/CREATE INDEX IF NOT EXISTS idx_bank_tx_contenido/.test(sql)) {
+        return falla('el remedio dejó de sustituir el índice único: dos movimientos bancarios legítimamente idénticos siguen siendo irrepresentables');
+      }
+
+      // 2. EL DISPARADOR, Y NUNCA CON «CREATE OR REPLACE». Medido: esa forma
+      //    degrada `tgenabled` de 'A' a 'O' EN SILENCIO y conserva el
+      //    comentario — deja el sello sobre un disparador que ya se puede
+      //    apagar, que es peor que no tenerlo.
+      if (/CREATE\s+OR\s+REPLACE\s+TRIGGER/i.test(sql)) {
+        return falla('el remedio usa CREATE OR REPLACE TRIGGER: degrada el ENABLE ALWAYS de la 058 en silencio y deja la garantía sellada sobre un disparador apagable');
+      }
+      if (!/ENABLE ALWAYS TRIGGER bank_transactions_content_hash/.test(sql)
+          || !/COMMENT ON TRIGGER bank_transactions_content_hash/.test(sql)) {
+        return falla('el remedio recrea el disparador sin reponer el sello de la 058: doctor dejaría de contar una garantía que nadie repuso');
+      }
+
+      // 3. Y SI TOCA DATOS, CON EL OPT-IN DECLARADO. El corredor corre con
+      //    `row_security = off`: un UPDATE pelado sobre una tabla acotada
+      //    muere con 42501 y revierte el archivo entero.
+      if (/UPDATE bank_transactions/.test(sql)
+          && !(/SET LOCAL row_security = on/.test(sql) && /set_config\('app\.current_tenant'/.test(sql))) {
+        return falla('el remedio escribe en una tabla acotada sin declarar su opt-in ni recorrer inquilinos: moriría con 42501 en la primera base endurecida');
+      }
+
+      // 4. Y SE PRUEBA EJECUTÁNDOLO. Un remedio de migración que sólo se lee
+      //    es la misma clase de falso verde que este tramo vino a cerrar.
+      return existe('tests/integration/migracion-072-remedio-051.int.spec.ts')
+        ? ok('el remedio llega por archivo nuevo, sustituye el índice, recrea el disparador reponiendo el sello de la 058, declara su opt-in y se prueba corriéndolo')
+        : falla('el remedio no tiene prueba que lo EJECUTE sobre una base que traiga la 051 vieja: leerlo no demuestra que repare');
     },
   },
 
@@ -2676,6 +3054,228 @@ export const CRITERIOS: Criterio[] = [
   // ---- E2.1 · Perímetro ----
   {
     paquete: 'E2.1',
+    id: 'permission-gate-has-behavioural-proof',
+    enunciado: 'La puerta de permisos y la frontera por id se prueban ejerciéndolas, no sólo declarándolas',
+    evaluar: () => {
+      // T14b·remate. La amputación de GraphQL (#101) se llevó por delante algo
+      // que su PR afirmó que no se llevaba: las ÚNICAS pruebas de conducta de
+      // `assertPermissions`. Medido después de fusionarla, sobre `main`:
+      // convertida en un no-op que no compara nada, la suite unitaria entera
+      // pasaba —253 archivos, 5 457 pruebas—. La puerta de permisos de todo el
+      // producto podía dejar de preguntar sin que nada chistara.
+      //
+      // Lo mismo con la frontera POR ID: vaciando `assertEntryAccess`, postear
+      // o anular el asiento de la sociedad hermana conociendo su UUID no lo
+      // acusaba ninguna prueba. Y quitando `requirePermission('periods:close')`
+      // de la ruta de CIERRE DURO —irreversible— tampoco.
+      //
+      // La red que sí existía era ESTRUCTURAL: `roles.spec.ts` comprueba que el
+      // catálogo no conceda el permiso, y `openapi-contrato.spec.ts` que toda
+      // ruta declare el suyo. Ninguna de las dos ejerce la NEGATIVA, y ésa es
+      // la diferencia que este criterio existe para no volver a perder.
+      if (!existe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts')) {
+        return falla(
+          'desapareció la prueba de conducta de la puerta de permisos: con ella fuera, `assertPermissions` puede dejar de comparar y la suite entera sigue verde — medido'
+        );
+      }
+      const spec = crudoDe('tests/integration/permiso-y-frontera-por-rest.int.spec.ts');
+      // Los dos ejes, cada uno con su marca: el 403 del permiso y el 404 de la
+      // frontera. Y el 404 NO puede ser 403: distinguirlos delataría que el
+      // recurso ajeno existe.
+      if (!/403/.test(spec) || !/404/.test(spec)) {
+        return falla('la prueba dejó de ejercer alguno de los dos ejes: el 403 del permiso o el 404 de la frontera por id');
+      }
+      // Y RELEE LA FILA. Un 403 concedido después de escribir no es un 403.
+      if (!/const estadoDe = async/.test(spec)) {
+        return falla('la prueba dejó de releer el asiento tras el rechazo: un 403 que ya posteó no es un 403');
+      }
+      // La puerta sigue siendo UNA. Si `requirePermission` dejara de delegar,
+      // la prueba de arriba seguiría verde vigilando código muerto.
+      const auth = codigoDe('src/api/rest/middleware/auth.ts');
+      if (!/assertPermissions\(req\.user, permissions\)/.test(auth)) {
+        return falla('`requirePermission` dejó de pasar por `assertPermissions`: la prueba vigilaría una puerta que ya no se usa');
+      }
+      return ok('el permiso y la frontera por id se ejercen contra Postgres, releyendo la fila, y la puerta sigue siendo una');
+    },
+    mutantes: [
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'el eje del PERMISO',
+        a: null,
+        porque: 'la prueba de conducta desaparece — que es exactamente lo que pasó al retirar GraphQL, y lo que nadie acusó',
+      },
+      {
+        archivo: 'tests/integration/permiso-y-frontera-por-rest.int.spec.ts',
+        de: 'const estadoDe = async',
+        a: 'const noRelee = async',
+        porque: 'la prueba deja de releer la fila tras el rechazo: bendeciría un 403 concedido después de haber escrito',
+      },
+      {
+        archivo: 'src/api/rest/middleware/auth.ts',
+        de: 'assertPermissions(req.user, permissions)',
+        a: 'assertPermissions(req.user, [])',
+        porque: '`requirePermission` deja de exigir lo que declara: la puerta sigue ahí y ya no pregunta nada',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E2.1',
+    id: 'graphql-surface-withdrawn',
+    enunciado: 'La segunda puerta al mayor está retirada, y no puede volver en silencio',
+    evaluar: () => {
+      // T14b (#101). Aquí vivían DOS criterios sobre una superficie GraphQL
+      // apagada tras `GRAPHQL_ENABLED`. Se retiró entera —1 862 líneas y cero
+      // consumidores: ningún cliente en el árbol, ningún .graphql, y
+      // `npm run graphql:codegen` sin siquiera binario— y con ella se fue el
+      // argumento escrito para conservarla, que decía «this repository has no
+      // version control, and 891 lines are not recoverable once removed». Hay
+      // git, y las líneas eran el doble de las que ese comentario contaba.
+      //
+      // POR QUÉ ESTE CRITERIO MIDE HECHOS POSITIVOS. El que sustituye empezaba
+      // así:
+      //     if (!/graphql/i.test(idx)) return ok('GraphQL no está montado');
+      // Verde por AUSENCIA DE UNA PALABRA en un archivo. Reproducido: mudando
+      // el montaje a otro fichero la superficie seguía sirviendo —401 en
+      // /graphql sin credencial, 200 con un JWT de owner— y el tablero no
+      // cambiaba un carácter. Y con una asimetría que lo remata: quitar la
+      // bandera EN SU SITIO lo ponía en ROJO, y mudar el montaje además de
+      // quitarla lo ponía en VERDE, siendo la segunda estrictamente peor.
+      //
+      // Y NO SE MIDE CON EL CENSO DE RUTAS, que era la reparación evidente:
+      // `censarRutas` recorre `layer.route`, y un `app.use(ruta, manejador)` no
+      // crea ninguna. Medido: 185 rutas censadas y ninguna era /graphql. El
+      // repositorio ya lo tenía fijado por escrito en
+      // tests/integration/g4a-ataque.int.spec.ts, «lo que el censo NO alcanza».
+      // ── LO PRIMERO: CONTAR. UN CENSO VACÍO NO ABSUELVE ──────────────
+      //
+      // Es la mitad que le faltaba al criterio anterior y la razón de que se
+      // pudiera cegar: «no encontré nada» y «no miré» daban el mismo verde. Si
+      // los barridos vuelven vacíos o casi, esto es un instrumento roto, no una
+      // puerta retirada, y se dice en rojo. Medido hoy: 369 fuentes, 67 claves
+      // en package.json y 482 paquetes en el lock; los suelos van holgados para
+      // no romperse con el crecimiento normal.
+      const censoFuentes = fuentes('src').length;
+      if (censoFuentes < 200) {
+        return falla(
+          `el barrido de fuentes sólo vio ${censoFuentes} archivos: el instrumento no miró, y no haber mirado no es haber retirado`
+        );
+      }
+      const paquete = crudoDe('package.json');
+      const censoClaves = [...paquete.matchAll(/^ {4}"[^"]+":\s*"/gm)].length;
+      if (censoClaves < 30) {
+        return falla(
+          `package.json se leyó con ${censoClaves} claves: no se pudo censar lo que declara, así que no se puede afirmar que no declare Apollo`
+        );
+      }
+
+      // ── EL CINTURÓN: EL ÁRBOL ───────────────────────────────────────
+      //
+      // Sin mordida por construcción, y se dice: el arnés de mutación puede
+      // fingir que un archivo DESAPARECE, nunca que aparece. Esta rama no la
+      // cubre ningún espejo, y por eso no es la carga del criterio.
+      if (existe('src/api/graphql')) {
+        return falla('src/api/graphql volvió al árbol: la segunda puerta al mayor está de vuelta');
+      }
+
+      // ── LA CARGA: LA DEPENDENCIA, EN LOS DOS SITIOS QUE INSTALAN ────
+      //
+      // El directorio se renombra; un servidor de Apollo no se monta sin su
+      // paquete. Y se miran los DOS archivos: package.json es la intención y el
+      // lock es lo que `npm ci` instala de verdad — quitarlo de uno y olvidar
+      // el otro deja los paquetes entrando por la puerta de atrás.
+      const vueltas: string[] = [];
+      if (/"@apollo\/server"\s*:/.test(paquete)) vueltas.push('@apollo/server');
+      if (/"@graphql-tools\/[^"]+"\s*:/.test(paquete)) vueltas.push('@graphql-tools/*');
+      if (/"@as-integrations\/[^"]+"\s*:/.test(paquete)) vueltas.push('@as-integrations/*');
+      if (/"graphql"\s*:/.test(paquete)) vueltas.push('graphql');
+      if (vueltas.length > 0) {
+        return falla(
+          `${vueltas.join(', ')} volvió a package.json: sin paquete no hay puerta, así que esto es lo primero ` +
+            'que aparece cuando alguien la remonta, se llame como se llame el directorio'
+        );
+      }
+      // El lock se lee como el JSON que es, no por líneas: así el censo depende
+      // de la CLAVE que lo estructura, y cegarlo —renombrar `packages`— deja el
+      // conteo en cero y el criterio en rojo, que es lo que se quiere. Contarlo
+      // con una expresión regular por línea no se podía cegar de una sola
+      // pieza, y un censo que no se puede cegar tampoco se puede probar.
+      let paquetesDelLock: string[];
+      try {
+        const lock = JSON.parse(crudoDe('package-lock.json')) as {
+          packages?: Record<string, unknown>;
+        };
+        paquetesDelLock = Object.keys(lock.packages ?? {});
+      } catch {
+        return falla('package-lock.json no se pudo leer: sin él no se sabe qué instala `npm ci`, y eso no es un verde');
+      }
+      if (paquetesDelLock.length < 200) {
+        return falla(
+          `el lock se censó con ${paquetesDelLock.length} paquetes: sin censo no se puede afirmar que \`npm ci\` no instale Apollo`
+        );
+      }
+      const enLock = paquetesDelLock.filter((k) =>
+        /(^|\/)(@apollo\/|@graphql-tools\/|@as-integrations\/|graphql)($|\/)/.test(k)
+      );
+      if (enLock.length > 0) {
+        return falla(
+          `${enLock.length} paquete(s) de la puerta retirada siguen en package-lock.json (${enLock.slice(0, 3).join(', ')}): ` +
+            '`npm ci` los instalaría aunque package.json ya no los declare'
+        );
+      }
+
+      // ── Y QUE NINGÚN FUENTE LA IMPORTE ──────────────────────────────
+      //
+      // Sobre CÓDIGO y no comentarios: los que cuentan esta historia son
+      // deliberados y se quedan. Tres cegueras conocidas, dichas en vez de
+      // ocultadas — un especificador compuesto (`'@apollo' + '/server'`), un
+      // import dentro de `src/plan` (que `fuentes()` excluye a propósito) y un
+      // archivo .js (que `fuentes()` no recoge, y que sin `allowJs` tampoco
+      // compila). Ninguna de las tres pasa el censo del lock de arriba, que es
+      // por lo que la carga del criterio está ahí y no aquí.
+      const importadores = dondeAparece(/@apollo\/|from 'graphql'|api\/graphql\//, ['src'], true);
+      if (importadores.length > 0) {
+        return falla(
+          `${importadores.length} fuente(s) vuelven a importar la puerta retirada: ${importadores.slice(0, 4).join(', ')}`
+        );
+      }
+      if (/['"]\/graphql['"]/.test(codigoDe('src/index.ts'))) {
+        return falla('algo volvió a montarse en /graphql, la ruta que quedaba fuera del prefijo auditado');
+      }
+      return ok(
+        `${censoFuentes} fuentes y ${paquetesDelLock.length} paquetes censados: la segunda puerta no está en el árbol, ni en package.json, ni en el lock, ni la importa nadie, ni hay nada montado en /graphql`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'package.json',
+        de: '"express":',
+        a: '"@apollo/server": "^5.5.1",\n    "express":',
+        porque: 'el paquete vuelve: es el ancla que no depende de dónde se ponga el montaje, y tiene que acusar sola',
+      },
+      {
+        archivo: 'package-lock.json',
+        de: '"packages": {',
+        a: '"paquetes": {',
+        porque: 'el censo del lock se queda a oscuras: sin contar antes de absolver, «no encontré Apollo» y «no miré» darían el mismo verde — que es exactamente cómo se cegaba el criterio anterior',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: "import express from 'express';",
+        a: "import express from 'express';\nimport { ApolloServer } from '@apollo/server';",
+        porque: 'un fuente vuelve a importar la puerta retirada: el barrido tiene que verlo aunque el paquete no esté declarado',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: 'app.use(helmet());',
+        a: "app.use('/graphql', helmet());",
+        porque: 'algo vuelve a montarse en /graphql — y el censo de rutas NO lo ve, que es exactamente lo que cegaba al criterio anterior',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E2.1',
     id: 'tenant-context-mounted-globally',
     enunciado: 'El contexto de inquilino se monta una sola vez para todo /v1',
     evaluar: () => {
@@ -2741,6 +3341,18 @@ export const CRITERIOS: Criterio[] = [
           // aparece dentro del cuerpo por cualquier otra razón.
           const montada = /requireEntityAccess/.test(cuerpo.slice(0, 300));
           const comprobadaDentro = /assertEntityAccess\s*\(/.test(cuerpo);
+          // NO SE ADMITE UNA TERCERA FORMA, y lo escribo porque lo intenté.
+          //
+          // Acotar la consulta con `entityScope(req.tenantId!, req.entityId!)`
+          // parece una guarda mejor —el filtro va dentro del SQL, sin ventana
+          // entre comprobar y usar— y NO sustituye a ésta: `req.entityId` sale
+          // de la cabecera `x-entity-id`, y quien comprueba que esa cabecera
+          // esté concedida por el token es `requireEntityAccess`. Sin ella,
+          // acotar por `req.entityId` acota por lo que el atacante escribió.
+          //
+          // Son las dos: la cabecera se valida contra el token, y la consulta
+          // acota. Es lo que hace journal-entries.ts:160 y lo que T9 lleva a
+          // nómina.
           if (!montada && !comprobadaDentro) {
             desprotegidas.push(`${path.basename(f)} ${m[1].toUpperCase()} ${m[2]}`);
           }
@@ -2759,150 +3371,206 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E2.1',
-    id: 'graphql-mounted-behind-flag',
-    enunciado: 'GraphQL no expone mutaciones al mayor fuera del prefijo auditado',
-    evaluar: () => {
-      const idx = codigoDe('src/index.ts');
-      if (!/graphql/i.test(idx)) return ok('GraphQL no está montado');
-      return /graphqlEnabled/.test(idx)
-        ? ok('montado sólo tras GRAPHQL_ENABLED, apagado por omisión')
-        : falla('GraphQL montado sin compuerta: dos mutaciones llegan al motor de posteo sin permisos');
-    },
-  },
-  {
-    paquete: 'E2.1',
-    id: 'graphql-mutation-permission-gate',
-    enunciado: 'Ninguna mutación de GraphQL entra al motor sin permiso, y una nueva no puede nacer sin él',
-    evaluar: () => {
-      // La bandera del criterio anterior compra tiempo, no seguridad: el día
-      // que alguien la encienda, lo que decide es esto. Los resolutores
-      // declaraban `permissions` en su contexto y NO LO LEÍAN: las cinco
-      // mutaciones comprobaban pertenencia de entidad y ninguna comprobaba
-      // permiso, de modo que un `viewer` posteaba al mayor y cerraba el
-      // ejercicio en duro donde REST le habría dado 403.
-      //
-      // Lo que se vigila aquí NO es que las de hoy estén tapadas —eso lo
-      // prueban las pruebas—: es que la SIGUIENTE no pueda nacer abierta. El
-      // esquema declara quince mutaciones; cuando esto se escribió había cinco
-      // y entre las diez ausentes estaban timbrar y cancelar un CFDI ante el
-      // SAT. Hoy hay doce y TRES ausencias dichas: las dos del SAT se
-      // implementaron y se retiraron al ver que no hay servicio en el que
-      // delegar —copiarían una regla fiscal— y que por esta puerta el acto
-      // irreversible quedaría sin autor. Así que se lee el
-      // ESQUEMA, que es el contrato, y se exige de cada mutación declarada una
-      // de dos cosas: resolutor CON permiso declarado, o ausencia dicha con su
-      // motivo. Y que la puerta siga siendo una, y siga lanzando.
-      const esquema = crudoDe('src/api/graphql/schemas/schema.ts');
-      const bloque = /type Mutation \{([\s\S]*?)\n {2}\}/.exec(esquema);
-      if (!bloque) {
-        return falla('no se pudo leer `type Mutation` del esquema: sin contrato que leer, la compuerta no juzga nada');
-      }
-      const declaradas = [...bloque[1].matchAll(/^\s+(\w+)\s*[(:]/gm)].map((m) => m[1]);
-      if (declaradas.length === 0) return falla('el esquema no declara ninguna mutación: el bloque se leyó vacío');
-
-      const puerta = codigoDe('src/api/graphql/permisos.ts');
-      const resolutores = codigoDe('src/api/graphql/resolvers/index.ts');
-
-      // UNA sola puerta, no cinco comprobaciones repartidas: las raíces
-      // enteras entran por ella, o el resto de este criterio no significa nada.
-      // Se miran las TRES —Subscription incluida, que hoy no tiene resolutores
-      // y declara cuatro campos en el esquema—: una suscripción es una lectura
-      // continua, y el día que alguien escriba `Subscription: {` por fuera,
-      // esto es lo que lo acusa.
-      const sueltas = ['Query', 'Mutation', 'Subscription'].filter(
-        (r) =>
-          new RegExp(`^ {2}${r}:`, 'm').test(resolutores) &&
-          !new RegExp(`${r}:\\s*blindar\\(\\s*'${r}'`).test(resolutores)
-      );
-      if (sueltas.length > 0) {
-        return falla(
-          `${sueltas.join(', ')}: raíz de GraphQL servida por fuera de la puerta única. Cada resolutor vuelve ` +
-            'a decidir por su cuenta, que es como se olvidó el permiso en las cinco primeras'
-        );
-      }
-      if (!/Mutation:\s*blindar\(\s*'Mutation'/.test(resolutores) ||
-          !/Query:\s*blindar\(\s*'Query'/.test(resolutores)) {
-        return falla(
-          'las dos raíces que hoy se sirven dejaron de pasar por la puerta única de permisos'
-        );
-      }
-
-      // Y la compuerta se alimenta del esquema y LANZA. Si sólo avisara, la
-      // mutación nueva sin permiso se montaría igual.
-      // El ancla nombra la llamada EXACTA que audita la raíz y lanza. Bastaba
-      // con «hay un throw de CompuertaAbiertaError en el archivo» hasta que
-      // `blindarCampos` añadió el suyo para los resolutores de campo: entonces
-      // desarmar el de la raíz dejaba el criterio en verde porque seguía viendo
-      // el otro. Un criterio que se satisface con el guardia de al lado no
-      // vigila al suyo.
-      const raizAuditaYLanza =
-        /auditarRaiz\(\s*typeDefs/.test(puerta) &&
-        /throw new CompuertaAbiertaError\(huecos\);/.test(puerta);
-      const camposLanzan = /sinCatalogo\.length > 0[\s\S]{0,200}?throw new CompuertaAbiertaError/.test(
-        puerta
-      );
-      if (!raizAuditaYLanza || !camposLanzan) {
-        return falla(
-          'la compuerta dejó de contrastar el esquema o de lanzar al cargar: una mutación sin permiso volvería ' +
-            'a poder montarse'
-        );
-      }
-
-      const implementada = (n: string): boolean => new RegExp(`\\basync ${n}\\s*\\(`).test(resolutores);
-      // Un permiso declarado es una lista con al menos un `recurso:accion`
-      // dentro: `n: []` es una puerta que pregunta por nada.
-      const conPermiso = (n: string): boolean => new RegExp(`\\b${n}:\\s*\\['[a-z_]+:[a-z_*]+'`).test(puerta);
-      // Una ausencia declarada es el nombre seguido de su motivo en prosa.
-      const ausenciaDicha = (n: string): boolean => new RegExp(`\\b${n}:\\s*'`).test(puerta);
-
-      const sinPuerta = declaradas.filter((n) => implementada(n) && !conPermiso(n));
-      if (sinPuerta.length > 0) {
-        return falla(
-          `${sinPuerta.join(', ')}: tienen resolutor y ningún permiso declarado. Llegan al motor con sólo ` +
-            'pertenencia de entidad, igual que antes'
-        );
-      }
-
-      const huerfanas = declaradas.filter((n) => !implementada(n) && !ausenciaDicha(n));
-      if (huerfanas.length > 0) {
-        return falla(
-          `${huerfanas.join(', ')}: el esquema las declara y no están ni implementadas con permiso ni ` +
-            'declaradas ausentes con su motivo. La siguiente se implementa sin puerta'
-        );
-      }
-
-      const conResolutor = declaradas.filter(implementada).length;
-      return ok(
-        `${declaradas.length} mutaciones declaradas: ${conResolutor} con permiso exigido por la puerta única y ` +
-          `${declaradas.length - conResolutor} con su ausencia dicha`
-      );
-    },
+    id: 'payroll-run-scope-is-a-path-not-a-column',
+    // POR QUÉ ESTE CRITERIO NO ES EL ANTERIOR OTRA VEZ.
+    //
+    // `route-entity-access-verified` pregunta si la ruta MONTA la guarda.
+    // `POST /finiquito` la montaba desde D1a y aun así liquidaba a la
+    // plantilla de la sociedad hermana: la guarda valida la entidad DECLARADA
+    // en la cabecera, y acotar la consulta por ella es OTRA defensa. Hacen
+    // falta las dos, y ésta vigila la segunda.
+    //
+    // Y vigila justo donde el ayudante genérico de la casa NO sirve.
+    // `pay_runs`, `pay_periods` y `paychecks` no tienen `entity_id`: sólo
+    // `tenant_id`. `columnaDeAlcance` deduce la columna del esquema, así que
+    // `requireByIdInScope('pay_runs', <id ajeno>, entityScope(A))` DEVUELVE la
+    // fila de la sociedad hermana — medido, no supuesto. Una reparación
+    // escrita con él contesta 404 sobre otro inquilino y 200 sobre la sociedad
+    // de al lado: cerrada en el diff, verde en CI, abierta en producción. Por
+    // eso la frontera aquí es un CAMINO —corrida → periodo → calendario→
+    // entidad— y por eso el camino tiene que seguir llegando a una columna de
+    // entidad de verdad.
+    enunciado:
+      'Las escrituras de la corrida de nómina acotan por la entidad, que en esas tablas es un camino y no una columna',
     mutantes: [
       {
-        archivo: 'src/api/graphql/resolvers/index.ts',
-        de: "Mutation: blindar('Mutation', {",
-        a: 'Mutation: ({',
-        porque: 'la puerta se desmonta y cada resolutor vuelve a decidir solo: el criterio no puede medir el catálogo y bendecirlo',
+        archivo: 'src/services/payroll/common/alcance-nomina.ts',
+        de: 'JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id',
+        a: 'LEFT JOIN pay_schedules ps ON TRUE',
+        porque:
+          'el camino deja de llegar al calendario de la entidad y el EXISTS se cumple para cualquier corrida del inquilino: aprobar, marcar pagada y leer la corrida de la sociedad hermana vuelven a contestar 200',
       },
       {
-        archivo: 'src/api/graphql/permisos.ts',
-        de: 'throw new CompuertaAbiertaError(huecos);',
-        a: 'void huecos;',
-        porque: 'la compuerta pasa de lanzar a callar: un aviso que nadie lee no impide montar la mutación nueva',
+        archivo: 'src/services/payroll/common/pay-run-service.ts',
+        de: 'WHERE id = $1 AND ${alcance.sql} FOR UPDATE',
+        a: 'WHERE id = $1 FOR UPDATE',
+        porque:
+          'la aprobación vuelve a tomar la corrida por su id a secas: con ella se acumula el pasivo patronal ajeno y se habilita el posteo y el pago de una corrida que no es de quien la aprueba',
       },
       {
-        archivo: 'src/api/graphql/permisos.ts',
-        de: "postJournalEntry: ['journal_entries:post'],",
-        a: 'postJournalEntry: [],',
-        porque: 'el permiso se vacía sin quitar la entrada: la puerta sigue puesta y no pregunta nada (presencia donde hacía falta contenido)',
+        archivo: 'src/services/payroll/common/pay-run-service.ts',
+        de: "WHERE id = $1 AND ${alcance.sql} AND status = 'approved' RETURNING tenant_id",
+        a: "WHERE id = $1 AND status = 'approved' RETURNING tenant_id",
+        porque:
+          '`status = paid` AFIRMA QUE EL DINERO SALIÓ, y vuelve a poder afirmarse sobre la corrida de cualquier entidad: la mentira queda escrita en la fila de otro despacho',
       },
       {
-        archivo: 'src/api/graphql/schemas/schema.ts',
-        de: '    hardClosePeriod(periodId: ID!, entityId: ID!): FiscalPeriod!',
-        a: '    hardClosePeriod(periodId: ID!, entityId: ID!): FiscalPeriod!\n    approveBill(id: ID!): Boolean!',
-        porque: 'la mutación nueva que nadie declaró en el catálogo: es el escape que este criterio existe para acusar',
+        archivo: 'src/services/payroll/common/pay-run-service.ts',
+        de: "UPDATE pay_runs SET status = 'calculating' WHERE id = $1 AND ${alcance.sql}",
+        a: "UPDATE pay_runs SET status = 'calculating' WHERE id = $1",
+        porque:
+          'recalcular vuelve a poder hacerse sobre la corrida de otra entidad, y no sólo la mira: medido, le dejó `total_gross` en 0.00 y `employee_count` en 0 — reescribe los libros de al lado',
+      },
+      {
+        archivo: 'src/services/payroll/mx/cfdi-nomina-generator.ts',
+        de: 'WHERE p.id = $1 AND p.tenant_id = $2 AND ${predicadoEntidad.sql}',
+        a: 'WHERE p.id = $1',
+        porque:
+          'el CFDI de nómina vuelve a armarse desde cualquier recibo del sistema, con el RFC, la CURP y el NSS de su empleado dentro, y se manda a timbrar: un comprobante emitido no se deshace',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-calculator.ts',
+        de: "WHERE id = $1 AND tenant_id = $2${porEntidad ? ' AND entity_id = $3' : ''}",
+        a: 'WHERE id = $1 AND tenant_id = $2',
+        porque:
+          'el finiquito vuelve a leer al empleado por inquilino: con la guarda de entidad montada y todo, basta cambiar x-entity-id para liquidar a alguien de la sociedad hermana y ver su sueldo en la respuesta',
       },
     ],
+    evaluar: () => {
+      const camino = 'src/services/payroll/common/alcance-nomina.ts';
+      const corridas = 'src/services/payroll/common/pay-run-service.ts';
+      const finiquito = 'src/services/payroll/mx/finiquito-calculator.ts';
+      const rutas = 'src/api/rest/routes/payroll.ts';
+      const prueba = 'tests/integration/t9c-la-cadena-de-la-corrida.int.spec.ts';
+      for (const f of [camino, corridas, finiquito, rutas]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      // 1. CADA SALTO DEL CAMINO LLEVA SU LLAVE.
+      //
+      // La primera redacción comprobaba sólo el DESTINO —que el predicado
+      // tocara `ps.entity_id`— y su propio mutante la sobrevivió: cambiar el
+      // JOIN por `LEFT JOIN pay_schedules ps ON TRUE` deja la columna escrita
+      // y el EXISTS cumpliéndose para cualquier calendario del inquilino. Un
+      // camino sin llave no es un camino: es un EXISTS que siempre dice que
+      // sí mientras parece que acota.
+      //
+      // Aquí se fija el TEXTO del predicado a propósito, y no es la falta que
+      // `route-entity-access-verified` narra en su cuarta redacción. Aquella
+      // leía las tripas de una guarda que cambió tres veces; esto son tres
+      // fragmentos de SQL de tres líneas que NO tienen tripas: el texto es la
+      // conducta entera. Si el camino se reescribe, esta lista se reescribe
+      // con él — y quien lo haga tendrá que mirar cada salto, que es justo lo
+      // que se quiere.
+      const c = codigoDe(camino);
+      const saltos: Array<[string, string[]]> = [
+        [
+          'corridaEnEntidad',
+          ['pp.id = ${columnaId}', 'ps.id = pp.pay_schedule_id', 'ps.entity_id = $${indice}'],
+        ],
+        [
+          'periodoEnEntidad',
+          ['pp2.id = ${columnaId}', 'ps2.id = pp2.pay_schedule_id', 'ps2.entity_id = $${indice}'],
+        ],
+        ['reciboEnEntidad', ['e2.id = ${columnaId}', 'e2.entity_id = $${indice}']],
+      ];
+      for (const [nombre, llaves] of saltos) {
+        const desde = c.indexOf(`export const ${nombre}`);
+        if (desde < 0) return falla(`${camino} ya no exporta ${nombre}`);
+        const cuerpo = c.slice(desde, desde + 400);
+        for (const llave of llaves) {
+          if (!cuerpo.includes(llave)) {
+            return falla(
+              `${nombre} perdió un salto del camino («${llave}»): el EXISTS se cumple para filas que no son de la entidad y la sociedad hermana vuelve a caer`
+            );
+          }
+        }
+      }
+      // Y el predicado completo conserva LOS DOS EJES. Quitar `tenant_id` no
+      // abre nada hoy —el camino ya acota—, pero deja la consulta apoyada en
+      // un solo salto y sin el índice que ya usaba.
+      const compuesto = c.slice(c.indexOf('export function alcanceDeCorrida'));
+      if (!/tenant_id = \$\$\{indice\}/.test(compuesto) || !/corridaEnEntidad\(/.test(compuesto)) {
+        return falla(
+          'alcanceDeCorrida dejó de componer los dos ejes (inquilino y camino a la entidad): uno solo de los dos no es la frontera'
+        );
+      }
+
+      // 2. LAS DOS ESCRITURAS DE ESTADO LO LLEVAN DENTRO DEL SQL.
+      //
+      // Dentro y no en una comprobación previa: la aprobación puede mirar y
+      // escribir después porque el FOR UPDATE de su misma sentencia tiene la
+      // fila tomada; `markPayRunPaid` no corre en transacción con bloqueo, y
+      // ahí mirar primero deja la ventana entre las dos sentencias abierta.
+      const r = codigoDe(corridas);
+      if (!/WHERE id = \$1 AND \$\{alcance\.sql\} FOR UPDATE/.test(r)) {
+        return falla(
+          'approvePayRun volvió a tomar la corrida por su id sin alcance en la MISMA sentencia que la bloquea: se aprueba y se acumula el pasivo de la corrida ajena'
+        );
+      }
+      if (!/UPDATE pay_runs SET status = 'paid'[\s\S]{0,200}\$\{alcance\.sql\}/.test(r)) {
+        return falla(
+          "markPayRunPaid volvió a escribir `status = 'paid'` sin acotar: afirma que el dinero salió sobre la corrida de cualquier entidad"
+        );
+      }
+
+      // 2 bis. Y LAS DOS PUERTAS QUE NO CAMBIAN DE ESTADO PERO ESCRIBEN.
+      //
+      // `calculatePayRun` abre con la transición a `calculating`: esa es la
+      // puerta, y sin cerradura el recálculo REESCRIBE los totales de la
+      // corrida ajena (medido: 10.000,00 → 0,00). El timbrado no cambia
+      // estado y es peor, porque sale del sistema: un CFDI emitido no se
+      // deshace, se cancela ante el SAT.
+      if (!/UPDATE pay_runs SET status = 'calculating' WHERE id = \$1 AND \$\{alcance\.sql\}/.test(r)) {
+        return falla(
+          'calculatePayRun volvió a abrir por `id` a secas: recalcular la corrida ajena no sólo la mira, le reescribe los totales a cero'
+        );
+      }
+      const cfdi = 'src/services/payroll/mx/cfdi-nomina-generator.ts';
+      if (!existe(cfdi)) return falla(`desapareció ${cfdi}`);
+      if (!/WHERE p\.id = \$1 AND p\.tenant_id = \$2 AND \$\{predicadoEntidad\.sql\}/.test(codigoDe(cfdi))) {
+        return falla(
+          'el CFDI de nómina volvió a armarse con `WHERE p.id = $1`: cualquier recibo del sistema, con el RFC y el NSS de su empleado, se manda a timbrar — y timbrado no se deshace'
+        );
+      }
+
+      // 3. Y EL FINIQUITO ACOTA POR LA COLUMNA, que ésa sí la tiene.
+      const fq = codigoDe(finiquito);
+      if (!/FROM employees\s+WHERE id = \$1 AND tenant_id = \$2\$\{porEntidad/.test(fq)) {
+        return falla(
+          'el finiquito volvió a leer al empleado sólo por inquilino: es la ruta que desmiente la regla fácil, porque monta requireEntityAccess y aun así liquidaba a la plantilla de al lado'
+        );
+      }
+
+      // 4. LAS TRES CONSULTAS DE RUTA QUE ACOTAN POR EL CAMINO.
+      const rt = codigoDe(rutas);
+      const usos = (rt.match(/corridaEnEntidad\(|periodoEnEntidad\(|reciboEnEntidad\(/g) ?? []).length;
+      if (usos < 3) {
+        return falla(
+          `las rutas de nómina sólo usan ${usos} de los 3 predicados de camino: leer la corrida, leer el recibo y crear sobre un periodo ajeno vuelven a no acotar por entidad`
+        );
+      }
+
+      // 5. Y HAY CONDUCTA QUE LO AFIRMA, EN 404 Y NO EN 403.
+      //
+      // 403 dice «existe y no es tuyo», y frente a un id ya conocido esa es
+      // justo la pregunta del atacante. La serie TEN dice 404.
+      if (!existe(prueba)) {
+        return falla(
+          'no hay reproducción de la cadena de la corrida: sin ella, el arreglo es una lectura del diff y no una medición'
+        );
+      }
+      const t = crudoDe(prueba);
+      if (/toBe\(403\)/.test(t) || !/toBe\(404\)/.test(t)) {
+        return falla(
+          'la reproducción dejó de exigir 404: un 403 confirma que la corrida de la otra entidad existe, que es lo único que el atacante no sabía'
+        );
+      }
+
+      return ok(
+        'el camino llega a la entidad; el cálculo, la aprobación, el pago, el timbrado y el finiquito lo llevan dentro del SQL; las rutas lo usan y hay reproducción que exige 404'
+      );
+    },
   },
   {
     paquete: 'E2.1',
@@ -3203,6 +3871,73 @@ export const CRITERIOS: Criterio[] = [
         ? falla('cada posteo refresca las vistas: el coste crece con el volumen y bloquea')
         : ok('el refresco no vive en el camino de posteo');
     },
+  },
+  {
+    paquete: 'E4.2',
+    id: 'agent-balance-sheet-foots',
+    enunciado: 'El balance que lee el agente cuadra, y publica con qué notar que no',
+    evaluar: () => {
+      // T14 (#101). De las tres superficies del balance —CLI, REST y la
+      // herramienta del agente— sólo ésta ensamblaba su propio total: una
+      // consulta, sin queryUnclosedEarnings, y
+      // `total_liabilities_and_equity = pasivo + capital`. Medido sobre un
+      // mayor SANO de activo 100 000 con 6 000 de resultado sin barrer,
+      // publicaba 94 000.00 contra 100 000.00 — y ni un campo con el que
+      // notarlo, mientras la CLI firmaba 100 000.00 sobre los mismos datos.
+      const t = codigoDe('src/ai/tools/report-tools.ts');
+      if (!/await getBalanceSheet\(ctx\.entityId/.test(t)) {
+        return falla('la herramienta del agente volvió a ensamblar su propio balance en vez de proyectar el informe que firman la CLI y el REST');
+      }
+      if (!/out_of_balance:/.test(t) || !/is_balanced:/.test(t)) {
+        return falla('el balance del agente dejó de publicar out_of_balance/is_balanced: el modelo no tendría con qué notar un descuadre');
+      }
+      // El estado de resultados suma el LIBRO, no sus propios redondeos. Con
+      // el `reduce` sobre las filas ya redondeadas publicaba 0.06 donde el
+      // gasto posteado es 0.0400: una cifra falsa, no un formato.
+      if (!/crudoGastos\.reduce\(\(s, r\) => s\.plus\(netMovement\(r\)\)/.test(t)) {
+        return falla('el estado de resultados del agente volvió a sumar filas ya redondeadas: publicaría la suma de los redondeos en vez del redondeo de la suma');
+      }
+      // Y el detalle a la escala que la cabecera del archivo promete desde
+      // que existe, con el residuo NOMBRADO cuando las filas no suman.
+      if (!/ending_balance: aEscala\(/.test(t) || !/amount_due: aEscala\(/.test(t)) {
+        return falla('las filas de detalle del agente volvieron a publicarse en crudo: DECIMAL(19,4) bajo totales a dos decimales');
+      }
+      if (!/rounding_residual/.test(t)) {
+        return falla('el residuo de redondeo dejó de nombrarse: las filas no sumarían su total y nadie diría por qué');
+      }
+      // La misma ceguera vivía en el sobre REST, que CALCULABA las dos claves
+      // y las tiraba.
+      if (!/out_of_balance: report\.out_of_balance/.test(codigoDe('src/api/rest/routes/reports.ts'))) {
+        return falla('el sobre REST del balance volvió a descartar out_of_balance/is_balanced: un tablero no podría saber si el estado cuadra');
+      }
+      return ok('el balance del agente proyecta el informe ensamblado, publica su cuadre, y el detalle sale a escala con su residuo nombrado');
+    },
+    mutantes: [
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: 'await getBalanceSheet(ctx.entityId',
+        a: 'await queryBalanceSheetRows(ctx.entityId',
+        porque: 'la herramienta vuelve a calcularse su propio balance: publicaría pasivo+capital y se comería el resultado del ejercicio',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: 'crudoGastos.reduce((s, r) => s.plus(netMovement(r))',
+        a: 'expenseRows.reduce((s, r) => s.plus(r.amount)',
+        porque: 'el estado de resultados vuelve a sumar sus propios redondeos: publica 0.06 donde el libro dice 0.05',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: 'ending_balance: aEscala(',
+        a: 'ending_balance: String(',
+        porque: 'el detalle vuelve a salir en crudo a cuatro decimales bajo totales de dos, que es lo que tapaba el descuadre',
+      },
+      {
+        archivo: 'src/api/rest/routes/reports.ts',
+        de: 'out_of_balance: report.out_of_balance',
+        a: 'as_of_date_bis: report.as_of_date',
+        porque: 'el sobre REST vuelve a tirar el cuadre que su propio informe calcula',
+      },
+    ],
   },
   {
     paquete: 'E4.2',
@@ -4462,6 +5197,97 @@ export const CRITERIOS: Criterio[] = [
         de: 'sellado !== hoy',
         a: 'sellado === hoy',
         porque: 'la comparación de hashes se invierte: la compuerta pasaría a acusar lo que NO cambió',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'delivery-history-completeness-gate',
+    enunciado: 'El historial de entrega no puede quedarse atrás de lo entregado',
+    evaluar: () => {
+      // docs/HISTORY.md se reconstruyó una vez contra el árbol, porque el
+      // artefacto anterior narraba sprints cuyos hashes no existen en `main`.
+      // Quedó bien, y volvió a caducar por la única vía que quedaba: nadie lo
+      // miró. Medido el 2026-09-08 decía que el PR #53 estaba ABIERTO —llevaba
+      // un día fusionado— y no nombraba los dieciséis siguientes. Un historial
+      // de entrega equivocado sobre lo entregado es exactamente el artefacto
+      // contra el que advierte su propia cabecera.
+      if (!existe('scripts/historial-estado.ts') || !existe('docs/HISTORY.md')) {
+        return falla('el guardián del historial desapareció: el documento volvería a caducar en silencio');
+      }
+      const script = codigoDe('scripts/historial-estado.ts');
+      // LO QUE EXIGE, que es lo único que impide que falte una fila.
+      if (!/censo\.atrasados\.length > 0/.test(script)) {
+        return falla('el guardián dejó de exigir los PRs atrasados: sólo verificaría que su censo cuadra consigo mismo');
+      }
+      // Y la deuda tiene TECHO. Sin él, la gracia sería una amnistía: bastaría
+      // subirla para que el documento no volviera a caducar «todavía».
+      if (!/const DIAS_DE_GRACIA = \d+;/.test(script)) {
+        return falla('la gracia del historial dejó de tener techo declarado: el atraso podría crecer sin límite');
+      }
+      // Y LA GRACIA SE MIDE CONTRA EL RELOJ, no contra el árbol. La primera
+      // versión usaba la fecha del commit más reciente, y así el PR sin fila
+      // que ERA la punta tenía antigüedad 0 para siempre: la compuerta prometía
+      // fallar a los siete días y no fallaba nunca para justo el último, que es
+      // el que más importa.
+      if (!/const hoy = new Date\(\)\.toISOString\(\)/.test(script)) {
+        return falla('la gracia volvió a medirse contra la fecha del árbol: un PR sin fila que sea la punta no envejecería nunca');
+      }
+      // Y QUE NO SE SALTE CUANDO NO PUEDE MIRAR. `actions/checkout` clona a
+      // profundidad 1 por omisión: sin esto el recorrido vería UN commit y el
+      // documento saldría verde sin comprobarse. Es el falso verde que tenía
+      // `doctor` antes del T1b, contando sin contexto de inquilino.
+      if (!/cortesSuperficiales\(\)\.has/.test(script)) {
+        return falla('el guardián dejó de detectar la historia truncada: en un clon superficial saldría en verde sin haber contado nada');
+      }
+      // La compuerta corre en CI o es un comando que nadie teclea. Se mide
+      // sobre el YAML SIN sus comentarios: si no, la propia prosa que explica
+      // el paso lo pondría verde aunque el paso se hubiera borrado — el modo
+      // exacto en que nacieron verdes por accidente otros dos criterios.
+      const ci = crudoDe('.github', 'workflows', 'ci.yml').replace(/^[ \t]*#.*$/gm, '');
+      if (!/historial-estado\.ts --check/.test(ci)) {
+        return falla('la compuerta del historial no está en CI: sería una comprobación optativa');
+      }
+      if (!/fetch-depth: 0/.test(ci)) {
+        return falla('el checkout dejó de pedir profundidad completa: el guardián no podría recorrer la historia');
+      }
+      if (!/HISTORIAL-GENERADO:INICIO/.test(crudoDe('docs/HISTORY.md'))) {
+        return falla('el documento perdió los marcadores del censo: nadie podría regenerarlo ni compararlo');
+      }
+      return ok(
+        'el historial se verifica contra `git log --first-parent` en CI, con profundidad completa y fallando cuando no puede mirar'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'censo.atrasados.length > 0',
+        a: 'censo.atrasados.length > 99999',
+        porque: 'la compuerta deja de acusar los PRs que faltan: el historial podría volver a quedarse dieciséis PRs atrás, en verde',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'const hoy = new Date().toISOString()',
+        a: 'const hoy = (vertebral[0]?.fecha ?? new Date().toISOString())',
+        porque: 'la gracia vuelve a medirse contra el árbol: el PR sin fila que sea la punta tendría antigüedad cero para siempre y la compuerta no fallaría jamás por él',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'const DIAS_DE_GRACIA = 7;',
+        a: 'const GRACIA_SIN_TECHO = 7;',
+        porque: 'la gracia deja de tener techo declarado: pasaría de ser una deuda acotada a una amnistía',
+      },
+      {
+        archivo: 'scripts/historial-estado.ts',
+        de: 'cortesSuperficiales().has',
+        a: 'new Set<string>().has',
+        porque: 'el guardián deja de ver que la historia está truncada: en el checkout por omisión de CI contaría un commit y firmaría el verde',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'historial-estado.ts --check',
+        a: 'historial-estado.ts # --check',
+        porque: 'el paso deja de verificar y pasa a REGENERAR: saldría siempre en verde reescribiendo el censo en vez de exigirlo',
       },
     ],
   },
@@ -8038,6 +8864,133 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'seniority-premium-is-paid-and-capped-by-zone',
+    enunciado: 'El finiquito paga la prima de antigüedad, topada por el art. 486, y no la cifra en cero cuando no la puede calcular',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: "  return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;",
+        a: "  return motivo === 'renuncia' && aniosCumplidos >= 15;",
+        porque:
+          'vuelve a no pagarse la prima al DESPEDIDO, que es la mitad del art. 162 fr. III que más se pasa por alto: se paga «independientemente de la justificación o injustificación del despido». Un despedido con tres años pierde 22 682.88',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: '  return Decimal.min(piso, salarioMinimo.times(2));',
+        a: '  return piso;',
+        porque:
+          'desaparece el tope del art. 486 y la prima se calcula sobre el salario entero: para un salario de 1 000 con quince años son 180 000 en vez de 113 414.40 — pagar de más también es un defecto, y aquí lo paga el patrón',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-math.ts',
+        de: "      'SIN CALCULAR: faltó el salario mínimo de la zona",
+        a: "      'sin prima de antigüedad en este finiquito. Faltó el mínimo de la zona",
+        porque:
+          'el cero por no saber vuelve a ser indistinguible del cero por no deberse: sin el mínimo de la zona no se puede fijar el tope, y callarlo le paga de menos al trabajador sin que nadie lo note',
+      },
+    ],
+    evaluar: () => {
+      // T4b (#91). `calcularFiniquito` sumaba cuatro conceptos y llamaba
+      // `total` al resultado. Faltaba la prima de antigüedad —doce días por
+      // año de servicio, art. 162 LFT—, que en el caso medido (quince años,
+      // salario diario 1 000) son 113 414.40 contra un finiquito de 24 610.96:
+      // faltaba más de cuatro veces lo que se pagaba.
+      const math = 'src/services/payroll/mx/finiquito-math.ts';
+      if (!existe(math)) return falla('desapareció la aritmética del finiquito');
+      const src = codigoDe(math);
+
+      // 1. QUE SE CALCULE Y ENTRE EN EL TOTAL.
+      if (!/prima_antiguedad_importe/.test(src)) {
+        return falla('el finiquito volvió a no pagar la prima de antigüedad: son doce días por año de servicio y en un trabajador antiguo es la prestación más grande (#91)');
+      }
+      // 2. QUE EL TOPE SEA DEL ART. 486 Y SOBRE EL SALARIO, no sobre el
+      //    resultado: «se considerará esa cantidad como salario MÁXIMO».
+      if (!/Decimal\.min\(piso, salarioMinimo\.times\(2\)\)/.test(src)) {
+        return falla('la base de la prima dejó de topar el salario en dos mínimos (LFT art. 486): topar el resultado da otra cifra, y no topar nada se lo cobra al patrón');
+      }
+      // 3. QUE EL DESPIDO LA COBRE SIN UMBRAL.
+      if (!/motivo === 'renuncia' \? aniosCumplidos >= 15 : true/.test(src)) {
+        return falla('sólo la renuncia tiene umbral de quince años: el despido paga prima «independientemente de la justificación o injustificación» (art. 162 fr. III)');
+      }
+      // 4. Y QUE EL CERO POR NO SABER SE NOMBRE. El tope cuelga del salario
+      //    mínimo DE LA ZONA, que este esquema todavía no guarda: suponer el
+      //    general le paga 45 298.80 de menos a un trabajador fronterizo.
+      if (!/SIN CALCULAR/.test(src)) {
+        return falla('un finiquito sin el salario mínimo de la zona vuelve a devolver cero sin decirlo: indistinguible de no deberse');
+      }
+
+      return existe('tests/payroll/mx/prima-de-antiguedad.spec.ts')
+        ? ok('la prima de antigüedad se paga con su tope del art. 486, el despido la cobra sin umbral, y lo que no se puede calcular se nombra')
+        : falla('no hay prueba de la prima de antigüedad: la prestación más grande del finiquito quedaría sin vigilar');
+    },
+  },
+
+  {
+    paquete: 'E4.1',
+    id: 'isr-tariff-matches-the-pay-period',
+    enunciado: 'A cada periodo de pago se le aplica SU tarifa del art. 96, y el periodo sin tabla publicada se niega',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/isr-calculator.ts',
+        de: "    case 'weekly': return 'weekly';",
+        a: "    case 'weekly': return 'monthly';",
+        porque:
+          'EL DEFECTO MEDIDO (#91): la tarifa MENSUAL aplicada a la base de una SEMANA. Con ella, 3 000 semanales retenían 0.00 y 7 000 retenían 190.96 — subretención de entre el 85 % y el 100 % en cada recibo, que se le cobra al patrón con recargos',
+      },
+      {
+        archivo: 'src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql',
+        de: "('MX','isr',2026,NULL,'monthly', 1,      0.01,     844.59,",
+        a: "('MX','isr',2026,NULL,'monthly', 1,      0.01,     746.04,",
+        porque:
+          'vuelve la tarifa de 2025 sembrada como 2026 — el defecto que la 009 arrastraba y que hace que TODA retención del ejercicio salga con la tabla del año pasado',
+      },
+    ],
+    evaluar: () => {
+      // T4 (#91). `isr-calculator.ts` hacía
+      // `pay_frequency === 'quincenal' ? 'quincenal' : 'monthly'`, así que tres
+      // periodos de pago recibían la tarifa mensual sobre la base de una
+      // semana. Y debajo había algo peor: la tarifa sembrada como 2026 era la
+      // de 2025 al centavo, y la «quincenal» no era la de ningún año —el
+      // archivo lo confesaba: «same structure, divided by 2»—, cuando el
+      // Anexo 8 la construye como la diaria por 15.
+      const calc = 'src/services/payroll/mx/isr-calculator.ts';
+      if (!existe(calc)) return falla('desapareció la calculadora de ISR');
+      const src = codigoDe(calc);
+
+      // 1. LA SUSTITUCIÓN SILENCIOSA, MUERTA. Ese ternario ERA el defecto.
+      if (/pay_frequency === 'quincenal' \? 'quincenal' : 'monthly'/.test(src)) {
+        return falla('la calculadora vuelve a mandar weekly, biweekly y semimonthly a la tarifa MENSUAL: subretiene entre el 85 % y el 100 % en cada recibo (#91)');
+      }
+      // 2. Y EL PERIODO SIN TABLA SE NOMBRA, no se adivina.
+      if (!/No hay tarifa del art\. 96 publicada para el periodo/.test(src)) {
+        return falla('el periodo sin tarifa publicada dejó de negarse: la catorcena no tiene tabla en el Anexo 8, y sustituirla en silencio es el defecto original con otro número');
+      }
+      if (!/case 'weekly': return 'weekly';/.test(src)) {
+        return falla('el sueldo semanal dejó de usar la tarifa semanal del Anexo 8');
+      }
+
+      // 3. LA TARIFA SEMBRADA ES LA DE ESTE AÑO. 844.59 es el primer límite de
+      //    2026; 746.04 es el de 2025, que es lo que había.
+      const mig = 'src/database/migrations/073_la_tarifa_que_si_es_de_este_ano.sql';
+      if (!existe(mig)) {
+        return falla('desapareció la migración que corrige la tarifa: la instalación vuelve a retener con la tabla del año pasado (#91)');
+      }
+      const sql = crudoDe(mig);
+      if (!/'monthly', 1,\s+0\.01,\s+844\.59,/.test(sql)) {
+        return falla('la tarifa mensual de 2026 dejó de ser la publicada en el Anexo 8: toda retención del ejercicio saldría con otra tabla');
+      }
+
+      // 4. Y SE COMPRUEBA CORRIENDO. Las cuatro tarifas del periodo se DERIVAN
+      //    de la mensual, así que lo que hay que vigilar no es la
+      //    transcripción sino que la derivación siga reproduciendo lo publicado.
+      return existe('tests/integration/t4-tarifa-del-periodo.int.spec.ts')
+        ? ok('cada periodo usa su tarifa del Anexo 8, el que no tiene tabla se niega, la sembrada es la de 2026 y hay prueba que lo ejecuta contra la base')
+        : falla('no hay prueba que EJECUTE la retención por periodo: leer la calculadora no demuestra qué se le retiene a un sueldo semanal');
+    },
+  },
+
+  {
+    paquete: 'E4.1',
     id: 'imss-rate-fix-verified-by-running-it',
     enunciado: 'La corrección de la cuota obrera se comprueba EJECUTÁNDOLA sobre una base migrada, no leyéndola',
     mutantes: [
@@ -8103,6 +9056,252 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E4.1',
+    id: 'garnishment-vocabulary-is-the-persisted-one',
+    enunciado: 'El motor de embargos lee el vocabulario que la columna documenta, y el que no sabe tratar lo lanza',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
+        de: "    case 'pension_alimenticia':\n      return 'child_support';",
+        a: "      return 'creditor';",
+        porque:
+          'la pensión alimenticia deja de tratarse como lo que es y pierde su tope de la CCPA: era el caso que MEDIDO retenía 0 contra 500, dinero que un juez adjudicó y no llegaba',
+      },
+      {
+        archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
+        de: '      throw new Error(\n        `Unknown garnishment amount_type',
+        a: '      return 0; // eslint-disable-line\n      throw new Error(\n        `Unhandled amount_type',
+        porque:
+          'vuelve el cero silencioso: un vocabulario que el motor no entiende retiene nada en vez de negarse, que es el defecto original de T20 y su principio entero',
+      },
+      {
+        archivo: 'src/database/migrations/075_el_embargo_que_no_retenia.sql',
+        de: "  CHECK (amount_type IN ('fixed', 'percent_disposable', 'percent_gross'));",
+        a: '  CHECK (true);',
+        porque:
+          'la columna vuelve a admitir cualquier cadena, y con ella vuelve a poder guardarse la orden que no retiene: un vocabulario sin restricción es una sugerencia',
+      },
+    ],
+    evaluar: () => {
+      // T20 punto 2 (#127). MEDIDO sobre una orden del 25 % con 2 000 de
+      // ingreso disponible: `pension_alimenticia` retenía 0 y `child_support`
+      // 500; `tax_levy_federal` retenía 0 y `tax_levy` 1 800. El motor leía un
+      // vocabulario y la columna documentaba otro, ninguna de las dos tenía
+      // CHECK, y `garnishments` no tiene un solo escritor en `src/` — así que
+      // quien da de alta una orden sigue el comentario de la columna, que era
+      // el camino que devolvía cero.
+      const motor = 'src/services/payroll/usa/garnishments/garnishment-engine.ts';
+      if (!existe(motor)) return falla('desapareció el motor de embargos');
+      const src = codigoDe(motor);
+
+      if (/amount_type = 'percentage'/.test(src)) {
+        return falla('el motor vuelve a leer «percentage», que no es el vocabulario que la columna documenta: una orden guardada como manda el esquema retiene CERO (#127)');
+      }
+      if (!/case 'pension_alimenticia':/.test(src) || !/case 'tax_levy_federal':/.test(src)) {
+        return falla('el motor dejó de tratar los tipos que la columna documenta: una pensión alimenticia o un embargo fiscal federal no retendrían nada');
+      }
+      if (!/Unknown garnishment amount_type/.test(src)) {
+        return falla('un vocabulario desconocido vuelve a retener cero en silencio en vez de lanzar: es el principio entero de T20');
+      }
+      // Y la restricción, que es lo que impide que se pueda volver a guardar.
+      const mig = 'src/database/migrations/075_el_embargo_que_no_retenia.sql';
+      if (!existe(mig) || !/CHECK \(amount_type IN/.test(crudoDe(mig))) {
+        return falla('la columna del embargo volvió a quedarse sin CHECK: un vocabulario sin restricción es una sugerencia');
+      }
+
+      return existe('tests/integration/t20-embargo-que-no-retenia.int.spec.ts')
+        ? ok('el embargo se lee con el vocabulario persistido, el desconocido se lanza, la columna lo restringe y hay prueba que lo ejecuta contra la base')
+        : falla('no hay prueba que EJECUTE el motor de embargos contra la base: leerlo no demuestra qué retiene');
+    },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'payroll-engines-fail-closed-on-missing-law',
+    enunciado: 'Ante un parámetro legal ausente, los motores de nómina se niegan en vez de inventar una cifra',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/imss-calculator.ts',
+        de: "const uma = requiredParameter(params, 'uma_daily', 'MX', tax_year);",
+        a: "const uma = parseFloat(String(params.uma_daily || 113.14));",
+        porque:
+          'vuelve la UMA quemada: una corrida de un ejercicio no sembrado produce cuotas con days_worked correctos sobre una UMA de 2025, y esa cifra sale en el recibo, en el CFDI de nómina y en la línea de captura del SUA',
+      },
+      {
+        archivo: 'src/services/payroll/usa/federal/fit-calculator.ts',
+        de: 'export function validFilingStatus(',
+        a: 'export function noValidaNada(',
+        porque:
+          'el estado civil deja de validarse y un valor fuera de catálogo vuelve a caer en una tabla vacía: FIT de 0.00 todo el año, con el patrón como retenedor omiso ante el IRS',
+      },
+      {
+        archivo: 'src/services/payroll/common/gl-posting-service.ts',
+        de: 'n(b.sit) + n(b.sdi) + n(b.local_tax)',
+        a: 'n(b.sit) + n(b.sdi)',
+        porque:
+          'el impuesto local sale del asiento y los débitos dejan de igualar a los créditos: cualquier corrida con un recibo de local > 0 vuelve a no poder postearse («Payroll GL entry unbalanced»)',
+      },
+    ],
+    evaluar: () => {
+      // T20 puntos 1, 3 y 4 (#127). El principio es uno: fallar cerrado, como
+      // ya hacía el ISR. Un cero por dato ausente es indistinguible de una
+      // retención legítima, y un recibo con `days_worked` correctos y cuota
+      // cero parece bueno: lo firma el despacho y viaja al SAT y al IMSS.
+      const imss = 'src/services/payroll/mx/imss-calculator.ts';
+      const infonavit = 'src/services/payroll/mx/infonavit-calculator.ts';
+      const fit = 'src/services/payroll/usa/federal/fit-calculator.ts';
+      const gl = 'src/services/payroll/common/gl-posting-service.ts';
+      for (const f of [imss, infonavit, fit, gl]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      // 1. NI UMA NI TASAS QUEMADAS.
+      for (const f of [imss, infonavit]) {
+        const src = codigoDe(f);
+        if (/\|\|\s*113\.14|\|\|\s*0\.05|\|\|\s*278\.80/.test(src)) {
+          return falla(`${f} vuelve a sustituir un parámetro legal ausente por un valor quemado: la cifra inventada sale en el recibo y en la línea de captura (#127)`);
+        }
+      }
+      if (!/requiredRates\(params, 'imss_employee'/.test(codigoDe(imss))) {
+        return falla('las cuotas obreras del IMSS vuelven a leerse con «|| 0»: una tasa ausente no es una tasa de cero');
+      }
+
+      // 2. EL ESTADO CIVIL SE VALIDA.
+      if (!/export function validFilingStatus\(/.test(codigoDe(fit))) {
+        return falla('el filing_status del W-4 dejó de validarse: un valor fuera de catálogo cae en una tabla vacía y retiene 0.00 todo el año');
+      }
+
+      // 3. Y EL IMPUESTO LOCAL ENTRA AL ASIENTO.
+      if (!/n\(b\.local_tax\)/.test(codigoDe(gl))) {
+        return falla('el impuesto local volvió a quedarse fuera del asiento de nómina: la corrida no se puede postear y el mayor se queda sin la nómina entera');
+      }
+
+      return existe('tests/payroll/fallar-cerrado.spec.ts')
+        ? ok('los motores se niegan ante un parámetro ausente, el estado civil se valida y el impuesto local entra al asiento')
+        : falla('no hay prueba del principio de fallar cerrado: es lo único que distingue el cero por no saber del cero legítimo');
+    },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'employee-benefits-accrue-monthly',
+    enunciado: 'El aguinaldo, las vacaciones y la prima vacacional se devengan mes a mes, no el día que se pagan',
+    evaluar: () => {
+      // POR QUÉ NACE (D1, issue #111). Un despacho que paga el aguinaldo en
+      // diciembre y no lo provisiona durante el año publica once meses de
+      // utilidad inflada y un diciembre catastrófico, y ninguno de los doce
+      // estados es firmable. La NIF D-3 reconoce el beneficio a corto plazo
+      // conforme el trabajador PRESTA EL SERVICIO, no cuando se paga.
+      //
+      // El criterio vigila las tres propiedades sin las cuales el motor sería
+      // decorativo: que la ley no esté escrita dos veces, que el criterio del
+      // despacho se lea del panel en vez de quemarse, y que las cuentas se
+      // resuelvan por rol. La aritmética la prueban sus 55 casos unitarios; la
+      // idempotencia, la prueba de integración.
+      const run = codigoDe('src/services/accruals/provisions-run.ts');
+      const math = codigoDe('src/services/accruals/provisions-math.ts');
+
+      // (a) LA LEY, UNA SOLA VEZ. La tabla del art. 76 vive en finiquito-math
+      // desde D1a. Una segunda copia divergiría el día que el legislador la
+      // toque —y la tocó en 2023—, y entonces el finiquito y la provisión
+      // pagarían distinto por el mismo derecho.
+      if (!/from '\.\.\/payroll\/mx\/finiquito-math\.js'/.test(math)) {
+        return falla(
+          'provisions-math no importa de finiquito-math: la tabla del art. 76 o el factor de ' +
+            'integración están escritos por segunda vez, y dos copias de una ley divergen'
+        );
+      }
+
+      // (b) EL CRITERIO DEL DESPACHO SE PREGUNTA, NO SE DECIDE. Sobre qué
+      // salario se provisiona y cuándo nace el pasivo de vacaciones son
+      // bifurcaciones contables, y en esta casa van al panel con su lector.
+      for (const clave of ['provision_base_salarial', 'devengo_vacaciones']) {
+        if (!new RegExp(`getPolicy\\([^)]*'${clave}'`).test(run)) {
+          return falla(`la provisión no lee '${clave}' del panel: la bifurcación quedó quemada en el motor`);
+        }
+      }
+
+      // (c) LAS CUENTAS, POR ROL. Un código quemado ata el motor a un catálogo
+      // concreto y revienta en la primera entidad que renumere.
+      //
+      // LOS CÓDIGOS NO SE TRANSCRIBEN AQUÍ: SE DERIVAN. La primera versión de
+      // este chequeo los escribió a mano —2196 a 2199— en el MISMO commit que
+      // los renumeraba a 2202-2205, así que NACIÓ MUERTO: la expresión no podía
+      // acusar ningún cableado real, y como este chequeo tampoco tenía espejo
+      // propio, los 168 mutantes del tablero lo daban por vivo. Es la familia
+      // de T14b —«el criterio que la vigilaba se cegaba solo»—, y en este caso
+      // pesa el doble porque el criterio entra al piso obligatorio: publicaba
+      // «resuelve las cuentas por rol» con un tercio de la frase inverificable.
+      //
+      // Leyendo la lista de la que salen las cuentas, renumerar el catálogo
+      // vuelve a mover el chequeo solo. Y se cae la exigencia de que
+      // `debit|credit|account` aparezca en la MISMA línea: un cableado con
+      // nombre español —`aguinaldo: await cuentaPorCodigo(...)`— se escapaba
+      // por ahí aunque los códigos hubieran estado al día.
+      const seed = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
+      const codigosDeProvision = [...seed.matchAll(/provision_\w+:\s*'(\d+)'/g)].map((m) => m[1]);
+      if (codigosDeProvision.length === 0) {
+        // FALLA CERRADO. Si el mapa cambia de forma, el chequeo se queda sin
+        // nada que buscar y saldría verde sobre un motor cableado: es
+        // exactamente como nació. Antes que eso, rojo.
+        return falla(
+          'no se derivó ni un código de provisión de account-roles-seed.ts: el chequeo de las ' +
+            'cuentas por rol se quedaría sin nada que buscar, que es como nació muerto la primera vez'
+        );
+      }
+      const quemado = codigosDeProvision.find((c) => run.includes(`'${c}'`));
+      if (quemado !== undefined) {
+        return falla(
+          `la provisión nombra la cuenta '${quemado}' por su código: el catálogo de otra entidad ` +
+            'la deja sin destino'
+        );
+      }
+
+      return ok(
+        'el devengo de prestaciones importa la ley de finiquito-math, lee sus dos bifurcaciones del panel ' +
+          'y resuelve las cuentas por rol'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accruals/provisions-run.ts',
+        de: '  const mapa = new Map(r.rows.map((f) => [f.role, f.account_id]));',
+        a: "  const mapa = new Map([...r.rows.map((f) => [f.role, f.account_id]), [ROL_AGUINALDO, '2202']]);",
+        porque:
+          'la cuenta del aguinaldo cableada por su código en vez de resuelta por rol: es el defecto ' +
+          'que el chequeo (c) nombra, y durante todo este tramo no tuvo espejo que lo comprobara',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: `  provision_aguinaldo: '2202',
+  provision_vacaciones: '2203',
+  provision_prima_vacacional: '2204',
+  provision_prestaciones_gasto: '6116',`,
+        a: `  provisionAguinaldo: '2202',
+  provisionVacaciones: '2203',
+  provisionPrimaVacacional: '2204',
+  provisionPrestacionesGasto: '6116',`,
+        porque:
+          'el mapa cambia de forma y el chequeo se queda sin códigos que buscar: tiene que ponerse ' +
+          'ROJO por no poder medir, no verde por no encontrar nada',
+      },
+      {
+        archivo: 'src/services/accruals/provisions-run.ts',
+        de: "  const base = await getPolicy(ctx, 'provision_base_salarial');",
+        a: "  const base = { value: 'nominal' };",
+        porque:
+          'quema la base salarial en el motor: el despacho que provisiona sobre salario integrado deja de ' +
+          'poder decirlo, y su pasivo sale corto todos los meses sin que nada lo acuse',
+      },
+      {
+        archivo: 'src/services/accruals/provisions-math.ts',
+        de: "from '../payroll/mx/finiquito-math.js'",
+        a: "from './tabla-del-art-76-propia.js'",
+        porque:
+          'la tabla del art. 76 pasaría a estar escrita dos veces: el finiquito y la provisión pagarían ' +
+          'distinto por el mismo derecho en cuanto una de las dos se actualice',
+      },
+    ],
+  },
 ];
 
 /**

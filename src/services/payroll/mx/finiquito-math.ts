@@ -39,12 +39,49 @@ import Decimal from 'decimal.js';
 const DECIMALES = 4;
 
 /**
- * El divisor del factor de integración y de los prorrateos anuales que la ley
- * fija en días naturales. 365 aquí es la constante de la LSS art. 27, no una
- * aproximación del calendario: el año bisiesto se cuenta aparte, en
- * `diasDelEjercicio`.
+ * El divisor del factor de integración. 365 aquí es la constante de la LSS
+ * art. 27, no una aproximación del calendario: el año bisiesto se cuenta
+ * aparte, en `diasDelEjercicio`.
+ *
+ * NO ES EL DIVISOR DEL SUELDO ANUAL NI EL LARGO DEL AÑO NATURAL, aunque los
+ * tres valgan 365 hoy. Son tres cantidades de sitios distintos —la LSS, el
+ * calendario y una convención de nómina que el despacho puede querer cambiar—
+ * y coinciden en el número por casualidad. Cuando tres conceptos comparten una
+ * constante «porque dan lo mismo», tocar uno mueve los tres en silencio; el
+ * comentario de `DIAS_PARA_SALARIO_DIARIO` mide cuánto costaba.
  */
-const DIAS_DEL_ANIO_LEGAL = 365;
+const DIAS_DEL_ANIO_LSS = 365;
+
+/**
+ * Días naturales de un año común. Esto es calendario, no derecho: lo usa
+ * `diasDelEjercicio`, que devuelve 366 cuando el año lo es.
+ */
+const DIAS_DEL_ANIO_NATURAL = 365;
+
+/**
+ * EL DIVISOR DEL SUELDO ANUAL, Y SÓLO ÉSE.
+ *
+ * ── POR QUÉ TIENE CONSTANTE PROPIA, MEDIDO ──────────────────────────────
+ *
+ * Es el único de los tres números que el despacho puede querer cambiar: la
+ * lectura común de la LFT (art. 89) toma el mes de treinta días, así que el
+ * sueldo anual entre 360 es lo que muchos usan, y da un salario diario 1.39 %
+ * mayor. Mientras el divisor fue la misma constante que el factor de
+ * integración y el año natural, obedecer la instrucción de
+ * `salarioDiarioDesdeSueldoAnual` —«se cambia AQUÍ»— y poner 360 movía además,
+ * sin decirlo, dos cosas que nadie pidió tocar:
+ *
+ *   · el factor de integración pasaba de 1.0493150684 a 1.05, y con él TODO
+ *     salario base de cotización que este sistema integra o des-integra;
+ *   · `diasDelEjercicio` devolvía 360 para un año común, así que quien
+ *     trabajaba 2025 entero devengaba 15.2083 días de aguinaldo en lugar de
+ *     15 — exactamente el defecto contra el que esa función advierte en su
+ *     propio comentario, y cinco veces mayor que el que ella describe.
+ *
+ * Un cambio de convención de nómina no puede tener ese radio. Aquí se cambia
+ * el divisor del sueldo, y no se mueve nada más.
+ */
+const DIAS_PARA_SALARIO_DIARIO = 365;
 
 // ============================================================
 // LFT art. 76 — la tabla de vacaciones («vacaciones dignas», 2023)
@@ -115,8 +152,17 @@ function diasEntre(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / MS_POR_DIA);
 }
 
-/** Días trabajados de `a` a `b` contando AMBOS extremos. Nunca negativo. */
-function diasInclusive(a: Date, b: Date): number {
+/**
+ * Días trabajados de `a` a `b` contando AMBOS extremos. Nunca negativo.
+ *
+ * SE EXPORTA DESDE D1, y por la misma razón por la que `amortization-math.ts`
+ * importa el calendario de `depreciation-math.ts` en vez de copiarlo: el motor
+ * de provisiones cuenta con esta misma cuenta los días devengados de un mes, y
+ * dos copias de «del 20 al 31 son doce» son dos sitios donde el error de un día
+ * puede reaparecer por separado. Ese error de un día ya se pagó una vez aquí:
+ * el aguinaldo del finiquito se comía el día de la baja.
+ */
+export function diasInclusive(a: Date, b: Date): number {
   return Math.max(0, diasEntre(a, b) + 1);
 }
 
@@ -132,7 +178,7 @@ function esBisiesto(anio: number): boolean {
  * divisor tiene que ser el mismo año que se está midiendo.
  */
 export function diasDelEjercicio(anio: number): number {
-  return esBisiesto(anio) ? 366 : DIAS_DEL_ANIO_LEGAL;
+  return esBisiesto(anio) ? 366 : DIAS_DEL_ANIO_NATURAL;
 }
 
 /**
@@ -184,7 +230,48 @@ export function factorDeIntegracion(p: PrestacionesAnuales): Decimal {
   const prestaciones = new Decimal(p.dias_aguinaldo).plus(
     new Decimal(p.dias_vacaciones).times(new Decimal(p.prima_vacacional_pct))
   );
-  return new Decimal(DIAS_DEL_ANIO_LEGAL).plus(prestaciones).dividedBy(DIAS_DEL_ANIO_LEGAL);
+  return new Decimal(DIAS_DEL_ANIO_LSS).plus(prestaciones).dividedBy(DIAS_DEL_ANIO_LSS);
+}
+
+/**
+ * EL SALARIO DIARIO A PARTIR DEL SUELDO ANUAL CAPTURADO.
+ *
+ * ── POR QUÉ ES UNA FUNCIÓN Y NO UNA DIVISIÓN EN CADA LLAMADOR ───────────
+ *
+ * `employees.annual_salary` es la única columna donde este sistema guarda lo
+ * que gana una persona, y de ella salen DOS números que tienen que coincidir al
+ * centavo: lo que el finiquito paga el día de la baja y lo que la provisión
+ * mensual (D1) acumuló durante el año en la 2196. Si los dos módulos dividen
+ * por su cuenta y uno elige otro divisor, la provisión de doce meses no
+ * extingue lo que el finiquito liquida y la cuenta de pasivo queda con un
+ * residuo que ningún cierre limpia — el defecto no se ve en ninguna prueba de
+ * cada módulo por separado, sólo en el saldo, y meses después.
+ *
+ * Es la misma lección que la tabla del art. 76: dos copias de la misma cuenta
+ * divergen. Por eso vive aquí, en el módulo puro que los dos importan.
+ *
+ * ── POR QUÉ 365 Y NO 360 ────────────────────────────────────────────────
+ *
+ * El divisor NO es libre, y un auditor lo va a preguntar. La lectura común de
+ * la LFT (art. 89) toma el mes de treinta días, así que el sueldo mensual entre
+ * 30 —o el anual entre 360— es lo que muchos despachos usan; da un salario
+ * diario 1.39 % MAYOR y, con él, una provisión 1.39 % mayor todos los meses.
+ *
+ * Aquí se divide entre 365 por una razón que no es de doctrina: es el divisor
+ * que `calculateFiniquito` lleva usando desde D1a, y el finiquito es el que
+ * paga. Un motor de provisiones que eligiera 360 «porque es más correcto»
+ * estaría provisionando un pasivo que el pago nunca extingue. Si el despacho
+ * quiere la convención de 360, se cambia en `DIAS_PARA_SALARIO_DIARIO` y
+ * cambian los dos motores a la vez, que es exactamente lo que esta función
+ * existe para garantizar. Se cambia AHÍ y no en la constante de la LSS, aunque
+ * las dos valgan 365: el comentario de esa constante dice qué se llevaba por
+ * delante cuando eran la misma.
+ *
+ * Con `Decimal` y no `Number(x) / 365`: el salario diario multiplica TODOS los
+ * conceptos, y un float aquí se propaga hasta el importe que se deposita.
+ */
+export function salarioDiarioDesdeSueldoAnual(sueldoAnual: string | number): string {
+  return new Decimal(sueldoAnual).dividedBy(DIAS_PARA_SALARIO_DIARIO).toFixed(DECIMALES);
 }
 
 /**
@@ -223,7 +310,39 @@ export interface EntradaFiniquito {
   dias_aguinaldo_por_anio: number;
   /** Política `prima_vacacional_pct` (LFT art. 80 fija 0.25 como mínimo). */
   prima_vacacional_pct: string;
+  /**
+   * POR QUÉ SE SEPARA, y no es un adorno: decide si hay prima de antigüedad.
+   *
+   * El art. 162 fr. III la paga a quien RENUNCIA sólo con quince años
+   * cumplidos, pero a quien es DESPEDIDO «independientemente de la
+   * justificación o injustificación del despido» —sin umbral—, a quien se
+   * separa por causa justificada (art. 51) y, por la fr. V, a los
+   * beneficiarios en caso de muerte, «cualquiera que sea su antigüedad».
+   *
+   * Es OBLIGATORIO a propósito: sin él no se puede saber si se debe la
+   * prestación más grande del finiquito, y un valor por omisión la callaría
+   * justo en el caso que más dinero mueve.
+   */
+  motivo_baja: MotivoDeBaja;
+  /**
+   * Salario mínimo diario de la ZONA donde se presta el trabajo, con el que se
+   * topa la base de la prima (arts. 485 y 486 LFT).
+   *
+   * Va como entrada y no se lee de la base aquí porque esta función es PURA:
+   * quien la llama trae el parámetro vigente A LA FECHA DE LA BAJA y dice con
+   * cuál calculó. Si falta, no se inventa: la prima sale sin calcular y el
+   * desglose lo dice.
+   */
+  salario_minimo_diario?: string;
 }
+
+/**
+ * Los supuestos del art. 162 fr. III y V que este cálculo distingue.
+ *
+ * `renuncia` es el único con umbral de antigüedad (quince años). El despido
+ * paga prima sea justificado o no — es la mitad que más se pasa por alto.
+ */
+export type MotivoDeBaja = 'renuncia' | 'despido' | 'rescision_por_el_trabajador' | 'muerte';
 
 /** Todo el dinero en cadenas de cuatro decimales. Ni un `number` de importe. */
 export interface DesgloseFiniquito {
@@ -239,7 +358,53 @@ export interface DesgloseFiniquito {
   prima_vacacional_dias: string;
   prima_vacacional_importe: string;
   vacaciones_pendientes_importe: string;
+  /** Días de prima de antigüedad: 12 por año de servicio (LFT art. 162 fr. I). */
+  prima_antiguedad_dias: number;
+  /** Base diaria ya topada por el art. 486, o null si no se pudo calcular. */
+  prima_antiguedad_base_diaria: string | null;
+  prima_antiguedad_importe: string;
+  /**
+   * Por qué la prima vale lo que vale — o por qué no se pudo calcular.
+   *
+   * Un cero sin explicación es indistinguible de un cero por no saber, y aquí
+   * las dos cosas ocurren: hay bajas que no la devengan y hay bajas que sí,
+   * pero cuyo tope no se puede fijar sin el salario mínimo de la zona.
+   */
+  prima_antiguedad_nota: string;
   total: string;
+}
+
+
+/**
+ * ¿Devenga prima de antigüedad esta baja? (LFT art. 162 fr. III y V)
+ *
+ * La renuncia es el ÚNICO supuesto con umbral: quince años cumplidos. El
+ * despido la paga «independientemente de la justificación o injustificación»,
+ * la rescisión por causa imputable al patrón (art. 51) también, y la muerte
+ * «cualquiera que sea su antigüedad» (fr. V).
+ */
+export function devengaPrimaDeAntiguedad(motivo: MotivoDeBaja, aniosCumplidos: number): boolean {
+  return motivo === 'renuncia' ? aniosCumplidos >= 15 : true;
+}
+
+/**
+ * La base diaria de la prima, acotada por los arts. 485 y 486 LFT.
+ *
+ * SE TOPA EL SALARIO, NO EL RESULTADO. El 486 lo dice sin ambigüedad: si el
+ * salario «excede del doble del salario mínimo … se considerará esa cantidad
+ * como SALARIO MÁXIMO». Topar los 113 414.40 finales en vez de la base diaria
+ * es un error clásico y da una cifra distinta.
+ *
+ * Y hay piso además de techo: el 485 manda que la base «no podrá ser inferior
+ * al salario mínimo».
+ *
+ * El mínimo es el DE LA ZONA donde se presta el trabajo (486), no el general
+ * por defecto. Este esquema todavía no guarda esa zona; quien llama pasa el
+ * que aplique y el desglose deja dicho con cuál se calculó.
+ */
+export function baseDiariaDePrima(salarioDiario: Decimal, salarioMinimo: Decimal): Decimal {
+  const piso = Decimal.max(salarioDiario, salarioMinimo);
+  return Decimal.min(piso, salarioMinimo.times(2));
 }
 
 export function calcularFiniquito(entrada: EntradaFiniquito): DesgloseFiniquito {
@@ -312,11 +477,46 @@ export function calcularFiniquito(entrada: EntradaFiniquito): DesgloseFiniquito 
     salarioDiario
   );
 
+  // ── 5 · Prima de antigüedad (LFT art. 162) ──
+  //
+  // Es la prestación más grande del finiquito de un trabajador antiguo —doce
+  // días por año, sin tope de años— y hasta este tramo no se calculaba: el
+  // «total» sumaba cuatro conceptos y se quedaba corto en, por ejemplo,
+  // 113 414.40 para quince años de servicio.
+  const devenga = devengaPrimaDeAntiguedad(entrada.motivo_baja, cumplidos);
+  const primaAntiguedadDias = devenga ? 12 * cumplidos : 0;
+  let primaAntiguedadBase: Decimal | null = null;
+  let primaAntiguedadImporte = new Decimal(0);
+  let primaAntiguedadNota: string;
+
+  if (!devenga) {
+    primaAntiguedadNota =
+      'no se devenga: la renuncia paga prima de antigüedad sólo con quince años cumplidos (LFT art. 162 fr. III)';
+  } else if (entrada.salario_minimo_diario === undefined) {
+    // NO SE INVENTA. El tope del art. 486 cuelga del salario mínimo de la zona,
+    // y suponer el general le paga de menos a un trabajador fronterizo: 180
+    // días × 630.08 contra × 881.74 son 45 298.80 de diferencia. Un importe que
+    // no se puede calcular se nombra, no se cifra en cero en silencio.
+    primaAntiguedadNota =
+      'SIN CALCULAR: faltó el salario mínimo de la zona, del que cuelga el tope del art. 486. ' +
+      `Se deben ${primaAntiguedadDias} días de prima de antigüedad y NO están en este total`;
+  } else {
+    primaAntiguedadBase = baseDiariaDePrima(salarioDiario, new Decimal(entrada.salario_minimo_diario));
+    primaAntiguedadImporte = primaAntiguedadBase.times(primaAntiguedadDias);
+    primaAntiguedadNota =
+      `${primaAntiguedadDias} días × ${primaAntiguedadBase.toFixed(DECIMALES)} ` +
+      `(LFT art. 162 fr. I, base topada por el 486 con un mínimo de ${entrada.salario_minimo_diario})`;
+  }
+
   // El total suma lo REDONDEADO, no los intermedios: así el importe que se
   // paga es siempre la suma exacta de los conceptos que el recibo enumera.
-  const conceptos = [salarioImporte, aguinaldoImporte, primaImporte, vacacionesPendientes].map(
-    (d) => new Decimal(d.toFixed(DECIMALES))
-  );
+  const conceptos = [
+    salarioImporte,
+    aguinaldoImporte,
+    primaImporte,
+    vacacionesPendientes,
+    primaAntiguedadImporte,
+  ].map((d) => new Decimal(d.toFixed(DECIMALES)));
   const total = conceptos.reduce((suma, c) => suma.plus(c), new Decimal(0));
 
   return {
@@ -332,6 +532,10 @@ export function calcularFiniquito(entrada: EntradaFiniquito): DesgloseFiniquito 
     prima_vacacional_dias: primaDias.toFixed(DECIMALES),
     prima_vacacional_importe: primaImporte.toFixed(DECIMALES),
     vacaciones_pendientes_importe: vacacionesPendientes.toFixed(DECIMALES),
+    prima_antiguedad_dias: primaAntiguedadDias,
+    prima_antiguedad_base_diaria: primaAntiguedadBase ? primaAntiguedadBase.toFixed(DECIMALES) : null,
+    prima_antiguedad_importe: primaAntiguedadImporte.toFixed(DECIMALES),
+    prima_antiguedad_nota: primaAntiguedadNota,
     total: total.toFixed(DECIMALES),
   };
 }

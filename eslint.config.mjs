@@ -57,7 +57,7 @@ import tseslint from 'typescript-eslint';
 //
 //   · el DATO —las cuatro listas— vive en `scripts/language/lexicon.json`, y lo
 //     leen los dos mundos. Una palabra nueva entra una vez y la ven los dos.
-//   · la LÓGICA —`tokenize`/`classify`, unas treinta líneas— sí está duplicada,
+//   · la LÓGICA —`tokenize`/`classify`, cincuenta y dos líneas de código— sí está duplicada,
 //     aquí en JavaScript y allí en TypeScript. Es el precio del cruce, y lo que
 //     impide que las dos versiones se separen no es el cuidado de nadie: es la
 //     prueba de conformidad que las corre a las dos sobre el mismo corpus.
@@ -173,24 +173,65 @@ const ENGLISH_EXTRA = listFrom('englishExtra');
 const DOMAIN_TERMS = new Map(Object.entries(LEXICON.domainTerms ?? {}));
 
 /**
+ * EL GEMELO DE `plegarDiacriticos`. `tamaño` → `tamano`, `año` → `ano`.
+ *
+ * No es cosmética: las listas están escritas PLEGADAS —`tamano`, no `tamaño`—,
+ * así que sin este paso esas raíces son inalcanzables para el cotejo. La
+ * pérdida está acotada a la COMPARACIÓN; el token que se enseña es el que el
+ * código escribió.
+ */
+function foldDiacritics(token) {
+  return token.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
  * EL GEMELO DE `tokenize` DE `scripts/language/lexicon.ts`.
  *
  * Parte un identificador en tokens: camelCase, PascalCase, snake_case,
- * SCREAMING_CASE, kebab-case y las fronteras con dígitos. Todo a minúsculas.
- * `RFCValido` da ['rfc', 'valido'] por la regla de la sigla seguida de palabra.
+ * SCREAMING_CASE, kebab-case y las fronteras con dígitos. Todo a minúsculas y
+ * con los acentos plegados. `RFCValido` da ['rfc', 'valido'] por la regla de la
+ * sigla seguida de palabra.
  *
- * Lo único que se aparta del gemelo es el nombre de la variable local —allí
- * `conEspacios`, que es de I1 y su línea base cuenta—: lo que I3 escribe va en
- * inglés, empezando por su propio guardián.
+ * EL PARTIDOR ES UNICODE (#197), y llegó por `main` mientras esta rama estaba
+ * fuera. Con `[^A-Za-z0-9]+` una `ñ` o una vocal acentuada eran SEPARADOR:
+ * `pequeño` daba ['peque','o'] y se contaba como INGLÉS. El sesgo no era
+ * neutro —convertía en inglesas justo las palabras más españolas—, así que el
+ * gemelo tenía que traerlo o las dos mitades del cruce publicarían otra vez
+ * dos números distintos, que es lo único que este archivo existe para impedir.
+ *
+ * Lo único que se aparta del gemelo son los nombres locales —allí
+ * `conEspacios`, `plegarDiacriticos` y `partirEnDigitos`, que son de I1 y su
+ * línea base cuenta—: lo que I3 escribe va en inglés, empezando por su propio
+ * guardián.
  */
 export function tokenize(identifier) {
   const withSpaces = identifier
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+    .replace(/(\p{Ll}|\p{N})(\p{Lu})/gu, '$1 $2')
+    .replace(/(\p{Lu}+)(\p{Lu}\p{Ll})/gu, '$1 $2');
   return withSpaces
-    .split(/[^A-Za-z0-9]+|\s+/)
+    .split(/[^\p{L}\p{N}]+|\s+/u)
     .filter((t) => t.length > 0)
-    .map((t) => t.toLowerCase());
+    .map((t) => foldDiacritics(t.toLowerCase()))
+    .flatMap(splitOnDigits);
+}
+
+/**
+ * EL GEMELO DE `partirEnDigitos`. La frontera letra↔dígito, PERO SÓLO EN LO
+ * QUE EL LÉXICO NO RECONOCE: `sha256` es un neutro curado y partirlo deja
+ * `sha`, que no está en ninguna lista y se daría por inglés. Así que primero
+ * se pregunta por el token entero; si no lo conoce, se parte, y ahí aparece lo
+ * que el corte venía a rescatar —`tasa99` da ['tasa','99']—.
+ */
+function splitOnDigits(token) {
+  if (!/\p{L}/u.test(token) || !/\p{N}/u.test(token)) return [token];
+  if (SPANISH_ROOTS.has(token) || NEUTRAL_TOKENS.has(token) || ENGLISH_EXTRA.has(token)) {
+    return [token];
+  }
+  return token
+    .replace(/(\p{L})(\p{N})/gu, '$1 $2')
+    .replace(/(\p{N})(\p{L})/gu, '$1 $2')
+    .split(' ')
+    .filter((t) => t.length > 0);
 }
 
 /**

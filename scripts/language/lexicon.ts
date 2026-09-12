@@ -46,8 +46,9 @@ import lexiconData from './lexicon.json';
 // evita que la lista crezca por comodidad.
 //
 // Lo que sí queda duplicado es `tokenize`/`classify`, reescrito en JavaScript
-// dentro de `eslint.config.mjs`: unas treinta líneas, que son el precio del
-// cruce de mundos. Lo que impide que las dos versiones se separen no es el
+// dentro de `eslint.config.mjs`: cincuenta y dos líneas de código —eran treinta
+// hasta que #197 trajo el partidor Unicode y el corte por dígitos—, que son el
+// precio del cruce de mundos. Lo que impide que las dos versiones se separen no es el
 // cuidado de nadie, sino la prueba de conformidad que las corre a las dos
 // sobre el mismo corpus.
 // ============================================================
@@ -142,21 +143,85 @@ export const ENGLISH_EXTRA: ReadonlySet<string> = listFrom('englishExtra');
 export const DOMAIN_TERMS: ReadonlyMap<string, string> = new Map(Object.entries(DATA.domainTerms));
 
 /**
+ * Pliega los diacríticos a ASCII: `tamaño` → `tamano`, `año` → `ano`.
+ *
+ * NO es cosmética, y no está aquí por gusto: `SPANISH_ROOTS` está escrito
+ * PLEGADO —contiene `tamano`, no `tamaño`—, así que sin este paso esa raíz, y
+ * las demás de su clase, son INALCANZABLES: ningún token que el partidor
+ * produzca puede casar con ellas nunca.
+ *
+ * `ñ` se pliega a `n` porque en NFD es `n` + tilde combinante. Es una pérdida
+ * de información deliberada y acotada al COTEJO: el token que se cuenta y se
+ * enseña sigue siendo el que el código escribió.
+ */
+function plegarDiacriticos(token: string): string {
+  return token.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
  * Parte un identificador en tokens: camelCase, PascalCase, snake_case,
- * SCREAMING_CASE, kebab-case y las fronteras con dígitos. Todo a minúsculas.
+ * SCREAMING_CASE, kebab-case y las fronteras con dígitos. Todo a minúsculas
+ * y con los acentos plegados.
  *
  * `RFCValido` da ['rfc', 'valido'] y no ['rfcvalido']: la regla de la sigla
- * seguida de palabra —`([A-Z]+)([A-Z][a-z])`— es la que hace que un acrónimo
- * pegado a una palabra española no esconda a la española.
+ * seguida de palabra —`(\p{Lu}+)(\p{Lu}\p{Ll})`— es la que hace que un
+ * acrónimo pegado a una palabra española no esconda a la española.
+ *
+ * ── POR QUÉ TODO ESTO ES UNICODE Y NO `[A-Za-z0-9]` (#197) ──────────────
+ *
+ * La primera versión partía por `[^A-Za-z0-9]+`, y una `ñ` o una vocal
+ * acentuada NO son ninguna de esas: eran SEPARADOR. El instrumento se comía
+ * la letra y partía la palabra en dos trozos que no están en ninguna lista,
+ * y `classifyToken` devuelve `en` para todo lo que no reconoce. Medido sobre
+ * esta misma función antes del arreglo:
+ *
+ *     pequeño       → ['peque', 'o']            → clasificado INGLÉS
+ *     tamañoMaximo  → ['tama', 'o', 'maximo']   → clasificado MIXTO
+ *     añoDeDocumento→ ['a', 'o', 'de', 'documento']
+ *
+ * Es decir: el sesgo no era neutro. El instrumento que mide cuánto español
+ * queda contaba como INGLÉS justo las palabras MÁS españolas del árbol —las
+ * que llevan ñ o tilde—, y por tanto publicaba una deuda menor que la real.
+ *
+ * Y las fronteras con dígitos, que este docstring prometía desde el primer
+ * día sin que el código las hiciera: `tasa8` daba `['tasa8']`, un token que
+ * no está en ninguna lista, así que la `tasa` española viajaba invisible.
  */
 export function tokenize(identifier: string): string[] {
   const conEspacios = identifier
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+    .replace(/(\p{Ll}|\p{N})(\p{Lu})/gu, '$1 $2')
+    .replace(/(\p{Lu}+)(\p{Lu}\p{Ll})/gu, '$1 $2');
   return conEspacios
-    .split(/[^A-Za-z0-9]+|\s+/)
+    .split(/[^\p{L}\p{N}]+|\s+/u)
     .filter((t) => t.length > 0)
-    .map((t) => t.toLowerCase());
+    .map((t) => plegarDiacriticos(t.toLowerCase()))
+    .flatMap(partirEnDigitos);
+}
+
+/**
+ * La frontera letra↔dígito, PERO SÓLO EN LO QUE EL LÉXICO NO RECONOCE.
+ *
+ * Partir siempre rompía neutros que ya estaban curados: `sha256` es UN token
+ * declarado neutro, y cortarlo deja `sha` —tres letras, en ninguna lista— que
+ * `classifyToken` da por inglés. Medido: el corte ciego movía 12 declaraciones
+ * de `neutral` a `en`, es decir, inventaba inglés donde había un acrónimo.
+ *
+ * Así que primero se pregunta al léxico por el token ENTERO. Si lo conoce
+ * —`sha256`, `camt053`, `mt940`— se queda entero. Si no lo conoce, se parte, y
+ * ahí es donde aparece lo que este corte venía a rescatar: `tasa8` da
+ * `['tasa', '8']` y la `tasa` española deja de viajar invisible dentro de un
+ * token que no está en ninguna lista.
+ */
+function partirEnDigitos(token: string): string[] {
+  if (!/\p{L}/u.test(token) || !/\p{N}/u.test(token)) return [token];
+  if (SPANISH_ROOTS.has(token) || NEUTRAL_TOKENS.has(token) || ENGLISH_EXTRA.has(token)) {
+    return [token];
+  }
+  return token
+    .replace(/(\p{L})(\p{N})/gu, '$1 $2')
+    .replace(/(\p{N})(\p{L})/gu, '$1 $2')
+    .split(' ')
+    .filter((t) => t.length > 0);
 }
 
 /**

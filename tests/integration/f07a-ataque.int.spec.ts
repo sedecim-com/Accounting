@@ -6,6 +6,7 @@ import {
   crearEntidadHermana,
   type Fixture,
 } from './helpers/tenant-fixture.js';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
 import { levantar, pedir, sesionDe, type Servidor } from './helpers/servidor.js';
 import reportsRouter from '../../src/api/rest/routes/reports.js';
@@ -84,8 +85,6 @@ import { JournalEntryType } from '../../src/types/index.js';
 let f: Fixture;
 let hermana: Fixture;
 let cuenta1195: string;
-/** Cuántas filas tenía el catálogo del SAT antes de que este archivo lo tocara. */
-let catalogoAlLlegar = 0;
 
 const LEDGER = 4;
 
@@ -127,15 +126,19 @@ function cuatro(tb: TrialBalanceReport, codigo: string) {
   };
 }
 
-beforeAll(async () => {
-  // `sat_codigos_agrupadores` es GLOBAL: la comparte toda la corrida. Este
-  // archivo la siembra para poder probar la validación, así que apunta cómo la
-  // encontró para devolverla igual — un archivo de pruebas que deja sembrada
-  // una tabla compartida hace fallar al siguiente por un motivo que no es suyo.
-  catalogoAlLlegar = Number(
-    (await query<{ n: string }>('SELECT COUNT(*)::text AS n FROM sat_codigos_agrupadores')).rows[0].n
-  );
+// `sat_codigos_agrupadores` es GLOBAL —sin tenant_id ni entity_id—, así que la
+// comparte toda la corrida, y este archivo la siembra entera para poder probar
+// la validación. Se apunta cómo estaba y se devuelve igual: lo que un archivo
+// deja sembrado en una tabla global hace fallar a OTRO, en OTRA corrida, por un
+// motivo que no es suyo. El porqué entero, en helpers/catalogos-globales.ts.
+//
+// Este archivo lo hacía A MANO, con un conteo de filas al llegar. Se sustituye
+// por el ayudante no por aseo: un conteo no ve un UPDATE que deja el mismo
+// número de filas, y aquí el catálogo se siembra, se vacía y se vuelve a
+// sembrar dentro de las pruebas.
+apartarCatalogos('sat_codigos_agrupadores');
 
+beforeAll(async () => {
   f = await crearInquilino('F07a · ataque');
   enterTenant(f.tenantId);
 
@@ -165,11 +168,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await drainAttestations(3000);
 
-  if (catalogoAlLlegar === 0) {
-    await query('DELETE FROM sat_codigos_agrupadores');
-  }
-
-  // Y los usuarios de este fixture se DAN DE BAJA. `doctor` tiene comprobaciones
+  // Los usuarios de este fixture se DAN DE BAJA. `doctor` tiene comprobaciones
   // de INSTALACIÓN que leen `users` sin acotar por inquilino y sí por
   // `is_active` —el informe de permisos en conflicto es una—, así que cada
   // inquilino desechable que un archivo deja vivo engorda un informe que otro

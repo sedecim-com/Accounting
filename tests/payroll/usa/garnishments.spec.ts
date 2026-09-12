@@ -29,7 +29,7 @@ describe('Garnishment engine — CCPA caps', () => {
   it('applies child-support 50% cap (supports second family, no arrears)', async () => {
     ordersResponse([
       {
-        id: 'cs1', type: 'child_support', amount_per_period: '600', percentage: null,
+        id: 'cs1', type: 'child_support', amount_type: 'fixed', amount_value: '600',
         priority: 1, supports_second_family: true, arrears_over_12_weeks: false, exempt_amount: null,
       },
     ]);
@@ -44,7 +44,7 @@ describe('Garnishment engine — CCPA caps', () => {
   it('applies 65% cap (no second family, arrears > 12 weeks)', async () => {
     ordersResponse([
       {
-        id: 'cs2', type: 'child_support', amount_per_period: '900', percentage: null,
+        id: 'cs2', type: 'child_support', amount_type: 'fixed', amount_value: '900',
         priority: 1, supports_second_family: false, arrears_over_12_weeks: true, exempt_amount: null,
       },
     ]);
@@ -57,7 +57,7 @@ describe('Garnishment engine — CCPA caps', () => {
   it('honors order amount when below cap', async () => {
     ordersResponse([
       {
-        id: 'cs3', type: 'child_support', amount_per_period: '300', percentage: null,
+        id: 'cs3', type: 'child_support', amount_type: 'fixed', amount_value: '300',
         priority: 1, supports_second_family: true, arrears_over_12_weeks: false, exempt_amount: null,
       },
     ]);
@@ -71,7 +71,7 @@ describe('Garnishment engine — CCPA caps', () => {
   it('creditor garnishment respects 25% disposable cap', async () => {
     ordersResponse([
       {
-        id: 'cr1', type: 'creditor', amount_per_period: '500', percentage: null,
+        id: 'cr1', type: 'creditor', amount_type: 'fixed', amount_value: '500',
         priority: 5, supports_second_family: null, arrears_over_12_weeks: null, exempt_amount: null,
       },
     ]);
@@ -86,7 +86,7 @@ describe('Garnishment engine — CCPA caps', () => {
   it('creditor returns 0 when disposable below 30×FMW (≈$217.50/wk)', async () => {
     ordersResponse([
       {
-        id: 'cr2', type: 'creditor', amount_per_period: '100', percentage: null,
+        id: 'cr2', type: 'creditor', amount_type: 'fixed', amount_value: '100',
         priority: 5, supports_second_family: null, arrears_over_12_weeks: null, exempt_amount: null,
       },
     ]);
@@ -100,7 +100,7 @@ describe('Garnishment engine — CCPA caps', () => {
   it('tax levy uses Pub 1494 exempt amount', async () => {
     ordersResponse([
       {
-        id: 'tl1', type: 'tax_levy', amount_per_period: null, percentage: null,
+        id: 'tl1', type: 'tax_levy_federal', amount_type: 'fixed', amount_value: '0',
         priority: 2, supports_second_family: null, arrears_over_12_weeks: null, exempt_amount: '300',
       },
     ]);
@@ -113,7 +113,7 @@ describe('Garnishment engine — CCPA caps', () => {
   it('AWG student loan caps at 15%', async () => {
     ordersResponse([
       {
-        id: 'sl1', type: 'student_loan', amount_per_period: '500', percentage: null,
+        id: 'sl1', type: 'student_loan', amount_type: 'fixed', amount_value: '500',
         priority: 4, supports_second_family: null, arrears_over_12_weeks: null, exempt_amount: null,
       },
     ]);
