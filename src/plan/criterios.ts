@@ -1737,8 +1737,33 @@ export const CRITERIOS: Criterio[] = [
       }
       const i = d.indexOf('function checkLedgerIntegrity');
       const cuerpo = d.slice(i, i + 3500);
-      if (!/FULL OUTER JOIN/i.test(cuerpo) || !/status\s*=\s*'posted'/.test(cuerpo)) {
-        return falla('el chequeo no compara account_balances contra Σ de líneas POSTEADAS por ambos lados');
+      // «POR AMBOS LADOS» SE COMPRUEBA POR AMBOS LADOS (S4, mutante 4/6).
+      //
+      // Esto era un `/status = 'posted'/` suelto sobre el cuerpo entero, y el
+      // enunciado ya prometía los dos. Con una sola aparición bastando, quitarle
+      // el filtro a CUALQUIERA de las dos consultas dejaba el criterio verde: el
+      // mutante que este tramo manda sembrar salía vivo, y el criterio está EN
+      // EL PISO, o sea protegiendo algo que no miraba.
+      //
+      // Perderlo en la primera mete un asiento en BORRADOR en la Σ de líneas, y
+      // `doctor` acusaría una deriva del mayor que no existe. En la segunda, al
+      // revés: dejaría de contar los posteados sin rastro de auditoría.
+      if (!/FULL OUTER JOIN/i.test(cuerpo)) {
+        return falla('el chequeo no compara account_balances contra Σ de líneas por deriva');
+      }
+      const DERIVA = /FROM journal_entry_lines jel[\s\S]{0,200}?status\s*=\s*'posted'[\s\S]{0,120}?GROUP BY/;
+      if (!DERIVA.test(cuerpo)) {
+        return falla(
+          'la Σ de líneas dejó de filtrar por posteadas: un asiento en BORRADOR entraría en el total ' +
+            'y doctor acusaría una deriva del mayor que no existe'
+        );
+      }
+      const RASTRO = /FROM journal_entries je[\s\S]{0,80}?status\s*=\s*'posted'[\s\S]{0,300}?action\s*=\s*'post'/;
+      if (!RASTRO.test(cuerpo)) {
+        return falla(
+          'el conteo de asientos sin rastro dejó de acotarse a los posteados: contaría borradores, ' +
+            'que no tienen por qué llevar renglón de auditoría de posteo'
+        );
       }
       if (!/level:\s*'fail'/.test(cuerpo)) {
         return falla('la deriva del mayor quedó degradada a warn: un número falso con aspecto de número');
@@ -1747,6 +1772,26 @@ export const CRITERIOS: Criterio[] = [
         ? ok('doctor verifica saldos = Σ líneas y posteados con rastro, y la deriva es fail')
         : falla('el chequeo existe y runDoctor no lo corre');
     },
+    // S4 · MUTANTE 4/6 y su gemelo: son DOS consultas y cada una necesita el
+    // suyo, porque una sola ancla dejaba viva a la otra.
+    mutantes: [
+      {
+        archivo: 'src/ai/doctor-service.ts',
+        de: "          WHERE je.status = 'posted'",
+        a: "          WHERE je.status IS NOT NULL",
+        porque:
+          'la Σ de líneas deja de filtrar por posteadas: un borrador entra en el total y doctor acusa ' +
+          'una deriva del mayor que no existe',
+      },
+      {
+        archivo: 'src/ai/doctor-service.ts',
+        de: "      WHERE je.status = 'posted'",
+        a: "      WHERE je.status <> 'void'",
+        porque:
+          'el conteo de asientos sin rastro deja de acotarse a los posteados: cuenta borradores, que ' +
+          'no tienen por qué llevar renglón de auditoría de posteo',
+      },
+    ],
   },
   {
     paquete: 'E0.1',
@@ -5829,6 +5874,268 @@ export const CRITERIOS: Criterio[] = [
             `${proyecta} de 2 candidatos se proyectan por su saldo: el que se filtre por saldo y se compare contra el total no podrá casar nunca`
           );
     },
+  },
+
+  // ---------------------------------------------------------------
+  // S4 · MUTANTE 5/6 · LA VENTANA DEL COTEJO, Y LAS DOS VARAS
+  //
+  // El issue #109 manda sembrar «la ventana del cotejo». La conducta SÍ estaba
+  // fijada —`matching.spec.ts` prueba que a tres días casa y a cuatro ya no—
+  // pero el ARNÉS no podía declararla: `scripts/mutantes.ts` aplica el espejo y
+  // llama a `criterio.evaluar()`, y nunca corre vitest. Una prueba verde o roja
+  // le es invisible: sin criterio que lea este número, el mutante salía VIVO.
+  //
+  // Y afirma DOS cosas porque con una sola se vacía. Si sólo mirara el motor,
+  // mover las dos varas a treinta días pasaría; si sólo mirara la CLI, quedaría
+  // sin dueño la divergencia entre superficies, que es la que el docblock de
+  // `match-service.ts` promete que no existe.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E1.2',
+    id: 'near-date-window-agrees-across-engines',
+    enunciado:
+      'La ventana que vuelve dura a la señal de fecha no pasa de tres días, y las dos superficies del cotejo miden la misma',
+    evaluar: () => {
+      const motor = codigoDe('src/services/banking/matching.ts');
+      const cli = codigoDe('src/services/banking/match-service.ts');
+      const enMotor = /const threeDays = (\d+) \* 24 \* 60 \* 60 \* 1000;/.exec(motor);
+      const enCli = /const VENTANA_DIAS = (\d+);/.exec(cli);
+      if (enMotor === null) {
+        return falla('la regla 2 del motor dejó de declarar su ventana como un número legible');
+      }
+      if (enCli === null) return falla('match-service dejó de declarar VENTANA_DIAS');
+      const dias = Number(enMotor[1]);
+      const diasCli = Number(enCli[1]);
+      if (dias > 3) {
+        return falla(
+          `la ventana de la regla 2 subió a ${dias} días: a esa distancia el importe exacto queda ` +
+            'como ÚNICA señal, y esa regla se aplica EN FIRME. Dos pagos iguales del mismo ' +
+            'proveedor en el mismo mes dejan de distinguirse'
+        );
+      }
+      if (dias !== diasCli) {
+        return falla(
+          `el motor mide ${dias} día(s) y match-service ${diasCli}: la CLI informaría «dentro de ` +
+            'ventana» con una vara y el REST aplicaría con otra'
+        );
+      }
+      return ok(`la ventana es de ${dias} día(s) y las dos superficies la comparten`);
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: '    const threeDays = 3 * 24 * 60 * 60 * 1000;',
+        a: '    const threeDays = 30 * 24 * 60 * 60 * 1000;',
+        porque:
+          'la ventana se ensancha a un mes: a esa distancia el importe exacto es la única señal y la ' +
+          'regla 2 aplica EN FIRME, así que dos pagos iguales del mismo proveedor se confunden',
+      },
+      {
+        archivo: 'src/services/banking/match-service.ts',
+        de: 'const VENTANA_DIAS = 3;',
+        a: 'const VENTANA_DIAS = 7;',
+        porque:
+          'las dos superficies dejan de medir lo mismo: la CLI diría «dentro de ventana» de un ' +
+          'candidato que el motor no considera cercano',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------
+  // S4 · MUTANTE 2/6 · EL PREDICADO DE LA POLÍTICA HIJA
+  //
+  // El issue lo enuncia así: «cambiar el predicado hijo a `USING (true OR …)`
+  // deja hoy las pruebas verdes». Ya no: `rls-por-su-predicado.int.spec.ts`
+  // recorre `pg_policy` y lo caza. Pero el TABLERO no podía hablar de este
+  // archivo —cuatro criterios lo leen y ninguno mira este predicado—, así que
+  // el arnés no tenía dónde declarar el espejo.
+  //
+  // EL ANCLA CIERRA EL PREDICADO POR LOS DOS LADOS: el paréntesis pegado al
+  // EXISTS por la izquierda y el cierre por la derecha. Un `true OR ` sólo cabe
+  // entre esos dos, y es ahí donde rompe. Es la lección de las anclas que no
+  // acotan: un predicado abierto por un lado se deja ampliar sin que el
+  // criterio se mueva.
+  //
+  // Lo que protege son las tablas hijas: el EXISTS es lo único que las ata a un
+  // padre visible, y neutralizarlo las abre a todos los inquilinos.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E2.1',
+    id: 'child-policy-predicate-hangs-on-parent',
+    enunciado:
+      'La política de las tablas hijas cuelga EXACTAMENTE del padre visible, sin nada que la puentee',
+    evaluar: () => {
+      const pol = codigoDe('src/database/rls-policies.sql');
+      const RE_HIJA =
+        /USING '\s*\|\|\s*'\(EXISTS \(SELECT 1 FROM public\.%I p WHERE p\.id = %I\.%I\)\)'/;
+      if (!RE_HIJA.test(pol)) {
+        return falla(
+          'el predicado de las hijas dejó de colgar EXACTAMENTE del padre: cualquier cosa entre el ' +
+            'USING y el EXISTS —un `true OR`, un OR al final— abre las hijas a todos los inquilinos ' +
+            'y RLS deja de ser la segunda cerradura que dice ser'
+        );
+      }
+      return ok('el predicado de las hijas es el EXISTS del padre y nada más');
+    },
+    mutantes: [
+      {
+        archivo: 'src/database/rls-policies.sql',
+        de: "      || '(EXISTS (SELECT 1 FROM public.%I p WHERE p.id = %I.%I))',",
+        a: "      || '(true OR EXISTS (SELECT 1 FROM public.%I p WHERE p.id = %I.%I))',",
+        porque:
+          'el `USING (true OR …)` que el issue nombra: la política de las hijas admite cualquier ' +
+          'fila y el EXISTS que las ata a un padre visible queda de adorno',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------
+  // S4 · MUTANTE 6/6 · LA TOLERANCIA DEL COTEJO, QUE ESTABA VIVO
+  //
+  // De los seis que el issue manda sembrar, éste era el único VIVO:
+  // `times(0.05)` → `times(0.95)` dejaba 5 516 pruebas en verde. La razón, al
+  // leerlas: las dos pruebas de la regla 3 usaban importes DENTRO de la banda
+  // —1020 contra 1000 es un 2 %, y el otro exacto—, así que abrirla no cambiaba
+  // ninguno de los dos veredictos. Nadie probaba el borde.
+  //
+  // QUÉ SE PIERDE AL ABRIRLA. No es una escritura automática: `auto_applicable`
+  // exige importe idéntico al centavo y se calcula fuera de la banda. Lo que se
+  // corrompe es LA PROPUESTA QUE UN HUMANO FIRMA. Y `getCandidates` ya acota a
+  // ±10 % en la base, así que el daño real no es «1 000 casa con 60» sino esto:
+  // un candidato al 8 % que hoy no nombra nadie —la regla 4 se queda en 0.64,
+  // bajo su 0.75— pasa a salir como `fuzzy_description` con confianza 1.00. Un
+  // «no sé» convertido en un nombre seguro y equivocado.
+  //
+  // EL CRITERIO AFIRMA DOS COSAS: la cifra, cerrada por la derecha; y que la
+  // prueba del borde siga existiendo. Sin la segunda se quedaría verde sobre
+  // una banda que ninguna prueba toca, que es como éste llegó a estar vivo.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E1.2',
+    id: 'fuzzy-match-band-is-narrow-and-tested',
+    enunciado:
+      'La banda de importe del cotejo difuso es del 5 %, y hay prueba que fija su borde por fuera',
+    evaluar: () => {
+      const motor = codigoDe('src/services/banking/matching.ts');
+      // SIN EL COMENTARIO EN EL ANCLA: `codigoDe` quita los comentarios antes de
+      // entregar el texto, así que exigir el «// 5% tolerance» del final ponía
+      // este criterio rojo sobre un archivo perfectamente sano. Es la regla que
+      // este archivo se aplica a sí mismo desde E0.1.
+      const banda = /const amountTolerance = txAmount\.times\((0\.\d+)\);/.exec(motor);
+      if (banda === null) {
+        return falla(
+          'la regla 3 dejó de declarar su banda de importe como una cifra legible: sin ella, lo ' +
+            'único que separa a un candidato de otro es el parecido del texto'
+        );
+      }
+      if (Number(banda[1]) > 0.05) {
+        return falla(
+          `la banda del cotejo difuso subió al ${(Number(banda[1]) * 100).toFixed(0)} %: el parecido ` +
+            'de la descripción pasa a rescatar candidatos cuyo importe ya había dicho que no, y el ' +
+            'motor nombra con confianza 1.00 lo que hoy contesta «no sé»'
+        );
+      }
+      const spec = crudoDe('tests/services/banking/matching.spec.ts');
+      if (!/amount: '1080\.0000'/.test(spec)) {
+        return falla(
+          'desapareció la prueba del candidato FUERA de la banda: sin un importe que la banda tenga ' +
+            'que rechazar, ensancharla no pone roja ninguna prueba'
+        );
+      }
+      return ok('la banda es del 5 % y hay prueba que la fija por fuera, a un 8 % de distancia');
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: '    const amountTolerance = txAmount.times(0.05); // 5% tolerance',
+        a: '    const amountTolerance = txAmount.times(0.95); // 5% tolerance',
+        porque:
+          'el espejo que este tramo encontró VIVO: la banda deja de acotar y un candidato que hoy ' +
+          'nadie nombra sale como cotejo con confianza 1.00',
+      },
+      {
+        archivo: 'tests/services/banking/matching.spec.ts',
+        de: "candidato({ amount: '1080.0000' })",
+        a: "candidato({ amount: '1000.0000' })",
+        porque:
+          'la prueba del borde deja de estar fuera de la banda: volvería a pasar con la tolerancia ' +
+          'abierta, que es como el mutante de la banda sobrevivió hasta hoy',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------
+  // S4 · EL MANUAL DEL AGENTE DICE LO QUE EL CLASIFICADOR HACE
+  //
+  // `mexico-cfdi.md` enseñaba «PUE → the expense is credited against BANKS»
+  // mientras `cfdi-taxonomy.ts` abona a `cxp` en LOS DOS casos recibidos, y su
+  // propia nota advierte que abonar al banco DUPLICARÍA la salida cuando llegue
+  // el movimiento bancario. Un agente que siguiera el manual redactaba el
+  // asiento al revés, y el error sólo aparecía al conciliar.
+  //
+  // Y ESTABA SELLADO COMO REVISADO. `corpus-manifiesto` compara el sha de la
+  // FUENTE: caza que el código cambió bajo un manual, no que el manual nunca
+  // fue cierto. Uno que nace equivocado pasa esa compuerta para siempre. Por
+  // eso este criterio no mira el sello: cruza la afirmación NORMATIVA con el
+  // código que la ejecuta.
+  //
+  // No valida el manual entero —eso no lo hace un regex—. Ata la única
+  // afirmación cuyo error se paga dos veces en el mayor.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E1.2',
+    id: 'cfdi-manual-credits-what-the-classifier-credits',
+    enunciado:
+      'El manual del agente no manda abonar al banco un CFDI recibido, porque el clasificador abona a proveedores',
+    evaluar: () => {
+      const manual = crudoDe('src/ai/docs/mexico-cfdi.md');
+      const taxonomia = codigoDe('src/services/xml-ingestion/cfdi-taxonomy.ts');
+
+      for (const caso of ['ingreso_recibido_pue', 'ingreso_recibido_ppd']) {
+        const i = taxonomia.indexOf(`id: '${caso}'`);
+        if (i === -1) return falla(`el clasificador perdió el caso ${caso}`);
+        const cuerpo = taxonomia.slice(i, i + 2200);
+        if (!/role: 'cxp', side: 'credit'/.test(cuerpo)) {
+          return falla(
+            `${caso} dejó de abonar a 'cxp'. Si abona al banco, la salida de efectivo se cuenta dos ` +
+              'veces: una aquí y otra al conciliar el extracto'
+          );
+        }
+      }
+
+      if (/credited against BANKS/i.test(manual)) {
+        return falla(
+          'mexico-cfdi.md vuelve a mandar abonar al banco un CFDI recibido, y el clasificador abona ' +
+            'a proveedores: el agente redactaría el asiento al revés y el error sólo aparecería al ' +
+            'conciliar, duplicada ya la salida'
+        );
+      }
+      if (!/NEVER BANKS/i.test(manual)) {
+        return falla(
+          'el manual dejó de decir expresamente que no se abona al banco. La compuerta del corpus no ' +
+            'lo caza: compara el sha de la FUENTE, no si el manual es cierto'
+        );
+      }
+      return ok('el manual manda abonar a proveedores, que es lo que los dos casos recibidos hacen');
+    },
+    mutantes: [
+      {
+        archivo: 'src/ai/docs/mexico-cfdi.md',
+        de: 'BOTH PUE AND PPD CREDIT VENDORS (AP), NEVER BANKS.',
+        a: 'PUE (single-payment) → the expense is credited against BANKS.',
+        porque:
+          'el manual vuelve al texto que mal-instruía: el agente abona al banco y la salida se cuenta ' +
+          'dos veces cuando llega el movimiento',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-taxonomy.ts',
+        de: "{ role: 'cxp', side: 'credit', amount: A.total, description: 'Vendor' },",
+        a: "{ role: 'banco', side: 'credit', amount: A.total, description: 'Vendor' },",
+        porque:
+          'el clasificador se va al banco y el manual se queda diciendo proveedores: la pareja tiene ' +
+          'que acusar el desacuerdo venga del lado que venga, y éste es el lado que duplica la salida',
+      },
+    ],
   },
 
   {
