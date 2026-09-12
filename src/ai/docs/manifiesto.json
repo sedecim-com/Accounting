@@ -116,7 +116,7 @@
     "src/cli/bank-command.ts": "421cdd013e839ccdcee94004187b59bf9d0c92cf",
     "src/services/webhooks/webhook-service.ts": "1207441f2f2f4fe020ef37789269afb23f3261bc",
     "src/services/integrations/index.ts": "c785f9eb1596c6560eb5f5a15ebb8710e2ee8ac6",
-    "src/database/rls-policies.sql": "a4a9a05e90627cfc2ad1cccfd0f9ad52ba13323f",
+    "src/database/rls-policies.sql": "83d22e4779e2430a9ccc33bc4451507714af18a5",
     "src/services/fiscal-credentials/service.ts": "5427809dedc39c29abd51628ee49100c76f96b6b",
     "src/services/reporting/report-service.ts": "956654a4480dd7378969e77d9af38a6ac11338ed",
     "src/services/ar/invoice-service.ts": "5ef0eeefa2c58db5b190d445a4e50d297707f2ec",

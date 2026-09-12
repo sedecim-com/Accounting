@@ -658,6 +658,9 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
   'src/services/accounting/posting.ts': { statements: 91, branches: 86, functions: 96, lines: 91 },
   'src/services/accounting/ar-ap-posting.ts': { statements: 87, branches: 75, functions: 96, lines: 91 },
   'src/services/accounting/validation.ts': { statements: 86, branches: 78, functions: 100, lines: 88 },
+  // A6 · el conductor del cierre y su expediente, con el suelo donde lo dejó su suite.
+  'src/services/accounting/closing-conductor.ts': { statements: 90, branches: 72, functions: 90, lines: 91 },
+  'src/services/accounting/closing-pack.ts': { statements: 87, branches: 75, functions: 100, lines: 90 },
   'src/services/accounting/iva-cash-basis.ts': { statements: 96, branches: 84, functions: 100, lines: 98 },
   'src/services/reporting/report-service.ts': { statements: 84, branches: 75, functions: 77, lines: 86 },
   'src/services/reporting/criterio-cierre.ts': { statements: 91, branches: 80, functions: 85, lines: 91 },
@@ -1133,6 +1136,7 @@ export const CRITERIOS: Criterio[] = [
         G0: 'docs/auditorias/G0.md',
         G4a: 'docs/auditorias/G4a.md',
         G4b: 'docs/auditorias/G4b.md',
+        A6: 'docs/auditorias/A6.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -3684,6 +3688,308 @@ export const CRITERIOS: Criterio[] = [
               'ceros y los embargos salen de una tabla que ningún camino puebla'
           );
     },
+  },
+
+  // ---------------------------------------------------------------
+  // A6 · EL CONDUCTOR DEL CIERRE Y SU EXPEDIENTE
+  //
+  // La tarjeta de A6 nace con su prueba de aceptación puesta: «el expediente
+  // que entrega tiene que poder volver a correrse por un tercero y dar las
+  // mismas cifras». Los cuatro criterios de aquí abajo vigilan las cuatro
+  // maneras REALES de romper esa frase sin que nada se ponga rojo, y las
+  // cuatro fueron tentaciones mientras se escribía el tramo:
+  //
+  //   · sellar el reloj — el expediente verifica hoy y deriva mañana, en
+  //     silencio y por la mejor de las razones;
+  //   · sellar un borrador o un orden — dos derivaciones del mismo mes que
+  //     devuelven las mismas filas en otro orden sellan distinto;
+  //   · que el conductor CALCULE en vez de delegar, que es el cuarto motor
+  //     que este repositorio gasta criterios en no tener;
+  //   · continuar la corrida de otro en silencio, que convierte «lo corrí yo»
+  //     en una afirmación que nadie puede sostener.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E4.1',
+    id: 'closing-dossier-seals-the-books-not-the-clock',
+    enunciado:
+      'El expediente del cierre sella la fecha del periodo, nunca el reloj: por eso un tercero puede volver a correrlo',
+    evaluar: () => {
+      const p = 'src/services/accounting/closing-pack.ts';
+      if (!existe(p)) return falla(`no existe ${p}: el expediente de A6 desapareció`);
+      const s = codigoDe(p);
+
+      // La derivación se lee ACOTADA, no el archivo entero: `buildClosingPack`
+      // SÍ tiene un reloj —el sobre lleva `generated_at`— y buscar `new Date`
+      // en todo el fuente pondría en rojo la única línea que debe tenerlo.
+      const i = s.indexOf('export async function deriveSealedBody');
+      const j = s.indexOf('export interface BuildPackOptions');
+      if (i < 0 || j <= i) {
+        return falla(
+          'no se encuentra `deriveSealedBody` acotada por `BuildPackOptions`: la derivación se ' +
+            'renombró o se movió, y este criterio dejaría de mirar lo que vino a mirar'
+        );
+      }
+      const deriva = s.slice(i, j);
+
+      if (!/const asOf = periodo\.end_date;/.test(deriva)) {
+        return falla(
+          'la fecha de corte del expediente ya no sale del periodo: si sale de otro sitio, dos ' +
+            'derivaciones del mismo mes pueden dar cifras distintas y la comprobación no prueba nada'
+        );
+      }
+
+      const reloj = /new Date\(|CURRENT_DATE|NOW\(\)/i.exec(deriva);
+      if (reloj) {
+        return falla(
+          `la derivación del cuerpo sellado consulta el reloj ("${reloj[0]}"): el expediente ` +
+            'verificaría hoy y derivaría mañana, en silencio'
+        );
+      }
+
+      // Y el reloj que SÍ existe vive fuera del sello. Si `generated_at`
+      // entrara en el cuerpo sellado, «las mismas cifras» sería incomprobable
+      // POR CONSTRUCCIÓN: el mismo mes sellado dos veces daría dos sellos.
+      if (!/seal: sealOf\(sealed\)/.test(s)) {
+        return falla(
+          'el sello ya no se calcula sobre el cuerpo sellado a secas: revisa qué entró en él, ' +
+            'porque el sobre lleva el reloj y el actor'
+        );
+      }
+
+      return ok(
+        'el corte es la fecha del periodo, la derivación no consulta el reloj, y el reloj del ' +
+          'sobre queda fuera del sello'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: '  const asOf = periodo.end_date;',
+        a: '  const asOf = new Date().toISOString().slice(0, 10);',
+        porque:
+          'el corte pasa a ser el reloj: el expediente verifica el día que se sella y deriva el ' +
+          'siguiente, que es la manera silenciosa de que «las mismas cifras» deje de ser cierto',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: '  const asOf = periodo.end_date;\n',
+        a: '  const asOf = periodo.end_date;\n  const hoy = new Date();\n',
+        porque:
+          'el reloj entra en la derivación por la puerta de al lado, con el ancla intacta: un ' +
+          'criterio que sólo comprobara la línea del corte lo dejaría pasar',
+      },
+    ],
+  },
+  {
+    paquete: 'E4.1',
+    id: 'closing-dossier-reads-the-posted-ledger-in-order',
+    enunciado:
+      'Las cifras del expediente salen del mayor posteado, acotadas al corte y en orden fijo',
+    evaluar: () => {
+      const p = 'src/services/accounting/closing-pack.ts';
+      if (!existe(p)) return falla(`no existe ${p}: el expediente de A6 desapareció`);
+      const s = codigoDe(p);
+
+      // UNA SOLA BALANZA. El expediente no arma su propia consulta de saldos:
+      // usa la que ya comparten las tres superficies. Un segundo motor sería
+      // el mismo defecto que G4 persigue en la API, y el día que los dos
+      // discreparan el auditor no tendría manera de saber cuál miente.
+      if (!/queryTrialBalanceRows\(entityId, \{ asOfDate: asOf \}\)/.test(s)) {
+        return falla(
+          'el expediente ya no pide la balanza al motor compartido con el corte del periodo: o ' +
+            'se armó una segunda balanza, o la pidió sin acotar — y una balanza sin corte no ' +
+            'es reproducible, porque crece con cada mes que pasa'
+        );
+      }
+
+      if (!/AND je\.status = 'posted'/.test(s)) {
+        return falla(
+          'la actividad del periodo dejó de filtrar por posteado: un expediente que cuenta ' +
+            'borradores se mueve cada vez que alguien edita uno'
+        );
+      }
+
+      if (!/ORDER BY COALESCE\(je\.source_type, 'manual'\)/.test(s)) {
+        return falla(
+          'la actividad del periodo perdió su ORDER BY: dos derivaciones del mismo mes pueden ' +
+            'devolver las mismas filas en otro orden, y entonces sellan distinto sin que nada ' +
+            'haya cambiado en los libros'
+        );
+      }
+
+      // El dinero, como todo el dinero de esta casa: cadena con cuatro
+      // decimales. Un `toFixed` de JavaScript sobre un número ya sería un
+      // float, y dos plataformas pueden redondearlo distinto.
+      if (!/new Decimal\(v \?\? 0\)\.toFixed\(SCALE\)/.test(s)) {
+        return falla(
+          'las cifras del expediente dejaron de normalizarse con Decimal a escala fija: dos ' +
+            'formatos del mismo importe sellan distinto'
+        );
+      }
+
+      return ok(
+        'la balanza es la compartida y va acotada al corte, la actividad filtra posteado y va ' +
+          'ordenada, y el dinero se normaliza con Decimal'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: "        AND je.status = 'posted'\n",
+        a: '',
+        porque:
+          'el expediente empieza a contar borradores: sus cifras se mueven cada vez que alguien ' +
+          'edita uno, y la comprobación acusa una deriva que no ocurrió en el mayor',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: "      ORDER BY COALESCE(je.source_type, 'manual')",
+        a: '',
+        porque:
+          'sin ORDER BY el orden lo elige Postgres: el mismo mes, derivado dos veces, puede ' +
+          'sellar distinto — la clase de fallo que sólo aparece en la máquina del tercero',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: 'queryTrialBalanceRows(entityId, { asOfDate: asOf })',
+        a: 'queryTrialBalanceRows(entityId, {})',
+        porque:
+          'la balanza pierde su corte y pasa a ser acumulada hasta hoy: el expediente de julio ' +
+          'cambia en agosto sin que nadie toque julio',
+      },
+    ],
+  },
+  {
+    paquete: 'E4.1',
+    id: 'closing-conductor-delegates-and-keeps-the-order',
+    enunciado:
+      'El conductor del cierre ordena y delega: no calcula ni una cifra, y su orden es el único posible',
+    evaluar: () => {
+      const p = 'src/services/accounting/closing-conductor.ts';
+      if (!existe(p)) return falla(`no existe ${p}: el conductor de A6 desapareció`);
+      const s = codigoDe(p);
+
+      const i = s.indexOf('export const CLOSING_STEPS = [');
+      const j = s.indexOf('] as const', i);
+      if (i < 0 || j <= i) return falla('no se encuentra la lista de pasos del conductor');
+      const pasos = [...s.slice(i, j).matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
+
+      // EL ORDEN NO ES UNA PREFERENCIA. Las tres corridas van antes del
+      // checklist porque el checklist pregunta por ellas, y el checklist va
+      // antes del cierre porque el cierre se niega con una casilla bloqueante
+      // abierta. Correr el checklist primero produciría la falsa alarma más
+      // cara del mes: «falta depreciación» sobre un periodo cuyo paso
+      // siguiente iba a postearla.
+      const esperado = [
+        'accrue-benefits',
+        'amortize-prepaids',
+        'depreciate-assets',
+        'verify-checklist',
+        'soft-close',
+      ];
+      if (pasos.join(',') !== esperado.join(',')) {
+        return falla(
+          `los pasos del conductor son [${pasos.join(', ')}] y tienen que ser ` +
+            `[${esperado.join(', ')}]: los devengos van antes del checklist porque el checklist ` +
+            'pregunta por ellos, y el checklist antes del cierre porque el cierre se niega con ' +
+            'una casilla bloqueante abierta'
+        );
+      }
+
+      // Y CADA PASO DELEGA. El conductor no tiene aritmética propia: si
+      // calculara, sería el cuarto motor, y el día que discrepara con el suyo
+      // nadie sabría cuál de los dos mira el operador.
+      const motores = [
+        'runMonthlyProvisions(',
+        'runMonthlyAmortization(',
+        'runMonthlyDepreciation(',
+        'getCloseReadiness(',
+        'softClosePeriod(',
+      ];
+      const ausentes = motores.filter((m) => !s.includes(m));
+      if (ausentes.length > 0) {
+        return falla(
+          `el conductor dejó de llamar a ${ausentes.join(', ')}: un paso que no delega es un ` +
+            'motor nuevo, y el cierre pasaría a tener dos versiones de la misma cifra'
+        );
+      }
+
+      const aritmetica = /new Decimal\(|debit_amount|credit_amount/.exec(s);
+      if (aritmetica) {
+        return falla(
+          `el conductor manipula importes ("${aritmetica[0]}"): su aportación es el orden, la ` +
+            'idempotencia y la evidencia, y ninguna de las tres necesita tocar un peso'
+        );
+      }
+
+      return ok(
+        `los cinco pasos en su orden (${pasos.join(' → ')}), cada uno delegando en su motor, y ` +
+          'sin una sola cifra calculada aquí'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de:
+          "  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',\n  'verify-checklist',",
+        a:
+          "  'verify-checklist',\n  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',",
+        porque:
+          'el checklist pasa a correr ANTES de los devengos: acusaría «falta depreciación» sobre ' +
+          'un mes cuyo paso siguiente iba a postearla, y el cierre se detendría por su propio orden',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      const r = await runMonthlyDepreciation(ctx.entityId, period.id, opts.userId);',
+        a: '      const r = { processed: 0, errors: [] as string[] };',
+        porque:
+          'el conductor deja de delegar y se inventa el resultado del paso: el mes sale «conducido» ' +
+          'con la depreciación sin correr, que es exactamente el cuarto motor que no debe existir',
+      },
+    ],
+  },
+  {
+    paquete: 'E4.1',
+    id: 'closing-run-never-continues-another-run-in-silence',
+    enunciado:
+      'La corrida abierta de un periodo no se continúa sin pedirlo: `closing run` se niega y dice dónde se detuvo',
+    evaluar: () => {
+      const p = 'src/cli/closing-command.ts';
+      if (!existe(p)) return falla(`no existe ${p}`);
+      const s = codigoDe(p);
+
+      if (!/if \(!dryRun && abierta && opts\.resume !== true\)/.test(s)) {
+        return falla(
+          'la hoja `closing run` dejó de negarse ante una corrida abierta: quien teclea el ' +
+            'comando sobre un periodo que otro dejó a medias estaría continuando el trabajo de ' +
+            'otro sin saberlo, y «lo corrí yo» dejaría de ser una afirmación sostenible'
+        );
+      }
+      if (!/Continue it with --resume/.test(s)) {
+        return falla(
+          'la negativa ya no nombra `--resume`: un error que no dice cómo seguir obliga a ' +
+            'adivinar justo cuando el operador ya está desconcertado'
+        );
+      }
+      if (!/openRunOf\(ctx\.entityId, periodo\.id\)/.test(s)) {
+        return falla(
+          'la hoja ya no pregunta por la corrida abierta antes de actuar: la negativa llegaría ' +
+            'después de postear, que no es una negativa'
+        );
+      }
+
+      return ok('la corrida abierta se acusa antes de tocar nada, y la negativa nombra --resume');
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/closing-command.ts',
+        de: 'if (!dryRun && abierta && opts.resume !== true) {',
+        a: 'if (false) {',
+        porque:
+          'la hoja continúa en silencio la corrida que otro dejó a medias: la evidencia dice que ' +
+          'la corrió una sola persona y no es verdad',
+      },
+    ],
   },
 
   // ---- E4.2 · Trabajos y reportes ----
