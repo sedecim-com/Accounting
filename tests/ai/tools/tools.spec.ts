@@ -269,27 +269,79 @@ describe('get_trial_balance', () => {
 describe('get_balance_sheet', () => {
   beforeEach(() => mockQuery.mockReset());
 
-  it('nets contra accounts against their section instead of adding abs values', async () => {
+  /** La forma que publica la herramienta, para no leerla como `any`. */
+  interface Balance {
+    assets: { total: string; accounts: Array<{ code: string; category: string; balance: string }> };
+    liabilities: { total: string };
+    equity: { total: string; result_of_the_period?: string };
+    total_liabilities_and_equity: string;
+    out_of_balance: string;
+    is_balanced: boolean;
+  }
+  const balance = (r: unknown): Balance => parseResultado(r as string) as Balance;
+
+  /**
+   * DOS consultas, y ése es el punto del tramo.
+   *
+   * Antes esta herramienta hacía UNA y ensamblaba su propio
+   * `total_liabilities_and_equity = pasivo + capital`: el resultado del
+   * ejercicio no barrido se quedaba fuera y el estado no cuadraba. Ahora
+   * proyecta `getBalanceSheet`, que consulta los saldos permanentes Y el
+   * resultado no cerrado. El juego de datos de esta suite lo prueba: el de
+   * antes cuadraba POR CONSTRUCCIÓN —sin una sola cuenta de resultados— así
+   * que no podía ponerse rojo ni con el defecto delante.
+   */
+  const sembrar = (resultadoNoBarrido: string) => {
     mockQuery.mockResolvedValueOnce({
       rows: [
-        { account_type: 'asset', fs_category: 'non_current_assets', code: '1200', name: 'Equipo', balance: '1000.00' },
-        { account_type: 'contra_asset', fs_category: 'non_current_assets', code: '1290', name: 'Dep. acumulada', balance: '-400.00' },
-        { account_type: 'liability', fs_category: 'current_liabilities', code: '2101', name: 'Proveedores', balance: '-500.00' },
-        { account_type: 'equity', fs_category: 'equity', code: '3101', name: 'Capital', balance: '-100.00' },
+        { id: 'a1', account_type: 'asset', fs_category: 'non_current_assets', code: '1200', name: 'Equipo', balance: '1000.00' },
+        { id: 'a2', account_type: 'contra_asset', fs_category: 'non_current_assets', code: '1290', name: 'Dep. acumulada', balance: '-400.00' },
+        { id: 'a3', account_type: 'liability', fs_category: 'current_liabilities', code: '2101', name: 'Proveedores', balance: '-500.00' },
+        { id: 'a4', account_type: 'equity', fs_category: 'equity', code: '3101', name: 'Capital', balance: '-100.00' },
       ],
     });
-    const parsed = parseResultado((await getTool('get_balance_sheet').run({ as_of_date: '2026-06-30' })) as string);
+    // queryUnclosedEarnings: saldo en signo debe-positivo.
+    mockQuery.mockResolvedValueOnce({ rows: [{ balance: resultadoNoBarrido }] });
+  };
+
+  it('nets contra accounts against their section instead of adding abs values', async () => {
+    sembrar('0');
+    const parsed = balance(await getTool('get_balance_sheet').run({ as_of_date: '2026-06-30' }));
     expect(parsed.assets.total).toBe('600.00');
     expect(parsed.liabilities.total).toBe('500.00');
     expect(parsed.equity.total).toBe('100.00');
     expect(parsed.total_liabilities_and_equity).toBe('600.00');
     // contra account shows negative in its section's natural sign
-    const contra = parsed.assets.accounts.find((a: { code: string }) => a.code === '1290');
-    expect(contra.balance).toBe('-400.00');
+    const contra = parsed.assets.accounts.find((a) => a.code === '1290');
+    expect(contra?.balance).toBe('-400.00');
+    // Y la categoría cruda que esta herramienta ya publicaba.
+    expect(contra?.category).toBe('non_current_assets');
+  });
+
+  it('FOOTS: el resultado no barrido entra en el capital y el estado cuadra', async () => {
+    // Un mayor con 200 de utilidad sin cerrar: debe-positivo −200.
+    sembrar('-200.00');
+    const parsed = balance(await getTool('get_balance_sheet').run({ as_of_date: '2026-06-30' }));
+    expect(parsed.equity.result_of_the_period).toBe('200.00');
+    expect(parsed.equity.total).toBe('300.00');
+    // Antes publicaba 600.00 de activo contra 600.00 de pasivo+capital PORQUE
+    // el juego cuadraba solo; con resultado sin barrer publicaba 600 contra 600
+    // y se comía los 200. Ahora el activo NO cuadra y lo dice.
+    expect(parsed.total_liabilities_and_equity).toBe('800.00');
+    expect(parsed.out_of_balance).toBe('-200.00');
+    expect(parsed.is_balanced).toBe(false);
+  });
+
+  it('publica con qué notar un descuadre, que es lo que no tenía', async () => {
+    sembrar('0');
+    const parsed = balance(await getTool('get_balance_sheet').run({ as_of_date: '2026-06-30' }));
+    expect(parsed).toHaveProperty('out_of_balance');
+    expect(parsed).toHaveProperty('is_balanced');
+    expect(parsed.is_balanced).toBe(true);
   });
 
   it('pre-filters the join so only posted entries can contribute', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [] });
+    sembrar('0');
     await getTool('get_balance_sheet').run({ as_of_date: '2026-06-30' });
     const [sql] = mockQuery.mock.calls[0];
     expect(sql).toMatch(/LEFT JOIN \(journal_entry_lines jel\s+JOIN journal_entries je/);

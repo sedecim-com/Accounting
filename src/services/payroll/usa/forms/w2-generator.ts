@@ -1,5 +1,6 @@
 import { query } from '../../../../database/connection.js';
 import { decrypt } from '../../../../utils/encryption.js';
+import { requireByIdInScope, type Scope } from '../../../../database/scope.js';
 
 // ============================================================
 // W-2 Wage and Tax Statement — annual form per employee
@@ -36,11 +37,29 @@ export interface W2Data {
   box_20_locality: string;
 }
 
+/**
+ * La W-2 de un empleado, si el alcance lo alcanza (T9b · #96).
+ *
+ * Esta función leía `FROM employees WHERE id = $1` sin acotar, devolvía
+ * `ssn: decrypt(e.ssn_encrypted)` —el ÚNICO sitio de las 36 rutas de nómina
+ * donde un SSN sale en claro— y remataba insertando en `tax_form_filings` con
+ * el `tenant_id` y el `entity_id` DE LA FILA LEÍDA. Medido: desde una sesión
+ * que sólo concedía la sociedad A, `POST /payroll/w2` con el id de un empleado
+ * de la hermana contestaba 200 con
+ * `{"employer":{"ein":"XAXX010101000","name":"… sociedad B"},
+ *   "employee":{"ssn":"123-45-6789"}}` y le dejaba a B una declaración 'ready'
+ * firmada con su EIN que nunca pidió.
+ *
+ * Ahora el empleado se resuelve DENTRO del alcance —`employees` lleva
+ * `entity_id` propio, así que el ayudante de la casa acota de verdad— y la
+ * declaración se escribe con la entidad del ALCANCE, no con la de la fila.
+ */
 export async function generateW2(
   employeeId: string,
-  taxYear: number
+  taxYear: number,
+  scope: Scope
 ): Promise<W2Data> {
-  const empResult = await query<{
+  const e = await requireByIdInScope<{
     ssn_encrypted: string;
     first_name: string;
     last_name: string;
@@ -51,14 +70,10 @@ export async function generateW2(
     entity_id: string;
     work_state: string | null;
     work_city: string | null;
-  }>(
-    `SELECT ssn_encrypted, first_name, last_name, address_line1,
-            city, state_province, postal_code, entity_id, work_state, work_city
-     FROM employees WHERE id = $1`,
-    [employeeId]
-  );
-  if (empResult.rows.length === 0) throw new Error('Employee not found');
-  const e = empResult.rows[0];
+  }>('employees', employeeId, scope, {
+    columns:
+      'ssn_encrypted, first_name, last_name, address_line1, city, state_province, postal_code, entity_id, work_state, work_city',
+  });
 
   const entResult = await query<{ tax_id: string; name: string; address_line1: string | null; city: string | null; state_province: string | null; postal_code: string | null }>(
     `SELECT tax_id, name, address_line1, city, state_province, postal_code FROM legal_entities WHERE id = $1`,
@@ -142,15 +157,15 @@ export async function generateW2(
     box_20_locality: e.work_city || '',
   };
 
-  const empResult2 = await query<{ tenant_id: string; entity_id: string }>(
-    `SELECT tenant_id, entity_id FROM employees WHERE id = $1`,
-    [employeeId]
-  );
+  // La declaración se archiva en la entidad del ALCANCE, no en la de la fila:
+  // tomarla de la fila es lo que dejaba una declaración fiscal en la sociedad
+  // hermana. El empleado ya está comprobado dentro del alcance más arriba, así
+  // que las dos coinciden por construcción.
   await query(
     `INSERT INTO tax_form_filings (tenant_id, entity_id, form_type, tax_year, status, data, employee_id)
      VALUES ($1, $2, 'w2', $3, 'ready', $4::jsonb, $5)
      ON CONFLICT DO NOTHING`,
-    [empResult2.rows[0].tenant_id, empResult2.rows[0].entity_id, taxYear, JSON.stringify(w2), employeeId]
+    [scope.tenantId, e.entity_id, taxYear, JSON.stringify(w2), employeeId]
   );
 
   return w2;

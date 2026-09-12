@@ -23,8 +23,12 @@ listed here. When a flow needs several commands, give them in order.
 
 Notes for the agent:
 - The global option \`-T, --tenant <uuid>\` (or the \`MNEMOSINE_TENANT\` env
-  var) scopes EVERY command under row-level security. It appears only on
-  the root help below, but it works before any subcommand.
+  var, or the \`tenant\` key in mnemosine.config.json — in that order of
+  precedence) scopes EVERY command under row-level security. It appears
+  only on the root help below, but it works before any subcommand, and
+  \`--tenant <uuid>\` / \`-t <uuid>\` after a subcommand mean the same thing.
+  A tenant that is not a UUID exits 2; one that does not exist exits 3 —
+  it never returns an empty report instead.
 - Spanish aliases (shown as \`name|alias\`) are equivalent to the English
   names; use whichever matches the user's language.
 `;

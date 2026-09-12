@@ -99,8 +99,14 @@ router.get(
 router.get(
   '/:id',
   requirePermission('accounts:read'),
+  // LA FRONTERA DE ENTIDAD, QUE ESTA RUTA NO TENÍA (TEN-10, #188).
+  //
+  // Con un token de la entidad A, ésta leía la cuenta de la sociedad hermana —y
+  // con `?include_balance=true`, su saldo de por vida—. RLS no lo tapa: acota
+  // por INQUILINO, y las dos sociedades son del mismo despacho.
+  requireEntityAccess,
   asyncHandler(async (req: Request, res: Response) => {
-    const account = await getAccountById(req.params.id, {
+    const account = await getAccountById(req.entityId!, req.params.id, {
       includeBalance: req.query.include_balance === 'true',
       includeHierarchy: req.query.include_hierarchy === 'true',
     });
@@ -127,12 +133,17 @@ router.patch(
   '/:id',
   declararRiesgoRuta({ riesgo: 'escritura', escribe: 'accounts (campos editables)' }),
   requirePermission('accounts:update'),
+  // La que la tarjeta probó explotable: renombraba y recodificaba la cuenta de
+  // la sociedad hermana, y devolvía 200 con la fila ajena. `UPDATABLE_FIELDS`
+  // incluye `is_active`, así que también la archivaba saltándose los guardianes
+  // de `deactivateAccount`.
+  requireEntityAccess,
   validateBody(updateAccountSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const patch = Object.fromEntries(
       UPDATABLE_FIELDS.filter((f) => req.body[f] !== undefined).map((f) => [f, req.body[f]])
     );
-    const account = await updateAccount(req.params.id, patch, req.user!.user_id);
+    const account = await updateAccount(req.entityId!, req.params.id, patch, req.user!.user_id);
     res.json({ data: account, meta: meta(req) });
   })
 );
@@ -144,8 +155,9 @@ router.delete(
   '/:id',
   declararRiesgoRuta({ riesgo: 'escritura', escribe: 'accounts.is_active — baja logica reversible; se niega si la cuenta tiene historia' }),
   requirePermission('accounts:delete'),
+  requireEntityAccess,
   asyncHandler(async (req: Request, res: Response) => {
-    await deactivateAccount(req.params.id, req.user!.user_id);
+    await deactivateAccount(req.entityId!, req.params.id, req.user!.user_id);
     res.status(204).send();
   })
 );

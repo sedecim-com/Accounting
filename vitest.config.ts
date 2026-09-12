@@ -36,6 +36,20 @@ export default defineConfig({
         'src/services/jurisdiction/**',
         'src/services/reporting/**',
         'src/utils/sequence.ts',
+        // O1 · las dos puertas por donde entra un XML del SAT. Se nombran una
+        // a una en vez de abrir `src/services/sat/**` entero: lo que hace
+        // falta medir es el lector que decide si un peso entra, no los
+        // generadores de al lado, y un `include` más ancho movería la cifra
+        // global de archivos que este tramo no tocó.
+        'src/services/sat/anexo24/catalog-reader.ts',
+        'src/services/sat/anexo24/balance-reader.ts',
+        // D1 entra por UN ARCHIVO, no por la carpeta. `provisions-math.ts` es
+        // aritmética pura y se mide entera desde su propio banco; sus dos
+        // vecinos de `accruals/` viven contra Postgres y aquí medirían casi
+        // cero, así que incluir la carpeta sólo movería un porcentaje global
+        // que nadie mira —el promedio que esta configuración evita a propósito—
+        // sin proteger nada.
+        'src/services/accruals/provisions-math.ts',
       ],
       // ============================================================
       // UMBRALES POR ARCHIVO, FIJADOS DONDE YA ESTÁN GANADOS
@@ -111,12 +125,80 @@ export default defineConfig({
         'src/services/jurisdiction/jurisdiction.ts': {
           statements: 100, branches: 100, functions: 100, lines: 100,
         },
+        // J0.2 · El lector de la ley y su semilla, con el mismo criterio: un
+        // archivo que decide qué tasa se aplica —y otro que decide qué dice
+        // la ley que se guardó— no empieza a medirse el día que alguien se
+        // acuerde. Medidos hoy: 100 / 100 / 100 / 100 en los dos, que es donde
+        // los dejó su tramo.
+        //
+        // Entran aquí SIN renglón en SUELO_COBERTURA_UNITARIA, y conviene
+        // decir qué compra y qué no: `contraSuelo` exige a los archivos DEL
+        // SUELO que no bajen, y a los demás sólo que ninguna métrica esté en
+        // cero. Así que hoy estos dos umbrales los sostiene la corrida de
+        // cobertura —que se pone roja si bajan— pero no el trinquete del
+        // tablero: alguien podría bajarlos EDITANDO ESTA LÍNEA sin que ningún
+        // criterio se moviera. Cerrarlo es añadirles su renglón en
+        // src/plan/criterios.ts, que es de quien cierra el criterio del tramo.
+        'src/services/jurisdiction/legal-parameters.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
+        },
+        'src/services/jurisdiction/legal-parameters-seed.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
+        },
         'src/services/reporting/criterio-cierre.ts': {
           statements: 100, branches: 95, functions: 100, lines: 100,
         },
         // El criterio de cuentas archivadas (T13): decide qué cuenta entra en
         // un informe, así que su suelo es el más alto que hay.
         'src/services/reporting/criterio-archivadas.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
+        },
+        // ============================================================
+        // O1 · LAS SEIS PIEZAS POR LAS QUE ENTRA UNA CONTABILIDAD ENTERA
+        //
+        // Un archivo nuevo sin renglón aquí puede perder cobertura en
+        // cualquier commit posterior sin que ninguna compuerta se mueva, y
+        // éstos son los que deciden si un peso del sistema viejo entra, con
+        // qué signo y bajo qué padre. Nacen medidos y con el suelo puesto
+        // donde ya está ganado.
+        // ============================================================
+        // Medidos hoy: 100 / 100 / 100 / 100 en los dos.
+        'src/services/accounting/opening-balance.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
+        },
+        'src/services/accounting/opening-balance-check.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
+        },
+        // Medidos hoy: 99.45 / 94.61 / 100 / 99.41.
+        'src/services/accounting/sat-chart-import.ts': {
+          statements: 99, branches: 94, functions: 100, lines: 99,
+        },
+        // Medidos hoy: 97.36 / 97.50 / 100 / 97.22. Lo que falta es la rama
+        // `sin_regla`, hoy inalcanzable: una prueba recorre los 141 rubros
+        // del c_CodAgrup y exige que ninguno caiga en ella.
+        'src/services/accounting/sat-agrupador-account-type.ts': {
+          statements: 97, branches: 97, functions: 100, lines: 97,
+        },
+        // Los dos lectores del XML. Medidos hoy: 98.93 / 88.88 / 100 / 100 y
+        // 98.80 / 81.05 / 100 / 100. Las ramas que faltan son las del
+        // analizador —atributos ausentes en combinaciones que el archivo del
+        // SAT no produce— y se declaran en el suelo tal como están, no
+        // redondeadas hacia arriba.
+        'src/services/sat/anexo24/balance-reader.ts': {
+          statements: 98, branches: 88, functions: 100, lines: 100,
+        },
+        'src/services/sat/anexo24/catalog-reader.ts': {
+          statements: 98, branches: 81, functions: 100, lines: 100,
+        },
+        // La aritmética del devengo de prestaciones (D1) nace con el suelo
+        // arriba y no puede bajar de ahí: es dinero que se calcula por
+        // trabajador y por mes, se postea a un mayor inmutable (041) y tiene
+        // que extinguirse al centavo contra el finiquito. Una rama sin probar
+        // aquí —el mes del aniversario, el denominador del bisiesto, la baja a
+        // mitad de mes— no se ve en ninguna prueba de integración, porque
+        // ninguna de las tres necesita base de datos para equivocarse.
+        // Medidos hoy: 100 / 100 / 100 / 100.
+        'src/services/accruals/provisions-math.ts': {
           statements: 100, branches: 100, functions: 100, lines: 100,
         },
       },

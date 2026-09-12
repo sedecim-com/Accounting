@@ -102,7 +102,16 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_plan
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_plan
     steps:
+      # PROFUNDIDAD COMPLETA, que aquí no es un lujo.
+      #
+      # `historial-estado.ts` cuenta los PRs que entraron a `main` recorriendo
+      # `git log --first-parent`. Con la profundidad por omisión (1) vería UN
+      # commit. No saldría en verde —falla a propósito cuando no puede mirar—,
+      # pero fallaría siempre. El repositorio son 261 commits: clonarlo entero
+      # cuesta menos que el `npm ci` de la línea siguiente.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -156,6 +165,16 @@ jobs:
       # cuando cambia una fuente de un manual ya revisado — no verifica el
       # contenido (eso sería medir prosa), detecta caducidad y nombra qué releer.
       - run: npx tsx scripts/corpus-manifiesto.ts --check
+      # EL HISTORIAL DE ENTREGA, que ya caducó una vez por no tener quien lo
+      # mirara: decía que el PR #53 estaba abierto cuando llevaba un día
+      # fusionado, y no nombraba los dieciséis siguientes. Esto no juzga las
+      # filas —a qué sprint pertenece cada PR, qué tramos incluye— porque eso no
+      # es mecánico; falla cuando un PR lleva más de SIETE DÍAS fusionado sin
+      # aparecer en el documento. La gracia no es indulgencia: esto corre sobre
+      # la punta de `main`, así que exigir la fila el mismo día pondría en rojo
+      # todos los demás PRs abiertos —había dieciocho— hasta que alguien la
+      # escribiera, y una compuerta que rompe el trabajo ajeno se desactiva.
+      - run: npx tsx scripts/historial-estado.ts --check
       # El contrato de la API (docs/openapi.json) se GENERA de la pila real de
       # Express: rutas, esquemas de Zod, permisos y clase de riesgo salen de los
       # manejadores montados. Esto falla cuando la copia publicada dejó de
@@ -214,8 +233,8 @@ jobs:
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_restore
       BACKUP_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_restore
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -256,6 +275,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_test
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_test
+      # Nombra `mnemosine_test`, pero lo que el paso de abajo crea son objetos
+      # de CLÚSTER y por eso alcanzan a la base efímera. Ver ese comentario.
+      SUPERUSER_URL: postgresql://postgres:postgres@localhost:5432/mnemosine_test
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -263,6 +285,57 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      # SIETE PRUEBAS QUE NUNCA HABÍAN CORRIDO.
+      #
+      # `ataque 6 · mnemosine_auditor` (tests/integration/g3-ataque.int.spec.ts)
+      # se activa con superusuario Y con `mnemosine_owner` existiendo. Este job
+      # cumplía lo primero y no lo segundo —el contenedor nace sin aprovisionar—
+      # así que sus siete casos quedaban fuera. Son TODA la verificación
+      # automática que tiene `scripts/rol-auditor.sql`, el rol de sólo-lectura
+      # para auditores externos: sin ellos, su superficie de seguridad no la
+      # comprobaba nadie. El PR #181 los sacó del verde mudo a un «7 skipped»
+      # visible y dejó dicho que aprovisionar aquí era una decisión aparte.
+      # Esta es esa decisión.
+      #
+      # ESTE PASO NO TOCA LA BASE QUE LA SUITE USA, y conviene decirlo porque
+      # parece que sí. La suite no corre contra `mnemosine_test`:
+      # `tests/integration/global-setup.ts` crea una base EFÍMERA por corrida
+      # (`mnemosine_it_<hex>`) y la migra. Los GRANTs y el traspaso de propiedad
+      # de `provision-roles.sql` se quedan en `mnemosine_test` y no la alcanzan.
+      # Lo que sí la alcanza es que los ROLES son objetos de CLÚSTER, y de ahí
+      # salen los dos únicos efectos:
+      #
+      #   1. `mnemosine_owner` pasa a existir, y con él `aplicable` en ataque 6.
+      #   2. El bloque de vistas de `src/database/rls-policies.sql` —que empieza
+      #      con «si no existe mnemosine_owner, RETURN»— deja de salirse por ahí,
+      #      así que DENTRO de la efímera las dos vistas materializadas quedan de
+      #      `mnemosine_refresher`. Es justo lo que ataque 6 exige nombrándolo.
+      #
+      # MEDIDO, no razonado: la suite entera contra dos clústeres postgres 15
+      # vírgenes, idénticos salvo este paso.
+      #
+      #   sin aprovisionar   90 archivos · 1204 pasadas | 7 OMITIDAS
+      #   aprovisionando     90 archivos · 1211 pasadas | 0 omitidas
+      #
+      # Ninguna otra prueba se movió y la tabla de cobertura salió IDÉNTICA
+      # —hasta las listas de líneas sin cubrir—, así que ningún umbral de
+      # `vitest.integration.config.ts` cambia ni hay ninguno que bajar.
+      #
+      # DE PROPINA, otra rama que tampoco medía nada: la prueba de privilegios
+      # de `fiscal-credential-log-append-only.int.spec.ts` tiene la misma forma
+      # («o se dice que el rol no está»), y con `mnemosine_app` existiendo pasa a
+      # AFIRMAR lo que promete —INSERT sí, UPDATE y DELETE no, sobre `audit_log`
+      # y la bitácora de credenciales— en vez de excusarse.
+      #
+      # Las contraseñas son de usar y tirar, como en «Aislamiento por inquilino»:
+      # aquí nadie se conecta con esos roles —todo entra como `postgres`— pero el
+      # guion las exige para su ALTER ROLE.
+      - name: Aprovisionar roles de base
+        run: |
+          psql "$SUPERUSER_URL" \
+            -v app_pw=ci_app_pw \
+            -v owner_pw=ci_owner_pw \
+            -f scripts/provision-roles.sql
       - run: npm run migrate
       # S4a · la integración EJERCE su cobertura. Las 1000+ pruebas contra
       # Postgres son las que de verdad ejercitan el dinero, y hasta este tramo
