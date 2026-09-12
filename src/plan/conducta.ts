@@ -875,7 +875,7 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       // cero, así que el guardián la deja pasar. Es correcto que la deje: lo
       // que no puede es que eso reescriba un informe ya emitido.
       try {
-        await app.cuentas.deactivateAccount(ventas, inq.userId, {
+        await app.cuentas.deactivateAccount(inq.entityId, ventas, inq.userId, {
           allowWithHistory: true,
           enforceZeroBalance: true,
           reason: 'se retira la línea del catálogo al cierre del ejercicio',
