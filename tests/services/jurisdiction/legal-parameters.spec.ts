@@ -40,7 +40,7 @@ const mockQuery = query as unknown as Mock;
 //    Ninguna de las dos sustituye a la otra.
 // ============================================================
 
-interface Fila {
+interface Row {
   jurisdiction: string;
   key: string;
   effective_from: string;
@@ -53,7 +53,7 @@ interface Fila {
 /** Las dos vigencias de la UMA: el caso que da nombre al tramo. Enero de 2026
  *  se rige por la de 2025 aunque la de 2026 ya esté publicada, porque la de
  *  2026 no entra hasta el 1 de febrero (LDVUMA art. 5). */
-const TABLA: Fila[] = [
+const TABLE: Row[] = [
   {
     jurisdiction: 'MX', key: 'uma.daily', effective_from: '2025-02-01',
     value: '113.1400', unit: 'MXN',
@@ -98,34 +98,34 @@ const TABLA: Fila[] = [
 ];
 
 /** Qué SQL se envió en la llamada n. */
-const sqlDe = (n = 0): string => String(mockQuery.mock.calls[n][0]).replace(/\s+/g, ' ');
+const sqlOf = (n = 0): string => String(mockQuery.mock.calls[n][0]).replace(/\s+/g, ' ');
 
 beforeEach(() => {
   mockQuery.mockReset();
   mockQuery.mockImplementation(async (sql: string, params: unknown[]) => {
     const [jurisdiction, key, onDate] = params as string[];
-    const dela = TABLA.filter((f) => f.jurisdiction === jurisdiction && f.key === key);
+    const dela = TABLE.filter((f) => f.jurisdiction === jurisdiction && f.key === key);
 
     // La consulta de diagnóstico (MIN) devuelve SIEMPRE una fila, con NULL
     // cuando no hay ninguna: es lo que hace Postgres con un agregado sin
     // GROUP BY, y el lector depende de ello.
     if (/MIN\(effective_from\)/.test(sql)) {
-      const fechas = dela.map((f) => f.effective_from).sort();
-      return { rows: [{ effectiveFrom: fechas[0] ?? null }], rowCount: 1 };
+      const dates = dela.map((f) => f.effective_from).sort();
+      return { rows: [{ effectiveFrom: dates[0] ?? null }], rowCount: 1 };
     }
 
-    const vigente = dela
+    const effective = dela
       .filter((f) => f.effective_from <= onDate)
       .sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1))[0];
     return {
-      rows: vigente
+      rows: effective
         ? [{
-            jurisdiction: vigente.jurisdiction, key: vigente.key, value: vigente.value,
-            unit: vigente.unit, effectiveFrom: vigente.effective_from,
-            sourceUrl: vigente.source_url, sourceNote: vigente.source_note,
+            jurisdiction: effective.jurisdiction, key: effective.key, value: effective.value,
+            unit: effective.unit, effectiveFrom: effective.effective_from,
+            sourceUrl: effective.source_url, sourceNote: effective.source_note,
           }]
         : [],
-      rowCount: vigente ? 1 : 0,
+      rowCount: effective ? 1 : 0,
     };
   });
 });
@@ -142,7 +142,7 @@ beforeEach(() => {
  * Y si NO lanza, este ayudante falla: una promesa que se resuelve donde se
  * esperaba un fallo cerrado es exactamente el defecto del tramo.
  */
-async function fallo(p: Promise<unknown>): Promise<LegalParameterUnavailableError> {
+async function failure(p: Promise<unknown>): Promise<LegalParameterUnavailableError> {
   try {
     await p;
   } catch (e) {
@@ -159,7 +159,7 @@ describe('legalParameterAt — la ley se lee en la fecha del hecho', () => {
     expect(p.effectiveFrom).toBe('2026-02-01');
     // La comparación es `<=` y no `<`: el día que la ley entra, la ley rige.
     // Un `<` dejaría el 1 de febrero regido por la UMA del año anterior.
-    expect(sqlDe()).toContain('effective_from <= $3::date');
+    expect(sqlOf()).toContain('effective_from <= $3::date');
   });
 
   it('una fecha POSTERIOR devuelve la vigencia más reciente que la precede', async () => {
@@ -168,8 +168,8 @@ describe('legalParameterAt — la ley se lee en la fecha del hecho', () => {
     expect(p.effectiveFrom).toBe('2026-02-01');
     // Sin el DESC, la consulta devolvería la de 2025 y el falso Postgres de
     // esta suite no lo notaría: él ordena por su cuenta.
-    expect(sqlDe()).toContain('ORDER BY effective_from DESC');
-    expect(sqlDe()).toContain('LIMIT 1');
+    expect(sqlOf()).toContain('ORDER BY effective_from DESC');
+    expect(sqlOf()).toContain('LIMIT 1');
   });
 
   it('EL CASO DEL TRAMO: en enero de 2026 rige la UMA de 2025, aunque la de 2026 ya esté publicada', async () => {
@@ -198,7 +198,7 @@ describe('legalParameterAt — la ley se lee en la fecha del hecho', () => {
 
 describe('legalParameterAt — falla CERRADO, y los cuatro huecos son distintos', () => {
   it('una fecha anterior a toda vigencia LANZA, y dice desde cuándo hay ley cargada', async () => {
-    const err = await fallo(legalParameterAt('MX', 'uma.daily', '2019-06-30'));
+    const err = await failure(legalParameterAt('MX', 'uma.daily', '2019-06-30'));
     expect(err.gap).toBe('not_yet_in_force');
     // Las tres cosas que hacen falta para arreglarlo, en el mensaje.
     expect(err.message).toContain('uma.daily');
@@ -209,30 +209,30 @@ describe('legalParameterAt — falla CERRADO, y los cuatro huecos son distintos'
   });
 
   it('una jurisdicción que nadie cargó LANZA, y NO cae a la mexicana ni a cero', async () => {
-    const err = await fallo(legalParameterAt('US', 'uma.daily', '2026-03-01'));
+    const err = await failure(legalParameterAt('US', 'uma.daily', '2026-03-01'));
     expect(err.gap).toBe('never_loaded');
     expect(err.message).toContain('US');
   });
 
   it('una clave con errata LANZA: no se normaliza, porque normalizar esconde la errata', async () => {
-    const err = await fallo(legalParameterAt('MX', 'UMA.Daily', '2026-03-01'));
+    const err = await failure(legalParameterAt('MX', 'UMA.Daily', '2026-03-01'));
     expect(err.gap).toBe('never_loaded');
   });
 
   it('DEROGADO no es cero: lanza, y se distingue de «nadie la cargó» sin leer el mensaje', async () => {
-    const err = await fallo(legalParameterAt('MX', 'vat.border_rate', '2026-03-01'));
+    const err = await failure(legalParameterAt('MX', 'vat.border_rate', '2026-03-01'));
     expect(err.gap).toBe('repealed');
     // El hecho, entero: desde cuándo está derogada y de dónde consta.
     expect(err.message).toContain('2014-01-01');
     expect(err.message).toContain('LIVA.pdf');
     // Y no es el mismo hueco que la clave inexistente, que es el punto.
-    const otro = await fallo(legalParameterAt('MX', 'vat.no_existe', '2026-03-01'));
-    expect(otro.gap).toBe('never_loaded');
-    expect(otro.gap).not.toBe(err.gap);
+    const other = await failure(legalParameterAt('MX', 'vat.no_existe', '2026-03-01'));
+    expect(other.gap).toBe('never_loaded');
+    expect(other.gap).not.toBe(err.gap);
   });
 
   it('UNA CADENA VACÍA NO ES UN VALOR: lanza «malformed», porque Number("") vale CERO', async () => {
-    const err = await fallo(legalParameterAt('MX', 'test.empty', '2026-03-01'));
+    const err = await failure(legalParameterAt('MX', 'test.empty', '2026-03-01'));
     expect(err.gap).toBe('malformed');
     // Sin esta puerta el lector devolvía '' como si fuera ley, y el primer
     // `Number(p.value)` río abajo convertía «no hay dato» en «la tasa es cero».
@@ -245,13 +245,13 @@ describe('legalParameterAt — falla CERRADO, y los cuatro huecos son distintos'
   });
 
   it('y unos espacios tampoco, que es el mismo cero con otra ropa', async () => {
-    const err = await fallo(legalParameterAt('MX', 'test.blank', '2026-03-01'));
+    const err = await failure(legalParameterAt('MX', 'test.blank', '2026-03-01'));
     expect(err.gap).toBe('malformed');
     expect(Number('   ')).toBe(0);
   });
 
   it('ni una frase: NaN se ve, pero se cierra por el mismo sitio', async () => {
-    const err = await fallo(legalParameterAt('MX', 'test.words', '2026-03-01'));
+    const err = await failure(legalParameterAt('MX', 'test.words', '2026-03-01'));
     expect(err.gap).toBe('malformed');
     expect(err.message).toContain('no aplica');
   });
@@ -288,7 +288,7 @@ describe('findLegalParameterAt — el lector que NO juzga', () => {
 
   it('no acota por inquilino, y la tabla no tiene la columna: es la excepción declarada', async () => {
     await findLegalParameterAt('MX', 'uma.daily', '2026-03-01');
-    expect(sqlDe()).not.toMatch(/tenant_id|entity_id/);
+    expect(sqlOf()).not.toMatch(/tenant_id|entity_id/);
   });
 });
 
