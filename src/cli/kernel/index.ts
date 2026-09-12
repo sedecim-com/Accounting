@@ -13,19 +13,8 @@
 
 export {
   ExitCode,
-  CliError,
   checkExitCode,
   batchExitCode,
-  notFound,
-  usageError,
-  validationFailed,
-  blockedByState,
-  conflict,
-  permissionDenied,
-  externalFailed,
-  externalRejected,
-  abortedByUser,
-  needsHuman,
   type ExitCodeValue,
 } from './exit.js';
 
@@ -84,7 +73,26 @@ export {
 
 export { VERBS, isVerb, spanishVerb, OBJECTLESS_COMMANDS, LEGACY_PLURALS } from './vocabulary.js';
 
-import { CliError, ExitCode, type ExitCodeValue } from './exit.js';
+// I7 · El cromo traducido. Se re-exporta desde aquí por la misma razón que todo
+// lo de arriba: quien registra un comando importa del kernel y de ningún otro
+// sitio. `kernel/flags.ts` y `kernel/risk.ts` sí importan './help.js' directo —
+// son vecinos dentro del kernel, y pasar por el índice sería un ciclo.
+export {
+  installHelpChrome,
+  describeCommand,
+  describeLastOption,
+  optionByKey,
+  englishOf,
+  localizeCommanderError,
+  type OptionByKeyOptions,
+} from './help.js';
+
+export { type KeyedMessage, type KeyedLine } from './exit.js';
+export * from './cli-error.js';
+export { renderKeyed } from './render-keyed.js';
+
+import { ExitCode, type ExitCodeValue } from './exit.js';
+import { CliError } from './cli-error.js';
 
 /**
  * HTTP status → exit code, for the domain errors the service layer throws

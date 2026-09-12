@@ -32,7 +32,41 @@ import { riskOf } from './risk.js';
 // producción, así que `doctor` no podía correr esta auditoría aunque quisiera.
 // ============================================================
 
-
+/**
+ * UNA VIOLACIÓN NO ES UN MENSAJE, Y POR ESO NADA DE ESTE ARCHIVO VA AL CATÁLOGO
+ * DE i18n (I7 · epic #141).
+ *
+ * Los tres campos son las tres partes de una HUELLA. `claveDeViolacion` (:306)
+ * devuelve `` `${v.command}|${v.rule}|${v.detail…}` `` y `auditarContraLineaBase`
+ * (:444) compara esa huella —con `base.has(k)`— contra `LINEA_BASE`, la lista
+ * congelada de más abajo. `rule` además se compara solo: `REGLAS_DE_LLAVE`
+ * (:77) lo prueba con `.includes(v.rule)` en `esDeudaDeLlave` (:81).
+ *
+ * Traducir cualquiera de los dos campos no cambia lo que la auditoría DICE:
+ * cambia a qué se PARECE, y la puerta pasaría a depender del `--locale` con el
+ * que se la corra. Con `t()` —que deriva el idioma en cada llamada, ver
+ * `src/i18n/index.ts`— la misma violación daría dos huellas distintas en dos
+ * corridas del mismo árbol, y la línea base entera dejaría de casar en una de
+ * ellas. Es la misma decisión que ya está escrita, para el `detail`, en el
+ * docstring de `LINEA_BASE` (:317): «cuando el epic #141 traduzca los mensajes
+ * del CLI, ÉSTOS NO SE TOCAN».
+ *
+ * ENTONCES, ¿QUÉ SON? IDENTIFICADORES ESCRITOS EN ESPAÑOL. Su arreglo no es una
+ * clave de catálogo sino un renombrado al inglés, y ése no se hace de paso:
+ * mueve la línea base y `DEUDA_DE_LLAVES` con él. Su sitio es el registro de
+ * vocabulario de I4 (`src/language/vocabulary-registry.json`, clase
+ * `as-const`), que es donde este repositorio anota lo persistido o comparado
+ * que todavía se llama en español. Son CINCO nombres de regla, escritos en
+ * siete sitios: `R11 llave sin declarar` (:77 y :208), `R11 llave aceptada sin
+ * honrar` (:77 y :221), `R11 llave innecesaria sin bandera` (:232), `R11
+ * ámbito sin bandera` (:240) y `R11 ámbito de llave duplicado` (:252). Las
+ * demás reglas de este archivo ya nacieron en inglés.
+ *
+ * `scripts/language/extract.ts` lo sabe sin que nadie le nombre este archivo:
+ * su reconocedor no cuenta lo que un archivo compara consigo mismo —ni por
+ * pertenencia a una lista, ni por ser campo de una huella—. Ver su encabezado,
+ * sección «comparar no es sólo `===`».
+ */
 export interface Violation {
   command: string;
   rule: string;

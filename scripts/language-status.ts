@@ -64,7 +64,7 @@ interface Baseline {
   perFile: Record<string, Record<string, number>>;
 }
 
-/** Los dieciséis lanes, en el orden en que se publican. */
+/** Los diecisiete lanes, en el orden en que se publican. */
 export function measure(): Lane[] {
   return [...codeLanes(), ...planLanes(), ...docsLanes()];
 }

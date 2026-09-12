@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { t } from '../../i18n/index.js';
 import { declareRisk, riskOf, type RiskDeclaration } from './risk.js';
 
 // ============================================================
@@ -40,6 +41,31 @@ import { declareRisk, riskOf, type RiskDeclaration } from './risk.js';
 // con el comando viejo como shim de deprecación); `close`, `review`,
 // `ingest` y `onboard` se quedan de una hoja porque el REGISTRY así lo
 // dictamina (§5 #6: `close --check` se queda), declarados al máximo.
+//
+// `writes` VA EN INGLÉS, Y NO AL CATÁLOGO DE i18n (I7 · epic #141)
+//
+// Es la única decisión de idioma que esta tabla tenía pendiente, y la tomó
+// antes el piloto del tramo: `src/i18n/en.ts` deja escrito que los
+// `declareRisk({ writes })` de `bank-command.ts` —19 literales, de 32
+// `declareRisk` en ese archivo— NO entran al catálogo, y hoy están todos en
+// inglés dentro de él (`bank-command.ts:2110`, `:2345`, `:2560`…). La razón se
+// vuelve a medir aquí y sigue en pie: NINGUNA PANTALLA IMPRIME ESTE CAMPO.
+// `RiskDeclaration.writes` (`risk.js`) no tiene UN SOLO LECTOR en `src/` ni en
+// `scripts/` —cero coincidencias de `grep -rn '\.writes\b' src scripts`, sin
+// contar este mismo comentario—. En `tests/` sí lo leen, y hay que decirlo
+// porque la versión anterior de este párrafo lo negaba: 38 aserciones lo
+// comprueban. Pero una aserción no es una pantalla, y traducir por una aserción
+// es traducir para nadie: fuera de ellas, lo lee quien abre este archivo para
+// discutir riesgo por riesgo, que es para lo que la tabla existe. Una clave de catálogo para una frase que ninguna pantalla
+// muestra es una entrada que nadie puede revisar contra su pantalla, y `en.ts`
+// dice de su contenido «aquí sólo hay prosa para el operador».
+//
+// Lo que SÍ salió de aquí al catálogo es el único texto de este archivo que un
+// operador llega a leer: el rechazo de `--dry-run`/`--live` en una hoja que aún
+// no las honra, más abajo, que se lanza como `Error` y sale por pantalla.
+//
+// Los `writes` que ya eran una lista de tablas (`policy_decisions`,
+// `scheduled_jobs`…) se quedan como estaban: un nombre de tabla no se traduce.
 // ============================================================
 
 export const RIESGOS_RETROFIT: Record<string, RiskDeclaration> = {
@@ -77,16 +103,16 @@ export const RIESGOS_RETROFIT: Record<string, RiskDeclaration> = {
   chat: {
     risk: 'escritura',
     agent: false,
-    writes: 'ai_sessions, ai_messages; y por sus herramientas: ai_drafts, ai_questions, ai_external_ops',
+    writes: 'ai_sessions, ai_messages; and, through its tools, ai_drafts, ai_questions, ai_external_ops',
   },
   ask: {
     risk: 'escritura',
     agent: false,
-    writes: 'ai_sessions, ai_messages; y por sus herramientas: ai_drafts, ai_questions, ai_external_ops',
+    writes: 'ai_sessions, ai_messages; and, through its tools, ai_drafts, ai_questions, ai_external_ops',
   },
-  lang: { risk: 'escritura', agent: false, writes: 'mnemosine.config.json (idioma del agente)' },
-  login: { risk: 'escritura', agent: false, writes: 'credencial local del proveedor de identidad' },
-  logout: { risk: 'escritura', agent: false, writes: 'credencial local (la borra)' },
+  lang: { risk: 'escritura', agent: false, writes: 'mnemosine.config.json (the agent language)' },
+  login: { risk: 'escritura', agent: false, writes: 'the identity provider local credential' },
+  logout: { risk: 'escritura', agent: false, writes: 'the local credential (it deletes it)' },
   init: {
     risk: 'escritura',
     agent: false,
@@ -95,20 +121,20 @@ export const RIESGOS_RETROFIT: Record<string, RiskDeclaration> = {
   'pending define': { risk: 'escritura', agent: false, writes: 'policy_decisions' },
   'pending dismiss': { risk: 'escritura', agent: false, writes: 'policy_decisions' },
   'pending reopen': { risk: 'escritura', agent: false, writes: 'policy_decisions' },
-  'memory teach': { risk: 'escritura', agent: false, writes: 'precedentes del despacho' },
-  'memory correct': { risk: 'escritura', agent: false, writes: 'precedentes (el anterior queda en el historial)' },
-  'memory retire': { risk: 'escritura', agent: false, writes: 'precedentes (los desactiva)' },
-  'memory restore': { risk: 'escritura', agent: false, writes: 'precedentes (los reactiva)' },
+  'memory teach': { risk: 'escritura', agent: false, writes: 'the firm precedents' },
+  'memory correct': { risk: 'escritura', agent: false, writes: 'precedents (the previous one stays in the history)' },
+  'memory retire': { risk: 'escritura', agent: false, writes: 'precedents (it deactivates them)' },
+  'memory restore': { risk: 'escritura', agent: false, writes: 'precedents (it reactivates them)' },
   'jobs create': { risk: 'escritura', agent: false, writes: 'scheduled_jobs' },
   'jobs enable': { risk: 'escritura', agent: false, writes: 'scheduled_jobs' },
   'jobs disable': { risk: 'escritura', agent: false, writes: 'scheduled_jobs' },
-  'skills drafts': { risk: 'escritura', agent: false, writes: 'skills y sus borradores (aprueba o rechaza cambios)' },
-  'webhooks create': { risk: 'escritura', agent: false, writes: 'webhook_tokens (muestra el token en claro UNA vez)' },
+  'skills drafts': { risk: 'escritura', agent: false, writes: 'skills and their drafts (it approves or rejects changes)' },
+  'webhooks create': { risk: 'escritura', agent: false, writes: 'webhook_tokens (it shows the token in the clear ONCE)' },
   'webhooks disable': { risk: 'escritura', agent: false, writes: 'webhook_tokens' },
   'approvals grant': {
     risk: 'escritura',
     agent: false,
-    writes: 'approval_policies — concede una autorización permanente por patrón',
+    writes: 'approval_policies — it grants a standing authorization by pattern',
   },
   'approvals revoke': { risk: 'escritura', agent: false, writes: 'approval_policies' },
 
@@ -191,11 +217,13 @@ export function declararPendientes(program: Command): {
         const o = action.opts();
         const pedidas = [o.dryRun ? '--dry-run' : null, o.live ? '--live' : null].filter(Boolean);
         if (pedidas.length > 0) {
+          // LA LISTA SE UNE CON COMA Y NO CON UNA CONJUNCIÓN. `pedidas.join(' y ')`
+          // metía media frase española dentro de un mensaje que ahora tiene dos
+          // idiomas: una `y` no es maquetación, es gramática, y la gramática vive
+          // en el catálogo. La coma se lee igual en los dos, y no obliga a
+          // inventar una clave para una palabra de dos letras.
           throw new Error(
-            `"${ruta}" acepta ${pedidas.join(' y ')} pero su manejador todavía no las honra: ` +
-              'ejecutaría de verdad mientras la bandera promete lo contrario. Se rechaza en vez ' +
-              'de fingir. (La bandera existe porque la clase de riesgo la exige; el cableado del ' +
-              'manejador es trabajo de CLI-F2.)'
+            t('cli.risk.gate_flags_not_honored', { command: ruta, flags: pedidas.join(', ') })
           );
         }
       });

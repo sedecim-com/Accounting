@@ -7,13 +7,23 @@ flags verbatim when guiding a human — never invent a flag that is not
 listed here. When a flow needs several commands, give them in order.
 
 Notes for the agent:
-- The global option `-T, --tenant <uuid>` (or the `MNEMOSINE_TENANT` env
-  var, or the `tenant` key in mnemosine.config.json — in that order of
-  precedence) scopes EVERY command under row-level security. It appears
-  only on the root help below, but it works before any subcommand, and
-  `--tenant <uuid>` / `-t <uuid>` after a subcommand mean the same thing.
-  A tenant that is not a UUID exits 2; one that does not exist exits 3 —
-  it never returns an empty report instead.
+- The global option `-T, --tenant <uuid>` scopes EVERY command under
+  row-level security. Precedence, highest first: this flag, then the
+  `MNEMOSINE_TENANT` environment variable, then the `tenant` key in a
+  config file (./mnemosine.config.json before ~/.mnemosine/config.json).
+- It is listed only on the root help below, but the long spelling
+  `--tenant <uuid>` is taken before AND after any subcommand. The short
+  spelling is `-T` at the root and `-t` on the 200 of 310 subcommands
+  that declare it; the rest answer `-t` with "unknown option", so prefer the
+  long spelling and you never have to check.
+- A tenant that is not a UUID exits 2, whichever of the three sources
+  carried it — on every command, including the ones that never query.
+- A well-formed tenant that does NOT exist exits 3 when it came from the
+  FLAG and the command reads tenant-scoped data (`whoami`, `providers` and
+  `lang`, among the few that read none, skip the check). When it came from
+  `MNEMOSINE_TENANT` or from a config file instead, the run only warns on
+  stderr and CONTINUES: it ends with an empty report and exit 0. So never
+  report "no rows" as an empty ledger without reading stderr first.
 - Spanish aliases (shown as `name|alias`) are equivalent to the English
   names; use whichever matches the user's language.
 
@@ -27,6 +37,7 @@ AI accounting assistant — converse with your accounting from the terminal
 Options:
   -V, --version                          output the version number
   -T, --tenant <uuid>                    Tenant to operate on. Precedence: this flag > MNEMOSINE_TENANT > mnemosine.config.json. Scopes EVERY query via RLS
+  --locale <tag>                         Language and formatting of what is PRINTED (es-MX|en-US). Precedence: this flag > MNEMOSINE_LOCALE (MNEMOSINE_LANG is a permanent alias) > ~/.mnemosine/config.json > ./mnemosine.config.json > the tenant setting > es-MX. Never changes what is filed with an authority
   -h, --help                             display help for command
 
 Commands:
@@ -4185,12 +4196,13 @@ Examples:
   mnemosine bank account create "BBVA Operativa MXN" --bank "BBVA Mexico" --gl-account 1111 --currency MXN --clabe 012180001234567899
   # A second peso account on its own GL account. --currency is re-checked
   # against the GL account, so a mismatch is refused and never converted.
-  # OJO, medido: el catalogo siembra 1112 «Banco Nacional - USD» SIN
-  # currency_code, y COALESCE(a.currency_code, le.functional_currency) la
-  # resuelve como MXN. Un ejemplo con --currency USD sobre 1112 parsea y el
-  # servicio lo RECHAZA. Hasta que la siembra le ponga su moneda, aqui no se
-  # escribe una cuenta en dolares: un ejemplo copiable que no corre es peor
-  # que ninguno.
+  # HEADS UP, measured: the chart seeds 1112 "Banco Nacional - USD" with NO
+  # currency_code (src/services/accounting/chart-seed.ts:94), and the service
+  # resolves it through COALESCE(a.currency_code, le.functional_currency),
+  # which lands on MXN. So an example using --currency USD against 1112 parses
+  # and is then REFUSED. Until the seed gives that account its own currency, no
+  # dollar account is written here: a copyable example that does not run is
+  # worse than no example at all.
   mnemosine bank account create "Santander Operativa MXN" --bank "Santander Mexico" --gl-account 1115 --currency MXN --clabe 014180011223344558
   # A company card is a LIABILITY and maps to a liability account. --dry-run
   # runs the real insert, unique 1:1 index included, and rolls it back.

@@ -140,8 +140,11 @@ describe('cobertura de declaraciones', () => {
 describe('gateMutation ante un comando sin declarar', () => {
   it('rompe en vez de dejar pasar', () => {
     const suelto = new Command('borrar');
+    // El mensaje se rinde por clave desde I7 (`cli.risk.undeclared`), y el
+    // `message` de un `CliError` con clave está fijado en INGLÉS a propósito:
+    // es lo que acaba en el log. La cara traducida es `localized()`.
     expect(() => gateMutation(suelto, { force: true, reason: 'porque sí' })).toThrow(
-      /sin haber declarado su riesgo/i
+      /without having declared its risk/i
     );
   });
 

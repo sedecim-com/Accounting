@@ -160,6 +160,7 @@ import path from 'node:path';
 import ts from 'typescript';
 import type { Lane, LaneMeter } from '../lane.js';
 import { isFlagged } from '../lexicon.js';
+import { CLI_SURFACE, userStringsUnder } from '../extract.js';
 
 /** La raíz del repositorio: este archivo vive en `scripts/language/lanes/`. */
 const ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -390,13 +391,16 @@ function countByFile(files: string[]): Record<string, number> {
 }
 
 /**
- * LOS SEIS CARRILES.
+ * LOS SIETE CARRILES.
  *
- * Tres de identificadores y tres de nombres de archivo, uno por árbol. Los seis
- * miden poblaciones DISJUNTAS —lo que se declara dentro de un archivo y cómo se
- * llama el archivo—, así que la suma no cuenta nada dos veces; y están partidos
- * por árbol porque `src/`, `tests/` y `scripts/` se traducen en tramos
- * distintos del epic y un total único los volvería a atar.
+ * Tres de identificadores y tres de nombres de archivo, uno por árbol, más el
+ * de las cadenas de usuario del CLI que añadió I7. Los siete miden poblaciones
+ * DISJUNTAS —lo que se DECLARA dentro de un archivo, cómo se LLAMA el archivo, y
+ * lo que el archivo tiene escrito DENTRO DE UNA CADENA—, así que la suma no
+ * cuenta nada dos veces: un identificador no vive en una cadena y una cadena no
+ * declara nada. Los seis primeros están partidos por árbol porque `src/`,
+ * `tests/` y `scripts/` se traducen en tramos distintos del epic y un total
+ * único los volvería a atar.
  *
  * Ninguno es `informational`: los seis se pueden bajar hoy renombrando, que es
  * justamente el trabajo del epic. Lo informativo se reserva para lo que se
@@ -442,6 +446,58 @@ export const codeLanes: LaneMeter = () => {
       perFile: countByFile(files),
     });
   }
+
+  // ============================================================
+  // EL SÉPTIMO: LAS CADENAS DE USUARIO SIN CLAVE (I7 · issue #149)
+  //
+  // Los seis de arriba miden CÓMO SE LLAMAN LAS COSAS. Éste mide QUÉ LEE EL
+  // CONTADOR, que es la mitad del epic que un censo de identificadores no puede
+  // ver: `bank-command.ts` podría tener todos sus nombres en inglés y seguir
+  // imprimiendo cada renglón en castellano.
+  //
+  // «SIN CLAVE» ES LITERAL: la cadena sigue ESCRITA en el archivo en vez de
+  // venir del catálogo. No se pregunta si un texto igual existe ya en `es.ts`
+  // —eso daría verde a un archivo que imprime el literal teniendo la clave al
+  // lado—; se pregunta si el literal sigue ahí. Cuando el sitio de llamada pasa
+  // a ser `t('...')`, el literal desaparece del archivo y la cuenta baja sola.
+  // Por eso el destino es CERO y no una cifra de tolerancia: un archivo llega a
+  // cero cuando ya no queda prosa española escrita en él.
+  //
+  // LA POBLACIÓN Y SUS EXCLUSIONES ESTÁN EN `scripts/language/extract.ts`, con
+  // el porqué de cada una — no se repiten aquí para que no haya dos versiones
+  // de la definición. Lo que sí importa decir en este archivo: el número lo
+  // produce EL MISMO reconocedor que usa el extractor, así que «este archivo
+  // está en cero» y «el extractor ya no tiene nada que hacer aquí» son la misma
+  // frase. Si fueran dos recorridos, el carril podría bajar sin que nadie
+  // hubiera traducido.
+  //
+  // NO ES `informational`. Se puede bajar hoy —el extractor y `t()` ya existen,
+  // que es justamente lo que I7 entrega— y sobre todo se puede NO SUBIR hoy:
+  // el trinquete por archivo de `language-status.ts` es lo que impide que una
+  // hoja nueva nazca imprimiendo en español teniendo el catálogo puesto. Ésa es
+  // la parte que no puede esperar a I8.
+  const userStringsInCli = userStringsUnder(CLI_SURFACE);
+  lanes.push({
+    id: 'spanish-user-strings-cli',
+    title: `Spanish user-facing strings still written in ${CLI_SURFACE}/`,
+    value: userStringsInCli.length,
+    target: 0,
+    command: `npx tsx scripts/language/extract.ts --list ${CLI_SURFACE} | wc -l`,
+    // EL EJEMPLO CABE EN UN RENGLÓN, y las dos razones están medidas. Va
+    // RECORTADO porque un bloque de ayuda de doscientos caracteres deja
+    // ilegible cualquier lista; y va con los espacios COLAPSADOS porque un
+    // texto de ayuda trae saltos de renglón dentro, y `--check` imprime un
+    // hallazgo por renglón: un ejemplo con un `\n` partiría el hallazgo en dos
+    // y el segundo trozo se leería como otro carril. El sitio exacto —
+    // `archivo:renglón`— va completo y sin tocar, que es lo que hace accionable
+    // al ejemplo; el texto entero se lee con `--list`.
+    examples: userStringsInCli.slice(0, EXAMPLE_COUNT).map((hit) => {
+      const flat = hit.text.replace(/\s+/g, ' ').trim();
+      const text = flat.length > 64 ? `${flat.slice(0, 63)}…` : flat;
+      return `${hit.file}:${hit.line} ${text}`;
+    }),
+    perFile: countByFile(userStringsInCli.map((hit) => hit.file)),
+  });
 
   return lanes;
 };

@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import { EventEmitter } from 'node:events';
 
 // ============================================================
@@ -264,6 +265,16 @@ afterEach(() => {
 // ============================================================
 // (a) EL RECHAZO QUE PODRÍA ENSEÑAR — Y QUE NO SIEMBRA SOLO.
 // ============================================================
+
+
+// EL IDIOMA SE FIJA EN ESPAÑOL, y no es comodidad: este archivo prueba la
+// GRAMÁTICA del «sí» —que `y` y `s` valen, que «salir» no— y la repregunta que
+// nombra lo que no entendió. Desde I7 esos mensajes salen del catálogo, y la
+// suite corre con MNEMOSINE_LOCALE=en-US para que los instrumentos midan la
+// fuente inglesa: sin fijarlo aquí, estas aserciones medirían la traducción
+// inglesa de una prueba sobre gramática española.
+beforeAll(() => setLanguage('es'));
+afterAll(() => resetLanguage());
 
 describe('un rechazo ofrece sembrar el precedente, y sólo el humano lo siembra', () => {
   it('con un sí explícito llama a teachMemory, atribuido al revisor y con el motivo como criterio', async () => {

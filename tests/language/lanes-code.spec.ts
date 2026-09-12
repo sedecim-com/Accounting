@@ -238,9 +238,21 @@ describe('el recorrido es determinista', () => {
   );
 });
 
-describe('el contrato de los seis carriles', () => {
+// I7 (issue #149) añadió un SÉPTIMO carril a `codeLanes()`: las cadenas de
+// usuario del CLI. Su contrato es otro —lo reproduce `scripts/language/extract.ts`
+// y no este módulo, y sus ejemplos son frases y no nombres de declaración—, así
+// que se prueba en `tests/language/extract.spec.ts` con sus propios casos. Este
+// bloque sigue mirando el CENSO DE NOMBRES, que es lo que este archivo prueba;
+// meter el séptimo aquí a la fuerza habría exigido aflojar cuatro asertos que
+// valen para los seis.
+const census = (): Lane[] =>
+  LANES.filter(
+    (lane) => lane.id.startsWith('spanish-identifiers-') || lane.id.startsWith('spanish-filenames-')
+  );
+
+describe('el contrato de los seis carriles del censo', () => {
   it('son seis, con identidad estable y en inglés', () => {
-    expect(LANES.map((lane) => lane.id)).toEqual([
+    expect(census().map((lane) => lane.id)).toEqual([
       'spanish-identifiers-src',
       'spanish-identifiers-tests',
       'spanish-identifiers-scripts',
@@ -253,7 +265,7 @@ describe('el contrato de los seis carriles', () => {
   it('todos apuntan a cero y ninguno es informativo', () => {
     // Lo informativo se reserva para lo que se mide y todavía no se puede
     // exigir. Los seis se bajan hoy renombrando, que es el trabajo del epic.
-    for (const lane of LANES) {
+    for (const lane of census()) {
       expect(lane.target).toBe(0);
       expect(lane.informational).toBeUndefined();
       expect(lane.value).toBeGreaterThan(0);
@@ -275,7 +287,7 @@ describe('el contrato de los seis carriles', () => {
   it('los ejemplos son de verdad, y el renglón apunta al nombre', () => {
     // Un ejemplo que no lleva a ninguna parte es peor que ninguno: manda a
     // buscar a mano justo cuando alguien decidió confiar en el número.
-    for (const lane of LANES.slice(0, 3)) {
+    for (const lane of census().slice(0, 3)) {
       expect(lane.examples?.length).toBe(8);
       for (const example of lane.examples ?? []) {
         const m = /^(.+):(\d+) (.+)$/.exec(example);
@@ -285,7 +297,7 @@ describe('el contrato de los seis carriles', () => {
         expect(lineText).toContain(name);
       }
     }
-    for (const lane of LANES.slice(3)) {
+    for (const lane of census().slice(3)) {
       for (const example of lane.examples ?? []) {
         expect(fs.existsSync(path.join(ROOT, example))).toBe(true);
       }
@@ -295,8 +307,12 @@ describe('el contrato de los seis carriles', () => {
   it('ningún carril mide lo que mide otro', () => {
     // Se publican juntos: dos carriles con la misma población y otro nombre
     // hacen que la suma mienta.
-    expect(new Set(LANES.map((lane) => lane.id)).size).toBe(6);
-    expect(new Set(LANES.map((lane) => lane.command)).size).toBe(6);
+    expect(new Set(census().map((lane) => lane.id)).size).toBe(6);
+    expect(new Set(census().map((lane) => lane.command)).size).toBe(6);
+    // Y ninguno de los siete publicados repite identidad ni comando: si el
+    // séptimo llegara con el `id` de otro, el trinquete protegería uno solo.
+    expect(new Set(LANES.map((lane) => lane.id)).size).toBe(LANES.length);
+    expect(new Set(LANES.map((lane) => lane.command)).size).toBe(LANES.length);
     for (const tree of TREES) {
       const identifiers = LANES.find((lane) => lane.id === `spanish-identifiers-${tree}`);
       const files = LANES.find((lane) => lane.id === `spanish-filenames-${tree}`);

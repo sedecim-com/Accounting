@@ -11,9 +11,85 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Command, OutputConfiguration } from 'commander';
+// ═══ ESTE IMPORT VA ANTES QUE EL DE mnemosine.js, Y NO ES UN CAPRICHO DE ORDEN.
+// Su cuerpo fija MNEMOSINE_LOCALE=en-US, y el árbol de commander se construye
+// AL CARGAR mnemosine.js: reordenarlos hace que este guion escriba
+// `src/ai/docs/cli-reference.md` —un fichero versionado que lee el agente— en
+// el idioma de quien lo corrió. El porqué entero está en el archivo; el seguro
+// contra el reordenado es `assertEnglishHelp`, que se llama antes de escribir.
+import { assertEnglishHelp } from './english-locale.js';
 import { program } from '../src/cli/mnemosine.js';
 
-const HEADER = `# CLI reference (auto-generated — do not edit by hand)
+/**
+ * Cuántos subcomandos aceptan la grafía CORTA `-t`, y cuántos subcomandos hay.
+ *
+ * La cifra se CUENTA sobre el árbol en cada corrida en vez de teclearla en la
+ * cabecera. Una cifra tecleada a mano dentro de un documento generado envejece
+ * en silencio, que es exactamente el defecto que este archivo viene a cerrar
+ * un piso más arriba: no tiene sentido cerrarlo introduciendo otro igual.
+ */
+function shortFlagReach(root: Command): { declared: number; total: number } {
+  const subcommands = nodos(root).filter((c) => c !== root);
+  return {
+    declared: subcommands.filter((c) => c.options.some((o) => o.short === '-t')).length,
+    total: subcommands.length,
+  };
+}
+
+/**
+ * La cabecera del documento: lo que el agente lee ANTES de la primera pantalla
+ * de ayuda. Es una FUNCIÓN, y no una constante, porque su bloque de notas se
+ * calcula sobre el árbol.
+ *
+ * POR QUÉ VIVE AQUÍ Y NO EN EL .MD. El párrafo de `--tenant` estuvo ESCRITO A
+ * MANO dentro del fichero generado: el commit 317c316 lo amplió editando
+ * `src/ai/docs/cli-reference.md` mientras el generador seguía emitiendo la
+ * versión corta, así que regenerar BORRABA documentación. Medido en este árbol
+ * antes de este cambio:
+ *
+ *   npx tsx scripts/generate-cli-reference.ts
+ *   git diff --stat -- src/ai/docs/cli-reference.md
+ *   → 1 file changed, 3 insertions(+), 6 deletions(-)
+ *
+ * De las 3 altas, UNA era la bandera `--locale` que I6 añadió a la raíz sin
+ * regenerar; las otras dos eran la versión CORTA del párrafo de `--tenant`, la
+ * que el generador seguía emitiendo, sustituyendo a las 6 bajas, que eran el
+ * párrafo a mano (`git show 317c316 -- src/ai/docs/cli-reference.md`: tocó el
+ * .md y NO este guion). Emitirlo desde aquí es lo que hace IDEMPOTENTE la
+ * regeneración: contenido a mano dentro de un archivo
+ * generado está condenado, y no por descuido de nadie, sino por construcción.
+ *
+ * QUÉ SE CORRIGIÓ AL TRAERLO. Dos de sus afirmaciones eran falsas. No se
+ * copiaron: se comprobaron EJECUTANDO el binario, y lo que se emite abajo es
+ * lo que la ejecución devolvió.
+ *
+ * · «`--tenant <uuid>` / `-t <uuid>` after a subcommand mean the same thing»
+ *   es falso para la grafía corta, que sólo existe donde la hoja la declara:
+ *
+ *     mnemosine entities -t x        → error: unknown option '-t'   (código 2)
+ *     mnemosine entities --tenant x  → The tenant must be a UUID;
+ *                                      --tenant carries "x"         (código 2)
+ *
+ *   La larga la atrapa la raíz en cualquier posición —`entities` no la
+ *   declara y aun así llega—; por eso la nota separa las dos y publica el
+ *   alcance de la corta con `shortFlagReach`.
+ *
+ * · «one that does not exist exits 3 — it never returns an empty report
+ *   instead» es falso salvo por la bandera. Mismo uuid inexistente, misma hoja:
+ *
+ *     mnemosine --tenant 9f1e2d3c-…-0c1d2e3f4a5b entity list  → código 3
+ *     MNEMOSINE_TENANT=9f1e2d3c-…-0c1d2e3f4a5b \
+ *       mnemosine entity list                                 → código 0,
+ *                                                               «No rows.»
+ *
+ *   El aviso sale por stderr y la orden SIGUE (mnemosine.ts, gancho preAction:
+ *   `const duro = inquilino.origen === 'bandera'`), y con la config pasa lo
+ *   mismo. Prometerle al agente que el informe vacío no puede ocurrir es
+ *   prometerle justo lo que ocurre por el camino que el README empuja.
+ */
+function buildHeader(root: Command): string {
+  const { declared, total } = shortFlagReach(root);
+  return `# CLI reference (auto-generated — do not edit by hand)
 
 Regenerate with: \`npx tsx scripts/generate-cli-reference.ts\`.
 
@@ -22,12 +98,27 @@ flags verbatim when guiding a human — never invent a flag that is not
 listed here. When a flow needs several commands, give them in order.
 
 Notes for the agent:
-- The global option \`-T, --tenant <uuid>\` (or the \`MNEMOSINE_TENANT\` env
-  var) scopes EVERY command under row-level security. It appears only on
-  the root help below, but it works before any subcommand.
+- The global option \`-T, --tenant <uuid>\` scopes EVERY command under
+  row-level security. Precedence, highest first: this flag, then the
+  \`MNEMOSINE_TENANT\` environment variable, then the \`tenant\` key in a
+  config file (./mnemosine.config.json before ~/.mnemosine/config.json).
+- It is listed only on the root help below, but the long spelling
+  \`--tenant <uuid>\` is taken before AND after any subcommand. The short
+  spelling is \`-T\` at the root and \`-t\` on the ${declared} of ${total} subcommands
+  that declare it; the rest answer \`-t\` with "unknown option", so prefer the
+  long spelling and you never have to check.
+- A tenant that is not a UUID exits 2, whichever of the three sources
+  carried it — on every command, including the ones that never query.
+- A well-formed tenant that does NOT exist exits 3 when it came from the
+  FLAG and the command reads tenant-scoped data (\`whoami\`, \`providers\` and
+  \`lang\`, among the few that read none, skip the check). When it came from
+  \`MNEMOSINE_TENANT\` or from a config file instead, the run only warns on
+  stderr and CONTINUES: it ends with an empty report and exit 0. So never
+  report "no rows" as an empty ledger without reading stderr first.
 - Spanish aliases (shown as \`name|alias\`) are equivalent to the English
   names; use whichever matches the user's language.
 `;
+}
 
 /**
  * El ancho con el que se renderiza la ayuda del documento.
@@ -197,7 +288,7 @@ function section(cmd: Command, chain: string[], depth: number, out: string[]): v
 /** El documento entero, con el ancho ya fijado. */
 export function construirReferencia(raiz: Command): string {
   return conAnchoFijo(nodos(raiz), ANCHO_CANONICO, () => {
-    const out: string[] = [HEADER];
+    const out: string[] = [buildHeader(raiz)];
     out.push('## `mnemosine` (root)', '');
     out.push('```', ayudaCompleta(raiz).trimEnd(), '```', '');
     for (const cmd of raiz.commands) {
@@ -215,6 +306,9 @@ export const DESTINO = path.join(__dirname, '..', 'src', 'ai', 'docs', 'cli-refe
 // Tras el guardia, como los cinco hermanos de scripts/: importar este módulo
 // —la prueba lo hace— no debe reescribir el documento ni matar el proceso.
 if (require.main === module) {
+  // Antes de escribir el fichero versionado: que el árbol sea el inglés. Ver
+  // `assertEnglishHelp` (scripts/english-locale.ts) para qué tapa y qué no.
+  assertEnglishHelp(program);
   const documento = construirReferencia(program);
   fs.writeFileSync(DESTINO, documento);
   const commandCount = (documento.match(/^#{2,6} `/gm) ?? []).length - 1;

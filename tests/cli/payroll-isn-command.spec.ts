@@ -6,7 +6,8 @@ import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { declareRisk, riskOf } from '../../src/cli/kernel/risk.js';
 import { VERBS } from '../../src/cli/kernel/vocabulary.js';
 import { BANNED_FLAGS, FLAG_DICTIONARY } from '../../src/cli/kernel/flags.js';
-import { CliError, ExitCode } from '../../src/cli/kernel/exit.js';
+import { ExitCode } from '../../src/cli/kernel/exit.js';
+import { CliError } from '../../src/cli/kernel/cli-error.js';
 import {
   ESTADOS_DE_PASIVO,
   PASIVO_QUE_SE_DEBE,
