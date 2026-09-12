@@ -13,7 +13,7 @@ Resumen: nueve motores; ninguno `completo`, cuatro `parcial` (alta, aritmética,
 
 ## 0. Cómo ve la jurisdicción este subsistema
 
-No la ve. `grep -rn esContabilidadMexicana src/` devuelve la definición (`src/services/accounting/pais-contable.ts:35`) y un solo consumidor real, `src/services/accounting/entity-accounting.ts:5,75,172` (siembra de catálogo, roles y nómina; `chart-seed.ts:156` y `payroll-account-mapping-seed.ts:252` sólo lo citan en comentarios). Ningún archivo de `src/services/assets/` ni `src/services/accruals/` lo importa.
+No la ve. `grep -rn esContabilidadMexicana src/` devuelve la definición (`src/services/jurisdiction/jurisdiction.ts:35`) y un solo consumidor real, `src/services/accounting/entity-accounting.ts:5,75,172` (siembra de catálogo, roles y nómina; `chart-seed.ts:156` y `payroll-account-mapping-seed.ts:252` sólo lo citan en comentarios). Ningún archivo de `src/services/assets/` ni `src/services/accruals/` lo importa.
 
 Lo único que distingue MX de US en el subsistema es:
 
