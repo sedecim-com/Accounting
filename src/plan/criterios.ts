@@ -9294,6 +9294,138 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'sua-file-declares-the-month-and-only-the-month',
+    // EL ÚNICO DE VÍA A QUE ESTABA ROTO POR OMISIÓN (#92).
+    //
+    // Sin atacante, sin dato mal tecleado, sin permiso de más: el archivo que
+    // el patrón carga en el SUA para pagarle al IMSS y al INFONAVIT declaraba
+    // las cuotas de TODA la historia del empleado. El mecanismo no era un
+    // `WHERE` ausente sino una forma: las condiciones de mes y de estado
+    // vivían en los `ON` de dos `LEFT JOIN` posteriores al de `paychecks`, y
+    // ahí no descartan la fila —la dejan con las tablas de la derecha en NULL
+    // y el recibo intacto—. Los días, que salían de la tabla que sí se anula,
+    // sí quedaban acotados: 31 días cotizados junto a la cuota de siete
+    // quincenas, medido, en el mismo renglón del archivo.
+    //
+    // POR ESO SE VIGILAN DOS COSAS Y NO UNA. Que los filtros vivan donde
+    // filtran, y que la cifra la confirme un SEGUNDO camino: el pasivo que
+    // `acumularPasivoPatronal` apuntó al aprobar. Un cotejo por el mismo
+    // código no mediría nada —es la lección de la ida y vuelta—, y sin cotejo
+    // la próxima forma de contar de más vuelve a salir en silencio.
+    enunciado:
+      'El archivo del SUA declara las cuotas del mes, y ninguna otra, y no sale si contradice el pasivo ya apuntado',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/mx/sua-generator.ts',
+        de: '     ) m ON m.employee_id = e.id',
+        a: '     ) m ON TRUE',
+        porque:
+          'los movimientos del mes dejan de colgar del empleado: cada trabajador se lleva las cuotas de TODA la plantilla, y el archivo que se sube al SUA multiplica por el número de empleados',
+      },
+      {
+        archivo: 'src/services/payroll/mx/sua-generator.ts',
+        de: "        WHERE pr.status IN ('approved', 'paid')",
+        a: '        WHERE TRUE',
+        porque:
+          'una corrida en borrador —un recálculo que nadie aprobó— vuelve a declararse como cuota a pagar: el patrón le paga al IMSS por un cálculo que su propio despacho no cerró',
+      },
+      {
+        archivo: 'src/services/payroll/mx/sua-generator.ts',
+        de: '  if (bloqueantes.length > 0) {',
+        a: '  if (false) {',
+        porque:
+          'el archivo vuelve a entregarse aunque contradiga el pasivo que el patrón ya apuntó: se persiste un `draft` descuadrado, que es justo el que alguien sube al SUA sin volver a mirarlo',
+      },
+    ],
+    evaluar: () => {
+      const gen = 'src/services/payroll/mx/sua-generator.ts';
+      const prueba = 'tests/integration/t5-sua-el-multiplicador.int.spec.ts';
+      if (!existe(gen)) return falla(`desapareció ${gen}`);
+      const src = codigoDe(gen);
+
+      // 1. NINGÚN FILTRO DE LOS QUE ACOTAN VIVE EN UN `ON` DE `LEFT JOIN`.
+      //
+      // Se mide la forma y no el texto exacto del SQL, porque la forma ES el
+      // defecto: un `LEFT JOIN` cuyo `ON` lleva la condición no filtra, y esa
+      // trampa se puede volver a escribir con otras palabras.
+      const izquierdos = src.match(/LEFT JOIN[\s\S]{0,300}?(?=\n\s*(?:LEFT JOIN|JOIN|WHERE|GROUP BY|\)))/g) ?? [];
+      for (const j of izquierdos) {
+        if (/\bON\b[\s\S]*?\b(status|period_start|period_end)\b/.test(j)) {
+          return falla(
+            'el SUA volvió a colgar el filtro de mes o de estado del `ON` de un LEFT JOIN: ahí no descarta el recibo, lo deja con las tablas de la derecha en NULL y la cuota sigue sumando — la historia entera del empleado en el archivo del IMSS'
+          );
+        }
+      }
+      // Y ESTÁN LAS TRES PIEZAS, cada una con su llave.
+      //
+      // Se fija el texto a propósito: son cuatro líneas de SQL sin tripas,
+      // donde el texto ES la conducta. La primera redacción comprobaba sólo
+      // que las tablas estuvieran unidas y sus dos mutantes la sobrevivieron
+      // —`ON TRUE` y `WHERE TRUE` dejan los nombres escritos—, que es
+      // exactamente la falta de comprobar el destino de un salto y no su
+      // llave.
+      const piezas: Array<[RegExp, string]> = [
+        [
+          /FROM paychecks p\s+JOIN pay_runs pr/,
+          'los movimientos del mes dejaron de armarse con JOIN interno: sin él una condición que no se cumple no elimina la fila',
+        ],
+        [
+          /\)\s*m ON m\.employee_id = e\.id/,
+          'los movimientos del mes dejaron de colgar del empleado por su llave: cada trabajador se lleva las cuotas de toda la plantilla',
+        ],
+        [
+          /pr\.status IN \('approved', 'paid'\)/,
+          'el archivo del SUA dejó de exigir que la corrida esté aprobada: un recálculo en borrador vuelve a declararse como cuota a pagar',
+        ],
+        [
+          /pp\.period_start >= \$3 AND pp\.period_end <= \$4/,
+          'el archivo del SUA dejó de acotar los recibos al mes que declara',
+        ],
+      ];
+      for (const [ancla, porque] of piezas) {
+        if (!ancla.test(src)) return falla(porque);
+      }
+
+      // 2. LA CIFRA LA CONFIRMA UN SEGUNDO CAMINO, Y LA DISCREPANCIA MANDA.
+      if (!/FROM employer_tax_liabilities/.test(src)) {
+        return falla(
+          'el SUA dejó de cotejarse contra el pasivo que `acumularPasivoPatronal` apuntó al aprobar: la cifra vuelve a salir de un solo camino y nadie la confirma'
+        );
+      }
+      if (!/bloqueantes\.length > 0/.test(src) || !/throw new ValidationError/.test(src)) {
+        return falla(
+          'el archivo del SUA volvió a entregarse pese a contradecir el pasivo apuntado: un descuadre que sólo se avisa es un descuadre que se sube al SUA'
+        );
+      }
+      // Ausencia y discrepancia se distinguen: que no haya pasivo apuntado no
+      // es prueba de nada y no puede bloquear, o las corridas aprobadas antes
+      // del acumulador dejarían al despacho sin poder declarar.
+      if (!/'sin_pasivo_que_cotejar'/.test(src)) {
+        return falla(
+          'el SUA dejó de distinguir «no hay contra qué cotejar» de «no cuadra»: la ausencia se nombra, no se toma por conformidad'
+        );
+      }
+
+      // 3. Y HAY CONDUCTA QUE LO AFIRMA CONTRA POSTGRES.
+      if (!existe(prueba)) {
+        return falla(
+          'no hay reproducción del archivo del SUA: este defecto no lo destapa leer, lo destapa sembrar dos meses de recibos y contar'
+        );
+      }
+      const t = crudoDe(prueba);
+      if (!/toBe\(100000\)/.test(t)) {
+        return falla(
+          'la reproducción dejó de exigir la cuota exacta del mes: sin una cifra afirmada, «acota» y «no acota» dan la misma prueba verde'
+        );
+      }
+
+      return ok(
+        'los filtros del SUA viven donde filtran, la cifra la confirma el pasivo apuntado, la discrepancia no deja salir el archivo y hay reproducción contra Postgres'
+      );
+    },
+  },
+  {
+    paquete: 'E4.1',
     id: 'garnishment-vocabulary-is-the-persisted-one',
     enunciado: 'El motor de embargos lee el vocabulario que la columna documenta, y el que no sabe tratar lo lanza',
     mutantes: [
