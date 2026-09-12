@@ -283,7 +283,43 @@ export function writeBlock(text: string, targets: string[] = GOVERNING_DOCS): st
     }
     fs.writeFileSync(target, doc.slice(0, i) + text + doc.slice(j + CLOSE_MARK.length));
   }
+
+  // RESELLAR LA GEMELA, o el metro rompe su propio carril en cada corrida.
+  //
+  // El bloque vive DENTRO del rector, así que cada medición cambia el hash de
+  // `language.md` — y `docs-spanish-twins-stale` (lanes/docs.ts) cuenta las
+  // gemelas cuyo `source_sha` ya no casa. Sin este paso, `--write` dejaba ese
+  // carril en 1 y `--check` en rojo: el instrumento se ponía la zancadilla a
+  // sí mismo publicando su propia cifra.
+  //
+  // Se resella con el hash del fuente YA ESCRITO, no del que se leyó al
+  // empezar: si se sellara antes, el sello certificaría una versión que ya no
+  // está en disco.
+  // CONVERGE EN DOS CORRIDAS, y conviene saberlo antes de asustarse. El bloque
+  // se publica DENTRO del corpus que el metro mide, así que la primera escritura
+  // mueve los carriles de documentación (páginas sin gemela, citas muertas) y la
+  // segunda publica ya la cifra estable. Medido: la tercera corrida no cambia un
+  // byte. No es un bucle, es un punto fijo a un paso de distancia — pero un
+  // `--write` en un guion que compare antes y después tiene que correrlo dos
+  // veces o creerá que el instrumento oscila.
+  if (failures.length === 0) restampTwin(targets);
   return failures;
+}
+
+/**
+ * Pone en la gemela el `git hash-object` de su fuente. Silencioso si no hay
+ * pareja o si la gemela no declara sello: este paso ACOMPAÑA a la publicación
+ * del bloque, y no es el sitio donde se decide si una página debe tener gemela
+ * —eso lo cuenta `docs-english-pages-untwinned`—.
+ */
+function restampTwin(targets: string[]): void {
+  const source = targets.find((t) => /language\.md$/.test(t));
+  const twin = targets.find((t) => /language\.es\.md$/.test(t));
+  if (source === undefined || twin === undefined || !fs.existsSync(twin)) return;
+  const sha = execFileSync('git', ['hash-object', source], { cwd: ROOT, encoding: 'utf8' }).trim();
+  const text = fs.readFileSync(twin, 'utf8');
+  const stamped = text.replace(/(source_sha[*_`\s]*[:=][\s*_`"']*)([0-9a-f]{7,40})\b/i, `$1${sha}`);
+  if (stamped !== text) fs.writeFileSync(twin, stamped);
 }
 
 /** `--seed` se niega en un árbol sucio: sembraría lo que alguien no ha comprometido. */
