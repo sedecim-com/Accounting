@@ -4,6 +4,8 @@ import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, NotImplementedError, ValidationError } from '../../../utils/errors.js';
+import { entityScope } from '../../../database/scope.js';
+import { corridaEnEntidad, periodoEnEntidad, reciboEnEntidad } from '../../../services/payroll/common/alcance-nomina.js';
 import {
   createEmployee,
   getEmployee,
@@ -117,8 +119,8 @@ router.get('/employees', requirePermission('payroll:read'), requireEntityAccess,
   res.json({ data: rows, meta: meta(req) });
 }));
 
-router.get('/employees/:id', requirePermission('payroll:read'), asyncHandler(async (req: Request, res: Response) => {
-  const emp = await getEmployee(req.params.id);
+router.get('/employees/:id', requirePermission('payroll:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  const emp = await getEmployee(req.params.id, entityScope(req.tenantId!, req.entityId!));
   res.json({ data: emp, meta: meta(req) });
 }));
 
@@ -143,6 +145,7 @@ router.post(
   '/employees/:id/compensation',
   declararRiesgoRuta({ riesgo: 'escritura', escribe: 'employees + el historial salarial' }),
   requirePermission('payroll:update'),
+  requireEntityAccess,
   validateBody(compensationChangeSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { effective_date, salary_type, annual_salary, hourly_rate, reason } = req.body;
@@ -151,16 +154,22 @@ router.post(
       { salary_type, annual_salary, hourly_rate },
       effective_date,
       reason || '',
+      entityScope(req.tenantId!, req.entityId!),
       req.user!.user_id
     );
     res.json({ data: { ok: true }, meta: meta(req) });
   })
 );
 
-router.post('/employees/:id/terminate', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'employees.termination_date/status; ninguna poliza' }), requirePermission('payroll:update'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/employees/:id/terminate', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'employees.termination_date/status; ninguna poliza' }), requirePermission('payroll:update'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { termination_date, termination_reason } = req.body;
   if (!termination_date) throw new ValidationError('termination_date required');
-  await terminateEmployee(req.params.id, termination_date, termination_reason || '');
+  await terminateEmployee(
+    req.params.id,
+    termination_date,
+    termination_reason || '',
+    entityScope(req.tenantId!, req.entityId!)
+  );
   res.json({ data: { ok: true }, meta: meta(req) });
 }));
 
@@ -198,7 +207,17 @@ router.post(
   declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pay_runs (borrador)' }),
   requirePermission('payroll:create'),
   validateBody(createPayRunSchema),
+  requireEntityAccess,
   asyncHandler(async (req: Request, res: Response) => {
+    // T9c: el periodo sobre el que se crea la corrida tiene que ser de la
+    // entidad activa. Sin esto nacía con el inquilino del llamador y la entidad
+    // de la víctima, y era la munición de toda la cadena posterior.
+    const periodo = await query(
+      `SELECT 1 FROM pay_periods WHERE id = $1 AND tenant_id = $2
+          AND ${periodoEnEntidad('pay_periods.id', 3)}`,
+      [req.body.pay_period_id, req.user!.tenant_id, req.entityId!]
+    );
+    if (periodo.rows.length === 0) throw new NotFoundError('PayPeriod', String(req.body.pay_period_id));
     const id = await createPayRun({
       ...req.body,
       tenant_id: req.tenantId!,
@@ -212,12 +231,13 @@ router.post(
   '/pay-runs/:id/calculate',
   declararRiesgoRuta({ riesgo: 'escritura', escribe: 'paychecks calculados; ninguna poliza' }),
   requirePermission('payroll:create'),
+  requireEntityAccess,
   asyncHandler(async (req: Request, res: Response) => {
-    await calculatePayRun(req.params.id, {
-      ...req.body,
-      tenant_id: req.tenantId!,
-      created_by: req.user!.user_id,
-    });
+    await calculatePayRun(
+      req.params.id,
+      { ...req.body, tenant_id: req.tenantId!, created_by: req.user!.user_id },
+      entityScope(req.tenantId!, req.entityId!)
+    );
     const r = await query(`SELECT * FROM pay_runs WHERE id = $1`, [req.params.id]);
     res.json({ data: r.rows[0], meta: meta(req) });
   })
@@ -227,8 +247,9 @@ router.post(
   '/pay-runs/:id/approve',
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'pay_runs.status: la aprobacion que habilita el posteo y el pago' }),
   requirePermission('payroll:approve'),
+  requireEntityAccess,
   asyncHandler(async (req: Request, res: Response) => {
-    await approvePayRun(req.params.id, req.user!.user_id);
+    await approvePayRun(req.params.id, req.user!.user_id, entityScope(req.tenantId!, req.entityId!));
     res.json({ data: { ok: true }, meta: meta(req) });
   })
 );
@@ -237,8 +258,14 @@ router.post(
   '/pay-runs/:id/post-to-gl',
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries POSTEADOS + account_balances' }),
   requirePermission('payroll:approve'),
+  requireEntityAccess,
   asyncHandler(async (req: Request, res: Response) => {
-    const journalEntryId = await postPayRunToGL(req.params.id, req.user!.user_id, req.user!.tenant_id);
+    const journalEntryId = await postPayRunToGL(
+      req.params.id,
+      req.user!.user_id,
+      req.user!.tenant_id,
+      req.entityId!
+    );
     res.json({ data: { journal_entry_id: journalEntryId }, meta: meta(req) });
   })
 );
@@ -247,25 +274,36 @@ router.post(
   '/pay-runs/:id/mark-paid',
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'pay_runs.status = paid: afirma que el dinero salio' }),
   requirePermission('payroll:approve'),
+  requireEntityAccess,
   asyncHandler(async (req: Request, res: Response) => {
-    await markPayRunPaid(req.params.id);
+    await markPayRunPaid(req.params.id, entityScope(req.tenantId!, req.entityId!));
     res.json({ data: { ok: true }, meta: meta(req) });
   })
 );
 
-router.get('/pay-runs/:id', requirePermission('payroll:read'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/pay-runs/:id', requirePermission('payroll:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   // La frontera va DENTRO del SQL: RLS tapa hoy estas tres consultas, pero un
   // 404 que depende de una política de la base es un 404 que desaparece el día
   // que alguien las corra con otro rol. Y la serie TEN dice 404, no 403.
-  const run = await query(`SELECT * FROM pay_runs WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.user!.tenant_id]);
+  // T9c: y la ENTIDAD también, que el inquilino no acota este eje. `pay_runs`
+  // no tiene `entity_id`: se llega por periodo y calendario.
+  const run = await query(
+    `SELECT * FROM pay_runs WHERE id = $1 AND tenant_id = $2
+        AND ${corridaEnEntidad('pay_runs.pay_period_id', 3)}`,
+    [req.params.id, req.user!.tenant_id, req.entityId!]
+  );
   if (run.rows.length === 0) throw new NotFoundError('PayRun', req.params.id);
   const paychecks = await query(`SELECT * FROM paychecks WHERE pay_run_id = $1 AND tenant_id = $2`, [req.params.id, req.user!.tenant_id]);
   res.json({ data: { ...run.rows[0], paychecks: paychecks.rows }, meta: meta(req) });
 }));
 
 // ---------- MX CFDI payroll (Nomina complement) ----------
-router.post('/paychecks/:id/cfdi-nomina', declararRiesgoRuta({ riesgo: 'externo', escribe: 'TIMBRA el CFDI de nomina ante un PAC' }), requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
-  const result = await generateAndStampCfdiNomina(req.params.id, { tenantId: req.tenantId!, userId: req.user!.user_id });
+router.post('/paychecks/:id/cfdi-nomina', declararRiesgoRuta({ riesgo: 'externo', escribe: 'TIMBRA el CFDI de nomina ante un PAC' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  const result = await generateAndStampCfdiNomina(
+    req.params.id,
+    { tenantId: req.tenantId!, userId: req.user!.user_id },
+    entityScope(req.tenantId!, req.entityId!)
+  );
   res.json({ data: result, meta: meta(req) });
 }));
 
@@ -300,10 +338,10 @@ router.post('/finiquito', declararRiesgoRuta({ riesgo: 'lectura' }), requirePerm
 }));
 
 // ---------- USA W-2 ----------
-router.post('/w2', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings' }), requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/w2', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form_filings' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { employee_id, tax_year } = req.body;
   if (!employee_id || !tax_year) throw new ValidationError('employee_id, tax_year required');
-  const result = await generateW2(employee_id, tax_year);
+  const result = await generateW2(employee_id, tax_year, entityScope(req.tenantId!, req.entityId!));
   res.json({ data: result, meta: meta(req) });
 }));
 
@@ -487,8 +525,12 @@ router.get('/me/w2/:tax_year', asyncHandler(async (req: Request, res: Response) 
 }));
 
 // ---------- Paychecks & filings ----------
-router.get('/paychecks/:id', requirePermission('payroll:read'), asyncHandler(async (req: Request, res: Response) => {
-  const pc = await query(`SELECT * FROM paychecks WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.user!.tenant_id]);
+router.get('/paychecks/:id', requirePermission('payroll:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  const pc = await query(
+    `SELECT * FROM paychecks WHERE id = $1 AND tenant_id = $2
+        AND ${reciboEnEntidad('paychecks.employee_id', 3)}`,
+    [req.params.id, req.user!.tenant_id, req.entityId!]
+  );
   if (pc.rows.length === 0) throw new NotFoundError('Paycheck', req.params.id);
   const earnings = await query(`SELECT * FROM paycheck_earnings WHERE paycheck_id = $1`, [req.params.id]);
   const deductions = await query(`SELECT * FROM paycheck_deductions WHERE paycheck_id = $1`, [req.params.id]);

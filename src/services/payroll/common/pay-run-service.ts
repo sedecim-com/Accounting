@@ -9,6 +9,9 @@ import {
 } from './employer-liability-service.js';
 import { dispatchEvent } from '../../webhooks/webhook-service.js';
 import { payRunStateTransitions } from '../../../api/rest/middleware/metrics.js';
+import type { Scope } from '../../../database/scope.js';
+import { alcanceDeCorrida } from './alcance-nomina.js';
+import { NotFoundError } from '../../../utils/errors.js';
 
 // ============================================================
 // PAY RUN ORCHESTRATOR
@@ -48,8 +51,24 @@ export async function createPayRun(input: PayRunInput): Promise<string> {
   return id;
 }
 
-export async function calculatePayRun(payRunId: string, input: PayRunInput): Promise<void> {
-  await query(`UPDATE pay_runs SET status = 'calculating' WHERE id = $1`, [payRunId]);
+export async function calculatePayRun(
+  payRunId: string,
+  input: PayRunInput,
+  scope: Scope
+): Promise<void> {
+  // LA PRIMERA ESCRITURA ES LA PUERTA, y no tenía cerradura: `WHERE id = $1`
+  // a secas. Medido contra Postgres, `POST /pay-runs/<corrida de B>/calculate`
+  // con una sesión de A contestaba 200 y dejaba la corrida de B con
+  // `total_gross` en 0.00 y `employee_count` en 0 — o sea que el recálculo no
+  // sólo miraba los libros de al lado: los reescribía. El alcance va aquí,
+  // en la transición a `calculating`, porque todo lo que sigue cuelga de que
+  // esta fila sea del alcance.
+  const alcance = alcanceDeCorrida(scope, 'pay_runs.pay_period_id', 2);
+  const puerta = await query(
+    `UPDATE pay_runs SET status = 'calculating' WHERE id = $1 AND ${alcance.sql}`,
+    [payRunId, ...alcance.valores]
+  );
+  if (puerta.rowCount === 0) throw new NotFoundError('Pay run', payRunId);
 
   let totalGross = new Decimal(0);
   let totalPreTax = new Decimal(0);
@@ -76,6 +95,10 @@ export async function calculatePayRun(payRunId: string, input: PayRunInput): Pro
     totalNet = totalNet.plus(result.net_pay);
   }
 
+  // El cierre lleva el alcance OTRA VEZ, con su propio índice. No es
+  // redundante por gusto: la puerta de arriba y este cierre son dos viajes
+  // separados, y entre ellos corre el cálculo entero de todos los recibos.
+  const alcanceFinal = alcanceDeCorrida(scope, 'pay_runs.pay_period_id', 10);
   await query(
     `UPDATE pay_runs SET
        status = 'calculated',
@@ -88,7 +111,7 @@ export async function calculatePayRun(payRunId: string, input: PayRunInput): Pro
        total_employer_cost = $7,
        employee_count = $8,
        calculated_at = NOW()
-     WHERE id = $9`,
+     WHERE id = $9 AND ${alcanceFinal.sql}`,
     [
       totalGross.toFixed(2),
       totalPreTax.toFixed(2),
@@ -99,6 +122,7 @@ export async function calculatePayRun(payRunId: string, input: PayRunInput): Pro
       totalGross.plus(totalErTax).toFixed(2),
       input.employee_inputs.length,
       payRunId,
+      ...alcanceFinal.valores,
     ]
   );
   await dispatchEvent(input.tenant_id, 'payroll.run.calculated', {
@@ -133,16 +157,31 @@ export async function calculatePayRun(payRunId: string, input: PayRunInput): Pro
  */
 export async function approvePayRun(
   payRunId: string,
-  approvedBy: string
+  approvedBy: string,
+  scope: Scope
 ): Promise<ResultadoAcumulacion> {
   let tenantId = '';
   let pasivo: ResultadoAcumulacion | undefined;
+  const alcance = alcanceDeCorrida(scope, 'pay_runs.pay_period_id', 2);
   await withTransaction(async (client) => {
+    // EL ALCANCE VA EN LA MISMA SENTENCIA QUE BLOQUEA (T9c · #96). La consulta
+    // no llevaba ni inquilino: un id adivinado aprobaba la corrida de otro
+    // despacho, y con ella el pasivo patronal y el permiso para postear y
+    // pagar. La entidad tampoco la acotaba nadie —`pay_runs` no tiene
+    // `entity_id`—, así que la sociedad hermana caía con sólo cambiar la
+    // cabecera, guarda de entidad montada incluida: la guarda valida la
+    // entidad DECLARADA, acotar la consulta es otra defensa, y hacen falta
+    // las dos.
+    //
+    // Comprobar aquí y actualizar después por `id` a secas es correcto
+    // porque el `FOR UPDATE` de esta misma línea tiene la fila tomada hasta
+    // el final de la transacción. Fuera de una transacción con bloqueo, el
+    // predicado tiene que ir en el UPDATE —ver `markPayRunPaid`.
     const res = await client.query<{ status: string; tenant_id: string }>(
-      `SELECT status, tenant_id FROM pay_runs WHERE id = $1 FOR UPDATE`,
-      [payRunId]
+      `SELECT status, tenant_id FROM pay_runs WHERE id = $1 AND ${alcance.sql} FOR UPDATE`,
+      [payRunId, ...alcance.valores]
     );
-    if (res.rows.length === 0) throw new Error('Pay run not found');
+    if (res.rows.length === 0) throw new NotFoundError('Pay run', payRunId);
     if (res.rows[0].status !== 'calculated') {
       throw new Error(`Cannot approve pay run in status ${res.rows[0].status}`);
     }
@@ -164,14 +203,36 @@ export async function approvePayRun(
   return resultado;
 }
 
-export async function markPayRunPaid(payRunId: string): Promise<void> {
+export async function markPayRunPaid(payRunId: string, scope: Scope): Promise<void> {
+  // `status = 'paid'` AFIRMA QUE EL DINERO SALIÓ, y lo afirmaba sobre
+  // cualquier corrida del sistema: un solo UPDATE por `id`, sin inquilino ni
+  // entidad. Aquí el alcance va DENTRO del UPDATE y no en una comprobación
+  // previa, porque esto no corre en transacción con bloqueo: mirar primero y
+  // escribir después deja la ventana entre las dos sentencias.
+  const alcance = alcanceDeCorrida(scope, 'pay_runs.pay_period_id', 2);
   const res = await query<{ tenant_id: string }>(
     `UPDATE pay_runs SET status = 'paid', paid_at = NOW()
-     WHERE id = $1 AND status = 'approved' RETURNING tenant_id`,
-    [payRunId]
+     WHERE id = $1 AND ${alcance.sql} AND status = 'approved' RETURNING tenant_id`,
+    [payRunId, ...alcance.valores]
   );
   if (res.rows[0]) {
     await dispatchEvent(res.rows[0].tenant_id, 'payroll.run.paid', { pay_run_id: payRunId });
     payRunStateTransitions.inc({ from: 'approved', to: 'paid', country: 'unknown' });
+    return;
   }
+
+  // Cero filas dice DOS cosas a la vez, y sólo una de ellas es un 404. La
+  // segunda pregunta es por tanto si la corrida está en el alcance; el
+  // predicado es el mismo, así que no reabre nada: el UPDATE de arriba ya se
+  // negó a escribir, y esto sólo elige qué contestar.
+  const visible = await query<{ status: string }>(
+    `SELECT status FROM pay_runs WHERE id = $1 AND ${alcance.sql}`,
+    [payRunId, ...alcance.valores]
+  );
+  if (visible.rows.length === 0) throw new NotFoundError('Pay run', payRunId);
+
+  // Está en el alcance pero no aprobada. Sigue callando —era el
+  // comportamiento de antes y no es lo que este tramo mide—, pero la ruta
+  // contesta `{ ok: true }` sobre una corrida que NO se marcó pagada, que es
+  // una mentira distinta y con dueño propio: ver #96.
 }

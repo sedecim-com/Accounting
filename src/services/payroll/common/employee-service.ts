@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../../database/connection.js';
 import { encrypt } from '../../../utils/encryption.js';
-import { ValidationError, NotFoundError } from '../../../utils/errors.js';
+import { NotFoundError, ValidationError } from '../../../utils/errors.js';
+import { condicionDeAlcance, requireByIdInScope, type Scope } from '../../../database/scope.js';
 
 // ============================================================
 // EMPLOYEE SERVICE
@@ -108,21 +109,34 @@ export async function createEmployee(input: EmployeeInput): Promise<string> {
   return id;
 }
 
-export async function getEmployee(id: string): Promise<Record<string, unknown>> {
-  const result = await query(
-    `SELECT id, tenant_id, entity_id, employee_number,
+/**
+ * Un empleado, si el alcance lo alcanza (T9 · #96).
+ *
+ * Antes tomaba el id y nada más: `GET /payroll/employees/:id` devolvía RFC,
+ * CURP, NSS y `annual_salary` de la plantilla de la sociedad hermana con sólo
+ * conocer su UUID. Medido — y entre entidades del MISMO inquilino, o sea donde
+ * la RLS no acota nada, porque acota por inquilino.
+ *
+ * El alcance va DENTRO de la consulta, no en una comprobación previa, y la
+ * ausencia se contesta como inexistencia: 404 y no 403, para que la respuesta
+ * no delate qué empleados tienen las otras sociedades.
+ */
+export async function getEmployee(id: string, scope: Scope): Promise<Record<string, unknown>> {
+  // `employees` lleva `entity_id` propio, así que el ayudante de la casa
+  // deduce la columna del esquema y mete el filtro en la misma sentencia.
+  return await requireByIdInScope(
+    'employees',
+    id,
+    scope,
+    { columns: `id, tenant_id, entity_id, employee_number,
             first_name, last_name, second_last_name, email, phone,
             hire_date, termination_date, status, country_code,
             rfc, curp, nss, sbc, tipo_regimen_sat, riesgo_puesto,
             infonavit_credit_number, infonavit_credit_type, infonavit_credit_value,
             w4_data, work_state, residence_state, work_city,
             salary_type, annual_salary, hourly_rate, currency_code, pay_schedule_id,
-            bank_name, metadata, created_at, updated_at
-     FROM employees WHERE id = $1`,
-    [id]
+            bank_name, metadata, created_at, updated_at` }
   );
-  if (result.rows.length === 0) throw new NotFoundError('Employee', id);
-  return result.rows[0];
 }
 
 export async function listEmployees(
@@ -146,19 +160,40 @@ export async function listEmployees(
   return result.rows;
 }
 
+/**
+ * El sueldo de un empleado, si el alcance lo alcanza (T9b · #96).
+ *
+ * El UPDATE decía `WHERE id = $4` y nada más: sin inquilino y sin entidad.
+ * Medido — `POST /payroll/employees/<empleado de la sociedad B>/compensation`
+ * contestaba 200 y le dejaba el sueldo en 1.00 desde 1 234 567.89.
+ *
+ * El alcance va DENTRO de la misma sentencia, con `condicionDeAlcance`, por la
+ * razón que ese ayudante lleva escrita: comprobar con un SELECT y escribir
+ * después reabre la ventana entre mirar y escribir.
+ *
+ * Y la fila de HISTORIAL se escribe sólo si el UPDATE alcanzó algo. Sin esa
+ * comprobación, acotar el UPDATE deja igualmente un renglón de historial del
+ * empleado ajeno — una escritura menos visible y con su nombre encima.
+ */
 export async function updateSalary(
   employeeId: string,
   newSalary: { salary_type: string; annual_salary?: number; hourly_rate?: number },
   effectiveDate: string,
   reason: string,
+  scope: Scope,
   changedBy: string
 ): Promise<void> {
+  const alcance = await condicionDeAlcance('employees', scope, 5);
   await withTransaction(async (client) => {
-    await client.query(
+    const r = await client.query(
       `UPDATE employees SET salary_type = $1, annual_salary = $2, hourly_rate = $3, updated_at = NOW()
-       WHERE id = $4`,
-      [newSalary.salary_type, newSalary.annual_salary || null, newSalary.hourly_rate || null, employeeId]
+       WHERE id = $4 AND ${alcance.sql}`,
+      [newSalary.salary_type, newSalary.annual_salary || null, newSalary.hourly_rate || null, employeeId, alcance.valor]
     );
+    // Cero filas = fuera del alcance, y se contesta como inexistencia: 404 y no
+    // 403, para que la respuesta no delate qué plantilla tienen las otras
+    // sociedades.
+    if (r.rowCount === 0) throw new NotFoundError('Employee', employeeId);
     await client.query(
       `INSERT INTO employee_compensation_history (employee_id, effective_date, salary_type, annual_salary, hourly_rate, reason, changed_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -167,13 +202,24 @@ export async function updateSalary(
   });
 }
 
+/**
+ * La baja de un empleado, si el alcance lo alcanza (T9b · #96).
+ *
+ * Mismo defecto y misma cura que `updateSalary`, y con más consecuencia: dar de
+ * baja es lo que dispara el finiquito. Medido: la plantilla de la sociedad
+ * hermana pasaba de `active` a `terminated` con un 200.
+ */
 export async function terminateEmployee(
   employeeId: string,
   terminationDate: string,
-  reason: string
+  reason: string,
+  scope: Scope
 ): Promise<void> {
-  await query(
-    `UPDATE employees SET status = 'terminated', termination_date = $1, termination_reason = $2, updated_at = NOW() WHERE id = $3`,
-    [terminationDate, reason, employeeId]
+  const alcance = await condicionDeAlcance('employees', scope, 4);
+  const r = await query(
+    `UPDATE employees SET status = 'terminated', termination_date = $1, termination_reason = $2, updated_at = NOW()
+      WHERE id = $3 AND ${alcance.sql}`,
+    [terminationDate, reason, employeeId, alcance.valor]
   );
+  if (r.rowCount === 0) throw new NotFoundError('Employee', employeeId);
 }

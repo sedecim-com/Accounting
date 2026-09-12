@@ -314,7 +314,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
     run(async () => {
       const ctx = await entityOf(opts);
       const found = await resolveAccount(ctx.entityId, code);
-      const full = await getAccountById(found.id, {
+      const full = await getAccountById(ctx.entityId, found.id, {
         includeBalance: opts.balance !== false,
         includeHierarchy: true,
       });
@@ -424,7 +424,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
         if (Object.keys(patch).length === 0) {
           throw usageError('Nothing to change. Pass --name, --description, --subtype or --fs-category.');
         }
-        const updated = await updateAccount(target.id, patch, reviewer.userId);
+        const updated = await updateAccount(ctx.entityId, target.id, patch, reviewer.userId);
         process.stdout.write(`${deps.palette.green('✔')} ${updated.code} updated.\n`);
       })
   );
@@ -451,7 +451,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       const { reason } = gateMutation(archive, opts as Record<string, unknown>);
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
-      const { hadHistory, balance } = await deactivateAccount(target.id, reviewer.userId, {
+      const { hadHistory, balance } = await deactivateAccount(ctx.entityId, target.id, reviewer.userId, {
         // Archivar una cuenta con historia es lo normal al cierre; lo que se
         // exige es saldo cero, salvo --force con razón (el saldo queda dicho).
         allowWithHistory: true,
@@ -887,7 +887,7 @@ export function registerAccountCommand(program: Command, deps: AccountCommandDep
       const ctx = await entityOf(opts);
       const target = await resolveAccount(ctx.entityId, code);
       const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
-      const updated = await reactivateAccount(target.id, reviewer.userId, opts.reason ?? null);
+      const updated = await reactivateAccount(ctx.entityId, target.id, reviewer.userId, opts.reason ?? null);
       process.stdout.write(`${deps.palette.green('✔')} ${updated.code} is active again.\n`);
     })
   );

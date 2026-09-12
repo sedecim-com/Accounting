@@ -80,6 +80,11 @@ const TOP_LEVEL: Record<string, string> = {
   // sale antes de recibir— y confundirlos en la terminal sería confundirlos
   // en los libros.
   prepaid: 'pago-anticipado',
+  // D1: el devengo de prestaciones. `payroll`·`nomina` es la familia y
+  // `accrue`·`devengar` su acto — no `provision`, que el registro de comandos
+  // adjudicó a fiscal-us (la provisión del impuesto corporativo) en su
+  // dictamen 39, y no `benefit`, que ya nombra los PLANES de prestaciones.
+  payroll: 'nomina',
   // R4: el tipo de cambio como sustantivo raíz. `fx` no se traduce a
   // «divisa»: el catálogo fijó `cambio`, que es como el despacho lo dice.
   fx: 'cambio',
@@ -170,6 +175,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   // R4: `rate` es calificador de `fx`, como `statement` lo es de `bank`.
   fx: { rate: 'tipo' },
   prepaid: { create: 'crear', list: 'listar', show: 'ver', run: 'ejecutar' },
+  payroll: { accrue: 'devengar' },
   'e-accounting': { catalog: 'catalogo', balance: 'balanza' },
   // F08a. `rate` es la tasa del impuesto y `list`/`set` sus dos actos; el
   // pasivo patronal vive aparte porque lleva IMSS e INFONAVIT además del ISN.
@@ -282,7 +288,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

@@ -23,7 +23,7 @@ import '../../src/services/payroll/tax-engine/register-all.js';
 //     menos, todos los periodos, sin una sola fila que lo delatara.
 //
 // Los importes salen de las tarifas 2026 sembradas por la migración 009:
-// quincena de 1 500, ISR 79.29, subsidio 203.31 → 124.02 que hasta hoy se
+// quincena de 1 500, ISR 77.28, subsidio 203.31 → 126.03 que hasta hoy se
 // evaporaban.
 // ============================================================
 
@@ -142,7 +142,11 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     const isr = (await impuestosDe(reciboConEfectivo)).find((r) => r.tax_type === 'isr')!;
     expect(Number(isr.taxable_wages)).toBeCloseTo(1500, 2);
     expect(Number(isr.rate)).toBeCloseTo(0.064, 6);
-    expect(Number(isr.tax_amount)).toBeCloseTo(79.29, 2);
+    // Las cifras se movieron con la TARIFA, no con este camino: T4a sustituyó
+    // la «quincenal» que la 009 fabricaba dividiendo la mensual entre dos por
+    // la publicada en el Anexo 8. Lo que F08a fija sigue siendo el subsidio
+    // entregado en efectivo.
+    expect(Number(isr.tax_amount)).toBeCloseTo(77.28, 2);
   });
 
   it('DEJA EL EFECTIVO EN LA MANO DEL TRABAJADOR: el excedente suma al neto', async () => {
@@ -159,10 +163,10 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     );
     const p = rows[0];
 
-    // Subsidio 203.31 − ISR 79.29 = 124.02 que antes desaparecían.
-    expect(Number(p.isr_withheld)).toBeCloseTo(79.29, 2);
+    // Subsidio 203.31 − ISR 77.28 = 126.03 que antes desaparecían.
+    expect(Number(p.isr_withheld)).toBeCloseTo(77.28, 2);
     expect(Number(p.subsidio_empleo)).toBeCloseTo(203.31, 2);
-    expect(Number(p.subsidio_entregado_efectivo)).toBeCloseTo(124.02, 2);
+    expect(Number(p.subsidio_entregado_efectivo)).toBeCloseTo(126.03, 2);
 
     // Y el neto lo refleja: bruto − IMSS − crédito INFONAVIT + subsidio
     // entregado. El ISR retenido es CERO porque el subsidio lo absorbió.
@@ -181,7 +185,7 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     )!;
     expect(r.employee_employer).toBe('EE');
     expect(r.is_credit).toBe(true);
-    expect(Number(r.tax_amount)).toBeCloseTo(124.02, 2);
+    expect(Number(r.tax_amount)).toBeCloseTo(126.03, 2);
   });
 
   it('dice en la nota que el criterio es el de omisión mientras nadie conteste', async () => {
@@ -238,7 +242,7 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
       query(
         `INSERT INTO paycheck_taxes (paycheck_id, tax_type, jurisdiction, employee_employer,
            taxable_wages, tax_amount)
-         VALUES ($1, 'isr', 'MX', 'EE', 1500, 79.29)`,
+         VALUES ($1, 'isr', 'MX', 'EE', 1500, 77.28)`,
         [reciboConEfectivo]
       )
     ).rejects.toThrow(/paycheck_taxes_un_renglon_por_impuesto|duplicate key/i);
@@ -282,7 +286,7 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
       pay_period_id: payPeriodId,
       earnings: [{ earning_type: 'salary', amount: 1500 }],
     });
-    expect(r.subsidio_entregado_efectivo).toBe('124.0200');
+    expect(r.subsidio_entregado_efectivo).toBe('126.0300');
 
     const renglon = (await impuestosDe(r.paycheck_id)).find(
       (x) => x.tax_type === 'subsidio_entregado_efectivo'

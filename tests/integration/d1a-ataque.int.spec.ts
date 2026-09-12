@@ -16,6 +16,7 @@ import { runMonthlyAmortization } from '../../src/services/accruals/amortization
 import { calcularAmortizacion } from '../../src/services/accruals/amortization-math.js';
 import { calculateFiniquito } from '../../src/services/payroll/mx/finiquito-calculator.js';
 import { diasDeVacacionesPorAnio } from '../../src/services/payroll/mx/finiquito-math.js';
+import { NotFoundError } from '../../src/utils/errors.js';
 
 /**
  * ATAQUE ADVERSARIAL A D1a · «EL DEVENGO EXISTE».
@@ -848,6 +849,7 @@ describe('LFT art. 76 — la tabla que pagaba dos días de menos', () => {
           employee_id: emp,
           termination_date: '2026-06-30',
           last_paid_through: '2026-06-15',
+          termination_reason: 'renuncia' as const,
         },
         { tenantId: A.tenantId, entityId: A.entityId }
       );
@@ -867,7 +869,11 @@ describe('LFT art. 87 — el aguinaldo tiene que mirar la fecha de alta', () => 
     const nuevo = await altaEmpleado(A, { hire: '2026-07-01', annual: ANUAL_500 });
     const veterano = await altaEmpleado(A, { hire: '2019-03-04', annual: ANUAL_500 });
     const ctx = { tenantId: A.tenantId, entityId: A.entityId };
-    const comun = { termination_date: '2026-12-31', last_paid_through: '2026-12-15' };
+    const comun = {
+      termination_date: '2026-12-31',
+      last_paid_through: '2026-12-15',
+      termination_reason: 'renuncia' as const,
+    };
 
     const f = await calculateFiniquito({ employee_id: nuevo, ...comun }, ctx);
     const v = await calculateFiniquito({ employee_id: veterano, ...comun }, ctx);
@@ -908,7 +914,7 @@ describe('la cuota diaria es el salario diario, NO el SBC', () => {
       sbc: SBC_INTEGRADO,
     });
     const f = await calculateFiniquito(
-      { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31' },
+      { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31', termination_reason: 'renuncia' as const },
       { tenantId: A.tenantId, entityId: A.entityId }
     );
 
@@ -928,7 +934,7 @@ describe('la cuota diaria es el salario diario, NO el SBC', () => {
     enterTenant(A.tenantId);
     const emp = await altaEmpleado(A, { hire: '2019-03-04', annual: null, sbc: SBC_INTEGRADO });
     const f = await calculateFiniquito(
-      { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31' },
+      { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31', termination_reason: 'renuncia' as const },
       { tenantId: A.tenantId, entityId: A.entityId }
     );
     expect(f.basis.daily_wage_source).toBe('sbc_desintegrado');
@@ -955,7 +961,7 @@ describe('los céntimos que un float redondea mal', () => {
     // noventa días trabajados en el ejercicio.
     const emp = await altaEmpleado(A, { hire: '2026-10-03', annual: '100385.02' });
     const f = await calculateFiniquito(
-      { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-28' },
+      { employee_id: emp, termination_date: '2026-12-31', termination_reason: 'renuncia' as const, last_paid_through: '2026-12-28' },
       { tenantId: A.tenantId, entityId: A.entityId }
     );
 
@@ -1008,9 +1014,14 @@ describe('los céntimos que un float redondea mal', () => {
 describe('el panel gobierna el finiquito de verdad', () => {
   it('`dias_aguinaldo` a 30 duplica el aguinaldo, y la política es la de la ENTIDAD DEL EMPLEADO', async () => {
     enterTenant(B.tenantId);
-    // El empleado es de B; la petición viene con el alcance de A. La política
-    // que tiene que regir es la de B, o un despacho con dos sociedades paga
-    // con el criterio de la de al lado.
+    // La política que rige es la de la entidad del EMPLEADO, o un despacho
+    // con dos sociedades paga con el criterio de la de al lado.
+    //
+    // Esta prueba lo enseñaba pidiendo el finiquito de un empleado de B con
+    // el alcance de A, y eso ya no se puede: desde T9c la consulta acota por
+    // entidad y ese contexto cruzado no devuelve empleado ninguno. Que ya no
+    // se pueda ES el arreglo —la prueba se apoyaba en el agujero—, así que se
+    // queda escrito abajo como lo que ahora tiene que pasar.
     await resolvePolicy(
       { tenantId: B.tenantId, entityId: B.entityId },
       'dias_aguinaldo',
@@ -1018,9 +1029,15 @@ describe('el panel gobierna el finiquito de verdad', () => {
       B.userId
     );
     const emp = await altaEmpleado(B, { hire: '2019-03-04', annual: ANUAL_500 });
+    await expect(
+      calculateFiniquito(
+        { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31', termination_reason: 'renuncia' as const },
+        { tenantId: B.tenantId, entityId: A.entityId }
+      )
+    ).rejects.toThrow(NotFoundError);
     const f = await calculateFiniquito(
-      { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31' },
-      { tenantId: B.tenantId, entityId: A.entityId }
+      { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31', termination_reason: 'renuncia' as const },
+      { tenantId: B.tenantId, entityId: B.entityId }
     );
     expect(f.basis.aguinaldo_days_per_year).toBe(30);
     expect(f.aguinaldo_days).toBe('30.0000');
@@ -1029,7 +1046,7 @@ describe('el panel gobierna el finiquito de verdad', () => {
     // La misma alta en A, donde nadie ha contestado, sigue en el mínimo legal.
     const enA = await altaEmpleado(A, { hire: '2019-03-04', annual: ANUAL_500 });
     const g = await calculateFiniquito(
-      { employee_id: enA, termination_date: '2026-12-31', last_paid_through: '2026-12-31' },
+      { employee_id: enA, termination_date: '2026-12-31', termination_reason: 'renuncia' as const, last_paid_through: '2026-12-31' },
       { tenantId: A.tenantId, entityId: A.entityId }
     );
     expect(g.basis.aguinaldo_days_per_year).toBe(15);
@@ -1047,7 +1064,7 @@ describe('el panel gobierna el finiquito de verdad', () => {
     // Alta el 1-ene-2019, baja el 31-dic-2026: año de servicio 8 → 22 días.
     const emp = await altaEmpleado(C, { hire: '2019-01-01', annual: ANUAL_500 });
     const f = await calculateFiniquito(
-      { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31' },
+      { employee_id: emp, termination_date: '2026-12-31', last_paid_through: '2026-12-31', termination_reason: 'renuncia' as const },
       { tenantId: C.tenantId, entityId: C.entityId }
     );
     expect(f.basis.prima_vacacional_pct).toBe('0.50');
@@ -1066,7 +1083,7 @@ describe('la frontera del empleado', () => {
     enterTenant(A.tenantId);
     await expect(
       calculateFiniquito(
-        { employee_id: ajeno, termination_date: '2026-12-31', last_paid_through: '2026-12-15' },
+        { employee_id: ajeno, termination_date: '2026-12-31', termination_reason: 'renuncia' as const, last_paid_through: '2026-12-15' },
         { tenantId: A.tenantId, entityId: A.entityId }
       )
     ).rejects.toThrow();

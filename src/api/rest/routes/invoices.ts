@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { query } from '../../../database/connection.js';
 import { requirePermission, requireEntityAccess } from '../middleware/auth.js';
+import { requireByIdInScope, entityScope } from '../../../database/scope.js';
 import { asyncHandler, validateBody } from '../middleware/async-handler.js';
 import { NotFoundError, ValidationError, NotImplementedError } from '../../../utils/errors.js';
 import { attestEntryAsync } from '../../../services/accounting/index.js';
@@ -251,17 +252,32 @@ router.post('/:id/void', declararRiesgoRuta({ riesgo: 'irreversible', escribe: '
 }));
 
 // POST /v1/invoices/:id/cfdi/stamp (Mexico)
-router.post('/:id/cfdi/stamp', declararRiesgoRuta({ riesgo: 'externo', escribe: 'invoices.cfdi_uuid/cfdi_status; TIMBRA ante un PAC' }), requirePermission('invoices:create'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/cfdi/stamp', declararRiesgoRuta({ riesgo: 'externo', escribe: 'invoices.cfdi_uuid/cfdi_status; TIMBRA ante un PAC' }), requirePermission('invoices:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { pacRouter } = await import('../../../services/integrations/mexico/pac/pac-router.js');
 
-  const invoice = await query<Invoice>('SELECT * FROM invoices WHERE id = $1', [req.params.id]);
-  if (invoice.rows.length === 0) throw new NotFoundError('Invoice', req.params.id);
+  // LA FRONTERA VA AQUÍ, Y NO MÁS ABAJO (TEN-10).
+  //
+  // A partir de `pacRouter.stamp` el comprobante EXISTE ante el SAT y ya no hay
+  // 404 que lo deshaga: si el alcance se comprobara después, el acto externo e
+  // irreversible ya habría ocurrido sobre la factura de la sociedad hermana.
+  //
+  // Y timbrarla no es lo peor. El UPDATE de abajo le PISA el `cfdi_uuid`, y ahí
+  // vivía el folio con el que se cancela: el CFDI anterior queda huérfano e
+  // incancelable desde el sistema. RLS no lo tapa —acota por INQUILINO, y las
+  // dos sociedades son del mismo despacho—, que es exactamente el eje que
+  // `scope.ts` existe para defender.
+  //
+  // Cero filas significa a la vez «no existe» y «no es tuya», y las dos salen
+  // por el mismo 404 con el mismo cuerpo: distinguirlas reabriría por prosa el
+  // oráculo que el SQL acaba de cerrar.
+  const alcance = entityScope(req.tenantId!, req.entityId!);
+  const factura = await requireByIdInScope<Invoice>('invoices', req.params.id, alcance);
 
   // Build minimal CFDI XML for stamping (real implementation would use cfdi.ts generateCfdiXml)
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Version="4.0"
-  Folio="${invoice.rows[0].invoice_number}" Total="${invoice.rows[0].total_amount}"
-  SubTotal="${invoice.rows[0].subtotal}" Moneda="${invoice.rows[0].currency_code}">
+  Folio="${factura.invoice_number}" Total="${factura.total_amount}"
+  SubTotal="${factura.subtotal}" Moneda="${factura.currency_code}">
 </cfdi:Comprobante>`;
 
   // Stamp via multi-PAC router with automatic failover
@@ -280,8 +296,8 @@ router.post('/:id/cfdi/stamp', declararRiesgoRuta({ riesgo: 'externo', escribe: 
       pac_provider = $3, stamped_at = NOW(),
       memo = CASE WHEN $4::text IS NULL THEN memo
                   ELSE COALESCE(memo, '') || E'\n' || $4::text END
-     WHERE id = $5`,
-    [result.uuid, cfdi_status, result.provider_used, nota, req.params.id]
+     WHERE id = $5 AND entity_id = $6`,
+    [result.uuid, cfdi_status, result.provider_used, nota, req.params.id, req.entityId!]
   );
 
   res.json({
@@ -299,16 +315,25 @@ router.post('/:id/cfdi/stamp', declararRiesgoRuta({ riesgo: 'externo', escribe: 
 }));
 
 // POST /v1/invoices/:id/cfdi/cancel (Mexico)
-router.post('/:id/cfdi/cancel', declararRiesgoRuta({ riesgo: 'externo', escribe: 'cancela el CFDI ante el PAC y el SAT' }), requirePermission('invoices:void'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/cfdi/cancel', declararRiesgoRuta({ riesgo: 'externo', escribe: 'cancela el CFDI ante el PAC y el SAT' }), requirePermission('invoices:void'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { cancellation_reason, replacement_uuid } = req.body;
 
   if (!cancellation_reason) {
     throw new ValidationError('cancellation_reason is required');
   }
 
+  // ACOTADA AUNQUE HOY NO CANCELE (TEN-10).
+  //
+  // Esta ruta termina en un 501 incondicional —cancelar de verdad son cuatro
+  // cosas que todavía no existen— así que lo que se cerraba aquí no era una
+  // cancelación ajena: era un ORÁCULO DE EXISTENCIA. Con el UUID de la
+  // sociedad hermana, un 501 contestaba «esa factura existe y está timbrada» y
+  // un 404 que no, y eso ya es información de otra entidad. El SELECT se acota
+  // por lo mismo que los demás, y por si el 501 se retira algún día: la
+  // frontera no puede depender de que la ruta siga sin implementarse.
   const invoiceResult = await query<Invoice>(
-    'SELECT * FROM invoices WHERE id = $1 AND cfdi_status = \'stamped\'',
-    [req.params.id]
+    'SELECT * FROM invoices WHERE id = $1 AND entity_id = $2 AND cfdi_status = \'stamped\'',
+    [req.params.id, req.entityId!]
   );
 
   if (invoiceResult.rows.length === 0) {
