@@ -35,7 +35,14 @@ import {
   LOCALE_ENV_VAR_ALIAS,
   describeLocale,
   languageOfLocale,
+  resolveLocale,
 } from '../i18n/locale.js';
+// `setLanguage` ya está tomado en este archivo por el de `ai/providers/config.js`,
+// que fija el idioma en el que responde el AGENTE y se guarda en disco. Éste fija
+// el idioma en el que se IMPRIME, vive en memoria y dura lo que el proceso. Dos
+// dials distintos con el mismo nombre: se renombra el de aquí en la importación
+// para que ningún sitio de llamada pueda confundirlos.
+import { setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
 import {
   createSession,
   latestSession,
@@ -68,6 +75,10 @@ import {
   batchExitCode,
   CliError,
   ExitCode,
+  installHelpChrome,
+  describeCommand,
+  describeLastOption,
+  optionByKey,
   type ExitCodeValue,
 } from './kernel/index.js';
 import { esAfirmativa, esNegativa, confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
@@ -318,7 +329,21 @@ export function reportError(err: unknown): void {
   } else if (err instanceof Anthropic.APIError || err instanceof OpenAI.APIError) {
     console.error(ce.red(`\nProvider API error (${err.status}): ${err.message}`));
   } else {
-    const mensaje = err instanceof Error ? err.message : String(err);
+    // I7 · UN `CliError` SE RINDE, NO SE IMPRIME.
+    //
+    // `CliError.message` está fijado en INGLÉS al construir, a propósito: es lo
+    // que acaba en un `stack` y en un log, y un log que cambia de idioma según
+    // quién corrió el binario no se puede buscar (ver `kernel/exit.ts`). Lo que
+    // el humano lee es otra cosa, y sale de `localized()`, que rinde la clave
+    // AHORA, en el idioma activo. Un `CliError` nacido de una cadena —cientos
+    // de sitios de llamada siguen pasando una— devuelve esa cadena tal cual, así
+    // que esta rama no cambia nada para ellos.
+    const mensaje =
+      err instanceof CliError
+        ? err.localized()
+        : err instanceof Error
+          ? err.message
+          : String(err);
     console.error(ce.red(`\n${mensaje}`));
     // El redactor de remedios existía y solo lo veía el arranque desnudo
     // (renderBrokenFlow): cualquier otra hoja escupía «role postgres does
@@ -833,35 +858,88 @@ Examples:
 `,
 };
 
-program
-  .name('mnemosine')
-  .description('AI accounting assistant — converse with your accounting from the terminal')
-  .version(CLI_VERSION)
-  .option(
-    '-T, --tenant <uuid>',
-    'Tenant to operate on. Precedence: this flag > MNEMOSINE_TENANT > mnemosine.config.json. Scopes EVERY query via RLS'
-  )
-  // ── I6 · `--locale`, y por qué la declara LA RAÍZ ──────────────────────
-  //
-  // Es global por la misma razón que `-T, --tenant`: una hoja no puede
-  // imprimir en un idioma distinto del que pidió su padre. `FLAG_DICTIONARY`
-  // (src/cli/kernel/flags.ts) congeló la grafía antes de que existiera el
-  // resolutor, y dejó dicho que `npx tsx scripts/ux-status.ts --check` estaría
-  // en rojo —una bandera prometida que el binario no acepta— hasta que la raíz
-  // la declarara. Esto es esa declaración.
-  //
-  // Declararla aquí es lo que hace que commander la ACEPTE y la enseñe en
-  // `--help`; el valor NO se lee de commander sino de `process.argv`, dentro de
-  // `describeLocale`, porque a ese resolutor se le llama desde formateadores
-  // que no tienen el objeto Command a mano y desde antes de que commander
-  // despache. Sin validador propio a propósito: quien juzga una etiqueta de
-  // locale es `normalizeLocale`, en un solo sitio, y una bandera inservible
-  // avisa y cae al escalón siguiente igual que una variable de entorno
-  // inservible — dos caminos para el mismo dato no pueden tener dos veredictos.
-  .option(
-    '--locale <tag>',
-    `Language and formatting of what is PRINTED (${LOCALES.join('|')}). Precedence: this flag > ${LOCALE_ENV_VAR} (${LOCALE_ENV_VAR_ALIAS} is a permanent alias) > ~/.mnemosine/config.json > ./mnemosine.config.json > the tenant setting > ${DEFAULT_LOCALE}. Never changes what is filed with an authority`
-  );
+// ============================================================
+// I7 · EL IDIOMA SE FIJA AQUÍ, Y «AQUÍ» ES ANTES DE QUE EXISTA EL ÁRBOL
+// (issue #149)
+//
+// Dos renglones, y el que importa es el orden en que están escritos.
+//
+// ── 1. EL LOCALE, RESUELTO UNA VEZ ──────────────────────────────────────
+//
+// `resolveLocale()` lee `--locale` A MANO de `process.argv` (readLocaleFlag,
+// src/i18n/locale.ts) y baja por la precedencia hasta es-MX. Se le pregunta
+// aquí, en el cuerpo del módulo, porque este archivo es el punto de entrada
+// del binario y todo lo que se imprime cuelga de esta decisión.
+//
+// Fijarlo NO cambia qué idioma sale: sin fijarlo, `getLanguage()` deriva la
+// misma respuesta del mismo `process.argv` en cada `t()`. Lo que cambia es el
+// COSTE —cada derivación hace un `readFileSync` de dos rutas de configuración
+// que casi nunca están, y una pantalla de ayuda pide cientos de cadenas— y la
+// ESTABILIDAD: una pantalla entera se rinde con una sola lectura del entorno,
+// no con cuatrocientas que podrían discrepar si algo tocara el entorno a mitad.
+// Es el llamador que el docstring de `getLanguage()` (src/i18n/index.ts) dejó
+// anunciado como I7.
+//
+// LO QUE NO ALCANZA: el escalón `tenants.settings.locale` no se recorre aquí
+// —exige una conexión que en este punto todavía no existe—, así que un
+// inquilino con locale propio NO cambia esta decisión. Está dicho igual en
+// `getLanguage()`; repetirlo aquí es más barato que un lector que lo suponga.
+//
+// ── 2. EL CROMO, ANTES DE LA PRIMERA `.command()` ───────────────────────
+//
+// `Command.copyInheritedSettings` (commander/lib/command.js:100) copia
+// `_helpConfiguration`, `_outputConfiguration`, `_helpOption` y `_helpCommand`
+// del padre AL CREAR el hijo. La primera `.command()` de este archivo es
+// `program.command('entities')`, bastante más abajo, y las familias —hoy 47
+// llamadas `register…(program)`, que cuelgan 64 nodos de primer nivel— se
+// registran al final del archivo; se citan por nombre y no por renglón porque
+// los dos números se mueven con cada familia nueva. Un `installHelpChrome`
+// puesto después no llegaría a ninguno de esos nodos y sólo la raíz saldría
+// traducida.
+// ============================================================
+pinPrintedLanguage(languageOfLocale(resolveLocale()));
+installHelpChrome(program);
+
+program.name('mnemosine').version(CLI_VERSION);
+// La descripción de la raíz, POR CLAVE. En el objeto de Commander queda su
+// inglés —lo leen `scripts/ux-status.ts` y el generador de `cli-reference.md`—
+// y lo que se traduce es el renderizado. Ver `src/cli/kernel/help.ts`.
+describeCommand(program, 'help.root.description');
+// `.version()` fabrica su `Option` por dentro y no la devuelve
+// (command.js:2209): la última que entró en `program.options` es ésa.
+describeLastOption(program, 'cli.chrome.version_description');
+optionByKey(program, '-T, --tenant <uuid>', 'cli.flag.tenant_root');
+
+// ── I6 · `--locale`, y por qué la declara LA RAÍZ ──────────────────────
+//
+// Es global por la misma razón que `-T, --tenant`: una hoja no puede
+// imprimir en un idioma distinto del que pidió su padre. `FLAG_DICTIONARY`
+// (src/cli/kernel/flags.ts) congeló la grafía antes de que existiera el
+// resolutor, y dejó dicho que `npx tsx scripts/ux-status.ts --check` estaría
+// en rojo —una bandera prometida que el binario no acepta— hasta que la raíz
+// la declarara. Esto es esa declaración.
+//
+// Declararla aquí es lo que hace que commander la ACEPTE y la enseñe en
+// `--help`; el valor NO se lee de commander sino de `process.argv`, dentro de
+// `describeLocale`, porque a ese resolutor se le llama desde formateadores
+// que no tienen el objeto Command a mano y desde antes de que commander
+// despache. Sin validador propio a propósito: quien juzga una etiqueta de
+// locale es `normalizeLocale`, en un solo sitio, y una bandera inservible
+// avisa y cae al escalón siguiente igual que una variable de entorno
+// inservible — dos caminos para el mismo dato no pueden tener dos veredictos.
+//
+// I7 · Los escalones viajan como PARÁMETROS y no escritos dentro de la frase:
+// la lista de locales y los nombres de las variables viven en
+// `src/i18n/locale.ts`, y una segunda copia dentro del catálogo —dos veces, una
+// por idioma— se desincronizaría en silencio el día que se añada un locale.
+optionByKey(program, '--locale <tag>', 'cli.flag.locale', {
+  params: {
+    locales: LOCALES.join('|'),
+    envVar: LOCALE_ENV_VAR,
+    envAlias: LOCALE_ENV_VAR_ALIAS,
+    fallback: DEFAULT_LOCALE,
+  },
+});
 
 // The tenant is set before any command runs, so that even entity resolution
 // is scoped. Without this, `entities` would see every client's entities.
@@ -1067,10 +1145,7 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
   }
 });
 
-program
-  .command('entities')
-  .alias('entidades')
-  .description('Lists the active legal entities (deprecated: use `mnemosine entity list`)')
+describeCommand(program.command('entities').alias('entidades'), 'help.entities.description')
   .addHelpText('after', EJEMPLOS.entities)
   .action(async () => {
     try {
@@ -1099,10 +1174,7 @@ program
     }
   });
 
-program
-  .command('providers')
-  .alias('proveedores')
-  .description('Lists the configured model providers (built-in + mnemosine.config.json)')
+describeCommand(program.command('providers').alias('proveedores'), 'help.providers.description')
   .addHelpText('after', EJEMPLOS.providers)
   .action(async () => {
     try {
@@ -1133,10 +1205,7 @@ program
     }
   });
 
-program
-  .command('ask')
-  .alias('pregunta')
-  .description('Asks a single question and exits')
+describeCommand(program.command('ask').alias('pregunta'), 'help.ask.description')
   .argument('<question...>', 'The question for the assistant')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
@@ -1158,9 +1227,7 @@ program
     }
   });
 
-program
-  .command('chat', { isDefault: true })
-  .description('Opens an interactive chat session (default)')
+describeCommand(program.command('chat', { isDefault: true }), 'help.chat.description')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
   .option('-m, --model <model>', 'Override the profile model')
@@ -1500,10 +1567,7 @@ program
     }
   });
 
-program
-  .command('sessions')
-  .alias('sesiones')
-  .description('Lists recent chat sessions (resume one with: mnemosine chat --resume <id>)')
+describeCommand(program.command('sessions').alias('sesiones'), 'help.sessions.description')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-n, --limit <n>', 'Maximum number of sessions to show', (v: string) => {
     const n = parseInt(v, 10);
@@ -1562,10 +1626,7 @@ function renderDraft(draft: DraftRow, index: number, total: number): void {
   console.log(c.dim(`  ${''.padEnd(54)}  ${debits.toFixed(2).padStart(11)}  ${credits.toFixed(2).padStart(11)}`));
 }
 
-program
-  .command('drafts')
-  .alias('borradores')
-  .description('Lists the journal entry drafts created by the AI')
+describeCommand(program.command('drafts').alias('borradores'), 'help.drafts.description')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-s, --status <status>', 'pending_review | approved | rejected')
   .addHelpText('after', EJEMPLOS.drafts)
@@ -1820,13 +1881,10 @@ async function offerToSeedPrecedent(
   }
 }
 
-const review = program
-  .command('review')
-  .alias('revisar')
-  .description(
-    'Reviews pending drafts: approve (creates and posts the journal entry), ' +
-      'correct then approve, or reject — a rejection can seed the criterion for next time'
-  )
+const review = describeCommand(
+  program.command('review').alias('revisar'),
+  'help.review.description'
+)
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-u, --user <email>', 'Reviewer email (default: first active user of the tenant)')
   .addHelpText('after', EJEMPLOS.review);
@@ -1988,10 +2046,10 @@ review.action(async (opts: { entity?: string; user?: string; yes?: boolean; idem
     }
   });
 
-const ingest = program
-  .command('ingest')
-  .alias('ingesta')
-  .description('Batch ingestion of CFDIs (XML): rules → AI classification → drafts (or auto-post by thresholds)')
+const ingest = describeCommand(
+  program.command('ingest').alias('ingesta'),
+  'help.ingest.description'
+)
   .argument('<files...>', 'Paths to CFDI XML files')
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-p, --provider <name>', 'Model provider (see: mnemosine providers)')
@@ -2250,10 +2308,7 @@ ingest.action(async (files: string[], opts: {
     }
   });
 
-program
-  .command('lang')
-  .alias('idioma')
-  .description("Shows or sets the language of the AGENT's answers (CLI UI stays English; Spanish command aliases always work)")
+describeCommand(program.command('lang').alias('idioma'), 'help.lang.description')
   .argument('[language]', "'en' or 'es'; omit to show the current setting")
   .addHelpText('after', EJEMPLOS.lang)
   .action(async (language?: string) => {
@@ -2304,10 +2359,10 @@ program
     }
   });
 
-const onboard = program
-  .command('onboard')
-  .alias('alta')
-  .description('Imports a client\'s accounting from an external system (chart of accounts + opening balances)')
+const onboard = describeCommand(
+  program.command('onboard').alias('alta'),
+  'help.onboard.description'
+)
   .requiredOption('-p, --provider <name>', 'External system, e.g. contalink')
   .requiredOption('--cutoff <YYYY-MM-DD>', 'Cutoff date: opening balances are taken as of this date')
   .option('--from <YYYY-MM-DD>', 'Start of the remote trial balance period (default: January 1st of the cutoff year)')
@@ -2735,18 +2790,18 @@ async function correrOutboxImpl(
   }
 }
 
-const outbox = program
-  .command('outbox')
-  .aliases(['envio', 'envios'])
-  .description('Operations queued for external accounting systems: list, review and execute')
+const outbox = describeCommand(
+  program.command('outbox').aliases(['envio', 'envios']),
+  'help.outbox.description'
+)
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)')
   .option('-l, --list', 'Only list, without executing (deprecated: use `outbox list`)');
 
-const outboxList = outbox
-  .command('list')
-  .alias('listar')
-  .description('List queued external operations (default: pending)')
+const outboxList = describeCommand(
+  outbox.command('list').alias('listar'),
+  'help.outbox.list.description'
+)
   .addHelpText('after', EJEMPLOS.outboxList);
 withOutput(withSelection(withContext(outboxList)));
 declareRisk(outboxList, { risk: 'lectura', agent: true });
@@ -2763,11 +2818,13 @@ outboxList.action(async (_opts: unknown, cmdArg: Command) => {
   }
 });
 
-const outboxRun = outbox
-  .command('run')
-  .alias('ejecutar')
-  .argument('[id...]', 'operation ids to execute; omit to review the whole queue interactively')
-  .description("Execute queued operations against the client's external system (the real effect requires --live)")
+const outboxRun = describeCommand(
+  outbox
+    .command('run')
+    .alias('ejecutar')
+    .argument('[id...]', 'operation ids to execute; omit to review the whole queue interactively'),
+  'help.outbox.run.description'
+)
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-u, --user <email>', 'Who executes (default: sole active user of the tenant)')
   .addHelpText('after', EJEMPLOS.outboxRun);
@@ -3078,18 +3135,18 @@ async function colaDeQuestionsImpl(opts: { entity?: string; user?: string }): Pr
   }
 }
 
-const question = program
-  .command('question')
-  .aliases(['duda', 'questions', 'dudas'])
-  .description("The agent's pending questions: list, answer (saved as a precedent) or dismiss")
+const question = describeCommand(
+  program.command('question').aliases(['duda', 'questions', 'dudas']),
+  'help.question.description'
+)
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)')
   .option('-l, --list', 'Only list, without answering (deprecated: use `question list`)');
 
-const questionList = question
-  .command('list')
-  .alias('listar')
-  .description("List the agent's questions (default: pending)")
+const questionList = describeCommand(
+  question.command('list').alias('listar'),
+  'help.question.list.description'
+)
   .addHelpText('after', EJEMPLOS.questionList);
 withOutput(withSelection(withContext(questionList)));
 declareRisk(questionList, { risk: 'lectura', agent: true });
@@ -3105,12 +3162,14 @@ questionList.action(async (_opts: unknown, cmdArg: Command) => {
   }
 });
 
-const questionAnswer = question
-  .command('answer')
-  .alias('responder')
-  .argument('[id]', 'question id; omit to answer the pending queue interactively')
-  .argument('[answer...]', 'the answer text, or the number of an option (requires <id>)')
-  .description('Answer a question (the answer is saved as a precedent), or work the pending queue')
+const questionAnswer = describeCommand(
+  question
+    .command('answer')
+    .alias('responder')
+    .argument('[id]', 'question id; omit to answer the pending queue interactively')
+    .argument('[answer...]', 'the answer text, or the number of an option (requires <id>)'),
+  'help.question.answer.description'
+)
   .option('-e, --entity <idOrName>', 'Legal entity (id, RFC or name fragment)')
   .option('-u, --user <email>', 'Who answers (default: sole active user of the tenant)')
   .addHelpText('after', EJEMPLOS.questionAnswer);
@@ -3193,10 +3252,7 @@ registerPendingCommands(program, {
   ask,
 });
 
-program
-  .command('login')
-  .alias('entrar')
-  .description('Signs in with your identity provider (OIDC)')
+describeCommand(program.command('login').alias('entrar'), 'help.login.description')
   .option('--device', 'Use the device-code flow (SSH, server without a browser)')
   .addHelpText('after', EJEMPLOS.login)
   .action(async (opts: { device?: boolean }) => {
@@ -3240,10 +3296,7 @@ program
     }
   });
 
-program
-  .command('logout')
-  .alias('salir')
-  .description('Deletes the stored credential')
+describeCommand(program.command('logout').alias('salir'), 'help.logout.description')
   .addHelpText('after', EJEMPLOS.logout)
   .action(async () => {
     await clearToken();
@@ -3251,10 +3304,7 @@ program
     await shutdown(0);
   });
 
-program
-  .command('whoami')
-  .alias('quien')
-  .description('Shows the active credential and its validity')
+describeCommand(program.command('whoami').alias('quien'), 'help.whoami.description')
   .addHelpText('after', EJEMPLOS.whoami)
   .action(async () => {
     const token = await loadToken();
@@ -3324,10 +3374,10 @@ registerAuditCommand(program, { palette: c, shutdown, reportError });
 // ENTRADA (tokens que despiertan al agente lector) y son tablas distintas: el
 // mismo sustantivo para las dos cosas habría sido el defecto de nombre que
 // esta casa lleva un mes cazando en otras formas.
-const subscription = program
-  .command('subscription')
-  .alias('suscripcion')
-  .description('Outbound event subscriptions: who we notify, and what we could not deliver');
+const subscription = describeCommand(
+  program.command('subscription').alias('suscripcion'),
+  'help.subscription.description'
+);
 registerWebhookSweepCommand(subscription, { palette: c, shutdown, reportError });
 registerBackupCommand(program, { palette: c, shutdown, reportError });
 registerReportCommand(program, { palette: c, shutdown, reportError });
@@ -3499,9 +3549,13 @@ if (typeof require !== 'undefined' && typeof module !== 'undefined' && require.m
       // Antes de abrir base o túnel alguno: un tecleo desconocido termina aquí
       // con el contrato de USAGE, en vez de viajar hasta chat y morir con un
       // «too many arguments for chat» que no nombra el problema.
-      stderr.write(ce.red(`error: unknown command '${argv[2]}'\n`));
+      // Las mismas dos claves que traducen lo que escribe Commander cuando el
+      // tecleo SÍ llega hasta él (`localizeCommanderError`, kernel/help.ts):
+      // esta compuerta ataja antes, y las dos puertas tienen que decir lo mismo
+      // en el mismo idioma o el usuario ve dos binarios distintos.
+      stderr.write(ce.red(`${t('cli.error.unknown_command', { name: argv[2] ?? '' })}\n`));
       if (veredicto.sugerencia) {
-        stderr.write(`(Did you mean ${veredicto.sugerencia}?)\n`);
+        stderr.write(`${t('cli.error.did_you_mean', { suggestion: veredicto.sugerencia })}\n`);
       }
       // Por shutdown como todo el resto. Aquí todavía no hay base abierta y
       // el cierre no tiene nada que drenar, pero la salida del proceso tiene

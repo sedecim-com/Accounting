@@ -7,14 +7,66 @@ import path from 'node:path';
 //   1. Every canonical command/subcommand name is ENGLISH.
 //   2. The Spanish surface is COMPLETE: every command whose
 //      English name differs in Spanish has a working alias.
-//   3. Help text is English (no leftovers from the translation).
+//   3. The ENGLISH help text has no leftovers from the translation.
 // Runs the real CLI (--help never touches the database).
 // ============================================================
 
 const CLI = path.join(process.cwd(), 'src/cli/mnemosine.ts');
 
+// ============================================================
+// TODA PANTALLA DE ESTA MATRIZ SE PIDE EN en-US (I7 · regla 6 del epic #141)
+//
+// Hasta I6 el binario tenía UN idioma y esta matriz podía no nombrarlo. I7
+// (issue #149) pone el cromo de commander y la descripción de cada comando a
+// rendirse POR CLAVE, de modo que el MISMO `--help` pueda imprimir «Usage:» o
+// «Uso:» según el locale que resuelva `describeLocale` (src/i18n/locale.ts). Y
+// las tres cosas que este archivo mide son de la FUENTE INGLESA: los nombres
+// canónicos, sus alias, y que el catálogo inglés no arrastre restos de la
+// traducción.
+//
+// LA BANDERA SÍ CAMBIA ESTAS PANTALLAS, y hay que decirlo porque este mismo
+// comentario afirmaba lo contrario dos párrafos después de explicar que el
+// binario ya imprime en dos idiomas. Medido hoy: `bank --help` con el entorno
+// limpio y con `--locale en-US` difieren en diez renglones, empezando por
+// «Uso:» contra «Usage:». Lo que NO cambia es el resultado de correr ESTA
+// suite, y por otra razón: `vitest.config.ts` arranca con
+// MNEMOSINE_LOCALE=en-US y el hijo hereda el entorno, así que los once bloques
+// `it` de abajo pasan con la bandera y sin ella. Se pone igual, y el párrafo
+// siguiente dice por qué depender de aquel renglón no basta.
+//
+// SIN FIJARLO, EL IDIOMA LO ELEGIRÍA EL ENTORNO DE QUIEN CORRE LA SUITE. El
+// hijo hereda `process.env` (ver el `env:` de abajo), y la precedencia del
+// resolutor es `--locale` > MNEMOSINE_LOCALE > MNEMOSINE_LANG >
+// ~/.mnemosine/config.json > ./mnemosine.config.json > el inquilino > es-MX.
+// Dos escalones de esa lista son ficheros de la máquina del contribuidor.
+//
+// SE FIJA CON LA BANDERA, QUE ES EL ESCALÓN DE ARRIBA, Y NO CON LA VARIABLE.
+// La variable YA está puesta: vitest.config.ts arranca la suite unitaria con
+// MNEMOSINE_LOCALE=en-US, así que hoy —medido— estas pantallas ya salen en
+// inglés sin tocar nada. Lo que la bandera añade no es color: es que el
+// archivo deje de depender de un renglón que vive en otro fichero y que nadie
+// relaciona con esta prueba. El día que alguien corra este spec con otra
+// configuración, o quite aquel renglón, el último escalón del resolutor es
+// es-MX (`DEFAULT_LOCALE`) y el bloque «help text is English» se pondría rojo
+// contra un binario CORRECTO. Un instrumento que se pone rojo por una razón
+// que no está escrita en él es el defecto que I6 dejó de deuda.
+//
+// LO QUE ESTA MATRIZ NO COMPRUEBA, dicho para que nadie lo suponga: la mitad
+// ESPAÑOLA. Aquí no hay una sola aserción sobre `--locale es-MX`; quien la
+// escriba tendrá que pedirla explícitamente, porque con esta constante toda
+// pantalla que pase por `help()` es inglesa por construcción.
+//
+// VA PEGADA AL BINARIO, donde van las opciones de la raíz —la declara la RAÍZ
+// (src/cli/mnemosine.ts), como `-T, --tenant`—. Medido: commander también la
+// acepta DESPUÉS del subcomando, porque una opción de la raíz se reconoce en
+// cualquier posición mientras no haya `enablePositionalOptions`. Se pone
+// delante igual, que es donde el lector la busca y donde el catálogo la
+// documenta.
+// ============================================================
+const IN_ENGLISH = ['--locale', 'en-US'] as const;
+
 function help(...args: string[]): string {
-  return execFileSync('npx', ['tsx', CLI, ...args, '--help'], {
+  return execFileSync('npx', ['tsx', CLI, ...IN_ENGLISH, ...args, '--help'], {
     encoding: 'utf-8',
     timeout: 30_000,
     env: { ...process.env, NO_COLOR: '1' },
@@ -306,15 +358,27 @@ describe('Spanish surface is complete', () => {
   });
 
   it('a Spanish alias resolves to the canonical command (deep path)', () => {
-    const out = execFileSync('npx', ['tsx', CLI, 'memoria', 'corrige', '--help'], {
+    // No pasa por `help()` porque el alias español va EN MEDIO de la ruta
+    // (`memoria corrige`), no al final; `IN_ENGLISH` se repite aquí a mano por
+    // la misma razón por la que se pone allí, y con más motivo: la aserción de
+    // abajo espera literalmente «Usage:», que es cromo de commander y desde I7
+    // sale como «Uso:» en cuanto el locale es es-MX. Sin la bandera esta línea
+    // mediría el idioma del que ejecuta y no la resolución del alias, que es
+    // lo único que la prueba dice comprobar.
+    const out = execFileSync('npx', ['tsx', CLI, ...IN_ENGLISH, 'memoria', 'corrige', '--help'], {
       encoding: 'utf-8', timeout: 30_000, env: { ...process.env, NO_COLOR: '1' },
     });
     expect(out).toMatch(/Usage: mnemosine memory correct\|corrige/);
   });
 });
 
+// Las pantallas de este bloque vienen todas de `help()`, es decir con
+// `--locale en-US`: lo que se afirma es que el CATÁLOGO INGLÉS está limpio, no
+// que el binario hable inglés pase lo que pase. Desde I7 lo segundo sería
+// falso —y debe serlo: con `--locale es-MX` estas mismas pantallas salen en
+// español a propósito—.
 describe('help text is English', () => {
-  it('no translation leftovers in any help screen', () => {
+  it('no translation leftovers in the English help screens', () => {
     for (const screen of [topHelp, memoryHelp, pendingHelp, satCredHelp]) {
       for (const leftover of SPANISH_LEFTOVERS) {
         expect(screen).not.toMatch(leftover);

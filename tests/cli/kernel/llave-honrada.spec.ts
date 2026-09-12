@@ -6,7 +6,7 @@ import { program } from '../../../src/cli/mnemosine.js';
 import { declareRisk, riskOf, ambitoDeLlave, gateMutation } from '../../../src/cli/kernel/risk.js';
 import { auditProgram, DEUDA_DE_LLAVES, esDeudaDeLlave } from '../../../src/cli/kernel/audit.js';
 import { hojasDe } from '../../../src/cli/kernel/riesgos-retrofit.js';
-import { CliError } from '../../../src/cli/kernel/exit.js';
+import { CliError } from '../../../src/cli/kernel/cli-error.js';
 
 /**
  * R11, LA REGLA QUE NO PODÍA FALLAR.
@@ -230,8 +230,24 @@ describe('pasar la llave a una hoja que no la honra', () => {
       gateMutation(hoja, { idempotencyKey: 'k' });
     } catch (e) {
       expect((e as CliError).exitCode).toBe(2);
-      expect((e as Error).message).toContain('TODAVÍA NO LA HONRA');
+      // I7 · LAS DOS CARAS, Y SE COMPRUEBAN LAS DOS.
+      //
+      // Este error dejó de escribirse en el sitio del `throw` y pasa por el
+      // catálogo (`cli.risk.key_not_honored`). Eso le da dos rendidos con
+      // públicos distintos, y la prueba fija cuál es cuál porque confundirlos
+      // fue el defecto que se estaba arreglando:
+      //   · `message` —lo que hereda de `Error`, lo que acaba en un `stack` y
+      //     en un log— está fijado en INGLÉS al construir. Un log que cambia de
+      //     idioma según quién corrió el binario no se puede buscar.
+      //   · `localized()` rinde AHORA, en el idioma activo, y es lo único que
+      //     `reportError` imprime.
+      expect((e as Error).message).toContain('DOES NOT HONOR IT YET');
+      expect((e as CliError).localized('es')).toContain('TODAVÍA NO LA HONRA');
+      // El MOTIVO no viene del catálogo: lo escribe cada hoja en su propia
+      // declaración (`llave: { sinLlave: … }`), así que viaja como parámetro y
+      // sale igual en las dos caras.
       expect((e as Error).message).toContain('postearía el ingreso otra vez');
+      expect((e as CliError).localized('es')).toContain('postearía el ingreso otra vez');
     }
   });
 
