@@ -51,7 +51,14 @@ entity is resolved, its tenant becomes the context automatically.
 
 ## Database roles
 - `mnemosine_app` — what `DATABASE_URL` should use: SELECT/INSERT/UPDATE/DELETE
-  only, no DDL, no ownership, NOBYPASSRLS. All CLI/API traffic.
+  only, no DDL, no ownership, NOBYPASSRLS. All CLI/API traffic. With one
+  exception, on the APPEND-ONLY tables — `audit_log`,
+  `fiscal_credential_access_log` and `closing_packs` (the sealed close
+  dossier) —, where UPDATE, DELETE and TRUNCATE are revoked and a trigger
+  refuses them anyway, reaching the schema owner too. A correction there is a
+  new row, never a rewrite. `src/database/rls-policies.sql` re-applies both
+  layers after every migration, so the list lives there and in
+  `scripts/provision-roles.sql`, and a criterion fails if the two diverge.
 - `mnemosine_owner` — schema owner, used ONLY by migrations via
   `MIGRATION_DATABASE_URL` (falls back to `DATABASE_URL` if unset).
 - `mnemosine_auditor` — the read-only third principal, for an external auditor:

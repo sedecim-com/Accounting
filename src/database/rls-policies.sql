@@ -147,7 +147,7 @@ DECLARE
   -- El criterio para entrar es tener el disparador que rechaza UPDATE y
   -- DELETE (migraciones 033 y 035); esta lista es su reflejo, y
   -- src/plan/criterios.ts falla si las dos dejan de coincidir.
-  append_only text[] := ARRAY['audit_log', 'fiscal_credential_access_log'];
+  append_only text[] := ARRAY['audit_log', 'fiscal_credential_access_log', 'closing_packs'];
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnemosine_app') THEN
     RETURN;
