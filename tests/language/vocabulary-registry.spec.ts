@@ -227,9 +227,40 @@ describe('el detector del criterio y el lexicon de verdad dicen lo mismo', () =>
   });
 
   it('parte los identificadores exactamente igual que `tokenize`', () => {
-    for (const x of ['RFCValido', 'saldo_libro', 'cheque-en-circulacion', 'jsonOriginal', 'ISR2026', '']) {
-      expect(tokenizeLikeLexicon(x), x).toEqual(tokenize(x));
+    // LOS CASOS CON NOMBRE, uno por cada regla del partidor. Los dos últimos
+    // los añadió la fusión con `main`, y no de adorno: #197 metió el plegado de
+    // acentos y el corte por dígitos, y esta lista los necesitaba a los dos.
+    for (const x of [
+      'RFCValido',
+      'saldo_libro',
+      'cheque-en-circulacion',
+      'jsonOriginal',
+      'ISR2026',
+      'añoFiscal',
+      'tamañoMaximo',
+      'sha256',
+      '',
+    ]) {
+      expect(tokenizeLikeLexicon(x, lexicon!.known), x).toEqual(tokenize(x));
     }
+  });
+
+  it('y también sobre las 200 etiquetadas a mano, que es donde la lista corta no llega', () => {
+    // POR QUÉ NO BASTABA LA LISTA DE ARRIBA. Cuando `main` trajo #197, esta
+    // prueba cazó la divergencia por `ISR2026` —el único de los seis casos que
+    // llevaba dígito— y NO por el plegado, porque ninguno llevaba acento. Una
+    // lista escrita a mano sólo cubre las reglas que su autor ya conocía; el
+    // corpus cubre las que llegan después.
+    const tsv = fs.readFileSync(path.join(ROOT, 'tests/language/muestra200.tsv'), 'utf8');
+    const samples = tsv
+      .split('\n')
+      .map((l) => l.split('\t')[0])
+      .filter((x) => x.length > 0);
+    expect(samples.length).toBeGreaterThan(150);
+    const disagree = samples.filter(
+      (x) => JSON.stringify(tokenizeLikeLexicon(x, lexicon!.known)) !== JSON.stringify(tokenize(x))
+    );
+    expect(disagree, 'identificadores que los dos partidores parten distinto').toEqual([]);
   });
 
   it('coincide con `isFlagged` en las 200 declaraciones etiquetadas a mano', () => {

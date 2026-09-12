@@ -712,28 +712,54 @@ export function readVocabularyRegistry(): LoadedRegistry | null {
 }
 
 /**
+ * El léxico de I1 tal como este archivo lo necesita: las raíces para decidir
+ * español, los términos de dominio para exceptuar, y `known` —la unión de las
+ * TRES listas— para que el corte por dígitos parta lo mismo que allá.
+ */
+interface Lexicon {
+  roots: Set<string>;
+  domain: Set<string>;
+  known: Set<string>;
+}
+
+/**
  * El léxico de I1, leído de sus DATOS y no de su código.
  *
  * `scripts/language/lexicon.ts` no se puede importar desde aquí: `rootDir` es
  * `./src` y un import fuera de él no compila. Se lee el JSON, que es la misma
  * fuente que ese módulo carga.
  */
-export function readLexicon(): { roots: Set<string>; domain: Set<string> } | null {
+export function readLexicon(): Lexicon | null {
   const rel = 'scripts/language/lexicon.json';
   if (!existe(rel)) return null;
   try {
     const doc = JSON.parse(crudoDe(rel)) as {
       spanishRoots?: string[];
+      // LAS OTRAS DOS LISTAS NO SON DECORADO: el corte por dígitos de
+      // `tokenize` (#197) sólo parte lo que el léxico NO reconoce, y
+      // «reconoce» son las TRES listas. Con sólo las raíces, `sha256` —neutro
+      // curado— se partiría aquí y no allá, y las dos implementaciones
+      // volverían a divergir justo en los acrónimos.
+      neutralTokens?: string[];
+      englishExtra?: string[];
       // OJO: es un MAPA término → razón escrita, no una lista. Lo que cuenta
       // son sus CLAVES, que es lo que `DOMAIN_TERMS.has(t)` consulta en
-      // lexicon.ts:142. Leerlo como arreglo hacía explotar `new Set({})` y el
+      // lexicon.ts. Leerlo como arreglo hacía explotar `new Set({})` y el
       // criterio salía «no evaluable» sin decir por qué — el catch se comía
       // el motivo.
       domainTerms?: Record<string, string>;
     };
     if (!Array.isArray(doc.spanishRoots)) return null;
     const domain = doc.domainTerms ?? {};
-    return { roots: new Set(doc.spanishRoots), domain: new Set(Object.keys(domain)) };
+    return {
+      roots: new Set(doc.spanishRoots),
+      domain: new Set(Object.keys(domain)),
+      known: new Set([
+        ...doc.spanishRoots,
+        ...(doc.neutralTokens ?? []),
+        ...(doc.englishExtra ?? []),
+      ]),
+    };
   } catch {
     return null;
   }
@@ -752,17 +778,27 @@ export function readLexicon(): { roots: Set<string>; domain: Set<string> } | nul
  * CHECK del esquema. Si alguien cambia el clasificador, esa prueba se pone
  * roja aquí antes de que este criterio empiece a mentir.
  */
-export function tokenizeLikeLexicon(identifier: string): string[] {
+export function tokenizeLikeLexicon(identifier: string, known: ReadonlySet<string>): string[] {
   return identifier
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .split(/[^A-Za-z0-9]+|\s+/)
+    .replace(/(\p{Ll}|\p{N})(\p{Lu})/gu, '$1 $2')
+    .replace(/(\p{Lu}+)(\p{Lu}\p{Ll})/gu, '$1 $2')
+    .split(/[^\p{L}\p{N}]+|\s+/u)
     .filter((t) => t.length > 0)
-    .map((t) => t.toLowerCase());
+    .map((t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
+    .flatMap((t) => {
+      if (!/\p{L}/u.test(t) || !/\p{N}/u.test(t) || known.has(t)) return [t];
+      return t
+        .replace(/(\p{L})(\p{N})/gu, '$1 $2')
+        .replace(/(\p{N})(\p{L})/gu, '$1 $2')
+        .split(' ')
+        .filter((x) => x.length > 0);
+    });
 }
 
-export function flagsAsSpanish(value: string, lexicon: { roots: Set<string>; domain: Set<string> }): boolean {
-  return tokenizeLikeLexicon(value).some((t) => !lexicon.domain.has(t) && lexicon.roots.has(t));
+export function flagsAsSpanish(value: string, lexicon: Lexicon): boolean {
+  return tokenizeLikeLexicon(value, lexicon.known).some(
+    (t) => !lexicon.domain.has(t) && lexicon.roots.has(t)
+  );
 }
 
 /**
@@ -2504,15 +2540,15 @@ export const CRITERIOS: Criterio[] = [
     // registro lo cubra: una migración nueva con un valor español entra en la
     // cuenta sola, sin que nadie actualice un número aquí.
     enunciado:
-      'Todo literal español de un CHECK y todo value de AccountRole está en el reg del vocabulario',
+      'Todo literal español de un CHECK y todo value de AccountRole está en el registro del vocabulario',
     evaluar: () => {
       const reg = readVocabularyRegistry();
       if (reg === null) {
-        return falla('no existe src/language/vocabulary-registry.json: el renombrado de I23–I25 no has mapa');
+        return falla('no existe src/language/vocabulary-registry.json: el renombrado de I23–I25 no tiene mapa');
       }
       if (reg.problems.length) {
         return falla(
-          `el reg has ${reg.problems.length} entrada(s) inválida(s): ` +
+          `el registro tiene ${reg.problems.length} entrada(s) inválida(s): ` +
             reg.problems.slice(0, 3).join(' · ')
         );
       }
@@ -2529,7 +2565,7 @@ export const CRITERIOS: Criterio[] = [
         return noEvaluable('no se pudo leer scripts/language/lexicon.json: sin léxico no hay veredicto de idioma');
       }
       if (lexicon.roots.size < 1000) {
-        return noEvaluable(`el léxico trae ${lexicon.roots.size} raíces: no has la forma que este criterio sabe leer`);
+        return noEvaluable(`el léxico trae ${lexicon.roots.size} raíces: no tiene la forma que este criterio sabe leer`);
       }
 
       const inSchema = readSchemaVocabularies();
@@ -2565,7 +2601,7 @@ export const CRITERIOS: Criterio[] = [
         const parts: string[] = [];
         if (missing.length) {
           parts.push(
-            `${missing.length} literal(es) español(es) de CHECK sin entrada en el reg ` +
+            `${missing.length} literal(es) español(es) de CHECK sin entrada en el registro ` +
               `(${missing.slice(0, 3).join(', ')}): I23–I25 los renombrarían sin mapa`
           );
         }
