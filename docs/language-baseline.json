@@ -16,7 +16,7 @@
     "agent-corpus-sources-with-spanish-names": 1,
     "test-mocks-of-spanish-modules": 11,
     "docs-dead-path-citations": 366,
-    "src-spanish-comment-lines": 25916,
+    "src-spanish-comment-lines": 25925,
     "docs-english-pages-untwinned": 2,
     "docs-spanish-twins-stale": 0
   },
@@ -1159,7 +1159,7 @@
       "src/database/tunnel.ts": 23,
       "src/index.ts": 65,
       "src/plan/conducta.ts": 320,
-      "src/plan/criterios.ts": 2246,
+      "src/plan/criterios.ts": 2255,
       "src/plan/status.ts": 102,
       "src/services/accounting/account-roles-backfill.ts": 35,
       "src/services/accounting/account-roles-service.ts": 32,

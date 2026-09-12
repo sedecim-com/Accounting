@@ -180,7 +180,7 @@ describe('el instrumento no acusa en falso', () => {
     // PRIMERO, QUE HAYA MIRADO ALGO (#197). `tsDe` devuelve [] si la carpeta
     // no existe, y entonces `señalados` sale vacío y esto pasaba en VERDE sin
     // recorrer un solo archivo. El epic del idioma va a renombrar carpetas,
-    // así que el día que una de estas nueve cambie de nombre, la prueba tiene
+    // así que el día que una de estas ocho cambie de nombre, la prueba tiene
     // que CAER y no felicitarse. El umbral es el que el comentario de arriba
     // declara: cuarenta declaraciones o más cada una.
     expect(
