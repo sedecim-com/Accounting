@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { NotFoundError } from '../../../utils/errors.js';
 import { query } from '../../../database/connection.js';
 import { createJournalEntry, postJournalEntry } from '../../accounting/posting.js';
 import { JournalEntryType } from '../../../types/index.js';
@@ -35,7 +36,8 @@ async function resolveAccounts(entityId: string): Promise<Record<string, string>
 export async function postPayRunToGL(
   payRunId: string,
   userId: string,
-  tenantId: string
+  tenantId: string,
+  entityId: string
 ): Promise<string> {
   // Load pay run + totals
   const prResult = await query<{
@@ -62,15 +64,33 @@ export async function postPayRunToGL(
      FROM pay_runs pr
      JOIN pay_periods pp ON pp.id = pr.pay_period_id
      JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
-     WHERE pr.id = $1 AND pr.tenant_id = $2`,
-    [payRunId, tenantId]
+     WHERE pr.id = $1 AND pr.tenant_id = $2 AND ps.entity_id = $3`,
+    [payRunId, tenantId, entityId]
   );
-  if (prResult.rows.length === 0) throw new Error('Pay run not found');
+  // T9 (#96): LA ENTIDAD LA DECIDE EL TOKEN, NO EL ID QUE SE MANDA.
+  //
+  // Este SELECT filtraba sólo por `pr.tenant_id` y sacaba `ps.entity_id` del
+  // JOIN, así que la entidad del asiento salía de la FILA. Medido: un contador
+  // con acceso sólo a la sociedad A mandaba `POST /pay-runs/<corrida de B>/
+  // post-to-gl`, recibía 200, y a B le quedaba una póliza POSTEADA de 10 029.92
+  // en su mayor — cambiando su balanza, su estado de resultados y el ISR e IMSS
+  // que de ahí se reportan. Y como el asiento está posteado, sólo se deshace
+  // con una reversa que también queda en libros.
+  //
+  // El filtro va DENTRO del SQL y no en una comprobación previa a propósito:
+  // este servicio es quien llama a `createJournalEntry(pr.entity_id, …)`, y
+  // comprobar antes en la ruta deja una ventana entre mirar y escribir.
+  //
+  // No encuentra = no existe: el llamador no puede distinguir la corrida ajena
+  // de una inventada, que es lo que impide usar esta puerta para descubrir qué
+  // sociedades hay.
+  if (prResult.rows.length === 0) throw new NotFoundError('Pay run', payRunId);
   const pr = prResult.rows[0];
 
   // Aggregate tax breakdown across all paychecks
   const breakdownResult = await query<{
     fit: string; fica_ss_ee: string; fica_med_ee: string; addl_med: string; sit: string; sdi: string;
+    local_tax: string;
     fica_ss_er: string; fica_med_er: string; futa: string; suta: string;
     isr: string; imss_ee: string; infonavit_ee: string; imss_er: string; infonavit_er: string;
     benefits_pretax: string; benefits_posttax: string;
@@ -82,6 +102,7 @@ export async function postPayRunToGL(
        COALESCE(SUM(additional_medicare_withheld), 0) AS addl_med,
        COALESCE(SUM(state_tax_withheld), 0) AS sit,
        COALESCE(SUM(sdi_withheld), 0) AS sdi,
+       COALESCE(SUM(local_tax_withheld), 0) AS local_tax,
        COALESCE(SUM(fica_ss_employer), 0) AS fica_ss_er,
        COALESCE(SUM(fica_medicare_employer), 0) AS fica_med_er,
        COALESCE(SUM(futa), 0) AS futa,
@@ -150,7 +171,19 @@ export async function postPayRunToGL(
   creditIfPresent('fica_payable', n(b.fica_ss_ee) + n(b.fica_med_ee) + n(b.addl_med) + n(b.fica_ss_er) + n(b.fica_med_er), 'FICA EE+ER');
   creditIfPresent('futa_payable', n(b.futa), 'FUTA');
   creditIfPresent('suta_payable', n(b.suta), 'SUTA');
-  creditIfPresent('state_tax_payable', n(b.sit) + n(b.sdi), 'State tax + SDI');
+  // EL IMPUESTO LOCAL ENTRA AQUÍ, Y SU AUSENCIA IMPEDÍA POSTEAR (T20 · #127).
+  //
+  // `local_tax_withheld` se calcula y SE PERSISTE en el recibo desde F08a, así
+  // que el neto del trabajador ya lo descuenta — pero este agregado no lo
+  // sumaba, de modo que al asiento le faltaba ese abono y los débitos dejaban
+  // de igualar a los créditos: `Payroll GL entry unbalanced`, y la corrida
+  // entera no llegaba al mayor. Cualquier recibo con impuesto local > 0
+  // bloqueaba el posteo de su nómina.
+  //
+  // Va a la misma cubeta que el estatal porque la cuenta se llama así: 2154
+  // «State and Local Tax Payable». No hace falta cuenta nueva ni semilla
+  // nueva; hacía falta mandarle el importe.
+  creditIfPresent('state_tax_payable', n(b.sit) + n(b.sdi) + n(b.local_tax), 'State + local tax + SDI');
   // EL ISR PUEDE SER NEGATIVO, Y ENTONCES NO ES UN ABONO QUE SE DESCARTA.
   //
   // `b.isr` es SUM(isr_withheld − subsidio_empleo) de la corrida: el ISR que

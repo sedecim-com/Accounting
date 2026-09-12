@@ -73,6 +73,7 @@ Commands:
   closing|cierre-proceso                 The close as a process: its read-only surface — readiness, named checks, offenders
   fx|cambio                              Exchange rates: the origin every foreign-currency amount converts from
   prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
+  payroll|nomina                         Payroll accounting: the benefit liability that is born on the day worked
   e-accounting|contabilidad-electronica  Mexican e-accounting (Anexo 24): build the XML the SAT expects, and check it
   diot                                   Mexican DIOT: build the month from paid transactions, check it, and export the working paper
   isn                                    Mexican state payroll tax: capture the state rates with their grounds, and see what a pay run owes
@@ -6332,6 +6333,56 @@ Examples:
   # The real run, with a key: a retry after a dropped connection returns the
   # recorded result instead of accruing the month twice.
   mnemosine prepaid run --period 2026-08 --yes --idempotency-key devengo-2026-08
+```
+
+## `mnemosine payroll` (alias: nomina)
+
+```
+Usage: mnemosine payroll|nomina [options] [command]
+
+Payroll accounting: the benefit liability that is born on the day worked
+
+Options:
+  -h, --help                 display help for command
+
+Commands:
+  accrue|devengar [options]  Post the month benefit accrual -- aguinaldo,
+                             vacation and vacation premium, one adjusting entry,
+                             irreversible
+  help [command]             display help for command
+```
+
+### `mnemosine payroll accrue` (alias: devengar)
+
+```
+Usage: mnemosine payroll accrue|devengar [options]
+
+Post the month benefit accrual -- aguinaldo, vacation and vacation premium, one
+adjusting entry, irreversible
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --period <expr>                          period to accrue: 2026-03, or any unambiguous part of its name
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --idempotency-key <key>                  client dedupe key, stored on success: a retry with the same key and payload returns the recorded result
+  -h, --help                               display help for command
+
+Examples:
+  # ALWAYS this one first: the accrual is irreversible, and --dry-run shows the
+  # whole schedule -- who accrues, how many days, how much per benefit -- and
+  # the entry it would post, writing nothing.
+  mnemosine payroll accrue --period 2026-03 --dry-run
+  # The real run, with a key: a retry after a dropped connection returns the
+  # recorded result instead of accruing the month twice.
+  mnemosine payroll accrue --period 2026-03 --yes --idempotency-key devengo-2026-03
 ```
 
 ## `mnemosine e-accounting` (alias: contabilidad-electronica)

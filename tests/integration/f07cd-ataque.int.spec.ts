@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
@@ -222,6 +223,13 @@ async function ivaAcreditableDelMes(entityId: string, mes: number): Promise<stri
 }
 
 const periodoDe = (mes: number): string => `2026-${String(mes).padStart(2, '0')}`;
+
+// `inpc_serie` es GLOBAL —sin tenant_id ni entity_id—, así que la comparte
+// toda la corrida, y este archivo escribe en la serie del INPC.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
+// una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
+// suyo. El porqué entero, en helpers/catalogos-globales.ts.
+apartarCatalogos('inpc_serie');
 
 beforeAll(async () => {
   f = await crearInquilino('F07cd ataque');
@@ -1108,15 +1116,54 @@ describe('las tablas globales: lectura compartida, escritura sin gobierno', () =
   });
 
   it('el c_Banco nace vacío y NO tiene quién lo siembre', async () => {
-    // `sat_bancos` sólo aparece en la 064 y en dos lecturas de F07d: no hay
-    // importador, ni semilla, ni comando. Así que `bancos_sembrados` vale
-    // false en toda instalación recién migrada y la comprobación de la clave
-    // de banco nunca afirma nada.
-    const filas = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
-    expect(Number(filas.rows[0].n)).toBe(0);
+    // EL HALLAZGO, que es sobre el CÓDIGO DE PRODUCCIÓN y sigue en pie: no hay
+    // importador, ni semilla, ni comando que siembre `sat_bancos`. La tabla
+    // sólo aparece en la 064 que la crea y en las lecturas del generador de
+    // pólizas. Así que `bancos_sembrados` vale false en toda instalación
+    // recién migrada y la comprobación de la clave de banco nunca afirma nada.
+    //
+    // SE MIDE EL DELTA, NO EL ESTADO. La afirmación de esta prueba es que
+    // generar pólizas NO ESCRIBE en `sat_bancos` —escritura sin gobierno—, y
+    // exigir que la tabla esté VACÍA antes no es esa afirmación: es una
+    // precondición que depende de qué spec corrió primero. Contando antes y
+    // después se prueba lo que se quiere probar, con la tabla vacía o llena.
+    //
+    // PERO LA PRECONDICIÓN NO DESAPARECE ENTERA, y callarlo dejaría el mismo
+    // fallo con otra cara: las DOS afirmaciones de abajo —`bancos_sembrados`
+    // en false y el aviso en `warning`— sí necesitan el catálogo vacío.
+    // `bancos_sembrados` es `catalogoBancos.sembrado`, y con la '012' sembrada
+    // la clave de esta prueba pasa a 'valido', así que no se emite aviso
+    // ninguno y `aviso?.severity` queda undefined. Lo que sostiene ese vacío
+    // no es el alfabeto —el sequencer ordena por el resultado de la corrida
+    // anterior—: es que `f07d`, un archivo HERMANO de PRUEBAS y no código que
+    // se entregue, devuelva la tabla como la encontró después de sembrarle las
+    // dos claves con que ejercita los dos lados de la validación, y que el
+    // vigilante haga fallar al archivo que no lo haga. Ver
+    // helpers/catalogos-globales.ts.
+    const antes = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
 
     const r = await generarPolizas(f.entityId, { periodo: periodoDe(10), solicitud: SOLICITUD });
-    expect(r.meta.bancos_sembrados).toBe(false);
+    // ESTA LÍNEA SE QUEDÓ LEYENDO ESTADO cuando el resto del caso ya medía el
+    // delta, y por eso seguía dependiendo del orden: `f07d-polizas-y-su-rastro`
+    // SIEMBRA `sat_bancos`, así que corriendo después de él `bancos_sembrados`
+    // vale true y esto fallaba por una razón que no es la suya. Pasa sola,
+    // falla acompañada — exactamente lo que el comentario de arriba dice que
+    // había que dejar de hacer.
+    //
+    // Lo que sí se puede afirmar sin precondiciones es que el flag DICE LA
+    // VERDAD sobre la tabla, esté vacía o llena. Es más fuerte que el `false`
+    // de antes: aquél sólo era cierto en una instalación recién migrada; éste
+    // caza además que el flag mienta.
+    expect(
+      r.meta.bancos_sembrados,
+      `bancos_sembrados dice ${r.meta.bancos_sembrados} con ${antes.rows[0].n} banco(s) en la tabla`
+    ).toBe(Number(antes.rows[0].n) > 0);
+
+    const despues = await query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM sat_bancos`);
+    expect(
+      Number(despues.rows[0].n),
+      'generar pólizas escribió en sat_bancos: es un catálogo global y su escritura tiene que estar gobernada'
+    ).toBe(Number(antes.rows[0].n));
     const aviso = r.hallazgos.find((h) => h.check === 'banco-en-catalogo');
     expect(aviso?.severity).toBe('warning');
     expect(aviso?.detalle).toContain('sat_bancos');

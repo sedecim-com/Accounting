@@ -790,14 +790,23 @@ router.post('/processing-batches/:id/execute', declararRiesgoRuta({ riesgo: 'irr
 }));
 
 // GET /v1/processing-batches/:id/progress
-router.get('/processing-batches/:id/progress', requirePermission('bills:read'), asyncHandler(async (req: Request, res: Response) => {
-  const result = await query<Record<string, unknown>>(
-    'SELECT * FROM processing_batches WHERE id = $1',
-    [req.params.id]
+router.get('/processing-batches/:id/progress', requirePermission('bills:read'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+  // LA MISMA FRONTERA QUE SUS DOS VECINAS, VEINTE LÍNEAS MÁS ARRIBA (TEN-10).
+  //
+  // `/execute` y `/cancel` se acotaron porque MUTAN. Ésta sólo lee, y por eso
+  // se quedó fuera del barrido: leía `WHERE id = $1` a secas y enseñaba el
+  // avance del lote de la sociedad hermana —su estado, cuántos renglones lleva
+  // y cuántos le fallaron—, además de contestar si ese UUID sigue vivo. RLS no
+  // lo tapa: acota por INQUILINO, y las dos hermanas lo comparten.
+  //
+  // El filtro va DENTRO del SELECT, así que cero filas significa a la vez «no
+  // existe» y «no es tuyo», y las dos cosas salen por el mismo 404. Distinguirlas
+  // —por código o por prosa— reabre el oráculo que el SQL acaba de cerrar.
+  const b = await requireByIdInScope<Record<string, unknown>>(
+    'processing_batches',
+    req.params.id,
+    alcance(req)
   );
-  if (result.rows.length === 0) throw new NotFoundError('Processing Batch', req.params.id);
-
-  const b = result.rows[0];
   const total = Number(b.total_items) || 0;
   const processed = Number(b.processed_items) || 0;
 

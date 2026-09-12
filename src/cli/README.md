@@ -435,8 +435,9 @@ a later tranche, not something this section is describing as done.
 - **CLI chrome** — the canonical NAME of every command and flag is English,
   because that is the machine's identity and what scripts pin. The direction
   for what the reader SEES — help, prose, runtime output — is that it follow
-  the user's language, Spanish first (D9 of epic #141), resolved **by key** so
-  that the instruments keep measuring the English source and not the render.
+  the user's language, Spanish first (D9 of epic #141), resolved **by key** —
+  never by rewriting the prose where it is emitted — so that the instruments
+  keep measuring the English source and not the render.
   Measured state today: the catalog (`src/i18n/index.ts`) and its two
   languages exist and derive from the resolver above, and **nothing in `src/`
   reads them yet** — every visible string is still the English literal at its
