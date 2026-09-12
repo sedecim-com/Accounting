@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { query, closeDatabase } from '../../src/database/connection.js';
+import { query, closeDatabase, withTransaction } from '../../src/database/connection.js';
+import { crearInquilino } from './helpers/tenant-fixture.js';
 import { VOCABULARIOS } from '../../src/database/enums.js';
 import { entriesOf, headOf, registry } from '../../src/language/vocabulary-registry.js';
 
@@ -159,14 +160,74 @@ describe('el registro del vocabulario contra el esquema vivo', () => {
     expect(orphans, 'el registro mapea valores que el CHECK no admite').toEqual([]);
   });
 
-  it('ningún rol GUARDADO en la base es desconocido para el registro', () => {
+  it('ningún rol GUARDADO en la base es desconocido para el registro', async () => {
     // `account_roles.role` no tiene CHECK: es la clase grande que la base no
     // protege, y por eso la issue la nombra aparte. La base no puede decir qué
     // roles DEBERÍAN existir, pero sí desmentir al registro si alguna fila
     // guarda uno que no está registrado.
+    //
+    // WIT-01 de la revisión de #191: esta prueba PROMETÍA eso y no lo hacía.
+    // Construía el conjunto registrado, comprobaba su tamaño y que la columna
+    // no tuviera CHECK, y no consultaba `account_roles` ni una vez — una fila
+    // con un rol desconocido no movía una sola aserción, y ese valor habría
+    // pasado CI para quedarse fuera de la migración de datos de I23–I25.
     const registered = new Set(entriesOf('account-role').map((e) => e.es));
     expect(registered.size).toBeGreaterThan(20);
     expect(porColumna.has('account_roles.role')).toBe(false);
+
+    const stored = await query<{ role: string }>('SELECT DISTINCT role FROM account_roles ORDER BY role');
+    const unknown = stored.rows.map((r) => r.role).filter((r) => !registered.has(r));
+    expect(
+      unknown,
+      'hay roles persistidos que el registro no mapea: I23–I25 los renombraría sin saber a qué'
+    ).toEqual([]);
+  });
+
+  it('y la comprobación MUERDE: un rol sin registrar la hace fallar', async () => {
+    // POR QUÉ ESTA SEGUNDA PRUEBA NO ES UN LUJO. La base efímera nace VACÍA de
+    // `account_roles` —medido: cero filas—, así que la comprobación de arriba
+    // pasa hoy sin comparar nada. Corregir WIT-01 escribiendo sólo el SELECT
+    // habría cambiado una prueba vacua por otra, con mejor redacción.
+    //
+    // Esto siembra el caso exacto que debe cazar y comprueba que lo caza. Va
+    // dentro de una transacción que se revierte a propósito: el escenario no
+    // deja residuo para las pruebas que corran después.
+    const registered = new Set(entriesOf('account-role').map((e) => e.es));
+    const unregistered = 'rol_que_nadie_registro';
+    expect(registered.has(unregistered)).toBe(false);
+
+    const fixture = await crearInquilino('I4 · rol sin registrar');
+    const anyAccount = Object.values(fixture.cuentas)[0];
+    expect(anyAccount, 'el fixture no sembró ninguna cuenta').toBeTruthy();
+
+    class Rollback extends Error {
+      constructor(readonly found: string[]) {
+        super('revertir a propósito');
+      }
+    }
+
+    let found: string[] = [];
+    try {
+      await withTransaction(async (client) => {
+        await client.query(
+          'INSERT INTO account_roles (tenant_id, entity_id, role, account_id) VALUES ($1, $2, $3, $4)',
+          [fixture.tenantId, fixture.entityId, unregistered, anyAccount]
+        );
+        const rows = await client.query<{ role: string }>('SELECT DISTINCT role FROM account_roles');
+        throw new Rollback(rows.rows.map((r) => r.role).filter((r) => !registered.has(r)));
+      });
+    } catch (e) {
+      if (!(e instanceof Rollback)) throw e;
+      found = e.found;
+    }
+
+    expect(found).toContain(unregistered);
+
+    // Y el residuo, comprobado: la transacción revirtió de verdad.
+    const after = await query<{ n: string }>('SELECT count(*) AS n FROM account_roles WHERE role = $1', [
+      unregistered,
+    ]);
+    expect(after.rows[0].n).toBe('0');
   });
 
   it('las clases que la base NO conoce se declaran, no se omiten', () => {
