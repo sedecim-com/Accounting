@@ -125,7 +125,7 @@
     "src/services/ar/ar-controls.ts": "1d6e560697fbb2d8d113244e3cb3332c12b72a46",
     "src/services/accounting/ar-ap-posting.ts": "46b35303e363711e8e46ce509121e110f23fcdbe",
     "src/ai/providers/index.ts": "ed591a9ca62a734081e910ec1aceced42cdf5bbc",
-    "src/ai/providers/config.ts": "d913682ab13bb3541a05beb8d2022971faccc038",
+    "src/ai/providers/config.ts": "6c066cfda4d55fca5a8116f38a9892e989ee1d1d",
     "src/ai/draft-service.ts": "f3d2e14cea96cf726a785c2b319275f09b7701e0",
     "src/ai/question-service.ts": "320a614fe4b7ae52646b1298b4e3339710ddc56c",
     "src/ai/budget.ts": "501401dcfc093c50e86ab33976d41ba7805010b6",

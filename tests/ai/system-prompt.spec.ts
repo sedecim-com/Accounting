@@ -144,7 +144,10 @@ describe('response language', () => {
   it('the Spanish directive reaches the prompt by default', async () => {
     // Without this the agent answers a Mexican accountant in English: the
     // whole UI can be in English, but the agent's prose must not be.
+    // Las DOS grafías: desde I6 el idioma del agente es una proyección del
+    // locale, y `vitest.config.ts` exporta MNEMOSINE_LOCALE=en-US a la suite.
     delete process.env.MNEMOSINE_LANG;
+    delete process.env.MNEMOSINE_LOCALE;
     const blocks = await buildSystemBlocks(CTX);
     const text = blocks.map((b) => b.text).join('\n');
     expect(text).toMatch(/Always respond in Spanish/);
@@ -152,6 +155,11 @@ describe('response language', () => {
   });
 
   it('MNEMOSINE_LANG=en switches it to English', async () => {
+    // Se borra MNEMOSINE_LOCALE para que esto pruebe el ALIAS y no el entorno
+    // de la suite: con en-US puesto por vitest.config.ts, la aserción pasaría
+    // en verde con MNEMOSINE_LANG completamente ignorado.
+    const suiteLocale = process.env.MNEMOSINE_LOCALE;
+    delete process.env.MNEMOSINE_LOCALE;
     process.env.MNEMOSINE_LANG = 'en';
     try {
       const blocks = await buildSystemBlocks(CTX);
@@ -159,6 +167,7 @@ describe('response language', () => {
       expect(text).toMatch(/Always respond in English/);
     } finally {
       delete process.env.MNEMOSINE_LANG;
+      if (suiteLocale !== undefined) process.env.MNEMOSINE_LOCALE = suiteLocale;
     }
   });
 });

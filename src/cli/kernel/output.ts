@@ -1,5 +1,7 @@
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
+import { formatMoney } from '../../i18n/format.js';
+import type { Jurisdiction } from '../../services/jurisdiction/jurisdiction.js';
 import { palette, type Palette } from '../palette.js';
 import { CliError, ExitCode } from './exit.js';
 
@@ -72,6 +74,17 @@ export interface RenderOptions {
   idField?: string;
   /** Columns to right-align (numbers). Inferred when omitted. */
   numeric?: string[];
+  /**
+   * La jurisdicción de la ENTIDAD cuyas filas se están imprimiendo. Decide el
+   * formato de los importes de la tabla, y NADA MÁS: no cambia un byte de los
+   * formatos de máquina (regla 5 del epic #141, idioma ≠ formato ≠ jurisdicción).
+   *
+   * Es opcional porque casi ningún comando tiene hoy la jurisdicción a mano en
+   * el punto donde rinde; sin ella el formato es el mexicano, que es lo que la
+   * tabla imprimía antes de que este campo existiera. Un comando que sí la
+   * conozca la pasa y su entidad estadounidense se lee en en-US.
+   */
+  jurisdiction?: Jurisdiction;
   stdout?: NodeJS.WriteStream;
   stderr?: NodeJS.WriteStream;
 }
@@ -161,6 +174,21 @@ function jsonCell(value: unknown): unknown {
 // ni un byte. La detección se apoya en la misma convención que ya
 // alinea estas columnas a la derecha: *_amount, *_total, debit,
 // credit, balance, importe…
+//
+// DESDE I6 EL FORMATO LO PONE `src/i18n/format.ts`, NO ESTE ARCHIVO.
+// El separador de miles y el decimal son propiedad de la
+// JURISDICCIÓN de la entidad, no del renderizador ni del idioma en
+// que el usuario pidió que se le hable (regla 5 del epic #141).
+//
+// LO QUE LA TABLA NO IMPRIME ES EL CÓDIGO DE MONEDA, y conviene
+// decirlo aquí porque se lee como un olvido. `render` recibe filas,
+// no entidades: sabe que una columna se llama `total_amount` pero no
+// en qué moneda está ese total. Estampar «MXN» delante de cada
+// importe sería inventarlo, y para una entidad estadounidense sería
+// inventarlo MAL. Quien sí conoce la moneda —la prosa de un comando,
+// un resumen con dos monedas en la misma pantalla— llama a
+// `formatMoney` con `display: 'code'`, que es su valor por omisión
+// justamente para que la duda se resuelva del lado del que sabe.
 // ============================================================
 
 const MONEY_COL_RE =
@@ -175,47 +203,91 @@ function isMoneyColumn(col: string): boolean {
 
 /**
  * es-MX de presentación: separador de miles y DOS decimales, a partir de la
- * cadena decimal de almacenamiento. Todo por cadena y BigInt: pasar por
- * float es exactamente el redondeo que este sistema prohíbe, y aunque aquí
- * sólo se imprime, un importe de más de 2^53 centésimos saldría ya mentido.
- * El tercer decimal redondea hacia arriba en valor absoluto cuando es ≥ 5
- * (half-up sobre la magnitud, como redondea la calculadora del despacho).
+ * cadena decimal de almacenamiento.
+ *
+ * @deprecated Es la puerta MEXICANA, y el nombre lo dice. Los llamadores nuevos
+ * usan `formatMoney` (src/i18n/format.ts) pasándole la jurisdicción de su
+ * entidad: éste tiene 'es-MX' escrito a mano y por eso da la misma cifra para
+ * una filial de Delaware. Se conserva porque una docena de referencias en cuatro
+ * archivos lo usan y su salida es un contrato de bytes; lo que se jubila es el nombre,
+ * no la conducta.
+ *
+ * LO QUE CAMBIÓ POR DENTRO Y LO QUE NO. Antes esto agrupaba y redondeaba a mano
+ * con BigInt y cadenas, para no pasar por `float` —el redondeo que este sistema
+ * prohíbe—. Ahora lo hace `Intl.NumberFormat`, que acepta la CADENA decimal y
+ * la formatea exacta: la promesa es la misma y sigue sin haber un `Number(` en
+ * el camino. El redondeo también coincide: el modo por omisión de `Intl` es
+ * `halfExpand`, que es el mismo half-up sobre la magnitud que hacía el acarreo
+ * con BigInt (`999.9950` da 1,000.00 con los dos).
  */
 export function formatMoneyMx(value: string): string {
-  const m = /^(-?)(\d+)(?:\.(\d*))?$/.exec(value);
-  if (!m) return value;
-  const sign = m[1];
-  let intDigits = m[2];
-  const fracRaw = m[3] ?? '';
-  let frac = (fracRaw + '00').slice(0, 2);
-  if (fracRaw.length > 2 && fracRaw.charCodeAt(2) >= 0x35 /* '5' */) {
-    const bumped = (BigInt(intDigits + frac) + 1n)
-      .toString()
-      .padStart(intDigits.length + 2, '0');
-    intDigits = bumped.slice(0, -2);
-    frac = bumped.slice(-2);
-  }
-  const grouped = intDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const out = `${grouped}.${frac}`;
-  return sign && out !== '0.00' ? `-${out}` : out;
+  return formatMoney(value, { locale: 'es-MX', currency: 'MXN', display: 'plain' });
 }
 
-/** A column is numeric when every non-empty value parses as a number. */
+/**
+ * ¿La columna es numérica —y por tanto se alinea a la derecha—? Lo es cuando
+ * TODAS sus celdas no vacías parecen un número.
+ *
+ * LAS DOS FORMAS, y por qué esto dejó de ser `/^-?[\d,]+(\.\d+)?$/`. Esa
+ * expresión sólo entendía los miles con COMA, que es lo único que este archivo
+ * producía cuando el formato estaba escrito a mano aquí dentro. Con el
+ * formateador de I6 el separador lo pone la jurisdicción: hoy es-MX y en-US
+ * agrupan los dos con coma, pero una celda ya formateada que llegue con la otra
+ * convención —1.234.567,89— dejaba de contarse como número y la columna entera
+ * se alineaba a la izquierda, con los dígitos sin apilar. Un desalineado no
+ * suena grave hasta que es la columna de saldos de una balanza y hay que
+ * sumarla con la vista.
+ *
+ * No se aceptan espacios como separador de miles (el fino U+202F de fr-FR, el
+ * duro U+00A0): ninguna jurisdicción de este producto los emite, y aquí una
+ * celda con espacios es texto. El día que entre una tercera jurisdicción con
+ * esa convención, se añade una tercera alternativa AQUÍ y otra en `MONTO_RE`
+ * (src/ai/compaction.ts) — son las dos únicas expresiones del árbol que leen
+ * importes ya formateados.
+ */
+const NUMERIC_CELL_RE = new RegExp(
+  '^-?(?:' +
+    // A · miles con coma, decimal con punto: 1,234,567.89
+    String.raw`\d{1,3}(?:,\d{3})+(?:\.\d+)?` +
+    '|' +
+    // B · miles con punto, decimal con coma: 1.234.567,89
+    String.raw`\d{1,3}(?:\.\d{3})+(?:,\d+)?` +
+    '|' +
+    // C · sin agrupar, que es como llega la cadena de almacenamiento: 12458930.5500
+    String.raw`\d+(?:[.,]\d+)?` +
+    ')$'
+);
+
 function inferNumeric(rows: Row[], cols: string[]): Set<string> {
   const numeric = new Set<string>();
   for (const col of cols) {
     const values = rows.map((r) => cell(r[col])).filter((v) => v !== '');
-    if (values.length && values.every((v) => /^-?[\d,]+(\.\d+)?$/.test(v))) numeric.add(col);
+    if (values.length && values.every((v) => NUMERIC_CELL_RE.test(v))) numeric.add(col);
   }
   return numeric;
 }
 
-function toTable(rows: Row[], cols: string[], numeric: Set<string>, p: Palette): string {
+function toTable(
+  rows: Row[],
+  cols: string[],
+  numeric: Set<string>,
+  p: Palette,
+  jurisdiction?: Jurisdiction
+): string {
   // SOLO aquí (la rama para humanos) el dinero se viste de presentación;
   // los formatos de máquina reciben la cadena de almacenamiento intacta.
+  //
+  // `display: 'plain'` —la cifra sin código de moneda— por la razón larga del
+  // encabezado de esta sección: la fila no dice en qué moneda está. Lo que la
+  // jurisdicción sí decide aquí es el SEPARADOR, que es lo que cambia entre
+  // entidades y lo que este renderizador tenía escrito a mano. Los dos
+  // decimales van fijos y no los decide la moneda: es lo que esta tabla ha
+  // impreso siempre, y su prueba lo comprueba byte por byte.
   const display = (col: string, value: unknown): string => {
     const raw = cell(value);
-    return isMoneyColumn(col) && DECIMAL_RE.test(raw) ? formatMoneyMx(raw) : raw;
+    return isMoneyColumn(col) && DECIMAL_RE.test(raw)
+      ? formatMoney(raw, { jurisdiction, display: 'plain', fractionDigits: 2 })
+      : raw;
   };
   const widths = cols.map((c) =>
     Math.max(c.length, ...rows.map((r) => display(c, r[c]).length), 0)
@@ -389,7 +461,7 @@ function compose(rows: Row[], opts: RenderOptions, p: Palette): Composed {
   }
 
   const numeric = new Set(opts.numeric ?? [...inferNumeric(rows, cols)]);
-  return { data: toTable(rows, cols, numeric, p) + '\n', notes: aviso };
+  return { data: toTable(rows, cols, numeric, p, opts.jurisdiction) + '\n', notes: aviso };
 }
 
 /**

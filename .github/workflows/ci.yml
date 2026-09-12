@@ -67,6 +67,48 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+      # ICU COMPLETO, MEDIDO EN EL CORREDOR Y NO SUPUESTO (I6 · issue #148).
+      #
+      # La issue pedía «CI con full-icu». La dependencia NO se añade: las
+      # descargas oficiales de nodejs.org que `setup-node` instala vienen con
+      # ICU completo desde Node 13, así que `full-icu` no repara nada aquí y
+      # sí engorda el `npm ci` de siete jobs. Lo que sí faltaba era la prueba
+      # de que este corredor es uno de ésos, y eso es lo que hace esta sonda.
+      #
+      # POR QUÉ HAY QUE MEDIRLO Y NO BASTA CON SABERLO: un Node de `small-icu`
+      # no da error. `new Intl.NumberFormat('es-MX')` cae EN SILENCIO a en-US,
+      # y para las cifras de las pruebas las dos salidas se parecen lo bastante
+      # como para pasar en verde imprimiendo el formato equivocado. El día que
+      # alguien mueva NODE_VERSION, pase a una imagen propia o a un Node
+      # compilado a mano, nadie se enteraría por la suite.
+      #
+      # Por eso la sonda no compara importes —eso lo hacen las pruebas del
+      # formateador— sino los dos síntomas que sólo tiene un ICU recortado:
+      # que es-MX o en-US no se resuelvan a SÍ MISMOS, y que ar-EG no imprima
+      # en cifras arábigo-índicas, que es dato de ICU y no del motor. Las dos
+      # ramas se comprobaron con un mutante: un tag irresoluble sale a en-US y
+      # devuelve 1, y la sonda de dígitos apuntada a en-US ve el 0x31 y también.
+      #
+      # Va ANTES de `npm ci` para que una corrida que falle por esto cueste
+      # segundos, y vale para los demás jobs porque todos toman la versión de
+      # la misma `env.NODE_VERSION` de arriba; el día que un job fije la suya,
+      # esta sonda tiene que viajar con él.
+      - name: ICU completo en el Node de la corrida
+        run: |
+          node -e '
+            const failures = [];
+            for (const tag of ["es-MX", "en-US"]) {
+              const resolved = new Intl.NumberFormat(tag).resolvedOptions().locale;
+              if (resolved !== tag) failures.push(tag + " resuelve a " + resolved);
+            }
+            const first = new Intl.NumberFormat("ar-EG").format(1234).codePointAt(0);
+            if (first < 0x660 || first > 0x669) failures.push("ar-EG no imprime en cifras arabigo-indicas");
+            if (failures.length > 0) {
+              console.error("::error title=ICU incompleto::Node " + process.version + " no trae los datos de ICU: " + failures.join("; ") + ". Usa una descarga oficial de nodejs.org o instala full-icu en ESTE job.");
+              process.exit(1);
+            }
+            console.log("ICU " + process.versions.icu + " completo en Node " + process.version);
+          '
       - run: npm ci
       - run: npm test
       # Trinquete por archivo sobre el motor contable: no exige trabajo nuevo,
