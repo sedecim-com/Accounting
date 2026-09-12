@@ -7,6 +7,7 @@ import {
   fechaEnPeriodo,
   type Fixture,
 } from './helpers/tenant-fixture.js';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { query, closeDatabase, enterTenant } from '../../src/database/connection.js';
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { JournalEntryType } from '../../src/types/index.js';
@@ -62,6 +63,19 @@ async function cuentaPorCodigo(entityId: string, code: string): Promise<string> 
   return r.rows[0].id;
 }
 
+// `sat_bancos` es GLOBAL —sin tenant_id ni entity_id, por diseño de la 064: el
+// c_Banco es un hecho publicado por la autoridad—, así que la comparte toda la
+// corrida. Este archivo la VACÍA y luego la siembra con dos claves para probar
+// los dos lados de la validación de la clave de banco, y tiene que devolverla
+// como la encontró.
+//
+// ESTE ES EL DESCUIDO QUE COSTÓ EL FALLO INTERMITENTE: sin esta línea, las dos
+// claves sobrevivían al archivo y `f07cd-ataque` —que afirma que el c_Banco
+// nace VACÍO en una instalación recién migrada— fallaba en las corridas en que
+// el sequencer lo colocaba después de éste. El informe acusaba a la víctima, y
+// el orden lo decide el resultado de la corrida anterior, no el alfabeto.
+apartarCatalogos('sat_bancos');
+
 beforeAll(async () => {
   f = await crearInquilino('F07d pólizas');
   hermana = await crearEntidadHermana(f, 'F07d hermana');
@@ -82,6 +96,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await drainAttestations(2000);
+  // `sat_bancos` ES GLOBAL: no lleva inquilino ni entidad, así que las dos
+  // filas que este archivo siembra (más abajo, para probar que la validación
+  // de la clave SÍ valida cuando el catálogo existe) sobreviven a la muerte de
+  // sus fixtures y las ve el resto de la suite. F07cd afirma —con razón— que
+  // el catálogo nace VACÍO y que nadie lo siembra, así que quien corriera
+  // último decidía el resultado: el orden de vitest depende de la duración
+  // cacheada de cada archivo, y basta añadir un archivo nuevo en cualquier
+  // parte de la suite para voltearlo. Lo que se ensucia fuera del inquilino se
+  // limpia a mano; lo demás se va con la base efímera.
+  await query(`DELETE FROM sat_bancos`);
   await closeDatabase();
 });
 

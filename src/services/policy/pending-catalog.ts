@@ -470,6 +470,84 @@ export const POLICY_CATALOG: PolicySpec[] = [
     ifSkipped: 'I use 5,000 MXN.',
     priority: 40,
   },
+  // ── LAS TRES BIFURCACIONES QUE EL DEVENGO ABRE (D1) ─────────────────
+  //
+  // Ninguna se elige en el código ni se le pregunta al usuario a mitad de una
+  // corrida: se declaran aquí, con su valor por omisión razonado, porque son
+  // criterio del despacho y no hechos de la ley. La ley fija los mínimos —y
+  // ésos viven en la tabla de parámetros legales, no aquí—; lo que varía de
+  // despacho a despacho es CÓMO se reconoce.
+  {
+    key: 'provision_base_salarial',
+    category: 'contable',
+    question: 'Which daily wage does the monthly benefit provision use as its base?',
+    impact:
+      'Sets the amount of every aguinaldo, vacation and vacation-premium accrual. The integrated wage is ' +
+      'larger than the nominal one, so the choice moves the provision — and the reported profit — every month.',
+    options: [
+      { value: 'nominal', label: 'Nominal daily wage — what the contract states' },
+      { value: 'integrado', label: 'Integrated daily wage (SDI) — includes the benefits LFT art. 84 folds in' },
+    ],
+    defaultValue: 'nominal',
+    defaultRationale:
+      'The nominal wage is the number the firm actually agreed to and the one the payroll already holds. ' +
+      'The SDI is a SOCIAL-SECURITY base (LSS art. 27) built to compute contributions, and borrowing it for ' +
+      'a NIF D-3 accrual imports a fiscal convention into a financial-reporting figure. A firm that wants it ' +
+      'declares it; the system does not inflate a liability on its own.',
+    whyAsking:
+      'The nominal and the integrated wage give different provisions, and both are defensible. Only your firm ' +
+      'knows which convention it follows.',
+    whatIDo: 'I accrue benefits on the nominal daily wage.',
+    ifSkipped: 'I use the nominal daily wage.',
+    priority: 40,
+  },
+  {
+    key: 'devengo_vacaciones',
+    category: 'contable',
+    question: 'When does the vacation liability get recognised?',
+    impact:
+      'Decides whether the vacation provision grows month by month or appears whole on each employee\'s ' +
+      'work anniversary. The annual total is the same; the shape of eleven of the twelve monthly statements is not.',
+    options: [
+      { value: 'proporcional', label: 'Month by month, in proportion to time served' },
+      { value: 'aniversario', label: 'In full on the anniversary, when the right vests' },
+    ],
+    defaultValue: 'proporcional',
+    defaultRationale:
+      'NIF D-3 recognises a short-term benefit as the employee RENDERS the service, not when the right becomes ' +
+      'enforceable. Accruing on the anniversary concentrates twelve months of cost in one, which is the very ' +
+      'distortion the accrual basis exists to remove. The alternative stays available because LFT art. 76 does ' +
+      'make the right vest on that date, and some firms report on that reading.',
+    whyAsking:
+      'The law vests the right on the anniversary; the accounting standard recognises it as it is earned. Both ' +
+      'readings exist in practice.',
+    whatIDo: 'I accrue vacations in proportion to time served, month by month.',
+    ifSkipped: 'I accrue proportionally.',
+    priority: 40,
+  },
+  {
+    key: 'provision_ptu_mensual',
+    category: 'contable',
+    question: 'Does the firm provision PTU monthly, or only at year end?',
+    impact:
+      'A monthly PTU provision needs an ESTIMATE of the year\'s taxable profit, which is a judgement. Provisioning ' +
+      'only at close leaves eleven months without the charge, and a twelfth carrying all of it.',
+    options: [
+      { value: 'no', label: 'Only at year end, once taxable profit is known' },
+      { value: 'si', label: 'Monthly, over estimated taxable profit' },
+    ],
+    defaultValue: 'no',
+    defaultRationale:
+      'A monthly PTU accrual rests on an estimate of a figure that will not exist until the annual return, and a ' +
+      'provision built on a guess is worse than a disclosed absence: it looks like a measurement. The firm that ' +
+      'has a reliable forecast turns it on and owns the estimate.',
+    whyAsking:
+      'PTU is 10 % of taxable profit (LFT art. 120) and that profit is not known until the year closes. Whether to ' +
+      'estimate it monthly is your firm\'s call, not mine.',
+    whatIDo: 'I record PTU at year end, when the taxable profit is known.',
+    ifSkipped: 'I record it only at year end.',
+    priority: 40,
+  },
   {
     key: 'dias_aguinaldo',
     category: 'contable',

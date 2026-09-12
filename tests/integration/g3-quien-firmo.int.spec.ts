@@ -259,13 +259,13 @@ describe('G3 · el servicio de cuentas deja rastro', () => {
       reason: 'apertura de línea de gasto',
     });
 
-    await updateAccount(cuenta.id, { name: 'Gastos de prueba G3 (renombrada)' }, f.userId, 'error de captura');
+    await updateAccount(f.entityId, cuenta.id, { name: 'Gastos de prueba G3 (renombrada)' }, f.userId, 'error de captura');
     await setAccountGovernance(cuenta.id, { allow_manual_entries: false }, f.userId, 'se posteará sólo por regla');
-    await deactivateAccount(cuenta.id, f.userId, {
+    await deactivateAccount(f.entityId, cuenta.id, f.userId, {
       allowWithHistory: true,
       reason: 'cierre de ejercicio',
     });
-    await reactivateAccount(cuenta.id, f.userId, 'se volvió a necesitar');
+    await reactivateAccount(f.entityId, cuenta.id, f.userId, 'se volvió a necesitar');
 
     const rastro = await rastroDe('account', cuenta.id);
     expect(rastro.rows).toHaveLength(5);
@@ -314,7 +314,7 @@ describe('G3 · el servicio de cuentas deja rastro', () => {
       created_by: f.userId,
     });
 
-    await deactivateAccount(cuenta.id, f.userId, {
+    await deactivateAccount(f.entityId, cuenta.id, f.userId, {
       allowWithHistory: true,
       dryRun: true,
       reason: 'sólo mirando',

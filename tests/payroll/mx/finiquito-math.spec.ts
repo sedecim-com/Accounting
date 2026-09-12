@@ -7,6 +7,7 @@ import {
   diasDeVacacionesPorAnio,
   factorDeIntegracion,
   salarioDiarioDesdeSbc,
+  salarioDiarioDesdeSueldoAnual,
 } from '../../../src/services/payroll/mx/finiquito-math.js';
 
 // ============================================================
@@ -131,6 +132,57 @@ describe('Factor de integración (LSS art. 27) y su inversa', () => {
   });
 });
 
+// ============================================================
+// EL DIVISOR DEL SUELDO ANUAL, QUE AHORA COMPARTEN DOS MOTORES (D1)
+//
+// La conversión vivía suelta dentro de `calculateFiniquito` como
+// `new Decimal(annual_salary).dividedBy(365)`. Sale de ahí porque el motor de
+// provisiones necesita EL MISMO número: si los dos dividen por su cuenta y uno
+// elige otro divisor, la provisión de doce meses no extingue lo que el
+// finiquito liquida, y la cuenta de aguinaldo por pagar queda con un residuo
+// que ningún cierre limpia. El defecto no se vería en las pruebas de ninguno de
+// los dos módulos por separado — sólo en el saldo, y meses después.
+// ============================================================
+describe('El salario diario desde el sueldo anual (D1) — un divisor, dos motores', () => {
+  it('divide entre 365 y devuelve cuatro decimales, como todo el dinero de aquí', () => {
+    expect(salarioDiarioDesdeSueldoAnual('365000')).toBe('1000.0000');
+    expect(salarioDiarioDesdeSueldoAnual('182500.00')).toBe('500.0000');
+  });
+
+  it('no redondea a dos: el salario diario multiplica todos los conceptos', () => {
+    // 100 000 / 365 = 273.972602..., y las diezmilésimas importan porque este
+    // número se multiplica por quince días de aguinaldo y por los días de
+    // vacaciones de la tabla del art. 76.
+    expect(salarioDiarioDesdeSueldoAnual('100000')).toBe('273.9726');
+  });
+
+  it('acepta cadena y número, porque las dos formas llegan de la columna', () => {
+    // `employees.annual_salary` es NUMERIC y el driver la entrega como cadena;
+    // un llamador con el dato en memoria pasa el número.
+    expect(salarioDiarioDesdeSueldoAnual(365000)).toBe('1000.0000');
+    expect(salarioDiarioDesdeSueldoAnual('365000')).toBe(
+      salarioDiarioDesdeSueldoAnual(365000)
+    );
+  });
+
+  it('un sueldo en cero da cero, no un error', () => {
+    // Una ficha a medio capturar o un permiso sin goce son aritmética bien
+    // definida: cero por lo que sea es cero. Parar el cierre de doscientos
+    // trabajadores por una ficha en blanco es peor que un renglón en cero.
+    expect(salarioDiarioDesdeSueldoAnual('0')).toBe('0.0000');
+  });
+
+  it('la convención de 360 daría un 1.39 % más — por eso el divisor es uno solo', () => {
+    // La lectura habitual de la LFT toma el mes de treinta días, así que el
+    // anual entre 360 es defendible y da MÁS. No es la que usa este sistema, y
+    // lo que importa no es cuál se elija sino que los dos motores elijan la
+    // misma: aquí queda medida la diferencia que costaría no hacerlo.
+    const a365 = Number(salarioDiarioDesdeSueldoAnual('365000'));
+    const a360 = 365000 / 360;
+    expect(a360 / a365 - 1).toBeCloseTo(0.0139, 4);
+  });
+});
+
 describe('Aguinaldo proporcional (LFT art. 87) — la fecha de alta cuenta', () => {
   const finiquitoAlCierre = (alta: string) =>
     calcularFiniquito({
@@ -139,7 +191,7 @@ describe('Aguinaldo proporcional (LFT art. 87) — la fecha de alta cuenta', () 
       pagado_hasta: '2026-12-31',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
 
   it('alta en enero: el año entero, 15 días exactos', () => {
@@ -206,7 +258,7 @@ describe('Aguinaldo proporcional (LFT art. 87) — la fecha de alta cuenta', () 
       pagado_hasta: '2024-12-31',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.aguinaldo_dias_trabajados).toBe(366);
     expect(r.aguinaldo_dias).toBe('15.0000');
@@ -219,7 +271,7 @@ describe('Aguinaldo proporcional (LFT art. 87) — la fecha de alta cuenta', () 
       pagado_hasta: '2026-12-31',
       salario_diario: SD,
       dias_aguinaldo_por_anio: 30, // el despacho contestó «un mes»
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.aguinaldo_dias).toBe('30.0000');
     expect(r.aguinaldo_importe).toBe('15000.0000');
@@ -250,7 +302,7 @@ describe('Antigüedad y prima vacacional (LFT arts. 79 y 80)', () => {
       pagado_hasta: '2026-09-15',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.anio_de_servicio_en_curso).toBe(13);
     expect(r.dias_vacaciones_del_anio).toBe(24);
@@ -266,8 +318,8 @@ describe('Antigüedad y prima vacacional (LFT arts. 79 y 80)', () => {
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
     };
-    const alMinimo = calcularFiniquito({ ...base, prima_vacacional_pct: '0.25' });
-    const alDoble = calcularFiniquito({ ...base, prima_vacacional_pct: '0.50' });
+    const alMinimo = calcularFiniquito({ ...base, prima_vacacional_pct: '0.25', motivo_baja: 'renuncia' });
+    const alDoble = calcularFiniquito({ ...base, prima_vacacional_pct: '0.50', motivo_baja: 'renuncia' });
     // 632.8767 × 2 = 1 265.7534
     expect(alMinimo.prima_vacacional_importe).toBe('632.8767');
     expect(alDoble.prima_vacacional_importe).toBe('1265.7534');
@@ -295,7 +347,7 @@ describe('El dinero es cadena de cuatro decimales, nunca float', () => {
       salario_diario: '333.3333',
       dias_vacaciones_pendientes: 7,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     for (const importe of [
       r.salario_pendiente_importe,
@@ -321,7 +373,7 @@ describe('El dinero es cadena de cuatro decimales, nunca float', () => {
       salario_diario: '287.6543',
       dias_vacaciones_pendientes: 3,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     const suma = [
       r.salario_pendiente_importe,
@@ -346,7 +398,7 @@ describe('El caso realista: 12 años de antigüedad y alta a mitad de año', () 
     salario_diario: SD,
     dias_vacaciones_pendientes: 0,
     dias_aguinaldo_por_anio: AGUINALDO,
-    prima_vacacional_pct: PRIMA,
+    motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
   });
 
   it('12 años cumplidos, año 13 en curso, 24 días de vacaciones', () => {
@@ -397,7 +449,7 @@ describe('Bordes', () => {
       pagado_hasta: '2026-01-01',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.aguinaldo_dias_trabajados).toBe(0);
     expect(r.aguinaldo_importe).toBe('0.0000');
@@ -411,7 +463,7 @@ describe('Bordes', () => {
       pagado_hasta: '2026-01-15',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.salario_pendiente_dias).toBe(0);
     expect(r.salario_pendiente_importe).toBe('0.0000');
@@ -427,7 +479,7 @@ describe('Bordes', () => {
       pagado_hasta: '2026-12-31',
       salario_diario: SD,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     expect(r.aguinaldo_dias_trabajados).toBe(184);
   });
@@ -440,7 +492,7 @@ describe('Bordes', () => {
       salario_diario: SD,
       dias_vacaciones_pendientes: 24,
       dias_aguinaldo_por_anio: AGUINALDO,
-      prima_vacacional_pct: PRIMA,
+      motivo_baja: 'renuncia' as const, prima_vacacional_pct: PRIMA,
     });
     // 24 × 500 = 12 000.0000
     expect(r.vacaciones_pendientes_importe).toBe('12000.0000');

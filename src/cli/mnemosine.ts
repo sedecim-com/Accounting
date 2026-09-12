@@ -125,6 +125,7 @@ import { registerBatchCommand } from './batch-command.js';
 import { registerClosingCommand } from './closing-command.js';
 import { registerFxCommand } from './fx-command.js';
 import { registerPrepaidCommand } from './prepaid-command.js';
+import { registerPayrollCommand } from './payroll-command.js';
 import { registerEAccountingCommand } from './e-accounting-command.js';
 import { registerDiotCommand } from './diot-command.js';
 import { registerPayrollIsnCommands } from './payroll-isn-command.js';
@@ -3354,6 +3355,12 @@ registerBatchCommand(program, { palette: c, shutdown, reportError });
 registerClosingCommand(program, { palette: c, shutdown, reportError });
 registerFxCommand(program, { palette: c, shutdown, reportError });
 registerPrepaidCommand(program, { palette: c, shutdown, reportError });
+// D1. La puerta del devengo de prestaciones. El motor de la NIF D-3 estaba
+// construido, probado y sin una sola forma de invocarlo —capacidad huérfana—,
+// así que en producción el pasivo de aguinaldo no se reconocía ningún mes. La
+// familia es `payroll`·`nomina` y su hoja `accrue`·`devengar` por dictamen del
+// registro de comandos (§39: `provision` es de fiscal-us), no por gusto.
+registerPayrollCommand(program, { palette: c, shutdown, reportError });
 registerEAccountingCommand(program, { palette: c, shutdown, reportError });
 registerDiotCommand(program, { palette: c, shutdown, reportError });
 // F08a. Registra DOS familias: `isn` (las tasas estatales y su cálculo) y

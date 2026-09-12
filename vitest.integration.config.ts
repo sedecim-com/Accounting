@@ -6,6 +6,10 @@ export default defineConfig({
   test: {
     include: ['tests/integration/**/*.int.spec.ts'],
     globalSetup: ['tests/integration/global-setup.ts'],
+    // Corre dentro de CADA archivo y vigila que ninguno deje sucio un catálogo
+    // global — las tablas sin tenant_id ni entity_id que comparte toda la
+    // corrida. El porqué, en tests/integration/helpers/catalogos-globales.ts.
+    setupFiles: ['tests/integration/vigilante-catalogos.ts'],
     environment: 'node',
     testTimeout: 30_000,
     hookTimeout: 60_000,
@@ -110,6 +114,13 @@ export default defineConfig({
       include: [
         'src/services/accounting/**',
         'src/services/reporting/**',
+        // D1 · EL MOTOR DE PROVISIONES ENTRA POR UN ARCHIVO, no por la carpeta.
+        // `provisions-run.ts` habla con Postgres de principio a fin —lee la
+        // nómina, resuelve las cuentas por rol y postea—, así que en la suite
+        // unitaria mediría casi cero y aquí mide lo que de verdad se ejercita.
+        // Su gemelo puro, `provisions-math.ts`, va al revés: vive en
+        // vitest.config.ts con umbral 100 y aquí no pinta nada.
+        'src/services/accruals/provisions-run.ts',
       ],
       thresholds: {
         // Los dos que sólo esta suite puede medir: aquí nacen sus trinquetes.
@@ -157,6 +168,32 @@ export default defineConfig({
         // Medidos: 94.91 / 89.65 / 96.42 / 95.28.
         'src/services/reporting/cash-flow-service.ts': {
           statements: 95, branches: 90, functions: 96, lines: 95,
+        },
+        // D1 · EL MOTOR DE PROVISIONES. Es dinero que se calcula por trabajador
+        // y por mes y se postea a un mayor inmutable (041), así que nace con
+        // trinquete el mismo día que nace el motor: un archivo nuevo sin
+        // umbral puede perderlo en un commit posterior sin que ninguna
+        // compuerta se mueva. El suelo es el ENTERO INFERIOR de lo medido por
+        // su propia suite (d1-provisiones.int.spec.ts, 14 pruebas en verde),
+        // no una aspiración. Nació en 95 / 78 / 100 / 95.
+        //
+        // D1·puerta LO APRIETA a 96 / 86 / 100 / 95 en el mismo commit que gana
+        // el terreno, que es la regla de la casa. Lo que ganó las ocho décimas
+        // de rama no fue una prueba más del motor: fue la HOJA. `payroll
+        // accrue` calcula la cédula con `planMonthlyProvisions` antes de
+        // postear y después corre, así que un solo mes tecleado recorre el
+        // camino de la previa y el de la escritura — y su ensayo, la mitad que
+        // no escribe. Medidos con la suite entera: 96.03 / 86 / 100 / 95.78.
+        'src/services/accruals/provisions-run.ts': {
+          statements: 96, branches: 86, functions: 100, lines: 95,
+        },
+        // La consulta del periodo acotada por entidad, que desde D1 comparten
+        // los TRES motores periódicos —depreciación, amortización y
+        // provisiones—. Un solo sitio significa que una regresión aquí las
+        // rompe a las tres, y por eso lleva umbral aunque sean treinta líneas.
+        // Medidos: 87.5 / 75 / 100 / 100.
+        'src/services/accounting/periodo-de-corrida.ts': {
+          statements: 87, branches: 75, functions: 100, lines: 100,
         },
       },
     },

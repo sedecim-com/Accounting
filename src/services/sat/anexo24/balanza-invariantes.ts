@@ -132,6 +132,26 @@ export function importesDeclarados(c: CuentaDeBalanza): ImportesDeclarados {
 }
 
 /**
+ * EL CAMINO DE VUELTA: de la cifra DECLARADA al eje del mayor.
+ *
+ * `importesDeclarados` lleva el saldo del mayor —deudor positivo, un solo
+ * eje— a la naturaleza con la que el Anexo 24 lo publica. Ésta es la misma
+ * multiplicación en el sentido contrario, y vive PEGADA a ella a propósito:
+ * son un par, y el día que alguien cambie el criterio de signo en una tiene
+ * que ver la otra en la misma pantalla. Separadas, la ida y la vuelta dejan de
+ * ser inversas y el saldo de una cuenta acreedora entra al mayor del revés —un
+ * descuadre que vale el DOBLE del saldo, que es la trampa que este frente
+ * lleva documentada desde F07b.
+ *
+ * La usa la carga de la balanza de APERTURA (O1 · capa 2): el archivo declara
+ * «8300.00» para una cuenta acreedora y el asiento tiene que abonar 8 300, no
+ * cargarlos.
+ */
+export function saldoDelMayor(declarado: string, natur: Natur): Decimal {
+  return new Decimal(declarado).times(natur === 'A' ? -1 : 1);
+}
+
+/**
  * El invariante que la autoridad rehace, RESPETANDO NATUR.
  *
  *   deudora:   SaldoIni + Debe − Haber = SaldoFin

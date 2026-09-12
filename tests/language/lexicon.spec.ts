@@ -26,7 +26,12 @@ function declaracionesDe(archivo: string): string[] {
   const bruto = fs.readFileSync(archivo, 'utf8');
   const sinComentarios = bruto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[^\n]*?\/\/[^\n]*$/gm, '');
   const nombres: string[] = [];
-  for (const m of sinComentarios.matchAll(/\b(?:const|let|var|function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g)) {
+  // EL PATRÓN ES UNICODE, Y NO ES DETALLE (#197). Con `[A-Za-z_$][\w$]*`,
+  // `añoDeDocumento` casaba como `a`: el arnés truncaba el nombre justo en la
+  // letra que lo hace español, y luego afirmaba que la carpeta estaba limpia.
+  for (const m of sinComentarios.matchAll(
+    /\b(?:const|let|var|function|class|interface|type|enum)\s+([\p{L}_$][\p{L}\p{N}_$]*)/gu
+  )) {
     nombres.push(m[1]);
   }
   return nombres;
@@ -53,7 +58,28 @@ describe('tokenize — el nombre se parte donde el idioma cambia', () => {
     expect(tokenize('CuentaPorCobrar')).toEqual(['cuenta', 'por', 'cobrar']);
     expect(tokenize('amount_due')).toEqual(['amount', 'due']);
     expect(tokenize('MAX_DECIMALES_FACTOR')).toEqual(['max', 'decimales', 'factor']);
+    // `tasa8` está curado como raíz entera, así que NO se parte: el corte por
+    // dígitos sólo alcanza lo que el léxico no reconoce, para no romper los
+    // acrónimos ya curados (`sha256`, `camt053`, `mt940`).
     expect(tokenize('tasa8')).toEqual(['tasa8']);
+    expect(tokenize('sha256')).toEqual(['sha256']);
+    // Y lo que NO conoce sí se parte, que es lo que el docstring promete y el
+    // código no hacía: si no, la `tasa` viaja invisible dentro de un token que
+    // no está en ninguna lista y `classifyToken` da por inglés.
+    expect(tokenize('tasa99')).toEqual(['tasa', '99']);
+  });
+
+  it('la ñ y las tildes NO son separadores: se pliegan (#197)', () => {
+    // Antes se partía por `[^A-Za-z0-9]+`, así que una `ñ` era SEPARADOR:
+    // `tamañoMaximo` daba ['tama','o','maximo'] y `pequeño` daba ['peque','o'],
+    // que no están en ninguna lista y por tanto se contaban como INGLÉS. El
+    // sesgo no era neutro: convertía en inglesas las palabras MÁS españolas.
+    expect(tokenize('tamañoMaximo')).toEqual(['tamano', 'maximo']);
+    expect(tokenize('añoDeDocumento')).toEqual(['ano', 'de', 'documento']);
+    // Y el plegado es lo que hace ALCANZABLES las raíces ya escritas: el
+    // léxico dice `tamano`, y sin plegar ningún token podía casar con ella.
+    expect(classify('tamañoMaximo')).toBe('es');
+    expect(classify('porAño')).toBe('es');
   });
 
   it('una sigla pegada a una palabra no la esconde', () => {
@@ -105,8 +131,11 @@ describe('el instrumento no acusa en falso', () => {
   // CERO FALSOS POSITIVOS sobre las carpetas escritas en inglés. Es el número
   // que decide si alguien vuelve a mirar el instrumento: a la tercera señal
   // sobre código que está bien, deja de mirarlo.
-  // LAS NUEVE CARPETAS INGLESAS, y no se eligieron a ojo: son las que miden
-  // CERO señaladas hoy, con 40 declaraciones o más cada una — 898 en total.
+  // LAS OCHO CARPETAS INGLESAS, y no se eligieron a ojo: son las que miden
+  // CERO señaladas hoy, con 40 declaraciones o más cada una — 843 en total
+  // (medido: usa 257, skills 199, jobs 106, webhooks 78, types 61, vault 53,
+  // integrations/base 46, tax-engine 43). Eran nueve hasta #197: ver abajo por
+  // qué `src/utils` no era una de ellas y quién lo escondía.
   // El inventario de la investigación las corrobora por el otro lado
   // (`types` 0 % de español, `utils` 0 %).
   //
@@ -121,7 +150,19 @@ describe('el instrumento no acusa en falso', () => {
     'src/ai/jobs',
     'src/ai/webhooks',
     'src/types',
-    'src/utils',
+    // `src/utils` SALIÓ DE LA LISTA, y no por bajar el número (#197).
+    //
+    // Estaba aquí porque medía cero señaladas, y medía cero porque el arnés de
+    // esta misma prueba truncaba los nombres acentuados: con el patrón viejo
+    // `[A-Za-z_$][\w$]*`, `añoDeDocumento` casaba como `a` —dos letras, exentas
+    // por corta— y `año` como `a`. Arreglado el patrón, la carpeta declara dos
+    // identificadores españoles en `src/utils/sequence.ts`: `año` y
+    // `añoDeDocumento`. El instrumento ACIERTA al señalarlos; la lista era la
+    // que estaba mal, y lo estaba porque se construyó con el arnés roto.
+    //
+    // Vuelve a la lista cuando el épico los renombre —es trabajo de I12, no de
+    // aquí: el criterio `src/plan/criterios.ts:1683` ancla en el literal
+    // `${name}_${año}`, así que el renombrado arrastra al tablero—.
     'src/services/vault',
     'src/services/integrations/base',
     'src/services/payroll/tax-engine',
@@ -129,11 +170,23 @@ describe('el instrumento no acusa en falso', () => {
 
   it.each(INGLESAS)('%s no tiene una sola declaración señalada por error', (dir) => {
     const señalados: string[] = [];
+    let miradas = 0;
     for (const f of tsDe(dir)) {
       for (const n of declaracionesDe(f)) {
+        miradas++;
         if (isFlagged(n)) señalados.push(`${path.relative(RAIZ, f)}: ${n}`);
       }
     }
+    // PRIMERO, QUE HAYA MIRADO ALGO (#197). `tsDe` devuelve [] si la carpeta
+    // no existe, y entonces `señalados` sale vacío y esto pasaba en VERDE sin
+    // recorrer un solo archivo. El epic del idioma va a renombrar carpetas,
+    // así que el día que una de estas ocho cambie de nombre, la prueba tiene
+    // que CAER y no felicitarse. El umbral es el que el comentario de arriba
+    // declara: cuarenta declaraciones o más cada una.
+    expect(
+      miradas,
+      `${dir}: no aportó declaraciones — ¿se renombró la carpeta? Actualiza INGLESAS, no bajes el número`
+    ).toBeGreaterThanOrEqual(40);
     // Si esto se pone rojo, la respuesta NO es bajar el número: es mirar el
     // token culpable y decidir si de verdad es español.
     expect(señalados, 'declaraciones inglesas que el léxico señalaría').toEqual([]);

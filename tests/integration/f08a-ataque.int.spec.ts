@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { apartarCatalogos } from './helpers/catalogos-globales.js';
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query } from '../../src/database/connection.js';
@@ -10,6 +11,7 @@ import { postPayRunToGL } from '../../src/services/payroll/common/gl-posting-ser
 import { seedPayrollAccountMapping } from '../../src/services/payroll/common/payroll-account-mapping-seed.js';
 // Las calculadoras se registran por efecto de importación.
 import '../../src/services/payroll/tax-engine/register-all.js';
+import { entityScope } from '../../src/database/scope.js';
 
 // ============================================================
 // F08a · ATAQUE
@@ -31,7 +33,7 @@ import '../../src/services/payroll/tax-engine/register-all.js';
 //
 //  1. «el ISR NETO del periodo, sumado desde paycheck_taxes» — el subsidio se
 //     apunta DOS VECES como crédito: entero en su renglón y otra vez la parte
-//     entregada. La tabla dice que el fisco debe 248.04 donde debe 124.02.
+//     entregada. La tabla dice que el fisco debe 252.06 donde debe 126.03.
 //  2 y 3. «la corrida de PURO subsidio entregado» y «la corrida MIXTA en la
 //     que el subsidio entregado gana» — el asiento al mayor no cuadra por
 //     exactamente el subsidio entregado, y la nómina no se puede postear.
@@ -140,6 +142,14 @@ async function reciboDe(paycheckId: string): Promise<FilaRecibo> {
   );
   return rows[0];
 }
+
+// `mx_isn_tasas_estatales` y `tax_tables` son GLOBALES —sin tenant_id ni
+// entity_id—, así que las comparte toda la corrida, y este archivo siembra
+// tarifas de ISR de un año sintético y tasas de ISN de estados que no existen.
+// Se apunta cómo estaba y se devuelve igual: lo que un archivo deja sembrado en
+// una tabla global hace fallar a OTRO, en OTRA corrida, por un motivo que no es
+// suyo. El porqué entero, en helpers/catalogos-globales.ts.
+apartarCatalogos('mx_isn_tasas_estatales', 'tax_tables');
 
 beforeAll(async () => {
   f = await crearInquilino('F08a · ataque');
@@ -264,8 +274,13 @@ describe('B · lo escrito en paycheck_taxes contra las columnas del recibo', () 
   beforeAll(async () => {
     periodo = await nuevoPeriodo('2026-03-01', '2026-03-15', '2026-03-15', 2026);
     corrida = await nuevaCorrida(periodo);
-    // Tarifa REAL 2026: quincena de 1 500 → ISR 79.29, subsidio 203.31,
-    // efectivo entregado 124.02.
+    // Tarifa REAL 2026 (la publicada en el Anexo 8, sembrada por la 073 del
+    // tramo T4a): quincena de 1 500 → ISR 77.28, subsidio 203.31, efectivo
+    // entregado 126.03. Antes de T4a estas cifras eran 79.29 y 124.02, con la
+    // «quincenal» que la 009 fabricaba dividiendo la mensual entre dos — y que
+    // no era la de ningún año. Lo que F08a fija es el CAMINO del subsidio
+    // entregado en efectivo, no la tarifa: la tarifa cambió debajo, y estas
+    // cifras se mueven con ella.
     const emp = await nuevoEmpleado({ sbc: '100.0000' });
     recibo = (
       await calculatePaycheck({
@@ -276,11 +291,11 @@ describe('B · lo escrito en paycheck_taxes contra las columnas del recibo', () 
     ).paycheck_id;
   });
 
-  it('el punto de partida: la quincena de 1 500 entrega 124.02 en efectivo', async () => {
+  it('el punto de partida: la quincena de 1 500 entrega 126.03 en efectivo', async () => {
     const fila = await reciboDe(recibo);
-    expect(fila.isr_withheld).toBe('79.29');
+    expect(fila.isr_withheld).toBe('77.28');
     expect(fila.subsidio_empleo).toBe('203.31');
-    expect(new Decimal(fila.subsidio_entregado_efectivo).toFixed(2)).toBe('124.02');
+    expect(new Decimal(fila.subsidio_entregado_efectivo).toFixed(2)).toBe('126.03');
   });
 
   it('el ISR NETO del periodo, sumado desde paycheck_taxes, es el que el fisco vería', async () => {
@@ -293,11 +308,11 @@ describe('B · lo escrito en paycheck_taxes contra las columnas del recibo', () 
       .reduce((a, x) => a.plus(x.tax_amount), new Decimal(0));
 
     // Lo que el patrón entregó de su bolsillo y acreditará contra el ISR
-    // retenido a otros son 124.02 — ni un peso más. Si la resta da −248.04,
+    // retenido a otros son 126.03 — ni un peso más. Si la resta da −252.06,
     // el subsidio está apuntado DOS VECES: entero como crédito, y otra vez
     // la parte entregada.
     const netoSegunLaTabla = cargo.minus(creditos);
-    expect(netoSegunLaTabla.toFixed(2)).toBe('-124.02');
+    expect(netoSegunLaTabla.toFixed(2)).toBe('-126.03');
   });
 });
 
@@ -341,22 +356,22 @@ describe('C · la corrida con subsidio entregado se puede postear al mayor', () 
   }
 
   it('control: cuando el ISR retenido supera al subsidio entregado, el asiento cuadra', async () => {
-    // 1 500 (entrega 124.02) + 8 000 (retiene 874.80): el ISR gana.
+    // 1 500 (entrega 126.03) + 8 000 (retiene 799.46): el ISR gana.
     const { payRunId } = await corridaCompleta('2026-04-01', '2026-04-15', '2026-04-15', [1500, 8000]);
-    const entryId = await postPayRunToGL(payRunId, f.userId, f.tenantId);
+    const entryId = await postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId);
     expect(entryId).toBeTruthy();
   });
 
   it('la corrida de PURO subsidio entregado también se tiene que poder postear', async () => {
-    // Dos trabajadores de 1 500: nadie retiene ISR y el patrón entrega 248.04.
+    // Dos trabajadores de 1 500: nadie retiene ISR y el patrón entrega 252.06.
     const { payRunId } = await corridaCompleta('2026-05-01', '2026-05-15', '2026-05-15', [1500, 1500]);
-    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId)).resolves.toBeTruthy();
+    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId)).resolves.toBeTruthy();
   });
 
   it('la corrida MIXTA en la que el subsidio entregado gana también se postea', async () => {
-    // 1 500 (entrega 124.02) + 3 000 (retiene 27.98): el subsidio gana por 96.04.
+    // 1 500 (entrega 126.03) + 3 000 (retiene 25.96): el subsidio gana por 100.07.
     const { payRunId } = await corridaCompleta('2026-06-01', '2026-06-15', '2026-06-15', [1500, 3000]);
-    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId)).resolves.toBeTruthy();
+    await expect(postPayRunToGL(payRunId, f.userId, f.tenantId, f.entityId)).resolves.toBeTruthy();
   });
 });
 
@@ -391,9 +406,11 @@ describe('D · el CFDI de nómina cuadra consigo mismo', () => {
       provider_used: 'prueba', simulado: true,
     });
     try {
-      const r = await generateAndStampCfdiNomina(recibo, {
-        tenantId: f.tenantId, userId: f.userId,
-      });
+      const r = await generateAndStampCfdiNomina(
+        recibo,
+        { tenantId: f.tenantId, userId: f.userId },
+        entityScope(f.tenantId, f.entityId)
+      );
       const leer = (attr: string): Decimal => {
         const m = new RegExp(`\\b${attr}="([0-9.]+)"`).exec(r.xml);
         expect(m, `el XML no trae ${attr}`).toBeTruthy();
@@ -851,7 +868,7 @@ describe('H · aprobar y apuntar, juntos o ninguno', () => {
     }
 
     const { approvePayRun } = await import('../../src/services/payroll/common/pay-run-service.js');
-    await expect(approvePayRun(corrida, fx.userId)).rejects.toThrow();
+    await expect(approvePayRun(corrida, fx.userId, entityScope(fx.tenantId, fx.entityId))).rejects.toThrow();
 
     const { rows } = await query<{ status: string }>(
       `SELECT status FROM pay_runs WHERE id = $1`, [corrida]
