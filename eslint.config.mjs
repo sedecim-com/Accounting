@@ -200,9 +200,10 @@ function foldDiacritics(token) {
  * dos números distintos, que es lo único que este archivo existe para impedir.
  *
  * Lo único que se aparta del gemelo son los nombres locales —allí
- * `conEspacios`, `plegarDiacriticos` y `partirEnDigitos`, que son de I1 y su
- * línea base cuenta—: lo que I3 escribe va en inglés, empezando por su propio
- * guardián.
+ * `conEspacios`, de I1, y `plegarDiacriticos`/`partirEnDigitos`, que llegaron
+ * con #197 por `main`; los tres cuentan en la línea base de su archivo y ahí se
+ * quedan hasta que el epic los renombre—: lo que I3 escribe va en inglés,
+ * empezando por su propio guardián.
  */
 export function tokenize(identifier) {
   const withSpaces = identifier
