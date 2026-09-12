@@ -11,6 +11,7 @@ import { postPayRunToGL } from '../../src/services/payroll/common/gl-posting-ser
 import { seedPayrollAccountMapping } from '../../src/services/payroll/common/payroll-account-mapping-seed.js';
 // Las calculadoras se registran por efecto de importación.
 import '../../src/services/payroll/tax-engine/register-all.js';
+import { entityScope } from '../../src/database/scope.js';
 
 // ============================================================
 // F08a · ATAQUE
@@ -405,9 +406,11 @@ describe('D · el CFDI de nómina cuadra consigo mismo', () => {
       provider_used: 'prueba', simulado: true,
     });
     try {
-      const r = await generateAndStampCfdiNomina(recibo, {
-        tenantId: f.tenantId, userId: f.userId,
-      });
+      const r = await generateAndStampCfdiNomina(
+        recibo,
+        { tenantId: f.tenantId, userId: f.userId },
+        entityScope(f.tenantId, f.entityId)
+      );
       const leer = (attr: string): Decimal => {
         const m = new RegExp(`\\b${attr}="([0-9.]+)"`).exec(r.xml);
         expect(m, `el XML no trae ${attr}`).toBeTruthy();
@@ -865,7 +868,7 @@ describe('H · aprobar y apuntar, juntos o ninguno', () => {
     }
 
     const { approvePayRun } = await import('../../src/services/payroll/common/pay-run-service.js');
-    await expect(approvePayRun(corrida, fx.userId)).rejects.toThrow();
+    await expect(approvePayRun(corrida, fx.userId, entityScope(fx.tenantId, fx.entityId))).rejects.toThrow();
 
     const { rows } = await query<{ status: string }>(
       `SELECT status FROM pay_runs WHERE id = $1`, [corrida]

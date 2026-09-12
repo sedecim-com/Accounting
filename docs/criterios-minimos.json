@@ -73,6 +73,7 @@
     "repository-declares-git-remote",
     "rls-silent-backfill-repaired",
     "route-entity-access-verified",
+    "payroll-run-scope-is-a-path-not-a-column",
     "separate-unit-integration-suites",
     "shadow-evidence-matches-enabled-mode",
     "shadow-verdicts-gate-auto-post",

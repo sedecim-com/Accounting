@@ -75,7 +75,11 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
     );
     const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
     expect(sql).toMatch(/tenant_id = \$2/);
-    expect(params).toEqual(['emp1', 't1']);
+    // Y LA ENTIDAD, que el inquilino no acota ese eje (T9c): `employees`
+    // tiene `entity_id` propio, así que la sociedad hermana se liquidaba
+    // entera con sólo cambiar `x-entity-id`.
+    expect(sql).toMatch(/entity_id = \$3/);
+    expect(params).toEqual(['emp1', 't1', 'e-de-la-peticion']);
   });
 
   it('lee los dos parámetros del panel, que antes estaban muertos', async () => {

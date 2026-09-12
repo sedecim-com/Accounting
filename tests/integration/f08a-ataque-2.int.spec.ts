@@ -12,6 +12,7 @@ import { registerPayrollIsnCommands } from '../../src/cli/payroll-isn-command.js
 // Las calculadoras se registran por efecto de importación: sin esto el
 // registro está vacío y `getRequired('MX','isr')` truena.
 import '../../src/services/payroll/tax-engine/register-all.js';
+import { entityScope } from '../../src/database/scope.js';
 
 // ============================================================
 // F08a · ATAQUE (2) · LA FRONTERA, LA TRANSACCIÓN Y LO QUE LA POLÍTICA FIRMA
@@ -290,7 +291,7 @@ describe('3 · una corrida no queda aprobada sin su pasivo', () => {
   });
 
   it('la aprobación falla y la corrida sigue en calculated', async () => {
-    await expect(approvePayRun(e.payRunId, e.f.userId)).rejects.toThrow(
+    await expect(approvePayRun(e.payRunId, e.f.userId, entityScope(e.f.tenantId, e.f.entityId))).rejects.toThrow(
       /el pasivo no se puede escribir/
     );
     const { rows } = await query<{ status: string }>(`SELECT status FROM pay_runs WHERE id = $1`, [

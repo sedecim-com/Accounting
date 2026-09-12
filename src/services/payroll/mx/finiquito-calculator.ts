@@ -104,21 +104,40 @@ export async function calculateFiniquito(
   input: FiniquitoInput,
   ctx: PolicyContext
 ): Promise<FiniquitoResult> {
+  // El inquilino va DENTRO del SQL, no en un filtro posterior: la consulta
+  // anterior buscaba por `id` a secas, así que un id adivinado devolvía el
+  // empleado de otro despacho con su salario dentro.
+  //
+  // Y LA ENTIDAD TAMBIÉN (T9c · #96), que el inquilino no acota ese eje.
+  // `employees` sí tiene `entity_id`, así que aquí no hace falta ningún
+  // camino: basta la columna. Esta ruta es la que desmiente la regla fácil
+  // —«con `requireEntityAccess` montado ya está»—: la guarda lleva aquí
+  // desde D1a y aun así la sociedad hermana se liquidaba entera, sueldo
+  // incluido, con sólo cambiar `x-entity-id`. La guarda valida la entidad
+  // DECLARADA; acotar la consulta por ella es otra defensa, y hacen falta
+  // las dos.
+  //
+  // Sin entidad en el contexto se acota sólo por inquilino, que es lo que
+  // una `PolicyContext` sin `entityId` significa en toda la casa: «contéstame
+  // por el despacho entero». Las rutas nunca llegan así — `requireEntityAccess`
+  // las obliga a traerla.
+  const porEntidad = ctx.entityId !== undefined;
   const result = await query<FilaEmpleado>(
-    // El inquilino va DENTRO del SQL, no en un filtro posterior: la consulta
-    // anterior buscaba por `id` a secas, así que un id adivinado devolvía el
-    // empleado de otro despacho con su salario dentro.
     `SELECT sbc, hire_date, annual_salary, entity_id
        FROM employees
-      WHERE id = $1 AND tenant_id = $2`,
-    [input.employee_id, ctx.tenantId]
+      WHERE id = $1 AND tenant_id = $2${porEntidad ? ' AND entity_id = $3' : ''}`,
+    porEntidad
+      ? [input.employee_id, ctx.tenantId, ctx.entityId]
+      : [input.employee_id, ctx.tenantId]
   );
   if (result.rows.length === 0) throw new NotFoundError('Employee');
   const e = result.rows[0];
 
   // La entidad la manda el EMPLEADO, no la petición: una política contestada
-  // por entidad tiene que regir a quien pertenece a esa entidad, aunque la
-  // llamada venga con otro alcance en el token.
+  // por entidad tiene que regir a quien pertenece a esa entidad. Desde T9c
+  // las dos ya no pueden discrepar cuando el contexto trae entidad —la
+  // consulta se niega a devolver al empleado de otra—, pero la fuente sigue
+  // siendo la fila, no el token: es el orden correcto, no una coincidencia.
   const panel: PolicyContext = { tenantId: ctx.tenantId, entityId: e.entity_id ?? ctx.entityId };
 
   const diasAguinaldo =
