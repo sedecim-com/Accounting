@@ -640,6 +640,10 @@ export const SUELO_COBERTURA_UNITARIA: Record<string, Umbrales> = {
   'src/services/accounting/sat-agrupador-account-type.ts': { statements: 97, branches: 97, functions: 100, lines: 97 },
   'src/services/sat/anexo24/balance-reader.ts': { statements: 98, branches: 88, functions: 100, lines: 100 },
   'src/services/sat/anexo24/catalog-reader.ts': { statements: 98, branches: 81, functions: 100, lines: 100 },
+  // La aritmética del devengo de prestaciones (D1) nace con el suelo arriba y no
+  // puede bajar de ahí: es dinero por trabajador y por mes, se postea a un mayor
+  // inmutable (041) y tiene que extinguirse al centavo contra el finiquito.
+  'src/services/accruals/provisions-math.ts': { statements: 100, branches: 100, functions: 100, lines: 100 },
 };
 
 /**
@@ -9002,6 +9006,127 @@ export const CRITERIOS: Criterio[] = [
         ? ok('los motores se niegan ante un parámetro ausente, el estado civil se valida y el impuesto local entra al asiento')
         : falla('no hay prueba del principio de fallar cerrado: es lo único que distingue el cero por no saber del cero legítimo');
     },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'employee-benefits-accrue-monthly',
+    enunciado: 'El aguinaldo, las vacaciones y la prima vacacional se devengan mes a mes, no el día que se pagan',
+    evaluar: () => {
+      // POR QUÉ NACE (D1, issue #111). Un despacho que paga el aguinaldo en
+      // diciembre y no lo provisiona durante el año publica once meses de
+      // utilidad inflada y un diciembre catastrófico, y ninguno de los doce
+      // estados es firmable. La NIF D-3 reconoce el beneficio a corto plazo
+      // conforme el trabajador PRESTA EL SERVICIO, no cuando se paga.
+      //
+      // El criterio vigila las tres propiedades sin las cuales el motor sería
+      // decorativo: que la ley no esté escrita dos veces, que el criterio del
+      // despacho se lea del panel en vez de quemarse, y que las cuentas se
+      // resuelvan por rol. La aritmética la prueban sus 55 casos unitarios; la
+      // idempotencia, la prueba de integración.
+      const run = codigoDe('src/services/accruals/provisions-run.ts');
+      const math = codigoDe('src/services/accruals/provisions-math.ts');
+
+      // (a) LA LEY, UNA SOLA VEZ. La tabla del art. 76 vive en finiquito-math
+      // desde D1a. Una segunda copia divergiría el día que el legislador la
+      // toque —y la tocó en 2023—, y entonces el finiquito y la provisión
+      // pagarían distinto por el mismo derecho.
+      if (!/from '\.\.\/payroll\/mx\/finiquito-math\.js'/.test(math)) {
+        return falla(
+          'provisions-math no importa de finiquito-math: la tabla del art. 76 o el factor de ' +
+            'integración están escritos por segunda vez, y dos copias de una ley divergen'
+        );
+      }
+
+      // (b) EL CRITERIO DEL DESPACHO SE PREGUNTA, NO SE DECIDE. Sobre qué
+      // salario se provisiona y cuándo nace el pasivo de vacaciones son
+      // bifurcaciones contables, y en esta casa van al panel con su lector.
+      for (const clave of ['provision_base_salarial', 'devengo_vacaciones']) {
+        if (!new RegExp(`getPolicy\\([^)]*'${clave}'`).test(run)) {
+          return falla(`la provisión no lee '${clave}' del panel: la bifurcación quedó quemada en el motor`);
+        }
+      }
+
+      // (c) LAS CUENTAS, POR ROL. Un código quemado ata el motor a un catálogo
+      // concreto y revienta en la primera entidad que renumere.
+      //
+      // LOS CÓDIGOS NO SE TRANSCRIBEN AQUÍ: SE DERIVAN. La primera versión de
+      // este chequeo los escribió a mano —2196 a 2199— en el MISMO commit que
+      // los renumeraba a 2202-2205, así que NACIÓ MUERTO: la expresión no podía
+      // acusar ningún cableado real, y como este chequeo tampoco tenía espejo
+      // propio, los 168 mutantes del tablero lo daban por vivo. Es la familia
+      // de T14b —«el criterio que la vigilaba se cegaba solo»—, y en este caso
+      // pesa el doble porque el criterio entra al piso obligatorio: publicaba
+      // «resuelve las cuentas por rol» con un tercio de la frase inverificable.
+      //
+      // Leyendo la lista de la que salen las cuentas, renumerar el catálogo
+      // vuelve a mover el chequeo solo. Y se cae la exigencia de que
+      // `debit|credit|account` aparezca en la MISMA línea: un cableado con
+      // nombre español —`aguinaldo: await cuentaPorCodigo(...)`— se escapaba
+      // por ahí aunque los códigos hubieran estado al día.
+      const seed = codigoDe('src/services/xml-ingestion/account-roles-seed.ts');
+      const codigosDeProvision = [...seed.matchAll(/provision_\w+:\s*'(\d+)'/g)].map((m) => m[1]);
+      if (codigosDeProvision.length === 0) {
+        // FALLA CERRADO. Si el mapa cambia de forma, el chequeo se queda sin
+        // nada que buscar y saldría verde sobre un motor cableado: es
+        // exactamente como nació. Antes que eso, rojo.
+        return falla(
+          'no se derivó ni un código de provisión de account-roles-seed.ts: el chequeo de las ' +
+            'cuentas por rol se quedaría sin nada que buscar, que es como nació muerto la primera vez'
+        );
+      }
+      const quemado = codigosDeProvision.find((c) => run.includes(`'${c}'`));
+      if (quemado !== undefined) {
+        return falla(
+          `la provisión nombra la cuenta '${quemado}' por su código: el catálogo de otra entidad ` +
+            'la deja sin destino'
+        );
+      }
+
+      return ok(
+        'el devengo de prestaciones importa la ley de finiquito-math, lee sus dos bifurcaciones del panel ' +
+          'y resuelve las cuentas por rol'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accruals/provisions-run.ts',
+        de: '  const mapa = new Map(r.rows.map((f) => [f.role, f.account_id]));',
+        a: "  const mapa = new Map([...r.rows.map((f) => [f.role, f.account_id]), [ROL_AGUINALDO, '2202']]);",
+        porque:
+          'la cuenta del aguinaldo cableada por su código en vez de resuelta por rol: es el defecto ' +
+          'que el chequeo (c) nombra, y durante todo este tramo no tuvo espejo que lo comprobara',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/account-roles-seed.ts',
+        de: `  provision_aguinaldo: '2202',
+  provision_vacaciones: '2203',
+  provision_prima_vacacional: '2204',
+  provision_prestaciones_gasto: '6116',`,
+        a: `  provisionAguinaldo: '2202',
+  provisionVacaciones: '2203',
+  provisionPrimaVacacional: '2204',
+  provisionPrestacionesGasto: '6116',`,
+        porque:
+          'el mapa cambia de forma y el chequeo se queda sin códigos que buscar: tiene que ponerse ' +
+          'ROJO por no poder medir, no verde por no encontrar nada',
+      },
+      {
+        archivo: 'src/services/accruals/provisions-run.ts',
+        de: "  const base = await getPolicy(ctx, 'provision_base_salarial');",
+        a: "  const base = { value: 'nominal' };",
+        porque:
+          'quema la base salarial en el motor: el despacho que provisiona sobre salario integrado deja de ' +
+          'poder decirlo, y su pasivo sale corto todos los meses sin que nada lo acuse',
+      },
+      {
+        archivo: 'src/services/accruals/provisions-math.ts',
+        de: "from '../payroll/mx/finiquito-math.js'",
+        a: "from './tabla-del-art-76-propia.js'",
+        porque:
+          'la tabla del art. 76 pasaría a estar escrita dos veces: el finiquito y la provisión pagarían ' +
+          'distinto por el mismo derecho en cuanto una de las dos se actualice',
+      },
+    ],
   },
 ];
 

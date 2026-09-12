@@ -39,12 +39,49 @@ import Decimal from 'decimal.js';
 const DECIMALES = 4;
 
 /**
- * El divisor del factor de integración y de los prorrateos anuales que la ley
- * fija en días naturales. 365 aquí es la constante de la LSS art. 27, no una
- * aproximación del calendario: el año bisiesto se cuenta aparte, en
- * `diasDelEjercicio`.
+ * El divisor del factor de integración. 365 aquí es la constante de la LSS
+ * art. 27, no una aproximación del calendario: el año bisiesto se cuenta
+ * aparte, en `diasDelEjercicio`.
+ *
+ * NO ES EL DIVISOR DEL SUELDO ANUAL NI EL LARGO DEL AÑO NATURAL, aunque los
+ * tres valgan 365 hoy. Son tres cantidades de sitios distintos —la LSS, el
+ * calendario y una convención de nómina que el despacho puede querer cambiar—
+ * y coinciden en el número por casualidad. Cuando tres conceptos comparten una
+ * constante «porque dan lo mismo», tocar uno mueve los tres en silencio; el
+ * comentario de `DIAS_PARA_SALARIO_DIARIO` mide cuánto costaba.
  */
-const DIAS_DEL_ANIO_LEGAL = 365;
+const DIAS_DEL_ANIO_LSS = 365;
+
+/**
+ * Días naturales de un año común. Esto es calendario, no derecho: lo usa
+ * `diasDelEjercicio`, que devuelve 366 cuando el año lo es.
+ */
+const DIAS_DEL_ANIO_NATURAL = 365;
+
+/**
+ * EL DIVISOR DEL SUELDO ANUAL, Y SÓLO ÉSE.
+ *
+ * ── POR QUÉ TIENE CONSTANTE PROPIA, MEDIDO ──────────────────────────────
+ *
+ * Es el único de los tres números que el despacho puede querer cambiar: la
+ * lectura común de la LFT (art. 89) toma el mes de treinta días, así que el
+ * sueldo anual entre 360 es lo que muchos usan, y da un salario diario 1.39 %
+ * mayor. Mientras el divisor fue la misma constante que el factor de
+ * integración y el año natural, obedecer la instrucción de
+ * `salarioDiarioDesdeSueldoAnual` —«se cambia AQUÍ»— y poner 360 movía además,
+ * sin decirlo, dos cosas que nadie pidió tocar:
+ *
+ *   · el factor de integración pasaba de 1.0493150684 a 1.05, y con él TODO
+ *     salario base de cotización que este sistema integra o des-integra;
+ *   · `diasDelEjercicio` devolvía 360 para un año común, así que quien
+ *     trabajaba 2025 entero devengaba 15.2083 días de aguinaldo en lugar de
+ *     15 — exactamente el defecto contra el que esa función advierte en su
+ *     propio comentario, y cinco veces mayor que el que ella describe.
+ *
+ * Un cambio de convención de nómina no puede tener ese radio. Aquí se cambia
+ * el divisor del sueldo, y no se mueve nada más.
+ */
+const DIAS_PARA_SALARIO_DIARIO = 365;
 
 // ============================================================
 // LFT art. 76 — la tabla de vacaciones («vacaciones dignas», 2023)
@@ -115,8 +152,17 @@ function diasEntre(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / MS_POR_DIA);
 }
 
-/** Días trabajados de `a` a `b` contando AMBOS extremos. Nunca negativo. */
-function diasInclusive(a: Date, b: Date): number {
+/**
+ * Días trabajados de `a` a `b` contando AMBOS extremos. Nunca negativo.
+ *
+ * SE EXPORTA DESDE D1, y por la misma razón por la que `amortization-math.ts`
+ * importa el calendario de `depreciation-math.ts` en vez de copiarlo: el motor
+ * de provisiones cuenta con esta misma cuenta los días devengados de un mes, y
+ * dos copias de «del 20 al 31 son doce» son dos sitios donde el error de un día
+ * puede reaparecer por separado. Ese error de un día ya se pagó una vez aquí:
+ * el aguinaldo del finiquito se comía el día de la baja.
+ */
+export function diasInclusive(a: Date, b: Date): number {
   return Math.max(0, diasEntre(a, b) + 1);
 }
 
@@ -132,7 +178,7 @@ function esBisiesto(anio: number): boolean {
  * divisor tiene que ser el mismo año que se está midiendo.
  */
 export function diasDelEjercicio(anio: number): number {
-  return esBisiesto(anio) ? 366 : DIAS_DEL_ANIO_LEGAL;
+  return esBisiesto(anio) ? 366 : DIAS_DEL_ANIO_NATURAL;
 }
 
 /**
@@ -184,7 +230,48 @@ export function factorDeIntegracion(p: PrestacionesAnuales): Decimal {
   const prestaciones = new Decimal(p.dias_aguinaldo).plus(
     new Decimal(p.dias_vacaciones).times(new Decimal(p.prima_vacacional_pct))
   );
-  return new Decimal(DIAS_DEL_ANIO_LEGAL).plus(prestaciones).dividedBy(DIAS_DEL_ANIO_LEGAL);
+  return new Decimal(DIAS_DEL_ANIO_LSS).plus(prestaciones).dividedBy(DIAS_DEL_ANIO_LSS);
+}
+
+/**
+ * EL SALARIO DIARIO A PARTIR DEL SUELDO ANUAL CAPTURADO.
+ *
+ * ── POR QUÉ ES UNA FUNCIÓN Y NO UNA DIVISIÓN EN CADA LLAMADOR ───────────
+ *
+ * `employees.annual_salary` es la única columna donde este sistema guarda lo
+ * que gana una persona, y de ella salen DOS números que tienen que coincidir al
+ * centavo: lo que el finiquito paga el día de la baja y lo que la provisión
+ * mensual (D1) acumuló durante el año en la 2196. Si los dos módulos dividen
+ * por su cuenta y uno elige otro divisor, la provisión de doce meses no
+ * extingue lo que el finiquito liquida y la cuenta de pasivo queda con un
+ * residuo que ningún cierre limpia — el defecto no se ve en ninguna prueba de
+ * cada módulo por separado, sólo en el saldo, y meses después.
+ *
+ * Es la misma lección que la tabla del art. 76: dos copias de la misma cuenta
+ * divergen. Por eso vive aquí, en el módulo puro que los dos importan.
+ *
+ * ── POR QUÉ 365 Y NO 360 ────────────────────────────────────────────────
+ *
+ * El divisor NO es libre, y un auditor lo va a preguntar. La lectura común de
+ * la LFT (art. 89) toma el mes de treinta días, así que el sueldo mensual entre
+ * 30 —o el anual entre 360— es lo que muchos despachos usan; da un salario
+ * diario 1.39 % MAYOR y, con él, una provisión 1.39 % mayor todos los meses.
+ *
+ * Aquí se divide entre 365 por una razón que no es de doctrina: es el divisor
+ * que `calculateFiniquito` lleva usando desde D1a, y el finiquito es el que
+ * paga. Un motor de provisiones que eligiera 360 «porque es más correcto»
+ * estaría provisionando un pasivo que el pago nunca extingue. Si el despacho
+ * quiere la convención de 360, se cambia en `DIAS_PARA_SALARIO_DIARIO` y
+ * cambian los dos motores a la vez, que es exactamente lo que esta función
+ * existe para garantizar. Se cambia AHÍ y no en la constante de la LSS, aunque
+ * las dos valgan 365: el comentario de esa constante dice qué se llevaba por
+ * delante cuando eran la misma.
+ *
+ * Con `Decimal` y no `Number(x) / 365`: el salario diario multiplica TODOS los
+ * conceptos, y un float aquí se propaga hasta el importe que se deposita.
+ */
+export function salarioDiarioDesdeSueldoAnual(sueldoAnual: string | number): string {
+  return new Decimal(sueldoAnual).dividedBy(DIAS_PARA_SALARIO_DIARIO).toFixed(DECIMALES);
 }
 
 /**

@@ -43,6 +43,13 @@ export default defineConfig({
         // global de archivos que este tramo no tocó.
         'src/services/sat/anexo24/catalog-reader.ts',
         'src/services/sat/anexo24/balance-reader.ts',
+        // D1 entra por UN ARCHIVO, no por la carpeta. `provisions-math.ts` es
+        // aritmética pura y se mide entera desde su propio banco; sus dos
+        // vecinos de `accruals/` viven contra Postgres y aquí medirían casi
+        // cero, así que incluir la carpeta sólo movería un porcentaje global
+        // que nadie mira —el promedio que esta configuración evita a propósito—
+        // sin proteger nada.
+        'src/services/accruals/provisions-math.ts',
       ],
       // ============================================================
       // UMBRALES POR ARCHIVO, FIJADOS DONDE YA ESTÁN GANADOS
@@ -182,6 +189,17 @@ export default defineConfig({
         },
         'src/services/sat/anexo24/catalog-reader.ts': {
           statements: 98, branches: 81, functions: 100, lines: 100,
+        },
+        // La aritmética del devengo de prestaciones (D1) nace con el suelo
+        // arriba y no puede bajar de ahí: es dinero que se calcula por
+        // trabajador y por mes, se postea a un mayor inmutable (041) y tiene
+        // que extinguirse al centavo contra el finiquito. Una rama sin probar
+        // aquí —el mes del aniversario, el denominador del bisiesto, la baja a
+        // mitad de mes— no se ve en ninguna prueba de integración, porque
+        // ninguna de las tres necesita base de datos para equivocarse.
+        // Medidos hoy: 100 / 100 / 100 / 100.
+        'src/services/accruals/provisions-math.ts': {
+          statements: 100, branches: 100, functions: 100, lines: 100,
         },
       },
     },

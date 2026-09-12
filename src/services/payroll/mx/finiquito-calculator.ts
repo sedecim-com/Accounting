@@ -1,4 +1,3 @@
-import Decimal from 'decimal.js';
 import { query } from '../../../database/connection.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
 import { getPolicy, getPolicyNumber, type PolicyContext } from '../../policy/policy-service.js';
@@ -8,6 +7,7 @@ import {
   calcularFiniquito,
   diasDeVacacionesPorAnio,
   salarioDiarioDesdeSbc,
+  salarioDiarioDesdeSueldoAnual,
   type DesgloseFiniquito,
   type MotivoDeBaja,
 } from './finiquito-math.js';
@@ -172,9 +172,12 @@ export async function calculateFiniquito(
   let salarioDiario: string;
   let fuente: FiniquitoResult['basis']['daily_wage_source'];
   if (e.annual_salary) {
-    // Decimal, no `Number(x) / 365`: el salario diario es el multiplicador de
-    // TODOS los conceptos, y un float aquí se propaga al total.
-    salarioDiario = new Decimal(e.annual_salary).dividedBy(365).toFixed(4);
+    // El divisor ya no vive aquí: lo fija `salarioDiarioDesdeSueldoAnual` en el
+    // módulo puro, y lo comparte con el motor de provisiones de D1. Dos
+    // divisores para la misma columna dejarían la 2196 con un residuo que el
+    // finiquito nunca extingue — la razón completa está en la cabecera de esa
+    // función.
+    salarioDiario = salarioDiarioDesdeSueldoAnual(e.annual_salary);
     fuente = 'annual_salary';
   } else if (e.sbc) {
     // Respaldo: se des-integra para volver al salario diario. Aproximado —el

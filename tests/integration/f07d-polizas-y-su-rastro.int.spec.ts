@@ -96,6 +96,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await drainAttestations(2000);
+  // `sat_bancos` ES GLOBAL: no lleva inquilino ni entidad, así que las dos
+  // filas que este archivo siembra (más abajo, para probar que la validación
+  // de la clave SÍ valida cuando el catálogo existe) sobreviven a la muerte de
+  // sus fixtures y las ve el resto de la suite. F07cd afirma —con razón— que
+  // el catálogo nace VACÍO y que nadie lo siembra, así que quien corriera
+  // último decidía el resultado: el orden de vitest depende de la duración
+  // cacheada de cada archivo, y basta añadir un archivo nuevo en cualquier
+  // parte de la suite para voltearlo. Lo que se ensucia fuera del inquilino se
+  // limpia a mano; lo demás se va con la base efímera.
+  await query(`DELETE FROM sat_bancos`);
   await closeDatabase();
 });
 

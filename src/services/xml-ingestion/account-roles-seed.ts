@@ -272,6 +272,15 @@ export const ROLE_MAP: Record<AccountRole, string> = {
   sueldos_por_pagar: '2160',
   isr_nomina_por_pagar: '2140',
   imss_por_pagar: '2170',
+  // Provisiones de beneficios a empleados (D1). Las cuatro cuentas viven en el
+  // ESTRATO MEXICANO del catálogo base (chart-seed.ts), porque el aguinaldo y
+  // la prima vacacional son de la LFT y no significan nada en Delaware; por eso
+  // los cuatro roles están además en ROLES_FISCALES_MX y una entidad no
+  // mexicana no los recibe.
+  provision_aguinaldo: '2202',
+  provision_vacaciones: '2203',
+  provision_prima_vacacional: '2204',
+  provision_prestaciones_gasto: '6116',
   // FX differences — cuentas PROPIAS (R4): en 4300/6300 la fluctuación se
   // fundía con otros ingresos y con los gastos financieros, y NIF B-15 exige
   // poder identificarla. El neteo que pide B-3 lo hace la presentación.
@@ -329,6 +338,14 @@ const ROLES_FISCALES_MX: readonly AccountRole[] = [
   'impuestos_locales_por_pagar',
   'isr_nomina_por_pagar',
   'imss_por_pagar',
+  // Prestaciones de la LFT: aguinaldo (87), vacaciones (76) y prima vacacional
+  // (80). No hay equivalente fuera de México, y sus cuentas sólo se siembran en
+  // el estrato mexicano: dejarlos pasar mandaría a `unmapped` cuatro roles en
+  // toda entidad estadounidense, que es ruido en la salida del alta.
+  'provision_aguinaldo',
+  'provision_vacaciones',
+  'provision_prima_vacacional',
+  'provision_prestaciones_gasto',
 ];
 
 /** Dónde caen los dos roles genéricos de impuesto en una entidad no mexicana. */
