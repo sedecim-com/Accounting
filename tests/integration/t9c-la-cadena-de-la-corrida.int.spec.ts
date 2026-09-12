@@ -228,10 +228,19 @@ describe('y la cadena PROPIA sigue funcionando', () => {
 
 describe('el finiquito: la guarda estaba puesta y la consulta no acotaba', () => {
   it('no se calcula el finiquito del empleado ajeno', async () => {
+    // EL CUERPO TIENE QUE SER VÁLIDO, y no lo era. Mandaba `motivo_baja` —una
+    // clave en español que el código nunca leyó— y omitía `last_paid_through`.
+    // Daba 404 igual, porque el 404 sale del SELECT acotado por entidad y eso
+    // ocurre antes de mirar nada más. Desde T6 (#93) la ruta lleva esquema
+    // estricto, y con el cuerpo viejo contestaría 422: la prueba seguiría
+    // verde en apariencia y habría dejado de medir la frontera. Un 422 y un
+    // 404 dicen cosas distintas sobre si el recurso existe, y lo que aquí se
+    // afirma es lo segundo.
     const r = await pedir(srv, 'POST', '/payroll/finiquito', {
       employee_id: EMPLEADO_B,
       termination_date: '2026-06-30',
-      motivo_baja: 'renuncia',
+      last_paid_through: '2026-06-30',
+      termination_reason: 'renuncia',
     });
     expect(r.status, `contestó ${r.status}`).toBe(404);
   });

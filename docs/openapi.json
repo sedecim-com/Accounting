@@ -6445,12 +6445,58 @@
             "$ref": "#/components/parameters/EntidadActiva"
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "employee_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "termination_date": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}"
+                  },
+                  "last_paid_through": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}"
+                  },
+                  "termination_reason": {
+                    "type": "string",
+                    "enum": [
+                      "renuncia",
+                      "despido",
+                      "rescision_por_el_trabajador",
+                      "muerte"
+                    ]
+                  },
+                  "pending_vacation_days": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "employee_id",
+                  "termination_date",
+                  "last_paid_through",
+                  "termination_reason"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "401": {
             "$ref": "#/components/responses/NoAutenticado"
           },
           "403": {
             "$ref": "#/components/responses/SinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/CuerpoInvalido"
           },
           "500": {
             "$ref": "#/components/responses/ErrorInterno"

@@ -55,7 +55,10 @@ import type { JurisdictionCode } from './jurisdiction.js';
 
 /** Las unidades que hoy hacen falta. El valor es cadena; la unidad es lo que
  *  lo hace significar algo. */
-type LegalParameterUnit = 'rate' | 'MXN';
+// `days` entra con T6 (#93): el mínimo de aguinaldo del art. 87 LFT se cuenta
+// en días, y sin unidad `value` es un número sin significado — que es
+// exactamente el defecto que ese tramo cerró en el panel.
+type LegalParameterUnit = 'rate' | 'MXN' | 'days';
 
 /** Una fila de la semilla: lo que la 080 exige, con la fuente obligatoria. */
 export interface LegalParameterSeedRow {
@@ -74,6 +77,7 @@ export interface LegalParameterSeedRow {
 
 const LISR_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LISR.pdf';
 const LIVA_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LIVA.pdf';
+const LFT_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LFT.pdf';
 
 /**
  * Lo que se siembra, y sólo lo que se pudo fundamentar.
@@ -84,6 +88,46 @@ const LIVA_PDF = 'https://www.diputados.gob.mx/LeyesBiblio/pdf/LIVA.pdf';
  * medias haría creer que la tabla ya contesta por las dos.
  */
 export const LEGAL_PARAMETERS_SEED: readonly LegalParameterSeedRow[] = [
+  // ── MÍNIMOS DE LA LFT (T6 · #93) ───────────────────────────────────────
+  //
+  // Viven AQUÍ y no en el catálogo del panel, y la razón la escribe el propio
+  // catálogo en su cabecera: lo que allí se declara es criterio del despacho,
+  // y «la ley fija los mínimos —y ésos viven en la tabla de parámetros
+  // legales, no aquí—». Un `min` en una PolicySpec sería una constante de
+  // TypeScript sin fecha de entrada y sin fuente; estas dos tienen las dos.
+  //
+  // La fecha es la de la LEY, no la de captura. Las dos fracciones vienen del
+  // texto original de la LFT de 1970, en vigor el 1 de mayo de 1970: fechar
+  // esto en 2026 haría que todo finiquito con baja anterior se topara con
+  // `not_yet_in_force` y dejara de calcularse.
+  {
+    jurisdiction: 'MX',
+    key: 'aguinaldo.minimum_days',
+    effectiveFrom: '1970-05-01',
+    // Cuatro decimales aunque sean días: la casa guarda TODO valor legal así,
+    // y hay una prueba que lo exige. Un formato uniforme es lo que permite
+    // compararlos con decimal.js sin preguntarse de qué clase es cada uno.
+    value: '15.0000',
+    unit: 'days',
+    sourceUrl: LFT_PDF,
+    sourceNote:
+      'LFT art. 87: «Los trabajadores tendrán derecho a un aguinaldo anual que deberá pagarse antes ' +
+      'del día veinte de diciembre, equivalente a quince días de salario, por lo menos». El mínimo ' +
+      'es de la ley; cuántos días paga el despacho por encima es criterio suyo y vive en el panel ' +
+      '(`dias_aguinaldo`).',
+  },
+  {
+    jurisdiction: 'MX',
+    key: 'vacation_premium.minimum_rate',
+    effectiveFrom: '1970-05-01',
+    value: '0.2500',
+    unit: 'rate',
+    sourceUrl: LFT_PDF,
+    sourceNote:
+      'LFT art. 80: «Los trabajadores tendrán derecho a una prima no menor de veinticinco por ciento ' +
+      'sobre los salarios que les correspondan durante el período de vacaciones». Es un mínimo, y el ' +
+      'artículo NO fija techo: pagar más es una prestación, y va en el panel (`prima_vacacional_pct`).',
+  },
   // ── IVA ────────────────────────────────────────────────────────────────
   {
     jurisdiction: 'MX',

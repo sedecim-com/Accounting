@@ -11,6 +11,46 @@ export interface PolicyOption {
   label: string;
 }
 
+/**
+ * QUÉ ES ESTE NÚMERO (T6 · #93).
+ *
+ * El panel aceptaba cualquier cadena y sólo anotaba «[value outside the
+ * catalog]». Medido: `prima_vacacional_pct = '25'` —un contador leyendo la
+ * etiqueta «25 %» y tecleando 25— pagaba 275.000,00 donde tocaban 2.750,00.
+ * El catálogo dice `'0.25'`; la etiqueta dice «25 %»; y entre las dos no había
+ * nada que dijera que el número es una FRACCIÓN.
+ *
+ * Las cotas son CADENAS y se comparan con decimal.js, no con `Number`: el
+ * dinero de esta casa es cadena a cuatro decimales, y comparar con flotantes
+ * mete el error de redondeo dentro de la propia guarda.
+ *
+ * Y la cota de arriba NO es la ley. El art. 80 LFT fija un mínimo de prima
+ * vacacional y NINGÚN techo: un despacho que paga 120 % está dentro de la ley.
+ * Por eso `porQueElTope` es obligatorio cuando hay `max` — es el texto que se
+ * imprime, y tiene que decir que el techo es nuestro y cómo se ensancha, o la
+ * reparación que ataja el ×100 bloquea de paso una prestación legítima.
+ *
+ * El MÍNIMO LEGAL no vive aquí: vive en `legal_parameters`, con su fecha de
+ * entrada y su fuente, porque una constante en TypeScript no sabe desde cuándo
+ * rige. Este archivo lo dice de sí mismo en su cabecera.
+ */
+export interface PolicyDomain {
+  tipo: 'numero';
+  unidad: 'MXN' | 'dias' | 'fraccion' | 'conteo';
+  /** Cota inferior de FORMA, no de ley. Cadena: se compara con decimal.js. */
+  min?: string;
+  max?: string;
+  decimales?: number;
+  /** Obligatorio si hay `max`: qué lo pone ahí, y cómo se ensancha. */
+  porQueElTope?: string;
+}
+
+/** La clave de `legal_parameters` que fija el piso de esta política. */
+export interface PolicyLegalFloor {
+  jurisdiccion: 'MX' | 'US';
+  key: string;
+}
+
 export interface PolicySpec {
   key: string;
   category: 'contable' | 'fiscal' | 'seguridad' | 'operativa' | 'comercial';
@@ -18,6 +58,10 @@ export interface PolicySpec {
   /** What changes in the system depending on the answer. */
   impact: string;
   options: PolicyOption[];
+  /** Qué es el número y entre qué cotas de forma cae. Sólo claves numéricas. */
+  dominio?: PolicyDomain;
+  /** Dónde vive el mínimo que la LEY fija, si lo hay. Ver `PolicyDomain`. */
+  pisoLegal?: PolicyLegalFloor;
   /** Value in use while undefined. */
   defaultValue: string;
   defaultRationale: string;
@@ -560,6 +604,11 @@ export const POLICY_CATALOG: PolicySpec[] = [
       { value: '20', label: '20 days' },
       { value: '30', label: '30 days (one month)' },
     ],
+    dominio: { tipo: 'numero', unidad: 'dias', min: '0', decimales: 0 },
+    // El techo lo pone la ley al revés que de costumbre: no hay. Un despacho
+    // que da noventa días de aguinaldo está dando una prestación, y una
+    // prestación no tiene máximo legal. El piso sí, y vive en la tabla de la ley.
+    pisoLegal: { jurisdiccion: 'MX', key: 'aguinaldo.minimum_days' },
     defaultValue: '15',
     defaultRationale:
       'LFT art. 87 sets fifteen days as the floor, and a floor is the only number the system can assume ' +
@@ -580,6 +629,20 @@ export const POLICY_CATALOG: PolicySpec[] = [
       { value: '0.50', label: '50 %' },
       { value: '1.00', label: '100 %' },
     ],
+    dominio: {
+      tipo: 'numero',
+      unidad: 'fraccion',
+      min: '0',
+      max: '1',
+      decimales: 4,
+      porQueElTope:
+        'Es una FRACCIÓN: 0.25 son 25 %. El tope de 1 (100 %) lo ponemos nosotros, no la ley — ' +
+        'el art. 80 LFT fija el mínimo y ningún máximo. Está ahí para atajar la errata de teclear ' +
+        '«25» leyendo la etiqueta «25 %», que multiplica la prima por cien sobre un finiquito que ' +
+        'se paga y no vuelve. Un despacho que de verdad pague por encima del 100 % tiene que ' +
+        'ensanchar este tope en el catálogo, y entonces queda escrito quién y cuándo.',
+    },
+    pisoLegal: { jurisdiccion: 'MX', key: 'vacation_premium.minimum_rate' },
     defaultValue: '0.25',
     defaultRationale:
       'Same reasoning as the aguinaldo: LFT art. 80 sets 25 % as the floor, and the floor is the only ' +
