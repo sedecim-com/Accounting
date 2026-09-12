@@ -843,6 +843,43 @@ export function readAccountRoleValues(): string[] {
   return [...new Set([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]))];
 }
 
+/**
+ * RUTAS BAJO `src/` CON UN SEGMENTO ESPAÑOL DE LA JURISDICCIÓN, sin filtrar
+ * por extensión.
+ *
+ * WIT-198-01. La primera versión usaba `fuentes('src')`, que enumera SÓLO
+ * `.ts`. Una carpeta `src/**\/jurisdiccion/` que volviera con un `.sql`, un
+ * `.json` o un `.md` dentro —y las migraciones y los catálogos sembrados son
+ * exactamente eso— no la veía nadie, y el criterio seguía verde afirmando que
+ * la carpeta está en cero. El enunciado promete la CARPETA, no los archivos
+ * TypeScript de la carpeta.
+ *
+ * Se recorre el árbol y se mira el NOMBRE DEL DIRECTORIO, así que una carpeta
+ * vacía de `.ts` cuenta igual. Se exporta para poder ejercitarla sobre un
+ * árbol de mentira: un mutante no puede CREAR un archivo —el overlay sólo
+ * sustituye o borra— así que la prueba de esta guarda tiene que ser una
+ * prueba, no un espejo.
+ */
+export function spanishJurisdictionPaths(root: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
+      const full = path.join(dir, e.name);
+      if (/^jurisdicci[oó]n$/i.test(e.name)) found.push(path.relative(root, full).split(path.sep).join('/'));
+      if (e.isDirectory()) walk(full);
+    }
+  };
+  walk(path.join(root, 'src'));
+  return found;
+}
+
 // ── Los criterios ───────────────────────────────────────────
 
 export const CRITERIOS: Criterio[] = [
@@ -3185,9 +3222,7 @@ export const CRITERIOS: Criterio[] = [
 
       // 2 · NI EL DIRECTORIO. El renombrado de la carpeta es la mitad que un
       // codemod de identificadores no hace, y la que rompe diez imports.
-      const oldFolder = fuentes('src').filter((f) =>
-        /(^|\/)jurisdiccion(\/|$)/.test(path.relative(RAIZ, f).split(path.sep).join('/'))
-      );
+      const oldFolder = spanishJurisdictionPaths(RAIZ);
 
       // 3 · SIN ENTRADA EN UN CARRIL EXIGIDO.
       //
