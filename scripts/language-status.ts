@@ -52,7 +52,13 @@ import { docsLanes } from './language/lanes/docs.js';
 
 const ROOT = path.resolve(__dirname, '..');
 const BASELINE = path.join(ROOT, 'docs', 'language-baseline.json');
-const GOVERNING_DOC = path.join(ROOT, 'docs', 'language.md');
+// LAS DOS PÁGINAS, no una. La issue #144 pide el bloque en el rector inglés Y
+// en su gemela española, y publicar sólo en una las desincroniza: quien lea la
+// española vería cifras viejas sin ninguna señal de que lo son.
+const GOVERNING_DOCS = [
+  path.join(ROOT, 'docs', 'language.md'),
+  path.join(ROOT, 'docs', 'language.es.md'),
+];
 const OPEN_MARK = '<!-- LANGUAGE-STATUS:START -->';
 const CLOSE_MARK = '<!-- LANGUAGE-STATUS:END -->';
 
@@ -245,18 +251,75 @@ function block(lanes: Lane[], base: Baseline | null): string {
   ].join('\n');
 }
 
-function writeBlock(text: string): boolean {
-  if (!fs.existsSync(GOVERNING_DOC)) return false;
-  const doc = fs.readFileSync(GOVERNING_DOC, 'utf8');
-  const i = doc.indexOf(OPEN_MARK);
-  const j = doc.indexOf(CLOSE_MARK);
-  if (i === -1 || j === -1) {
-    // Sin marcadores no se inventa un sitio: el documento decide dónde va su
-    // block, no el comando. Se dice y se sigue.
-    return false;
+/**
+ * PUBLICAR ES UNA PROMESA, ASÍ QUE NO PUEDE FALLAR EN SILENCIO.
+ *
+ * Devuelve la lista de páginas que NO se pudieron escribir, con el motivo.
+ * Vacía significa que las dos se publicaron.
+ *
+ * La versión anterior devolvía un booleano, imprimía «no se escribió» y salía
+ * con CERO. Un comando que promete publicar un artefacto y termina bien sin
+ * haberlo publicado es la avería que este mismo repositorio llama «el cero que
+ * parece una victoria»: quien lo corre en un guion no se entera, y el bloque
+ * del rector se queda con las cifras del mes pasado sin que nada lo diga.
+ *
+ * Sin marcadores no se inventa un sitio —el documento decide dónde va su
+ * bloque, no el comando— pero eso se ACUSA en vez de tolerarse.
+ */
+export function writeBlock(text: string, targets: string[] = GOVERNING_DOCS): string[] {
+  const failures: string[] = [];
+  for (const target of targets) {
+    const rel = path.relative(ROOT, target);
+    if (!fs.existsSync(target)) {
+      failures.push(`${rel}: no existe`);
+      continue;
+    }
+    const doc = fs.readFileSync(target, 'utf8');
+    const i = doc.indexOf(OPEN_MARK);
+    const j = doc.indexOf(CLOSE_MARK);
+    if (i === -1 || j === -1) {
+      failures.push(`${rel}: no tiene los marcadores ${OPEN_MARK} … ${CLOSE_MARK}`);
+      continue;
+    }
+    fs.writeFileSync(target, doc.slice(0, i) + text + doc.slice(j + CLOSE_MARK.length));
   }
-  fs.writeFileSync(GOVERNING_DOC, doc.slice(0, i) + text + doc.slice(j + CLOSE_MARK.length));
-  return true;
+
+  // RESELLAR LA GEMELA, o el metro rompe su propio carril en cada corrida.
+  //
+  // El bloque vive DENTRO del rector, así que cada medición cambia el hash de
+  // `language.md` — y `docs-spanish-twins-stale` (lanes/docs.ts) cuenta las
+  // gemelas cuyo `source_sha` ya no casa. Sin este paso, `--write` dejaba ese
+  // carril en 1 y `--check` en rojo: el instrumento se ponía la zancadilla a
+  // sí mismo publicando su propia cifra.
+  //
+  // Se resella con el hash del fuente YA ESCRITO, no del que se leyó al
+  // empezar: si se sellara antes, el sello certificaría una versión que ya no
+  // está en disco.
+  // CONVERGE EN DOS CORRIDAS, y conviene saberlo antes de asustarse. El bloque
+  // se publica DENTRO del corpus que el metro mide, así que la primera escritura
+  // mueve los carriles de documentación (páginas sin gemela, citas muertas) y la
+  // segunda publica ya la cifra estable. Medido: la tercera corrida no cambia un
+  // byte. No es un bucle, es un punto fijo a un paso de distancia — pero un
+  // `--write` en un guion que compare antes y después tiene que correrlo dos
+  // veces o creerá que el instrumento oscila.
+  if (failures.length === 0) restampTwin(targets);
+  return failures;
+}
+
+/**
+ * Pone en la gemela el `git hash-object` de su fuente. Silencioso si no hay
+ * pareja o si la gemela no declara sello: este paso ACOMPAÑA a la publicación
+ * del bloque, y no es el sitio donde se decide si una página debe tener gemela
+ * —eso lo cuenta `docs-english-pages-untwinned`—.
+ */
+function restampTwin(targets: string[]): void {
+  const source = targets.find((t) => /language\.md$/.test(t));
+  const twin = targets.find((t) => /language\.es\.md$/.test(t));
+  if (source === undefined || twin === undefined || !fs.existsSync(twin)) return;
+  const sha = execFileSync('git', ['hash-object', source], { cwd: ROOT, encoding: 'utf8' }).trim();
+  const text = fs.readFileSync(twin, 'utf8');
+  const stamped = text.replace(/(source_sha[*_`\s]*[:=][\s*_`"']*)([0-9a-f]{7,40})\b/i, `$1${sha}`);
+  if (stamped !== text) fs.writeFileSync(twin, stamped);
 }
 
 /** `--seed` se niega en un árbol sucio: sembraría lo que alguien no ha comprometido. */
@@ -328,13 +391,21 @@ function main(argv: string[]): number {
   const findings = compare(lanes, base);
 
   if (has('--write')) {
-    const written = writeBlock(block(lanes, base));
-    process.stdout.write(
-      written
-        ? `Bloque regenerado en ${path.relative(ROOT, GOVERNING_DOC)}.\n`
-        : `No se escribió el bloque: ${path.relative(ROOT, GOVERNING_DOC)} no existe o no tiene marcadores ${OPEN_MARK}.\n`
+    const failures = writeBlock(block(lanes, base));
+    if (failures.length === 0) {
+      process.stdout.write(
+        `Bloque regenerado en ${GOVERNING_DOCS.map((d) => path.relative(ROOT, d)).join(' y ')}.\n`
+      );
+      return 0;
+    }
+    process.stderr.write(
+      `No se publicó el bloque en ${failures.length} de ${GOVERNING_DOCS.length} página(s):\n` +
+        failures.map((f) => `  · ${f}`).join('\n') +
+        '\n\nEl medidor publica su cifra en el rector y en su gemela; sin eso mide para\n' +
+        'nadie. Se sale con 1 a propósito: un comando que promete publicar y termina\n' +
+        'bien sin haber publicado deja el bloque con las cifras viejas y nadie se entera.\n'
     );
-    return 0;
+    return 1;
   }
 
   if (has('--check')) {
