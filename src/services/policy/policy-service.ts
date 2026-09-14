@@ -3,8 +3,10 @@ import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
 import { FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_VEREDICTOS } from '../../ai/floor.js';
-import { POLICY_CATALOG, getPolicySpec } from './pending-catalog.js';
+import { POLICY_CATALOG, getPolicySpec, type PolicySpec } from './pending-catalog.js';
 import type { JurisdictionCode } from '../jurisdiction/jurisdiction.js';
+import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
+import Decimal from 'decimal.js';
 
 // ============================================================
 // POLICY SERVICE
@@ -207,6 +209,7 @@ export async function getPolicy(
   const spec = getPolicySpec(key);
 
   if (row?.status === 'resolved' && row.resolved_value !== null) {
+    validarDominio(spec, row.resolved_value);
     return {
       key, value: row.resolved_value, defined: true,
       question: row.question,
@@ -218,6 +221,9 @@ export async function getPolicy(
   if (fallback === undefined || fallback === null) {
     throw new Error(`Policy "${key}" does not exist in the catalog or in the database`);
   }
+  // El respaldo también: `default_value` puede venir de un catálogo viejo y
+  // `seedPolicies` no revisita la fila (ON CONFLICT DO NOTHING).
+  validarDominio(spec, fallback);
   return {
     key, value: fallback, defined: false,
     question: row?.question ?? spec?.question ?? key,
@@ -227,6 +233,104 @@ export async function getPolicy(
     // es lo que de verdad es.
     jurisdiction: row?.jurisdiction ?? null,
   };
+}
+
+/**
+ * LA COTA DE FORMA, EN LA ESCRITURA Y EN LA LECTURA (T6 · #93).
+ *
+ * Las dos, y no una, por tres razones medidas:
+ *
+ *  · La guarda de escritura sólo ve respuestas NUEVAS. `resolvePolicy` toca
+ *    filas en `pending`; las que ya están resueltas con un valor imposible
+ *    siguen ahí, y el ×100 vuelve por ellas.
+ *  · Hay valores que nunca cruzan `resolvePolicy`: el `default_value` sembrado
+ *    desde un catálogo viejo, que `seedPolicies` no revisita (`ON CONFLICT DO
+ *    NOTHING`) y que `getPolicy` sirve por delante del catálogo; y las pruebas
+ *    de integración que escriben `policy_decisions` por SQL crudo.
+ *  · Y sólo la de escritura detiene la errata EN EL TECLADO, antes de quedar
+ *    archivada bajo el sello «tu despacho decidió esto». Sin ella,
+ *    `pending define dias_aguinaldo 5` sigue imprimiendo «✔» y el fallo
+ *    aparece dos semanas después, el día que alguien causa baja.
+ *
+ * NO ciega al panel: `listPolicies` y la herramienta del agente leen por SQL
+ * crudo, no por aquí, así que una fila fuera de dominio se sigue VIENDO. Lo
+ * único que se le niega es convertirse en un importe.
+ *
+ * Y no valida vocabularios, sólo números. Hay conducta en el árbol que depende
+ * de poder escribir un valor fuera del catálogo a propósito —una prueba de
+ * provisiones escribe uno inválido y exige que reviente el MOTOR, no la
+ * escritura—, y un lector de la DIOT acepta un código que el catálogo no
+ * ofrece. El valor libre era deliberado; lo que no puede ser libre es la
+ * UNIDAD de un número del que sale dinero.
+ */
+export function validarDominio(spec: PolicySpec | undefined, valor: string): void {
+  const d = spec?.dominio;
+  if (!d || !spec) return;
+  const k = spec.key;
+  const crudo = valor.trim();
+  let n: Decimal;
+  try {
+    n = new Decimal(crudo);
+  } catch {
+    throw new ValidationError(
+      `"${k}" es un número (${d.unidad}) y "${valor}" no lo es.`,
+      'value'
+    );
+  }
+  if (!n.isFinite()) {
+    throw new ValidationError(`"${k}" es un número (${d.unidad}) y "${valor}" no lo es.`, 'value');
+  }
+  if (d.decimales !== undefined && n.decimalPlaces() > d.decimales) {
+    throw new ValidationError(
+      `"${k}" admite ${d.decimales} decimal(es) y "${valor}" trae ${n.decimalPlaces()}.`,
+      'value'
+    );
+  }
+  if (d.min !== undefined && n.lessThan(d.min)) {
+    throw new ValidationError(`"${k}" no puede ser menor que ${d.min}; llegó "${valor}".`, 'value');
+  }
+  if (d.max !== undefined && n.greaterThan(d.max)) {
+    throw new ValidationError(
+      `"${k}" no puede pasar de ${d.max}; llegó "${valor}". ${d.porQueElTope ?? ''}`.trim(),
+      'value'
+    );
+  }
+}
+
+/**
+ * EL PISO DE LA LEY, CON LA FECHA DEL HECHO (T6 · #93).
+ *
+ * Va aquí y no dentro de `getPolicy` por una razón que no es de estilo: el
+ * piso TIENE VIGENCIA, y `getPolicy` no sabe de qué fecha es el hecho. Un
+ * recálculo de una baja de 2019 contra el mínimo de hoy es otra cifra, y
+ * contestar esa pregunta es justamente para lo que existe `legal_parameters`.
+ * Por eso el llamador pasa la fecha, y por eso esto ENVUELVE el valor en vez
+ * de adosarse: el número no puede llegar a la aritmética sin pasar por aquí.
+ *
+ * El techo es nuestro y vive en el catálogo (`PolicyDomain.max`); el piso es
+ * de la ley y vive en la tabla de la ley. No se mezclan.
+ */
+export async function exigirPisoLegal(key: string, valor: string, enFecha: string): Promise<string> {
+  const spec = getPolicySpec(key);
+  const piso = spec?.pisoLegal;
+  if (!piso) return valor;
+
+  const enLey = await legalParameterAt(piso.jurisdiccion, piso.key, enFecha);
+  if (enLey.value === null) return valor; // derogada: la ley terminó y no hay sustituta.
+
+  const declarado = new Decimal(valor.trim());
+  const minimo = new Decimal(enLey.value);
+  if (declarado.lessThan(minimo)) {
+    throw new ValidationError(
+      `"${key}" vale ${valor} y la ley fija un mínimo de ${enLey.value} a la fecha ${enFecha}. ` +
+        `${enLey.sourceNote ?? ''} `.trim() +
+        ' Ese mínimo no es criterio del despacho y el panel no puede ofrecer bajarlo: ' +
+        'pagar por encima es una prestación, pagar por debajo es una demanda laboral con el ' +
+        'cálculo de este sistema como prueba.',
+      'value'
+    );
+  }
+  return valor;
 }
 
 /** Numeric shortcut for policies that are amounts or quantities. */
@@ -292,6 +396,13 @@ export async function resolvePolicy(
       'value'
     );
   }
+
+  // Y una respuesta fuera de dominio tampoco es una respuesta. Va AQUÍ,
+  // pegada a la del blanco y antes de todo lo demás, porque las dos dicen lo
+  // mismo: el valor no puede convertirse en un importe. Ésta es la mitad que
+  // detiene la errata en el teclado; la de `getPolicy` es la que cubre lo que
+  // ya está escrito.
+  validarDominio(spec, value);
 
   // A4 · LA COMPUERTA DE LA EVIDENCIA: encender el auto-posteo exige el
   // historial de sombra que el piso manda (días, acuerdo y veredictos

@@ -6,6 +6,12 @@ vi.mock('../../../src/database/connection.js', () => ({
 vi.mock('../../../src/services/policy/policy-service.js', () => ({
   getPolicy: vi.fn(),
   getPolicyNumber: vi.fn(),
+  // T6 (#93): el piso de la ley envuelve las dos lecturas del panel. Aquí se
+  // dobla con la identidad porque lo que esta cáscara mide es OTRA cosa —qué
+  // lee y de dónde—; que el piso muerda se mide contra Postgres, en
+  // tests/integration/t6-el-panel-que-acepta-cualquier-numero.int.spec.ts,
+  // donde la fila de `legal_parameters` existe de verdad.
+  exigirPisoLegal: vi.fn((_k: string, valor: string) => Promise.resolve(valor)),
 }));
 
 import { calculateFiniquito } from '../../../src/services/payroll/mx/finiquito-calculator.js';
@@ -123,23 +129,26 @@ describe('Finiquito MX — la cáscara (LFT Art. 76, 79, 80, 87)', () => {
     expect(conElContrato.basis.prima_vacacional_pct).toBe('1.00');
   });
 
-  it('el llamador puede sobrescribir el panel con el dato del contrato', async () => {
+  // AQUÍ VIVÍA «el llamador puede sobrescribir el panel con el dato del
+  // contrato», que afirmaba `expect(mockGetPolicyNumber).not.toHaveBeenCalled()`.
+  // No cae de rebote: alguien la escribió a propósito para fijar la conducta
+  // que T6 (#93) retira. El cuerpo de la petición era la segunda puerta al
+  // mismo dinero —`prima_vacacional_pct: 25` pagaba 275.000,00 donde tocaban
+  // 2.750,00— y una decisión contable no se toma en un JSON sin autor ni fila.
+  // Lo contrario está fijado ahora en la prueba de abajo.
+  it('el panel es la ÚNICA fuente: no hay campo de cuerpo que lo sobrescriba', async () => {
     conParametros({ rows: [EMPLEADO] });
-    const r = await calculateFiniquito(
+    await calculateFiniquito(
       {
         employee_id: 'emp1',
         termination_date: '2026-09-30',
         termination_reason: 'renuncia' as const,
         last_paid_through: '2026-09-15',
-        aguinaldo_days_per_year: 20,
-        prima_vacacional_pct: 0.5,
       },
       CTX
     );
-    expect(mockGetPolicyNumber).not.toHaveBeenCalled();
-    expect(mockGetPolicy).not.toHaveBeenCalled();
-    expect(r.basis.aguinaldo_days_per_year).toBe(20);
-    expect(r.basis.prima_vacacional_pct).toBe('0.5');
+    expect(mockGetPolicyNumber).toHaveBeenCalledWith(expect.anything(), 'dias_aguinaldo');
+    expect(mockGetPolicy).toHaveBeenCalledWith(expect.anything(), 'prima_vacacional_pct');
   });
 
   it('el salario diario sale del contrato, NO del SBC', async () => {
