@@ -51,6 +51,26 @@ const meta = (req: Request) => ({
 });
 
 // ─── Request schemas ───
+/**
+ * EL CUERPO DEL FINIQUITO, ESTRICTO (T6 · #93).
+ *
+ * `.strict()` y no el `.strip()` por omisión de zod, que también bastaría para
+ * descartar el campo. La diferencia es lo que ve el cliente: un descarte mudo
+ * empieza a pagar otra cantidad sobre un finiquito REAL sin que nadie se
+ * entere, y aquí el campo retirado —`prima_vacacional_pct`— es justo el que
+ * pagaba cien veces de más. Quien lo siga mandando recibe un 422 que lo
+ * NOMBRA, y va a buscar el panel, que es donde esa decisión vive.
+ */
+const finiquitoSchema = z
+  .object({
+    employee_id: z.string().uuid(),
+    termination_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'YYYY-MM-DD'),
+    last_paid_through: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'YYYY-MM-DD'),
+    termination_reason: z.enum(['renuncia', 'despido', 'rescision_por_el_trabajador', 'muerte']),
+    pending_vacation_days: z.number().optional(),
+  })
+  .strict();
+
 const createEmployeeSchema = z.object({
   entity_id: z.string().uuid().optional(),
   first_name: z.string().min(1).max(100),
@@ -325,11 +345,15 @@ router.post('/sua', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax_form
 // Es la sexta vez que esta frontera aparece en el proyecto y la primera en
 // nómina: la puerta la abrió el propio arreglo de este tramo.
 // POST que calcula y contesta: el finiquito no se guarda en ninguna parte.
-router.post('/finiquito', declararRiesgoRuta({ riesgo: 'lectura' }), requirePermission('payroll:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
+router.post('/finiquito', declararRiesgoRuta({ riesgo: 'lectura' }), requirePermission('payroll:create'), requireEntityAccess, validateBody(finiquitoSchema), asyncHandler(async (req: Request, res: Response) => {
   // El inquilino y la entidad viajan APARTE del cuerpo: el finiquito lee el
   // panel de políticas (`dias_aguinaldo`, `prima_vacacional_pct`) y acota el
   // empleado por inquilino dentro del SQL, y ninguna de las dos cosas puede
   // salir de un JSON que manda el cliente.
+  //
+  // El esquema va DESPUÉS de `requireEntityAccess` a propósito. Delante, un
+  // cuerpo mal formado contestaría 422 antes de que la frontera de entidad
+  // opine, y un 422 y un 404 dicen cosas distintas sobre si el recurso existe.
   const result = await calculateFiniquito(req.body, {
     tenantId: req.tenantId!,
     entityId: req.entityId,

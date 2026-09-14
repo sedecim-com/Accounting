@@ -6,7 +6,7 @@ import {
   periodoDeLaCorrida,
   type PeriodoDeCorrida,
 } from '../accounting/periodo-de-corrida.js';
-import { getPolicy, getPolicyNumber } from '../policy/policy-service.js';
+import { getPolicy, getPolicyNumber, exigirPisoLegal } from '../policy/policy-service.js';
 import { ValidationError } from '../../utils/errors.js';
 import { JournalEntryType, FiscalPeriodStatus } from '../../types/index.js';
 import { salarioDiarioDesdeSueldoAnual } from '../payroll/mx/finiquito-math.js';
@@ -188,7 +188,13 @@ export interface CriteriosDeProvision {
  */
 export async function criteriosDeLaProvision(
   tenantId: string,
-  entityId: string
+  entityId: string,
+  /**
+   * La fecha del HECHO, para comprobar el piso de la ley (T6 · #93). Es el
+   * cierre del periodo que se devenga, no hoy: una corrida de un mes viejo se
+   * mide contra la ley que regía ese mes.
+   */
+  enFecha: string
 ): Promise<CriteriosDeProvision> {
   const ctx = { tenantId, entityId };
   const base = await getPolicy(ctx, 'provision_base_salarial');
@@ -207,8 +213,15 @@ export async function criteriosDeLaProvision(
     );
   }
   const ptu = await getPolicy(ctx, 'provision_ptu_mensual');
-  const prima = await getPolicy(ctx, 'prima_vacacional_pct');
-  const dias = await getPolicyNumber(ctx, 'dias_aguinaldo');
+  // EL PISO DE LA LEY TAMBIÉN AQUÍ, y no es redundante con el finiquito: éste
+  // es el único camino de estas dos claves que ESCRIBE EN LOS LIBROS, y postea
+  // solo. Blindar el finiquito y dejar esto abierto sería acreditar al mayor un
+  // aguinaldo ilegal mes tras mes, en silencio.
+  const primaCruda = await getPolicy(ctx, 'prima_vacacional_pct');
+  const prima = { ...primaCruda, value: await exigirPisoLegal('prima_vacacional_pct', primaCruda.value, enFecha) };
+  const dias = Number(
+    await exigirPisoLegal('dias_aguinaldo', String(await getPolicyNumber(ctx, 'dias_aguinaldo')), enFecha)
+  );
 
   return {
     base_salarial: base.value,
@@ -446,7 +459,7 @@ export async function planMonthlyProvisions(
 
   const periodo = await periodoDeLaCorrida(entityId, fiscalPeriodId, MOTOR);
   const tenantId = await inquilinoDeLaEntidad(entityId);
-  const criterios = await criteriosDeLaProvision(tenantId, entityId);
+  const criterios = await criteriosDeLaProvision(tenantId, entityId, fechaISO(periodo.fin));
 
   const cerrar = (): ProvisionPlan => ({
     tenantId,

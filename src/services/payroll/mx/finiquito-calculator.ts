@@ -1,6 +1,6 @@
 import { query } from '../../../database/connection.js';
 import { NotFoundError, ValidationError } from '../../../utils/errors.js';
-import { getPolicy, getPolicyNumber, type PolicyContext } from '../../policy/policy-service.js';
+import { getPolicy, getPolicyNumber, exigirPisoLegal, type PolicyContext } from '../../policy/policy-service.js';
 import {
   aFechaUtc,
   aniosDeServicioCumplidos,
@@ -46,15 +46,28 @@ export interface FiniquitoInput {
   termination_reason: MotivoDeBaja;
   last_paid_through: string;
   pending_vacation_days?: number;
-  /**
-   * Sobrescriben el panel cuando el llamador ya tiene el dato del contrato.
-   * Ausentes —el caso normal— se leen de `dias_aguinaldo` y
-   * `prima_vacacional_pct`. Antes eran parámetros muertos: nadie los pasaba y
-   * no había de dónde leerlos, así que los mínimos legales quedaban clavados
-   * en el código aunque el despacho hubiera contestado otra cosa.
-   */
-  aguinaldo_days_per_year?: number;
-  prima_vacacional_pct?: number;
+  // AQUÍ NO VA NINGÚN CRITERIO CONTABLE (T6 · #93).
+  //
+  // Hubo `aguinaldo_days_per_year` y `prima_vacacional_pct`, y su comentario
+  // decía que sobrescribían el panel «cuando el llamador ya tiene el dato del
+  // contrato». Ese llamador no existía: el único de producción es
+  // `POST /finiquito`, que pasa `req.body` entero. O sea que el «llamador con
+  // el dato del contrato» era el cliente HTTP, y cualquiera con
+  // `payroll:create` fijaba por petición un porcentaje de prestación que NO
+  // puede fijar en el panel —nada escribe `policy_decisions` por REST—, sin
+  // autor, sin fecha, sin nota y sin fila. Medido: `prima_vacacional_pct: 25`
+  // en el cuerpo pagaba 275.000,00 donde tocaban 2.750,00.
+  //
+  // No se validan como el panel: se van. Son la MISMA decisión que el panel ya
+  // contesta, dicha por segunda vez y por un sitio donde no queda escrita, y
+  // `basis` devuelve el valor sin su procedencia, así que dos finiquitos con
+  // el mismo `basis` podían venir uno del criterio del despacho y otro del
+  // teclado de quien llamó. Con ellos fuera, TODO valor llega a la aritmética
+  // por `getPolicy`, y basta una guarda para las tres rutas.
+  //
+  // Lo que esto NO resuelve, y no se promete: la prestación pactada POR
+  // EMPLEADO —30 días a un director en un despacho de 15— sigue sin dónde
+  // vivir. Era el hueco que estos dos campos tapaban mal. Queda declarado.
 }
 
 /**
@@ -140,12 +153,30 @@ export async function calculateFiniquito(
   // siendo la fila, no el token: es el orden correcto, no una coincidencia.
   const panel: PolicyContext = { tenantId: ctx.tenantId, entityId: e.entity_id ?? ctx.entityId };
 
-  const diasAguinaldo =
-    input.aguinaldo_days_per_year ?? (await getPolicyNumber(panel, 'dias_aguinaldo'));
-  const primaPct =
-    input.prima_vacacional_pct !== undefined
-      ? String(input.prima_vacacional_pct)
-      : (await getPolicy(panel, 'prima_vacacional_pct')).value;
+  // EL PISO DE LA LEY SE COMPRUEBA CON LA FECHA DE LA BAJA, no con la de hoy.
+  //
+  // El panel es donde el despacho declara su criterio, y por encima del mínimo
+  // ese criterio manda. Por DEBAJO no hay criterio que valga: `dias_aguinaldo
+  // = 5` se aceptaba y el finiquito pagaba con cinco días, bajo los quince del
+  // art. 87 LFT. La comprobación ENVUELVE la lectura en vez de ir detrás,
+  // porque un valor que no pasa por ella no puede llegar a la aritmética.
+  //
+  // Y la fecha es la de la baja: recalcular una liquidación de 2019 contra el
+  // mínimo de hoy da otra cifra, y contestar eso es para lo que la 080 le puso
+  // vigencia a la ley. Es el mismo criterio con el que este archivo ya lee la
+  // tarifa del ejercicio unas líneas más abajo.
+  const diasAguinaldo = Number(
+    await exigirPisoLegal(
+      'dias_aguinaldo',
+      String(await getPolicyNumber(panel, 'dias_aguinaldo')),
+      input.termination_date
+    )
+  );
+  const primaPct = await exigirPisoLegal(
+    'prima_vacacional_pct',
+    (await getPolicy(panel, 'prima_vacacional_pct')).value,
+    input.termination_date
+  );
 
   // La tabla del art. 76 hace falta ANTES del salario: el factor de
   // integración se arma con los días de vacaciones del año en curso.

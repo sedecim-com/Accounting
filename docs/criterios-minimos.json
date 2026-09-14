@@ -37,6 +37,7 @@
     "eval-harness-measures-shipped-surface",
     "every-cli-leaf-declares-risk",
     "every-help-example-parses",
+    "policy-number-checked-on-read-and-write",
     "sua-file-declares-the-month-and-only-the-month",
     "garnishment-vocabulary-is-the-persisted-one",
     "graphql-surface-withdrawn",

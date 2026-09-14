@@ -8884,6 +8884,199 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E4.1',
+    id: 'policy-number-checked-on-read-and-write',
+    // EL PANEL ES DONDE EL DESPACHO DECLARA SU CRITERIO, Y DE AHÍ SALE DINERO.
+    //
+    // `resolvePolicy` aceptaba cualquier cadena y sólo anotaba «[value outside
+    // the catalog]». Medido contra Postgres: `prima_vacacional_pct = '25'`
+    // —un contador leyendo la etiqueta «25 %» del propio catálogo, que guarda
+    // '0.25'— pagaba 275.000,00 donde tocaban 2.750,00, y lo mismo por el
+    // cuerpo de POST /finiquito, que prefería su campo sobre la política.
+    //
+    // TRES PIEZAS, Y LAS TRES HACEN FALTA:
+    //
+    //  1. La cota de FORMA (`PolicyDomain`) en la ESCRITURA y en la LECTURA.
+    //     Sólo en la escritura deja vivo el ×100 de las filas ya resueltas y
+    //     de los `default_value` sembrados desde un catálogo viejo, que
+    //     `seedPolicies` no revisita. Sólo en la lectura deja que la errata se
+    //     archive bajo el sello «tu despacho decidió esto» y estalle dos
+    //     semanas después, el día de una baja.
+    //  2. El PISO DE LA LEY, que no es lo mismo y no vive aquí: vive en
+    //     `legal_parameters`, con fecha de entrada y fuente, porque una
+    //     constante en TypeScript no sabe desde cuándo rige. Y se comprueba
+    //     con la fecha del HECHO: recalcular una baja de 2019 contra el mínimo
+    //     de hoy es otra cifra.
+    //  3. Y ninguna segunda puerta: un criterio contable no se decide en el
+    //     JSON de una petición, sin autor, sin fecha y sin fila.
+    enunciado:
+      'Un número del panel no puede salir de su unidad ni bajar del mínimo de la ley, ni entrar por el cuerpo de una petición',
+    mutantes: [
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: '    validarDominio(spec, row.resolved_value);',
+        a: '    // validarDominio(spec, row.resolved_value);',
+        porque:
+          'la guarda de escritura sólo ve respuestas NUEVAS: una fila ya resuelta con 25 —o sembrada desde un catálogo viejo, que seedPolicies no revisita— vuelve a convertirse en un importe cien veces mayor',
+      },
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: '  validarDominio(spec, value);',
+        a: '  // validarDominio(spec, value);',
+        porque:
+          'la errata deja de detenerse en el teclado: `pending define prima_vacacional_pct 25` vuelve a imprimir «✔» y el fallo aparece el día que alguien causa baja, ya archivado como decisión del despacho',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-calculator.ts',
+        de: "      String(await getPolicyNumber(panel, 'dias_aguinaldo')),\n      input.termination_date",
+        a: "      String(await getPolicyNumber(panel, 'dias_aguinaldo')),\n      new Date().toISOString().slice(0, 10)",
+        porque:
+          'el piso se mide contra la ley de HOY y no contra la de la baja: un finiquito reexpedido de un año anterior deja de dar el mismo número, que es exactamente la pregunta que la 080 existe para contestar',
+      },
+      {
+        archivo: 'src/services/accruals/provisions-run.ts',
+        de: "  const dias = Number(\n    await exigirPisoLegal('dias_aguinaldo', String(await getPolicyNumber(ctx, 'dias_aguinaldo')), enFecha)\n  );",
+        a: "  const dias = await getPolicyNumber(ctx, 'dias_aguinaldo');",
+        porque:
+          'el finiquito queda blindado y la corrida mensual sigue acreditando al mayor un aguinaldo ilegal, mes tras mes y posteando sola: es el ÚNICO camino de estas claves que escribe en los libros',
+      },
+    ],
+    evaluar: () => {
+      const svc = 'src/services/policy/policy-service.ts';
+      const cat = 'src/services/policy/pending-catalog.ts';
+      const fin = 'src/services/payroll/mx/finiquito-calculator.ts';
+      const prov = 'src/services/accruals/provisions-run.ts';
+      const prueba = 'tests/integration/t6-el-panel-que-acepta-cualquier-numero.int.spec.ts';
+      for (const f of [svc, cat, fin, prov]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+      const s = codigoDe(svc);
+
+      // 1. LA COTA, EN LAS DOS PUERTAS Y EN SU SITIO.
+      //
+      // POR ÍNDICE Y NO POR PRESENCIA. Es la trampa que este tramo vio caer
+      // dos veces: un criterio que sólo pregunta «¿está la llamada?» deja vivo
+      // al mutante que la mueve detrás del `return`, donde no sirve de nada.
+      const iBlanco = s.indexOf("value.trim() === ''");
+      const iEscritura = s.indexOf('validarDominio(spec, value)');
+      const iUpdate = s.indexOf('UPDATE policy_decisions');
+      if (iBlanco < 0 || iEscritura < 0 || iUpdate < 0) {
+        return falla(
+          'la guarda de dominio desapareció de la escritura: `pending define prima_vacacional_pct 25` vuelve a guardarse como decisión del despacho'
+        );
+      }
+      if (!(iBlanco < iEscritura && iEscritura < iUpdate)) {
+        return falla(
+          'la guarda de dominio ya no está entre la del blanco y el UPDATE: comprobar después de escribir no comprueba nada'
+        );
+      }
+      const iResuelta = s.indexOf('validarDominio(spec, row.resolved_value)');
+      const iReturnResuelta = s.indexOf('value: row.resolved_value, defined: true');
+      const iRespaldo = s.indexOf('validarDominio(spec, fallback)');
+      const iReturnRespaldo = s.indexOf('value: fallback, defined: false');
+      if (iResuelta < 0 || iRespaldo < 0) {
+        return falla(
+          'la guarda de dominio desapareció de la LECTURA: las filas ya resueltas y los default_value de un catálogo viejo vuelven a convertirse en importes'
+        );
+      }
+      if (!(iResuelta < iReturnResuelta && iRespaldo < iReturnRespaldo)) {
+        return falla(
+          'la guarda de dominio quedó DESPUÉS de su return: el valor sale sin pasar por ella, que es el mutante que una comprobación de mera presencia no mata'
+        );
+      }
+
+      // 2. EL PISO DE LA LEY VIVE EN LA LEY, Y EN LOS DOS SITIOS.
+      const c = codigoDe(cat);
+      for (const clave of ['dias_aguinaldo', 'prima_vacacional_pct']) {
+        const desde = c.indexOf(`key: '${clave}'`);
+        if (desde < 0) return falla(`${cat} ya no declara ${clave}`);
+        const bloque = c.slice(desde, desde + 2000);
+        if (!/dominio: \{/.test(bloque)) {
+          return falla(`${clave} perdió su dominio: vuelve a ser una cadena cualquiera de la que sale dinero`);
+        }
+        if (!/pisoLegal: \{/.test(bloque)) {
+          return falla(`${clave} perdió su piso legal: el panel vuelve a poder ofrecer bajar del mínimo de la ley`);
+        }
+      }
+      // La semilla SOLA no basta: `legal_parameters` nace vacía en toda base
+      // migrada y no sembrada —incluida la de la suite de integración—, así
+      // que sin migración esto no es una guarda, es un apagón.
+      // `fuentes()` sólo devuelve .ts: las migraciones son .sql y se leen por
+      // el seam con `crudoDe`, como hace el resto del tablero.
+      const dirMigraciones = 'src/database/migrations';
+      const sqlDeTodas = fs
+        .readdirSync(rutaDe(dirMigraciones))
+        .map((m) => crudoDe(dirMigraciones, m))
+        .join('\n');
+      const sembrada = /INSERT INTO legal_parameters/i.test(sinProsa(sqlDeTodas));
+      if (!sembrada) {
+        return falla(
+          'ninguna migración inserta en legal_parameters: el piso se lee de una tabla vacía y el finiquito deja de calcularse en toda base migrada sin sembrar'
+        );
+      }
+
+      // 3. Y SE MIDE CON LA FECHA DEL HECHO, en los dos consumidores.
+      const f = codigoDe(fin);
+      // UNA POR UNA, y no «que aparezca en el archivo». La primera redacción
+      // buscaba `exigirPisoLegal(...input.termination_date` en cualquier parte
+      // y su propio mutante la sobrevivió: cambiar la fecha de UNA de las dos
+      // llamadas dejaba la otra emparejando. Cada llamada se mira sola, y el
+      // reloj de pared se prohíbe por nombre.
+      const llamadas = [...f.matchAll(/exigirPisoLegal\(/g)];
+      if (llamadas.length < 2) {
+        return falla(
+          `el finiquito sólo envuelve ${llamadas.length} de sus 2 lecturas del panel con el piso legal: la que queda suelta vuelve a poder pagar por debajo de la ley`
+        );
+      }
+      for (const m of llamadas) {
+        const args = f.slice(m.index, m.index + 260);
+        if (/new Date\(|Date\.now\(/.test(args)) {
+          return falla(
+            'el piso se mide con el reloj de pared y no con la fecha del hecho: un finiquito reexpedido de un año anterior deja de dar el mismo número, que es justo lo que la 080 le puso fecha a la ley para contestar'
+          );
+        }
+        if (!/input\.termination_date/.test(args)) {
+          return falla(
+            'una de las llamadas al piso legal dejó de recibir la fecha de la BAJA: el mínimo que se le aplica ya no es el que regía cuando el hecho ocurrió'
+          );
+        }
+      }
+      const p = codigoDe(prov);
+      if (!/exigirPisoLegal\('dias_aguinaldo'/.test(p) || !/exigirPisoLegal\('prima_vacacional_pct'/.test(p)) {
+        return falla(
+          'la corrida de provisiones dejó de exigir el piso: es el único camino de estas claves que ESCRIBE en el mayor, y postea solo'
+        );
+      }
+
+      // 4. NINGUNA SEGUNDA PUERTA.
+      if (/input\.(aguinaldo_days_per_year|prima_vacacional_pct)/.test(f)) {
+        return falla(
+          'volvió el campo del cuerpo que sobrescribe el panel: un criterio contable decidido en un JSON, sin autor, sin fecha y sin fila'
+        );
+      }
+
+      // 5. Y CONDUCTA QUE LO AFIRMA CONTRA POSTGRES.
+      if (!existe(prueba)) {
+        return falla('no hay reproducción del panel: sin ella esto es una lectura del diff');
+      }
+      const t = crudoDe(prueba);
+      if (!/toBe\(422\)/.test(t)) {
+        return falla(
+          'la reproducción dejó de exigir el 422 que NOMBRA el campo retirado: un descarte mudo empieza a pagar otra cantidad sobre un finiquito real sin que nadie se entere'
+        );
+      }
+      if (!/mínimo de 15\\.0000/.test(t)) {
+        return falla(
+          'la reproducción dejó de exigir que el rechazo cite la CIFRA de la ley: «el sistema no me deja» y «el art. 87 no te deja» no son lo mismo para quien lo lee'
+        );
+      }
+
+      return ok(
+        'el dominio se comprueba al escribir y al leer y en su sitio, el piso vive en legal_parameters con migración y se mide con la fecha del hecho, y el cuerpo ya no puede imponer un criterio'
+      );
+    },
+  },
+  {
+    paquete: 'E4.1',
     id: 'sua-file-declares-the-month-and-only-the-month',
     // EL ÚNICO DE VÍA A QUE ESTABA ROTO POR OMISIÓN (#92).
     //
