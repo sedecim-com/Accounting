@@ -194,6 +194,17 @@ jobs:
       # existía para él. Éste no puede tener ese defecto porque no tiene lista.
       - run: npx tsx scripts/ux-status.ts --check
 
+      # EL METRO DEL IDIOMA (I2). Cuenta cuánto español queda —identificadores,
+      # nombres de archivo, anclas del propio instrumento del plan, rutas muertas
+      # citadas en la documentación— con una línea base por carril y POR ARCHIVO
+      # que sólo baja. Falla cuando un número crece sobre su línea base, y también
+      # cuando la línea base protege un carril que ya no se mide: un trinquete que
+      # cuida algo que no existe es peor que no tenerlo, porque se ve verde.
+      #
+      # Va aquí, junto a ux-status, y NO dispara E0.0: son dos metros de la misma
+      # clase y el que mide la ayuda renderizada se cita, no se recuenta.
+      - run: npx tsx scripts/language-status.ts --check
+
   # EL ENSAYO DE LA RESTAURACIÓN (S3).
   #
   # Un respaldo no probado no es un respaldo. Este job siembra, respalda,

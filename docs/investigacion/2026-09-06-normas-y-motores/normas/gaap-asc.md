@@ -292,7 +292,7 @@ Ninguno de estos valores existe hoy en `tax_parameters` ni en código, salvo las
 
 ## 9. Lo que el repo ya tiene (verificado con `archivo:línea`)
 
-- **Conmutador**: `esContabilidadMexicana` (`src/services/accounting/pais-contable.ts:35-44`): `mx_nif` o país MX/nulo → México; sólo un país distinto sale. Dos consumidores (`entity-accounting.ts:75,172` según `docs/jurisdicciones.md:24`). No devuelve norma del libro.
+- **Conmutador**: `esContabilidadMexicana` (`src/services/jurisdiction/jurisdiction.ts:35-44`): `mx_nif` o país MX/nulo → México; sólo un país distinto sale. Dos consumidores (`entity-accounting.ts:75,172` según `docs/jurisdicciones.md:24`). No devuelve norma del libro.
 - **Entidad**: `accounting_standard IN ('us_gaap','mx_nif','ifrs')` (`001_core_schema.sql:87-88`; `src/types/index.ts:903`), `entity_type` (`:898`), `fiscal_year_start_month` sin lector (`:904`; `docs/jurisdicciones.md:38`). Alta US: `CATALOGS.USA = { standard: 'us_gaap', currency: 'USD', taxIdType: 'ein', entityType: 'corporation' }` (`src/cli/init/s1-identity.ts:18-19`).
 - **Catálogo**: `CATALOGO_UNIVERSAL` (`chart-seed.ts:44-82`), `ESTRATO_FISCAL_MX` (`:92-99`), `ESTRATO_FISCAL_NEUTRO` de tres cuentas (`:123-127`), `catalogoBasePara(esMexicana)` (`:141-145`). El propio archivo dice «un catálogo US GAAP completo es justamente lo que [el plan de cierre] corta del alcance» (`:104-106`). La 3300 «reserva legal» (LGSM) va en el universal (`:64`).
 - **Mapeo estatutario**: `MAPPING_SCHEMES = { 'sat-agrupador': 'mx_nif_code', 'us-tax-line': 'us_gaap_code', 'ifrs': 'ifrs_code' }` (`account-service.ts:454-458`); `fs-line`, `cash-flow`, `consolidation` rechazados con mensaje (`:461-472`). Columnas en `001:129-131`.

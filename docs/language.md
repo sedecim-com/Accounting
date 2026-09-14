@@ -77,6 +77,43 @@ Like `catalogo:estado` and `ux:status`: it walks the tree, writes its block betw
 | Paths cited in `docs/` that do not exist (92 of 422 today) | 92 | only lowers |
 | Spanish comment lines in `src/` | 22,731 | ratchet from I20 |
 
+
+The live measurement, written by the meter itself. **Do not edit by hand**: `npm run language:status -- --write` replaces everything between the markers, and re-stamps this page's Spanish twin so it does not fall out of date.
+
+<!-- LANGUAGE-STATUS:START -->
+
+<!--
+  DO NOT EDIT BY HAND. Regenerate with:  npm run language:status -- --escribir
+  CI verifies it with --check, so a hand edit shows up red.
+-->
+
+### How much Spanish is left, and where
+
+15 lanes under the ratchet and 1 measured but not yet required.
+The ratchet lives in `docs/language-baseline.json` and only goes down; raising a number is a
+manual act and its trace is the diff.
+
+| Lane | What it counts | Today | Towards |
+|---|---|---:|---:|
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10563 | 0 |
+| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5759 | 0 |
+| `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
+| `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |
+| `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 154 | 0 |
+| `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
+| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 114 | 0 |
+| `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 35 | 0 |
+| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 24 | 0 |
+| `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
+| `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
+| `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 (baseline 12) | 0 |
+| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 366 | 0 |
+| `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
+| `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 25844 | 0 |
+
+<!-- LANGUAGE-STATUS:END -->
+
 ### 3.3 The lint: `house/english-identifiers`
 
 An own ESLint rule, **inline** in `eslint.config.mjs` (no package), at **error** level over `src/`, `tests/` and `scripts/`, with a **per-file** baseline in `docs/language-baseline.json` (`{path: flagged}`; no entry = 0) that can only be lowered; the rule fails if a file exceeds its baseline, and a test fails if an entry exceeds what is measured or names a nonexistent file. False positives: `// language-allow: <reason>`, counted by the meter. `--max-warnings` is not used: that global cap already states three different figures in three files.
