@@ -386,10 +386,13 @@ router.post('/form-940', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax
 }));
 
 // ---------- USA NACHA ----------
-router.post('/nacha', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'direct_deposit_batches + paychecks.direct_deposit_batch_id; produce la instruccion de pago que el banco ejecuta' }), requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/nacha', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'direct_deposit_batches + paychecks.direct_deposit_batch_id; produce la instruccion de pago que el banco ejecuta' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { pay_run_id, company_info } = req.body;
   if (!pay_run_id || !company_info) throw new ValidationError('pay_run_id, company_info required');
-  const result = await generateNachaFile(pay_run_id, company_info);
+  // TEN-11 (#235): the file carries every employee's account DECRYPTED, and a
+  // session of company A got company B's. The guard validates the declared
+  // entity; handing it to the generator is what scopes the run. Both.
+  const result = await generateNachaFile(entityScope(req.tenantId!, req.entityId!), pay_run_id, company_info);
   res.json({ data: result, meta: meta(req) });
 }));
 
