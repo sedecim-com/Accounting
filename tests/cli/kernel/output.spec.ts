@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, resolveFormat, fieldNames, SCHEMA_VERSION } from '../../../src/cli/kernel/output.js';
-import { CliError, ExitCode } from '../../../src/cli/kernel/exit.js';
+import { ExitCode } from '../../../src/cli/kernel/exit.js';
+import { CliError } from '../../../src/cli/kernel/cli-error.js';
 
 // ============================================================
 // The two properties in here are correctness, not formatting:

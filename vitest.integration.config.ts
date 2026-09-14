@@ -52,6 +52,23 @@ export default defineConfig({
     // escalón del resolutor, así que fijarlo aquí haría indistinguibles «el
     // resolutor eligió» y «no eligió nadie». MNEMOSINE_LANG no se fija: es el
     // alias permanente del mismo dato, y ponerlas las dos enterraría cuál manda.
+    //
+    // REVERIFICADO EN I7, cuando el CLI empezó a rendirse por clave en dos
+    // idiomas. Se volvió a correr la misma medición sobre TODOS los archivos de
+    // tests/integration/ —96 al escribir esto, y el número sube con cada suite
+    // nueva, así que se cuenta y no se cita—: cero importaciones de `src/i18n/`,
+    // cero llamadas a `resolveLocale` / `describeLocale` / `languageOfLocale`,
+    // y ningún hijo
+    // que lance `src/cli/mnemosine.ts` (los `spawnSync` de esta suite lanzan
+    // `src/plan/conducta.ts`, `src/plan/status.ts`, `scripts/mutantes.ts` y el
+    // migrador). Sigue siendo un blindaje, no una reparación.
+    //
+    // Y NO ESTORBA AL CRITERIO QUE SÍ NECESITA EL OTRO IDIOMA. Los hijos de
+    // esta suite heredan esta variable, así que una comprobación de conducta
+    // que quiera español tiene que pedirlo con `--locale es-MX`; puede, porque
+    // la bandera es el escalón POR ENCIMA de la variable —`--locale` >
+    // MNEMOSINE_LOCALE— y no al revés. Un locale fijado aquí no le cierra la
+    // puerta a nadie: sólo le quita el voto al perfil de shell.
     // ============================================================
     env: {
       MNEMOSINE_LOCALE: 'en-US',

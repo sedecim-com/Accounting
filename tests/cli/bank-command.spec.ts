@@ -343,9 +343,9 @@ describe('safety declarations', () => {
     // binario qué toca cada hoja sin abrir el servicio.
     for (const path of ['bank match run', 'bank match apply', 'bank match create']) {
       expect(risks.get(path)?.writes, path).toMatch(/journal_entry_lines/);
-      expect(risks.get(path)?.writes, path).toMatch(/NUNCA una póliza/);
+      expect(risks.get(path)?.writes, path).toMatch(/NEVER a journal entry/);
     }
-    expect(risks.get('bank match unapply')?.writes).toMatch(/CLAUSURA/);
+    expect(risks.get('bank match unapply')?.writes).toMatch(/CLOSURE/);
   });
 
   it('las tres lecturas nuevas son ✓ y ninguna declara escritura', () => {
@@ -363,7 +363,7 @@ describe('safety declarations', () => {
     // Es el par lo que lo hace legal: el catálogo promete que el import no
     // toca el mayor, y `draftOnly` es donde esa promesa se compromete.
     expect(r?.draftOnly).toBe(true);
-    expect(r?.writes).toMatch(/NUNCA journal_entries/);
+    expect(r?.writes).toMatch(/NEVER journal_entries/);
   });
 
   it('would REFUSE to ship the same grant without draftOnly', () => {
@@ -385,14 +385,15 @@ describe('safety declarations', () => {
 
   it('las dos escrituras con IA ✓ de F05c van con draftOnly, y dicen por qué es cierto', () => {
     // `open` escribe un CONTENEDOR DE TRABAJO: la sesión nace con
-    // `arithmetic_computed_at` NULL y el CHECK de la 053 impide que llegue a
+    // `arithmetic_computed_at` NULL y el CHECK `sesion_balanceada_con_aritmetica`
+    // de la 054 impide que llegue a
     // 'balanced' por esa puerta, que es lo único que `period-close` lee.
     const abrir = risks.get('bank reconciliation open');
     expect(abrir?.risk).toBe('escritura');
     expect(abrir?.agentAllowed).toBe(true);
     expect(abrir?.draftOnly).toBe(true);
     expect(abrir?.writes).toMatch(/arithmetic_computed_at NULL/);
-    expect(abrir?.writes).toMatch(/NUNCA journal_entries/);
+    expect(abrir?.writes).toMatch(/NEVER journal_entries/);
 
     // `adjustment create` escribe un BORRADOR: la fila nace con
     // `journal_entry_id` NULL y lo rellena F05d detrás de una firma.
@@ -402,7 +403,7 @@ describe('safety declarations', () => {
     expect(ajuste?.draftOnly).toBe(true);
     expect(ajuste?.writes).toMatch(/ai_drafts/);
     expect(ajuste?.writes).toMatch(/journal_entry_id NULL/);
-    expect(ajuste?.writes).toMatch(/NUNCA journal_entries/);
+    expect(ajuste?.writes).toMatch(/NEVER journal_entries/);
   });
 
   it('`run` y `close` son ✗: encadenan sellos y firman la aseveración que lee el cierre', () => {
@@ -414,8 +415,8 @@ describe('safety declarations', () => {
     // exige juntas, y que no escribe póliza.
     expect(risks.get('bank reconciliation close')?.writes).toMatch(/status=balanced/);
     expect(risks.get('bank reconciliation close')?.writes).toMatch(/arithmetic_computed_at/);
-    expect(risks.get('bank reconciliation close')?.writes).toMatch(/NUNCA una póliza/);
-    expect(risks.get('bank reconciliation run')?.writes).toMatch(/NUNCA approve ni post/);
+    expect(risks.get('bank reconciliation close')?.writes).toMatch(/NEVER a journal entry/);
+    expect(risks.get('bank reconciliation run')?.writes).toMatch(/NEVER approve or post/);
   });
 
   it('would REFUSE to ship `open` or `adjustment create` without draftOnly', () => {
@@ -473,7 +474,7 @@ describe('safety declarations', () => {
     const firma = risks.get('bank reconciliation approve');
     expect(firma?.writes).toMatch(/approval_snapshot/);
     expect(firma?.writes).toMatch(/approval_hash/);
-    expect(firma?.writes).toMatch(/NUNCA journal_entries/);
+    expect(firma?.writes).toMatch(/NEVER journal_entries/);
 
     // `post` sí, y declara las cuatro cosas que caen juntas.
     const sello = risks.get('bank reconciliation post');
@@ -806,13 +807,13 @@ describe('las banderas declaradas se leen', () => {
   it('--offset se rechaza en voz alta en vez de ignorarse', async () => {
     const r = await run(['bank', 'account', 'list', '--offset', '10'], lector());
     expect(r.exitCode, 'error de uso, no fallo de ejecución').toBe(2);
-    expect((r.errs[0] as Error).message).toMatch(/--offset no está implementado/);
+    expect((r.errs[0] as Error).message).toMatch(/--offset is not implemented/);
   });
 
   it('-s/--status no aplica a un estado de cuenta y se dice', async () => {
     const r = await run(['bank', 'statement', 'list', '-s', 'open'], lector());
     expect(r.exitCode).toBe(2);
-    expect((r.errs[0] as Error).message).toMatch(/no tiene estado de ciclo de vida/);
+    expect((r.errs[0] as Error).message).toMatch(/it has no lifecycle state/);
   });
 
   it('account list -s traduce los dos estados que sí existen', async () => {
@@ -883,7 +884,7 @@ describe('las escrituras piden lo que el catálogo promete', () => {
   it('un edit sin ninguna bandera de campo se niega en vez de escribir nada', async () => {
     const r = await run(['bank', 'account', 'edit', 'BBVA MXN'], lector());
     expect(r.exitCode).toBe(2);
-    expect((r.errs[0] as Error).message).toMatch(/Nada que cambiar/);
+    expect((r.errs[0] as Error).message).toMatch(/Nothing to change/);
   });
 
   it('create con un --type inventado no llega a la base', async () => {
@@ -1146,7 +1147,7 @@ describe('bank transaction list · la consulta posicional', () => {
 
     const malo = await run(['bank', 'transaction', 'list', 'amt:mil'], lectorMovimientos());
     expect(malo.exitCode, 'un typo es error de USO, no una validación fallida').toBe(2);
-    expect((malo.errs[0] as Error).message).toMatch(/no es un importe/);
+    expect((malo.errs[0] as Error).message).toMatch(/is not an amount/);
     expect(malo.sql, 'y no cuesta una conexión').toEqual([]);
   });
 
@@ -1184,7 +1185,7 @@ describe('bank transaction list · la consulta posicional', () => {
       lectorMovimientos()
     );
     expect(choque.exitCode).toBe(2);
-    expect((choque.errs[0] as Error).message).toMatch(/piden lo contrario/);
+    expect((choque.errs[0] as Error).message).toMatch(/ask for opposite things/);
   });
 
   it('--direction es el SIGNO del importe y no transaction_type', async () => {
@@ -1433,14 +1434,14 @@ describe('bank match preview · la mitad de lectura', () => {
 
   it('imprime la DESCOMPOSICIÓN y la regla, no sólo el número', async () => {
     const r = await run(['bank', 'match', 'preview', TX], lectorCotejo());
-    expect(r.out, 'qué aportó el importe').toMatch(/importe.*-250\.0000 vs -250\.0000/);
-    expect(r.out, 'la diferencia, a cuatro decimales').toMatch(/diferencia 0\.0000/);
-    expect(r.out, 'qué aportó la fecha').toMatch(/fecha\s+0 día\(s\)/);
-    expect(r.out, 'y qué la descripción').toMatch(/descripción.*similitud 1\.00/);
+    expect(r.out, 'qué aportó el importe').toMatch(/amount.*-250\.0000 vs -250\.0000/);
+    expect(r.out, 'la diferencia, a cuatro decimales').toMatch(/difference 0\.0000/);
+    expect(r.out, 'qué aportó la fecha').toMatch(/date\s+0 days/);
+    expect(r.out, 'y qué la descripción').toMatch(/description\s+similarity 1\.00/);
     // La regla que disparó es la mitad del porqué: sin ella «confianza 1.00»
     // es un número que nadie puede revisar.
-    expect(r.out).toMatch(/regla exact_amount_date/);
-    expect(r.out).toMatch(/`run` lo aplicaría/);
+    expect(r.out).toMatch(/rule exact_amount_date/);
+    expect(r.out).toMatch(/`run` would apply it/);
   });
 
   it('cuando una compuerta cierra, dice CUÁL con su código', async () => {
@@ -1448,7 +1449,7 @@ describe('bank match preview · la mitad de lectura', () => {
       ['bank', 'match', 'preview', TX],
       lectorCotejo({ periodo: 'hard_close' })
     );
-    expect(r.out).toMatch(/no se aplica — periodo-cerrado/);
+    expect(r.out).toMatch(/not applied — periodo-cerrado/);
     expect(r.out).toMatch(/2026-07 \(hard_close\)/);
   });
 
@@ -1456,7 +1457,7 @@ describe('bank match preview · la mitad de lectura', () => {
     const r = await run(['bank', 'match', 'preview', TX], lectorCotejo({ candidato: '245.0000' }));
     // El candidato entra por la banda del 5 % de la regla difusa. Es una
     // propuesta razonable y una aseveración inadmisible.
-    expect(r.out).toMatch(/no se aplica/);
+    expect(r.out).toMatch(/not applied/);
     expect(r.exitCode).toBe(0);
   });
 
@@ -1519,7 +1520,7 @@ describe('bank match run · la mitad de escritura', () => {
     expect(sello!.text.replace(/\s+/g, ' ')).toMatch(
       /SET is_reconciled = true, reconciled_at = NOW\(\), reconciliation_id = \$1/
     );
-    expect(r.out).toMatch(/1 aplicado\(s\)/);
+    expect(r.out).toMatch(/1 applied/);
   });
 
   it('un periodo que no está `open` omite en vez de escribir', async () => {
@@ -1531,7 +1532,7 @@ describe('bank match run · la mitad de escritura', () => {
     // está justo en el momento en que nadie quiere que una máquina le añada
     // aseveraciones sola.
     expect(r.sql.filter((s) => /INSERT INTO reconciliation_match/.test(s.text))).toEqual([]);
-    expect(r.out).toMatch(/0 aplicado\(s\)/);
+    expect(r.out).toMatch(/0 applied/);
     expect(r.exitCode).toBe(0);
   });
 
@@ -1573,7 +1574,7 @@ describe('bank match apply', () => {
     // Es lo que hace existir `bank match preview -q | mnemosine bank match apply --stdin`.
     expect(r.errs).toEqual([]);
     expect(r.sql.some((s) => /INSERT INTO reconciliation_matches/.test(s.text))).toBe(true);
-    expect(r.out).toMatch(/1 aplicado\(s\)/);
+    expect(r.out).toMatch(/1 applied/);
   });
 
   it('los dos orígenes se SUMAN: la tubería más la corrección tecleada', async () => {
@@ -1592,7 +1593,7 @@ describe('bank match apply', () => {
     // Excluirlos entre sí prohibiría `preview -q | apply --stdin <uno-más>`,
     // que es una corrección normal, y no protegería de nada: los repetidos los
     // rehúsa el servicio nombrando cuál.
-    expect(pregunta).toMatch(/2 movimiento\(s\)/);
+    expect(pregunta).toMatch(/2 movements/);
   });
 
   it('sin ids y sin --stdin no adivina', async () => {
@@ -1645,7 +1646,7 @@ describe('bank match create · el grupo explícito', () => {
     expect(grupo!.params).toEqual(
       expect.arrayContaining(['-250.0000', '-250.0000', '0.0000', '0.0000', 'keep', 'manual'])
     );
-    expect(r.out).toMatch(/banco -250\.0000 = libros -250\.0000/);
+    expect(r.out).toMatch(/bank -250\.0000 = books -250\.0000/);
   });
 
   it('un descuadre sin declarar se rehúsa NOMBRANDO los tres números', async () => {
@@ -1734,7 +1735,7 @@ describe('bank match unapply · clausura, no borra', () => {
     expect(libera!.text.replace(/\s+/g, ' ')).toMatch(
       /SET is_reconciled = false, reconciled_at = NULL, reconciliation_id = NULL/
     );
-    expect(r.out).toMatch(/1 cotejo\(s\) clausurado\(s\)/);
+    expect(r.out).toMatch(/1 match closed/);
   });
 
   it('sin --reason no corre, y el motivo es un CÓDIGO y no prosa', async () => {
@@ -1923,13 +1924,13 @@ describe('bank reconciliation status · el desglose de los dos lados', () => {
     expect(r.errs).toEqual([]);
     expect(r.exitCode).toBe(0);
     // El lado del banco: 750 del extracto, menos el cheque en circulación.
-    expect(r.out).toMatch(/saldo del extracto\s+750\.00/);
+    expect(r.out).toMatch(/statement balance\s+750\.00/);
     expect(r.out).toMatch(/cheque-en-circulacion\s+-100\.00/);
-    expect(r.out).toMatch(/= ajustado\s+650\.00/);
+    expect(r.out).toMatch(/= adjusted\s+650\.00/);
     // El de libros, sin partidas que lo corrijan.
-    expect(r.out).toMatch(/saldo de libros\s+720\.00/);
+    expect(r.out).toMatch(/book balance\s+720\.00/);
     // Y la resta, que es lo que el endpoint retirado nunca hizo.
-    expect(r.out).toMatch(/VARIACIÓN\s+-70\.00/);
+    expect(r.out).toMatch(/VARIANCE\s+-70\.00/);
   });
 
   it('un lado que nadie observó dice «sin observar», y la variación NO es cero', async () => {
@@ -1939,8 +1940,8 @@ describe('bank reconciliation status · el desglose de los dos lados', () => {
       ['bank', 'reconciliation', 'status', SES],
       mundo({ sesion: { statement_id: null } })
     );
-    expect(r.out).toMatch(/saldo del extracto\s+sin observar/);
-    expect(r.out).toMatch(/VARIACIÓN\s+NO CALCULADA/);
+    expect(r.out).toMatch(/statement balance\s+not observed/);
+    expect(r.out).toMatch(/VARIANCE\s+NOT COMPUTED/);
     expect(r.out, 'un cero aquí sería exactamente el defecto histórico').not.toMatch(
       /VARIACIÓN\s+0\.00/
     );
@@ -1953,10 +1954,10 @@ describe('bank reconciliation status · el desglose de los dos lados', () => {
       ['bank', 'reconciliation', 'status', SES],
       mundo({ saldoLibros: '700.0000' })
     );
-    expect(r.out).toMatch(/VARIACIÓN\s+50\.00/);
+    expect(r.out).toMatch(/VARIANCE\s+50\.00/);
     // El cero de la columna sale sólo bajo su etiqueta, y nombrado.
-    expect(r.out).toMatch(/RESUMEN CONGELADO/);
-    expect(r.out).toMatch(/nadie ha hecho la aritmética de esta sesión/);
+    expect(r.out).toMatch(/FROZEN SUMMARY/);
+    expect(r.out).toMatch(/nobody has done the arithmetic of this session/);
   });
 
   it('contrasta lo congelado con lo vivo cuando la sesión ya se cerró', async () => {
@@ -1972,7 +1973,7 @@ describe('bank reconciliation status · el desglose de los dos lados', () => {
     );
     // Firmó un cuadre y hoy la resta da 50: la sesión de julio dejó de decir
     // la verdad sin que nadie tocara su fila.
-    expect(r.out).toMatch(/la aritmética viva dice 50\.00 y la sesión afirmó 0\.00/);
+    expect(r.out).toMatch(/the live arithmetic says 50\.00 and the session asserted 0\.00/);
   });
 
   it('en json, la variación sin observar es null y NUNCA 0', async () => {
@@ -1995,7 +1996,7 @@ describe('bank reconciliation status · el desglose de los dos lados', () => {
       mundo({ ajustes: [ajusteFila()] })
     );
     // La promesa de que nada se contabiliza solo se COMPRUEBA en la salida.
-    expect(r.out).toMatch(/AJUSTES/);
+    expect(r.out).toMatch(/ADJUSTMENTS/);
     expect(r.out).toMatch(/pending_review/);
     const cabecera = r.out.split('\n').find((l) => /journal_entry/.test(l));
     expect(cabecera, 'la columna existe para poder verla vacía').toBeDefined();
@@ -2226,7 +2227,7 @@ describe('bank reconciliation close · donde `balanced` empieza a significar alg
     );
     expect(r.exitCode, '4 es «encontré algo que mirar»').toBe(4);
     expect(r.out).toMatch(/-100\.00/);
-    expect(r.out).toMatch(/0 partida\(s\) sin clasificar y 1 sin fechar/);
+    expect(r.out).toMatch(/0 unclassified items and 1 undated/);
     expect(r.out).toMatch(/\[variacion-fuera-de-tolerancia\]/);
     expect(r.out).toMatch(/\[partida-sin-fechar\]/);
     expect(
@@ -2247,7 +2248,7 @@ describe('bank reconciliation close · donde `balanced` empieza a significar alg
       /SET status = 'balanced', arithmetic_computed_at = NOW\(\)/
     );
     expect(upd!.text.replace(/\s+/g, ' ')).toMatch(/WHERE id = \$1 AND entity_id = \$11 AND status = 'in_progress'/);
-    expect(r.out).toMatch(/variación 0\.00/);
+    expect(r.out).toMatch(/variance 0\.00/);
   });
 
   it('sin confirmar no firma nada', async () => {
@@ -2333,7 +2334,7 @@ describe('bank reconciliation generate · el expediente', () => {
         mundo()
       );
       expect(r.exitCode, formato).toBe(2);
-      expect((r.errs[0] as Error).message).toMatch(/no tiene dependencia de PDF ni de XLSX/);
+      expect((r.errs[0] as Error).message).toMatch(/has no PDF or XLSX dependency/);
       expect(r.sql, formato).toEqual([]);
     }
   });
@@ -2354,11 +2355,11 @@ describe('bank reconciliation generate · el expediente', () => {
 
   it('el texto lleva encabezado y pie, y no inventa una firma', async () => {
     const r = await run(['bank', 'reconciliation', 'generate', SES], mundo());
-    expect(r.out).toMatch(/ESTADO DE CONCILIACIÓN BANCARIA/);
+    expect(r.out).toMatch(/BANK RECONCILIATION STATEMENT/);
     expect(r.out).toMatch(/2026-07-01 → 2026-07-31/);
     // Una sesión sin `approved_by` sale como no aprobada: es justo lo que un
     // auditor viene a buscar aquí.
-    expect(r.out).toMatch(/sin aprobar/);
+    expect(r.out).toMatch(/not approved/);
   });
 });
 
@@ -2369,7 +2370,7 @@ describe('bank reconciliation run · el pase que se detiene a tiempo', () => {
       mundo()
     );
     expect(r.exitCode).toBe(2);
-    expect((r.errs[0] as Error).message).toMatch(/--format y --profile describen el archivo/);
+    expect((r.errs[0] as Error).message).toMatch(/--format and --profile describe the file/);
     expect(r.sql).toEqual([]);
   });
 
@@ -2388,7 +2389,7 @@ describe('bank reconciliation run · el pase que se detiene a tiempo', () => {
       mundo({ extractos: [] })
     );
     expect(r.exitCode, 'un paso que no se pudo hacer es un hallazgo, no un fallo').toBe(4);
-    expect(r.out).toMatch(/LO QUE FALTA/);
+    expect(r.out).toMatch(/WHAT IS MISSING/);
     expect(r.out).toMatch(/Importar el estado de cuenta del periodo/);
     // Y la corrida dice SIEMPRE que no aprobó ni contabilizó, aunque se haya
     // detenido en el primer paso.
@@ -2552,13 +2553,13 @@ describe('bank reconciliation approve · la firma que se enseña antes de darla'
     );
     expect(r.errs).toEqual([]);
     expect(r.exitCode).toBe(0);
-    expect(r.out).toMatch(/LO QUE SE VA A FIRMAR/);
+    expect(r.out).toMatch(/WHAT IS ABOUT TO BE SIGNED/);
     // La variación VIVA junto a la CONGELADA: aprobar exige que la segunda
     // reproduzca la primera, y sin las dos en pantalla nadie ve que se comparó.
     // `monto` publica dos decimales cuando el valor no trae más: es la misma
     // escala que enseña `bank reconciliation status`, y no se cambia aquí.
-    expect(r.out).toMatch(/variación\s+0\.00 \(congelada al cerrar: 0\.00\)/);
-    expect(r.out).toMatch(/miembros\s+0 partida\(s\) · 0 cotejo\(s\) · 0 ajuste\(s\)/);
+    expect(r.out).toMatch(/variance\s+0\.00 \(frozen at close: 0\.00\)/);
+    expect(r.out).toMatch(/members\s+0 items · 0 matches · 0 adjustments/);
 
     const hash = /hash\s+([0-9a-f]{64})/.exec(r.out);
     expect(hash, 'el hash sale ENTERO: un hash recortado no se puede reproducir').not.toBeNull();
@@ -2718,11 +2719,11 @@ describe('bank reconciliation post · la hoja que mueve el mayor', () => {
     );
     expect(r.errs).toEqual([]);
     expect(r.exitCode).toBe(0);
-    expect(r.out).toMatch(/ASIENTOS QUE SE VAN A CREAR/);
-    expect(r.out).toMatch(/comision\s+-35\.00\s+adoptado · póliza P-0009/);
+    expect(r.out).toMatch(/ENTRIES ABOUT TO BE CREATED/);
+    expect(r.out).toMatch(/comision\s+-35\.00\s+adopted · entry P-0009/);
     // ADOPTAR NO ES POSTEAR, y la pregunta lo dice: el asiento ya existía
     // porque alguien aprobó el borrador en `mnemosine review`.
-    expect(pregunta).toMatch(/CONTABILIZAR 0 asiento\(s\) nuevo\(s\)/);
+    expect(pregunta).toMatch(/POST 0 new entries/);
     expect(motor.asientos, 'no se postea un segundo asiento por el mismo hecho').toEqual([]);
   });
 
@@ -2731,12 +2732,12 @@ describe('bank reconciliation post · la hoja que mueve el mayor', () => {
       ['bank', 'reconciliation', 'post', SES, '--dry-run'],
       mundoDeFirma({ sesion: { status: 'approved' }, resueltas: 3 })
     );
-    expect(r.out).toMatch(/Y LO QUE SE SELLA/);
-    expect(r.out).toMatch(/línea\(s\) de libros contra la cuenta de mayor del banco/);
-    expect(r.out).toMatch(/cotejo\(s\) contra el movimiento del extracto/);
+    expect(r.out).toMatch(/AND WHAT GETS SEALED/);
+    expect(r.out).toMatch(/book lines? against the bank GL account/);
+    expect(r.out).toMatch(/matches? against the statement movement/);
     // Sin resolver la partida, la propia sesión firmada pasaría a mostrar una
     // variación igual a los ajustes contabilizados, todos los meses.
-    expect(r.out).toMatch(/3 partida\(s\) conciliatoria\(s\) que el ajuste deja sin objeto/);
+    expect(r.out).toMatch(/3 reconciling items the adjustment leaves without object/);
     expect(r.exitCode).toBe(0);
   });
 
@@ -2775,7 +2776,7 @@ describe('bank reconciliation post · la hoja que mueve el mayor', () => {
       r.sql.filter((q) => /SET status = 'posted'/.test(q.text)),
       'nada se ejecutó otra vez'
     ).toEqual([]);
-    expect(r.out).toMatch(/posted · 0 posteado\(s\)/);
+    expect(r.out).toMatch(/posted · 0 posted/);
   });
 
   it('la MISMA llave con otra carga acusa reuso en vez de contestar con el informe viejo', async () => {
@@ -2840,7 +2841,7 @@ describe('bank fee post · la comisión y su IVA que NO se acredita todavía', (
       mundoDeComisiones()
     );
     expect(r.exitCode).toBe(2);
-    expect((r.errs[0] as Error).message).toMatch(/va entre 0 y 1, no en porcentaje/);
+    expect((r.errs[0] as Error).message).toMatch(/goes between 0 and 1, not as a percentage/);
     expect(r.sql).toEqual([]);
   });
 
@@ -2876,7 +2877,7 @@ describe('bank fee post · la comisión y su IVA que NO se acredita todavía', (
     );
     // El asiento se ve entero aunque no vaya a quedarse.
     expect(r.out).toMatch(/comision_bancaria\s+30\.1724/);
-    expect(r.out).toMatch(/póliza \(ensayo\)/);
+    expect(r.out).toMatch(/entry \(dry run\)/);
     // Y se creó de verdad, una sola vez: el ensayo ES el camino real, deshecho.
     expect(motor.asientos.length, 'sin vista previa aparte: en ensayo hay un solo recorrido')
       .toBe(1);
@@ -2930,7 +2931,7 @@ describe('bank interest post · el interés BRUTO y la retención a favor', () =
     // Teclear la tasa anual del pagaré donde va la retención es el error que
     // de verdad se comete, y sale como uso antes de tocar la base.
     expect(r.exitCode).toBe(2);
-    expect((r.errs[0] as Error).message).toMatch(/--rate va entre 0 y 1/);
+    expect((r.errs[0] as Error).message).toMatch(/--rate goes between 0 and 1/);
     expect(r.sql).toEqual([]);
   });
 
@@ -2964,13 +2965,13 @@ describe('bank check reconcile · el mes en que cae el asiento', () => {
     );
     expect(r.errs).toEqual([]);
     expect(r.exitCode).toBe(0);
-    expect(r.out).toMatch(/EL MES EN QUE CAE EL ASIENTO/);
-    expect(r.out).toMatch(/cobrado el\s+2026-08-14/);
-    expect(r.out).toMatch(/periodo\s+2026-08 \(open\)/);
+    expect(r.out).toMatch(/THE MONTH THE ENTRY FALLS IN/);
+    expect(r.out).toMatch(/cleared on\s+2026-08-14/);
+    expect(r.out).toMatch(/period\s+2026-08 \(open\)/);
     // La razón, no sólo el mes: el cheque se firmó el 1 de agosto y lo que
     // decide el periodo es el día en que el banco lo pagó.
-    expect(r.out).toMatch(/el día del COBRO y no el de la firma/);
-    expect(pregunta).toMatch(/el 2026-08-14/);
+    expect(r.out).toMatch(/the day it CLEARED and not the day it was signed/);
+    expect(pregunta).toMatch(/on 2026-08-14/);
   });
 
   it('escribe las DOS columnas del cobro en la misma sentencia', async () => {
@@ -2994,8 +2995,8 @@ describe('bank check reconcile · el mes en que cae el asiento', () => {
       ['bank', 'check', 'reconcile', PAGO, '--transaction', MOV, '-y'],
       mundoDeFirma({ mexicana: false })
     );
-    expect(r.out).toMatch(/IVA reclasificado 0\.0000/);
-    expect(r.out).toMatch(/ninguno: no hay IVA que reclasificar/);
+    expect(r.out).toMatch(/VAT reclassified 0\.0000/);
+    expect(r.out).toMatch(/none: there is no VAT to reclassify/);
     expect(motor.asientos, 'sin IVA que mover no se inventa un asiento').toEqual([]);
   });
 
@@ -3053,5 +3054,128 @@ describe('bank check reconcile · el mes en que cae el asiento', () => {
     const r = await run(['bank', 'check', 'reconcile', 'el-de-la-renta'], mundoDeFirma());
     expect(r.exitCode).toBe(2);
     expect(r.sql).toEqual([]);
+  });
+});
+
+// ============================================================
+// I7 · EL PILOTO BILINGÜE, Y POR QUÉ ESTE BLOQUE EXISTE
+//
+// El resto de este archivo afirma el INGLÉS, porque `vitest.config.ts` fija
+// `MNEMOSINE_LOCALE=en-US` para toda la suite y eso es lo que la familia
+// imprime bajo ese locale. Sin este bloque, el catálogo español —que es el que
+// ve el usuario por omisión— no tendría una sola aserción encima: TODO EL RESTO
+// de este archivo quedaría en verde con `es.ts` vacío —182 bloques `it` al
+// añadirse este bloque, contra los 5 de aquí; se recuenta con `grep -c` sobre
+// el archivo—, que es exactamente la forma de fallar que I6 dejó documentada
+// («un mecanismo que nadie llama no está entregado»).
+//
+// Se fija el locale con la variable de entorno y no con `setLanguage()` a
+// propósito: `t()` deriva el idioma EN CADA LLAMADA desde `resolveLocale()`, y
+// clavarlo probaría el clavo en vez del camino que corre en la terminal.
+// ============================================================
+describe('I7 · el piloto bilingüe: la misma hoja en los dos locales', () => {
+  const withLocale = async <T>(locale: string, fn: () => Promise<T>): Promise<T> => {
+    const previousLocale = process.env.MNEMOSINE_LOCALE;
+    process.env.MNEMOSINE_LOCALE = locale;
+    try {
+      return await fn();
+    } finally {
+      if (previousLocale === undefined) delete process.env.MNEMOSINE_LOCALE;
+      else process.env.MNEMOSINE_LOCALE = previousLocale;
+    }
+  };
+
+  it('`reconciliation status` imprime el desglose en español con es-MX', async () => {
+    const r = await withLocale('es-MX', () =>
+      run(
+        ['bank', 'reconciliation', 'status', SES],
+        mundo({ partidas: [partidaFila()], saldoLibros: '720.0000' })
+      )
+    );
+    expect(r.errs).toEqual([]);
+    expect(r.out).toMatch(/BANCO/);
+    expect(r.out).toMatch(/saldo del extracto\s+750\.00/);
+    expect(r.out).toMatch(/= ajustado\s+650\.00/);
+    expect(r.out).toMatch(/LIBROS/);
+    expect(r.out).toMatch(/saldo de libros\s+720\.00/);
+    expect(r.out).toMatch(/VARIACIÓN\s+-70\.00/);
+    expect(r.out, 'y nada del inglés se cuela').not.toMatch(/statement balance/);
+  });
+
+  it('la misma hoja, con en-US, imprime el inglés y nada del español', async () => {
+    const r = await withLocale('en-US', () =>
+      run(
+        ['bank', 'reconciliation', 'status', SES],
+        mundo({ partidas: [partidaFila()], saldoLibros: '720.0000' })
+      )
+    );
+    expect(r.errs).toEqual([]);
+    expect(r.out).toMatch(/BANK/);
+    expect(r.out).toMatch(/statement balance\s+750\.00/);
+    expect(r.out).toMatch(/VARIANCE\s+-70\.00/);
+    expect(r.out).not.toMatch(/saldo del extracto/);
+  });
+
+  it('el TIPO de una partida NO se traduce: es el valor del CHECK de la 053', async () => {
+    // La etiqueta del renglón viaja por el catálogo; el código del tipo viene
+    // del servicio y sale igual en los dos idiomas, porque renombrarlo aquí
+    // rompería el `--fields` y el json que otro guion ya lee.
+    for (const locale of ['es-MX', 'en-US']) {
+      const r = await withLocale(locale, () =>
+        run(
+          ['bank', 'reconciliation', 'status', SES],
+          mundo({ partidas: [partidaFila()], saldoLibros: '720.0000' })
+        )
+      );
+      expect(r.out, locale).toMatch(/cheque-en-circulacion\s+-100\.00/);
+    }
+  });
+
+  /** El aviso de tope va a stderr, que el arnés de arriba no captura. */
+  const withStderr = async (fn: () => Promise<unknown>): Promise<string> => {
+    const chunks: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string | Uint8Array) => {
+      chunks.push(String(c));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      await fn();
+    } finally {
+      process.stderr.write = original;
+    }
+    return chunks.join('');
+  };
+
+  it('el plural propio jubila al `(s)`: una fila se escribe en singular', async () => {
+    // `bank.list.hit_limit` decía `Se listaron N fila(s)`. Con --limit 1 el
+    // singular ES una frase en singular, en los dos idiomas, y en ninguno de
+    // los dos queda un paréntesis. Es la prueba de que la clave lleva un
+    // `plural` de verdad y no la cadena vieja mudada de sitio.
+    const es = await withStderr(() =>
+      withLocale('es-MX', () => run(['bank', 'account', 'list', '--limit', '1'], lector()))
+    );
+    expect(es).toMatch(/Se listó 1 fila, que es el tope de --limit/);
+    expect(es, 'ni un `(s)` que traducir').not.toMatch(/\(s\)/);
+
+    const en = await withStderr(() =>
+      withLocale('en-US', () => run(['bank', 'account', 'list', '--limit', '1'], lector()))
+    );
+    expect(en).toMatch(/Listed 1 row, which is the --limit cap/);
+    expect(en).not.toMatch(/\(s\)/);
+  });
+
+  it('un error de uso se rinde en el idioma del usuario, no en el del código', async () => {
+    const es = await withLocale('es-MX', () =>
+      run(['bank', 'account', 'list', '--offset', '3'], lector())
+    );
+    expect((es.errs[0] as Error).message).toMatch(/--offset no está implementado/);
+    expect((es.errs[0] as Error).message).toMatch(/Acota con \[query\], --type o --currency/);
+
+    const en = await withLocale('en-US', () =>
+      run(['bank', 'account', 'list', '--offset', '3'], lector())
+    );
+    expect((en.errs[0] as Error).message).toMatch(/--offset is not implemented/);
+    expect((en.errs[0] as Error).message).toMatch(/Narrow with \[query\], --type or --currency/);
   });
 });

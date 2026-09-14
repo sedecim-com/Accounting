@@ -3,7 +3,8 @@ import { resolve as resolvePath } from 'node:path';
 import { formatMoney } from '../../i18n/format.js';
 import type { Jurisdiction } from '../../services/jurisdiction/jurisdiction.js';
 import { palette, type Palette } from '../palette.js';
-import { CliError, ExitCode } from './exit.js';
+import { ExitCode } from './exit.js';
+import { CliError } from './cli-error.js';
 
 // ============================================================
 // OUTPUT CONTRACT
@@ -95,7 +96,10 @@ export function resolveFormat(opts: RenderOptions): Format {
   const normalized = String(raw).trim().toLowerCase();
   if (!(FORMATS as readonly string[]).includes(normalized)) {
     throw new CliError(
-      `Unknown --format "${raw}". Use one of: ${FORMATS.join(', ')}.`,
+      {
+        key: 'cli.output.unknown_format',
+        params: { value: String(raw), formats: FORMATS.join(', ') },
+      },
       ExitCode.USAGE
     );
   }
@@ -122,7 +126,10 @@ function selectFields(rows: Row[], fields: string | boolean | undefined): string
   const unknown = wanted.filter((f) => !available.includes(f));
   if (unknown.length) {
     throw new CliError(
-      `Unknown field(s): ${unknown.join(', ')}. Available: ${available.join(', ')}.`,
+      {
+        key: 'cli.output.unknown_fields',
+        params: { unknown: unknown.join(', '), available: available.join(', ') },
+      },
       ExitCode.USAGE
     );
   }

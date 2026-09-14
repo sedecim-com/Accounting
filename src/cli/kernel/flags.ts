@@ -1,4 +1,6 @@
 import { InvalidArgumentError, type Command } from 'commander';
+import { t } from '../../i18n/index.js';
+import { optionByKey } from './help.js';
 import { FORMATS } from './output.js';
 
 // ============================================================
@@ -505,11 +507,25 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// ── I7 · LA PROSA DE ESTAS BANDERAS VIVE EN EL CATÁLOGO ────────────────
+//
+// La grafía de la bandera, su forma corta, su parser y su valor por omisión
+// NO se traducen: son contrato de máquina y el diccionario de arriba los
+// congela. Lo único que cambia de idioma es la frase que las explica, y por
+// eso `optionByKey` recibe la grafía literal y una CLAVE.
+//
+// El mensaje de un parser sí se rinde AL VUELO: `InvalidArgumentError` lo
+// lanza mientras Commander lee la línea, después de que el arranque haya
+// clavado el idioma (src/cli/mnemosine.ts), así que `t()` aquí ya sabe en cuál
+// hablar. Lo que NO puedo garantizar es el mensaje que Commander le pega
+// delante al envolverlo (`command.js:605`): ese prefijo sigue en inglés y no
+// pasa por ninguna clave — ver la tabla de `kernel/help.ts`.
+
 function parsePositiveInt(name: string) {
   return (value: string): number => {
     const n = Number(value);
     if (!Number.isSafeInteger(n) || n < 0) {
-      throw new InvalidArgumentError(`${name} must be a non-negative whole number; got "${value}".`);
+      throw new InvalidArgumentError(t('cli.flag.error_not_whole_number', { name, value }));
     }
     return n;
   };
@@ -518,7 +534,7 @@ function parsePositiveInt(name: string) {
 function parseDate(name: string) {
   return (value: string): string => {
     if (!DATE_RE.test(value) || Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())) {
-      throw new InvalidArgumentError(`${name} must be a date as YYYY-MM-DD; got "${value}".`);
+      throw new InvalidArgumentError(t('cli.flag.error_not_date', { name, value }));
     }
     return value;
   };
@@ -526,10 +542,10 @@ function parseDate(name: string) {
 
 /** Which company to operate on, and as whom. */
 export function withContext(cmd: Command): Command {
-  return cmd
-    .option('-e, --entity <idOrName>', 'legal entity to operate on (defaults to the active one)')
-    .option('-t, --tenant <id>', 'tenant (firm) whose data to scope to')
-    .option('-u, --user <email>', 'acting user, for attribution and permissions');
+  optionByKey(cmd, '-e, --entity <idOrName>', 'cli.flag.entity');
+  optionByKey(cmd, '-t, --tenant <id>', 'cli.flag.tenant_scope');
+  optionByKey(cmd, '-u, --user <email>', 'cli.flag.user');
+  return cmd;
 }
 
 /**
@@ -558,21 +574,23 @@ export function globalsOf<T>(cmd: Command): T {
  * to mean anything else.
  */
 export function withOutput(cmd: Command): Command {
-  return cmd
-    .option(`--format <${FORMATS.join('|')}>`, 'output format', 'table')
-    .option('--json', 'shorthand for --format json')
-    .option('-o, --output <path>', 'write to a file instead of stdout')
-    .option('--fields [names]', 'comma-separated columns; with no value, lists the available ones')
-    .option('-q, --quiet', 'identifiers only, one per line, for piping');
+  optionByKey(cmd, `--format <${FORMATS.join('|')}>`, 'cli.flag.format', {
+    defaultValue: 'table',
+  });
+  optionByKey(cmd, '--json', 'cli.flag.json');
+  optionByKey(cmd, '-o, --output <path>', 'cli.flag.output');
+  optionByKey(cmd, '--fields [names]', 'cli.flag.fields');
+  optionByKey(cmd, '-q, --quiet', 'cli.flag.quiet');
+  return cmd;
 }
 
 /** Which rows to return. Every list command carries these. */
 export function withSelection(cmd: Command): Command {
-  return cmd
-    .option('-n, --limit <n>', 'maximum rows to return', parsePositiveInt('--limit'))
-    .option('--offset <n>', 'skip this many rows', parsePositiveInt('--offset'))
-    .option('-s, --status <state...>', 'filter by lifecycle state (repeatable)')
-    .option('-a, --all', 'no default limit; include archived and closed');
+  optionByKey(cmd, '-n, --limit <n>', 'cli.flag.limit', { parser: parsePositiveInt('--limit') });
+  optionByKey(cmd, '--offset <n>', 'cli.flag.offset', { parser: parsePositiveInt('--offset') });
+  optionByKey(cmd, '-s, --status <state...>', 'cli.flag.status');
+  optionByKey(cmd, '-a, --all', 'cli.flag.all');
+  return cmd;
 }
 
 /**
@@ -583,34 +601,29 @@ export function withSelection(cmd: Command): Command {
  * assignment each key off a different one.
  */
 export function withTime(cmd: Command): Command {
-  return cmd
-    .option('--period <expr>', 'period selector: 2026-07, 2026-Q3, FY2026, last-month, 2026-01..2026-06')
-    .option('--since <date>', 'inclusive lower bound (YYYY-MM-DD)', parseDate('--since'))
-    .option('--until <date>', 'inclusive upper bound (YYYY-MM-DD)', parseDate('--until'))
-    .option('--as-of <date>', 'valuation/balance date (YYYY-MM-DD)', parseDate('--as-of'))
-    .option(
-      '--date-basis <document|posting|value>',
-      'which date the filters apply to',
-      'posting'
-    );
+  optionByKey(cmd, '--period <expr>', 'cli.flag.period');
+  optionByKey(cmd, '--since <date>', 'cli.flag.since', { parser: parseDate('--since') });
+  optionByKey(cmd, '--until <date>', 'cli.flag.until', { parser: parseDate('--until') });
+  optionByKey(cmd, '--as-of <date>', 'cli.flag.as_of', { parser: parseDate('--as-of') });
+  optionByKey(cmd, '--date-basis <document|posting|value>', 'cli.flag.date_basis', {
+    defaultValue: 'posting',
+  });
+  return cmd;
 }
 
 /** For `check`-style diagnostics: warnings become failures on demand. */
 export function withStrict(cmd: Command): Command {
-  return cmd.option('--strict', 'treat warnings as blocking (exit 4)');
+  return optionByKey(cmd, '--strict', 'cli.flag.strict');
 }
 
 /** Overriding a hard validation is separate from skipping a prompt. */
 export function withForce(cmd: Command): Command {
-  return cmd.option(
-    '--force',
-    'override a blocking validation (closed period, lock date, duplicate); requires --reason'
-  );
+  return optionByKey(cmd, '--force', 'cli.flag.force');
 }
 
 /** A free annotation. Never a justification — that is --reason. */
 export function withNote(cmd: Command): Command {
-  return cmd.option('--note <text>', 'free annotation stored with the record');
+  return optionByKey(cmd, '--note <text>', 'cli.flag.note');
 }
 
 /** Convenience for the common read command: context + time + selection + output. */
