@@ -896,9 +896,9 @@ export function spanishJurisdictionPaths(root: string): string[] {
 // Lee el texto por el seam (`leer`), así que los mutantes lo alcanzan.
 // ============================================================
 
-interface AcusacionDeRuta {
-  ruta: string;
-  falta: string;
+interface RouteFinding {
+  route: string;
+  issue: string;
 }
 
 /**
@@ -908,7 +908,7 @@ interface AcusacionDeRuta {
  * aquí una ruta de `pay_runs` —que llega a la entidad por periodo y calendario—
  * no la exime, la acusa. Es la exención de T9a con cerradura.
  */
-const RUTAS_DE_TABLAS_DEL_INQUILINO: Record<string, string> = {
+const TENANT_TABLE_ROUTES: Record<string, string> = {
   'webhooks.ts DELETE /:id': 'webhook_subscriptions',
   'webhooks.ts POST /deliveries/:id/retry': 'webhook_deliveries',
   'integrations.ts PUT /:provider': 'integration_credentials',
@@ -916,140 +916,140 @@ const RUTAS_DE_TABLAS_DEL_INQUILINO: Record<string, string> = {
   'integrations.ts DELETE /:provider': 'integration_credentials',
 };
 
-function escanearRutasDeEscritura(): { revisadas: number; acusaciones: AcusacionDeRuta[] } {
-  const acusaciones: AcusacionDeRuta[] = [];
-  let revisadas = 0;
-  const VERBOS = new Set(['post', 'put', 'patch', 'delete']);
+function scanWriteRoutes(): { reviewed: number; findings: RouteFinding[] } {
+  const findings: RouteFinding[] = [];
+  let reviewed = 0;
+  const WRITE_VERBS = new Set(['post', 'put', 'patch', 'delete']);
 
   // Lo que las migraciones dicen de cada tabla, para cerrar la exención.
-  const dirMigraciones = 'src/database/migrations';
-  const sql = fs
-    .readdirSync(rutaDe(dirMigraciones))
-    .map((m) => crudoDe(dirMigraciones, m))
+  const migrationsDir = 'src/database/migrations';
+  const migrationsSql = fs
+    .readdirSync(rutaDe(migrationsDir))
+    .map((m) => crudoDe(migrationsDir, m))
     .join('\n');
-  const caminosDeNomina = existe('src/services/payroll/common/alcance-nomina.ts')
+  const payrollPaths = existe('src/services/payroll/common/alcance-nomina.ts')
     ? crudoDe('src/services/payroll/common/alcance-nomina.ts')
     : '';
-  const tablaTieneEntidad = (tabla: string): boolean => {
-    const creacion = new RegExp(`CREATE TABLE (?:IF NOT EXISTS )?${tabla}\\s*\\(([\\s\\S]*?)\\n\\);`, 'i').exec(sql);
-    if (creacion && /\bentity_id\b/.test(creacion[1])) return true;
-    if (new RegExp(`ALTER TABLE ${tabla}\\b[^;]*ADD COLUMN[^;]*\\bentity_id\\b`, 'i').test(sql)) return true;
+  const tableHasEntity = (table: string): boolean => {
+    const createTable = new RegExp(`CREATE TABLE (?:IF NOT EXISTS )?${table}\\s*\\(([\\s\\S]*?)\\n\\);`, 'i').exec(migrationsSql);
+    if (createTable && /\bentity_id\b/.test(createTable[1])) return true;
+    if (new RegExp(`ALTER TABLE ${table}\\b[^;]*ADD COLUMN[^;]*\\bentity_id\\b`, 'i').test(migrationsSql)) return true;
     // Sin columna, pero con CAMINO: las tablas de nómina que llegan a la
     // entidad por otra tabla, escritas en alcance-nomina.ts.
-    return new RegExp(`\\b${tabla}\\b`).test(caminosDeNomina);
+    return new RegExp(`\\b${table}\\b`).test(payrollPaths);
   };
 
   // Routers montados ANTES de `authenticate`: no hay sesión, no hay entidad.
-  const indice = existe('src/index.ts') ? crudoDe('src/index.ts') : '';
-  const posAuth = indice.search(/app\.use\(\s*apiPrefix\s*,\s*authenticate\s*\)/);
-  const antesDeAutenticar = new Set<string>();
-  if (posAuth >= 0) {
-    for (const m of indice.matchAll(/import\s+(\w+)\s+from\s+'\.\/api\/rest\/routes\/([\w-]+)\.js'/g)) {
-      const usoMontado = indice.search(new RegExp(`app\\.use\\([^)]*\\b${m[1]}\\s*\\)`));
-      if (usoMontado >= 0 && usoMontado < posAuth) antesDeAutenticar.add(`${m[2]}.ts`);
+  const indexSource = existe('src/index.ts') ? crudoDe('src/index.ts') : '';
+  const authPos = indexSource.search(/app\.use\(\s*apiPrefix\s*,\s*authenticate\s*\)/);
+  const mountedBeforeAuth = new Set<string>();
+  if (authPos >= 0) {
+    for (const m of indexSource.matchAll(/import\s+(\w+)\s+from\s+'\.\/api\/rest\/routes\/([\w-]+)\.js'/g)) {
+      const mountUse = indexSource.search(new RegExp(`app\\.use\\([^)]*\\b${m[1]}\\s*\\)`));
+      if (mountUse >= 0 && mountUse < authPos) mountedBeforeAuth.add(`${m[2]}.ts`);
     }
   }
 
-  function* nodos(n: ts.Node): Generator<ts.Node> {
+  function* walk(n: ts.Node): Generator<ts.Node> {
     yield n;
-    for (const h of n.getChildren()) yield* nodos(h);
+    for (const h of n.getChildren()) yield* walk(h);
   }
-  const esReqEntityId = (n: ts.Node): boolean =>
+  const isReqEntityId = (n: ts.Node): boolean =>
     ts.isPropertyAccessExpression(n) && n.name.text === 'entityId' &&
     ts.isIdentifier(n.expression) && n.expression.text === 'req';
-  const contieneReqEntityId = (n: ts.Node): boolean => {
-    for (const x of nodos(n)) if (esReqEntityId(x)) return true;
+  const containsReqEntityId = (n: ts.Node): boolean => {
+    for (const x of walk(n)) if (isReqEntityId(x)) return true;
     return false;
   };
 
   for (const abs of fuentes('src/api/rest/routes')) {
-    const archivo = path.basename(abs);
-    const sf = ts.createSourceFile(archivo, leer(abs), ts.ScriptTarget.Latest, true);
+    const file = path.basename(abs);
+    const sf = ts.createSourceFile(file, leer(abs), ts.ScriptTarget.Latest, true);
 
-    const importados = new Set<string>();
-    const funcionesLocales = new Map<string, ts.Node>();
+    const imported = new Set<string>();
+    const localFunctions = new Map<string, ts.Node>();
     for (const st of sf.statements) {
       if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier) &&
           /\/(services|database)\//.test(st.moduleSpecifier.text)) {
         const nb = st.importClause?.namedBindings;
-        if (nb && ts.isNamedImports(nb)) for (const e of nb.elements) importados.add(e.name.text);
-        if (st.importClause?.name) importados.add(st.importClause.name.text);
+        if (nb && ts.isNamedImports(nb)) for (const e of nb.elements) imported.add(e.name.text);
+        if (st.importClause?.name) imported.add(st.importClause.name.text);
       }
-      if (ts.isFunctionDeclaration(st) && st.name) funcionesLocales.set(st.name.text, st);
+      if (ts.isFunctionDeclaration(st) && st.name) localFunctions.set(st.name.text, st);
       if (ts.isVariableStatement(st)) {
         for (const d of st.declarationList.declarations) {
           if (ts.isIdentifier(d.name) && d.initializer &&
               (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))) {
-            funcionesLocales.set(d.name.text, d.initializer);
+            localFunctions.set(d.name.text, d.initializer);
           }
         }
       }
     }
-    const localConEntidad = (nombre: string): boolean => {
-      const f = funcionesLocales.get(nombre);
-      return f !== undefined && contieneReqEntityId(f);
+    const localUsesEntity = (routeName: string): boolean => {
+      const f = localFunctions.get(routeName);
+      return f !== undefined && containsReqEntityId(f);
     };
 
-    for (const n of nodos(sf)) {
+    for (const n of walk(sf)) {
       if (!ts.isCallExpression(n) || !ts.isPropertyAccessExpression(n.expression)) continue;
-      const receptor = n.expression.expression;
-      const verbo = n.expression.name.text;
-      if (!ts.isIdentifier(receptor) || receptor.text !== 'router') continue;
+      const receiver = n.expression.expression;
+      const verb = n.expression.name.text;
+      if (!ts.isIdentifier(receiver) || receiver.text !== 'router') continue;
       // Una forma que el escáner no sabe leer NO se salta: se acusa.
-      if (verbo === 'route' || verbo === 'all') {
-        acusaciones.push({ ruta: `${archivo} router.${verbo}(`, falta: 'forma de ruta que este criterio no analiza' });
+      if (verb === 'route' || verb === 'all') {
+        findings.push({ route: `${file} router.${verb}(`, issue: 'forma de ruta que este criterio no analiza' });
         continue;
       }
-      if (!VERBOS.has(verbo)) continue;
-      const args = n.arguments;
-      const ruta = args[0] && ts.isStringLiteral(args[0]) ? args[0].text : '?';
-      const nombre = `${archivo} ${verbo.toUpperCase()} ${ruta}`;
-      revisadas += 1;
+      if (!WRITE_VERBS.has(verb)) continue;
+      const routeArgs = n.arguments;
+      const route = routeArgs[0] && ts.isStringLiteral(routeArgs[0]) ? routeArgs[0].text : '?';
+      const routeName = `${file} ${verb.toUpperCase()} ${route}`;
+      reviewed += 1;
 
-      const ultimo = args[args.length - 1];
-      let fn: ts.Node | undefined = ultimo;
-      if (ultimo && ts.isCallExpression(ultimo)) fn = ultimo.arguments[ultimo.arguments.length - 1];
-      if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) {
-        acusaciones.push({ ruta: nombre, falta: 'manejador que este criterio no analiza' });
+      const last = routeArgs[routeArgs.length - 1];
+      let handler: ts.Node | undefined = last;
+      if (last && ts.isCallExpression(last)) handler = last.arguments[last.arguments.length - 1];
+      if (!handler || !(ts.isArrowFunction(handler) || ts.isFunctionExpression(handler))) {
+        findings.push({ route: routeName, issue: 'manejador que este criterio no analiza' });
         continue;
       }
-      const cuerpo = fn.body;
+      const body = handler.body;
 
       // Exención 501 POR POSICIÓN: sólo si la PRIMERA sentencia lanza.
-      if (ts.isBlock(cuerpo) && cuerpo.statements[0] && ts.isThrowStatement(cuerpo.statements[0]) &&
-          cuerpo.statements[0].expression && ts.isNewExpression(cuerpo.statements[0].expression) &&
-          cuerpo.statements[0].expression.expression.getText() === 'NotImplementedError') {
+      if (ts.isBlock(body) && body.statements[0] && ts.isThrowStatement(body.statements[0]) &&
+          body.statements[0].expression && ts.isNewExpression(body.statements[0].expression) &&
+          body.statements[0].expression.expression.getText() === 'NotImplementedError') {
         continue;
       }
 
       // El disparador: la ruta nombra un recurso por id.
-      const lecturas = new Set<string>();
-      let entidadDelCuerpo: string | null = null;
-      for (const x of nodos(cuerpo)) {
+      const reads = new Set<string>();
+      let bodyEntity: string | null = null;
+      for (const x of walk(body)) {
         if (ts.isPropertyAccessExpression(x) && ts.isPropertyAccessExpression(x.expression) &&
             ts.isIdentifier(x.expression.expression) && x.expression.expression.text === 'req' &&
             x.expression.name.text === 'params') {
-          lecturas.add(x.getText());
+          reads.add(x.getText());
         }
         if (ts.isVariableDeclaration(x) && ts.isObjectBindingPattern(x.name) && x.initializer) {
-          let origen: ts.Node = x.initializer;
-          while (ts.isAsExpression(origen) || ts.isParenthesizedExpression(origen)) origen = origen.expression;
-          if (!/^req\.(body|query|params)$/.test(origen.getText())) continue;
+          let source: ts.Node = x.initializer;
+          while (ts.isAsExpression(source) || ts.isParenthesizedExpression(source)) source = source.expression;
+          if (!/^req\.(body|query|params)$/.test(source.getText())) continue;
           for (const el of x.name.elements) {
             const nm = el.name.getText();
-            if (nm === 'entity_id') entidadDelCuerpo = nm;
-            else if (/_id$/.test(nm)) lecturas.add(nm);
+            if (nm === 'entity_id') bodyEntity = nm;
+            else if (/_id$/.test(nm)) reads.add(nm);
           }
         }
       }
-      if (lecturas.size === 0) continue;
-      if (antesDeAutenticar.has(archivo)) continue;
-      const tabla = RUTAS_DE_TABLAS_DEL_INQUILINO[nombre];
-      if (tabla !== undefined) {
-        if (tablaTieneEntidad(tabla)) {
-          acusaciones.push({
-            ruta: nombre,
-            falta: `eximida como tabla del inquilino («${tabla}»), y esa tabla SÍ llega a una entidad`,
+      if (reads.size === 0) continue;
+      if (mountedBeforeAuth.has(file)) continue;
+      const table = TENANT_TABLE_ROUTES[routeName];
+      if (table !== undefined) {
+        if (tableHasEntity(table)) {
+          findings.push({
+            route: routeName,
+            issue: `eximida como tabla del inquilino («${table}»), y esa tabla SÍ llega a una entidad`,
           });
         }
         continue;
@@ -1057,73 +1057,73 @@ function escanearRutasDeEscritura(): { revisadas: number; acusaciones: Acusacion
 
       // (i) La guarda, como ARGUMENTO de middleware antes del manejador —no
       // dentro de una cadena—, o `assertEntityAccess(` llamado en el manejador.
-      const middlewares = args.slice(1, args.length - 1);
-      const guardaMontada = middlewares.some((m) => ts.isIdentifier(m) && m.text === 'requireEntityAccess');
-      let guardaDentro = false;
-      for (const x of nodos(cuerpo)) {
-        if (ts.isCallExpression(x) && ts.isIdentifier(x.expression) && x.expression.text === 'assertEntityAccess') guardaDentro = true;
+      const middlewares = routeArgs.slice(1, routeArgs.length - 1);
+      const guardMounted = middlewares.some((m) => ts.isIdentifier(m) && m.text === 'requireEntityAccess');
+      let guardInside = false;
+      for (const x of walk(body)) {
+        if (ts.isCallExpression(x) && ts.isIdentifier(x.expression) && x.expression.text === 'assertEntityAccess') guardInside = true;
       }
-      if (!guardaMontada && !guardaDentro) {
-        acusaciones.push({ ruta: nombre, falta: 'escribe sobre un recurso por id sin requireEntityAccess' });
+      if (!guardMounted && !guardInside) {
+        findings.push({ route: routeName, issue: 'escribe sobre un recurso por id sin requireEntityAccess' });
         continue;
       }
 
       // (ii) Que la entidad llegue A CADA LLAMADA que resuelve la lectura —no
       // al manejador en general—: una variable ligada a `req.entityId` y sin
       // usar deja la llamada sin acotar.
-      const ligadas = new Map<string, ts.Node>();
-      for (const x of nodos(cuerpo)) {
-        if (ts.isVariableDeclaration(x) && ts.isIdentifier(x.name) && x.initializer) ligadas.set(x.name.text, x.initializer);
+      const bound = new Map<string, ts.Node>();
+      for (const x of walk(body)) {
+        if (ts.isVariableDeclaration(x) && ts.isIdentifier(x.name) && x.initializer) bound.set(x.name.text, x.initializer);
       }
-      const argumentoTraeEntidad = (a: ts.Node): boolean => {
-        if (contieneReqEntityId(a)) return true;
-        for (const x of nodos(a)) {
-          if (ts.isCallExpression(x) && ts.isIdentifier(x.expression) && localConEntidad(x.expression.text)) return true;
+      const argCarriesEntity = (a: ts.Node): boolean => {
+        if (containsReqEntityId(a)) return true;
+        for (const x of walk(a)) {
+          if (ts.isCallExpression(x) && ts.isIdentifier(x.expression) && localUsesEntity(x.expression.text)) return true;
           if (ts.isIdentifier(x)) {
-            const init = ligadas.get(x.text);
-            if (init !== undefined && contieneReqEntityId(init)) return true;
+            const init = bound.get(x.text);
+            if (init !== undefined && containsReqEntityId(init)) return true;
             // El `entity_id` del cuerpo cuenta SÓLO con la guarda montada: es
             // ella quien lo valida contra el token.
-            if (guardaMontada && entidadDelCuerpo !== null && x.text === entidadDelCuerpo) return true;
+            if (guardMounted && bodyEntity !== null && x.text === bodyEntity) return true;
           }
         }
         return false;
       };
-      const lecturaQueUsa = (call: ts.CallExpression): string | null => {
+      const readUsedBy = (call: ts.CallExpression): string | null => {
         for (const a of call.arguments) {
-          for (const x of nodos(a)) {
+          for (const x of walk(a)) {
             const t = x.getText();
-            if (lecturas.has(t)) return t;
+            if (reads.has(t)) return t;
           }
         }
         return null;
       };
 
-      const acotadas = new Set<string>();
-      if (ts.isBlock(cuerpo)) {
-        for (const x of nodos(cuerpo)) {
+      const scopedReads = new Set<string>();
+      if (ts.isBlock(body)) {
+        for (const x of walk(body)) {
           if (!ts.isCallExpression(x) || !ts.isIdentifier(x.expression)) continue;
-          const lectura = lecturaQueUsa(x);
-          if (lectura === null) continue;
+          const read = readUsedBy(x);
+          if (read === null) continue;
           const llamado = x.expression.text;
           // Una función LOCAL que usa req.entityId y recibe `req` acota la
           // lectura para lo que venga después (assertEntryAccess(req, id)).
-          if (localConEntidad(llamado) && x.arguments.some((a) => a.getText() === 'req')) {
-            acotadas.add(lectura);
+          if (localUsesEntity(llamado) && x.arguments.some((a) => a.getText() === 'req')) {
+            scopedReads.add(read);
             continue;
           }
-          if (!importados.has(llamado)) continue;
-          if (x.arguments.some(argumentoTraeEntidad)) {
-            acotadas.add(lectura);
+          if (!imported.has(llamado)) continue;
+          if (x.arguments.some(argCarriesEntity)) {
+            scopedReads.add(read);
             continue;
           }
-          if (acotadas.has(lectura)) continue;
-          acusaciones.push({ ruta: nombre, falta: `${llamado}(${lectura}) no recibe la entidad validada` });
+          if (scopedReads.has(read)) continue;
+          findings.push({ route: routeName, issue: `${llamado}(${read}) no recibe la entidad validada` });
         }
       }
     }
   }
-  return { revisadas, acusaciones };
+  return { reviewed, findings };
 }
 
 export const CRITERIOS: Criterio[] = [
@@ -4545,20 +4545,20 @@ export const CRITERIOS: Criterio[] = [
       },
     ],
     evaluar: () => {
-      const { revisadas, acusaciones } = escanearRutasDeEscritura();
-      if (revisadas === 0) return noEvaluable('no hay rutas REST que revisar');
-      if (acusaciones.length > 0) {
+      const { reviewed, findings } = scanWriteRoutes();
+      if (reviewed === 0) return noEvaluable('no hay rutas REST que revisar');
+      if (findings.length > 0) {
         return falla(
-          `${acusaciones.length} ruta(s) escriben sobre un recurso por id sin entregar la entidad validada: ` +
-            acusaciones.slice(0, 5).map((a) => `${a.ruta} — ${a.falta}`).join(' · ') +
-            (acusaciones.length > 5 ? ` y ${acusaciones.length - 5} más` : '') +
+          `${findings.length} ruta(s) escriben sobre un recurso por id sin entregar la entidad validada: ` +
+            findings.slice(0, 5).map((a) => `${a.route} — ${a.issue}`).join(' · ') +
+            (findings.length > 5 ? ` y ${findings.length - 5} más` : '') +
             '. RLS acota por inquilino; dentro de un despacho con dos sociedades, eso sólo lo defiende el SQL'
         );
       }
 
       // LOS SERVICIOS, POR SU TEXTO: son fragmentos de SQL de una línea, donde
       // el texto es la conducta entera.
-      const fijados: Array<[string, string, string]> = [
+      const pinned: Array<[string, string, string]> = [
         ['src/services/ap/bill-service.ts', 'WHERE id = $2 AND entity_id = $3 AND status IN', 'aprobar la factura dejó de acotar el UPDATE por entidad'],
         ['src/services/payroll/usa/nacha-generator.ts', "corridaEnEntidad('pr.pay_period_id', 3)", 'el archivo NACHA dejó de llegar a la entidad de la corrida por su llave'],
         ['src/services/payroll/usa/nacha-generator.ts', 'AND p.net_pay > 0 AND e.entity_id = $2', 'el archivo NACHA dejó de acotar los recibos por la entidad del empleado'],
@@ -4566,31 +4566,31 @@ export const CRITERIOS: Criterio[] = [
         ['src/services/payroll/usa/benefits/benefits-service.ts', 'WHERE e.id = $2 AND e.entity_id = $7', 'la elección de beneficio dejó de atar el empleado a la entidad de la sesión'],
         ['src/services/payroll/common/pay-period-service.ts', "'pay_schedules', payScheduleId, scope, {", 'generar periodos dejó de acotar el calendario por la entidad de la sesión'],
       ];
-      for (const [archivo, fragmento, porque] of fijados) {
-        if (!existe(archivo)) return falla(`desapareció ${archivo}`);
-        if (!codigoDe(archivo).includes(fragmento)) return falla(porque);
+      for (const [file, fragment, reason] of pinned) {
+        if (!existe(file)) return falla(`desapareció ${file}`);
+        if (!codigoDe(file).includes(fragment)) return falla(reason);
       }
 
       // Y CONDUCTA QUE LO AFIRMA contra Postgres, en 404 y contra un fantasma.
-      const pruebas = [
+      const specs = [
         'tests/integration/ten11-la-factura-de-la-hermana.int.spec.ts',
         'tests/integration/ten11-el-archivo-nacha-de-la-hermana.int.spec.ts',
         'tests/integration/ten11-los-beneficios-de-la-hermana.int.spec.ts',
         'tests/integration/ten11-los-periodos-de-la-hermana.int.spec.ts',
       ];
-      for (const prueba of pruebas) {
-        if (!existe(prueba)) return falla(`no hay reproducción en ${prueba}: sin ella esto es una lectura del diff`);
-        const t = crudoDe(prueba);
+      for (const spec of specs) {
+        if (!existe(spec)) return falla(`no hay reproducción en ${spec}: sin ella esto es una lectura del diff`);
+        const t = crudoDe(spec);
         if (/toBe\(403\)/.test(t)) {
-          return falla(`${prueba} exige un 403: confirma que el recurso existe y no es tuyo, que es lo que quien prueba ids no sabía`);
+          return falla(`${spec} exige un 403: confirma que el recurso existe y no es tuyo, que es lo que quien prueba ids no sabía`);
         }
         if (!/toBe\(404\)/.test(t) || !/randomUUID\(\)/.test(t)) {
-          return falla(`${prueba} dejó de exigir el 404 idéntico al de un id inexistente`);
+          return falla(`${spec} dejó de exigir el 404 idéntico al de un id inexistente`);
         }
       }
 
       return ok(
-        `${revisadas} rutas de escritura revisadas: toda la que nombra un recurso por id le entrega la entidad validada a la llamada que lo resuelve, y hay reproducción de las cuatro que no lo hacían`
+        `${reviewed} rutas de escritura revisadas: toda la que nombra un recurso por id le entrega la entidad validada a la llamada que lo resuelve, y hay reproducción de las cuatro que no lo hacían`
       );
     },
   },

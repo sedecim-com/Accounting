@@ -23,7 +23,7 @@ let a: Fixture;
 let b: Fixture;
 let srv: Servidor;
 
-async function empleadoUS(fx: Fixture): Promise<string> {
+async function usEmployee(fx: Fixture): Promise<string> {
   const id = randomUUID();
   await query(
     `INSERT INTO employees (id, tenant_id, entity_id, employee_number, first_name, last_name,
@@ -34,23 +34,23 @@ async function empleadoUS(fx: Fixture): Promise<string> {
   return id;
 }
 
-async function plan(fx: Fixture, nombre: string): Promise<string> {
+async function plan(fx: Fixture, name: string): Promise<string> {
   const id = randomUUID();
   await query(
     `INSERT INTO benefits_plans (id, tenant_id, entity_id, plan_type, name, is_pre_tax)
      VALUES ($1,$2,$3,'401k',$4,true)`,
-    [id, fx.tenantId, fx.entityId, nombre]
+    [id, fx.tenantId, fx.entityId, name]
   );
   return id;
 }
 
-let empleadoA: string;
-let empleadoB: string;
+let ownEmployee: string;
+let siblingEmployee: string;
 let planA: string;
 let planB: string;
-const ELECCION_PREVIA_DE_B = randomUUID();
+const SIBLING_PRIOR_ELECTION = randomUUID();
 
-const cuerpo = (benefit_plan_id: string): Record<string, unknown> => ({
+const electionBody = (benefit_plan_id: string): Record<string, unknown> => ({
   benefit_plan_id,
   election_type: 'percentage',
   election_value: 99,
@@ -60,8 +60,8 @@ const cuerpo = (benefit_plan_id: string): Record<string, unknown> => ({
 beforeAll(async () => {
   a = await crearInquilino('TEN-11 beneficios A');
   b = await crearEntidadHermana(a, 'TEN-11 beneficios B');
-  empleadoA = await empleadoUS(a);
-  empleadoB = await empleadoUS(b);
+  ownEmployee = await usEmployee(a);
+  siblingEmployee = await usEmployee(b);
   planA = await plan(a, 'Plan de A');
   planB = await plan(b, 'Plan de B');
   // Una elección previa de B, DESACTIVADA, al 4 %: el ataque no puede
@@ -70,7 +70,7 @@ beforeAll(async () => {
     `INSERT INTO employee_benefit_elections (id, employee_id, benefit_plan_id, effective_date,
        employee_contribution_type, employee_contribution_value, is_active)
      VALUES ($1,$2,$3,'2025-01-01','percentage',4,false)`,
-    [ELECCION_PREVIA_DE_B, empleadoB, planB]
+    [SIBLING_PRIOR_ELECTION, siblingEmployee, planB]
   );
   srv = await levantar([['/v1/payroll', payrollRouter]], {
     ...sesionDe(a),
@@ -83,53 +83,53 @@ afterAll(async () => {
   await closeDatabase();
 });
 
-const eleccionesDe = async (empleado: string): Promise<number> => {
+const electionCount = async (employee: string): Promise<number> => {
   const { rows } = await query<{ n: string }>(
     'SELECT COUNT(*)::text AS n FROM employee_benefit_elections WHERE employee_id = $1',
-    [empleado]
+    [employee]
   );
   return Number(rows[0].n);
 };
 
 describe('las elecciones de beneficio de la hermana', () => {
   it('empleado de la hermana con plan PROPIO: 404, y no se escribe', async () => {
-    const antes = await eleccionesDe(empleadoB);
-    const r = await pedir(srv, 'POST', `/v1/payroll/employees/${empleadoB}/benefit-elections`, cuerpo(planA));
+    const before = await electionCount(siblingEmployee);
+    const r = await pedir(srv, 'POST', `/v1/payroll/employees/${siblingEmployee}/benefit-elections`, electionBody(planA));
     expect(r.status, `contestó ${r.status}`).toBe(404);
-    expect(await eleccionesDe(empleadoB)).toBe(antes);
+    expect(await electionCount(siblingEmployee)).toBe(before);
   });
 
   it('empleado de la hermana con SU plan: 404, y la elección previa queda intacta', async () => {
-    const r = await pedir(srv, 'POST', `/v1/payroll/employees/${empleadoB}/benefit-elections`, cuerpo(planB));
+    const r = await pedir(srv, 'POST', `/v1/payroll/employees/${siblingEmployee}/benefit-elections`, electionBody(planB));
     expect(r.status, `contestó ${r.status}`).toBe(404);
     const { rows } = await query<{ employee_contribution_value: string; is_active: boolean }>(
       'SELECT employee_contribution_value, is_active FROM employee_benefit_elections WHERE id = $1',
-      [ELECCION_PREVIA_DE_B]
+      [SIBLING_PRIOR_ELECTION]
     );
     expect(rows[0].is_active, 'la elección ajena se reactivó').toBe(false);
     expect(rows[0].employee_contribution_value, 'la elección ajena cambió de valor').toBe('4.0000');
   });
 
   it('empleado PROPIO con el plan de la hermana: 404 — la segunda llave también es ajena', async () => {
-    const antes = await eleccionesDe(empleadoA);
-    const r = await pedir(srv, 'POST', `/v1/payroll/employees/${empleadoA}/benefit-elections`, cuerpo(planB));
+    const before = await electionCount(ownEmployee);
+    const r = await pedir(srv, 'POST', `/v1/payroll/employees/${ownEmployee}/benefit-elections`, electionBody(planB));
     expect(r.status, `contestó ${r.status}`).toBe(404);
-    expect(await eleccionesDe(empleadoA)).toBe(antes);
+    expect(await electionCount(ownEmployee)).toBe(before);
   });
 
   it('el 404 es idéntico al de un empleado que no existe', async () => {
-    const ajena = await pedir(srv, 'POST', `/v1/payroll/employees/${empleadoB}/benefit-elections`, cuerpo(planA));
+    const foreign = await pedir(srv, 'POST', `/v1/payroll/employees/${siblingEmployee}/benefit-elections`, electionBody(planA));
     const fantasmaId = randomUUID();
-    const fantasma = await pedir(srv, 'POST', `/v1/payroll/employees/${fantasmaId}/benefit-elections`, cuerpo(planA));
+    const fantasma = await pedir(srv, 'POST', `/v1/payroll/employees/${fantasmaId}/benefit-elections`, electionBody(planA));
     expect(fantasma.status).toBe(404);
-    const normalizar = (body: unknown, id: string): string =>
+    const normalize = (body: unknown, id: string): string =>
       JSON.stringify((body as { errors?: unknown }).errors).split(id).join('<id>');
-    expect(normalizar(ajena.body, empleadoB)).toBe(normalizar(fantasma.body, fantasmaId));
+    expect(normalize(foreign.body, siblingEmployee)).toBe(normalize(fantasma.body, fantasmaId));
   });
 
   it('EL CONTRAPESO: empleado propio con plan propio sí elige', async () => {
-    const r = await pedir(srv, 'POST', `/v1/payroll/employees/${empleadoA}/benefit-elections`, cuerpo(planA));
+    const r = await pedir(srv, 'POST', `/v1/payroll/employees/${ownEmployee}/benefit-elections`, electionBody(planA));
     expect(r.status, JSON.stringify(r.body)).toBe(201);
-    expect(await eleccionesDe(empleadoA)).toBe(1);
+    expect(await electionCount(ownEmployee)).toBe(1);
   });
 });
