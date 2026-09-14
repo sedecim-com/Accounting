@@ -54,9 +54,9 @@ let ctx: AgentContext;
 const JULIO = 7;
 const AGOSTO = 8;
 
-const contextoDe = (x: Fixture, nombre: string): AgentContext => ({
+const contextOf = (x: Fixture, name: string): AgentContext => ({
   entityId: x.entityId,
-  entityName: nombre,
+  entityName: name,
   tenantId: x.tenantId,
   currency: 'MXN',
   country: 'MX',
@@ -64,7 +64,7 @@ const contextoDe = (x: Fixture, nombre: string): AgentContext => ({
   taxId: 'XAXX010101000',
 });
 
-async function periodoDe(x: Fixture, mes: number): Promise<ClosablePeriod> {
+async function periodOf(x: Fixture, month: number): Promise<ClosablePeriod> {
   const r = await query<ClosablePeriod>(
     `SELECT fp.id, fp.period_name, fp.period_number,
             fp.start_date::text, fp.end_date::text, fp.status,
@@ -72,28 +72,28 @@ async function periodoDe(x: Fixture, mes: number): Promise<ClosablePeriod> {
        FROM fiscal_periods fp
        JOIN fiscal_years fy ON fy.id = fp.fiscal_year_id
       WHERE fp.id = $1`,
-    [x.periodos[mes]]
+    [x.periodos[month]]
   );
   return r.rows[0];
 }
 
 /** Un inquilino nuevo con su panel sembrado y su contexto FIJADO aquí. */
-async function inquilinoPropio(nombre: string): Promise<{ g: Fixture; ctxG: AgentContext }> {
-  const g = await crearInquilino(nombre);
+async function ownTenant(name: string): Promise<{ g: Fixture; ctxG: AgentContext }> {
+  const g = await crearInquilino(name);
   await seedPolicies({ tenantId: g.tenantId, entityId: g.entityId });
-  return { g, ctxG: contextoDe(g, nombre) };
+  return { g, ctxG: contextOf(g, name) };
 }
 
 /** Un asiento cuadrado y posteado dentro del mes, para que haya cifras. */
-async function asientoEn(x: Fixture, fecha: string, importe: string): Promise<string> {
+async function postEntryOn(x: Fixture, date: string, amount: string): Promise<string> {
   const e = await createJournalEntry(
     x.entityId,
-    new Date(fecha),
+    new Date(date),
     'standard' as never,
-    `Venta de ${importe}`,
+    `Venta de ${amount}`,
     [
-      { account_id: x.roles.banco, debit_amount: importe, credit_amount: null, description: 'cobro' },
-      { account_id: x.roles.ingreso, debit_amount: null, credit_amount: importe, description: 'venta' },
+      { account_id: x.roles.banco, debit_amount: amount, credit_amount: null, description: 'cobro' },
+      { account_id: x.roles.ingreso, debit_amount: null, credit_amount: amount, description: 'venta' },
     ] as never,
     x.userId,
     { autoPost: true }
@@ -101,11 +101,11 @@ async function asientoEn(x: Fixture, fecha: string, importe: string): Promise<st
   return e.id;
 }
 
-async function activoEn(x: Fixture, codigo: string, alta: string): Promise<void> {
-  const categoria = uuidv4();
+async function addAssetTo(x: Fixture, assetNumber: string, acquiredOn: string): Promise<void> {
+  const categoryId = uuidv4();
   await query(
     `INSERT INTO asset_categories (id, entity_id, name) VALUES ($1, $2, $3)`,
-    [categoria, x.entityId, `Equipo ${codigo}`]
+    [categoryId, x.entityId, `Equipo ${assetNumber}`]
   );
   await query(
     `INSERT INTO fixed_assets (id, entity_id, asset_number, asset_name, category_id,
@@ -117,11 +117,11 @@ async function activoEn(x: Fixture, codigo: string, alta: string): Promise<void>
        $5, '36000.0000', '0', 3, 36,
        'straight_line', $5, '36000.0000',
        $6, $7, $8, 'active', $9)`,
-    [uuidv4(), x.entityId, codigo, categoria, alta, x.cuentas['1210'], x.cuentas['1290'], x.cuentas['6140'], x.userId]
+    [uuidv4(), x.entityId, assetNumber, categoryId, acquiredOn, x.cuentas['1210'], x.cuentas['1290'], x.cuentas['6140'], x.userId]
   );
 }
 
-async function estadoDelPeriodo(periodId: string): Promise<string> {
+async function periodStatusOf(periodId: string): Promise<string> {
   const r = await query<{ status: string }>('SELECT status FROM fiscal_periods WHERE id = $1', [periodId]);
   return r.rows[0].status;
 }
@@ -130,15 +130,15 @@ beforeAll(async () => {
   f = await crearInquilino('Conductor del cierre');
   await seedPolicies({ tenantId: f.tenantId, entityId: f.entityId });
   hermana = await crearEntidadHermana(f, 'Hermana del conductor');
-  ctx = contextoDe(f, 'Conductor del cierre');
-  await activoEn(f, 'AF-001', '2026-01-15');
-  await asientoEn(f, '2026-07-10', '1000.0000');
+  ctx = contextOf(f, 'Conductor del cierre');
+  await addAssetTo(f, 'AF-001', '2026-01-15');
+  await postEntryOn(f, '2026-07-10', '1000.0000');
 });
 
 describe('A6 · el conductor', () => {
   it('recorre los cinco pasos en su orden y deja el periodo en cierre suave', async () => {
     enterTenant(f.tenantId);
-    const julio = await periodoDe(f, JULIO);
+    const julio = await periodOf(f, JULIO);
     const r = await conductClose(ctx, julio, { userId: f.userId });
 
     expect(r.status, JSON.stringify(r.steps, null, 2)).toBe('completed');
@@ -152,21 +152,21 @@ describe('A6 · el conductor', () => {
     expect(dep?.processed).toBe(1);
     expect(dep?.journalEntryIds).toHaveLength(1);
 
-    expect(await estadoDelPeriodo(julio.id)).toBe('soft_close');
+    expect(await periodStatusOf(julio.id)).toBe('soft_close');
 
-    const pasos = await query<{ step_key: string }>(
+    const steps = await query<{ step_key: string }>(
       `SELECT step_key FROM closing_run_steps WHERE run_id = $1 ORDER BY ordinal`,
       [r.runId]
     );
-    expect(pasos.rows.map((p) => p.step_key)).toEqual([...CLOSING_STEPS]);
+    expect(steps.rows.map((p) => p.step_key)).toEqual([...CLOSING_STEPS]);
   });
 
   it('correr otra vez un mes ya conducido NO vuelve a postear', async () => {
     enterTenant(f.tenantId);
-    const agosto = await periodoDe(f, AGOSTO);
+    const agosto = await periodOf(f, AGOSTO);
     expect((await conductClose(ctx, agosto, { userId: f.userId })).status).toBe('completed');
 
-    const lineas = async () =>
+    const lineCount = async () =>
       (
         await query<{ n: string }>(
           `SELECT COUNT(*)::text AS n FROM journal_entry_lines jel
@@ -175,30 +175,30 @@ describe('A6 · el conductor', () => {
           [f.entityId, agosto.id]
         )
       ).rows[0].n;
-    const antes = await lineas();
+    const before = await lineCount();
 
-    const segunda = await conductClose(ctx, await periodoDe(f, AGOSTO), { userId: f.userId });
-    expect(segunda.steps.find((p) => p.step === 'depreciate-assets')?.status).toBe('skipped');
-    expect(segunda.steps.find((p) => p.step === 'soft-close')?.detail).toContain('already');
-    expect(await lineas()).toBe(antes);
+    const second = await conductClose(ctx, await periodOf(f, AGOSTO), { userId: f.userId });
+    expect(second.steps.find((p) => p.step === 'depreciate-assets')?.status).toBe('skipped');
+    expect(second.steps.find((p) => p.step === 'soft-close')?.detail).toContain('already');
+    expect(await lineCount()).toBe(before);
   });
 
   it('--stop-at para ANTES del paso nombrado; --resume lo termina en la MISMA corrida', async () => {
-    const { g, ctxG } = await inquilinoPropio('Cierre a medias');
+    const { g, ctxG } = await ownTenant('Cierre a medias');
     enterTenant(g.tenantId);
-    const septiembre = await periodoDe(g, 9);
+    const septiembre = await periodOf(g, 9);
 
     const r = await conductClose(ctxG, septiembre, { userId: g.userId, stopAt: 'soft-close' });
     expect(r.status).toBe('stopped');
     expect(r.haltedAtStep).toBe('soft-close');
     expect(r.steps.map((p) => p.step)).not.toContain('soft-close');
-    expect(await estadoDelPeriodo(septiembre.id)).toBe('open');
+    expect(await periodStatusOf(septiembre.id)).toBe('open');
 
-    const abierta = await openRunOf(g.entityId, septiembre.id);
-    expect(abierta?.status).toBe('stopped');
-    expect(abierta?.halted_at_step).toBe('soft-close');
+    const openRow = await openRunOf(g.entityId, septiembre.id);
+    expect(openRow?.status).toBe('stopped');
+    expect(openRow?.halted_at_step).toBe('soft-close');
 
-    const seguir = await conductClose(ctxG, await periodoDe(g, 9), { userId: g.userId, resume: true });
+    const seguir = await conductClose(ctxG, await periodOf(g, 9), { userId: g.userId, resume: true });
     expect(seguir.status).toBe('completed');
     expect(seguir.runId).toBe(r.runId);
     // El checklist se VOLVIÓ A EVALUAR: el paso consta de un intento anterior,
@@ -212,9 +212,9 @@ describe('A6 · el conductor', () => {
     // en el primer intento; al día siguiente llega un borrador de IA fechado
     // dentro del mes, y `softClosePeriod` NO cuenta borradores de IA. Si la
     // reanudación se fiara del veredicto anotado, el mes se cerraría con él.
-    const { g, ctxG } = await inquilinoPropio('Checklist caducado');
+    const { g, ctxG } = await ownTenant('Checklist caducado');
     enterTenant(g.tenantId);
-    const noviembre = await periodoDe(g, 11);
+    const noviembre = await periodOf(g, 11);
 
     const r = await conductClose(ctxG, noviembre, { userId: g.userId, stopAt: 'soft-close' });
     expect(r.steps.find((p) => p.step === 'verify-checklist')?.status).toBe('done');
@@ -227,11 +227,11 @@ describe('A6 · el conductor', () => {
       [uuidv4(), g.tenantId, g.entityId]
     );
 
-    const seguir = await conductClose(ctxG, await periodoDe(g, 11), { userId: g.userId, resume: true });
+    const seguir = await conductClose(ctxG, await periodOf(g, 11), { userId: g.userId, resume: true });
     expect(seguir.status).toBe('blocked');
     expect(seguir.haltedAtStep).toBe('verify-checklist');
     expect(seguir.steps.find((p) => p.step === 'verify-checklist')?.detail).toMatch(/AI draft/);
-    expect(await estadoDelPeriodo(noviembre.id)).toBe('open');
+    expect(await periodStatusOf(noviembre.id)).toBe('open');
   });
 
   it('un paso que la primera vez no tenía qué hacer se corre al reanudar, y un `done` no se degrada', async () => {
@@ -239,42 +239,42 @@ describe('A6 · el conductor', () => {
     // primer intento. Si «omitido» fuera permanente, el mes se cerraría sin
     // depreciar y ninguna casilla lo impediría (la de depreciación avisa, no
     // bloquea).
-    const { g, ctxG } = await inquilinoPropio('Activo tardío');
+    const { g, ctxG } = await ownTenant('Activo tardío');
     enterTenant(g.tenantId);
-    const marzo = await periodoDe(g, 3);
+    const marzo = await periodOf(g, 3);
 
-    const primero = await conductClose(ctxG, marzo, { userId: g.userId, stopAt: 'soft-close' });
-    expect(primero.steps.find((p) => p.step === 'depreciate-assets')?.status).toBe('skipped');
+    const first = await conductClose(ctxG, marzo, { userId: g.userId, stopAt: 'soft-close' });
+    expect(first.steps.find((p) => p.step === 'depreciate-assets')?.status).toBe('skipped');
 
-    await activoEn(g, 'AF-TARDE', '2026-01-15');
+    await addAssetTo(g, 'AF-TARDE', '2026-01-15');
 
-    const segundo = await conductClose(ctxG, await periodoDe(g, 3), {
+    const second = await conductClose(ctxG, await periodOf(g, 3), {
       userId: g.userId,
       resume: true,
       stopAt: 'soft-close',
     });
-    const dep = segundo.steps.find((p) => p.step === 'depreciate-assets');
+    const dep = second.steps.find((p) => p.step === 'depreciate-assets');
     expect(dep?.status).toBe('done');
     expect(dep?.processed).toBe(1);
     expect(dep?.journalEntryIds).toHaveLength(1);
 
     // Tercer intento: el motor ya no tiene nada que hacer. El registro NO
     // pasa a «omitido», no pierde el asiento ni lo que procesó.
-    const tercero = await conductClose(ctxG, await periodoDe(g, 3), {
+    const third = await conductClose(ctxG, await periodOf(g, 3), {
       userId: g.userId,
       resume: true,
       stopAt: 'soft-close',
     });
-    const dep3 = tercero.steps.find((p) => p.step === 'depreciate-assets');
+    const dep3 = third.steps.find((p) => p.step === 'depreciate-assets');
     expect(dep3?.status).toBe('done');
     expect(dep3?.processed).toBe(1);
     expect(dep3?.journalEntryIds).toEqual(dep?.journalEntryIds);
   });
 
   it('una casilla bloqueante detiene el cierre, y el periodo sigue abierto', async () => {
-    const { g, ctxG } = await inquilinoPropio('Cierre bloqueado');
+    const { g, ctxG } = await ownTenant('Cierre bloqueado');
     enterTenant(g.tenantId);
-    const octubre = await periodoDe(g, 10);
+    const octubre = await periodOf(g, 10);
 
     // Un asiento SIN postear dentro del mes: «entries-posted» es bloqueante.
     await createJournalEntry(
@@ -293,14 +293,14 @@ describe('A6 · el conductor', () => {
     expect(r.status).toBe('blocked');
     expect(r.haltedAtStep).toBe('verify-checklist');
     expect(r.steps.map((p) => p.step)).not.toContain('soft-close');
-    expect(await estadoDelPeriodo(octubre.id)).toBe('open');
+    expect(await periodStatusOf(octubre.id)).toBe('open');
     expect((await openRunOf(g.entityId, octubre.id))?.status).toBe('blocked');
   });
 
   it('el conductor se niega a continuar sin --resume, y a reanudar lo que no existe', async () => {
-    const { g, ctxG } = await inquilinoPropio('Corrida ajena');
+    const { g, ctxG } = await ownTenant('Corrida ajena');
     enterTenant(g.tenantId);
-    const mayo = await periodoDe(g, 5);
+    const mayo = await periodOf(g, 5);
 
     await expect(conductClose(ctxG, mayo, { userId: g.userId, resume: true })).rejects.toMatchObject({
       code: 'CLOSING_RUN_NOTHING_TO_RESUME',
@@ -310,20 +310,20 @@ describe('A6 · el conductor', () => {
     await conductClose(ctxG, mayo, { userId: g.userId, stopAt: 'verify-checklist' });
     // La regla vive en el conductor: quien lo llame sin pasar por la hoja
     // tampoco continúa en silencio la corrida de otro.
-    const negativa = conductClose(ctxG, await periodoDe(g, 5), { userId: g.userId });
-    await expect(negativa).rejects.toBeInstanceOf(ClosingRunStateError);
-    await expect(negativa).rejects.toMatchObject({ code: 'CLOSING_RUN_OPEN' });
+    const refusal = conductClose(ctxG, await periodOf(g, 5), { userId: g.userId });
+    await expect(refusal).rejects.toBeInstanceOf(ClosingRunStateError);
+    await expect(refusal).rejects.toMatchObject({ code: 'CLOSING_RUN_OPEN' });
   });
 
   it('dos conductores sobre el mismo periodo: el segundo se niega mientras el primero lo tiene', async () => {
-    const { g, ctxG } = await inquilinoPropio('Dos conductores');
+    const { g, ctxG } = await ownTenant('Dos conductores');
     enterTenant(g.tenantId);
-    const junio = await periodoDe(g, 6);
+    const junio = await periodOf(g, 6);
 
     // Otra sesión toma el candado exactamente como lo toma el conductor.
-    const otro = await getClient();
+    const otherSession = await getClient();
     try {
-      await otro.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [
+      await otherSession.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [
         `closing-run:${g.entityId}:${junio.id}`,
       ]);
       await expect(conductClose(ctxG, junio, { userId: g.userId })).rejects.toMatchObject({
@@ -333,18 +333,18 @@ describe('A6 · el conductor', () => {
       // Y la negativa no abrió ninguna corrida.
       expect(await openRunOf(g.entityId, junio.id)).toBeNull();
     } finally {
-      await otro.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [
+      await otherSession.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [
         `closing-run:${g.entityId}:${junio.id}`,
       ]);
-      otro.release();
+      otherSession.release();
     }
-    expect((await conductClose(ctxG, await periodoDe(g, 6), { userId: g.userId })).status).toBe('completed');
+    expect((await conductClose(ctxG, await periodOf(g, 6), { userId: g.userId })).status).toBe('completed');
   });
 
   it('el ensayo no escribe nada, y evalúa el checklist aunque haya un intento anterior', async () => {
-    const { g, ctxG } = await inquilinoPropio('Ensayo del conductor');
+    const { g, ctxG } = await ownTenant('Ensayo del conductor');
     enterTenant(g.tenantId);
-    const febrero = await periodoDe(g, 2);
+    const febrero = await periodOf(g, 2);
 
     const r = await conductClose(ctxG, febrero, { userId: g.userId, dryRun: true });
     expect(r.status).toBe('previewed');
@@ -355,18 +355,18 @@ describe('A6 · el conductor', () => {
     expect(checklist?.status).toBe('done');
     expect(checklist?.processed).toBeGreaterThan(0);
 
-    const corridas = await query<{ n: string }>(
+    const runCount = await query<{ n: string }>(
       'SELECT COUNT(*)::text AS n FROM closing_runs WHERE entity_id = $1',
       [g.entityId]
     );
-    expect(corridas.rows[0].n).toBe('0');
-    expect(await estadoDelPeriodo(febrero.id)).toBe('open');
+    expect(runCount.rows[0].n).toBe('0');
+    expect(await periodStatusOf(febrero.id)).toBe('open');
   });
 
   it('el ensayo dice dónde se detendría: por --stop-at, o porque el checklist bloquearía', async () => {
-    const { g, ctxG } = await inquilinoPropio('Ensayo que se detiene');
+    const { g, ctxG } = await ownTenant('Ensayo que se detiene');
     enterTenant(g.tenantId);
-    const julio = await periodoDe(g, 7);
+    const julio = await periodOf(g, 7);
 
     const parado = await conductClose(ctxG, julio, { userId: g.userId, dryRun: true, stopAt: 'depreciate-assets' });
     expect(parado.haltedAtStep).toBe('depreciate-assets');
@@ -383,43 +383,43 @@ describe('A6 · el conductor', () => {
       ] as never,
       g.userId
     );
-    const bloqueado = await conductClose(ctxG, await periodoDe(g, 7), { userId: g.userId, dryRun: true });
-    expect(bloqueado.status).toBe('previewed');
-    expect(bloqueado.haltedAtStep).toBe('verify-checklist');
-    expect(bloqueado.steps.map((p) => p.step)).not.toContain('soft-close');
+    const blockedPreview = await conductClose(ctxG, await periodOf(g, 7), { userId: g.userId, dryRun: true });
+    expect(blockedPreview.status).toBe('previewed');
+    expect(blockedPreview.haltedAtStep).toBe('verify-checklist');
+    expect(blockedPreview.steps.map((p) => p.step)).not.toContain('soft-close');
   });
 
   it('un paso inventado se niega antes de tocar nada', async () => {
     enterTenant(f.tenantId);
     await expect(
-      conductClose(ctx, await periodoDe(f, 9), { userId: f.userId, stopAt: 'hard-close' as never })
+      conductClose(ctx, await periodOf(f, 9), { userId: f.userId, stopAt: 'hard-close' as never })
     ).rejects.toMatchObject({ code: 'UNKNOWN_CLOSING_STEP' });
-    expect(await openRunOf(f.entityId, (await periodoDe(f, 9)).id)).toBeNull();
+    expect(await openRunOf(f.entityId, (await periodOf(f, 9)).id)).toBeNull();
   });
 
   it('las lecturas de la hoja: la última corrida, la corrida abierta descrita y el último mes cerrado', async () => {
-    const { g, ctxG } = await inquilinoPropio('Lecturas del conductor');
+    const { g, ctxG } = await ownTenant('Lecturas del conductor');
     enterTenant(g.tenantId);
     expect(await latestClosedPeriodOf(g.entityId)).toBeNull();
 
-    const enero = await periodoDe(g, 1);
+    const enero = await periodOf(g, 1);
     const parado = await conductClose(ctxG, enero, { userId: g.userId, stopAt: 'soft-close' });
-    const abierta = await openRunOf(g.entityId, enero.id);
-    expect(abierta).not.toBeNull();
-    expect(describeOpenRun(abierta!)).toMatch(/^stopped at soft-close, started /);
+    const openRow = await openRunOf(g.entityId, enero.id);
+    expect(openRow).not.toBeNull();
+    expect(describeOpenRun(openRow!)).toMatch(/^stopped at soft-close, started /);
     expect((await latestRunOf(g.entityId, enero.id))?.id).toBe(parado.runId);
 
-    await conductClose(ctxG, await periodoDe(g, 1), { userId: g.userId, resume: true });
-    const febrero = await periodoDe(g, 2);
+    await conductClose(ctxG, await periodOf(g, 1), { userId: g.userId, resume: true });
+    const febrero = await periodOf(g, 2);
     await conductClose(ctxG, febrero, { userId: g.userId });
     // El último cerrado es febrero, no el más viejo: el mes que se acaba de entregar.
     expect((await latestClosedPeriodOf(g.entityId))?.id).toBe(febrero.id);
   });
 
   it('un motor que revienta queda escrito con su causa, y la corrida se reanuda tras arreglarlo', async () => {
-    const { g, ctxG } = await inquilinoPropio('Motor que revienta');
+    const { g, ctxG } = await ownTenant('Motor que revienta');
     enterTenant(g.tenantId);
-    const abril = await periodoDe(g, 4);
+    const abril = await periodOf(g, 4);
 
     const torcida = await query(
       `UPDATE policy_decisions SET resolved_value = 'lo_que_sea', status = 'resolved'
@@ -431,35 +431,35 @@ describe('A6 · el conductor', () => {
     const r = await conductClose(ctxG, abril, { userId: g.userId });
     expect(r.status).toBe('failed');
     expect(r.haltedAtStep).toBe('depreciate-assets');
-    const paso = r.steps.find((p) => p.step === 'depreciate-assets');
-    expect(paso?.status).toBe('failed');
-    expect(paso?.detail).toMatch(/base_depreciacion/);
+    const step = r.steps.find((p) => p.step === 'depreciate-assets');
+    expect(step?.status).toBe('failed');
+    expect(step?.detail).toMatch(/base_depreciacion/);
     // La causa viaja —no se persiste— para que la hoja salga con el código
     // que el error merece: un ValidationError del panel es un 422.
-    expect((paso?.cause as { statusCode?: number } | undefined)?.statusCode).toBe(422);
+    expect((step?.cause as { statusCode?: number } | undefined)?.statusCode).toBe(422);
 
     await query(
       `UPDATE policy_decisions SET resolved_value = 'vida_util_nif'
         WHERE key = 'base_depreciacion' AND (entity_id = $1 OR entity_id IS NULL)`,
       [g.entityId]
     );
-    const seguir = await conductClose(ctxG, await periodoDe(g, 4), { userId: g.userId, resume: true });
+    const seguir = await conductClose(ctxG, await periodOf(g, 4), { userId: g.userId, resume: true });
     expect(seguir.runId).toBe(r.runId);
     expect(seguir.status).toBe('completed');
   });
 
   it('nunca hay dos corridas abiertas del mismo periodo', async () => {
-    const { g } = await inquilinoPropio('Una sola corrida');
+    const { g } = await ownTenant('Una sola corrida');
     enterTenant(g.tenantId);
-    const diciembre = await periodoDe(g, 12);
+    const december = await periodOf(g, 12);
     await query(
       `INSERT INTO closing_runs (entity_id, fiscal_period_id, status) VALUES ($1, $2, 'blocked')`,
-      [g.entityId, diciembre.id]
+      [g.entityId, december.id]
     );
     await expect(
       query(
         `INSERT INTO closing_runs (entity_id, fiscal_period_id, status) VALUES ($1, $2, 'running')`,
-        [g.entityId, diciembre.id]
+        [g.entityId, december.id]
       )
     ).rejects.toThrow(/uq_closing_run_open|duplicate key/);
   });
@@ -468,24 +468,24 @@ describe('A6 · el conductor', () => {
     enterTenant(f.tenantId);
     // Una corrida SIN pasos, para que la única restricción que pueda hablar
     // sea la foránea compuesta y no la UNIQUE del paso.
-    const diciembre = await periodoDe(f, 12);
-    const corrida = await query<{ id: string }>(
+    const december = await periodOf(f, 12);
+    const run = await query<{ id: string }>(
       `INSERT INTO closing_runs (entity_id, fiscal_period_id, status)
        VALUES ($1, $2, 'running') RETURNING id`,
-      [f.entityId, diciembre.id]
+      [f.entityId, december.id]
     );
     await expect(
       query(
         `INSERT INTO closing_run_steps (entity_id, run_id, step_key, ordinal, status, detail)
          VALUES ($1, $2, 'soft-close', 5, 'done', 'colado')`,
-        [hermana.entityId, corrida.rows[0].id]
+        [hermana.entityId, run.rows[0].id]
       )
     ).rejects.toThrow(/fk_closing_step_run_entity|violates foreign key/);
     await expect(
       query(
         `INSERT INTO closing_run_steps (entity_id, run_id, step_key, ordinal, status, detail)
          VALUES ($1, $2, 'soft-close', 5, 'done', 'legítimo')`,
-        [f.entityId, corrida.rows[0].id]
+        [f.entityId, run.rows[0].id]
       )
     ).resolves.toBeDefined();
   });
@@ -496,40 +496,40 @@ describe('A6 · el conductor', () => {
     // un inquilino podía plantar una corrida abierta invisible sobre el periodo
     // de otro y bloquearle el cierre. Sin esa columna, la política pasa por
     // legal_entities. Se pregunta a la base qué política quedó puesta.
-    const politicas = await query<{ tablename: string; qual: string }>(
+    const policies = await query<{ tablename: string; qual: string }>(
       `SELECT tablename, qual FROM pg_policies
         WHERE tablename IN ('closing_runs', 'closing_run_steps', 'closing_packs')
           AND policyname = 'tenant_isolation'
         ORDER BY tablename`
     );
-    expect(politicas.rows.map((p) => p.tablename)).toEqual([
+    expect(policies.rows.map((p) => p.tablename)).toEqual([
       'closing_packs',
       'closing_run_steps',
       'closing_runs',
     ]);
-    for (const p of politicas.rows) expect(p.qual, p.tablename).toMatch(/legal_entities/);
+    for (const p of policies.rows) expect(p.qual, p.tablename).toMatch(/legal_entities/);
   });
 });
 
 describe('A6 · el expediente, y la prueba de aceptación', () => {
   it('LA PRUEBA DE ACEPTACIÓN: dos sellados del mismo mes dan el MISMO sello', async () => {
     enterTenant(f.tenantId);
-    const julio = await periodoDe(f, JULIO);
-    const uno = await buildClosingPack(f.entityId, julio.id, { userId: f.userId, now: new Date('2026-08-01T10:00:00Z') });
-    const dos = await buildClosingPack(f.entityId, julio.id, { userId: f.userId, now: new Date('2026-08-01T10:05:00Z') });
-    expect(dos.envelope.generated_at).not.toBe(uno.envelope.generated_at);
-    expect(dos.seal).toBe(uno.seal);
-    expect(dos.sealed).toEqual(uno.sealed);
+    const julio = await periodOf(f, JULIO);
+    const first = await buildClosingPack(f.entityId, julio.id, { userId: f.userId, now: new Date('2026-08-01T10:00:00Z') });
+    const second = await buildClosingPack(f.entityId, julio.id, { userId: f.userId, now: new Date('2026-08-01T10:05:00Z') });
+    expect(second.envelope.generated_at).not.toBe(first.envelope.generated_at);
+    expect(second.seal).toBe(first.seal);
+    expect(second.sealed).toEqual(first.sealed);
   });
 
   it('el tercero vuelve a correr el ARCHIVO emitido y los libros lo sostienen', async () => {
     enterTenant(f.tenantId);
-    const julio = await periodoDe(f, JULIO);
+    const julio = await periodOf(f, JULIO);
     const pack = await buildClosingPack(f.entityId, julio.id, { userId: f.userId });
     await storeClosingPack(f.entityId, julio.id, pack);
 
-    const delArchivo = parseClosingPack(JSON.stringify(pack, null, 2));
-    const v = await verifyClosingPack(delArchivo);
+    const fromFile = parseClosingPack(JSON.stringify(pack, null, 2));
+    const v = await verifyClosingPack(fromFile);
     expect(v.sealIntact).toBe(true);
     expect(v.issued).toBe(true);
     expect(v.envelopeMatches).toBe(true);
@@ -543,15 +543,15 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
     // El caso de la revisión: se toma el expediente de julio, se le pegan las
     // cifras de hoy y se recalcula el SHA-256, que no lleva llave. Concuerda
     // consigo mismo y con los libros; lo único que lo delata es el registro.
-    const { g } = await inquilinoPropio('Expediente forjado');
+    const { g } = await ownTenant('Expediente forjado');
     enterTenant(g.tenantId);
-    const marzo = await periodoDe(g, 3);
-    await asientoEn(g, '2026-03-10', '700.0000');
-    const emitido = await buildClosingPack(g.entityId, marzo.id, { userId: g.userId });
-    await storeClosingPack(g.entityId, marzo.id, emitido);
+    const marzo = await periodOf(g, 3);
+    await postEntryOn(g, '2026-03-10', '700.0000');
+    const issuedPack = await buildClosingPack(g.entityId, marzo.id, { userId: g.userId });
+    await storeClosingPack(g.entityId, marzo.id, issuedPack);
 
-    await asientoEn(g, '2026-03-20', '300.0000');
-    const forjado = structuredClone(emitido);
+    await postEntryOn(g, '2026-03-20', '300.0000');
+    const forjado = structuredClone(issuedPack);
     forjado.sealed = await deriveSealedBody(g.entityId, marzo.id);
     forjado.seal = sealOf(forjado.sealed);
 
@@ -564,28 +564,28 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
 
   it('la fecha de corte es la del periodo, no el reloj', async () => {
     enterTenant(f.tenantId);
-    const cuerpo = await deriveSealedBody(f.entityId, (await periodoDe(f, JULIO)).id);
-    expect(cuerpo.as_of).toBe('2026-07-31');
-    expect(cuerpo.as_of).toBe(cuerpo.period.end_date);
+    const body = await deriveSealedBody(f.entityId, (await periodOf(f, JULIO)).id);
+    expect(body.as_of).toBe('2026-07-31');
+    expect(body.as_of).toBe(body.period.end_date);
   });
 
   it('un peso nuevo dentro del periodo rompe la comprobación, y la ruta nombra la cuenta por su código', async () => {
-    const { g } = await inquilinoPropio('Expediente que deriva');
+    const { g } = await ownTenant('Expediente que deriva');
     enterTenant(g.tenantId);
-    const abril = await periodoDe(g, 4);
-    await asientoEn(g, '2026-04-10', '700.0000');
+    const abril = await periodOf(g, 4);
+    await postEntryOn(g, '2026-04-10', '700.0000');
     const pack = await buildClosingPack(g.entityId, abril.id, { userId: g.userId });
     await storeClosingPack(g.entityId, abril.id, pack);
     expect((await verifyClosingPack(pack)).figuresReproduce).toBe(true);
 
-    await asientoEn(g, '2026-04-20', '300.0000');
+    await postEntryOn(g, '2026-04-20', '300.0000');
     const v = await verifyClosingPack(pack);
     expect(v.sealIntact).toBe(true);
     expect(v.issued).toBe(true);
     expect(v.figuresReproduce).toBe(false);
-    const banco = await query<{ code: string }>('SELECT code FROM accounts WHERE id = $1', [g.roles.banco]);
-    const rutas = v.differences.map((d) => d.path);
-    expect(rutas).toContain(`figures.trial_balance[${banco.rows[0].code}].debit`);
+    const bankAccount = await query<{ code: string }>('SELECT code FROM accounts WHERE id = $1', [g.roles.banco]);
+    const paths = v.differences.map((d) => d.path);
+    expect(paths).toContain(`figures.trial_balance[${bankAccount.rows[0].code}].debit`);
     const total = v.differences.find((d) => d.path === 'figures.totals.debit');
     expect(total).toMatchObject({ kind: 'figure', expected: '700.0000', actual: '1000.0000' });
   });
@@ -595,10 +595,10 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
     // movimiento, y se comparaba por posición. Una subcuenta nueva en medio del
     // catálogo hacía que TODO expediente anterior fallara, acusando a cada
     // cuenta de después.
-    const { g } = await inquilinoPropio('Subcuenta nueva');
+    const { g } = await ownTenant('Subcuenta nueva');
     enterTenant(g.tenantId);
-    const mayo = await periodoDe(g, 5);
-    await asientoEn(g, '2026-05-10', '400.0000');
+    const mayo = await periodOf(g, 5);
+    await postEntryOn(g, '2026-05-10', '400.0000');
     const pack = await buildClosingPack(g.entityId, mayo.id, { userId: g.userId });
     await storeClosingPack(g.entityId, mayo.id, pack);
 
@@ -614,10 +614,10 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
   });
 
   it('un renombre de la entidad es un AVISO de identidad, no una cifra movida', async () => {
-    const { g } = await inquilinoPropio('Sociedad que se renombra');
+    const { g } = await ownTenant('Sociedad que se renombra');
     enterTenant(g.tenantId);
-    const junio = await periodoDe(g, 6);
-    await asientoEn(g, '2026-06-10', '250.0000');
+    const junio = await periodOf(g, 6);
+    await postEntryOn(g, '2026-06-10', '250.0000');
     const pack = await buildClosingPack(g.entityId, junio.id, { userId: g.userId });
     await storeClosingPack(g.entityId, junio.id, pack);
 
@@ -632,7 +632,7 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
 
   it('un sobre reescrito sobre un expediente emitido se nota como aviso', async () => {
     enterTenant(f.tenantId);
-    const julio = await periodoDe(f, JULIO);
+    const julio = await periodOf(f, JULIO);
     const pack = await buildClosingPack(f.entityId, julio.id, { userId: f.userId });
     await storeClosingPack(f.entityId, julio.id, pack);
 
@@ -647,7 +647,7 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
 
   it('un expediente cuyo periodo se editó es un hallazgo, no un «no encontrado»', async () => {
     enterTenant(f.tenantId);
-    const julio = await periodoDe(f, JULIO);
+    const julio = await periodOf(f, JULIO);
     const pack = await buildClosingPack(f.entityId, julio.id, { userId: f.userId });
     const editado = structuredClone(pack);
     editado.sealed.period.id = uuidv4();
@@ -661,16 +661,16 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
 
   it('el sello guardado en la base es el del cuerpo, y la tabla es de sólo agregar', async () => {
     enterTenant(f.tenantId);
-    const julio = await periodoDe(f, JULIO);
+    const julio = await periodOf(f, JULIO);
     const pack = await buildClosingPack(f.entityId, julio.id, { userId: f.userId });
     const id = await storeClosingPack(f.entityId, julio.id, pack);
 
-    const fila = await query<{ seal: string; body: { seal: string } }>(
+    const row = await query<{ seal: string; body: { seal: string } }>(
       'SELECT seal, body FROM closing_packs WHERE id = $1',
       [id]
     );
-    expect(fila.rows[0].seal).toBe(sealOf(pack.sealed));
-    expect(fila.rows[0].body.seal).toBe(pack.seal);
+    expect(row.rows[0].seal).toBe(sealOf(pack.sealed));
+    expect(row.rows[0].body.seal).toBe(pack.seal);
 
     await expect(
       query('UPDATE closing_packs SET seal = $1 WHERE id = $2', ['0'.repeat(64), id])
@@ -680,7 +680,7 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
 
   it('el expediente de una sociedad no se puede colgar del periodo de su hermana', async () => {
     enterTenant(f.tenantId);
-    const julioHermana = await periodoDe(hermana, JULIO);
+    const julioHermana = await periodOf(hermana, JULIO);
     const pack = await buildClosingPack(hermana.entityId, julioHermana.id, { userId: hermana.userId });
     await expect(storeClosingPack(f.entityId, julioHermana.id, pack)).rejects.toThrow(
       /fk_closing_pack_period_entity|violates foreign key/

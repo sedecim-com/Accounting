@@ -228,7 +228,10 @@ describe('el cuerpo publicado es el que la API valida', () => {
     const conCuerpo = Object.values(CAMINOS)
       .flatMap((ops) => Object.values(ops))
       .filter((op) => op.requestBody !== undefined);
-    expect(conCuerpo.length).toBe(61);
+    // 62 desde T6 (#93): `POST /payroll/finiquito` gana esquema estricto. El
+    // censo es una cifra a mano a propósito — subirla obliga a mirar qué ruta
+    // se añadió, que es lo que este archivo existe para provocar.
+    expect(conCuerpo.length).toBe(62);
   });
 
   it('el cuerpo es obligatorio cuando el esquema rechaza el objeto vacío', () => {

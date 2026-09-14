@@ -35,7 +35,7 @@ La jurisdicción es aquí una **etiqueta del adaptador**, no una regla que los m
   región** (`src/services/integrations/accounting/accounting-adapter.interface.ts:33-53`) y cuyo
   encabezado nombra QuickBooks como siguiente conector (`:4`).
 - **Ningún motor de este subsistema consulta el país de la entidad.** `esContabilidadMexicana`
-  (`src/services/accounting/pais-contable.ts:35-44`) sólo se usa en
+  (`src/services/jurisdiction/jurisdiction.ts:35-44`) sólo se usa en
   `src/services/accounting/entity-accounting.ts:5, 75, 172`; ni la ruta de timbrado
   (`src/api/rest/routes/invoices.ts`) ni el generador de nómina
   (`src/services/payroll/mx/cfdi-nomina-generator.ts`) la importan. La puerta de timbrado puede invocarse

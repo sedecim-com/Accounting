@@ -181,25 +181,25 @@ function makeRunner(deps: ClosingCommandDeps) {
  * El reparto de los pasos en pantalla. Puro y exportado: el contrato de lo que
  * el operador lee no necesita una base para probarse.
  */
-export function renderPasos(
+export function renderSteps(
   outcome: ClosingRunOutcome,
   c: Pick<Palette, 'dim' | 'red'>
 ): string[] {
-  const MARCA: Record<string, string> = {
+  const STEP_MARK: Record<string, string> = {
     done: MARK.done,
     skipped: '·',
     pending: '·',
     blocked: MARK.missing,
     failed: MARK.missing,
   };
-  const ancho = Math.max(...CLOSING_STEPS.map((s) => s.length));
+  const width = Math.max(...CLOSING_STEPS.map((s) => s.length));
   return outcome.steps.map((p) => {
-    const marca = MARCA[p.status] ?? '?';
-    const cuerpo = `  ${marca} ${p.step.padEnd(ancho)}  ${p.detail}`;
-    const cola = p.priorAttempt ? c.dim('  (also recorded by an earlier attempt of this run)') : '';
+    const mark = STEP_MARK[p.status] ?? '?';
+    const body = `  ${mark} ${p.step.padEnd(width)}  ${p.detail}`;
+    const suffix = p.priorAttempt ? c.dim('  (also recorded by an earlier attempt of this run)') : '';
     return p.status === 'blocked' || p.status === 'failed'
-      ? c.red(cuerpo) + cola
-      : cuerpo + cola;
+      ? c.red(body) + suffix
+      : body + suffix;
   });
 }
 
@@ -217,7 +217,7 @@ export function renderPasos(
  * serlo aquí también, o un guion no distingue un criterio roto de un proceso
  * caído—. Si el motor devolvió errores por renglón, son hallazgos de datos: 4.
  */
-export function salidaDeLaCorrida(outcome: ClosingRunOutcome): ExitCodeValue {
+export function runExitCode(outcome: ClosingRunOutcome): ExitCodeValue {
   const fallido = outcome.steps.find((p) => p.status === 'failed');
   if (fallido) {
     return fallido.cause !== undefined
@@ -237,20 +237,20 @@ export function salidaDeLaCorrida(outcome: ClosingRunOutcome): ExitCodeValue {
  * tras un ensayo eso se negaba (el ensayo no abre corrida), y tras un
  * `--stop-at` no había causa que arreglar.
  */
-export function cierreDeLaCorrida(outcome: ClosingRunOutcome, stopAt?: string): string {
-  const paso = outcome.haltedAtStep;
+export function runClosingLine(outcome: ClosingRunOutcome, stopAt?: string): string {
+  const step = outcome.haltedAtStep;
   switch (outcome.status) {
     case 'completed':
       return `The close is conducted. Seal the dossier with \`mnemosine closing pack generate "${outcome.periodName}"\`.`;
     case 'stopped':
-      return `Stopped before ${paso}, as asked. The period stays open; continue with --resume.`;
+      return `Stopped before ${step}, as asked. The period stays open; continue with --resume.`;
     case 'blocked':
-      return `Blocked at ${paso}. Clear the blocking items, then continue with --resume.`;
+      return `Blocked at ${step}. Clear the blocking items, then continue with --resume.`;
     case 'failed':
-      return `Failed at ${paso}. Fix the cause, then continue with --resume.`;
+      return `Failed at ${step}. Fix the cause, then continue with --resume.`;
     case 'previewed':
-      if (paso && paso === stopAt) return `Nothing was written. A real run would stop before ${paso}.`;
-      if (paso) return `Nothing was written. The checklist would block at ${paso}: clear it before conducting.`;
+      if (step && step === stopAt) return `Nothing was written. A real run would stop before ${step}.`;
+      if (step) return `Nothing was written. The checklist would block at ${step}: clear it before conducting.`;
       return 'Nothing was written. Run it without --dry-run to conduct.';
   }
 }
@@ -264,9 +264,9 @@ export function cierreDeLaCorrida(outcome: ClosingRunOutcome, stopAt?: string): 
  * Anexo 24: pedir un destino y que falle por un directorio inexistente es
  * fricción sin ganancia.
  */
-function escribirExpediente(destino: string, pack: ClosingPack): void {
-  mkdirSync(path.dirname(path.resolve(destino)), { recursive: true });
-  writeFileSync(destino, `${JSON.stringify(pack, null, 2)}\n`, 'utf8');
+function writeDossier(destination: string, pack: ClosingPack): void {
+  mkdirSync(path.dirname(path.resolve(destination)), { recursive: true });
+  writeFileSync(destination, `${JSON.stringify(pack, null, 2)}\n`, 'utf8');
 }
 
 /**
@@ -304,30 +304,30 @@ async function periodoOMasViejo(ctx: AgentContext, nombre?: string): Promise<Clo
  * en cierre suave no tiene nada que conducir, y tomarlo por omisión volvía a
  * correr los motores sobre el mes ya cerrado mientras el abierto esperaba.
  */
-async function periodoParaConducir(ctx: AgentContext, nombre?: string): Promise<ClosablePeriod> {
-  const todos = await listClosablePeriods(ctx);
-  if (!nombre) {
-    const abiertos = todos.filter((p) => p.status === 'open');
-    const elegido = abiertos.find((p) => p.overdue) ?? abiertos[0];
-    if (!elegido) throw notFound('No open periods: nothing to conduct.');
-    return elegido;
+async function periodToConduct(ctx: AgentContext, name?: string): Promise<ClosablePeriod> {
+  const candidates = await listClosablePeriods(ctx);
+  if (!name) {
+    const openPeriods = candidates.filter((p) => p.status === 'open');
+    const chosen = openPeriods.find((p) => p.overdue) ?? openPeriods[0];
+    if (!chosen) throw notFound('No open periods: nothing to conduct.');
+    return chosen;
   }
-  const buscado = nombre.toLowerCase();
-  const elegido = todos.find(
-    (p) => p.id === nombre || p.period_name.toLowerCase().includes(buscado)
+  const wanted = name.toLowerCase();
+  const chosen = candidates.find(
+    (p) => p.id === name || p.period_name.toLowerCase().includes(wanted)
   );
-  if (!elegido) {
+  if (!chosen) {
     throw notFound(
-      `No open period matches "${nombre}". Open: ${todos.filter((p) => p.status === 'open').map((p) => p.period_name).join(', ') || 'none'}.`
+      `No open period matches "${name}". Open: ${candidates.filter((p) => p.status === 'open').map((p) => p.period_name).join(', ') || 'none'}.`
     );
   }
-  if (elegido.status !== 'open') {
+  if (chosen.status !== 'open') {
     throw blockedByState(
-      `${elegido.period_name} is already ${elegido.status}: there is nothing left to conduct. ` +
-        `Seal it with \`mnemosine closing pack generate "${elegido.period_name}"\`.`
+      `${chosen.period_name} is already ${chosen.status}: there is nothing left to conduct. ` +
+        `Seal it with \`mnemosine closing pack generate "${chosen.period_name}"\`.`
     );
   }
-  return elegido;
+  return chosen;
 }
 
 /**
@@ -337,21 +337,21 @@ async function periodoParaConducir(ctx: AgentContext, nombre?: string): Promise<
  * incluido—, y la lista de periodos «por cerrar» no los tiene. Por omisión, el
  * último cerrado: el mes que se acaba de entregar, no el más viejo abierto.
  */
-async function periodoParaSellar(
+async function periodToSeal(
   ctx: AgentContext,
-  nombre?: string
+  name?: string
 ): Promise<{ id: string; period_name: string }> {
-  if (nombre) {
-    const p = await resolvePeriod(ctx.entityId, nombre);
+  if (name) {
+    const p = await resolvePeriod(ctx.entityId, name);
     return { id: p.id, period_name: p.period_name };
   }
-  const ultimo = await latestClosedPeriodOf(ctx.entityId);
-  if (!ultimo) {
+  const latest = await latestClosedPeriodOf(ctx.entityId);
+  if (!latest) {
     throw notFound(
       'No closed period to seal yet. Name the period to seal an open one on purpose, e.g. `closing pack generate 2026-07`.'
     );
   }
-  return ultimo;
+  return latest;
 }
 
 function cabeceraDePeriodo(r: CloseReadiness, c: Palette): string {
@@ -462,14 +462,14 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     // escrita en stdout se mete en la tubería y rompe el documento.
     const rl = readline.createInterface({ input: stdin, output: process.stderr });
     try {
-      const veredicto = await confirmarConReintento(
+      const verdict = await confirmarConReintento(
         (prompt) => rl.question(prompt).catch(() => null),
         deps.palette.cyan(`${question} [y/N] `)
       );
-      if (veredicto.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.\n`);
+      if (verdict.incomprendida !== undefined) {
+        process.stderr.write(`${noEntendi(verdict.incomprendida)}; lo tomo como no.\n`);
       }
-      return veredicto.si;
+      return verdict.si;
     } finally {
       rl.close();
     }
@@ -705,20 +705,20 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   // A6 · EL CONDUCTOR. Everything it does, some other command could already do
   // by hand and in the right order; what it adds is that nobody has to
   // remember the order, and that what it did is written down.
-  const corrida = closing
+  const runLeaf = closing
     .command('run')
     .alias('ejecutar')
     .argument('[period]', 'open period name or id (default: the oldest open one)')
     .description(
       'Conduct the close: accrue, amortize, depreciate, verify the checklist and soft-close, in that order'
     );
-  withContext(corrida);
-  withOutput(corrida);
-  corrida.option(
+  withContext(runLeaf);
+  withOutput(runLeaf);
+  runLeaf.option(
     '--stop-at <step>',
     `stop BEFORE this step: ${CLOSING_STEPS.join(', ')}`
   );
-  corrida.option('--resume', 'continue the open run of this period; every step runs again, posting only what is missing');
+  runLeaf.option('--resume', 'continue the open run of this period; every step runs again, posting only what is missing');
   // IRREVERSIBLE, and it does not pretend otherwise: three of its five steps
   // post to the ledger of migration 041, where nothing is edited or deleted.
   // The agent is refused: it proposes, a human conducts.
@@ -731,7 +731,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   // impide que dos conductores corran el mismo periodo a la vez. Una llave
   // encima habría sido una cuarta guarda que además ROMPE la continuación:
   // devolvería el resultado grabado en vez de volver a correr los pasos.
-  declareRisk(corrida, {
+  declareRisk(runLeaf, {
     risk: 'irreversible',
     agent: false,
     writes:
@@ -743,8 +743,8 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         'sobre el mismo periodo: volver a correr, con --resume si hay una corrida abierta, no duplica nada',
     },
   });
-  corrida.addHelpText('after', EJEMPLOS.run);
-  corrida.action(
+  runLeaf.addHelpText('after', EJEMPLOS.run);
+  runLeaf.action(
     (
       periodArg: string | undefined,
       opts: CommonOpts & {
@@ -755,7 +755,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       }
     ) =>
       run(async () => {
-        const { dryRun } = gateMutation(corrida, opts as unknown as Record<string, unknown>);
+        const { dryRun } = gateMutation(runLeaf, opts as unknown as Record<string, unknown>);
 
         if (opts.stopAt !== undefined && !isClosingStep(opts.stopAt)) {
           // Un paso desconocido es error de USO y no un filtro vacío que sale
@@ -771,7 +771,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         // por otro camino —sin la entidad fijada, sin MNEMOSINE_ENTITY—
         // previsualizaría una sociedad y la corrida actuaría sobre otra.
         const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
-        const periodo = await periodoParaConducir(ctx, periodArg);
+        const period = await periodToConduct(ctx, periodArg);
 
         // UNA CORRIDA ABIERTA NO SE CONTINÚA EN SILENCIO.
         //
@@ -781,14 +781,14 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         // puede saltársela. Es un estado de los libros y no un error de las
         // banderas: sale 5, no 2.
         if (!dryRun) {
-          const abierta = await openRunOf(ctx.entityId, periodo.id);
-          if (abierta && opts.resume !== true) {
+          const existingRun = await openRunOf(ctx.entityId, period.id);
+          if (existingRun && opts.resume !== true) {
             throw blockedByState(
-              `This period already has an open close run (${describeOpenRun(abierta)}). ` +
+              `This period already has an open close run (${describeOpenRun(existingRun)}). ` +
                 'Continue it with --resume, or look at it first with --dry-run.'
             );
           }
-          if (!abierta && opts.resume === true) {
+          if (!existingRun && opts.resume === true) {
             throw blockedByState(
               'Nothing to resume: this period has no open close run. Run it without --resume to start one.'
             );
@@ -797,7 +797,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
 
         if (!dryRun && opts.yes !== true) {
           const si = await ask(
-            `Conduct the close of ${periodo.period_name}? Three of its steps post to the ledger, ` +
+            `Conduct the close of ${period.period_name}? Three of its steps post to the ledger, ` +
               'which does not admit undo, and the last one soft-closes the period.'
           );
           if (!si) {
@@ -810,7 +810,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
           }
         }
 
-        const outcome = await conductClose(ctx, periodo, {
+        const outcome = await conductClose(ctx, period, {
           userId: (await resolveReviewer(ctx.tenantId, opts.user)).userId,
           stopAt,
           dryRun,
@@ -829,17 +829,17 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         } else {
           const c = deps.palette;
           const out = process.stdout;
-          out.write(`\n${c.bold(periodo.period_name)}  ${c.dim(outcome.status)}\n\n`);
-          for (const linea of renderPasos(outcome, c)) out.write(`${linea}\n`);
-          out.write(`\n  ${cierreDeLaCorrida(outcome, stopAt)}\n\n`);
+          out.write(`\n${c.bold(period.period_name)}  ${c.dim(outcome.status)}\n\n`);
+          for (const line of renderSteps(outcome, c)) out.write(`${line}\n`);
+          out.write(`\n  ${runClosingLine(outcome, stopAt)}\n\n`);
         }
 
-        return salidaDeLaCorrida(outcome);
+        return runExitCode(outcome);
       })
   );
 
   // ---- closing pack ------------------------------------------------
-  const expediente = closing
+  const packGroup = closing
     .command('pack')
     // `paquete` y no `expediente`: el catálogo publicó `cierre-proceso paquete
     // generar` antes de que esto existiera, y un alias que no case con la fila
@@ -849,14 +849,14 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     .description('The dossier of a close: generate it, and verify that its figures still reproduce');
 
   // ---- closing pack generate ---------------------------------------
-  const generar = expediente
+  const generateLeaf = packGroup
     .command('generate')
     .alias('generar')
     .argument('[period]', 'period name, YYYY-MM or id, in any status (default: the most recently closed one)')
     .description('Seal the period figures into a dossier a third party can re-run');
-  withContext(generar);
-  withOutput(generar);
-  declareRisk(generar, {
+  withContext(generateLeaf);
+  withOutput(generateLeaf);
+  declareRisk(generateLeaf, {
     risk: 'escritura',
     agent: false,
     writes: 'closing_packs (append-only: a correction is a NEW dossier, never a rewrite)',
@@ -867,21 +867,21 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   // que el código hace es la clase de mentira que este repositorio ya cazó en
   // `ap reconcile`: se corrige la DESCRIPCIÓN de esta hoja, y la grafía y la
   // forma corta las sigue gobernando el diccionario.
-  const destinoDelExpediente = generar.options.find((o) => o.long === '--output');
-  if (destinoDelExpediente) {
-    destinoDelExpediente.description =
+  const dossierOutputOption = generateLeaf.options.find((o) => o.long === '--output');
+  if (dossierOutputOption) {
+    dossierOutputOption.description =
       'write the dossier to this path (closing_packs keeps its own copy)';
   }
-  generar.addHelpText('after', EJEMPLOS.packGenerate);
-  generar.action((periodArg: string | undefined, opts: CommonOpts) =>
+  generateLeaf.addHelpText('after', EJEMPLOS.packGenerate);
+  generateLeaf.action((periodArg: string | undefined, opts: CommonOpts) =>
     run(async () => {
       bootstrapTenant(opts.tenant);
       const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
-      const periodo = await periodoParaSellar(ctx, periodArg);
-      const ultima = await latestRunOf(ctx.entityId, periodo.id);
+      const period = await periodToSeal(ctx, periodArg);
+      const latestRun = await latestRunOf(ctx.entityId, period.id);
 
-      const pack = await buildClosingPack(ctx.entityId, periodo.id, {
-        runId: ultima?.id ?? null,
+      const pack = await buildClosingPack(ctx.entityId, period.id, {
+        runId: latestRun?.id ?? null,
         userId: (await resolveReviewer(ctx.tenantId, opts.user)).userId,
       });
 
@@ -891,19 +891,19 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       // nadie recibió, y cada reintento añadiría otro. Al revés, un registro
       // que falla después de escribir el archivo se deshace borrando el
       // archivo, que sí se puede borrar.
-      const destino = typeof opts.output === 'string' && opts.output !== '' ? opts.output : null;
-      if (destino) escribirExpediente(destino, pack);
+      const destination = typeof opts.output === 'string' && opts.output !== '' ? opts.output : null;
+      if (destination) writeDossier(destination, pack);
       let id: string;
       try {
-        id = await storeClosingPack(ctx.entityId, periodo.id, pack);
+        id = await storeClosingPack(ctx.entityId, period.id, pack);
       } catch (err) {
-        if (destino) rmSync(destino, { force: true });
+        if (destination) rmSync(destination, { force: true });
         throw err;
       }
 
-      const recibo = {
+      const receipt = {
         pack: id,
-        period: periodo.period_name,
+        period: period.period_name,
         as_of: pack.sealed.as_of,
         seal: pack.seal,
         accounts: pack.sealed.figures.trial_balance.length,
@@ -911,33 +911,33 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         credit: pack.sealed.figures.totals.credit,
         balanced: pack.sealed.figures.totals.balanced,
         run: pack.envelope.run_id,
-        file: destino,
+        file: destination,
       };
 
       // El recibo se lee en pantalla aunque haya `-o`: ese destino lo ocupa el
       // expediente, así que `legible` no puede mirarlo aquí (e-accounting toma
       // la misma excepción por la misma razón).
-      const reciboLegible =
+      const receiptIsReadable =
         !opts.json && (opts.format ?? 'table') === 'table' && !opts.quiet && opts.fields === undefined;
-      if (reciboLegible) {
-        render([recibo], { format: 'table', idField: 'pack' });
+      if (receiptIsReadable) {
+        render([receipt], { format: 'table', idField: 'pack' });
         process.stderr.write(
-          deps.palette.dim(`verify it with: mnemosine closing pack verify ${recibo.file ?? '<file>'}\n`)
+          deps.palette.dim(`verify it with: mnemosine closing pack verify ${receipt.file ?? '<file>'}\n`)
         );
       } else {
         // El destino ya lo ocupa el expediente: el recibo sale por stdout sin
         // `output`, como el recibo del XML del Anexo 24. Y lleva el expediente
         // ENTERO dentro, para que una máquina que no usó `-o` no se quede sin
         // el documento que acaba de sellar.
-        const { output: _destino, ...sinDestino } = opts;
-        render([{ ...recibo, document: pack }], { ...sinDestino, idField: 'pack' });
+        const { output: _destination, ...withoutDestination } = opts;
+        render([{ ...receipt, document: pack }], { ...withoutDestination, idField: 'pack' });
       }
       return ExitCode.OK;
     })
   );
 
   // ---- closing pack verify -----------------------------------------
-  const verificar = expediente
+  const verifyLeaf = packGroup
     .command('verify')
     // `comprobar`, no `verificar`: el diccionario del núcleo asigna
     // «verificar» a `check` y «comprobar» a `verify`, y dos hojas hermanas que
@@ -948,16 +948,16 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     .description(
       'Re-run a dossier against the books: was it issued here, do its figures still reproduce, and exactly what moved'
     );
-  withContext(verificar);
-  withOutput(verificar);
-  withStrict(verificar);
-  declareRisk(verificar, { risk: 'lectura', agent: true });
-  verificar.addHelpText('after', EJEMPLOS.packVerify);
-  verificar.action((file: string, opts: CommonOpts) =>
+  withContext(verifyLeaf);
+  withOutput(verifyLeaf);
+  withStrict(verifyLeaf);
+  declareRisk(verifyLeaf, { risk: 'lectura', agent: true });
+  verifyLeaf.addHelpText('after', EJEMPLOS.packVerify);
+  verifyLeaf.action((file: string, opts: CommonOpts) =>
     run(async () => {
-      let texto: string;
+      let text: string;
       try {
-        texto = readFileSync(file, 'utf8');
+        text = readFileSync(file, 'utf8');
       } catch {
         throw notFound(`Cannot read ${file}.`);
       }
@@ -967,7 +967,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       // pelado a propósito: los códigos de salida son del CLI, no suyos.
       let pack: ClosingPack;
       try {
-        pack = parseClosingPack(texto);
+        pack = parseClosingPack(text);
       } catch (err) {
         throw usageError(err instanceof Error ? err.message : String(err));
       }
@@ -986,56 +986,56 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         );
       }
 
-      const veredicto = await verifyClosingPack(pack);
-      const hallazgos = verdictFindings(veredicto);
+      const verdict = await verifyClosingPack(pack);
+      const findings = verdictFindings(verdict);
 
       const tabular = !opts.json && ['csv', 'tsv', 'md'].includes(opts.format ?? '');
       if (tabular) {
         // EL ANEXO QUE PIDE UN AUDITOR ES UNA FILA POR CAMPO, no un veredicto
         // con las diferencias apretadas en una celda JSON: en csv, tsv y md las
         // FILAS son las diferencias. El veredicto entero es de --json.
-        render(veredicto.differences as unknown as Row[], { ...opts, idField: 'path' });
+        render(verdict.differences as unknown as Row[], { ...opts, idField: 'path' });
       } else if (!legible(opts)) {
-        render([veredicto as unknown as Row], { ...opts, idField: 'expectedSeal' });
+        render([verdict as unknown as Row], { ...opts, idField: 'expectedSeal' });
       } else {
         const c = deps.palette;
         const out = process.stdout;
-        const marca = (ok: boolean) => (ok ? MARK.done : MARK.missing);
+        const mark = (ok: boolean) => (ok ? MARK.done : MARK.missing);
         out.write(
           `\n${c.bold(pack.sealed.period.name)}  ${c.dim(`${pack.sealed.entity.name} · as of ${pack.sealed.as_of}`)}\n\n`
         );
-        out.write(`  ${marca(veredicto.sealIntact)} the file agrees with its seal\n`);
+        out.write(`  ${mark(verdict.sealIntact)} the file agrees with its seal\n`);
         out.write(
-          `  ${marca(veredicto.issued)} these books issued a dossier with this seal` +
-            `${veredicto.issuedAt ? c.dim(` (${veredicto.issuedAt})`) : ''}\n`
+          `  ${mark(verdict.issued)} these books issued a dossier with this seal` +
+            `${verdict.issuedAt ? c.dim(` (${verdict.issuedAt})`) : ''}\n`
         );
-        out.write(`  ${marca(veredicto.figuresReproduce)} the figures reproduce against the books\n`);
-        const avisos: string[] = [];
-        if (!veredicto.identityUnchanged) {
-          avisos.push('the entity or period identity changed since sealing (see the rows marked identity)');
+        out.write(`  ${mark(verdict.figuresReproduce)} the figures reproduce against the books\n`);
+        const warnings: string[] = [];
+        if (!verdict.identityUnchanged) {
+          warnings.push('the entity or period identity changed since sealing (see the rows marked identity)');
         }
-        if (!veredicto.criteriaUnchanged) {
-          const panel = veredicto.differences
+        if (!verdict.criteriaUnchanged) {
+          const panel = verdict.differences
             .filter((d) => d.kind === 'criteria')
             .map((d) => `${d.path}: ${d.expected} → ${d.actual}`)
             .join('; ');
-          avisos.push(
+          warnings.push(
             `the reporting panel moved since sealing (${panel}); rows marked figure are what differs in the ledger's figures, whatever the cause`
           );
         }
-        if (veredicto.issued && !veredicto.envelopeMatches) {
-          avisos.push('the envelope (who, when, which run) is not the one registered when it was issued');
+        if (verdict.issued && !verdict.envelopeMatches) {
+          warnings.push('the envelope (who, when, which run) is not the one registered when it was issued');
         }
-        for (const a of avisos) out.write(`\n  ${c.dim('warning:')} ${a}`);
-        if (avisos.length > 0) out.write('\n');
-        if (veredicto.differences.length > 0) {
+        for (const a of warnings) out.write(`\n  ${c.dim('warning:')} ${a}`);
+        if (warnings.length > 0) out.write('\n');
+        if (verdict.differences.length > 0) {
           out.write('\n');
-          render(veredicto.differences as unknown as Row[], { format: 'table', idField: 'path' });
+          render(verdict.differences as unknown as Row[], { format: 'table', idField: 'path' });
         }
         out.write('\n');
       }
 
-      return checkExitCode(hallazgos, { strict: opts.strict });
+      return checkExitCode(findings, { strict: opts.strict });
     })
   );
 }

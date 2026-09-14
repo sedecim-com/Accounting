@@ -3,6 +3,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { PRUEBAS_DE_CONDUCTA, correrConducta, type PruebaDeConducta } from './conducta.js';
+import {
+  headOf,
+  problemsIn,
+  type VocabularyClass,
+  type VocabularyEntry,
+} from '../language/vocabulary-registry.js';
 
 // ============================================================
 // CRITERIOS DE CIERRE, EJECUTABLES
@@ -659,14 +665,223 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
   'src/services/accounting/ar-ap-posting.ts': { statements: 87, branches: 75, functions: 96, lines: 91 },
   'src/services/accounting/validation.ts': { statements: 86, branches: 78, functions: 100, lines: 88 },
   // A6 · el conductor del cierre y su expediente, con el suelo donde lo dejó su suite.
-  'src/services/accounting/closing-conductor.ts': { statements: 90, branches: 72, functions: 90, lines: 91 },
-  'src/services/accounting/closing-pack.ts': { statements: 87, branches: 75, functions: 100, lines: 90 },
+  'src/services/accounting/closing-conductor.ts': { statements: 95, branches: 77, functions: 95, lines: 95 },
+  'src/services/accounting/closing-pack.ts': { statements: 89, branches: 77, functions: 100, lines: 91 },
   'src/services/accounting/iva-cash-basis.ts': { statements: 96, branches: 84, functions: 100, lines: 98 },
   'src/services/reporting/report-service.ts': { statements: 84, branches: 75, functions: 77, lines: 86 },
   'src/services/reporting/criterio-cierre.ts': { statements: 91, branches: 80, functions: 85, lines: 91 },
   // T13 lo sube al medir el caso que faltaba: 95.12 / 90.10 / 96.55 / 95.45.
   'src/services/reporting/cash-flow-service.ts': { statements: 95, branches: 90, functions: 96, lines: 95 },
 };
+
+// ── El registro del vocabulario, leído por el mismo seam que todo lo demás ──
+//
+// SE LEE, NO SE IMPORTA, Y ESA ES LA DECISIÓN QUE HACE POSIBLE EL MUTANTE.
+//
+// `crudoDe` pasa por `leer()`, que honra el overlay de `sobreescrituras`: es
+// lo que permite al arnés de mutación fingir que una fila del registro no
+// está y comprobar que el criterio se pone rojo. Un `import` del módulo
+// devolvería siempre el archivo de disco, el overlay no lo alcanzaría, y el
+// mutante que la issue #146 exige moriría vivo — verde para siempre.
+//
+// De ese módulo se importa SÓLO `problemsIn`, que es lógica pura y no datos:
+// así la validación no se duplica y la lectura sigue pasando por el seam.
+
+interface LoadedRegistry {
+  total: number;
+  kept: number;
+  problems: string[];
+  has: (cls: VocabularyClass, where: string, es: string) => boolean;
+}
+
+export function readVocabularyRegistry(): LoadedRegistry | null {
+  const rel = 'src/language/vocabulary-registry.json';
+  if (!existe(rel)) return null;
+  let entries: VocabularyEntry[];
+  try {
+    const doc = JSON.parse(crudoDe(rel)) as { entries?: VocabularyEntry[] };
+    entries = Array.isArray(doc.entries) ? doc.entries : [];
+  } catch {
+    return { total: 0, kept: 0, problems: ['no es JSON válido'], has: () => false };
+  }
+  const problems = entries.flatMap((e, i) => problemsIn(e, i));
+  const index = new Set(entries.map((e) => `${e.class}\u0000${headOf(e.where)}\u0000${e.es}`));
+  return {
+    total: entries.length,
+    kept: entries.filter((e) => e.en === null).length,
+    problems,
+    has: (cls, where, es) => index.has(`${cls}\u0000${headOf(where)}\u0000${es}`),
+  };
+}
+
+/**
+ * El léxico de I1 tal como este archivo lo necesita: las raíces para decidir
+ * español, los términos de dominio para exceptuar, y `known` —la unión de las
+ * TRES listas— para que el corte por dígitos parta lo mismo que allá.
+ */
+interface Lexicon {
+  roots: Set<string>;
+  domain: Set<string>;
+  known: Set<string>;
+}
+
+/**
+ * El léxico de I1, leído de sus DATOS y no de su código.
+ *
+ * `scripts/language/lexicon.ts` no se puede importar desde aquí: `rootDir` es
+ * `./src` y un import fuera de él no compila. Se lee el JSON, que es la misma
+ * fuente que ese módulo carga.
+ */
+export function readLexicon(): Lexicon | null {
+  const rel = 'scripts/language/lexicon.json';
+  if (!existe(rel)) return null;
+  try {
+    const doc = JSON.parse(crudoDe(rel)) as {
+      spanishRoots?: string[];
+      // LAS OTRAS DOS LISTAS NO SON DECORADO: el corte por dígitos de
+      // `tokenize` (#197) sólo parte lo que el léxico NO reconoce, y
+      // «reconoce» son las TRES listas. Con sólo las raíces, `sha256` —neutro
+      // curado— se partiría aquí y no allá, y las dos implementaciones
+      // volverían a divergir justo en los acrónimos.
+      neutralTokens?: string[];
+      englishExtra?: string[];
+      // OJO: es un MAPA término → razón escrita, no una lista. Lo que cuenta
+      // son sus CLAVES, que es lo que `DOMAIN_TERMS.has(t)` consulta en
+      // lexicon.ts. Leerlo como arreglo hacía explotar `new Set({})` y el
+      // criterio salía «no evaluable» sin decir por qué — el catch se comía
+      // el motivo.
+      domainTerms?: Record<string, string>;
+    };
+    if (!Array.isArray(doc.spanishRoots)) return null;
+    const domain = doc.domainTerms ?? {};
+    return {
+      roots: new Set(doc.spanishRoots),
+      domain: new Set(Object.keys(domain)),
+      known: new Set([
+        ...doc.spanishRoots,
+        ...(doc.neutralTokens ?? []),
+        ...(doc.englishExtra ?? []),
+      ]),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * LA MISMA REGLA QUE `isFlagged`, aplicada aquí porque su módulo vive fuera
+ * de `rootDir`. `isFlagged` es `classify(x) ∈ {es, mixed}`, y las dos clases
+ * se producen exactamente cuando ALGÚN token es raíz española y no es término
+ * de dominio: con eso `es` queda en verdadero, y el resto de tokens sólo
+ * decide entre «es» y «mixed», que se señalan igual.
+ *
+ * Que las dos implementaciones coincidan NO SE SUPONE: lo prueba
+ * tests/language/vocabulary-registry.spec.ts contra el `isFlagged` de verdad,
+ * sobre las 200 declaraciones etiquetadas a mano y sobre todos los valores de
+ * CHECK del esquema. Si alguien cambia el clasificador, esa prueba se pone
+ * roja aquí antes de que este criterio empiece a mentir.
+ */
+export function tokenizeLikeLexicon(identifier: string, known: ReadonlySet<string>): string[] {
+  return identifier
+    .replace(/(\p{Ll}|\p{N})(\p{Lu})/gu, '$1 $2')
+    .replace(/(\p{Lu}+)(\p{Lu}\p{Ll})/gu, '$1 $2')
+    .split(/[^\p{L}\p{N}]+|\s+/u)
+    .filter((t) => t.length > 0)
+    .map((t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
+    .flatMap((t) => {
+      if (!/\p{L}/u.test(t) || !/\p{N}/u.test(t) || known.has(t)) return [t];
+      return t
+        .replace(/(\p{L})(\p{N})/gu, '$1 $2')
+        .replace(/(\p{N})(\p{L})/gu, '$1 $2')
+        .split(' ')
+        .filter((x) => x.length > 0);
+    });
+}
+
+export function flagsAsSpanish(value: string, lexicon: Lexicon): boolean {
+  return tokenizeLikeLexicon(value, lexicon.known).some(
+    (t) => !lexicon.domain.has(t) && lexicon.roots.has(t)
+  );
+}
+
+/**
+ * Los vocabularios `CHECK (col IN (...))` de las migraciones, EN ORDEN: la
+ * base se construye ejecutándolas así y dos columnas se redefinen más tarde.
+ * Gana la última, igual que en Postgres.
+ */
+export function readSchemaVocabularies(): Map<string, string[]> {
+  const literals = (s: string): string[] =>
+    [...s.matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1].replace(/''/g, "'"));
+  const dir = 'src/database/migrations';
+  const out = new Map<string, string[]>();
+  for (const f of fs.readdirSync(rutaDe(dir)).filter((n) => n.endsWith('.sql')).sort()) {
+    const sql = crudoDe(dir, f).replace(/--[^\n]*/g, '');
+    const note = (table: string, column: string, list: string): void => {
+      const values = literals(list);
+      if (values.length) out.set(`${table.replace(/^public\./i, '')}.${column}`, values);
+    };
+    for (const t of sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w.]+)\s*\(([\s\S]*?)\n\);/gi)) {
+      for (const c of t[2].matchAll(/CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi)) note(t[1], c[1], c[2]);
+    }
+    for (const a of sql.matchAll(
+      /ALTER\s+TABLE\s+(?:ONLY\s+)?([\w.]+)[^;]*?ADD\s+(?:CONSTRAINT|COLUMN)[^;]*?CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi
+    )) {
+      note(a[1], a[2], a[3]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Los valores de `AccountRole`. Se leen del FUENTE porque son una unión de
+ * TypeScript: no existen en tiempo de ejecución y la base no los protege con
+ * ningún CHECK — que es justo por lo que la issue los nombra aparte.
+ */
+export function readAccountRoleValues(): string[] {
+  const rel = 'src/services/xml-ingestion/cfdi-taxonomy.ts';
+  if (!existe(rel)) return [];
+  const code = codigoDe(rel);
+  const m = /export\s+type\s+AccountRole\s*=([\s\S]*?);/.exec(code);
+  if (!m) return [];
+  return [...new Set([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]))];
+}
+
+/**
+ * RUTAS BAJO `src/` CON UN SEGMENTO ESPAÑOL DE LA JURISDICCIÓN, sin filtrar
+ * por extensión.
+ *
+ * WIT-198-01. La primera versión usaba `fuentes('src')`, que enumera SÓLO
+ * `.ts`. Una carpeta `src/**\/jurisdiccion/` que volviera con un `.sql`, un
+ * `.json` o un `.md` dentro —y las migraciones y los catálogos sembrados son
+ * exactamente eso— no la veía nadie, y el criterio seguía verde afirmando que
+ * la carpeta está en cero. El enunciado promete la CARPETA, no los archivos
+ * TypeScript de la carpeta.
+ *
+ * Se recorre el árbol y se mira el NOMBRE DEL DIRECTORIO, así que una carpeta
+ * vacía de `.ts` cuenta igual. Se exporta para poder ejercitarla sobre un
+ * árbol de mentira: un mutante no puede CREAR un archivo —el overlay sólo
+ * sustituye o borra— así que la prueba de esta guarda tiene que ser una
+ * prueba, no un espejo.
+ */
+export function spanishJurisdictionPaths(root: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
+      const full = path.join(dir, e.name);
+      if (/^jurisdicci[oó]n$/i.test(e.name)) found.push(path.relative(root, full).split(path.sep).join('/'));
+      if (e.isDirectory()) walk(full);
+    }
+  };
+  walk(path.join(root, 'src'));
+  return found;
+}
 
 // ── Los criterios ───────────────────────────────────────────
 
@@ -876,6 +1091,108 @@ export const CRITERIOS: Criterio[] = [
       },
     ],
   },
+
+  {
+    paquete: 'E0.0',
+    id: 'nothing-new-is-born-in-spanish',
+    enunciado: 'Nada nuevo nace en español: la puerta del idioma es un error, no un aviso',
+    evaluar: () => {
+      // POR QUÉ NACE (I3, issue #145). El metro de I2 cuenta cuánto español
+      // queda; sin puerta, sólo documenta una marea. Y una puerta en AVISO no
+      // es una puerta: con 1 117 advertencias ya toleradas, una más no la nota
+      // nadie. En error, y con línea base por archivo para que el árbol de hoy
+      // no la vuelva impasable.
+      //
+      // Lo que este criterio vigila es la CONEXIÓN, que es donde se rompe sin
+      // que nada se ponga rojo: la regla existe, corre en error, y consume el
+      // MISMO léxico que el metro. Si cada uno trae su lista, publican dos
+      // números y el día que difieran nadie sabrá cuál miente.
+      const conf = crudoDe('eslint.config.mjs');
+      if (!/house\/english-identifiers/.test(conf)) {
+        return falla('no hay puerta del idioma: lo nuevo puede nacer en español y sólo se sabrá al medirlo');
+      }
+      if (!/'house\/english-identifiers':\s*'error'/.test(conf)) {
+        return falla(
+          'la puerta del idioma no está en error: con más de mil advertencias ya toleradas, un aviso ' +
+            'más no lo ve nadie y la puerta no cierra'
+        );
+      }
+      if (!existe('scripts/language/lexicon.json')) {
+        return falla('el léxico no está publicado como dato: la regla y el metro no pueden compartir población');
+      }
+      if (!/lexicon\.json/.test(conf)) {
+        return falla(
+          'la regla no lee el léxico compartido: en cuanto traiga su propia lista, el metro y la ' +
+            'puerta cuentan cosas distintas y sus dos cifras dejan de ser comparables'
+        );
+      }
+      return ok('la puerta del idioma corre en error sobre los tres árboles y comparte el léxico del metro');
+    },
+    mutantes: [
+      {
+        archivo: 'eslint.config.mjs',
+        de: "'house/english-identifiers': 'error'",
+        a: "'house/english-identifiers': 'warn'",
+        porque:
+          'la puerta pasa a avisar, y un aviso más entre mil ciento diecisiete no lo ve nadie: el ' +
+          'español vuelve a poder entrar con la CI en verde, que es justo lo que este tramo cierra',
+      },
+    ],
+  },
+
+
+  {
+    paquete: 'E0.0',
+    id: 'language-has-a-meter-with-a-baseline',
+    enunciado: 'El idioma tiene metro con línea base, y la CI lo corre',
+    evaluar: () => {
+      // POR QUÉ NACE (I2, issue #144). El epic #141 traduce el código en
+      // veintisiete tramos, y sin una cifra por deuda ninguno es evaluable:
+      // «queda español» no se puede cerrar. Un plan cuyo avance no se mide se
+      // abandona a la mitad — y quedarse a medias aquí es peor que no
+      // empezar, porque deja dos convenciones vivas y ninguna vigente.
+      //
+      // El criterio vigila las DOS piezas, porque cada una sin la otra es
+      // decorativa: el metro sin su línea base publica un número que nadie
+      // compara, y la línea base sin `--check` en la CI es un archivo que
+      // nadie lee.
+      // `crudoDe` y no `codigoDe`: el segundo recorta comentarios y sobre un YAML
+      // se lleva por delante parte del archivo — medido, 1 576 caracteres —, así
+      // que la línea que este criterio busca desaparecía y daba un rojo falso.
+      // Los criterios de ci.yml que ya existían leen en crudo por esta razón.
+      const ci = crudoDe('.github/workflows/ci.yml');
+      if (!/language-status\.ts --check/.test(ci)) {
+        return falla(
+          'la CI no corre el metro del idioma: la línea base deja de comprobarse y el español ' +
+            'puede crecer sin que nada lo diga'
+        );
+      }
+      if (!existe('docs/language-baseline.json')) {
+        return falla('no hay línea base del idioma: `--check` no tiene contra qué comparar');
+      }
+      const base = JSON.parse(crudoDe('docs/language-baseline.json')) as {
+        lanes?: Record<string, number>;
+      };
+      const carriles = Object.keys(base.lanes ?? {});
+      if (carriles.length === 0) {
+        return falla('la línea base del idioma está vacía: un trinquete sin carriles siempre pasa');
+      }
+      return ok(`${carriles.length} carriles con línea base, y la CI corre --check`);
+    },
+    mutantes: [
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'npx tsx scripts/language-status.ts --check',
+        a: 'npx tsx scripts/language-status.ts',
+        porque:
+          'el metro se sigue imprimiendo y deja de juzgar: sale 0 pase lo que pase, y el español ' +
+          'crece con la CI en verde — que es exactamente la clase de instrumento que este ' +
+          'repositorio persigue',
+      },
+    ],
+  },
+
+
 
   {
     paquete: 'E0.0',
@@ -2209,6 +2526,136 @@ export const CRITERIOS: Criterio[] = [
       );
     },
   },
+  {
+    paquete: 'E0.2',
+    // EL MAPA DEL RENOMBRADO, EXIGIDO COMPLETO (I4 · issue #146).
+    //
+    // El criterio de arriba pregunta si el vocabulario del CÓDIGO coincide con
+    // el CHECK. Éste pregunta otra cosa, y por eso vive aparte en vez de
+    // sustituirlo: si cada término español que este sistema PERSISTE tiene ya
+    // decidido su nombre inglés, o escrita la razón de no tenerlo.
+    //
+    // Sin esta lista, I23–I25 renombran a ciegas: cada tramo elige el nombre
+    // de su clase cuando le toca, y el mismo concepto acaba con dos
+    // traducciones en dos tablas. Eso ya no se arregla renombrando; se
+    // arregla con otro renombrado, sobre datos de despachos reales.
+    //
+    // NO SE ANCLA A NINGUNA CIFRA. Cuenta lo que encuentra hoy y exige que el
+    // registro lo cubra: una migración nueva con un valor español entra en la
+    // cuenta sola, sin que nadie actualice un número aquí.
+    enunciado:
+      'Todo literal español de un CHECK y todo value de AccountRole está en el registro del vocabulario',
+    evaluar: () => {
+      const reg = readVocabularyRegistry();
+      if (reg === null) {
+        return falla('no existe src/language/vocabulary-registry.json: el renombrado de I23–I25 no tiene mapa');
+      }
+      if (reg.problems.length) {
+        return falla(
+          `el registro tiene ${reg.problems.length} entrada(s) inválida(s): ` +
+            reg.problems.slice(0, 3).join(' · ')
+        );
+      }
+
+      // EL DETECTOR DE ESPAÑOL ES EL DE I1, NO UNO NUEVO. Se lee su léxico de
+      // datos —scripts/language/lexicon.json— y se aplica su misma regla:
+      // `isFlagged` devuelve verdadero cuando ALGÚN token es raíz española y
+      // no es término de dominio, porque esos son exactamente los casos «es»
+      // y «mixed». Que las dos implementaciones coincidan no se supone: lo
+      // prueba tests/language/vocabulary-registry.spec.ts sobre las 200
+      // declaraciones etiquetadas a mano y sobre todos los valores de CHECK.
+      const lexicon = readLexicon();
+      if (lexicon === null) {
+        return noEvaluable('no se pudo leer scripts/language/lexicon.json: sin léxico no hay veredicto de idioma');
+      }
+      if (lexicon.roots.size < 1000) {
+        return noEvaluable(`el léxico trae ${lexicon.roots.size} raíces: no tiene la forma que este criterio sabe leer`);
+      }
+
+      const inSchema = readSchemaVocabularies();
+      if (inSchema.size < 20) {
+        return noEvaluable(
+          `sólo se leyeron ${inSchema.size} CHECK de vocabulario: ya no tienen la forma que este criterio sabe leer`
+        );
+      }
+
+      const missing: string[] = [];
+      let spanish = 0;
+      for (const [key, values] of inSchema) {
+        for (const v of values) {
+          if (!flagsAsSpanish(v, lexicon)) continue;
+          spanish++;
+          if (!reg.has('check-value', key, v)) missing.push(`${key} = '${v}'`);
+        }
+      }
+
+      // AccountRole no tiene CHECK —sus 36 valores viven en una unión de
+      // TypeScript y en filas sembradas—, así que se lee del fuente. Es la
+      // población que el issue nombra aparte por eso mismo: es la única clase
+      // grande que la base no protege.
+      const roleValues = readAccountRoleValues();
+      if (roleValues.length < 20) {
+        return noEvaluable(
+          `sólo se leyeron ${roleValues.length} values de AccountRole en cfdi-taxonomy.ts: cambió de forma`
+        );
+      }
+      const missingRoles = roleValues.filter((r) => !reg.has('account-role', 'account_roles.role', r));
+
+      if (missing.length || missingRoles.length) {
+        const parts: string[] = [];
+        if (missing.length) {
+          parts.push(
+            `${missing.length} literal(es) español(es) de CHECK sin entrada en el registro ` +
+              `(${missing.slice(0, 3).join(', ')}): I23–I25 los renombrarían sin mapa`
+          );
+        }
+        if (missingRoles.length) {
+          parts.push(
+            `${missingRoles.length} value(es) de AccountRole sin registrar ` +
+              `(${missingRoles.slice(0, 3).join(', ')}): son roleValues que 26 archivos leen y la base no protege`
+          );
+        }
+        return falla(parts.join(' · '));
+      }
+
+      return ok(
+        `${reg.total} entries registradas cubren los ${spanish} literals españoles de ` +
+          `${inSchema.size} CHECK y los ${roleValues.length} values de AccountRole; ` +
+          `${reg.kept} de ellas no se renombran y todas dicen por qué`
+      );
+    },
+    // LOS DOS ESPEJOS QUE LA ISSUE #146 PIDE: «borrar una fila del registro →
+    // rojo». Se borra corrompiendo la LLAVE de la fila y no el bloque entero,
+    // por dos razones que importan:
+    //
+    //   · El JSON sigue siendo válido, así que el criterio falla por FALTA DE
+    //     COBERTURA y no por «no es JSON válido». Un espejo que mata por el
+    //     motivo equivocado no prueba lo que dice probar.
+    //   · La entrada sigue bien formada, así que tampoco muere por
+    //     `problemsIn`. Lo único que cambia es que el término deja de estar
+    //     en el índice — que es exactamente lo que pasa cuando alguien borra
+    //     una fila de verdad.
+    //
+    // Uno por cada población que el criterio vigila, porque fallan por caminos
+    // distintos: el CHECK se lee de las migraciones y AccountRole del fuente
+    // de una unión de TypeScript.
+    mutantes: [
+      {
+        archivo: 'src/language/vocabulary-registry.json',
+        de: '"es": "cfdi_retencion",',
+        a: '"es": "cfdi_retencion_BORRADA",',
+        porque:
+          'fila-borrada: un literal español de un CHECK deja de estar registrado y I23–I25 lo renombrarían sin mapa',
+      },
+      {
+        archivo: 'src/language/vocabulary-registry.json',
+        de: '"es": "depreciacion_acumulada",',
+        a: '"es": "depreciacion_acumulada_BORRADA",',
+        porque:
+          'fila-borrada: un valor de AccountRole deja de estar registrado, y es la clase que ningún CHECK protege',
+      },
+    ],
+  },
 
   // ---- E0.3 · Bitácora de auditoría ----
   {
@@ -2523,6 +2970,154 @@ export const CRITERIOS: Criterio[] = [
         porque:
           'el conmutador vuelve a ser un booleano con otro nombre: sin `books` no hay forma de decir ' +
           'que una filial de Delaware lleva libros en NIF, que es la mitad que el booleano colapsaba',
+      },
+    ],
+  },
+  {
+    paquete: 'E1.1',
+    id: 'jurisdiction-module-born-english',
+    // I5 (issue #147). J0.1 se renombró al inglés EN SU PROPIA RAMA antes de
+    // fusionar, a petición del revisor (WIT-140-01), y ése fue el punto: el
+    // módulo tenía diez consumidores y CERO criterios por ruta, así que
+    // renombrarlo antes costó S y después habría entrado a la línea base y
+    // costado un tramo entero de I14.
+    //
+    // Lo que queda de aquel tramo es esto: la guarda de que no vuelva. Un
+    // renombrado sin criterio es una decisión que dura hasta el primer
+    // `git revert` o el primer archivo nuevo que copie el nombre de al lado.
+    //
+    // TRES AFIRMACIONES, y la tercera es la que hace que el tramo valga:
+    // entrar sin deuda es distinto de entrar traducido. Un módulo puede estar
+    // en inglés y aun así pesar en un carril; si pesa, el trinquete lo protege
+    // y renombrarlo deja de ser gratis.
+    enunciado:
+      'El módulo de la jurisdicción no conserva un nombre español, ni pesa en un carril exigido del idioma',
+    evaluar: () => {
+      // 1 · LOS NOMBRES VIEJOS, TODOS. No sólo `esContabilidadMexicana`, que
+      // es el que la issue nombra: los siete exportados y el directorio. Un
+      // criterio que vigila uno de siete deja seis puertas abiertas, y el
+      // `git revert` que las abriría las abre todas a la vez.
+      const OLD_NAMES = [
+        'jurisdiccionDe',
+        'CodigoJurisdiccion',
+        'NormaContable',
+        'EntidadConJurisdiccion',
+        'esContabilidadMexicana',
+        'sqlEsContabilidadMexicana',
+        // `Jurisdiccion` va al final y con frontera de palabra: es subcadena de
+        // los dos anteriores, y sin `\b` se contaría tres veces cada aparición.
+        'Jurisdiccion',
+      ];
+      const revived: string[] = [];
+      for (const name of OLD_NAMES) {
+        const hits = dondeAparece(new RegExp(`\\b${name}\\b`), ['src'], true);
+        if (hits.length) revived.push(`${name} (${hits.length} archivo(s): ${hits[0]})`);
+      }
+
+      // 2 · NI EL DIRECTORIO. El renombrado de la carpeta es la mitad que un
+      // codemod de identificadores no hace, y la que rompe diez imports.
+      const oldFolder = spanishJurisdictionPaths(RAIZ);
+
+      // 3 · SIN ENTRADA EN UN CARRIL EXIGIDO.
+      //
+      // «Sin entrada» a secas sería falso y pondría el criterio rojo por algo
+      // que el epic bendice: el módulo SÍ tiene 176 líneas de comentario en
+      // español, y ese carril está declarado `informational` —los comentarios
+      // no se tocan hasta I20—. Lo que I5 promete es que no pese donde se
+      // EXIGE: identificadores, nombres de archivo, anclas del plan.
+      //
+      // Qué carril es informativo no se escribe aquí: se lee de donde se
+      // declara, para que añadir o quitar uno no deje este criterio mintiendo.
+      const informationalLanes = new Set<string>();
+      for (const file of ['scripts/language/lanes/docs.ts', 'scripts/language/lanes/code.ts', 'scripts/language/lanes/plan.ts']) {
+        if (!existe(file)) continue;
+        const text = crudoDe(file);
+        for (const m of text.matchAll(/informational:\s*true/g)) {
+          const before = text.slice(0, m.index ?? 0);
+          const id = [...before.matchAll(/\bid:\s*'([^']+)'/g)].pop();
+          if (id) informationalLanes.add(id[1]);
+        }
+      }
+      if (informationalLanes.size === 0) {
+        return noEvaluable(
+          'ningún carril se declara `informational`: sin esa distinción este criterio exigiría ' +
+            'cero comentarios españoles en la jurisdicción, que es I20 y no I5'
+        );
+      }
+
+      const rel = 'docs/language-baseline.json';
+      if (!existe(rel)) return noEvaluable(`no existe ${rel}: el metro de I2 todavía no está en este árbol`);
+      let baseline: { perFile?: Record<string, Record<string, number>> };
+      try {
+        baseline = JSON.parse(crudoDe(rel)) as typeof baseline;
+      } catch {
+        return falla(`${rel} no es JSON válido`);
+      }
+      // EXIGIR EL DESGLOSE ANTES DE AFIRMAR NADA SOBRE ÉL. Sin esto, una línea
+      // base sin `perFile` —o con el desglose vacío— hacía que la tercera
+      // afirmación pasara MIDIENDO CERO ARCHIVOS y el criterio cantara
+      // victoria. Es «el cero que parece una victoria» que el propio metro
+      // tiene escrito en scripts/language/lanes/plan.ts, y lo encontré
+      // atacando este criterio con el desglose vaciado a mano.
+      const breakdown = baseline.perFile ?? {};
+      if (Object.keys(breakdown).length < 5) {
+        return noEvaluable(
+          `${rel} trae ${Object.keys(breakdown).length} carril(es) con breakdown por archivo: ` +
+            'sin él la tercera afirmación pasaría sin mirar un solo archivo'
+        );
+      }
+      const weighs: string[] = [];
+      for (const [lane, perFile] of Object.entries(breakdown)) {
+        if (informationalLanes.has(lane)) continue;
+        for (const [file, n] of Object.entries(perFile)) {
+          // LAS DOS GRAFÍAS. `jurisdicci?on` casa «jurisdiccion» y NO casa
+          // «jurisdiction»: le falta la `t`. Lo cazó el arnés de mutación en
+          // la primera corrida —el mutante que mete el módulo en un carril
+          // exigido sobrevivía— y es el error exacto que este criterio existe
+          // para impedir: vigilar sólo el nombre viejo y quedarse ciego ante
+          // el nuevo, que es el que hoy puede coger deuda.
+          if (/(^|\/)jurisdic(?:c?ion|tion)(\/|$|\.)/i.test(file) && n > 0) {
+            weighs.push(`${lane} · ${file} = ${n}`);
+          }
+        }
+      }
+
+      const problems: string[] = [];
+      if (revived.length) {
+        problems.push(
+          `${revived.length} nombre(s) español(es) de vuelta en src/: ${revived.slice(0, 3).join(', ')}`
+        );
+      }
+      if (oldFolder.length) {
+        problems.push(`la carpeta \`jurisdiccion\` reapareció en ${oldFolder.length} ruta(s) de src/`);
+      }
+      if (weighs.length) {
+        problems.push(
+          `el módulo pesa en ${weighs.length} carril(es) EXIGIDO(s) (${weighs.slice(0, 2).join(' · ')}): ` +
+            'dejó de entrar sin deuda, y renombrarlo ya no es gratis'
+        );
+      }
+      if (problems.length) return falla(problems.join(' · '));
+
+      return ok(
+        `los ${OLD_NAMES.length} nombres viejos y la carpeta siguen en cero, y el módulo no pesa en ` +
+          `ninguno de los carriles exigidos (${informationalLanes.size} informativo(s) exento(s) por contrato)`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/jurisdiction/jurisdiction.ts',
+        de: 'export function keepsMexicanBooks(',
+        a: 'export function esContabilidadMexicana(',
+        porque:
+          'el revert del renombrado: vuelve el nombre que la issue nombra, y con él los otros seis por el mismo camino',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"src/ai/agent-events.ts": 4',
+        a: '"src/services/jurisdiction/jurisdiction.ts": 4',
+        porque:
+          'el módulo entra a la línea base de un carril EXIGIDO: sigue en inglés y ya no es gratis renombrarlo',
       },
     ],
   },
@@ -3716,24 +4311,24 @@ export const CRITERIOS: Criterio[] = [
       // comenta con `--`, que de otro modo seguirían «presentes».
       const s = sinProsa(codigoDe(p));
 
-      const tramo = (desde: string, hasta: string): string | null => {
-        const i = s.indexOf(desde);
-        const j = s.indexOf(hasta, i + desde.length);
+      const section = (from: string, to: string): string | null => {
+        const i = s.indexOf(from);
+        const j = s.indexOf(to, i + from.length);
         return i < 0 || j < 0 ? null : s.slice(i, j);
       };
 
       // La derivación se lee ACOTADA: `buildClosingPack` SÍ tiene un reloj —el
       // sobre lleva `generated_at`— y buscarlo en todo el fuente pondría en
       // rojo la única línea que debe tenerlo.
-      const deriva = tramo('export async function deriveSealedBody', 'export interface BuildPackOptions');
-      if (!deriva) {
+      const derivation = section('export async function deriveSealedBody', 'export interface BuildPackOptions');
+      if (!derivation) {
         return falla(
           'no se encuentra `deriveSealedBody` acotada por `BuildPackOptions`: la derivación se ' +
             'renombró o se movió, y este criterio dejaría de mirar lo que vino a mirar'
         );
       }
 
-      if (!/const asOf = periodo\.end_date;/.test(deriva)) {
+      if (!/const asOf = period\.end_date;/.test(derivation)) {
         return falla(
           'la fecha de corte del expediente ya no sale del periodo: si sale de otro sitio, dos ' +
             'derivaciones del mismo mes pueden dar cifras distintas y la comprobación no prueba nada'
@@ -3743,13 +4338,13 @@ export const CRITERIOS: Criterio[] = [
       // Las fuentes de reloj que Postgres y JavaScript ofrecen, no sólo las dos
       // obvias: la revisión adversaria encontró que `Date.now()`,
       // `CURRENT_TIMESTAMP` o `clock_timestamp()` pasaban por la versión corta.
-      const reloj =
+      const clock =
         /new Date\(|Date\.now\(|CURRENT_(?:DATE|TIME|TIMESTAMP)|LOCALTIME|NOW\(\)|clock_timestamp|statement_timestamp|transaction_timestamp|timeofday/i.exec(
-          deriva
+          derivation
         );
-      if (reloj) {
+      if (clock) {
         return falla(
-          `la derivación del cuerpo sellado consulta el reloj ("${reloj[0]}"): el expediente ` +
+          `la derivación del cuerpo sellado consulta el reloj ("${clock[0]}"): el expediente ` +
             'verificaría hoy y derivaría mañana, en silencio'
         );
       }
@@ -3757,19 +4352,19 @@ export const CRITERIOS: Criterio[] = [
       // Y el cuerpo que se sella es EL DERIVADO, sin retoques. Comprobar sólo
       // `sealOf(sealed)` dejaba pasar un `sealed.as_of = …` metido entre la
       // derivación y el sello: la revisión lo nombró como hueco.
-      const construye = tramo('export async function buildClosingPack', 'export async function storeClosingPack');
-      if (!construye) return falla('no se encuentra `buildClosingPack` acotada por `storeClosingPack`');
-      if (!/const sealed = await deriveSealedBody\(entityId, periodId\);/.test(construye)) {
+      const builder = section('export async function buildClosingPack', 'export async function storeClosingPack');
+      if (!builder) return falla('no se encuentra `buildClosingPack` acotada por `storeClosingPack`');
+      if (!/const sealed = await deriveSealedBody\(entityId, periodId\);/.test(builder)) {
         return falla('el cuerpo sellado ya no es el que devuelve la derivación compartida');
       }
-      const retoque = /sealed\.[\w.[\]'"]+\s*=[^=]|\.\.\.sealed\b|sealed\s*=\s*\{/.exec(construye);
-      if (retoque) {
+      const touchUp = /sealed\.[\w.[\]'"]+\s*=[^=]|\.\.\.sealed\b|sealed\s*=\s*\{/.exec(builder);
+      if (touchUp) {
         return falla(
-          `el cuerpo sellado se retoca entre la derivación y el sello ("${retoque[0].trim()}"): ` +
+          `el cuerpo sellado se retoca entre la derivación y el sello ("${touchUp[0].trim()}"): ` +
             'lo que se sella dejaría de ser lo que un tercero vuelve a derivar'
         );
       }
-      if (!/seal: sealOf\(sealed\)/.test(construye)) {
+      if (!/seal: sealOf\(sealed\)/.test(builder)) {
         return falla('el sello ya no se calcula sobre el cuerpo derivado');
       }
 
@@ -3781,16 +4376,16 @@ export const CRITERIOS: Criterio[] = [
     mutantes: [
       {
         archivo: 'src/services/accounting/closing-pack.ts',
-        de: '  const asOf = periodo.end_date;',
+        de: '  const asOf = period.end_date;',
         a: '  const asOf = new Date().toISOString().slice(0, 10);',
         porque:
           'el corte pasa a ser el reloj: el expediente verifica el día que se sella y deriva el ' +
-          'siguiente, que es la manera silenciosa de que «las mismas cifras» deje de ser cierto',
+          'what',
       },
       {
         archivo: 'src/services/accounting/closing-pack.ts',
-        de: '  const asOf = periodo.end_date;\n',
-        a: '  const asOf = periodo.end_date;\n  const hoy = Date.now();\n',
+        de: '  const asOf = period.end_date;\n',
+        a: '  const asOf = period.end_date;\n  const now = Date.now();\n',
         porque:
           'el reloj entra en la derivación por la puerta de al lado, con el ancla intacta: un ' +
           'criterio que sólo comprobara la línea del corte lo dejaría pasar',
@@ -3848,13 +4443,13 @@ export const CRITERIOS: Criterio[] = [
             'con la intercalación de la base, dos máquinas ordenan —y sellan— distinto'
         );
       }
-      for (const [clave, que] of [
+      for (const [key, what] of [
         ['account_code', 'la balanza'],
         ['source_type', 'la actividad del periodo'],
       ] as const) {
-        const orden = new RegExp(`\\.sort\\(\\(a, b\\) => byCodeUnit\\(a\\.${clave}, b\\.${clave}\\)\\)`);
-        if (!orden.test(s)) {
-          return falla(`${que} se sella sin ordenarse por ${clave} en el propio expediente`);
+        const ordering = new RegExp(`\\.sort\\(\\(a, b\\) => byCodeUnit\\(a\\.${key}, b\\.${key}\\)\\)`);
+        if (!ordering.test(s)) {
+          return falla(`${what} se sella sin ordenarse por ${key} en el propio expediente`);
         }
       }
 
@@ -3887,14 +4482,14 @@ export const CRITERIOS: Criterio[] = [
       // LOS CRITERIOS DEL PANEL VAN SELLADOS: si no, verificar bajo otro panel
       // daría otras cifras sin decir por qué.
       if (
-        !/informes_asientos_de_cierre: cierre\.valor/.test(s) ||
-        !/informes_cuentas_archivadas: archivadas\.valor/.test(s)
+        !/informes_asientos_de_cierre: closingCriterion\.valor/.test(s) ||
+        !/informes_cuentas_archivadas: archivedCriterion\.valor/.test(s)
       ) {
         return falla('los criterios del panel que dan forma a la balanza dejaron de sellarse');
       }
 
       return ok(
-        'balanza compartida al corte, sólo lo posteado, orden por unidad de código fijado en el ' +
+        'ordering' +
           'expediente, sin cuentas vacías, comparada por código, a cuatro decimales y con el panel sellado'
       );
     },
@@ -3971,16 +4566,16 @@ export const CRITERIOS: Criterio[] = [
       if (!existe(p)) return falla(`no existe ${p}: el conductor de A6 desapareció`);
       const s = codigoDe(p);
 
-      const tramo = (desde: string, hasta: string): string | null => {
-        const i = s.indexOf(desde);
-        const j = s.indexOf(hasta, i + desde.length);
+      const section = (from: string, to: string): string | null => {
+        const i = s.indexOf(from);
+        const j = s.indexOf(to, i + from.length);
         return i < 0 || j < 0 ? null : s.slice(i, j);
       };
 
       const i = s.indexOf('export const CLOSING_STEPS = [');
       const j = s.indexOf('] as const', i);
       if (i < 0 || j <= i) return falla('no se encuentra la lista de pasos del conductor');
-      const pasos = [...s.slice(i, j).matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
+      const steps = [...s.slice(i, j).matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
 
       // EL ORDEN. Los motores postean antes del checklist para que el
       // checklist juzgue el mes COMO SE VA A CERRAR —su balanza y su
@@ -3989,17 +4584,17 @@ export const CRITERIOS: Criterio[] = [
       // autoriza. (Una versión anterior de este comentario decía que el
       // checklist BLOQUEABA sin la depreciación; no es así: esa casilla es una
       // advertencia.)
-      const esperado = [
+      const expected = [
         'accrue-benefits',
         'amortize-prepaids',
         'depreciate-assets',
         'verify-checklist',
         'soft-close',
       ];
-      if (pasos.join(',') !== esperado.join(',')) {
+      if (steps.join(',') !== expected.join(',')) {
         return falla(
-          `los pasos del conductor son [${pasos.join(', ')}] y tienen que ser ` +
-            `[${esperado.join(', ')}]: los motores antes del checklist, para que su veredicto ` +
+          `los pasos del conductor son [${steps.join(', ')}] y tienen que ser ` +
+            `[${expected.join(', ')}]: los motores antes del checklist, para que su veredicto ` +
             'describa el mes que se cierra, y el checklist antes del cierre que autoriza'
         );
       }
@@ -4007,19 +4602,19 @@ export const CRITERIOS: Criterio[] = [
       // Y CADA PASO DELEGA, dentro de `takeStep` y no en cualquier parte del
       // archivo: la llamada del ensayo a `getCloseReadiness` hacía verde esta
       // comprobación aunque el paso real se inventara su veredicto.
-      const pasoReal = tramo('async function takeStep(', 'function stepFailed(');
-      if (!pasoReal) return falla('no se encuentra `takeStep` acotada por `stepFailed`');
-      const motores = [
+      const realStep = section('async function takeStep(', 'function stepFailed(');
+      if (!realStep) return falla('no se encuentra `takeStep` acotada por `stepFailed`');
+      const engines = [
         'await runMonthlyProvisions(ctx.entityId, period.id, opts.userId)',
         'await runMonthlyAmortization(ctx.entityId, period.id, opts.userId)',
         'await runMonthlyDepreciation(ctx.entityId, period.id, opts.userId)',
         'await getCloseReadiness(ctx, period)',
         'await softClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason)',
       ];
-      const ausentes = motores.filter((m) => !pasoReal.includes(m));
-      if (ausentes.length > 0) {
+      const missing = engines.filter((m) => !realStep.includes(m));
+      if (missing.length > 0) {
         return falla(
-          `el paso real del conductor dejó de llamar a ${ausentes.join(', ')}: un paso que no ` +
+          `el paso real del conductor dejó de llamar a ${missing.join(', ')}: un paso que no ` +
             'delega es un motor nuevo'
         );
       }
@@ -4027,29 +4622,29 @@ export const CRITERIOS: Criterio[] = [
       // CADA INTENTO CORRE CADA PASO. Un intento que se saltara lo que otro
       // intento anotó cerraría sobre un veredicto viejo —el borrador de IA que
       // llegó esta mañana— y dejaría sin devengar la nómina cargada después.
-      const conduce = tramo('export async function conductClose(', 'async function dryRun(');
-      if (!conduce) return falla('no se encuentra `conductClose` acotada por `dryRun`');
-      if (!conduce.includes('outcome = await takeStep(ctx, period, step, ordinal, opts);')) {
+      const conductor = section('export async function conductClose(', 'async function dryRun(');
+      if (!conductor) return falla('no se encuentra `conductClose` acotada por `dryRun`');
+      if (!conductor.includes('outcome = await takeStep(ctx, period, step, ordinal, opts);')) {
         return falla('`conductClose` dejó de pasar cada paso por `takeStep`');
       }
-      if (/\bcontinue\b/.test(conduce)) {
+      if (/\bcontinue\b/.test(conductor)) {
         return falla(
           '`conductClose` salta pasos: un intento que no vuelve a correr lo que otro anotó cierra ' +
             'sobre un veredicto viejo'
         );
       }
 
-      const aritmetica =
+      const arithmetic =
         /\bDecimal\b|debit_amount|credit_amount|\.plus\(|\.minus\(|\.times\(|parseFloat\(|toFixed\(/.exec(s);
-      if (aritmetica) {
+      if (arithmetic) {
         return falla(
-          `el conductor manipula importes ("${aritmetica[0]}"): su aportación es el orden, el ` +
+          `el conductor manipula importes ("${arithmetic[0]}"): su aportación es el orden, el ` +
             'registro y la negativa a pasar por encima de un hueco, y ninguna necesita tocar un peso'
         );
       }
 
       return ok(
-        `los cinco pasos en su orden (${pasos.join(' → ')}), cada uno delegando dentro de takeStep, ` +
+        `los cinco pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
           'todos corridos en cada intento, y sin una sola cifra calculada aquí'
       );
     },
@@ -4083,7 +4678,7 @@ export const CRITERIOS: Criterio[] = [
       {
         archivo: 'src/services/accounting/closing-conductor.ts',
         de: '      let outcome: ClosingStepOutcome;\n',
-        a: '      if (previos.has(step)) continue;\n      let outcome: ClosingStepOutcome;\n',
+        a: '      if (priorSteps.has(step)) continue;\n      let outcome: ClosingStepOutcome;\n',
         porque:
           'la reanudación vuelve a fiarse de lo anotado: el checklist de ayer autoriza el cierre de ' +
           'hoy con un borrador de IA pendiente dentro del mes',
@@ -4096,11 +4691,11 @@ export const CRITERIOS: Criterio[] = [
     enunciado:
       'La corrida abierta de un periodo no se continúa sin pedirlo: `closing run` se niega y dice dónde se detuvo',
     evaluar: () => {
-      const motor = 'src/services/accounting/closing-conductor.ts';
-      const hoja = 'src/cli/closing-command.ts';
-      if (!existe(motor) || !existe(hoja)) return falla('el conductor o su hoja desaparecieron');
-      const m = codigoDe(motor);
-      const h = codigoDe(hoja);
+      const conductorPath = 'src/services/accounting/closing-conductor.ts';
+      const leafPath = 'src/cli/closing-command.ts';
+      if (!existe(conductorPath) || !existe(leafPath)) return falla('el conductor o su hoja desaparecieron');
+      const m = codigoDe(conductorPath);
+      const h = codigoDe(leafPath);
 
       // LA REGLA VIVE EN EL CONDUCTOR, BAJO EL CANDADO. La comprobación de la
       // hoja llega antes de la confirmación y es cortesía; entre las dos, otro
@@ -4109,18 +4704,18 @@ export const CRITERIOS: Criterio[] = [
       const i = m.indexOf('async function openRun(');
       const j = m.indexOf('async function stepsOfRun(', i);
       if (i < 0 || j < 0) return falla('no se encuentra `openRun` en el conductor');
-      const abre = m.slice(i, j);
-      if (!/if \(opts\.resume !== true\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_OPEN'/.test(abre)) {
+      const openRunBody = m.slice(i, j);
+      if (!/if \(opts\.resume !== true\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_OPEN'/.test(openRunBody)) {
         return falla(
           'el conductor dejó de negarse a continuar una corrida abierta que nadie pidió continuar'
         );
       }
-      const niega = abre.indexOf("'CLOSING_RUN_OPEN'");
-      const reabre = abre.indexOf("UPDATE closing_runs SET status = 'running'");
-      if (reabre >= 0 && niega > reabre) {
+      const refusalAt = openRunBody.indexOf("'CLOSING_RUN_OPEN'");
+      const reopenAt = openRunBody.indexOf("UPDATE closing_runs SET status = 'running'");
+      if (reopenAt >= 0 && refusalAt > reopenAt) {
         return falla('la negativa del conductor llega DESPUÉS de reabrir la corrida');
       }
-      if (!/if \(opts\.resume === true\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_NOTHING_TO_RESUME'/.test(abre)) {
+      if (!/if \(opts\.resume === true\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_NOTHING_TO_RESUME'/.test(openRunBody)) {
         return falla('el conductor acepta `--resume` sin corrida abierta, y crea una nueva en silencio');
       }
 
@@ -4130,9 +4725,9 @@ export const CRITERIOS: Criterio[] = [
       if (!/pg_try_advisory_lock\(hashtextextended\(\$1, 0\)\)/.test(m)) {
         return falla('el conductor ya no toma el candado consultivo del periodo');
       }
-      const candado = m.indexOf('return withConductorLock(ctx.entityId, period.id, async () => {');
-      const abreDentro = m.indexOf('const runId = await openRun(ctx, period.id, opts);');
-      if (candado < 0 || abreDentro < 0 || abreDentro < candado) {
+      const lockCall = m.indexOf('return withConductorLock(ctx.entityId, period.id, async () => {');
+      const openInsideLock = m.indexOf('const runId = await openRun(ctx, period.id, opts);');
+      if (lockCall < 0 || openInsideLock < 0 || openInsideLock < lockCall) {
         return falla('`openRun` ya no corre dentro del candado del periodo');
       }
 
@@ -4143,9 +4738,9 @@ export const CRITERIOS: Criterio[] = [
             'negativa que vive en el conductor'
         );
       }
-      const cortesia = h.indexOf('if (abierta && opts.resume !== true) {');
-      const corre = h.indexOf('const outcome = await conductClose(');
-      if (cortesia < 0 || corre < 0 || cortesia > corre) {
+      const courtesyAt = h.indexOf('if (existingRun && opts.resume !== true) {');
+      const conductAt = h.indexOf('const outcome = await conductClose(');
+      if (courtesyAt < 0 || conductAt < 0 || courtesyAt > conductAt) {
         return falla('la hoja dejó de avisar de la corrida abierta ANTES de conducir');
       }
 
@@ -4186,7 +4781,7 @@ export const CRITERIOS: Criterio[] = [
       },
       {
         archivo: 'src/cli/closing-command.ts',
-        de: 'if (abierta && opts.resume !== true) {',
+        de: 'if (existingRun && opts.resume !== true) {',
         a: 'if (false) {',
         porque:
           'la hoja deja de avisar antes de la confirmación: el operador confirma un acto que el ' +
@@ -9391,6 +9986,199 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E4.1',
+    id: 'policy-number-checked-on-read-and-write',
+    // EL PANEL ES DONDE EL DESPACHO DECLARA SU CRITERIO, Y DE AHÍ SALE DINERO.
+    //
+    // `resolvePolicy` aceptaba cualquier cadena y sólo anotaba «[value outside
+    // the catalog]». Medido contra Postgres: `prima_vacacional_pct = '25'`
+    // —un contador leyendo la etiqueta «25 %» del propio catálogo, que guarda
+    // '0.25'— pagaba 275.000,00 donde tocaban 2.750,00, y lo mismo por el
+    // cuerpo de POST /finiquito, que prefería su campo sobre la política.
+    //
+    // TRES PIEZAS, Y LAS TRES HACEN FALTA:
+    //
+    //  1. La cota de FORMA (`PolicyDomain`) en la ESCRITURA y en la LECTURA.
+    //     Sólo en la escritura deja vivo el ×100 de las filas ya resueltas y
+    //     de los `default_value` sembrados desde un catálogo viejo, que
+    //     `seedPolicies` no revisita. Sólo en la lectura deja que la errata se
+    //     archive bajo el sello «tu despacho decidió esto» y estalle dos
+    //     semanas después, el día de una baja.
+    //  2. El PISO DE LA LEY, que no es lo mismo y no vive aquí: vive en
+    //     `legal_parameters`, con fecha de entrada y fuente, porque una
+    //     constante en TypeScript no sabe desde cuándo rige. Y se comprueba
+    //     con la fecha del HECHO: recalcular una baja de 2019 contra el mínimo
+    //     de hoy es otra cifra.
+    //  3. Y ninguna segunda puerta: un criterio contable no se decide en el
+    //     JSON de una petición, sin autor, sin fecha y sin fila.
+    enunciado:
+      'Un número del panel no puede salir de su unidad ni bajar del mínimo de la ley, ni entrar por el cuerpo de una petición',
+    mutantes: [
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: '    validarDominio(spec, row.resolved_value);',
+        a: '    // validarDominio(spec, row.resolved_value);',
+        porque:
+          'la guarda de escritura sólo ve respuestas NUEVAS: una fila ya resuelta con 25 —o sembrada desde un catálogo viejo, que seedPolicies no revisita— vuelve a convertirse en un importe cien veces mayor',
+      },
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: '  validarDominio(spec, value);',
+        a: '  // validarDominio(spec, value);',
+        porque:
+          'la errata deja de detenerse en el teclado: `pending define prima_vacacional_pct 25` vuelve a imprimir «✔» y el fallo aparece el día que alguien causa baja, ya archivado como decisión del despacho',
+      },
+      {
+        archivo: 'src/services/payroll/mx/finiquito-calculator.ts',
+        de: "      String(await getPolicyNumber(panel, 'dias_aguinaldo')),\n      input.termination_date",
+        a: "      String(await getPolicyNumber(panel, 'dias_aguinaldo')),\n      new Date().toISOString().slice(0, 10)",
+        porque:
+          'el piso se mide contra la ley de HOY y no contra la de la baja: un finiquito reexpedido de un año anterior deja de dar el mismo número, que es exactamente la pregunta que la 080 existe para contestar',
+      },
+      {
+        archivo: 'src/services/accruals/provisions-run.ts',
+        de: "  const dias = Number(\n    await exigirPisoLegal('dias_aguinaldo', String(await getPolicyNumber(ctx, 'dias_aguinaldo')), enFecha)\n  );",
+        a: "  const dias = await getPolicyNumber(ctx, 'dias_aguinaldo');",
+        porque:
+          'el finiquito queda blindado y la corrida mensual sigue acreditando al mayor un aguinaldo ilegal, mes tras mes y posteando sola: es el ÚNICO camino de estas claves que escribe en los libros',
+      },
+    ],
+    evaluar: () => {
+      const svc = 'src/services/policy/policy-service.ts';
+      const cat = 'src/services/policy/pending-catalog.ts';
+      const fin = 'src/services/payroll/mx/finiquito-calculator.ts';
+      const prov = 'src/services/accruals/provisions-run.ts';
+      const prueba = 'tests/integration/t6-el-panel-que-acepta-cualquier-numero.int.spec.ts';
+      for (const f of [svc, cat, fin, prov]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+      const s = codigoDe(svc);
+
+      // 1. LA COTA, EN LAS DOS PUERTAS Y EN SU SITIO.
+      //
+      // POR ÍNDICE Y NO POR PRESENCIA. Es la trampa que este tramo vio caer
+      // dos veces: un criterio que sólo pregunta «¿está la llamada?» deja vivo
+      // al mutante que la mueve detrás del `return`, donde no sirve de nada.
+      const iBlanco = s.indexOf("value.trim() === ''");
+      const iEscritura = s.indexOf('validarDominio(spec, value)');
+      const iUpdate = s.indexOf('UPDATE policy_decisions');
+      if (iBlanco < 0 || iEscritura < 0 || iUpdate < 0) {
+        return falla(
+          'la guarda de dominio desapareció de la escritura: `pending define prima_vacacional_pct 25` vuelve a guardarse como decisión del despacho'
+        );
+      }
+      if (!(iBlanco < iEscritura && iEscritura < iUpdate)) {
+        return falla(
+          'la guarda de dominio ya no está entre la del blanco y el UPDATE: comprobar después de escribir no comprueba nada'
+        );
+      }
+      const iResuelta = s.indexOf('validarDominio(spec, row.resolved_value)');
+      const iReturnResuelta = s.indexOf('value: row.resolved_value, defined: true');
+      const iRespaldo = s.indexOf('validarDominio(spec, fallback)');
+      const iReturnRespaldo = s.indexOf('value: fallback, defined: false');
+      if (iResuelta < 0 || iRespaldo < 0) {
+        return falla(
+          'la guarda de dominio desapareció de la LECTURA: las filas ya resueltas y los default_value de un catálogo viejo vuelven a convertirse en importes'
+        );
+      }
+      if (!(iResuelta < iReturnResuelta && iRespaldo < iReturnRespaldo)) {
+        return falla(
+          'la guarda de dominio quedó DESPUÉS de su return: el valor sale sin pasar por ella, que es el mutante que una comprobación de mera presencia no mata'
+        );
+      }
+
+      // 2. EL PISO DE LA LEY VIVE EN LA LEY, Y EN LOS DOS SITIOS.
+      const c = codigoDe(cat);
+      for (const clave of ['dias_aguinaldo', 'prima_vacacional_pct']) {
+        const desde = c.indexOf(`key: '${clave}'`);
+        if (desde < 0) return falla(`${cat} ya no declara ${clave}`);
+        const bloque = c.slice(desde, desde + 2000);
+        if (!/dominio: \{/.test(bloque)) {
+          return falla(`${clave} perdió su dominio: vuelve a ser una cadena cualquiera de la que sale dinero`);
+        }
+        if (!/pisoLegal: \{/.test(bloque)) {
+          return falla(`${clave} perdió su piso legal: el panel vuelve a poder ofrecer bajar del mínimo de la ley`);
+        }
+      }
+      // La semilla SOLA no basta: `legal_parameters` nace vacía en toda base
+      // migrada y no sembrada —incluida la de la suite de integración—, así
+      // que sin migración esto no es una guarda, es un apagón.
+      // `fuentes()` sólo devuelve .ts: las migraciones son .sql y se leen por
+      // el seam con `crudoDe`, como hace el resto del tablero.
+      const dirMigraciones = 'src/database/migrations';
+      const sqlDeTodas = fs
+        .readdirSync(rutaDe(dirMigraciones))
+        .map((m) => crudoDe(dirMigraciones, m))
+        .join('\n');
+      const sembrada = /INSERT INTO legal_parameters/i.test(sinProsa(sqlDeTodas));
+      if (!sembrada) {
+        return falla(
+          'ninguna migración inserta en legal_parameters: el piso se lee de una tabla vacía y el finiquito deja de calcularse en toda base migrada sin sembrar'
+        );
+      }
+
+      // 3. Y SE MIDE CON LA FECHA DEL HECHO, en los dos consumidores.
+      const f = codigoDe(fin);
+      // UNA POR UNA, y no «que aparezca en el archivo». La primera redacción
+      // buscaba `exigirPisoLegal(...input.termination_date` en cualquier parte
+      // y su propio mutante la sobrevivió: cambiar la fecha de UNA de las dos
+      // llamadas dejaba la otra emparejando. Cada llamada se mira sola, y el
+      // reloj de pared se prohíbe por nombre.
+      const llamadas = [...f.matchAll(/exigirPisoLegal\(/g)];
+      if (llamadas.length < 2) {
+        return falla(
+          `el finiquito sólo envuelve ${llamadas.length} de sus 2 lecturas del panel con el piso legal: la que queda suelta vuelve a poder pagar por debajo de la ley`
+        );
+      }
+      for (const m of llamadas) {
+        const args = f.slice(m.index, m.index + 260);
+        if (/new Date\(|Date\.now\(/.test(args)) {
+          return falla(
+            'el piso se mide con el reloj de pared y no con la fecha del hecho: un finiquito reexpedido de un año anterior deja de dar el mismo número, que es justo lo que la 080 le puso fecha a la ley para contestar'
+          );
+        }
+        if (!/input\.termination_date/.test(args)) {
+          return falla(
+            'una de las llamadas al piso legal dejó de recibir la fecha de la BAJA: el mínimo que se le aplica ya no es el que regía cuando el hecho ocurrió'
+          );
+        }
+      }
+      const p = codigoDe(prov);
+      if (!/exigirPisoLegal\('dias_aguinaldo'/.test(p) || !/exigirPisoLegal\('prima_vacacional_pct'/.test(p)) {
+        return falla(
+          'la corrida de provisiones dejó de exigir el piso: es el único camino de estas claves que ESCRIBE en el mayor, y postea solo'
+        );
+      }
+
+      // 4. NINGUNA SEGUNDA PUERTA.
+      if (/input\.(aguinaldo_days_per_year|prima_vacacional_pct)/.test(f)) {
+        return falla(
+          'volvió el campo del cuerpo que sobrescribe el panel: un criterio contable decidido en un JSON, sin autor, sin fecha y sin fila'
+        );
+      }
+
+      // 5. Y CONDUCTA QUE LO AFIRMA CONTRA POSTGRES.
+      if (!existe(prueba)) {
+        return falla('no hay reproducción del panel: sin ella esto es una lectura del diff');
+      }
+      const t = crudoDe(prueba);
+      if (!/toBe\(422\)/.test(t)) {
+        return falla(
+          'la reproducción dejó de exigir el 422 que NOMBRA el campo retirado: un descarte mudo empieza a pagar otra cantidad sobre un finiquito real sin que nadie se entere'
+        );
+      }
+      if (!/mínimo de 15\\.0000/.test(t)) {
+        return falla(
+          'la reproducción dejó de exigir que el rechazo cite la CIFRA de la ley: «el sistema no me deja» y «el art. 87 no te deja» no son lo mismo para quien lo lee'
+        );
+      }
+
+      return ok(
+        'el dominio se comprueba al escribir y al leer y en su sitio, el piso vive en legal_parameters con migración y se mide con la fecha del hecho, y el cuerpo ya no puede imponer un criterio'
+      );
+    },
+  },
   {
     paquete: 'E4.1',
     id: 'sua-file-declares-the-month-and-only-the-month',

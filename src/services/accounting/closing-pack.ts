@@ -198,21 +198,21 @@ export async function deriveSealedBody(entityId: string, periodId: string): Prom
     [periodId, entityId]
   );
   if (p.rows.length === 0) throw new NotFoundError('Fiscal period', periodId);
-  const periodo = p.rows[0];
+  const period = p.rows[0];
 
   // THE CUT-OFF IS THE PERIOD'S END DATE. A dossier whose cut-off moves is a
   // dossier nobody can re-run.
-  const asOf = periodo.end_date;
+  const asOf = period.end_date;
 
-  const [cierre, archivadas] = await Promise.all([
+  const [closingCriterion, archivedCriterion] = await Promise.all([
     criterioDeCierreEnInformes(entityId),
     criterioDeCuentasArchivadas(entityId),
   ]);
 
-  const filas = await queryTrialBalanceRows(entityId, { asOfDate: asOf });
-  const totales = totalTrialBalance(filas);
+  const rows = await queryTrialBalanceRows(entityId, { asOfDate: asOf });
+  const totals = totalTrialBalance(rows);
 
-  const actividad = await query<{
+  const activity = await query<{
     source_type: string;
     entries: string;
     debit: string;
@@ -231,7 +231,7 @@ export async function deriveSealedBody(entityId: string, periodId: string): Prom
     [entityId, periodId]
   );
 
-  const trialBalance = filas
+  const trialBalance = rows
     .map((f) => ({
       account_code: f.account_code,
       account_name: f.account_name,
@@ -244,7 +244,7 @@ export async function deriveSealedBody(entityId: string, periodId: string): Prom
     .filter((f) => !new Decimal(f.debit).isZero() || !new Decimal(f.credit).isZero())
     .sort((a, b) => byCodeUnit(a.account_code, b.account_code));
 
-  const periodActivity = actividad.rows
+  const periodActivity = activity.rows
     .map((r) => ({
       source_type: r.source_type,
       entries: Number(r.entries),
@@ -257,22 +257,22 @@ export async function deriveSealedBody(entityId: string, periodId: string): Prom
     schema_version: CLOSING_PACK_SCHEMA_VERSION,
     entity: { id: e.rows[0].id, name: e.rows[0].name, tax_id: e.rows[0].tax_id },
     period: {
-      id: periodo.id,
-      name: periodo.period_name,
-      start_date: periodo.start_date,
-      end_date: periodo.end_date,
+      id: period.id,
+      name: period.period_name,
+      start_date: period.start_date,
+      end_date: period.end_date,
     },
     as_of: asOf,
     criteria: {
-      informes_asientos_de_cierre: cierre.valor,
-      informes_cuentas_archivadas: archivadas.valor,
+      informes_asientos_de_cierre: closingCriterion.valor,
+      informes_cuentas_archivadas: archivedCriterion.valor,
     },
     figures: {
       trial_balance: trialBalance,
       totals: {
-        debit: money(totales.total_debits),
-        credit: money(totales.total_credits),
-        balanced: totales.is_balanced,
+        debit: money(totals.total_debits),
+        credit: money(totals.total_credits),
+        balanced: totals.is_balanced,
       },
       period_activity: periodActivity,
     },
@@ -293,7 +293,7 @@ export async function buildClosingPack(
   opts: BuildPackOptions = {}
 ): Promise<ClosingPack> {
   const sealed = await deriveSealedBody(entityId, periodId);
-  const estado = await query<{ status: string }>(
+  const periodStatus = await query<{ status: string }>(
     'SELECT status FROM fiscal_periods WHERE id = $1 AND entity_id = $2',
     [periodId, entityId]
   );
@@ -305,7 +305,7 @@ export async function buildClosingPack(
       generated_at: (opts.now ?? new Date()).toISOString(),
       generated_by: opts.userId ?? null,
       run_id: opts.runId ?? null,
-      period_status: estado.rows[0]?.status ?? 'unknown',
+      period_status: periodStatus.rows[0]?.status ?? 'unknown',
     },
   };
 }
@@ -359,9 +359,9 @@ function compareLeaves(
   path: string,
   out: PackDifference[]
 ): void {
-  const objeto = (v: unknown): v is Record<string, unknown> =>
+  const isPlainObject = (v: unknown): v is Record<string, unknown> =>
     typeof v === 'object' && v !== null && !Array.isArray(v);
-  if (objeto(expected) && objeto(actual)) {
+  if (isPlainObject(expected) && isPlainObject(actual)) {
     for (const k of [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort(byCodeUnit)) {
       compareLeaves(kind, expected[k], actual[k], `${path}.${k}`, out);
     }
@@ -474,15 +474,15 @@ export function verdictFindings(v: PackVerdict): { blocking: number; warning: nu
 export async function verifyClosingPack(pack: ClosingPack): Promise<PackVerdict> {
   const recomputedSeal = sealOf(pack.sealed);
 
-  const registro = await query<{ generated_at: string; envelope: unknown }>(
+  const registry = await query<{ generated_at: string; envelope: unknown }>(
     `SELECT generated_at::text AS generated_at, body->'envelope' AS envelope
        FROM closing_packs
       WHERE entity_id = $1 AND fiscal_period_id = $2 AND seal = $3
       ORDER BY generated_at`,
     [pack.sealed.entity.id, pack.sealed.period.id, pack.seal]
   );
-  const issued = registro.rows.length > 0;
-  const envelopeMatches = registro.rows.some(
+  const issued = registry.rows.length > 0;
+  const envelopeMatches = registry.rows.some(
     (r) => canonicalJson(r.envelope) === canonicalJson(pack.envelope)
   );
 
@@ -505,7 +505,7 @@ export async function verifyClosingPack(pack: ClosingPack): Promise<PackVerdict>
   return {
     sealIntact: recomputedSeal === pack.seal,
     issued,
-    issuedAt: registro.rows[0]?.generated_at ?? null,
+    issuedAt: registry.rows[0]?.generated_at ?? null,
     envelopeMatches,
     figuresReproduce: !diffs.some((d) => d.kind === 'figure'),
     identityUnchanged: !diffs.some((d) => d.kind === 'identity'),

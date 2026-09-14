@@ -69,6 +69,7 @@
     "pending-explains-policy-with-preview",
     "per-file-unit-coverage-ratchet",
     "permission-gate-has-behavioural-proof",
+    "policy-number-checked-on-read-and-write",
     "policy-panel-governs-writeoff-account",
     "policy-panel-owns-auto-post",
     "policy-panel-reaches-deciding-turn",

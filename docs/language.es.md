@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: 783d3761fff81b7bee0e28d24dc9d84a7c204141
+> Gemela en español de [`language.md`](language.md) · source_sha: 93b1c0234039b61526812e280faaf36e2bc2eb93
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -76,6 +76,43 @@ Como `catalogo:estado` y `ux:status`: recorre el árbol, escribe su bloque entre
 | Páginas de documentación sin gemela · gemelas desfasadas (`source_sha`) | 23 (esta investigación) + el resto del árbol, medido por I2 · 0 | 0 · 0 al fusionar |
 | Rutas citadas en `docs/` que no existen (92 de 422 hoy) | 92 | sólo baja |
 | Líneas de comentario en español en `src/` | 22 731 | trinquete desde I20 |
+
+
+La medición viva, escrita por el propio metro. **No se edita a mano**: `npm run language:status -- --write` sustituye todo lo que hay entre los marcadores, y vuelve a sellar esta gemela para que no quede caducada.
+
+<!-- LANGUAGE-STATUS:START -->
+
+<!--
+  DO NOT EDIT BY HAND. Regenerate with:  npm run language:status -- --escribir
+  CI verifies it with --check, so a hand edit shows up red.
+-->
+
+### How much Spanish is left, and where
+
+15 lanes under the ratchet and 1 measured but not yet required.
+The ratchet lives in `docs/language-baseline.json` and only goes down; raising a number is a
+manual act and its trace is the diff.
+
+| Lane | What it counts | Today | Towards |
+|---|---|---:|---:|
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10563 | 0 |
+| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5759 | 0 |
+| `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
+| `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |
+| `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 154 | 0 |
+| `spanish-filenames-scripts` | TypeScript files with Spanish names under scripts/ | 9 | 0 |
+| `plan-criteria-grepping-spanish-identifiers` | plan criteria regexes that grep a Spanish identifier | 114 | 0 |
+| `plan-criteria-pinned-to-spanish-paths` | plan criteria pinned to a renameable Spanish path | 35 | 0 |
+| `plan-mutants-anchored-to-spanish-files` | plan mutants anchored to a renameable Spanish file | 24 | 0 |
+| `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
+| `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
+| `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 (baseline 12) | 0 |
+| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 366 | 0 |
+| `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
+| `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 25844 | 0 |
+
+<!-- LANGUAGE-STATUS:END -->
 
 ### 3.3 El lint: `house/english-identifiers`
 

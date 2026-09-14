@@ -101,13 +101,15 @@ export default defineConfig({
         // ponerles un piso unitario obligaría a duplicar con mocks lo que ya se
         // prueba contra Postgres.
         //
-        // Medidos por su propia suite (15 pruebas en verde):
-        // conductor 90.42 / 72 / 90.9 / 91.3; expediente 87.67 / 75 / 100 / 90.9.
+        // Nacieron en 90/72/90/91 y 87/75/100/90. La corrección de la revisión
+        // adversaria los APRIETA en el mismo commit que gana el terreno, con la
+        // suite entera en verde (113 archivos, 1 436 pruebas; 27 de la de A6):
+        // conductor 95.04 / 77.77 / 95.23 / 95.72; expediente 89.56 / 77.38 / 100 / 91.5.
         'src/services/accounting/closing-conductor.ts': {
-          statements: 90, branches: 72, functions: 90, lines: 91,
+          statements: 95, branches: 77, functions: 95, lines: 95,
         },
         'src/services/accounting/closing-pack.ts': {
-          statements: 87, branches: 75, functions: 100, lines: 90,
+          statements: 89, branches: 77, functions: 100, lines: 91,
         },
         // Medidos: 86.99 / 78.16 / 100 / 88.49.
         'src/services/accounting/validation.ts': {

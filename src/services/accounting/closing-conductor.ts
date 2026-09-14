@@ -79,7 +79,7 @@ export const PERSISTED_STEP_STATUSES = ['done', 'skipped', 'blocked', 'failed'] 
 /**
  * `pending` exists only in a dry run, where nothing is written: it is the
  * answer to "what would you do if I let you go". It is deliberately absent
- * from `PERSISTED_STEP_STATUSES`, which mirrors the CHECK of migration 082.
+ * from `PERSISTED_STEP_STATUSES`, which mirrors the CHECK of migration 083.
  */
 export type StepStatus = (typeof PERSISTED_STEP_STATUSES)[number] | 'pending';
 
@@ -270,22 +270,22 @@ async function openRun(
   periodId: string,
   opts: ConductOptions
 ): Promise<string> {
-  const abierta = await openRunOf(ctx.entityId, periodId);
-  if (abierta) {
+  const openRunRow = await openRunOf(ctx.entityId, periodId);
+  if (openRunRow) {
     if (opts.resume !== true) {
       throw new ClosingRunStateError(
         'CLOSING_RUN_OPEN',
-        `This period already has an open close run (${describeOpenRun(abierta)}). ` +
+        `This period already has an open close run (${describeOpenRun(openRunRow)}). ` +
           'Continue it with --resume, or look at it first with --dry-run.',
-        { runId: abierta.id }
+        { runId: openRunRow.id }
       );
     }
     await query(
       `UPDATE closing_runs SET status = 'running', halted_at_step = NULL, ended_at = NULL
         WHERE id = $1 AND entity_id = $2`,
-      [abierta.id, ctx.entityId]
+      [openRunRow.id, ctx.entityId]
     );
-    return abierta.id;
+    return openRunRow.id;
   }
   if (opts.resume === true) {
     throw new ClosingRunStateError(
@@ -294,13 +294,13 @@ async function openRun(
     );
   }
   try {
-    const creada = await query<RunRow>(
+    const created = await query<RunRow>(
       `INSERT INTO closing_runs (entity_id, fiscal_period_id, status, started_by)
        VALUES ($1, $2, 'running', $3)
        RETURNING id, status`,
       [ctx.entityId, periodId, opts.userId]
     );
-    return creada.rows[0].id;
+    return created.rows[0].id;
   } catch (err) {
     // Under the lock this cannot happen; if it does, it is still a state.
     if ((err as { code?: string }).code === '23505') {
@@ -488,7 +488,7 @@ async function takeStep(
         status: r.errors.length > 0 ? 'failed' : r.processed > 0 ? 'done' : 'skipped',
         processed: r.processed,
         // The engine reports a count, not a total: see the column's comment in
-        // migration 082. A zero here would be a figure nobody computed.
+        // migration 083. A zero here would be a figure nobody computed.
         amount: null,
         detail:
           r.errors.length > 0
@@ -504,14 +504,14 @@ async function takeStep(
       return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));
     }
     case 'soft-close': {
-      const estado = await periodStatus(ctx.entityId, period.id);
-      if (estado !== 'open') {
+      const periodState = await periodStatus(ctx.entityId, period.id);
+      if (periodState !== 'open') {
         return {
           ...base,
           status: 'skipped',
           processed: 0,
           amount: null,
-          detail: `period is already ${estado}`,
+          detail: `period is already ${periodState}`,
         };
       }
       await softClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason);
@@ -562,27 +562,27 @@ export async function conductClose(
   // `--stop-at` que no case con ningún paso no debe correr el mes entero en
   // silencio. Se ensancha a `string` a propósito: con el tipo estrecho el
   // comprobador estrecha el else a `never` y la guarda parecería muerta.
-  const pedido: string | undefined = opts.stopAt;
-  if (pedido !== undefined && !isClosingStep(pedido)) {
+  const requested: string | undefined = opts.stopAt;
+  if (requested !== undefined && !isClosingStep(requested)) {
     throw new AccountingError(
       'UNKNOWN_CLOSING_STEP',
-      `Unknown step "${pedido}". The steps are: ${CLOSING_STEPS.join(', ')}.`
+      `Unknown step "${requested}". The steps are: ${CLOSING_STEPS.join(', ')}.`
     );
   }
 
-  const marco = {
+  const frame = {
     entityId: ctx.entityId,
     periodId: period.id,
     periodName: period.period_name,
   };
 
   if (opts.dryRun) {
-    return { ...marco, runId: null, status: 'previewed', ...(await dryRun(ctx, period, opts)) };
+    return { ...frame, runId: null, status: 'previewed', ...(await dryRun(ctx, period, opts)) };
   }
 
   return withConductorLock(ctx.entityId, period.id, async () => {
     const runId = await openRun(ctx, period.id, opts);
-    const previos = await stepsOfRun(runId, ctx.entityId);
+    const priorSteps = await stepsOfRun(runId, ctx.entityId);
     const steps: ClosingStepOutcome[] = [];
 
     for (const [i, step] of CLOSING_STEPS.entries()) {
@@ -590,7 +590,7 @@ export async function conductClose(
 
       if (opts.stopAt === step) {
         await closeRun(runId, ctx.entityId, 'stopped', step);
-        return { ...marco, runId, status: 'stopped' as const, steps, haltedAtStep: step };
+        return { ...frame, runId, status: 'stopped' as const, steps, haltedAtStep: step };
       }
 
       let outcome: ClosingStepOutcome;
@@ -613,19 +613,19 @@ export async function conductClose(
         amount: row.amount,
         journalEntryIds: row.journal_entry_ids,
         detail: row.detail,
-        priorAttempt: previos.has(step),
+        priorAttempt: priorSteps.has(step),
       };
       steps.push(accumulated);
 
       if (accumulated.status === 'blocked' || accumulated.status === 'failed') {
-        const estado = accumulated.status === 'blocked' ? 'blocked' : 'failed';
-        await closeRun(runId, ctx.entityId, estado, step);
-        return { ...marco, runId, status: estado, steps, haltedAtStep: step };
+        const runState = accumulated.status === 'blocked' ? 'blocked' : 'failed';
+        await closeRun(runId, ctx.entityId, runState, step);
+        return { ...frame, runId, status: runState, steps, haltedAtStep: step };
       }
     }
 
     await closeRun(runId, ctx.entityId, 'completed', null);
-    return { ...marco, runId, status: 'completed' as const, steps, haltedAtStep: null };
+    return { ...frame, runId, status: 'completed' as const, steps, haltedAtStep: null };
   });
 }
 
@@ -643,8 +643,8 @@ async function dryRun(
   period: ClosablePeriod,
   opts: ConductOptions
 ): Promise<{ steps: ClosingStepOutcome[]; haltedAtStep: ClosingStep | null }> {
-  const abierta = await openRunOf(ctx.entityId, period.id);
-  const previos = abierta ? await stepsOfRun(abierta.id, ctx.entityId) : new Set<string>();
+  const openRunRow = await openRunOf(ctx.entityId, period.id);
+  const priorSteps = openRunRow ? await stepsOfRun(openRunRow.id, ctx.entityId) : new Set<string>();
 
   const steps: ClosingStepOutcome[] = [];
   let haltedAtStep: ClosingStep | null = null;
@@ -657,7 +657,7 @@ async function dryRun(
     }
     if (step === 'verify-checklist') {
       const r = checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));
-      r.priorAttempt = previos.has(step);
+      r.priorAttempt = priorSteps.has(step);
       steps.push(r);
       if (r.status === 'blocked') {
         haltedAtStep = step;
@@ -666,16 +666,16 @@ async function dryRun(
       continue;
     }
     if (step === 'soft-close') {
-      const estado = await periodStatus(ctx.entityId, period.id);
+      const periodState = await periodStatus(ctx.entityId, period.id);
       steps.push({
         step,
         ordinal,
-        status: estado === 'open' ? 'pending' : 'skipped',
+        status: periodState === 'open' ? 'pending' : 'skipped',
         processed: 0,
         amount: null,
         journalEntryIds: [],
-        detail: estado === 'open' ? 'would soft-close the period' : `period is already ${estado}`,
-        priorAttempt: previos.has(step),
+        detail: periodState === 'open' ? 'would soft-close the period' : `period is already ${periodState}`,
+        priorAttempt: priorSteps.has(step),
       });
       continue;
     }
@@ -687,7 +687,7 @@ async function dryRun(
       amount: null,
       journalEntryIds: await postedBy(ctx.entityId, period.id, step),
       detail: 'would run; the engine posts only what is not already posted this period',
-      priorAttempt: previos.has(step),
+      priorAttempt: priorSteps.has(step),
     });
   }
 

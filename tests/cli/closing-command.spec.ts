@@ -4,9 +4,9 @@ import {
   registerClosingCommand,
   conteoParaSalida,
   renderCasillas,
-  cierreDeLaCorrida,
-  renderPasos,
-  salidaDeLaCorrida,
+  runClosingLine,
+  renderSteps,
+  runExitCode,
   type ClosingCommandDeps,
 } from '../../src/cli/closing-command.js';
 import { ValidationError } from '../../src/utils/errors.js';
@@ -171,37 +171,37 @@ describe('registro del comando closing', () => {
     expect(hojas.pack).toContain('paquete');
     expect(Object.keys(hojas).sort()).toEqual(['check', 'explain', 'pack', 'preview', 'run']);
 
-    const expediente = closing?.commands.find((c) => c.name() === 'pack');
-    const subhojas = Object.fromEntries(
-      (expediente?.commands ?? []).map((c) => [c.name(), c.aliases()])
+    const packGroup = closing?.commands.find((c) => c.name() === 'pack');
+    const subleaves = Object.fromEntries(
+      (packGroup?.commands ?? []).map((c) => [c.name(), c.aliases()])
     );
-    expect(subhojas.generate).toContain('generar');
+    expect(subleaves.generate).toContain('generar');
     // `comprobar` y no `verificar`: el diccionario del núcleo asigna
     // «verificar» a `check`, que es la hoja hermana de al lado.
-    expect(subhojas.verify).toContain('comprobar');
-    expect(Object.keys(subhojas).sort()).toEqual(['generate', 'verify']);
+    expect(subleaves.verify).toContain('comprobar');
+    expect(Object.keys(subleaves).sort()).toEqual(['generate', 'verify']);
   });
 
   it('leer es ✓ para el agente; conducir el cierre y sellar el expediente, NO', () => {
-    const clase = (ruta: string[]): { risk?: string; agente?: boolean } => {
+    const riskOfPath = (path: string[]): { risk?: string; agent?: boolean } => {
       let cmd = closing;
-      for (const n of ruta) cmd = cmd?.commands.find((c) => c.name() === n);
+      for (const n of path) cmd = cmd?.commands.find((c) => c.name() === n);
       const r = cmd ? riskOf(cmd) : undefined;
-      return { risk: r?.risk, agente: r?.agentAllowed };
+      return { risk: r?.risk, agent: r?.agentAllowed };
     };
 
     // Leer nunca certifica nada.
     for (const n of ['preview', 'check', 'explain']) {
-      expect(clase([n]), n).toEqual({ risk: 'lectura', agente: true });
+      expect(riskOfPath([n]), n).toEqual({ risk: 'lectura', agent: true });
     }
-    expect(clase(['pack', 'verify'])).toEqual({ risk: 'lectura', agente: true });
+    expect(riskOfPath(['pack', 'verify'])).toEqual({ risk: 'lectura', agent: true });
 
     // Conducir el cierre postea al mayor por tres de sus cinco pasos: es
     // irreversible, y el agente no lo invoca. Ésta es la asimetría que A7
     // construyó su única puerta para sostener.
-    expect(clase(['run'])).toEqual({ risk: 'irreversible', agente: false });
+    expect(riskOfPath(['run'])).toEqual({ risk: 'irreversible', agent: false });
     // Sellar escribe una fila de sólo-agregar, y tampoco la firma una máquina.
-    expect(clase(['pack', 'generate'])).toEqual({ risk: 'escritura', agente: false });
+    expect(riskOfPath(['pack', 'generate'])).toEqual({ risk: 'escritura', agent: false });
   });
 
   it('pasa la auditoría de consistencia sin violaciones', () => {
@@ -430,7 +430,7 @@ describe('closing explain · la lente, no el veredicto', () => {
 // ============================================================
 
 describe('A6 · el código de salida de la corrida', () => {
-  const paso = (
+  const stepOutcome = (
     step: ClosingStep,
     status: ClosingStepOutcome['status'],
     cause?: unknown
@@ -446,7 +446,7 @@ describe('A6 · el código de salida de la corrida', () => {
     ...(cause !== undefined ? { cause } : {}),
   });
 
-  const corrida = (steps: ClosingStepOutcome[]): ClosingRunOutcome => ({
+  const runOutcome = (steps: ClosingStepOutcome[]): ClosingRunOutcome => ({
     runId: 'R1',
     entityId: 'E1',
     periodId: 'P1',
@@ -457,41 +457,41 @@ describe('A6 · el código de salida de la corrida', () => {
   });
 
   it('limpio sale 0', () => {
-    expect(salidaDeLaCorrida(corrida(CLOSING_STEPS.map((s) => paso(s, 'done'))))).toBe(ExitCode.OK);
+    expect(runExitCode(runOutcome(CLOSING_STEPS.map((s) => stepOutcome(s, 'done'))))).toBe(ExitCode.OK);
   });
 
   it('un paso bloqueado es un hallazgo: sale 4, como toda verificación', () => {
     expect(
-      salidaDeLaCorrida(corrida([paso('accrue-benefits', 'done'), paso('verify-checklist', 'blocked')]))
+      runExitCode(runOutcome([stepOutcome('accrue-benefits', 'done'), stepOutcome('verify-checklist', 'blocked')]))
     ).toBe(ExitCode.VALIDATION);
   });
 
   it('un motor que devolvió errores por renglón es un hallazgo de datos: 4, no el 1 genérico', () => {
-    expect(salidaDeLaCorrida(corrida([paso('amortize-prepaids', 'failed')]))).toBe(ExitCode.VALIDATION);
+    expect(runExitCode(runOutcome([stepOutcome('amortize-prepaids', 'failed')]))).toBe(ExitCode.VALIDATION);
   });
 
   it('un motor que LANZÓ sale con el código que su error merece', () => {
     // Un panel mal contestado es un 4 en `depreciation run`; aplanarlo a 1
     // aquí le quitaba a un guion la manera de distinguirlo de un proceso caído.
     expect(
-      salidaDeLaCorrida(corrida([paso('depreciate-assets', 'failed', new ValidationError('base_depreciacion inválida'))]))
+      runExitCode(runOutcome([stepOutcome('depreciate-assets', 'failed', new ValidationError('base_depreciacion inválida'))]))
     ).toBe(ExitCode.VALIDATION);
     expect(
-      salidaDeLaCorrida(corrida([paso('soft-close', 'failed', new ClosingRunStateError('X', 'estado'))]))
+      runExitCode(runOutcome([stepOutcome('soft-close', 'failed', new ClosingRunStateError('X', 'estado'))]))
     ).toBe(ExitCode.BLOCKED);
-    expect(salidaDeLaCorrida(corrida([paso('soft-close', 'failed', new Error('se cayó la conexión'))]))).toBe(
+    expect(runExitCode(runOutcome([stepOutcome('soft-close', 'failed', new Error('se cayó la conexión'))]))).toBe(
       ExitCode.FAILURE
     );
   });
 
   it('un paso omitido no es un hallazgo: un mes sin nada que devengar sale 0', () => {
-    expect(salidaDeLaCorrida(corrida(CLOSING_STEPS.map((s) => paso(s, 'skipped'))))).toBe(ExitCode.OK);
+    expect(runExitCode(runOutcome(CLOSING_STEPS.map((s) => stepOutcome(s, 'skipped'))))).toBe(ExitCode.OK);
   });
 
   it('el ensayo contesta LO MISMO que la corrida ante la misma condición', () => {
-    const ensayo = corrida([paso('accrue-benefits', 'pending'), paso('verify-checklist', 'blocked')]);
-    const real = corrida([paso('accrue-benefits', 'done'), paso('verify-checklist', 'blocked')]);
-    expect(salidaDeLaCorrida(ensayo)).toBe(salidaDeLaCorrida(real));
+    const dryRun = runOutcome([stepOutcome('accrue-benefits', 'pending'), stepOutcome('verify-checklist', 'blocked')]);
+    const real = runOutcome([stepOutcome('accrue-benefits', 'done'), stepOutcome('verify-checklist', 'blocked')]);
+    expect(runExitCode(dryRun)).toBe(runExitCode(real));
   });
 });
 
@@ -507,33 +507,33 @@ describe('A6 · la última línea dice lo que de verdad pasó', () => {
   };
 
   it('tras un ensayo NO manda a --resume: el ensayo no abrió ninguna corrida', () => {
-    const limpio = cierreDeLaCorrida({ ...base, status: 'previewed' });
-    expect(limpio).toMatch(/Nothing was written/);
-    expect(limpio).not.toMatch(/--resume/);
-    const bloqueado = cierreDeLaCorrida({ ...base, status: 'previewed', haltedAtStep: 'verify-checklist' });
-    expect(bloqueado).toMatch(/would block at verify-checklist/);
-    expect(bloqueado).not.toMatch(/--resume/);
-    const parado = cierreDeLaCorrida({ ...base, status: 'previewed', haltedAtStep: 'soft-close' }, 'soft-close');
-    expect(parado).toMatch(/would stop before soft-close/);
+    const clean = runClosingLine({ ...base, status: 'previewed' });
+    expect(clean).toMatch(/Nothing was written/);
+    expect(clean).not.toMatch(/--resume/);
+    const blocked = runClosingLine({ ...base, status: 'previewed', haltedAtStep: 'verify-checklist' });
+    expect(blocked).toMatch(/would block at verify-checklist/);
+    expect(blocked).not.toMatch(/--resume/);
+    const stopped = runClosingLine({ ...base, status: 'previewed', haltedAtStep: 'soft-close' }, 'soft-close');
+    expect(stopped).toMatch(/would stop before soft-close/);
   });
 
   it('tras un --stop-at no hay causa que arreglar: se paró porque se pidió', () => {
-    const r = cierreDeLaCorrida({ ...base, status: 'stopped', haltedAtStep: 'soft-close' }, 'soft-close');
+    const r = runClosingLine({ ...base, status: 'stopped', haltedAtStep: 'soft-close' }, 'soft-close');
     expect(r).toMatch(/Stopped before soft-close, as asked/);
     expect(r).not.toMatch(/Fix the cause/);
   });
 
   it('bloqueado y fallido dicen dónde, y cómo continuar', () => {
-    expect(cierreDeLaCorrida({ ...base, status: 'blocked', haltedAtStep: 'verify-checklist' })).toMatch(
+    expect(runClosingLine({ ...base, status: 'blocked', haltedAtStep: 'verify-checklist' })).toMatch(
       /Blocked at verify-checklist.*--resume/
     );
-    expect(cierreDeLaCorrida({ ...base, status: 'failed', haltedAtStep: 'depreciate-assets' })).toMatch(
+    expect(runClosingLine({ ...base, status: 'failed', haltedAtStep: 'depreciate-assets' })).toMatch(
       /Failed at depreciate-assets.*--resume/
     );
   });
 
   it('completo manda a sellar el expediente de ESE periodo', () => {
-    expect(cierreDeLaCorrida(base)).toContain('closing pack generate "July 2026"');
+    expect(runClosingLine(base)).toContain('closing pack generate "July 2026"');
   });
 });
 
@@ -541,7 +541,7 @@ describe('A6 · renderPasos', () => {
   const c = { dim: (s: string) => s, red: (s: string) => `RED(${s})` };
 
   it('marca lo hecho, señala lo bloqueado en rojo y dice qué ya había anotado otro intento', () => {
-    const lineas = renderPasos(
+    const lines = renderSteps(
       {
         runId: 'R1',
         entityId: 'E1',
@@ -574,12 +574,12 @@ describe('A6 · renderPasos', () => {
       },
       c
     );
-    expect(lineas[0]).toContain('accrue-benefits');
-    expect(lineas[0]).toContain('2 accrued');
-    expect(lineas[0]).toContain('also recorded by an earlier attempt');
-    expect(lineas[1]).toMatch(/^RED\(/);
-    expect(lineas[1]).toContain('blocking: two drafts');
-    expect(lineas[1]).not.toContain('earlier attempt');
+    expect(lines[0]).toContain('accrue-benefits');
+    expect(lines[0]).toContain('2 accrued');
+    expect(lines[0]).toContain('also recorded by an earlier attempt');
+    expect(lines[1]).toMatch(/^RED\(/);
+    expect(lines[1]).toContain('blocking: two drafts');
+    expect(lines[1]).not.toContain('earlier attempt');
   });
 });
 
