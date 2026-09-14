@@ -203,9 +203,17 @@ router.post('/pay-schedules', declararRiesgoRuta({ riesgo: 'escritura', escribe:
   res.status(201).json({ data: { id }, meta: meta(req) });
 }));
 
-router.post('/pay-schedules/:id/generate-periods', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pay_periods' }), requirePermission('payroll:create'), asyncHandler(async (req: Request, res: Response) => {
-  const { count = 24 } = req.body;
-  const ids = await generatePayPeriods(req.params.id, count);
+/**
+ * `count` had no bound: a loop of INSERTs as long as the caller liked. Four
+ * years of weekly periods is 208; nothing legitimate asks for more in one call.
+ */
+const generatePeriodsSchema = z.object({ count: z.number().int().min(1).max(208).optional() });
+
+router.post('/pay-schedules/:id/generate-periods', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pay_periods' }), requirePermission('payroll:create'), requireEntityAccess, validateBody(generatePeriodsSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { count = 24 } = req.body as { count?: number };
+  // TEN-11 (#235): the guard validates the declared entity; handing it to the
+  // service is what scopes the schedule. Both.
+  const ids = await generatePayPeriods(entityScope(req.tenantId!, req.entityId!), req.params.id, count);
   res.json({ data: { period_ids: ids }, meta: meta(req) });
 }));
 
