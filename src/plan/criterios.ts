@@ -803,58 +803,6 @@ export const CRITERIOS: Criterio[] = [
 
   {
     paquete: 'E0.0',
-    id: 'language-has-a-meter-with-a-baseline',
-    enunciado: 'El idioma tiene metro con línea base, y la CI lo corre',
-    evaluar: () => {
-      // POR QUÉ NACE (I2, issue #144). El epic #141 traduce el código en
-      // veintisiete tramos, y sin una cifra por deuda ninguno es evaluable:
-      // «queda español» no se puede cerrar. Un plan cuyo avance no se mide se
-      // abandona a la mitad — y quedarse a medias aquí es peor que no
-      // empezar, porque deja dos convenciones vivas y ninguna vigente.
-      //
-      // El criterio vigila las DOS piezas, porque cada una sin la otra es
-      // decorativa: el metro sin su línea base publica un número que nadie
-      // compara, y la línea base sin `--check` en la CI es un archivo que
-      // nadie lee.
-      // `crudoDe` y no `codigoDe`: el segundo recorta comentarios y sobre un YAML
-      // se lleva por delante parte del archivo — medido, 1 576 caracteres —, así
-      // que la línea que este criterio busca desaparecía y daba un rojo falso.
-      // Los criterios de ci.yml que ya existían leen en crudo por esta razón.
-      const ci = crudoDe('.github/workflows/ci.yml');
-      if (!/language-status\.ts --check/.test(ci)) {
-        return falla(
-          'la CI no corre el metro del idioma: la línea base deja de comprobarse y el español ' +
-            'puede crecer sin que nada lo diga'
-        );
-      }
-      if (!existe('docs/language-baseline.json')) {
-        return falla('no hay línea base del idioma: `--check` no tiene contra qué comparar');
-      }
-      const base = JSON.parse(crudoDe('docs/language-baseline.json')) as {
-        lanes?: Record<string, number>;
-      };
-      const carriles = Object.keys(base.lanes ?? {});
-      if (carriles.length === 0) {
-        return falla('la línea base del idioma está vacía: un trinquete sin carriles siempre pasa');
-      }
-      return ok(`${carriles.length} carriles con línea base, y la CI corre --check`);
-    },
-    mutantes: [
-      {
-        archivo: '.github/workflows/ci.yml',
-        de: 'npx tsx scripts/language-status.ts --check',
-        a: 'npx tsx scripts/language-status.ts',
-        porque:
-          'el metro se sigue imprimiendo y deja de juzgar: sale 0 pase lo que pase, y el español ' +
-          'crece con la CI en verde — que es exactamente la clase de instrumento que este ' +
-          'repositorio persigue',
-      },
-    ],
-  },
-
-
-  {
-    paquete: 'E0.0',
     id: 'language-rule-written-and-lexicon-shared',
     enunciado: 'La regla del idioma está escrita donde se lee, y el léxico que la mide existe',
     evaluar: () => {
@@ -925,6 +873,108 @@ export const CRITERIOS: Criterio[] = [
       },
     ],
   },
+
+  {
+    paquete: 'E0.0',
+    id: 'nothing-new-is-born-in-spanish',
+    enunciado: 'Nada nuevo nace en español: la puerta del idioma es un error, no un aviso',
+    evaluar: () => {
+      // POR QUÉ NACE (I3, issue #145). El metro de I2 cuenta cuánto español
+      // queda; sin puerta, sólo documenta una marea. Y una puerta en AVISO no
+      // es una puerta: con 1 117 advertencias ya toleradas, una más no la nota
+      // nadie. En error, y con línea base por archivo para que el árbol de hoy
+      // no la vuelva impasable.
+      //
+      // Lo que este criterio vigila es la CONEXIÓN, que es donde se rompe sin
+      // que nada se ponga rojo: la regla existe, corre en error, y consume el
+      // MISMO léxico que el metro. Si cada uno trae su lista, publican dos
+      // números y el día que difieran nadie sabrá cuál miente.
+      const conf = crudoDe('eslint.config.mjs');
+      if (!/house\/english-identifiers/.test(conf)) {
+        return falla('no hay puerta del idioma: lo nuevo puede nacer en español y sólo se sabrá al medirlo');
+      }
+      if (!/'house\/english-identifiers':\s*'error'/.test(conf)) {
+        return falla(
+          'la puerta del idioma no está en error: con más de mil advertencias ya toleradas, un aviso ' +
+            'más no lo ve nadie y la puerta no cierra'
+        );
+      }
+      if (!existe('scripts/language/lexicon.json')) {
+        return falla('el léxico no está publicado como dato: la regla y el metro no pueden compartir población');
+      }
+      if (!/lexicon\.json/.test(conf)) {
+        return falla(
+          'la regla no lee el léxico compartido: en cuanto traiga su propia lista, el metro y la ' +
+            'puerta cuentan cosas distintas y sus dos cifras dejan de ser comparables'
+        );
+      }
+      return ok('la puerta del idioma corre en error sobre los tres árboles y comparte el léxico del metro');
+    },
+    mutantes: [
+      {
+        archivo: 'eslint.config.mjs',
+        de: "'house/english-identifiers': 'error'",
+        a: "'house/english-identifiers': 'warn'",
+        porque:
+          'la puerta pasa a avisar, y un aviso más entre mil ciento diecisiete no lo ve nadie: el ' +
+          'español vuelve a poder entrar con la CI en verde, que es justo lo que este tramo cierra',
+      },
+    ],
+  },
+
+
+  {
+    paquete: 'E0.0',
+    id: 'language-has-a-meter-with-a-baseline',
+    enunciado: 'El idioma tiene metro con línea base, y la CI lo corre',
+    evaluar: () => {
+      // POR QUÉ NACE (I2, issue #144). El epic #141 traduce el código en
+      // veintisiete tramos, y sin una cifra por deuda ninguno es evaluable:
+      // «queda español» no se puede cerrar. Un plan cuyo avance no se mide se
+      // abandona a la mitad — y quedarse a medias aquí es peor que no
+      // empezar, porque deja dos convenciones vivas y ninguna vigente.
+      //
+      // El criterio vigila las DOS piezas, porque cada una sin la otra es
+      // decorativa: el metro sin su línea base publica un número que nadie
+      // compara, y la línea base sin `--check` en la CI es un archivo que
+      // nadie lee.
+      // `crudoDe` y no `codigoDe`: el segundo recorta comentarios y sobre un YAML
+      // se lleva por delante parte del archivo — medido, 1 576 caracteres —, así
+      // que la línea que este criterio busca desaparecía y daba un rojo falso.
+      // Los criterios de ci.yml que ya existían leen en crudo por esta razón.
+      const ci = crudoDe('.github/workflows/ci.yml');
+      if (!/language-status\.ts --check/.test(ci)) {
+        return falla(
+          'la CI no corre el metro del idioma: la línea base deja de comprobarse y el español ' +
+            'puede crecer sin que nada lo diga'
+        );
+      }
+      if (!existe('docs/language-baseline.json')) {
+        return falla('no hay línea base del idioma: `--check` no tiene contra qué comparar');
+      }
+      const base = JSON.parse(crudoDe('docs/language-baseline.json')) as {
+        lanes?: Record<string, number>;
+      };
+      const carriles = Object.keys(base.lanes ?? {});
+      if (carriles.length === 0) {
+        return falla('la línea base del idioma está vacía: un trinquete sin carriles siempre pasa');
+      }
+      return ok(`${carriles.length} carriles con línea base, y la CI corre --check`);
+    },
+    mutantes: [
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'npx tsx scripts/language-status.ts --check',
+        a: 'npx tsx scripts/language-status.ts',
+        porque:
+          'el metro se sigue imprimiendo y deja de juzgar: sale 0 pase lo que pase, y el español ' +
+          'crece con la CI en verde — que es exactamente la clase de instrumento que este ' +
+          'repositorio persigue',
+      },
+    ],
+  },
+
+
 
   {
     paquete: 'E0.0',
