@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as ts from 'typescript';
 import { PRUEBAS_DE_CONDUCTA, correrConducta, type PruebaDeConducta } from './conducta.js';
 
 // ============================================================
@@ -666,6 +667,249 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
 };
 
 // ── Los criterios ───────────────────────────────────────────
+
+// ============================================================
+// EL ESCÁNER DE RUTAS QUE ESCRIBEN (TEN-11, #235).
+//
+// Parsea con el compilador de TypeScript y no con expresiones regulares, y no
+// es un lujo: la trampa que dejó ciego a `route-entity-access-verified` —el
+// nombre de la guarda buscado en los primeros 300 caracteres del bloque— se
+// cumple con `requireEntityAccess` escrito DENTRO de una cadena. En un árbol
+// sintáctico un literal de cadena y un identificador son nodos distintos, y la
+// posición de un argumento es la posición de un argumento.
+//
+// Lee el texto por el seam (`leer`), así que los mutantes lo alcanzan.
+// ============================================================
+
+interface AcusacionDeRuta {
+  ruta: string;
+  falta: string;
+}
+
+/**
+ * Rutas que actúan sobre tablas del INQUILINO, sin eje de entidad que
+ * defender. Cada una nombra su tabla y el criterio COMPRUEBA contra las
+ * migraciones que de verdad no tiene `entity_id` ni camino hasta una: meter
+ * aquí una ruta de `pay_runs` —que llega a la entidad por periodo y calendario—
+ * no la exime, la acusa. Es la exención de T9a con cerradura.
+ */
+const RUTAS_DE_TABLAS_DEL_INQUILINO: Record<string, string> = {
+  'webhooks.ts DELETE /:id': 'webhook_subscriptions',
+  'webhooks.ts POST /deliveries/:id/retry': 'webhook_deliveries',
+  'integrations.ts PUT /:provider': 'integration_credentials',
+  'integrations.ts POST /:provider/test': 'integration_credentials',
+  'integrations.ts DELETE /:provider': 'integration_credentials',
+};
+
+function escanearRutasDeEscritura(): { revisadas: number; acusaciones: AcusacionDeRuta[] } {
+  const acusaciones: AcusacionDeRuta[] = [];
+  let revisadas = 0;
+  const VERBOS = new Set(['post', 'put', 'patch', 'delete']);
+
+  // Lo que las migraciones dicen de cada tabla, para cerrar la exención.
+  const dirMigraciones = 'src/database/migrations';
+  const sql = fs
+    .readdirSync(rutaDe(dirMigraciones))
+    .map((m) => crudoDe(dirMigraciones, m))
+    .join('\n');
+  const caminosDeNomina = existe('src/services/payroll/common/alcance-nomina.ts')
+    ? crudoDe('src/services/payroll/common/alcance-nomina.ts')
+    : '';
+  const tablaTieneEntidad = (tabla: string): boolean => {
+    const creacion = new RegExp(`CREATE TABLE (?:IF NOT EXISTS )?${tabla}\\s*\\(([\\s\\S]*?)\\n\\);`, 'i').exec(sql);
+    if (creacion && /\bentity_id\b/.test(creacion[1])) return true;
+    if (new RegExp(`ALTER TABLE ${tabla}\\b[^;]*ADD COLUMN[^;]*\\bentity_id\\b`, 'i').test(sql)) return true;
+    // Sin columna, pero con CAMINO: las tablas de nómina que llegan a la
+    // entidad por otra tabla, escritas en alcance-nomina.ts.
+    return new RegExp(`\\b${tabla}\\b`).test(caminosDeNomina);
+  };
+
+  // Routers montados ANTES de `authenticate`: no hay sesión, no hay entidad.
+  const indice = existe('src/index.ts') ? crudoDe('src/index.ts') : '';
+  const posAuth = indice.search(/app\.use\(\s*apiPrefix\s*,\s*authenticate\s*\)/);
+  const antesDeAutenticar = new Set<string>();
+  if (posAuth >= 0) {
+    for (const m of indice.matchAll(/import\s+(\w+)\s+from\s+'\.\/api\/rest\/routes\/([\w-]+)\.js'/g)) {
+      const usoMontado = indice.search(new RegExp(`app\\.use\\([^)]*\\b${m[1]}\\s*\\)`));
+      if (usoMontado >= 0 && usoMontado < posAuth) antesDeAutenticar.add(`${m[2]}.ts`);
+    }
+  }
+
+  function* nodos(n: ts.Node): Generator<ts.Node> {
+    yield n;
+    for (const h of n.getChildren()) yield* nodos(h);
+  }
+  const esReqEntityId = (n: ts.Node): boolean =>
+    ts.isPropertyAccessExpression(n) && n.name.text === 'entityId' &&
+    ts.isIdentifier(n.expression) && n.expression.text === 'req';
+  const contieneReqEntityId = (n: ts.Node): boolean => {
+    for (const x of nodos(n)) if (esReqEntityId(x)) return true;
+    return false;
+  };
+
+  for (const abs of fuentes('src/api/rest/routes')) {
+    const archivo = path.basename(abs);
+    const sf = ts.createSourceFile(archivo, leer(abs), ts.ScriptTarget.Latest, true);
+
+    const importados = new Set<string>();
+    const funcionesLocales = new Map<string, ts.Node>();
+    for (const st of sf.statements) {
+      if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier) &&
+          /\/(services|database)\//.test(st.moduleSpecifier.text)) {
+        const nb = st.importClause?.namedBindings;
+        if (nb && ts.isNamedImports(nb)) for (const e of nb.elements) importados.add(e.name.text);
+        if (st.importClause?.name) importados.add(st.importClause.name.text);
+      }
+      if (ts.isFunctionDeclaration(st) && st.name) funcionesLocales.set(st.name.text, st);
+      if (ts.isVariableStatement(st)) {
+        for (const d of st.declarationList.declarations) {
+          if (ts.isIdentifier(d.name) && d.initializer &&
+              (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))) {
+            funcionesLocales.set(d.name.text, d.initializer);
+          }
+        }
+      }
+    }
+    const localConEntidad = (nombre: string): boolean => {
+      const f = funcionesLocales.get(nombre);
+      return f !== undefined && contieneReqEntityId(f);
+    };
+
+    for (const n of nodos(sf)) {
+      if (!ts.isCallExpression(n) || !ts.isPropertyAccessExpression(n.expression)) continue;
+      const receptor = n.expression.expression;
+      const verbo = n.expression.name.text;
+      if (!ts.isIdentifier(receptor) || receptor.text !== 'router') continue;
+      // Una forma que el escáner no sabe leer NO se salta: se acusa.
+      if (verbo === 'route' || verbo === 'all') {
+        acusaciones.push({ ruta: `${archivo} router.${verbo}(`, falta: 'forma de ruta que este criterio no analiza' });
+        continue;
+      }
+      if (!VERBOS.has(verbo)) continue;
+      const args = n.arguments;
+      const ruta = args[0] && ts.isStringLiteral(args[0]) ? args[0].text : '?';
+      const nombre = `${archivo} ${verbo.toUpperCase()} ${ruta}`;
+      revisadas += 1;
+
+      const ultimo = args[args.length - 1];
+      let fn: ts.Node | undefined = ultimo;
+      if (ultimo && ts.isCallExpression(ultimo)) fn = ultimo.arguments[ultimo.arguments.length - 1];
+      if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) {
+        acusaciones.push({ ruta: nombre, falta: 'manejador que este criterio no analiza' });
+        continue;
+      }
+      const cuerpo = fn.body;
+
+      // Exención 501 POR POSICIÓN: sólo si la PRIMERA sentencia lanza.
+      if (ts.isBlock(cuerpo) && cuerpo.statements[0] && ts.isThrowStatement(cuerpo.statements[0]) &&
+          cuerpo.statements[0].expression && ts.isNewExpression(cuerpo.statements[0].expression) &&
+          cuerpo.statements[0].expression.expression.getText() === 'NotImplementedError') {
+        continue;
+      }
+
+      // El disparador: la ruta nombra un recurso por id.
+      const lecturas = new Set<string>();
+      let entidadDelCuerpo: string | null = null;
+      for (const x of nodos(cuerpo)) {
+        if (ts.isPropertyAccessExpression(x) && ts.isPropertyAccessExpression(x.expression) &&
+            ts.isIdentifier(x.expression.expression) && x.expression.expression.text === 'req' &&
+            x.expression.name.text === 'params') {
+          lecturas.add(x.getText());
+        }
+        if (ts.isVariableDeclaration(x) && ts.isObjectBindingPattern(x.name) && x.initializer) {
+          let origen: ts.Node = x.initializer;
+          while (ts.isAsExpression(origen) || ts.isParenthesizedExpression(origen)) origen = origen.expression;
+          if (!/^req\.(body|query|params)$/.test(origen.getText())) continue;
+          for (const el of x.name.elements) {
+            const nm = el.name.getText();
+            if (nm === 'entity_id') entidadDelCuerpo = nm;
+            else if (/_id$/.test(nm)) lecturas.add(nm);
+          }
+        }
+      }
+      if (lecturas.size === 0) continue;
+      if (antesDeAutenticar.has(archivo)) continue;
+      const tabla = RUTAS_DE_TABLAS_DEL_INQUILINO[nombre];
+      if (tabla !== undefined) {
+        if (tablaTieneEntidad(tabla)) {
+          acusaciones.push({
+            ruta: nombre,
+            falta: `eximida como tabla del inquilino («${tabla}»), y esa tabla SÍ llega a una entidad`,
+          });
+        }
+        continue;
+      }
+
+      // (i) La guarda, como ARGUMENTO de middleware antes del manejador —no
+      // dentro de una cadena—, o `assertEntityAccess(` llamado en el manejador.
+      const middlewares = args.slice(1, args.length - 1);
+      const guardaMontada = middlewares.some((m) => ts.isIdentifier(m) && m.text === 'requireEntityAccess');
+      let guardaDentro = false;
+      for (const x of nodos(cuerpo)) {
+        if (ts.isCallExpression(x) && ts.isIdentifier(x.expression) && x.expression.text === 'assertEntityAccess') guardaDentro = true;
+      }
+      if (!guardaMontada && !guardaDentro) {
+        acusaciones.push({ ruta: nombre, falta: 'escribe sobre un recurso por id sin requireEntityAccess' });
+        continue;
+      }
+
+      // (ii) Que la entidad llegue A CADA LLAMADA que resuelve la lectura —no
+      // al manejador en general—: una variable ligada a `req.entityId` y sin
+      // usar deja la llamada sin acotar.
+      const ligadas = new Map<string, ts.Node>();
+      for (const x of nodos(cuerpo)) {
+        if (ts.isVariableDeclaration(x) && ts.isIdentifier(x.name) && x.initializer) ligadas.set(x.name.text, x.initializer);
+      }
+      const argumentoTraeEntidad = (a: ts.Node): boolean => {
+        if (contieneReqEntityId(a)) return true;
+        for (const x of nodos(a)) {
+          if (ts.isCallExpression(x) && ts.isIdentifier(x.expression) && localConEntidad(x.expression.text)) return true;
+          if (ts.isIdentifier(x)) {
+            const init = ligadas.get(x.text);
+            if (init !== undefined && contieneReqEntityId(init)) return true;
+            // El `entity_id` del cuerpo cuenta SÓLO con la guarda montada: es
+            // ella quien lo valida contra el token.
+            if (guardaMontada && entidadDelCuerpo !== null && x.text === entidadDelCuerpo) return true;
+          }
+        }
+        return false;
+      };
+      const lecturaQueUsa = (call: ts.CallExpression): string | null => {
+        for (const a of call.arguments) {
+          for (const x of nodos(a)) {
+            const t = x.getText();
+            if (lecturas.has(t)) return t;
+          }
+        }
+        return null;
+      };
+
+      const acotadas = new Set<string>();
+      if (ts.isBlock(cuerpo)) {
+        for (const x of nodos(cuerpo)) {
+          if (!ts.isCallExpression(x) || !ts.isIdentifier(x.expression)) continue;
+          const lectura = lecturaQueUsa(x);
+          if (lectura === null) continue;
+          const llamado = x.expression.text;
+          // Una función LOCAL que usa req.entityId y recibe `req` acota la
+          // lectura para lo que venga después (assertEntryAccess(req, id)).
+          if (localConEntidad(llamado) && x.arguments.some((a) => a.getText() === 'req')) {
+            acotadas.add(lectura);
+            continue;
+          }
+          if (!importados.has(llamado)) continue;
+          if (x.arguments.some(argumentoTraeEntidad)) {
+            acotadas.add(lectura);
+            continue;
+          }
+          if (acotadas.has(lectura)) continue;
+          acusaciones.push({ ruta: nombre, falta: `${llamado}(${lectura}) no recibe la entidad validada` });
+        }
+      }
+    }
+  }
+  return { revisadas, acusaciones };
+}
 
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
@@ -3395,6 +3639,153 @@ export const CRITERIOS: Criterio[] = [
 
       return ok(
         'el camino llega a la entidad; el cálculo, la aprobación, el pago, el timbrado y el finiquito lo llevan dentro del SQL; las rutas lo usan y hay reproducción que exige 404'
+      );
+    },
+  },
+  {
+    paquete: 'E2.1',
+    id: 'write-route-hands-entity-to-its-resolver',
+    // POR QUÉ ESTE CRITERIO NO ES `route-entity-access-verified` OTRA VEZ.
+    //
+    // Aquél pregunta: «una entidad que viene de la petición, ¿pasó por la
+    // guarda?». Su disparador es que la ruta NOMBRE una entidad, y por
+    // construcción no ve una ruta que no nombra ninguna — que es justo la que
+    // no acota. `POST /v1/bills/:id/approve` no montaba la guarda, llamaba a
+    // `approveBill(id, userId)` sin entidad, y quedó fuera de su vista. Medido
+    // (TEN-11, #235): una sesión de la sociedad A aprobaba la factura de la
+    // hermana y dejaba una póliza POSTEADA en su mayor, con su primer folio.
+    // El censo encontró la misma forma en `/nacha` —que entregaba las cuentas
+    // bancarias descifradas—, en las elecciones de beneficio y, latente
+    // detrás de una avería, en la generación de periodos.
+    //
+    // Éste pregunta lo otro: «una ruta que ESCRIBE sobre un recurso que la
+    // petición nombra por id, ¿le entrega la entidad validada a la llamada que
+    // lo resuelve?». Y lo pregunta por llamada, no por manejador: una variable
+    // ligada a `req.entityId` que nadie usa deja la llamada sin acotar.
+    //
+    // No invierte el criterio viejo, y a propósito: eso obligaría a eximir a
+    // «las rutas que ya acotan la consulta», que es la exención que en T9a
+    // abrió el hueco de la cabecera. Aquí la única exención es por TABLA DEL
+    // INQUILINO, y el escáner comprueba contra las migraciones que la tabla
+    // eximida de verdad no llega a una entidad.
+    //
+    // LO QUE NO VE, y queda escrito: una llave foránea escondida en un spread
+    // del cuerpo con la guarda montada (la clase de TEN-12); el SQL crudo
+    // escrito dentro de una ruta; y la CLI, el agente y los jobs.
+    enunciado:
+      'Toda ruta que escribe sobre un recurso que la petición nombra por id le entrega la entidad validada a la llamada que lo resuelve',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/routes/bills.ts',
+        de: 'approveBill(req.params.id, req.user!.user_id, {\n    entityId: req.entityId!,\n  })',
+        a: 'approveBill(req.params.id, req.user!.user_id, {} as never)',
+        porque:
+          'reabre #235 tal cual: la aprobación vuelve a tomar la factura por su id y postea en el mayor de la hermana. El criterio viejo sigue en verde ante esto, porque la ruta no nombra ninguna entidad',
+      },
+      {
+        archivo: 'src/api/rest/routes/bills.ts',
+        de: "IVA acreditable' }), requirePermission('bills:approve'), requireEntityAccess, asyncHandler(",
+        a: "IVA acreditable requireEntityAccess' }), requirePermission('bills:approve'), asyncHandler(",
+        porque:
+          'la guarda desaparece de la cadena de middlewares y su NOMBRE queda escrito dentro de una cadena, en los primeros caracteres del bloque: el criterio viejo, que busca el nombre por texto, sobrevive a este mutante',
+      },
+      {
+        archivo: 'src/api/rest/routes/payroll.ts',
+        de: 'const result = await generateNachaFile(entityScope(req.tenantId!, req.entityId!), pay_run_id, company_info);',
+        a: 'const alcance = entityScope(req.tenantId!, req.entityId!);\n  void alcance;\n  const result = await generateNachaFile(tenantScope(req.tenantId!), pay_run_id, company_info);',
+        porque:
+          'la entidad está ligada en el manejador y NO llega a la llamada: el archivo de dispersión vuelve a descifrar las cuentas de la hermana. Un criterio que mirara el manejador entero lo daría por bueno',
+      },
+      {
+        archivo: 'src/services/payroll/usa/nacha-generator.ts',
+        de: "corridaEnEntidad('pr.pay_period_id', 3)",
+        a: "corridaEnEntidad('pp.id', 3)",
+        porque:
+          'el camino apunta a la columna equivocada: dentro del EXISTS el alias `pp` tapa al de fuera, la condición es cierta para toda fila y la corrida de la hermana vuelve a leerse — con `ps.entity_id` todavía escrito',
+      },
+      {
+        archivo: 'src/services/payroll/usa/nacha-generator.ts',
+        de: 'AND p.net_pay > 0 AND e.entity_id = $2',
+        a: 'AND p.net_pay > 0',
+        porque:
+          'mientras `/calculate` pueda colgar un empleado ajeno de una corrida propia, el archivo propio vuelve a descifrar la cuenta de ese empleado',
+      },
+      {
+        archivo: 'src/services/payroll/usa/benefits/benefits-service.ts',
+        de: 'JOIN benefits_plans bp ON bp.id = $3 AND bp.entity_id = e.entity_id',
+        a: 'JOIN benefits_plans bp ON bp.id = $3',
+        porque:
+          'la segunda llave vuelve a cruzar: el plan de la hermana se elige sobre un empleado propio',
+      },
+      {
+        archivo: 'src/services/payroll/common/pay-period-service.ts',
+        de: "'pay_schedules', payScheduleId, scope, {",
+        a: "'pay_schedules', payScheduleId, tenantScope(scope.tenantId), {",
+        porque:
+          'el calendario se acota, pero por el eje equivocado: con el mismo inquilino, la hermana vuelve a caer',
+      },
+      {
+        archivo: 'src/api/rest/routes/journal-entries.ts',
+        de: "requireByIdInScope('journal_entries', entryId, entityScope(req.tenantId!, req.entityId!), {",
+        a: "requireByIdInScope('journal_entries', entryId, tenantScope(req.tenantId!), {",
+        porque:
+          'la comprobación previa pierde la entidad y las tres rutas que postean, anulan y revierten pólizas la siguen «llamando»: su nombre no cambia, su llave sí',
+      },
+      {
+        archivo: 'tests/integration/ten11-la-factura-de-la-hermana.int.spec.ts',
+        de: 'expect(r.status, JSON.stringify(r.body)).toBe(404);',
+        a: 'expect(r.status, JSON.stringify(r.body)).toBe(403);',
+        porque:
+          'un 403 confirma que la factura existe y no es tuya, que es lo único que quien prueba ids no sabía',
+      },
+    ],
+    evaluar: () => {
+      const { revisadas, acusaciones } = escanearRutasDeEscritura();
+      if (revisadas === 0) return noEvaluable('no hay rutas REST que revisar');
+      if (acusaciones.length > 0) {
+        return falla(
+          `${acusaciones.length} ruta(s) escriben sobre un recurso por id sin entregar la entidad validada: ` +
+            acusaciones.slice(0, 5).map((a) => `${a.ruta} — ${a.falta}`).join(' · ') +
+            (acusaciones.length > 5 ? ` y ${acusaciones.length - 5} más` : '') +
+            '. RLS acota por inquilino; dentro de un despacho con dos sociedades, eso sólo lo defiende el SQL'
+        );
+      }
+
+      // LOS SERVICIOS, POR SU TEXTO: son fragmentos de SQL de una línea, donde
+      // el texto es la conducta entera.
+      const fijados: Array<[string, string, string]> = [
+        ['src/services/ap/bill-service.ts', 'WHERE id = $2 AND entity_id = $3 AND status IN', 'aprobar la factura dejó de acotar el UPDATE por entidad'],
+        ['src/services/payroll/usa/nacha-generator.ts', "corridaEnEntidad('pr.pay_period_id', 3)", 'el archivo NACHA dejó de llegar a la entidad de la corrida por su llave'],
+        ['src/services/payroll/usa/nacha-generator.ts', 'AND p.net_pay > 0 AND e.entity_id = $2', 'el archivo NACHA dejó de acotar los recibos por la entidad del empleado'],
+        ['src/services/payroll/usa/benefits/benefits-service.ts', 'JOIN benefits_plans bp ON bp.id = $3 AND bp.entity_id = e.entity_id', 'la elección de beneficio dejó de atar el plan a la entidad del empleado'],
+        ['src/services/payroll/usa/benefits/benefits-service.ts', 'WHERE e.id = $2 AND e.entity_id = $7', 'la elección de beneficio dejó de atar el empleado a la entidad de la sesión'],
+        ['src/services/payroll/common/pay-period-service.ts', "'pay_schedules', payScheduleId, scope, {", 'generar periodos dejó de acotar el calendario por la entidad de la sesión'],
+      ];
+      for (const [archivo, fragmento, porque] of fijados) {
+        if (!existe(archivo)) return falla(`desapareció ${archivo}`);
+        if (!codigoDe(archivo).includes(fragmento)) return falla(porque);
+      }
+
+      // Y CONDUCTA QUE LO AFIRMA contra Postgres, en 404 y contra un fantasma.
+      const pruebas = [
+        'tests/integration/ten11-la-factura-de-la-hermana.int.spec.ts',
+        'tests/integration/ten11-el-archivo-nacha-de-la-hermana.int.spec.ts',
+        'tests/integration/ten11-los-beneficios-de-la-hermana.int.spec.ts',
+        'tests/integration/ten11-los-periodos-de-la-hermana.int.spec.ts',
+      ];
+      for (const prueba of pruebas) {
+        if (!existe(prueba)) return falla(`no hay reproducción en ${prueba}: sin ella esto es una lectura del diff`);
+        const t = crudoDe(prueba);
+        if (/toBe\(403\)/.test(t)) {
+          return falla(`${prueba} exige un 403: confirma que el recurso existe y no es tuyo, que es lo que quien prueba ids no sabía`);
+        }
+        if (!/toBe\(404\)/.test(t) || !/randomUUID\(\)/.test(t)) {
+          return falla(`${prueba} dejó de exigir el 404 idéntico al de un id inexistente`);
+        }
+      }
+
+      return ok(
+        `${revisadas} rutas de escritura revisadas: toda la que nombra un recurso por id le entrega la entidad validada a la llamada que lo resuelve, y hay reproducción de las cuatro que no lo hacían`
       );
     },
   },
