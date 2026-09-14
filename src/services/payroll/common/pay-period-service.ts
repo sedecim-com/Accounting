@@ -43,7 +43,7 @@ export async function createPaySchedule(input: PayScheduleInput): Promise<string
  * `value.toISOString()` — would shift the day east of Greenwich, which is the
  * family of #211.
  */
-function aMedianocheUtc(value: Date | string): Date {
+function toUtcMidnight(value: Date | string): Date {
   if (typeof value === 'string') return new Date(`${value.slice(0, 10)}T00:00:00Z`);
   return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
 }
@@ -121,7 +121,7 @@ export async function generatePayPeriods(
   count: number
 ): Promise<string[]> {
   // TEN-11 (#235): the schedule used to be read by `WHERE id = $1` alone. The
-  // route was broken for everyone (see `aMedianocheUtc`), so it leaked nothing
+  // route was broken for everyone (see `toUtcMidnight`), so it leaked nothing
   // — but fixing that bug without this boundary would have opened it.
   //
   // Here the generic helper IS right, unlike for `pay_runs`: `pay_schedules`
@@ -145,9 +145,9 @@ export async function generatePayPeriods(
 
   let cursor: Date;
   if (lastResult.rows.length > 0) {
-    cursor = aMedianocheUtc(lastResult.rows[0].period_end);
+    cursor = toUtcMidnight(lastResult.rows[0].period_end);
   } else {
-    cursor = addDays(aMedianocheUtc(s.first_period_start), -1);
+    cursor = addDays(toUtcMidnight(s.first_period_start), -1);
   }
 
   const ids: string[] = [];

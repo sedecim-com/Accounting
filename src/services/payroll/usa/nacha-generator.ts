@@ -145,7 +145,7 @@ export async function generateNachaFile(
   let creditTotal = 0;
   let entryCount = 0;
   /** The paychecks that actually went into the file — and only those get linked. */
-  const enElArchivo: string[] = [];
+  const includedPaycheckIds: string[] = [];
 
   for (let i = 0; i < paychecks.rows.length; i++) {
     const p = paychecks.rows[i];
@@ -155,7 +155,7 @@ export async function generateNachaFile(
       bank = JSON.parse(decrypt(p.bank_account_encrypted));
     } catch { continue; }
     if (!bank.routing || !bank.account) continue;
-    enElArchivo.push(p.id);
+    includedPaycheckIds.push(p.id);
 
     const routing = bank.routing.replace(/\D/g, '').padStart(9, '0').slice(0, 9);
     const transactionCode = bank.account_type === 'savings' ? '32' : '22';
@@ -236,7 +236,7 @@ export async function generateNachaFile(
   await query(
     `UPDATE paychecks SET direct_deposit_batch_id = $1
      WHERE pay_run_id = $2 AND id = ANY($3::uuid[])`,
-    [batchId, payRunId, enElArchivo]
+    [batchId, payRunId, includedPaycheckIds]
   );
 
   return { content, batch_id: batchId, total_amount: creditTotal / 100, entry_count: entryCount };
