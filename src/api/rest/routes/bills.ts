@@ -145,10 +145,18 @@ router.post('/', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'bills, bill
 }));
 
 // POST /v1/bills/:id/approve
-router.post('/:id/approve', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'bills.status + journal_entries: reconoce el pasivo y el IVA acreditable' }), requirePermission('bills:approve'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/approve', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'bills.status + journal_entries: reconoce el pasivo y el IVA acreditable' }), requirePermission('bills:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   // Approval recognizes the liability: CR AP / DR expense + creditable IVA,
   // atomically with the status change (idempotent behind journal_entry_id).
-  const { bill, attestation } = await approveBill(req.params.id, req.user!.user_id);
+  //
+  // BOTH defenses, not one (TEN-11, #235). `requireEntityAccess` validates the
+  // entity the request DECLARES against the token; handing that entity to
+  // `approveBill` is what scopes the UPDATE. Without the second, this route
+  // approved the sibling company's bill and posted into its ledger — the POST
+  // one line above mounted the guard, and this one did not.
+  const { bill, attestation } = await approveBill(req.params.id, req.user!.user_id, {
+    entityId: req.entityId!,
+  });
   if (attestation && req.tenantId) {
     attestEntryAsync(req.tenantId, attestation.entityId, attestation.entryId);
   }

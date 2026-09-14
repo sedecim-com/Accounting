@@ -106,7 +106,10 @@ describe('aprobar la factura de la hermana', () => {
     const fantasmaId = randomUUID();
     const fantasma = await pedir(s, 'POST', `/v1/bills/${fantasmaId}/approve`, {});
     expect(fantasma.status).toBe(404);
-    const normalizar = (b: unknown, id: string): string => JSON.stringify(b).split(id).join('<id>');
+    // Se compara `errors` con el id normalizado, y NO `meta`: el sello de tiempo
+    // difiere por milisegundos entre dos peticiones y no dice nada del recurso.
+    const normalizar = (b: unknown, id: string): string =>
+      JSON.stringify((b as { errors?: unknown }).errors).split(id).join('<id>');
     expect(normalizar(deLaHermana.body, ajena)).toBe(normalizar(fantasma.body, fantasmaId));
   });
 
