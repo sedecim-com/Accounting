@@ -65,10 +65,25 @@ const CLI = path.join(process.cwd(), 'src/cli/mnemosine.ts');
 // ============================================================
 const IN_ENGLISH = ['--locale', 'en-US'] as const;
 
+/**
+ * ONE LIMIT FOR A SPAWNED HELP SCREEN, used by the spawn AND by the test around it.
+ *
+ * WIT-02, from the Witness review of #228. Every family case below spawns
+ * `npx tsx mnemosine <family> --help`, and `execFileSync` already allowed that
+ * 30 s — but vitest's default test timeout is 5 s, so the effective limit was
+ * the smaller one and the 30 s were dead. Measured in the CI run that failed
+ * (job 104059869646): all seventeen family cases took between 4 843 and
+ * 5 058 ms, i.e. they sat on the 5 s edge, and whichever one the load pushed
+ * over it failed (`period` that time). It was not a flaky behaviour; it was a
+ * wrong limit. Tying both to this constant makes the bound explicit and the
+ * same in the two places that enforce it.
+ */
+const SPAWN_TIMEOUT_MS = 30_000;
+
 function help(...args: string[]): string {
   return execFileSync('npx', ['tsx', CLI, ...IN_ENGLISH, ...args, '--help'], {
     encoding: 'utf-8',
-    timeout: 30_000,
+    timeout: SPAWN_TIMEOUT_MS,
     env: { ...process.env, NO_COLOR: '1' },
   });
 }
@@ -348,7 +363,8 @@ describe('Spanish surface is complete', () => {
         expect(text, `${family} ${canonical} is missing its alias ${alias}`)
           .toMatch(new RegExp(`${canonical}\\|${alias}`));
       }
-    }
+    },
+    SPAWN_TIMEOUT_MS
   );
 
   it('sat cred subcommands are bilingual', () => {
@@ -366,10 +382,10 @@ describe('Spanish surface is complete', () => {
     // mediría el idioma del que ejecuta y no la resolución del alias, que es
     // lo único que la prueba dice comprobar.
     const out = execFileSync('npx', ['tsx', CLI, ...IN_ENGLISH, 'memoria', 'corrige', '--help'], {
-      encoding: 'utf-8', timeout: 30_000, env: { ...process.env, NO_COLOR: '1' },
+      encoding: 'utf-8', timeout: SPAWN_TIMEOUT_MS, env: { ...process.env, NO_COLOR: '1' },
     });
     expect(out).toMatch(/Usage: mnemosine memory correct\|corrige/);
-  });
+  }, SPAWN_TIMEOUT_MS);
 });
 
 // Las pantallas de este bloque vienen todas de `help()`, es decir con
