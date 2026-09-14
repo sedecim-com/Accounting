@@ -5905,7 +5905,7 @@ Commands:
   preview|previsualizar [options] [period]  Read-only twin of closing start: says whether the period can enter close and what is missing
   check|verificar [options]                 Run the close verification catalog, or only the named checks; bare --check lists the names
   explain|explicar [options] <code>         Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it
-  run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, verify the checklist and soft-close, in that order and once each
+  run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, verify the checklist and soft-close, in that order
   pack|paquete                              The dossier of a close: generate it, and verify that its figures still reproduce
   help [command]                            display help for command
 ```
@@ -6015,7 +6015,7 @@ Examples:
 Usage: mnemosine closing run|ejecutar [options] [period]
 
 Conduct the close: accrue, amortize, depreciate, verify the checklist and
-soft-close, in that order and once each
+soft-close, in that order
 
 Arguments:
   period                                   open period name or id (default: the oldest open one)
@@ -6030,7 +6030,7 @@ Options:
   --fields [names]                         comma-separated columns; with no value, lists the available ones
   -q, --quiet                              identifiers only, one per line, for piping
   --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, depreciate-assets, verify-checklist, soft-close
-  --resume                                 continue the open run of this period where it halted
+  --resume                                 continue the open run of this period; every step runs again, posting only what is missing
   --dry-run                                compute and show the full effect; write nothing and call nothing external
   -y, --yes                                skip the confirmation prompt
   --idempotency-key <key>                  not needed: this command already deduplicates on the state it writes; accepted and ignored
@@ -6046,7 +6046,8 @@ Examples:
   mnemosine closing run --stop-at soft-close --yes
   # Continue a run somebody left halted. Without --resume it refuses, on
   # purpose: continuing another person's run in silence is how "I ran it"
-  # stops being a claim anybody can stand behind.
+  # stops being a claim anybody can stand behind. Every step runs again; the
+  # engines post only what is still missing.
   mnemosine closing run --resume --yes
 ```
 
@@ -6063,8 +6064,9 @@ Options:
 Commands:
   generate|generar [options] [period]  Seal the period figures into a dossier a
                                        third party can re-run
-  verify|comprobar [options] <file>    Re-run a dossier against the books: same
-                                       figures, or the exact fields that moved
+  verify|comprobar [options] <file>    Re-run a dossier against the books: was
+                                       it issued here, do its figures still
+                                       reproduce, and exactly what moved
   help [command]                       display help for command
 ```
 
@@ -6076,7 +6078,7 @@ Usage: mnemosine closing pack generate|generar [options] [period]
 Seal the period figures into a dossier a third party can re-run
 
 Arguments:
-  period                                   period name or id (default: the oldest open one)
+  period                                   period name, YYYY-MM or id, in any status (default: the most recently closed one)
 
 Options:
   -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
@@ -6090,11 +6092,11 @@ Options:
   -h, --help                               display help for command
 
 Examples:
-  # Seal the month into a dossier, and write the file the third party gets.
+  # Seal the month just closed, and write the file the third party gets.
   mnemosine closing pack generate "July 2026" -o cierre-julio.json
   # Without -o the receipt carries the whole document, for a machine that
-  # would rather pipe it than write it.
-  mnemosine closing pack generate --json | jq .rows[0].document > cierre-julio.json
+  # would rather pipe it than write it. Quote the jq filter: zsh globs [0].
+  mnemosine closing pack generate 2026-07 --json | jq '.rows[0].document' > cierre-julio.json
 ```
 
 #### `mnemosine closing pack verify` (alias: comprobar)
@@ -6102,7 +6104,8 @@ Examples:
 ```
 Usage: mnemosine closing pack verify|comprobar [options] <file>
 
-Re-run a dossier against the books: same figures, or the exact fields that moved
+Re-run a dossier against the books: was it issued here, do its figures still
+reproduce, and exactly what moved
 
 Arguments:
   file                                     the dossier to verify
@@ -6122,8 +6125,10 @@ Options:
 Examples:
   # The acceptance test of A6: the third party re-runs the dossier.
   mnemosine closing pack verify cierre-julio.json --entity "Acme SA de CV"
-  # The fields that moved, as CSV -- the annex an auditor asks for.
+  # One row per field that differs, as CSV -- the annex an auditor asks for.
   mnemosine closing pack verify cierre-julio.json --format csv -o deriva.csv
+  # A renamed entity or a moved reporting panel is a warning; make it fail too.
+  mnemosine closing pack verify cierre-julio.json --strict
 ```
 
 ## `mnemosine fx` (alias: cambio)

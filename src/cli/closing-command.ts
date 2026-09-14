@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { stdin, stdout } from 'node:process';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { stdin } from 'node:process';
 import type { Command } from 'commander';
 import { resolveEntity, bootstrapTenant, type AgentContext } from '../ai/context.js';
 import { resolveReviewer } from '../ai/draft-service.js';
@@ -20,6 +20,7 @@ import {
 import { explainCloseCheck } from '../services/accounting/close-explain.js';
 import {
   conductClose,
+  describeOpenRun,
   isClosingStep,
   latestRunOf,
   openRunOf,
@@ -28,21 +29,25 @@ import {
 } from '../services/accounting/closing-conductor.js';
 import {
   buildClosingPack,
-  canonicalJson,
+  latestClosedPeriodOf,
   parseClosingPack,
   storeClosingPack,
+  verdictFindings,
   verifyClosingPack,
   type ClosingPack,
 } from '../services/accounting/closing-pack.js';
+import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { translateDomainError } from './entry-command.js';
 import type { Palette } from './palette.js';
 import {
   abortedByUser,
+  blockedByState,
   declareRisk,
   gateMutation,
   render,
   requireExplicitEntity,
+  resolveActiveEntity,
   withContext,
   withOutput,
   withStrict,
@@ -191,7 +196,7 @@ export function renderPasos(
   return outcome.steps.map((p) => {
     const marca = MARCA[p.status] ?? '?';
     const cuerpo = `  ${marca} ${p.step.padEnd(ancho)}  ${p.detail}`;
-    const cola = p.resumed ? c.dim('  (already taken by this run)') : '';
+    const cola = p.priorAttempt ? c.dim('  (also recorded by an earlier attempt of this run)') : '';
     return p.status === 'blocked' || p.status === 'failed'
       ? c.red(cuerpo) + cola
       : cuerpo + cola;
@@ -206,13 +211,48 @@ export function renderPasos(
  * corrida contestaban distinto a la misma condición, de modo que un mes con
  * todas las fichas rotas salía 4 en ensayo y 0 corriendo. Aquí la condición se
  * lee de los PASOS, que son los mismos en los dos modos.
+ *
+ * Y un paso fallido no sale siempre 1. Si el motor LANZÓ, sale lo que su error
+ * merece —un panel mal contestado es un 4 en `depreciation run`, y tiene que
+ * serlo aquí también, o un guion no distingue un criterio roto de un proceso
+ * caído—. Si el motor devolvió errores por renglón, son hallazgos de datos: 4.
  */
 export function salidaDeLaCorrida(outcome: ClosingRunOutcome): ExitCodeValue {
-  if (outcome.steps.some((p) => p.status === 'failed')) return ExitCode.FAILURE;
+  const fallido = outcome.steps.find((p) => p.status === 'failed');
+  if (fallido) {
+    return fallido.cause !== undefined
+      ? exitCodeFor(translateDomainError(fallido.cause))
+      : ExitCode.VALIDATION;
+  }
   return checkExitCode({
     blocking: outcome.steps.filter((p) => p.status === 'blocked').length,
     warning: 0,
   });
+}
+
+/**
+ * La última línea de la corrida, dicha según lo que de verdad pasó.
+ *
+ * Decía «arregla la causa y vuelve a correr con --resume» en cualquier alto, y
+ * tras un ensayo eso se negaba (el ensayo no abre corrida), y tras un
+ * `--stop-at` no había causa que arreglar.
+ */
+export function cierreDeLaCorrida(outcome: ClosingRunOutcome, stopAt?: string): string {
+  const paso = outcome.haltedAtStep;
+  switch (outcome.status) {
+    case 'completed':
+      return `The close is conducted. Seal the dossier with \`mnemosine closing pack generate "${outcome.periodName}"\`.`;
+    case 'stopped':
+      return `Stopped before ${paso}, as asked. The period stays open; continue with --resume.`;
+    case 'blocked':
+      return `Blocked at ${paso}. Clear the blocking items, then continue with --resume.`;
+    case 'failed':
+      return `Failed at ${paso}. Fix the cause, then continue with --resume.`;
+    case 'previewed':
+      if (paso && paso === stopAt) return `Nothing was written. A real run would stop before ${paso}.`;
+      if (paso) return `Nothing was written. The checklist would block at ${paso}: clear it before conducting.`;
+      return 'Nothing was written. Run it without --dry-run to conduct.';
+  }
 }
 
 /**
@@ -254,6 +294,64 @@ async function periodoOMasViejo(ctx: AgentContext, nombre?: string): Promise<Clo
     );
   }
   return elegido;
+}
+
+/**
+ * El periodo que el conductor conduce: uno ABIERTO.
+ *
+ * `listClosablePeriods` devuelve abiertos Y en cierre suave, porque es la
+ * lista de lo que `close` puede cerrar del todo. Para el conductor un periodo
+ * en cierre suave no tiene nada que conducir, y tomarlo por omisión volvía a
+ * correr los motores sobre el mes ya cerrado mientras el abierto esperaba.
+ */
+async function periodoParaConducir(ctx: AgentContext, nombre?: string): Promise<ClosablePeriod> {
+  const todos = await listClosablePeriods(ctx);
+  if (!nombre) {
+    const abiertos = todos.filter((p) => p.status === 'open');
+    const elegido = abiertos.find((p) => p.overdue) ?? abiertos[0];
+    if (!elegido) throw notFound('No open periods: nothing to conduct.');
+    return elegido;
+  }
+  const buscado = nombre.toLowerCase();
+  const elegido = todos.find(
+    (p) => p.id === nombre || p.period_name.toLowerCase().includes(buscado)
+  );
+  if (!elegido) {
+    throw notFound(
+      `No open period matches "${nombre}". Open: ${todos.filter((p) => p.status === 'open').map((p) => p.period_name).join(', ') || 'none'}.`
+    );
+  }
+  if (elegido.status !== 'open') {
+    throw blockedByState(
+      `${elegido.period_name} is already ${elegido.status}: there is nothing left to conduct. ` +
+        `Seal it with \`mnemosine closing pack generate "${elegido.period_name}"\`.`
+    );
+  }
+  return elegido;
+}
+
+/**
+ * El periodo que se sella: CUALQUIERA, en cualquier estado.
+ *
+ * Un expediente se pide casi siempre de un mes ya cerrado —el cierre duro
+ * incluido—, y la lista de periodos «por cerrar» no los tiene. Por omisión, el
+ * último cerrado: el mes que se acaba de entregar, no el más viejo abierto.
+ */
+async function periodoParaSellar(
+  ctx: AgentContext,
+  nombre?: string
+): Promise<{ id: string; period_name: string }> {
+  if (nombre) {
+    const p = await resolvePeriod(ctx.entityId, nombre);
+    return { id: p.id, period_name: p.period_name };
+  }
+  const ultimo = await latestClosedPeriodOf(ctx.entityId);
+  if (!ultimo) {
+    throw notFound(
+      'No closed period to seal yet. Name the period to seal an open one on purpose, e.g. `closing pack generate 2026-07`.'
+    );
+  }
+  return ultimo;
 }
 
 function cabeceraDePeriodo(r: CloseReadiness, c: Palette): string {
@@ -321,23 +419,26 @@ Examples:
   mnemosine closing run --stop-at soft-close --yes
   # Continue a run somebody left halted. Without --resume it refuses, on
   # purpose: continuing another person's run in silence is how "I ran it"
-  # stops being a claim anybody can stand behind.
+  # stops being a claim anybody can stand behind. Every step runs again; the
+  # engines post only what is still missing.
   mnemosine closing run --resume --yes
 `,
   packGenerate: `
 Examples:
-  # Seal the month into a dossier, and write the file the third party gets.
+  # Seal the month just closed, and write the file the third party gets.
   mnemosine closing pack generate "July 2026" -o cierre-julio.json
   # Without -o the receipt carries the whole document, for a machine that
-  # would rather pipe it than write it.
-  mnemosine closing pack generate --json | jq .rows[0].document > cierre-julio.json
+  # would rather pipe it than write it. Quote the jq filter: zsh globs [0].
+  mnemosine closing pack generate 2026-07 --json | jq '.rows[0].document' > cierre-julio.json
 `,
   packVerify: `
 Examples:
   # The acceptance test of A6: the third party re-runs the dossier.
   mnemosine closing pack verify cierre-julio.json --entity "Acme SA de CV"
-  # The fields that moved, as CSV -- the annex an auditor asks for.
+  # One row per field that differs, as CSV -- the annex an auditor asks for.
   mnemosine closing pack verify cierre-julio.json --format csv -o deriva.csv
+  # A renamed entity or a moved reporting panel is a warning; make it fail too.
+  mnemosine closing pack verify cierre-julio.json --strict
 `,
 } as const;
 
@@ -357,7 +458,9 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   const ask = async (question: string): Promise<boolean> => {
     if (deps.confirm) return deps.confirm(question);
     if (!stdin.isTTY) return false;
-    const rl = readline.createInterface({ input: stdin, output: stdout });
+    // La pregunta va a STDERR: con `--json | jq` en una terminal, una pregunta
+    // escrita en stdout se mete en la tubería y rompe el documento.
+    const rl = readline.createInterface({ input: stdin, output: process.stderr });
     try {
       const veredicto = await confirmarConReintento(
         (prompt) => rl.question(prompt).catch(() => null),
@@ -607,7 +710,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     .alias('ejecutar')
     .argument('[period]', 'open period name or id (default: the oldest open one)')
     .description(
-      'Conduct the close: accrue, amortize, depreciate, verify the checklist and soft-close, in that order and once each'
+      'Conduct the close: accrue, amortize, depreciate, verify the checklist and soft-close, in that order'
     );
   withContext(corrida);
   withOutput(corrida);
@@ -615,20 +718,19 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     '--stop-at <step>',
     `stop BEFORE this step: ${CLOSING_STEPS.join(', ')}`
   );
-  corrida.option('--resume', 'continue the open run of this period where it halted');
+  corrida.option('--resume', 'continue the open run of this period; every step runs again, posting only what is missing');
   // IRREVERSIBLE, and it does not pretend otherwise: three of its five steps
   // post to the ledger of migration 041, where nothing is edited or deleted.
-  // The agent is refused — `declareRisk` would refuse it anyway — because this
-  // is the one act A7 built its single gate around.
+  // The agent is refused: it proposes, a human conducts.
   //
   // LA LLAVE ES INNECESARIA, y se declara para que la ayuda lo diga en vez de
   // prometer una deduplicación que otro mecanismo ya da: cada motor se niega a
-  // correr dos veces el mismo mes por su cuenta (la depreciación pregunta al
-  // mayor, la amortización al calendario, el devengo a la cédula), el paso
-  // queda escrito en `closing_run_steps` con su UNIQUE, y el cierre suave mira
-  // el estado del periodo antes de tocarlo. Una llave encima de eso habría
-  // sido una cuarta guarda que además ROMPE la reanudación: el segundo intento
-  // devolvería el resultado grabado en vez de continuar donde se quedó.
+  // postear dos veces el mismo mes por su cuenta (la depreciación pregunta al
+  // mayor, la amortización al calendario, el devengo a la cédula), el cierre
+  // suave mira el estado del periodo antes de tocarlo, y un candado consultivo
+  // impide que dos conductores corran el mismo periodo a la vez. Una llave
+  // encima habría sido una cuarta guarda que además ROMPE la continuación:
+  // devolvería el resultado grabado en vez de volver a correr los pasos.
   declareRisk(corrida, {
     risk: 'irreversible',
     agent: false,
@@ -637,8 +739,8 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       'closing_runs, closing_run_steps, and fiscal_periods.status on the soft close',
     llave: {
       innecesaria:
-        'cada paso ya deduplica por su dominio y la corrida escribe lo que hizo en closing_run_steps: ' +
-        'repetir la orden REANUDA, no vuelve a postear',
+        'los motores no postean dos veces el mismo mes y un candado consultivo impide dos conductores ' +
+        'sobre el mismo periodo: volver a correr, con --resume si hay una corrida abierta, no duplica nada',
     },
   });
   corrida.addHelpText('after', EJEMPLOS.run);
@@ -665,31 +767,32 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         const stopAt = opts.stopAt;
 
         bootstrapTenant(opts.tenant);
-        const ctx = dryRun
-          ? await resolveEntity(opts.entity)
-          : await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
-        const periodo = await periodoOMasViejo(ctx, periodArg);
+        // LA MISMA ENTIDAD EN EL ENSAYO QUE EN LA CORRIDA. Un ensayo resuelto
+        // por otro camino —sin la entidad fijada, sin MNEMOSINE_ENTITY—
+        // previsualizaría una sociedad y la corrida actuaría sobre otra.
+        const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+        const periodo = await periodoParaConducir(ctx, periodArg);
 
         // UNA CORRIDA ABIERTA NO SE CONTINÚA EN SILENCIO.
         //
-        // El conductor sabe reanudar solo, y precisamente por eso la hoja
-        // exige que se le pida: quien teclea `closing run` sobre un periodo
-        // que otro dejó a medias está continuando el trabajo de otro, y
-        // hacerlo sin decírselo convierte «lo corrí yo» en una afirmación que
-        // nadie puede sostener. La negativa nombra el paso donde se detuvo,
-        // que es lo que hace falta para decidir.
-        const abierta = await openRunOf(ctx.entityId, periodo.id);
-        if (!dryRun && abierta && opts.resume !== true) {
-          throw usageError(
-            `This period already has an open close run (${abierta.status}` +
-              `${abierta.halted_at_step ? ` at ${abierta.halted_at_step}` : ''}), started ${abierta.started_at}. ` +
-              'Continue it with --resume, or look at it first with --dry-run.'
-          );
-        }
-        if (!dryRun && !abierta && opts.resume === true) {
-          throw usageError(
-            'Nothing to resume: this period has no open close run. Run it without --resume to start one.'
-          );
+        // Esta comprobación es la CORTESÍA: llega antes de la pregunta, para no
+        // hacer confirmar a nadie algo que se le va a negar. La regla vive en
+        // el conductor, bajo el candado (`openRun`), donde ningún llamador
+        // puede saltársela. Es un estado de los libros y no un error de las
+        // banderas: sale 5, no 2.
+        if (!dryRun) {
+          const abierta = await openRunOf(ctx.entityId, periodo.id);
+          if (abierta && opts.resume !== true) {
+            throw blockedByState(
+              `This period already has an open close run (${describeOpenRun(abierta)}). ` +
+                'Continue it with --resume, or look at it first with --dry-run.'
+            );
+          }
+          if (!abierta && opts.resume === true) {
+            throw blockedByState(
+              'Nothing to resume: this period has no open close run. Run it without --resume to start one.'
+            );
+          }
         }
 
         if (!dryRun && opts.yes !== true) {
@@ -711,32 +814,24 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
           userId: (await resolveReviewer(ctx.tenantId, opts.user)).userId,
           stopAt,
           dryRun,
-          reason: undefined,
+          resume: opts.resume === true,
         });
 
         if (!legible(opts)) {
           // UN documento y no dos tablas: con --json, dos `render` seguidos
-          // escriben dos sobres pegados y `JSON.parse` revienta.
-          render([{ ...outcome, steps: outcome.steps }], {
+          // escriben dos sobres pegados y `JSON.parse` revienta. La causa de un
+          // paso fallido no viaja: es un objeto de error, y su mensaje ya está
+          // en `detail`.
+          render([{ ...outcome, steps: outcome.steps.map(({ cause: _cause, ...s }) => s) }], {
             ...opts,
             idField: 'periodId',
           });
         } else {
           const c = deps.palette;
           const out = process.stdout;
-          out.write(`\n${c.bold(periodo.period_name)}  ${c.dim(`${outcome.status}`)}\n\n`);
+          out.write(`\n${c.bold(periodo.period_name)}  ${c.dim(outcome.status)}\n\n`);
           for (const linea of renderPasos(outcome, c)) out.write(`${linea}\n`);
-          out.write('\n');
-          if (outcome.haltedAtStep) {
-            out.write(
-              c.red(`  Halted at ${outcome.haltedAtStep}. Fix the cause and re-run with --resume.`) + '\n\n'
-            );
-          } else if (outcome.status === 'completed') {
-            out.write(
-              '  The close is conducted. Hand over the dossier with ' +
-                '`mnemosine closing pack generate`.\n\n'
-            );
-          }
+          out.write(`\n  ${cierreDeLaCorrida(outcome, stopAt)}\n\n`);
         }
 
         return salidaDeLaCorrida(outcome);
@@ -757,7 +852,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
   const generar = expediente
     .command('generate')
     .alias('generar')
-    .argument('[period]', 'period name or id (default: the oldest open one)')
+    .argument('[period]', 'period name, YYYY-MM or id, in any status (default: the most recently closed one)')
     .description('Seal the period figures into a dossier a third party can re-run');
   withContext(generar);
   withOutput(generar);
@@ -782,22 +877,28 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     run(async () => {
       bootstrapTenant(opts.tenant);
       const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
-      const periodo = await periodoOMasViejo(ctx, periodArg);
+      const periodo = await periodoParaSellar(ctx, periodArg);
       const ultima = await latestRunOf(ctx.entityId, periodo.id);
 
       const pack = await buildClosingPack(ctx.entityId, periodo.id, {
         runId: ultima?.id ?? null,
         userId: (await resolveReviewer(ctx.tenantId, opts.user)).userId,
       });
-      const id = await storeClosingPack(ctx.tenantId, ctx.entityId, periodo.id, pack);
 
-      // `-o` ES EL DESTINO DEL EXPEDIENTE, no una redirección de la tabla: el
-      // mismo reparto que `e-accounting balance generate` hace con su XML. Los
-      // bytes del archivo son EXACTAMENTE los que se sellaron y los que
-      // `closing pack verify` vuelve a leer; si el disco y el sello pudieran
-      // discrepar, el sello no serviría para nada.
-      if (typeof opts.output === 'string' && opts.output !== '') {
-        escribirExpediente(opts.output, pack);
+      // EL ARCHIVO ANTES QUE EL REGISTRO. `closing_packs` es de sólo agregar:
+      // una fila escrita antes de un `-o` que falla (carpeta sin permiso,
+      // disco lleno) quedaría para siempre como un expediente EMITIDO que
+      // nadie recibió, y cada reintento añadiría otro. Al revés, un registro
+      // que falla después de escribir el archivo se deshace borrando el
+      // archivo, que sí se puede borrar.
+      const destino = typeof opts.output === 'string' && opts.output !== '' ? opts.output : null;
+      if (destino) escribirExpediente(destino, pack);
+      let id: string;
+      try {
+        id = await storeClosingPack(ctx.entityId, periodo.id, pack);
+      } catch (err) {
+        if (destino) rmSync(destino, { force: true });
+        throw err;
       }
 
       const recibo = {
@@ -810,7 +911,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         credit: pack.sealed.figures.totals.credit,
         balanced: pack.sealed.figures.totals.balanced,
         run: pack.envelope.run_id,
-        file: typeof opts.output === 'string' && opts.output !== '' ? opts.output : null,
+        file: destino,
       };
 
       // El recibo se lee en pantalla aunque haya `-o`: ese destino lo ocupa el
@@ -821,10 +922,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       if (reciboLegible) {
         render([recibo], { format: 'table', idField: 'pack' });
         process.stderr.write(
-          deps.palette.dim(
-            'verify it with: mnemosine closing pack verify ' +
-              `${recibo.file ?? '<file>'}\n`
-          )
+          deps.palette.dim(`verify it with: mnemosine closing pack verify ${recibo.file ?? '<file>'}\n`)
         );
       } else {
         // El destino ya lo ocupa el expediente: el recibo sale por stdout sin
@@ -832,10 +930,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         // ENTERO dentro, para que una máquina que no usó `-o` no se quede sin
         // el documento que acaba de sellar.
         const { output: _destino, ...sinDestino } = opts;
-        render([{ ...recibo, document: pack }], {
-          ...sinDestino,
-          idField: 'pack',
-        });
+        render([{ ...recibo, document: pack }], { ...sinDestino, idField: 'pack' });
       }
       return ExitCode.OK;
     })
@@ -850,7 +945,9 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
     // dos nombres para dos actos distintos.
     .alias('comprobar')
     .argument('<file>', 'the dossier to verify')
-    .description('Re-run a dossier against the books: same figures, or the exact fields that moved');
+    .description(
+      'Re-run a dossier against the books: was it issued here, do its figures still reproduce, and exactly what moved'
+    );
   withContext(verificar);
   withOutput(verificar);
   withStrict(verificar);
@@ -868,7 +965,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       // genérico: quien lo teclea se equivocó de ruta, y el 1 —«último
       // recurso» del contrato §4— no le dice eso. El motor lanza un Error
       // pelado a propósito: los códigos de salida son del CLI, no suyos.
-      let pack;
+      let pack: ClosingPack;
       try {
         pack = parseClosingPack(texto);
       } catch (err) {
@@ -877,10 +974,11 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
 
       bootstrapTenant(opts.tenant);
       // LA ENTIDAD LA DICE EL EXPEDIENTE, y se comprueba contra la que el
-      // operador tiene delante. Verificar el expediente de una sociedad
+      // operador tiene delante —resuelta como la resuelve toda hoja: bandera,
+      // variable, entidad fijada—. Verificar el expediente de una sociedad
       // mientras se cree estar mirando el de su hermana es exactamente el modo
       // en que una verificación en verde no prueba nada.
-      const ctx = await resolveEntity(opts.entity);
+      const { ctx } = await resolveActiveEntity({ entity: opts.entity }, { home: deps.home });
       if (ctx.entityId !== pack.sealed.entity.id) {
         throw usageError(
           `This dossier belongs to "${pack.sealed.entity.name}" and the active entity is ` +
@@ -889,31 +987,47 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       }
 
       const veredicto = await verifyClosingPack(pack);
-      const hallazgos =
-        (veredicto.sealIntact ? 0 : 1) + (veredicto.figuresReproduce ? 0 : 1);
+      const hallazgos = verdictFindings(veredicto);
 
-      if (!legible(opts)) {
+      const tabular = !opts.json && ['csv', 'tsv', 'md'].includes(opts.format ?? '');
+      if (tabular) {
+        // EL ANEXO QUE PIDE UN AUDITOR ES UNA FILA POR CAMPO, no un veredicto
+        // con las diferencias apretadas en una celda JSON: en csv, tsv y md las
+        // FILAS son las diferencias. El veredicto entero es de --json.
+        render(veredicto.differences as unknown as Row[], { ...opts, idField: 'path' });
+      } else if (!legible(opts)) {
         render([veredicto as unknown as Row], { ...opts, idField: 'expectedSeal' });
       } else {
         const c = deps.palette;
         const out = process.stdout;
+        const marca = (ok: boolean) => (ok ? MARK.done : MARK.missing);
         out.write(
           `\n${c.bold(pack.sealed.period.name)}  ${c.dim(`${pack.sealed.entity.name} · as of ${pack.sealed.as_of}`)}\n\n`
         );
+        out.write(`  ${marca(veredicto.sealIntact)} the file agrees with its seal\n`);
         out.write(
-          `  ${veredicto.sealIntact ? MARK.done : MARK.missing} the file is the one that was sealed\n`
+          `  ${marca(veredicto.issued)} these books issued a dossier with this seal` +
+            `${veredicto.issuedAt ? c.dim(` (${veredicto.issuedAt})`) : ''}\n`
         );
-        out.write(
-          `  ${veredicto.figuresReproduce ? MARK.done : MARK.missing} the books still yield the same figures\n`
-        );
+        out.write(`  ${marca(veredicto.figuresReproduce)} the figures reproduce against the books\n`);
+        const avisos: string[] = [];
+        if (!veredicto.identityUnchanged) {
+          avisos.push('the entity or period identity changed since sealing (see the rows marked identity)');
+        }
         if (!veredicto.criteriaUnchanged) {
-          out.write(
-            '\n  ' +
-              c.red('The reporting panel moved since this dossier was sealed: ') +
-              `${canonicalJson(pack.sealed.criteria)} → ` +
-              'the figures below differ for that reason, not because the ledger did.\n'
+          const panel = veredicto.differences
+            .filter((d) => d.kind === 'criteria')
+            .map((d) => `${d.path}: ${d.expected} → ${d.actual}`)
+            .join('; ');
+          avisos.push(
+            `the reporting panel moved since sealing (${panel}); rows marked figure are what differs in the ledger's figures, whatever the cause`
           );
         }
+        if (veredicto.issued && !veredicto.envelopeMatches) {
+          avisos.push('the envelope (who, when, which run) is not the one registered when it was issued');
+        }
+        for (const a of avisos) out.write(`\n  ${c.dim('warning:')} ${a}`);
+        if (avisos.length > 0) out.write('\n');
         if (veredicto.differences.length > 0) {
           out.write('\n');
           render(veredicto.differences as unknown as Row[], { format: 'table', idField: 'path' });
@@ -921,7 +1035,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         out.write('\n');
       }
 
-      return checkExitCode({ blocking: hallazgos, warning: 0 }, { strict: opts.strict });
+      return checkExitCode(hallazgos, { strict: opts.strict });
     })
   );
 }

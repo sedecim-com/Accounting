@@ -1,11 +1,11 @@
-import { query } from '../../database/connection.js';
+import { getClient, query } from '../../database/connection.js';
 import type { AgentContext } from '../../ai/context.js';
 import { getCloseReadiness, type ClosablePeriod } from '../../ai/close-service.js';
 import { runMonthlyProvisions } from '../accruals/provisions-run.js';
 import { runMonthlyAmortization } from '../accruals/amortization-run.js';
 import { runMonthlyDepreciation } from '../assets/depreciation.js';
 import { softClosePeriod } from './period-close.js';
-import { AccountingError } from '../../utils/errors.js';
+import { AccountingError, AppError } from '../../utils/errors.js';
 
 // ============================================================
 // A6 · THE CLOSE CONDUCTOR
@@ -19,37 +19,49 @@ import { AccountingError } from '../../utils/errors.js';
 //
 // ── THE CONDUCTOR OWNS NO ARITHMETIC ────────────────────────────────────
 //
-// Every step delegates to the engine that already owns it, unchanged. This is
-// the same rule that keeps the API from becoming a second ledger: a conductor
-// that recomputed depreciation "because it is faster from here" would be a
-// fourth engine, and the day the two disagreed the operator would have no way
-// to tell which one was lying. The conductor's only original contribution is
-// ORDER, IDEMPOTENCE and EVIDENCE.
+// Every step delegates to the engine that already owns it, unchanged. A
+// conductor that recomputed depreciation "because it is faster from here"
+// would be a fourth engine, and the day the two disagreed the operator would
+// have no way to tell which one was lying. The conductor's only original
+// contribution is ORDER, the RECORD of what was done, and the refusal to walk
+// past a known hole.
 //
-// ── THE ORDER IS NOT A PREFERENCE ───────────────────────────────────────
+// ── WHY THIS ORDER ──────────────────────────────────────────────────────
 //
-// Accruals and amortization and depreciation come BEFORE the checklist because
-// the checklist asks about them (`FA.DEPR_MISSING` is one of its boxes), and
-// the checklist comes before the close because the close refuses to run with a
-// blocking box open. Running the checklist first would have produced the
-// month's most expensive false alarm: "depreciation missing" on a period whose
-// next step was going to post it.
+// The three engines post BEFORE the checklist so the checklist judges the
+// month as it will be closed, not as it was before the adjusting entries:
+// its trial-balance and ledger-integrity boxes read the entries the engines
+// just posted, and its `depreciation-posted` box stops warning about a month
+// whose depreciation was about to be posted. Said plainly, because an earlier
+// version of this comment overstated it: that box is a WARNING, not a
+// blocker, and no box asks about provisions or prepaid amortization at all.
+// So the order is what makes the checklist's verdict describe the closed
+// month; it is not what makes the close possible. The checklist goes before
+// the soft close because the soft close is the act the verdict authorizes.
 //
 // ── WHY IT STOPS AT THE SOFT CLOSE ──────────────────────────────────────
 //
 // The soft close is reversible; the hard close is not, and it sweeps the
-// income statement. A conductor that reached the hard close would be an
-// autonomous irreversible act, and A7's single gate exists precisely so that
-// there is exactly one of those and a human is standing at it. `close --hard`
-// keeps it. The conductor's last step is the reversible one.
+// income statement. The conductor stays on the reversible side and leaves
+// `close --hard` to a person.
+//
+// ── EVERY ATTEMPT RUNS EVERY STEP ───────────────────────────────────────
+//
+// A resumed run does NOT trust what an earlier attempt recorded. The engines
+// refuse to post a month twice on their own terms, so running them again is
+// free when they already posted and necessary when they had nothing to do the
+// first time (payroll loaded later, an asset registered later). And the
+// checklist is always evaluated again: a verdict from yesterday says nothing
+// about the AI draft that arrived this morning, and a soft close authorized by
+// a stale verdict is exactly the hole the checklist step exists to close.
 // ============================================================
 
 /**
  * The steps, in the only order they are allowed to happen in.
  *
  * The keys are a CONTRACT: `--stop-at` takes them, `closing_run_steps.step_key`
- * stores them, the dossier quotes them, and `src/plan/criterios.ts` reads this
- * very list to check that the order did not change by accident.
+ * stores them, and `src/plan/criterios.ts` reads this very list to check that
+ * the order did not change by accident.
  */
 export const CLOSING_STEPS = [
   'accrue-benefits',
@@ -71,17 +83,33 @@ export const PERSISTED_STEP_STATUSES = ['done', 'skipped', 'blocked', 'failed'] 
  */
 export type StepStatus = (typeof PERSISTED_STEP_STATUSES)[number] | 'pending';
 
+/** The ledger's `source_type` of what each engine step posts. */
+const SOURCE_OF_STEP: Partial<Record<ClosingStep, string>> = {
+  'accrue-benefits': 'benefit_provision',
+  'amortize-prepaids': 'prepaid_amortization',
+  'depreciate-assets': 'depreciation',
+};
+
 export interface ClosingStepOutcome {
   step: ClosingStep;
   ordinal: number;
   status: StepStatus;
+  /** Accumulated across the attempts of this run. */
   processed: number;
-  /** Money the engine reports having moved, or null when it reports none. */
+  /** Money the engine reports having moved, accumulated, or null when it reports none. */
   amount: string | null;
+  /** The entries the step's engine has posted in this period, read from the ledger. */
   journalEntryIds: string[];
   detail: string;
-  /** true when an earlier attempt of this same run had already taken it. */
-  resumed: boolean;
+  /** true when an earlier attempt of this same run had already recorded this step. */
+  priorAttempt: boolean;
+  /**
+   * The error a step raised, when it raised. NOT persisted: it exists so the
+   * CLI can exit with the code the engine's error deserves (a misconfigured
+   * panel is a 4, a crashed process is a 1) instead of flattening every
+   * failure into the generic one.
+   */
+  cause?: unknown;
 }
 
 export interface ClosingRunOutcome {
@@ -107,7 +135,28 @@ export interface ConductOptions {
   stopAt?: ClosingStep;
   /** Report what is pending without writing anything. */
   dryRun?: boolean;
+  /**
+   * The caller KNOWS there is an open run and asks to continue it. Without it
+   * an open run is refused, and with it a missing run is refused: both
+   * checks happen here, under the lock, so no caller can skip them.
+   */
+  resume?: boolean;
   reason?: string;
+}
+
+/**
+ * A refusal because of the STATE of the run, not because of the input.
+ *
+ * 423 maps to exit 5 (blocked by state) in the CLI and to Locked in the API:
+ * "another conductor holds this period right now" and "there is an open run
+ * you did not ask to continue" are facts about the books, and exiting 2
+ * (usage) would tell a script its flags were wrong when they were not.
+ */
+export class ClosingRunStateError extends AppError {
+  constructor(code: string, message: string, details?: Record<string, unknown>) {
+    super(423, code, message, undefined, details);
+    this.name = 'ClosingRunStateError';
+  }
 }
 
 export function isClosingStep(s: string): s is ClosingStep {
@@ -119,7 +168,17 @@ interface RunRow {
   status: string;
 }
 
-/** The open run of a period, as the CLI needs to describe it before resuming. */
+interface StepRow {
+  step_key: string;
+  ordinal: number;
+  status: string;
+  processed: number;
+  amount: string | null;
+  journal_entry_ids: string[];
+  detail: string;
+}
+
+/** The open run of a period, as the CLI needs to describe it. */
 export interface OpenRun {
   id: string;
   status: string;
@@ -127,14 +186,7 @@ export interface OpenRun {
   started_at: string;
 }
 
-/**
- * The one resumable run of this period, or none.
- *
- * Exported because the CLI has to be able to REFUSE before doing anything: a
- * `closing run` typed over a period somebody else left half-done is continuing
- * another person's work, and doing that without saying so turns "I ran it" into
- * a claim nobody can stand behind.
- */
+/** The one resumable run of this period, or none. */
 export async function openRunOf(entityId: string, periodId: string): Promise<OpenRun | null> {
   const r = await query<OpenRun>(
     `SELECT id, status, halted_at_step, started_at::text AS started_at
@@ -161,86 +213,170 @@ export async function latestRunOf(
   return r.rows[0] ?? null;
 }
 
-interface StepRow {
-  step_key: string;
-  status: string;
-  processed: number;
-  amount: string | null;
-  journal_entry_ids: string[];
-  detail: string;
+export function describeOpenRun(run: OpenRun): string {
+  return (
+    `${run.status}${run.halted_at_step ? ` at ${run.halted_at_step}` : ''}, started ${run.started_at}`
+  );
 }
 
 /**
- * The run to resume, or a new one.
+ * ONE CONDUCTOR PER PERIOD AT A TIME.
  *
- * The partial unique index `uq_closing_run_open` guarantees there is at most
- * one resumable run per (entity, period), so this never has to CHOOSE. That
- * is the whole reason the index is partial instead of a plain unique: a period
- * that is reopened and closed again gets a second run, and the first one stays
- * as the evidence of what was done the first time.
+ * Checking for an open run and then inserting one is a race: two operators
+ * answering "y" at the same moment would both find nothing and both conduct,
+ * or the second would silently continue the first's live run. A session-level
+ * advisory lock on a dedicated connection, held for the whole call, closes
+ * it — and it is also what tells a `running` row left by a crash (lock free)
+ * from one being conducted right now (lock taken).
+ */
+async function withConductorLock<T>(
+  entityId: string,
+  periodId: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const key = `closing-run:${entityId}:${periodId}`;
+  const client = await getClient();
+  try {
+    const got = await client.query<{ ok: boolean }>(
+      'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS ok',
+      [key]
+    );
+    if (!got.rows[0]?.ok) {
+      throw new ClosingRunStateError(
+        'CLOSING_RUN_IN_PROGRESS',
+        'Another conductor is running the close of this period right now. Wait for it to finish, then look at it with --dry-run.'
+      );
+    }
+    try {
+      return await fn();
+    } finally {
+      await client
+        .query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [key])
+        .catch(() => undefined);
+    }
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * The run to continue, or a new one — refusing the two mistakes.
+ *
+ * Runs UNDER the lock, which is what makes the refusal authoritative: a CLI
+ * check before a confirmation prompt is a courtesy, this one is the rule.
  */
 async function openRun(
   ctx: AgentContext,
   periodId: string,
-  userId: string
-): Promise<{ runId: string; resumed: boolean }> {
+  opts: ConductOptions
+): Promise<string> {
   const abierta = await openRunOf(ctx.entityId, periodId);
   if (abierta) {
+    if (opts.resume !== true) {
+      throw new ClosingRunStateError(
+        'CLOSING_RUN_OPEN',
+        `This period already has an open close run (${describeOpenRun(abierta)}). ` +
+          'Continue it with --resume, or look at it first with --dry-run.',
+        { runId: abierta.id }
+      );
+    }
     await query(
       `UPDATE closing_runs SET status = 'running', halted_at_step = NULL, ended_at = NULL
         WHERE id = $1 AND entity_id = $2`,
       [abierta.id, ctx.entityId]
     );
-    return { runId: abierta.id, resumed: true };
+    return abierta.id;
   }
-  const creada = await query<RunRow>(
-    `INSERT INTO closing_runs (tenant_id, entity_id, fiscal_period_id, status, started_by)
-     VALUES ($1, $2, $3, 'running', $4)
-     RETURNING id, status`,
-    [ctx.tenantId, ctx.entityId, periodId, userId]
-  );
-  return { runId: creada.rows[0].id, resumed: false };
+  if (opts.resume === true) {
+    throw new ClosingRunStateError(
+      'CLOSING_RUN_NOTHING_TO_RESUME',
+      'Nothing to resume: this period has no open close run. Run it without --resume to start one.'
+    );
+  }
+  try {
+    const creada = await query<RunRow>(
+      `INSERT INTO closing_runs (entity_id, fiscal_period_id, status, started_by)
+       VALUES ($1, $2, 'running', $3)
+       RETURNING id, status`,
+      [ctx.entityId, periodId, opts.userId]
+    );
+    return creada.rows[0].id;
+  } catch (err) {
+    // Under the lock this cannot happen; if it does, it is still a state.
+    if ((err as { code?: string }).code === '23505') {
+      throw new ClosingRunStateError(
+        'CLOSING_RUN_OPEN',
+        'This period already has an open close run. Continue it with --resume.'
+      );
+    }
+    throw err;
+  }
 }
 
-/** What this run already did. Only `done` and `skipped` count as taken. */
-async function stepsAlreadyTaken(runId: string, entityId: string): Promise<Map<string, StepRow>> {
-  const r = await query<StepRow>(
-    `SELECT step_key, status, processed, amount, journal_entry_ids, detail
-       FROM closing_run_steps
-      WHERE run_id = $1 AND entity_id = $2`,
+/** Which steps this run already has a row for. */
+async function stepsOfRun(runId: string, entityId: string): Promise<Set<string>> {
+  const r = await query<{ step_key: string }>(
+    'SELECT step_key FROM closing_run_steps WHERE run_id = $1 AND entity_id = $2',
     [runId, entityId]
   );
-  const m = new Map<string, StepRow>();
-  for (const row of r.rows) {
-    if (row.status === 'done' || row.status === 'skipped') m.set(row.step_key, row);
-  }
-  return m;
+  return new Set(r.rows.map((x) => x.step_key));
 }
 
+/** What the step's engine has posted in this period, read from the ledger. */
+async function postedBy(
+  entityId: string,
+  periodId: string,
+  step: ClosingStep
+): Promise<string[]> {
+  const source = SOURCE_OF_STEP[step];
+  if (!source) return [];
+  const r = await query<{ id: string }>(
+    `SELECT id FROM journal_entries
+      WHERE entity_id = $1 AND fiscal_period_id = $2
+        AND source_type = $3 AND status = 'posted'
+      ORDER BY entry_date, id`,
+    [entityId, periodId, source]
+  );
+  return r.rows.map((x) => x.id);
+}
+
+/**
+ * Writes an attempt into the step's row and returns the ACCUMULATED row.
+ *
+ * Engine steps accumulate `processed` and `amount` — a resumed run that
+ * posts the twelfth employee must not erase the eleven the first attempt
+ * posted — and never demote a `done` to `skipped`. Their journal ids are the
+ * ledger's, read after the attempt, so they replace. The checklist and the
+ * soft close describe a state, not a quantity: they replace everything.
+ */
 async function recordStep(
-  ctx: AgentContext,
+  entityId: string,
   runId: string,
-  o: ClosingStepOutcome
-): Promise<void> {
-  // UPSERT and not INSERT: a step recorded `blocked` or `failed` is re-run on
-  // the next attempt, and its row has to say what happened THIS time. Only
-  // `done` and `skipped` are never revisited, because `stepsAlreadyTaken`
-  // filters them out before the step is reached.
-  await query(
+  o: ClosingStepOutcome,
+  accumulate: boolean
+): Promise<StepRow> {
+  const r = await query<StepRow>(
     `INSERT INTO closing_run_steps
-       (tenant_id, entity_id, run_id, step_key, ordinal, status, processed, amount,
-        journal_entry_ids, detail)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       (entity_id, run_id, step_key, ordinal, status, processed, amount, journal_entry_ids, detail)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (run_id, step_key) DO UPDATE SET
-       status = EXCLUDED.status,
-       processed = EXCLUDED.processed,
-       amount = EXCLUDED.amount,
+       status = CASE
+         WHEN $10::boolean AND EXCLUDED.status = 'skipped' AND closing_run_steps.status = 'done'
+           THEN 'done' ELSE EXCLUDED.status END,
+       detail = CASE
+         WHEN $10::boolean AND EXCLUDED.status = 'skipped' AND closing_run_steps.status = 'done'
+           THEN closing_run_steps.detail ELSE EXCLUDED.detail END,
+       processed = CASE WHEN $10::boolean
+         THEN closing_run_steps.processed + EXCLUDED.processed ELSE EXCLUDED.processed END,
+       amount = CASE
+         WHEN NOT $10::boolean THEN EXCLUDED.amount
+         WHEN closing_run_steps.amount IS NULL AND EXCLUDED.amount IS NULL THEN NULL
+         ELSE COALESCE(closing_run_steps.amount, 0) + COALESCE(EXCLUDED.amount, 0) END,
        journal_entry_ids = EXCLUDED.journal_entry_ids,
-       detail = EXCLUDED.detail,
-       ran_at = NOW()`,
+       ran_at = NOW()
+     RETURNING step_key, ordinal, status, processed, amount::text AS amount, journal_entry_ids, detail`,
     [
-      ctx.tenantId,
-      ctx.entityId,
+      entityId,
       runId,
       o.step,
       o.ordinal,
@@ -249,8 +385,10 @@ async function recordStep(
       o.amount,
       o.journalEntryIds,
       o.detail,
+      accumulate,
     ]
   );
+  return r.rows[0];
 }
 
 async function closeRun(
@@ -279,14 +417,33 @@ async function periodStatus(entityId: string, periodId: string): Promise<string>
   return r.rows[0].status;
 }
 
+function checklistOutcome(
+  step: ClosingStep,
+  ordinal: number,
+  r: Awaited<ReturnType<typeof getCloseReadiness>>
+): ClosingStepOutcome {
+  return {
+    step,
+    ordinal,
+    status: r.canClose ? 'done' : 'blocked',
+    processed: r.checklist.length,
+    amount: null,
+    journalEntryIds: [],
+    detail: r.canClose
+      ? `${r.checklist.length} checks, no blocking items, ${r.warnings.length} warning(s)`
+      : `blocking: ${r.blockingIssues.join('; ')}`,
+    priorAttempt: false,
+  };
+}
+
 /**
  * Runs ONE step. Pure dispatch: every branch hands over to the engine that
  * owns the arithmetic and translates its result into the same shape.
  *
- * A step that comes back with per-row errors is `failed`, not `done`. The
- * engines tolerate a broken row so the other twenty still get theirs — that is
- * their job — but the conductor's job is not to walk past a known hole on its
- * way to sealing a dossier. The run stops there and says which rows.
+ * A step whose engine comes back with per-row errors is `failed`, not `done`.
+ * The engines tolerate a broken row so the other twenty still get theirs —
+ * that is their job — but the conductor's job is not to walk past a known hole
+ * on its way to a close.
  */
 async function takeStep(
   ctx: AgentContext,
@@ -295,7 +452,7 @@ async function takeStep(
   ordinal: number,
   opts: ConductOptions
 ): Promise<ClosingStepOutcome> {
-  const base = { step, ordinal, resumed: false, journalEntryIds: [] as string[] };
+  const base = { step, ordinal, priorAttempt: false, journalEntryIds: [] as string[] };
 
   switch (step) {
     case 'accrue-benefits': {
@@ -305,7 +462,6 @@ async function takeStep(
         status: r.errors.length > 0 ? 'failed' : r.processed > 0 ? 'done' : 'skipped',
         processed: r.processed,
         amount: r.total,
-        journalEntryIds: r.journalEntryId ? [r.journalEntryId] : [],
         detail:
           r.errors.length > 0
             ? `${r.errors.length} employee(s) could not be accrued: ${r.errors.join('; ')}`
@@ -343,18 +499,9 @@ async function takeStep(
     case 'verify-checklist': {
       // THE SAME READINESS `closing preview` SHOWS, and deliberately not the
       // engine's checklist alone: an AI draft dated inside the period stops the
-      // close like a red box does, and two surfaces that disagreed about
-      // whether the month can close would make the preview worthless.
-      const r = await getCloseReadiness(ctx, period);
-      return {
-        ...base,
-        status: r.canClose ? 'done' : 'blocked',
-        processed: r.checklist.length,
-        amount: null,
-        detail: r.canClose
-          ? `${r.checklist.length} checks, no blocking items, ${r.warnings.length} warning(s)`
-          : `blocking: ${r.blockingIssues.join('; ')}`,
-      };
+      // close like a red box does — and `softClosePeriod` does NOT count AI
+      // drafts, so this is the only place the conductor sees them.
+      return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));
     }
     case 'soft-close': {
       const estado = await periodStatus(ctx.entityId, period.id);
@@ -373,18 +520,37 @@ async function takeStep(
         status: 'done',
         processed: 1,
         amount: null,
-        detail: 'period soft-closed: reversible, and new entries are refused',
+        // What soft_close really does: postings are still ACCEPTED, with the
+        // warning `validation.ts` attaches ("Only adjusting entries
+        // recommended"). It is a policy gate, not a barrier — saying "refused"
+        // here would make the operator believe the month is frozen.
+        detail:
+          'period soft-closed: reversible; postings dated inside it now carry the soft-close warning, and the hard close stays with `close --hard`',
       };
     }
   }
+}
+
+function stepFailed(step: ClosingStep, ordinal: number, err: unknown): ClosingStepOutcome {
+  return {
+    step,
+    ordinal,
+    status: 'failed',
+    processed: 0,
+    amount: null,
+    journalEntryIds: [],
+    detail: err instanceof Error ? err.message : String(err),
+    priorAttempt: false,
+    cause: err,
+  };
 }
 
 /**
  * THE CONDUCTOR.
  *
  * Walks the steps in order, records each one, and halts at the first that
- * blocks or fails. Calling it again resumes: what is recorded `done` or
- * `skipped` is not repeated, what is `blocked` or `failed` is retried.
+ * blocks or fails. Every attempt runs every step again (see the header): the
+ * engines skip what is already posted, and the checklist is judged fresh.
  */
 export async function conductClose(
   ctx: AgentContext,
@@ -414,78 +580,63 @@ export async function conductClose(
     return { ...marco, runId: null, status: 'previewed', ...(await dryRun(ctx, period, opts)) };
   }
 
-  const { runId } = await openRun(ctx, period.id, opts.userId);
-  const yaHechos = await stepsAlreadyTaken(runId, ctx.entityId);
-  const steps: ClosingStepOutcome[] = [];
+  return withConductorLock(ctx.entityId, period.id, async () => {
+    const runId = await openRun(ctx, period.id, opts);
+    const previos = await stepsOfRun(runId, ctx.entityId);
+    const steps: ClosingStepOutcome[] = [];
 
-  for (const [i, step] of CLOSING_STEPS.entries()) {
-    const ordinal = i + 1;
+    for (const [i, step] of CLOSING_STEPS.entries()) {
+      const ordinal = i + 1;
 
-    if (opts.stopAt === step) {
-      await closeRun(runId, ctx.entityId, 'stopped', step);
-      return { ...marco, runId, status: 'stopped', steps, haltedAtStep: step };
-    }
+      if (opts.stopAt === step) {
+        await closeRun(runId, ctx.entityId, 'stopped', step);
+        return { ...marco, runId, status: 'stopped' as const, steps, haltedAtStep: step };
+      }
 
-    const previo = yaHechos.get(step);
-    if (previo) {
-      steps.push({
-        step,
-        ordinal,
-        status: previo.status as StepStatus,
-        processed: previo.processed,
-        amount: previo.amount,
-        journalEntryIds: previo.journal_entry_ids,
-        detail: previo.detail,
-        resumed: true,
-      });
-      continue;
-    }
+      let outcome: ClosingStepOutcome;
+      try {
+        outcome = await takeStep(ctx, period, step, ordinal, opts);
+      } catch (err) {
+        // AN ENGINE THAT RAISES IS EVIDENCE TOO. Letting it escape would leave
+        // the run row saying `running`, and the next attempt would have no
+        // record of what stopped the last one.
+        outcome = stepFailed(step, ordinal, err);
+      }
 
-    let outcome: ClosingStepOutcome;
-    try {
-      outcome = await takeStep(ctx, period, step, ordinal, opts);
-    } catch (err) {
-      // AN ENGINE THAT RAISES IS EVIDENCE TOO. Letting it escape would leave
-      // the run row saying `running` forever, and the next attempt would have
-      // no record of what stopped the last one.
-      outcome = {
-        step,
-        ordinal,
-        status: 'failed',
-        processed: 0,
-        amount: null,
-        journalEntryIds: [],
-        detail: err instanceof Error ? err.message : String(err),
-        resumed: false,
+      const engine = SOURCE_OF_STEP[step] !== undefined;
+      if (engine) outcome.journalEntryIds = await postedBy(ctx.entityId, period.id, step);
+      const row = await recordStep(ctx.entityId, runId, outcome, engine);
+      const accumulated: ClosingStepOutcome = {
+        ...outcome,
+        status: row.status as StepStatus,
+        processed: row.processed,
+        amount: row.amount,
+        journalEntryIds: row.journal_entry_ids,
+        detail: row.detail,
+        priorAttempt: previos.has(step),
       };
-      await recordStep(ctx, runId, outcome);
-      steps.push(outcome);
-      await closeRun(runId, ctx.entityId, 'failed', step);
-      return { ...marco, runId, status: 'failed', steps, haltedAtStep: step };
+      steps.push(accumulated);
+
+      if (accumulated.status === 'blocked' || accumulated.status === 'failed') {
+        const estado = accumulated.status === 'blocked' ? 'blocked' : 'failed';
+        await closeRun(runId, ctx.entityId, estado, step);
+        return { ...marco, runId, status: estado, steps, haltedAtStep: step };
+      }
     }
 
-    await recordStep(ctx, runId, outcome);
-    steps.push(outcome);
-
-    if (outcome.status === 'blocked' || outcome.status === 'failed') {
-      const estado = outcome.status === 'blocked' ? 'blocked' : 'failed';
-      await closeRun(runId, ctx.entityId, estado, step);
-      return { ...marco, runId, status: estado, steps, haltedAtStep: step };
-    }
-  }
-
-  await closeRun(runId, ctx.entityId, 'completed', null);
-  return { ...marco, runId, status: 'completed', steps, haltedAtStep: null };
+    await closeRun(runId, ctx.entityId, 'completed', null);
+    return { ...marco, runId, status: 'completed' as const, steps, haltedAtStep: null };
+  });
 }
 
 /**
  * The dry run, which is a real answer and not a rehearsal of one.
  *
- * It says, for each step, whether this period's open run already took it, and
- * it ACTUALLY EVALUATES the checklist — which is read-only, so there is nothing
- * to rehearse. A `--dry-run` that answered "would run" for the one step that
- * can be asked for free would have been the exact kind of command this house
- * calls worse than absent.
+ * It writes nothing. It ACTUALLY EVALUATES the checklist, every time — reading
+ * is free, and a verdict cached from an earlier attempt would be the stale
+ * answer the real run no longer trusts either. The engine steps are reported
+ * as pending, because the only honest thing to say without running an engine
+ * is that it will run and post what is not already posted.
  */
 async function dryRun(
   ctx: AgentContext,
@@ -493,9 +644,7 @@ async function dryRun(
   opts: ConductOptions
 ): Promise<{ steps: ClosingStepOutcome[]; haltedAtStep: ClosingStep | null }> {
   const abierta = await openRunOf(ctx.entityId, period.id);
-  const yaHechos = abierta
-    ? await stepsAlreadyTaken(abierta.id, ctx.entityId)
-    : new Map<string, StepRow>();
+  const previos = abierta ? await stepsOfRun(abierta.id, ctx.entityId) : new Set<string>();
 
   const steps: ClosingStepOutcome[] = [];
   let haltedAtStep: ClosingStep | null = null;
@@ -506,35 +655,28 @@ async function dryRun(
       haltedAtStep = step;
       break;
     }
-    const previo = yaHechos.get(step);
-    if (previo) {
-      steps.push({
-        step,
-        ordinal,
-        status: previo.status as StepStatus,
-        processed: previo.processed,
-        amount: previo.amount,
-        journalEntryIds: previo.journal_entry_ids,
-        detail: previo.detail,
-        resumed: true,
-      });
+    if (step === 'verify-checklist') {
+      const r = checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));
+      r.priorAttempt = previos.has(step);
+      steps.push(r);
+      if (r.status === 'blocked') {
+        haltedAtStep = step;
+        break;
+      }
       continue;
     }
-    if (step === 'verify-checklist') {
-      const r = await getCloseReadiness(ctx, period);
+    if (step === 'soft-close') {
+      const estado = await periodStatus(ctx.entityId, period.id);
       steps.push({
         step,
         ordinal,
-        status: r.canClose ? 'done' : 'blocked',
-        processed: r.checklist.length,
+        status: estado === 'open' ? 'pending' : 'skipped',
+        processed: 0,
         amount: null,
         journalEntryIds: [],
-        detail: r.canClose
-          ? `${r.checklist.length} checks, no blocking items, ${r.warnings.length} warning(s)`
-          : `blocking: ${r.blockingIssues.join('; ')}`,
-        resumed: false,
+        detail: estado === 'open' ? 'would soft-close the period' : `period is already ${estado}`,
+        priorAttempt: previos.has(step),
       });
-      if (!r.canClose) haltedAtStep = step;
       continue;
     }
     steps.push({
@@ -543,9 +685,9 @@ async function dryRun(
       status: 'pending',
       processed: 0,
       amount: null,
-      journalEntryIds: [],
-      detail: 'not taken yet by this run',
-      resumed: false,
+      journalEntryIds: await postedBy(ctx.entityId, period.id, step),
+      detail: 'would run; the engine posts only what is not already posted this period',
+      priorAttempt: previos.has(step),
     });
   }
 

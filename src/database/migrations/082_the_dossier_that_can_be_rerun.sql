@@ -8,84 +8,98 @@
 --
 -- This file is written in English because `docs/language.md` rule 1 says what
 -- is new is born English from day one, and it names migration files among what
--- that reaches. The eighty-one siblings keep their Spanish titles until I25
--- renames them all at once with the migrator's legacy map; this one does not
--- need to be renamed later.
+-- that reaches. Its older siblings keep the titles they were born with until
+-- I25 renames the Spanish ones with the migrator's legacy map; this one does
+-- not need to be renamed later.
 --
 -- ── WHY THREE TABLES AND NOT ONE ────────────────────────────────────────
 --
 -- `closing_runs` is the RUN: one per period per attempt, with the state that
 -- makes `--resume` possible. `closing_run_steps` is what the run DID, one row
--- per step, and it is the only reason a resumed run can tell "already done"
--- from "never ran" without asking five engines. `closing_packs` is the
--- EVIDENCE: the dossier as it was handed over, with its seal.
+-- per step, accumulated across the attempts of that run. `closing_packs` is
+-- the EVIDENCE: the dossier as it was handed over, with its seal, and the
+-- registry `closing pack verify` asks to tell an issued seal from a forged one.
 --
 -- Folding the steps into a JSONB column of the run was the obvious shortcut
 -- and it is wrong for a reason this repo already paid for: a step is
 -- addressed, it has a UNIQUE that stops the same step from being recorded
--- twice, and a JSONB array has neither. The conductor's whole idempotency
--- rests on `uq_closing_run_step`.
+-- twice, and a JSONB array has neither.
 --
--- ── THE RUN DOES NOT OWN THE IDEMPOTENCY, IT ONLY MAKES IT CHEAP ────────
+-- ── THE RUN DOES NOT OWN THE IDEMPOTENCY ────────────────────────────────
 --
--- Every engine the conductor drives already refuses to run the same month
--- twice on its own terms: depreciation asks the ledger (`is_posted` of ANY
--- book, `depreciation.ts`), amortization asks the schedule, provisions ask
--- `benefit_provision_schedules`. The step row is a FAST PATH and an audit
--- trail, never the only guard — if it were, deleting a row would double-post
--- a month. It cannot: the engines would still refuse.
+-- Every engine the conductor drives refuses to post the same month twice on
+-- its own terms: depreciation asks the ledger (`is_posted` of ANY book,
+-- `depreciation.ts`), amortization asks the schedule, provisions ask
+-- `benefit_provision_schedules`. That is why the conductor can — and does —
+-- run every step again on every attempt: a step already posted comes back
+-- with nothing to do, and a step that had nothing to do the first time (no
+-- payroll loaded yet, no asset registered yet) gets its chance. The step row
+-- is history and never a guard: deleting it double-posts nothing.
 --
 -- ── ONE OPEN RUN PER PERIOD, MANY CLOSED ONES ───────────────────────────
 --
 -- `uq_closing_run_open` allows exactly one run in a resumable state per
 -- (entity, period). A finished run stays as history, so a period that is
 -- reopened and closed again has two runs and the dossiers say which is which.
--- The alternative — one run per period, ever — would have made the second
--- close overwrite the evidence of the first.
+-- Two operators conducting the SAME period at the SAME time are kept apart by
+-- an advisory lock the conductor holds for the whole call, not by this index.
 --
 -- ── THE DOSSIER IS APPEND-ONLY, LIKE THE LOG IT RESEMBLES ───────────────
 --
 -- A dossier that can be rewritten proves nothing, which is the same sentence
 -- migration 033 wrote about `audit_log`. So `closing_packs` gets the trigger
--- that rejects UPDATE and DELETE — reaching the schema owner too, whom table
--- privileges do not stop — and its name enters the two `append_only` arrays
--- (`src/database/rls-policies.sql`, `scripts/provision-roles.sql`) that run
--- after every migration and would otherwise hand the UPDATE straight back.
--- Criterion `append-only-triggers-match-grants` fails if those three places
--- stop saying the same thing.
+-- that rejects UPDATE, DELETE and TRUNCATE — reaching the schema owner too,
+-- whom table privileges do not stop. The trigger lives HERE and nowhere else:
+-- nothing re-creates it if someone drops it by hand. The cheap layer is the
+-- privilege, and its name enters the `append_only` array of
+-- `src/database/rls-policies.sql` — which `npm run migrate` re-applies after
+-- every migration, handing the UPDATE back to any table that is not listed —
+-- and the one of `scripts/provision-roles.sql`, which runs when roles are
+-- re-provisioned. Criterion `append-only-triggers-match-grants` fails if
+-- those three places stop saying the same thing.
 --
 -- A correction is a NEW dossier with a new seal, exactly as a correction in
 -- the ledger is a new entry. The old one keeps standing: "what we said in
 -- March" is evidence even after March turned out to be wrong.
 --
+-- ── NO tenant_id COLUMN, ON PURPOSE ─────────────────────────────────────
+--
+-- The first loop of `rls-policies.sql` picks the policy by the columns a table
+-- has. A table WITH `tenant_id` gets `tenant_id = app_current_tenant()`, and
+-- that predicate never ties `entity_id` to the tenant: a row carrying MY
+-- tenant and ANOTHER tenant's entity passes it, and a foreign key's check does
+-- not go through RLS. With the global `uq_closing_run_open`, that was enough
+-- for one tenant to plant an invisible open run on another tenant's period and
+-- block its close. A table with `entity_id` alone gets
+-- `entity_id IN (SELECT id FROM legal_entities WHERE tenant_id = …)`, which
+-- refuses exactly that row. The same shape 059 and 079 already have.
+--
 -- ── THE ENTITY TRAVELS IN THE FOREIGN KEYS ──────────────────────────────
 --
 -- Lesson already paid for in 059 and 079: a row cannot point at another
 -- entity's period or another entity's run, and not because a query remembers
--- to filter — because Postgres refuses. `entity_id` is its OWN column and not
--- derived by JOIN, which is what makes the first loop of `rls-policies.sql`
--- generate the isolation policy by itself.
+-- to filter — because Postgres refuses.
 -- ============================================================
 
 CREATE TABLE closing_runs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
     entity_id UUID NOT NULL REFERENCES legal_entities(id),
     fiscal_period_id UUID NOT NULL,
 
-    -- 'running' is the state a run is left in while it still has steps to
-    -- take: the conductor returns to the operator between steps, so a run
-    -- waiting for a blocker to be cleared is NOT a failure.
-    --   running   — open, resumable
-    --   blocked   — the checklist still has blocking items; resumable
+    -- A call of the conductor walks every step it can in one go, so these
+    -- states describe where the LAST call left the run:
+    --   running   — a call is in progress, or one died mid-run (a crash
+    --               leaves it here; the advisory lock tells the two apart)
+    --   blocked   — the checklist had blocking items; resumable
     --   stopped   — the operator asked for --stop-at; resumable
     --   completed — every step took its turn and the period is soft-closed
-    --   failed    — a step raised; resumable once the cause is fixed
+    --   failed    — a step raised, or an engine returned per-row errors;
+    --               resumable once the cause is fixed
     status VARCHAR(20) NOT NULL DEFAULT 'running'
         CHECK (status IN ('running', 'blocked', 'stopped', 'completed', 'failed')),
 
-    -- The step the run did not get past, and why the operator will care.
-    -- NULL on a completed run, which is the only state that has no next step.
+    -- The step the run did not get past. NULL on a completed run, which is
+    -- the only state that has no next step.
     halted_at_step VARCHAR(40),
 
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -108,9 +122,8 @@ CREATE TABLE closing_runs (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_closing_runs_id_entity
     ON closing_runs (id, entity_id);
 
--- At most one resumable run per period. The partial index is the whole
--- mechanism behind `closing run --resume`: there is never a question of WHICH
--- run to resume.
+-- At most one resumable run per period. There is never a question of WHICH
+-- run `closing run --resume` continues.
 CREATE UNIQUE INDEX uq_closing_run_open
     ON closing_runs (entity_id, fiscal_period_id)
     WHERE status IN ('running', 'blocked', 'stopped', 'failed');
@@ -119,47 +132,48 @@ CREATE INDEX idx_closing_runs_period ON closing_runs (entity_id, fiscal_period_i
 
 CREATE TABLE closing_run_steps (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
     entity_id UUID NOT NULL REFERENCES legal_entities(id),
     run_id UUID NOT NULL,
 
     -- The stable key of the step (`accrue-benefits`, `soft-close`, …). It is
-    -- a contract: the dossier quotes it, `--stop-at` takes it, and
-    -- `src/plan/criterios.ts` reads the same list out of the conductor.
+    -- a contract: `--stop-at` takes it and `src/plan/criterios.ts` reads the
+    -- same list out of the conductor.
     step_key VARCHAR(40) NOT NULL,
     ordinal SMALLINT NOT NULL CHECK (ordinal > 0),
 
-    --   done    — the step ran and did something
-    --   skipped — the step ran and there was nothing to do (or it was
-    --             already done in an earlier attempt of this run)
+    -- The outcome of the LATEST attempt, except that a `done` is never
+    -- demoted to `skipped` by a later attempt that found the work already
+    -- posted:
+    --   done    — the step did something, in this or an earlier attempt
+    --   skipped — there was nothing to do
     --   blocked — the step refused: the close cannot go past it yet
-    --   failed  — the step raised
+    --   failed  — the step raised, or its engine returned per-row errors
     status VARCHAR(20) NOT NULL
         CHECK (status IN ('done', 'skipped', 'blocked', 'failed')),
 
+    -- Accumulated across attempts: what the engines report having processed.
     processed INTEGER NOT NULL DEFAULT 0 CHECK (processed >= 0),
 
-    -- Money, like all money here: DECIMAL(19,4), never a float. NULLABLE on
-    -- purpose, and the distinction is not pedantry: zero means the step moved
-    -- nothing (a month with nothing to accrue), NULL means the engine does not
-    -- report a total at all — `runMonthlyDepreciation` returns a count and a
-    -- list of errors, and writing 0 there would have been a figure nobody
-    -- computed. The dossier does not read this column anyway: its numbers come
-    -- from the ledger, which is the only source a third party can re-run.
+    -- Money, like all money here: DECIMAL(19,4), never a float. Accumulated
+    -- across attempts. NULLABLE on purpose: zero means the step moved nothing,
+    -- NULL means its engine does not report a total at all —
+    -- `runMonthlyDepreciation` returns a count and a list of errors, and a 0
+    -- there would be a figure nobody computed. The dossier does not read this
+    -- column: its numbers come from the ledger.
     amount DECIMAL(19,4)
         CONSTRAINT closing_step_amount_not_negative CHECK (amount IS NULL OR amount >= 0),
 
-    -- What the step posted, if anything. An array and not a single id
-    -- because amortization posts one entry per prepaid while provisions post
-    -- exactly one for the whole payroll.
+    -- The entries the step's engine has POSTED in this period, read back from
+    -- the ledger by `source_type` after every attempt — not the ids an attempt
+    -- happened to return. An attempt that crashed between posting and writing
+    -- this row loses nothing: the next attempt reads the ledger again.
     journal_entry_ids UUID[] NOT NULL DEFAULT '{}',
 
     detail TEXT NOT NULL,
     ran_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    -- THE STEP IS ADDRESSED. This is the constraint the conductor's
-    -- idempotency stands on: the same step cannot be recorded twice in the
-    -- same run, so a resumed run reads its rows and knows what is left.
+    -- THE STEP IS ADDRESSED: one row per step per run, upserted by every
+    -- attempt.
     CONSTRAINT uq_closing_run_step UNIQUE (run_id, step_key),
 
     CONSTRAINT fk_closing_step_run_entity
@@ -172,14 +186,15 @@ CREATE INDEX idx_closing_run_steps_run ON closing_run_steps (run_id, ordinal);
 
 CREATE TABLE closing_packs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
     entity_id UUID NOT NULL REFERENCES legal_entities(id),
     fiscal_period_id UUID NOT NULL,
     run_id UUID,
 
     -- SHA-256 over the canonical form of the SEALED BODY, hex, lowercase.
-    -- The CHECK is not decoration: a seal that is not a hash is a seal nobody
-    -- can recompute, and `closing pack verify` would have no way to say so.
+    -- The hash is not keyed: anyone can recompute it, which is the point for a
+    -- third party and also why the seal alone cannot prove ORIGIN. Origin is
+    -- this table — `closing pack verify` asks it whether these books ever
+    -- issued a dossier with that seal.
     seal CHAR(64) NOT NULL
         CONSTRAINT closing_pack_seal_is_sha256 CHECK (seal ~ '^[0-9a-f]{64}$'),
 
@@ -202,12 +217,9 @@ CREATE TABLE closing_packs (
 
 CREATE INDEX idx_closing_packs_period
     ON closing_packs (entity_id, fiscal_period_id, generated_at DESC);
+CREATE INDEX idx_closing_packs_seal ON closing_packs (seal);
 
 -- ── Append-only, with the two layers ──────────────────────────────────
--- The trigger is the one that holds: it reaches the schema owner, whom the
--- GRANT does not stop. The privilege is the cheap layer, and it is restored
--- by `rls-policies.sql` on every migrate run, which is why the table name has
--- to be in its `append_only` array too.
 
 CREATE OR REPLACE FUNCTION public.closing_packs_append_only() RETURNS trigger
 LANGUAGE plpgsql
@@ -222,7 +234,7 @@ END
 $fn$;
 
 COMMENT ON FUNCTION public.closing_packs_append_only() IS
-  'Rejects UPDATE and DELETE on closing_packs. Reaches the schema owner too, whom table privileges do not stop.';
+  'Rejects UPDATE, DELETE and TRUNCATE on closing_packs. Reaches the schema owner too, whom table privileges do not stop.';
 
 DROP TRIGGER IF EXISTS closing_packs_append_only ON public.closing_packs;
 
@@ -248,10 +260,10 @@ END
 $privileges$;
 
 COMMENT ON TABLE closing_runs IS
-  'One attempt at conducting a period close. Resumable: at most one row per (entity, period) is in a resumable state, which is what --resume resolves without asking.';
+  'One run of the close conductor over a period. At most one row per (entity, period) is resumable; concurrent calls are kept apart by an advisory lock.';
 COMMENT ON TABLE closing_run_steps IS
-  'What the conductor did, one row per step. The UNIQUE (run_id, step_key) is the fast path of the conductor idempotency; the engines keep their own guards.';
+  'What the conductor did, one row per step per run, accumulated across attempts. History, never a guard: the engines keep their own.';
 COMMENT ON TABLE closing_packs IS
-  'The dossier as it was handed over, with the SHA-256 of its sealed body. Append-only: a correction is a new dossier, never a rewrite of the old one.';
+  'The dossier as it was handed over, with the SHA-256 of its sealed body. Append-only, and the registry that tells an issued seal from a forged one.';
 COMMENT ON COLUMN closing_packs.seal IS
-  'SHA-256 of the canonical form of the sealed body — figures, criteria and the as-of date; never the clock, or no third party could reproduce it.';
+  'Unkeyed SHA-256 of the canonical sealed body — figures, identity, criteria and the as-of date; never the clock, or no third party could reproduce it.';

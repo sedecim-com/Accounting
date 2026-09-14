@@ -56,9 +56,12 @@ entity is resolved, its tenant becomes the context automatically.
   `fiscal_credential_access_log` and `closing_packs` (the sealed close
   dossier) —, where UPDATE, DELETE and TRUNCATE are revoked and a trigger
   refuses them anyway, reaching the schema owner too. A correction there is a
-  new row, never a rewrite. `src/database/rls-policies.sql` re-applies both
-  layers after every migration, so the list lives there and in
-  `scripts/provision-roles.sql`, and a criterion fails if the two diverge.
+  new row, never a rewrite. The two layers live in different places: the
+  trigger is created by the table's migration and nothing re-creates it if
+  someone drops it; the privileges are re-applied by
+  `src/database/rls-policies.sql` after every `npm run migrate` and by
+  `scripts/provision-roles.sql` when roles are re-provisioned, and a criterion
+  fails if those two lists and the triggers stop agreeing.
 - `mnemosine_owner` — schema owner, used ONLY by migrations via
   `MIGRATION_DATABASE_URL` (falls back to `DATABASE_URL` if unset).
 - `mnemosine_auditor` — the read-only third principal, for an external auditor:

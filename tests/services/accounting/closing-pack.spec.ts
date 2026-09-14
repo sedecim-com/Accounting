@@ -4,7 +4,9 @@ import {
   differences,
   parseClosingPack,
   sealOf,
+  verdictFindings,
   CLOSING_PACK_SCHEMA_VERSION,
+  type PackVerdict,
   type SealedBody,
 } from '../../../src/services/accounting/closing-pack.js';
 
@@ -26,9 +28,9 @@ import {
 
 const CUERPO: SealedBody = {
   schema_version: CLOSING_PACK_SCHEMA_VERSION,
-  entity: { id: 'e1', name: 'Acme SA de CV', tax_id: 'AAA010101AAA' },
+  entity: { id: '11111111-1111-4111-8111-111111111111', name: 'Acme SA de CV', tax_id: 'AAA010101AAA' },
   period: {
-    id: 'p1',
+    id: '22222222-2222-4222-8222-222222222222',
     name: 'July 2026',
     start_date: '2026-07-01',
     end_date: '2026-07-31',
@@ -120,42 +122,113 @@ describe('sealOf', () => {
 });
 
 describe('differences', () => {
+  const cuenta = (code: string, debit: string) => ({
+    account_code: code,
+    account_name: `Cuenta ${code}`,
+    account_type: 'asset',
+    debit,
+    credit: '0.0000',
+    balance: debit,
+  });
+
   it('no encuentra ninguna entre dos cuerpos iguales', () => {
     expect(differences(CUERPO, structuredClone(CUERPO))).toEqual([]);
   });
 
-  it('nombra la RUTA de la cifra que se movió, no sólo que algo se movió', () => {
+  it('nombra la RUTA de la cifra que se movió, y la clasifica como cifra', () => {
     const movido = structuredClone(CUERPO);
     movido.figures.totals.debit = '999.0000';
-    const d = differences(CUERPO, movido);
-    expect(d).toEqual([
-      { path: 'figures.totals.debit', expected: '1000.0000', actual: '999.0000' },
+    expect(differences(CUERPO, movido)).toEqual([
+      { kind: 'figure', path: 'figures.totals.debit', expected: '1000.0000', actual: '999.0000' },
     ]);
   });
 
-  it('acusa una cuenta que desapareció del mayor', () => {
-    const sinCuenta = structuredClone(CUERPO);
-    sinCuenta.figures.trial_balance = [];
-    const d = differences(CUERPO, sinCuenta);
+  it('compara la balanza POR CÓDIGO: una cuenta de más en medio no acusa a las que la siguen', () => {
+    // El caso que la revisión adversaria construyó: la subcuenta 1105 aparece
+    // ENTRE 1100 y 1110. Por posición, 1110 se comparaba con 1105, 1120 con
+    // 1110, y así hasta el final: todo el mayor «se movía» sin haberse movido.
+    const antes = structuredClone(CUERPO);
+    antes.figures.trial_balance = [cuenta('1100', '10.0000'), cuenta('1110', '20.0000'), cuenta('1120', '30.0000')];
+    const despues = structuredClone(antes);
+    despues.figures.trial_balance.splice(1, 0, cuenta('1105', '5.0000'));
+    const d = differences(antes, despues);
     expect(d).toHaveLength(1);
-    expect(d[0].path).toBe('figures.trial_balance[0]');
-    expect(d[0].actual).toBe('(absent)');
+    expect(d[0]).toMatchObject({ kind: 'figure', path: 'figures.trial_balance[1105]', expected: '(absent)' });
+    expect(d[0].actual).toContain('"account_code":"1105"');
   });
 
-  it('acusa una cuenta que apareció después de sellar', () => {
-    const conCuenta = structuredClone(CUERPO);
-    conCuenta.figures.trial_balance.push({
-      account_code: '1120',
-      account_name: 'Clientes',
-      account_type: 'asset',
-      debit: '10.0000',
-      credit: '0.0000',
-      balance: '10.0000',
-    });
-    const d = differences(CUERPO, conCuenta);
+  it('una cuenta que desaparece se acusa por su código', () => {
+    const antes = structuredClone(CUERPO);
+    antes.figures.trial_balance = [cuenta('1100', '10.0000'), cuenta('1110', '20.0000')];
+    const despues = structuredClone(antes);
+    despues.figures.trial_balance = [cuenta('1110', '20.0000')];
+    const d = differences(antes, despues);
     expect(d).toHaveLength(1);
-    expect(d[0].path).toBe('figures.trial_balance[1]');
-    expect(d[0].expected).toBe('(absent)');
+    expect(d[0]).toMatchObject({ kind: 'figure', path: 'figures.trial_balance[1100]', actual: '(absent)' });
+  });
+
+  it('un centavo en UNA cuenta se reporta en esa cuenta y en ninguna otra', () => {
+    const antes = structuredClone(CUERPO);
+    antes.figures.trial_balance = [cuenta('1100', '10.0000'), cuenta('1110', '20.0000')];
+    const despues = structuredClone(antes);
+    despues.figures.trial_balance[1].debit = '20.0100';
+    expect(differences(antes, despues)).toEqual([
+      { kind: 'figure', path: 'figures.trial_balance[1110].debit', expected: '20.0000', actual: '20.0100' },
+    ]);
+  });
+
+  it('un renombre de la entidad es IDENTIDAD, no cifra: el mayor no se movió', () => {
+    const renombrado = structuredClone(CUERPO);
+    renombrado.entity.name = 'Acme Holding SA de CV';
+    expect(differences(CUERPO, renombrado)).toEqual([
+      { kind: 'identity', path: 'entity.name', expected: 'Acme SA de CV', actual: 'Acme Holding SA de CV' },
+    ]);
+  });
+
+  it('un panel movido es CRITERIO, no cifra', () => {
+    const otroPanel = structuredClone(CUERPO);
+    otroPanel.criteria.informes_asientos_de_cierre = 'excluir';
+    expect(differences(CUERPO, otroPanel)).toEqual([
+      { kind: 'criteria', path: 'criteria.informes_asientos_de_cierre', expected: 'incluir', actual: 'excluir' },
+    ]);
+  });
+});
+
+describe('verdictFindings', () => {
+  const limpio: PackVerdict = {
+    sealIntact: true,
+    issued: true,
+    issuedAt: '2026-08-01 00:00:00+00',
+    envelopeMatches: true,
+    figuresReproduce: true,
+    identityUnchanged: true,
+    criteriaUnchanged: true,
+    expectedSeal: 'a'.repeat(64),
+    recomputedSeal: 'a'.repeat(64),
+    differences: [],
+  };
+
+  it('un veredicto limpio no tiene hallazgos', () => {
+    expect(verdictFindings(limpio)).toEqual({ blocking: 0, warning: 0 });
+  });
+
+  it('un archivo editado y vuelto a sellar concuerda consigo mismo, pero no fue emitido: BLOQUEA', () => {
+    expect(verdictFindings({ ...limpio, issued: false, envelopeMatches: false }).blocking).toBe(1);
+  });
+
+  it('una cifra movida bloquea; un renombre o un panel movido sólo avisan', () => {
+    expect(verdictFindings({ ...limpio, figuresReproduce: false })).toEqual({ blocking: 1, warning: 0 });
+    expect(verdictFindings({ ...limpio, identityUnchanged: false })).toEqual({ blocking: 0, warning: 1 });
+    expect(verdictFindings({ ...limpio, criteriaUnchanged: false })).toEqual({ blocking: 0, warning: 1 });
+  });
+
+  it('un sobre reescrito sobre un expediente emitido avisa; sin emisión no hay sobre con qué comparar', () => {
+    expect(verdictFindings({ ...limpio, envelopeMatches: false })).toEqual({ blocking: 0, warning: 1 });
+    expect(verdictFindings({ ...limpio, issued: false, envelopeMatches: false }).warning).toBe(0);
+  });
+
+  it('un sello roto bloquea', () => {
+    expect(verdictFindings({ ...limpio, sealIntact: false }).blocking).toBe(1);
   });
 });
 
@@ -192,6 +265,18 @@ describe('parseClosingPack', () => {
   it('rechaza un sello que no es un SHA-256', () => {
     const malSello = { ...valido, seal: 'abc' };
     expect(() => parseClosingPack(JSON.stringify(malSello))).toThrow(/not a SHA-256/);
+  });
+
+  it('rechaza un id que no es UUID antes de que llegue a Postgres como error de conversión', () => {
+    const noUuid = { ...valido, sealed: { ...CUERPO, period: { ...CUERPO.period, id: 'julio' } } };
+    expect(() => parseClosingPack(JSON.stringify(noUuid))).toThrow(/not a UUID/);
+  });
+
+  it('rechaza un expediente sin cifras o sin sobre', () => {
+    const sinCifras = { ...valido, sealed: { ...CUERPO, figures: undefined } };
+    expect(() => parseClosingPack(JSON.stringify(sinCifras))).toThrow(/no figures/);
+    const sinSobre = { ...valido, envelope: undefined };
+    expect(() => parseClosingPack(JSON.stringify(sinSobre))).toThrow(/no envelope/);
   });
 
   it('rechaza un cuerpo sellado que no nombra entidad ni periodo', () => {

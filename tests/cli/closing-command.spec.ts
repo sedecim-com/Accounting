@@ -4,12 +4,15 @@ import {
   registerClosingCommand,
   conteoParaSalida,
   renderCasillas,
+  cierreDeLaCorrida,
   renderPasos,
   salidaDeLaCorrida,
   type ClosingCommandDeps,
 } from '../../src/cli/closing-command.js';
+import { ValidationError } from '../../src/utils/errors.js';
 import {
   CLOSING_STEPS,
+  ClosingRunStateError,
   isClosingStep,
   type ClosingRunOutcome,
   type ClosingStep,
@@ -429,7 +432,8 @@ describe('closing explain · la lente, no el veredicto', () => {
 describe('A6 · el código de salida de la corrida', () => {
   const paso = (
     step: ClosingStep,
-    status: ClosingStepOutcome['status']
+    status: ClosingStepOutcome['status'],
+    cause?: unknown
   ): ClosingStepOutcome => ({
     step,
     ordinal: CLOSING_STEPS.indexOf(step) + 1,
@@ -438,7 +442,8 @@ describe('A6 · el código de salida de la corrida', () => {
     amount: null,
     journalEntryIds: [],
     detail: '',
-    resumed: false,
+    priorAttempt: false,
+    ...(cause !== undefined ? { cause } : {}),
   });
 
   const corrida = (steps: ClosingStepOutcome[]): ClosingRunOutcome => ({
@@ -452,51 +457,90 @@ describe('A6 · el código de salida de la corrida', () => {
   });
 
   it('limpio sale 0', () => {
-    expect(
-      salidaDeLaCorrida(corrida(CLOSING_STEPS.map((s) => paso(s, 'done'))))
-    ).toBe(ExitCode.OK);
+    expect(salidaDeLaCorrida(corrida(CLOSING_STEPS.map((s) => paso(s, 'done'))))).toBe(ExitCode.OK);
   });
 
   it('un paso bloqueado es un hallazgo: sale 4, como toda verificación', () => {
     expect(
-      salidaDeLaCorrida(
-        corrida([paso('accrue-benefits', 'done'), paso('verify-checklist', 'blocked')])
-      )
+      salidaDeLaCorrida(corrida([paso('accrue-benefits', 'done'), paso('verify-checklist', 'blocked')]))
     ).toBe(ExitCode.VALIDATION);
   });
 
-  it('un paso que reventó sale 1, que no es lo mismo que un hallazgo', () => {
+  it('un motor que devolvió errores por renglón es un hallazgo de datos: 4, no el 1 genérico', () => {
+    expect(salidaDeLaCorrida(corrida([paso('amortize-prepaids', 'failed')]))).toBe(ExitCode.VALIDATION);
+  });
+
+  it('un motor que LANZÓ sale con el código que su error merece', () => {
+    // Un panel mal contestado es un 4 en `depreciation run`; aplanarlo a 1
+    // aquí le quitaba a un guion la manera de distinguirlo de un proceso caído.
     expect(
-      salidaDeLaCorrida(corrida([paso('amortize-prepaids', 'failed')]))
-    ).toBe(ExitCode.FAILURE);
+      salidaDeLaCorrida(corrida([paso('depreciate-assets', 'failed', new ValidationError('base_depreciacion inválida'))]))
+    ).toBe(ExitCode.VALIDATION);
+    expect(
+      salidaDeLaCorrida(corrida([paso('soft-close', 'failed', new ClosingRunStateError('X', 'estado'))]))
+    ).toBe(ExitCode.BLOCKED);
+    expect(salidaDeLaCorrida(corrida([paso('soft-close', 'failed', new Error('se cayó la conexión'))]))).toBe(
+      ExitCode.FAILURE
+    );
   });
 
   it('un paso omitido no es un hallazgo: un mes sin nada que devengar sale 0', () => {
-    expect(
-      salidaDeLaCorrida(corrida(CLOSING_STEPS.map((s) => paso(s, 'skipped'))))
-    ).toBe(ExitCode.OK);
+    expect(salidaDeLaCorrida(corrida(CLOSING_STEPS.map((s) => paso(s, 'skipped'))))).toBe(ExitCode.OK);
   });
 
   it('el ensayo contesta LO MISMO que la corrida ante la misma condición', () => {
-    // `pending` es el estado que sólo existe en el ensayo. Si un paso está
-    // bloqueado, el ensayo tiene que salir 4 igual que la corrida: es
-    // exactamente el defecto que `payroll accrue` pagó por tener.
-    const ensayo = corrida([
-      paso('accrue-benefits', 'pending'),
-      paso('verify-checklist', 'blocked'),
-    ]);
-    const real = corrida([
-      paso('accrue-benefits', 'done'),
-      paso('verify-checklist', 'blocked'),
-    ]);
+    const ensayo = corrida([paso('accrue-benefits', 'pending'), paso('verify-checklist', 'blocked')]);
+    const real = corrida([paso('accrue-benefits', 'done'), paso('verify-checklist', 'blocked')]);
     expect(salidaDeLaCorrida(ensayo)).toBe(salidaDeLaCorrida(real));
+  });
+});
+
+describe('A6 · la última línea dice lo que de verdad pasó', () => {
+  const base: ClosingRunOutcome = {
+    runId: 'R1',
+    entityId: 'E1',
+    periodId: 'P1',
+    periodName: 'July 2026',
+    status: 'completed',
+    steps: [],
+    haltedAtStep: null,
+  };
+
+  it('tras un ensayo NO manda a --resume: el ensayo no abrió ninguna corrida', () => {
+    const limpio = cierreDeLaCorrida({ ...base, status: 'previewed' });
+    expect(limpio).toMatch(/Nothing was written/);
+    expect(limpio).not.toMatch(/--resume/);
+    const bloqueado = cierreDeLaCorrida({ ...base, status: 'previewed', haltedAtStep: 'verify-checklist' });
+    expect(bloqueado).toMatch(/would block at verify-checklist/);
+    expect(bloqueado).not.toMatch(/--resume/);
+    const parado = cierreDeLaCorrida({ ...base, status: 'previewed', haltedAtStep: 'soft-close' }, 'soft-close');
+    expect(parado).toMatch(/would stop before soft-close/);
+  });
+
+  it('tras un --stop-at no hay causa que arreglar: se paró porque se pidió', () => {
+    const r = cierreDeLaCorrida({ ...base, status: 'stopped', haltedAtStep: 'soft-close' }, 'soft-close');
+    expect(r).toMatch(/Stopped before soft-close, as asked/);
+    expect(r).not.toMatch(/Fix the cause/);
+  });
+
+  it('bloqueado y fallido dicen dónde, y cómo continuar', () => {
+    expect(cierreDeLaCorrida({ ...base, status: 'blocked', haltedAtStep: 'verify-checklist' })).toMatch(
+      /Blocked at verify-checklist.*--resume/
+    );
+    expect(cierreDeLaCorrida({ ...base, status: 'failed', haltedAtStep: 'depreciate-assets' })).toMatch(
+      /Failed at depreciate-assets.*--resume/
+    );
+  });
+
+  it('completo manda a sellar el expediente de ESE periodo', () => {
+    expect(cierreDeLaCorrida(base)).toContain('closing pack generate "July 2026"');
   });
 });
 
 describe('A6 · renderPasos', () => {
   const c = { dim: (s: string) => s, red: (s: string) => `RED(${s})` };
 
-  it('marca lo hecho, señala lo bloqueado en rojo y dice qué se reanudó', () => {
+  it('marca lo hecho, señala lo bloqueado en rojo y dice qué ya había anotado otro intento', () => {
     const lineas = renderPasos(
       {
         runId: 'R1',
@@ -514,7 +558,7 @@ describe('A6 · renderPasos', () => {
             amount: '100.0000',
             journalEntryIds: ['J1'],
             detail: '2 accrued',
-            resumed: true,
+            priorAttempt: true,
           },
           {
             step: 'verify-checklist',
@@ -524,7 +568,7 @@ describe('A6 · renderPasos', () => {
             amount: null,
             journalEntryIds: [],
             detail: 'blocking: two drafts',
-            resumed: false,
+            priorAttempt: false,
           },
         ],
       },
@@ -532,19 +576,19 @@ describe('A6 · renderPasos', () => {
     );
     expect(lineas[0]).toContain('accrue-benefits');
     expect(lineas[0]).toContain('2 accrued');
-    expect(lineas[0]).toContain('already taken by this run');
+    expect(lineas[0]).toContain('also recorded by an earlier attempt');
     expect(lineas[1]).toMatch(/^RED\(/);
     expect(lineas[1]).toContain('blocking: two drafts');
+    expect(lineas[1]).not.toContain('earlier attempt');
   });
 });
 
 describe('A6 · el orden de los pasos es contrato', () => {
   it('es el único orden en que el cierre puede ocurrir', () => {
-    // Las tres corridas van ANTES del checklist porque el checklist pregunta
-    // por ellas (FA.DEPR_MISSING es una de sus casillas), y el checklist va
-    // antes del cierre porque el cierre se niega con una casilla bloqueante
-    // abierta. Escribirlo aquí es lo que impide que un reordenamiento
-    // "inofensivo" pase sin que nadie lo note.
+    // Los motores postean antes del checklist para que su veredicto describa
+    // el mes como se va a cerrar, y el checklist va antes del cierre suave que
+    // autoriza. Escribirlo aquí impide que un reordenamiento «inofensivo»
+    // pase sin que nadie lo note.
     expect([...CLOSING_STEPS]).toEqual([
       'accrue-benefits',
       'amortize-prepaids',

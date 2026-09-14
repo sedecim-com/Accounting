@@ -1,20 +1,25 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { query, enterTenant } from '../../src/database/connection.js';
+import { query, enterTenant, getClient } from '../../src/database/connection.js';
 import { crearInquilino, crearEntidadHermana, type Fixture } from './helpers/tenant-fixture.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { createJournalEntry } from '../../src/services/accounting/posting.js';
 import {
   conductClose,
+  describeOpenRun,
+  latestRunOf,
   openRunOf,
   CLOSING_STEPS,
+  ClosingRunStateError,
 } from '../../src/services/accounting/closing-conductor.js';
 import {
   buildClosingPack,
   deriveSealedBody,
+  latestClosedPeriodOf,
   parseClosingPack,
   sealOf,
   storeClosingPack,
+  verdictFindings,
   verifyClosingPack,
 } from '../../src/services/accounting/closing-pack.js';
 import type { AgentContext } from '../../src/ai/context.js';
@@ -25,28 +30,21 @@ import type { ClosablePeriod } from '../../src/ai/close-service.js';
  *
  * La tarjeta de A6 nace con su prueba de aceptación puesta: **el expediente
  * que entrega tiene que poder volver a correrse por un tercero y dar las
- * mismas cifras**. Esa frase no se comprueba con un mock — un arnés que
- * simula la consulta comprueba que el programa se acuerda de lo que dijo, no
- * que los libros lo sostengan —, así que todo lo de aquí abajo corre contra un
- * mayor de verdad.
+ * mismas cifras**. Esa frase no se comprueba con un mock, así que todo corre
+ * contra un mayor de verdad.
  *
- * Lo que estas pruebas tienen que demostrar:
+ * La primera versión de esta suite pasó entera y una revisión adversaria le
+ * encontró los huecos: una reanudación que cerraba sobre el checklist de ayer,
+ * una subcuenta vacía que rompía todos los expedientes anteriores, un archivo
+ * editado y vuelto a sellar que se daba por emitido, dos conductores sobre el
+ * mismo mes. Cada uno tiene aquí su prueba, escrita para fallar contra el
+ * código de entonces.
  *
- *   1. Que el conductor recorra los cinco pasos EN SU ORDEN y deje el periodo
- *      en cierre suave.
- *   2. Que correrlo dos veces no postee dos veces, y que lo ya hecho vuelva
- *      marcado como reanudado en vez de repetirse.
- *   3. Que `--stop-at` pare ANTES del paso nombrado, que es lo que el registro
- *      de comandos define para todo orquestador del sistema.
- *   4. Que una casilla bloqueante DETENGA el cierre, y que el periodo siga
- *      abierto después.
- *   5. Que dos expedientes del mismo mes, sellados con minutos de diferencia,
- *      lleven EL MISMO SELLO — que es la prueba de aceptación, escrita como
- *      una igualdad.
- *   6. Que un peso nuevo dentro del periodo rompa la comprobación, y que la
- *      RUTA de la diferencia nombre la cuenta.
- *   7. Que editar el archivo se note aunque las cifras no se toquen.
- *   8. Que el expediente sea de sólo agregar en la base, no sólo por convenio.
+ * EL CONTEXTO DEL INQUILINO SE FIJA EN CADA PRUEBA que crea su propio
+ * inquilino: `enterTenant` es `AsyncLocalStorage.enterWith`, y llamado dentro
+ * de una función awaitada no vuelve al contexto del llamador. Sin fijarlo, la
+ * prueba corre bajo el inquilino del `beforeAll` y pasa por el motivo
+ * equivocado —la suite es superusuario y RLS no la corrige—.
  */
 
 let f: Fixture;
@@ -79,6 +77,13 @@ async function periodoDe(x: Fixture, mes: number): Promise<ClosablePeriod> {
   return r.rows[0];
 }
 
+/** Un inquilino nuevo con su panel sembrado y su contexto FIJADO aquí. */
+async function inquilinoPropio(nombre: string): Promise<{ g: Fixture; ctxG: AgentContext }> {
+  const g = await crearInquilino(nombre);
+  await seedPolicies({ tenantId: g.tenantId, entityId: g.entityId });
+  return { g, ctxG: contextoDe(g, nombre) };
+}
+
 /** Un asiento cuadrado y posteado dentro del mes, para que haya cifras. */
 async function asientoEn(x: Fixture, fecha: string, importe: string): Promise<string> {
   const e = await createJournalEntry(
@@ -96,19 +101,11 @@ async function asientoEn(x: Fixture, fecha: string, importe: string): Promise<st
   return e.id;
 }
 
-beforeAll(async () => {
-  f = await crearInquilino('Conductor del cierre');
-  await seedPolicies({ tenantId: f.tenantId, entityId: f.entityId });
-  hermana = await crearEntidadHermana(f, 'Hermana del conductor');
-  ctx = contextoDe(f, 'Conductor del cierre');
-
-  // Un activo fijo, para que el paso de depreciación tenga algo que hacer y
-  // el mes no salga entero en «nada que hacer»: un conductor probado sólo
-  // sobre un mes vacío no demuestra que conduzca.
+async function activoEn(x: Fixture, codigo: string, alta: string): Promise<void> {
   const categoria = uuidv4();
   await query(
-    `INSERT INTO asset_categories (id, entity_id, name) VALUES ($1, $2, 'Equipo de cómputo')`,
-    [categoria, f.entityId]
+    `INSERT INTO asset_categories (id, entity_id, name) VALUES ($1, $2, $3)`,
+    [categoria, x.entityId, `Equipo ${codigo}`]
   );
   await query(
     `INSERT INTO fixed_assets (id, entity_id, asset_number, asset_name, category_id,
@@ -116,18 +113,31 @@ beforeAll(async () => {
        depreciation_method, depreciation_start_date, current_book_value,
        asset_account_id, accumulated_depreciation_account_id, depreciation_expense_account_id,
        status, created_by)
-     VALUES ($1, $2, 'AF-001', 'Laptop', $3,
-       '2026-01-15', '36000.0000', '0', 3, 36,
-       'straight_line', '2026-01-15', '36000.0000',
-       $4, $5, $6, 'active', $7)`,
-    [uuidv4(), f.entityId, categoria, f.cuentas['1210'], f.cuentas['1290'], f.cuentas['6140'], f.userId]
+     VALUES ($1, $2, $3, 'Laptop', $4,
+       $5, '36000.0000', '0', 3, 36,
+       'straight_line', $5, '36000.0000',
+       $6, $7, $8, 'active', $9)`,
+    [uuidv4(), x.entityId, codigo, categoria, alta, x.cuentas['1210'], x.cuentas['1290'], x.cuentas['6140'], x.userId]
   );
+}
 
+async function estadoDelPeriodo(periodId: string): Promise<string> {
+  const r = await query<{ status: string }>('SELECT status FROM fiscal_periods WHERE id = $1', [periodId]);
+  return r.rows[0].status;
+}
+
+beforeAll(async () => {
+  f = await crearInquilino('Conductor del cierre');
+  await seedPolicies({ tenantId: f.tenantId, entityId: f.entityId });
+  hermana = await crearEntidadHermana(f, 'Hermana del conductor');
+  ctx = contextoDe(f, 'Conductor del cierre');
+  await activoEn(f, 'AF-001', '2026-01-15');
   await asientoEn(f, '2026-07-10', '1000.0000');
 });
 
 describe('A6 · el conductor', () => {
   it('recorre los cinco pasos en su orden y deja el periodo en cierre suave', async () => {
+    enterTenant(f.tenantId);
     const julio = await periodoDe(f, JULIO);
     const r = await conductClose(ctx, julio, { userId: f.userId });
 
@@ -135,107 +145,138 @@ describe('A6 · el conductor', () => {
     expect(r.steps.map((p) => p.step)).toEqual([...CLOSING_STEPS]);
     expect(r.haltedAtStep).toBeNull();
 
-    // El paso de depreciación posteó de verdad: 36 000 / 36 meses = 1 000.
+    // El paso de depreciación posteó de verdad, y su registro nombra el asiento
+    // LEYÉNDOLO del mayor, no de lo que el motor devolvió.
     const dep = r.steps.find((p) => p.step === 'depreciate-assets');
     expect(dep?.status).toBe('done');
     expect(dep?.processed).toBe(1);
+    expect(dep?.journalEntryIds).toHaveLength(1);
 
-    const estado = await query<{ status: string }>(
-      'SELECT status FROM fiscal_periods WHERE id = $1', [julio.id]
-    );
-    expect(estado.rows[0].status).toBe('soft_close');
+    expect(await estadoDelPeriodo(julio.id)).toBe('soft_close');
 
-    // Y lo que hizo quedó escrito, paso por paso y en orden.
-    const pasos = await query<{ step_key: string; ordinal: number; status: string }>(
-      `SELECT step_key, ordinal, status FROM closing_run_steps
-        WHERE run_id = $1 ORDER BY ordinal`, [r.runId]
+    const pasos = await query<{ step_key: string }>(
+      `SELECT step_key FROM closing_run_steps WHERE run_id = $1 ORDER BY ordinal`,
+      [r.runId]
     );
     expect(pasos.rows.map((p) => p.step_key)).toEqual([...CLOSING_STEPS]);
   });
 
-  it('correrlo otra vez NO vuelve a postear: lo hecho vuelve marcado como reanudado', async () => {
+  it('correr otra vez un mes ya conducido NO vuelve a postear', async () => {
+    enterTenant(f.tenantId);
     const agosto = await periodoDe(f, AGOSTO);
-    const primera = await conductClose(ctx, agosto, { userId: f.userId });
-    expect(primera.status).toBe('completed');
+    expect((await conductClose(ctx, agosto, { userId: f.userId })).status).toBe('completed');
 
-    const lineasTrasLaPrimera = await query<{ n: string }>(
-      `SELECT COUNT(*)::text AS n FROM journal_entry_lines jel
-         JOIN journal_entries je ON je.id = jel.journal_entry_id
-        WHERE je.entity_id = $1 AND je.fiscal_period_id = $2`,
-      [f.entityId, agosto.id]
-    );
+    const lineas = async () =>
+      (
+        await query<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM journal_entry_lines jel
+             JOIN journal_entries je ON je.id = jel.journal_entry_id
+            WHERE je.entity_id = $1 AND je.fiscal_period_id = $2`,
+          [f.entityId, agosto.id]
+        )
+      ).rows[0].n;
+    const antes = await lineas();
 
-    // La corrida se completó, así que la segunda abre una NUEVA: lo que no se
-    // repite es el trabajo, y de eso se encargan los motores y el estado del
-    // periodo, no la memoria del conductor.
     const segunda = await conductClose(ctx, await periodoDe(f, AGOSTO), { userId: f.userId });
     expect(segunda.steps.find((p) => p.step === 'depreciate-assets')?.status).toBe('skipped');
     expect(segunda.steps.find((p) => p.step === 'soft-close')?.detail).toContain('already');
-
-    const lineasTrasLaSegunda = await query<{ n: string }>(
-      `SELECT COUNT(*)::text AS n FROM journal_entry_lines jel
-         JOIN journal_entries je ON je.id = jel.journal_entry_id
-        WHERE je.entity_id = $1 AND je.fiscal_period_id = $2`,
-      [f.entityId, agosto.id]
-    );
-    expect(lineasTrasLaSegunda.rows[0].n).toBe(lineasTrasLaPrimera.rows[0].n);
+    expect(await lineas()).toBe(antes);
   });
 
-  it('--stop-at para ANTES del paso nombrado y deja el periodo abierto', async () => {
-    const g = await crearInquilino('Cierre a medias');
-    await seedPolicies({ tenantId: g.tenantId, entityId: g.entityId });
-    // EL CONTEXTO DEL INQUILINO SE FIJA AQUÍ, y no basta con que `crearInquilino`
-    // lo haya hecho: `enterTenant` es `AsyncLocalStorage.enterWith`, y llamado
-    // dentro de una función AWAITADA no vuelve al contexto del llamador. Sin
-    // esta línea la prueba corre bajo el inquilino del `beforeAll` y pasa por
-    // el motivo equivocado — sobre todo aquí, donde la suite es superusuario y
-    // RLS no la corrige.
+  it('--stop-at para ANTES del paso nombrado; --resume lo termina en la MISMA corrida', async () => {
+    const { g, ctxG } = await inquilinoPropio('Cierre a medias');
     enterTenant(g.tenantId);
-    const ctxG = contextoDe(g, 'Cierre a medias');
     const septiembre = await periodoDe(g, 9);
 
-    const r = await conductClose(ctxG, septiembre, {
-      userId: g.userId,
-      stopAt: 'soft-close',
-    });
-
+    const r = await conductClose(ctxG, septiembre, { userId: g.userId, stopAt: 'soft-close' });
     expect(r.status).toBe('stopped');
     expect(r.haltedAtStep).toBe('soft-close');
     expect(r.steps.map((p) => p.step)).not.toContain('soft-close');
-    expect(r.steps.map((p) => p.step)).toContain('verify-checklist');
+    expect(await estadoDelPeriodo(septiembre.id)).toBe('open');
 
-    const estado = await query<{ status: string }>(
-      'SELECT status FROM fiscal_periods WHERE id = $1', [septiembre.id]
-    );
-    expect(estado.rows[0].status).toBe('open');
-
-    // Y la corrida queda ABIERTA, que es lo que hace reanudable el mes.
     const abierta = await openRunOf(g.entityId, septiembre.id);
     expect(abierta?.status).toBe('stopped');
     expect(abierta?.halted_at_step).toBe('soft-close');
 
-    // Reanudarla la termina, y SIN repetir lo ya hecho.
-    const seguir = await conductClose(ctxG, await periodoDe(g, 9), { userId: g.userId });
+    const seguir = await conductClose(ctxG, await periodoDe(g, 9), { userId: g.userId, resume: true });
     expect(seguir.status).toBe('completed');
-    expect(seguir.steps.find((p) => p.step === 'verify-checklist')?.resumed).toBe(true);
+    expect(seguir.runId).toBe(r.runId);
+    // El checklist se VOLVIÓ A EVALUAR: el paso consta de un intento anterior,
+    // y aun así se corrió otra vez en éste.
+    expect(seguir.steps.find((p) => p.step === 'verify-checklist')?.priorAttempt).toBe(true);
     expect(await openRunOf(g.entityId, septiembre.id)).toBeNull();
   });
 
-  it('una casilla bloqueante detiene el cierre, y el periodo sigue abierto', async () => {
-    const g = await crearInquilino('Cierre bloqueado');
-    await seedPolicies({ tenantId: g.tenantId, entityId: g.entityId });
-    // EL CONTEXTO DEL INQUILINO SE FIJA AQUÍ, y no basta con que `crearInquilino`
-    // lo haya hecho: `enterTenant` es `AsyncLocalStorage.enterWith`, y llamado
-    // dentro de una función AWAITADA no vuelve al contexto del llamador. Sin
-    // esta línea la prueba corre bajo el inquilino del `beforeAll` y pasa por
-    // el motivo equivocado — sobre todo aquí, donde la suite es superusuario y
-    // RLS no la corrige.
+  it('LA REANUDACIÓN NO CIERRA SOBRE EL CHECKLIST DE AYER: un borrador llegado después la detiene', async () => {
+    // El caso que la revisión construyó paso a paso. El checklist quedó `done`
+    // en el primer intento; al día siguiente llega un borrador de IA fechado
+    // dentro del mes, y `softClosePeriod` NO cuenta borradores de IA. Si la
+    // reanudación se fiara del veredicto anotado, el mes se cerraría con él.
+    const { g, ctxG } = await inquilinoPropio('Checklist caducado');
     enterTenant(g.tenantId);
-    const ctxG = contextoDe(g, 'Cierre bloqueado');
+    const noviembre = await periodoDe(g, 11);
+
+    const r = await conductClose(ctxG, noviembre, { userId: g.userId, stopAt: 'soft-close' });
+    expect(r.steps.find((p) => p.step === 'verify-checklist')?.status).toBe('done');
+
+    await query(
+      `INSERT INTO ai_drafts (id, tenant_id, entity_id, draft_type, status, payload,
+         ai_confidence, ai_reasoning, ai_model)
+       VALUES ($1, $2, $3, 'journal_entry', 'pending_review',
+         '{"entry_date":"2026-11-20","lines":[]}'::jsonb, 0.9, 'llegó después', 'claude-test')`,
+      [uuidv4(), g.tenantId, g.entityId]
+    );
+
+    const seguir = await conductClose(ctxG, await periodoDe(g, 11), { userId: g.userId, resume: true });
+    expect(seguir.status).toBe('blocked');
+    expect(seguir.haltedAtStep).toBe('verify-checklist');
+    expect(seguir.steps.find((p) => p.step === 'verify-checklist')?.detail).toMatch(/AI draft/);
+    expect(await estadoDelPeriodo(noviembre.id)).toBe('open');
+  });
+
+  it('un paso que la primera vez no tenía qué hacer se corre al reanudar, y un `done` no se degrada', async () => {
+    // El segundo caso de la revisión: el activo se da de alta DESPUÉS del
+    // primer intento. Si «omitido» fuera permanente, el mes se cerraría sin
+    // depreciar y ninguna casilla lo impediría (la de depreciación avisa, no
+    // bloquea).
+    const { g, ctxG } = await inquilinoPropio('Activo tardío');
+    enterTenant(g.tenantId);
+    const marzo = await periodoDe(g, 3);
+
+    const primero = await conductClose(ctxG, marzo, { userId: g.userId, stopAt: 'soft-close' });
+    expect(primero.steps.find((p) => p.step === 'depreciate-assets')?.status).toBe('skipped');
+
+    await activoEn(g, 'AF-TARDE', '2026-01-15');
+
+    const segundo = await conductClose(ctxG, await periodoDe(g, 3), {
+      userId: g.userId,
+      resume: true,
+      stopAt: 'soft-close',
+    });
+    const dep = segundo.steps.find((p) => p.step === 'depreciate-assets');
+    expect(dep?.status).toBe('done');
+    expect(dep?.processed).toBe(1);
+    expect(dep?.journalEntryIds).toHaveLength(1);
+
+    // Tercer intento: el motor ya no tiene nada que hacer. El registro NO
+    // pasa a «omitido», no pierde el asiento ni lo que procesó.
+    const tercero = await conductClose(ctxG, await periodoDe(g, 3), {
+      userId: g.userId,
+      resume: true,
+      stopAt: 'soft-close',
+    });
+    const dep3 = tercero.steps.find((p) => p.step === 'depreciate-assets');
+    expect(dep3?.status).toBe('done');
+    expect(dep3?.processed).toBe(1);
+    expect(dep3?.journalEntryIds).toEqual(dep?.journalEntryIds);
+  });
+
+  it('una casilla bloqueante detiene el cierre, y el periodo sigue abierto', async () => {
+    const { g, ctxG } = await inquilinoPropio('Cierre bloqueado');
+    enterTenant(g.tenantId);
     const octubre = await periodoDe(g, 10);
 
-    // Un asiento SIN postear dentro del mes: la casilla «entries-posted» es
-    // bloqueante y el cierre tiene que negarse.
+    // Un asiento SIN postear dentro del mes: «entries-posted» es bloqueante.
     await createJournalEntry(
       g.entityId,
       new Date('2026-10-10'),
@@ -251,80 +292,138 @@ describe('A6 · el conductor', () => {
     const r = await conductClose(ctxG, octubre, { userId: g.userId });
     expect(r.status).toBe('blocked');
     expect(r.haltedAtStep).toBe('verify-checklist');
-    expect(r.steps.find((p) => p.step === 'verify-checklist')?.detail).toMatch(/blocking/);
     expect(r.steps.map((p) => p.step)).not.toContain('soft-close');
-
-    const estado = await query<{ status: string }>(
-      'SELECT status FROM fiscal_periods WHERE id = $1', [octubre.id]
-    );
-    expect(estado.rows[0].status).toBe('open');
-
-    // La corrida bloqueada es reanudable, y el paso bloqueado se REPITE al
-    // reanudar: lo contrario dejaría el mes cerrándose sobre una verificación
-    // que ya no vale.
-    const abierta = await openRunOf(g.entityId, octubre.id);
-    expect(abierta?.status).toBe('blocked');
+    expect(await estadoDelPeriodo(octubre.id)).toBe('open');
+    expect((await openRunOf(g.entityId, octubre.id))?.status).toBe('blocked');
   });
 
-  it('el ensayo no escribe nada, y CONTESTA de verdad la única pregunta gratis', async () => {
-    const g = await crearInquilino('Ensayo del conductor');
-    await seedPolicies({ tenantId: g.tenantId, entityId: g.entityId });
-    // EL CONTEXTO DEL INQUILINO SE FIJA AQUÍ, y no basta con que `crearInquilino`
-    // lo haya hecho: `enterTenant` es `AsyncLocalStorage.enterWith`, y llamado
-    // dentro de una función AWAITADA no vuelve al contexto del llamador. Sin
-    // esta línea la prueba corre bajo el inquilino del `beforeAll` y pasa por
-    // el motivo equivocado — sobre todo aquí, donde la suite es superusuario y
-    // RLS no la corrige.
+  it('el conductor se niega a continuar sin --resume, y a reanudar lo que no existe', async () => {
+    const { g, ctxG } = await inquilinoPropio('Corrida ajena');
     enterTenant(g.tenantId);
-    const ctxG = contextoDe(g, 'Ensayo del conductor');
+    const mayo = await periodoDe(g, 5);
+
+    await expect(conductClose(ctxG, mayo, { userId: g.userId, resume: true })).rejects.toMatchObject({
+      code: 'CLOSING_RUN_NOTHING_TO_RESUME',
+      statusCode: 423,
+    });
+
+    await conductClose(ctxG, mayo, { userId: g.userId, stopAt: 'verify-checklist' });
+    // La regla vive en el conductor: quien lo llame sin pasar por la hoja
+    // tampoco continúa en silencio la corrida de otro.
+    const negativa = conductClose(ctxG, await periodoDe(g, 5), { userId: g.userId });
+    await expect(negativa).rejects.toBeInstanceOf(ClosingRunStateError);
+    await expect(negativa).rejects.toMatchObject({ code: 'CLOSING_RUN_OPEN' });
+  });
+
+  it('dos conductores sobre el mismo periodo: el segundo se niega mientras el primero lo tiene', async () => {
+    const { g, ctxG } = await inquilinoPropio('Dos conductores');
+    enterTenant(g.tenantId);
+    const junio = await periodoDe(g, 6);
+
+    // Otra sesión toma el candado exactamente como lo toma el conductor.
+    const otro = await getClient();
+    try {
+      await otro.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [
+        `closing-run:${g.entityId}:${junio.id}`,
+      ]);
+      await expect(conductClose(ctxG, junio, { userId: g.userId })).rejects.toMatchObject({
+        code: 'CLOSING_RUN_IN_PROGRESS',
+        statusCode: 423,
+      });
+      // Y la negativa no abrió ninguna corrida.
+      expect(await openRunOf(g.entityId, junio.id)).toBeNull();
+    } finally {
+      await otro.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [
+        `closing-run:${g.entityId}:${junio.id}`,
+      ]);
+      otro.release();
+    }
+    expect((await conductClose(ctxG, await periodoDe(g, 6), { userId: g.userId })).status).toBe('completed');
+  });
+
+  it('el ensayo no escribe nada, y evalúa el checklist aunque haya un intento anterior', async () => {
+    const { g, ctxG } = await inquilinoPropio('Ensayo del conductor');
+    enterTenant(g.tenantId);
     const febrero = await periodoDe(g, 2);
 
     const r = await conductClose(ctxG, febrero, { userId: g.userId, dryRun: true });
-
     expect(r.status).toBe('previewed');
     expect(r.runId).toBeNull();
-    // Los pasos que escribirían dicen que están PENDIENTES; el checklist, que
-    // es de lectura, se evalúa de verdad — un ensayo que contestara «lo haría»
-    // sobre lo único que puede preguntarse gratis sería la clase de comando
-    // que esta casa llama peor que ausente.
     expect(r.steps.find((p) => p.step === 'accrue-benefits')?.status).toBe('pending');
     expect(r.steps.find((p) => p.step === 'soft-close')?.status).toBe('pending');
     const checklist = r.steps.find((p) => p.step === 'verify-checklist');
     expect(checklist?.status).toBe('done');
     expect(checklist?.processed).toBeGreaterThan(0);
 
-    // Y no escribió NADA: ni corrida, ni paso, ni estado del periodo.
     const corridas = await query<{ n: string }>(
-      'SELECT COUNT(*)::text AS n FROM closing_runs WHERE entity_id = $1', [g.entityId]
+      'SELECT COUNT(*)::text AS n FROM closing_runs WHERE entity_id = $1',
+      [g.entityId]
     );
     expect(corridas.rows[0].n).toBe('0');
-    const estado = await query<{ status: string }>(
-      'SELECT status FROM fiscal_periods WHERE id = $1', [febrero.id]
-    );
-    expect(estado.rows[0].status).toBe('open');
+    expect(await estadoDelPeriodo(febrero.id)).toBe('open');
   });
 
-  it('un motor que revienta queda escrito, y la corrida se puede reanudar tras arreglarlo', async () => {
-    const g = await crearInquilino('Motor que revienta');
-    await seedPolicies({ tenantId: g.tenantId, entityId: g.entityId });
-    // EL CONTEXTO DEL INQUILINO SE FIJA AQUÍ, y no basta con que `crearInquilino`
-    // lo haya hecho: `enterTenant` es `AsyncLocalStorage.enterWith`, y llamado
-    // dentro de una función AWAITADA no vuelve al contexto del llamador. Sin
-    // esta línea la prueba corre bajo el inquilino del `beforeAll` y pasa por
-    // el motivo equivocado — sobre todo aquí, donde la suite es superusuario y
-    // RLS no la corrige.
+  it('el ensayo dice dónde se detendría: por --stop-at, o porque el checklist bloquearía', async () => {
+    const { g, ctxG } = await inquilinoPropio('Ensayo que se detiene');
     enterTenant(g.tenantId);
-    const ctxG = contextoDe(g, 'Motor que revienta');
+    const julio = await periodoDe(g, 7);
+
+    const parado = await conductClose(ctxG, julio, { userId: g.userId, dryRun: true, stopAt: 'depreciate-assets' });
+    expect(parado.haltedAtStep).toBe('depreciate-assets');
+    expect(parado.steps.map((p) => p.step)).toEqual(['accrue-benefits', 'amortize-prepaids']);
+
+    await createJournalEntry(
+      g.entityId,
+      new Date('2026-07-10'),
+      'standard' as never,
+      'Borrador sin postear',
+      [
+        { account_id: g.roles.banco, debit_amount: '50.0000', credit_amount: null, description: 'a' },
+        { account_id: g.roles.ingreso, debit_amount: null, credit_amount: '50.0000', description: 'b' },
+      ] as never,
+      g.userId
+    );
+    const bloqueado = await conductClose(ctxG, await periodoDe(g, 7), { userId: g.userId, dryRun: true });
+    expect(bloqueado.status).toBe('previewed');
+    expect(bloqueado.haltedAtStep).toBe('verify-checklist');
+    expect(bloqueado.steps.map((p) => p.step)).not.toContain('soft-close');
+  });
+
+  it('un paso inventado se niega antes de tocar nada', async () => {
+    enterTenant(f.tenantId);
+    await expect(
+      conductClose(ctx, await periodoDe(f, 9), { userId: f.userId, stopAt: 'hard-close' as never })
+    ).rejects.toMatchObject({ code: 'UNKNOWN_CLOSING_STEP' });
+    expect(await openRunOf(f.entityId, (await periodoDe(f, 9)).id)).toBeNull();
+  });
+
+  it('las lecturas de la hoja: la última corrida, la corrida abierta descrita y el último mes cerrado', async () => {
+    const { g, ctxG } = await inquilinoPropio('Lecturas del conductor');
+    enterTenant(g.tenantId);
+    expect(await latestClosedPeriodOf(g.entityId)).toBeNull();
+
+    const enero = await periodoDe(g, 1);
+    const parado = await conductClose(ctxG, enero, { userId: g.userId, stopAt: 'soft-close' });
+    const abierta = await openRunOf(g.entityId, enero.id);
+    expect(abierta).not.toBeNull();
+    expect(describeOpenRun(abierta!)).toMatch(/^stopped at soft-close, started /);
+    expect((await latestRunOf(g.entityId, enero.id))?.id).toBe(parado.runId);
+
+    await conductClose(ctxG, await periodoDe(g, 1), { userId: g.userId, resume: true });
+    const febrero = await periodoDe(g, 2);
+    await conductClose(ctxG, febrero, { userId: g.userId });
+    // El último cerrado es febrero, no el más viejo: el mes que se acaba de entregar.
+    expect((await latestClosedPeriodOf(g.entityId))?.id).toBe(febrero.id);
+  });
+
+  it('un motor que revienta queda escrito con su causa, y la corrida se reanuda tras arreglarlo', async () => {
+    const { g, ctxG } = await inquilinoPropio('Motor que revienta');
+    enterTenant(g.tenantId);
     const abril = await periodoDe(g, 4);
 
-    // `base_depreciacion` con un valor que no es ninguna de las dos bases: el
-    // motor de depreciación se NIEGA a adivinar, y el conductor tiene que
-    // dejar constancia en vez de dejar la corrida diciendo «running» para
-    // siempre.
     const torcida = await query(
       `UPDATE policy_decisions SET resolved_value = 'lo_que_sea', status = 'resolved'
-        WHERE key = 'base_depreciacion'
-          AND (entity_id = $1 OR entity_id IS NULL)`,
+        WHERE key = 'base_depreciacion' AND (entity_id = $1 OR entity_id IS NULL)`,
       [g.entityId]
     );
     expect(torcida.rowCount, 'la política no se torció: la prueba no probaría nada').toBeGreaterThan(0);
@@ -335,196 +434,256 @@ describe('A6 · el conductor', () => {
     const paso = r.steps.find((p) => p.step === 'depreciate-assets');
     expect(paso?.status).toBe('failed');
     expect(paso?.detail).toMatch(/base_depreciacion/);
+    // La causa viaja —no se persiste— para que la hoja salga con el código
+    // que el error merece: un ValidationError del panel es un 422.
+    expect((paso?.cause as { statusCode?: number } | undefined)?.statusCode).toBe(422);
 
-    const fila = await query<{ status: string; halted_at_step: string; ended_at: string | null }>(
-      `SELECT status, halted_at_step, ended_at::text AS ended_at FROM closing_runs WHERE id = $1`,
-      [r.runId]
-    );
-    expect(fila.rows[0].status).toBe('failed');
-    expect(fila.rows[0].halted_at_step).toBe('depreciate-assets');
-    expect(fila.rows[0].ended_at).not.toBeNull();
-
-    // Arreglado el criterio, la MISMA corrida se reanuda y llega al final: el
-    // paso fallido se repite (sólo `done` y `skipped` no se revisitan).
     await query(
       `UPDATE policy_decisions SET resolved_value = 'vida_util_nif'
         WHERE key = 'base_depreciacion' AND (entity_id = $1 OR entity_id IS NULL)`,
       [g.entityId]
     );
-    const seguir = await conductClose(ctxG, await periodoDe(g, 4), { userId: g.userId });
+    const seguir = await conductClose(ctxG, await periodoDe(g, 4), { userId: g.userId, resume: true });
     expect(seguir.runId).toBe(r.runId);
     expect(seguir.status).toBe('completed');
-    expect(seguir.steps.find((p) => p.step === 'depreciate-assets')?.status).not.toBe('failed');
   });
 
   it('nunca hay dos corridas abiertas del mismo periodo', async () => {
-    const g = await crearInquilino('Una sola corrida');
-    await seedPolicies({ tenantId: g.tenantId, entityId: g.entityId });
-    // EL CONTEXTO DEL INQUILINO SE FIJA AQUÍ, y no basta con que `crearInquilino`
-    // lo haya hecho: `enterTenant` es `AsyncLocalStorage.enterWith`, y llamado
-    // dentro de una función AWAITADA no vuelve al contexto del llamador. Sin
-    // esta línea la prueba corre bajo el inquilino del `beforeAll` y pasa por
-    // el motivo equivocado — sobre todo aquí, donde la suite es superusuario y
-    // RLS no la corrige.
+    const { g } = await inquilinoPropio('Una sola corrida');
     enterTenant(g.tenantId);
-    const noviembre = await periodoDe(g, 11);
+    const diciembre = await periodoDe(g, 12);
     await query(
-      `INSERT INTO closing_runs (tenant_id, entity_id, fiscal_period_id, status)
-       VALUES ($1, $2, $3, 'blocked')`,
-      [g.tenantId, g.entityId, noviembre.id]
+      `INSERT INTO closing_runs (entity_id, fiscal_period_id, status) VALUES ($1, $2, 'blocked')`,
+      [g.entityId, diciembre.id]
     );
     await expect(
       query(
-        `INSERT INTO closing_runs (tenant_id, entity_id, fiscal_period_id, status)
-         VALUES ($1, $2, $3, 'running')`,
-        [g.tenantId, g.entityId, noviembre.id]
+        `INSERT INTO closing_runs (entity_id, fiscal_period_id, status) VALUES ($1, $2, 'running')`,
+        [g.entityId, diciembre.id]
       )
     ).rejects.toThrow(/uq_closing_run_open|duplicate key/);
   });
 
   it('un paso de OTRA entidad no se puede colgar de esta corrida', async () => {
-    // LA ENTIDAD VIAJA EN LA FORÁNEA, y la prueba tiene que doler por ESO y no
-    // por la UNIQUE: se abre una corrida en un mes SIN pasos, para que la
-    // única restricción que pueda hablar sea la compuesta.
+    enterTenant(f.tenantId);
+    // Una corrida SIN pasos, para que la única restricción que pueda hablar
+    // sea la foránea compuesta y no la UNIQUE del paso.
     const diciembre = await periodoDe(f, 12);
     const corrida = await query<{ id: string }>(
-      `INSERT INTO closing_runs (tenant_id, entity_id, fiscal_period_id, status)
-       VALUES ($1, $2, $3, 'running') RETURNING id`,
-      [f.tenantId, f.entityId, diciembre.id]
+      `INSERT INTO closing_runs (entity_id, fiscal_period_id, status)
+       VALUES ($1, $2, 'running') RETURNING id`,
+      [f.entityId, diciembre.id]
     );
     await expect(
       query(
-        `INSERT INTO closing_run_steps
-           (tenant_id, entity_id, run_id, step_key, ordinal, status, detail)
-         VALUES ($1, $2, $3, 'soft-close', 5, 'done', 'colado')`,
-        [hermana.tenantId, hermana.entityId, corrida.rows[0].id]
+        `INSERT INTO closing_run_steps (entity_id, run_id, step_key, ordinal, status, detail)
+         VALUES ($1, $2, 'soft-close', 5, 'done', 'colado')`,
+        [hermana.entityId, corrida.rows[0].id]
       )
     ).rejects.toThrow(/fk_closing_step_run_entity|violates foreign key/);
-
-    // Y con la entidad correcta el mismo INSERT entra: la negativa es de la
-    // frontera, no de la forma de la fila.
     await expect(
       query(
-        `INSERT INTO closing_run_steps
-           (tenant_id, entity_id, run_id, step_key, ordinal, status, detail)
-         VALUES ($1, $2, $3, 'soft-close', 5, 'done', 'legítimo')`,
-        [f.tenantId, f.entityId, corrida.rows[0].id]
+        `INSERT INTO closing_run_steps (entity_id, run_id, step_key, ordinal, status, detail)
+         VALUES ($1, $2, 'soft-close', 5, 'done', 'legítimo')`,
+        [f.entityId, corrida.rows[0].id]
       )
     ).resolves.toBeDefined();
+  });
+
+  it('las tres tablas se aíslan por ENTIDAD-en-inquilino, no sólo por inquilino', async () => {
+    // Con `tenant_id` propio, el bucle de rls-policies.sql generaba
+    // `tenant_id = app_current_tenant()`, que no ata la entidad al inquilino:
+    // un inquilino podía plantar una corrida abierta invisible sobre el periodo
+    // de otro y bloquearle el cierre. Sin esa columna, la política pasa por
+    // legal_entities. Se pregunta a la base qué política quedó puesta.
+    const politicas = await query<{ tablename: string; qual: string }>(
+      `SELECT tablename, qual FROM pg_policies
+        WHERE tablename IN ('closing_runs', 'closing_run_steps', 'closing_packs')
+          AND policyname = 'tenant_isolation'
+        ORDER BY tablename`
+    );
+    expect(politicas.rows.map((p) => p.tablename)).toEqual([
+      'closing_packs',
+      'closing_run_steps',
+      'closing_runs',
+    ]);
+    for (const p of politicas.rows) expect(p.qual, p.tablename).toMatch(/legal_entities/);
   });
 });
 
 describe('A6 · el expediente, y la prueba de aceptación', () => {
   it('LA PRUEBA DE ACEPTACIÓN: dos sellados del mismo mes dan el MISMO sello', async () => {
+    enterTenant(f.tenantId);
     const julio = await periodoDe(f, JULIO);
-    const uno = await buildClosingPack(f.entityId, julio.id, { userId: f.userId });
-    const dos = await buildClosingPack(f.entityId, julio.id, { userId: f.userId });
-
-    // Los sobres difieren —el reloj corre— y los cuerpos sellados no.
+    const uno = await buildClosingPack(f.entityId, julio.id, { userId: f.userId, now: new Date('2026-08-01T10:00:00Z') });
+    const dos = await buildClosingPack(f.entityId, julio.id, { userId: f.userId, now: new Date('2026-08-01T10:05:00Z') });
     expect(dos.envelope.generated_at).not.toBe(uno.envelope.generated_at);
     expect(dos.seal).toBe(uno.seal);
     expect(dos.sealed).toEqual(uno.sealed);
   });
 
-  it('el tercero vuelve a correrlo y los libros lo sostienen', async () => {
+  it('el tercero vuelve a correr el ARCHIVO emitido y los libros lo sostienen', async () => {
+    enterTenant(f.tenantId);
     const julio = await periodoDe(f, JULIO);
     const pack = await buildClosingPack(f.entityId, julio.id, { userId: f.userId });
+    await storeClosingPack(f.entityId, julio.id, pack);
 
-    // El tercero tiene el ARCHIVO, no nuestra memoria: se serializa y se
-    // vuelve a leer, que es lo que de verdad hace `closing pack verify`.
     const delArchivo = parseClosingPack(JSON.stringify(pack, null, 2));
-    const veredicto = await verifyClosingPack(delArchivo);
+    const v = await verifyClosingPack(delArchivo);
+    expect(v.sealIntact).toBe(true);
+    expect(v.issued).toBe(true);
+    expect(v.envelopeMatches).toBe(true);
+    expect(v.figuresReproduce, JSON.stringify(v.differences)).toBe(true);
+    expect(v.identityUnchanged).toBe(true);
+    expect(v.criteriaUnchanged).toBe(true);
+    expect(verdictFindings(v)).toEqual({ blocking: 0, warning: 0 });
+  });
 
-    expect(veredicto.sealIntact).toBe(true);
-    expect(veredicto.figuresReproduce, JSON.stringify(veredicto.differences)).toBe(true);
-    expect(veredicto.criteriaUnchanged).toBe(true);
-    expect(veredicto.differences).toEqual([]);
+  it('un expediente EDITADO Y VUELTO A SELLAR concuerda consigo mismo, y no fue emitido', async () => {
+    // El caso de la revisión: se toma el expediente de julio, se le pegan las
+    // cifras de hoy y se recalcula el SHA-256, que no lleva llave. Concuerda
+    // consigo mismo y con los libros; lo único que lo delata es el registro.
+    const { g } = await inquilinoPropio('Expediente forjado');
+    enterTenant(g.tenantId);
+    const marzo = await periodoDe(g, 3);
+    await asientoEn(g, '2026-03-10', '700.0000');
+    const emitido = await buildClosingPack(g.entityId, marzo.id, { userId: g.userId });
+    await storeClosingPack(g.entityId, marzo.id, emitido);
+
+    await asientoEn(g, '2026-03-20', '300.0000');
+    const forjado = structuredClone(emitido);
+    forjado.sealed = await deriveSealedBody(g.entityId, marzo.id);
+    forjado.seal = sealOf(forjado.sealed);
+
+    const v = await verifyClosingPack(forjado);
+    expect(v.sealIntact).toBe(true);
+    expect(v.figuresReproduce).toBe(true);
+    expect(v.issued).toBe(false);
+    expect(verdictFindings(v).blocking).toBe(1);
   });
 
   it('la fecha de corte es la del periodo, no el reloj', async () => {
-    const julio = await periodoDe(f, JULIO);
-    const cuerpo = await deriveSealedBody(f.entityId, julio.id);
+    enterTenant(f.tenantId);
+    const cuerpo = await deriveSealedBody(f.entityId, (await periodoDe(f, JULIO)).id);
     expect(cuerpo.as_of).toBe('2026-07-31');
     expect(cuerpo.as_of).toBe(cuerpo.period.end_date);
   });
 
-  it('un peso nuevo dentro del periodo rompe la comprobación, y la ruta nombra la cuenta', async () => {
-    const g = await crearInquilino('Expediente que deriva');
-    await seedPolicies({ tenantId: g.tenantId, entityId: g.entityId });
-    // EL CONTEXTO DEL INQUILINO SE FIJA AQUÍ, y no basta con que `crearInquilino`
-    // lo haya hecho: `enterTenant` es `AsyncLocalStorage.enterWith`, y llamado
-    // dentro de una función AWAITADA no vuelve al contexto del llamador. Sin
-    // esta línea la prueba corre bajo el inquilino del `beforeAll` y pasa por
-    // el motivo equivocado — sobre todo aquí, donde la suite es superusuario y
-    // RLS no la corrige.
+  it('un peso nuevo dentro del periodo rompe la comprobación, y la ruta nombra la cuenta por su código', async () => {
+    const { g } = await inquilinoPropio('Expediente que deriva');
     enterTenant(g.tenantId);
-    const marzo = await periodoDe(g, 3);
-    await asientoEn(g, '2026-03-10', '700.0000');
-
-    const pack = await buildClosingPack(g.entityId, marzo.id, { userId: g.userId });
+    const abril = await periodoDe(g, 4);
+    await asientoEn(g, '2026-04-10', '700.0000');
+    const pack = await buildClosingPack(g.entityId, abril.id, { userId: g.userId });
+    await storeClosingPack(g.entityId, abril.id, pack);
     expect((await verifyClosingPack(pack)).figuresReproduce).toBe(true);
 
-    // Y ahora entra un asiento más en el mismo mes.
-    await asientoEn(g, '2026-03-20', '300.0000');
-
-    const veredicto = await verifyClosingPack(pack);
-    expect(veredicto.sealIntact).toBe(true);
-    expect(veredicto.figuresReproduce).toBe(false);
-    // La acusación NOMBRA dónde: «los sellos difieren» es cierto y no sirve.
-    const rutas = veredicto.differences.map((d) => d.path);
-    expect(rutas.some((r) => r.startsWith('figures.trial_balance'))).toBe(true);
-    expect(rutas).toContain('figures.totals.debit');
-    const total = veredicto.differences.find((d) => d.path === 'figures.totals.debit');
-    expect(total?.expected).toBe('700.0000');
-    expect(total?.actual).toBe('1000.0000');
+    await asientoEn(g, '2026-04-20', '300.0000');
+    const v = await verifyClosingPack(pack);
+    expect(v.sealIntact).toBe(true);
+    expect(v.issued).toBe(true);
+    expect(v.figuresReproduce).toBe(false);
+    const banco = await query<{ code: string }>('SELECT code FROM accounts WHERE id = $1', [g.roles.banco]);
+    const rutas = v.differences.map((d) => d.path);
+    expect(rutas).toContain(`figures.trial_balance[${banco.rows[0].code}].debit`);
+    const total = v.differences.find((d) => d.path === 'figures.totals.debit');
+    expect(total).toMatchObject({ kind: 'figure', expected: '700.0000', actual: '1000.0000' });
   });
 
-  it('editar el archivo se nota aunque las cifras del mayor no se hayan movido', async () => {
+  it('dar de alta una cuenta VACÍA después de sellar no rompe el expediente', async () => {
+    // El hallazgo más caro de la revisión: la balanza conserva las cuentas sin
+    // movimiento, y se comparaba por posición. Una subcuenta nueva en medio del
+    // catálogo hacía que TODO expediente anterior fallara, acusando a cada
+    // cuenta de después.
+    const { g } = await inquilinoPropio('Subcuenta nueva');
+    enterTenant(g.tenantId);
+    const mayo = await periodoDe(g, 5);
+    await asientoEn(g, '2026-05-10', '400.0000');
+    const pack = await buildClosingPack(g.entityId, mayo.id, { userId: g.userId });
+    await storeClosingPack(g.entityId, mayo.id, pack);
+
+    await query(
+      `INSERT INTO accounts (id, code, name, account_type, fs_category, entity_id, normal_balance, created_by)
+       VALUES ($1, '1105', 'Subcuenta nueva sin movimiento', 'asset', 'current_assets', $2, 'debit', $3)`,
+      [uuidv4(), g.entityId, g.userId]
+    );
+
+    const v = await verifyClosingPack(pack);
+    expect(v.figuresReproduce, JSON.stringify(v.differences)).toBe(true);
+    expect(v.differences).toEqual([]);
+  });
+
+  it('un renombre de la entidad es un AVISO de identidad, no una cifra movida', async () => {
+    const { g } = await inquilinoPropio('Sociedad que se renombra');
+    enterTenant(g.tenantId);
+    const junio = await periodoDe(g, 6);
+    await asientoEn(g, '2026-06-10', '250.0000');
+    const pack = await buildClosingPack(g.entityId, junio.id, { userId: g.userId });
+    await storeClosingPack(g.entityId, junio.id, pack);
+
+    await query(`UPDATE legal_entities SET name = 'Sociedad Renombrada SA de CV' WHERE id = $1`, [g.entityId]);
+    const v = await verifyClosingPack(pack);
+    expect(v.sealIntact).toBe(true);
+    expect(v.issued).toBe(true);
+    expect(v.figuresReproduce).toBe(true);
+    expect(v.identityUnchanged).toBe(false);
+    expect(verdictFindings(v)).toEqual({ blocking: 0, warning: 1 });
+  });
+
+  it('un sobre reescrito sobre un expediente emitido se nota como aviso', async () => {
+    enterTenant(f.tenantId);
     const julio = await periodoDe(f, JULIO);
     const pack = await buildClosingPack(f.entityId, julio.id, { userId: f.userId });
+    await storeClosingPack(f.entityId, julio.id, pack);
 
-    // El clásico: alguien abre el JSON y le cambia un nombre.
-    const editado = parseClosingPack(JSON.stringify(pack));
-    editado.sealed.entity.name = 'Otra Sociedad SA de CV';
+    const retocado = structuredClone(pack);
+    retocado.envelope.generated_by = uuidv4();
+    const v = await verifyClosingPack(retocado);
+    expect(v.sealIntact).toBe(true);
+    expect(v.issued).toBe(true);
+    expect(v.envelopeMatches).toBe(false);
+    expect(verdictFindings(v)).toEqual({ blocking: 0, warning: 1 });
+  });
 
-    const veredicto = await verifyClosingPack(editado);
-    expect(veredicto.sealIntact).toBe(false);
-    expect(veredicto.recomputedSeal).not.toBe(veredicto.expectedSeal);
-    // Y las dos preguntas se contestan por separado: el archivo está tocado Y
-    // además sus cifras ya no son las de los libros.
-    expect(veredicto.figuresReproduce).toBe(false);
-    expect(veredicto.differences.map((d) => d.path)).toContain('entity.name');
+  it('un expediente cuyo periodo se editó es un hallazgo, no un «no encontrado»', async () => {
+    enterTenant(f.tenantId);
+    const julio = await periodoDe(f, JULIO);
+    const pack = await buildClosingPack(f.entityId, julio.id, { userId: f.userId });
+    const editado = structuredClone(pack);
+    editado.sealed.period.id = uuidv4();
+
+    const v = await verifyClosingPack(editado);
+    expect(v.sealIntact).toBe(false);
+    expect(v.figuresReproduce).toBe(false);
+    expect(v.differences.map((d) => d.path)).toContain('period.id');
+    expect(verdictFindings(v).blocking).toBeGreaterThan(0);
   });
 
   it('el sello guardado en la base es el del cuerpo, y la tabla es de sólo agregar', async () => {
+    enterTenant(f.tenantId);
     const julio = await periodoDe(f, JULIO);
     const pack = await buildClosingPack(f.entityId, julio.id, { userId: f.userId });
-    const id = await storeClosingPack(f.tenantId, f.entityId, julio.id, pack);
+    const id = await storeClosingPack(f.entityId, julio.id, pack);
 
     const fila = await query<{ seal: string; body: { seal: string } }>(
-      'SELECT seal, body FROM closing_packs WHERE id = $1', [id]
+      'SELECT seal, body FROM closing_packs WHERE id = $1',
+      [id]
     );
     expect(fila.rows[0].seal).toBe(sealOf(pack.sealed));
     expect(fila.rows[0].body.seal).toBe(pack.seal);
 
-    // Un expediente que se puede reescribir no prueba nada: el disparador de
-    // la 082 alcanza también al dueño del esquema, que es bajo quien corre
-    // esta suite.
     await expect(
       query('UPDATE closing_packs SET seal = $1 WHERE id = $2', ['0'.repeat(64), id])
     ).rejects.toThrow(/append-only/);
-    await expect(
-      query('DELETE FROM closing_packs WHERE id = $1', [id])
-    ).rejects.toThrow(/append-only/);
+    await expect(query('DELETE FROM closing_packs WHERE id = $1', [id])).rejects.toThrow(/append-only/);
   });
 
   it('el expediente de una sociedad no se puede colgar del periodo de su hermana', async () => {
+    enterTenant(f.tenantId);
     const julioHermana = await periodoDe(hermana, JULIO);
-    const pack = await buildClosingPack(hermana.entityId, julioHermana.id, {
-      userId: hermana.userId,
-    });
-    await expect(
-      storeClosingPack(f.tenantId, f.entityId, julioHermana.id, pack)
-    ).rejects.toThrow(/fk_closing_pack_period_entity|violates foreign key/);
+    const pack = await buildClosingPack(hermana.entityId, julioHermana.id, { userId: hermana.userId });
+    await expect(storeClosingPack(f.entityId, julioHermana.id, pack)).rejects.toThrow(
+      /fk_closing_pack_period_entity|violates foreign key/
+    );
   });
 });
