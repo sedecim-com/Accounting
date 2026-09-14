@@ -295,13 +295,11 @@ export function writeBlock(text: string, targets: string[] = GOVERNING_DOCS): st
   // Se resella con el hash del fuente YA ESCRITO, no del que se leyó al
   // empezar: si se sellara antes, el sello certificaría una versión que ya no
   // está en disco.
-  // CONVERGE EN DOS CORRIDAS, y conviene saberlo antes de asustarse. El bloque
-  // se publica DENTRO del corpus que el metro mide, así que la primera escritura
-  // mueve los carriles de documentación (páginas sin gemela, citas muertas) y la
-  // segunda publica ya la cifra estable. Medido: la tercera corrida no cambia un
-  // byte. No es un bucle, es un punto fijo a un paso de distancia — pero un
-  // `--write` en un guion que compare antes y después tiene que correrlo dos
-  // veces o creerá que el instrumento oscila.
+  // One write is not always the fixed point: the block is published INSIDE the
+  // corpus the meter measures, so a write can move the documentation lanes and
+  // the next measurement renders a slightly different block. `main` (see
+  // `--write`) therefore repeats until the page publishes what the tree
+  // measures, which is exactly what `--check` now verifies.
   if (failures.length === 0) restampTwin(targets);
   return failures;
 }
@@ -320,6 +318,49 @@ function restampTwin(targets: string[]): void {
   const text = fs.readFileSync(twin, 'utf8');
   const stamped = text.replace(/(source_sha[*_`\s]*[:=][\s*_`"']*)([0-9a-f]{7,40})\b/i, `$1${sha}`);
   if (stamped !== text) fs.writeFileSync(twin, stamped);
+}
+
+/**
+ * THE PUBLISHED BLOCK IS PART OF THE PROMISE, SO `--check` VERIFIES IT.
+ *
+ * Returns one message per page whose block — the text between the markers,
+ * markers included — is not exactly `expected`. Empty means both pages publish
+ * what the tree measures today.
+ *
+ * Why this exists: the block itself says "CI verifies it with --check, so a
+ * hand edit shows up red", and until this function that was only half true.
+ * `--check` compared the tree against the baseline and never looked at the
+ * page. Measured on i7 (September 2026): the rector's block was missing a
+ * whole lane (`spanish-user-strings-cli`, 468) and carried six stale figures,
+ * and `--check` said "17 lanes, none above its baseline". A hand edit DID go
+ * red, but by accident: editing `language.md` changes its hash, so the twin's
+ * `source_sha` stops matching and `docs-spanish-twins-stale` grows. A block
+ * that is simply never regenerated moved nothing, and neither would a hand
+ * edit that also re-stamped the twin.
+ *
+ * `scripts/catalogo-estado.ts --check` already fails on a stale block; this
+ * brings the language meter to the same contract.
+ */
+export function staleBlocks(expected: string, targets: string[] = GOVERNING_DOCS): string[] {
+  const stale: string[] = [];
+  for (const target of targets) {
+    const rel = path.relative(ROOT, target);
+    if (!fs.existsSync(target)) {
+      stale.push(`${rel}: no existe`);
+      continue;
+    }
+    const doc = fs.readFileSync(target, 'utf8');
+    const i = doc.indexOf(OPEN_MARK);
+    const j = doc.indexOf(CLOSE_MARK);
+    if (i === -1 || j === -1) {
+      stale.push(`${rel}: no tiene los marcadores ${OPEN_MARK} … ${CLOSE_MARK}`);
+      continue;
+    }
+    if (doc.slice(i, j + CLOSE_MARK.length) !== expected) {
+      stale.push(`${rel}: el bloque publicado no es el que el árbol mide hoy`);
+    }
+  }
+  return stale;
 }
 
 /** `--seed` se niega en un árbol sucio: sembraría lo que alguien no ha comprometido. */
@@ -391,10 +432,31 @@ function main(argv: string[]): number {
   const findings = compare(lanes, base);
 
   if (has('--write')) {
-    const failures = writeBlock(block(lanes, base));
+    // Write, re-measure, and write again until the published block is the one
+    // the tree measures. Measured on this tree it settles on the second pass;
+    // the cap is there so a lane that genuinely oscillated would fail loudly
+    // instead of looping, and it would fail as a stale block under `--check`.
+    const MAX_PASSES = 4;
+    let current = lanes;
+    let failures: string[] = [];
+    let passes = 0;
+    while (passes < MAX_PASSES) {
+      passes += 1;
+      failures = writeBlock(block(current, base));
+      if (failures.length > 0) break;
+      current = measure();
+      if (staleBlocks(block(current, base)).length === 0) break;
+    }
+    if (failures.length === 0 && staleBlocks(block(current, base)).length > 0) {
+      process.stderr.write(
+        `El bloque no se estabilizó en ${MAX_PASSES} pasadas: algún carril cambia cada vez que se publica.\n`
+      );
+      return 1;
+    }
     if (failures.length === 0) {
       process.stdout.write(
-        `Bloque regenerado en ${GOVERNING_DOCS.map((d) => path.relative(ROOT, d)).join(' y ')}.\n`
+        `Bloque regenerado en ${GOVERNING_DOCS.map((d) => path.relative(ROOT, d)).join(' y ')}` +
+          ` (${passes} pasada${passes === 1 ? '' : 's'}).\n`
       );
       return 0;
     }
@@ -410,6 +472,19 @@ function main(argv: string[]): number {
 
   if (has('--check')) {
     if (findings.length === 0) {
+      // The ratchet first, then the page — the same order as catalogo-estado:
+      // a regenerated block does not excuse a regression, and a clean ratchet
+      // does not excuse a page that publishes last month's figures.
+      const stale = staleBlocks(block(lanes, base));
+      if (stale.length > 0) {
+        process.stderr.write(
+          `El bloque publicado está desfasado en ${stale.length} página(s):\n` +
+            stale.map((m) => `  · ${m}`).join('\n') +
+            '\n\nRegenéralo con `npm run language:status -- --write` y comprométalo con el cambio\n' +
+            'que movió las cifras. El rector promete que un bloque viejo o editado a mano sale en rojo.\n'
+        );
+        return 1;
+      }
       process.stdout.write(`El idioma no retrocedió: ${lanes.length} lanes, ninguno por encima de su línea base.\n`);
       return 0;
     }
