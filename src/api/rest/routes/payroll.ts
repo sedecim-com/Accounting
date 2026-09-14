@@ -443,9 +443,15 @@ router.post(
   '/employees/:id/benefit-elections',
   declararRiesgoRuta({ riesgo: 'escritura', escribe: 'benefit_elections' }),
   requirePermission('payroll:update'),
+  requireEntityAccess,
   validateBody(electBenefitSchema.partial({ employee_id: true })),
   asyncHandler(async (req: Request, res: Response) => {
-    const id = await electBenefit({ ...req.body, employee_id: req.params.id });
+    // TEN-11 (#235): the guard validates the declared entity; handing it to
+    // the service is what scopes BOTH keys — the employee and the plan.
+    const id = await electBenefit(entityScope(req.tenantId!, req.entityId!), {
+      ...req.body,
+      employee_id: req.params.id,
+    });
     res.status(201).json({ data: { id }, meta: meta(req) });
   })
 );
