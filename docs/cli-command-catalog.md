@@ -232,6 +232,7 @@ Un concepto, una ortografía, en todo el CLI.
 | `-e, --entity <idOrName>` | Entidad legal sobre la que se opera; por defecto la del contexto activo |
 | `-t, --tenant <id>` | Tenant (despacho). Rara vez necesario; contexto de RLS |
 | `-u, --user <email>` | Usuario que actúa, para atribución y permisos |
+| `--locale <tag>` | Idioma del binario y convenciones con las que se IMPRIME lo que se lee en pantalla (`es-MX`\|`en-US`, y las formas cortas `es`\|`en`). **Global de la raíz**, no de cada hoja: una hoja no puede imprimir en un idioma distinto del que pidió su padre. Precedencia: este flag > `MNEMOSINE_LOCALE` (`MNEMOSINE_LANG` es alias permanente, no una grafía en retirada) > `locale` en `~/.mnemosine/config.json` > `locale` en `./mnemosine.config.json` > la clave vieja `language` > `tenants.settings.locale` > `es-MX`. **Los dos archivos van al revés que en §3.1**: para el idioma manda el del USUARIO, porque el inquilino es del repositorio y el idioma es de quien mira la pantalla. Un valor no soportado no cae a la omisión: avisa y pasa al siguiente escalón. **No elige la jurisdicción ni el formato del dinero** —eso sale de la entidad— **ni cambia un byte de lo que se entrega a una autoridad**: el XML del Anexo 24 y la DIOT salen idénticos con `en-US` |
 | `--profile <name>` | Perfil de conexión/credenciales |
 | `--config <path>` / `--no-config` | Override del archivo de config / ignorar toda config |
 | `-c, --set <key=value>` | Override puntual de config, repetible |

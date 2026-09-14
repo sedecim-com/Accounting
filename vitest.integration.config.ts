@@ -17,6 +17,46 @@ export default defineConfig({
     poolOptions: { forks: { singleFork: true } },
     fileParallelism: false,
     // ============================================================
+    // EL LOCALE TAMBIÉN SE FIJA AQUÍ, NO LO PONE QUIEN LA CORRE (I6)
+    //
+    // vitest.config.ts blindó la suite unitaria y ésta se quedó sin blindar,
+    // que es el orden equivocado: la unitaria mockea `query` y ésta corre
+    // contra un Postgres de verdad, así que es la que más caro paga que dos
+    // máquinas no ejecuten lo mismo. El resolutor cae, por orden, en
+    // `--locale` > MNEMOSINE_LOCALE (alias permanente MNEMOSINE_LANG) > la
+    // configuración del usuario > la del proyecto > la clave vieja
+    // `language` > el inquilino > es-MX. Las pruebas no pasan banderas, así
+    // que sin esta línea el segundo escalón lo decide el perfil de shell del
+    // que ejecuta. El caso feo no es el rojo: es el verde local que sólo
+    // falla en CI, o al revés.
+    //
+    // LO QUE ESTA LÍNEA SÍ ARREGLA Y LO QUE NO — medido, no supuesto:
+    //
+    //  · HOY NINGUNA ASERCIÓN DE ESTA SUITE DEPENDE DEL LOCALE. Se buscó:
+    //    ningún archivo de tests/integration/ importa `src/i18n/`, ni llama a
+    //    `resolveLanguage`, `resolveLocale` ni `describeLocale`, ni monta el
+    //    prompt del sistema. Esto es un blindaje puesto ANTES de que exista la
+    //    primera aserción que lo necesite, no la reparación de una prueba roja.
+    //    Se pone igual porque el día que llegue esa aserción nadie va a
+    //    acordarse de venir aquí, y porque no cuesta una prueba nueva.
+    //  · NO HACE DETERMINISTA EL FORMATO DEL DINERO, y decirlo importa porque
+    //    es lo que parece. `formatMoney` (src/i18n/format.ts) NO lee esta
+    //    variable: el separador de miles, el símbolo y el orden de la fecha
+    //    salen de la JURISDICCIÓN de la entidad —FORMAT_LOCALES, MX→es-MX,
+    //    US→en-US— y de `DEFAULT_FORMAT_LOCALE` cuando no hay entidad. Un
+    //    importe de una entidad mexicana se imprime igual con esta línea y sin
+    //    ella. Lo que esta variable gobierna es el IDIOMA: el catálogo de
+    //    cadenas del CLI y la lengua en la que contesta el agente.
+    //
+    // Y SE FIJA EN en-US POR LA MISMA RAZÓN QUE ALLÁ: es-MX es el último
+    // escalón del resolutor, así que fijarlo aquí haría indistinguibles «el
+    // resolutor eligió» y «no eligió nadie». MNEMOSINE_LANG no se fija: es el
+    // alias permanente del mismo dato, y ponerlas las dos enterraría cuál manda.
+    // ============================================================
+    env: {
+      MNEMOSINE_LOCALE: 'en-US',
+    },
+    // ============================================================
     // LA COBERTURA QUE ESTA SUITE SÍ MIDE (S4a)
     //
     // Durante toda la vida del proyecto este archivo NO declaró cobertura, y

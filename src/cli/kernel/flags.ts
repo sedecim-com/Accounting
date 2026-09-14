@@ -461,6 +461,46 @@ export const FLAG_DICTIONARY: Record<string, string | null> = {
   // Sin forma corta a propósito: `-l` es de `--list` y las formas cortas se
   // asignan una sola vez.
   '--layout': null,
+
+  // ── I6 · el locale, que NO es el idioma ni la jurisdicción ────────────
+  //
+  // Regla 5 del epic #141. `--locale` elige con qué CONVENCIONES se imprime
+  // —separadores de miles, símbolo y posición de la moneda, orden de la
+  // fecha— y de paso en qué idioma habla el binario. No elige la
+  // jurisdicción de la entidad, que es la que fija la moneda y el calendario
+  // fiscal, y no toca un byte de lo que se entrega a una autoridad: el XML
+  // del Anexo 24 y la DIOT salen idénticos con `--locale en-US` y con
+  // `--locale es-MX`.
+  //
+  // ES GLOBAL, como `-T, --tenant` de src/cli/mnemosine.ts:831, y por la
+  // misma razón: una hoja no puede imprimir en un idioma distinto del que
+  // pidió su padre. Sin forma corta — `-l` es de `--list` desde el primer
+  // día y las cortas se asignan una sola vez.
+  //
+  // La grafía se congela AQUÍ, antes de que exista el resolutor, porque el
+  // árbol ya habla tres palabras para lo mismo y ninguna es ésta: `lang` e
+  // `idioma` son un VERBO (mnemosine.ts:2233), `MNEMOSINE_LANG` una variable
+  // que hoy leen dos archivos (config.ts:1132 y mnemosine.ts:2238). Sin esta
+  // fila, la próxima sesión declara `--lang` en una hoja y `--idioma` en
+  // otra, y el auditor no tiene contra qué compararlas.
+  //
+  // ESTA FILA Y LA DECLARACIÓN DE LA RAÍZ SON UN SOLO CAMBIO, Y SE MIDIÓ.
+  //
+  // El censo de superficie cuenta las banderas del diccionario que ningún nodo
+  // del árbol declara (ux-status.ts:622) contra una línea base de 11
+  // (ux-status.ts:216). Con esta fila y sin `.option('--locale <tag>', ...)`
+  // en la raíz, la cuenta da 12: `npx tsx scripts/ux-status.ts --check` sale 1
+  // y caen cuatro pruebas de tests/cli/censo-superficie.spec.ts. Con las dos
+  // mitades vuelve a 11 —las globales de la raíz entran en el censo igual que
+  // las de una hoja (ux-status.ts:617), que es por lo que `--tenant` nunca
+  // estuvo en esa lista—. Hoy la raíz la declara en mnemosine.ts:861, SIN
+  // forma corta, que es lo que este `null` exige (R6 de audit.ts:110).
+  //
+  // Si alguien parte el cambio en dos, la respuesta NO es subir la línea base:
+  // el número no creció por una decisión de superficie, creció porque falta
+  // media pieza, y un trinquete que se afloja para esperar no vuelve a
+  // apretarse.
+  '--locale': null,
 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
