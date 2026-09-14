@@ -7,6 +7,30 @@ export default defineConfig({
     include: ['tests/**/*.spec.ts'],
     exclude: ['tests/integration/**', 'node_modules/**', 'dist/**'],
     environment: 'node',
+    // ============================================================
+    // EL LOCALE DE LA SUITE SE FIJA AQUÍ, NO LO PONE QUIEN LA CORRE (I6)
+    //
+    // El resolutor de locale cae, por orden, en `--locale` > MNEMOSINE_LOCALE
+    // > la configuración del usuario > `tenants.settings.locale` > es-MX. Las
+    // pruebas no pasan banderas, así que sin esta línea el segundo escalón lo
+    // decide el entorno del que ejecuta: una máquina con MNEMOSINE_LOCALE=pt-BR
+    // exportado en su perfil corre la misma suite con OTRO separador de miles
+    // y otro símbolo de moneda, y la falla no se parece en nada a su causa.
+    // El caso feo no es el rojo, es el verde: un aserto escrito contra la
+    // salida local pasa en esa máquina y sólo falla en CI, o al revés.
+    //
+    // Y SE FIJA EN en-US, NO EN es-MX, a propósito: es-MX es el valor por
+    // omisión del resolutor, así que fijarlo aquí haría indistinguibles «el
+    // resolutor eligió» y «no eligió nadie» — la prueba del último escalón
+    // pasaría en verde con el resolutor entero borrado. Con en-US, un aserto
+    // que espere es-MX tiene que HABERLO PEDIDO.
+    //
+    // MNEMOSINE_LANG no se fija: es el alias permanente del mismo dato y
+    // ponerlas las dos aquí enterraría cuál de las dos manda.
+    // ============================================================
+    env: {
+      MNEMOSINE_LOCALE: 'en-US',
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

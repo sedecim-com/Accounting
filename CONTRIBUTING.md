@@ -35,8 +35,12 @@ si algo que estaba cerrado retrocede.
 `npm run lint` ya es una puerta con dientes: ESLint 9 en configuración plana y
 **con información de tipos** (`eslint.config.mjs`) sobre `src/`, `tests/` y
 `scripts/`, con su propio trabajo en la CI. Los errores rompen la compilación;
-las advertencias llevan trinquete —`--max-warnings 1239`, congelado en lo
-medido— así que sólo pueden bajar. Un PR que suba ese número sale rojo aunque
+las advertencias llevan trinquete —el `--max-warnings` que `package.json`
+declara en el guion `lint`, congelado en lo medido— así que sólo pueden bajar.
+**El número vive ahí y en ningún otro sitio**: llegó a estar escrito en tres
+documentos con tres cifras distintas (1 239 aquí, 1 067 en la configuración,
+1 117 el que de verdad corría), y un trinquete que dice tres números no es un
+trinquete. Un PR que suba ese número sale rojo aunque
 no haya escrito un solo error.
 
 ### Cobertura

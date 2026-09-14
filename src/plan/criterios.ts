@@ -4,6 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as ts from 'typescript';
 import { PRUEBAS_DE_CONDUCTA, correrConducta, type PruebaDeConducta } from './conducta.js';
+import {
+  headOf,
+  problemsIn,
+  type VocabularyClass,
+  type VocabularyEntry,
+} from '../language/vocabulary-registry.js';
 
 // ============================================================
 // CRITERIOS DE CIERRE, EJECUTABLES
@@ -666,6 +672,215 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
   'src/services/reporting/cash-flow-service.ts': { statements: 95, branches: 90, functions: 96, lines: 95 },
 };
 
+// ── El registro del vocabulario, leído por el mismo seam que todo lo demás ──
+//
+// SE LEE, NO SE IMPORTA, Y ESA ES LA DECISIÓN QUE HACE POSIBLE EL MUTANTE.
+//
+// `crudoDe` pasa por `leer()`, que honra el overlay de `sobreescrituras`: es
+// lo que permite al arnés de mutación fingir que una fila del registro no
+// está y comprobar que el criterio se pone rojo. Un `import` del módulo
+// devolvería siempre el archivo de disco, el overlay no lo alcanzaría, y el
+// mutante que la issue #146 exige moriría vivo — verde para siempre.
+//
+// De ese módulo se importa SÓLO `problemsIn`, que es lógica pura y no datos:
+// así la validación no se duplica y la lectura sigue pasando por el seam.
+
+interface LoadedRegistry {
+  total: number;
+  kept: number;
+  problems: string[];
+  has: (cls: VocabularyClass, where: string, es: string) => boolean;
+}
+
+export function readVocabularyRegistry(): LoadedRegistry | null {
+  const rel = 'src/language/vocabulary-registry.json';
+  if (!existe(rel)) return null;
+  let entries: VocabularyEntry[];
+  try {
+    const doc = JSON.parse(crudoDe(rel)) as { entries?: VocabularyEntry[] };
+    entries = Array.isArray(doc.entries) ? doc.entries : [];
+  } catch {
+    return { total: 0, kept: 0, problems: ['no es JSON válido'], has: () => false };
+  }
+  const problems = entries.flatMap((e, i) => problemsIn(e, i));
+  const index = new Set(entries.map((e) => `${e.class}\u0000${headOf(e.where)}\u0000${e.es}`));
+  return {
+    total: entries.length,
+    kept: entries.filter((e) => e.en === null).length,
+    problems,
+    has: (cls, where, es) => index.has(`${cls}\u0000${headOf(where)}\u0000${es}`),
+  };
+}
+
+/**
+ * El léxico de I1 tal como este archivo lo necesita: las raíces para decidir
+ * español, los términos de dominio para exceptuar, y `known` —la unión de las
+ * TRES listas— para que el corte por dígitos parta lo mismo que allá.
+ */
+interface Lexicon {
+  roots: Set<string>;
+  domain: Set<string>;
+  known: Set<string>;
+}
+
+/**
+ * El léxico de I1, leído de sus DATOS y no de su código.
+ *
+ * `scripts/language/lexicon.ts` no se puede importar desde aquí: `rootDir` es
+ * `./src` y un import fuera de él no compila. Se lee el JSON, que es la misma
+ * fuente que ese módulo carga.
+ */
+export function readLexicon(): Lexicon | null {
+  const rel = 'scripts/language/lexicon.json';
+  if (!existe(rel)) return null;
+  try {
+    const doc = JSON.parse(crudoDe(rel)) as {
+      spanishRoots?: string[];
+      // LAS OTRAS DOS LISTAS NO SON DECORADO: el corte por dígitos de
+      // `tokenize` (#197) sólo parte lo que el léxico NO reconoce, y
+      // «reconoce» son las TRES listas. Con sólo las raíces, `sha256` —neutro
+      // curado— se partiría aquí y no allá, y las dos implementaciones
+      // volverían a divergir justo en los acrónimos.
+      neutralTokens?: string[];
+      englishExtra?: string[];
+      // OJO: es un MAPA término → razón escrita, no una lista. Lo que cuenta
+      // son sus CLAVES, que es lo que `DOMAIN_TERMS.has(t)` consulta en
+      // lexicon.ts. Leerlo como arreglo hacía explotar `new Set({})` y el
+      // criterio salía «no evaluable» sin decir por qué — el catch se comía
+      // el motivo.
+      domainTerms?: Record<string, string>;
+    };
+    if (!Array.isArray(doc.spanishRoots)) return null;
+    const domain = doc.domainTerms ?? {};
+    return {
+      roots: new Set(doc.spanishRoots),
+      domain: new Set(Object.keys(domain)),
+      known: new Set([
+        ...doc.spanishRoots,
+        ...(doc.neutralTokens ?? []),
+        ...(doc.englishExtra ?? []),
+      ]),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * LA MISMA REGLA QUE `isFlagged`, aplicada aquí porque su módulo vive fuera
+ * de `rootDir`. `isFlagged` es `classify(x) ∈ {es, mixed}`, y las dos clases
+ * se producen exactamente cuando ALGÚN token es raíz española y no es término
+ * de dominio: con eso `es` queda en verdadero, y el resto de tokens sólo
+ * decide entre «es» y «mixed», que se señalan igual.
+ *
+ * Que las dos implementaciones coincidan NO SE SUPONE: lo prueba
+ * tests/language/vocabulary-registry.spec.ts contra el `isFlagged` de verdad,
+ * sobre las 200 declaraciones etiquetadas a mano y sobre todos los valores de
+ * CHECK del esquema. Si alguien cambia el clasificador, esa prueba se pone
+ * roja aquí antes de que este criterio empiece a mentir.
+ */
+export function tokenizeLikeLexicon(identifier: string, known: ReadonlySet<string>): string[] {
+  return identifier
+    .replace(/(\p{Ll}|\p{N})(\p{Lu})/gu, '$1 $2')
+    .replace(/(\p{Lu}+)(\p{Lu}\p{Ll})/gu, '$1 $2')
+    .split(/[^\p{L}\p{N}]+|\s+/u)
+    .filter((t) => t.length > 0)
+    .map((t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
+    .flatMap((t) => {
+      if (!/\p{L}/u.test(t) || !/\p{N}/u.test(t) || known.has(t)) return [t];
+      return t
+        .replace(/(\p{L})(\p{N})/gu, '$1 $2')
+        .replace(/(\p{N})(\p{L})/gu, '$1 $2')
+        .split(' ')
+        .filter((x) => x.length > 0);
+    });
+}
+
+export function flagsAsSpanish(value: string, lexicon: Lexicon): boolean {
+  return tokenizeLikeLexicon(value, lexicon.known).some(
+    (t) => !lexicon.domain.has(t) && lexicon.roots.has(t)
+  );
+}
+
+/**
+ * Los vocabularios `CHECK (col IN (...))` de las migraciones, EN ORDEN: la
+ * base se construye ejecutándolas así y dos columnas se redefinen más tarde.
+ * Gana la última, igual que en Postgres.
+ */
+export function readSchemaVocabularies(): Map<string, string[]> {
+  const literals = (s: string): string[] =>
+    [...s.matchAll(/'((?:[^']|'')*)'/g)].map((m) => m[1].replace(/''/g, "'"));
+  const dir = 'src/database/migrations';
+  const out = new Map<string, string[]>();
+  for (const f of fs.readdirSync(rutaDe(dir)).filter((n) => n.endsWith('.sql')).sort()) {
+    const sql = crudoDe(dir, f).replace(/--[^\n]*/g, '');
+    const note = (table: string, column: string, list: string): void => {
+      const values = literals(list);
+      if (values.length) out.set(`${table.replace(/^public\./i, '')}.${column}`, values);
+    };
+    for (const t of sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w.]+)\s*\(([\s\S]*?)\n\);/gi)) {
+      for (const c of t[2].matchAll(/CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi)) note(t[1], c[1], c[2]);
+    }
+    for (const a of sql.matchAll(
+      /ALTER\s+TABLE\s+(?:ONLY\s+)?([\w.]+)[^;]*?ADD\s+(?:CONSTRAINT|COLUMN)[^;]*?CHECK\s*\(\s*(\w+)\s+IN\s*\(([^)]*)\)/gi
+    )) {
+      note(a[1], a[2], a[3]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Los valores de `AccountRole`. Se leen del FUENTE porque son una unión de
+ * TypeScript: no existen en tiempo de ejecución y la base no los protege con
+ * ningún CHECK — que es justo por lo que la issue los nombra aparte.
+ */
+export function readAccountRoleValues(): string[] {
+  const rel = 'src/services/xml-ingestion/cfdi-taxonomy.ts';
+  if (!existe(rel)) return [];
+  const code = codigoDe(rel);
+  const m = /export\s+type\s+AccountRole\s*=([\s\S]*?);/.exec(code);
+  if (!m) return [];
+  return [...new Set([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]))];
+}
+
+/**
+ * RUTAS BAJO `src/` CON UN SEGMENTO ESPAÑOL DE LA JURISDICCIÓN, sin filtrar
+ * por extensión.
+ *
+ * WIT-198-01. La primera versión usaba `fuentes('src')`, que enumera SÓLO
+ * `.ts`. Una carpeta `src/**\/jurisdiccion/` que volviera con un `.sql`, un
+ * `.json` o un `.md` dentro —y las migraciones y los catálogos sembrados son
+ * exactamente eso— no la veía nadie, y el criterio seguía verde afirmando que
+ * la carpeta está en cero. El enunciado promete la CARPETA, no los archivos
+ * TypeScript de la carpeta.
+ *
+ * Se recorre el árbol y se mira el NOMBRE DEL DIRECTORIO, así que una carpeta
+ * vacía de `.ts` cuenta igual. Se exporta para poder ejercitarla sobre un
+ * árbol de mentira: un mutante no puede CREAR un archivo —el overlay sólo
+ * sustituye o borra— así que la prueba de esta guarda tiene que ser una
+ * prueba, no un espejo.
+ */
+export function spanishJurisdictionPaths(root: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
+      const full = path.join(dir, e.name);
+      if (/^jurisdicci[oó]n$/i.test(e.name)) found.push(path.relative(root, full).split(path.sep).join('/'));
+      if (e.isDirectory()) walk(full);
+    }
+  };
+  walk(path.join(root, 'src'));
+  return found;
+}
+
 // ── Los criterios ───────────────────────────────────────────
 
 // ============================================================
@@ -1117,6 +1332,318 @@ export const CRITERIOS: Criterio[] = [
       },
     ],
   },
+
+  {
+    paquete: 'E0.0',
+    id: 'nothing-new-is-born-in-spanish',
+    enunciado: 'Nada nuevo nace en español: la puerta del idioma es un error, no un aviso',
+    evaluar: () => {
+      // POR QUÉ NACE (I3, issue #145). El metro de I2 cuenta cuánto español
+      // queda; sin puerta, sólo documenta una marea. Y una puerta en AVISO no
+      // es una puerta: con 1 117 advertencias ya toleradas, una más no la nota
+      // nadie. En error, y con línea base por archivo para que el árbol de hoy
+      // no la vuelva impasable.
+      //
+      // Lo que este criterio vigila es la CONEXIÓN, que es donde se rompe sin
+      // que nada se ponga rojo: la regla existe, corre en error, y consume el
+      // MISMO léxico que el metro. Si cada uno trae su lista, publican dos
+      // números y el día que difieran nadie sabrá cuál miente.
+      const conf = crudoDe('eslint.config.mjs');
+      if (!/house\/english-identifiers/.test(conf)) {
+        return falla('no hay puerta del idioma: lo nuevo puede nacer en español y sólo se sabrá al medirlo');
+      }
+      if (!/'house\/english-identifiers':\s*'error'/.test(conf)) {
+        return falla(
+          'la puerta del idioma no está en error: con más de mil advertencias ya toleradas, un aviso ' +
+            'más no lo ve nadie y la puerta no cierra'
+        );
+      }
+      if (!existe('scripts/language/lexicon.json')) {
+        return falla('el léxico no está publicado como dato: la regla y el metro no pueden compartir población');
+      }
+      if (!/lexicon\.json/.test(conf)) {
+        return falla(
+          'la regla no lee el léxico compartido: en cuanto traiga su propia lista, el metro y la ' +
+            'puerta cuentan cosas distintas y sus dos cifras dejan de ser comparables'
+        );
+      }
+      return ok('la puerta del idioma corre en error sobre los tres árboles y comparte el léxico del metro');
+    },
+    mutantes: [
+      {
+        archivo: 'eslint.config.mjs',
+        de: "'house/english-identifiers': 'error'",
+        a: "'house/english-identifiers': 'warn'",
+        porque:
+          'la puerta pasa a avisar, y un aviso más entre mil ciento diecisiete no lo ve nadie: el ' +
+          'español vuelve a poder entrar con la CI en verde, que es justo lo que este tramo cierra',
+      },
+    ],
+  },
+
+
+  {
+    paquete: 'E0.0',
+    id: 'language-has-a-meter-with-a-baseline',
+    enunciado: 'El idioma tiene metro con línea base, y la CI lo corre',
+    evaluar: () => {
+      // POR QUÉ NACE (I2, issue #144). El epic #141 traduce el código en
+      // veintisiete tramos, y sin una cifra por deuda ninguno es evaluable:
+      // «queda español» no se puede cerrar. Un plan cuyo avance no se mide se
+      // abandona a la mitad — y quedarse a medias aquí es peor que no
+      // empezar, porque deja dos convenciones vivas y ninguna vigente.
+      //
+      // El criterio vigila las DOS piezas, porque cada una sin la otra es
+      // decorativa: el metro sin su línea base publica un número que nadie
+      // compara, y la línea base sin `--check` en la CI es un archivo que
+      // nadie lee.
+      // `crudoDe` y no `codigoDe`: el segundo recorta comentarios y sobre un YAML
+      // se lleva por delante parte del archivo — medido, 1 576 caracteres —, así
+      // que la línea que este criterio busca desaparecía y daba un rojo falso.
+      // Los criterios de ci.yml que ya existían leen en crudo por esta razón.
+      const ci = crudoDe('.github/workflows/ci.yml');
+      if (!/language-status\.ts --check/.test(ci)) {
+        return falla(
+          'la CI no corre el metro del idioma: la línea base deja de comprobarse y el español ' +
+            'puede crecer sin que nada lo diga'
+        );
+      }
+      if (!existe('docs/language-baseline.json')) {
+        return falla('no hay línea base del idioma: `--check` no tiene contra qué comparar');
+      }
+      const base = JSON.parse(crudoDe('docs/language-baseline.json')) as {
+        lanes?: Record<string, number>;
+      };
+      const carriles = Object.keys(base.lanes ?? {});
+      if (carriles.length === 0) {
+        return falla('la línea base del idioma está vacía: un trinquete sin carriles siempre pasa');
+      }
+      return ok(`${carriles.length} carriles con línea base, y la CI corre --check`);
+    },
+    mutantes: [
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'npx tsx scripts/language-status.ts --check',
+        a: 'npx tsx scripts/language-status.ts',
+        porque:
+          'el metro se sigue imprimiendo y deja de juzgar: sale 0 pase lo que pase, y el español ' +
+          'crece con la CI en verde — que es exactamente la clase de instrumento que este ' +
+          'repositorio persigue',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'user-language-has-one-door',
+    // I6 (issue #148). El catálogo tipado y el resolutor de locale, vigilados
+    // por lo que de verdad se puede romper sin que nadie lo note.
+    //
+    // NO VIGILA QUE LAS CADENAS ESTÉN TRADUCIDAS —de eso se encarga `tsc`, y
+    // mejor: `ES` es `Record<keyof typeof EN, string>`, así que una clave sin
+    // traducir no compila—. Vigila las TRES cosas que sí se pueden perder en
+    // silencio, y cada una se perdió de verdad durante la construcción de este
+    // tramo:
+    //
+    //   1. Que el idioma se DERIVE y no se congele al importar. La primera
+    //      versión fijaba `activeLanguage = LANGUAGES[0]` en la línea 97 y
+    //      `setLanguage` no tenía un solo llamador: el catálogo existía, sus
+    //      cuarenta pruebas estaban en verde, y no traducía nada.
+    //   2. Que el nombre de la variable de entorno viva en UN sitio. Con dos,
+    //      la precedencia se implementa dos veces y se desincroniza; era el
+    //      estado ANTES de este tramo (config.ts y mnemosine.ts).
+    //   3. Que el español siga siendo el primero. Es el pedido del dueño, y es
+    //      una línea que cualquiera reordena sin querer al añadir un idioma.
+    enunciado:
+      'El idioma del usuario se deriva del locale, y el nombre de su variable de entorno vive en un solo archivo',
+    evaluar: () => {
+      const missing = ['src/i18n/en.ts', 'src/i18n/es.ts', 'src/i18n/index.ts', 'src/i18n/locale.ts'].filter(
+        (f) => !existe(f)
+      );
+      if (missing.length) return falla(`el catálogo no está: falta ${missing.join(', ')}`);
+
+      // 1 · EL IDIOMA SE DERIVA. Si `t()` toma su idioma de una variable de
+      // módulo, el valor queda clavado al importar y ningún cambio de locale
+      // lo mueve. La forma que se exige es que la omisión sea una LLAMADA.
+      const index = codigoDe('src/i18n/index.ts');
+      if (!/=\s*getLanguage\(\)/.test(index)) {
+        return falla(
+          'el idioma por omisión de `t()` no sale de una llamada: si es una variable de módulo, ' +
+            'queda decidido al importar y el catálogo no traduce nada aunque sus pruebas estén verdes'
+        );
+      }
+      if (!/resolveLocale\s*\(/.test(index)) {
+        return falla('el catálogo no consulta `resolveLocale`: el idioma no se deriva del locale');
+      }
+
+      // 2 · UNA SOLA PUERTA AL ENTORNO. Se cuenta el nombre EN POSICIÓN DE
+      // VALOR —`X = 'MNEMOSINE_LOCALE'` o `{ k: 'MNEMOSINE_LANG' }`—, no cada
+      // vez que aparece.
+      //
+      // Y NO SE CONFÍA EN `codigoDe` PARA ESTO, aunque quite comentarios: lo
+      // probé y NO los quitó aquí. Los dos comentarios de mnemosine.ts que
+      // nombran la variable la escriben entre acentos graves —`MNEMOSINE_LANG`,
+      // al estilo markdown— y el escáner de `sinComentarios` toma ese acento
+      // por el inicio de una plantilla y deja de ver el comentario. Es un
+      // defecto del instrumento del plan, no de este tramo; aquí sólo se evita
+      // depender de él. La posición de valor la prosa no la imita.
+      const doors = fuentes('src').filter((f) =>
+        /(?:=|:)\s*['"]MNEMOSINE_(?:LOCALE|LANG)['"]/.test(crudoDe(path.relative(RAIZ, f)))
+      );
+      if (doors.length !== 1) {
+        return falla(
+          `${doors.length} archivo(s) de src/ nombran la variable de entorno del idioma ` +
+            `(${doors.map((f) => path.relative(RAIZ, f)).join(', ')}): con más de uno la precedencia ` +
+            'se implementa dos veces y se desincroniza, que es como estaba antes de I6'
+        );
+      }
+
+      // 3 · ESPAÑOL PRIMERO. El pedido del dueño, en una línea que se reordena
+      // sin querer.
+      if (!/LANGUAGES\s*=\s*\[\s*'es'/.test(index)) {
+        return falla('`LANGUAGES` ya no empieza por `es`: el español dejó de ser el primero');
+      }
+
+      return ok(
+        'el idioma se deriva del locale en cada llamada, su variable de entorno se nombra en un ' +
+          `solo archivo (${path.relative(RAIZ, doors[0])}) y el español sigue primero`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/i18n/index.ts',
+        de: 'export const LANGUAGES = [\'es\', \'en\'] as const;',
+        a: 'export const LANGUAGES = [\'en\', \'es\'] as const;',
+        porque: 'el español deja de ser el primero, que es el pedido del dueño y una línea que se reordena sin querer',
+      },
+      {
+        // LA SEGUNDA PUERTA, encarnada donde de verdad estuvo hasta este tramo:
+        // `config.ts` leía la variable por su cuenta, en paralelo a
+        // `mnemosine.ts`, y por eso la precedencia estaba implementada dos
+        // veces. El mutante la devuelve.
+        archivo: 'src/ai/providers/config.ts',
+        de: 'export function resolveLanguage(cwd = process.cwd()): AgentLanguage {',
+        a:
+          "const SEGUNDA_PUERTA = 'MNEMOSINE_LANG';\n" +
+          'export function resolveLanguage(cwd = process.cwd()): AgentLanguage {\n' +
+          '  void SEGUNDA_PUERTA;',
+        porque:
+          'segunda-puerta: un segundo archivo nombra la variable del idioma y la precedencia vuelve a implementarse dos veces',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'cli-chrome-and-pilot-speak-by-key',
+    // I7 (issue #149). El cromo del CLI y el piloto se rinden POR CLAVE, y el
+    // terreno ganado no se puede devolver en silencio.
+    //
+    // TRES AFIRMACIONES, y cada una vigila una forma distinta de perderlo:
+    //
+    //   1. El instrumento existe. Si alguien borra el carril, las otras dos
+    //      afirmaciones se vuelven incontestables y el tramo entero deja de
+    //      medirse sin ponerse rojo.
+    //   2. El terreno está ganado: ni `kernel/**` ni el piloto tienen entrada
+    //      en el desglose. «Cero» aquí no es un número que alguien escribió:
+    //      es la AUSENCIA de la entrada, que es lo que el trinquete de I2
+    //      exige y lo que la issue pide con «entradas de la línea base
+    //      borradas».
+    //   3. El cromo se instala ANTES de la primera familia. El orden es el
+    //      defecto: si las familias se registran primero, sus descripciones
+    //      ya se rindieron con el idioma equivocado y ninguna prueba de
+    //      contenido lo nota, porque el texto que sale es válido — sólo que
+    //      en el otro idioma.
+    enunciado:
+      'El cromo del CLI se instala antes de la primera familia, y el kernel y el piloto no cargan una sola cadena sin clave',
+    evaluar: () => {
+      const rel = 'docs/language-baseline.json';
+      if (!existe(rel)) return noEvaluable(`no existe ${rel}: el metro de I2 no está en este árbol`);
+      let baseline: { lanes?: Record<string, number>; perFile?: Record<string, Record<string, number>> };
+      try {
+        baseline = JSON.parse(crudoDe(rel)) as typeof baseline;
+      } catch {
+        return falla(`${rel} no es JSON válido`);
+      }
+
+      const LANE = 'spanish-user-strings-cli';
+      if (baseline.lanes?.[LANE] === undefined) {
+        return falla(
+          `la línea base ya no tiene el carril «${LANE}»: sin él, que el kernel y el piloto estén ` +
+            'limpios deja de ser comprobable y el tramo se apaga sin ponerse rojo'
+        );
+      }
+
+      // 2 · EL TERRENO, medido por AUSENCIA. El desglose sólo lista archivos
+      // con deuda, así que no estar es la prueba de que está en cero — y es
+      // más fuerte que un cero escrito, que alguien puede teclear.
+      const breakdown = baseline.perFile?.[LANE] ?? {};
+      const owed = Object.keys(breakdown).filter(
+        (f) => /^src\/cli\/kernel\//.test(f) || f === 'src/cli/bank-command.ts'
+      );
+      if (owed.length) {
+        return falla(
+          `${owed.length} archivo(s) del kernel o del piloto vuelven a cargar cadenas sin clave ` +
+            `(${owed.slice(0, 3).join(', ')}): el terreno que I7 ganó se devolvió`
+        );
+      }
+
+      // 3 · EL ORDEN. Se compara la posición del cromo con la de la PRIMERA
+      // familia registrada, no con una línea fija: el archivo crece con cada
+      // familia nueva y un número aquí caducaría en el siguiente tramo.
+      // SE LEE EL CRUDO Y SE ANCLA AL PRINCIPIO DEL RENGLÓN, no se confía en
+      // que `codigoDe` quite los comentarios. Medido en este mismo tramo: con
+      // la llamada comentada —`// installHelpChrome(program);`— el fuente ya
+      // sin comentarios TODAVÍA la contiene, así que el criterio pasaba con el
+      // cromo apagado. `sinComentarios` es un escáner con estado y en un
+      // archivo de tres mil renglones deja de quitar; en I6 lo vi cegado por
+      // unos acentos graves, y aquí sin ellos. Es un defecto del instrumento
+      // del plan y sigue abierto; lo que hace este criterio es no depender de
+      // él: un renglón comentado no empieza por la llamada.
+      const main = crudoDe('src/cli/mnemosine.ts');
+      const chromeMatch = /^[ \t]*installHelpChrome\(program\)/m.exec(main);
+      const chrome = chromeMatch?.index ?? -1;
+      if (chrome === -1) {
+        return falla(
+          'nadie instala el cromo del CLI: `Usage:`/`Uso:` y las descripciones vuelven a salir en ' +
+            'la prosa inglesa que Commander trae de fábrica, con el locale puesto o sin él'
+        );
+      }
+      const firstFamily = /^register[A-Za-z]*\(program/m.exec(main);
+      if (firstFamily === null || firstFamily.index === undefined) {
+        return noEvaluable('no se encontró ninguna llamada `register…(program)`: cambió la forma de registrar familias');
+      }
+      if (chrome > firstFamily.index) {
+        return falla(
+          'el cromo se instala DESPUÉS de la primera familia: sus descripciones ya se rindieron con ' +
+            'el idioma equivocado, y ninguna prueba de contenido lo nota porque el texto que sale es válido'
+        );
+      }
+
+      return ok(
+        `el cromo se instala antes de la primera familia, y ni el kernel ni el piloto tienen entrada ` +
+          `en el desglose de «${LANE}» (que vale ${baseline.lanes[LANE]})`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'installHelpChrome(program);',
+        a: '// installHelpChrome(program);',
+        porque:
+          'sin cromo instalado, el CLI vuelve a la prosa de fábrica de Commander y el locale deja de cambiar una sola pantalla',
+      },
+      {
+        // EL TERRENO DEVUELTO. Se encarna metiendo al piloto de vuelta en el
+        // desglose, que es exactamente lo que pasaría si alguien reintrodujera
+        // una cadena sin clave y resembrara la línea base sin mirar.
+        archivo: 'docs/language-baseline.json',
+        de: '"spanish-user-strings-cli": {',
+        a: '"spanish-user-strings-cli": {\n   "src/cli/bank-command.ts": 1,',
+        porque: 'terreno-devuelto: el piloto vuelve a cargar una cadena sin clave y el desglose lo registra',
+      },
+    ],
+  },
+
+
 
   {
     paquete: 'E0.0',
@@ -2449,6 +2976,136 @@ export const CRITERIOS: Criterio[] = [
       );
     },
   },
+  {
+    paquete: 'E0.2',
+    // EL MAPA DEL RENOMBRADO, EXIGIDO COMPLETO (I4 · issue #146).
+    //
+    // El criterio de arriba pregunta si el vocabulario del CÓDIGO coincide con
+    // el CHECK. Éste pregunta otra cosa, y por eso vive aparte en vez de
+    // sustituirlo: si cada término español que este sistema PERSISTE tiene ya
+    // decidido su nombre inglés, o escrita la razón de no tenerlo.
+    //
+    // Sin esta lista, I23–I25 renombran a ciegas: cada tramo elige el nombre
+    // de su clase cuando le toca, y el mismo concepto acaba con dos
+    // traducciones en dos tablas. Eso ya no se arregla renombrando; se
+    // arregla con otro renombrado, sobre datos de despachos reales.
+    //
+    // NO SE ANCLA A NINGUNA CIFRA. Cuenta lo que encuentra hoy y exige que el
+    // registro lo cubra: una migración nueva con un valor español entra en la
+    // cuenta sola, sin que nadie actualice un número aquí.
+    enunciado:
+      'Todo literal español de un CHECK y todo value de AccountRole está en el registro del vocabulario',
+    evaluar: () => {
+      const reg = readVocabularyRegistry();
+      if (reg === null) {
+        return falla('no existe src/language/vocabulary-registry.json: el renombrado de I23–I25 no tiene mapa');
+      }
+      if (reg.problems.length) {
+        return falla(
+          `el registro tiene ${reg.problems.length} entrada(s) inválida(s): ` +
+            reg.problems.slice(0, 3).join(' · ')
+        );
+      }
+
+      // EL DETECTOR DE ESPAÑOL ES EL DE I1, NO UNO NUEVO. Se lee su léxico de
+      // datos —scripts/language/lexicon.json— y se aplica su misma regla:
+      // `isFlagged` devuelve verdadero cuando ALGÚN token es raíz española y
+      // no es término de dominio, porque esos son exactamente los casos «es»
+      // y «mixed». Que las dos implementaciones coincidan no se supone: lo
+      // prueba tests/language/vocabulary-registry.spec.ts sobre las 200
+      // declaraciones etiquetadas a mano y sobre todos los valores de CHECK.
+      const lexicon = readLexicon();
+      if (lexicon === null) {
+        return noEvaluable('no se pudo leer scripts/language/lexicon.json: sin léxico no hay veredicto de idioma');
+      }
+      if (lexicon.roots.size < 1000) {
+        return noEvaluable(`el léxico trae ${lexicon.roots.size} raíces: no tiene la forma que este criterio sabe leer`);
+      }
+
+      const inSchema = readSchemaVocabularies();
+      if (inSchema.size < 20) {
+        return noEvaluable(
+          `sólo se leyeron ${inSchema.size} CHECK de vocabulario: ya no tienen la forma que este criterio sabe leer`
+        );
+      }
+
+      const missing: string[] = [];
+      let spanish = 0;
+      for (const [key, values] of inSchema) {
+        for (const v of values) {
+          if (!flagsAsSpanish(v, lexicon)) continue;
+          spanish++;
+          if (!reg.has('check-value', key, v)) missing.push(`${key} = '${v}'`);
+        }
+      }
+
+      // AccountRole no tiene CHECK —sus 36 valores viven en una unión de
+      // TypeScript y en filas sembradas—, así que se lee del fuente. Es la
+      // población que el issue nombra aparte por eso mismo: es la única clase
+      // grande que la base no protege.
+      const roleValues = readAccountRoleValues();
+      if (roleValues.length < 20) {
+        return noEvaluable(
+          `sólo se leyeron ${roleValues.length} values de AccountRole en cfdi-taxonomy.ts: cambió de forma`
+        );
+      }
+      const missingRoles = roleValues.filter((r) => !reg.has('account-role', 'account_roles.role', r));
+
+      if (missing.length || missingRoles.length) {
+        const parts: string[] = [];
+        if (missing.length) {
+          parts.push(
+            `${missing.length} literal(es) español(es) de CHECK sin entrada en el registro ` +
+              `(${missing.slice(0, 3).join(', ')}): I23–I25 los renombrarían sin mapa`
+          );
+        }
+        if (missingRoles.length) {
+          parts.push(
+            `${missingRoles.length} value(es) de AccountRole sin registrar ` +
+              `(${missingRoles.slice(0, 3).join(', ')}): son roleValues que 26 archivos leen y la base no protege`
+          );
+        }
+        return falla(parts.join(' · '));
+      }
+
+      return ok(
+        `${reg.total} entries registradas cubren los ${spanish} literals españoles de ` +
+          `${inSchema.size} CHECK y los ${roleValues.length} values de AccountRole; ` +
+          `${reg.kept} de ellas no se renombran y todas dicen por qué`
+      );
+    },
+    // LOS DOS ESPEJOS QUE LA ISSUE #146 PIDE: «borrar una fila del registro →
+    // rojo». Se borra corrompiendo la LLAVE de la fila y no el bloque entero,
+    // por dos razones que importan:
+    //
+    //   · El JSON sigue siendo válido, así que el criterio falla por FALTA DE
+    //     COBERTURA y no por «no es JSON válido». Un espejo que mata por el
+    //     motivo equivocado no prueba lo que dice probar.
+    //   · La entrada sigue bien formada, así que tampoco muere por
+    //     `problemsIn`. Lo único que cambia es que el término deja de estar
+    //     en el índice — que es exactamente lo que pasa cuando alguien borra
+    //     una fila de verdad.
+    //
+    // Uno por cada población que el criterio vigila, porque fallan por caminos
+    // distintos: el CHECK se lee de las migraciones y AccountRole del fuente
+    // de una unión de TypeScript.
+    mutantes: [
+      {
+        archivo: 'src/language/vocabulary-registry.json',
+        de: '"es": "cfdi_retencion",',
+        a: '"es": "cfdi_retencion_BORRADA",',
+        porque:
+          'fila-borrada: un literal español de un CHECK deja de estar registrado y I23–I25 lo renombrarían sin mapa',
+      },
+      {
+        archivo: 'src/language/vocabulary-registry.json',
+        de: '"es": "depreciacion_acumulada",',
+        a: '"es": "depreciacion_acumulada_BORRADA",',
+        porque:
+          'fila-borrada: un valor de AccountRole deja de estar registrado, y es la clase que ningún CHECK protege',
+      },
+    ],
+  },
 
   // ---- E0.3 · Bitácora de auditoría ----
   {
@@ -2763,6 +3420,154 @@ export const CRITERIOS: Criterio[] = [
         porque:
           'el conmutador vuelve a ser un booleano con otro nombre: sin `books` no hay forma de decir ' +
           'que una filial de Delaware lleva libros en NIF, que es la mitad que el booleano colapsaba',
+      },
+    ],
+  },
+  {
+    paquete: 'E1.1',
+    id: 'jurisdiction-module-born-english',
+    // I5 (issue #147). J0.1 se renombró al inglés EN SU PROPIA RAMA antes de
+    // fusionar, a petición del revisor (WIT-140-01), y ése fue el punto: el
+    // módulo tenía diez consumidores y CERO criterios por ruta, así que
+    // renombrarlo antes costó S y después habría entrado a la línea base y
+    // costado un tramo entero de I14.
+    //
+    // Lo que queda de aquel tramo es esto: la guarda de que no vuelva. Un
+    // renombrado sin criterio es una decisión que dura hasta el primer
+    // `git revert` o el primer archivo nuevo que copie el nombre de al lado.
+    //
+    // TRES AFIRMACIONES, y la tercera es la que hace que el tramo valga:
+    // entrar sin deuda es distinto de entrar traducido. Un módulo puede estar
+    // en inglés y aun así pesar en un carril; si pesa, el trinquete lo protege
+    // y renombrarlo deja de ser gratis.
+    enunciado:
+      'El módulo de la jurisdicción no conserva un nombre español, ni pesa en un carril exigido del idioma',
+    evaluar: () => {
+      // 1 · LOS NOMBRES VIEJOS, TODOS. No sólo `esContabilidadMexicana`, que
+      // es el que la issue nombra: los siete exportados y el directorio. Un
+      // criterio que vigila uno de siete deja seis puertas abiertas, y el
+      // `git revert` que las abriría las abre todas a la vez.
+      const OLD_NAMES = [
+        'jurisdiccionDe',
+        'CodigoJurisdiccion',
+        'NormaContable',
+        'EntidadConJurisdiccion',
+        'esContabilidadMexicana',
+        'sqlEsContabilidadMexicana',
+        // `Jurisdiccion` va al final y con frontera de palabra: es subcadena de
+        // los dos anteriores, y sin `\b` se contaría tres veces cada aparición.
+        'Jurisdiccion',
+      ];
+      const revived: string[] = [];
+      for (const name of OLD_NAMES) {
+        const hits = dondeAparece(new RegExp(`\\b${name}\\b`), ['src'], true);
+        if (hits.length) revived.push(`${name} (${hits.length} archivo(s): ${hits[0]})`);
+      }
+
+      // 2 · NI EL DIRECTORIO. El renombrado de la carpeta es la mitad que un
+      // codemod de identificadores no hace, y la que rompe diez imports.
+      const oldFolder = spanishJurisdictionPaths(RAIZ);
+
+      // 3 · SIN ENTRADA EN UN CARRIL EXIGIDO.
+      //
+      // «Sin entrada» a secas sería falso y pondría el criterio rojo por algo
+      // que el epic bendice: el módulo SÍ tiene 176 líneas de comentario en
+      // español, y ese carril está declarado `informational` —los comentarios
+      // no se tocan hasta I20—. Lo que I5 promete es que no pese donde se
+      // EXIGE: identificadores, nombres de archivo, anclas del plan.
+      //
+      // Qué carril es informativo no se escribe aquí: se lee de donde se
+      // declara, para que añadir o quitar uno no deje este criterio mintiendo.
+      const informationalLanes = new Set<string>();
+      for (const file of ['scripts/language/lanes/docs.ts', 'scripts/language/lanes/code.ts', 'scripts/language/lanes/plan.ts']) {
+        if (!existe(file)) continue;
+        const text = crudoDe(file);
+        for (const m of text.matchAll(/informational:\s*true/g)) {
+          const before = text.slice(0, m.index ?? 0);
+          const id = [...before.matchAll(/\bid:\s*'([^']+)'/g)].pop();
+          if (id) informationalLanes.add(id[1]);
+        }
+      }
+      if (informationalLanes.size === 0) {
+        return noEvaluable(
+          'ningún carril se declara `informational`: sin esa distinción este criterio exigiría ' +
+            'cero comentarios españoles en la jurisdicción, que es I20 y no I5'
+        );
+      }
+
+      const rel = 'docs/language-baseline.json';
+      if (!existe(rel)) return noEvaluable(`no existe ${rel}: el metro de I2 todavía no está en este árbol`);
+      let baseline: { perFile?: Record<string, Record<string, number>> };
+      try {
+        baseline = JSON.parse(crudoDe(rel)) as typeof baseline;
+      } catch {
+        return falla(`${rel} no es JSON válido`);
+      }
+      // EXIGIR EL DESGLOSE ANTES DE AFIRMAR NADA SOBRE ÉL. Sin esto, una línea
+      // base sin `perFile` —o con el desglose vacío— hacía que la tercera
+      // afirmación pasara MIDIENDO CERO ARCHIVOS y el criterio cantara
+      // victoria. Es «el cero que parece una victoria» que el propio metro
+      // tiene escrito en scripts/language/lanes/plan.ts, y lo encontré
+      // atacando este criterio con el desglose vaciado a mano.
+      const breakdown = baseline.perFile ?? {};
+      if (Object.keys(breakdown).length < 5) {
+        return noEvaluable(
+          `${rel} trae ${Object.keys(breakdown).length} carril(es) con breakdown por archivo: ` +
+            'sin él la tercera afirmación pasaría sin mirar un solo archivo'
+        );
+      }
+      const weighs: string[] = [];
+      for (const [lane, perFile] of Object.entries(breakdown)) {
+        if (informationalLanes.has(lane)) continue;
+        for (const [file, n] of Object.entries(perFile)) {
+          // LAS DOS GRAFÍAS. `jurisdicci?on` casa «jurisdiccion» y NO casa
+          // «jurisdiction»: le falta la `t`. Lo cazó el arnés de mutación en
+          // la primera corrida —el mutante que mete el módulo en un carril
+          // exigido sobrevivía— y es el error exacto que este criterio existe
+          // para impedir: vigilar sólo el nombre viejo y quedarse ciego ante
+          // el nuevo, que es el que hoy puede coger deuda.
+          if (/(^|\/)jurisdic(?:c?ion|tion)(\/|$|\.)/i.test(file) && n > 0) {
+            weighs.push(`${lane} · ${file} = ${n}`);
+          }
+        }
+      }
+
+      const problems: string[] = [];
+      if (revived.length) {
+        problems.push(
+          `${revived.length} nombre(s) español(es) de vuelta en src/: ${revived.slice(0, 3).join(', ')}`
+        );
+      }
+      if (oldFolder.length) {
+        problems.push(`la carpeta \`jurisdiccion\` reapareció en ${oldFolder.length} ruta(s) de src/`);
+      }
+      if (weighs.length) {
+        problems.push(
+          `el módulo pesa en ${weighs.length} carril(es) EXIGIDO(s) (${weighs.slice(0, 2).join(' · ')}): ` +
+            'dejó de entrar sin deuda, y renombrarlo ya no es gratis'
+        );
+      }
+      if (problems.length) return falla(problems.join(' · '));
+
+      return ok(
+        `los ${OLD_NAMES.length} nombres viejos y la carpeta siguen en cero, y el módulo no pesa en ` +
+          `ninguno de los carriles exigidos (${informationalLanes.size} informativo(s) exento(s) por contrato)`
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/jurisdiction/jurisdiction.ts',
+        de: 'export function keepsMexicanBooks(',
+        a: 'export function esContabilidadMexicana(',
+        porque:
+          'el revert del renombrado: vuelve el nombre que la issue nombra, y con él los otros seis por el mismo camino',
+      },
+      {
+        archivo: 'docs/language-baseline.json',
+        de: '"src/ai/agent-events.ts": 4',
+        a: '"src/services/jurisdiction/jurisdiction.ts": 4',
+        porque:
+          'el módulo entra a la línea base de un carril EXIGIDO: sigue en inglés y ya no es gratis renombrarlo',
       },
     ],
   },

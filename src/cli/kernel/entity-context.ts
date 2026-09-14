@@ -2,7 +2,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveEntity, listEntities, type AgentContext } from '../../ai/context.js';
-import { CliError, ExitCode } from './exit.js';
+import { ExitCode } from './exit.js';
+import { CliError } from './cli-error.js';
 
 // ============================================================
 // ACTIVE ENTITY CONTEXT
@@ -142,17 +143,31 @@ export async function resolveActiveEntity(
       // una vez, con su remedio, y el pin queda intacto.
       const detalle = err instanceof Error ? err.message : String(err);
       if (esFalloDeConexion(err)) {
+        // I7 · Tres renglones y tres claves. La sangría del remedio —«  → »—
+        // se queda AQUÍ y no entra al catálogo: es maquetación, y meterla en la
+        // cadena traducida obligaría a traducir el margen. Ver `KeyedLine` en
+        // `kernel/exit.ts`.
         throw new CliError(
-          `Could not reach the database while resolving the active entity (${stored}): ${detalle}\n` +
-            '  → mnemosine doctor   (and check DATABASE_URL in .env)\n' +
-            'The pinned entity was kept.',
+          {
+            key: 'cli.entity.database_unreachable',
+            params: { entity: stored, detail: detalle },
+            lines: [
+              { key: 'cli.entity.database_unreachable_remedy', prefix: '  → ' },
+              { key: 'cli.entity.pin_was_kept' },
+            ],
+          },
           ExitCode.FAILURE
         );
       }
       throw new CliError(
-        `The pinned entity (${stored}) could not be resolved: ${detalle}\n` +
-          '  → mnemosine entity use <id|name>   (or `mnemosine entity unset` to clear it)\n' +
-          'The pinned entity was kept.',
+        {
+          key: 'cli.entity.pinned_unresolved',
+          params: { entity: stored, detail: detalle },
+          lines: [
+            { key: 'cli.entity.pinned_unresolved_remedy', prefix: '  → ' },
+            { key: 'cli.entity.pin_was_kept' },
+          ],
+        },
         ExitCode.NOT_FOUND
       );
     }
@@ -197,11 +212,7 @@ export async function requireExplicitEntity(
   if (resolution.source === 'only') {
     const all = await listEntities();
     if (all.length > 1) {
-      throw new CliError(
-        'This command changes data, so it will not guess the entity. ' +
-          'Name it with --entity <id|name> or pin one with `mnemosine entity use`.',
-        ExitCode.USAGE
-      );
+      throw new CliError({ key: 'cli.entity.must_be_named' }, ExitCode.USAGE);
     }
   }
   return resolution.ctx;

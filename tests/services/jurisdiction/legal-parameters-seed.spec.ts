@@ -71,8 +71,8 @@ describe('la tabla de la semilla: pocas filas, todas fundamentadas', () => {
     }
     // Y no se cuela ninguna de las españolas del documento rector, que se
     // escribió antes de que el épico #141 fusionara I0 e I5.
-    const claves = LEGAL_PARAMETERS_SEED.map((p) => p.key).join(' ');
-    expect(claves).not.toMatch(/\biva\.|lisr\.|tasa_|efectivo_max/);
+    const keys = LEGAL_PARAMETERS_SEED.map((p) => p.key).join(' ');
+    expect(keys).not.toMatch(/\biva\.|lisr\.|tasa_|efectivo_max/);
   });
 
   it('la UMA entra el 1 de FEBRERO, que es la fila por la que existe la tabla', () => {
@@ -94,8 +94,8 @@ describe('seedLegalParameters — el escritor que la tabla necesitaba', () => {
     expect(mockQuery).toHaveBeenCalledTimes(1);
     const params = mockQuery.mock.calls[0][1] as unknown[][];
     expect(params).toHaveLength(7);
-    for (const columna of params) {
-      expect(columna).toHaveLength(LEGAL_PARAMETERS_SEED.length);
+    for (const column of params) {
+      expect(column).toHaveLength(LEGAL_PARAMETERS_SEED.length);
     }
     // El orden importa: UNNEST empareja por posición, y una columna cambiada
     // de sitio guardaría la fuente en la unidad sin que nada se queje.

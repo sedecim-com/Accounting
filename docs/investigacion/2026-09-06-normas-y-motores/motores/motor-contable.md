@@ -12,7 +12,7 @@ Lo que sigue es dato leído de código. Ninguna línea de los dos informes fuent
 
 ## 0. Cómo ve la jurisdicción este subsistema
 
-**Un conmutador declarado.** `src/services/accounting/pais-contable.ts:35-44`, `esContabilidadMexicana(incorporationCountry?, accountingStandard?)`: `accounting_standard === 'mx_nif'` → México (`:39`); país vacío, nulo o `'MX'` → México (`:42-43`). Sólo un país declarado y distinto de MX saca a la entidad del estrato mexicano. «Ante la duda, mexicana» es una decisión de producto escrita en el archivo (`:19-24`), no una clave del panel.
+**Un conmutador declarado.** `src/services/jurisdiction/jurisdiction.ts:35-44`, `esContabilidadMexicana(incorporationCountry?, accountingStandard?)`: `accounting_standard === 'mx_nif'` → México (`:39`); país vacío, nulo o `'MX'` → México (`:42-43`). Sólo un país declarado y distinto de MX saca a la entidad del estrato mexicano. «Ante la duda, mexicana» es una decisión de producto escrita en el archivo (`:19-24`), no una clave del panel.
 
 **Lo lee un solo archivo del subsistema:** `src/services/accounting/entity-accounting.ts:75` (elegir catálogo y roles al sembrar) y `:172` (`rolesSinMapear`). Ni `period-close.ts` (imports `:1-10`: connection, policy-service, audit-log, posting, ledger-checks, errors, logger, types), ni `posting.ts`, ni `validation.ts`, ni `fx/`, ni `accruals/` lo importan. Consecuencia directa: las casillas REP del cierre corren sobre entidades estadounidenses (§1.5).
 
