@@ -1129,6 +1129,98 @@ function scanWriteRoutes(): { reviewed: number; findings: RouteFinding[] } {
   return { reviewed, findings };
 }
 
+// ============================================================
+// THE CALENDAR-DATE SCANNER (#211).
+//
+// Every entry is born at `createJournalEntry`, which since #211 normalises its
+// date once with `toCalendarDate`. That makes a 'YYYY-MM-DD' string correct in
+// every timezone — and it makes exactly one thing wrong again: a caller that
+// turns the string into `new Date(str)` before handing it over, because that
+// is UTC midnight and its LOCAL fields are the previous day west of Greenwich.
+// Five callers did exactly that, each on a different surface.
+//
+// So this looks at the ARGUMENT that carries the date in each call — not at
+// the file, where a harmless `new Date()` a few lines away would hide it — and
+// follows it one hop through a `const` bound in the same function, which is
+// the obvious way around a check that only reads the argument text.
+// ============================================================
+
+interface DateArgumentFinding {
+  site: string;
+  issue: string;
+}
+
+function scanLedgerDateArguments(): { calls: number; findings: DateArgumentFinding[] } {
+  const findings: DateArgumentFinding[] = [];
+  let calls = 0;
+
+  function* walk(n: ts.Node): Generator<ts.Node> {
+    yield n;
+    for (const child of n.getChildren()) yield* walk(child);
+  }
+
+  // `new Date()` is now, and the local-midnight template is the house's own
+  // correct construction; anything else REPARSES a value into an instant.
+  const reparses = (n: ts.Node): boolean => {
+    if (!ts.isNewExpression(n) || n.expression.getText() !== 'Date') return false;
+    const args = n.arguments ?? [];
+    if (args.length === 0) return false;
+    if (args.length === 1 && ts.isTemplateExpression(args[0]) && /T00:00:00`$/.test(args[0].getText())) return false;
+    return true;
+  };
+
+  for (const abs of fuentes('src')) {
+    const text = leer(abs);
+    if (!/createJournalEntry\(|reverseWithinTransaction\(|reverseJournalEntry\(/.test(text)) continue;
+    const sf = ts.createSourceFile(path.basename(abs), text, ts.ScriptTarget.Latest, true);
+    const rel = path.relative(RAIZ, abs);
+
+    for (const n of walk(sf)) {
+      if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) continue;
+      const callee = n.expression.text;
+      let dateArg: ts.Node | undefined;
+      if (callee === 'createJournalEntry') dateArg = n.arguments[1];
+      else if (callee === 'reverseWithinTransaction') dateArg = n.arguments[4];
+      else if (callee === 'reverseJournalEntry') {
+        const opts = n.arguments[2];
+        if (opts && ts.isObjectLiteralExpression(opts)) {
+          const prop = opts.properties.find((p) => ts.isPropertyAssignment(p) && p.name.getText() === 'reversalDate');
+          if (prop && ts.isPropertyAssignment(prop)) dateArg = prop.initializer;
+        }
+      } else continue;
+      if (callee === 'createJournalEntry') calls += 1;
+      if (!dateArg) continue;
+
+      const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+      const site = `${rel}:${line} ${callee}`;
+      let flagged = false;
+      for (const x of walk(dateArg)) {
+        if (reparses(x)) {
+          findings.push({ site, issue: `the date argument is ${x.getText().slice(0, 60)}` });
+          flagged = true;
+          break;
+        }
+      }
+      if (flagged) continue;
+
+      // One hop through a const bound in the enclosing function.
+      if (ts.isIdentifier(dateArg)) {
+        let scope: ts.Node | undefined = n.parent;
+        while (scope && !ts.isFunctionLike(scope) && !ts.isSourceFile(scope)) scope = scope.parent;
+        if (!scope) continue;
+        for (const x of walk(scope)) {
+          if (ts.isVariableDeclaration(x) && ts.isIdentifier(x.name) && x.name.text === dateArg.text &&
+              x.initializer && reparses(x.initializer)) {
+            findings.push({ site, issue: `the date argument «${dateArg.text}» is bound to ${x.initializer.getText().slice(0, 60)}` });
+            break;
+          }
+        }
+      }
+    }
+  }
+  return { calls, findings };
+}
+
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
 
@@ -7305,6 +7397,160 @@ export const CRITERIOS: Criterio[] = [
 
   // ---- F05d · La firma y el sello ----
 
+  {
+    paquete: 'E1.2',
+    id: 'calendar-dates-reach-the-ledger-unparsed',
+    // #211. `entry_date` is DATE, and node-postgres sends a JS Date with the
+    // process's LOCAL fields. A `new Date('YYYY-MM-DD')` is UTC midnight, so
+    // west of Greenwich the column got the previous day. Measured through REST
+    // with the clock in America/Mexico_City: an entry dated March 1st stored on
+    // February 28th in February's period; an entry and a customer receipt
+    // dated January 1st refused with PERIOD_CLOSED; a reversal a day early; a
+    // vendor payment stored on April 1st with ITS OWN entry on March 31st. CI
+    // runs in UTC, where none of it shows.
+    //
+    // `treasury-entry-date-local-midnight` guards one file by counting a
+    // function name; it was green on main with all of this shifting. This one
+    // measures the three things that make the day survive any clock: the
+    // normaliser never reparses a string and reads a Date by local fields; the
+    // sink binds that one normalised day to the period, the folio and the
+    // INSERT; and no caller reparses the date on its way in.
+    enunciado:
+      'La fecha que el usuario escribe es la que el mayor guarda, en cualquier zona horaria del servidor',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/routes/journal-entries.ts',
+        de: "midnight, which west of Greenwich is the previous day in the DATE column.\n      entry_date,",
+        a: "midnight, which west of Greenwich is the previous day in the DATE column.\n      new Date(entry_date),",
+        porque: 'the REST entry reparses its date again: March 1st lands on February 28th west of Greenwich, and January 1st is refused',
+      },
+      {
+        archivo: 'src/api/rest/routes/journal-entries.ts',
+        de: '      reversalDate: reversal_date,',
+        a: '      reversalDate: reversal_date ? new Date(reversal_date) : undefined,',
+        porque: 'the reversal is posted a day early west of Greenwich — always posted, and a posted entry is only undone by another one',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: '    payment.payment_date,\n    JournalEntryType.AUTO_PAYMENT,\n    iva.documents.length',
+        a: '    new Date(payment.payment_date),\n    JournalEntryType.AUTO_PAYMENT,\n    iva.documents.length',
+        porque: 'the customer receipt entry lands a day before its receipt, and a receipt dated January 1st is refused',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: '      payment.payment_date,\n      JournalEntryType.AUTO_PAYMENT,',
+        a: '      new Date(payment.payment_date),\n      JournalEntryType.AUTO_PAYMENT,',
+        porque: 'the foreign-currency vendor payment entry lands a day before its payment: the subledger and the ledger disagree on the day',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: '    payment.payment_date,\n    JournalEntryType.AUTO_PAYMENT,\n    (iva.documents.length',
+        a: '    new Date(payment.payment_date),\n    JournalEntryType.AUTO_PAYMENT,\n    (iva.documents.length',
+        porque: 'the vendor payment entry lands a day before its payment — measured: payment on April 1st, its own entry on March 31st',
+      },
+      {
+        archivo: 'src/services/payroll/common/gl-posting-service.ts',
+        de: '    pr.pay_date,',
+        a: '    new Date(pr.pay_date),',
+        porque: 'a caller no conduct test exercises reparses its date again: the payroll entry is only as safe as whatever type that row happens to carry',
+      },
+      {
+        archivo: 'src/utils/calendar-date.ts',
+        de: 'value.getDate()',
+        a: 'value.getUTCDate()',
+        porque: 'a Date is read by its UTC day: a local evening becomes tomorrow west of Greenwich, and a local-midnight row becomes yesterday east of it',
+      },
+      {
+        archivo: 'src/utils/calendar-date.ts',
+        de: '.exec(String(value).trim());',
+        a: '.exec(new Date(String(value)).toISOString());',
+        porque: 'the string is reparsed through Date — exactly the construction that shifted the day — and an ISO string with a time is reinterpreted instead of cut',
+      },
+      {
+        archivo: 'src/services/accounting/posting.ts',
+        de: '      [entityId, entryDay]',
+        a: '      [entityId, entryDate]',
+        porque: 'the period is chosen from the raw argument and the INSERT from the normalised day: the two can disagree, and the entry lands in a period that is not its date',
+      },
+      {
+        archivo: 'tests/integration/journal-entry-date-west-of-greenwich.int.spec.ts',
+        de: "const offset = new Date('2026-03-01T12:00:00Z').getTimezoneOffset();",
+        a: 'const offset = expectedOffsetMinutes;',
+        porque: 'the reproduction stops checking that the timezone switch took effect: on a machine without timezone data every case passes for the wrong reason',
+      },
+    ],
+    evaluar: () => {
+      const normaliser = 'src/utils/calendar-date.ts';
+      const sink = 'src/services/accounting/posting.ts';
+      const spec = 'tests/integration/journal-entry-date-west-of-greenwich.int.spec.ts';
+      for (const f of [normaliser, sink]) if (!existe(f)) return falla(`desapareció ${f}`);
+
+      // 1. THE NORMALISER: a string is cut, never reparsed; a Date is read LOCAL.
+      const norm = codigoDe(normaliser);
+      const stringBranchAt = norm.indexOf('.exec(String(value).trim())');
+      if (stringBranchAt < 0 || /new Date\((String\()?value/.test(norm)) {
+        return falla(
+          'toCalendarDate volvió a reinterpretar la cadena con new Date: un YYYY-MM-DD es medianoche UTC, y al oeste de Greenwich eso es el día anterior'
+        );
+      }
+      if (!norm.includes('value.getFullYear(), value.getMonth() + 1, value.getDate()') || /value\.getUTC/.test(norm)) {
+        return falla(
+          'toCalendarDate dejó de leer un Date por sus campos LOCALES, que son el día que pg envía y el que pg devuelve para una columna DATE'
+        );
+      }
+
+      // 2. THE SINK: one normalised day, bound to the period, the folio and the
+      // INSERT — measured by the key each one receives, not by presence.
+      const s = codigoDe(sink);
+      const normalisedAt = s.indexOf('const entryDay = toCalendarDate(entryDate);');
+      const periodAt = s.indexOf('[entityId, entryDay]');
+      const sequenceAt = s.indexOf("nextEntityNumber(client, entityId, 'journal_entry', 'JE', entryDay)");
+      const insertAt = s.indexOf('options?.reference || null, entryDay, description, createdBy,');
+      if (normalisedAt < 0) {
+        return falla('createJournalEntry dejó de normalizar su fecha: vuelve a depender de cómo la construyó cada llamador');
+      }
+      if (periodAt < 0 || sequenceAt < 0 || insertAt < 0) {
+        return falla(
+          'el periodo, el folio o el INSERT de createJournalEntry dejaron de recibir el día normalizado: pueden volver a discrepar entre sí y con la fecha escrita'
+        );
+      }
+      if (!(normalisedAt < periodAt && periodAt < sequenceAt && sequenceAt < insertAt)) {
+        return falla('el día normalizado se usa antes de existir: el orden normalizar → periodo → folio → INSERT se rompió');
+      }
+
+      // 3. NO CALLER REPARSES THE DATE ON ITS WAY IN.
+      const { calls, findings } = scanLedgerDateArguments();
+      if (calls < 20) {
+        return falla(`sólo ${calls} llamadas a createJournalEntry encontradas: el escáner no está viendo el árbol, y un censo vacío no es un censo limpio`);
+      }
+      if (findings.length > 0) {
+        return falla(
+          `${findings.length} llamada(s) reinterpretan la fecha antes de entregarla al mayor: ` +
+            findings.slice(0, 4).map((x) => `${x.site} — ${x.issue}`).join(' · ') +
+            '. Pasa la cadena o el Date de la fila tal cual: createJournalEntry la normaliza'
+        );
+      }
+
+      // 4. AND CONDUCT, meaningful in a UTC CI: the zone is switched, checked
+      // and restored inside the reproduction, west AND east.
+      if (!existe(spec)) return falla('no hay reproducción contra Postgres: en CI el reloj es UTC y el defecto no se ve sin ella');
+      const t = crudoDe(spec);
+      const needed: Array<[RegExp, string]> = [
+        [/getTimezoneOffset\(\)/, 'comprobar que el cambio de zona surtió efecto'],
+        [/America\/Mexico_City/, 'medir al oeste de Greenwich'],
+        [/Asia\/Tokyo/, 'medir que el arreglo no rompe el este'],
+        [/entry_date::text/, 'leer el día guardado como texto, no como Date'],
+        [/JOIN journal_entries je ON je\.id = p\.journal_entry_id/, 'leer la póliza por la llave del propio pago'],
+      ];
+      for (const [pattern, what] of needed) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        `${calls} llamadas a createJournalEntry revisadas sin fecha reinterpretada; el mayor normaliza una vez y ata ese día al periodo, al folio y al INSERT; y la reproducción lo mide al oeste y al este`
+      );
+    },
+  },
   {
     paquete: 'E1.2',
     id: 'treasury-entry-date-local-midnight',

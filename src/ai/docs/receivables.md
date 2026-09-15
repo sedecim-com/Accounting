@@ -21,6 +21,7 @@
 
 ## What YOU do
 - get_aged_receivables (aging with days_overdue; negative = not yet due), search_customers, and query the generated journal entries (search_journal_entries with entry_type auto_invoice/auto_payment — credit notes post as auto_invoice, applications and unapplications as auto_payment).
+- A receipt's journal entry carries the receipt's own date (#211). Before that fix, west of UTC the entry landed one day before `customer_payments.payment_date`, and a receipt dated January 1st was refused. If older data shows a receipt and its entry a day apart, that is the cause.
 - get_aged_receivables ages the DUE DATE at as_of_date but reads the balance AS IT STANDS TODAY: it does not reconstruct what was owed on a past date. Fine for a collections call, wrong for an auditor — say which one you are giving.
 - `mnemosine ar reconcile` (read-only, you may run it) squares the subledger — open invoices minus unapplied credit notes — against the cxc control account, and NAMES the manual entries posted straight to the control with no document behind them, which no aging report can see. `ar check` runs the named battery (subledger-delta, negative-balance, over-application, orphan-application, duplicate-invoice, stale-unapplied-cash, missing-uuid, cancelled-cfdi-open, stamped-without-entry). Both are TODAY, never as-of.
 
