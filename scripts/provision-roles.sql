@@ -90,7 +90,7 @@ GRANT EXECUTE                        ON ALL FUNCTIONS IN SCHEMA public TO mnemos
 -- si divergen o si nombran una tabla sin disparador que la respalde.
 DO $append_only$
 DECLARE
-  append_only text[] := ARRAY['audit_log', 'fiscal_credential_access_log'];
+  append_only text[] := ARRAY['audit_log', 'fiscal_credential_access_log', 'closing_packs'];
   t text;
 BEGIN
   FOREACH t IN ARRAY append_only LOOP

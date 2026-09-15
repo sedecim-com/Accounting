@@ -143,6 +143,31 @@ export default defineConfig({
         'src/services/accounting/ar-ap-posting.ts': {
           statements: 87, branches: 75, functions: 96, lines: 91,
         },
+        // ============================================================
+        // A6 · EL CONDUCTOR DEL CIERRE Y SU EXPEDIENTE
+        //
+        // Nacen con su trinquete el mismo día que nacen, que es la regla que
+        // D1 escribió aquí al lado: un archivo nuevo sin umbral puede perder
+        // cobertura en cualquier commit posterior sin que ninguna compuerta se
+        // mueva. Y son de los que no admiten eso — uno conduce un cierre que
+        // postea al mayor inmutable, y el otro sella las cifras que el despacho
+        // entrega a un tercero.
+        //
+        // Los dos miden CASI CERO en la suite unitaria y no llevan umbral allí,
+        // por lo mismo que period-close.ts: sus caminos son de base de datos, y
+        // ponerles un piso unitario obligaría a duplicar con mocks lo que ya se
+        // prueba contra Postgres.
+        //
+        // Nacieron en 90/72/90/91 y 87/75/100/90, y se apretaron en la fusión
+        // que siguió a la corrección de la revisión adversaria, medidos con la
+        // suite entera en verde (113 archivos, 1 436 pruebas; 27 de la de A6):
+        // conductor 95.04 / 77.77 / 95.23 / 95.72; expediente 89.56 / 77.38 / 100 / 91.5.
+        'src/services/accounting/closing-conductor.ts': {
+          statements: 95, branches: 77, functions: 95, lines: 95,
+        },
+        'src/services/accounting/closing-pack.ts': {
+          statements: 89, branches: 77, functions: 100, lines: 91,
+        },
         // Medidos: 86.99 / 78.16 / 100 / 88.49.
         'src/services/accounting/validation.ts': {
           statements: 86, branches: 78, functions: 100, lines: 88,
