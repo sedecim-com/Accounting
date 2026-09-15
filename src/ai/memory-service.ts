@@ -1,6 +1,8 @@
 import { query } from '../database/connection.js';
 import { UNTRUSTED_OPEN, UNTRUSTED_CLOSE, neutralizarEscalar } from './untrusted.js';
 import type { AgentContext } from './context.js';
+import { policyOptions } from '../services/policy/policy-service.js';
+import type { PolicyOption } from '../services/policy/pending-catalog.js';
 
 // ============================================================
 // FIRM MEMORY
@@ -632,8 +634,10 @@ export async function detectPolicyContradictions(
 
   const salida: PolicyContradiction[] = [];
   for (const row of r.rows) {
-    const opciones = Array.isArray(row.options) ? (row.options as Array<{ value?: unknown }>) : [];
-    const valores = opciones
+    // The option VOCABULARY comes from the catalog, not from the copy the row
+    // got on its seed day (see `policyOptions`); a retired key keeps its copy.
+    const seeded = Array.isArray(row.options) ? (row.options as PolicyOption[]) : null;
+    const valores = policyOptions(row.policy_key, seeded)
       .map((o) => (typeof o?.value === 'string' ? o.value : ''))
       .filter((v) => v.length > 0);
     const resuelto = String(row.resolved_value ?? '');

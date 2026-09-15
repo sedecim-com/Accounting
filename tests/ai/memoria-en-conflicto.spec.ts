@@ -479,6 +479,41 @@ describe('detectPolicyContradictions', () => {
     expect(await detectPolicyContradictions({})).toEqual([]);
   });
 
+  // The option vocabulary comes from the CATALOG, not from the seed-day copy
+  // (I10 · #152). `ingest_auto_post` gained its `shadow` option after early
+  // tenants were seeded, so reading the row made the same precedent a
+  // contradiction for one tenant and silent for another.
+  it('an option added to the catalog after the seed is still recognised', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [filaPol({
+        policy_key: 'ingest_auto_post',
+        resolved_value: 'off',
+        // What an early tenant was seeded with: no `shadow` yet.
+        options: [{ value: 'off', label: 'x' }, { value: 'on', label: 'y' }],
+        question: 'For ingest_auto_post, how do we start?',
+        answer: 'Run it in shadow first and look at the verdicts',
+      })],
+    });
+    const r = await detectPolicyContradictions({});
+    expect(r).toHaveLength(1);
+    expect(r[0].namedInstead).toEqual(['shadow']);
+  });
+
+  it('a key the catalog no longer has keeps using the row copy', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [filaPol({
+        policy_key: 'retired_policy_not_in_catalog',
+        resolved_value: 'keep',
+        options: [{ value: 'keep', label: 'x' }, { value: 'drop', label: 'y' }],
+        question: 'For retired_policy_not_in_catalog?',
+        answer: 'We drop it',
+      })],
+    });
+    const r = await detectPolicyContradictions({});
+    expect(r).toHaveLength(1);
+    expect(r[0].namedInstead).toEqual(['drop']);
+  });
+
   it('no confunde una opción con un trozo de otra palabra', async () => {
     mockQuery.mockResolvedValueOnce({
       rows: [filaPol({ answer: 'El catálogo ningunoide no existe' })],
