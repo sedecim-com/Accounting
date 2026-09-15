@@ -277,9 +277,11 @@ function periodCell(language: WebLanguage, row: PortfolioRow): ElementSpec {
 function entityHeaderCell(language: WebLanguage, row: PortfolioRow): ElementSpec {
   if (row.isActive) return el('th', { scope: 'row' }, [el('a', { href: entityHref(row.entityId) }, row.name)]);
   // An inactive entity is shown, never dropped, but its name is not a way in:
-  // the entity view cannot load its lists (the API fails its drafts and
-  // questions reads today, a named follow-up), so a link would lead only to an
-  // error.
+  // the entity view cannot load its lists, so a link would lead only to an
+  // error. GET /v1/ai/drafts and /v1/ai/questions answer 500 for an inactive
+  // granted entity (resolveEntity reads active entities only), and
+  // #/entity/<uuid> can still be typed by hand. Both are listed as follow-ups
+  // in docs/auditorias/W0.md.
   return el('th', { scope: 'row' }, [el('span', {}, row.name), el('span', { class: 'tag' }, text(language, 'web.portfolio.inactive'))]);
 }
 
