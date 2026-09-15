@@ -578,7 +578,10 @@ export default tseslint.config(
         // and adds tests/ and scripts/, so it is the one project covering
         // everything the type-aware rules are pointed at. tsconfig.json stays
         // src-only because it is the build, and scripts must not reach dist/.
-        project: ['./tsconfig.test.json'],
+        // tsconfig.web.json is the browser program (src/gateway/app, W1): both
+        // Node configs exclude it, because it compiles against the DOM, so
+        // without it here its files would reach typed lint with no program.
+        project: ['./tsconfig.test.json', './tsconfig.web.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -706,6 +709,37 @@ export default tseslint.config(
       // particular case awaits anything. An async test with no await is not a
       // defect, and no-floating-promises still catches a forgotten await.
       '@typescript-eslint/require-await': 'off',
+    },
+  },
+
+  {
+    // The browser program of the web gateway (W1 · #117). It runs in a page
+    // whose third-party strings (entity names, draft descriptions, questions)
+    // reach the DOM, so the ways a string becomes markup or code are errors
+    // here, next to the CSP's Trusted Types and criterion
+    // web-client-cannot-inject-markup. The globals are the browser's, not
+    // Node's: the program has no process, require or Buffer to reach for.
+    name: 'accounting-core/browser',
+    files: ['src/gateway/app/**/*.ts'],
+    languageOptions: {
+      globals: { ...globals.browser },
+    },
+    rules: {
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-new-func': 'error',
+      'no-restricted-properties': [
+        'error',
+        { object: 'document', property: 'write', message: 'document.write parses markup.' },
+        { object: 'document', property: 'writeln', message: 'document.writeln parses markup.' },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[property.name=/^(innerHTML|outerHTML|insertAdjacentHTML|srcdoc)$/]",
+          message: 'Markup sinks are banned in the browser program: build nodes through dom.ts.',
+        },
+      ],
     },
   },
 

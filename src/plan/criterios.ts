@@ -1605,6 +1605,24 @@ function handlersTableEntry(sf: ts.SourceFile, name: string): string | undefined
   return undefined;
 }
 
+/** `[…strings].join('; ')` as a top-level initializer: its directives, or undefined for any other shape. */
+function joinedPolicy(sf: ts.SourceFile, name: string): string[] | undefined {
+  const init = topLevelInitializer(sf, name);
+  const call = init?.node;
+  if (!call || !ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression)) return undefined;
+  if (call.expression.name.text !== 'join' || call.arguments.length !== 1) return undefined;
+  const separator = call.arguments[0];
+  if (!ts.isStringLiteral(separator) || separator.text !== '; ') return undefined;
+  return stringElements(call.expression.expression);
+}
+
+/** The text of a string-like literal node, template pieces included, or undefined. */
+function literalText(n: ts.Node): string | undefined {
+  if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text;
+  if (ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n)) return n.text;
+  return undefined;
+}
+
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
 
@@ -5583,8 +5601,9 @@ export const CRITERIOS: Criterio[] = [
     //     (no loader: node:module, vm and child_process stay out, except
     //     child_process in the token store);
     //   · the browser program's closure stays inside src/gateway/app and the
-    //     two typed catalogs, with no package at all (enforced once it exists;
-    //     its minimum size arrives with the screen, W1);
+    //     two typed catalogs, with no package at all, and the program has at
+    //     least seven modules (W1), so an emptied or moved app is not a clean
+    //     closure;
     //   · what that closure binds from jose is the verification half only, and
     //     no file in it (borrowed modules included) names node:crypto's or
     //     WebCrypto's signers, a token-minting library or an engine credential,
@@ -5690,12 +5709,29 @@ export const CRITERIOS: Criterio[] = [
         a: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';\nexport const ENGINE_KEY = 'ENCRYPTION_KEY';",
         porque: 'an engine credential named in a borrowed module is inside the gateway process all the same',
       },
+      {
+        archivo: 'src/gateway/app/main.ts',
+        de: "import { mount } from './dom.js';",
+        a: "import '../config.js';\nimport { mount } from './dom.js';",
+        porque: 'the browser program would reach server configuration code, and whatever it imports ships to every page',
+      },
+      {
+        archivo: 'src/gateway/app/messages.ts',
+        de: "import { ES } from '../../i18n/es.js';",
+        a: "import { ES } from '../../i18n/es.js';\nimport { t } from '../../i18n/index.js';",
+        porque: "the CLI's catalog runtime reads the process locale; in the browser it is a second analyzer and a Node dependency",
+      },
     ],
     evaluar: () => {
       const { server, app } = gatewayFiles();
       if (server.length < 10) {
         return falla(
           `src/gateway sólo tiene ${server.length} archivo(s) del proceso servidor: el instrumento no miró, y no haber mirado no es haber aislado`
+        );
+      }
+      if (app.length < 7) {
+        return falla(
+          `src/gateway/app sólo tiene ${app.length} módulo(s) del programa del navegador: el instrumento no miró, y un cierre vacío no es un cierre contenido`
         );
       }
       const serverClosure = importClosure(seamSource, server, GATEWAY_SERVER_CLOSURE);
@@ -6350,6 +6386,435 @@ export const CRITERIOS: Criterio[] = [
       }
       return ok(
         'la cookie de sesión es __Host- y Strict, CSRF va antes del método y de la sesión (también en el logout), el proxy no reenvía credenciales del cliente ni sigue redirecciones, y sólo se guardan tokens asimétricos verificados'
+      );
+    },
+  },
+
+  {
+    paquete: 'E2.1',
+    id: 'web-client-reads-only-contracted-paths',
+    // W1 (#117). The browser program reads the API through one table and one
+    // client, and the table is checked against the contract the repository
+    // commits, not against itself. Read on the syntax tree:
+    //   · API_OPERATIONS in contract.ts is an object literal of {method, path}
+    //     string pairs, it has a portfolio entry, every method is GET and every
+    //     path is a GET operation of docs/openapi.json (a :param is {param});
+    //     every `method` property written in contract.ts is GET, the request
+    //     init included;
+    //   · no other module of src/gateway/app spells '/v1' in a string or a
+    //     template;
+    //   · fetch is named only in api.ts, exactly twice, each a direct call:
+    //     one on the URL buildGetRequest built, one on SIGN_OUT_PATH, which is
+    //     the gateway's /auth/logout and not the API; the one method written
+    //     in api.ts is that sign-out POST;
+    //   · no module names another way to reach the network (XMLHttpRequest,
+    //     WebSocket, EventSource, sendBeacon, a worker).
+    // A renamed or retired route, a call the contract never declared, or a
+    // write dressed as a read turns this red; tests/gateway/web-contract.spec.ts
+    // is the runtime side.
+    enunciado:
+      'El cliente web sólo lee rutas del contrato: cada llamada a /v1 es un GET que existe en docs/openapi.json y pasa por un único cliente',
+    mutantes: [
+      {
+        archivo: 'src/gateway/app/contract.ts',
+        de: "  portfolio: { method: 'GET', path: '/v1/portfolio' },",
+        a: "  portfolio: { method: 'GET', path: '/v1/portfolio-summary' },",
+        porque: 'the client would call an operation the contract does not declare',
+      },
+      {
+        archivo: 'docs/openapi.json',
+        de: '"/v1/portfolio": {',
+        a: '"/v1/portfolio-retired": {',
+        porque: 'the contract drifts under an unchanged client, and the plan must fail, not the demo',
+      },
+      {
+        archivo: 'src/gateway/app/view.ts',
+        de: "import { text } from './messages.js';",
+        a: "import { text } from './messages.js';\nconst sideRead = (): Promise<unknown> => fetch('/v1/accounts');",
+        porque: 'a second network call site would bypass the contracted client and its CSRF header',
+      },
+      {
+        archivo: 'src/gateway/app/contract.ts',
+        de: "  drafts: { method: 'GET', path: '/v1/ai/drafts' },",
+        a: "  drafts: { method: 'POST', path: '/v1/ai/drafts' },",
+        porque: 'the client would start issuing writes the table was never checked for',
+      },
+      {
+        archivo: 'src/gateway/app/contract.ts',
+        de: "    init: { method: 'GET', credentials: 'same-origin', redirect: 'error', cache: 'no-store', headers },",
+        a: "    init: { method: 'DELETE', credentials: 'same-origin', redirect: 'error', cache: 'no-store', headers },",
+        porque: 'the table still says GET while every request the client builds is a write',
+      },
+      {
+        archivo: 'src/gateway/app/api.ts',
+        de: '    response = await fetch(request.url, request.init);',
+        a: '    response = await fetch(`/v1/accounts${request.url}`, request.init);',
+        porque: 'the one client would call a path of its own instead of the one the table built',
+      },
+      {
+        archivo: 'src/gateway/app/view.ts',
+        de: "import { text } from './messages.js';",
+        a: "import { text } from './messages.js';\nconst load = window.fetch;",
+        porque: 'an aliased fetch is a second client with no fetch( in sight',
+      },
+      {
+        archivo: 'src/gateway/app/main.ts',
+        de: "const root = document.getElementById('app');",
+        a: "const root = document.getElementById('app');\nconst feed = new EventSource('/events');",
+        porque: 'a stream opened beside fetch reaches the network outside the contract and the client',
+      },
+    ],
+    evaluar: () => {
+      const findings: string[] = [];
+      const contractFile = 'src/gateway/app/contract.ts';
+      const clientFile = 'src/gateway/app/api.ts';
+
+      // The contract the repository commits.
+      let contractPaths: Record<string, Record<string, unknown> | undefined> | undefined;
+      if (!existe('docs/openapi.json')) {
+        findings.push('no existe docs/openapi.json: no hay contrato contra el que medir la tabla');
+      } else {
+        try {
+          contractPaths = (JSON.parse(crudoDe('docs/openapi.json')) as { paths?: typeof contractPaths }).paths;
+        } catch {
+          findings.push('docs/openapi.json no es JSON válido');
+        }
+        if (findings.length === 0 && !contractPaths) findings.push('docs/openapi.json no tiene paths');
+      }
+
+      // The table.
+      const contract = gatewaySyntaxOf(contractFile);
+      const table = contract ? topLevelInitializer(contract, 'API_OPERATIONS') : undefined;
+      if (!contract || !table || !ts.isObjectLiteralExpression(table.node) || table.node.properties.length === 0) {
+        findings.push('API_OPERATIONS ya no es, en contract.ts, un objeto literal con al menos una operación');
+      } else {
+        const names: string[] = [];
+        for (const property of table.node.properties) {
+          const entry = ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(property.initializer) ? property.initializer : undefined;
+          const fields = new Map<string, string>();
+          for (const field of entry?.properties ?? []) {
+            if (ts.isPropertyAssignment(field) && ts.isIdentifier(field.name) && ts.isStringLiteral(field.initializer)) {
+              fields.set(field.name.text, field.initializer.text);
+            } else {
+              fields.set('', '');
+            }
+          }
+          const method = fields.get('method');
+          const route = fields.get('path');
+          if (!entry || fields.size !== 2 || method === undefined || route === undefined) {
+            findings.push(`API_OPERATIONS tiene una entrada que no es {method, path} literal: ${property.getText(contract).slice(0, 60)}`);
+            continue;
+          }
+          const name = property.name?.getText(contract) ?? '';
+          names.push(name);
+          if (method !== 'GET') findings.push(`API_OPERATIONS.${name} es ${method}: el cliente web sólo lee`);
+          const operation = contractPaths?.[route.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, '{$1}')];
+          if (contractPaths && !operation?.get) findings.push(`API_OPERATIONS.${name} llama a GET ${route}, que docs/openapi.json no declara`);
+        }
+        if (!names.includes('portfolio')) findings.push('API_OPERATIONS ya no tiene la operación portfolio');
+
+        forEachGatewayNode(contract, (n) => {
+          if (ts.isPropertyAssignment(n) && n.name.getText(contract) === 'method') {
+            const value = literalText(n.initializer);
+            if (value !== 'GET') findings.push(`contract.ts escribe method ${n.initializer.getText(contract)}`);
+          }
+        });
+        const signOut = topLevelInitializer(contract, 'SIGN_OUT_PATH');
+        if (!signOut || !ts.isStringLiteral(signOut.node) || signOut.node.text !== '/auth/logout') {
+          findings.push('SIGN_OUT_PATH ya no es la ruta /auth/logout del gateway');
+        }
+      }
+
+      // Every module of the browser program.
+      const { app } = gatewayFiles();
+      if (!app.includes(clientFile)) findings.push(`desapareció ${clientFile}, el único cliente`);
+      const networkBans = new Set(['XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'Worker', 'SharedWorker', 'importScripts']);
+      const fetchTargets: string[] = [];
+      for (const rel of app) {
+        const sf = gatewaySyntaxOf(rel);
+        if (!sf) continue;
+        const at = (n: ts.Node) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
+        forEachGatewayNode(sf, (n) => {
+          const literal = literalText(n);
+          if (literal !== undefined && literal.includes('/v1') && rel !== contractFile) {
+            findings.push(`${at(n)} escribe una ruta /v1 fuera de contract.ts`);
+          }
+          if (!ts.isIdentifier(n)) return;
+          if (networkBans.has(n.text)) findings.push(`${at(n)} usa ${n.text}`);
+          if (n.text !== 'fetch') return;
+          const call = n.parent;
+          const direct = rel === clientFile && isIdentifierReference(n) && ts.isCallExpression(call) && call.expression === n;
+          if (!direct) {
+            findings.push(`${at(n)} nombra fetch fuera de una llamada directa en api.ts`);
+            return;
+          }
+          fetchTargets.push(call.arguments[0]?.getText(sf) ?? '');
+        });
+        if (rel === clientFile) {
+          forEachGatewayNode(sf, (n) => {
+            if (!ts.isPropertyAssignment(n) || n.name.getText(sf) !== 'method') return;
+            let call: ts.Node | undefined = n.parent;
+            while (call && !ts.isCallExpression(call)) call = call.parent;
+            const signOutPost =
+              literalText(n.initializer) === 'POST' && call !== undefined && ts.isCallExpression(call) && call.arguments[0]?.getText(sf) === 'SIGN_OUT_PATH';
+            if (!signOutPost) findings.push(`${at(n)} escribe method ${n.initializer.getText(sf)} fuera del POST de cierre de sesión`);
+          });
+          if (!plainImportsFrom(sf, './contract.js').has('buildGetRequest')) findings.push('api.ts ya no construye sus lecturas con buildGetRequest');
+        }
+      }
+      if ([...fetchTargets].sort().join(' | ') !== 'SIGN_OUT_PATH | request.url') {
+        findings.push(`api.ts llama a fetch con [${fetchTargets.join(' | ')}] en vez de una vez sobre request.url y otra sobre SIGN_OUT_PATH`);
+      }
+
+      if (findings.length > 0) {
+        return falla(`el cliente web alcanza la API fuera de su contrato (${findings.join(' · ')})`);
+      }
+      return ok(
+        `las ${table && ts.isObjectLiteralExpression(table.node) ? table.node.properties.length : 0} operaciones del cliente web son GET declarados en docs/openapi.json, y los ${app.length} módulos del navegador llegan a la red sólo por las dos llamadas de api.ts`
+      );
+    },
+  },
+
+  {
+    paquete: 'E2.1',
+    id: 'web-client-cannot-inject-markup',
+    // W1 (#117). Entity names, draft descriptions and questions are written by
+    // third parties and reach the page; with the session cookie behind the
+    // proxy, one of them turned into script could read through /v1 as the
+    // operator. So markup cannot happen by construction, and each layer is
+    // read here:
+    //   · the SPA policy in security-headers.ts has default-src 'none', only
+    //     'self' for scripts, styles and fetches, no base, form or frame
+    //     target, no object, and Trusted Types with no policy; no directive
+    //     carries unsafe-*, a scheme source or a wildcard, and no directive
+    //     name repeats (a browser keeps the first one). The API policy keeps
+    //     default-src 'none' and sandbox;
+    //   · every served module (src/gateway/app and the two catalogs it
+    //     imports, which ship as they are) names no HTML sink, no eval or
+    //     Function, no string timer, no document.write, and creates no script,
+    //     style or frame element; setAttribute appears only in dom.ts, right
+    //     after its allow-list check, and that allow-list's free-text
+    //     attributes are exactly class, id, scope, lang and role;
+    //   · index.html has no inline script, no style element or attribute, no
+    //     on* handler, no javascript: URL and no external URL.
+    // Trusted Types is enforced only in Chromium-family browsers; this, the
+    // eslint browser block and dom.ts are what hold everywhere else.
+    enunciado:
+      'El cliente web no puede inyectar marcado: CSP estricta con Trusted Types, respuestas del API en sandbox y ningún sumidero de HTML en el código que se sirve',
+    mutantes: [
+      {
+        archivo: 'src/gateway/security-headers.ts',
+        de: `  "script-src 'self'",`,
+        a: `  "script-src 'self' 'unsafe-inline'",`,
+        porque: 'one reflected string would become script that drives the proxy with the session',
+      },
+      {
+        archivo: 'src/gateway/security-headers.ts',
+        de: `  "require-trusted-types-for 'script'",`,
+        a: `  "img-src 'self'",`,
+        porque: 'HTML sinks would stop throwing, and textContent would be a convention again',
+      },
+      {
+        archivo: 'src/gateway/app/dom.ts',
+        de: 'node.textContent = child;',
+        a: 'node.innerHTML = child;',
+        porque: 'entity names, draft descriptions and questions are third-party strings',
+      },
+      {
+        archivo: 'src/gateway/public/index.html',
+        de: '<script type="module" src="/modules/gateway/app/main.js"></script>',
+        a: '<script>window.booted = true</script><script type="module" src="/modules/gateway/app/main.js"></script>',
+        porque: 'an inline script forces the CSP to be loosened',
+      },
+      {
+        archivo: 'src/i18n/en.ts',
+        de: '} as const;',
+        a: '} as const;\nexport const renderNote = (target: { innerHTML: string }, note: string): void => {\n  target.innerHTML = note;\n};',
+        porque: 'the catalogs ship to the page as modules, so a sink written there is served code too',
+      },
+      {
+        archivo: 'src/gateway/app/dom.ts',
+        de: "const TEXT_ATTRIBUTES: ReadonlySet<string> = new Set(['class', 'id', 'scope', 'lang', 'role']);",
+        a: "const TEXT_ATTRIBUTES: ReadonlySet<string> = new Set(['class', 'id', 'scope', 'lang', 'role', 'onclick']);",
+        porque: 'an event-handler attribute taken from the view tree is script waiting for a string',
+      },
+      {
+        archivo: 'src/gateway/app/dom.ts',
+        de: '    if (!isAllowedAttribute(name, value)) throw new RejectedAttribute(name);',
+        a: '    void RejectedAttribute;',
+        porque: 'with the check gone every attribute name a spec carries is set, style and on* included',
+      },
+      {
+        archivo: 'src/gateway/app/dom.ts',
+        de: "  if (name === 'href') return SAFE_HREF.test(value) || value === SIGN_IN_PATH;",
+        a: "  if (name === 'href') return true;",
+        porque: 'a javascript: URL in a link is script one click away, and the CSP does not stop a navigation',
+      },
+      {
+        archivo: 'src/gateway/app/main.ts',
+        de: "if (skipLink) skipLink.textContent = text(language, 'web.app.skip_to_content');",
+        a: "if (skipLink) skipLink.insertAdjacentHTML('beforeend', text(language, 'web.app.skip_to_content'));",
+        porque: 'catalog text parsed as markup outside dom.ts is a sink the view tree never sees',
+      },
+      {
+        archivo: 'src/gateway/security-headers.ts',
+        de: `  "connect-src 'self'",`,
+        a: `  "connect-src 'self' https:",`,
+        porque: 'an injected script could send what it read to any https host',
+      },
+    ],
+    evaluar: () => {
+      const findings: string[] = [];
+
+      // The policies.
+      const headersFile = 'src/gateway/security-headers.ts';
+      const headers = gatewaySyntaxOf(headersFile);
+      const spa = headers ? joinedPolicy(headers, 'SPA_CONTENT_SECURITY_POLICY') : undefined;
+      const api = headers ? joinedPolicy(headers, 'API_CONTENT_SECURITY_POLICY') : undefined;
+      if (!spa) {
+        findings.push('SPA_CONTENT_SECURITY_POLICY ya no es un arreglo literal de directivas unido con "; "');
+      } else {
+        const required = [
+          "default-src 'none'",
+          "script-src 'self'",
+          "style-src 'self'",
+          "connect-src 'self'",
+          "frame-ancestors 'none'",
+          "base-uri 'none'",
+          "form-action 'none'",
+          "object-src 'none'",
+          "require-trusted-types-for 'script'",
+          "trusted-types 'none'",
+        ];
+        for (const directive of required) if (!spa.includes(directive)) findings.push(`la CSP del SPA perdió ${directive}`);
+        const seen = new Set<string>();
+        for (const directive of spa) {
+          if (/unsafe-|[a-z-]+:|\*/i.test(directive.replace(/^[a-z-]+\s/, ''))) findings.push(`la CSP del SPA afloja ${directive}`);
+          const name = directive.split(/\s+/)[0];
+          if (seen.has(name)) findings.push(`la CSP del SPA repite ${name}`);
+          seen.add(name);
+        }
+      }
+      if (!api || !api.includes('sandbox') || !api.includes("default-src 'none'")) {
+        findings.push("la CSP de las respuestas del API ya no tiene default-src 'none' y sandbox");
+      }
+
+      // The served modules.
+      const { app } = gatewayFiles();
+      if (app.length === 0) findings.push('src/gateway/app no tiene módulos: no hay nada que mirar, y no mirar no es estar limpio');
+      const domFile = 'src/gateway/app/dom.ts';
+      const served = [...app, 'src/i18n/en.ts', 'src/i18n/es.ts'];
+      const sinkNames = new Set(['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'srcdoc', 'createContextualFragment', 'DOMParser', 'parseFromString']);
+      const codeNames = new Set(['eval', 'Function']);
+      const markupElements = /^(?:script|style|iframe|frame|object|embed|link|base|template)$/i;
+      for (const rel of served) {
+        const sf = gatewaySyntaxOf(rel);
+        if (!sf) {
+          findings.push(`desapareció ${rel}, que se sirve a la página`);
+          continue;
+        }
+        const at = (n: ts.Node) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
+        forEachGatewayNode(sf, (n) => {
+          if (ts.isIdentifier(n)) {
+            if (sinkNames.has(n.text)) findings.push(`${at(n)} usa ${n.text}`);
+            if (codeNames.has(n.text) && isIdentifierReference(n)) findings.push(`${at(n)} usa ${n.text}`);
+            if (/^write(?:ln)?$/.test(n.text) && ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) {
+              findings.push(`${at(n)} escribe con ${n.parent.getText(sf)}`);
+            }
+            return;
+          }
+          if (!ts.isCallExpression(n)) return;
+          const callee = ts.isPropertyAccessExpression(n.expression) ? n.expression.name.text : ts.isIdentifier(n.expression) ? n.expression.text : '';
+          const first = n.arguments[0];
+          if ((callee === 'setTimeout' || callee === 'setInterval') && first !== undefined && literalText(first) !== undefined) {
+            findings.push(`${at(n)} pasa una cadena a ${callee}`);
+          }
+          if (callee === 'createElement') {
+            // dom.ts creates by the spec's tag, which ALLOWED_TAGS checks below;
+            // anywhere else the tag must be a literal, and never a markup element.
+            const tag = first === undefined ? undefined : literalText(first);
+            if (tag === undefined ? rel !== domFile : markupElements.test(tag)) {
+              findings.push(`${at(n)} crea un elemento ${first?.getText(sf) ?? ''}`);
+            }
+          }
+          if (/^(?:setAttribute|setAttributeNS|setAttributeNode)$/.test(callee)) {
+            const guarded =
+              rel === domFile &&
+              callee === 'setAttribute' &&
+              ts.isBlock(n.parent.parent) &&
+              sameStatements(
+                n.parent.parent.statements,
+                sf,
+                'if (!isAllowedAttribute(name, value)) throw new RejectedAttribute(name);\nnode.setAttribute(name, value);'
+              );
+            if (!guarded) findings.push(`${at(n)} fija un atributo fuera de la lista permitida de dom.ts: ${n.getText(sf).slice(0, 60)}`);
+          }
+        });
+      }
+
+      // dom.ts's allow-lists: free text only where free text cannot load, run
+      // or style; an href only to an in-page route or the sign-in route; no
+      // element that parses or loads.
+      const dom = gatewaySyntaxOf(domFile);
+      const setOf = (name: string): string[] | undefined => {
+        const init = dom ? topLevelInitializer(dom, name) : undefined;
+        return init && ts.isNewExpression(init.node) && init.node.arguments?.length === 1 ? stringElements(init.node.arguments[0]) : undefined;
+      };
+      const listed = setOf('TEXT_ATTRIBUTES');
+      if (!listed || [...listed].sort().join(',') !== 'class,id,lang,role,scope') {
+        findings.push(`los atributos de texto libre de dom.ts son [${(listed ?? []).join(', ')}] en vez de class, id, lang, role y scope`);
+      }
+      const tags = setOf('ALLOWED_TAGS');
+      if (!tags || tags.length === 0 || tags.some((tag) => markupElements.test(tag))) {
+        findings.push(`las etiquetas permitidas de dom.ts son [${(tags ?? []).join(', ')}]`);
+      }
+      const safeHref = dom ? topLevelInitializer(dom, 'SAFE_HREF') : undefined;
+      if (!safeHref || !ts.isRegularExpressionLiteral(safeHref.node) || safeHref.node.text !== '/^#\\/[A-Za-z0-9/_-]*$/') {
+        findings.push('SAFE_HREF de dom.ts ya no es una ruta interna #/…');
+      }
+      const allowed = dom ? soleFunction(dom, 'isAllowedAttribute') : undefined;
+      if (
+        !dom ||
+        !sameStatements(
+          allowed?.body?.statements,
+          dom,
+          [
+            'if (TEXT_ATTRIBUTES.has(name)) return true;',
+            "if (name === 'href') return SAFE_HREF.test(value) || value === SIGN_IN_PATH;",
+            "if (name === 'type') return value === 'button';",
+            "if (name === 'tabindex') return value === '0' || value === '-1';",
+            'return /^aria-[a-z]+$/.test(name);',
+          ].join('\n')
+        )
+      ) {
+        findings.push('isAllowedAttribute de dom.ts ya no es exactamente: texto libre, href interno o de inicio de sesión, type button, tabindex 0 o -1, y aria-*');
+      }
+
+      // The shell.
+      const shellFile = 'src/gateway/public/index.html';
+      if (!existe(shellFile)) {
+        findings.push(`desapareció ${shellFile}`);
+      } else {
+        const html = crudoDe(shellFile);
+        const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
+        if (scripts.length === 0) findings.push('index.html no carga ningún módulo');
+        for (const [, attributes, body] of scripts) {
+          if (!/\ssrc\s*=/i.test(attributes) || body.trim() !== '') findings.push('index.html tiene un script en línea');
+        }
+        if ((html.match(/<script\b/gi) ?? []).length !== scripts.length) findings.push('index.html tiene un script sin cerrar');
+        if (/<style\b/i.test(html)) findings.push('index.html tiene un elemento style');
+        if (/\sstyle\s*=/i.test(html)) findings.push('index.html tiene un atributo style');
+        if (/\son[a-z]+\s*=/i.test(html)) findings.push('index.html tiene un manejador on*');
+        if (/javascript:/i.test(html)) findings.push('index.html tiene una URL javascript:');
+        if (/(?:https?:)?\/\/[a-z0-9]/i.test(html)) findings.push('index.html carga algo de otro origen');
+        if (/<(?:iframe|object|embed|base)\b/i.test(html)) findings.push('index.html tiene un marco, un objeto o un base');
+      }
+
+      if (findings.length > 0) {
+        return falla(`el cliente web puede convertir una cadena en marcado o en código (${findings.join(' · ')})`);
+      }
+      return ok(
+        `la CSP del SPA es 'self' sin unsafe-* y con Trusted Types, las respuestas del API van en sandbox, y ${served.length} módulos servidos y index.html no tienen un solo sumidero de HTML`
       );
     },
   },

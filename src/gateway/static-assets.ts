@@ -20,8 +20,24 @@ import type { RequestHandler } from 'express';
 
 export type StaticAsset = readonly [publishedPath: string, file: string, contentType: string];
 
+// The /modules entries are exactly what `tsc -p tsconfig.web.json` emits (rootDir
+// src), so the browser program's relative imports resolve inside this table;
+// tests/gateway/build.spec.ts emits the program and compares the two sets.
 export const STATIC_ASSETS: readonly StaticAsset[] = [
   ['/', 'index.html', 'text/html; charset=utf-8'],
+  ['/app.css', 'app.css', 'text/css; charset=utf-8'],
+  ['/design/tokens.css', 'design/tokens.css', 'text/css; charset=utf-8'],
+  ['/modules/gateway/app/api.js', 'modules/gateway/app/api.js', 'text/javascript; charset=utf-8'],
+  ['/modules/gateway/app/contract.js', 'modules/gateway/app/contract.js', 'text/javascript; charset=utf-8'],
+  ['/modules/gateway/app/dom.js', 'modules/gateway/app/dom.js', 'text/javascript; charset=utf-8'],
+  ['/modules/gateway/app/entity-model.js', 'modules/gateway/app/entity-model.js', 'text/javascript; charset=utf-8'],
+  ['/modules/gateway/app/main.js', 'modules/gateway/app/main.js', 'text/javascript; charset=utf-8'],
+  ['/modules/gateway/app/messages.js', 'modules/gateway/app/messages.js', 'text/javascript; charset=utf-8'],
+  ['/modules/gateway/app/portfolio-model.js', 'modules/gateway/app/portfolio-model.js', 'text/javascript; charset=utf-8'],
+  ['/modules/gateway/app/tone.js', 'modules/gateway/app/tone.js', 'text/javascript; charset=utf-8'],
+  ['/modules/gateway/app/view.js', 'modules/gateway/app/view.js', 'text/javascript; charset=utf-8'],
+  ['/modules/i18n/en.js', 'modules/i18n/en.js', 'text/javascript; charset=utf-8'],
+  ['/modules/i18n/es.js', 'modules/i18n/es.js', 'text/javascript; charset=utf-8'],
 ];
 
 /** `<repo>/dist/gateway/public`, from src/gateway under tsx and from dist/gateway once built. */

@@ -93,6 +93,8 @@
     "tenant-context-mounted-globally",
     "tenant-predicate-inlinable-and-qualified",
     "unattended-named-tool-surface",
+    "web-client-cannot-inject-markup",
+    "web-client-reads-only-contracted-paths",
     "web-gateway-never-reaches-the-engine",
     "web-gateway-own-routes-are-plumbing",
     "isr-tariff-matches-the-pay-period",
@@ -112,5 +114,6 @@
   "_t4b": "T4b sube el piso en uno mas: el criterio de la prima de antiguedad. Lo que protege se midio sobre un trabajador con quince anos y salario diario de 1 000: la prima son 113 414.40 contra un finiquito que pagaba 24 610.96, o sea faltaba mas de cuatro veces lo que se pagaba. Vigila las tres reglas que es facil equivocar: el tope del art. 486 se aplica al SALARIO y no al resultado, el DESPIDO la cobra sin umbral de antiguedad, y el cero por no saber se nombra en vez de confundirse con el cero por no deberse.",
   "_t4": "T4 sube el piso en uno: el criterio que vigila que a cada periodo de pago se le aplique SU tarifa del art. 96. E4.1 sigue ABIERTO (garnishments se leen y nadie las escribe), asi que --exigir no lo cubre. Lo que protege se midio: la calculadora mandaba weekly, biweekly y semimonthly a la tarifa MENSUAL sobre la base de una semana, y 3 000 semanales retenian 0.00. Debajo habia mas: la tarifa sembrada como 2026 era la de 2025 al centavo, y la «quincenal» era la mensual entre dos y no la de ningun ano.",
   "_w1": "W1 adds the first CONDUCT criterion to E2.1 (portfolio-rows-are-token-entities-within-tenant). Where no ephemeral database can be created that criterion is not evaluated, E2.1 opens, and its greens need floor entries: that is the worst case tests/plan/criterios.spec.ts measures, and the one CI's --piso meets if the scenario cannot start. The floor rises from 86 to 91 with the five E2.1 greens it did not name: metrics-route-label-bounded (W0), anexo24-balance-scope-and-nature, openapi-census-and-delivery-retry, requested-tenant-is-the-queried-tenant and tenant-predicate-inlinable-and-qualified. Nothing about those four changed; they were protected by --exigir only while every E2.1 criterion could run.",
-  "_w0_gateway": "W0 (the web gateway) raises the floor from 91 to 94 with the three static E2.1 criteria it adds: web-gateway-never-reaches-the-engine, web-gateway-own-routes-are-plumbing and browser-session-is-not-ambient-authority. They are green, and E2.1 opens wherever its conduct criterion cannot run, so the worst case needs them named here."
+  "_w0_gateway": "W0 (the web gateway) raises the floor from 91 to 94 with the three static E2.1 criteria it adds: web-gateway-never-reaches-the-engine, web-gateway-own-routes-are-plumbing and browser-session-is-not-ambient-authority. They are green, and E2.1 opens wherever its conduct criterion cannot run, so the worst case needs them named here.",
+  "_w1_screen": "W1 (the portfolio screen) raises the floor from 94 to 96 with the two static E2.1 criteria it adds: web-client-reads-only-contracted-paths and web-client-cannot-inject-markup. Same reason as _w0_gateway: they are green, and E2.1 opens wherever its conduct criterion cannot run."
 }
