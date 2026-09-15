@@ -12,6 +12,10 @@ import {
   openRunOf,
   CLOSING_STEPS,
   ClosingRunStateError,
+  releaseLockConnection,
+  reportLostLock,
+  startLockKeepalive,
+  watchLockConnection,
 } from '../../src/services/accounting/closing-conductor.js';
 import {
   buildClosingPack,
@@ -390,6 +394,49 @@ describe('A6 · el conductor', () => {
       otherSession.release();
     }
     expect((await conductClose(ctxG, await periodOf(g, 6), { userId: g.userId })).status).toBe('completed');
+  });
+
+  it('el latido del candado nota cuando su transacción muere, y la conexión rota no vuelve al pool', async () => {
+    // Detrás de un pooler, o con un tiempo de inactividad en la base, la
+    // transacción que sostiene el candado puede terminar a mitad de corrida.
+    // Se reproduce matándole el backend desde otra sesión.
+    const lockClient = await getClient();
+    const killer = await getClient();
+    // Sin esto, el backend muerto emite `error` sobre un cliente prestado y el
+    // proceso entero cae: exactamente lo que el conductor tiene que evitar.
+    const watch = watchLockConnection(lockClient);
+    try {
+      await lockClient.query('BEGIN');
+      const pid = (await lockClient.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      const healthy = startLockKeepalive(lockClient, 10);
+      await new Promise((r) => setTimeout(r, 40));
+      expect(await healthy()).toBeUndefined();
+
+      const beat = startLockKeepalive(lockClient, 10);
+      await killer.query('SELECT pg_terminate_backend($1)', [pid]);
+      await new Promise((r) => setTimeout(r, 60));
+      const lost = await beat();
+      expect(lost).toBeInstanceOf(Error);
+      expect(reportLostLock(lost, f.entityId, uuidv4())).toBe(true);
+      expect(reportLostLock(undefined, f.entityId, uuidv4())).toBe(false);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(watch.error()).toBeInstanceOf(Error);
+
+      // COMMIT sobre el backend muerto falla: la conexión se DESTRUYE.
+      let destroyed: boolean | undefined;
+      const lockConnection = {
+        query: (sql: string) => lockClient.query(sql),
+        release: (destroy?: boolean) => {
+          destroyed = destroy;
+          lockClient.release(true);
+        },
+      };
+      await releaseLockConnection(lockConnection);
+      expect(destroyed).toBe(true);
+    } finally {
+      watch.stop();
+      killer.release();
+    }
   });
 
   it('el ensayo no escribe nada, y evalúa el checklist aunque haya un intento anterior', async () => {

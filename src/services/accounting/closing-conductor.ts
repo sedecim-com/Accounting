@@ -277,6 +277,7 @@ async function withConductorLock<T>(
 ): Promise<T> {
   const key = `closing-run:${entityId}:${periodId}`;
   const client = await getClient();
+  const unwatch = watchLockConnection(client);
   try {
     await client.query('BEGIN');
     const got = await client.query<{ ok: boolean }>(
@@ -289,39 +290,103 @@ async function withConductorLock<T>(
         'Another conductor is running the close of this period right now. Wait for it to finish, then look at it with --dry-run.'
       );
     }
-    let keepalive = Promise.resolve();
-    let lost: unknown;
-    const timer = setInterval(() => {
-      keepalive = keepalive.then(
-        () => client.query('SELECT 1').then(() => undefined),
-      ).catch((err: unknown) => {
-        lost ??= err;
-      });
-    }, 5_000);
+    const stopKeepalive = startLockKeepalive(client, LOCK_KEEPALIVE_MS);
     try {
       return await fn();
     } finally {
-      clearInterval(timer);
-      await keepalive;
-      if (lost !== undefined) {
-        logger.warn('closing_run_lock_lost', {
-          entityId,
-          periodId,
-          detail:
-            'the transaction holding the conductor lock ended before the run did; the run is recorded, but for part of it another conductor was not kept out',
-          error: lost instanceof Error ? lost.message : 'unknown error',
-        });
-      }
+      const beatError = await stopKeepalive();
+      reportLostLock(beatError ?? unwatch.error(), entityId, periodId);
     }
   } finally {
-    // COMMIT releases the lock. If it fails the connection is in an unknown
-    // state, and it goes back to the pool DESTROYED rather than reused.
-    let broken = false;
-    await client.query('COMMIT').catch(() => {
-      broken = true;
-    });
-    client.release(broken);
+    unwatch.stop();
+    await releaseLockConnection(client);
   }
+}
+
+/**
+ * Listens for the lock connection dying while it is checked out.
+ *
+ * `pg` handles errors of IDLE pooled connections, not of one a caller holds:
+ * a backend terminated under a held client emits `error` with nobody
+ * listening, and Node ends the process. The integration test that kills the
+ * lock's backend found it — the CLI would have crashed mid-run instead of
+ * finishing and saying the lock was lost.
+ */
+export function watchLockConnection(client: {
+  on(event: 'error', listener: (err: Error) => void): unknown;
+  off(event: 'error', listener: (err: Error) => void): unknown;
+}): { error: () => Error | undefined; stop: () => void } {
+  let seen: Error | undefined;
+  const listener = (err: Error): void => {
+    seen ??= err;
+  };
+  client.on('error', listener);
+  return {
+    error: () => seen,
+    stop: () => {
+      client.off('error', listener);
+    },
+  };
+}
+
+const LOCK_KEEPALIVE_MS = 5_000;
+
+/** The part of a pool client the lock helpers use. */
+export interface LockConnection {
+  query(sql: string): Promise<unknown>;
+  release(destroy?: boolean): void;
+}
+
+/**
+ * The lock's heartbeat: a `SELECT 1` on the lock's own transaction every so
+ * often, so an idle-in-transaction timeout does not end it mid-run. Returns
+ * the function that stops it and hands back the first error, if the
+ * transaction died on the way.
+ */
+export function startLockKeepalive(
+  client: Pick<LockConnection, 'query'>,
+  everyMs: number
+): () => Promise<unknown> {
+  let chain = Promise.resolve();
+  let lost: unknown;
+  const beat = (): void => {
+    chain = chain
+      .then(() => client.query('SELECT 1').then(() => undefined))
+      .catch((err: unknown) => {
+        lost ??= err;
+      });
+  };
+  const timer = setInterval(beat, everyMs);
+  return async () => {
+    clearInterval(timer);
+    await chain;
+    return lost;
+  };
+}
+
+/** Says so when the heartbeat found the lock's transaction gone. */
+export function reportLostLock(lost: unknown, entityId: string, periodId: string): boolean {
+  if (lost === undefined) return false;
+  logger.warn('closing_run_lock_lost', {
+    entityId,
+    periodId,
+    detail:
+      'the transaction holding the conductor lock ended before the run did; the run is recorded, but for part of it another conductor was not kept out',
+    error: lost instanceof Error ? lost.message : 'unknown error',
+  });
+  return true;
+}
+
+/**
+ * COMMIT releases the lock. If it fails the connection is in an unknown
+ * state, and it goes back to the pool DESTROYED rather than reused.
+ */
+export async function releaseLockConnection(client: LockConnection): Promise<void> {
+  let broken = false;
+  await client.query('COMMIT').catch(() => {
+    broken = true;
+  });
+  client.release(broken);
 }
 
 /**
@@ -359,24 +424,15 @@ async function openRun(
       'Nothing to resume: this period has no open close run. Run it without --resume to start one.'
     );
   }
-  try {
-    const created = await query<RunRow>(
-      `INSERT INTO closing_runs (entity_id, fiscal_period_id, status, started_by)
-       VALUES ($1, $2, 'running', $3)
-       RETURNING id, status`,
-      [ctx.entityId, periodId, opts.userId]
-    );
-    return created.rows[0].id;
-  } catch (err) {
-    // Under the lock this cannot happen; if it does, it is still a state.
-    if ((err as { code?: string }).code === '23505') {
-      throw new ClosingRunStateError(
-        'CLOSING_RUN_OPEN',
-        'This period already has an open close run. Continue it with --resume.'
-      );
-    }
-    throw err;
-  }
+  // No unique-violation fallback: under the lock, and with stale runs
+  // abandoned just above, no second open run can exist to collide with.
+  const created = await query<RunRow>(
+    `INSERT INTO closing_runs (entity_id, fiscal_period_id, status, started_by)
+     VALUES ($1, $2, 'running', $3)
+     RETURNING id, status`,
+    [ctx.entityId, periodId, opts.userId]
+  );
+  return created.rows[0].id;
 }
 
 /** Which steps this run already has a row for. */
