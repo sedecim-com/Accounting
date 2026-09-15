@@ -1236,9 +1236,18 @@ function scanLedgerDateArguments(): { calls: number; findings: DateArgumentFindi
 // create one, and `fuentes()` lists the disk.
 //
 // Specifiers come from ts.preProcessFile (static imports, side-effect imports,
-// export-from, import() with a literal, require). A call to import() or
-// require() whose argument is not a literal is a finding by itself: its target
-// cannot be known, so it cannot be allowed.
+// export-from, import() with a literal, require). Three more things are
+// findings by themselves, because the walk cannot know what they load:
+//   · import() or require() with an argument that is not a literal;
+//   · `require` used as anything but the callee of such a literal call
+//     (`const load = require`, `require.call(…)`, handing it along);
+//   · eval, the CommonJS `module` object, globalThis and global, which reach
+//     the loader, `process` and `require` by another name.
+// A builtin is allowed per file (a loader such as node:module or child_process
+// is not a builtin like any other), and a package can be restricted to the
+// named exports a file may bind: jose is how the gateway verifies tokens, and
+// it is also how anyone would mint one, so what the closure binds from it is
+// judged, not whether a name such as SignJWT appears.
 // ============================================================
 
 export interface ImportClosureSource {
@@ -1249,8 +1258,14 @@ export interface ImportClosureSource {
 export interface ImportClosureRules {
   /** May this repository-relative .ts file be part of the closure? */
   allowFile(rel: string): boolean;
-  /** May this bare specifier (a package or a Node builtin) be imported? */
-  allowBare(specifier: string): boolean;
+  /** May the file `from` import this bare specifier (a package or a Node builtin)? */
+  allowBare(specifier: string, from: string): boolean;
+  /**
+   * Packages that may be bound only by name, and the names allowed. A
+   * namespace or default import, `export *`, require() or import() of one of
+   * these binds the whole module and is a finding.
+   */
+  namedOnly?: Readonly<Record<string, readonly string[]>>;
 }
 
 export function isNodeBuiltin(specifier: string): boolean {
@@ -1268,21 +1283,48 @@ function resolveRelativeImport(from: string, specifier: string, source: ImportCl
   return undefined;
 }
 
-/** import(x) and require(x) calls whose argument is not a string literal. */
-function computedSpecifiers(file: string, text: string): string[] {
-  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+function isLiteralArgument(node: ts.Node | undefined): node is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral {
+  return node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node));
+}
+
+/**
+ * True when an identifier names a binding rather than a property or a member:
+ * `x.module` and `{ module: 1 }` are not the module object, `{ module }` is.
+ */
+function isIdentifierReference(id: ts.Identifier): boolean {
+  const p = id.parent;
+  if (ts.isPropertyAccessExpression(p) && p.name === id) return false;
+  if (ts.isQualifiedName(p) && p.right === id) return false;
+  if ((ts.isPropertyAssignment(p) || ts.isPropertyDeclaration(p) || ts.isPropertySignature(p) || ts.isMethodDeclaration(p) || ts.isMethodSignature(p)) && p.name === id) return false;
+  if ((ts.isGetAccessorDeclaration(p) || ts.isSetAccessorDeclaration(p) || ts.isEnumMember(p) || ts.isModuleDeclaration(p)) && p.name === id) return false;
+  if ((ts.isImportSpecifier(p) || ts.isExportSpecifier(p) || ts.isBindingElement(p)) && p.propertyName === id) return false;
+  if (ts.isLabeledStatement(p) || ts.isBreakOrContinueStatement(p)) return false;
+  return true;
+}
+
+const LOADER_ALIASES = new Set(['eval', 'module', 'globalThis', 'global']);
+
+/** Loads whose target the walk cannot know: see the header of this section. */
+function opaqueLoads(file: string, sf: ts.SourceFile): string[] {
   const found: string[] = [];
+  const where = (n: ts.Node) => `${file}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1} ${n.getText(sf).slice(0, 60)}`;
   const visit = (n: ts.Node): void => {
     if (ts.isCallExpression(n)) {
       const dynamicImport = n.expression.kind === ts.SyntaxKind.ImportKeyword;
       const requireCall = ts.isIdentifier(n.expression) && n.expression.text === 'require';
-      if (dynamicImport || requireCall) {
-        const [first] = n.arguments;
-        if (!first || !(ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first))) {
-          const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
-          found.push(`${file}:${line} ${n.getText(sf).slice(0, 60)}`);
-        }
+      if ((dynamicImport || requireCall) && !isLiteralArgument(n.arguments[0])) {
+        found.push(`computed specifier ${where(n)}`);
       }
+    }
+    if (ts.isIdentifier(n) && n.text === 'require') {
+      const p = n.parent;
+      const directCallee = ts.isCallExpression(p) && p.expression === n;
+      const memberCallee =
+        ts.isPropertyAccessExpression(p) && p.name === n && ts.isCallExpression(p.parent) && p.parent.expression === p && isLiteralArgument(p.parent.arguments[0]);
+      if (!directCallee && !memberCallee) found.push(`require used as a value ${where(p)}`);
+    }
+    if (ts.isIdentifier(n) && LOADER_ALIASES.has(n.text) && isIdentifierReference(n)) {
+      found.push(`loader reached through ${n.text} ${where(n.parent)}`);
     }
     ts.forEachChild(n, visit);
   };
@@ -1290,16 +1332,51 @@ function computedSpecifiers(file: string, text: string): string[] {
   return found;
 }
 
+/** What a file binds from `specifier`: export names, or '*' for the whole module. */
+function bindingsFrom(sf: ts.SourceFile, specifier: string): string[] {
+  const names: string[] = [];
+  const named = (n: ts.Node | undefined): boolean => isLiteralArgument(n) && n.text === specifier;
+  const visit = (n: ts.Node): void => {
+    if (ts.isImportDeclaration(n) && named(n.moduleSpecifier)) {
+      const clause = n.importClause;
+      if (clause?.name) names.push('default');
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) names.push('*');
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const e of bindings.elements) names.push((e.propertyName ?? e.name).text);
+      }
+    } else if (ts.isExportDeclaration(n) && named(n.moduleSpecifier)) {
+      const clause = n.exportClause;
+      if (!clause || ts.isNamespaceExport(clause)) names.push('*');
+      else for (const e of clause.elements) names.push((e.propertyName ?? e.name).text);
+    } else if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference) && named(n.moduleReference.expression)) {
+      names.push('*');
+    } else if (
+      ts.isCallExpression(n) &&
+      (n.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(n.expression) && n.expression.text === 'require')) &&
+      named(n.arguments[0])
+    ) {
+      names.push('*');
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return names;
+}
+
 /**
- * Every way the closure of `roots` leaves what `rules` allows, each with the
- * import chain that reaches it. Empty means the closure is contained.
+ * The closure of `roots`: every file the walk visited, and every way it leaves
+ * what `rules` allows, each with the import chain that reaches it. No
+ * violations means the closure is contained; `files` is what a caller must
+ * also read to judge what the process holds, borrowed modules included.
  */
-export function importClosureViolations(
+export function importClosure(
   source: ImportClosureSource,
   roots: readonly string[],
   rules: ImportClosureRules
-): string[] {
+): { files: string[]; violations: string[] } {
   const violations: string[] = [];
+  const files: string[] = [];
   const parent = new Map<string, string | undefined>();
   const chainOf = (file: string): string => {
     const chain: string[] = [];
@@ -1323,9 +1400,12 @@ export function importClosureViolations(
       violations.push(`${chainOf(file)}: outside the allowed closure`);
       continue;
     }
-    for (const computed of computedSpecifiers(file, text)) {
-      violations.push(`${chainOf(file)}: computed specifier ${computed}`);
+    files.push(file);
+    const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+    for (const opaque of opaqueLoads(file, sf)) {
+      violations.push(`${chainOf(file)}: ${opaque}`);
     }
+    const seenBare = new Set<string>();
     for (const { fileName: specifier } of ts.preProcessFile(text, true, true).importedFiles) {
       if (specifier.startsWith('.')) {
         const target = resolveRelativeImport(file, specifier, source);
@@ -1337,12 +1417,28 @@ export function importClosureViolations(
           parent.set(target, file);
           queue.push(target);
         }
-      } else if (!rules.allowBare(specifier)) {
+      } else if (!rules.allowBare(specifier, file)) {
         violations.push(`${chainOf(file)} → ${specifier}: package not allowed`);
+      } else if (rules.namedOnly?.[specifier] && !seenBare.has(specifier)) {
+        seenBare.add(specifier);
+        const allowed = rules.namedOnly[specifier];
+        for (const name of new Set(bindingsFrom(sf, specifier))) {
+          if (name === '*') violations.push(`${chainOf(file)} → ${specifier}: binds the whole module`);
+          else if (!allowed.includes(name)) violations.push(`${chainOf(file)} → ${specifier}: binds ${name}, outside the allowed exports`);
+        }
       }
     }
   }
-  return violations;
+  return { files, violations };
+}
+
+/** Every way the closure of `roots` leaves what `rules` allows. Empty means contained. */
+export function importClosureViolations(
+  source: ImportClosureSource,
+  roots: readonly string[],
+  rules: ImportClosureRules
+): string[] {
+  return importClosure(source, roots, rules).violations;
 }
 
 /** The files the gateway's server process may load, besides its own. */
@@ -1353,10 +1449,28 @@ export const GATEWAY_SERVER_BORROWED_FILES: readonly string[] = [
   'src/api/rest/trust-proxy.ts',
 ];
 
+/**
+ * The builtins the gateway's server closure may load, named one by one. A
+ * loader is not a builtin like any other: node:module hands out createRequire,
+ * and vm, worker_threads and child_process run code the walk never sees. The
+ * token store keeps child_process, where it already lives, for the macOS
+ * keychain; nothing else in the closure may import it.
+ */
+export const GATEWAY_SERVER_BUILTINS: readonly string[] = ['crypto', 'fs', 'http', 'net', 'os', 'path', 'stream', 'stream/web', 'util'];
+
+/** The verification half of jose, the only half the gateway has any use for. */
+export const GATEWAY_JOSE_EXPORTS: readonly string[] = ['createRemoteJWKSet', 'customFetch', 'jwtVerify', 'decodeProtectedHeader', 'JWTPayload'];
+
 export const GATEWAY_SERVER_CLOSURE: ImportClosureRules = {
   allowFile: (rel) =>
     (rel.startsWith('src/gateway/') && !rel.startsWith('src/gateway/app/')) || GATEWAY_SERVER_BORROWED_FILES.includes(rel),
-  allowBare: (specifier) => specifier === 'express' || specifier === 'jose' || isNodeBuiltin(specifier),
+  allowBare: (specifier, from) => {
+    if (specifier === 'express' || specifier === 'jose') return true;
+    if (!isNodeBuiltin(specifier)) return false;
+    const bare = specifier.startsWith('node:') ? specifier.slice('node:'.length) : specifier;
+    return GATEWAY_SERVER_BUILTINS.includes(bare) || (bare === 'child_process' && from === 'src/auth/token-store.ts');
+  },
+  namedOnly: { jose: GATEWAY_JOSE_EXPORTS },
 };
 
 /** The browser program: its own modules and the two typed catalogs, and no package at all. */
@@ -1417,6 +1531,64 @@ function stringElements(node: ts.Expression): string[] | undefined {
     out.push(e.text);
   }
   return out;
+}
+
+/** Visits every node below `n` through ts.forEachChild (JSDoc stays out). */
+function forEachGatewayNode(n: ts.Node, visit: (node: ts.Node) => void): void {
+  ts.forEachChild(n, (child) => {
+    visit(child);
+    forEachGatewayNode(child, visit);
+  });
+}
+
+const GATEWAY_CODE_PRINTER = ts.createPrinter({ removeComments: true });
+
+function printedStatements(statements: readonly ts.Statement[], sf: ts.SourceFile): string {
+  return statements.map((st) => GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Unspecified, st, sf)).join('\n');
+}
+
+/**
+ * True when `statements` are exactly `expected`, compared as printed code:
+ * layout and comments do not count, a dropped `!` or a flipped `!==` does.
+ */
+function sameStatements(statements: readonly ts.Statement[] | undefined, sf: ts.SourceFile, expected: string): boolean {
+  if (!statements) return false;
+  const want = ts.createSourceFile('expected.ts', expected, ts.ScriptTarget.Latest, true);
+  return printedStatements(statements, sf) === printedStatements(want.statements, want);
+}
+
+/** The top-level function declaration `name` of a file, if there is exactly one. */
+function soleFunction(sf: ts.SourceFile, name: string): ts.FunctionDeclaration | undefined {
+  const found = sf.statements.filter((st): st is ts.FunctionDeclaration => ts.isFunctionDeclaration(st) && st.name?.text === name);
+  return found.length === 1 ? found[0] : undefined;
+}
+
+/** Names a file imports from `specifier` without renaming them. */
+function plainImportsFrom(sf: ts.SourceFile, specifier: string): Set<string> {
+  const names = new Set<string>();
+  for (const st of sf.statements) {
+    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || st.moduleSpecifier.text !== specifier) continue;
+    const bindings = st.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const e of bindings.elements) if (!e.propertyName) names.add(e.name.text);
+  }
+  return names;
+}
+
+/** Declarations in a file (functions, variables, parameters, classes) that bind `name`. */
+function localDeclarationsOf(sf: ts.SourceFile, name: string): number {
+  let count = 0;
+  forEachGatewayNode(sf, (n) => {
+    if (
+      (ts.isFunctionDeclaration(n) || ts.isVariableDeclaration(n) || ts.isParameter(n) || ts.isClassDeclaration(n) || ts.isBindingElement(n)) &&
+      n.name !== undefined &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === name
+    ) {
+      count += 1;
+    }
+  });
+  return count;
 }
 
 /** The first handler of `name` in server.ts's `handlers` table, as written. */
@@ -5407,17 +5579,24 @@ export const CRITERIOS: Criterio[] = [
     // that line in the source:
     //   · the server process's transitive import closure stays inside
     //     src/gateway (minus the browser program), four borrowed auth and
-    //     trust-proxy modules, express, jose and Node builtins;
+    //     trust-proxy modules, express, jose and a named list of Node builtins
+    //     (no loader: node:module, vm and child_process stay out, except
+    //     child_process in the token store);
     //   · the browser program's closure stays inside src/gateway/app and the
     //     two typed catalogs, with no package at all (enforced once it exists;
     //     its minimum size arrives with the screen, W1);
-    //   · no gateway server file names a token-minting library or an engine
-    //     credential, not even in a comment;
-    //   · the process environment is read in exactly one place, the default
-    //     parameter of readGatewayConfig, and only the gateway's own keys.
-    // The walk is importClosureViolations above; the runtime complement is
-    // tests/gateway/module-isolation.spec.ts, which loads the server in a
-    // fresh process and lists what got required.
+    //   · what that closure binds from jose is the verification half only, and
+    //     no file in it (borrowed modules included) names node:crypto's or
+    //     WebCrypto's signers, a token-minting library or an engine credential,
+    //     not even in a comment;
+    //   · `process` is used only through a short list of members, and its
+    //     environment is read in exactly one place, the default parameter of
+    //     readGatewayConfig, whose alias is read only as env.<GATEWAY KEY>.
+    // All of it is read on the syntax tree of every file the walk visited, so
+    // process['env'], destructuring and an aliased require are not text the
+    // criterion fails to see. The walk is importClosure above; the runtime
+    // complement is tests/gateway/module-isolation.spec.ts, which loads the
+    // server in a fresh process and lists what got required.
     enunciado:
       'El gateway web no alcanza el motor: su cierre de imports no toca base de datos, servicios ni configuración del motor, no firma tokens y sólo lee sus propias variables de entorno',
     mutantes: [
@@ -5449,7 +5628,7 @@ export const CRITERIOS: Criterio[] = [
         archivo: 'src/gateway/oidc-client.ts',
         de: "import { discover, isAsymmetric, verifyIdpToken } from '../auth/oidc.js';",
         a: "import { SignJWT } from 'jose';\nimport { discover, isAsymmetric, verifyIdpToken } from '../auth/oidc.js';",
-        porque: 'the gateway would start minting tokens and become the authorization engine; jose itself is allowed, so only the name gives it away',
+        porque: 'the gateway would start minting tokens and become the authorization engine',
       },
       {
         archivo: 'src/gateway/config.ts',
@@ -5463,6 +5642,54 @@ export const CRITERIOS: Criterio[] = [
         a: "  const fetchImpl = deps.fetchImpl ?? fetch;\n  const tenant = process.env['MNEMOSINE_TENANT'];",
         porque: 'a second read of the environment outside readGatewayConfig escapes both the key list and the env census',
       },
+      {
+        archivo: 'src/gateway/oidc-client.ts',
+        de: "import { discover, isAsymmetric, verifyIdpToken } from '../auth/oidc.js';",
+        a: "import { CompactSign } from 'jose';\nimport { discover, isAsymmetric, verifyIdpToken } from '../auth/oidc.js';",
+        porque: 'jose signs under names other than SignJWT: a CompactSign mints a JWS just the same',
+      },
+      {
+        archivo: 'src/auth/oidc.ts',
+        de: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';",
+        a: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';\nexport { SignJWT as TokenWriter } from 'jose';",
+        porque: 'a signer re-exported under another name from a borrowed module reaches the gateway without its name',
+      },
+      {
+        archivo: 'src/gateway/logger.ts',
+        de: 'export type LogField = string | number | boolean;',
+        a: "const load = require;\nexport const driver = (): unknown => load('pg');\nexport type LogField = string | number | boolean;",
+        porque: 'an aliased require loads the engine driver with no require( in sight',
+      },
+      {
+        archivo: 'src/gateway/logger.ts',
+        de: 'export type LogField = string | number | boolean;',
+        a: "import { createRequire } from 'node:module';\nexport const driver = (): unknown => createRequire(__filename)('pg');\nexport type LogField = string | number | boolean;",
+        porque: 'createRequire is a loader that node:module hands out as an ordinary builtin',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: '  const fetchImpl = deps.fetchImpl ?? fetch;',
+        a: "  const fetchImpl = deps.fetchImpl ?? fetch;\n  const tenant = process['env']['MNEMOSINE_TENANT'];",
+        porque: "process['env'] reads the environment without the text process.env",
+      },
+      {
+        archivo: 'src/gateway/config.ts',
+        de: 'const publicOrigin = env.GATEWAY_PUBLIC_ORIGIN',
+        a: 'const { PAC_PASSWORD: pac } = env;\n  const publicOrigin = env.GATEWAY_PUBLIC_ORIGIN',
+        porque: 'destructuring the env alias reads a key that no env.<KEY> access shows',
+      },
+      {
+        archivo: 'src/auth/oidc.ts',
+        de: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';",
+        a: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';\nconst tenant = process.env.MNEMOSINE_TENANT;",
+        porque: 'a borrowed module the gateway process loads reads the environment the gateway was built not to read',
+      },
+      {
+        archivo: 'src/auth/oidc.ts',
+        de: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';",
+        a: "import { createRemoteJWKSet, customFetch, jwtVerify, decodeProtectedHeader, type JWTPayload } from 'jose';\nexport const ENGINE_KEY = 'ENCRYPTION_KEY';",
+        porque: 'an engine credential named in a borrowed module is inside the gateway process all the same',
+      },
     ],
     evaluar: () => {
       const { server, app } = gatewayFiles();
@@ -5471,63 +5698,88 @@ export const CRITERIOS: Criterio[] = [
           `src/gateway sólo tiene ${server.length} archivo(s) del proceso servidor: el instrumento no miró, y no haber mirado no es haber aislado`
         );
       }
-      const findings = [
-        ...importClosureViolations(seamSource, server, GATEWAY_SERVER_CLOSURE),
-        ...importClosureViolations(seamSource, app, GATEWAY_APP_CLOSURE),
-      ];
+      const serverClosure = importClosure(seamSource, server, GATEWAY_SERVER_CLOSURE);
+      const findings = [...serverClosure.violations, ...importClosureViolations(seamSource, app, GATEWAY_APP_CLOSURE)];
 
-      const banned = ['jsonwebtoken', 'SignJWT', 'JWT_SECRET', 'DATABASE_URL', 'ENCRYPTION_KEY'];
-      let environmentReads = 0;
-      for (const rel of server) {
+      // Everything below reads every file the server process loads, the
+      // borrowed auth and trust-proxy modules included: a credential or an
+      // environment read in src/auth/oidc.ts is inside the gateway all the same.
+      const banned = ['jsonwebtoken', 'JWT_SECRET', 'DATABASE_URL', 'ENCRYPTION_KEY'];
+      // jose is judged by its bindings in the walk; these are node:crypto's and
+      // WebCrypto's signers, named wherever they appear, member access included.
+      const signers = new Set(['createHmac', 'createSign', 'subtle']);
+      const processMembers = new Set(['stderr', 'stdout', 'exit', 'exitCode', 'once', 'on', 'platform']);
+      const allowedKeys = new Set([
+        'AUTH_OIDC_ISSUER',
+        'AUTH_OIDC_AUDIENCE',
+        'AUTH_OIDC_WEB_CLIENT_ID',
+        'AUTH_OIDC_WEB_CLIENT_SECRET',
+        'NODE_ENV',
+      ]);
+      const configFile = 'src/gateway/config.ts';
+      let defaultEnvironmentReads = 0;
+
+      for (const rel of serverClosure.files) {
         const text = crudoDe(rel);
         for (const word of banned) if (text.includes(word)) findings.push(`${rel} nombra ${word}`);
-        environmentReads += text.split('process.env').length - 1;
+        const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
+        const at = (n: ts.Node) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
+
+        forEachGatewayNode(sf, (n) => {
+          if (!ts.isIdentifier(n)) return;
+          if (signers.has(n.text)) findings.push(`${at(n)} usa ${n.text}, una primitiva de firma`);
+
+          if (n.text === 'process' && isIdentifierReference(n)) {
+            const p = n.parent;
+            if (!ts.isPropertyAccessExpression(p) || p.expression !== n) {
+              // process['env'], `const { env } = process`, an alias, an argument.
+              findings.push(`${at(n)} usa process sin nombrar un miembro permitido: ${p.getText(sf).slice(0, 60)}`);
+            } else if (p.name.text === 'env') {
+              const declaration = p.parent;
+              const isTheDefault =
+                rel === configFile &&
+                ts.isParameter(declaration) &&
+                declaration.initializer === p &&
+                ts.isIdentifier(declaration.name) &&
+                declaration.name.text === 'env' &&
+                ts.isFunctionDeclaration(declaration.parent) &&
+                declaration.parent.name?.text === 'readGatewayConfig';
+              if (isTheDefault) defaultEnvironmentReads += 1;
+              else findings.push(`${at(n)} lee process.env fuera del parámetro por omisión de readGatewayConfig`);
+            } else if (!processMembers.has(p.name.text)) {
+              findings.push(`${at(n)} usa process.${p.name.text}`);
+            }
+          }
+
+          // In config.ts the alias `env` may only be read as env.<ALLOWED_KEY>:
+          // destructuring, spreading, indexing or handing it along reads keys no
+          // property access shows.
+          if (rel === configFile && n.text === 'env' && isIdentifierReference(n)) {
+            const p = n.parent;
+            if (ts.isParameter(p) && p.name === n) return;
+            if (ts.isPropertyAccessExpression(p) && p.expression === n) {
+              const key = p.name.text;
+              if (!key.startsWith('GATEWAY_') && !allowedKeys.has(key)) findings.push(`${configFile} lee env.${key}`);
+            } else {
+              findings.push(`${at(n)} usa el entorno sin nombrar una clave: ${p.getText(sf).slice(0, 60)}`);
+            }
+          }
+        });
       }
 
-      const configFile = 'src/gateway/config.ts';
-      const config = gatewaySyntaxOf(configFile);
-      if (!config) {
+      if (!existe(configFile)) {
         findings.push(`desapareció ${configFile}: no queda el único lector del entorno`);
-      } else {
-        const defaults = [...gatewayNodes(config)].filter(
-          (n) =>
-            ts.isParameter(n) &&
-            ts.isIdentifier(n.name) &&
-            n.name.text === 'env' &&
-            n.initializer !== undefined &&
-            n.initializer.getText(config) === 'process.env' &&
-            ts.isFunctionDeclaration(n.parent) &&
-            n.parent.name?.text === 'readGatewayConfig'
+      } else if (defaultEnvironmentReads !== 1) {
+        findings.push(
+          `el entorno del proceso se lee ${defaultEnvironmentReads} vez(ces) como parámetro por omisión de readGatewayConfig; debe ser exactamente una, y en ningún otro sitio`
         );
-        if (environmentReads !== 1 || defaults.length !== 1) {
-          findings.push(
-            `el entorno del proceso aparece ${environmentReads} vez(ces) en el servidor del gateway; debe aparecer una sola, como parámetro por omisión de readGatewayConfig`
-          );
-        }
-        const allowedKeys = new Set([
-          'AUTH_OIDC_ISSUER',
-          'AUTH_OIDC_AUDIENCE',
-          'AUTH_OIDC_WEB_CLIENT_ID',
-          'AUTH_OIDC_WEB_CLIENT_SECRET',
-          'NODE_ENV',
-        ]);
-        for (const n of gatewayNodes(config)) {
-          if (!ts.isPropertyAccessExpression(n) || !ts.isIdentifier(n.expression) || n.expression.text !== 'env') continue;
-          const key = n.name.text;
-          if (!key.startsWith('GATEWAY_') && !allowedKeys.has(key)) findings.push(`${configFile} lee env.${key}`);
-        }
-        for (const n of gatewayNodes(config)) {
-          if (ts.isElementAccessExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'env') {
-            findings.push(`${configFile} lee el entorno por índice: ${n.getText(config).slice(0, 60)}`);
-          }
-        }
       }
 
       if (findings.length > 0) {
         return falla(`el gateway web alcanza lo que no debe (${findings.join(' · ')})`);
       }
       return ok(
-        `el cierre de imports de ${server.length} archivo(s) del servidor del gateway y ${app.length} del programa del navegador se queda dentro de lo permitido, sin firmar tokens ni leer más entorno que el suyo`
+        `el cierre de imports de ${server.length} archivo(s) del servidor del gateway (${serverClosure.files.length} con los módulos prestados) y ${app.length} del programa del navegador se queda dentro de lo permitido, sin firmar tokens ni leer más entorno que el suyo`
       );
     },
   },
@@ -5540,10 +5792,12 @@ export const CRITERIOS: Criterio[] = [
     // aggregation (the next engine) begins; another proxied method is cookie
     // authority over the API's body-less external acts; a wider prefix puts
     // the session in front of /metrics and /public/v1. Read on the syntax
-    // tree: the route table, the prefix, the method pair, a single express()
-    // app with no Router, no express.static and no ad hoc app.get/post, exactly
-    // six app.use calls and one table-driven registration in server.ts, and a
-    // static table whose paths cannot shadow the proxy or the session routes.
+    // tree: the route table, the prefix, the method pair and, statement by
+    // statement, the predicate that reads it and the gate that enforces it; a
+    // single express() app with no Router, no express.static and no ad hoc
+    // app.get/post, exactly six app.use calls and one table-driven registration
+    // in server.ts; and a static table whose paths cannot shadow the proxy or
+    // the session routes.
     // Aliasing `app` escapes a syntax check; tests/gateway/gateway-routes.spec.ts
     // walks the real router stack for that.
     enunciado:
@@ -5586,6 +5840,18 @@ export const CRITERIOS: Criterio[] = [
         a: '  app.use(express.static(DEFAULT_STATIC_ROOT));',
         porque: 'directory serving replaces the closed table: source maps, sources and dotfiles become reachable',
       },
+      {
+        archivo: 'src/gateway/routes.ts',
+        de: '  return (PROXIED_METHODS as readonly string[]).includes(method);',
+        a: "  return (PROXIED_METHODS as readonly string[]).includes(method) || method === 'POST';",
+        porque: 'the method pair stays literal while the predicate that reads it admits a body-less POST to the stamp route',
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: "  if (!isProxiedMethod(req.method)) return sendError(res, 405, 'METHOD_NOT_PROXIED');",
+        a: "  if (!isProxiedMethod(req.method) && req.method !== 'POST') return sendError(res, 405, 'METHOD_NOT_PROXIED');",
+        porque: 'the gate that enforces the pair lets POST through to a relay that forwards req.method',
+      },
     ],
     evaluar: () => {
       const findings: string[] = [];
@@ -5616,6 +5882,36 @@ export const CRITERIOS: Criterio[] = [
       const methodList = methods ? stringElements(methods.node) : undefined;
       if (!methods || !ts.isAsExpression(methods.raw) || methods.raw.type.getText(routes) !== 'const' || methodList?.join(',') !== 'GET,HEAD') {
         findings.push(`PROXIED_METHODS ya no es exactamente ['GET', 'HEAD'] as const (${methods?.raw.getText(routes).slice(0, 60) ?? 'ausente'})`);
+      }
+
+      // The pair is only as good as the code that reads it. isProxiedMethod is
+      // the one predicate (the method gate and the CSRF guard's Origin rule
+      // both call it), and methodGate is the one place a method is refused
+      // before the relay forwards req.method as it came.
+      const predicate = soleFunction(routes, 'isProxiedMethod');
+      if (
+        !predicate ||
+        predicate.parameters.length !== 1 ||
+        predicate.parameters[0].name.getText(routes) !== 'method' ||
+        !sameStatements(predicate.body?.statements, routes, 'return (PROXIED_METHODS as readonly string[]).includes(method);')
+      ) {
+        findings.push('isProxiedMethod ya no es exactamente «PROXIED_METHODS incluye el método»');
+      }
+      const guardsFile = 'src/gateway/request-guards.ts';
+      const guards = gatewaySyntaxOf(guardsFile);
+      if (!guards) {
+        findings.push(`desapareció ${guardsFile}: no queda la compuerta de métodos`);
+      } else {
+        const gate = topLevelInitializer(guards, 'methodGate');
+        const gateBody = gate && ts.isArrowFunction(gate.node) && ts.isBlock(gate.node.body) ? gate.node.body.statements : undefined;
+        if (
+          !sameStatements(gateBody, guards, "if (!isProxiedMethod(req.method)) return sendError(res, 405, 'METHOD_NOT_PROXIED');\nnext();")
+        ) {
+          findings.push('methodGate ya no rechaza con 405 todo método que isProxiedMethod no admite');
+        }
+        if (!plainImportsFrom(guards, './routes.js').has('isProxiedMethod') || localDeclarationsOf(guards, 'isProxiedMethod') > 0) {
+          findings.push('request-guards.ts ya no usa el isProxiedMethod de routes.ts');
+        }
       }
 
       const { server } = gatewayFiles();
@@ -5714,14 +6010,18 @@ export const CRITERIOS: Criterio[] = [
     // it from acting for anyone else, read on the syntax tree:
     //   · the session cookie is __Host- with HttpOnly, Secure, SameSite=Strict
     //     and Path=/, set only through those attributes, and no cookie names a
-    //     Domain; the login cookie is Lax and lives ten minutes;
-    //   · the CSRF guard demands the custom header, same-origin Sec-Fetch-Site
-    //     and, for unsafe methods, the exact public Origin; logout sits behind
-    //     it too;
-    //   · the /v1 pipeline is path, CSRF, method, session, relay, in that order;
-    //   · the relay forwards four request headers (never a client
-    //     Authorization) and no Set-Cookie, Location or Access-Control-* back,
-    //     and follows no redirect;
+    //     Domain; the login cookie is Lax and lives ten minutes; no other file
+    //     writes a cookie except through the cookies.ts helpers;
+    //   · the CSRF guard, statement by statement, demands the custom header,
+    //     same-origin Sec-Fetch-Site and, for unsafe methods, the exact public
+    //     Origin; logout sits behind it too;
+    //   · the /v1 pipeline is path, CSRF, method, session, relay, in that order,
+    //     and those names are the guards (csrfGuard bound once to the factory,
+    //     the rest imported unrenamed);
+    //   · the relay forwards four request headers, reads the client's headers
+    //     only in the loop over that list, writes authorization once from the
+    //     session, sends no Set-Cookie, Location or Access-Control-* back, and
+    //     follows no redirect;
     //   · a token is stored only after acceptTokenResponse checked it is
     //     asymmetric and verified it against the IdP;
     //   · the session record keeps no ID token;
@@ -5773,6 +6073,42 @@ export const CRITERIOS: Criterio[] = [
         a: "        redirect: 'follow',",
         porque: 'an upstream redirect would carry the session Bearer to wherever the Location header points',
       },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: '    if (!isProxiedMethod(req.method) && req.headers.origin !== config.publicOrigin) {',
+        a: '    if (isProxiedMethod(req.method) && req.headers.origin !== config.publicOrigin) {',
+        porque: 'one dropped ! demands Origin on reads and on nothing that writes, logout included',
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: "    if (site !== undefined && site !== 'same-origin') return sendError(res, 403, 'CSRF_REJECTED');",
+        a: "    if (site === undefined && site !== 'same-origin') return sendError(res, 403, 'CSRF_REJECTED');",
+        porque: 'a flipped comparison accepts Sec-Fetch-Site cross-site while the text still names same-origin',
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: "    if (req.headers[CSRF_HEADER] !== '1') return sendError(res, 403, 'CSRF_REJECTED');",
+        a: "    if (req.headers[CSRF_HEADER] !== '1') return next();",
+        porque: 'the header is still read, and a request without it goes through',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: '  const csrfGuard = createCsrfGuard(config);',
+        a: '  const csrfGuard: RequestHandler = function csrfGuard(_req, _res, next) {\n    next();\n  };',
+        porque: 'the pipeline keeps the name csrfGuard while the binding behind it checks nothing',
+      },
+      {
+        archivo: 'src/gateway/proxy.ts',
+        de: "    headers.set('authorization', `Bearer ${session.record.accessToken}`);",
+        a: "    headers.set('authorization', req.headers.authorization ?? `Bearer ${session.record.accessToken}`);",
+        porque: 'a client Authorization, a forged HS256 token included, wins over the verified one with the header list untouched',
+      },
+      {
+        archivo: 'src/gateway/auth-routes.ts',
+        de: "    res.append('Set-Cookie', sessionCookie(created.cookieValue, deps.sessionAbsoluteSeconds));",
+        a: "    res.cookie(SESSION_COOKIE, created.cookieValue, { httpOnly: true, secure: true, sameSite: 'none' });",
+        porque: 'a session cookie written outside cookies.ts carries whatever SameSite its author chose',
+      },
     ],
     evaluar: () => {
       const findings: string[] = [];
@@ -5814,19 +6150,67 @@ export const CRITERIOS: Criterio[] = [
         }
       }
 
-      // The CSRF guard.
+      // And a cookie is written only through those helpers: express's
+      // res.cookie() takes whatever SameSite its caller spells, and a
+      // Set-Cookie header built anywhere else escapes the attribute checks.
+      const cookieWriters = new Set(['sessionCookie', 'clearSessionCookie', 'loginCookie', 'clearLoginCookie']);
+      const headerSetters = new Set(['setHeader', 'append', 'set', 'header']);
+      for (const rel of gatewayFiles().server) {
+        if (rel === 'src/gateway/cookies.ts') continue;
+        const sf = gatewaySyntaxOf(rel);
+        if (!sf) continue;
+        const at = (n: ts.Node) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
+        const fromCookies = plainImportsFrom(sf, './cookies.js');
+        for (const name of cookieWriters) {
+          if (localDeclarationsOf(sf, name) > 0) findings.push(`${rel} declara su propio ${name}`);
+        }
+        forEachGatewayNode(sf, (n) => {
+          if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && /^(?:cookie|clearCookie)$/.test(n.expression.name.text)) {
+            findings.push(`${at(n)} escribe una cookie con .${n.expression.name.text}(, fuera de cookies.ts`);
+          }
+          if (!(ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) || !/^set-cookie$/i.test(n.text)) return;
+          const call = n.parent;
+          const value = ts.isCallExpression(call) && call.arguments[0] === n ? call.arguments[1] : undefined;
+          const fine =
+            ts.isCallExpression(call) &&
+            ts.isPropertyAccessExpression(call.expression) &&
+            headerSetters.has(call.expression.name.text) &&
+            value !== undefined &&
+            ts.isCallExpression(value) &&
+            ts.isIdentifier(value.expression) &&
+            cookieWriters.has(value.expression.text) &&
+            fromCookies.has(value.expression.text);
+          if (!fine) findings.push(`${at(n)} escribe Set-Cookie sin los ayudantes de cookies.ts: ${call.getText(sf).slice(0, 60)}`);
+        });
+      }
+
+      // The CSRF guard, statement by statement: a dropped `!`, a flipped
+      // comparison or a refusal turned into next() keeps every name in place.
       const guards = required('src/gateway/request-guards.ts');
       if (guards) {
-        const factory = guards.statements.find((s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === 'createCsrfGuard');
-        const body = factory?.body ? sinComentarios(factory.body.getText(guards)) : '';
-        if (literal(guards, 'CSRF_HEADER') !== 'x-mnemosine-request' || !body.includes("req.headers[CSRF_HEADER] !== '1'")) {
-          findings.push('la guarda CSRF ya no exige x-mnemosine-request: 1');
-        }
-        if (!/req\.headers\['sec-fetch-site'\]/.test(body) || !body.includes("'same-origin'")) {
-          findings.push('la guarda CSRF ya no compara Sec-Fetch-Site con same-origin');
-        }
-        if (!body.includes('req.headers.origin !== config.publicOrigin')) {
-          findings.push('la guarda CSRF ya no exige el Origin exacto del gateway en los métodos que escriben');
+        if (literal(guards, 'CSRF_HEADER') !== 'x-mnemosine-request') findings.push('la guarda CSRF ya no exige x-mnemosine-request: 1');
+        const factory = soleFunction(guards, 'createCsrfGuard');
+        const only = factory?.body?.statements.length === 1 ? factory.body.statements[0] : undefined;
+        const returned = only && ts.isReturnStatement(only) ? only.expression : undefined;
+        const guard = returned && ts.isFunctionExpression(returned) && returned.name?.text === 'csrfGuard' ? returned : undefined;
+        if (
+          !sameStatements(
+            guard?.body.statements,
+            guards,
+            [
+              "if (req.headers[CSRF_HEADER] !== '1') return sendError(res, 403, 'CSRF_REJECTED');",
+              "const site = req.headers['sec-fetch-site'];",
+              "if (site !== undefined && site !== 'same-origin') return sendError(res, 403, 'CSRF_REJECTED');",
+              "if (!isProxiedMethod(req.method) && req.headers.origin !== config.publicOrigin) {",
+              "  return sendError(res, 403, 'CSRF_REJECTED');",
+              '}',
+              'next();',
+            ].join('\n')
+          )
+        ) {
+          findings.push(
+            'la guarda CSRF ya no es exactamente: cabecera x-mnemosine-request, Sec-Fetch-Site same-origin cuando viene, y Origin exacto en los métodos que escriben, cada una con 403'
+          );
         }
       }
 
@@ -5846,6 +6230,24 @@ export const CRITERIOS: Criterio[] = [
         }
         const logout = handlersTableEntry(server, 'logout');
         if (logout !== 'csrfGuard') findings.push(`POST /auth/logout no empieza por csrfGuard (${logout ?? 'sin manejadores'})`);
+        // The names in the pipeline are the guards themselves: csrfGuard is
+        // bound once, to the factory, and the rest are imported unrenamed.
+        const csrfBindings: ts.VariableDeclaration[] = [];
+        forEachGatewayNode(server, (n) => {
+          if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === 'csrfGuard') csrfBindings.push(n);
+        });
+        const csrfInit = csrfBindings.length === 1 ? csrfBindings[0].initializer : undefined;
+        if (
+          localDeclarationsOf(server, 'csrfGuard') !== 1 ||
+          !csrfInit ||
+          GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Expression, csrfInit, server) !== 'createCsrfGuard(config)'
+        ) {
+          findings.push('csrfGuard ya no es, en server.ts, una sola constante igual a createCsrfGuard(config)');
+        }
+        const imported = plainImportsFrom(server, './request-guards.js');
+        for (const name of ['createCsrfGuard', 'pathGuard', 'methodGate']) {
+          if (!imported.has(name) || localDeclarationsOf(server, name) > 0) findings.push(`server.ts ya no usa el ${name} de request-guards.ts`);
+        }
       }
 
       // The relay.
@@ -5867,6 +6269,53 @@ export const CRITERIOS: Criterio[] = [
         if (redirects.length !== 1 || redirects[0] !== 'manual') {
           findings.push(`la llamada al API ya no usa redirect: 'manual' (${redirects.join(', ') || 'ninguno'})`);
         }
+
+        // The header list is not the only door: the relay writes authorization
+        // once, from the session, and reads the client's headers only inside
+        // the loop over that list.
+        const authorizationMentions: ts.Node[] = [];
+        const clientReads: string[] = [];
+        forEachGatewayNode(proxy, (n) => {
+          if ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n) || ts.isIdentifier(n)) && /^authorization$/i.test(n.text)) {
+            authorizationMentions.push(n);
+          }
+          if (!ts.isIdentifier(n) || n.text !== 'req' || !isIdentifierReference(n)) return;
+          const p = n.parent;
+          if (ts.isParameter(p) && p.name === n) return;
+          const line = `proxy.ts:${proxy.getLineAndCharacterOfPosition(n.getStart(proxy)).line + 1}`;
+          if (!ts.isPropertyAccessExpression(p) || p.expression !== n) {
+            clientReads.push(`${line} ${p.getText(proxy).slice(0, 60)}`);
+          } else if (p.name.text === 'headers') {
+            const access = p.parent;
+            let loop: ts.Node | undefined = access;
+            while (loop && !ts.isForOfStatement(loop) && !ts.isFunctionLike(loop)) loop = loop.parent;
+            const inLoop =
+              ts.isElementAccessExpression(access) &&
+              access.expression === p &&
+              ts.isIdentifier(access.argumentExpression) &&
+              loop !== undefined &&
+              ts.isForOfStatement(loop) &&
+              loop.expression.getText(proxy) === 'FORWARDED_REQUEST_HEADERS' &&
+              ts.isVariableDeclarationList(loop.initializer) &&
+              loop.initializer.declarations.length === 1 &&
+              loop.initializer.declarations[0].name.getText(proxy) === access.argumentExpression.text;
+            if (!inLoop) clientReads.push(`${line} ${access.getText(proxy).slice(0, 60)}`);
+          } else if (!['ip', 'method', 'originalUrl'].includes(p.name.text)) {
+            clientReads.push(`${line} req.${p.name.text}`);
+          }
+        });
+        const write = authorizationMentions.length === 1 ? authorizationMentions[0].parent : undefined;
+        if (
+          !write ||
+          !ts.isCallExpression(write) ||
+          write.arguments[0] !== authorizationMentions[0] ||
+          GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Expression, write, proxy) !== "headers.set('authorization', `Bearer ${session.record.accessToken}`)"
+        ) {
+          findings.push(
+            `el proxy ya no escribe authorization una sola vez, desde la sesión (${authorizationMentions.length} mención(es) de authorization)`
+          );
+        }
+        for (const read of clientReads) findings.push(`el proxy lee de la petición fuera de la lista de cabeceras: ${read}`);
       }
 
       // Verify before store.

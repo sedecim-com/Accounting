@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   GATEWAY_APP_CLOSURE,
   GATEWAY_SERVER_CLOSURE,
+  importClosure,
   importClosureViolations,
   isNodeBuiltin,
 } from '../../src/plan/criterios.js';
@@ -78,6 +79,73 @@ describe('importClosureViolations', () => {
     const found = violations({ 'src/auth/token-store.ts': "import '../database/connection.js';" });
     expect(found).toEqual([
       'src/gateway/server.ts → src/gateway/a.ts → src/auth/login-flows.ts → src/auth/token-store.ts → src/database/connection.ts: outside the allowed closure',
+    ]);
+  });
+
+  it('rejects require used as a value: aliased, called through .call, or handed along', () => {
+    const found = violations({
+      'src/gateway/a.ts':
+        "const load = require;\nexport const driver = () => load('pg');\nexport const viaCall = () => require.call(null, 'pg');\nexport const loaders = [require];",
+    });
+    expect(found.filter((f) => f.includes('require used as a value'))).toHaveLength(3);
+  });
+
+  it('rejects createRequire: node:module is not a builtin the gateway may load', () => {
+    const found = violations({
+      'src/gateway/a.ts': "import { createRequire } from 'node:module';\nexport const driver = () => createRequire(__filename)('pg');",
+    });
+    expect(found.join('\n')).toMatch(/src\/gateway\/a\.ts → node:module: package not allowed/);
+  });
+
+  it('rejects eval, the module object and globalThis, which reach the loader by another name', () => {
+    const found = violations({
+      'src/gateway/a.ts':
+        "export const a = () => eval('1');\nexport const b = () => module.constructor;\nexport const c = () => globalThis.process;",
+    });
+    for (const name of ['eval', 'module', 'globalThis']) {
+      expect(found.filter((f) => f.includes(`loader reached through ${name}`)), name).toHaveLength(1);
+    }
+  });
+
+  it('allows child_process only where it already lives, the token store', () => {
+    expect(violations({})).toEqual([]);
+    expect(violations({ 'src/gateway/a.ts': "import { execFile } from 'node:child_process';" }).join('\n')).toMatch(
+      /src\/gateway\/a\.ts → node:child_process: package not allowed/
+    );
+  });
+
+  it('lets jose in only through the verification exports, however a signer is named', () => {
+    const cases: Array<[string, string, RegExp]> = [
+      ['a signer by name', "import { CompactSign } from 'jose';", /→ jose: binds CompactSign, outside the allowed exports/],
+      ['a signer under another name', "import { SignJWT as TokenWriter } from 'jose';", /→ jose: binds SignJWT, outside the allowed exports/],
+      ['the namespace', "import * as jose from 'jose';", /→ jose: binds the whole module/],
+      ['a default import', "import jose from 'jose';", /→ jose: binds default, outside the allowed exports/],
+      ['export * from', "export * from 'jose';", /→ jose: binds the whole module/],
+      ['a require', "const jose = require('jose');", /→ jose: binds the whole module/],
+      ['a dynamic import', "export const load = () => import('jose');", /→ jose: binds the whole module/],
+    ];
+    for (const [label, text, expected] of cases) {
+      expect(violations({ 'src/gateway/a.ts': `${text}\nexport const a = 1;` }).join('\n'), label).toMatch(expected);
+    }
+    expect(violations({ 'src/gateway/a.ts': "import { jwtVerify, type JWTPayload } from 'jose';\nexport const a = 1;" })).toEqual([]);
+  });
+
+  it('judges jose in a borrowed file too: a signer re-exported from src/auth/oidc.ts', () => {
+    const found = violations({ 'src/auth/oidc.ts': "import { jwtVerify } from 'jose';\nexport { SignJWT as TokenWriter } from 'jose';" });
+    expect(found).toEqual([
+      'src/gateway/server.ts → src/gateway/a.ts → src/auth/oidc.ts → jose: binds SignJWT, outside the allowed exports',
+    ]);
+  });
+
+  it('returns the files it visited, borrowed ones included, so a caller can read what the process loads', () => {
+    const { files, violations: found } = importClosure(tree(clean), ['src/gateway/server.ts'], GATEWAY_SERVER_CLOSURE);
+    expect(found).toEqual([]);
+    expect([...files].sort()).toEqual([
+      'src/auth/login-flows.ts',
+      'src/auth/oidc.ts',
+      'src/auth/token-store.ts',
+      'src/gateway/a.ts',
+      'src/gateway/server.ts',
     ]);
   });
 

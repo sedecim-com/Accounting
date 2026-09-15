@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LOGIN_COOKIE, SESSION_COOKIE } from '../../src/gateway/cookies.js';
 import { seal } from '../../src/gateway/sealed-cookie.js';
+import { SESSIONS_PER_PRINCIPAL } from '../../src/gateway/session-store.js';
 import { AUDIENCE } from './helpers/fake-idp.js';
 import {
   cookieFrom,
@@ -32,14 +33,29 @@ afterEach(async () => {
   await h.close();
 });
 
-async function beginLogin(query = ''): Promise<{ res: RawResponse; location: URL; loginPair: string; state: string }> {
-  const res = await h.request('GET', `/auth/login${query}`);
+async function beginLogin(query = '', cookie = ''): Promise<{ res: RawResponse; location: URL; loginPair: string; state: string }> {
+  const res = await h.request('GET', `/auth/login${query}`, cookie ? { cookie } : {});
   const location = new URL(res.headers.location ?? 'about:blank');
   return { res, location, loginPair: cookieFrom(res.headers, LOGIN_COOKIE) ?? '', state: location.searchParams.get('state') ?? '' };
 }
 
 function callback(query: string, cookie: string): Promise<RawResponse> {
   return h.request('GET', `/auth/callback?${query}`, cookie ? { cookie } : {});
+}
+
+/** From now on the token endpoint issues tokens for `subject`, whatever code it gets. */
+function issueFor(subject: string): void {
+  h.idp.onToken = async () => {
+    const access = await h.idp.signAccess({ sub: subject });
+    const refresh = `refresh-${subject}-${h.idp.issued.refresh.length}`;
+    h.idp.issued.access.push(access);
+    h.idp.issued.refresh.push(refresh);
+    return { body: { access_token: access, token_type: 'Bearer', refresh_token: refresh } };
+  };
+}
+
+function revokedTokens(): string[] {
+  return h.idp.revocationCalls.map((c) => c.params.get('token') ?? '');
 }
 
 function expectRejected(res: RawResponse, maxTokenCalls: number): void {
@@ -215,6 +231,63 @@ describe('a successful sign-in', () => {
     expect((await h.read('/v1/portfolio', first)).status).toBe(401);
     expect((await h.read('/v1/portfolio', second)).status).toBe(200);
     expect(h.gateway.sessions.size).toBe(2);
+  });
+
+  it('a re-login ends the earlier session although the callback, a cross-site hop, carries no Strict session cookie', async () => {
+    const first = await h.signIn();
+    // The SPA's same-origin navigation to /auth/login carries the session
+    // cookie; the IdP's redirect back to /auth/callback carries only the login
+    // cookie, as a browser sends it.
+    const { loginPair, state } = await beginLogin('', first);
+    const res = await callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair);
+    expect(res.status).toBe(303);
+    expect(cookieFrom(res.headers, SESSION_COOKIE)).toBeDefined();
+    expect(h.gateway.sessions.size).toBe(1);
+    expect((await h.read('/v1/portfolio', first)).status).toBe(401);
+    // Same subject: the gateway forgets the old tokens but does not revoke
+    // them, because an IdP may revoke the whole grant and take the new session
+    // with it.
+    expect(revokedTokens()).toEqual([]);
+  });
+
+  it('a re-login as someone else ends the earlier session and revokes its tokens, since its subject holds nothing else', async () => {
+    const first = await h.signIn();
+    issueFor('user-2');
+    const second = await h.signIn(first);
+    expect((await h.read('/v1/portfolio', first)).status).toBe(401);
+    expect((await h.read('/v1/portfolio', second)).status).toBe(200);
+    expect(revokedTokens()).toEqual([h.idp.issued.refresh[0], h.idp.issued.access[0]]);
+  });
+
+  it('one IdP subject cannot exhaust the store: its own oldest session gives way, and another subject still signs in', async () => {
+    await h.close();
+    h = await startHarness({ config: { sessionMax: SESSIONS_PER_PRINCIPAL + 1 } });
+    const held: string[] = [];
+    for (let i = 0; i < SESSIONS_PER_PRINCIPAL + 2; i += 1) {
+      h.now.value += 1_000;
+      held.push(await h.signIn());
+    }
+    expect(h.gateway.sessions.size).toBe(SESSIONS_PER_PRINCIPAL);
+    const statuses = [];
+    for (const cookie of held) statuses.push((await h.read('/v1/portfolio', cookie)).status);
+    expect(statuses).toEqual([401, 401, ...Array.from({ length: SESSIONS_PER_PRINCIPAL }, () => 200)]);
+
+    issueFor('someone-else');
+    const other = await h.signIn();
+    expect((await h.read('/v1/portfolio', other)).status).toBe(200);
+  });
+
+  it('a sign-in refused at capacity revokes the tokens it just obtained, and signs nobody out', async () => {
+    await h.close();
+    h = await startHarness({ config: { sessionMax: 1 } });
+    const first = await h.signIn();
+    issueFor('user-2');
+    const { loginPair, state } = await beginLogin();
+    const res = await callback(`code=anything&state=${state}`, loginPair);
+    expect(res.status).toBe(503);
+    expect(cookieFrom(res.headers, SESSION_COOKIE)).toBeUndefined();
+    expect(revokedTokens()).toEqual([h.idp.issued.refresh[1], h.idp.issued.access[1]]);
+    expect((await h.read('/v1/portfolio', first)).status).toBe(200);
   });
 
   it('a login transaction cannot be replayed once used', async () => {

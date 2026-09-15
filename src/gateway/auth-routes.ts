@@ -15,7 +15,7 @@ import { handleAsync, sendError } from './errors.js';
 import type { GatewayLogger } from './logger.js';
 import type { OidcClient } from './oidc-client.js';
 import { open, seal } from './sealed-cookie.js';
-import { sessionKey, sessionTag, type SessionStore } from './session-store.js';
+import { sessionKey, sessionTag, type SessionRecord, type SessionStore, type SessionTokens } from './session-store.js';
 
 // ============================================================
 // THE THREE SESSION ROUTES
@@ -23,14 +23,27 @@ import { sessionKey, sessionTag, type SessionStore } from './session-store.js';
 // /auth/login   → 303 to the IdP with PKCE S256 and a fresh state, the
 //                 transaction sealed in the login cookie. It reads no query
 //                 parameter at all: there is no return-to, so there is no open
-//                 redirect, and it allocates no server state.
+//                 redirect, and it allocates no server state. The session this
+//                 browser already holds is named inside the sealed
+//                 transaction: the SPA reaches /auth/login by a same-origin
+//                 navigation, which carries the Strict session cookie, while
+//                 the IdP's redirect back to the callback is cross-site and
+//                 carries only the Lax login cookie.
 // /auth/callback → the checks run BEFORE any token request, cheapest and most
 //                 attacker-controlled first: IdP error, RFC 9207 iss, the
 //                 sealed transaction and its expiry, state in constant time.
 //                 Only then the code is exchanged and the token verified. A
-//                 fresh session id replaces any the browser already carried,
-//                 so a planted id (fixation) buys nothing. Every failure lands
-//                 on '/#/signin-failed' with nothing reflected.
+//                 fresh session id replaces the browser's, so a planted id
+//                 (fixation) buys nothing, and the session the browser held
+//                 ends. Every failure lands on '/#/signin-failed' with nothing
+//                 reflected.
+//
+// Tokens a sign-in retires (the browser's previous session, the principal's
+// own oldest one past its bound, or the fresh ones a full store refused) are
+// forgotten at once, and revoked at the IdP only when their principal holds no
+// other live session here. Revocation may be grant-wide (RFC 7009 lets an IdP
+// invalidate every token of the grant), so revoking a same-person session
+// could sign that person out of the session being created.
 // /auth/logout  → behind the CSRF guard. Destroys the session, revokes its
 //                 tokens at the IdP when it offers revocation, clears the
 //                 cookie and tells the browser where to go next.
@@ -54,12 +67,20 @@ interface LoginTransaction {
   state: string;
   verifier: string;
   exp: number;
+  /** The session key (a SHA-256 hex) of the session this browser held at /auth/login. */
+  previous?: string;
 }
 
 function isLoginTransaction(value: unknown): value is LoginTransaction {
   if (!value || typeof value !== 'object') return false;
   const t = value as Record<string, unknown>;
-  return t.v === 1 && typeof t.state === 'string' && typeof t.verifier === 'string' && typeof t.exp === 'number';
+  return (
+    t.v === 1 &&
+    typeof t.state === 'string' &&
+    typeof t.verifier === 'string' &&
+    typeof t.exp === 'number' &&
+    (t.previous === undefined || (typeof t.previous === 'string' && /^[0-9a-f]{64}$/.test(t.previous)))
+  );
 }
 
 function sameString(a: string, b: string): boolean {
@@ -78,9 +99,22 @@ function queryString(req: Request, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+/** Revokes what a sign-in retired, for each principal that holds no live session any more. */
+async function revokeUnheld(deps: AuthRouteDeps, retired: ReadonlyArray<SessionRecord | SessionTokens>): Promise<void> {
+  for (const tokens of retired) {
+    if (deps.sessions.hasLive(tokens.principal)) continue;
+    try {
+      await deps.oidc.revoke(tokens);
+    } catch {
+      deps.logger.event('session.revocation_failed');
+    }
+  }
+}
+
 export function createLoginRoute(deps: AuthRouteDeps): RequestHandler {
-  return handleAsync(async function login(_req, res) {
+  return handleAsync(async function login(req, res) {
     noStore(res);
+    const current = deps.sessions.find(parseCookies(req.headers.cookie).get(SESSION_COOKIE));
     const { verifier, challenge } = createPkcePair();
     const state = deps.randomBytes(32).toString('base64url');
     let location: string;
@@ -96,6 +130,7 @@ export function createLoginRoute(deps: AuthRouteDeps): RequestHandler {
       state,
       verifier,
       exp: deps.clock() + LOGIN_TRANSACTION_SECONDS * 1000,
+      ...(current ? { previous: current.key } : {}),
     };
     res.setHeader('Set-Cookie', loginCookie(seal(deps.loginKey, LOGIN_COOKIE, transaction, deps.randomBytes(12))));
     res.redirect(303, location);
@@ -131,16 +166,30 @@ export function createCallbackRoute(deps: AuthRouteDeps): RequestHandler {
     const code = queryString(req, 'code');
     if (code === undefined || code === '') return fail('code');
 
-    let tokens;
+    let tokens: SessionTokens;
     try {
       tokens = await deps.oidc.exchangeCode(code, transaction.verifier);
     } catch {
       return fail('token');
     }
 
-    const previous = cookies.get(SESSION_COOKIE);
-    if (previous) deps.sessions.destroy(sessionKey(previous));
+    // The session the browser held ends: the one named at /auth/login, and
+    // the one the callback carries when the IdP is same-site.
+    const carried = cookies.get(SESSION_COOKIE);
+    const retired: SessionRecord[] = [];
+    for (const key of new Set([transaction.previous, carried === undefined ? undefined : sessionKey(carried)])) {
+      if (key === undefined) continue;
+      const record = deps.sessions.destroy(key);
+      if (!record) continue;
+      deps.logger.event('session.destroyed', { session: sessionTag(key) });
+      retired.push(record);
+    }
     const created = deps.sessions.create(tokens);
+    for (const record of created?.displaced ?? []) {
+      deps.logger.event('session.displaced');
+      retired.push(record);
+    }
+    await revokeUnheld(deps, created ? retired : [...retired, tokens]);
     if (!created) {
       deps.logger.event('session.capacity');
       return sendError(res, 503, 'SESSION_CAPACITY');

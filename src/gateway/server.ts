@@ -12,7 +12,7 @@ import { createProxy } from './proxy.js';
 import { createCsrfGuard, createHostGuard, createSessionGuard, methodGate, pathGuard } from './request-guards.js';
 import { GATEWAY_ROUTES, PROXY_PREFIX, type GatewayRouteName } from './routes.js';
 import { createSecurityHeaders } from './security-headers.js';
-import { SessionStore } from './session-store.js';
+import { SESSIONS_PER_PRINCIPAL, SessionStore } from './session-store.js';
 import { createStaticAssets, DEFAULT_STATIC_ROOT, loadStaticAssets, MissingStaticAssets } from './static-assets.js';
 
 // ============================================================
@@ -85,6 +85,7 @@ export function createGatewayApp(deps: GatewayDeps): GatewayApp {
       idleMs: config.sessionIdleMinutes * 60_000,
       absoluteMs: config.sessionAbsoluteHours * 3_600_000,
       max: config.sessionMax,
+      perPrincipal: SESSIONS_PER_PRINCIPAL,
     },
     clock,
     () => randomBytes(32).toString('base64url')

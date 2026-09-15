@@ -2,7 +2,7 @@ import type { ReadableStreamReadResult } from 'node:stream/web';
 import { discover, isAsymmetric, verifyIdpToken } from '../auth/oidc.js';
 import type { OidcDiscovery } from '../auth/oidc.js';
 import type { GatewayConfig } from './config.js';
-import type { SessionTokens } from './session-store.js';
+import { sessionPrincipal, type SessionTokens } from './session-store.js';
 
 // ============================================================
 // THE GATEWAY AS A CONFIDENTIAL OIDC CLIENT
@@ -121,6 +121,7 @@ export async function acceptTokenResponse(
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     accessExpiresAt: identity.expiresAt,
+    principal: sessionPrincipal(identity.issuer, identity.subject),
   };
 }
 

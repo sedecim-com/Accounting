@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import { SessionStore, sessionKey } from '../../src/gateway/session-store.js';
+import { SESSIONS_PER_PRINCIPAL, SessionStore, sessionKey, sessionPrincipal } from '../../src/gateway/session-store.js';
 
 // ============================================================
 // W0 · the in-memory session store.
@@ -13,12 +13,17 @@ import { SessionStore, sessionKey } from '../../src/gateway/session-store.js';
 // by the store and not left to the cookie's Max-Age.
 // ============================================================
 
-const tokens = { accessToken: 'access', refreshToken: 'refresh', accessExpiresAt: 0 };
+const principal = sessionPrincipal('https://idp.test', 'user-1');
+const tokens = { accessToken: 'access', refreshToken: 'refresh', accessExpiresAt: 0, principal };
 
-function storeWith(max: number, now: { value: number }, idleMinutes = 30, absoluteHours = 8) {
+function tokensOf(subject: string, accessToken = `access-${subject}`) {
+  return { accessToken, refreshToken: `refresh-${subject}`, accessExpiresAt: 0, principal: sessionPrincipal('https://idp.test', subject) };
+}
+
+function storeWith(max: number, now: { value: number }, idleMinutes = 30, absoluteHours = 8, perPrincipal = SESSIONS_PER_PRINCIPAL) {
   let n = 0;
   return new SessionStore(
-    { idleMs: idleMinutes * 60_000, absoluteMs: absoluteHours * 3_600_000, max },
+    { idleMs: idleMinutes * 60_000, absoluteMs: absoluteHours * 3_600_000, max, perPrincipal },
     () => now.value,
     () => `cookie-value-${(n += 1)}`
   );
@@ -40,18 +45,54 @@ describe('SessionStore', () => {
   it('at capacity it sweeps expired entries first, then refuses the new session without evicting a live one', () => {
     const now = { value: 0 };
     const store = storeWith(2, now);
-    const a = store.create(tokens)!;
+    const a = store.create(tokensOf('a'))!;
     now.value += 31 * 60_000;
-    const b = store.create(tokens)!;
+    const b = store.create(tokensOf('b'))!;
     // `a` is idle-expired: the sweep makes room for `c`.
-    const c = store.create(tokens);
+    const c = store.create(tokensOf('c'));
     expect(c).toBeDefined();
     expect(store.find(a.cookieValue)).toBeUndefined();
     // Now both live: the next one is refused and nobody is signed out.
-    expect(store.create(tokens)).toBeUndefined();
+    expect(store.create(tokensOf('d'))).toBeUndefined();
     expect(store.size).toBe(2);
     expect(store.find(b.cookieValue)).toBeDefined();
     expect(store.find(c!.cookieValue)).toBeDefined();
+  });
+
+  it('one principal cannot fill the store: past its own bound its oldest session gives way, and nobody else is signed out', () => {
+    const now = { value: 0 };
+    const store = storeWith(4, now, 30, 8, 2);
+    const other = store.create(tokensOf('other'))!;
+    const held: Array<{ cookieValue: string; displaced: unknown[] }> = [];
+    for (let i = 0; i < 5; i += 1) {
+      now.value += 1_000;
+      const created = store.create(tokensOf('greedy', `access-greedy-${i}`));
+      expect(created, `sign-in ${i + 1} of the same principal`).toBeDefined();
+      held.push(created!);
+    }
+    // Two live sessions for the greedy principal, the newest two; the one slot
+    // left in the store is still free for a third principal.
+    expect(store.size).toBe(3);
+    expect(held.map((s) => store.find(s.cookieValue) !== undefined)).toEqual([false, false, false, true, true]);
+    expect(held[2].displaced).toEqual([expect.objectContaining({ accessToken: 'access-greedy-0' })]);
+    expect(store.find(other.cookieValue)).toBeDefined();
+    expect(store.hasLive(sessionPrincipal('https://idp.test', 'greedy'))).toBe(true);
+    expect(store.create(tokensOf('newcomer'))).toBeDefined();
+  });
+
+  it('the principal is a hash of issuer and subject, never the claim, and cannot be confused across issuers', () => {
+    const p = sessionPrincipal('https://idp.test', 'user-1');
+    expect(p).toMatch(/^[0-9a-f]{64}$/);
+    expect(p).not.toContain('user-1');
+    expect(sessionPrincipal('https://idp.test/', 'user-1')).not.toBe(p);
+    expect(sessionPrincipal('https://idp.tes', 'tuser-1')).not.toBe(p);
+  });
+
+  it('a refresh that names another principal does not replace the tokens', () => {
+    const store = storeWith(10, { value: 0 });
+    const s = store.create(tokensOf('user-1'))!;
+    expect(store.replaceTokens(s.key, tokensOf('user-2', 'swapped'))).toBe(false);
+    expect(store.find(s.cookieValue)?.record.accessToken).toBe('access-user-1');
   });
 
   it('idle and absolute expiry are the store’s, and a replaced token does not move the absolute end', () => {
@@ -64,7 +105,7 @@ describe('SessionStore', () => {
       if (i < 2) {
         expect(found).toBeDefined();
         store.touch(found!.key);
-        store.replaceTokens(found!.key, { accessToken: 'new', accessExpiresAt: now.value + 600_000 });
+        store.replaceTokens(found!.key, { accessToken: 'new', accessExpiresAt: now.value + 600_000, principal });
       } else {
         // 75 minutes after creation: past the one-hour absolute lifetime.
         expect(found).toBeUndefined();
@@ -76,7 +117,7 @@ describe('SessionStore', () => {
   it('a replaced token keeps the stored refresh token when the IdP does not rotate it', () => {
     const store = storeWith(10, { value: 0 });
     const s = store.create(tokens)!;
-    store.replaceTokens(s.key, { accessToken: 'new', accessExpiresAt: 1 });
+    store.replaceTokens(s.key, { accessToken: 'new', accessExpiresAt: 1, principal });
     expect(store.find(s.cookieValue)?.record).toMatchObject({ accessToken: 'new', refreshToken: 'refresh' });
   });
 
@@ -92,7 +133,7 @@ describe('SessionStore', () => {
     const sf = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
     const record = sf.statements.find((s): s is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(s) && s.name.text === 'SessionRecord');
     const members = record!.members.map((m) => m.name?.getText(sf) ?? '');
-    expect(members).toEqual(['accessToken', 'refreshToken', 'accessExpiresAt', 'createdAt', 'lastSeenAt', 'refreshing']);
+    expect(members).toEqual(['accessToken', 'refreshToken', 'accessExpiresAt', 'principal', 'createdAt', 'lastSeenAt', 'refreshing']);
     const s = storeWith(10, { value: 0 }).create(tokens);
     expect(s).toBeDefined();
   });

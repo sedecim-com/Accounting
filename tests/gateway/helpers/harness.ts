@@ -40,7 +40,13 @@ export interface Harness {
   request(method: string, path: string, headers?: RequestHeaders): Promise<RawResponse>;
   /** A GET through the proxy with the headers a same-origin SPA fetch carries. */
   read(path: string, cookie: string, headers?: RequestHeaders): Promise<RawResponse>;
-  /** Runs /auth/login and /auth/callback against the fake IdP; returns the session cookie pair. */
+  /**
+   * Runs /auth/login and /auth/callback against the fake IdP, the way a browser
+   * does: a cookie the browser already holds goes to /auth/login (a same-origin
+   * navigation from the SPA), while the callback, reached by a cross-site
+   * redirect from the IdP, carries only the Lax login cookie and never the
+   * Strict session cookie. Returns the new session cookie pair.
+   */
   signIn(existingCookie?: string): Promise<string>;
   close(): Promise<void>;
 }
@@ -141,14 +147,13 @@ export async function startHarness(
       request('GET', path, { cookie, 'x-mnemosine-request': '1', 'sec-fetch-site': 'same-origin', ...headers }),
 
     async signIn(existingCookie) {
-      const login = await request('GET', '/auth/login');
+      const login = await request('GET', '/auth/login', existingCookie ? { cookie: existingCookie } : {});
       const location = new URL(login.headers.location ?? '');
-      const loginPair = cookieFrom(login.headers, LOGIN_COOKIE);
+      const loginPair = cookieFrom(login.headers, LOGIN_COOKIE) ?? '';
       const state = location.searchParams.get('state') ?? '';
       const code = idp.issueCode();
-      const cookie = [loginPair, existingCookie].filter(Boolean).join('; ');
       const callback = await request('GET', `/auth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`, {
-        cookie,
+        cookie: loginPair,
       });
       const session = cookieFrom(callback.headers, SESSION_COOKIE);
       if (!session) throw new Error(`sign-in did not create a session (HTTP ${callback.status}, ${callback.headers.location ?? ''})`);
