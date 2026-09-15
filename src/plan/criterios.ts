@@ -4273,6 +4273,27 @@ export const CRITERIOS: Criterio[] = [
       'Las escrituras de la corrida de nómina acotan por la entidad, que en esas tablas es un camino y no una columna',
     mutantes: [
       {
+        archivo: 'src/services/payroll/common/paycheck-service.ts',
+        de: 'FROM employees WHERE id = $1 AND tenant_id = $2 AND entity_id = $3',
+        a: 'FROM employees WHERE id = $1 AND tenant_id = $2',
+        porque:
+          'TEN-12: el recibo vuelve a aceptar al empleado de la sociedad hermana en la corrida propia — su sueldo entra en la póliza de nómina de quien calcula y sus cuotas patronales salen del pasivo de la suya',
+      },
+      {
+        archivo: 'src/services/payroll/common/paycheck-service.ts',
+        de: '[run.pay_period_id, input.tenant_id]',
+        a: '[(input as unknown as { pay_period_id: string }).pay_period_id, input.tenant_id]',
+        porque:
+          'TEN-12: el periodo vuelve a salir del cuerpo y no de la corrida — medido, el IMSS del mismo trabajador pasaba de 71.25 a 133.00 con un periodo de 28 días nombrado en la petición',
+      },
+      {
+        archivo: 'src/services/payroll/common/paycheck-service.ts',
+        de: '[input.employee_id, input.tenant_id, run.entity_id]',
+        a: '[input.employee_id, input.tenant_id, input.tenant_id]',
+        porque:
+          'TEN-12: el empleado se acota contra un valor que no es la entidad de la corrida — la columna sigue escrita en el SQL, pero la llave que la alimenta ya no es la del camino',
+      },
+      {
         archivo: 'src/services/payroll/common/alcance-nomina.ts',
         de: 'JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id',
         a: 'LEFT JOIN pay_schedules ps ON TRUE',
@@ -4430,6 +4451,50 @@ export const CRITERIOS: Criterio[] = [
         );
       }
 
+      // 4 bis. EL SALTO QUE FALTABA: EL RECIBO (TEN-12).
+      //
+      // `calculatePaycheck` resolvía sus tres llaves —empleado, periodo y
+      // corrida— por inquilino y nada más, y el periodo lo nombraba la entrada.
+      // Medido contra Postgres: una sesión de la sociedad A escribía el recibo
+      // de un empleado de la hermana en su propia corrida, y el mismo empleado
+      // propio salía con otro IMSS según qué periodo mandara el cuerpo. La
+      // corrida va PRIMERO porque es la única llave que la ruta ya acotó; el
+      // empleado se ata a la entidad a la que la corrida llega por camino, y el
+      // periodo es el de la corrida. Se mide POSICIÓN y LLAVE, no presencia: un
+      // `entity_id = $3` alimentado con otra cosa, o una corrida resuelta
+      // después del empleado, no son la frontera.
+      const paycheckFile = 'src/services/payroll/common/paycheck-service.ts';
+      if (!existe(paycheckFile)) return falla(`desapareció ${paycheckFile}`);
+      const paycheckSrc = codigoDe(paycheckFile);
+      const runLookupAt = paycheckSrc.search(/FROM pay_runs r\s+JOIN pay_periods pp ON pp\.id = r\.pay_period_id\s+JOIN pay_schedules ps ON ps\.id = pp\.pay_schedule_id/);
+      const employeeLookupAt = paycheckSrc.indexOf('FROM employees WHERE id = $1 AND tenant_id = $2 AND entity_id = $3');
+      if (runLookupAt < 0) {
+        return falla('el recibo dejó de resolver la corrida con el camino hasta su entidad: sin él no hay entidad contra la que atar al empleado');
+      }
+      if (employeeLookupAt < 0 || !paycheckSrc.includes('[input.employee_id, input.tenant_id, run.entity_id]')) {
+        return falla(
+          'el recibo dejó de atar al empleado a la entidad DE LA CORRIDA: el empleado de la sociedad hermana vuelve a colgarse de la corrida propia, y su sueldo entra en la póliza ajena'
+        );
+      }
+      if (runLookupAt > employeeLookupAt) {
+        return falla('el recibo resuelve al empleado ANTES que la corrida: la entidad contra la que se le ata todavía no existe en ese punto');
+      }
+      if (!paycheckSrc.includes('[run.pay_period_id, input.tenant_id]') || /input\.pay_period_id/.test(paycheckSrc)) {
+        return falla(
+          'el periodo del recibo volvió a salir de la entrada y no de la corrida: con un periodo de 28 días en la petición, el IMSS de un mismo trabajador pasaba de 71.25 a 133.00'
+        );
+      }
+      const paycheckSpec = 'tests/integration/ten12-sibling-employee-on-own-run.int.spec.ts';
+      if (!existe(paycheckSpec)) {
+        return falla('no hay reproducción del recibo del empleado ajeno: sin ella es una lectura del diff');
+      }
+      const paycheckSpecText = crudoDe(paycheckSpec);
+      if (!/toBe\(404\)/.test(paycheckSpecText) || /toBe\(403\)/.test(paycheckSpecText) || !/imss_employee/.test(paycheckSpecText)) {
+        return falla(
+          'la reproducción del recibo dejó de exigir el 404 idéntico, o dejó de comparar la cuota IMSS que delata qué periodo decidió'
+        );
+      }
+
       // 5. Y HAY CONDUCTA QUE LO AFIRMA, EN 404 Y NO EN 403.
       //
       // 403 dice «existe y no es tuyo», y frente a un id ya conocido esa es
@@ -4447,7 +4512,7 @@ export const CRITERIOS: Criterio[] = [
       }
 
       return ok(
-        'el camino llega a la entidad; el cálculo, la aprobación, el pago, el timbrado y el finiquito lo llevan dentro del SQL; las rutas lo usan y hay reproducción que exige 404'
+        'el camino llega a la entidad; el cálculo, la aprobación, el pago, el timbrado y el finiquito lo llevan dentro del SQL; el recibo ata su empleado a la entidad de la corrida y toma el periodo de ella; las rutas lo usan y hay reproducción que exige 404'
       );
     },
   },

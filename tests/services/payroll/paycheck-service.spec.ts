@@ -115,7 +115,9 @@ function prepararLecturas(empleado: Record<string, unknown> = EMPLEADO_MX): void
     if (/FROM pay_periods/.test(sql)) return { rows: [PERIODO] };
     // La tercera llave de la frontera: la corrida también se acota por
     // inquilino antes de escribir nada. Ver la prueba de más abajo.
-    if (/FROM pay_runs/.test(sql)) return { rows: [{ id: 'run-1' }] };
+    // Desde TEN-12 la corrida trae su periodo y la entidad a la que llega
+    // por camino: de ella cuelgan las otras dos llaves.
+    if (/FROM pay_runs/.test(sql)) return { rows: [{ id: 'run-1', pay_period_id: 'per-1', entity_id: 'ent-1' }] };
     throw new Error(`consulta inesperada en la prueba: ${sql.slice(0, 60)}`);
   });
 }
@@ -124,7 +126,6 @@ const ENTRADA = {
   tenant_id: 'tenant-1',
   pay_run_id: 'run-1',
   employee_id: 'emp-1',
-  pay_period_id: 'per-1',
   earnings: [{ earning_type: 'salary', amount: 3000 }],
 };
 
@@ -321,9 +322,15 @@ describe('la frontera de inquilino', () => {
     await calculatePaycheck(ENTRADA);
     const empleados = mockQuery.mock.calls.find((c) => /FROM employees/.test(String(c[0])))!;
     expect(String(empleados[0])).toMatch(/tenant_id = \$2/);
-    expect(empleados[1]).toEqual(['emp-1', 'tenant-1']);
+    // Y LA ENTIDAD DE LA CORRIDA (TEN-12): un trabajador de la sociedad
+    // hermana, mismo inquilino, colgaba su recibo de la corrida propia.
+    expect(String(empleados[0])).toMatch(/entity_id = \$3/);
+    expect(empleados[1]).toEqual(['emp-1', 'tenant-1', 'ent-1']);
     const periodos = mockQuery.mock.calls.find((c) => /FROM pay_periods/.test(String(c[0])))!;
     expect(String(periodos[0])).toMatch(/pp\.tenant_id = \$2/);
+    // El periodo es el DE LA CORRIDA, no uno que nombre la entrada: con el
+    // periodo del cuerpo, el IMSS de un mismo trabajador salía 133.00 con 28
+    // días frente a 71.25 con los 15 de su corrida (medido en TEN-12).
     expect(periodos[1]).toEqual(['per-1', 'tenant-1']);
     // LA TERCERA, que faltaba. `pay_run_id` se insertaba tal cual: un recibo
     // podía quedar colgado de la corrida de OTRO inquilino, entrar en el
@@ -342,16 +349,17 @@ describe('la frontera de inquilino', () => {
       if (/FROM pay_periods/.test(sql)) return { rows: [PERIODO] };
       return { rows: [] };
     });
-    await expect(calculatePaycheck(ENTRADA)).rejects.toThrow(/Pay run not found/);
+    await expect(calculatePaycheck(ENTRADA)).rejects.toThrow(/Pay run with id run-1 not found/);
     expect(clienteEspia.query).not.toHaveBeenCalled();
   });
 
   it('no calcula nada si el trabajador no es de ese inquilino', async () => {
     mockQuery.mockImplementation(async (sql: string) => {
       if (/FROM employees/.test(sql)) return { rows: [] };
+      if (/FROM pay_runs/.test(sql)) return { rows: [{ id: 'run-1', pay_period_id: 'per-1', entity_id: 'ent-1' }] };
       return { rows: [PERIODO] };
     });
-    await expect(calculatePaycheck(ENTRADA)).rejects.toThrow(/Employee not found/);
+    await expect(calculatePaycheck(ENTRADA)).rejects.toThrow(/Employee with id emp-1 not found/);
     expect(clienteEspia.query).not.toHaveBeenCalled();
   });
 });
