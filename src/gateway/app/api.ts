@@ -60,8 +60,9 @@ export async function apiGet(operation: ApiOperation, options: GetRequestOptions
 
 /**
  * Ends the session at the gateway and returns where the browser goes next:
- * the IdP's end-session URL, or '/'. Undefined when the gateway did not answer
- * with one.
+ * the IdP's end-session URL, or '/'. The gateway answers every sign-out it
+ * performed with one, so undefined means it was not confirmed and the session
+ * may still be open.
  */
 export async function signOut(): Promise<string | undefined> {
   try {

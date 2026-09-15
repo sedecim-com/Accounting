@@ -99,6 +99,31 @@ function build<N extends MountElement<N>>(spec: ElementSpec, doc: MountDocument<
   return node;
 }
 
+/** The skip link and what it skips to, typed by the members used here. */
+export interface SkipLink {
+  addEventListener(type: 'click', listener: (event: { preventDefault(): void }) => void): void;
+}
+
+export interface FocusTarget {
+  focus(): void;
+}
+
+/**
+ * Makes the skip link move focus to `target` without navigating.
+ *
+ * The page routes on the location hash, so following href="#app" would push a
+ * history entry the router does not treat as a screen, and the next Back
+ * would seem to do nothing, to exactly the keyboard users the link is for.
+ * The link keeps its href, so it is still announced as a link to the content;
+ * a click, or Enter on it, focuses the target and leaves the URL alone.
+ */
+export function skipWithoutNavigating(link: SkipLink, target: FocusTarget): void {
+  link.addEventListener('click', (event) => {
+    event.preventDefault();
+    target.focus();
+  });
+}
+
 /** Replaces the children of `root` with the nodes of `specs`. */
 export function mount<N extends MountElement<N>>(
   specs: readonly ElementSpec[],

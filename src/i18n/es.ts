@@ -704,6 +704,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'web.app.not_found': 'Esa pantalla no existe.',
   'web.session.sign_in': 'Iniciar sesión',
   'web.session.sign_out': 'Cerrar sesión',
+  'web.session.sign_out_failed': 'No se confirmó el cierre de sesión: tu sesión puede seguir abierta. Inténtalo de nuevo.',
   'web.session.signed_out': 'No has iniciado sesión, o tu sesión terminó.',
   'web.session.no_access':
     'Tu cuenta no puede leer esto: le faltan los permisos accounts:read y journal_entries:read.',

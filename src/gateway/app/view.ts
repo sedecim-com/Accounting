@@ -89,7 +89,8 @@ export type Route = { kind: 'portfolio' } | { kind: 'entity'; entityId: string }
 
 /**
  * The route a location hash names. Undefined for a hash that is not a route
- * (the skip link's '#app'), which leaves the current screen as it is.
+ * (a hand-typed '#app'), which leaves the current screen as it is. The skip
+ * link does not navigate at all: see skipWithoutNavigating in dom.ts.
  */
 export function parseRoute(hash: string): Route | undefined {
   if (hash === '' || hash === '#' || hash === '#/') return { kind: 'portfolio' };
@@ -189,7 +190,32 @@ function endsTheSession(reason: Failure): boolean {
   return reason === 'signed-out' || reason === 'session-expired' || reason === 'no-access';
 }
 
-function header(language: WebLanguage, screen: Screen, now: number): ElementSpec {
+/** What the page knows beyond the screen itself. */
+export interface PageState {
+  /** The last sign-out was not confirmed by the gateway, so the session may still be open. */
+  signOutFailed?: boolean;
+}
+
+/**
+ * Where the browser goes after signing out, given what the gateway answered.
+ *
+ * The gateway confirms a sign-out with the destination: the IdP's end-session
+ * URL, or '/'. Only an http(s) destination is followed; anything else goes
+ * home. Undefined when there was no confirmation (a refused CSRF check, a
+ * network failure, a 5xx): the session may still be open, and navigating
+ * would reload the board signed in and say nothing.
+ */
+export function signOutDestination(redirect: string | undefined, origin: string): string | undefined {
+  if (redirect === undefined) return undefined;
+  try {
+    const url = new URL(redirect, origin);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : '/';
+  } catch {
+    return '/';
+  }
+}
+
+function header(language: WebLanguage, screen: Screen, now: number, page: PageState): ElementSpec {
   const children: ElementSpec[] = [el('h1', {}, text(language, 'web.app.title'))];
   const details: ElementSpec[] = [];
   if (screen.kind === 'portfolio' && screen.loaded) {
@@ -219,6 +245,9 @@ function header(language: WebLanguage, screen: Screen, now: number): ElementSpec
     });
   }
   if (buttons.length > 0) children.push(el('div', { class: 'board-actions' }, buttons));
+  if (page.signOutFailed) {
+    children.push(el('p', { class: 'notice notice-error', role: 'alert' }, text(language, 'web.session.sign_out_failed')));
+  }
   return el('header', { class: 'board-header' }, children);
 }
 
@@ -436,14 +465,14 @@ function noticeContent(language: WebLanguage, screen: NoticeScreen): ElementSpec
 }
 
 /** The children of the page's main element for `screen`, in `language`, at `now`. */
-export function renderScreen(screen: Screen, language: WebLanguage, now: number): ElementSpec[] {
+export function renderScreen(screen: Screen, language: WebLanguage, now: number, page: PageState = {}): ElementSpec[] {
   const content =
     screen.kind === 'portfolio'
       ? portfolioContent(language, screen)
       : screen.kind === 'entity'
         ? entityContent(language, screen)
         : noticeContent(language, screen);
-  return [header(language, screen, now), el('div', { class: 'board-content' }, content)];
+  return [header(language, screen, now, page), el('div', { class: 'board-content' }, content)];
 }
 
 /** The text of the age line for a read at `fetchedAt`, as the ticker rewrites it. */

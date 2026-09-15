@@ -736,8 +736,24 @@ export default tseslint.config(
       'no-restricted-syntax': [
         'error',
         {
-          selector: "MemberExpression[property.name=/^(innerHTML|outerHTML|insertAdjacentHTML|srcdoc)$/]",
+          selector:
+            'MemberExpression[property.name=/^(innerHTML|outerHTML|insertAdjacentHTML|srcdoc|setHTMLUnsafe|parseHTMLUnsafe|setHTML|createContextualFragment|parseFromString)$/]',
           message: 'Markup sinks are banned in the browser program: build nodes through dom.ts.',
+        },
+        {
+          // The same sinks reached by a string key: el['innerHTML'], el[`setHTMLUnsafe`](…).
+          selector:
+            'MemberExpression[computed=true][property.value=/^(innerHTML|outerHTML|insertAdjacentHTML|srcdoc|setHTMLUnsafe|parseHTMLUnsafe|setHTML|createContextualFragment|parseFromString|setAttribute|setAttributeNS|setAttributeNode|write|writeln)$/]',
+          message: 'A markup sink or setAttribute reached by a string key is still a sink: build nodes through dom.ts.',
+        },
+        {
+          selector:
+            'MemberExpression[computed=true] > TemplateLiteral.property > TemplateElement[value.cooked=/^(innerHTML|outerHTML|insertAdjacentHTML|srcdoc|setHTMLUnsafe|parseHTMLUnsafe|setHTML|createContextualFragment|parseFromString|setAttribute|setAttributeNS|setAttributeNode|write|writeln)$/]',
+          message: 'A markup sink or setAttribute reached by a string key is still a sink: build nodes through dom.ts.',
+        },
+        {
+          selector: "NewExpression[callee.name='DOMParser']",
+          message: 'DOMParser parses markup: build nodes through dom.ts.',
         },
       ],
     },

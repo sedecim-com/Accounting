@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { isAllowedAttribute, mount, RejectedAttribute, type MountElement } from '../../src/gateway/app/dom.js';
+import { isAllowedAttribute, mount, RejectedAttribute, skipWithoutNavigating, type MountElement } from '../../src/gateway/app/dom.js';
 import type { DraftItem, PeriodItem, QuestionItem } from '../../src/gateway/app/entity-model.js';
+import { text } from '../../src/gateway/app/messages.js';
 import type { Portfolio, PortfolioRow } from '../../src/gateway/app/portfolio-model.js';
 import {
   AGE_ELEMENT_ID,
   parseRoute,
   renderScreen,
+  signOutDestination,
   VERIFY_COMMANDS,
   type ElementSpec,
   type EntityScreen,
@@ -211,6 +213,31 @@ describe('the portfolio notices', () => {
   });
 });
 
+describe('signing out', () => {
+  const ORIGIN = 'https://board.example';
+
+  it('follows only a sign-out the gateway confirmed, and only to an http(s) destination', () => {
+    expect(signOutDestination('https://idp.example/logout?client_id=board', ORIGIN)).toBe('https://idp.example/logout?client_id=board');
+    expect(signOutDestination('/', ORIGIN)).toBe('https://board.example/');
+    expect(signOutDestination('javascript:alert(1)', ORIGIN)).toBe('/');
+    // No confirmation (a refused CSRF check, a network failure, a 5xx): the
+    // session may still be open, so the page must not go anywhere.
+    expect(signOutDestination(undefined, ORIGIN)).toBeUndefined();
+  });
+
+  it('an unconfirmed sign-out says the session may still be open, and keeps the button to try again', () => {
+    const screens: Screen[] = [ready(ROWS), { kind: 'not-found' }];
+    for (const screen of screens) {
+      const tree = all(renderScreen(screen, 'es', NOW, { signOutFailed: true }));
+      const alerts = tree.filter((s) => s.attributes?.role === 'alert').map(textOf);
+      expect(alerts).toContain(text('es', 'web.session.sign_out_failed'));
+      expect(tree.find((s) => s.attributes?.id === 'sign-out')?.action).toEqual({ kind: 'sign-out' });
+    }
+    expect(text('es', 'web.session.sign_out_failed')).toMatch(/sesión/);
+    expect(all(render(ready(ROWS))).map(textOf)).not.toContain(text('es', 'web.session.sign_out_failed'));
+  });
+});
+
 describe('third-party strings stay text', () => {
   it('an XSS payload in an entity name is a string child, never structure', () => {
     const tree = all(render(ready([row(A, XSS)])));
@@ -367,6 +394,22 @@ describe('dom.ts', () => {
     expect(attempt({ tag: 'div', attributes: { tabindex: '3' } })).toThrow(RejectedAttribute);
     expect(attempt({ tag: 'script' as ViewTag, children: 'alert(1)' })).toThrow(/not allowed/);
     expect(attempt({ tag: 'div', children: 'x', action: { kind: 'refresh' } })).toThrow(/only a button/);
+  });
+
+  it('the skip link moves focus to the content without navigating, so it leaves no history entry the router ignores', () => {
+    const listeners: Array<(event: { preventDefault(): void }) => void> = [];
+    const link = {
+      addEventListener(_type: 'click', listener: (event: { preventDefault(): void }) => void): void {
+        listeners.push(listener);
+      },
+    };
+    let focused = 0;
+    skipWithoutNavigating(link, { focus: () => (focused += 1) });
+    expect(listeners).toHaveLength(1);
+    let prevented = false;
+    listeners[0]({ preventDefault: () => (prevented = true) });
+    expect(prevented).toBe(true);
+    expect(focused).toBe(1);
   });
 
   it('allows the attributes the view uses', () => {

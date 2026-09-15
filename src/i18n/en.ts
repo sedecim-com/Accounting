@@ -820,6 +820,7 @@ export const EN = {
   'web.app.not_found': 'There is no such screen.',
   'web.session.sign_in': 'Sign in',
   'web.session.sign_out': 'Sign out',
+  'web.session.sign_out_failed': 'Sign-out was not confirmed, so your session may still be open. Try again.',
   'web.session.signed_out': 'You are not signed in, or your session ended.',
   'web.session.no_access':
     'Your account cannot read this: it needs the accounts:read and journal_entries:read permissions.',

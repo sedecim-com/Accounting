@@ -1,9 +1,20 @@
 import { apiGet, signOut, type ApiResult } from './api.js';
-import { mount } from './dom.js';
+import { mount, skipWithoutNavigating } from './dom.js';
 import { parseDraftList, parsePeriodList, parseQuestionList } from './entity-model.js';
 import { pickLanguage, text } from './messages.js';
 import { parsePortfolioResponse, type SortColumn } from './portfolio-model.js';
-import { AGE_ELEMENT_ID, ageText, parseRoute, renderScreen, type Failure, type Route, type Screen, type ViewAction } from './view.js';
+import {
+  AGE_ELEMENT_ID,
+  ageText,
+  parseRoute,
+  renderScreen,
+  signOutDestination,
+  type Failure,
+  type PageState,
+  type Route,
+  type Screen,
+  type ViewAction,
+} from './view.js';
 
 // ============================================================
 // THE BOARD'S BOOT (W1 · issue #117)
@@ -19,6 +30,8 @@ import { AGE_ELEMENT_ID, ageText, parseRoute, renderScreen, type Failure, type R
 //   · After a re-render, focus goes back to the control that had it (a sort
 //     button keeps focus after sorting), and a route change moves focus to the
 //     main element, so a screen reader starts at the new screen.
+//   · The skip link focuses the main element without touching the URL, and a
+//     sign-out the gateway did not confirm stays on the page and says so.
 // ============================================================
 
 const language = pickLanguage(navigator.languages.length > 0 ? navigator.languages : [navigator.language]);
@@ -29,12 +42,15 @@ const skipLink = document.getElementById('skip-link');
 if (skipLink) skipLink.textContent = text(language, 'web.app.skip_to_content');
 
 const root = document.getElementById('app');
+if (skipLink && root) skipWithoutNavigating(skipLink, root);
 
 let screen: Screen = { kind: 'portfolio', loading: true, sort: { column: 'name', direction: 'ascending' } };
 /** The portfolio screen as last left, so returning from an entity does not re-read it. */
 let lastPortfolio: Screen | undefined;
 /** Discards answers to reads the user has already navigated away from. */
 let generation = 0;
+/** Cleared by the next sign-out attempt or navigation. */
+let page: PageState = {};
 
 function failureOf(result: Exclude<ApiResult, { kind: 'ok' }>): Failure {
   switch (result.kind) {
@@ -54,7 +70,7 @@ function failureOf(result: Exclude<ApiResult, { kind: 'ok' }>): Failure {
 function render(moveFocus = false): void {
   if (!root) return;
   const focusedId = document.activeElement instanceof HTMLElement ? document.activeElement.id : '';
-  mount(renderScreen(screen, language, Date.now()), root, document, onAction);
+  mount(renderScreen(screen, language, Date.now(), page), root, document, onAction);
   if (moveFocus) {
     root.focus();
     return;
@@ -112,6 +128,7 @@ function entityNameFor(entityId: string): string | undefined {
 
 /** Shows `route`. A navigation moves focus to the main element; the first screen of a page load does not. */
 function show(route: Route, moveFocus = true): void {
+  page = {};
   if (route.kind === 'portfolio') {
     if (lastPortfolio?.kind === 'portfolio' && lastPortfolio.loaded) {
       screen = lastPortfolio;
@@ -143,16 +160,15 @@ function sortBy(column: SortColumn): void {
 }
 
 async function endSession(): Promise<void> {
-  const redirect = await signOut();
-  // Only an http(s) destination is followed; anything else goes home.
-  let target = '/';
-  if (redirect !== undefined) {
-    try {
-      const url = new URL(redirect, window.location.origin);
-      if (url.protocol === 'https:' || url.protocol === 'http:') target = url.href;
-    } catch {
-      target = '/';
-    }
+  if (page.signOutFailed) {
+    page = {};
+    render();
+  }
+  const target = signOutDestination(await signOut(), window.location.origin);
+  if (target === undefined) {
+    page = { signOutFailed: true };
+    render();
+    return;
   }
   window.location.assign(target);
 }

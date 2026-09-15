@@ -5711,8 +5711,8 @@ export const CRITERIOS: Criterio[] = [
       },
       {
         archivo: 'src/gateway/app/main.ts',
-        de: "import { mount } from './dom.js';",
-        a: "import '../config.js';\nimport { mount } from './dom.js';",
+        de: "import { mount, skipWithoutNavigating } from './dom.js';",
+        a: "import '../config.js';\nimport { mount, skipWithoutNavigating } from './dom.js';",
         porque: 'the browser program would reach server configuration code, and whatever it imports ships to every page',
       },
       {
@@ -6399,19 +6399,27 @@ export const CRITERIOS: Criterio[] = [
     //   · API_OPERATIONS in contract.ts is an object literal of {method, path}
     //     string pairs, it has a portfolio entry, every method is GET and every
     //     path is a GET operation of docs/openapi.json (a :param is {param});
-    //     every `method` property written in contract.ts is GET, the request
-    //     init included;
     //   · no other module of src/gateway/app spells '/v1' in a string or a
     //     template;
     //   · fetch is named only in api.ts, exactly twice, each a direct call:
-    //     one on the URL buildGetRequest built, one on SIGN_OUT_PATH, which is
-    //     the gateway's /auth/logout and not the API; the one method written
-    //     in api.ts is that sign-out POST;
+    //     fetch(request.url, request.init) on what buildGetRequest built, and
+    //     fetch(SIGN_OUT_PATH, {…}) with its init written out as plain pairs;
+    //     SIGN_OUT_PATH is the gateway's /auth/logout, not the API;
+    //   · `method` is spelled in three places only: GET in the table and in
+    //     the init type, GET in buildGetRequest's init, POST in that sign-out
+    //     init. A shorthand, an `init.method =`, a quoted key or a variable
+    //     named method anywhere in the program is red, because each can turn
+    //     a contracted read into a write;
     //   · no module names another way to reach the network (XMLHttpRequest,
-    //     WebSocket, EventSource, sendBeacon, a worker).
+    //     WebSocket, EventSource, sendBeacon, a worker), neither as a name nor
+    //     as a string key, and none takes the global object whole (by key,
+    //     cast or alias) instead of reading one dotted member of it.
     // A renamed or retired route, a call the contract never declared, or a
     // write dressed as a read turns this red; tests/gateway/web-contract.spec.ts
-    // is the runtime side.
+    // is the runtime side. What a static read cannot see is a name assembled
+    // at run time from pieces through some other object. Against that, the
+    // gateway's GET/HEAD method gate still refuses a write; an uncontracted
+    // read would get through.
     enunciado:
       'El cliente web sólo lee rutas del contrato: cada llamada a /v1 es un GET que existe en docs/openapi.json y pasa por un único cliente',
     mutantes: [
@@ -6463,6 +6471,18 @@ export const CRITERIOS: Criterio[] = [
         a: "const root = document.getElementById('app');\nconst feed = new EventSource('/events');",
         porque: 'a stream opened beside fetch reaches the network outside the contract and the client',
       },
+      {
+        archivo: 'src/gateway/app/view.ts',
+        de: "import { text } from './messages.js';",
+        a: "import { text } from './messages.js';\nexport const sideRead = (): Promise<Response> => (globalThis as unknown as Record<string, (u: string, i: object) => Promise<Response>>)['fetch']('/v' + '1/accounts', { headers: { 'X-Mnemosine-Request': '1' } });",
+        porque: 'fetch reached by a string key off the global object is the same second client, and a split path hides its /v1',
+      },
+      {
+        archivo: 'src/gateway/app/api.ts',
+        de: '    response = await fetch(request.url, request.init);',
+        a: "    const method = 'DELETE';\n    response = await fetch(request.url, { ...request.init, method });",
+        porque: 'a shorthand method spread over the built init turns every contracted read into a write',
+      },
     ],
     evaluar: () => {
       const findings: string[] = [];
@@ -6513,12 +6533,6 @@ export const CRITERIOS: Criterio[] = [
         }
         if (!names.includes('portfolio')) findings.push('API_OPERATIONS ya no tiene la operación portfolio');
 
-        forEachGatewayNode(contract, (n) => {
-          if (ts.isPropertyAssignment(n) && n.name.getText(contract) === 'method') {
-            const value = literalText(n.initializer);
-            if (value !== 'GET') findings.push(`contract.ts escribe method ${n.initializer.getText(contract)}`);
-          }
-        });
         const signOut = topLevelInitializer(contract, 'SIGN_OUT_PATH');
         if (!signOut || !ts.isStringLiteral(signOut.node) || signOut.node.text !== '/auth/logout') {
           findings.push('SIGN_OUT_PATH ya no es la ruta /auth/logout del gateway');
@@ -6528,8 +6542,12 @@ export const CRITERIOS: Criterio[] = [
       // Every module of the browser program.
       const { app } = gatewayFiles();
       if (!app.includes(clientFile)) findings.push(`desapareció ${clientFile}, el único cliente`);
-      const networkBans = new Set(['XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'Worker', 'SharedWorker', 'importScripts']);
-      const fetchTargets: string[] = [];
+      const networkBans = new Set(['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'sendBeacon', 'Worker', 'SharedWorker', 'importScripts']);
+      const globalObjects = new Set(['globalThis', 'window', 'self']);
+      const fetchCalls: string[] = [];
+      /** The init of the sign-out call, when it is written out as plain `name: value` pairs. */
+      const plainInit = (node: ts.Expression | undefined): node is ts.ObjectLiteralExpression =>
+        node !== undefined && ts.isObjectLiteralExpression(node) && node.properties.every((p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name));
       for (const rel of app) {
         const sf = gatewaySyntaxOf(rel);
         if (!sf) continue;
@@ -6539,31 +6557,60 @@ export const CRITERIOS: Criterio[] = [
           if (literal !== undefined && literal.includes('/v1') && rel !== contractFile) {
             findings.push(`${at(n)} escribe una ruta /v1 fuera de contract.ts`);
           }
+          // A network API named in a string is reached by key: `globalThis['fetch']`, Reflect.get.
+          if (isLiteralArgument(n) && networkBans.has(n.text)) findings.push(`${at(n)} nombra ${n.text} en una cadena`);
+          if (isLiteralArgument(n) && n.text === 'method') findings.push(`${at(n)} nombra method en una cadena`);
           if (!ts.isIdentifier(n)) return;
-          if (networkBans.has(n.text)) findings.push(`${at(n)} usa ${n.text}`);
-          if (n.text !== 'fetch') return;
+
+          // The global object only as `window.location`, never by key, cast or alias.
+          if (globalObjects.has(n.text) && isIdentifierReference(n) && !(ts.isPropertyAccessExpression(n.parent) && n.parent.expression === n)) {
+            findings.push(`${at(n)} toma ${n.text} entero: por clave, alias o conversión alcanza cualquier API de red`);
+          }
+
+          // `method` is written in exactly three places: GET in the table and the
+          // init type, GET in buildGetRequest's init, POST in the sign-out call.
+          // Any other spelling (shorthand, `init.method =`, a spread partner)
+          // is a method the table was never checked for.
+          if (n.text === 'method') {
+            const p = n.parent;
+            const assigned = ts.isPropertyAssignment(p) && p.name === n ? literalText(p.initializer) : undefined;
+            const typed = ts.isPropertySignature(p) && p.name === n && p.type && ts.isLiteralTypeNode(p.type) ? literalText(p.type.literal) : undefined;
+            const signOutCall = ts.isPropertyAssignment(p) && ts.isObjectLiteralExpression(p.parent) && ts.isCallExpression(p.parent.parent) ? p.parent.parent : undefined;
+            const sanctioned =
+              rel === contractFile
+                ? assigned === 'GET' || typed === 'GET'
+                : rel === clientFile &&
+                  assigned === 'POST' &&
+                  signOutCall !== undefined &&
+                  ts.isIdentifier(signOutCall.expression) &&
+                  signOutCall.expression.text === 'fetch' &&
+                  signOutCall.arguments[0]?.getText(sf) === 'SIGN_OUT_PATH' &&
+                  signOutCall.arguments[1] === p.parent;
+            if (!sanctioned) findings.push(`${at(n)} escribe method fuera de los GET de contract.ts y del POST de cierre de sesión: ${p.getText(sf).slice(0, 60)}`);
+          }
+
+          if (!networkBans.has(n.text)) return;
           const call = n.parent;
-          const direct = rel === clientFile && isIdentifierReference(n) && ts.isCallExpression(call) && call.expression === n;
+          const direct = n.text === 'fetch' && rel === clientFile && isIdentifierReference(n) && ts.isCallExpression(call) && call.expression === n;
           if (!direct) {
-            findings.push(`${at(n)} nombra fetch fuera de una llamada directa en api.ts`);
+            findings.push(n.text === 'fetch' ? `${at(n)} nombra fetch fuera de una llamada directa en api.ts` : `${at(n)} usa ${n.text}`);
             return;
           }
-          fetchTargets.push(call.arguments[0]?.getText(sf) ?? '');
+          const [target, init, ...rest] = call.arguments;
+          const shape =
+            rest.length === 0 && target?.getText(sf) === 'SIGN_OUT_PATH' && plainInit(init)
+              ? 'SIGN_OUT_PATH, {…}'
+              : call.arguments.map((a) => a.getText(sf)).join(', ');
+          fetchCalls.push(shape);
         });
-        if (rel === clientFile) {
-          forEachGatewayNode(sf, (n) => {
-            if (!ts.isPropertyAssignment(n) || n.name.getText(sf) !== 'method') return;
-            let call: ts.Node | undefined = n.parent;
-            while (call && !ts.isCallExpression(call)) call = call.parent;
-            const signOutPost =
-              literalText(n.initializer) === 'POST' && call !== undefined && ts.isCallExpression(call) && call.arguments[0]?.getText(sf) === 'SIGN_OUT_PATH';
-            if (!signOutPost) findings.push(`${at(n)} escribe method ${n.initializer.getText(sf)} fuera del POST de cierre de sesión`);
-          });
-          if (!plainImportsFrom(sf, './contract.js').has('buildGetRequest')) findings.push('api.ts ya no construye sus lecturas con buildGetRequest');
+        if (rel === clientFile && !plainImportsFrom(sf, './contract.js').has('buildGetRequest')) {
+          findings.push('api.ts ya no construye sus lecturas con buildGetRequest');
         }
       }
-      if ([...fetchTargets].sort().join(' | ') !== 'SIGN_OUT_PATH | request.url') {
-        findings.push(`api.ts llama a fetch con [${fetchTargets.join(' | ')}] en vez de una vez sobre request.url y otra sobre SIGN_OUT_PATH`);
+      if ([...fetchCalls].sort().join(' | ') !== 'SIGN_OUT_PATH, {…} | request.url, request.init') {
+        findings.push(
+          `api.ts llama a fetch como [${fetchCalls.join(' | ')}] en vez de una vez con (request.url, request.init) y otra con SIGN_OUT_PATH y un init escrito entero`
+        );
       }
 
       if (findings.length > 0) {
@@ -6586,19 +6633,27 @@ export const CRITERIOS: Criterio[] = [
     //   · the SPA policy in security-headers.ts has default-src 'none', only
     //     'self' for scripts, styles and fetches, no base, form or frame
     //     target, no object, and Trusted Types with no policy; no directive
-    //     carries unsafe-*, a scheme source or a wildcard, and no directive
-    //     name repeats (a browser keeps the first one). The API policy keeps
-    //     default-src 'none' and sandbox;
+    //     carries anything but one 'none' or 'self' source (so no unsafe-*,
+    //     host, scheme, hash, nonce or wildcard, in a listed directive or an
+    //     added one such as script-src-elem), and no directive name repeats (a
+    //     browser keeps the first one). The API policy keeps default-src
+    //     'none' and sandbox;
     //   · every served module (src/gateway/app and the two catalogs it
-    //     imports, which ship as they are) names no HTML sink, no eval or
+    //     imports, which ship as they are) names no HTML sink (innerHTML and
+    //     its kin, setHTMLUnsafe, parseHTMLUnsafe, DOMParser…), no eval or
     //     Function, no string timer, no document.write, and creates no script,
     //     style or frame element; setAttribute appears only in dom.ts, right
     //     after its allow-list check, and that allow-list's free-text
-    //     attributes are exactly class, id, scope, lang and role;
+    //     attributes are exactly class, id, scope, lang and role. A name counts
+    //     written as an identifier or as a string, so `el['innerHTML']` is the
+    //     same finding as `el.innerHTML`;
     //   · index.html has no inline script, no style element or attribute, no
     //     on* handler, no javascript: URL and no external URL.
     // Trusted Types is enforced only in Chromium-family browsers; this, the
-    // eslint browser block and dom.ts are what hold everywhere else.
+    // eslint browser block and dom.ts are what hold everywhere else. A static
+    // read sees names as written, not a name assembled at run time from
+    // pieces; the CSP's script-src 'self' without unsafe-inline still keeps
+    // injected markup from running inline script or handlers there.
     enunciado:
       'El cliente web no puede inyectar marcado: CSP estricta con Trusted Types, respuestas del API en sandbox y ningún sumidero de HTML en el código que se sirve',
     mutantes: [
@@ -6662,6 +6717,30 @@ export const CRITERIOS: Criterio[] = [
         a: `  "connect-src 'self' https:",`,
         porque: 'an injected script could send what it read to any https host',
       },
+      {
+        archivo: 'src/gateway/security-headers.ts',
+        de: `  "trusted-types 'none'",`,
+        a: `  "trusted-types 'none'",\n  "script-src-elem 'self' cdn.jsdelivr.net",`,
+        porque: 'script-src-elem overrides script-src for script elements, so a bare host source loads script from a third party',
+      },
+      {
+        archivo: 'src/gateway/app/main.ts',
+        de: "if (skipLink) skipLink.textContent = text(language, 'web.app.skip_to_content');",
+        a: "if (skipLink) skipLink.setHTMLUnsafe(text(language, 'web.app.skip_to_content'));",
+        porque: 'setHTMLUnsafe parses its string as markup like innerHTML does, under a name the old list did not have',
+      },
+      {
+        archivo: 'src/gateway/app/main.ts',
+        de: "if (skipLink) skipLink.textContent = text(language, 'web.app.skip_to_content');",
+        a: "if (skipLink) skipLink['innerHTML'] = text(language, 'web.app.skip_to_content');",
+        porque: 'a sink written as a string key is the same sink, and the name is a literal, not an identifier',
+      },
+      {
+        archivo: 'src/gateway/app/dom.ts',
+        de: 'node.textContent = child;',
+        a: "node['setAttribute']('onclick', child);",
+        porque: 'setAttribute called through a string key skips the allow-list check the dotted call is held to',
+      },
     ],
     evaluar: () => {
       const findings: string[] = [];
@@ -6689,8 +6768,15 @@ export const CRITERIOS: Criterio[] = [
         for (const directive of required) if (!spa.includes(directive)) findings.push(`la CSP del SPA perdió ${directive}`);
         const seen = new Set<string>();
         for (const directive of spa) {
-          if (/unsafe-|[a-z-]+:|\*/i.test(directive.replace(/^[a-z-]+\s/, ''))) findings.push(`la CSP del SPA afloja ${directive}`);
-          const name = directive.split(/\s+/)[0];
+          // Every directive, listed or not, carries one source and it is 'none'
+          // or 'self': a host, a scheme, a hash, a nonce or a keyword added to
+          // any of them (script-src-elem overrides script-src) loosens the page.
+          const [rawName, ...sources] = directive.trim().split(/\s+/);
+          const name = rawName.toLowerCase();
+          const allowed = name === 'require-trusted-types-for' ? ["'script'"] : ["'none'", "'self'"];
+          if (sources.length !== 1 || !allowed.includes(sources[0])) {
+            findings.push(`la CSP del SPA afloja ${directive}: cada directiva lleva una sola fuente, 'none' o 'self'`);
+          }
           if (seen.has(name)) findings.push(`la CSP del SPA repite ${name}`);
           seen.add(name);
         }
@@ -6704,8 +6790,33 @@ export const CRITERIOS: Criterio[] = [
       if (app.length === 0) findings.push('src/gateway/app no tiene módulos: no hay nada que mirar, y no mirar no es estar limpio');
       const domFile = 'src/gateway/app/dom.ts';
       const served = [...app, 'src/i18n/en.ts', 'src/i18n/es.ts'];
-      const sinkNames = new Set(['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'srcdoc', 'createContextualFragment', 'DOMParser', 'parseFromString']);
+      const sinkNames = new Set([
+        'innerHTML',
+        'outerHTML',
+        'insertAdjacentHTML',
+        'srcdoc',
+        'createContextualFragment',
+        'DOMParser',
+        'parseFromString',
+        'setHTMLUnsafe',
+        'parseHTMLUnsafe',
+        'setHTML',
+      ]);
       const codeNames = new Set(['eval', 'Function']);
+      // Names that, written as a string, reach a sink or a guarded call by key:
+      // `el['innerHTML']`, `globalThis['eval']`, `node['setAttribute']`.
+      const keyedNames = new Set([
+        ...sinkNames,
+        ...codeNames,
+        'write',
+        'writeln',
+        'setAttribute',
+        'setAttributeNS',
+        'setAttributeNode',
+        'createElement',
+        'setTimeout',
+        'setInterval',
+      ]);
       const markupElements = /^(?:script|style|iframe|frame|object|embed|link|base|template)$/i;
       for (const rel of served) {
         const sf = gatewaySyntaxOf(rel);
@@ -6715,6 +6826,10 @@ export const CRITERIOS: Criterio[] = [
         }
         const at = (n: ts.Node) => `${rel}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
         forEachGatewayNode(sf, (n) => {
+          if (isLiteralArgument(n) && keyedNames.has(n.text)) {
+            findings.push(`${at(n)} nombra ${n.text} en una cadena`);
+            return;
+          }
           if (ts.isIdentifier(n)) {
             if (sinkNames.has(n.text)) findings.push(`${at(n)} usa ${n.text}`);
             if (codeNames.has(n.text) && isIdentifierReference(n)) findings.push(`${at(n)} usa ${n.text}`);
