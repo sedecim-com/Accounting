@@ -1,10 +1,10 @@
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { assertPermissions, authenticate } from '../../src/api/rest/middleware/auth.js';
 import { errorHandler } from '../../src/api/rest/middleware/error-handler.js';
 import { config } from '../../src/config/index.js';
-import { createBoard, failureOf, type Board } from '../../src/gateway/app/board.js';
+import { createBoard, failureOf, type Board, type FailedRead } from '../../src/gateway/app/board.js';
 import { errorCodeOf, namesMissingPermissions, type ApiOperation, type ApiResult, type GetRequestOptions } from '../../src/gateway/app/contract.js';
 import { text } from '../../src/gateway/app/messages.js';
 import { renderScreen, type ElementSpec, type EntityScreen, type PortfolioScreen, type Screen } from '../../src/gateway/app/view.js';
@@ -317,16 +317,16 @@ describe("the API's two 403 bodies read apart", () => {
     );
   }
 
-  it("authenticate's refusal of an x-entity-id the token does not grant names no missing permission", async () => {
+  /** What the API answers when x-entity-id names an entity the token does not grant. */
+  async function entityRefusalBody(): Promise<unknown> {
     const req = { headers: { authorization: `Bearer ${tokenFor([A], ['accounts:read'])}`, 'x-entity-id': B } } as unknown as Request;
     const error = await new Promise<unknown>((resolve) => authenticate(req, {} as Response, (err?: unknown) => resolve(err)));
     expect(error).toBeInstanceOf(ForbiddenError);
-    const body = bodyFor(error);
-    expect(errorCodeOf(body)).toBe('FORBIDDEN');
-    expect(namesMissingPermissions(body)).toBe(false);
-  });
+    return bodyFor(error);
+  }
 
-  it("requirePermission's refusal of the account names what is missing", () => {
+  /** What the API answers when the account lacks a permission the route requires. */
+  function permissionRefusalBody(): unknown {
     let error: unknown;
     try {
       assertPermissions({ permissions: ['accounts:read'] }, ['journal_entries:read']);
@@ -334,7 +334,17 @@ describe("the API's two 403 bodies read apart", () => {
       error = thrown;
     }
     expect(error).toBeInstanceOf(ForbiddenError);
-    const body = bodyFor(error);
+    return bodyFor(error);
+  }
+
+  it("authenticate's refusal of an x-entity-id the token does not grant names no missing permission", async () => {
+    const body = await entityRefusalBody();
+    expect(errorCodeOf(body)).toBe('FORBIDDEN');
+    expect(namesMissingPermissions(body)).toBe(false);
+  });
+
+  it("requirePermission's refusal of the account names what is missing", () => {
+    const body = permissionRefusalBody();
     expect(errorCodeOf(body)).toBe('FORBIDDEN');
     expect(namesMissingPermissions(body)).toBe(true);
   });
@@ -345,5 +355,43 @@ describe("the API's two 403 bodies read apart", () => {
     expect(namesMissingPermissions({ errors: [{ code: 'CSRF_REJECTED' }] })).toBe(false);
     expect(namesMissingPermissions({ errors: [{ code: 'FORBIDDEN', details: { missing: [] } }] })).toBe(false);
     expect(namesMissingPermissions({ errors: [{ code: 'FORBIDDEN', details: { missing: 'journal_entries:read' } }] })).toBe(false);
+  });
+
+  describe('through the network client, as the board receives them', () => {
+    // api.ts is loaded by a path the type checker does not follow. It belongs
+    // to the DOM program (tsconfig.web.json); tsconfig.test.json has no DOM
+    // lib, so a literal import would check its fetch init against Node's types
+    // and fail on `cache`. What runs is the same module the browser loads.
+    const CLIENT_MODULE = '../../src/gateway/app/api.js';
+    type Client = { apiGet(operation: ApiOperation, options?: GetRequestOptions): Promise<ApiResult> };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** Reads an entity's drafts through api.ts, with the gateway answering `status` and `body`. */
+    async function entityReadAnswered(status: number, body: string): Promise<ApiResult> {
+      vi.stubGlobal('fetch', () =>
+        Promise.resolve(new globalThis.Response(body, { status, headers: { 'content-type': 'application/json' } }))
+      );
+      const { apiGet } = (await import(CLIENT_MODULE)) as Client;
+      return apiGet('drafts', { entityId: B, status: 'pending_review' });
+    }
+
+    it('an entity the token does not grant reaches the board as that, not as missing permissions', async () => {
+      const result = await entityReadAnswered(403, JSON.stringify(await entityRefusalBody()));
+      expect(result).toEqual({ kind: 'forbidden', missingPermissions: false });
+      expect(failureOf(result as FailedRead, 'entity')).toBe('entity-not-granted');
+    });
+
+    it('a permission the account lacks reaches the board as missing permissions', async () => {
+      const result = await entityReadAnswered(403, JSON.stringify(permissionRefusalBody()));
+      expect(result).toEqual({ kind: 'forbidden', missingPermissions: true });
+      expect(failureOf(result as FailedRead, 'entity')).toBe('no-access');
+    });
+
+    it('a 403 whose body is not JSON names no missing permission', async () => {
+      expect(await entityReadAnswered(403, '<html>Forbidden</html>')).toEqual({ kind: 'forbidden', missingPermissions: false });
+    });
   });
 });
