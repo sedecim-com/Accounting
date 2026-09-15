@@ -170,7 +170,7 @@ export async function postInvoiceEntry(
 
   const entry = await createJournalEntry(
     invoice.entity_id,
-    new Date(invoice.invoice_date),
+    invoice.invoice_date,
     JournalEntryType.AUTO_INVOICE,
     withAssumptionNote(`Invoice ${invoice.invoice_number}`, metodo),
     jeLines,
@@ -296,7 +296,7 @@ export async function postBillEntry(
 
   const entry = await createJournalEntry(
     bill.entity_id,
-    new Date(bill.bill_date),
+    bill.bill_date,
     JournalEntryType.AUTO_BILL,
     withAssumptionNote(`Bill ${bill.bill_number}`, metodo),
     jeLines,
@@ -386,7 +386,7 @@ export async function postCreditNoteEntry(
 
   const entry = await createJournalEntry(
     note.entity_id,
-    new Date(note.credit_date),
+    note.credit_date,
     JournalEntryType.AUTO_INVOICE,
     withAssumptionNote(`Credit note ${note.credit_note_number}`, metodo),
     jeLines,
@@ -567,7 +567,9 @@ export async function postCustomerPaymentEntry(
 
   const entry = await createJournalEntry(
     payment.entity_id,
-    new Date(payment.payment_date),
+    // The payment's own day, unparsed (#211): `new Date('YYYY-MM-DD')` was UTC
+    // midnight, and west of Greenwich the entry landed a day before its payment.
+    payment.payment_date,
     JournalEntryType.AUTO_PAYMENT,
     iva.documents.length
       ? `Customer payment ${payment.payment_number} · IVA caused on collection: ${iva.documents.join(', ')}`
@@ -1094,7 +1096,7 @@ export async function postVendorPaymentEntry(
     );
     const entry = await createJournalEntry(
       payment.entity_id,
-      new Date(payment.payment_date),
+      payment.payment_date,
       JournalEntryType.AUTO_PAYMENT,
       (iva.documents.length
         ? `Vendor payment ${payment.payment_number} · IVA creditable on payment: ${iva.documents.join(', ')}`
@@ -1180,7 +1182,7 @@ export async function postVendorPaymentEntry(
 
   const entry = await createJournalEntry(
     payment.entity_id,
-    new Date(payment.payment_date),
+    payment.payment_date,
     JournalEntryType.AUTO_PAYMENT,
     (iva.documents.length
       ? `Vendor payment ${payment.payment_number} · IVA creditable on payment: ${iva.documents.join(', ')}`
