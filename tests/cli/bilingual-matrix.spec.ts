@@ -203,6 +203,10 @@ const TOP_LEVEL: Record<string, string> = {
   // (docs/cli-command-registry.md §2.12: `completion`·`completado`), no el
   // gusto de quien lo registra.
   completion: 'completado',
+  // W0: the web gateway's family. `web` stays the same word in both languages
+  // (`tablero` already names `dashboard` in the command registry); its leaf carries
+  // the Spanish verb.
+  web: '',
 };
 
 const SUBCOMMANDS: Record<string, Record<string, string>> = {
@@ -271,6 +275,7 @@ const SUBCOMMANDS: Record<string, Record<string, string>> = {
   report: { 'trial-balance': 'balanza', 'balance-sheet': 'balance', 'income-statement': 'resultados', 'general-ledger': 'mayor', 'aged-receivable': 'antiguedad-cobrar', 'aged-payable': 'antiguedad-pagar', view: 'vista' },
   outbox: { list: 'listar', run: 'ejecutar' },
   question: { list: 'listar', answer: 'responder' },
+  web: { start: 'iniciar' },
 };
 
 const SAT_CRED: Record<string, string> = {
@@ -355,7 +360,7 @@ describe('Spanish surface is complete', () => {
 
   // Every accounting family added on the kernel: one assertion, so a new family
   // only has to appear in SUBCOMMANDS to be held to the bilingual policy.
-  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll'])(
+  it.each(['entry', 'period', 'year', 'vendor', 'bill', 'customer', 'invoice', 'report', 'outbox', 'question', 'receipt', 'credit-note', 'ar', 'backup', 'bank', 'prepaid', 'payroll', 'web'])(
     '%s subcommands are bilingual',
     (family) => {
       const text = help(family);

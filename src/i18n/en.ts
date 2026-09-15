@@ -324,6 +324,16 @@ export const EN = {
   'help.subscription.description':
     'Outbound event subscriptions: who we notify, and what we could not deliver',
 
+  // --- W0 · `src/cli/web-command.ts`, the web gateway's operator entry ---
+  'help.web.description': 'The browser board: a read-only gateway in front of the API',
+  'help.web.start.description':
+    'Starts the web gateway, which holds the browser session and relays reads to /v1; runs until ' +
+    'Ctrl+C (production runs node dist/gateway/main.js instead)',
+  'help.web.start.port': 'Port to listen on (default: GATEWAY_PORT, else 8080)',
+  'help.web.start.host': 'Address to listen on (default: GATEWAY_HOST, else 127.0.0.1)',
+  'help.web.start.api_url': 'Origin of the API it relays to (default: GATEWAY_API_URL)',
+  'web.start.listening': 'Open {origin} in a browser. Ctrl+C stops the gateway.',
+
   // ==== I7 · EL PILOTO: `src/cli/bank-command.ts` (issue #149) =====
 
   // Las cadenas que `bank`/`banco` imprime PARA UNA PERSONA. Lo que NO está

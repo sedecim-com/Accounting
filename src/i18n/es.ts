@@ -244,6 +244,16 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.subscription.description':
     'Suscripciones a eventos salientes: a quién avisamos y qué no se pudo entregar',
 
+  // --- W0 · `src/cli/web-command.ts`, the web gateway's operator entry ---
+  'help.web.description': 'El tablero en el navegador: un gateway de sólo lectura delante de la API',
+  'help.web.start.description':
+    'Arranca el gateway web, que guarda la sesión del navegador y reenvía lecturas a /v1; corre hasta ' +
+    'Ctrl+C (en producción se usa node dist/gateway/main.js)',
+  'help.web.start.port': 'Puerto en el que escucha (por omisión: GATEWAY_PORT, si no 8080)',
+  'help.web.start.host': 'Dirección en la que escucha (por omisión: GATEWAY_HOST, si no 127.0.0.1)',
+  'help.web.start.api_url': 'Origen de la API a la que reenvía (por omisión: GATEWAY_API_URL)',
+  'web.start.listening': 'Abre {origin} en el navegador. Ctrl+C detiene el gateway.',
+
   // ==== I7 · EL PILOTO: `src/cli/bank-command.ts` (issue #149) =====
   // --- Los analizadores de bandera: uso (2), no validación (4) ---------
   'bank.parse.date_invalid': '{flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "{value}".',

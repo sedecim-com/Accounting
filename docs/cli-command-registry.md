@@ -316,7 +316,8 @@ and `disclosure tie-out` all become `tie-out check --scope <subledger>`·`amarre
 `backup`·`respaldo` (**platform owns it; close-controls' `backup`, `archive` and `restore` nouns die**) ·
 `inbox`·`bandeja` (**was `buzon`, now free of the fiscal mailbox**) · `outbox`·`envio` (**singular**) ·
 `telemetry`·`telemetria` · `metric`·`metrica` (**singular**) · `db`·`base-datos` · `daemon`·`demonio` ·
-`support`·`soporte` · `usage`·`uso` · `agent`·`agente` (**NEW — the accountability surface the AI-safety lens found missing**).
+`support`·`soporte` · `usage`·`uso` · `agent`·`agente` (**NEW — the accountability surface the AI-safety lens found missing**) ·
+`web`·(no alias) (**W0 — the browser board's gateway; `tablero` stays with report.md's `dashboard`, precedent `chat`/`sat`/`doctor`**).
 
 The nouns `api` and `onboarding` are **deleted**: `api` is the catch-all R10 forbids and defeats the
 point of an audited surface; `onboarding`'s rows move under the root command `onboard`.

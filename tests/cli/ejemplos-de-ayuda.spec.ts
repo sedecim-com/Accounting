@@ -620,7 +620,12 @@ function clavesDocumentadasDeLinea(cmd: Command): Set<string> | null {
 // tiene envío normal, complementario y de cierre, y el barrido tiene ensayo,
 // crontab y un solo inquilino. Los tres primeros ejemplos de hoja que muta
 // —catálogo, balanza, barrido— son el ensayo, que es donde empieza la lectura.
-const SUELO_EJEMPLOS = 390;
+// 390 → 410 (W0): `web start` adds two invocations, and the tree it lands on
+// already parsed 408, because the merges since the last raise documented
+// eighteen more without moving this line. Measured with this file's own walk
+// (the sum of `ejemplosDe` over `hojas(program)`), so the floor sits on the
+// terrain again instead of eighteen below it.
+const SUELO_EJEMPLOS = 410;
 
 describe('los ejemplos pasan por el commander de verdad', () => {
   const NODOS = nodosDe(program);

@@ -49,15 +49,15 @@ deja de escribirse es el RECUENTO. La pregunta distinta
 
 ### Cuánto de este catálogo existe ya
 
-El binario ejecuta hoy **230 comandos** repartidos en **65 familias** de primer nivel. De las **1632** filas del catálogo, **215** (13.2 %) ya se pueden invocar.
+El binario ejecuta hoy **231 comandos** repartidos en **66 familias** de primer nivel. De las **1633** filas del catálogo, **216** (13.2 %) ya se pueden invocar.
 
-Del motor que cada comando necesita, **270** filas lo declaran completo, **390** a medias y **972** inexistente.
+Del motor que cada comando necesita, **271** filas lo declaran completo, **390** a medias y **972** inexistente.
 
 **Fase 1** —«sin esto no se puede llevar una contabilidad completa desde el CLI»— son **388** filas, de las que **194** ya se teclean.
 
-**El objetivo comprometible son 1389 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
+**El objetivo comprometible son 1390 filas** (S0.5): las **243** de fase 3 cuyo motor no existe quedan declaradas fuera — analítica y consolidación sobre motores inexistentes no es deuda sino aspiración, y se conservan como respaldo. El corte es mecánico (fase 3 y ❌), así que una fila que gane motor vuelve a contarse sola.
 
-Contadas por COMANDO, las 1632 filas son **1610 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
+Contadas por COMANDO, las 1633 filas son **1611 rutas únicas**: **17 rutas** están catalogadas en más de una sección (**22** filas repetidas — el plan estimaba a mano «5 solapamientos»; contados por el instrumento son estos, S0.7): `close` ×6, `statement show` ×3, `audit list` ×2, `cfdi anomaly list` ×2, `cfdi check` ×2, `cfdi list` ×2, `cfdi reconcile` ×2, `cfdi show` ×2, `close ap` ×2, `entry create` ×2, `ingest` ×2, `init` ×2, `job run-due` ×2, `period list` ×2, `period show` ×2, `report snapshot diff live` ×2, `year carry-forward run` ×2. Ninguna fila se borra: cada sección describe el comando desde su dominio y el REGISTRY §5 reparte la propiedad — pero el total de filas NO es un total de comandos, y presupuestar por fila contaría dos veces estas rutas.
 
 | Familia | En el catálogo | Ya invocables |
 |---|---:|---:|
@@ -2998,6 +2998,12 @@ Todo lo que no es contabilidad: a qué entidad y a qué despacho apuntas, cómo 
 | `mnemosine alias delete <name>` · `alias eliminar` | Elimina un alias | `-y/--yes`, `--dry-run` | ❌ | escritura [1] | ✗ | 2 |
 | `mnemosine <noun> <verb> --format <fmt>` (contrato transversal, no es un comando) | Contrato único de SALIDA para todo el árbol, con las banderas y las grafías del diccionario de `REGISTRY.md` §3.4: `table` en terminal, `json` con sobre versionado (`apiVersion`, `kind`, `entity`, `query`, `warnings`, `truncated`, `count`, `items`), más `ndjson`, `csv`, `tsv`, `xlsx`, `md`; `--json` queda como atajo de `--format json`. Reglas duras: **montos siempre como cadena**, nunca número JSON; **datos a stdout, todo lo demás a stderr**; **nunca truncar en silencio** en salida de máquina (`truncated` + cursor); todo aviso que un humano vería en stderr debe aparecer también en el JSON | `--format`, `-o/--output`, `--fields` (sin valor lista los campos), `--jq`, `-q/--quiet`, `-z/--null`, `--no-color`, `--no-pager`, `-n/--limit`/`--offset`/`--cursor` | 🟡 `--json` existe en 10 comandos como `JSON.stringify` pelado y sin sobre; color y TTY ya resueltos en src/cli/palette.ts:22 (respeta `NO_COLOR`); **no hay módulo de tabla ni paginador ni `--format`** | lectura [0] | ✓ | 1 |
 | `mnemosine <noun> <verb> --entity <e>` (contrato transversal, no es un comando) | Contrato único de CONTEXTO y precedencia, con las banderas de `REGISTRY.md` §3.1: flag > `MNEMOSINE_ENTITY`/`MNEMOSINE_TENANT` > config de proyecto > config de usuario > única entidad activa; `--no-config` ignora los archivos y `-c/--set key=value` sobrescribe una clave por invocación. La entidad activa debe verse en el banner **y en el sobre JSON**; `--entity` acepta id, nombre o RFC/EIN y **falla ruidosamente ante ambigüedad** | `-e/--entity`, `-t/--tenant`, `--profile`, `--no-config`, `-c/--set` | 🟡 `resolveEntity` ya falla ante ambigüedad (src/ai/context.ts:84) y `bootstrapTenant` fija RLS (:68), pero: el `-T` de la raíz (mnemosine.ts:441) colapsa en el `-t` único de §3.1 y hay que migrarlo, conviven **dos idiomas** para el problema padre/hijo de commander v15 (`optOf()` en pending-command.ts:46 vs `this.optsWithGlobals()` en memory-command.ts:121), y la ruta de config de usuario es `~/.mnemosine/config.json` (config.ts:194) en vez de la XDG. **Unificar esto a UNA convención es prerrequisito de multiplicarlo por 185 filas** | lectura [0] | ✓ | 1 |
+
+#### El tablero gráfico
+
+| Comando | Qué hace | Flags clave | Backend | Riesgo | IA | Fase |
+|---|---|---|---|---|---|---|
+| `mnemosine web start` · `web iniciar` | Arranca el gateway web: guarda la sesión del navegador y reenvía a `/v1` sólo lecturas (GET y HEAD), para que el despacho vea su cartera en el navegador. Es la puerta del operador y de desarrollo: en producción el gateway corre como proceso aparte desde src/gateway/main.ts, que no carga ni la base ni los secretos del motor. IA ✗ porque es un servidor que corre hasta que lo detienen, no una consulta | `--port`, `--host`, `--api-url`, `--format`, `--json` | ✅ **hecha en W0**: src/cli/web-command.ts · src/gateway/server.ts · src/api/rest/routes/portfolio.ts | lectura [0] | ✗ | 2 |
 
 ---
 
