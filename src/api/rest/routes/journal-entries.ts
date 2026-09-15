@@ -239,6 +239,7 @@ router.post(
   '/:id/post',
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries.status + account_balances' }),
   requirePermission('journal_entries:post'),
+  requireEntityAccess,
   asyncHandler(async (req: Request, res: Response) => {
     await assertEntryAccess(req, req.params.id);
     const entry = await postJournalEntry(req.params.id, req.user!.user_id);
@@ -258,6 +259,7 @@ router.post(
   '/:id/void',
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries.status o una poliza espejo' }),
   requirePermission('journal_entries:void'),
+  requireEntityAccess,
   validateBody(voidJeSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { reason } = req.body;
@@ -279,6 +281,7 @@ router.post(
   '/:id/reverse',
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'una poliza nueva POSTEADA + account_balances' }),
   requirePermission('journal_entries:create'),
+  requireEntityAccess,
   validateBody(reverseJeSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { reversal_date } = req.body;
