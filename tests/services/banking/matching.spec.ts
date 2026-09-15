@@ -172,6 +172,36 @@ describe('regla 3 · descripción difusa', () => {
     expect(puedeAutoAplicarse(r!, '1000.0000', 0.85, FLOOR_MAX_AUTO_POST)).toBe(false);
   });
 
+  it('FUERA de la banda del 5 % el texto ya no rescata a nadie: el motor dice «no sé»', () => {
+    // S4 · mutante 6/6, que estaba VIVO. Las dos pruebas de arriba usan
+    // importes DENTRO de la banda —1020 contra 1000 es un 2 %, y el otro es
+    // exacto—, así que ensanchar la tolerancia del 5 % al 95 % no cambiaba
+    // ninguno de los dos veredictos y 5 516 pruebas seguían en verde.
+    //
+    // 1080 contra 1000 es un 8 %, con la MISMA descripción palabra por palabra.
+    // Hoy no lo nombra ninguna regla: la 4 se queda en 0.64, por debajo de su
+    // 0.75. «No sé» es la respuesta correcta —un depósito de 1 000 no es la
+    // factura de 1 080— y con la banda abierta pasaría a ser
+    // `fuzzy_description` con confianza 1.00: un silencio convertido en un
+    // nombre seguro y equivocado, que es lo que un humano firma.
+    //
+    // El importe está DENTRO del ±10 % con que `getCandidates` acota en la
+    // base, así que es un escenario que la producción puede dar de verdad.
+    expect(evaluarReglas(mov(), [candidato({ amount: '1080.0000' })])).toBeNull();
+  });
+
+  it('el borde es el 5 %, y un peso más allá lo contesta otra regla y con otra confianza', () => {
+    // La banda cerrada POR LA DERECHA. Sin este caso, el criterio podría
+    // ensancharse sin que nada se moviera.
+    expect(evaluarReglas(mov(), [candidato({ amount: '1050.0000' })])!.rule).toBe('fuzzy_description');
+
+    const fuera = evaluarReglas(mov(), [candidato({ amount: '1051.0000' })])!;
+    expect(fuera.rule, 'un peso fuera de la banda y la regla 3 sigue contestando').toBe(
+      'puntaje_ponderado'
+    );
+    expect(fuera.confidence, 'y lo hace con una confianza que dice que no está segura').toBe(0.77);
+  });
+
   it('con el importe EXACTO sí aplica, aunque la fecha esté lejos', () => {
     // Diecinueve días: las reglas 1 y 2 no llegan. Lo que sostiene el cotejo es
     // la identidad del importe al centavo, que no es texto, más una descripción
