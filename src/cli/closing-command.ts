@@ -20,9 +20,11 @@ import {
 import { explainCloseCheck } from '../services/accounting/close-explain.js';
 import {
   conductClose,
+  describeLiveRun,
   describeOpenRun,
   isClosingStep,
   latestRunOf,
+  liveRunOf,
   openRunOf,
   CLOSING_STEPS,
   type ClosingRunOutcome,
@@ -272,13 +274,16 @@ export function verdictRows(verdict: PackVerdict): VerdictRow[] {
 export function runClosingLine(
   outcome: ClosingRunOutcome,
   stopAt?: string,
-  hasOpenRun = false
+  hasOpenRun = false,
+  hasLiveRun = false
 ): string {
   const step = outcome.haltedAtStep;
   // Tras un ensayo, la corrida de verdad necesitará --resume si el periodo
   // tiene una corrida abierta: sin decirlo, el consejo del ensayo manda a un
-  // comando que el conductor va a negar.
-  const how = hasOpenRun ? 'run it with --resume' : 'run it without --dry-run';
+  // comando que el conductor va a negar. And a run another conductor is still
+  // acting on is not one to resume yet: the conductor would refuse that too.
+  const resumable = hasOpenRun ? 'run it with --resume' : 'run it without --dry-run';
+  const how = hasLiveRun ? 'wait until the conductor acting on its run stops, then run it with --resume' : resumable;
   switch (outcome.status) {
     case 'completed':
       return `The close is conducted. Seal the dossier with \`mnemosine closing pack generate "${outcome.periodName}"\`.`;
@@ -827,7 +832,12 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         // puede saltársela. Es un estado de los libros y no un error de las
         // banderas: sale 5, no 2.
         const existingRun = await openRunOf(ctx.entityId, period.id);
+        // A run somebody is still conducting is not "open for --resume": the
+        // conductor would refuse it, so neither the refusal nor the dry run's
+        // advice may send the operator there.
+        const liveRun = await liveRunOf(ctx.entityId, period.id);
         if (!dryRun) {
+          if (liveRun) throw blockedByState(describeLiveRun(liveRun));
           if (existingRun && opts.resume !== true) {
             throw blockedByState(
               `This period already has an open close run (${describeOpenRun(existingRun)}). ` +
@@ -877,7 +887,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
           const out = process.stdout;
           out.write(`\n${c.bold(period.period_name)}  ${c.dim(outcome.status)}\n\n`);
           for (const line of renderSteps(outcome, c)) out.write(`${line}\n`);
-          out.write(`\n  ${runClosingLine(outcome, stopAt, existingRun !== null)}\n\n`);
+          out.write(`\n  ${runClosingLine(outcome, stopAt, existingRun !== null, liveRun !== null)}\n\n`);
         }
 
         return runExitCode(outcome);

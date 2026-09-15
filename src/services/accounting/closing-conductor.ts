@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { getClient, query } from '../../database/connection.js';
 import type { AgentContext } from '../../ai/context.js';
 import { getCloseReadiness, type ClosablePeriod } from '../../ai/close-service.js';
@@ -213,7 +214,9 @@ export async function openRunOf(entityId: string, periodId: string): Promise<Ope
 }
 
 /** Ends the resumable runs of a close cycle that already ended by another path. */
-async function abandonStaleRuns(entityId: string, periodId: string): Promise<void> {
+export async function abandonStaleRuns(entityId: string, periodId: string): Promise<void> {
+  // Never a run somebody is still conducting — asked here, in the write, and
+  // not only by the refusal that reads before it (see `claimRun`).
   await query(
     `UPDATE closing_runs cr
         SET status = 'abandoned', ended_at = NOW()
@@ -221,8 +224,9 @@ async function abandonStaleRuns(entityId: string, periodId: string): Promise<voi
       WHERE fp.id = cr.fiscal_period_id AND fp.entity_id = cr.entity_id
         AND cr.entity_id = $1 AND cr.fiscal_period_id = $2
         AND cr.status IN ('running', 'blocked', 'stopped', 'failed')
-        AND fp.soft_close_date IS NOT NULL AND fp.soft_close_date >= cr.started_at`,
-    [entityId, periodId]
+        AND fp.soft_close_date IS NOT NULL AND fp.soft_close_date >= cr.started_at
+        AND NOT COALESCE(cr.status = 'running' AND cr.heartbeat_at > NOW() - make_interval(secs => $3), false)`,
+    [entityId, periodId, RUN_HEARTBEAT_STALE_AFTER_SECONDS]
   );
 }
 
@@ -253,9 +257,9 @@ export function describeOpenRun(run: OpenRun): string {
  * Checking for an open run and then inserting one is a race: two operators
  * answering "y" at the same moment would both find nothing and both conduct,
  * or the second would silently continue the first's live run. An advisory
- * lock held for the whole call closes it — and it is also what tells a
- * `running` row left by a crash (lock free) from one being conducted right now
- * (lock taken).
+ * lock held for the whole call closes it. (What tells a `running` row left by
+ * a crash from one still being conducted is the run's heartbeat, not the lock:
+ * a conductor that lost its lock connection is alive with the lock free.)
  *
  * TRANSACTION-SCOPED, NOT SESSION-SCOPED. The first version took a session
  * lock with a bare statement and released it with another, and behind a
@@ -267,17 +271,28 @@ export function describeOpenRun(run: OpenRun): string {
  * taken inside a `BEGIN` on a dedicated connection that stays open for the
  * whole run and is released by its `COMMIT` — or by Postgres itself if the
  * process dies and the connection drops. A light keepalive stops an
- * idle-in-transaction timeout from ending that transaction mid-run, and says
- * so if it does.
+ * idle-in-transaction timeout from ending that transaction mid-run.
+ *
+ * LOSING THE LOCK STOPS THE RUN. The first version only noticed a dead lock
+ * connection after the run returned, and logged it: meanwhile the engines and
+ * the soft close — which use the shared pool, not the lock's connection — kept
+ * going while a second conductor could already take the lock. The lock is now
+ * handed to the run as a LEASE it must prove before every step, the soft
+ * close included (see `conductClose`). A step already in flight when
+ * the connection dies still finishes — nothing preempts a query — but no step
+ * starts after it. The run's heartbeat keeps a second conductor out while this
+ * one is still heard from (`refuseWhileAnotherConductorActs`), and the run's
+ * claim keeps a conductor that was paused past that window, and taken over,
+ * from writing into its successor's run (`RunClaim`).
  */
 async function withConductorLock<T>(
   entityId: string,
   periodId: string,
-  fn: () => Promise<T>
+  fn: (lease: ConductorLease) => Promise<T>
 ): Promise<T> {
   const key = `closing-run:${entityId}:${periodId}`;
   const client = await getClient();
-  const unwatch = watchLockConnection(client);
+  const watch = watchLockConnection(client);
   try {
     await client.query('BEGIN');
     const got = await client.query<{ ok: boolean }>(
@@ -290,17 +305,198 @@ async function withConductorLock<T>(
         'Another conductor is running the close of this period right now. Wait for it to finish, then look at it with --dry-run.'
       );
     }
-    const stopKeepalive = startLockKeepalive(client, LOCK_KEEPALIVE_MS);
+    const keepalive = startLockKeepalive(client, LOCK_KEEPALIVE_MS);
+    const lease = createConductorLease(client, () => watch.error() ?? keepalive.lost());
     try {
-      return await fn();
+      return await fn(lease);
     } finally {
-      const beatError = await stopKeepalive();
-      reportLostLock(beatError ?? unwatch.error(), entityId, periodId);
+      const beatError = await keepalive.stop();
+      reportLostLock(beatError ?? watch.error(), entityId, periodId);
     }
   } finally {
-    unwatch.stop();
-    await releaseLockConnection(client);
+    // The listener stays until the client is back in the pool: COMMIT is a
+    // round trip too, and a socket that fails during it emits `error` on a
+    // client nobody else listens to yet.
+    try {
+      await releaseLockConnection(client);
+    } finally {
+      watch.stop();
+    }
   }
+}
+
+/** What the run holds while it conducts: a lock it must prove before acting. */
+export interface ConductorLease {
+  /** Throws `CLOSING_RUN_LOCK_LOST` when the lock's transaction is gone. */
+  assertHeld(): Promise<void>;
+}
+
+/**
+ * The lease over the lock's connection: what was already seen to fail, or
+ * else a probe on the lock's own transaction — if that statement runs, the
+ * transaction, and its lock, is alive.
+ */
+export function createConductorLease(
+  client: Pick<LockConnection, 'query'>,
+  seen: () => unknown
+): ConductorLease {
+  return {
+    assertHeld: async () => {
+      const known = seen();
+      if (known !== undefined) throw lockLost(known);
+      try {
+        await client.query('SELECT 1');
+      } catch (err) {
+        throw lockLost(err);
+      }
+    },
+  };
+}
+
+const LOCK_LOST = 'CLOSING_RUN_LOCK_LOST';
+
+// The operator reads this line, so it carries no driver text: a pg message
+// about the session ending would pull the CLI's "check DATABASE_URL" hint
+// under a refusal that has its own next step. The cause goes to `details`.
+const LOCK_LOST_MESSAGE =
+  'This conductor lost its lock or its heartbeat, so it can no longer prove it is the only one on this period.';
+
+function lockLost(cause: unknown, takenOver = false): ClosingRunStateError {
+  return new ClosingRunStateError(LOCK_LOST, `${LOCK_LOST_MESSAGE} It stopped before its next step.`, {
+    cause: String(cause),
+    takenOver,
+  });
+}
+
+const TAKEN_OVER = 'the run was ended or taken over by another conductor';
+
+function takenOver(): ClosingRunStateError {
+  return lockLost(TAKEN_OVER, true);
+}
+
+/** Lost the race to claim the run: nothing was done yet, so it is a refusal. */
+function claimedByAnother(runId: string | null): ClosingRunStateError {
+  return new ClosingRunStateError(
+    'CLOSING_RUN_IN_PROGRESS',
+    'Another conductor acted on this period a moment ago: it claimed its run, or the period is no longer open. ' +
+      'Look at it with --dry-run.',
+    { runId }
+  );
+}
+
+export function isLockLost(err: unknown): boolean {
+  return err instanceof ClosingRunStateError && err.code === LOCK_LOST;
+}
+
+/**
+ * A run whose conductor is still acting, even if it no longer holds the lock.
+ *
+ * The lock alone cannot tell "the conductor died" from "the conductor lost
+ * its lock connection and is finishing a step": in both cases the lock is
+ * free and the run says `running`. The heartbeat can. A conductor writes it
+ * for as long as it acts on the run, lock or no lock, so a `running` run heard
+ * from recently is somebody's live run — continuing it now would put two
+ * conductors on the same month. One not heard from for longer than the window
+ * belongs to a process that died, and may be resumed.
+ */
+export const RUN_HEARTBEAT_STALE_AFTER_SECONDS = 30;
+
+/**
+ * A conductor stops STARTING steps long before others may take it for dead:
+ * half the window. A process paused past it (a stopped process, a laptop
+ * asleep) could already have been taken over when it wakes up.
+ */
+export const HEARTBEAT_SILENCE_LIMIT_MS = (RUN_HEARTBEAT_STALE_AFTER_SECONDS * 1000) / 2;
+
+/** The live run of a period, if its conductor was heard from within the window. */
+export async function liveRunOf(
+  entityId: string,
+  periodId: string
+): Promise<{ id: string; seconds: number } | null> {
+  const live = await query<{ id: string; seconds: number }>(
+    `SELECT id, EXTRACT(EPOCH FROM (NOW() - heartbeat_at))::int AS seconds
+       FROM closing_runs
+      WHERE entity_id = $1 AND fiscal_period_id = $2
+        AND status = 'running'
+        AND heartbeat_at > NOW() - make_interval(secs => $3)`,
+    [entityId, periodId, RUN_HEARTBEAT_STALE_AFTER_SECONDS]
+  );
+  return live.rows[0] ?? null;
+}
+
+export function describeLiveRun(run: { seconds: number }): string {
+  return (
+    `A conductor is still acting on this period's run (last heard from ${run.seconds}s ago). ` +
+    'Wait for it to stop; if its process died, the run can be resumed ' +
+    `${RUN_HEARTBEAT_STALE_AFTER_SECONDS} seconds after its last heartbeat.`
+  );
+}
+
+async function refuseWhileAnotherConductorActs(entityId: string, periodId: string): Promise<void> {
+  const live = await liveRunOf(entityId, periodId);
+  if (live) {
+    throw new ClosingRunStateError('CLOSING_RUN_IN_PROGRESS', describeLiveRun(live), { runId: live.id });
+  }
+}
+
+/** Who is acting on a run: the run, and the token of the call that claimed it. */
+export interface RunClaim {
+  runId: string;
+  entityId: string;
+  token: string;
+}
+
+/**
+ * The run's heartbeat: `heartbeat_at = NOW()` every so often, for as long as
+ * this conductor acts on the run. It is written through the pool, outside the
+ * lock's transaction, so other sessions see it — and only while the run is
+ * still `running` UNDER THIS CALL'S TOKEN.
+ *
+ * `assertBeating` stops the next step in two cases. A beat that matched no
+ * row means the run was ended or claimed by another conductor. And silence:
+ * no beat landed for longer than the silence limit, so this conductor may
+ * already look dead to others. A beat that merely FAILS is not a verdict — a
+ * slow pool is not a takeover —; it only lets that silence grow.
+ */
+export function startRunHeartbeat(
+  claim: RunClaim,
+  everyMs: number,
+  silenceLimitMs: number
+): { assertBeating: () => void; stop: () => Promise<void> } {
+  let chain = Promise.resolve();
+  const displaced: ClosingRunStateError[] = [];
+  let lastWall = Date.now();
+  let lastMono = performance.now();
+  const beat = (): void => {
+    chain = chain.then(async () => {
+      try {
+        const r = await query(
+          `UPDATE closing_runs SET heartbeat_at = NOW()
+            WHERE id = $1 AND entity_id = $2 AND status = 'running' AND conductor_token = $3`,
+          [claim.runId, claim.entityId, claim.token]
+        );
+        if (r.rowCount === 0) displaced.push(takenOver());
+        lastWall = Date.now();
+        lastMono = performance.now();
+      } catch {
+        // Not a verdict (see above): the silence it leaves is what counts.
+      }
+    });
+  };
+  const timer = setInterval(beat, everyMs);
+  return {
+    assertBeating: () => {
+      if (displaced.length > 0) throw displaced[0];
+      // Both clocks: the wall clock keeps running while a machine sleeps, the
+      // monotonic one cannot be set back.
+      const silentMs = Math.max(Date.now() - lastWall, performance.now() - lastMono);
+      if (silentMs > silenceLimitMs) throw lockLost(new Error(`no heartbeat landed for ${Math.round(silentMs)} ms`));
+    },
+    stop: async () => {
+      clearInterval(timer);
+      await chain;
+    },
+  };
 }
 
 /**
@@ -310,7 +506,7 @@ async function withConductorLock<T>(
  * a backend terminated under a held client emits `error` with nobody
  * listening, and Node ends the process. The integration test that kills the
  * lock's backend found it — the CLI would have crashed mid-run instead of
- * finishing and saying the lock was lost.
+ * stopping at its next checkpoint and saying the lock was lost.
  */
 export function watchLockConnection(client: {
   on(event: 'error', listener: (err: Error) => void): unknown;
@@ -338,15 +534,14 @@ export interface LockConnection {
 }
 
 /**
- * The lock's heartbeat: a `SELECT 1` on the lock's own transaction every so
- * often, so an idle-in-transaction timeout does not end it mid-run. Returns
- * the function that stops it and hands back the first error, if the
- * transaction died on the way.
+ * The lock's keepalive: a `SELECT 1` on the lock's own transaction every so
+ * often, so an idle-in-transaction timeout does not end it mid-run. `lost`
+ * reads the first error seen so far; `stop` ends it and hands that error back.
  */
 export function startLockKeepalive(
   client: Pick<LockConnection, 'query'>,
   everyMs: number
-): () => Promise<unknown> {
+): { lost: () => unknown; stop: () => Promise<unknown> } {
   let chain = Promise.resolve();
   let lost: unknown;
   const beat = (): void => {
@@ -357,21 +552,28 @@ export function startLockKeepalive(
       });
   };
   const timer = setInterval(beat, everyMs);
-  return async () => {
-    clearInterval(timer);
-    await chain;
-    return lost;
+  return {
+    lost: () => lost,
+    stop: async () => {
+      clearInterval(timer);
+      await chain;
+      return lost;
+    },
   };
 }
 
-/** Says so when the heartbeat found the lock's transaction gone. */
+/**
+ * Says so when the lock's transaction was found gone. The run itself already
+ * stopped at its next checkpoint; this line is what an operator reads when
+ * the loss came after the last one — during the soft close, or after it.
+ */
 export function reportLostLock(lost: unknown, entityId: string, periodId: string): boolean {
   if (lost === undefined) return false;
   logger.warn('closing_run_lock_lost', {
     entityId,
     periodId,
     detail:
-      'the transaction holding the conductor lock ended before the run did; the run is recorded, but for part of it another conductor was not kept out',
+      'the transaction holding the conductor lock ended during the run; no step started after it was noticed, and no write to the run was accepted from this conductor once another had claimed it',
     error: lost instanceof Error ? lost.message : 'unknown error',
   });
   return true;
@@ -398,8 +600,10 @@ export async function releaseLockConnection(client: LockConnection): Promise<voi
 async function openRun(
   ctx: AgentContext,
   periodId: string,
-  opts: ConductOptions
+  opts: ConductOptions,
+  token: string
 ): Promise<string> {
+  await refuseWhileAnotherConductorActs(ctx.entityId, periodId);
   await abandonStaleRuns(ctx.entityId, periodId);
   const openRunRow = await openRunOf(ctx.entityId, periodId);
   if (openRunRow) {
@@ -411,11 +615,9 @@ async function openRun(
         { runId: openRunRow.id }
       );
     }
-    await query(
-      `UPDATE closing_runs SET status = 'running', halted_at_step = NULL, ended_at = NULL
-        WHERE id = $1 AND entity_id = $2`,
-      [openRunRow.id, ctx.entityId]
-    );
+    if (!(await claimRun({ runId: openRunRow.id, entityId: ctx.entityId, token }))) {
+      throw claimedByAnother(openRunRow.id);
+    }
     return openRunRow.id;
   }
   if (opts.resume === true) {
@@ -424,15 +626,56 @@ async function openRun(
       'Nothing to resume: this period has no open close run. Run it without --resume to start one.'
     );
   }
-  // No unique-violation fallback: under the lock, and with stale runs
-  // abandoned just above, no second open run can exist to collide with.
-  const created = await query<RunRow>(
-    `INSERT INTO closing_runs (entity_id, fiscal_period_id, status, started_by)
-     VALUES ($1, $2, 'running', $3)
-     RETURNING id, status`,
-    [ctx.entityId, periodId, opts.userId]
+  const created = await startRun(ctx.entityId, periodId, opts.userId, token);
+  if (created === null) throw claimedByAnother(null);
+  return created;
+}
+
+/**
+ * THE CLAIM IS ONE STATEMENT. Everything `openRun` read before it — nobody
+ * live on the run, the run resumable, the period open — can have changed by
+ * the time it writes: a conductor that lost its lock can be paused anywhere
+ * in between, while another one finishes the month. So the write itself
+ * re-asks all of it, and takes the row only if every answer still holds,
+ * recording which call took it. False when it took nothing.
+ */
+export async function claimRun(claim: RunClaim): Promise<boolean> {
+  const r = await query(
+    `UPDATE closing_runs cr
+        SET status = 'running', halted_at_step = NULL, ended_at = NULL,
+            heartbeat_at = NOW(), conductor_token = $3
+       FROM fiscal_periods fp
+      WHERE cr.id = $1 AND cr.entity_id = $2
+        AND fp.id = cr.fiscal_period_id AND fp.entity_id = cr.entity_id
+        AND fp.status = 'open'
+        AND (fp.soft_close_date IS NULL OR fp.soft_close_date < cr.started_at)
+        AND cr.status IN ('running', 'blocked', 'stopped', 'failed')
+        AND NOT COALESCE(cr.status = 'running' AND cr.heartbeat_at > NOW() - make_interval(secs => $4), false)`,
+    [claim.runId, claim.entityId, claim.token, RUN_HEARTBEAT_STALE_AFTER_SECONDS]
   );
-  return created.rows[0].id;
+  return r.rowCount === 1;
+}
+
+/**
+ * A new run, claimed by `token` — only on a period that is still open, and
+ * never next to another resumable run (the partial unique index refuses the
+ * row instead of raising). Null when nothing was created.
+ */
+export async function startRun(
+  entityId: string,
+  periodId: string,
+  userId: string,
+  token: string
+): Promise<string | null> {
+  const created = await query<RunRow>(
+    `INSERT INTO closing_runs (entity_id, fiscal_period_id, status, started_by, heartbeat_at, conductor_token)
+     SELECT $1::uuid, $2::uuid, 'running', $3::uuid, NOW(), $4::uuid
+      WHERE EXISTS (SELECT 1 FROM fiscal_periods WHERE id = $2 AND entity_id = $1 AND status = 'open')
+     ON CONFLICT DO NOTHING
+     RETURNING id, status`,
+    [entityId, periodId, userId, token]
+  );
+  return created.rows[0]?.id ?? null;
 }
 
 /** Which steps this run already has a row for. */
@@ -479,15 +722,26 @@ async function postedBy(
  * soft close describe a state, not a quantity: they replace everything.
  */
 async function recordStep(
-  entityId: string,
-  runId: string,
+  claim: RunClaim,
   o: ClosingStepOutcome,
   accumulate: boolean
 ): Promise<StepRow> {
+  // Written only while the run is still this call's: a conductor displaced
+  // while its step was in flight does not add its attempt to another's run.
+  // The guard LOCKS the run row (FOR SHARE): a plain EXISTS is read from the
+  // statement's snapshot, and a claim committing meanwhile would not stop it.
+  // With the lock, a claim in progress makes this statement wait and re-read
+  // the row, and a claim that comes later waits for this record to land.
   const r = await query<StepRow>(
-    `INSERT INTO closing_run_steps
+    `WITH owned AS (
+       SELECT 1 FROM closing_runs
+        WHERE id = $2 AND entity_id = $1 AND status = 'running' AND conductor_token = $11
+          FOR SHARE
+     )
+     INSERT INTO closing_run_steps
        (entity_id, run_id, step_key, ordinal, status, processed, amount, journal_entry_ids, detail)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     SELECT $1::uuid, $2::uuid, $3::varchar, $4::int, $5::varchar, $6::int, $7::numeric, $8::uuid[], $9::text
+      WHERE EXISTS (SELECT 1 FROM owned)
      ON CONFLICT (run_id, step_key) DO UPDATE SET
        status = CASE
          WHEN $10::boolean AND EXCLUDED.status = 'skipped'
@@ -516,8 +770,8 @@ async function recordStep(
        ran_at = NOW()
      RETURNING step_key, ordinal, status, processed, amount::text AS amount, journal_entry_ids, detail`,
     [
-      entityId,
-      runId,
+      claim.entityId,
+      claim.runId,
       o.step,
       o.ordinal,
       o.status,
@@ -526,23 +780,26 @@ async function recordStep(
       o.journalEntryIds,
       o.detail,
       accumulate,
+      claim.token,
     ]
   );
+  if (r.rows.length === 0) throw takenOver();
   return r.rows[0];
 }
 
+/** Ends the run — only if it is still `running` under this call's token. */
 async function closeRun(
-  runId: string,
-  entityId: string,
+  claim: RunClaim,
   status: ClosingRunOutcome['status'],
   haltedAtStep: ClosingStep | null
 ): Promise<void> {
-  await query(
+  const r = await query(
     `UPDATE closing_runs
         SET status = $1, halted_at_step = $2, ended_at = NOW()
-      WHERE id = $3 AND entity_id = $4`,
-    [status, haltedAtStep, runId, entityId]
+      WHERE id = $3 AND entity_id = $4 AND status = 'running' AND conductor_token = $5`,
+    [status, haltedAtStep, claim.runId, claim.entityId, claim.token]
   );
+  if (r.rowCount === 0) throw takenOver();
 }
 
 /** The period's current status, to tell "already closed" from "refuses to close". */
@@ -732,52 +989,131 @@ export async function conductClose(
     return { ...frame, runId: null, status: 'previewed', ...(await dryRun(ctx, period, opts)) };
   }
 
-  return withConductorLock(ctx.entityId, period.id, async () => {
-    const runId = await openRun(ctx, period.id, opts);
-    const priorSteps = await stepsOfRun(runId, ctx.entityId);
+  return withConductorLock(ctx.entityId, period.id, async (lease) => {
+    const token = randomUUID();
+    await lease.assertHeld();
+    const runId = await openRun(ctx, period.id, opts, token);
+    const claim: RunClaim = { runId, entityId: ctx.entityId, token };
+    const heartbeat = startRunHeartbeat(claim, LOCK_KEEPALIVE_MS, HEARTBEAT_SILENCE_LIMIT_MS);
+    // PROVE, THEN ACT. Before every step, which is also after the previous
+    // one: the soft close starts only after the lease was proven at its door,
+    // with nothing in between but the read of the period's status.
+    const checkpoint = async (): Promise<void> => {
+      heartbeat.assertBeating();
+      await lease.assertHeld();
+    };
     const steps: ClosingStepOutcome[] = [];
+    let current: ClosingStep = CLOSING_STEPS[0];
+    // How far `current` got: a record or a close refused after the step's
+    // engine (or the soft close) acted is not a step "not started", and a
+    // close refused after the step's record landed is not "without its record".
+    let currentRan = false;
+    let currentRecorded = false;
 
-    for (const [i, step] of CLOSING_STEPS.entries()) {
-      const ordinal = i + 1;
+    try {
+      const priorSteps = await stepsOfRun(runId, ctx.entityId);
 
-      if (opts.stopAt === step) {
-        await closeRun(runId, ctx.entityId, 'stopped', step);
-        return { ...frame, runId, status: 'stopped' as const, steps, haltedAtStep: step };
+      for (const [i, step] of CLOSING_STEPS.entries()) {
+        const ordinal = i + 1;
+        current = step;
+        currentRan = false;
+        currentRecorded = false;
+        await checkpoint();
+
+        if (opts.stopAt === step) {
+          await closeRun(claim, 'stopped', step);
+          return { ...frame, runId, status: 'stopped' as const, steps, haltedAtStep: step };
+        }
+
+        let outcome: ClosingStepOutcome;
+        try {
+          outcome = await takeStep(ctx, period, step, ordinal, opts);
+        } catch (err) {
+          // AN ENGINE THAT RAISES IS EVIDENCE TOO. Letting it escape would leave
+          // the run row saying `running`, and the next attempt would have no
+          // record of what stopped the last one.
+          outcome = stepFailed(step, ordinal, err);
+        }
+        currentRan = true;
+
+        const engine = SOURCE_OF_STEP[step] !== undefined;
+        if (engine) outcome.journalEntryIds = await postedBy(ctx.entityId, period.id, step);
+        const row = await recordStep(claim, outcome, engine);
+        const accumulated: ClosingStepOutcome = {
+          ...outcome,
+          status: row.status as StepStatus,
+          processed: row.processed,
+          amount: row.amount,
+          journalEntryIds: row.journal_entry_ids,
+          detail: row.detail,
+          priorAttempt: priorSteps.has(step),
+        };
+        steps.push(accumulated);
+        currentRecorded = true;
+
+        if (accumulated.status === 'blocked' || accumulated.status === 'failed') {
+          const runState = accumulated.status === 'blocked' ? 'blocked' : 'failed';
+          await closeRun(claim, runState, step);
+          return { ...frame, runId, status: runState, steps, haltedAtStep: step };
+        }
       }
 
-      let outcome: ClosingStepOutcome;
-      try {
-        outcome = await takeStep(ctx, period, step, ordinal, opts);
-      } catch (err) {
-        // AN ENGINE THAT RAISES IS EVIDENCE TOO. Letting it escape would leave
-        // the run row saying `running`, and the next attempt would have no
-        // record of what stopped the last one.
-        outcome = stepFailed(step, ordinal, err);
+      await closeRun(claim, 'completed', null);
+      return { ...frame, runId, status: 'completed' as const, steps, haltedAtStep: null };
+    } catch (err) {
+      // WHATEVER STOPPED THE RUN, THE RUN SAYS SO — a database error too, or
+      // the row would read `running` and look live for a whole window. The
+      // write is guarded by the claim: a conductor that was taken over
+      // changes nothing, and then there is nothing more to say than the error.
+      // The close is also the last word on ownership: a checkpoint that
+      // stopped on silence or on the lock cannot know the run was claimed
+      // meanwhile, and this guarded write can.
+      const closing = await closeRun(claim, 'failed', current).then(
+        () => 'closed' as const,
+        (closeErr: unknown) =>
+          isLockLost(closeErr) && (closeErr as ClosingRunStateError).details?.takenOver === true
+            ? ('ended-by-another' as const)
+            : ('unknown' as const)
+      );
+      if (isLockLost(err)) {
+        // What the recorded steps posted stays posted and recorded. `current`
+        // never started, ran without its record, or was recorded and the run
+        // could not be closed — say which. And a run another conductor claimed
+        // is not this one's to resume.
+        const lost = err as ClosingRunStateError;
+        const taken = lost.details?.takenOver === true || closing === 'ended-by-another';
+        const where = currentRecorded
+          ? `after ${current} and its record, without closing the run`
+          : currentRan
+            ? `after ${current} ran, without its record`
+            : `before ${current}`;
+        // Three honest answers: another conductor ended or claimed the run
+        // (abandoned counts: it is no longer this one's either); this one
+        // recorded it as failed and it can be resumed; or even that close
+        // failed, and nobody here knows who holds the run.
+        const next = taken
+          ? 'The run was ended or taken over by another conductor; look at the period with --dry-run.'
+          : closing === 'closed'
+            ? 'Look at it with --dry-run and pick it up again with --resume.'
+            : 'Its run could not be closed either; look at the period with --dry-run before resuming anything.';
+        throw new ClosingRunStateError(
+          LOCK_LOST,
+          `${LOCK_LOST_MESSAGE} It stopped ${where}, after ${steps.length} recorded step(s). ${next}`,
+          {
+            ...lost.details,
+            runId,
+            haltedAtStep: current,
+            stepRan: currentRan,
+            stepRecorded: currentRecorded,
+            takenOver: taken ? true : closing === 'closed' ? false : null,
+            stepsTaken: steps.map((s) => s.step),
+          }
+        );
       }
-
-      const engine = SOURCE_OF_STEP[step] !== undefined;
-      if (engine) outcome.journalEntryIds = await postedBy(ctx.entityId, period.id, step);
-      const row = await recordStep(ctx.entityId, runId, outcome, engine);
-      const accumulated: ClosingStepOutcome = {
-        ...outcome,
-        status: row.status as StepStatus,
-        processed: row.processed,
-        amount: row.amount,
-        journalEntryIds: row.journal_entry_ids,
-        detail: row.detail,
-        priorAttempt: priorSteps.has(step),
-      };
-      steps.push(accumulated);
-
-      if (accumulated.status === 'blocked' || accumulated.status === 'failed') {
-        const runState = accumulated.status === 'blocked' ? 'blocked' : 'failed';
-        await closeRun(runId, ctx.entityId, runState, step);
-        return { ...frame, runId, status: runState, steps, haltedAtStep: step };
-      }
+      throw err;
+    } finally {
+      await heartbeat.stop();
     }
-
-    await closeRun(runId, ctx.entityId, 'completed', null);
-    return { ...frame, runId, status: 'completed' as const, steps, haltedAtStep: null };
   });
 }
 

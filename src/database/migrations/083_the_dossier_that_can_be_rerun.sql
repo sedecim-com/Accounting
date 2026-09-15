@@ -43,7 +43,8 @@
 -- reopened and closed again has two runs and the dossiers say which is which.
 -- Two operators conducting the SAME period at the SAME time are kept apart by
 -- a transaction-scoped advisory lock the conductor holds for the whole call,
--- not by this index. A run whose cycle was closed by another path is marked
+-- and by the run's heartbeat when that lock's connection dies mid-run — not
+-- by this index. A run whose cycle was closed by another path is marked
 -- `abandoned` before a new one opens, so this index never makes a reopened
 -- period continue the previous cycle's run.
 --
@@ -92,7 +93,7 @@ CREATE TABLE closing_runs (
     -- A call of the conductor walks every step it can in one go, so these
     -- states describe where the LAST call left the run:
     --   running   — a call is in progress, or one died mid-run (a crash
-    --               leaves it here; the advisory lock tells the two apart)
+    --               leaves it here; the heartbeat below tells the two apart)
     --   blocked   — the checklist had blocking items; resumable
     --   stopped   — the operator asked for --stop-at; resumable
     --   completed — every step took its turn and the period is soft-closed
@@ -112,6 +113,21 @@ CREATE TABLE closing_runs (
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ended_at TIMESTAMPTZ,
     started_by UUID,
+
+    -- Written by the conductor, outside its lock's transaction, for as long as
+    -- it acts on the run. The advisory lock cannot tell a conductor that died
+    -- from one that lost its lock connection and is still finishing a step —
+    -- the lock is free in both cases —, and continuing the second would put two
+    -- conductors on one month. A `running` run heard from recently is live and
+    -- is not resumed; one silent for longer than the window is a dead one's.
+    heartbeat_at TIMESTAMPTZ,
+
+    -- Which call of the conductor claimed the run. Every write a conductor
+    -- makes to its run — the heartbeat, a step's record, the end of the run —
+    -- carries it, so a conductor that was paused past the window and taken
+    -- over cannot write into the run its successor is conducting. A random
+    -- value per call; it identifies nobody, and `started_by` says who.
+    conductor_token UUID,
 
     CONSTRAINT fk_closing_run_period_entity
         FOREIGN KEY (fiscal_period_id, entity_id)

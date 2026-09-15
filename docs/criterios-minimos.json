@@ -23,6 +23,7 @@
     "closing-dossier-reads-the-posted-ledger-in-order",
     "closing-dossier-seals-the-books-not-the-clock",
     "closing-run-never-continues-another-run-in-silence",
+    "closing-run-stops-when-it-cannot-prove-it-is-alone",
     "code-enums-match-check-constraints",
     "commitment-hides-its-value",
     "confidence-calibration-buckets-with-delta",

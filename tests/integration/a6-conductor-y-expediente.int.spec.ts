@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { query, enterTenant, getClient } from '../../src/database/connection.js';
 import { crearInquilino, crearEntidadHermana, type Fixture } from './helpers/tenant-fixture.js';
@@ -13,10 +13,105 @@ import {
   CLOSING_STEPS,
   ClosingRunStateError,
   releaseLockConnection,
+  abandonStaleRuns,
+  claimRun,
+  createConductorLease,
+  liveRunOf,
+  startRun,
   reportLostLock,
+  RUN_HEARTBEAT_STALE_AFTER_SECONDS,
   startLockKeepalive,
+  startRunHeartbeat,
   watchLockConnection,
 } from '../../src/services/accounting/closing-conductor.js';
+
+/**
+ * Engine calls, observed without changing them. The lock-loss tests need to
+ * act at an exact moment — while a step is in flight — and to prove that no
+ * later engine, and no soft close, ran after it. Every wrapper calls the real
+ * function; the `during*` hooks are armed by those tests only.
+ */
+const engineWatch = vi.hoisted(() => ({
+  calls: [] as string[],
+  duringProvisions: undefined as undefined | (() => Promise<void>),
+  duringChecklist: undefined as undefined | (() => Promise<void>),
+  /** Runs right after the record of the named step lands, before the next checkpoint. */
+  afterRecordOf: undefined as undefined | { step: string; act: () => Promise<void> },
+}));
+
+vi.mock('../../src/database/connection.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/database/connection.js')>();
+  return {
+    ...real,
+    query: async (...args: Parameters<typeof real.query>) => {
+      const result = await real.query(...args);
+      const hook = engineWatch.afterRecordOf;
+      const [text, params] = args;
+      if (hook && text.includes('INSERT INTO closing_run_steps') && params?.[2] === hook.step) {
+        engineWatch.afterRecordOf = undefined;
+        await hook.act();
+      }
+      return result;
+    },
+  };
+});
+
+vi.mock('../../src/ai/close-service.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/ai/close-service.js')>();
+  return {
+    ...real,
+    getCloseReadiness: async (...args: Parameters<typeof real.getCloseReadiness>) => {
+      const armed = engineWatch.duringChecklist;
+      engineWatch.duringChecklist = undefined;
+      if (armed) await armed();
+      return real.getCloseReadiness(...args);
+    },
+  };
+});
+
+vi.mock('../../src/services/accruals/provisions-run.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/accruals/provisions-run.js')>();
+  return {
+    ...real,
+    runMonthlyProvisions: async (...args: Parameters<typeof real.runMonthlyProvisions>) => {
+      engineWatch.calls.push('accrue-benefits');
+      const armed = engineWatch.duringProvisions;
+      engineWatch.duringProvisions = undefined;
+      if (armed) await armed();
+      return real.runMonthlyProvisions(...args);
+    },
+  };
+});
+vi.mock('../../src/services/accruals/amortization-run.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/accruals/amortization-run.js')>();
+  return {
+    ...real,
+    runMonthlyAmortization: async (...args: Parameters<typeof real.runMonthlyAmortization>) => {
+      engineWatch.calls.push('amortize-prepaids');
+      return real.runMonthlyAmortization(...args);
+    },
+  };
+});
+vi.mock('../../src/services/assets/depreciation.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/assets/depreciation.js')>();
+  return {
+    ...real,
+    runMonthlyDepreciation: async (...args: Parameters<typeof real.runMonthlyDepreciation>) => {
+      engineWatch.calls.push('depreciate-assets');
+      return real.runMonthlyDepreciation(...args);
+    },
+  };
+});
+vi.mock('../../src/services/accounting/period-close.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/services/accounting/period-close.js')>();
+  return {
+    ...real,
+    softClosePeriod: async (...args: Parameters<typeof real.softClosePeriod>) => {
+      engineWatch.calls.push('soft-close');
+      return real.softClosePeriod(...args);
+    },
+  };
+});
 import {
   buildClosingPack,
   deriveSealedBody,
@@ -139,6 +234,33 @@ beforeAll(async () => {
   await addAssetTo(f, 'AF-001', '2026-01-15');
   await postEntryOn(f, '2026-07-10', '1000.0000');
 });
+
+
+type LockKiller = Awaited<ReturnType<typeof getClient>>;
+
+/** The backend holding a period's conductor lock, read from pg_locks (int8 key: high/low 32 bits). */
+async function lockHolderOf(killer: LockKiller, lockKey: string): Promise<number | undefined> {
+  const r = await killer.query<{ pid: number }>(
+    `SELECT l.pid
+       FROM pg_locks l, (SELECT hashtextextended($1, 0) AS h) k
+      WHERE l.locktype = 'advisory' AND l.granted AND l.objsubid = 1
+        AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+        AND l.classid::text::bigint = ((k.h >> 32) & 4294967295)
+        AND l.objid::text::bigint = (k.h & 4294967295)`,
+    [lockKey]
+  );
+  return r.rows[0]?.pid;
+}
+
+/** Terminates the lock's backend and waits until Postgres has released the lock. */
+async function killLockOf(killer: LockKiller, lockKey: string): Promise<{ heldBy?: number; freed: boolean }> {
+  const heldBy = await lockHolderOf(killer, lockKey);
+  await killer.query('SELECT pg_terminate_backend($1)', [heldBy]);
+  for (let i = 0; i < 100 && (await lockHolderOf(killer, lockKey)) !== undefined; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return { heldBy, freed: (await lockHolderOf(killer, lockKey)) === undefined };
+}
 
 describe('A6 · el conductor', () => {
   it('recorre los cinco pasos en su orden y deja el periodo en cierre suave', async () => {
@@ -410,12 +532,14 @@ describe('A6 · el conductor', () => {
       const pid = (await lockClient.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid;
       const healthy = startLockKeepalive(lockClient, 10);
       await new Promise((r) => setTimeout(r, 40));
-      expect(await healthy()).toBeUndefined();
+      expect(healthy.lost()).toBeUndefined();
+      expect(await healthy.stop()).toBeUndefined();
 
       const beat = startLockKeepalive(lockClient, 10);
       await killer.query('SELECT pg_terminate_backend($1)', [pid]);
       await new Promise((r) => setTimeout(r, 60));
-      const lost = await beat();
+      expect(beat.lost()).toBeInstanceOf(Error);
+      const lost = await beat.stop();
       expect(lost).toBeInstanceOf(Error);
       expect(reportLostLock(lost, f.entityId, uuidv4())).toBe(true);
       expect(reportLostLock(undefined, f.entityId, uuidv4())).toBe(false);
@@ -437,6 +561,456 @@ describe('A6 · el conductor', () => {
       watch.stop();
       killer.release();
     }
+  });
+
+  it('a conductor whose lock connection dies mid-run stops: no later step, no soft close, and no second conductor on top of it', async () => {
+    // Witness WIT-01. The first version noticed the dead lock only after the
+    // run returned: the engines and the soft close, which use the shared pool,
+    // went on while a second conductor could already take the lock.
+    const { g, ctxG } = await ownTenant('Lost lock');
+    enterTenant(g.tenantId);
+    // Real work for a LATER step, so "nothing after the loss" is measured on
+    // the ledger too and not only on the step records.
+    await addAssetTo(g, 'AF-LOCK', '2026-01-15');
+    const march = await periodOf(g, 3);
+    const lockKey = `closing-run:${g.entityId}:${march.id}`;
+    const killer = await getClient();
+    const footprint = async (): Promise<unknown> =>
+      (
+        await killer.query(
+          `SELECT (SELECT count(*) FROM journal_entries WHERE entity_id = $1)::int AS entries,
+                  (SELECT count(*) FROM closing_runs WHERE entity_id = $1)::int AS runs,
+                  (SELECT string_agg(status, ',') FROM closing_runs WHERE entity_id = $1) AS run_statuses,
+                  (SELECT count(*) FROM closing_run_steps WHERE entity_id = $1)::int AS steps,
+                  (SELECT status FROM fiscal_periods WHERE id = $2) AS period_status`,
+          [g.entityId, march.id]
+        )
+      ).rows[0];
+    const depreciationIn = async (periodId: string): Promise<number> =>
+      (
+        await query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM journal_entries
+            WHERE entity_id = $1 AND fiscal_period_id = $2 AND source_type = 'depreciation'`,
+          [g.entityId, periodId]
+        )
+      ).rows[0].n;
+
+    let killed: { heldBy?: number; freed: boolean } = { freed: false };
+    let refreshedByItsOwnBeat = false;
+    let secondFresh: unknown;
+    let secondResume: unknown;
+    let before: unknown;
+    let after: unknown;
+    engineWatch.calls.length = 0;
+    try {
+      engineWatch.duringProvisions = async () => {
+        killed = await killLockOf(killer, lockKey);
+        // The heartbeat the INSERT wrote would keep the second conductor out
+        // on its own. Age it past the window, so the refusal below can only
+        // come from the first conductor's OWN beat, lock or no lock.
+        await killer.query(
+          `UPDATE closing_runs SET heartbeat_at = NOW() - make_interval(secs => $3)
+            WHERE entity_id = $1 AND fiscal_period_id = $2`,
+          [g.entityId, march.id, RUN_HEARTBEAT_STALE_AFTER_SECONDS + 1]
+        );
+        for (let i = 0; i < 400 && !refreshedByItsOwnBeat; i++) {
+          const age = await killer.query<{ age: number }>(
+            `SELECT EXTRACT(EPOCH FROM (NOW() - heartbeat_at))::int AS age
+               FROM closing_runs WHERE entity_id = $1 AND fiscal_period_id = $2`,
+            [g.entityId, march.id]
+          );
+          refreshedByItsOwnBeat = age.rows[0].age < RUN_HEARTBEAT_STALE_AFTER_SECONDS;
+          if (!refreshedByItsOwnBeat) await new Promise((r) => setTimeout(r, 25));
+        }
+        // The lock is FREE now, and the first conductor is still inside its
+        // first step. A second conductor takes the lock — and must still stay out.
+        before = await footprint();
+        secondFresh = await conductClose(ctxG, march, { userId: g.userId }).catch((e: unknown) => e);
+        secondResume = await conductClose(ctxG, march, { userId: g.userId, resume: true }).catch((e: unknown) => e);
+        after = await footprint();
+      };
+
+      const first = conductClose(ctxG, march, { userId: g.userId });
+      await expect(first).rejects.toBeInstanceOf(ClosingRunStateError);
+      await expect(first).rejects.toMatchObject({
+        code: 'CLOSING_RUN_LOCK_LOST',
+        statusCode: 423,
+        details: { haltedAtStep: 'amortize-prepaids', stepRan: false, takenOver: false, stepsTaken: ['accrue-benefits'] },
+      });
+    } finally {
+      engineWatch.duringProvisions = undefined;
+      killer.release();
+    }
+
+    expect(killed.heldBy).toBeTypeOf('number');
+    expect(killed.freed).toBe(true);
+    expect(refreshedByItsOwnBeat).toBe(true);
+    for (const refusal of [secondFresh, secondResume]) {
+      expect(refusal).toBeInstanceOf(ClosingRunStateError);
+      expect(refusal).toMatchObject({ code: 'CLOSING_RUN_IN_PROGRESS', statusCode: 423 });
+    }
+    // The refused conductors wrote nothing, not even an abandoned or a new run.
+    expect(after).toEqual(before);
+
+    // The step in flight finished; nothing started after it — not the other
+    // engines, not the soft close (the refused conductors never reached one).
+    expect(engineWatch.calls).toEqual(['accrue-benefits']);
+    expect(await depreciationIn(march.id)).toBe(0);
+    expect(await periodStatusOf(march.id)).toBe('open');
+    const run = await query<{ id: string; status: string; halted_at_step: string }>(
+      'SELECT id, status, halted_at_step FROM closing_runs WHERE entity_id = $1 AND fiscal_period_id = $2',
+      [g.entityId, march.id]
+    );
+    expect(run.rows).toHaveLength(1);
+    expect(run.rows[0]).toMatchObject({ status: 'failed', halted_at_step: 'amortize-prepaids' });
+    const recorded = await query<{ step_key: string }>(
+      'SELECT step_key FROM closing_run_steps WHERE run_id = $1',
+      [run.rows[0].id]
+    );
+    expect(recorded.rows.map((x) => x.step_key)).toEqual(['accrue-benefits']);
+
+    // Once the first conductor has stopped, the run is resumable, and resuming
+    // it is what depreciates and closes the month.
+    const resumed = await conductClose(ctxG, await periodOf(g, 3), { userId: g.userId, resume: true });
+    expect(resumed.runId).toBe(run.rows[0].id);
+    expect(resumed.status).toBe('completed');
+    expect(await depreciationIn(march.id)).toBeGreaterThan(0);
+    expect(await periodStatusOf(march.id)).toBe('soft_close');
+  });
+
+  it('a lock lost while the checklist is judged stops the run at the door of the soft close', async () => {
+    const { g, ctxG } = await ownTenant('Lost lock at the checklist');
+    enterTenant(g.tenantId);
+    const may = await periodOf(g, 5);
+    const lockKey = `closing-run:${g.entityId}:${may.id}`;
+    const killer = await getClient();
+    let killed: { heldBy?: number; freed: boolean } = { freed: false };
+    engineWatch.calls.length = 0;
+    try {
+      engineWatch.duringChecklist = async () => {
+        killed = await killLockOf(killer, lockKey);
+      };
+      await expect(conductClose(ctxG, may, { userId: g.userId })).rejects.toMatchObject({
+        code: 'CLOSING_RUN_LOCK_LOST',
+        details: {
+          haltedAtStep: 'soft-close',
+          stepRan: false,
+          stepsTaken: ['accrue-benefits', 'amortize-prepaids', 'depreciate-assets', 'verify-checklist'],
+        },
+      });
+    } finally {
+      engineWatch.duringChecklist = undefined;
+      killer.release();
+    }
+    expect(killed.freed).toBe(true);
+    expect(engineWatch.calls).not.toContain('soft-close');
+    expect(await periodStatusOf(may.id)).toBe('open');
+    expect((await openRunOf(g.entityId, may.id))).toMatchObject({ status: 'failed', halted_at_step: 'soft-close' });
+  });
+
+  it('a conductor taken over while its step was in flight writes nothing into the run its successor conducts', async () => {
+    // Review of the WIT-01 fix: a conductor paused past the window (a stopped
+    // process, a laptop asleep) can be taken over; when it wakes up, its step
+    // record and its "failed" used to land on the successor's live run.
+    const { g, ctxG } = await ownTenant('Taken over');
+    enterTenant(g.tenantId);
+    const june = await periodOf(g, 6);
+    engineWatch.calls.length = 0;
+    try {
+      engineWatch.duringProvisions = async () => {
+        // What the successor's claim leaves on the row: its own token, beating.
+        await query(
+          `UPDATE closing_runs SET conductor_token = uuid_generate_v4(), heartbeat_at = NOW()
+            WHERE entity_id = $1 AND fiscal_period_id = $2`,
+          [g.entityId, june.id]
+        );
+      };
+      const refusal = (await conductClose(ctxG, june, { userId: g.userId }).catch((e: unknown) => e)) as ClosingRunStateError;
+      expect(refusal).toMatchObject({
+        code: 'CLOSING_RUN_LOCK_LOST',
+        // The step RAN — its engine was called — and could not be recorded: not "not started".
+        details: { haltedAtStep: 'accrue-benefits', stepRan: true, takenOver: true, stepsTaken: [] },
+      });
+      // And the run is another conductor's now: no advice to resume it.
+      expect(refusal.message).toMatch(/after accrue-benefits ran, without its record/);
+      expect(refusal.message).toMatch(/ended or taken over by another conductor/);
+      expect(refusal.message).not.toMatch(/--resume/);
+    } finally {
+      engineWatch.duringProvisions = undefined;
+    }
+    const run = await query<{ id: string; status: string; ended_at: string | null }>(
+      'SELECT id, status, ended_at FROM closing_runs WHERE entity_id = $1 AND fiscal_period_id = $2',
+      [g.entityId, june.id]
+    );
+    // Still the successor's: running, not ended, and not one step recorded by the displaced conductor.
+    expect(run.rows).toEqual([expect.objectContaining({ status: 'running', ended_at: null })]);
+    const recorded = await query('SELECT 1 FROM closing_run_steps WHERE run_id = $1', [run.rows[0].id]);
+    expect(recorded.rows).toHaveLength(0);
+    expect(engineWatch.calls).toEqual(['accrue-benefits']);
+  });
+
+  it('a conductor taken over between two steps is not told to resume the run: its guarded close finds out', async () => {
+    // Third review: the checkpoint stops on the dead lock or on silence and
+    // cannot know the run was claimed meanwhile; the close it then attempts can.
+    const { g, ctxG } = await ownTenant('Taken over between steps');
+    enterTenant(g.tenantId);
+    const august = await periodOf(g, 8);
+    const lockKey = `closing-run:${g.entityId}:${august.id}`;
+    const killer = await getClient();
+    try {
+      engineWatch.afterRecordOf = {
+        step: 'accrue-benefits',
+        act: async () => {
+          await killLockOf(killer, lockKey);
+          await killer.query(
+            `UPDATE closing_runs SET conductor_token = uuid_generate_v4(), heartbeat_at = NOW()
+              WHERE entity_id = $1 AND fiscal_period_id = $2`,
+            [g.entityId, august.id]
+          );
+        },
+      };
+      const refusal = (await conductClose(ctxG, august, { userId: g.userId }).catch((e: unknown) => e)) as ClosingRunStateError;
+      expect(refusal).toMatchObject({
+        code: 'CLOSING_RUN_LOCK_LOST',
+        details: {
+          haltedAtStep: 'amortize-prepaids',
+          stepRan: false,
+          stepRecorded: false,
+          takenOver: true,
+          stepsTaken: ['accrue-benefits'],
+        },
+      });
+      expect(refusal.message).toMatch(/before amortize-prepaids/);
+      expect(refusal.message).not.toMatch(/--resume/);
+    } finally {
+      engineWatch.afterRecordOf = undefined;
+      killer.release();
+    }
+    expect((await openRunOf(g.entityId, august.id))?.status).toBe('running');
+  });
+
+  it('a run whose last step was recorded, and then taken over before its close, says so', async () => {
+    const { g, ctxG } = await ownTenant('Taken over at the close');
+    enterTenant(g.tenantId);
+    const october = await periodOf(g, 10);
+    try {
+      engineWatch.afterRecordOf = {
+        step: 'soft-close',
+        act: async () => {
+          await query(
+            `UPDATE closing_runs SET conductor_token = uuid_generate_v4(), heartbeat_at = NOW()
+              WHERE entity_id = $1 AND fiscal_period_id = $2`,
+            [g.entityId, october.id]
+          );
+        },
+      };
+      const refusal = (await conductClose(ctxG, october, { userId: g.userId }).catch((e: unknown) => e)) as ClosingRunStateError;
+      expect(refusal).toMatchObject({
+        code: 'CLOSING_RUN_LOCK_LOST',
+        details: { haltedAtStep: 'soft-close', stepRan: true, stepRecorded: true, takenOver: true },
+      });
+      expect(refusal.message).toMatch(/after soft-close and its record, without closing the run, after 5 recorded step\(s\)/);
+      expect(refusal.message).toMatch(/ended or taken over by another conductor/);
+      expect(refusal.message).not.toMatch(/--resume/);
+    } finally {
+      engineWatch.afterRecordOf = undefined;
+    }
+    // The soft close did happen, and its record stands; the run was not this conductor's to close.
+    expect(await periodStatusOf(october.id)).toBe('soft_close');
+  });
+
+  it('a close cycle ended by another path does not abandon a run whose conductor is still beating', async () => {
+    // Fourth review: the refusal that reads before it is not what protects a
+    // live run from `abandonStaleRuns` — its own write has to ask.
+    const { g, ctxG } = await ownTenant('Abandon only the silent');
+    enterTenant(g.tenantId);
+    const november = await periodOf(g, 11);
+    const stopped = await conductClose(ctxG, november, { userId: g.userId, stopAt: 'accrue-benefits' });
+    // A close cycle ended by another path after the run started, the period open again.
+    await query(`UPDATE fiscal_periods SET soft_close_date = NOW() + interval '1 minute' WHERE id = $1`, [november.id]);
+
+    await query(`UPDATE closing_runs SET status = 'running', heartbeat_at = NOW() WHERE id = $1`, [stopped.runId]);
+    await abandonStaleRuns(g.entityId, november.id);
+    expect((await query<{ status: string }>('SELECT status FROM closing_runs WHERE id = $1', [stopped.runId])).rows[0].status).toBe('running');
+
+    await query(`UPDATE closing_runs SET heartbeat_at = NOW() - interval '1 hour' WHERE id = $1`, [stopped.runId]);
+    await abandonStaleRuns(g.entityId, november.id);
+    expect((await query<{ status: string }>('SELECT status FROM closing_runs WHERE id = $1', [stopped.runId])).rows[0].status).toBe('abandoned');
+  });
+
+  it('a running run heard from recently is not resumed while its lock is free; one silent past the window is', async () => {
+    const { g, ctxG } = await ownTenant('Live heartbeat');
+    enterTenant(g.tenantId);
+    const april = await periodOf(g, 4);
+    const stopped = await conductClose(ctxG, april, { userId: g.userId, stopAt: 'depreciate-assets' });
+
+    // What a conductor that lost its lock connection looks like from outside:
+    // `running`, lock free, heartbeat fresh.
+    await query(`UPDATE closing_runs SET status = 'running', heartbeat_at = NOW() WHERE id = $1`, [stopped.runId]);
+    for (const opts of [{ resume: true }, {}]) {
+      await expect(
+        conductClose(ctxG, await periodOf(g, 4), { userId: g.userId, stopAt: 'soft-close', ...opts })
+      ).rejects.toMatchObject({ code: 'CLOSING_RUN_IN_PROGRESS', details: { runId: stopped.runId } });
+    }
+    expect((await openRunOf(g.entityId, april.id))?.status).toBe('running');
+    expect(await liveRunOf(g.entityId, april.id)).toMatchObject({ id: stopped.runId });
+
+    // What a conductor that died looks like: silent for longer than the window.
+    await query(
+      `UPDATE closing_runs SET heartbeat_at = NOW() - make_interval(secs => $2) WHERE id = $1`,
+      [stopped.runId, RUN_HEARTBEAT_STALE_AFTER_SECONDS + 1]
+    );
+    expect(await liveRunOf(g.entityId, april.id)).toBeNull();
+    const resumed = await conductClose(ctxG, await periodOf(g, 4), { userId: g.userId, resume: true, stopAt: 'soft-close' });
+    expect(resumed.runId).toBe(stopped.runId);
+    expect(resumed.status).toBe('stopped');
+  });
+
+  it('the run heartbeat moves while the run is this conductor\'s, and stops the next step once another claims it', async () => {
+    const { g, ctxG } = await ownTenant('Heartbeat');
+    enterTenant(g.tenantId);
+    const stopped = await conductClose(ctxG, await periodOf(g, 9), { userId: g.userId, stopAt: 'accrue-benefits' });
+    const claim = { runId: stopped.runId as string, entityId: g.entityId, token: uuidv4() };
+    await query(
+      `UPDATE closing_runs SET status = 'running', conductor_token = $2, heartbeat_at = NOW() - interval '1 hour'
+        WHERE id = $1`,
+      [claim.runId, claim.token]
+    );
+    const heartbeatAge = async (): Promise<number> =>
+      (
+        await query<{ age: number }>(
+          'SELECT EXTRACT(EPOCH FROM (NOW() - heartbeat_at))::int AS age FROM closing_runs WHERE id = $1',
+          [claim.runId]
+        )
+      ).rows[0].age;
+    /** Polls instead of sleeping a fixed time: a beat goes through the pool, and CI can be slow. */
+    const eventually = async (condition: () => Promise<boolean> | boolean): Promise<boolean> => {
+      for (let i = 0; i < 200; i++) {
+        if (await condition()) return true;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      return false;
+    };
+    const throws = (f: () => void): boolean => {
+      try {
+        f();
+        return false;
+      } catch {
+        return true;
+      }
+    };
+
+    const beating = startRunHeartbeat(claim, 10, 60_000);
+    try {
+      expect(await eventually(async () => (await heartbeatAge()) < 5)).toBe(true);
+      expect(() => beating.assertBeating()).not.toThrow();
+
+      // Another conductor claims the run: this one's beats match nothing now.
+      await query('UPDATE closing_runs SET conductor_token = $2 WHERE id = $1', [claim.runId, uuidv4()]);
+      expect(await eventually(() => throws(() => beating.assertBeating()))).toBe(true);
+      expect(() => beating.assertBeating()).toThrow(ClosingRunStateError);
+    } finally {
+      await beating.stop();
+    }
+
+    // Silence alone stops the next step: nothing landed within the limit.
+    const silent = startRunHeartbeat(claim, 60_000, 20);
+    try {
+      expect(() => silent.assertBeating()).not.toThrow();
+      expect(await eventually(() => throws(() => silent.assertBeating()))).toBe(true);
+    } finally {
+      await silent.stop();
+    }
+
+    // Beats that FAIL are not a takeover — and they do not count as beats:
+    // the silence grows until the limit stops the next step.
+    const failing = startRunHeartbeat({ ...claim, runId: 'not-a-uuid' }, 10, 80);
+    try {
+      expect(() => failing.assertBeating()).not.toThrow();
+      expect(await eventually(() => throws(() => failing.assertBeating()))).toBe(true);
+      let stopped: unknown;
+      try {
+        failing.assertBeating();
+      } catch (e) {
+        stopped = e;
+      }
+      expect(stopped).toMatchObject({ code: 'CLOSING_RUN_LOCK_LOST', details: { takenOver: false } });
+    } finally {
+      await failing.stop();
+    }
+  });
+
+  it('the claim re-asks in the write itself: nobody live, the run resumable, the period open', async () => {
+    // Review of the WIT-01 fix: a conductor paused inside openRun, after its
+    // reads and before its write, woke up after another conductor had closed
+    // the month — and put the run that closed it back to running, then failed.
+    const { g, ctxG } = await ownTenant('Claim');
+    enterTenant(g.tenantId);
+    const july = await periodOf(g, 7);
+    const august = await periodOf(g, 8);
+    const stopped = await conductClose(ctxG, july, { userId: g.userId, stopAt: 'accrue-benefits' });
+    const runId = stopped.runId as string;
+    const claimWith = (token: string) => ({ runId, entityId: g.entityId, token });
+
+    // Somebody is live on it.
+    await query(`UPDATE closing_runs SET status = 'running', heartbeat_at = NOW() WHERE id = $1`, [runId]);
+    expect(await claimRun(claimWith(uuidv4()))).toBe(false);
+    // Silent past the window: resumable, and the claim records who took it.
+    await query(`UPDATE closing_runs SET heartbeat_at = NOW() - interval '1 hour' WHERE id = $1`, [runId]);
+    const token = uuidv4();
+    expect(await claimRun(claimWith(token))).toBe(true);
+    expect((await query<{ t: string }>('SELECT conductor_token::text AS t FROM closing_runs WHERE id = $1', [runId])).rows[0].t).toBe(token);
+    // A run that already completed is not taken back.
+    await query(
+      `UPDATE closing_runs SET status = 'completed', halted_at_step = NULL, ended_at = NOW() WHERE id = $1`,
+      [runId]
+    );
+    expect(await claimRun(claimWith(uuidv4()))).toBe(false);
+    // Nor a resumable run on a period that is no longer open — refused by the
+    // period's STATUS alone: the run is made to look started after the close,
+    // so the soft-close-date condition cannot be the one refusing.
+    await query(`UPDATE closing_runs SET status = 'stopped', ended_at = NULL WHERE id = $1`, [runId]);
+    await softClosePeriod(july.id, g.entityId, g.userId, 'closed by hand while a conductor slept');
+    await query(`UPDATE closing_runs SET started_at = NOW() + interval '1 minute' WHERE id = $1`, [runId]);
+    expect(await claimRun(claimWith(uuidv4()))).toBe(false);
+    expect((await query<{ status: string }>('SELECT status FROM closing_runs WHERE id = $1', [runId])).rows[0].status).toBe('stopped');
+
+    // A new run: not on a closed period — with no resumable run left there, so
+    // only the period guard can refuse it —, and not next to another resumable run.
+    await query(`UPDATE closing_runs SET status = 'completed', halted_at_step = NULL, ended_at = NOW() WHERE id = $1`, [runId]);
+    expect(await startRun(g.entityId, july.id, g.userId, uuidv4())).toBeNull();
+    const fresh = await startRun(g.entityId, august.id, g.userId, uuidv4());
+    expect(fresh).toEqual(expect.any(String));
+    expect(await startRun(g.entityId, august.id, g.userId, uuidv4())).toBeNull();
+  });
+
+  it('the lease probes the lock transaction when nothing was seen failing, and refuses on what was', async () => {
+    const probed: string[] = [];
+    const healthy = createConductorLease(
+      { query: async (sql: string) => { probed.push(sql); return {}; } },
+      () => undefined
+    );
+    await expect(healthy.assertHeld()).resolves.toBeUndefined();
+    expect(probed).toEqual(['SELECT 1']);
+
+    // The session ended without an `error` event reaching the watcher: only the probe can tell.
+    const silentlyGone = createConductorLease(
+      { query: async () => { throw new Error('the session ended'); } },
+      () => undefined
+    );
+    await expect(silentlyGone.assertHeld()).rejects.toMatchObject({
+      code: 'CLOSING_RUN_LOCK_LOST',
+      details: { cause: 'Error: the session ended' },
+    });
+
+    const seen = createConductorLease(
+      { query: async () => { throw new Error('must not be asked'); } },
+      () => new Error('seen by the watcher')
+    );
+    await expect(seen.assertHeld()).rejects.toMatchObject({
+      code: 'CLOSING_RUN_LOCK_LOST',
+      details: { cause: 'Error: seen by the watcher' },
+    });
   });
 
   it('el ensayo no escribe nada, y evalúa el checklist aunque haya un intento anterior', async () => {

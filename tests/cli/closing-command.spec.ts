@@ -559,6 +559,9 @@ describe('A6 · la última línea dice lo que de verdad pasó', () => {
     ]) {
       expect(r).toMatch(/--resume/);
     }
+    // Another conductor still acting on the run: the advice is to wait, never --resume now.
+    const live = runClosingLine({ ...base, status: 'previewed' }, undefined, true, true);
+    expect(live).toMatch(/wait until the conductor acting on its run stops/);
   });
 
   it('tras un --stop-at no hay causa que arreglar: se paró porque se pidió', () => {

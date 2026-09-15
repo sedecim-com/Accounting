@@ -5586,7 +5586,7 @@ export const CRITERIOS: Criterio[] = [
       // Y `openRun` es lo PRIMERO que ocurre dentro del candado: una escritura
       // delante —un motor corrido antes de decidir si se puede continuar— ya
       // habría posteado cuando llegue la negativa.
-      if (!/return withConductorLock\(ctx\.entityId, period\.id, async \(\) => \{\s*const runId = await openRun\(ctx, period\.id, opts\);/.test(m)) {
+      if (!/return withConductorLock\(ctx\.entityId, period\.id, async \(lease\) => \{\s*const token = randomUUID\(\);\s*await lease\.assertHeld\(\);\s*const runId = await openRun\(ctx, period\.id, opts, token\);/.test(m)) {
         return falla('`openRun` ya no es lo primero que corre dentro del candado del periodo');
       }
 
@@ -5596,7 +5596,7 @@ export const CRITERIOS: Criterio[] = [
       if (!/if \(periodNow !== 'open'\) \{\s*throw new ClosingRunStateError\(\s*'PERIOD_NOT_OPEN_TO_CONDUCT'/.test(m)) {
         return falla('el conductor vuelve a conducir periodos que no están abiertos');
       }
-      if (!/\):\s*Promise<string> \{\s*await abandonStaleRuns\(ctx\.entityId, periodId\);/.test(m)) {
+      if (!/\):\s*Promise<string> \{\s*await refuseWhileAnotherConductorActs\(ctx\.entityId, periodId\);\s*await abandonStaleRuns\(ctx\.entityId, periodId\);/.test(m)) {
         return falla('`openRun` ya no abandona, antes que nada, las corridas de un ciclo que otro camino cerró');
       }
 
@@ -5629,8 +5629,8 @@ export const CRITERIOS: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/closing-conductor.ts',
-        de: '    const runId = await openRun(ctx, period.id, opts);',
-        a: '    await runMonthlyProvisions(ctx.entityId, period.id, opts.userId);\n    const runId = await openRun(ctx, period.id, opts);',
+        de: '    const runId = await openRun(ctx, period.id, opts, token);',
+        a: '    await runMonthlyProvisions(ctx.entityId, period.id, opts.userId);\n    const runId = await openRun(ctx, period.id, opts, token);',
         porque:
           'un motor postea antes de decidir si se puede continuar: la negativa llega con el mes ya tocado',
       },
@@ -5643,8 +5643,8 @@ export const CRITERIOS: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/closing-conductor.ts',
-        de: '  return withConductorLock(ctx.entityId, period.id, async () => {',
-        a: '  return (async () => {',
+        de: '  return withConductorLock(ctx.entityId, period.id, async (lease) => {',
+        a: '  return (async (lease: ConductorLease) => {',
         porque:
           'sin candado, dos conductores corren el mismo periodo a la vez y sus registros se pisan',
       },
@@ -5689,6 +5689,369 @@ export const CRITERIOS: Criterio[] = [
         porque:
           'la hoja deja de avisar antes de la confirmación: el operador confirma un acto que el ' +
           'conductor le va a negar',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E4.1',
+    id: 'closing-run-stops-when-it-cannot-prove-it-is-alone',
+    enunciado:
+      'Un conductor que pierde su candado se detiene antes del paso siguiente, nadie continúa una corrida que sigue latiendo, y el conductor desplazado no escribe sobre la corrida de otro',
+    evaluar: () => {
+      const conductorPath = 'src/services/accounting/closing-conductor.ts';
+      const leafPath = 'src/cli/closing-command.ts';
+      if (!existe(conductorPath) || !existe(leafPath)) return falla('el conductor o su hoja desaparecieron');
+      const m = codigoDe(conductorPath);
+      // El SQL vive en plantillas, y `codigoDe` no quita los comentarios `--`
+      // de dentro de una plantilla: se lee del crudo, pero SIN comentarios —de
+      // bloque y de línea, de SQL o de TypeScript—, porque una guarda comentada
+      // sigue «escrita» y ya no guarda nada. Y cada consulta se compara ENTERA,
+      // línea tras línea: una línea intercalada (`OR false`) desarma la guarda
+      // que la sigue sin tocarla.
+      const uncommented = crudoDe(conductorPath)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^[ \t]*(--|\/\/).*$/gm, '')
+        .replace(/[ \t](--|\/\/)[ \t].*$/gm, '');
+      const between = (from: string, to: string): string => {
+        const a = uncommented.indexOf(from);
+        const b = uncommented.indexOf(to, a + from.length);
+        return a < 0 || b < 0 ? '' : uncommented.slice(a, b);
+      };
+
+      // PROBAR, LUEGO ACTUAR. La primera versión sólo notaba el candado muerto
+      // cuando la corrida ya había vuelto: los motores y el cierre suave, que
+      // usan el pool y no la conexión del candado, seguían mientras otro
+      // conductor ya podía tomarlo (Witness, WIT-01).
+      if (!/return withConductorLock\(ctx\.entityId, period\.id, async \(lease\) => \{\s*const token = randomUUID\(\);\s*await lease\.assertHeld\(\);\s*const runId = await openRun\(ctx, period\.id, opts, token\);\s*const claim: RunClaim = \{ runId, entityId: ctx\.entityId, token \};\s*const heartbeat = startRunHeartbeat\(claim, LOCK_KEEPALIVE_MS, HEARTBEAT_SILENCE_LIMIT_MS\);/.test(m)) {
+        return falla('la corrida ya no prueba su candado antes de reclamar la corrida, o ya no late con su reclamo y su límite de silencio');
+      }
+      if (!/const checkpoint = async \(\): Promise<void> => \{\s*heartbeat\.assertBeating\(\);\s*await lease\.assertHeld\(\);\s*\};/.test(m)) {
+        return falla('el punto de control dejó de comprobar el latido de la corrida y el candado');
+      }
+      if (!/for \(const \[i, step\] of CLOSING_STEPS\.entries\(\)\) \{\s*const ordinal = i \+ 1;\s*current = step;\s*currentRan = false;\s*currentRecorded = false;\s*await checkpoint\(\);/.test(m)) {
+        return falla('la corrida real ya no prueba su candado antes de cada paso');
+      }
+      // EL CANDADO SE PRUEBA, no se recuerda: una sentencia sobre su propia
+      // transacción. Lo ya visto sólo adelanta la respuesta.
+      if (!/const known = seen\(\);\s*if \(known !== undefined\) throw lockLost\(known\);\s*try \{\s*await client\.query\('SELECT 1'\);\s*\} catch \(err\) \{\s*throw lockLost\(err\);/.test(m) ||
+          !/const lease = createConductorLease\(client, \(\) => watch\.error\(\) \?\? keepalive\.lost\(\)\);/.test(m)) {
+        return falla('`assertHeld` dejó de sondear la transacción del candado');
+      }
+
+      // LA NEGATIVA: la corrida queda registrada donde se detuvo, la pérdida
+      // sale como estado, y dice la verdad —hasta dónde llegó el paso, y si la
+      // corrida es ya de otro, lo que también sabe el cierre vigilado—.
+      const stop = between('      const closing = await closeRun(', '      throw err;');
+      const truth: Array<[RegExp, string]> = [
+        [/const closing = await closeRun\(claim, 'failed', current\)\.then\(\s*\(\) => 'closed' as const,\s*\(closeErr: unknown\) =>\s*isLockLost\(closeErr\) && \(closeErr as ClosingRunStateError\)\.details\?\.takenOver === true\s*\? \('ended-by-another' as const\)\s*: \('unknown' as const\)\s*\);/, 'el cierre de la corrida detenida ya no dice si la corrida era ya de otro, o si ni siquiera se pudo cerrar'],
+        [/if \(isLockLost\(err\)\) \{\s*const lost = err as ClosingRunStateError;\s*const taken = lost\.details\?\.takenOver === true \|\| closing === 'ended-by-another';/, 'la negativa ya no sabe que la corrida la terminó o reclamó otro'],
+        [/const where = currentRecorded\s*\?\s*`after \$\{current\} and its record, without closing the run`\s*:\s*currentRan\s*\?\s*`after \$\{current\} ran, without its record`\s*:\s*`before \$\{current\}`;/, 'la negativa ya no distingue un paso no empezado, uno que corrió sin su registro y uno registrado'],
+        [/const next = taken\s*\?\s*'The run was ended or taken over by another conductor; look at the period with --dry-run\.'\s*:\s*closing === 'closed'\s*\?\s*'Look at it with --dry-run and pick it up again with --resume\.'\s*:\s*'Its run could not be closed either; look at the period with --dry-run before resuming anything\.';/, 'la negativa aconseja reanudar la corrida de otro, o una que ni siquiera pudo cerrar'],
+        [/throw new ClosingRunStateError\(\s*LOCK_LOST,\s*`\$\{LOCK_LOST_MESSAGE\} It stopped \$\{where\}, after \$\{steps\.length\} recorded step\(s\)\. \$\{next\}`,\s*\{\s*\.\.\.lost\.details,\s*runId,\s*haltedAtStep: current,\s*stepRan: currentRan,\s*stepRecorded: currentRecorded,\s*takenOver: taken \? true : closing === 'closed' \? false : null,/, 'la negativa ya no dice hasta dónde llegó ni qué hacer, o perdió la causa'],
+      ];
+      for (const [re, why] of truth) if (!re.test(stop)) return falla(why);
+      if (!/outcome = stepFailed\(step, ordinal, err\);\s*\}\s*currentRan = true;/.test(m) ||
+          !/steps\.push\(accumulated\);\s*currentRecorded = true;/.test(m) ||
+          !/function takenOver\(\): ClosingRunStateError \{\s*return lockLost\(TAKEN_OVER, true\);/.test(m)) {
+        return falla('lo que la negativa dice del paso o del relevo ya no sale de donde ocurre');
+      }
+
+      // EL LATIDO: con dueño, programado, y con silencio medido. Sólo un
+      // latido que ATERRIZÓ acorta el silencio; uno que falla lo deja crecer.
+      const heartbeat = between('export function startRunHeartbeat(', 'export function watchLockConnection(');
+      if (!/const timer = setInterval\(beat, everyMs\);\s*return \{\s*assertBeating:/.test(heartbeat)) {
+        return falla('el latido de la corrida ya no está programado');
+      }
+      if (!/`UPDATE closing_runs SET heartbeat_at = NOW\(\)\n\s*WHERE id = \$1 AND entity_id = \$2 AND status = 'running' AND conductor_token = \$3`,\s*\[claim\.runId, claim\.entityId, claim\.token\]\s*\);\s*if \(r\.rowCount === 0\) displaced\.push\(takenOver\(\)\);\s*lastWall = Date\.now\(\);\s*lastMono = performance\.now\(\);\s*\} catch \{\s*\}\s*\}\);\s*\};\s*const timer = setInterval\(beat, everyMs\);/.test(heartbeat) ||
+          !/if \(displaced\.length > 0\) throw displaced\[0\];/.test(heartbeat)) {
+        return falla('el latido ya no nota que otro conductor reclamó la corrida, o un latido que falla vuelve a contar como latido');
+      }
+      if (!/const silentMs = Math\.max\(Date\.now\(\) - lastWall, performance\.now\(\) - lastMono\);\s*if \(silentMs > silenceLimitMs\) throw lockLost\(/.test(heartbeat)) {
+        return falla('el conductor ya no deja de empezar pasos cuando su latido lleva callado demasiado tiempo');
+      }
+
+      // LAS ESCRITURAS A LA CORRIDA LLEVAN EL RECLAMO: un conductor desplazado
+      // tras una pausa larga no suma su intento ni cierra la corrida de otro.
+      const record = between('async function recordStep(', 'async function closeRun(');
+      if (!/`WITH owned AS \(\n\s*SELECT 1 FROM closing_runs\n\s*WHERE id = \$2 AND entity_id = \$1 AND status = 'running' AND conductor_token = \$11\n\s*FOR SHARE\n\s*\)\n\s*INSERT INTO closing_run_steps\n/.test(record) ||
+          !/\$9::text\n\s*WHERE EXISTS \(SELECT 1 FROM\x20owned\)\n\s*ON CONFLICT \(run_id, step_key\) DO UPDATE SET\n/.test(record) ||
+          !/accumulate,\s*claim\.token,\s*\]\s*\);\s*if \(r\.rows\.length === 0\) throw takenOver\(\);/.test(record)) {
+        return falla('el registro de un paso ya no exige, con la fila bloqueada, que la corrida siga siendo de este conductor');
+      }
+      const close = between('async function closeRun(', 'async function periodStatus(');
+      if (!/`UPDATE closing_runs\n\s*SET status = \$1, halted_at_step = \$2, ended_at = NOW\(\)\n\s*WHERE id = \$3 AND entity_id = \$4 AND status = 'running' AND conductor_token = \$5`,\s*\[status, haltedAtStep, claim\.runId, claim\.entityId, claim\.token\]\s*\);\s*if \(r\.rowCount === 0\) throw takenOver\(\);/.test(close)) {
+        return falla('el cierre de la corrida ya no exige que la corrida siga siendo de este conductor');
+      }
+
+      // EL RECLAMO, Y TODA ESCRITURA DE `openRun`, VUELVEN A PREGUNTAR EN LA
+      // ESCRITURA lo que se leyó antes: un conductor pausado entre la lectura
+      // y la escritura despierta en un mundo que ya cambió.
+      const open = between('async function openRun(', 'async function stepsOfRun(');
+      if (!/\):\s*Promise<string> \{\s*await refuseWhileAnotherConductorActs\(ctx\.entityId, periodId\);/.test(open) ||
+          !/if \(!\(await claimRun\(\{ runId: openRunRow\.id, entityId: ctx\.entityId, token \}\)\)\) \{\s*throw claimedByAnother\(openRunRow\.id\);/.test(open) ||
+          !/if \(created === null\) throw claimedByAnother\(null\);/.test(open)) {
+        return falla('`openRun` sigue adelante aunque el reclamo de la corrida no haya tomado nada');
+      }
+      const claimSql = between('export async function claimRun(', 'export async function startRun(');
+      if (!/`UPDATE closing_runs cr\n\s*SET status = 'running', halted_at_step = NULL, ended_at = NULL,\n\s*heartbeat_at = NOW\(\), conductor_token = \$3\n\s*FROM fiscal_periods fp\n\s*WHERE cr\.id = \$1 AND cr\.entity_id = \$2\n\s*AND fp\.id = cr\.fiscal_period_id AND fp\.entity_id = cr\.entity_id\n\s*AND fp\.status = 'open'\n\s*AND \(fp\.soft_close_date IS NULL OR fp\.soft_close_date < cr\.started_at\)\n\s*AND cr\.status IN \('running', 'blocked', 'stopped', 'failed'\)\n\s*AND NOT COALESCE\(cr\.status = 'running' AND cr\.heartbeat_at > NOW\(\) - make_interval\(secs => \$4\), false\)`,\s*\[claim\.runId, claim\.entityId, claim\.token, RUN_HEARTBEAT_STALE_AFTER_SECONDS\]\s*\);\s*return r\.rowCount === 1;/.test(claimSql)) {
+        return falla('el reclamo de la corrida vuelve a fiarse de lo que leyó antes de escribir');
+      }
+      const startSql = between('export async function startRun(', 'async function stepsOfRun(');
+      if (!/SELECT \$1::uuid, \$2::uuid, 'running', \$3::uuid, NOW\(\), \$4::uuid\n\s*WHERE EXISTS \(SELECT 1 FROM fiscal_periods WHERE id = \$2 AND entity_id = \$1 AND status = 'open'\)\n\s*ON CONFLICT DO NOTHING\n\s*RETURNING id, status`/.test(startSql)) {
+        return falla('una corrida nueva nace sin comprobar en la misma escritura que el periodo sigue abierto y sin otra corrida reanudable');
+      }
+      const abandon = between('export async function abandonStaleRuns(', 'export async function latestRunOf(');
+      if (!/`UPDATE closing_runs cr\n\s*SET status = 'abandoned', ended_at = NOW\(\)\n\s*FROM fiscal_periods fp\n\s*WHERE fp\.id = cr\.fiscal_period_id AND fp\.entity_id = cr\.entity_id\n\s*AND cr\.entity_id = \$1 AND cr\.fiscal_period_id = \$2\n\s*AND cr\.status IN \('running', 'blocked', 'stopped', 'failed'\)\n\s*AND fp\.soft_close_date IS NOT NULL AND fp\.soft_close_date >= cr\.started_at\n\s*AND NOT COALESCE\(cr\.status = 'running' AND cr\.heartbeat_at > NOW\(\) - make_interval\(secs => \$3\), false\)`,\s*\[entityId, periodId, RUN_HEARTBEAT_STALE_AFTER_SECONDS\]\s*\);/.test(abandon)) {
+        return falla('se abandonan corridas cuyo conductor sigue actuando: la escritura ya no lo pregunta');
+      }
+      const live = between('export async function liveRunOf(', 'export function describeLiveRun(');
+      if (!/FROM closing_runs\n\s*WHERE entity_id = \$1 AND fiscal_period_id = \$2\n\s*AND status = 'running'\n\s*AND heartbeat_at > NOW\(\) - make_interval\(secs => \$3\)`,\s*\[entityId, periodId, RUN_HEARTBEAT_STALE_AFTER_SECONDS\]\s*\);/.test(live)) {
+        return falla('la lectura de la corrida viva perdió su ventana: otro conductor continuaría una corrida viva');
+      }
+
+      // LA HOJA pregunta lo mismo que el conductor antes de aconsejar --resume,
+      // en la corrida y en el ensayo.
+      const h = codigoDe(leafPath);
+      if (!/if \(liveRun\) throw blockedByState\(describeLiveRun\(liveRun\)\);/.test(h) ||
+          !/runClosingLine\(outcome, stopAt, existingRun !== null, liveRun !== null\)/.test(h)) {
+        return falla('la hoja aconseja --resume sobre una corrida que otro conductor sigue conduciendo');
+      }
+
+      // LAS VENTANAS: varios latidos antes de dar a alguien por muerto, y el
+      // conductor se detiene a la mitad de esa ventana.
+      const stale = /export const RUN_HEARTBEAT_STALE_AFTER_SECONDS = (\d+);/.exec(m);
+      const every = /const LOCK_KEEPALIVE_MS = ([\d_]+);/.exec(m);
+      if (!stale || !every || Number(stale[1]) * 1000 < 3 * Number(every[1].replace(/_/g, ''))) {
+        return falla('la ventana del latido ya no cubre al menos tres latidos');
+      }
+      if (!/export const HEARTBEAT_SILENCE_LIMIT_MS = \(RUN_HEARTBEAT_STALE_AFTER_SECONDS \* 1000\) \/ 2;/.test(m)) {
+        return falla('el límite de silencio del conductor ya no queda por debajo de la ventana en que otros lo dan por muerto');
+      }
+
+      return ok(
+        'la corrida prueba candado y latido antes de reclamar y antes de cada paso, se detiene al perderlos y dice hasta dónde llegó, ' +
+          'nadie reclama ni abandona una corrida que late, y cada escritura a la corrida exige seguir siendo su dueño'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        currentRecorded = false;\n        await checkpoint();\n',
+        a: '        currentRecorded = false;\n',
+        porque: 'la corrida sigue con el paso siguiente aunque su candado haya muerto: los motores postean sin exclusión',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      heartbeat.assertBeating();\n      await lease.assertHeld();\n',
+        a: '      heartbeat.assertBeating();\n',
+        porque: 'el punto de control sólo mira el latido: un candado muerto con el proceso vivo pasa por bueno',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "        await client.query('SELECT 1');\n",
+        a: '',
+        porque: 'el candado se da por vivo mientras nadie haya visto su muerte, en vez de probarlo',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '    const token = randomUUID();\n    await lease.assertHeld();\n',
+        a: '    const token = randomUUID();\n',
+        porque: 'la corrida se reclama —y se abandonan corridas— con un candado que ya podía estar muerto',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  await refuseWhileAnotherConductorActs(ctx.entityId, periodId);\n',
+        a: '',
+        porque:
+          'sin la negativa por latido vivo, quien llama sin --resume sobre una corrida que otro conduce recibe el consejo de ' +
+          'continuarla: sólo las escrituras guardadas quedan para negarse, y ninguna dice por qué',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'make_interval(secs => $4), false)',
+        a: 'make_interval(secs => $4), false) OR true',
+        porque: 'el reclamo de la corrida vuelve a tomar una corrida viva: dos conductores sobre el mismo mes',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '[claim.runId, claim.entityId, claim.token, RUN_HEARTBEAT_STALE_AFTER_SECONDS]',
+        a: '[claim.runId, claim.entityId, claim.token, 0]',
+        porque: 'la ventana del reclamo se reduce a cero: toda corrida parece muerta y cualquiera la toma',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '    if (!(await claimRun({ runId: openRunRow.id, entityId: ctx.entityId, token }))) {\n      throw claimedByAnother(openRunRow.id);\n    }\n',
+        a: '    await claimRun({ runId: openRunRow.id, entityId: ctx.entityId, token });\n',
+        porque: 'el reclamo no toma nada y el conductor sigue como si la corrida fuera suya: el reclamo atómico existe y nadie mira su resultado',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "        AND fp.status = 'open'\n",
+        a: "        -- AND fp.status = 'open'\n",
+        porque: 'un conductor pausado dentro de `openRun` despierta después de que otro cerró el mes y vuelve a poner en marcha la corrida que lo cerró; la guarda sigue escrita, comentada',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "        AND (fp.soft_close_date IS NULL OR fp.soft_close_date < cr.started_at)\n        AND cr.status IN ('running', 'blocked', 'stopped', 'failed')\n",
+        a: "        AND (fp.soft_close_date IS NULL OR fp.soft_close_date < cr.started_at)\n",
+        porque: 'una corrida completa o abandonada vuelve a `running` por un reclamo tardío',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "      WHERE EXISTS (SELECT 1 FROM fiscal_periods WHERE id = $2 AND entity_id = $1 AND status = 'open')\n",
+        a: "      -- WHERE EXISTS (SELECT 1 FROM fiscal_periods WHERE id = $2 AND entity_id = $1 AND status = 'open')\n",
+        porque: 'un conductor pausado abre una corrida nueva sobre un mes que otro ya cerró, y el expediente la toma por la corrida del cierre',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "\n        AND NOT COALESCE(cr.status = 'running' AND cr.heartbeat_at > NOW() - make_interval(secs => $3), false)`",
+        a: '`',
+        porque: 'un conductor que despierta tarde marca `abandoned` la corrida viva de otro que acaba de cerrar el mes',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "WHERE id = $1 AND entity_id = $2 AND status = 'running' AND conductor_token = $3`",
+        a: "WHERE id = $1 AND entity_id = $2 AND status = 'running'`",
+        porque: 'el latido de un conductor desplazado sigue refrescando la corrida que otro reclamó, y ninguno de los dos se entera',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        if (r.rowCount === 0) displaced.push(takenOver());\n',
+        a: '',
+        porque: 'alguien terminó o reclamó la corrida y el conductor sigue actuando sobre ella como si fuera suya',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      if (silentMs > silenceLimitMs) throw lockLost(',
+        a: '      if (false) throw lockLost(',
+        porque: 'un proceso que despierta de una pausa más larga que la ventana empieza otro paso sobre una corrida que otro ya pudo reclamar',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  const timer = setInterval(beat, everyMs);\n  return {\n    assertBeating:',
+        a: '  const timer = setTimeout(() => undefined, everyMs);\n  return {\n    assertBeating:',
+        porque: 'la corrida deja de latir: a los treinta segundos otro conductor la da por muerta y la continúa encima',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        lastWall = Date.now();\n        lastMono = performance.now();\n      } catch {',
+        a: '      } catch {\n        lastWall = Date.now();\n        lastMono = performance.now();',
+        porque: 'un latido que falla cuenta como latido: el conductor aislado de la base nunca nota su silencio',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'startRunHeartbeat(claim, LOCK_KEEPALIVE_MS, HEARTBEAT_SILENCE_LIMIT_MS);',
+        a: 'startRunHeartbeat(claim, LOCK_KEEPALIVE_MS, HEARTBEAT_SILENCE_LIMIT_MS * 1000);',
+        porque: 'el límite de silencio que usa la corrida real ya no es el de la constante: la constante sigue bien escrita y nadie la usa',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "WHERE id = $2 AND entity_id = $1 AND status = 'running' AND conductor_token = $11",
+        a: 'WHERE id = $2 AND entity_id = $1 AND $11::uuid IS NOT NULL',
+        porque: 'un conductor desplazado suma su intento al registro de la corrida que conduce otro',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '          FOR SHARE\n',
+        a: '',
+        porque: 'la guarda del registro se lee de la instantánea de la sentencia: un reclamo que se confirma en medio no la detiene',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "AND status = 'running' AND conductor_token = $5`",
+        a: '`',
+        porque: 'un conductor desplazado marca como fallida —o como completa— la corrida viva de otro, y lo aborta',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  if (r.rowCount === 0) throw takenOver();\n}',
+        a: '  // if (r.rowCount === 0) throw takenOver();\n}',
+        porque: 'el cierre vigilado no toma nada y nadie se entera: la guarda sigue escrita, comentada',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'AND heartbeat_at > NOW() - make_interval(secs => $3)`,\n    [entityId, periodId, RUN_HEARTBEAT_STALE_AFTER_SECONDS]\n  );\n  return live.rows[0] ?? null;',
+        a: 'AND heartbeat_at > NOW() - make_interval(secs => $3)`,\n    [entityId, periodId, 0]\n  );\n  return live.rows[0] ?? null;',
+        porque: 'ningún latido es reciente: la negativa por corrida viva existe y nunca se dispara',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'export const RUN_HEARTBEAT_STALE_AFTER_SECONDS = 30;',
+        a: 'export const RUN_HEARTBEAT_STALE_AFTER_SECONDS = 5;',
+        porque: 'la ventana cabe en un solo latido: una pausa del proceso da por muerto a un conductor vivo y otro continúa su corrida',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'const HEARTBEAT_SILENCE_LIMIT_MS = (RUN_HEARTBEAT_STALE_AFTER_SECONDS * 1000) / 2;',
+        a: 'const HEARTBEAT_SILENCE_LIMIT_MS = (RUN_HEARTBEAT_STALE_AFTER_SECONDS * 1000) * 2;',
+        porque: 'el conductor sigue empezando pasos después de que otros ya lo pueden dar por muerto',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "            ? ('ended-by-another' as const)",
+        a: "            ? ('unknown' as const)",
+        porque: 'a quien le reclamaron la corrida entre dos pasos se le aconseja reanudarla: el cierre vigilado lo supo y se calló',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  return lockLost(TAKEN_OVER, true);',
+        a: '  return lockLost(TAKEN_OVER);',
+        porque: 'un relevo se reporta como un candado perdido cualquiera, y se aconseja reanudar la corrida de otro',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        currentRan = true;\n',
+        a: '',
+        porque: 'un paso que ya posteó se reporta como no empezado',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        steps.push(accumulated);\n        currentRecorded = true;\n',
+        a: '        steps.push(accumulated);\n',
+        porque: 'un paso ya registrado se reporta como «sin su registro», contra el propio recuento de pasos registrados',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '            ...lost.details,\n',
+        a: '',
+        porque: 'la negativa pierde la causa del candado perdido: el operador no sabe si murió la conexión, calló el latido o lo relevaron',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        AND fp.soft_close_date IS NOT NULL AND fp.soft_close_date >= cr.started_at\n',
+        a: '        AND fp.soft_close_date IS NOT NULL AND fp.soft_close_date >= cr.started_at\n        OR false\n',
+        porque: 'una línea intercalada desarma la guarda de liveness de `abandonStaleRuns` sin tocarla: se abandonan corridas vivas',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "        AND fp.status = 'open'\n",
+        a: "        /* AND fp.status = 'open' */\n",
+        porque: 'la guarda del periodo abierto sigue escrita dentro de un comentario de bloque, y no guarda nada',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "        AND fp.id = cr.fiscal_period_id AND fp.entity_id = cr.entity_id\n        AND fp.status = 'open'\n",
+        a: "        AND fp.status = 'open'\n",
+        porque: 'sin la unión con su periodo, cualquier otro periodo abierto de la entidad satisface la guarda: se reclama la corrida de un mes cerrado',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'recorded step(s). ${next}`',
+        a: 'recorded step(s). Look at it with --dry-run and pick it up again with --resume.`',
+        porque: 'la negativa calcula bien qué aconsejar y aconseja siempre reanudar, también la corrida de otro',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        // Not a verdict (see above): the silence it leaves is what counts.\n      }\n',
+        a: '        // Not a verdict (see above): the silence it leaves is what counts.\n      } finally {\n        lastWall = Date.now();\n        lastMono = performance.now();\n      }\n',
+        porque: 'un `finally` vuelve a contar como latido el que falló: el conductor aislado de la base nunca nota su silencio',
+      },
+      {
+        archivo: 'src/cli/closing-command.ts',
+        de: 'runClosingLine(outcome, stopAt, existingRun !== null, liveRun !== null)',
+        a: 'runClosingLine(outcome, stopAt, existingRun !== null, false)',
+        porque: 'el ensayo aconseja --resume sobre la corrida que otro conductor sigue conduciendo',
       },
     ],
   },
