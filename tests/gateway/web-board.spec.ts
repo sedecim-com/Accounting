@@ -187,6 +187,63 @@ describe('a refresh outlives a visit to an entity', () => {
     expect(asPortfolio(board.current())).toMatchObject({ loading: false, failure: undefined });
   });
 
+  it('a first read that failed, then an entity, then Back: the new read says it is reading, not the old failure', async () => {
+    const { board, open } = boardUnderTest();
+    const first = board.show({ kind: 'portfolio' }, false);
+    answer(open, 'portfolio', { kind: 'unavailable' });
+    await first;
+    expect(textsOf(board.current())).toContain(text('es', 'web.error.upstream_unavailable'));
+
+    const entity = board.show({ kind: 'entity', entityId: A });
+    for (const operation of ['drafts', 'questions', 'periods'] as const) answer(open, operation, EMPTY_LIST);
+    await entity;
+
+    const back = board.show({ kind: 'portfolio' });
+    expect(open.map((read) => read.operation)).toEqual(['portfolio']);
+    const reading = asPortfolio(board.current());
+    expect(reading).toMatchObject({ loading: true, failure: undefined });
+    expect(textsOf(reading)).toContain(text('es', 'web.portfolio.loading'));
+    expect(textsOf(reading)).not.toContain(text('es', 'web.error.upstream_unavailable'));
+
+    answer(open, 'portfolio', { kind: 'ok', body: portfolioBody(1) });
+    await back;
+    expect(asPortfolio(board.current())).toMatchObject({ loading: false, failure: undefined });
+  });
+
+  it('Refresh after a first read that failed says it is reading, not the old failure', async () => {
+    const { board, open } = boardUnderTest();
+    const first = board.show({ kind: 'portfolio' }, false);
+    answer(open, 'portfolio', { kind: 'failed' });
+    await first;
+
+    const retry = board.act({ kind: 'refresh' });
+    const reading = asPortfolio(board.current());
+    expect(reading).toMatchObject({ loading: true, failure: undefined });
+    expect(textsOf(reading)).toContain(text('es', 'web.portfolio.loading'));
+    answer(open, 'portfolio', { kind: 'unavailable' });
+    await retry;
+    expect(asPortfolio(board.current()).failure?.reason).toBe('unavailable');
+  });
+
+  it('a refresh over rows that went stale keeps the stale banner while it reads', async () => {
+    const { board, open } = boardUnderTest();
+    const first = board.show({ kind: 'portfolio' }, false);
+    answer(open, 'portfolio', { kind: 'ok', body: portfolioBody(1) });
+    await first;
+    const failed = board.act({ kind: 'refresh' });
+    answer(open, 'portfolio', { kind: 'unavailable' });
+    await failed;
+
+    const again = board.act({ kind: 'refresh' });
+    const reading = asPortfolio(board.current());
+    // The rows on screen are still the stale ones until this read answers.
+    expect(reading.loading).toBe(true);
+    expect(reading.failure?.reason).toBe('unavailable');
+    answer(open, 'portfolio', { kind: 'ok', body: portfolioBody(4) });
+    await again;
+    expect(asPortfolio(board.current()).failure).toBeUndefined();
+  });
+
   it('a newer refresh wins over an older one that answers later', async () => {
     const { board, open } = boardUnderTest();
     const first = board.show({ kind: 'portfolio' }, false);

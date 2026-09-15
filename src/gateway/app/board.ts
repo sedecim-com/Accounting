@@ -30,7 +30,8 @@ import {
 //   · A portfolio read is superseded only by a newer portfolio read; an entity
 //     read, by any navigation.
 //   · A failed refresh keeps the previous rows and marks them stale; it never
-//     blanks figures someone is reading.
+//     blanks figures someone is reading. A read that follows a failure with no
+//     rows (Back, or Refresh) says it is reading, not the old failure.
 //   · A sign-out the gateway did not confirm stays on the page and says so.
 // ============================================================
 
@@ -96,7 +97,10 @@ export function createBoard(deps: BoardDeps): Board {
 
   async function loadPortfolio(): Promise<void> {
     const mine = ++portfolioRead;
-    portfolio = { ...portfolio, loading: true };
+    // Stale rows keep their banner while the next read is open: they are still
+    // what is on screen. With no rows, an old failure describes nothing on
+    // screen, and kept it would hide that a new read is under way.
+    portfolio = { ...portfolio, loading: true, failure: portfolio.loaded ? portfolio.failure : undefined };
     if (away === undefined) render();
     const result = await deps.read('portfolio');
     if (mine !== portfolioRead) return;
