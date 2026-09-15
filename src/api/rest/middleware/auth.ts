@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
-import { errors as joseErrors } from 'jose';
 import { config } from '../../../config/index.js';
 import {
   UnauthorizedError,
@@ -8,7 +7,7 @@ import {
   ValidationError,
   ExternalServiceError,
 } from '../../../utils/errors.js';
-import { isAsymmetric, TokenWithoutSubjectError, verifyIdpToken, type VerifiedIdentity } from '../../../auth/oidc.js';
+import { isAsymmetric, isTokenRejection, verifyIdpToken, type VerifiedIdentity } from '../../../auth/oidc.js';
 import {
   resolveIdentity,
   AccountDeactivatedError,
@@ -137,30 +136,13 @@ function verifyLocal(token: string): JwtPayload {
 // web user who loaded a screen while it lasted.
 //
 // Now the three kinds answer apart:
-//   · the token was judged and refused (jose's verdicts below, a missing
-//     sub, a deactivated account, a first login without email): 401;
+//   · the token was judged and refused (isTokenRejection in src/auth/oidc.ts,
+//     which the web gateway's refresh reads too, a deactivated account, a
+//     first login without email): 401;
 //   · the token could not be judged, because the IdP's discovery or keys
 //     could not be read: ExternalServiceError, 502, retryable;
 //   · anything else, a database error included, propagates: 500.
 // ============================================================
-
-/** jose error codes that are a verdict on the token itself. Every other failure while verifying is the IdP. */
-const TOKEN_REJECTION_CODES: ReadonlySet<string> = new Set([
-  'ERR_JWT_CLAIM_VALIDATION_FAILED',
-  'ERR_JWT_EXPIRED',
-  'ERR_JWT_INVALID',
-  'ERR_JWS_INVALID',
-  'ERR_JWS_SIGNATURE_VERIFICATION_FAILED',
-  'ERR_JOSE_ALG_NOT_ALLOWED',
-  'ERR_JOSE_NOT_SUPPORTED',
-  'ERR_JWKS_NO_MATCHING_KEY',
-  'ERR_JWKS_MULTIPLE_MATCHING_KEYS',
-]);
-
-function isTokenRejection(err: unknown): err is Error {
-  if (err instanceof TokenWithoutSubjectError) return true;
-  return err instanceof joseErrors.JOSEError && TOKEN_REJECTION_CODES.has(err.code);
-}
 
 async function verifyExternal(token: string): Promise<JwtPayload> {
   if (!config.auth.enabled) {

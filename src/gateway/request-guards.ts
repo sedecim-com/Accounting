@@ -1,11 +1,12 @@
 import type { RequestHandler } from 'express';
+import { isTokenRejection } from '../auth/oidc.js';
 import type { GatewayConfig } from './config.js';
 import { parseCookies, SESSION_COOKIE } from './cookies.js';
 import { sendError, handleAsync } from './errors.js';
 import type { GatewayLogger } from './logger.js';
-import type { OidcClient } from './oidc-client.js';
+import { TokenRejected, type OidcClient } from './oidc-client.js';
 import { isProxiedMethod } from './routes.js';
-import { sessionTag, type SessionRecord, type SessionStore } from './session-store.js';
+import { sessionTag, type RefreshOutcome, type SessionRecord, type SessionStore } from './session-store.js';
 
 // ============================================================
 // THE GUARDS IN FRONT OF THE PROXY
@@ -31,7 +32,8 @@ import { sessionTag, type SessionRecord, type SessionStore } from './session-sto
 //     gets the same guard.
 //   · methodGate: GET and HEAD only; see PROXIED_METHODS.
 //   · sessionGuard: a live session, refreshed single-flight when its access
-//     token has less than a minute left.
+//     token has less than a minute left. Only a verdict of the IdP ends the
+//     session; an IdP that cannot answer leaves it as it was (below).
 // ============================================================
 
 export const CSRF_HEADER = 'x-mnemosine-request';
@@ -90,40 +92,76 @@ export interface SessionGuardDeps {
   logger: GatewayLogger;
 }
 
+// ============================================================
+// A REFRESH ENDS THE SESSION ONLY ON A VERDICT.
+//
+// It used to end it on any failure, so every browser whose access token
+// entered the refresh margin while the IdP was down was signed out, with a
+// token that still worked and a refresh token that would have worked a minute
+// later. Now a failure is one of two things:
+//   · refused: the token endpoint answered 4xx (TokenRejected), or the token
+//     it returned failed acceptTokenResponse (TokenRejected, or a jose verdict
+//     read by isTokenRejection). The session is destroyed: 401.
+//   · unavailable: anything else. The endpoint unreachable or timed out, a
+//     5xx/408/429 (IdpUnavailable), discovery or the keys unreadable while the
+//     new token was checked. The session keeps its tokens, the request goes on
+//     with the access token while it is still valid, and after that it answers
+//     502 IDP_UNAVAILABLE until a refresh gets through. The idle and absolute
+//     lifetimes still bound how long it can wait.
+// One case is lost even so: an IdP that rotated the refresh token, and whose
+// answer then timed out or whose keys could not be read, has spent the one the
+// session holds. The next refresh is refused, a verdict, and that ends it.
+// ============================================================
+
+function isRefusal(err: unknown): boolean {
+  return err instanceof TokenRejected || isTokenRejection(err);
+}
+
 /**
  * Refreshes the session's access token once, however many requests arrive
  * while it runs. A refreshed token passes acceptTokenResponse before it
- * replaces the old one; a failure destroys the session.
+ * replaces the old one; a refusal destroys the session.
  */
-async function refreshOnce(deps: SessionGuardDeps, key: string, record: SessionRecord): Promise<boolean> {
+async function refreshOnce(deps: SessionGuardDeps, key: string, record: SessionRecord): Promise<RefreshOutcome> {
   if (!record.refreshing) {
     const refreshToken = record.refreshToken;
-    record.refreshing = (async () => {
-      if (!refreshToken) return false;
+    record.refreshing = (async (): Promise<RefreshOutcome> => {
+      if (!refreshToken) return 'refused';
       try {
         const tokens = await deps.oidc.refresh(refreshToken);
-        return deps.sessions.replaceTokens(key, tokens);
-      } catch {
-        deps.logger.event('session.refresh_failed', { session: sessionTag(key) });
-        return false;
+        return deps.sessions.replaceTokens(key, tokens) ? 'refreshed' : 'refused';
+      } catch (err) {
+        if (isRefusal(err)) {
+          deps.logger.event('session.refresh_failed', { session: sessionTag(key) });
+          return 'refused';
+        }
+        deps.logger.event('session.refresh_unavailable', { session: sessionTag(key) });
+        return 'unavailable';
       }
     })().finally(() => {
       record.refreshing = undefined;
     });
   }
-  const refreshed = await record.refreshing;
-  if (!refreshed) deps.sessions.destroy(key);
-  return refreshed;
+  const outcome = await record.refreshing;
+  if (outcome === 'refused') deps.sessions.destroy(key);
+  return outcome;
 }
 
 export function createSessionGuard(deps: SessionGuardDeps): RequestHandler {
   return handleAsync(async function sessionGuard(req, res, next) {
-    const found = deps.sessions.find(parseCookies(req.headers.cookie).get(SESSION_COOKIE));
+    const cookie = parseCookies(req.headers.cookie).get(SESSION_COOKIE);
+    const found = deps.sessions.find(cookie);
     if (!found) return sendError(res, 401, 'SESSION_REQUIRED');
     const { key, record } = found;
     if (record.accessExpiresAt - deps.clock() < REFRESH_MARGIN_MS) {
-      const refreshed = await refreshOnce(deps, key, record);
-      if (!refreshed) return sendError(res, 401, 'SESSION_EXPIRED');
+      const outcome = await refreshOnce(deps, key, record);
+      if (outcome === 'refused') return sendError(res, 401, 'SESSION_EXPIRED');
+      if (outcome === 'unavailable') {
+        // A sign-out or an expiry while the refresh waited is not undone by
+        // relaying with the tokens it left behind.
+        if (!deps.sessions.find(cookie)) return sendError(res, 401, 'SESSION_EXPIRED');
+        if (record.accessExpiresAt <= deps.clock()) return sendError(res, 502, 'IDP_UNAVAILABLE');
+      }
     }
     deps.sessions.touch(key);
     const locals: SessionLocals = { key, record };

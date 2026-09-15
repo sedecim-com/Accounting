@@ -43,8 +43,15 @@ export interface SessionRecord {
   /** Epoch ms of the last request the session authorised. */
   lastSeenAt: number;
   /** The refresh in flight, shared by concurrent requests of this session. */
-  refreshing?: Promise<boolean>;
+  refreshing?: Promise<RefreshOutcome>;
 }
+
+/**
+ * How a refresh ended: new tokens stored, refused by the IdP (the session
+ * ends), or not decided because the IdP could not answer (the session stays).
+ * See request-guards.ts.
+ */
+export type RefreshOutcome = 'refreshed' | 'refused' | 'unavailable';
 
 export interface SessionTokens {
   accessToken: string;

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { resetOidcCaches } from '../../src/auth/oidc.js';
 import { createSpentLogins } from '../../src/gateway/auth-routes.js';
 import { LOGIN_COOKIE, SESSION_COOKIE } from '../../src/gateway/cookies.js';
 import { seal } from '../../src/gateway/sealed-cookie.js';
@@ -53,6 +54,10 @@ function issueFor(subject: string): void {
     h.idp.issued.refresh.push(refresh);
     return { body: { access_token: access, token_type: 'Bearer', refresh_token: refresh } };
   };
+}
+
+function codeOf(res: RawResponse): string | undefined {
+  return (JSON.parse(res.body) as { errors?: Array<{ code?: string }> }).errors?.[0]?.code;
 }
 
 function revokedTokens(): string[] {
@@ -400,6 +405,145 @@ describe('refresh', () => {
     h.idp.onToken = () => ({ body: { access_token: other, token_type: 'Bearer' } });
     expect((await h.read('/v1/portfolio', cookie)).status).toBe(401);
     expect(h.gateway.sessions.size).toBe(0);
+  });
+
+  it('a refresh token the IdP refuses (400 invalid_grant) ends the session with 401', async () => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    h.idp.onToken = () => ({ status: 400, body: { error: 'invalid_grant' } });
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(401);
+    expect(codeOf(res)).toBe('SESSION_EXPIRED');
+    expect(h.gateway.sessions.size).toBe(0);
+    expect(h.api.requests).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// An IdP that cannot answer is not an IdP that refused.
+//
+// A refresh that fails because the token endpoint is unreachable, times out or
+// answers 5xx/429, or because the keys cannot be read while the refreshed
+// token is checked, is no verdict on the session: it keeps its refresh token,
+// the access token it holds serves while it is still valid, and the next
+// request tries again. Only a verdict ends it (the 400 above, a refreshed
+// token that fails acceptTokenResponse).
+// ============================================================
+
+describe('refresh while the IdP is down', () => {
+  const nearExpiry = () => {
+    h.now.value += 9.5 * 60_000;
+  };
+
+  /** Answers every IdP request for `path` with `reply` until the returned function restores the IdP. */
+  function breakIdp(path: string, reply: () => Promise<Response>): () => void {
+    const original = h.idp.fetch;
+    h.idp.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      return new URL(url).pathname === path ? reply() : original(input, init);
+    }) as typeof fetch;
+    return () => {
+      h.idp.fetch = original;
+    };
+  }
+
+  const tokenEndpointOutages: Array<[string, () => Promise<Response>]> = [
+    ['is unreachable', () => Promise.reject(new TypeError('fetch failed'))],
+    ['times out', () => Promise.reject(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))],
+    ['answers 503', () => Promise.resolve(Response.json({ error: 'temporarily_unavailable' }, { status: 503 }))],
+    ['answers 502 with an HTML page', () => Promise.resolve(new Response('<html>bad gateway</html>', { status: 502 }))],
+    ['answers 429', () => Promise.resolve(Response.json({ error: 'slow_down' }, { status: 429 }))],
+  ];
+
+  it.each(tokenEndpointOutages)(
+    'a token endpoint that %s keeps the session and its refresh token, and relays with the still-valid access token',
+    async (_label, reply) => {
+      const cookie = await h.signIn();
+      nearExpiry();
+      const restore = breakIdp('/token', reply);
+
+      const res = await h.read('/v1/portfolio', cookie);
+      expect(res.status).toBe(200);
+      expect(h.gateway.sessions.size).toBe(1);
+      expect(h.api.requests.map((r) => r.headers.authorization)).toEqual([`Bearer ${h.idp.issued.access[0]}`]);
+      expect(h.logs.map((l) => l.name)).toContain('session.refresh_unavailable');
+      expect(h.logs.map((l) => l.name)).not.toContain('session.refresh_failed');
+
+      restore();
+      expect((await h.read('/v1/portfolio', cookie)).status).toBe(200);
+      expect(h.idp.tokenCalls.at(-1)?.params.get('refresh_token')).toBe(h.idp.issued.refresh[0]);
+      expect(h.api.requests.at(-1)?.headers.authorization).toBe(`Bearer ${h.idp.issued.access[1]}`);
+    }
+  );
+
+  it('once the access token has expired, a read answers 502 IDP_UNAVAILABLE and the session waits for the IdP', async () => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    const restore = breakIdp('/token', () => Promise.resolve(Response.json({ error: 'server_error' }, { status: 500 })));
+    h.now.value += 60_000;
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(502);
+    expect(codeOf(res)).toBe('IDP_UNAVAILABLE');
+    expect(h.gateway.sessions.size).toBe(1);
+    expect(h.api.requests).toHaveLength(0);
+
+    restore();
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(200);
+    expect(h.idp.tokenCalls.at(-1)?.params.get('refresh_token')).toBe(h.idp.issued.refresh[0]);
+    expect(h.api.requests.map((r) => r.headers.authorization)).toEqual([`Bearer ${h.idp.issued.access[1]}`]);
+  });
+
+  const keyOutages: Array<[string, () => Promise<Response>]> = [
+    ['cannot be reached', () => Promise.reject(new TypeError('fetch failed'))],
+    ['answers 503', () => Promise.resolve(new Response('unavailable', { status: 503 }))],
+  ];
+
+  it.each(keyOutages)('a JWKS that %s while the refreshed token is checked keeps the session', async (_label, reply) => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    // The keys fetched at sign-in are cached; the refresh has to read them again.
+    resetOidcCaches();
+    const restore = breakIdp('/jwks', reply);
+
+    const res = await h.read('/v1/portfolio', cookie);
+    expect(res.status).toBe(200);
+    expect(h.gateway.sessions.size).toBe(1);
+    expect(h.api.requests.map((r) => r.headers.authorization)).toEqual([`Bearer ${h.idp.issued.access[0]}`]);
+
+    restore();
+    expect((await h.read('/v1/portfolio', cookie)).status).toBe(200);
+    expect(h.api.requests.at(-1)?.headers.authorization).toBe(`Bearer ${h.idp.issued.access.at(-1) ?? ''}`);
+    expect(h.gateway.sessions.size).toBe(1);
+  });
+
+  it('a sign-out while the failing refresh runs is not undone: the read answers 401 and reaches nothing', async () => {
+    const cookie = await h.signIn();
+    nearExpiry();
+    let reached!: () => void;
+    const tokenRequested = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const restore = breakIdp('/token', async () => {
+      reached();
+      await gate;
+      throw new TypeError('fetch failed');
+    });
+
+    const pending = h.read('/v1/portfolio', cookie);
+    await tokenRequested;
+    const logout = await h.request('POST', '/auth/logout', { cookie, 'x-mnemosine-request': '1', origin: PUBLIC_ORIGIN });
+    expect(logout.status).toBe(200);
+    release();
+
+    const res = await pending;
+    expect(res.status).toBe(401);
+    expect(h.api.requests).toHaveLength(0);
+    restore();
   });
 });
 

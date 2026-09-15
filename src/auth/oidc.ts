@@ -132,6 +132,37 @@ export class TokenWithoutSubjectError extends Error {
   }
 }
 
+/** jose error codes that are a verdict on the token itself. Every other failure while verifying is the IdP. */
+const TOKEN_REJECTION_CODES: ReadonlySet<string> = new Set([
+  'ERR_JWT_CLAIM_VALIDATION_FAILED',
+  'ERR_JWT_EXPIRED',
+  'ERR_JWT_INVALID',
+  'ERR_JWS_INVALID',
+  'ERR_JWS_SIGNATURE_VERIFICATION_FAILED',
+  'ERR_JOSE_ALG_NOT_ALLOWED',
+  'ERR_JOSE_NOT_SUPPORTED',
+  'ERR_JWKS_NO_MATCHING_KEY',
+  'ERR_JWKS_MULTIPLE_MATCHING_KEYS',
+]);
+
+/**
+ * True when verifyIdpToken failed because it judged the token and refused it,
+ * false when it could not judge it: discovery or the JWKS unreachable, timed
+ * out, an HTTP error, a body that is not what it promised. Two callers act on
+ * the difference and must not drift apart: the API's authenticate (401 or
+ * 502) and the web gateway's refresh (end the session or keep it).
+ *
+ * jose's errors are read by their code, which every one of them carries, and
+ * not by class: the gateway loads this module, and what it may bind from jose
+ * is the verification half only.
+ */
+export function isTokenRejection(err: unknown): err is Error {
+  if (err instanceof TokenWithoutSubjectError) return true;
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' && TOKEN_REJECTION_CODES.has(code);
+}
+
 /** Providers name groups differently; the usual ones are accepted. */
 function extractGroups(payload: JWTPayload): string[] {
   for (const key of ['groups', 'roles', 'realm_access']) {

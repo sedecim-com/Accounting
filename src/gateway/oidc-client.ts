@@ -36,11 +36,33 @@ export interface OidcClientDeps {
   fetchImpl: typeof fetch;
 }
 
+/**
+ * The IdP judged the request and refused it: a 4xx from the token endpoint,
+ * or a token response that fails acceptTokenResponse. On a refresh this is a
+ * verdict, and it ends the session (request-guards.ts).
+ */
 export class TokenRejected extends Error {
   constructor(readonly reason: string) {
     super(`token response rejected: ${reason}`);
     this.name = 'TokenRejected';
   }
+}
+
+/**
+ * The token endpoint answered without judging anything: a 5xx, 408 or 429.
+ * Not a TokenRejected, so a refresh that meets it keeps the session and its
+ * refresh token, the way it does for an endpoint it cannot reach at all.
+ */
+export class IdpUnavailable extends Error {
+  constructor(readonly status: number) {
+    super(`the token endpoint is unavailable: HTTP ${status}`);
+    this.name = 'IdpUnavailable';
+  }
+}
+
+/** Statuses that say the IdP could not answer now, whatever the request carried. */
+function isUnavailableStatus(status: number): boolean {
+  return status >= 500 || status === 408 || status === 429;
 }
 
 /**
@@ -181,6 +203,12 @@ export function createOidcClient(deps: OidcClientDeps): OidcClient {
       redirect: 'error',
       signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
     });
+    // Before the body is read: an outage page is seldom JSON, and a body that
+    // is not JSON is a TokenRejected.
+    if (isUnavailableStatus(res.status)) {
+      await res.body?.cancel();
+      throw new IdpUnavailable(res.status);
+    }
     const body = await readJsonCapped(res, TOKEN_BODY_LIMIT_BYTES);
     if (!res.ok) throw new TokenRejected(`the token endpoint answered HTTP ${res.status}`);
     return acceptTokenResponse(body, { issuer: config.issuer, audience: config.audience, fetchImpl });

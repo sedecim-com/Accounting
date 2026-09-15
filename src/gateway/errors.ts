@@ -21,6 +21,7 @@ export type GatewayErrorCode =
   | 'SESSION_CAPACITY'
   | 'UPSTREAM_REDIRECT_REFUSED'
   | 'UPSTREAM_UNAVAILABLE'
+  | 'IDP_UNAVAILABLE'
   | 'NOT_FOUND'
   | 'INTERNAL_ERROR';
 
@@ -35,6 +36,7 @@ const MESSAGES: Record<GatewayErrorCode, string> = {
   SESSION_CAPACITY: 'The gateway cannot open more sessions right now.',
   UPSTREAM_REDIRECT_REFUSED: 'The API answered with a redirect, which is not relayed.',
   UPSTREAM_UNAVAILABLE: 'The API is not reachable.',
+  IDP_UNAVAILABLE: 'The identity provider is not reachable. The session is kept; try again shortly.',
   NOT_FOUND: 'Not found.',
   INTERNAL_ERROR: 'The gateway failed to handle the request.',
 };
