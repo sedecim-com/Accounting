@@ -3,7 +3,9 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { Command } from 'commander';
 import { program } from '../../src/cli/mnemosine.js';
+import * as fs from 'node:fs';
 import {
+  DESTINO,
   ayudaCompleta,
   conAnchoFijo,
   construirReferencia,
@@ -56,6 +58,20 @@ function buscar(camino: string): Command {
 }
 
 describe('el generador de cli-reference emite la ayuda REAL', () => {
+  it('the versioned cli-reference.md is exactly what the generator produces today', () => {
+    // WIT-01, from the Witness review of #228. I7 made the reference count how
+    // many subcommands accept `-t` (`200 of 310`), a LIVE figure: the commands
+    // that `main` added moved it to `201 of 312`, and nothing noticed, because
+    // every other test here checks the generator's behaviour and none compares
+    // its output with the file that is actually committed and shipped to the
+    // agent. A generated artifact that drifts from its generator is exactly
+    // the stale block the rest of this repository refuses; this closes it.
+    expect(
+      fs.readFileSync(DESTINO, 'utf8'),
+      'src/ai/docs/cli-reference.md is stale: run `npx tsx scripts/generate-cli-reference.ts` and commit the result'
+    ).toBe(construirReferencia(program));
+  });
+
   it('el árbol se lee entero: si no, lo de abajo no prueba nada', () => {
     expect(ARBOL.length).toBeGreaterThan(200);
     expect(ARBOL.map((c) => ruta(c).join(' '))).toContain('bill create');

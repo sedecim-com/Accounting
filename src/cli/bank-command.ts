@@ -137,6 +137,7 @@ import {
   type Row,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { t } from '../i18n/index.js';
 
 // ============================================================
 // mnemosine bank · banco
@@ -353,7 +354,7 @@ const IMPORTE_RE = /^-?\d+(\.\d+)?$/;
 function exigirFecha(flag: string, valor: string): string {
   const d = new Date(`${valor}T00:00:00Z`);
   if (!FECHA_RE.test(valor) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== valor) {
-    throw usageError(`${flag} debe ser una fecha real en formato YYYY-MM-DD; llegó "${valor}".`);
+    throw usageError(t('bank.parse.date_invalid', { flag, value: valor }));
   }
   return valor;
 }
@@ -379,7 +380,7 @@ function enteroPositivo(nombre: string) {
 function exigirImporte(flag: string, valor: string): string {
   const limpio = valor.trim().replace(/,/g, '');
   if (!IMPORTE_RE.test(limpio)) {
-    throw usageError(`${flag} debe ser un importe decimal; llegó "${valor}".`);
+    throw usageError(t('bank.parse.amount_invalid', { flag, value: valor }));
   }
   return limpio;
 }
@@ -396,7 +397,7 @@ function exigirImporte(flag: string, valor: string): string {
 function exigirTasa(flag: string, valor: string): string {
   const limpio = valor.trim();
   if (!IMPORTE_RE.test(limpio)) {
-    throw usageError(`${flag} debe ser una tasa decimal; llegó "${valor}".`);
+    throw usageError(t('bank.parse.rate_invalid', { flag, value: valor }));
   }
   // Con `Decimal` y no con `Number`, por la misma regla que el dinero: una tasa
   // que llega como '0.9999999999999999999' se convierte en 1 al pasar por un
@@ -405,10 +406,7 @@ function exigirTasa(flag: string, valor: string): string {
   // es donde manda; esto es la puerta que lo dice antes de gastar una conexión.
   const tasa = new Decimal(limpio);
   if (tasa.lessThan(0) || tasa.greaterThanOrEqualTo(1)) {
-    throw usageError(
-      `${flag} va entre 0 y 1, no en porcentaje: 0.16 para el 16%, 0.0125 para el 1.25%, 0 para ` +
-        `ninguna. Llegó "${valor}".`
-    );
+    throw usageError(t('bank.parse.rate_out_of_range', { flag, value: valor }));
   }
   return limpio;
 }
@@ -417,7 +415,7 @@ function exigirTipo(valor: string): TipoDeCuenta {
   const tipo = valor.trim().toLowerCase();
   if (!(TIPOS_DE_CUENTA as readonly string[]).includes(tipo)) {
     throw usageError(
-      `--type "${valor}" no es un tipo de cuenta. Los cinco son: ${TIPOS_DE_CUENTA.join(', ')}.`
+      t('bank.parse.account_type_unknown', { value: valor, types: TIPOS_DE_CUENTA.join(', ') })
     );
   }
   return tipo as TipoDeCuenta;
@@ -435,7 +433,7 @@ function estadoDeCuenta(status: string[] | undefined, all: boolean | undefined):
   const desconocidos = [...pedidos].filter((s) => s !== 'active' && s !== 'archived');
   if (desconocidos.length) {
     throw usageError(
-      `--status ${desconocidos.join(', ')} no existe para una cuenta bancaria: sólo active y archived.`
+      t('bank.parse.account_status_unknown', { values: desconocidos.join(', ') })
     );
   }
   if (pedidos.size === 2) return undefined;
@@ -493,17 +491,12 @@ function estadoDeCotejo(status: string[] | undefined, unmatched: boolean | undef
   const desconocidos = [...pedidos].filter((s) => s !== 'matched' && s !== 'unmatched');
   if (desconocidos.length) {
     throw usageError(
-      `-s ${desconocidos.join(', ')} no existe para un movimiento bancario: sólo matched y unmatched. ` +
-        'El resto de su estado —de qué estado de cuenta vino, qué lo explica— se lee con ' +
-        '`bank transaction show`.'
+      t('bank.parse.transaction_status_unknown', { values: desconocidos.join(', ') })
     );
   }
   if (unmatched) {
     if (pedidos.has('matched')) {
-      throw usageError(
-        '--unmatched y `-s matched` piden lo contrario. --unmatched es el atajo de `-s unmatched`: ' +
-          'pasa uno de los dos.'
-      );
+      throw usageError(t('bank.parse.unmatched_contradicts_status'));
     }
     return false;
   }
@@ -514,9 +507,7 @@ function estadoDeCotejo(status: string[] | undefined, unmatched: boolean | undef
 function exigirDireccion(valor: string): Direccion {
   const d = valor.trim().toLowerCase();
   if (!(DIRECCIONES as readonly string[]).includes(d)) {
-    throw usageError(
-      `--direction "${valor}" no existe: in es dinero que entra (importe positivo) y out el que sale.`
-    );
+    throw usageError(t('bank.parse.direction_unknown', { value: valor }));
   }
   return d as Direccion;
 }
@@ -568,7 +559,7 @@ function terminosDe(consulta: string): string[] {
     actual += ch;
   }
   if (entreComillas) {
-    throw usageError(`La consulta "${consulta}" abre una comilla y no la cierra.`);
+    throw usageError(t('bank.query.unclosed_quote', { query: consulta }));
   }
   if (actual) terminos.push(actual);
   return terminos;
@@ -586,14 +577,14 @@ export function consultaDeMovimientos(consulta: string): ConsultaDeMovimientos {
 
     if (!(CLAVES_DE_CONSULTA as readonly string[]).includes(clave)) {
       throw usageError(
-        `La consulta no conoce el término "${clave}:". Los que hay son ` +
-          `${CLAVES_DE_CONSULTA.map((c) => `${c}:`).join(', ')}, y una palabra sin prefijo busca en ` +
-          'la descripción. El resto se acota con banderas (--account, --since, --until, ' +
-          '--direction, --type).'
+        t('bank.query.term_unknown', {
+          term: clave,
+          terms: CLAVES_DE_CONSULTA.map((c) => `${c}:`).join(', '),
+        })
       );
     }
     if (!valor) {
-      throw usageError(`El término "${termino}" no trae valor: escribe ${clave}:<valor>.`);
+      throw usageError(t('bank.query.term_without_value', { term: termino, key: clave }));
     }
 
     if (clave === 'desc') {
@@ -603,10 +594,7 @@ export function consultaDeMovimientos(consulta: string): ConsultaDeMovimientos {
 
     const m = AMT_RE.exec(valor.replace(/,/g, ''));
     if (!m) {
-      throw usageError(
-        `"amt:${valor}" no es un importe. La forma es amt:250, amt:>1000, amt:<=99.99 o ` +
-          'amt:-250 (con signo compara el importe tal cual; sin signo, la magnitud).'
-      );
+      throw usageError(t('bank.query.amount_invalid', { value: valor }));
     }
     salida.importes.push({
       comparador: (m[1] ?? '=') as CriterioImporte['comparador'],
@@ -620,8 +608,10 @@ export function consultaDeMovimientos(consulta: string): ConsultaDeMovimientos {
 
   if (salida.texto.length === 0 && salida.importes.length === 0) {
     throw usageError(
-      `La consulta "${consulta}" no acota nada. Nombra al menos un término ` +
-        `(${CLAVES_DE_CONSULTA.map((c) => `${c}:`).join(', ')}), o quítala para listar todo.`
+      t('bank.query.narrows_nothing', {
+        query: consulta,
+        terms: CLAVES_DE_CONSULTA.map((c) => `${c}:`).join(', '),
+      })
     );
   }
   return salida;
@@ -642,13 +632,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 function idsDeBandera(flag: string, valor: string): string[] {
   const ids = valor.split(',').map((s) => s.trim()).filter(Boolean);
-  if (ids.length === 0) throw usageError(`${flag} llegó vacía: nombra al menos un identificador.`);
+  if (ids.length === 0) throw usageError(t('bank.parse.id_list_empty', { flag }));
   const malos = ids.filter((id) => !UUID_RE.test(id));
   if (malos.length) {
-    throw usageError(
-      `${flag} ${malos.join(', ')} no es un identificador: se esperan uuid separados por comas, ` +
-        'como los que imprime `bank transaction list -q`.'
-    );
+    throw usageError(t('bank.parse.id_list_invalid', { flag, values: malos.join(', ') }));
   }
   return ids;
 }
@@ -657,7 +644,7 @@ function idsDeBandera(flag: string, valor: string): string[] {
 function uuidDeBandera(flag: string, valor: string): string {
   const id = valor.trim();
   if (!UUID_RE.test(id)) {
-    throw usageError(`${flag} "${valor}" no es un identificador: se espera un uuid.`);
+    throw usageError(t('bank.parse.uuid_invalid', { flag, value: valor }));
   }
   return id;
 }
@@ -676,12 +663,14 @@ function referenciasDeLibros(valor: string): ReferenciaDeLibros[] {
     const id = corte === -1 ? parte : parte.slice(corte + 1);
     if (!(MATCHED_ENTITY_TYPES as readonly string[]).includes(tipo)) {
       throw usageError(
-        `"${tipo}" no es un tipo cotejable. Los cinco son: ${MATCHED_ENTITY_TYPES.join(', ')}. ` +
-          'Escribe <tipo>:<id>, o sólo <id> para una partida de póliza.'
+        t('bank.parse.matchable_type_unknown', {
+          value: tipo,
+          types: MATCHED_ENTITY_TYPES.join(', '),
+        })
       );
     }
     if (!UUID_RE.test(id)) {
-      throw usageError(`--book-item "${parte}" no trae un identificador válido después del tipo.`);
+      throw usageError(t('bank.parse.book_item_uuid_missing', { value: parte }));
     }
     return { tipo: tipo as TipoCotejable, id };
   });
@@ -708,10 +697,7 @@ function ajusteDeGrupo(valor: string, previos: AjusteDeGrupo[]): AjusteDeGrupo[]
 function exigirResidual(valor: string): ModoResidual {
   const m = valor.trim().toLowerCase();
   if (!(MODOS_RESIDUAL as readonly string[]).includes(m)) {
-    throw usageError(
-      `--residual "${valor}" no existe. keep deja el residual vivo como partida conciliatoria; ` +
-        'write-off lo cancela contra la cuenta que diga --write-off-account.'
-    );
+    throw usageError(t('bank.parse.residual_unknown', { value: valor }));
   }
   return m as ModoResidual;
 }
@@ -720,9 +706,7 @@ function exigirMotivo(valor: string | undefined): MotivoDesaplicacion {
   const codigo = (valor ?? '').trim().toLowerCase();
   if (!(MOTIVOS_DESAPLICACION as readonly string[]).includes(codigo)) {
     throw usageError(
-      `--reason es obligatorio y es un CÓDIGO, no prosa: ${MOTIVOS_DESAPLICACION.join(', ')}. ` +
-        'Una taxonomía cerrada es lo que permite preguntar cuántos cotejos se deshicieron por ' +
-        'documento cancelado este trimestre; un campo libre contesta eso con un grep.'
+      t('bank.parse.unapply_reason_required', { codes: MOTIVOS_DESAPLICACION.join(', ') })
     );
   }
   return codigo as MotivoDesaplicacion;
@@ -741,8 +725,7 @@ function exigirTipoDePartida(valor: string): TipoDePartida {
   const tipo = valor.trim().toLowerCase();
   if (!(TIPOS_DE_PARTIDA as readonly string[]).includes(tipo)) {
     throw usageError(
-      `--type "${valor}" no es un tipo de partida conciliatoria. Los seis son: ` +
-        `${TIPOS_DE_PARTIDA.join(', ')}.`
+      t('bank.parse.item_type_unknown', { value: valor, types: TIPOS_DE_PARTIDA.join(', ') })
     );
   }
   return tipo as TipoDePartida;
@@ -752,8 +735,7 @@ function exigirTipoDeAjuste(valor: string): TipoDeAjuste {
   const tipo = valor.trim().toLowerCase();
   if (!(TIPOS_DE_AJUSTE as readonly string[]).includes(tipo)) {
     throw usageError(
-      `--type "${valor}" no es un tipo de ajuste de conciliación. Los cinco son: ` +
-        `${TIPOS_DE_AJUSTE.join(', ')}.`
+      t('bank.parse.adjustment_type_unknown', { value: valor, types: TIPOS_DE_AJUSTE.join(', ') })
     );
   }
   return tipo as TipoDeAjuste;
@@ -763,8 +745,7 @@ function exigirPaso(valor: string): PasoDeCorrida {
   const paso = valor.trim().toLowerCase();
   if (!(PASOS_DE_CORRIDA as readonly string[]).includes(paso)) {
     throw usageError(
-      `--stop-at "${valor}" no es un paso del pase guiado. Los cinco, en orden: ` +
-        `${PASOS_DE_CORRIDA.join(' → ')}. Ninguno llega a \`approve\` ni a \`post\`.`
+      t('bank.parse.run_step_unknown', { value: valor, steps: PASOS_DE_CORRIDA.join(' → ') })
     );
   }
   return paso as PasoDeCorrida;
@@ -781,15 +762,19 @@ function exigirEstadoDeSesion(status: string[] | undefined): EstadoDeSesionConci
   if (!status?.length) return undefined;
   if (status.length > 1) {
     throw usageError(
-      `-s admite un estado a la vez en esta hoja (llegaron ${status.length}): ` +
-        `${ESTADOS_DE_SESION.join(', ')}. Sin la bandera salen los cuatro.`
+      t('bank.parse.session_status_one_only', {
+        count: status.length,
+        statuses: ESTADOS_DE_SESION.join(', '),
+      })
     );
   }
   const estado = status[0].trim().toLowerCase();
   if (!(ESTADOS_DE_SESION as readonly string[]).includes(estado)) {
     throw usageError(
-      `-s "${status[0]}" no es un estado de sesión de conciliación. Los cuatro son: ` +
-        `${ESTADOS_DE_SESION.join(', ')}.`
+      t('bank.parse.session_status_unknown', {
+        value: status[0],
+        statuses: ESTADOS_DE_SESION.join(', '),
+      })
     );
   }
   return estado as EstadoDeSesionConciliacion;
@@ -812,10 +797,7 @@ function alcanceDePartidas(
   const pedidos = new Set((status ?? []).map((s) => s.trim().toLowerCase()));
   const desconocidos = [...pedidos].filter((s) => s !== 'open' && s !== 'resolved');
   if (desconocidos.length) {
-    throw usageError(
-      `-s ${desconocidos.join(', ')} no existe para una partida conciliatoria: sólo open y ` +
-        'resolved. Una partida resuelta dejó de explicar una diferencia y por eso no sale por omisión.'
-    );
+    throw usageError(t('bank.parse.item_status_unknown', { values: desconocidos.join(', ') }));
   }
   if (all || pedidos.size === 2) return { incluirResueltas: true, soloResueltas: false };
   if (pedidos.has('resolved')) return { incluirResueltas: true, soloResueltas: true };
@@ -1488,17 +1470,17 @@ function archivosAImportar(posicionales: string[], dir: string | undefined): str
     try {
       entradas = readdirSync(dir, { withFileTypes: true });
     } catch (err) {
-      throw usageError(`No se pudo leer --dir ${dir}: ${(err as Error).message}`);
+      throw usageError(t('bank.dir.unreadable', { dir, error: (err as Error).message }));
     }
     const dentro = entradas
       .filter((e) => e.isFile() && !e.name.startsWith('.'))
       .map((e) => path.join(dir, e.name))
       .sort();
-    if (dentro.length === 0) throw usageError(`--dir ${dir} no tiene archivos que importar.`);
+    if (dentro.length === 0) throw usageError(t('bank.dir.no_files', { dir }));
     candidatos.push(...dentro);
   }
   if (candidatos.length === 0) {
-    throw usageError('Qué archivo. Pásalo como argumento o apunta a un directorio con --dir.');
+    throw usageError(t('bank.import.no_file'));
   }
   // La deduplicación por ruta absoluta NO es cosmética: `import extracto.csv
   // --dir .` nombraría el mismo archivo dos veces, y la segunda moriría contra
@@ -1577,12 +1559,13 @@ Examples:
   mnemosine bank account create "BBVA Operativa MXN" --bank "BBVA Mexico" --gl-account 1111 --currency MXN --clabe 012180001234567899
   # A second peso account on its own GL account. --currency is re-checked
   # against the GL account, so a mismatch is refused and never converted.
-  # OJO, medido: el catalogo siembra 1112 «Banco Nacional - USD» SIN
-  # currency_code, y COALESCE(a.currency_code, le.functional_currency) la
-  # resuelve como MXN. Un ejemplo con --currency USD sobre 1112 parsea y el
-  # servicio lo RECHAZA. Hasta que la siembra le ponga su moneda, aqui no se
-  # escribe una cuenta en dolares: un ejemplo copiable que no corre es peor
-  # que ninguno.
+  # HEADS UP, measured: the chart seeds 1112 "Banco Nacional - USD" with NO
+  # currency_code (src/services/accounting/chart-seed.ts:94), and the service
+  # resolves it through COALESCE(a.currency_code, le.functional_currency),
+  # which lands on MXN. So an example using --currency USD against 1112 parses
+  # and is then REFUSED. Until the seed gives that account its own currency, no
+  # dollar account is written here: a copyable example that does not run is
+  # worse than no example at all.
   mnemosine bank account create "Santander Operativa MXN" --bank "Santander Mexico" --gl-account 1115 --currency MXN --clabe 014180011223344558
   # A company card is a LIABILITY and maps to a liability account. --dry-run
   # runs the real insert, unique 1:1 index included, and rolls it back.
@@ -1915,10 +1898,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   const avisarTope = (obtenidas: number, tope: number | undefined, comando: string): void => {
     if (tope !== undefined && obtenidas >= tope) {
       process.stderr.write(
-        deps.palette.yellow(
-          `Se listaron ${obtenidas} fila(s), que es el tope de --limit: puede haber más. ` +
-            `Sube --limit, o usa --all en \`${comando}\`.\n`
-        )
+        deps.palette.yellow(`${t('bank.list.hit_limit', { count: obtenidas, command: comando })}\n`)
       );
     }
   };
@@ -1930,10 +1910,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
    */
   const rechazarOffset = (opts: CommonOpts, alternativa: string): void => {
     if (opts.offset !== undefined) {
-      throw usageError(
-        `--offset no está implementado en esta familia: la consulta ordena y acota con --limit, ` +
-          `sin cursor estable. ${alternativa}`
-      );
+      throw usageError(t('bank.offset.unsupported', { alternative: alternativa }));
     }
   };
 
@@ -1974,8 +1951,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         deps.palette.cyan(`${question} [y/N] `)
       );
       if (veredicto.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(veredicto.incomprendida)}; lo tomo como no.
-`);
+        process.stderr.write(
+          `${t('bank.confirm.taken_as_no', { reason: noEntendi(veredicto.incomprendida) })}\n`
+        );
       }
       return veredicto.si;
     } finally {
@@ -2007,9 +1985,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     if (await ask(pregunta)) return;
     throw abortedByUser(
       stdin.isTTY
-        ? 'Sin cambios: el mayor no se tocó.'
-        : `Sin cambios: no hay terminal donde confirmar. Añade -y para que \`${comando}\` corra ` +
-          'sin preguntar, o --dry-run para ver el asiento completo sin escribir nada.'
+        ? t('no_changes_ledger_untouched')
+        : t('no_changes_no_terminal', { command: comando })
     );
   };
 
@@ -2083,8 +2060,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   const avisarRepetido = (clave: string | undefined, que: string): void => {
     process.stderr.write(
       deps.palette.yellow(
-        `↩ Idempotency hit: la llave "${clave ?? ''}" ya consumó este acto — ${que}. ` +
-          'Nada se ejecutó otra vez; esto es el resultado grabado.\n'
+        `↩ ${t('bank.idempotency.hit', { key: clave ?? '', what: que })}\n`
       )
     );
   };
@@ -2131,7 +2107,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   declareRisk(create, {
     risk: 'escritura',
     agent: false,
-    writes: 'bank_accounts (con clabe_encrypted / account_number_encrypted)',
+    writes: 'bank_accounts (with clabe_encrypted / account_number_encrypted)',
   });
   create.addHelpText('after', EJEMPLOS.accountCreate);
   create.action(
@@ -2185,9 +2161,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         avisar(r.advertencias);
         if (dryRun) {
           process.stderr.write(
-            deps.palette.yellow(
-              '  Ensayo: el alta se ejecutó de verdad —índice único incluido— y se deshizo. Nada quedó escrito.\n'
-            )
+            deps.palette.yellow(`  ${t('bank.account.create.dry_run')}\n`)
           );
         }
       })
@@ -2214,7 +2188,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   list.action(
     (busqueda: string | undefined, opts: CommonOpts & { type?: string; currency?: string; allEntities?: boolean }) =>
       run(async () => {
-        rechazarOffset(opts, 'Acota con [query], --type o --currency, o pide todo con --all.');
+        rechazarOffset(opts, t('bank.offset.narrow_accounts'));
         const ctx = await entityOf(opts);
         // El alcance de inquilino sigue yendo DENTRO del SQL —`entity_id IN
         // (SELECT id FROM legal_entities WHERE tenant_id = $1)`—, nunca
@@ -2271,7 +2245,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         out.write(
           `\n${p.bold(f.accountName)} ${p.dim(
             `· ${f.bankName}${f.bankBranch ? ` (${f.bankBranch})` : ''} · ${f.accountType}` +
-              `${f.esPasivo ? ' · PASIVO' : ''} · ${f.currencyCode}`
+              `${f.esPasivo ? ` · ${t('bank.account.show.liability')}` : ''} · ${f.currencyCode}`
           )}\n\n`
         );
         const linea = (etiqueta: string, valor: string) => {
@@ -2281,19 +2255,47 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         // cuando existe y se está ocultando: son dos cosas distintas.
         const identificador = (valor: string | null): string =>
           valor === null ? '' : redactado ? p.dim(OCULTO) : valor;
+        // CLABE, IBAN y SWIFT/BIC NO PASAN POR EL CATÁLOGO: son los nombres de
+        // tres estándares, se escriben igual en los dos idiomas, y una clave
+        // cuya traducción es la fuente copiada es lo que
+        // `tests/i18n/sync.spec.ts` §5 rechaza por su nombre. Es la misma
+        // decisión —y por la misma razón— que ya se tomó con `hash` en
+        // `bank reconciliation approve`. Los otros quince rótulos sí van al
+        // catálogo: estaban en inglés, que el carril del idioma no cuenta
+        // porque mide español, y aun así dejaban la ficha en inglés al
+        // operador que pide es-MX.
         linea('CLABE', identificador(f.clabe));
-        linea('Account number', identificador(f.accountNumber));
+        linea(t('bank.account.show.label.account_number'), identificador(f.accountNumber));
         linea('IBAN', identificador(f.iban));
-        linea('Routing', f.routingEnArchivo ? 'on file (encrypted)' : '');
-        linea('SAT bank key', f.satBankCode ?? '');
+        linea(
+          t('bank.account.show.label.routing'),
+          f.routingEnArchivo ? t('bank.account.show.routing_on_file') : ''
+        );
+        linea(t('bank.account.show.label.sat_bank_key'), f.satBankCode ?? '');
         linea('SWIFT/BIC', f.swiftCode ?? '');
-        linea('GL account', f.glAccount ? `${f.glAccount.code} ${f.glAccount.name}` : p.red('unmapped'));
+        linea(
+          t('bank.account.show.label.gl_account'),
+          f.glAccount
+            ? `${f.glAccount.code} ${f.glAccount.name}`
+            : p.red(t('bank.account.show.gl_unmapped'))
+        );
         out.write('\n');
-        linea('Book balance', f.saldoLibro);
-        linea('Bank balance', f.saldoBanco ?? p.dim('never synced'));
-        linea('Difference', f.diferencia ?? '');
-        linea('Last reconciled', f.ultimaConciliacionAprobada ?? p.dim('never'));
-        linea('Status', f.isActive ? 'active' : 'archived');
+        linea(t('bank.account.show.label.book_balance'), f.saldoLibro);
+        linea(
+          t('bank.account.show.label.bank_balance'),
+          f.saldoBanco ?? p.dim(t('bank.account.show.bank_balance_never_synced'))
+        );
+        linea(t('bank.account.show.label.difference'), f.diferencia ?? '');
+        linea(
+          t('bank.account.show.label.last_reconciled'),
+          f.ultimaConciliacionAprobada ?? p.dim(t('bank.account.show.never_reconciled'))
+        );
+        linea(
+          t('bank.account.show.label.status'),
+          f.isActive
+            ? t('bank.account.show.status_active')
+            : t('bank.account.show.status_archived')
+        );
         out.write('\n');
         // Ni firmantes ni límites: no hay columnas ni tablas para ninguno de
         // los dos (`bank signer` y `bank limit` son fase 3). Se omiten en vez
@@ -2340,7 +2342,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   declareRisk(edit, {
     risk: 'escritura',
     agent: false,
-    writes: 'bank_accounts + audit_log (campo por campo, con los identificadores enmascarados)',
+    writes: 'bank_accounts + audit_log (field by field, with the identifiers masked)',
   });
   edit.addHelpText('after', EJEMPLOS.accountEdit);
   edit.action(
@@ -2386,26 +2388,24 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         }
 
         if (Object.keys(patch).length === 0) {
-          throw usageError(
-            'Nada que cambiar. Pasa --name, --bank, --branch, --type, --currency, --clabe, ' +
-              '--account-number, --routing-ach, --routing-wire, --sat-bank-code, --swift o --iban.'
-          );
+          throw usageError(t('bank.account.edit.nothing_to_change'));
         }
         // El servicio también lo exige, y ahí es una ValidationError (4). Aquí
         // se adelanta como error de USO (2), que es lo que de verdad pasó:
         // falta una bandera, no falla una regla contable.
         if (sensibles.length && !opts.reason?.trim()) {
           throw usageError(
-            `${sensibles.join(', ')} cambia uno de los identificadores por los que sale el dinero ` +
-              `(${CAMPOS_SENSIBLES.join(', ')}): exige --reason "<por qué>". El motivo se guarda en la ` +
-              'bitácora, que es append-only.'
+            t('bank.account.edit.reason_required', {
+              fields: sensibles.join(', '),
+              sensitive: CAMPOS_SENSIBLES.join(', '),
+            })
           );
         }
         if (sensibles.length && !dryRun && opts.yes !== true) {
           const ok = await ask(
-            `Vas a cambiar ${sensibles.join(', ')} de "${ref}". ¿Continuar?`
+            t('bank.account.edit.confirm', { fields: sensibles.join(', '), account: ref })
           );
-          if (!ok) throw abortedByUser('Sin cambios.');
+          if (!ok) throw abortedByUser(t('bank.aborted.no_changes'));
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -2421,12 +2421,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             { json: true, idField: 'field' }
           );
         } else if (r.cambios.length === 0) {
-          process.stderr.write(deps.palette.dim('  Nada cambió: los valores ya eran esos.\n'));
+          process.stderr.write(deps.palette.dim(`  ${t('bank.account.edit.nothing_changed')}\n`));
         } else {
           const p = deps.palette;
           process.stdout.write(
             `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.cuenta.accountName)} ` +
-              `${p.dim(`· ${r.cambios.length} campo(s)`)}\n`
+              `${p.dim(`· ${t('bank.account.edit.fields_changed', { count: r.cambios.length })}`)}\n`
           );
           render(
             r.cambios.map((c) => ({ field: c.campo, before: c.antes, after: c.despues })),
@@ -2436,7 +2436,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         avisar(r.advertencias);
         if (dryRun) {
           process.stderr.write(
-            deps.palette.yellow('  Ensayo: el UPDATE corrió de verdad y se deshizo.\n')
+            deps.palette.yellow(`  ${t('bank.account.edit.dry_run')}\n`)
           );
         }
       })
@@ -2498,14 +2498,21 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           const p = deps.palette;
           if (!r.cambio) {
             process.stderr.write(
-              p.dim(`  ${r.cuenta.accountName} ya estaba mapeada a ${r.nueva.code}: nada que escribir.\n`)
+              p.dim(
+                `  ${t('bank.account.set.already_mapped', {
+                  account: r.cuenta.accountName,
+                  gl: r.nueva.code,
+                })}\n`
+              )
             );
           } else {
             process.stdout.write(
               `${r.dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.cuenta.accountName)} ` +
                 `${p.dim(
                   `· ${r.anterior ? `${r.anterior.code} → ` : ''}${r.nueva.code} ${r.nueva.name}` +
-                    (r.forzado ? ` · FORZADO sobre ${r.movimientosPosteados} línea(s) contabilizada(s)` : '')
+                    (r.forzado
+                      ? ` · ${t('bank.account.set.forced', { count: r.movimientosPosteados })}`
+                      : '')
                 )}\n`
             );
           }
@@ -2550,7 +2557,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     risk: 'escritura',
     agent: true,
     draftOnly: true,
-    writes: 'bank_statements y bank_transactions (staging bancario); NUNCA journal_entries',
+    writes: 'bank_statements and bank_transactions (bank staging); NEVER journal_entries',
   });
   importar.addHelpText('after', EJEMPLOS.statementImport);
   importar.action(
@@ -2627,7 +2634,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
                 `${p.dim(
                   `· ${r.cuenta.nombre} · ${r.periodoInicio}..${r.periodoFin} · ` +
                     `${r.saldoInicial} → ${r.saldoFinal} ${r.moneda} · ` +
-                    `${r.importadas} nueva(s), ${r.duplicadas} ya estaba(n)`
+                    t('bank.import.counts', { added: r.importadas, duplicated: r.duplicadas })
                 )}\n`
             );
           }
@@ -2638,8 +2645,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           if (r.hallazgos.length) {
             process.stderr.write(
               p.yellow(
-                `  ${r.archivo}: ${r.hallazgos.length} hallazgo(s) de integridad. ` +
-                  `Están en staging igual — es \`bank statement check\` quien sale 4.\n`
+                `  ${t('bank.import.findings', {
+                  file: r.archivo,
+                  count: r.hallazgos.length,
+                })}\n`
               )
             );
             for (const h of r.hallazgos) {
@@ -2648,13 +2657,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           }
         }
         if (dryRun) {
-          process.stderr.write(
-            p.yellow('  Ensayo: se parseó, se verificó y la escritura se deshizo.\n')
-          );
+          process.stderr.write(p.yellow(`  ${t('bank.import.dry_run')}\n`));
         }
-        process.stderr.write(
-          p.dim('  Staging bancario: nada de esto está en el mayor hasta que se cotee y se concilie.\n')
-        );
+        process.stderr.write(p.dim(`  ${t('bank.import.staging_note')}\n`));
 
         if (fallidos.length) {
           for (const f of fallidos) {
@@ -2687,16 +2692,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   statementList.addHelpText('after', EJEMPLOS.statementList);
   statementList.action((opts: CommonOpts & { account?: string; since?: string; until?: string }) =>
     run(async () => {
-      rechazarOffset(opts, 'Acota con --account, --since o --until.');
+      rechazarOffset(opts, t('bank.offset.narrow_statements'));
       // Un estado de cuenta no tiene ciclo de vida: su único veredicto —la
       // cadena de saldos— se CALCULA al leerlo y vive en la columna `chain`.
       // Aceptar `-s` en silencio haría creer que se filtró por algo.
       if (opts.status?.length) {
-        throw usageError(
-          '-s/--status no aplica a un estado de cuenta: no tiene estado de ciclo de vida. ' +
-            'Su veredicto se calcula al leerlo (columna `chain`), y quien lo juzga es ' +
-            '`bank statement check`, que sale 4.'
-        );
+        throw usageError(t('bank.statement.list.status_not_applicable'));
       }
       const ctx = await entityOf(opts);
       const tope = opts.all ? 500 : (opts.limit ?? 50);
@@ -2719,8 +2720,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       if (rotas.length) {
         process.stderr.write(
           deps.palette.yellow(
-            `${rotas.length} estado(s) con la cadena de saldos rota. ` +
-              '`bank statement check` dice cuál prueba falló y sale 4.\n'
+            `${t('bank.statement.list.broken_chains', { count: rotas.length })}\n`
           )
         );
       }
@@ -2796,8 +2796,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       if (d.lineCount !== d.lineasEnBase) {
         process.stderr.write(
           p.yellow(
-            `  El documento trae ${d.lineCount} línea(s) y la base le atribuye ${d.lineasEnBase}: ` +
-              'las que faltan se dedujeron contra un estado anterior y conservan el statement_id de aquél.\n'
+            `  ${t('bank.statement.show.line_count_mismatch', {
+              document: d.lineCount,
+              stored: d.lineasEnBase,
+            })}\n`
           )
         );
       }
@@ -2811,7 +2813,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         });
         if (d.lineasOmitidas > 0) {
           process.stderr.write(
-            p.yellow(`  ${d.lineasOmitidas} línea(s) más no se listaron. Sube --limit.\n`)
+            p.yellow(`  ${t('bank.statement.show.lines_omitted', { count: d.lineasOmitidas })}\n`)
           );
         }
       }
@@ -2891,10 +2893,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
 
         if (r.omitidos > 0) {
           process.stderr.write(
-            p.yellow(
-              `\n${r.omitidos} estado(s) más cumplían el filtro y no se verificaron: la corrida tiene tope. ` +
-                'Acota con --account o con --since.\n'
-            )
+            p.yellow(`\n${t('bank.statement.check.skipped', { count: r.omitidos })}\n`)
           );
         }
         // 4 es «encontré algo», no «fallé»: es lo que permite que esto entre en
@@ -3016,7 +3015,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         out.write(
           `\n${p.bold(m.importe)} ${p.dim(
             `${m.moneda} · ${m.fecha} · ${m.cuenta} · ${m.tipo}` +
-              (m.cotejada ? '' : ` · ${p.yellow('sin cotejar')}`)
+              (m.cotejada ? '' : ` · ${p.yellow(t('bank.transaction.show.unmatched'))}`)
           )}\n\n`
         );
         const linea = (etiqueta: string, valor: string) => {
@@ -3058,8 +3057,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         // leerían como «este movimiento no los trae».
         process.stderr.write(
           p.dim(
-            `  Sin extractores todavía (${CAMPOS_SIN_EXTRACTOR.join(', ')}): lo que el banco escribió ` +
-              'está en --raw. Los poblará `bank transaction apply`.\n'
+            `  ${t('bank.transaction.show.no_extractors', {
+              fields: CAMPOS_SIN_EXTRACTOR.join(', '),
+            })}\n`
           )
         );
       }
@@ -3118,8 +3118,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           const vieja = todas[0];
           process.stderr.write(
             deps.palette.dim(
-              `  La más antigua lleva ${vieja.antiguedadDias} día(s) sin aparecer en el banco ` +
-                `(${vieja.entryNumber}). Un cheque expedido y no cobrado vive aquí y nunca en el extracto.\n`
+              `  ${t('bank.book_item.oldest_unseen', {
+                days: vieja.antiguedadDias,
+                entry: vieja.entryNumber,
+              })}\n`
             )
           );
         }
@@ -3165,10 +3167,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     ) =>
       run(async () => {
         if (!txId && !opts.account) {
-          throw usageError(
-            'Previsualizar necesita saber sobre qué: pasa el id de un movimiento, o --account ' +
-              'para recorrer los no cotejados de una cuenta.'
-          );
+          throw usageError(t('bank.match.preview.needs_target'));
         }
         const ctx = await entityOf(opts);
         const cuenta = opts.account
@@ -3209,13 +3208,20 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           const c = m.propuesta;
           const s = m.senales;
           if (!c || !s) {
-            out.write(`  ${p.dim('—')} sin propuesta ${p.dim(`(${m.motivo ?? 'sin-candidato'})`)}\n`);
+            out.write(
+              `  ${p.dim('—')} ${t('bank.match.preview.no_proposal')} ` +
+                `${p.dim(`(${m.motivo ?? 'sin-candidato'})`)}\n`
+            );
             continue;
           }
           out.write(
             `  ${m.aplicable ? p.green('✔') : p.yellow('◑')} ${c.tipo} ` +
               `${p.bold(c.referencia ?? c.id)} ${p.dim(
-                `· ${c.importe} · ${c.fecha} · confianza ${c.confianza.toFixed(2)} · regla ${c.regla}`
+                `· ${c.importe} · ${c.fecha} · ` +
+                  t('bank.match.preview.candidate', {
+                    confidence: c.confianza.toFixed(2),
+                    rule: c.regla,
+                  })
               )}\n`
           );
           // LA DESCOMPOSICIÓN. No son los pesos internos del motor —devuelve un
@@ -3223,39 +3229,60 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           // que las cuatro reglas miran, cada uno con su veredicto. Con esto
           // quien lee puede rehacer el juicio sin creerle al número.
           const marca = (ok: boolean) => (ok ? p.green('✔') : p.red('✘'));
+          // La etiqueta se rellena con `padEnd` y ya no con espacios escritos a
+          // mano: `descripción` mide 11 y `description` también, pero `fecha`
+          // mide 5 y `date` 4, y una columna cuadrada en un idioma se torcía en
+          // el otro en cuanto la cadena dejó de traer su propio relleno.
+          const signalLabel = (key: Parameters<typeof t>[0]): string => p.dim(t(key).padEnd(11));
           out.write(
-            `      ${p.dim('importe    ')} ${s.importeBanco} vs ${s.importeCandidato} · ` +
-              `diferencia ${s.diferenciaImporte} · exacto ${marca(s.importeExacto)} · ` +
-              `misma dirección ${marca(s.mismaDireccion)}\n`
+            `      ${signalLabel('bank.match.preview.label.amount')} ` +
+              `${t('bank.match.preview.amount_signal', {
+                bank: s.importeBanco,
+                candidate: s.importeCandidato,
+                difference: s.diferenciaImporte,
+                exact: marca(s.importeExacto),
+                sameDirection: marca(s.mismaDireccion),
+              })}\n`
           );
           out.write(
-            `      ${p.dim('fecha      ')} ${s.diasDeDiferencia} día(s) · ` +
-              `dentro de ventana ${marca(s.dentroDeVentana)}\n`
+            `      ${signalLabel('bank.match.preview.label.date')} ` +
+              `${t('bank.match.preview.date_signal', {
+                days: s.diasDeDiferencia,
+                withinWindow: marca(s.dentroDeVentana),
+              })}\n`
           );
           out.write(
-            `      ${p.dim('descripción')} similitud ${s.similitudDescripcion.toFixed(2)} ` +
-              `${p.dim('(señal blanda: nunca aplica sola)')}\n`
+            `      ${signalLabel('bank.match.preview.label.description')} ` +
+              `${t('bank.match.preview.description_signal', {
+                similarity: s.similitudDescripcion.toFixed(2),
+              })} ${p.dim(t('bank.match.preview.soft_signal'))}\n`
           );
           if (m.periodo) {
-            out.write(`      ${p.dim('periodo    ')} ${m.periodo.nombre} (${m.periodo.estado})\n`);
+            out.write(
+              `      ${signalLabel('bank.match.preview.label.period')} ` +
+                `${m.periodo.nombre} (${m.periodo.estado})\n`
+            );
           }
           out.write(
-            `      ${p.dim('veredicto  ')} ${
-              m.aplicable ? p.green('`run` lo aplicaría') : `${p.yellow('no se aplica')} — ${m.motivo ?? ''}`
+            `      ${signalLabel('bank.match.preview.label.verdict')} ${
+              m.aplicable
+                ? p.green(t('bank.match.preview.would_apply'))
+                : `${p.yellow(t('bank.match.preview.not_applied'))} — ${m.motivo ?? ''}`
             }\n`
           );
         }
 
         const aplicables = previstos.filter((m) => m.aplicable).length;
         out.write(
-          `\n${p.bold(String(previstos.length))} movimiento(s) · ` +
-            `${aplicables} que \`bank match run\` aplicaría.\n`
+          `\n${p.bold(String(previstos.length))} ` +
+            `${t('bank.match.preview.summary', {
+              count: previstos.length,
+              applicable: aplicables,
+            })}\n`
         );
         if (opts.top !== undefined && previstos.length >= opts.top) {
           process.stderr.write(
-            p.yellow(
-              `  Se previsualizaron ${previstos.length}, que es el tope de --top: puede haber más.\n`
-            )
+            p.yellow(`  ${t('bank.match.preview.hit_top', { count: previstos.length })}\n`)
           );
         }
       })
@@ -3295,8 +3322,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     risk: 'escritura',
     agent: false,
     writes:
-      'reconciliation_match_groups + reconciliation_matches + el sello de journal_entry_lines ' +
-      '(is_reconciled/reconciled_at/reconciliation_id); NUNCA una póliza',
+      'reconciliation_match_groups + reconciliation_matches + the seal on journal_entry_lines ' +
+      '(is_reconciled/reconciled_at/reconciliation_id); NEVER a journal entry',
   });
   matchRun.addHelpText('after', EJEMPLOS.matchRun);
   matchRun.action(
@@ -3337,10 +3364,14 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             { format: 'table', idField: 'id', numeric: ['amount', 'confidence'] }
           );
           process.stdout.write(
-            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(String(r.aplicados.length))} aplicado(s) ` +
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ` +
+              `${p.bold(t('bank.match.applied', { count: r.aplicados.length }))} ` +
               `${p.dim(
-                `· ${r.yaAplicados.length} ya lo estaba(n) · ${r.omitidos.length} omitido(s) ` +
-                  `· ${r.evaluados} evaluado(s)`
+                t('bank.match.run.tally', {
+                  already: r.yaAplicados.length,
+                  skipped: r.omitidos.length,
+                  evaluated: r.evaluados,
+                })
               )}\n`
           );
         }
@@ -3354,12 +3385,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           process.stderr.write(p.dim(`  ${String(n).padStart(5)}  ${motivo}\n`));
         }
         if (r.truncado) {
-          process.stderr.write(
-            p.yellow('  La corrida llegó a su tope: quedan movimientos sin evaluar. Vuelve a correrla.\n')
-          );
+          process.stderr.write(p.yellow(`  ${t('bank_run_hit_cap')}\n`));
         }
         if (dryRun) {
-          process.stderr.write(p.yellow('  Ensayo: se escribió de verdad y se deshizo.\n'));
+          process.stderr.write(p.yellow(`  ${t('dry_run_rolled_back')}\n`));
         }
       })
   );
@@ -3384,8 +3413,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     risk: 'escritura',
     agent: false,
     writes:
-      'reconciliation_match_groups + reconciliation_matches + el sello de journal_entry_lines; ' +
-      'NUNCA una póliza',
+      'reconciliation_match_groups + reconciliation_matches + the seal on journal_entry_lines; ' +
+      'NEVER a journal entry',
   });
   matchApply.addHelpText('after', EJEMPLOS.matchApply);
   matchApply.action(
@@ -3409,26 +3438,22 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         if (todos.length === 0) {
           throw usageError(
             opts.stdin
-              ? 'La entrada estándar no trajo ningún id. `bank match preview -q` los escupe uno por línea.'
-              : 'Qué movimientos. Pásalos como argumento, o encadena `bank match preview -q | ' +
-                'mnemosine bank match apply --stdin`.'
+              ? t('bank.match.apply.stdin_empty')
+              : t('bank.match.apply.no_transactions')
           );
         }
         for (const id of todos) uuidDeBandera('<id>', id);
 
         if (!dryRun && opts.yes !== true) {
-          const ok = await ask(
-            `Vas a aplicar el cotejo que el motor propone para ${todos.length} movimiento(s). ¿Continuar?`
-          );
+          const ok = await ask(t('bank.match.apply.confirm', { count: todos.length }));
           if (!ok) {
             // Sin TTY —que es justo el caso de `--stdin`— `ask` contesta que
             // no. Se nombra `-y` en vez de dejar un «abortado» que parece un
             // fallo del guion.
             throw abortedByUser(
               stdin.isTTY
-                ? 'Sin cambios.'
-                : 'Sin cambios: no hay terminal donde confirmar (la entrada estándar es la tubería). ' +
-                  'Añade -y para aplicar sin preguntar.'
+                ? t('bank.aborted.no_changes')
+                : t('bank.match.apply.no_terminal')
             );
           }
         }
@@ -3448,12 +3473,18 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         } else {
           render(filas, { format: 'table', idField: 'id', numeric: ['amount', 'confidence'] });
           process.stdout.write(
-            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(String(r.aplicados.length))} aplicado(s) ` +
-              `${p.dim(`· ${r.yaAplicados.length} ya lo estaba(n) · ${r.omitidos.length} omitido(s)`)}\n`
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ` +
+              `${p.bold(t('bank.match.applied', { count: r.aplicados.length }))} ` +
+              `${p.dim(
+                t('bank.match.apply.tally', {
+                  already: r.yaAplicados.length,
+                  skipped: r.omitidos.length,
+                })
+              )}\n`
           );
         }
         if (dryRun) {
-          process.stderr.write(p.yellow('  Ensayo: se escribió de verdad y se deshizo.\n'));
+          process.stderr.write(p.yellow(`  ${t('dry_run_rolled_back')}\n`));
         }
         // Un `apply` que pide diez y aplica tres no puede salir 0 en silencio:
         // el guion que lo llama tiene que poder notarlo. 4 es «encontré algo
@@ -3503,8 +3534,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     risk: 'escritura',
     agent: false,
     writes:
-      'reconciliation_match_groups + reconciliation_matches + el sello de journal_entry_lines; ' +
-      'NUNCA una póliza (el write-off se DECLARA y no se contabiliza)',
+      'reconciliation_match_groups + reconciliation_matches + the seal on journal_entry_lines; ' +
+      'NEVER a journal entry (the write-off is DECLARED, never booked)',
   });
   matchCreate.addHelpText('after', EJEMPLOS.matchCreate);
   matchCreate.action(
@@ -3560,9 +3591,15 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           process.stdout.write(
             `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.groupId)} ` +
               `${p.dim(
-                `· banco ${r.cuadre.totalBanco} = libros ${r.cuadre.totalLibros} + ` +
-                  `ajustes ${r.cuadre.totalAjustes} · residual ${r.residual} (${r.residualMode}) ` +
-                  `· ${r.cotejos.length} cotejo(s) · ${r.partidasSelladas.length} partida(s) sellada(s)`
+                t('bank.match.create.summary', {
+                  bank: r.cuadre.totalBanco,
+                  books: r.cuadre.totalLibros,
+                  adjustments: r.cuadre.totalAjustes,
+                  residual: r.residual,
+                  mode: r.residualMode,
+                  matches: r.cotejos.length,
+                  sealed: r.partidasSelladas.length,
+                })
               )}\n`
           );
           render(
@@ -3582,14 +3619,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           // residual cancelado que nunca toca el mayor es media promesa, y
           // callarla la volvería una mentira.
           process.stderr.write(
-            p.yellow(
-              `  El residual de ${r.residual} queda DECLARADO como cancelado contra la cuenta, ` +
-                'pero no se contabiliza: no hay póliza detrás todavía. Regístrala a mano o espera a F05c.\n'
-            )
+            p.yellow(`  ${t('bank.match.create.write_off_declared', { amount: r.residual })}\n`)
           );
         }
         if (dryRun) {
-          process.stderr.write(p.yellow('  Ensayo: el grupo se escribió de verdad y se deshizo.\n'));
+          process.stderr.write(p.yellow(`  ${t('bank.match.create.dry_run')}\n`));
         }
       })
   );
@@ -3616,8 +3650,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     risk: 'escritura',
     agent: false,
     writes:
-      'reconciliation_matches (CLAUSURA: unapplied_at/by/reason, ninguna fila se borra) + ' +
-      'libera el sello de journal_entry_lines',
+      'reconciliation_matches (CLOSURE: unapplied_at/by/reason, no row is ever deleted) + ' +
+      'releases the seal on journal_entry_lines',
   });
   matchUnapply.addHelpText('after', EJEMPLOS.matchUnapply);
   matchUnapply.action(
@@ -3634,11 +3668,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         const id = uuidDeBandera('<match-id>', matchId);
 
         if (!dryRun && opts.yes !== true) {
-          const ok = await ask(
-            `Vas a desaplicar el cotejo ${id} y todos los de su grupo (la igualdad ` +
-              `Σbanco = Σlibros + Σajustes no sobrevive a que le quiten una pata). ¿Continuar?`
-          );
-          if (!ok) throw abortedByUser('Sin cambios.');
+          const ok = await ask(t('bank.match.unapply.confirm', { match: id }));
+          if (!ok) throw abortedByUser(t('bank.aborted.no_changes'));
         }
 
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
@@ -3666,22 +3697,20 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           );
         } else {
           process.stdout.write(
-            `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(String(r.cotejos.length))} cotejo(s) clausurado(s) ` +
+            `${dryRun ? p.yellow('◑') : p.green('✔')} ` +
+              `${p.bold(t('bank.match.unapply.closed', { count: r.cotejos.length }))} ` +
               `${p.dim(
-                `· ${r.movimientosLiberados.length} movimiento(s) y ${r.partidasLiberadas.length} ` +
-                  `partida(s) de vuelta al flujo · motivo ${r.motivo}` +
-                  (r.groupId ? ` · grupo ${r.groupId}` : '')
+                t('bank.match.unapply.released', {
+                  transactions: r.movimientosLiberados.length,
+                  items: r.partidasLiberadas.length,
+                  reason: r.motivo,
+                }) + (r.groupId ? ` · ${t('bank.match.unapply.group', { group: r.groupId })}` : '')
               )}\n`
           );
         }
-        process.stderr.write(
-          p.dim(
-            '  Clausura, no borrado: la fila se queda en el expediente con su motivo, porque el ' +
-              'auditor pregunta por qué se deshizo y una fila borrada no contesta.\n'
-          )
-        );
+        process.stderr.write(p.dim(`  ${t('bank.match.unapply.closure_note')}\n`));
         if (dryRun) {
-          process.stderr.write(p.yellow('  Ensayo: se clausuró de verdad y se deshizo.\n'));
+          process.stderr.write(p.yellow(`  ${t('bank.match.unapply.dry_run')}\n`));
         }
       })
   );
@@ -3721,8 +3750,14 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       'The fees, VAT, interest and withholdings a reconciliation uncovers, created as DRAFTS'
     );
 
-  /** Un lado que nadie observó NUNCA se imprime como cero. */
-  const NO_OBSERVADO = 'sin observar';
+  /**
+   * Un lado que nadie observó NUNCA se imprime como cero.
+   *
+   * Es una FUNCIÓN y no una constante a propósito: el idioma se deriva en cada
+   * `t()`, y una constante de módulo lo dejaría clavado al importar — el mismo
+   * defecto que I6 cerró en `src/i18n/index.ts` (`activeLanguage`).
+   */
+  const notObserved = (): string => t('bank.reconciliation.not_observed');
 
   /**
    * EL DESGLOSE DE LOS DOS LADOS, que es lo que hace auditable una
@@ -3751,29 +3786,49 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
 
     const lado = (titulo: string, etiqueta: string, l: LadoConciliado): void => {
       out.write(`\n  ${p.bold(titulo)}\n`);
-      renglon(etiqueta, l.saldo ?? NO_OBSERVADO, l.saldo === null ? rojo : undefined);
+      renglon(etiqueta, l.saldo ?? notObserved(), l.saldo === null ? rojo : undefined);
       // Una por una y en el orden de `TIPOS_DE_PARTIDA`, que es estable entre
       // corridas: un desglose que cambia de orden no se compara de un vistazo.
+      // El TIPO no se traduce: es el valor del CHECK de la 053, no prosa.
       for (const partida of l.partidas) renglon(partida.tipo, partida.importe);
-      renglon('= ajustado', l.ajustado ?? NO_OBSERVADO, l.ajustado === null ? rojo : fuerte);
+      renglon(
+        t('bank.reconciliation.label.adjusted'),
+        l.ajustado ?? notObserved(),
+        l.ajustado === null ? rojo : fuerte
+      );
     };
 
-    lado('BANCO', 'saldo del extracto', a.banco);
-    lado('LIBROS', 'saldo de libros', a.libros);
+    lado(
+      t('bank.reconciliation.side.bank'),
+      t('bank.reconciliation.label.statement_balance'),
+      a.banco
+    );
+    lado(
+      t('bank.reconciliation.side.books'),
+      t('bank.reconciliation.label.book_balance'),
+      a.libros
+    );
     out.write('\n');
 
     if (a.variacion === null) {
-      renglon('VARIACIÓN', 'NO CALCULADA', rojo);
-      out.write(
-        `    ${p.dim(
-          'No es cero: es que falta un lado. Un cero aquí significaría «nadie restó nada».'
-        )}\n`
+      renglon(
+        t('bank.reconciliation.label.variance'),
+        t('bank.reconciliation.variance_not_computed'),
+        rojo
       );
+      out.write(`    ${p.dim(t('bank.reconciliation.variance_missing_side'))}\n`);
       return;
     }
-    renglon('VARIACIÓN', a.variacion, (s) => (a.cuadra ? p.green(s) : p.yellow(s)));
+    renglon(t('bank.reconciliation.label.variance'), a.variacion, (s) =>
+      a.cuadra ? p.green(s) : p.yellow(s)
+    );
     out.write(
-      `    ${p.dim(`tolerancia ${a.tolerancia} · política ${e.criterios.tolerancia.valor}`)}\n`
+      `    ${p.dim(
+        t('bank.reconciliation.tolerance_line', {
+          tolerance: a.tolerancia,
+          policy: e.criterios.tolerancia.valor,
+        })
+      )}\n`
     );
   };
 
@@ -3782,10 +3837,18 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     const p = deps.palette;
     const a = e.aritmetica;
     process.stdout.write(
-      `\n  ${p.dim('partidas')} ${e.partidas.length} · ${a.sinClasificar} sin clasificar · ` +
-        `${a.sinFechar} sin fechar · ${a.resueltas} resuelta(s)\n` +
-        `  ${p.dim('extracto')} ${e.movimientosSinExplicar.cuantos} movimiento(s) sin cotejo y ` +
-        `sin partida (${e.movimientosSinExplicar.importe})\n`
+      `\n  ${p.dim(t('bank.reconciliation.counters.items_label'))} ` +
+        `${t('bank.reconciliation.counters.items', {
+          total: e.partidas.length,
+          unclassified: a.sinClasificar,
+          undated: a.sinFechar,
+          resolved: a.resueltas,
+        })}\n` +
+        `  ${p.dim(t('bank.reconciliation.counters.statement_label'))} ` +
+        `${t('bank.reconciliation.counters.unexplained', {
+          count: e.movimientosSinExplicar.cuantos,
+          amount: e.movimientosSinExplicar.importe,
+        })}\n`
     );
   };
 
@@ -3801,27 +3864,40 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     const p = deps.palette;
     const out = process.stdout;
     const c = e.congelado;
-    out.write(`\n  ${p.bold('RESUMEN CONGELADO')} ${p.dim('(la aseveración, no la respuesta)')}\n`);
+    out.write(
+      `\n  ${p.bold(t('bank.reconciliation.frozen.title'))} ` +
+        `${p.dim(t('bank.reconciliation.frozen.caption'))}\n`
+    );
     if (c.aritmeticaCalculadaEl === null) {
       out.write(
         `    ${p.yellow(
-          `nadie ha hecho la aritmética de esta sesión: la fila guarda variance ${c.variance} por DEFAULT`
+          t('bank.reconciliation.frozen.never_computed', { variance: c.variance })
         )}\n`
       );
       return;
     }
     out.write(
-      `    variance ${c.variance} · libros ${c.saldoLibros} · cheques ${c.chequesEnCirculacion} · ` +
-        `depósitos ${c.depositosEnTransito} · cargos ${c.cargosDelBanco} · ` +
-        `abonos ${c.abonosDelBanco} · otros ${c.otrosAjustes}\n` +
-        `    ${p.dim(`calculada el ${c.aritmeticaCalculadaEl}`)}\n`
+      `    ${t('bank.reconciliation.frozen.line', {
+        variance: c.variance,
+        books: c.saldoLibros,
+        checks: c.chequesEnCirculacion,
+        deposits: c.depositosEnTransito,
+        charges: c.cargosDelBanco,
+        credits: c.abonosDelBanco,
+        other: c.otrosAjustes,
+      })}\n` +
+        `    ${p.dim(
+          t('bank.reconciliation.frozen.computed_on', { date: c.aritmeticaCalculadaEl })
+        )}\n`
     );
     if (e.aritmetica.variacion !== null && e.aritmetica.variacion !== c.variance) {
       // Justo para esto existe el contraste: la sesión de marzo puede haber
       // dejado de decir la verdad sin que nadie tocara su fila.
       out.write(
-        `    ${p.yellow('!')} la aritmética viva dice ${e.aritmetica.variacion} y la sesión ` +
-          `afirmó ${c.variance}: algo cambió debajo desde que se cerró.\n`
+        `    ${p.yellow('!')} ${t('bank.reconciliation.frozen.drifted', {
+          live: e.aritmetica.variacion,
+          frozen: c.variance,
+        })}\n`
       );
     }
   };
@@ -3831,10 +3907,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     const p = deps.palette;
     const out = process.stdout;
     if (e.listaParaCerrar) {
-      out.write(`\n  ${p.green('✔')} lista para \`bank reconciliation close\`.\n`);
+      out.write(`\n  ${p.green('✔')} ${t('bank.reconciliation.ready_to_close')}\n`);
       return;
     }
-    out.write(`\n  ${p.bold('LO QUE FALTA')}\n`);
+    out.write(`\n  ${p.bold(t('bank.reconciliation.whats_missing'))}\n`);
     for (const r of e.bloqueantes) {
       out.write(`    ${p.red('✘')} ${p.dim(`[${r.codigo}]`)} ${r.detalle}\n`);
     }
@@ -3885,9 +3961,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     risk: 'escritura',
     agent: false,
     writes:
-      'bank_statements + bank_transactions (con --file) + reconciliation_match_groups/matches + ' +
-      'el sello de journal_entry_lines + reconciliation_sessions + reconciling_items; ' +
-      'NUNCA una póliza, y NUNCA approve ni post',
+      'bank_statements + bank_transactions (with --file) + reconciliation_match_groups/matches + ' +
+      'the seal on journal_entry_lines + reconciliation_sessions + reconciling_items; ' +
+      'NEVER a journal entry, and NEVER approve or post',
   });
   reconRun.addHelpText('after', EJEMPLOS.reconRun);
   reconRun.action(
@@ -3906,10 +3982,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         // archivo no describen nada, y aceptarlas en silencio haría creer que
         // se leyó un extracto que nadie pasó.
         if (opts.file === undefined && (opts.format !== undefined || opts.profile !== undefined)) {
-          throw usageError(
-            '--format y --profile describen el archivo de --file, y no hay archivo. Pasa --file, ' +
-              'o quítalas para tomar el extracto que ya esté importado.'
-          );
+          throw usageError(t('bank.reconciliation.run.file_flags_without_file'));
         }
         const reviewer = await resolveReviewer(ctx.tenantId, opts.user);
 
@@ -3943,7 +4016,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           const out = process.stdout;
           out.write(
             `\n${p.bold(r.cuenta.nombre)} ${p.dim(`· ${r.desde} → ${r.hasta}`)}` +
-              `${r.sesionId ? p.dim(` · sesión ${r.sesionId}`) : ''}\n\n`
+              `${
+                r.sesionId
+                  ? p.dim(` · ${t('bank.reconciliation.session_label', { session: r.sesionId })}`)
+                  : ''
+              }\n\n`
           );
           for (const paso of r.pasos) {
             out.write(
@@ -3959,13 +4036,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           // va a stdout, y va al final, que es donde se lee. Una corrida que
           // termina en verde y calla lo que queda se lee como una conciliación
           // terminada.
-          out.write(`\n  ${p.bold('LO QUE FALTA')}\n`);
+          out.write(`\n  ${p.bold(t('bank.reconciliation.whats_missing'))}\n`);
           for (const falta of r.loQueFalta) out.write(`    · ${falta}\n`);
         }
         if (r.ensayo) {
-          process.stderr.write(
-            p.yellow('  Ensayo: los pasos que escriben se ejecutaron de verdad y se deshicieron.\n')
-          );
+          process.stderr.write(p.yellow(`  ${t('bank.reconciliation.run.dry_run')}\n`));
         }
         // Un paso que NO SE PUDO hacer —no hay extracto del periodo— es un
         // hallazgo, no un fallo: 4 es el código con el que esta familia informa
@@ -4011,8 +4086,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     agent: true,
     draftOnly: true,
     writes:
-      'reconciliation_sessions (in_progress, con arithmetic_computed_at NULL: el CHECK de la 053 ' +
-      'impide que llegue a balanced por esta puerta); NUNCA journal_entries',
+      'reconciliation_sessions (in_progress, with arithmetic_computed_at NULL: the CHECK ' +
+      'sesion_balanceada_con_aritmetica of migration 054 keeps it from reaching balanced ' +
+      'through this door); NEVER journal_entries',
   });
   reconOpen.addHelpText('after', EJEMPLOS.reconOpen);
   reconOpen.action(
@@ -4075,25 +4151,27 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           process.stdout.write(
             `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.sesionId)} ` +
               `${p.dim(
-                `· ${r.cuenta.nombre} · ${r.desde} → ${r.hasta} · saldo inicial ${r.saldoInicial} ` +
-                  `· cierre de banco ${r.saldoFinalBanco} ${r.cuenta.moneda} · extracto ${r.statementId}` +
-                  (r.sesionAnterior ? ` · continúa ${r.sesionAnterior.id}` : '')
+                `· ${r.cuenta.nombre} · ${r.desde} → ${r.hasta} · ` +
+                  t('bank.reconciliation.open.summary', {
+                    opening: r.saldoInicial,
+                    closingBank: r.saldoFinalBanco,
+                    currency: r.cuenta.moneda,
+                    statement: r.statementId,
+                  }) +
+                  (r.sesionAnterior
+                    ? ` · ${t('bank.reconciliation.open.continues', {
+                        session: r.sesionAnterior.id,
+                      })}`
+                    : '')
               )}\n`
           );
         }
         avisar(r.avisos);
         // La frase que impide leer una sesión abierta como una cuenta
         // verificada: abrir NO es calcular, y el CHECK de la 053 lo sostiene.
-        process.stderr.write(
-          p.dim(
-            '  La sesión nace sin aritmética (`arithmetic_computed_at` NULL): `bank reconciliation ' +
-              'status` la calcula viva y `close` la firma. Nada de esto toca el mayor.\n'
-          )
-        );
+        process.stderr.write(p.dim(`  ${t('bank.reconciliation.open.no_arithmetic_yet')}\n`));
         if (dryRun) {
-          process.stderr.write(
-            p.yellow('  Ensayo: la sesión se abrió de verdad —continuidad incluida— y se deshizo.\n')
-          );
+          process.stderr.write(p.yellow(`  ${t('bank.reconciliation.open.dry_run')}\n`));
         }
       })
   );
@@ -4124,7 +4202,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       }
     ) =>
       run(async () => {
-        rechazarOffset(opts, 'Acota con --account, --period o -s, o pide todo con --all.');
+        rechazarOffset(opts, t('bank.offset.narrow_sessions'));
         const ctx = await entityOf(opts);
         const scope: Scope = opts.allEntities
           ? tenantScope(ctx.tenantId)
@@ -4156,8 +4234,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         if (sinCalcular > 0 && legible(opts)) {
           process.stderr.write(
             deps.palette.dim(
-              `  ${sinCalcular} sesión(es) con la variación en blanco: nadie ha hecho su aritmética. ` +
-                'La columna de la fila vale 0 por DEFAULT y por eso no se imprime.\n'
+              `  ${t('bank.reconciliation.list.variance_blank', { count: sinCalcular })}\n`
             )
           );
         }
@@ -4186,18 +4263,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     (sesion: string | undefined, opts: CommonOpts & { account?: string; tolerance?: string }) =>
       run(async () => {
         if (!sesion && !opts.account) {
-          throw usageError(
-            'Di qué sesión: `bank reconciliation status <session>`, o --account para la que esté ' +
-              'en curso en esa cuenta.'
-          );
+          throw usageError(t('bank.reconciliation.status.needs_target'));
         }
         if (sesion && opts.account) {
           // Las dos formas nombran una sesión, y obedecer a una en silencio
           // enseñaría la aritmética de una sesión que no es la que se pidió.
-          throw usageError(
-            'El identificador y --account dicen lo mismo de dos maneras: da uno de los dos. ' +
-              'Con --account se lee la sesión EN CURSO de esa cuenta.'
-          );
+          throw usageError(t('bank.reconciliation.status.two_ways'));
         }
         const ctx = await entityOf(opts);
         const e = await estadoDeSesion(entityScope(ctx.tenantId, ctx.entityId), {
@@ -4224,9 +4295,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         out.write(
           `  ${p.dim(
             e.sesion.statementId
-              ? `extracto ${e.sesion.statementId} · declarado por el banco ` +
-                `${e.saldoBancoDeclarado ?? '—'} · saldo inicial ${e.sesion.saldoInicial}`
-              : 'sin extracto atado: el saldo del banco NO se puede observar'
+              ? t('bank.reconciliation.status.statement_line', {
+                  statement: e.sesion.statementId,
+                  declared: e.saldoBancoDeclarado ?? '—',
+                  opening: e.sesion.saldoInicial,
+                })
+              : t('bank.reconciliation.status.no_statement')
           )}\n`
         );
 
@@ -4234,7 +4308,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         imprimirContadores(e);
 
         if (e.partidas.length) {
-          out.write(`\n  ${p.bold('PARTIDAS')}\n`);
+          out.write(`\n  ${p.bold(t('bank.reconciliation.status.items_title'))}\n`);
           render(e.partidas.map(partidaConciliatoriaComoFila), {
             format: 'table',
             idField: 'id',
@@ -4243,7 +4317,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           });
         }
         if (e.ajustes.length) {
-          out.write(`\n  ${p.bold('AJUSTES')} ${p.dim('(borradores: nada se contabilizó solo)')}\n`);
+          out.write(
+            `\n  ${p.bold(t('bank.reconciliation.status.adjustments_title'))} ` +
+              `${p.dim(t('bank.reconciliation.status.adjustments_caption'))}\n`
+          );
           render(e.ajustes.map(ajusteComoFila), {
             format: 'table',
             idField: 'id',
@@ -4319,8 +4396,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           const sinFecha = vivas.filter((x) => !x.resuelta && x.fechaEsperada === null).length;
           process.stderr.write(
             p.dim(
-              `  La más antigua lleva ${vivas[0].antiguedadDias} día(s). ${vencidas} vencida(s) y ` +
-                `${sinFecha} sin fecha esperada: una partida sin fecha no se persigue, envejece.\n`
+              `  ${t('bank.item.list.ageing', {
+                days: vivas[0].antiguedadDias,
+                overdue: vencidas,
+                undated: sinFecha,
+              })}\n`
             )
           );
         }
@@ -4361,7 +4441,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   declareRisk(itemAssign, {
     risk: 'escritura',
     agent: false,
-    writes: 'reconciling_items.responsable, fecha_esperada, escalamiento, notas',
+    // Las cuatro columnas llevan nombre castellano en el esquema (054) y NO
+    // se renombran: lo persistido es contrato. Lo que sí se escribe en inglés
+    // es la frase que las presenta, que es la parte que un lector lee.
+    writes:
+      'reconciling_items: who chases it, when it is expected, how far it has escalated and ' +
+      'the note (responsable, fecha_esperada, escalamiento, notas)',
   });
   itemAssign.addHelpText('after', EJEMPLOS.itemAssign);
   itemAssign.action(
@@ -4381,22 +4466,20 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         const ctx = await entityOf(opts);
 
         if (opts.expected && opts.clearExpected) {
-          throw usageError(
-            '`--expected` y `--clear-expected` piden lo contrario: o se fija una fecha o se quita.'
-          );
+          throw usageError(t('bank.item.assign.expected_contradiction'));
         }
         if (
           opts.owner === undefined && opts.expected === undefined &&
           !opts.clearExpected && opts.escalation === undefined && opts.note === undefined
         ) {
-          throw usageError(
-            'No hay nada que asignar: indica al menos --owner, --expected, --clear-expected, ' +
-              '--escalation o --note.'
-          );
+          throw usageError(t('bank.item.assign.nothing_to_assign'));
         }
         if (opts.escalation && !ESCALAMIENTOS.includes(opts.escalation as never)) {
           throw usageError(
-            `--escalation admite ${ESCALAMIENTOS.join(', ')}; llegó "${opts.escalation}".`
+            t('bank.item.assign.escalation_unknown', {
+              values: ESCALAMIENTOS.join(', '),
+              value: opts.escalation,
+            })
           );
         }
 
@@ -4457,7 +4540,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   declareRisk(itemCorrect, {
     risk: 'escritura',
     agent: false,
-    writes: 'reconciling_items.tipo, importe',
+    writes: 'reconciling_items: what the item really was, and for how much (tipo, importe)',
   });
   itemCorrect.addHelpText('after', EJEMPLOS.itemCorrect);
   itemCorrect.action(
@@ -4523,8 +4606,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     agent: true,
     draftOnly: true,
     writes:
-      'reconciliation_adjustments (journal_entry_id NULL) + ai_drafts (borrador pendiente de ' +
-      'revisión); NUNCA journal_entries',
+      'reconciliation_adjustments (journal_entry_id NULL) + ai_drafts (a draft awaiting ' +
+      'review); NEVER journal_entries',
   });
   adjCreate.addHelpText('after', EJEMPLOS.adjCreate);
   adjCreate.action(
@@ -4580,8 +4663,13 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         } else {
           process.stdout.write(
             `${p.green('✔')} ${p.bold(r.id)} ${p.dim(
-              `· ${r.tipo} · ${r.importe} · contrapartida ${r.cuenta} · banco ${r.cuentaDeBanco} ` +
-                `· borrador ${r.draftId}`
+              t('bank.adjustment.create.summary', {
+                type: r.tipo,
+                amount: r.importe,
+                account: r.cuenta,
+                bankAccount: r.cuentaDeBanco,
+                draft: r.draftId,
+              })
             )}\n`
           );
           for (const l of r.lineas) {
@@ -4592,12 +4680,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             );
           }
         }
-        process.stderr.write(
-          p.dim(
-            `  Es un BORRADOR: espera a \`mnemosine review\`. \`journal_entry_id\` queda NULL hasta ` +
-              `que \`bank reconciliation post\` (F05d) lo contabilice detrás de una firma.\n`
-          )
-        );
+        process.stderr.write(p.dim(`  ${t('bank.adjustment.create.draft_note')}\n`));
         // 11 es «no falló: espera a una persona», que es exactamente lo que
         // deja esta hoja. Un 0 diría que el ajuste ya está en los libros.
         return ExitCode.NEEDS_HUMAN;
@@ -4631,8 +4714,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     risk: 'escritura',
     agent: false,
     writes:
-      'reconciliation_sessions (status=balanced + arithmetic_computed_at + closed_at/by + las seis ' +
-      'columnas del resumen CONGELADO); NUNCA una póliza — los ajustes siguen siendo borradores',
+      'reconciliation_sessions (status=balanced + arithmetic_computed_at + closed_at/by + the six ' +
+      'FROZEN summary columns, ending_balance_per_books through other_adjustments, plus variance ' +
+      'and closing_tolerance); NEVER a journal entry — the adjustments stay drafts',
   });
   reconClose.addHelpText('after', EJEMPLOS.reconClose);
   reconClose.action(
@@ -4667,16 +4751,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             imprimirContadores(previo);
             imprimirBloqueantes(previo);
             process.stdout.write(
-              `\n  ${deps.palette.red('✘')} La sesión ${previo.sesion.id} no cierra: variación ` +
-                `${a.variacion ?? 'NO CALCULADA (no es cero: falta un lado)'}, ` +
-                `${a.sinClasificar} partida(s) sin clasificar y ${a.sinFechar} sin fechar.\n`
+              `\n  ${deps.palette.red('✘')} ${t('bank.reconciliation.close.refused', {
+                session: previo.sesion.id,
+                variance: a.variacion ?? t('bank.reconciliation.close.variance_missing_side'),
+                unclassified: a.sinClasificar,
+                undated: a.sinFechar,
+              })}\n`
             );
           }
           process.stderr.write(
-            deps.palette.dim(
-              '  Marcarla "balanced" con esto abierto le diría al tablero de cierre que el efectivo ' +
-                'de esta cuenta está verificado contra el banco.\n'
-            )
+            deps.palette.dim(`  ${t('bank.reconciliation.close.what_balanced_would_claim')}\n`)
           );
           return exitCodeFor({ statusCode: 422 });
         }
@@ -4693,15 +4777,17 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             imprimirContadores(previo);
           }
           const ok = await ask(
-            `Vas a firmar que la cuenta ${previo.sesion.cuenta.nombre} cuadra con el banco al ` +
-              `${previo.sesion.hasta} (variación ${previo.aritmetica.variacion ?? '—'}). ` +
-              '`period-close` lo leerá como la evidencia de que el efectivo se verificó. ¿Continuar?'
+            t('bank.reconciliation.close.confirm', {
+              account: previo.sesion.cuenta.nombre,
+              until: previo.sesion.hasta,
+              variance: previo.aritmetica.variacion ?? '—',
+            })
           );
           if (!ok) {
             throw abortedByUser(
               stdin.isTTY
-                ? 'Sin cambios.'
-                : 'Sin cambios: no hay terminal donde confirmar. Añade -y para cerrar sin preguntar.'
+                ? t('bank.aborted.no_changes')
+                : t('bank.reconciliation.close.no_terminal')
             );
           }
         }
@@ -4743,17 +4829,24 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         } else {
           process.stdout.write(
             `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.sesionId)} ${p.dim(
-              `· ${r.estado} · variación ${r.aritmetica.variacion ?? '—'} · banco ajustado ` +
-                `${r.aritmetica.banco.ajustado ?? '—'} = libros ajustado ` +
-                `${r.aritmetica.libros.ajustado ?? '—'}`
+              t('bank.reconciliation.close.summary', {
+                status: r.estado,
+                variance: r.aritmetica.variacion ?? '—',
+                bankAdjusted: r.aritmetica.banco.ajustado ?? '—',
+                booksAdjusted: r.aritmetica.libros.ajustado ?? '—',
+              })
             )}\n`
           );
           process.stdout.write(
             `  ${p.dim(
-              `resumen congelado: libros ${r.congelado.saldoLibros} · cheques ` +
-                `${r.congelado.chequesEnCirculacion} · depósitos ${r.congelado.depositosEnTransito} · ` +
-                `cargos ${r.congelado.cargosDelBanco} · abonos ${r.congelado.abonosDelBanco} · ` +
-                `otros ${r.congelado.otrosAjustes}`
+              t('bank.reconciliation.close.frozen_summary', {
+                books: r.congelado.saldoLibros,
+                checks: r.congelado.chequesEnCirculacion,
+                deposits: r.congelado.depositosEnTransito,
+                charges: r.congelado.cargosDelBanco,
+                credits: r.congelado.abonosDelBanco,
+                other: r.congelado.otrosAjustes,
+              })
             )}\n`
           );
         }
@@ -4762,13 +4855,13 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         // ella la fila no habría podido llegar a 'balanced'.
         process.stderr.write(
           p.dim(
-            `  Aritmética calculada el ${r.congelado.aritmeticaCalculadaEl ?? '—'}. ` +
-              'Balanceada NO es aprobada ni contabilizada: `approve` exige que el aprobador no sea ' +
-              'el preparador, y `post` es lo que mueve el mayor.\n'
+            `  ${t('bank.reconciliation.close.arithmetic_stamp', {
+              date: r.congelado.aritmeticaCalculadaEl ?? '—',
+            })}\n`
           )
         );
         if (dryRun) {
-          process.stderr.write(p.yellow('  Ensayo: se cerró de verdad y se deshizo.\n'));
+          process.stderr.write(p.yellow(`  ${t('bank.reconciliation.close.dry_run')}\n`));
         }
       })
   );
@@ -4798,8 +4891,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     agent: false,
     writes:
       'reconciliation_sessions (status=approved + approved_by/at + approval_reason + ' +
-      'approval_snapshot + approval_hash, las cinco en la MISMA sentencia que exigen los CHECK ' +
-      'de la 055); NUNCA journal_entries — el mayor lo mueve `post`',
+      'approval_snapshot + approval_hash, all in ONE statement because the 055 CHECKs ' +
+      'sesion_firma_coherente and sesion_aprobada_con_firma refuse half a signature); ' +
+      'NEVER journal_entries — the ledger is moved by `post`',
   });
   reconApprove.addHelpText('after', EJEMPLOS.reconApprove);
   reconApprove.action(
@@ -4843,27 +4937,48 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           const renglon = (etiqueta: string, valor: string): void => {
             out.write(`    ${etiqueta.padEnd(20)}${valor}\n`);
           };
-          out.write(`\n  ${p.bold('LO QUE SE VA A FIRMAR')}\n`);
-          renglon('sesión', `${r.sesionId} · ${s.sesion.desde} → ${s.sesion.hasta} · ${s.sesion.moneda}`);
-          renglon('cuenta', s.sesion.bankAccountId);
-          renglon('extracto', s.sesion.statementId ?? 'ninguno atado a la sesión');
+          out.write(`\n  ${p.bold(t('bank.reconciliation.approve.title'))}\n`);
+          renglon(
+            t('bank.reconciliation.approve.label.session'),
+            `${r.sesionId} · ${s.sesion.desde} → ${s.sesion.hasta} · ${s.sesion.moneda}`
+          );
+          renglon(t('bank.reconciliation.approve.label.account'), s.sesion.bankAccountId);
+          renglon(
+            t('bank.reconciliation.approve.label.statement'),
+            s.sesion.statementId ?? t('bank.reconciliation.approve.no_statement')
+          );
           // La variación VIVA y la CONGELADA, las dos: aprobar exige que la
           // segunda reproduzca la primera, y enseñarlas juntas es lo que
           // permite ver que se comparó algo.
           renglon(
-            'variación',
-            `${s.saldos.variacion ?? 'NO CALCULADA'} (congelada al cerrar: ${s.congelado.variance})`
+            t('bank.reconciliation.approve.label.variance'),
+            t('bank.reconciliation.approve.variance_value', {
+              live: s.saldos.variacion ?? t('bank.reconciliation.variance_not_computed'),
+              frozen: s.congelado.variance,
+            })
           );
           renglon(
-            'miembros',
-            `${s.miembros.partidas.length} partida(s) · ${s.miembros.cotejos.length} cotejo(s) · ` +
-              `${s.miembros.ajustes.length} ajuste(s)`
+            t('bank.reconciliation.approve.label.members'),
+            t('bank.reconciliation.approve.members_value', {
+              items: s.miembros.partidas.length,
+              matches: s.miembros.cotejos.length,
+              adjustments: s.miembros.ajustes.length,
+            })
           );
+          // `hash` no pasa por el catálogo: se escribe igual en los dos
+          // idiomas, y una clave cuya traducción es la fuente copiada es lo
+          // que `tests/i18n/sync.spec.ts` §5 rechaza por su nombre.
           renglon('hash', r.hash);
           renglon(
-            'segregación',
-            `preparó ${r.segregacion.preparador ?? 'nadie registrado'} · política ` +
-              `${r.segregacion.politica}${r.segregacion.politicaDefinida ? '' : ' (por omisión)'}`
+            t('bank.reconciliation.approve.label.segregation'),
+            t('bank.reconciliation.approve.segregation_value', {
+              preparer:
+                r.segregacion.preparador ?? t('bank.reconciliation.approve.nobody_recorded'),
+              policy: r.segregacion.politica,
+            }) +
+              (r.segregacion.politicaDefinida
+                ? ''
+                : ` ${t('bank.reconciliation.approve.policy_default')}`)
           );
           if (r.segregacion.nota) out.write(`    ${p.yellow(r.segregacion.nota)}\n`);
         };
@@ -4888,13 +5003,20 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             ),
           mostrar: mostrarLoQueSeFirma,
           pregunta: (previo) =>
-            `Vas a FIRMAR la sesión ${previo.sesionId} con la instantánea ` +
-              `${previo.hash.slice(0, 12)}… (${previo.instantanea.miembros.partidas.length} ` +
-              `partida(s), ${previo.instantanea.miembros.ajustes.length} ajuste(s), variación ` +
-              `${previo.instantanea.saldos.variacion ?? '—'}). La firma no se retira: volver a ` +
-              'aprobarla se rechaza. ¿Continuar?',
+            t('bank.reconciliation.approve.confirm', {
+              session: previo.sesionId,
+              hash: previo.hash.slice(0, 12),
+              items: previo.instantanea.miembros.partidas.length,
+              adjustments: previo.instantanea.miembros.ajustes.length,
+              variance: previo.instantanea.saldos.variacion ?? '—',
+            }),
         });
-        if (repetido) avisarRepetido(opts.idempotencyKey, `sesión ${r.sesionId} ya firmada`);
+        if (repetido) {
+          avisarRepetido(
+            opts.idempotencyKey,
+            t('bank.reconciliation.approve.already_signed', { session: r.sesionId })
+          );
+        }
 
         if (opts.json) {
           render([aprobacionComoDocumento(r)], { json: true, idField: 'id' });
@@ -4903,22 +5025,18 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           if (opts.yes === true || dryRun) mostrarLoQueSeFirma(r);
           process.stdout.write(
             `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.sesionId)} ${p.dim(
-              `· ${r.estado} · firmada por ${r.aprobadaPor} el ${r.aprobadaEl}` +
-                `${r.motivo ? ` · ${r.motivo}` : ''}`
+              t('bank.reconciliation.approve.summary', {
+                status: r.estado,
+                by: r.aprobadaPor,
+                on: r.aprobadaEl,
+              }) + `${r.motivo ? ` · ${r.motivo}` : ''}`
             )}\n`
           );
           process.stdout.write(`  ${p.dim('hash')} ${r.hash}\n`);
         }
-        process.stderr.write(
-          p.dim(
-            '  Aprobada NO es contabilizada: el mayor lo mueve `bank reconciliation post`, que ' +
-              'postea los ajustes que esta firma acaba de congelar.\n'
-          )
-        );
+        process.stderr.write(p.dim(`  ${t('bank.reconciliation.approve.not_posted_yet')}\n`));
         if (dryRun) {
-          process.stderr.write(
-            p.yellow('  Ensayo: se firmó de verdad y se deshizo. El hash es el que quedaría.\n')
-          );
+          process.stderr.write(p.yellow(`  ${t('bank.reconciliation.approve.dry_run')}\n`));
         }
       })
   );
@@ -4946,11 +5064,12 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     llave: { scope: 'bank reconciliation post' },
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines (POSTEADOS, por el motor); ' +
-      'reconciliation_adjustments.journal_entry_id; ai_drafts (cierra el borrador que se posteó); ' +
-      'reconciliation_match_groups + reconciliation_matches (el cotejo que cierra el círculo); ' +
-      'journal_entry_lines.is_reconciled/reconciled_at/reconciliation_id (el SELLO, lo único que ' +
-      'la 041 deja tocar de una línea posteada); reconciling_items.resuelta_at; ' +
+      'journal_entries + journal_entry_lines (POSTED, by the engine); ' +
+      'reconciliation_adjustments.journal_entry_id; ai_drafts (closes the draft that was posted); ' +
+      'reconciliation_match_groups + reconciliation_matches (the match that closes the circle); ' +
+      'journal_entry_lines.is_reconciled/reconciled_at/reconciliation_id (the SEAL: the only ' +
+      'three columns migration 041 lets anyone touch on a posted line); ' +
+      'reconciling_items.resuelta_at; ' +
       'reconciliation_sessions (status=posted + posted_at + posted_by)',
   });
   reconPost.addHelpText('after', EJEMPLOS.reconPost);
@@ -4999,35 +5118,40 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           const out = process.stdout;
           if (r.yaContabilizada) {
             out.write(
-              `\n  ${p.yellow('La sesión ya está contabilizada')}: ${r.asientos.length} ` +
-                'asiento(s) en el libro y nada que postear.\n'
+              `\n  ${p.yellow(t('bank.reconciliation.post.already_posted'))}: ` +
+                `${t('bank.reconciliation.post.already_posted_detail', {
+                  count: r.asientos.length,
+                })}\n`
             );
             return;
           }
-          out.write(`\n  ${p.bold('ASIENTOS QUE SE VAN A CREAR')}\n`);
+          out.write(`\n  ${p.bold(t('bank.reconciliation.post.entries_title'))}\n`);
           if (r.asientos.length === 0) {
-            out.write(`    ${p.dim('ninguno: la sesión no tiene ajustes que contabilizar')}\n`);
+            out.write(`    ${p.dim(t('bank.reconciliation.post.no_entries'))}\n`);
           }
           for (const a of r.asientos) {
             out.write(
               `    ${a.tipo.padEnd(14)}${a.importe.padStart(16)}  ` +
-                `${a.adoptado ? p.dim('adoptado') : p.green('nuevo')} · póliza ` +
-                `${a.entryNumber ?? a.journalEntryId} · borrador ${a.draftId ?? '—'}\n`
+                `${
+                  a.adoptado
+                    ? p.dim(t('bank.reconciliation.post.adopted'))
+                    : p.green(t('bank.reconciliation.post.new'))
+                } ` +
+                `${t('bank.reconciliation.post.entry_ref', {
+                  entry: a.entryNumber ?? a.journalEntryId,
+                  draft: a.draftId ?? '—',
+                })}\n`
             );
           }
+          out.write(`    ${p.dim(t('bank.reconciliation.post.counterpart_note'))}\n`);
           out.write(
-            `    ${p.dim(
-              'contrapartida de cada uno: la que fijó `bank adjustment create` en su borrador'
-            )}\n`
-          );
-          out.write(
-            `\n  ${p.bold('Y LO QUE SE SELLA')}\n` +
-              `    ${String(r.partidasSelladas).padStart(4)} línea(s) de libros contra la cuenta ` +
-              'de mayor del banco\n' +
-              `    ${String(r.cotejosEscritos).padStart(4)} cotejo(s) contra el movimiento del ` +
-              'extracto que las explica\n' +
-              `    ${String(r.partidasResueltas).padStart(4)} partida(s) conciliatoria(s) que el ` +
-              'ajuste deja sin objeto\n'
+            `\n  ${p.bold(t('bank.reconciliation.post.sealed_title'))}\n` +
+              `    ${String(r.partidasSelladas).padStart(4)} ` +
+              `${t('bank.reconciliation.post.sealed_lines', { count: r.partidasSelladas })}\n` +
+              `    ${String(r.cotejosEscritos).padStart(4)} ` +
+              `${t('bank.reconciliation.post.sealed_matches', { count: r.cotejosEscritos })}\n` +
+              `    ${String(r.partidasResueltas).padStart(4)} ` +
+              `${t('bank.reconciliation.post.sealed_items', { count: r.partidasResueltas })}\n`
           );
         };
 
@@ -5049,15 +5173,18 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           mostrar: mostrarAsientos,
           pregunta: (previo) =>
             previo.yaContabilizada
-              ? `La sesión ${previo.sesionId} ya está contabilizada y no se va a postear nada. ` +
-                '¿Continuar de todos modos?'
-              : `Vas a CONTABILIZAR ${previo.asientos.filter((a) => !a.adoptado).length} ` +
-                `asiento(s) nuevo(s) en el mayor de la sesión ${previo.sesionId} y sellar ` +
-                `${previo.partidasSelladas} línea(s) de libros. El mayor es inmutable: esto ` +
-                'sólo se corrige por reversa. ¿Continuar?',
+              ? t('bank.reconciliation.post.confirm_noop', { session: previo.sesionId })
+              : t('bank.reconciliation.post.confirm', {
+                  entries: previo.asientos.filter((a) => !a.adoptado).length,
+                  session: previo.sesionId,
+                  lines: previo.partidasSelladas,
+                }),
         });
         if (repetido) {
-          avisarRepetido(opts.idempotencyKey, `sesión ${r.sesionId} ya contabilizada`);
+          avisarRepetido(
+            opts.idempotencyKey,
+            t('bank.reconciliation.post.already_posted_short', { session: r.sesionId })
+          );
         }
 
         if (opts.json) {
@@ -5066,9 +5193,14 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           if (opts.yes === true || dryRun) mostrarAsientos(r);
           process.stdout.write(
             `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.sesionId)} ${p.dim(
-              `· ${r.estado} · ${r.posteados} posteado(s) · ${r.adoptados} adoptado(s) · ` +
-                `${r.partidasSelladas} línea(s) sellada(s) · ${r.cotejosEscritos} cotejo(s) · ` +
-                `${r.partidasResueltas} partida(s) resuelta(s)`
+              t('bank.reconciliation.post.summary', {
+                status: r.estado,
+                posted: r.posteados,
+                adopted: r.adoptados,
+                lines: r.partidasSelladas,
+                matches: r.cotejosEscritos,
+                items: r.partidasResueltas,
+              })
             )}\n`
           );
         }
@@ -5076,17 +5208,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         // pregunta que sigue: un cheque en circulación sigue sin aparecer en el
         // banco después de contabilizar, y sellarlo lo escondería justo el mes
         // en que el banco por fin lo va a mostrar.
-        process.stderr.write(
-          p.dim(
-            '  El sello dice «este renglón ya está explicado por el banco», no «esta sesión ' +
-              'terminó»: los cheques en circulación y los depósitos en tránsito siguen abiertos ' +
-              'para el cotejo del mes que viene.\n'
-          )
-        );
+        process.stderr.write(p.dim(`  ${t('bank.reconciliation.post.seal_note')}\n`));
         if (dryRun) {
-          process.stderr.write(
-            p.yellow('  Ensayo: se contabilizó de verdad y se deshizo. No hay póliza en el libro.\n')
-          );
+          process.stderr.write(p.yellow(`  ${t('bank.reconciliation.post.dry_run')}\n`));
         }
       })
   );
@@ -5112,13 +5236,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       // un expediente de auditoría. Se rechaza nombrando lo que sí hay.
       const pedido = (opts.format ?? 'table').trim().toLowerCase();
       if (pedido === 'pdf' || pedido === 'xlsx') {
-        throw usageError(
-          `--format ${pedido} no existe todavía: el proyecto no tiene dependencia de PDF ni de ` +
-            'XLSX y no se le añade una para fingir un documento que acabaría en un expediente. ' +
-            'Lo que hay: --format json (el estado entero, con las dos columnas y el resumen ' +
-            'congelado), --format md|csv|tsv (el estado en renglones) y la salida de texto por ' +
-            'omisión, que es la que se imprime y se archiva.'
-        );
+        throw usageError(t('bank.reconciliation.generate.no_pdf_or_xlsx', { format: pedido }));
       }
 
       const ctx = await entityOf(opts);
@@ -5143,19 +5261,23 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
 
       const p = deps.palette;
       const out = process.stdout;
-      out.write(`\n${p.bold('ESTADO DE CONCILIACIÓN BANCARIA')}\n`);
+      out.write(`\n${p.bold(t('bank.reconciliation.generate.title'))}\n`);
+      // El relleno lo pone `padEnd` y ya no la cadena: `extracto` mide 8 y
+      // `statement` 9, y una columna cuadrada en español se torcía en inglés.
+      const footLabel = (key: Parameters<typeof t>[0]): string => p.dim(t(key).padEnd(9));
       out.write(
-        `  ${p.dim('cuenta')}   ${e.sesion.cuenta.nombre} (${e.sesion.cuenta.tipo}, ` +
-          `${e.sesion.cuenta.moneda})\n` +
-          `  ${p.dim('periodo')}  ${e.sesion.desde} → ${e.sesion.hasta}\n` +
-          `  ${p.dim('extracto')} ${e.sesion.statementId ?? 'ninguno atado a la sesión'}\n` +
-          `  ${p.dim('sesión')}   ${e.sesion.id} · ${e.sesion.estado}\n`
+        `  ${footLabel('bank.reconciliation.approve.label.account')} ${e.sesion.cuenta.nombre} ` +
+          `(${e.sesion.cuenta.tipo}, ${e.sesion.cuenta.moneda})\n` +
+          `  ${footLabel('bank.match.preview.label.period')} ${e.sesion.desde} → ${e.sesion.hasta}\n` +
+          `  ${footLabel('bank.reconciliation.approve.label.statement')} ` +
+          `${e.sesion.statementId ?? t('bank.reconciliation.approve.no_statement')}\n` +
+          `  ${footLabel('bank.reconciliation.approve.label.session')} ${e.sesion.id} · ${e.sesion.estado}\n`
       );
       imprimirAritmetica(e);
       imprimirContadores(e);
 
       if (e.partidas.length) {
-        out.write(`\n  ${p.bold('PARTIDAS CONCILIATORIAS')}\n`);
+        out.write(`\n  ${p.bold(t('bank.reconciliation.generate.items_title'))}\n`);
         render(e.partidas.map(partidaConciliatoriaComoFila), {
           format: 'table',
           idField: 'id',
@@ -5164,7 +5286,10 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         });
       }
       if (e.ajustes.length) {
-        out.write(`\n  ${p.bold('AJUSTES')} ${p.dim('(borradores)')}\n`);
+        out.write(
+          `\n  ${p.bold(t('bank.reconciliation.status.adjustments_title'))} ` +
+            `${p.dim(t('bank.reconciliation.generate.drafts_caption'))}\n`
+        );
         render(e.ajustes.map(ajusteComoFila), {
           format: 'table',
           idField: 'id',
@@ -5179,9 +5304,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
       // firmas: una sesión sin `approved_by` sale como no aprobada, que es la
       // información que un auditor viene a buscar aquí.
       out.write(
-        `\n  ${p.dim('preparó')}   ${e.sesion.cerradaPor ?? 'sin cerrar'}` +
+        `\n  ${footLabel('bank.reconciliation.generate.prepared_by')} ` +
+          `${e.sesion.cerradaPor ?? t('bank.reconciliation.generate.not_closed')}` +
           `${e.sesion.cerradaEl ? ` (${e.sesion.cerradaEl})` : ''}\n` +
-          `  ${p.dim('aprobó')}    ${e.sesion.aprobadaPor ?? 'sin aprobar'}\n\n`
+          `  ${footLabel('bank.reconciliation.generate.approved_by')} ` +
+          `${e.sesion.aprobadaPor ?? t('bank.reconciliation.generate.not_approved')}\n\n`
       );
     })
   );
@@ -5218,7 +5345,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
   const imprimirOmitidas = (omitidas: readonly MovimientoOmitido[]): void => {
     if (omitidas.length === 0) return;
     const p = deps.palette;
-    process.stdout.write(`\n  ${p.bold('OMITIDAS')}\n`);
+    process.stdout.write(`\n  ${p.bold(t('bank.skipped.title'))}\n`);
     for (const o of omitidas) {
       const marca = o.motivo === 'ya-contabilizada' ? p.dim('·') : p.yellow('!');
       process.stdout.write(
@@ -5267,8 +5394,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     llave: { scope: 'bank fee post' },
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines POSTEADOS (source_type=bank_fee, uno por cargo, ' +
-      'idempotente por (source_type, source_id))',
+      'journal_entries + journal_entry_lines POSTED (source_type=bank_fee, one per charge, ' +
+      'idempotent by (source_type, source_id))',
   });
   feePost.addHelpText('after', EJEMPLOS.feePost);
   feePost.action(
@@ -5300,17 +5427,20 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         const mostrar = (r: ResultadoDeComisiones): void => {
           const out = process.stdout;
           out.write(
-            `\n  ${p.bold('COMISIONES')} ${p.dim(
+            `\n  ${p.bold(t('bank.fee.post.title'))} ${p.dim(
               `${r.periodo.desde} → ${r.periodo.hasta} · ${r.cuenta.nombre} · IVA ${tasa}`
             )}\n`
           );
           if (r.contabilizadas.length === 0) {
-            out.write(`    ${p.dim('ningún cargo que contabilizar')}\n`);
+            out.write(`    ${p.dim(t('bank.fee.post.nothing_to_post'))}\n`);
           }
           for (const c of r.contabilizadas) {
             out.write(
               `\n    ${c.fecha} ${p.dim(
-                `${c.descripcion ?? 'sin descripción'} · póliza ${c.entryNumber ?? '(ensayo)'}`
+                t('bank.entry_ref', {
+                  description: c.descripcion ?? t('bank.no_description'),
+                  entry: c.entryNumber ?? t('bank.entry_dry_run'),
+                })
               )}\n`
             );
             renglonDeAsiento('comision_bancaria', c.base, null);
@@ -5323,7 +5453,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           imprimirOmitidas(r.omitidas);
           out.write(
             `\n  ${p.dim(
-              `totales: cargo ${r.totales.total} · gasto ${r.totales.base} · IVA ${r.totales.iva}`
+              t('bank.fee.post.totals', {
+                charge: r.totales.total,
+                expense: r.totales.base,
+                vat: r.totales.iva,
+              })
             )}\n`
           );
         };
@@ -5347,14 +5481,20 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             ),
           mostrar,
           pregunta: (previo) =>
-            `Vas a CONTABILIZAR ${previo.contabilizadas.length} comisión(es) del ` +
-              `${previo.periodo.desde} al ${previo.periodo.hasta} en la cuenta ` +
-              `${previo.cuenta.nombre}, por ${previo.totales.total} (IVA ${previo.totales.iva} a ` +
-              'pendiente de acreditar). El mayor es inmutable: esto sólo se corrige por reversa. ' +
-              '¿Continuar?',
+            t('bank.fee.post.confirm', {
+              count: previo.contabilizadas.length,
+              from: previo.periodo.desde,
+              to: previo.periodo.hasta,
+              account: previo.cuenta.nombre,
+              total: previo.totales.total,
+              vat: previo.totales.iva,
+            }),
         });
         if (repetido) {
-          avisarRepetido(opts.idempotencyKey, `${r.contabilizadas.length} comisión(es)`);
+          avisarRepetido(
+            opts.idempotencyKey,
+            t('bank.fee.post.fees', { count: r.contabilizadas.length })
+          );
         }
 
         if (opts.json) {
@@ -5363,21 +5503,18 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           if (opts.yes === true || dryRun) mostrar(r);
           process.stdout.write(
             `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.cuenta.nombre)} ${p.dim(
-              `· ${r.contabilizadas.length} contabilizada(s) · ${r.omitidas.length} omitida(s) · ` +
-                `cargo ${r.totales.total} · IVA ${r.totales.iva}`
+              t('bank.fee.post.summary', {
+                posted: r.contabilizadas.length,
+                skipped: r.omitidas.length,
+                charge: r.totales.total,
+                vat: r.totales.iva,
+              })
             )}\n`
           );
         }
-        process.stderr.write(
-          p.dim(
-            '  El IVA queda en pendiente de acreditar: se acredita con `bank fee apply` cuando ' +
-              'llegue el CFDI del banco, no aquí.\n'
-          )
-        );
+        process.stderr.write(p.dim(`  ${t('bank.fee.post.vat_pending_note')}\n`));
         if (dryRun) {
-          process.stderr.write(
-            p.yellow('  Ensayo: se contabilizó de verdad y se deshizo; los ids salen en null.\n')
-          );
+          process.stderr.write(p.yellow(`  ${t('bank.posting.dry_run')}\n`));
         }
         // 4 es «hay algo que mirar», como en `bank statement check`. Volver a
         // correr el mes y encontrarlo hecho NO lo es.
@@ -5419,8 +5556,8 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     llave: { scope: 'bank interest post' },
     agent: false,
     writes:
-      'journal_entries + journal_entry_lines POSTEADOS (source_type=bank_interest, uno por abono, ' +
-      'idempotente por (source_type, source_id))',
+      'journal_entries + journal_entry_lines POSTED (source_type=bank_interest, one per credit, ' +
+      'idempotent by (source_type, source_id))',
   });
   interestPost.addHelpText('after', EJEMPLOS.interestPost);
   interestPost.action(
@@ -5448,17 +5585,21 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         const mostrar = (r: ResultadoDeIntereses): void => {
           const out = process.stdout;
           out.write(
-            `\n  ${p.bold('INTERESES')} ${p.dim(
-              `${r.periodo.desde} → ${r.periodo.hasta} · ${r.cuenta.nombre} · retención ${tasa}`
+            `\n  ${p.bold(t('bank.interest.post.title'))} ${p.dim(
+              `${r.periodo.desde} → ${r.periodo.hasta} · ${r.cuenta.nombre} · ` +
+                t('bank.interest.post.withholding', { rate: tasa })
             )}\n`
           );
           if (r.contabilizados.length === 0) {
-            out.write(`    ${p.dim('ningún abono que contabilizar')}\n`);
+            out.write(`    ${p.dim(t('bank.interest.post.nothing_to_post'))}\n`);
           }
           for (const i of r.contabilizados) {
             out.write(
               `\n    ${i.fecha} ${p.dim(
-                `${i.descripcion ?? 'sin descripción'} · póliza ${i.entryNumber ?? '(ensayo)'}`
+                t('bank.entry_ref', {
+                  description: i.descripcion ?? t('bank.no_description'),
+                  entry: i.entryNumber ?? t('bank.entry_dry_run'),
+                })
               )}\n`
             );
             renglonDeAsiento(r.cuenta.nombre, i.neto, null);
@@ -5472,8 +5613,11 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           imprimirOmitidas(r.omitidos);
           out.write(
             `\n  ${p.dim(
-              `totales: bruto ${r.totales.bruto} · retenido ${r.totales.retencion} · neto ` +
-                `${r.totales.neto}`
+              t('bank.interest.post.totals', {
+                gross: r.totales.bruto,
+                withheld: r.totales.retencion,
+                net: r.totales.neto,
+              })
             )}\n`
           );
         };
@@ -5495,14 +5639,20 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             ),
           mostrar,
           pregunta: (previo) =>
-            `Vas a CONTABILIZAR ${previo.contabilizados.length} abono(s) de interés del ` +
-              `${previo.periodo.desde} al ${previo.periodo.hasta} en la cuenta ` +
-              `${previo.cuenta.nombre}: ${previo.totales.bruto} de ingreso bruto y ` +
-              `${previo.totales.retencion} de ISR retenido a favor. El mayor es inmutable: esto ` +
-              'sólo se corrige por reversa. ¿Continuar?',
+            t('bank.interest.post.confirm', {
+              count: previo.contabilizados.length,
+              from: previo.periodo.desde,
+              to: previo.periodo.hasta,
+              account: previo.cuenta.nombre,
+              gross: previo.totales.bruto,
+              withheld: previo.totales.retencion,
+            }),
         });
         if (repetido) {
-          avisarRepetido(opts.idempotencyKey, `${r.contabilizados.length} abono(s) de interés`);
+          avisarRepetido(
+            opts.idempotencyKey,
+            t('bank.interest.post.credits', { count: r.contabilizados.length })
+          );
         }
 
         if (opts.json) {
@@ -5511,21 +5661,18 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           if (opts.yes === true || dryRun) mostrar(r);
           process.stdout.write(
             `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(r.cuenta.nombre)} ${p.dim(
-              `· ${r.contabilizados.length} contabilizado(s) · ${r.omitidos.length} omitido(s) · ` +
-                `bruto ${r.totales.bruto} · retenido ${r.totales.retencion}`
+              t('bank.interest.post.summary', {
+                posted: r.contabilizados.length,
+                skipped: r.omitidos.length,
+                gross: r.totales.bruto,
+                withheld: r.totales.retencion,
+              })
             )}\n`
           );
         }
-        process.stderr.write(
-          p.dim(
-            '  El ISR retenido queda como pago provisional A FAVOR, no como gasto: es lo que se ' +
-              'acredita contra el impuesto del ejercicio.\n'
-          )
-        );
+        process.stderr.write(p.dim(`  ${t('bank.interest.post.withholding_note')}\n`));
         if (dryRun) {
-          process.stderr.write(
-            p.yellow('  Ensayo: se contabilizó de verdad y se deshizo; los ids salen en null.\n')
-          );
+          process.stderr.write(p.yellow(`  ${t('bank.posting.dry_run')}\n`));
         }
         if (hayQueMirar(r.omitidos)) return ExitCode.VALIDATION;
       })
@@ -5575,9 +5722,9 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
     llave: { scope: 'bank check reconcile' },
     agent: false,
     writes:
-      'vendor_payments.check_cleared_date + check_cleared_tx_id (juntas, por el CHECK ' +
-      '`pago_cheque_cobro_coherente` de la 055) + journal_entries POSTEADOS ' +
-      '(source_type=bank_check_clearing) cuando hay IVA que reclasificar',
+      'vendor_payments.check_cleared_date + check_cleared_tx_id (together, because of the ' +
+      '`pago_cheque_cobro_coherente` CHECK of migration 055) + journal_entries POSTED ' +
+      '(source_type=bank_check_clearing) when there is VAT to reclassify',
   });
   checkReconcile.addHelpText('after', EJEMPLOS.checkReconcile);
   checkReconcile.action(
@@ -5621,34 +5768,42 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
           const renglon = (etiqueta: string, valor: string): void => {
             out.write(`    ${etiqueta.padEnd(16)}${valor}\n`);
           };
-          out.write(`\n  ${p.bold('EL MES EN QUE CAE EL ASIENTO')}\n`);
-          renglon('cheque', `${r.checkNumber ?? 'sin folio'} · pago ${r.paymentNumber}`);
+          out.write(`\n  ${p.bold(t('bank.check.reconcile.title'))}\n`);
           renglon(
-            'cobrado el',
+            t('bank.check.reconcile.label.check'),
+            t('bank.check.reconcile.check_value', {
+              check: r.checkNumber ?? t('bank.check.reconcile.no_number'),
+              payment: r.paymentNumber,
+            })
+          );
+          renglon(
+            t('bank.check.reconcile.label.cleared_on'),
             `${r.fechaDeCobro} ${p.dim(
-              `(lo fecha el banco: movimiento ${r.movimiento.id}, ${r.movimiento.importe})`
+              t('bank.check.reconcile.dated_by_bank', {
+                transaction: r.movimiento.id,
+                amount: r.movimiento.importe,
+              })
             )}`
           );
           renglon(
-            'periodo',
-            r.periodo ? `${r.periodo.nombre} (${r.periodo.status})` : 'sin periodo abierto en esa fecha'
+            t('bank.match.preview.label.period'),
+            r.periodo
+              ? `${r.periodo.nombre} (${r.periodo.status})`
+              : t('bank.check.reconcile.no_open_period')
           );
-          out.write(
-            `    ${p.dim(
-              'por qué: bajo la LIVA el pago con cheque se entiende efectuado el día del COBRO y ' +
-                'no el de la firma, así que el IVA de este pago se acredita en ese mes.'
-            )}\n`
-          );
+          out.write(`    ${p.dim(t('bank.check.reconcile.why'))}\n`);
 
-          out.write(`\n  ${p.bold('ASIENTO')}\n`);
+          out.write(`\n  ${p.bold(t('bank.check.reconcile.entry_title'))}\n`);
           if (r.porGasto.length === 0) {
-            out.write(`      ${p.dim('ninguno: no hay IVA que reclasificar')}\n`);
+            out.write(`      ${p.dim(t('bank.check.reconcile.no_vat'))}\n`);
           }
           for (const g of r.porGasto) {
             renglonDeAsiento(`iva_acreditable · ${g.billNumber}`, g.importe, null);
             renglonDeAsiento(`iva_pendiente_acreditar · ${g.billNumber}`, null, g.importe);
           }
-          out.write(`      ${p.dim(`total reclasificado ${r.reclasificado}`)}\n`);
+          out.write(
+            `      ${p.dim(t('bank.check.reconcile.total', { amount: r.reclasificado }))}\n`
+          );
           if (r.nota) out.write(`    ${p.yellow(r.nota)}\n`);
         };
 
@@ -5669,13 +5824,18 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             ),
           mostrar,
           pregunta: (previo) =>
-            `Vas a registrar que el banco cobró el cheque ${previo.checkNumber ?? previo.paymentNumber} ` +
-              `el ${previo.fechaDeCobro} y a reclasificar ${previo.reclasificado} de IVA en el ` +
-              `periodo ${previo.periodo?.nombre ?? 'sin periodo'}. El mayor es inmutable: esto ` +
-              'sólo se corrige por reversa. ¿Continuar?',
+            t('bank.check.reconcile.confirm', {
+              check: previo.checkNumber ?? previo.paymentNumber,
+              date: previo.fechaDeCobro,
+              amount: previo.reclasificado,
+              period: previo.periodo?.nombre ?? t('bank.check.reconcile.no_period'),
+            }),
         });
         if (repetido) {
-          avisarRepetido(opts.idempotencyKey, `cheque cobrado el ${r.fechaDeCobro}`);
+          avisarRepetido(
+            opts.idempotencyKey,
+            t('bank.check.reconcile.already_cleared', { date: r.fechaDeCobro })
+          );
         }
 
         if (opts.json) {
@@ -5686,9 +5846,16 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
             `${dryRun ? p.yellow('◑') : p.green('✔')} ${p.bold(
               r.checkNumber ?? r.paymentNumber
             )} ${p.dim(
-              `· cobrado el ${r.fechaDeCobro} · periodo ${r.periodo?.nombre ?? '—'} · IVA ` +
-                `reclasificado ${r.reclasificado}` +
-                `${r.entryNumber ? ` · póliza ${r.entryNumber}` : ''}`
+              t('bank.check.reconcile.summary', {
+                date: r.fechaDeCobro,
+                period: r.periodo?.nombre ?? '—',
+                amount: r.reclasificado,
+              }) +
+                `${
+                  r.entryNumber
+                    ? ` · ${t('bank.entry_number', { entry: r.entryNumber })}`
+                    : ''
+                }`
             )}\n`
           );
         }
@@ -5697,9 +5864,7 @@ export function registerBankCommand(program: Command, deps: BankCommandDeps): vo
         // fecha del cheque en vez de esperar al cobro.
         if (r.nota) process.stderr.write(p.yellow(`  ${r.nota}\n`));
         if (dryRun) {
-          process.stderr.write(
-            p.yellow('  Ensayo: se registró el cobro de verdad y se deshizo.\n')
-          );
+          process.stderr.write(p.yellow(`  ${t('bank.check.reconcile.dry_run')}\n`));
         }
       })
   );

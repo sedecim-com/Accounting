@@ -739,6 +739,22 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
     expect(verdictFindings(v).blocking).toBeGreaterThan(0);
   });
 
+  it('el archivo del tercero se lee con desconfianza: lo que no es un expediente se niega antes de la base', async () => {
+    enterTenant(f.tenantId);
+    const pack = await buildClosingPack(f.entityId, (await periodOf(f, JULIO)).id, { userId: f.userId });
+    const text = (x: unknown) => JSON.stringify(x);
+    expect(() => parseClosingPack('{ no es json')).toThrow(/not valid JSON/);
+    expect(() => parseClosingPack(text({ hello: 1 }))).toThrow(/version marker/);
+    expect(() => parseClosingPack(text({ ...pack, mnemosine_closing_pack: 99 }))).toThrow(/understands up to/);
+    expect(() => parseClosingPack(text({ ...pack, seal: 'abc' }))).toThrow(/not a SHA-256/);
+    expect(() =>
+      parseClosingPack(text({ ...pack, sealed: { ...pack.sealed, period: { ...pack.sealed.period, id: [pack.sealed.period.id] } } }))
+    ).toThrow(/not a UUID/);
+    expect(() => parseClosingPack(text({ ...pack, sealed: { ...pack.sealed, figures: undefined } }))).toThrow(/no figures/);
+    expect(() => parseClosingPack(text({ ...pack, envelope: undefined }))).toThrow(/no envelope/);
+    expect(parseClosingPack(text(pack)).seal).toBe(pack.seal);
+  });
+
   it('el sello guardado en la base es el del cuerpo, y la tabla es de sólo agregar', async () => {
     enterTenant(f.tenantId);
     const julio = await periodOf(f, JULIO);

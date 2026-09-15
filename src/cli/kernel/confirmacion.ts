@@ -24,6 +24,8 @@
 // comparación de confirmación que reaparezca fuera de este módulo.
 // ============================================================
 
+import { t } from '../../i18n/index.js';
+
 /** Minúsculas y sin marcas diacríticas: «SÍ» y «si» son la misma respuesta. */
 const normaliza = (respuesta: string): string =>
   respuesta
@@ -59,9 +61,20 @@ export function esNegativa(respuesta: string | null | undefined): boolean {
  * Lo que se le dice a un contador cuando su respuesta no fue ni sí ni
  * no. «Aborted.» a secas se lee como un rechazo contable; esto nombra
  * lo que no se entendió y enseña las teclas.
+ *
+ * EL TEXTO YA NO ESTÁ AQUÍ, y la clave no es nueva: `en.ts` la sembró en I6
+ * citando este mismo renglón, y su inglés dice `answer y or yes for yes, n or
+ * no for no` — porque el «y/s» del español es una gramática de DOS idiomas a la
+ * vez y en inglés sobra la mitad. Lo que faltaba era el sitio de llamada: la
+ * clave existía y el literal español seguía escrito aquí, así que
+ * `--locale en-US` imprimía la frase en castellano.
+ *
+ * SE RESUELVE AL LLAMAR y no al importar. `t()` deriva el idioma en cada
+ * llamada (`src/i18n/index.ts`), y esta función se llama cuando el usuario ya
+ * contestó: el locale está resuelto mucho antes.
  */
 export const noEntendi = (respuesta: string): string =>
-  `no entendí «${respuesta}»: responde y/s para sí, n para no`;
+  t('confirm_answer_not_understood', { answer: respuesta });
 
 /** Veredicto de una confirmación con derecho a una repregunta. */
 export interface VeredictoConfirmacion {

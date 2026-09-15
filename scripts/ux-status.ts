@@ -94,6 +94,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Command } from 'commander';
+// ═══ ESTE IMPORT VA ANTES QUE EL DE mnemosine.js, Y NO ES UN CAPRICHO DE ORDEN.
+// Su cuerpo fija MNEMOSINE_LOCALE=en-US, y el árbol de commander se construye
+// AL CARGAR mnemosine.js. Con una salvedad que hay que decir porque este
+// comentario decía otra cosa: MEDIDO HOY, reordenarlos NO mueve ninguna de las
+// seis cifras. Construido el árbol en es-MX, `censar` devuelve exactamente lo
+// mismo —`nodos-fuera-del-idioma-canonico` sigue en 7— porque lee la
+// descripción GUARDADA en el objeto de Commander, y `kernel/help.ts` guarda ahí
+// el inglés y traduce sólo el renderizado. Aquí esto es blindaje, no
+// reparación: lo protege una decisión que vive en OTRO archivo. El porqué
+// entero está en `./english-locale.js`; el seguro contra el reordenado es
+// `assertEnglishHelp`, que se llama en `main`.
+import { assertEnglishHelp } from './english-locale.js';
 import { program } from '../src/cli/mnemosine.js';
 import { riskOf } from '../src/cli/kernel/risk.js';
 import { FLAG_DICTIONARY } from '../src/cli/kernel/flags.js';
@@ -200,6 +212,14 @@ export const TITULOS: Readonly<Record<Clave, string>> = Object.freeze({
  * Este 7 es la medición del árbol tal como está, no la del árbol que el
  * comentario describe; si alguien termina esa edición, el número baja a 6 y el
  * trinquete lo va a pedir por holgura.
+ *
+ * Y ES UN 7 EN INGLÉS, aunque hoy no haga falta insistir. Desde I7 el árbol se
+ * rinde en dos idiomas y el import de `./english-locale.js` de arriba fija el
+ * locale para que este número signifique siempre lo mismo. Pero MEDIDO HOY el 7
+ * sale igual con el árbol construido en es-MX: `censar` lee la descripción
+ * guardada en el objeto de Commander, que `kernel/help.ts` deja en inglés a
+ * propósito. El locale fijado es la garantía de que siga siendo así el día que
+ * alguien cambie esa decisión, no la razón de que hoy salga 7.
  *
  * ── `hojas-graves-sin-las-tres-banderas` = 0 ──────────────────────────────
  *
@@ -838,6 +858,9 @@ export function main(argv: readonly string[], efectos: Efectos = EFECTOS_REALES)
   const json = argv.includes('--json');
   const check = argv.includes('--check');
   const apretarlo = argv.includes('--apretar');
+  // Antes de contar nada: que el árbol que se va a medir sea el inglés. Ver
+  // `assertEnglishHelp` (scripts/english-locale.ts) para qué tapa y qué no.
+  assertEnglishHelp(program);
   const censo = censar(program);
   const veredicto = comparar(censo);
 

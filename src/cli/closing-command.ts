@@ -484,7 +484,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         deps.palette.cyan(`${question} [y/N] `)
       );
       if (verdict.incomprendida !== undefined) {
-        process.stderr.write(`${noEntendi(verdict.incomprendida)}; lo tomo como no.\n`);
+        process.stderr.write(`${noEntendi(verdict.incomprendida)}; taking that as no.\n`);
       }
       return verdict.si;
     } finally {
@@ -756,8 +756,8 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       'closing_runs, closing_run_steps, and fiscal_periods.status on the soft close',
     llave: {
       innecesaria:
-        'los motores no postean dos veces el mismo mes y un candado consultivo impide dos conductores ' +
-        'sobre el mismo periodo: volver a correr, con --resume si hay una corrida abierta, no duplica nada',
+        'the engines never post the same month twice and an advisory lock keeps two conductors off the ' +
+        'same period: running again, with --resume when a run is open, duplicates nothing',
     },
   });
   runLeaf.addHelpText('after', EJEMPLOS.run);

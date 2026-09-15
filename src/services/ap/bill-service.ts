@@ -462,8 +462,22 @@ class DryRunRollback extends Error {
 }
 
 export interface ApproveBillOptions {
-  /** Refuses to approve a bill belonging to another entity. The CLI always passes it. */
-  entityId?: string;
+  /**
+   * The entity the bill must belong to. REQUIRED, and on purpose (TEN-11, #235).
+   *
+   * It used to be optional, documented as "the CLI always passes it" — and the
+   * REST route didn't. `POST /v1/bills/:id/approve` called `approveBill(id,
+   * userId)` with no options, so the UPDATE carried no entity at all: measured
+   * against Postgres, a session granted only company A approved company B's
+   * bill and left a POSTED journal entry in B's ledger, consuming B's first
+   * folio. A unit test had pinned the omission as "the REST contract".
+   *
+   * A boundary parameter that is optional is one somebody forgets, and then
+   * documents as the correct way to call. It is a named field, not a
+   * positional one: `id` and `entityId` are both UUID strings and would swap
+   * without the compiler noticing.
+   */
+  entityId: string;
   /** Compute the real entry, show it, write nothing. */
   dryRun?: boolean;
 }
@@ -492,21 +506,19 @@ export interface ApproveBillOptions {
 export async function approveBill(
   id: string,
   userId: string,
-  opts: ApproveBillOptions = {}
+  opts: ApproveBillOptions
 ): Promise<ApproveBillResult> {
   const dryRun = opts.dryRun === true;
   try {
     const payload = await withTransaction(async (client) => {
-      const params: unknown[] = [userId, id];
-      let scope = '';
-      if (opts.entityId) {
-        params.push(opts.entityId);
-        scope = ` AND entity_id = $${params.length}`;
-      }
+      // The entity predicate is ALWAYS there — no branch that builds it only
+      // when an entity was given. If `entityId` ever arrives undefined, pg sends
+      // NULL, `entity_id = NULL` matches nothing, and the caller gets a 404:
+      // it fails closed instead of approving across the boundary.
       const result = await client.query<Bill>(
         `UPDATE bills SET status = 'approved', approved_by = $1, approved_at = NOW()
-         WHERE id = $2${scope} AND status IN ('draft', 'pending_approval') RETURNING *`,
-        params
+         WHERE id = $2 AND entity_id = $3 AND status IN ('draft', 'pending_approval') RETURNING *`,
+        [userId, id, opts.entityId]
       );
       if (result.rows.length === 0) throw new NotFoundError('Bill', id);
       const approved = result.rows[0];
