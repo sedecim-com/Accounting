@@ -54,14 +54,23 @@ export const UNMATCHED_ROUTE_LABEL = 'unmatched';
  * (for percentiles) and the counter (for QPS and error budgets).
  *
  * The route label is the matched route pattern (`/v1/employees/:id` instead of
- * one label per UUID), and `UNMATCHED_ROUTE_LABEL` when no route matched. It
- * never reads the request path: that is what keeps cardinality bounded.
+ * one label per UUID), and `UNMATCHED_ROUTE_LABEL` when no route matched.
+ *
+ * Cardinality stays bounded only while every label value comes from the code,
+ * never from what the client sent. That is why the middleware reads nothing
+ * of the request but its method and route, and the mount prefix lowercased:
+ * `req.baseUrl` is the prefix as the client spelled it, Express matches mounts
+ * case-insensitively, and `/V1/Ai/WebHooks` would otherwise mint its own series
+ * next to `/v1/ai/webhooks`. Lowercasing is exact because every mount of this
+ * API is a lowercase literal with no parameters (`src/api/rest/montajes.ts`;
+ * `src/api/rest/risk.ts` relies on the same fact). Nothing enforces that yet:
+ * a mount with a parameter would put the client's value back in the label.
  */
 export const metricsMiddleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
   const stop = httpRequestDuration.startTimer();
   res.on('finish', () => {
     const route = req.route?.path
-      ? `${req.baseUrl || ''}${req.route.path}`
+      ? `${(req.baseUrl || '').toLowerCase()}${req.route.path}`
       : UNMATCHED_ROUTE_LABEL;
     const labels = {
       method: req.method,

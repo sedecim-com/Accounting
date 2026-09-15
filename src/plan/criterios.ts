@@ -4884,14 +4884,35 @@ export const CRITERIOS: Criterio[] = [
     // every label set it has seen for the life of the process. The route label
     // of a request no route matched was the literal `req.path`, so each random
     // path minted a permanent series: anyone could grow the scrape and the
-    // heap one request at a time, without credentials.
+    // heap one request at a time, without credentials. The first fix kept one
+    // more channel open: `req.baseUrl` is the mount prefix as the client
+    // spelled it, and Express matches mounts case-insensitively, so every case
+    // variant of `/v1/ai/webhooks` (a route that answers its own 401) minted a
+    // series too.
     //
-    // The criterion reads the middleware's syntax tree, not its text, so a
-    // comment that quotes the old fallback cannot turn it red and a comment
-    // that quotes the new one cannot keep it green. Behaviour is covered by
-    // tests/api/middleware/metrics-label.spec.ts, over a real socket.
+    // What the criterion checks, on the middleware's syntax tree (a comment
+    // that quotes a fallback moves nothing):
+    //   · the bounded label is an exported const string literal;
+    //   · an ALLOWLIST of reads: the request only as `.method`, `.route` and a
+    //     lowercased `.baseUrl`, the response only as `.on` and `.statusCode`.
+    //     Any other use of either (another member, a bracket, an alias, an
+    //     argument to a helper, `res.req`) is a finding. A denylist of path
+    //     names let `req.query`, `req.get('referer')` and a module-level helper
+    //     handed `res` through;
+    //   · the value that reaches prom-client is the one checked: `stop` and
+    //     `httpRequestsTotal.inc` receive only the `labels` const, whose `route`
+    //     is the `route` const bound to the bounded conditional, and that
+    //     conditional's matched branch reads nothing but the request.
+    // What it does not check: that the counters are not used from another
+    // module (today nothing outside metrics.ts imports them), and that every
+    // mount stays a literal with no parameter, which is what makes lowercasing
+    // `baseUrl` exact. A mount with a parameter would put the client's value
+    // back into the label; guarding the mount table from here would pin a
+    // Spanish-named file and grow two plan lanes of
+    // `scripts/language-status.ts`, so it waits for that file's rename. Behaviour is covered, over a real socket, by
+    // tests/api/middleware/metrics-label.spec.ts.
     enunciado:
-      'Una ruta que no existe no acuña una serie nueva en el /metrics que se sirve sin credenciales',
+      'Ninguna petición acuña una serie nueva en el /metrics que se sirve sin credenciales: la etiqueta de ruta sale del código, no de lo que envía el cliente',
     mutantes: [
       {
         archivo: 'src/api/rest/middleware/metrics.ts',
@@ -4913,6 +4934,27 @@ export const CRITERIOS: Criterio[] = [
         a: '    const incoming = req;\n    const labels = {\n      method: req.method,\n      route: res.statusCode === 404 ? incoming.path : route,',
         porque:
           'an alias of the request hides the path read from a check that only looks for `req.`',
+      },
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: "      ? `${(req.baseUrl || '').toLowerCase()}${req.route.path}`",
+        a: "      ? `${req.baseUrl || ''}${req.route.path}`",
+        porque:
+          'Express matches a mount case-insensitively and baseUrl keeps the client spelling: each case variant of an unauthenticated mount mints its own series',
+      },
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: 'export const metricsMiddleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {\n  const stop = httpRequestDuration.startTimer();\n  res.on(\'finish\', () => {\n    const route = req.route?.path\n      ? `${(req.baseUrl || \'\').toLowerCase()}${req.route.path}`\n      : UNMATCHED_ROUTE_LABEL;\n    const labels = {\n      method: req.method,\n      route,',
+        a: 'function unknownEndpoint(r: Response): string {\n  return r.req.path;\n}\n\nexport const metricsMiddleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {\n  const stop = httpRequestDuration.startTimer();\n  res.on(\'finish\', () => {\n    const route = req.route?.path\n      ? `${(req.baseUrl || \'\').toLowerCase()}${req.route.path}`\n      : UNMATCHED_ROUTE_LABEL;\n    const labels = {\n      method: req.method,\n      route: route === UNMATCHED_ROUTE_LABEL && req.method !== \'GET\' ? unknownEndpoint(res) : route,',
+        porque:
+          'a helper declared outside the middleware reads the path through res.req, and only for non-GET requests: a check that follows `req` inside the body, and a spec that only sends GET, both stay green',
+      },
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: '      route,\n      status: String(res.statusCode),',
+        a: "      route: route === UNMATCHED_ROUTE_LABEL && typeof req.query.q === 'string' ? req.query.q : route,\n      status: String(res.statusCode),",
+        porque:
+          'the query string is as much client text as the path: a denylist of path, url and originalUrl lets it through',
       },
     ],
     evaluar: () => {
@@ -4946,62 +4988,197 @@ export const CRITERIOS: Criterio[] = [
       if (!middleware || !(ts.isArrowFunction(middleware) || ts.isFunctionExpression(middleware))) {
         return falla('no se encontró el inicializador de metricsMiddleware como función: el instrumento no puede mirar la etiqueta');
       }
-      const requestParam = middleware.parameters[0];
-      if (!requestParam || !ts.isIdentifier(requestParam.name)) {
-        return falla('metricsMiddleware no declara la petición como primer parámetro con nombre: el instrumento no puede seguirla');
+      const [requestParam, responseParam] = middleware.parameters;
+      if (!requestParam || !ts.isIdentifier(requestParam.name) || !responseParam || !ts.isIdentifier(responseParam.name)) {
+        return falla(
+          'metricsMiddleware no declara la petición y la respuesta como sus dos primeros parámetros con nombre: el instrumento no puede seguirlas'
+        );
       }
       const requestName = requestParam.name.text;
+      const responseName = responseParam.name.text;
+      const body = middleware.body;
 
       function* walk(n: ts.Node): Generator<ts.Node> {
         yield n;
         for (const child of n.getChildren()) yield* walk(child);
       }
+      const at = (n: ts.Node): string =>
+        `:${sf.getLineAndCharacterOfPosition(n.getStart()).line + 1} ${n.getText().slice(0, 60)}`;
+      // An identifier that names a member (`x.req`, `{ route: … }`) or declares
+      // a binding is not a read of a binding with that name.
+      const isRead = (n: ts.Identifier): boolean => {
+        const p = n.parent;
+        if (ts.isPropertyAccessExpression(p) || ts.isPropertyAssignment(p)) return p.name !== n;
+        if (ts.isVariableDeclaration(p) || ts.isParameter(p) || ts.isBindingElement(p) || ts.isFunctionDeclaration(p)) {
+          return p.name !== n;
+        }
+        return true;
+      };
+      const readsIn = (n: ts.Node): ts.Identifier[] =>
+        [...walk(n)].filter((x): x is ts.Identifier => ts.isIdentifier(x) && isRead(x));
 
-      // 2. The request never yields its path. Every use of the request
-      // identifier must be a member read of a name that is not the path; any
-      // other use (an alias, a destructuring, an argument to a helper, a
-      // computed key) could launder the path out of sight, so it is a finding.
-      const banned = new Set(['path', 'url', 'originalUrl']);
+      // 2. An allowlist of reads. Every label value must come from the code, so
+      // the request is read only for its method (Node's parser admits a fixed
+      // set), its matched route (registered by the code) and its mount prefix
+      // lowercased; the response only to listen and for its status. Any other
+      // use of either could launder client text into a label.
+      const allowedMembers = new Map([
+        [requestName, new Set(['method', 'route', 'baseUrl'])],
+        [responseName, new Set(['on', 'statusCode'])],
+      ]);
+      // `(req.baseUrl || '').toLowerCase()` or `req.baseUrl.toLowerCase()`.
+      const lowercased = (read: ts.Node): boolean => {
+        let n = read;
+        for (;;) {
+          const p = n.parent;
+          const defaulted =
+            ts.isBinaryExpression(p) &&
+            p.left === n &&
+            (p.operatorToken.kind === ts.SyntaxKind.BarBarToken || p.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) &&
+            ts.isStringLiteralLike(p.right);
+          if (!ts.isParenthesizedExpression(p) && !defaulted) break;
+          n = p;
+        }
+        const member = n.parent;
+        return (
+          ts.isPropertyAccessExpression(member) &&
+          member.expression === n &&
+          member.name.text === 'toLowerCase' &&
+          ts.isCallExpression(member.parent) &&
+          member.parent.expression === member
+        );
+      };
       const findings: string[] = [];
-      let fallbackIsBounded = false;
-      for (const n of walk(middleware.body)) {
-        if (
-          ts.isConditionalExpression(n) &&
-          ts.isIdentifier(n.whenFalse) &&
-          n.whenFalse.text === 'UNMATCHED_ROUTE_LABEL' &&
-          /\.route\b/.test(n.condition.getText())
-        ) {
-          fallbackIsBounded = true;
+      for (const n of readsIn(body)) {
+        const allowed = allowedMembers.get(n.text);
+        if (!allowed) continue;
+        const member = n.parent;
+        if (!ts.isPropertyAccessExpression(member) || member.expression !== n || !allowed.has(member.name.text)) {
+          findings.push(at(member));
+        } else if (n.text === requestName && member.name.text === 'baseUrl' && !lowercased(member)) {
+          findings.push(`${at(member)} sin pasar a minúsculas`);
         }
-        if (!ts.isIdentifier(n) || n.text !== requestName) continue;
-        const parent = n.parent;
-        const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
-        if (ts.isPropertyAccessExpression(parent) && parent.expression === n) {
-          if (banned.has(parent.name.text)) findings.push(`:${line} ${parent.getText()}`);
-          continue;
+      }
+
+      // 3. The value that reaches prom-client is the value checked. A check of
+      // the conditional alone stays green when the label is overridden after it.
+      const soleConstInBody = (name: string): ts.Expression | undefined => {
+        const declared = [...walk(sf)].filter(
+          (x) =>
+            (ts.isVariableDeclaration(x) || ts.isParameter(x) || ts.isBindingElement(x) || ts.isFunctionDeclaration(x)) &&
+            x.name !== undefined &&
+            ts.isIdentifier(x.name) &&
+            x.name.text === name
+        );
+        const [d] = declared;
+        if (declared.length !== 1 || !ts.isVariableDeclaration(d)) return undefined;
+        const isConst = ts.isVariableDeclarationList(d.parent) && (d.parent.flags & ts.NodeFlags.Const) !== 0;
+        const inBody = d.getStart() >= body.getStart() && d.getEnd() <= body.getEnd();
+        return isConst && inBody ? d.initializer : undefined;
+      };
+
+      const routeInit = soleConstInBody('route');
+      if (
+        !routeInit ||
+        !ts.isConditionalExpression(routeInit) ||
+        !ts.isIdentifier(routeInit.whenFalse) ||
+        routeInit.whenFalse.text !== 'UNMATCHED_ROUTE_LABEL' ||
+        !/\.route\b/.test(routeInit.condition.getText())
+      ) {
+        findings.push(
+          'la etiqueta ya no es un único `const route` del middleware que, sin ruta coincidente, cae en UNMATCHED_ROUTE_LABEL'
+        );
+      } else {
+        for (const n of readsIn(routeInit.whenTrue)) {
+          if (n.text !== requestName) findings.push(`${at(n.parent)} (la rama de la ruta coincidente lee ${n.text})`);
         }
-        if (ts.isElementAccessExpression(parent) && parent.expression === n) {
-          const key = parent.argumentExpression;
-          if (!(ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key)) || banned.has(key.text)) {
-            findings.push(`:${line} ${parent.getText()}`);
+      }
+
+      const labelsInit = soleConstInBody('labels');
+      if (!labelsInit || !ts.isObjectLiteralExpression(labelsInit)) {
+        findings.push('las etiquetas ya no son un único `const labels = { … }` literal del middleware');
+      } else {
+        const values = new Map<string, ts.Expression>();
+        let named = 0;
+        for (const p of labelsInit.properties) {
+          if (ts.isShorthandPropertyAssignment(p)) {
+            named += 1;
+            values.set(p.name.text, p.name);
+          } else if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name)) {
+            named += 1;
+            values.set(p.name.text, p.initializer);
+          } else {
+            findings.push(`${at(p)} (una etiqueta sin nombre fijo)`);
           }
-          continue;
         }
-        findings.push(`:${line} ${parent.getText().slice(0, 60)}`);
+        const names = [...values.keys()].sort().join(', ');
+        if (names !== 'method, route, status') {
+          findings.push(`labels declara {${names}} en vez de exactamente {method, route, status}`);
+        } else if (values.size !== named) {
+          findings.push('labels repite una etiqueta: la última escritura gana y no es la que se comprobó');
+        }
+        const routeValue = values.get('route');
+        if (!routeValue || !ts.isIdentifier(routeValue) || routeValue.text !== 'route') {
+          findings.push(`${at(routeValue ?? labelsInit)} (la etiqueta route no es el const route acotado)`);
+        }
+        for (const key of ['method', 'status']) {
+          const value = values.get(key);
+          if (!value) continue;
+          for (const n of readsIn(value)) {
+            if (![requestName, responseName, 'String'].includes(n.text)) {
+              findings.push(`${at(n.parent)} (la etiqueta ${key} lee ${n.text})`);
+            }
+          }
+        }
+      }
+
+      // Only `labels` reaches the two metrics: `stop(labels)` from a timer
+      // started with no labels, and `httpRequestsTotal.inc(labels)`. Any other
+      // use of `labels`, `stop` or either metric in the file is a finding.
+      const isCallWithLabels = (call: ts.Node, callee: ts.Node): boolean =>
+        ts.isCallExpression(call) &&
+        call.expression === callee &&
+        call.arguments.length === 1 &&
+        ts.isIdentifier(call.arguments[0]) &&
+        call.arguments[0].text === 'labels';
+      for (const n of readsIn(sf)) {
+        const p = n.parent;
+        let fine = true;
+        if (n.text === 'labels') {
+          fine =
+            ts.isCallExpression(p) &&
+            p.arguments.length === 1 &&
+            ((ts.isIdentifier(p.expression) && p.expression.text === 'stop') ||
+              (ts.isPropertyAccessExpression(p.expression) &&
+                ts.isIdentifier(p.expression.expression) &&
+                p.expression.expression.text === 'httpRequestsTotal' &&
+                p.expression.name.text === 'inc'));
+        } else if (n.text === 'stop') {
+          fine = isCallWithLabels(p, n);
+        } else if (n.text === 'httpRequestsTotal') {
+          fine = ts.isPropertyAccessExpression(p) && p.name.text === 'inc' && isCallWithLabels(p.parent, p);
+        } else if (n.text === 'httpRequestDuration') {
+          fine =
+            ts.isPropertyAccessExpression(p) &&
+            p.name.text === 'startTimer' &&
+            ts.isCallExpression(p.parent) &&
+            p.parent.expression === p &&
+            p.parent.arguments.length === 0;
+        }
+        if (!fine) findings.push(`${at(p)} (llega a prom-client algo que no es labels)`);
+      }
+      const stopInit = soleConstInBody('stop');
+      if (!stopInit || !ts.isCallExpression(stopInit) || !/^httpRequestDuration\.startTimer$/.test(stopInit.expression.getText())) {
+        findings.push('`stop` ya no es un único const del middleware iniciado con httpRequestDuration.startTimer()');
       }
 
       if (findings.length > 0) {
         return falla(
-          `metricsMiddleware lee la ruta pedida o deja escapar la petición (${findings.join(' · ')}): cualquier ruta al azar acuña una serie permanente en /metrics, sin credenciales`
-        );
-      }
-      if (!fallbackIsBounded) {
-        return falla(
-          'la etiqueta de una petición sin ruta coincidente ya no cae en UNMATCHED_ROUTE_LABEL: el respaldo acotado desapareció del middleware'
+          `una etiqueta de /metrics puede tomar su valor de lo que envía el cliente (${findings.join(' · ')}): cada petición distinta acuñaría una serie permanente, sin credenciales`
         );
       }
       return ok(
-        "metricsMiddleware etiqueta con el patrón de la ruta o con 'unmatched', y no lee la ruta pedida: /metrics no crece con peticiones al azar"
+        "metricsMiddleware etiqueta con el patrón de la ruta (montaje en minúsculas) o con 'unmatched', y de la petición sólo lee método y ruta: /metrics no crece con peticiones al azar"
       );
     },
   },
