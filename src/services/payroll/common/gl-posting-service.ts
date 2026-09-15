@@ -254,7 +254,7 @@ export async function postPayRunToGL(
 
   const entry = await createJournalEntry(
     pr.entity_id,
-    new Date(pr.pay_date),
+    pr.pay_date,
     JournalEntryType.PAYROLL,
     `Payroll run ${payRunId.slice(0, 8)}`,
     lines,

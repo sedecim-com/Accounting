@@ -208,7 +208,9 @@ router.post(
 
     const entry = await createJournalEntry(
       entity_id,
-      new Date(entry_date),
+      // The string as the user wrote it (#211). `new Date(entry_date)` was UTC
+      // midnight, which west of Greenwich is the previous day in the DATE column.
+      entry_date,
       (entry_type || 'standard') as JournalEntryType,
       description || '',
       lines.map((line: Record<string, unknown>) => ({
@@ -290,7 +292,7 @@ router.post(
     // reverseJournalEntry enforces the guards this route used to lack:
     // only posted entries, at most one reversal, atomic linkage.
     const reversalEntry = await reverseJournalEntry(req.params.id, req.user!.user_id, {
-      reversalDate: reversal_date ? new Date(reversal_date) : undefined,
+      reversalDate: reversal_date,
     });
 
     res.status(201).json({

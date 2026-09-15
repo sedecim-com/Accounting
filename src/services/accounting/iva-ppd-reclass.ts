@@ -236,7 +236,7 @@ export async function reclasificarIvaPpd(
 
         const asiento = await createJournalEntry(
           h.entity_id,
-          new Date(h.entry_date),
+          h.entry_date,
           JournalEntryType.CORRECTION,
           `Reclasificación IVA PPD — ${h.entry_number}`,
           [
