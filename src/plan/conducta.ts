@@ -231,8 +231,10 @@ export async function crearInquilino(app: App, nombre: string): Promise<Inquilin
 export interface SiblingEntity {
   entityId: string;
   name: string;
-  /** The one open period, which ended yesterday by the database's clock. */
+  /** The open period that ended yesterday by the database's clock. */
   periodId: string;
+  /** The open period that starts today by the database's clock. */
+  currentPeriodId: string;
 }
 
 /**
@@ -241,8 +243,15 @@ export interface SiblingEntity {
  * `crearInquilino` always creates a new tenant, and crossing between two of
  * those crosses the boundary RLS does defend. The entity boundary is the other
  * one, between siblings of one tenant, where RLS narrows nothing. It seeds a
- * fiscal year and one open period that ended yesterday, so an overdue period
- * of the sibling exists for a count that leaks across entities to pick up.
+ * fiscal year and two open periods:
+ *
+ *   · one that ended yesterday, so an overdue period of the sibling exists for
+ *     a count that leaks across entities to pick up;
+ *   · one that starts today, the latest start a period can have and still have
+ *     started, so a "latest started period" that stops correlating on the
+ *     entity picks this one up. It wins outright only against entities with
+ *     no period starting today; a tie is resolved by row order, not by date.
+ *
  * Dates come from the database's CURRENT_DATE, the same clock the portfolio
  * and the pending board read.
  */
@@ -252,6 +261,7 @@ export async function createSiblingEntity(app: App, tenant: Inquilino, name: str
   const orgId = crypto.randomUUID();
   const fiscalYearId = crypto.randomUUID();
   const periodId = crypto.randomUUID();
+  const currentPeriodId = crypto.randomUUID();
 
   await query(
     `INSERT INTO organizations (id, tenant_id, name, type) VALUES ($1, $2, $3, 'holding')`,
@@ -277,8 +287,15 @@ export async function createSiblingEntity(app: App, tenant: Inquilino, name: str
              CURRENT_DATE - 1, 'open')`,
     [periodId, fiscalYearId, entityId]
   );
+  await query(
+    `INSERT INTO fiscal_periods (id, fiscal_year_id, entity_id, period_number, period_name,
+       start_date, end_date, status)
+     VALUES ($1, $2, $3, 2, 'Sibling current period', CURRENT_DATE,
+             (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month - 1 day')::date, 'open')`,
+    [currentPeriodId, fiscalYearId, entityId]
+  );
 
-  return { entityId, name, periodId };
+  return { entityId, name, periodId, currentPeriodId };
 }
 
 /** Un asiento de dos líneas, posteado por el camino real. */
@@ -1169,8 +1186,9 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // is where the TEN leak would come back: a sibling company of the same
   // holding, or an entity of another tenant that a token can still name
   // (accessible_entities has no foreign key). Both are seeded here, with
-  // drafts, questions and an overdue period of their own, so a predicate that
-  // stops binding shows up as a row or as a count.
+  // drafts, questions and periods of their own (the sibling has an overdue one
+  // and one that starts today), so a predicate that stops binding shows up as
+  // a row, as a count or as somebody else's current period.
   //
   // It runs as superuser, with RLS inert on purpose, like
   // cross-tenant-query-returns-nothing above: the tenant arm is what RLS would
@@ -1216,6 +1234,13 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         de: "WHERE fp.entity_id = e.id AND fp.status = 'open'",
         a: "WHERE fp.entity_id IS NOT NULL AND fp.status = 'open'",
         porque: 'overdue periods of every entity in the database would inflate the row',
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: "WHERE p.entity_id = e.id AND p.period_type = 'regular'",
+        a: "WHERE p.entity_id IS NOT NULL AND p.period_type = 'regular'",
+        porque:
+          "another entity's period, possibly of another tenant, would be shown as the row's current period",
       },
       {
         archivo: 'src/services/portfolio/portfolio-service.ts',
@@ -1286,6 +1311,45 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         [crypto.randomUUID(), oldYear, a.entityId]
       );
 
+      // A's current period must start strictly before the sibling's, which
+      // starts today: a period lookup that stops correlating on the entity
+      // then hands A the sibling's period (or another period starting today)
+      // by date, never A's own by tie order. A's seeded periods begin on the
+      // first of each month of a fixed year, so on such a day one of them
+      // starts today; it is moved to tomorrow, where it has not started yet.
+      // On every other day this touches no row.
+      await query(
+        `UPDATE fiscal_periods SET start_date = start_date + 1
+          WHERE entity_id = $1 AND start_date = CURRENT_DATE`,
+        [a.entityId]
+      );
+
+      // The judge of current_period: A's own rows, read raw and picked in
+      // TypeScript, so it shares no lookup with the portfolio's statement.
+      const { rows: clock } = await query<{ today: string }>(
+        `SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today`
+      );
+      const today = clock[0]?.today ?? '';
+      const { rows: periodsOfA } = await query<{
+        id: string;
+        name: string;
+        status: string;
+        period_type: string;
+        start_date: string;
+        end_date: string;
+      }>(
+        `SELECT id, period_name AS name, status, period_type,
+                to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date
+           FROM fiscal_periods WHERE entity_id = $1`,
+        [a.entityId]
+      );
+      const expectedPeriod =
+        periodsOfA
+          .filter((p) => p.period_type === 'regular' && p.start_date <= today)
+          .sort((x, y) => (x.start_date < y.start_date ? 1 : x.start_date > y.start_date ? -1 : 0))
+          .map(({ id, name, status, start_date, end_date }) => ({ id, name, status, start_date, end_date }))[0] ??
+        null;
+
       // Everything below is still asked under A's tenant context.
       const tables = ['policy_decisions', 'ai_drafts', 'ai_questions', 'fiscal_periods'] as const;
       const rowCounts = async (): Promise<number[]> => {
@@ -1326,14 +1390,24 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       for (const [label, needle] of [
         ['el id de la hermana', sibling.entityId],
         ['el nombre de la hermana', sibling.name],
+        ['el periodo vencido de la hermana', sibling.periodId],
+        ['el periodo en curso de la hermana', sibling.currentPeriodId],
         ['el id de la entidad de B', b.entityId],
         ['el nombre de B', 'W1 · portfolio B'],
+        ...Object.values(b.periodos).map((id) => ['un periodo de B', id] as const),
       ] as const) {
-        if (raw.includes(needle)) findings.push(`la respuesta contiene ${label}`);
+        if (raw.includes(needle)) findings.push(`la respuesta contiene ${label} (${needle})`);
       }
 
       const row = result.rows.find((r) => r.entity_id === a.entityId);
       if (row) {
+        const shown = JSON.stringify(row.current_period);
+        const expected = JSON.stringify(expectedPeriod);
+        if (shown !== expected) {
+          findings.push(
+            `el periodo actual de A es ${shown} y el último periodo regular de A iniciado al ${today} es ${expected}`
+          );
+        }
         if (row.pending_drafts !== 1) findings.push(`A tiene 1 borrador pendiente y la fila dice ${row.pending_drafts}`);
         if (row.pending_questions !== 1) {
           findings.push(`A tiene 1 pregunta pendiente y la fila dice ${row.pending_questions}`);
@@ -1396,7 +1470,9 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
       return ok(
         `con la entidad A, una hermana del mismo inquilino y una entidad de B en juego, la cartera devuelve ` +
           `sólo A (1 borrador, 1 pregunta, ${row?.ended_open_periods ?? 0} periodo(s) abierto(s) vencido(s), ` +
-          'igual que el tablero de pendientes del CLI), excluye a la hermana aunque la nombren entityId, ' +
+          'igual que el tablero de pendientes del CLI; su periodo actual es el suyo ' +
+          `«${row?.current_period?.name ?? 'ninguno'}» y no el de la hermana, que empieza hoy), ` +
+          'excluye a la hermana aunque la nombren entityId, ' +
           'x-entity-id, params y body, excluye a B aunque la nombre el token, cuenta 2 ids sin resolver, ' +
           'rechaza ?entity_id= y no escribe una sola fila'
       );

@@ -43,6 +43,7 @@ let a: Fixture;
 let c: Fixture;
 let sibling: Fixture;
 let foreign: Fixture;
+let siblingCurrentPeriodId: string;
 let server: Server;
 let baseUrl: string;
 
@@ -96,6 +97,17 @@ beforeAll(async () => {
        start_date, end_date, status)
      VALUES ($1, $2, $3, 1, 'Periodo 1/2020', '2020-01-01', '2020-01-31', 'soft_close')`,
     [randomUUID(), oldYear, a.entityId]
+  );
+
+  // A regular period of the sibling that starts today, the latest start a
+  // started period can have: a current-period lookup that stops correlating
+  // on the entity hands it to every row.
+  siblingCurrentPeriodId = randomUUID();
+  await query(
+    `INSERT INTO fiscal_periods (id, fiscal_year_id, entity_id, period_number, period_name,
+       start_date, end_date, status)
+     VALUES ($1, $2, $3, 13, 'W1 sibling current period', CURRENT_DATE, CURRENT_DATE, 'open')`,
+    [siblingCurrentPeriodId, sibling.fiscalYearId, sibling.entityId]
   );
 
   const app = express();
@@ -259,15 +271,25 @@ describe('the figures are the CLI board figures', () => {
     expect(r.rows.find((x) => x.entity_id === a.entityId)?.ended_open_periods).toBe(rows[0].n);
   });
 
-  it('the current period is the latest regular period that has started', async () => {
-    const r = await portfolio(tokenFor(a.tenantId, [a.entityId]));
-    const { rows } = await query<{ id: string }>(
-      `SELECT id FROM fiscal_periods
-        WHERE entity_id = $1 AND period_type = 'regular' AND start_date <= CURRENT_DATE
-        ORDER BY start_date DESC LIMIT 1`,
-      [a.entityId]
-    );
-    expect(r.rows[0]?.current_period?.id ?? null).toBe(rows[0]?.id ?? null);
+  it("the current period is the latest regular period that has started, and belongs to the row's entity", async () => {
+    const r = await portfolio(tokenFor(a.tenantId, [a.entityId, c.entityId]));
+    expect(r.status, r.raw).toBe(200);
+    // The sibling's period starts today, later than any period of A or C
+    // except on the first of a month. On that day A, C and the sibling all tie,
+    // and an uncorrelated lookup still gives both rows the same period, which
+    // cannot belong to A and to C at once.
+    expect(r.raw).not.toContain(siblingCurrentPeriodId);
+    for (const f of [a, c]) {
+      const { rows } = await query<{ id: string }>(
+        `SELECT id FROM fiscal_periods
+          WHERE entity_id = $1 AND period_type = 'regular' AND start_date <= CURRENT_DATE
+          ORDER BY start_date DESC LIMIT 1`,
+        [f.entityId]
+      );
+      const shown = r.rows.find((x) => x.entity_id === f.entityId)?.current_period?.id ?? null;
+      expect(shown, `current period of ${f.entityId}`).toBe(rows[0]?.id ?? null);
+      expect(Object.values(f.periodos), `current period of ${f.entityId} is its own`).toContain(shown);
+    }
   });
 
   it('reading the portfolio writes nothing', async () => {
