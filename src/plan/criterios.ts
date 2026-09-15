@@ -4537,7 +4537,7 @@ export const CRITERIOS: Criterio[] = [
           'la comprobación previa pierde la entidad y las tres rutas que postean, anulan y revierten pólizas la siguen «llamando»: su nombre no cambia, su llave sí',
       },
       {
-        archivo: 'tests/integration/ten11-la-factura-de-la-hermana.int.spec.ts',
+        archivo: 'tests/integration/ten11-sibling-bill-approval.int.spec.ts',
         de: 'expect(r.status, JSON.stringify(r.body)).toBe(404);',
         a: 'expect(r.status, JSON.stringify(r.body)).toBe(403);',
         porque:
@@ -4573,10 +4573,10 @@ export const CRITERIOS: Criterio[] = [
 
       // Y CONDUCTA QUE LO AFIRMA contra Postgres, en 404 y contra un fantasma.
       const specs = [
-        'tests/integration/ten11-la-factura-de-la-hermana.int.spec.ts',
-        'tests/integration/ten11-el-archivo-nacha-de-la-hermana.int.spec.ts',
-        'tests/integration/ten11-los-beneficios-de-la-hermana.int.spec.ts',
-        'tests/integration/ten11-los-periodos-de-la-hermana.int.spec.ts',
+        'tests/integration/ten11-sibling-bill-approval.int.spec.ts',
+        'tests/integration/ten11-sibling-nacha-file.int.spec.ts',
+        'tests/integration/ten11-sibling-benefit-elections.int.spec.ts',
+        'tests/integration/ten11-sibling-pay-periods.int.spec.ts',
       ];
       for (const spec of specs) {
         if (!existe(spec)) return falla(`no hay reproducción en ${spec}: sin ella esto es una lectura del diff`);
