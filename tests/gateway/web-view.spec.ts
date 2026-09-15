@@ -112,14 +112,25 @@ describe('the portfolio screen', () => {
     expect(textOf(firstRowHeader!)).toContain('Abarrotes La Esperanza');
   });
 
-  it('each row is headed by th scope=row holding a link to the entity view', () => {
+  it('each active row is headed by th scope=row holding a link to the entity view', () => {
     const rowHeaders = tree.filter((s) => s.tag === 'th' && s.attributes?.scope === 'row');
     expect(rowHeaders).toHaveLength(3);
-    for (const [i, header] of rowHeaders.entries()) {
-      const link = (header.children as ElementSpec[])[0];
-      expect(link).toMatchObject({ tag: 'a', attributes: { href: `#/entity/${ROWS[i].entityId}` }, children: ROWS[i].name });
+    for (const i of [0, 2]) {
+      expect(ROWS[i].isActive).toBe(true);
+      expect(rowHeaders[i].children).toEqual([{ tag: 'a', attributes: { href: `#/entity/${ROWS[i].entityId}` }, children: ROWS[i].name }]);
     }
-    expect(textOf(rowHeaders[1])).toContain('inactiva');
+  });
+
+  it('an inactive row is shown with its tag, and its name is text, not a link into a view that cannot load', () => {
+    const rowHeaders = tree.filter((s) => s.tag === 'th' && s.attributes?.scope === 'row');
+    expect(ROWS[1].isActive).toBe(false);
+    const inactive = rowHeaders[1];
+    expect(all([inactive]).filter((s) => s.tag === 'a')).toEqual([]);
+    expect(tree.filter((s) => s.tag === 'a').map((s) => s.attributes?.href)).not.toContain(`#/entity/${B}`);
+    expect(inactive.children).toEqual([
+      { tag: 'span', attributes: {}, children: 'Birria Don Chuy' },
+      { tag: 'span', attributes: { class: 'tag' }, children: 'inactiva' },
+    ]);
   });
 
   it('nothing has a positive tabindex, and every button and link has text', () => {
@@ -286,6 +297,23 @@ describe('the entity view', () => {
     const denied = all(render({ kind: 'entity', entityId: A, loading: false, failure: 'no-access' }));
     expect(denied.find((s) => s.attributes?.role === 'status') && textOf(denied.find((s) => s.attributes?.role === 'status')!)).toContain('accounts:read');
     expect(denied.find((s) => s.tag === 'h2')?.children).toBe(A);
+  });
+
+  it('an entity the token does not grant is told apart from missing permissions', () => {
+    const notGranted = all(render({ kind: 'entity', entityId: A, loading: false, failure: 'entity-not-granted' }));
+    const notice = notGranted.find((s) => s.attributes?.role === 'status');
+    expect(textOf(notice!)).toBe('Tu token no concede esta entidad: sus listas no se pueden leer aquí.');
+    expect(notGranted.map(textOf)).not.toContain(text('es', 'web.session.no_access'));
+    expect(notGranted.some((s) => s.tag === 'table')).toBe(false);
+    // Still signed in: the way back and the sign-out button stay.
+    expect(notGranted.find((s) => s.tag === 'a')?.attributes?.href).toBe('#/');
+    expect(notGranted.find((s) => s.attributes?.id === 'sign-out')?.action).toEqual({ kind: 'sign-out' });
+
+    const english = all(render({ kind: 'entity', entityId: A, loading: false, failure: 'entity-not-granted' }, 'en'));
+    expect(textOf(english.find((s) => s.attributes?.role === 'status')!)).toBe(
+      'Your token does not grant this entity, so its lists cannot be read here.'
+    );
+    expect(text('es', 'web.entity.not_granted')).not.toBe(text('en', 'web.entity.not_granted'));
   });
 });
 

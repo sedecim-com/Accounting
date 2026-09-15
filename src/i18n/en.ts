@@ -866,6 +866,7 @@ export const EN = {
   'web.period_status.locked': 'locked',
   'web.entity.back': 'Back to the portfolio',
   'web.entity.loading': 'Reading the entity…',
+  'web.entity.not_granted': 'Your token does not grant this entity, so its lists cannot be read here.',
   'web.entity.drafts': 'Drafts to review',
   'web.entity.drafts_limit': 'The API lists the 100 most recent drafts at most.',
   'web.entity.questions': 'Open questions',

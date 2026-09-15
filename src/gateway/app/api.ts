@@ -1,4 +1,13 @@
-import { buildGetRequest, REQUEST_MARKER_HEADER, SIGN_OUT_PATH, type ApiOperation, type GetRequestOptions } from './contract.js';
+import {
+  buildGetRequest,
+  errorCodeOf,
+  namesMissingPermissions,
+  REQUEST_MARKER_HEADER,
+  SIGN_OUT_PATH,
+  type ApiOperation,
+  type ApiResult,
+  type GetRequestOptions,
+} from './contract.js';
 
 // ============================================================
 // THE ONE NETWORK CLIENT OF THE BROWSER PROGRAM (W1 · issue #117)
@@ -9,27 +18,15 @@ import { buildGetRequest, REQUEST_MARKER_HEADER, SIGN_OUT_PATH, type ApiOperatio
 // the gateway's own route, never to /v1. The page holds no token: the session
 // cookie is HttpOnly and travels with same-origin credentials.
 //
-// Outcomes are reduced to what the screen does with them. A status code is
-// not shown to the user; a gateway error code is mapped to a message key by
-// the view.
+// Outcomes are reduced to ApiResult (contract.ts), what the screen does with
+// them. A status code is not shown to the user; board.ts maps an outcome to a
+// failure and the view maps that to a message key.
 // ============================================================
 
-export type ApiResult =
-  | { kind: 'ok'; body: unknown }
-  | { kind: 'signed-out' }
-  | { kind: 'session-expired' }
-  | { kind: 'forbidden' }
-  | { kind: 'unavailable' }
-  | { kind: 'failed' };
-
-/** The first error code of the {errors:[{code}]} envelope the API and the gateway share. */
-async function errorCodeOf(response: Response): Promise<string | undefined> {
+/** The parsed body of an error response, or undefined when it is not JSON. */
+async function errorBodyOf(response: Response): Promise<unknown> {
   try {
-    const body: unknown = await response.json();
-    if (typeof body !== 'object' || body === null || !('errors' in body) || !Array.isArray(body.errors)) return undefined;
-    const first: unknown = body.errors[0];
-    if (typeof first !== 'object' || first === null || !('code' in first)) return undefined;
-    return typeof first.code === 'string' ? first.code : undefined;
+    return (await response.json()) as unknown;
   } catch {
     return undefined;
   }
@@ -45,9 +42,9 @@ export async function apiGet(operation: ApiOperation, options: GetRequestOptions
     return { kind: 'unavailable' };
   }
   if (response.status === 401) {
-    return (await errorCodeOf(response)) === 'SESSION_EXPIRED' ? { kind: 'session-expired' } : { kind: 'signed-out' };
+    return errorCodeOf(await errorBodyOf(response)) === 'SESSION_EXPIRED' ? { kind: 'session-expired' } : { kind: 'signed-out' };
   }
-  if (response.status === 403) return { kind: 'forbidden' };
+  if (response.status === 403) return { kind: 'forbidden', missingPermissions: namesMissingPermissions(await errorBodyOf(response)) };
   if (response.status === 502 || response.status === 503 || response.status === 504) return { kind: 'unavailable' };
   if (!response.ok) return { kind: 'failed' };
   try {

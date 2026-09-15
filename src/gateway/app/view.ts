@@ -57,7 +57,7 @@ export interface ElementSpec {
 }
 
 /** Why a read did not produce data, reduced to what the screen says about it. */
-export type Failure = 'signed-out' | 'session-expired' | 'no-access' | 'unavailable' | 'unexpected';
+export type Failure = 'signed-out' | 'session-expired' | 'no-access' | 'entity-not-granted' | 'unavailable' | 'unexpected';
 
 export interface PortfolioScreen {
   kind: 'portfolio';
@@ -138,6 +138,7 @@ const FAILURE_KEYS: Readonly<Record<Failure, WebMessageKey>> = {
   'signed-out': 'web.session.signed_out',
   'session-expired': 'web.error.session_expired',
   'no-access': 'web.session.no_access',
+  'entity-not-granted': 'web.entity.not_granted',
   unavailable: 'web.error.upstream_unavailable',
   unexpected: 'web.error.unexpected',
 };
@@ -179,6 +180,7 @@ function failureNotice(language: WebLanguage, reason: Failure): ElementSpec {
     case 'session-expired':
       return signInNotice(language, FAILURE_KEYS[reason], 'alert');
     case 'no-access':
+    case 'entity-not-granted':
       return el('p', { class: 'notice', role: 'status' }, text(language, FAILURE_KEYS[reason]));
     default:
       return el('p', { class: 'notice notice-error', role: 'alert' }, text(language, FAILURE_KEYS[reason]));
@@ -273,9 +275,12 @@ function periodCell(language: WebLanguage, row: PortfolioRow): ElementSpec {
 }
 
 function entityHeaderCell(language: WebLanguage, row: PortfolioRow): ElementSpec {
-  const children: ElementSpec[] = [el('a', { href: entityHref(row.entityId) }, row.name)];
-  if (!row.isActive) children.push(el('span', { class: 'tag' }, text(language, 'web.portfolio.inactive')));
-  return el('th', { scope: 'row' }, children);
+  if (row.isActive) return el('th', { scope: 'row' }, [el('a', { href: entityHref(row.entityId) }, row.name)]);
+  // An inactive entity is shown, never dropped, but its name is not a way in:
+  // the entity view cannot load its lists (the API fails its drafts and
+  // questions reads today, a named follow-up), so a link would lead only to an
+  // error.
+  return el('th', { scope: 'row' }, [el('span', {}, row.name), el('span', { class: 'tag' }, text(language, 'web.portfolio.inactive'))]);
 }
 
 function sortHeader(language: WebLanguage, column: SortColumn, sort: SortOrder): ElementSpec {

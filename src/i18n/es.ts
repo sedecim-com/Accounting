@@ -751,6 +751,7 @@ export const ES: Record<keyof typeof EN, string> = {
   'web.period_status.locked': 'bloqueado',
   'web.entity.back': 'Volver a la cartera',
   'web.entity.loading': 'Leyendo la entidad…',
+  'web.entity.not_granted': 'Tu token no concede esta entidad: sus listas no se pueden leer aquí.',
   'web.entity.drafts': 'Borradores por revisar',
   'web.entity.drafts_limit': 'La API lista como mucho los 100 borradores más recientes.',
   'web.entity.questions': 'Preguntas pendientes',

@@ -28,6 +28,7 @@ export const STATIC_ASSETS: readonly StaticAsset[] = [
   ['/app.css', 'app.css', 'text/css; charset=utf-8'],
   ['/design/tokens.css', 'design/tokens.css', 'text/css; charset=utf-8'],
   ['/modules/gateway/app/api.js', 'modules/gateway/app/api.js', 'text/javascript; charset=utf-8'],
+  ['/modules/gateway/app/board.js', 'modules/gateway/app/board.js', 'text/javascript; charset=utf-8'],
   ['/modules/gateway/app/contract.js', 'modules/gateway/app/contract.js', 'text/javascript; charset=utf-8'],
   ['/modules/gateway/app/dom.js', 'modules/gateway/app/dom.js', 'text/javascript; charset=utf-8'],
   ['/modules/gateway/app/entity-model.js', 'modules/gateway/app/entity-model.js', 'text/javascript; charset=utf-8'],

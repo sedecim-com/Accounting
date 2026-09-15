@@ -90,3 +90,46 @@ export function buildGetRequest(operation: ApiOperation, options: GetRequestOpti
     init: { method: 'GET', credentials: 'same-origin', redirect: 'error', cache: 'no-store', headers },
   };
 }
+
+/**
+ * A read's outcome, reduced to what the screen does with it. Declared here,
+ * not in api.ts, so the DOM-free board and its specs name it without loading
+ * the network client.
+ */
+export type ApiResult =
+  | { kind: 'ok'; body: unknown }
+  | { kind: 'signed-out' }
+  | { kind: 'session-expired' }
+  // missingPermissions: the refusal lists permissions the account lacks.
+  | { kind: 'forbidden'; missingPermissions: boolean }
+  | { kind: 'unavailable' }
+  | { kind: 'failed' };
+
+/** The first error of the {errors:[{code, details}]} envelope the API and the gateway share. */
+function firstErrorOf(body: unknown): object | undefined {
+  if (typeof body !== 'object' || body === null || !('errors' in body) || !Array.isArray(body.errors)) return undefined;
+  const first: unknown = body.errors[0];
+  return typeof first === 'object' && first !== null ? first : undefined;
+}
+
+/** The code of the first error in an error response body, when it has one. */
+export function errorCodeOf(body: unknown): string | undefined {
+  const error = firstErrorOf(body);
+  return error !== undefined && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
+}
+
+/**
+ * Whether a 403 body names permissions the account lacks.
+ *
+ * The API answers 403 FORBIDDEN in two places with the same code:
+ * authenticate, when x-entity-id names an entity the token does not grant,
+ * with no details, and before any permission is checked; and
+ * requirePermission, which lists what is missing in details.missing. Only the
+ * second is about the account, and the board says different things for each.
+ */
+export function namesMissingPermissions(body: unknown): boolean {
+  const error = firstErrorOf(body);
+  const details: unknown = error !== undefined && 'details' in error ? error.details : undefined;
+  if (typeof details !== 'object' || details === null || !('missing' in details)) return false;
+  return Array.isArray(details.missing) && details.missing.length > 0;
+}
