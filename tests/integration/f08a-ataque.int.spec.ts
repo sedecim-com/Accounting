@@ -781,7 +781,7 @@ describe('G · correr el cierre dos veces', () => {
   });
 
   it('recalcular el mismo recibo no deja renglones sueltos ni un segundo recibo', async () => {
-    const { fx, corrida, periodo } = await montar('F08a · ataque · recibo recalculado');
+    const { fx, corrida } = await montar('F08a · ataque · recibo recalculado');
     const { rows: e } = await query<{ id: string }>(
       `SELECT id FROM employees WHERE tenant_id = $1`, [fx.tenantId]
     );
