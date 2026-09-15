@@ -4876,6 +4876,136 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  // ---- W0 · The unauthenticated metrics surface ----
+  {
+    paquete: 'E2.1',
+    id: 'metrics-route-label-bounded',
+    // W0 (#117). `/metrics` is mounted before auth, and prom-client keeps
+    // every label set it has seen for the life of the process. The route label
+    // of a request no route matched was the literal `req.path`, so each random
+    // path minted a permanent series: anyone could grow the scrape and the
+    // heap one request at a time, without credentials.
+    //
+    // The criterion reads the middleware's syntax tree, not its text, so a
+    // comment that quotes the old fallback cannot turn it red and a comment
+    // that quotes the new one cannot keep it green. Behaviour is covered by
+    // tests/api/middleware/metrics-label.spec.ts, over a real socket.
+    enunciado:
+      'Una ruta que no existe no acuña una serie nueva en el /metrics que se sirve sin credenciales',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: '      : UNMATCHED_ROUTE_LABEL;',
+        a: '      : req.path;',
+        porque:
+          'every random unmatched path would create a permanent prom-client series, reachable without credentials',
+      },
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: '      status: String(res.statusCode),\n    };',
+        a: "      status: String(res.statusCode),\n      ...(res.statusCode === 404 ? { route: req['originalUrl'] } : {}),\n    };",
+        porque:
+          'the bounded fallback stays in place and the 404 label is overwritten after it, through bracket access: a check of the ternary alone stays green',
+      },
+      {
+        archivo: 'src/api/rest/middleware/metrics.ts',
+        de: '    const labels = {\n      method: req.method,\n      route,',
+        a: '    const incoming = req;\n    const labels = {\n      method: req.method,\n      route: res.statusCode === 404 ? incoming.path : route,',
+        porque:
+          'an alias of the request hides the path read from a check that only looks for `req.`',
+      },
+    ],
+    evaluar: () => {
+      const file = 'src/api/rest/middleware/metrics.ts';
+      if (!existe(file)) {
+        return falla(`desapareció ${file}: no queda nada que acote las etiquetas de /metrics`);
+      }
+      const sf = ts.createSourceFile(file, crudoDe(file), ts.ScriptTarget.Latest, true);
+
+      // 1. The bounded label is a top-level exported const string literal:
+      // nothing computed can hide behind the name.
+      let labelValue: string | undefined;
+      let middleware: ts.Expression | undefined;
+      for (const st of sf.statements) {
+        if (!ts.isVariableStatement(st)) continue;
+        const exported = st.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+        const isConst = (st.declarationList.flags & ts.NodeFlags.Const) !== 0;
+        for (const d of st.declarationList.declarations) {
+          if (!ts.isIdentifier(d.name)) continue;
+          if (d.name.text === 'UNMATCHED_ROUTE_LABEL' && exported && isConst && d.initializer && ts.isStringLiteral(d.initializer)) {
+            labelValue = d.initializer.text;
+          }
+          if (d.name.text === 'metricsMiddleware') middleware = d.initializer;
+        }
+      }
+      if (labelValue !== 'unmatched') {
+        return falla(
+          "metrics.ts ya no exporta `const UNMATCHED_ROUTE_LABEL = 'unmatched'` en su nivel superior: la etiqueta de una ruta sin coincidencia deja de ser un valor fijo"
+        );
+      }
+      if (!middleware || !(ts.isArrowFunction(middleware) || ts.isFunctionExpression(middleware))) {
+        return falla('no se encontró el inicializador de metricsMiddleware como función: el instrumento no puede mirar la etiqueta');
+      }
+      const requestParam = middleware.parameters[0];
+      if (!requestParam || !ts.isIdentifier(requestParam.name)) {
+        return falla('metricsMiddleware no declara la petición como primer parámetro con nombre: el instrumento no puede seguirla');
+      }
+      const requestName = requestParam.name.text;
+
+      function* walk(n: ts.Node): Generator<ts.Node> {
+        yield n;
+        for (const child of n.getChildren()) yield* walk(child);
+      }
+
+      // 2. The request never yields its path. Every use of the request
+      // identifier must be a member read of a name that is not the path; any
+      // other use (an alias, a destructuring, an argument to a helper, a
+      // computed key) could launder the path out of sight, so it is a finding.
+      const banned = new Set(['path', 'url', 'originalUrl']);
+      const findings: string[] = [];
+      let fallbackIsBounded = false;
+      for (const n of walk(middleware.body)) {
+        if (
+          ts.isConditionalExpression(n) &&
+          ts.isIdentifier(n.whenFalse) &&
+          n.whenFalse.text === 'UNMATCHED_ROUTE_LABEL' &&
+          /\.route\b/.test(n.condition.getText())
+        ) {
+          fallbackIsBounded = true;
+        }
+        if (!ts.isIdentifier(n) || n.text !== requestName) continue;
+        const parent = n.parent;
+        const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+        if (ts.isPropertyAccessExpression(parent) && parent.expression === n) {
+          if (banned.has(parent.name.text)) findings.push(`:${line} ${parent.getText()}`);
+          continue;
+        }
+        if (ts.isElementAccessExpression(parent) && parent.expression === n) {
+          const key = parent.argumentExpression;
+          if (!(ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key)) || banned.has(key.text)) {
+            findings.push(`:${line} ${parent.getText()}`);
+          }
+          continue;
+        }
+        findings.push(`:${line} ${parent.getText().slice(0, 60)}`);
+      }
+
+      if (findings.length > 0) {
+        return falla(
+          `metricsMiddleware lee la ruta pedida o deja escapar la petición (${findings.join(' · ')}): cualquier ruta al azar acuña una serie permanente en /metrics, sin credenciales`
+        );
+      }
+      if (!fallbackIsBounded) {
+        return falla(
+          'la etiqueta de una petición sin ruta coincidente ya no cae en UNMATCHED_ROUTE_LABEL: el respaldo acotado desapareció del middleware'
+        );
+      }
+      return ok(
+        "metricsMiddleware etiqueta con el patrón de la ruta o con 'unmatched', y no lee la ruta pedida: /metrics no crece con peticiones al azar"
+      );
+    },
+  },
+
   // ---- E2.2 · Catálogo de autorización ----
   {
     paquete: 'E2.2',

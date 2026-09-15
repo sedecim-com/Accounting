@@ -39,20 +39,30 @@ export const cfdiStampOutcomes = new client.Counter({
 });
 
 /**
+ * The route label of a request no route matched.
+ *
+ * It used to be the literal `req.path`. prom-client keeps every label set it
+ * has ever seen for the life of the process, and `/metrics` is served without
+ * credentials, so anyone could mint one permanent series per random path
+ * (`/v1/<uuid>`, `/wp-admin/…`) until the scrape and the heap grew without
+ * bound. Unknown endpoints still show up — as one series per method and status.
+ */
+export const UNMATCHED_ROUTE_LABEL = 'unmatched';
+
+/**
  * Express middleware that times every request and records both the histogram
  * (for percentiles) and the counter (for QPS and error budgets).
  *
- * Routing label uses `req.route?.path || req.path`. The route path keeps
- * cardinality bounded (`/v1/employees/:id` instead of one label per UUID); on
- * 404s where no route matched we fall back to the literal path so unknown
- * endpoints still show up.
+ * The route label is the matched route pattern (`/v1/employees/:id` instead of
+ * one label per UUID), and `UNMATCHED_ROUTE_LABEL` when no route matched. It
+ * never reads the request path: that is what keeps cardinality bounded.
  */
 export const metricsMiddleware: RequestHandler = (req: Request, res: Response, next: NextFunction) => {
   const stop = httpRequestDuration.startTimer();
   res.on('finish', () => {
     const route = req.route?.path
       ? `${req.baseUrl || ''}${req.route.path}`
-      : req.path;
+      : UNMATCHED_ROUTE_LABEL;
     const labels = {
       method: req.method,
       route,
