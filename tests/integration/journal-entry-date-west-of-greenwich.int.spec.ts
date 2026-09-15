@@ -6,6 +6,10 @@ import { crearInquilino, type Fixture } from './helpers/tenant-fixture.js';
 import { levantar, pedir, sesionDe, type Servidor } from './helpers/servidor.js';
 import { drainAttestations } from '../../src/services/accounting/posting.js';
 import journalEntriesRouter from '../../src/api/rest/routes/journal-entries.js';
+import billsRouter from '../../src/api/rest/routes/bills.js';
+import invoicesRouter from '../../src/api/rest/routes/invoices.js';
+import { approveBill } from '../../src/services/ap/bill-service.js';
+import { createInvoice, issueInvoice } from '../../src/services/ar/invoice-service.js';
 
 // ============================================================
 // #211 · UN ASIENTO FECHADO EL 1 DE MARZO SE GUARDA EL 28 DE FEBRERO
@@ -31,7 +35,14 @@ let server: Servidor;
 
 beforeAll(async () => {
   fx = await crearInquilino('#211 fecha del asiento');
-  server = await levantar([['/v1/journal-entries', journalEntriesRouter]], sesionDe(fx));
+  server = await levantar(
+    [
+      ['/v1/journal-entries', journalEntriesRouter],
+      ['/v1/bills', billsRouter],
+      ['/v1/invoices', invoicesRouter],
+    ],
+    sesionDe(fx)
+  );
 }, 120_000);
 
 afterAll(async () => {
@@ -115,6 +126,98 @@ describe('the date a user writes is the date the ledger keeps — west of Greenw
         [stored!.id]
       );
       expect(rows[0]?.entry_date, 'the reversal landed on another day').toBe('2026-04-01');
+    });
+  });
+});
+
+/** An approved vendor bill (its own entry comes from the DB row, which is fine). */
+async function approvedBill(billDate: string): Promise<string> {
+  const billId = randomUUID();
+  const vendorId = randomUUID();
+  const tag = randomUUID().slice(0, 8);
+  await query(
+    `INSERT INTO vendors (id, entity_id, vendor_number, company_name, tax_id, tax_id_type, currency_code, created_by)
+     VALUES ($1,$2,$3,'Vendor 211','CCC030303CC3','rfc','MXN',$4)`,
+    [vendorId, fx.entityId, `V-${tag}`, fx.userId]
+  );
+  await query(
+    `INSERT INTO bills (id, entity_id, bill_number, vendor_id, vendor_invoice_number,
+       subtotal, tax_amount, total_amount, amount_due, amount_paid, currency_code, bill_date, due_date,
+       status, created_by, terms)
+     VALUES ($1,$2,$3,$4,$5,'1000.00','160.00','1160.00','1160.00',0,'MXN',$6,$6,'draft',$7,'PUE')`,
+    [billId, fx.entityId, `BILL-${tag}`, vendorId, `CFDI-${tag}`, billDate, fx.userId]
+  );
+  await query(
+    `INSERT INTO bill_lines (id, bill_id, line_number, account_id, description, quantity, unit_price, line_amount, tax_amount, total_amount)
+     VALUES ($1,$2,1,$3,'Service',1,'1000.00','1000.00','160.00','1160.00')`,
+    [randomUUID(), billId, fx.cuentas['6100']]
+  );
+  await approveBill(billId, fx.userId, { entityId: fx.entityId });
+  return billId;
+}
+
+/** The payment row and ITS OWN entry, joined by the payment's journal_entry_id. */
+async function paymentAndItsEntry(
+  table: 'vendor_payments' | 'customer_payments',
+  paymentNumber: string
+): Promise<{ payment_date: string; entry_date: string; entry_number: string } | undefined> {
+  const { rows } = await query<{ payment_date: string; entry_date: string; entry_number: string }>(
+    `SELECT p.payment_date::text AS payment_date, je.entry_date::text AS entry_date, je.entry_number
+       FROM ${table} p JOIN journal_entries je ON je.id = p.journal_entry_id
+      WHERE p.payment_number = $1 AND p.entity_id = $2`,
+    [paymentNumber, fx.entityId]
+  );
+  return rows[0];
+}
+
+describe('the payment and its entry keep the same day — west of Greenwich', () => {
+  it('a vendor payment dated April 1st posts its entry on April 1st', async () => {
+    const billId = await approvedBill('2026-04-01');
+    await inTimezone(...MEXICO, async () => {
+      const r = await pedir(server, 'POST', '/v1/bills/payments', {
+        entity_id: fx.entityId,
+        vendor_id: (await query<{ vendor_id: string }>('SELECT vendor_id FROM bills WHERE id = $1', [billId])).rows[0].vendor_id,
+        payment_amount: '1160.00',
+        payment_method: 'spei',
+        payment_date: '2026-04-01',
+        applications: [{ bill_id: billId, amount_applied: '1160.00' }],
+      });
+      expect(r.status, JSON.stringify(r.body).slice(0, 240)).toBe(201);
+      const paymentNumber = (r.body as { data: { payment_number: string } }).data.payment_number;
+      const pair = await paymentAndItsEntry('vendor_payments', paymentNumber);
+      expect(pair?.payment_date).toBe('2026-04-01');
+      expect(pair?.entry_date, 'the payment and its own entry disagree on the day').toBe('2026-04-01');
+    });
+  });
+
+  it('a customer receipt dated January 1st is accepted, and its entry takes the 2026 folio', async () => {
+    const customerId = randomUUID();
+    await query(
+      `INSERT INTO customers (id, entity_id, customer_number, company_name, currency_code, created_by)
+       VALUES ($1,$2,$3,'Customer 211','MXN',$4)`,
+      [customerId, fx.entityId, `C-${customerId.slice(0, 8)}`, fx.userId]
+    );
+    const draft = await createInvoice({
+      entity_id: fx.entityId,
+      customer_id: customerId,
+      invoice_date: '2026-01-01',
+      due_date: '2026-01-01',
+      currency_code: 'MXN',
+      lines: [{ revenue_account_id: fx.cuentas['4100'], description: 'Service', quantity: '1', unit_price: '1000.00', tax_rate: '16.0000' }],
+      created_by: fx.userId,
+    });
+    const issued = await issueInvoice(draft.id, fx.userId, { entityId: fx.entityId });
+    await inTimezone(...MEXICO, async () => {
+      const r = await pedir(server, 'POST', `/v1/invoices/${issued.invoice.id}/payments`, {
+        payment_date: '2026-01-01',
+        payment_amount: issued.invoice.total_amount,
+        payment_method: 'spei',
+      });
+      expect(r.status, JSON.stringify(r.body).slice(0, 240)).toBe(201);
+      const paymentNumber = (r.body as { data: { payment_number: string } }).data.payment_number;
+      const pair = await paymentAndItsEntry('customer_payments', paymentNumber);
+      expect(pair?.entry_date, 'the receipt and its own entry disagree on the day').toBe('2026-01-01');
+      expect(pair?.entry_number, 'the receipt entry took the previous year folio').toMatch(/-2026-/);
     });
   });
 });
