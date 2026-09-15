@@ -206,7 +206,6 @@ describe('A · el subsidio al empleo y el efectivo que el trabajador debe recibi
       const emp = await nuevoEmpleado();
       const r = await calculatePaycheck({
         tenant_id: f.tenantId, pay_run_id: corrida, employee_id: emp,
-        pay_period_id: periodo,
         earnings: [{ earning_type: 'salary', amount: Number(caso.bruto) }],
       });
       const fila = await reciboDe(r.paycheck_id);
@@ -242,7 +241,6 @@ describe('A · el subsidio al empleo y el efectivo que el trabajador debe recibi
       const emp = await nuevoEmpleado();
       const r = await calculatePaycheck({
         tenant_id: f.tenantId, pay_run_id: corrida, employee_id: emp,
-        pay_period_id: periodo,
         earnings: [{ earning_type: 'salary', amount: Number(caso.bruto) }],
       });
       const filas = await impuestosDe(r.paycheck_id);
@@ -285,7 +283,6 @@ describe('B · lo escrito en paycheck_taxes contra las columnas del recibo', () 
     recibo = (
       await calculatePaycheck({
         tenant_id: f.tenantId, pay_run_id: corrida, employee_id: emp,
-        pay_period_id: periodo,
         earnings: [{ earning_type: 'salary', amount: 1500 }],
       })
     ).paycheck_id;
@@ -335,7 +332,6 @@ describe('C · la corrida con subsidio entregado se puede postear al mayor', () 
       const emp = await nuevoEmpleado({ sbc: '100.0000' });
       const r = await calculatePaycheck({
         tenant_id: f.tenantId, pay_run_id: payRunId, employee_id: emp,
-        pay_period_id: periodoId,
         earnings: [{ earning_type: 'salary', amount: bruto }],
       });
       g = g.plus(r.gross_earnings);
@@ -391,7 +387,6 @@ describe('D · el CFDI de nómina cuadra consigo mismo', () => {
     const recibo = (
       await calculatePaycheck({
         tenant_id: f.tenantId, pay_run_id: corrida, employee_id: emp,
-        pay_period_id: periodo,
         earnings: [{ earning_type: 'salary', amount: 1500 }],
       })
     ).paycheck_id;
@@ -475,7 +470,6 @@ describe('E · el impuesto sobre nóminas', () => {
       const emp = await nuevoEmpleado({ sbc: '100.0000', workState: g.estado });
       await calculatePaycheck({
         tenant_id: f.tenantId, pay_run_id: payRunId, employee_id: emp,
-        pay_period_id: periodoId,
         earnings: [{ earning_type: 'salary', amount: g.bruto }],
       });
     }
@@ -615,7 +609,7 @@ describe('F · el ISN causado al pagar', () => {
     );
     await calculatePaycheck({
       tenant_id: g.tenantId, pay_run_id: corrida, employee_id: emp,
-      pay_period_id: periodo, earnings: [{ earning_type: 'salary', amount: 10000 }],
+      earnings: [{ earning_type: 'salary', amount: 10000 }],
     });
     await query(`UPDATE pay_runs SET status = 'approved' WHERE id = $1`, [corrida]);
 
@@ -686,7 +680,7 @@ describe('G · correr el cierre dos veces', () => {
     );
     await calculatePaycheck({
       tenant_id: fx.tenantId, pay_run_id: corrida, employee_id: emp,
-      pay_period_id: periodo, earnings: [{ earning_type: 'salary', amount: 10000 }],
+      earnings: [{ earning_type: 'salary', amount: 10000 }],
     });
     await query(`UPDATE pay_runs SET status = 'approved' WHERE id = $1`, [corrida]);
     return { fx, corrida, sched, periodo };
@@ -798,7 +792,7 @@ describe('G · correr el cierre dos veces', () => {
     await expect(
       calculatePaycheck({
         tenant_id: fx.tenantId, pay_run_id: corrida, employee_id: e[0].id,
-        pay_period_id: periodo, earnings: [{ earning_type: 'salary', amount: 10000 }],
+        earnings: [{ earning_type: 'salary', amount: 10000 }],
       })
     ).rejects.toThrow();
     const despues = await query<{ n: string }>(
@@ -906,9 +900,9 @@ describe('I · un employee_id de otro inquilino no produce recibo', () => {
     await expect(
       calculatePaycheck({
         tenant_id: f.tenantId, pay_run_id: corrida, employee_id: empAjeno,
-        pay_period_id: periodo, earnings: [{ earning_type: 'salary', amount: 5000 }],
+        earnings: [{ earning_type: 'salary', amount: 5000 }],
       })
-    ).rejects.toThrow(/Employee not found/);
+    ).rejects.toThrow(/Employee with id .+ not found/);
     const { rows } = await query<{ n: string }>(
       `SELECT COUNT(*)::text AS n FROM paychecks WHERE pay_run_id = $1`, [corrida]
     );

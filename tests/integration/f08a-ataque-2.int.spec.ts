@@ -157,10 +157,9 @@ describe('1 · la corrida de otro inquilino no admite recibos ajenos', () => {
         tenant_id: a.f.tenantId,
         pay_run_id: b.payRunId, // ← corrida del OTRO inquilino
         employee_id: a.empleadoId,
-        pay_period_id: a.periodId,
         earnings: [{ earning_type: 'salary', amount: 9000 }],
       })
-    ).rejects.toThrow(/Pay run not found/);
+    ).rejects.toThrow(/Pay run with id .+ not found/);
   });
 
   it('y el agregado del que sale el asiento al mayor no ve dinero ajeno', async () => {
@@ -199,7 +198,6 @@ describe('1 · la corrida de otro inquilino no admite recibos ajenos', () => {
       tenant_id: a.f.tenantId,
       pay_run_id: a.payRunId,
       employee_id: a.empleadoId,
-      pay_period_id: a.periodId,
       earnings: [{ earning_type: 'salary', amount: 9000 }],
     });
     await query(`UPDATE pay_runs SET status = 'approved' WHERE id = $1`, [a.payRunId]);
@@ -244,7 +242,6 @@ describe('2 · el recibo no sobrevive al fallo de su desglose', () => {
         tenant_id: e.f.tenantId,
         pay_run_id: e.payRunId,
         employee_id: e.empleadoId,
-        pay_period_id: e.periodId,
         earnings: [{ earning_type: 'salary', amount: 9000 }],
       })
     ).rejects.toThrow(/ataque2: fallo a mitad del desglose/);
