@@ -31,7 +31,8 @@ import { sessionKey, sessionTag, type SessionRecord, type SessionStore, type Ses
 //                 carries only the Lax login cookie.
 // /auth/callback → the checks run BEFORE any token request, cheapest and most
 //                 attacker-controlled first: IdP error, RFC 9207 iss, the
-//                 sealed transaction and its expiry, state in constant time.
+//                 sealed transaction and its expiry, state in constant time,
+//                 and that the transaction was not already spent (single use).
 //                 Only then the code is exchanged and the token verified. A
 //                 fresh session id replaces the browser's, so a planted id
 //                 (fixation) buys nothing, and the session the browser held
@@ -137,7 +138,53 @@ export function createLoginRoute(deps: AuthRouteDeps): RequestHandler {
   });
 }
 
+// A LOGIN TRANSACTION IS SPENT ONCE.
+//
+// The sealed login cookie is valid until its exp, and the callback allocated
+// no state of its own, so the same cookie and state were accepted again with
+// a fresh code and opened a second session. Only the IdP's single-use code
+// stood in the way of a replay of the same code, and a fresh code for the same
+// state is exactly what that does not cover.
+//
+// The callback claims the state before the code is exchanged, so two
+// concurrent callbacks cannot both pass. A failed exchange releases it, which
+// keeps the table bounded by what an unauthenticated caller cannot mint: every
+// entry that stays is a code the IdP redeemed, and it stays only until the
+// transaction's own expiry, after which the expiry check refuses the cookie
+// anyway. Expired entries are dropped on every claim.
+
+export interface SpentLogins {
+  /** Marks the state spent until `exp`; false when it already was. */
+  claim(state: string, exp: number): boolean;
+  /** Undoes a claim whose exchange failed. */
+  release(state: string): void;
+  readonly size: number;
+}
+
+export function createSpentLogins(clock: () => number): SpentLogins {
+  const spent = new Map<string, number>();
+  return {
+    claim(state, exp) {
+      const now = clock();
+      for (const [held, until] of spent) {
+        if (until <= now) spent.delete(held);
+      }
+      if (spent.has(state)) return false;
+      spent.set(state, exp);
+      return true;
+    },
+    release(state) {
+      spent.delete(state);
+    },
+    get size() {
+      return spent.size;
+    },
+  };
+}
+
 export function createCallbackRoute(deps: AuthRouteDeps): RequestHandler {
+  const spent = createSpentLogins(deps.clock);
+
   return handleAsync(async function callback(req, res) {
     noStore(res);
     res.append('Set-Cookie', clearLoginCookie());
@@ -165,11 +212,13 @@ export function createCallbackRoute(deps: AuthRouteDeps): RequestHandler {
     if (state === undefined || !sameString(state, transaction.state)) return fail('state');
     const code = queryString(req, 'code');
     if (code === undefined || code === '') return fail('code');
+    if (!spent.claim(transaction.state, transaction.exp)) return fail('transaction_spent');
 
     let tokens: SessionTokens;
     try {
       tokens = await deps.oidc.exchangeCode(code, transaction.verifier);
     } catch {
+      spent.release(transaction.state);
       return fail('token');
     }
 

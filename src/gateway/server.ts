@@ -166,6 +166,25 @@ export class GatewayDiscoveryFailed extends Error {
   }
 }
 
+/**
+ * The socket could not be opened: a port already in use (EADDRINUSE), a
+ * privileged port (EACCES), an address this host does not have
+ * (EADDRNOTAVAIL, ENOTFOUND). Host and port are configuration, not secrets, so
+ * the message names them with the system code, and both entries print it.
+ * There is no statusCode: it exits 1 from both, since whether it is worth
+ * retrying depends on what holds the port.
+ */
+export class GatewayListenFailed extends Error {
+  constructor(
+    readonly host: string,
+    readonly port: number,
+    readonly code: string
+  ) {
+    super(`the web gateway cannot start: cannot listen on ${host.includes(':') ? `[${host}]` : host}:${port}: ${code}`);
+    this.name = 'GatewayListenFailed';
+  }
+}
+
 /** The exit code of a failed start: 2 a refusal, 8 an IdP that could not be read, 1 anything else. */
 export function startupExitCode(err: unknown): 1 | 2 | 8 {
   if (err instanceof GatewayStartupRefused) return 2;
@@ -210,10 +229,17 @@ export async function startGateway(
     throw new GatewayDiscoveryFailed(err instanceof Error ? err.message : 'discovery failed');
   }
 
-  const server = await new Promise<Server>((resolve, reject) => {
-    const listening = gateway.app.listen(config.port, config.host, () => resolve(listening));
-    listening.once('error', reject);
-  });
+  let server: Server;
+  try {
+    server = await new Promise<Server>((resolve, reject) => {
+      const listening = gateway.app.listen(config.port, config.host, () => resolve(listening));
+      listening.once('error', reject);
+    });
+  } catch (err) {
+    gateway.close();
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    throw new GatewayListenFailed(config.host, config.port, typeof code === 'string' ? code : 'unknown error');
+  }
   const address = server.address() as AddressInfo;
   const host = address.family === 'IPv6' ? `[${address.address}]` : address.address;
   logger.event('gateway.listening', { host: config.host, port: address.port });

@@ -1,4 +1,5 @@
-import { resolverTrustProxy } from '../api/rest/trust-proxy.js';
+import { isIP, isIPv4 } from 'node:net';
+import { resolverTrustProxy, type ValorTrustProxy } from '../api/rest/trust-proxy.js';
 
 // ============================================================
 // GATEWAY CONFIGURATION
@@ -101,6 +102,58 @@ function isBareOrigin(value: string, url: URL): boolean {
   return url.origin !== 'null' && url.origin === value && url.username === '' && url.password === '';
 }
 
+// ============================================================
+// A TRUST_PROXY LIST EXPRESS CAN READ.
+//
+// Express compiles a `trust proxy` list when createGatewayApp sets it
+// (proxy-addr) and throws on an entry it cannot read. Unchecked here, such a
+// value passed validation and crashed createGatewayApp, and the node entry
+// exited 1 printing only that the gateway failed to start, without the key.
+//
+// Express cannot be asked directly: an express() outside server.ts is an app
+// the gateway's route table does not declare (criterion
+// web-gateway-own-routes-are-plumbing). So the grammar is checked here, and on
+// the strict side of proxy-addr's: every entry this accepts, Express accepts,
+// which tests/gateway/gateway-config.spec.ts cross-checks against Express
+// itself. What it refuses that Express would take is unusual spelling (octal
+// or hex octets, zone ids, an IPv4 tail on any IPv6 prefix but ::ffff:), and
+// the refusal names the key.
+// ============================================================
+
+const TRUST_PROXY_NAMES = new Set(['loopback', 'linklocal', 'uniquelocal']);
+
+/** The prefix length a dotted netmask spells, or 0 when its ones are not contiguous. */
+function netmaskBits(mask: string): number {
+  const bits = mask
+    .split('.')
+    .map((octet) => Number(octet).toString(2).padStart(8, '0'))
+    .join('');
+  if (!/^1*0*$/.test(bits)) return 0;
+  const firstZero = bits.indexOf('0');
+  return firstZero === -1 ? 32 : firstZero;
+}
+
+function trustProxyEntryIsValid(entry: string): boolean {
+  if (TRUST_PROXY_NAMES.has(entry)) return true;
+  const slash = entry.lastIndexOf('/');
+  const address = slash === -1 ? entry : entry.slice(0, slash);
+  const family = isIP(address);
+  if (family === 0 || address.includes('%')) return false;
+  if (family === 6 && address.includes('.') && !/^::ffff:(?:\d{1,3}\.){3}\d{1,3}$/i.test(address)) return false;
+  if (slash === -1) return true;
+  const range = entry.slice(slash + 1);
+  const max = family === 6 ? 128 : 32;
+  if (/^[0-9]+$/.test(range)) {
+    const bits = Number(range);
+    return bits >= 1 && bits <= max;
+  }
+  return family === 4 && isIPv4(range) && netmaskBits(range) >= 1;
+}
+
+function trustProxyIsValid(value: ValorTrustProxy): boolean {
+  return !Array.isArray(value) || value.every(trustProxyEntryIsValid);
+}
+
 function checkRange(problems: string[], key: string, value: number, range: { min: number; max: number }): void {
   if (!Number.isInteger(value) || value < range.min || value > range.max) {
     problems.push(`${key} must be a whole number between ${range.min} and ${range.max}`);
@@ -161,6 +214,11 @@ export function gatewayConfigProblems(config: GatewayConfig): string[] {
   const trust = resolverTrustProxy(config.trustProxy, production ? 'production' : 'development');
   if (trust.valor === true && production) {
     problems.push('GATEWAY_TRUST_PROXY=true is refused in production: it believes every X-Forwarded-For a client writes');
+  } else if (!trustProxyIsValid(trust.valor)) {
+    // The value is not repeated: the key and the grammar are enough to fix it.
+    problems.push(
+      'GATEWAY_TRUST_PROXY must be false, true, a number of hops, or a comma-separated list of addresses, CIDR ranges, loopback, linklocal or uniquelocal'
+    );
   }
 
   checkRange(problems, 'GATEWAY_SESSION_IDLE_MINUTES', config.sessionIdleMinutes, SESSION_IDLE_MINUTES);

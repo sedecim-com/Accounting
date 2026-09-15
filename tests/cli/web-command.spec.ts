@@ -4,10 +4,10 @@ import ts from 'typescript';
 import { Command } from 'commander';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CliError, ExitCode, riskOf } from '../../src/cli/kernel/index.js';
-import { program, skipsDatabase } from '../../src/cli/mnemosine.js';
+import { program, reportError, skipsDatabase } from '../../src/cli/mnemosine.js';
 import { registerWebCommand, withStartFlags, type GatewayLauncher } from '../../src/cli/web-command.js';
 import type { GatewayConfig } from '../../src/gateway/config.js';
-import { GatewayDiscoveryFailed, GatewayStartupRefused } from '../../src/gateway/server.js';
+import { GatewayDiscoveryFailed, GatewayListenFailed, GatewayStartupRefused } from '../../src/gateway/server.js';
 
 // ============================================================
 // W0 · `mnemosine web start`, the operator's door to the web gateway.
@@ -264,6 +264,25 @@ describe('running web start', () => {
     });
     await h.program.parseAsync(['web', 'start'], { from: 'user' });
     expect(h.shutdown).toHaveBeenCalledWith(ExitCode.FAILURE);
+  });
+
+  it('exits 1 and prints the address and the system code when it cannot listen, as node dist/gateway/main.js does', async () => {
+    captureStdout();
+    const h = harness({
+      start: async () => {
+        throw new GatewayListenFailed('127.0.0.1', 8080, 'EADDRINUSE');
+      },
+    });
+    await h.program.parseAsync(['web', 'start'], { from: 'user' });
+    expect(h.shutdown).toHaveBeenCalledWith(ExitCode.FAILURE);
+    const reported = h.reportError.mock.calls[0]?.[0] as unknown;
+    expect(reported).toBeInstanceOf(GatewayListenFailed);
+    let printed = '';
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      printed += `${args.map(String).join(' ')}\n`;
+    });
+    reportError(reported);
+    expect(printed).toContain('cannot listen on 127.0.0.1:8080: EADDRINUSE');
   });
 
   it('exits 8, the retryable code, when the IdP cannot be read, as node dist/gateway/main.js does', async () => {

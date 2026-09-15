@@ -10,7 +10,9 @@ import {
 } from '../../src/gateway/config.js';
 import { exitCodeFor, ExitCode } from '../../src/cli/kernel/index.js';
 import {
+  createGatewayApp,
   GatewayDiscoveryFailed,
+  GatewayListenFailed,
   GatewayStartupRefused,
   startGateway,
   startupExitCode,
@@ -101,6 +103,8 @@ describe('gatewayConfigProblems', () => {
     ['an API URL with credentials', { apiUrl: 'http://user:pw@api.internal:3000' }, /GATEWAY_API_URL must be an http\(s\) origin only/],
     ['an API URL with a path', { apiUrl: 'http://api.internal:3000/v1' }, /GATEWAY_API_URL must be an http\(s\) origin only/],
     ['TRUST_PROXY true in production', { trustProxy: 'true', production: true, publicOrigin: 'https://board.example.com' }, /GATEWAY_TRUST_PROXY=true is refused/],
+    ['a TRUST_PROXY address Express cannot read', { trustProxy: '10.0.0.300' }, /GATEWAY_TRUST_PROXY must be false, true, a number of hops/],
+    ['a TRUST_PROXY list with a malformed CIDR', { trustProxy: 'loopback, 10.0.0.0/99' }, /GATEWAY_TRUST_PROXY must be/],
     ['an idle limit under the range', { sessionIdleMinutes: 4 }, /GATEWAY_SESSION_IDLE_MINUTES must be a whole number between 5 and 120/],
     ['an idle limit over the range', { sessionIdleMinutes: 121 }, /GATEWAY_SESSION_IDLE_MINUTES/],
     ['an absolute lifetime over 12 hours', { sessionAbsoluteHours: 13 }, /GATEWAY_SESSION_ABSOLUTE_HOURS must be a whole number between 1 and 12/],
@@ -118,6 +122,53 @@ describe('gatewayConfigProblems', () => {
   it('a value that is not a whole number is refused, not clamped or defaulted', () => {
     const problems = problemsFor({ ...VALID_ENV, GATEWAY_SESSION_IDLE_MINUTES: '30.5', GATEWAY_SESSION_MAX: 'lots', GATEWAY_PORT: '-1' });
     expect(problems.filter((p) => /GATEWAY_SESSION_IDLE_MINUTES|GATEWAY_SESSION_MAX|GATEWAY_PORT/.test(p))).toHaveLength(3);
+  });
+
+  it('refuses a TRUST_PROXY Express cannot compile by naming the key, never the value, and accepts every form of the grammar', () => {
+    const problems = withOverrides({ trustProxy: 'not-an-address-7f3a' });
+    expect(problems.filter((p) => p.startsWith('GATEWAY_TRUST_PROXY must be'))).toHaveLength(1);
+    expect(problems.join('\n')).not.toContain('not-an-address-7f3a');
+    for (const trustProxy of ['', 'false', 'off', '1', '2', 'loopback', '10.0.0.0/8', '10.0.0.1, uniquelocal', '::1', 'fe80::/10', '::ffff:10.0.0.1', '10.0.0.0/255.255.255.128']) {
+      expect(withOverrides({ trustProxy }), trustProxy).toEqual([]);
+    }
+  });
+
+  it('never accepts a TRUST_PROXY that Express would throw on, and refuses what Express refuses', () => {
+    // Express is asked for real, through createGatewayApp, which resolves the
+    // value and sets it on the one app. The config check may not call
+    // express() itself (one app, in server.ts), so this is what holds its
+    // grammar to Express's.
+    const root = createStaticRoot();
+    const expressAccepts = (trustProxy: string): boolean => {
+      try {
+        createGatewayApp({ config: { ...testConfig(), trustProxy }, staticRoot: root.dir, logger: { event: () => undefined } }).close();
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const corpus = [
+      'loopback', 'Loopback', 'linklocal', 'uniquelocal', '__proto__', 'constructor', 'localhost', '[::1]',
+      '1.2.3.4', '0.0.0.0', '255.255.255.255', '256.1.1.1', '1.2.3', '1.2.3.4.5', '01.2.3.4', '0x1.2.3.4', '1.2.3.04',
+      '1.2.3.4/0', '1.2.3.4/1', '1.2.3.4/32', '1.2.3.4/33', '1.2.3.4/024', '1.2.3.4/', '1.2.3.4//24', '1.2.3.4/24/24', '1.2.3.4/+24',
+      '1.2.3.4/255.255.255.0', '1.2.3.4/255.255.255.128', '1.2.3.4/128.0.0.0', '1.2.3.4/255.255.255.255', '1.2.3.4/255.0.255.0', '1.2.3.4/0.0.0.0', '1.2.3.4/255.255.256.0',
+      '::', '::/0', '::/1', '::1', '::1/128', '::1/129', '1::', '1::2::3', ':::', 'fe80::/10', 'fe80::1%eth0', 'fe80::1%en-0', 'fe80::1%eth0.1', '1:2:3:4:5:6:7:8', '1:2:3:4:5:6:7:8:9',
+      '::1/255.255.255.0', '::ffff:1.2.3.4', '::FFFF:1.2.3.4', '::ffff:1.2.3.4/33', '::ffff:1.2.3.4/129', '::1.2.3.4', '64:ff9b::1.2.3.4', '0::ffff:1.2.3.4',
+      '1:2:3:4:5:6:1.2.3.4', '::ffff:0:1.2.3.4', '10.0.0.1, 10.0.0.300', 'loopback, ::1/0',
+    ];
+    const accepted: string[] = [];
+    for (const trustProxy of corpus) {
+      const refused = withOverrides({ trustProxy }).some((p) => p.startsWith('GATEWAY_TRUST_PROXY'));
+      const compiles = expressAccepts(trustProxy);
+      if (!refused) {
+        accepted.push(trustProxy);
+        expect(compiles, `accepted ${trustProxy}, which Express refuses`).toBe(true);
+      }
+      if (!compiles) expect(refused, `Express refuses ${trustProxy}`).toBe(true);
+    }
+    root.remove();
+    // The cross-check must judge accepted values too, not only refusals.
+    expect(accepted.length).toBeGreaterThan(15);
   });
 
   it('accepts loopback http outside production', () => {
@@ -144,6 +195,12 @@ describe('startGateway', () => {
   afterEach(async () => {
     await running?.close();
     running = undefined;
+  });
+
+  it('refuses a TRUST_PROXY Express cannot compile before building the app, as a named refusal', async () => {
+    const attempt = startGateway({ ...testConfig(), trustProxy: '10.0.0.300' });
+    await expect(attempt).rejects.toBeInstanceOf(GatewayStartupRefused);
+    await expect(attempt).rejects.toThrow(/GATEWAY_TRUST_PROXY must be/);
   });
 
   it('refuses an invalid configuration without echoing the secret', async () => {
@@ -185,6 +242,22 @@ describe('startGateway', () => {
     const err = await attempt.catch((e: unknown) => e);
     expect(startupExitCode(err)).toBe(ExitCode.EXTERNAL_FAILED);
     expect(exitCodeFor(err)).toBe(ExitCode.EXTERNAL_FAILED);
+    root.remove();
+  });
+
+  it('names the address and the system code when the port is taken, and exits 1 from both doors', async () => {
+    resetOidcCaches();
+    const idp = await createFakeIdp();
+    const root = createStaticRoot();
+    const deps = { fetchImpl: idp.fetch, staticRoot: root.dir, logger: { event: () => undefined } };
+    running = await startGateway(testConfig({ issuer: idp.issuer }), deps);
+    const port = Number(new URL(running.url).port);
+    const attempt = startGateway(testConfig({ issuer: idp.issuer, port }), deps);
+    await expect(attempt).rejects.toBeInstanceOf(GatewayListenFailed);
+    await expect(attempt).rejects.toThrow(`cannot listen on 127.0.0.1:${port}: EADDRINUSE`);
+    const err = await attempt.catch((e: unknown) => e);
+    expect(startupExitCode(err)).toBe(ExitCode.FAILURE);
+    expect(exitCodeFor(err)).toBe(ExitCode.FAILURE);
     root.remove();
   });
 

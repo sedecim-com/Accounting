@@ -154,6 +154,29 @@ describe('what the API cannot make the gateway do', () => {
     expect(h.api.requests).toHaveLength(1);
   });
 
+  it('an upstream 5xx keeps the session: an API or IdP outage is not a verdict on the token', async () => {
+    // The API answers 500 when its database fails and 502 when the IdP's
+    // discovery or keys cannot be read (src/api/rest/middleware/auth.ts). Only
+    // its 401 says the token is dead; ending the session on anything else
+    // would sign out every browser that loads a screen during an outage.
+    for (const status of [500, 502, 503]) {
+      h.api.respond = (_req, res) => {
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end('{"errors":[{"code":"EXTERNAL_SERVICE_FAILED"}]}');
+      };
+      const res = await h.read('/v1/portfolio', cookie);
+      expect(res.status).toBe(status);
+      expect(h.gateway.sessions.size).toBe(1);
+    }
+
+    h.api.respond = (_req, res) => res.end('{}');
+    const after = await h.read('/v1/portfolio', cookie);
+    expect(after.status).toBe(200);
+    expect(h.api.requests.map((r) => r.headers.authorization)).toEqual(
+      Array.from({ length: 4 }, () => `Bearer ${h.idp.issued.access[0]}`)
+    );
+  });
+
   it('403 and 422 from the API pass through unchanged', async () => {
     for (const status of [403, 422]) {
       h.api.respond = (_req, res) => {

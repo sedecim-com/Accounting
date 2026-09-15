@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createSpentLogins } from '../../src/gateway/auth-routes.js';
 import { LOGIN_COOKIE, SESSION_COOKIE } from '../../src/gateway/cookies.js';
 import { seal } from '../../src/gateway/sealed-cookie.js';
 import { SESSIONS_PER_PRINCIPAL } from '../../src/gateway/session-store.js';
@@ -290,13 +291,58 @@ describe('a successful sign-in', () => {
     expect((await h.read('/v1/portfolio', first)).status).toBe(200);
   });
 
-  it('a login transaction cannot be replayed once used', async () => {
+  it('a login transaction cannot be replayed once used, not even with a fresh code', async () => {
     const { loginPair, state } = await beginLogin();
-    const code = h.idp.issueCode();
-    expect((await callback(`code=${code}&state=${state}`, loginPair)).status).toBe(303);
-    const replay = await callback(`code=${code}&state=${state}`, loginPair);
+    const first = await callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair);
+    expect(cookieFrom(first.headers, SESSION_COOKIE)).toBeDefined();
+    const tokenCalls = h.idp.tokenCalls.length;
+
+    // A code the IdP would redeem: only the gateway can refuse this one.
+    const replay = await callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair);
+    expect(replay.status).toBe(303);
+    expect(replay.headers.location).toBe('/#/signin-failed');
     expect(cookieFrom(replay.headers, SESSION_COOKIE)).toBeUndefined();
     expect(h.gateway.sessions.size).toBe(1);
+    expect(h.idp.tokenCalls.length).toBe(tokenCalls);
+  });
+
+  it('two concurrent callbacks for one transaction open one session', async () => {
+    const { loginPair, state } = await beginLogin();
+    const results = await Promise.all([
+      callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair),
+      callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair),
+    ]);
+    expect(results.filter((r) => cookieFrom(r.headers, SESSION_COOKIE) !== undefined)).toHaveLength(1);
+    expect(h.gateway.sessions.size).toBe(1);
+    expect(h.idp.tokenCalls).toHaveLength(1);
+  });
+
+  it('a transaction whose exchange failed is not spent: the same sign-in still completes', async () => {
+    const { loginPair, state } = await beginLogin();
+    expectRejected(await callback(`code=not-issued&state=${state}`, loginPair), 1);
+    const retry = await callback(`code=${h.idp.issueCode()}&state=${state}`, loginPair);
+    expect(cookieFrom(retry.headers, SESSION_COOKIE)).toBeDefined();
+    expect(h.gateway.sessions.size).toBe(1);
+  });
+});
+
+describe('the spent login table', () => {
+  it('refuses a second claim, lets a released state be claimed again, and forgets a state at its expiry', () => {
+    const now = { value: 1_000 };
+    const spent = createSpentLogins(() => now.value);
+    expect(spent.claim('a', 2_000)).toBe(true);
+    expect(spent.claim('a', 2_000)).toBe(false);
+    spent.release('a');
+    expect(spent.claim('a', 2_000)).toBe(true);
+    expect(spent.claim('b', 5_000)).toBe(true);
+    expect(spent.size).toBe(2);
+
+    now.value = 2_000;
+    expect(spent.claim('c', 6_000)).toBe(true);
+    expect(spent.size).toBe(2);
+    now.value = 6_000;
+    expect(spent.claim('d', 7_000)).toBe(true);
+    expect(spent.size).toBe(1);
   });
 });
 

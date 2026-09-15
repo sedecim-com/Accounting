@@ -26,6 +26,9 @@ import { sessionTag } from './session-store.js';
 //   · Response headers: only what a reader needs. Set-Cookie, Location,
 //     Access-Control-* and WWW-Authenticate stay behind.
 //   · An upstream 401 ends the session: the token it holds no longer works.
+//     The API keeps 401 for a verdict on the token (middleware/auth.ts); a
+//     database or IdP outage answers 5xx, which is relayed and keeps the
+//     session, so an outage does not sign every browser out.
 // ============================================================
 
 export const FORWARDED_REQUEST_HEADERS = ['accept', 'accept-language', 'if-none-match', 'x-entity-id'] as const;

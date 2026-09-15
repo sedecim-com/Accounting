@@ -107,7 +107,7 @@ export async function verifyIdpToken(
   });
 
   const sub = payload.sub;
-  if (!sub) throw new Error('The token has no "sub": it identifies nobody');
+  if (!sub) throw new TokenWithoutSubjectError();
 
   return {
     issuer: conf.issuer,
@@ -117,6 +117,19 @@ export async function verifyIdpToken(
     groups: extractGroups(payload),
     expiresAt: (payload.exp ?? 0) * 1000,
   };
+}
+
+/**
+ * A verified token that names no subject. A rejection of the token itself, as
+ * a bad signature or an expired token is, and not a failure to reach the IdP:
+ * callers that tell the two apart (the API's authenticate) need a type, not a
+ * message to match.
+ */
+export class TokenWithoutSubjectError extends Error {
+  constructor() {
+    super('The token has no "sub": it identifies nobody');
+    this.name = 'TokenWithoutSubjectError';
+  }
 }
 
 /** Providers name groups differently; the usual ones are accepted. */

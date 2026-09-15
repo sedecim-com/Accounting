@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { exitCodeFor, ExitCode } from '../../src/cli/kernel/index.js';
-import { GatewayDiscoveryFailed, GatewayStartupRefused, startupExitCode } from '../../src/gateway/server.js';
+import {
+  GatewayDiscoveryFailed,
+  GatewayListenFailed,
+  GatewayStartupRefused,
+  startupExitCode,
+} from '../../src/gateway/server.js';
 
 // ============================================================
 // W0 · the deployment entry exits with the CLI's contract codes.
@@ -15,7 +20,8 @@ import { GatewayDiscoveryFailed, GatewayStartupRefused, startupExitCode } from '
 
 const refusal = new GatewayStartupRefused(['GATEWAY_API_URL is required']);
 const idpDown = new GatewayDiscoveryFailed('fetch failed');
-const other = new Error('listen EADDRINUSE: address already in use 127.0.0.1:8080');
+const portTaken = new GatewayListenFailed('127.0.0.1', 8080, 'EADDRINUSE');
+const other = new Error('something the gateway did not name');
 
 /** Loads main.ts in a fresh module registry, with startGateway rejecting with `err`. */
 async function runMainFailingWith(err: Error): Promise<{ code: number | undefined; stderr: string }> {
@@ -29,6 +35,7 @@ async function runMainFailingWith(err: Error): Promise<{ code: number | undefine
     // The classes stay the ones this spec imported, so instanceof in main.ts sees them.
     GatewayStartupRefused,
     GatewayDiscoveryFailed,
+    GatewayListenFailed,
     startupExitCode,
     startGateway: () => Promise.reject(err),
   }));
@@ -62,6 +69,12 @@ describe('node dist/gateway/main.js, when the start fails', () => {
     expect(stderr).toContain('OIDC discovery for AUTH_OIDC_ISSUER failed: fetch failed');
   });
 
+  it('exits 1 for a socket it cannot open, and says which address and why', async () => {
+    const { code, stderr } = await runMainFailingWith(portTaken);
+    expect(code).toBe(ExitCode.FAILURE);
+    expect(stderr).toBe('the web gateway cannot start: cannot listen on 127.0.0.1:8080: EADDRINUSE\n');
+  });
+
   it('exits 1 for anything else and echoes nothing of it', async () => {
     const { code, stderr } = await runMainFailingWith(other);
     expect(code).toBe(ExitCode.FAILURE);
@@ -69,9 +82,17 @@ describe('node dist/gateway/main.js, when the start fails', () => {
   });
 });
 
+describe('GatewayListenFailed', () => {
+  it('brackets an IPv6 host so the port stays readable', () => {
+    expect(new GatewayListenFailed('::1', 443, 'EACCES').message).toBe(
+      'the web gateway cannot start: cannot listen on [::1]:443: EACCES'
+    );
+  });
+});
+
 describe('startupExitCode', () => {
   it('is exitCodeFor for every startup error, so both doors exit alike', () => {
-    for (const err of [refusal, idpDown, other]) {
+    for (const err of [refusal, idpDown, portTaken, other]) {
       expect(startupExitCode(err), err.name).toBe(exitCodeFor(err));
     }
   });

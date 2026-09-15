@@ -1,9 +1,20 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
+import { errors as joseErrors } from 'jose';
 import { config } from '../../../config/index.js';
-import { UnauthorizedError, ForbiddenError, ValidationError } from '../../../utils/errors.js';
-import { isAsymmetric, verifyIdpToken } from '../../../auth/oidc.js';
-import { resolveIdentity, NoAccessError } from '../../../auth/provisioning.js';
+import {
+  UnauthorizedError,
+  ForbiddenError,
+  ValidationError,
+  ExternalServiceError,
+} from '../../../utils/errors.js';
+import { isAsymmetric, TokenWithoutSubjectError, verifyIdpToken, type VerifiedIdentity } from '../../../auth/oidc.js';
+import {
+  resolveIdentity,
+  AccountDeactivatedError,
+  NoAccessError,
+  NoEmailError,
+} from '../../../auth/provisioning.js';
 import type { JwtPayload } from '../../../types/index.js';
 import { ROLES as CATALOGO_DE_ROLES, hasPermission, type Permission } from '../../../auth/roles.js';
 
@@ -115,15 +126,65 @@ function verifyLocal(token: string): JwtPayload {
   }
 }
 
+// ============================================================
+// 401 IS A VERDICT ON THE TOKEN, NEVER ON THE INFRASTRUCTURE.
+//
+// This used to turn EVERY failure of verifyExternal into 401: a discovery
+// document that did not load, a JWKS that timed out, a Postgres that refused
+// the identity lookup. A client reads 401 as "this credential is dead", and
+// the web gateway acts on it: it destroys the browser session
+// (src/gateway/proxy.ts). So a short IdP or database outage signed out every
+// web user who loaded a screen while it lasted.
+//
+// Now the three kinds answer apart:
+//   · the token was judged and refused (jose's verdicts below, a missing
+//     sub, a deactivated account, a first login without email): 401;
+//   · the token could not be judged, because the IdP's discovery or keys
+//     could not be read: ExternalServiceError, 502, retryable;
+//   · anything else, a database error included, propagates: 500.
+// ============================================================
+
+/** jose error codes that are a verdict on the token itself. Every other failure while verifying is the IdP. */
+const TOKEN_REJECTION_CODES: ReadonlySet<string> = new Set([
+  'ERR_JWT_CLAIM_VALIDATION_FAILED',
+  'ERR_JWT_EXPIRED',
+  'ERR_JWT_INVALID',
+  'ERR_JWS_INVALID',
+  'ERR_JWS_SIGNATURE_VERIFICATION_FAILED',
+  'ERR_JOSE_ALG_NOT_ALLOWED',
+  'ERR_JOSE_NOT_SUPPORTED',
+  'ERR_JWKS_NO_MATCHING_KEY',
+  'ERR_JWKS_MULTIPLE_MATCHING_KEYS',
+]);
+
+function isTokenRejection(err: unknown): err is Error {
+  if (err instanceof TokenWithoutSubjectError) return true;
+  return err instanceof joseErrors.JOSEError && TOKEN_REJECTION_CODES.has(err.code);
+}
+
 async function verifyExternal(token: string): Promise<JwtPayload> {
   if (!config.auth.enabled) {
     throw new UnauthorizedError('The token comes from an external provider and OIDC is not configured');
   }
+
+  let identity: VerifiedIdentity;
   try {
-    const identity = await verifyIdpToken(token, {
+    identity = await verifyIdpToken(token, {
       issuer: config.auth.issuer,
       audience: config.auth.audience,
     });
+  } catch (err) {
+    if (isTokenRejection(err)) throw new UnauthorizedError(`External token rejected: ${err.message}`);
+    // Discovery or the JWKS could not be read (unreachable, timed out, an
+    // HTTP error, a body that is not what it promised): the token was never
+    // judged, and the same request may pass in a minute.
+    throw new ExternalServiceError(
+      'OIDC',
+      `the token could not be verified: ${err instanceof Error ? err.message : 'the identity provider failed'}`
+    );
+  }
+
+  try {
     return await resolveIdentity(identity, {
       provider: config.auth.provider,
       defaultTenantId: config.auth.tenantId,
@@ -132,9 +193,11 @@ async function verifyExternal(token: string): Promise<JwtPayload> {
     // A valid user without granted access is not an authentication failure:
     // the message has to say what is missing, not "invalid token".
     if (err instanceof NoAccessError) throw new ForbiddenError(err.message);
-    throw new UnauthorizedError(
-      err instanceof Error ? `External token rejected: ${err.message}` : 'External token rejected'
-    );
+    if (err instanceof AccountDeactivatedError || err instanceof NoEmailError) {
+      throw new UnauthorizedError(`External token rejected: ${err.message}`);
+    }
+    // The database, most likely. Not a verdict on the token: a 500.
+    throw err;
   }
 }
 
