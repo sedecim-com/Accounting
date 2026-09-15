@@ -21,6 +21,10 @@ export interface OidcDiscovery {
   jwks_uri: string;
   device_authorization_endpoint?: string;
   code_challenge_methods_supported?: string[];
+  /** RFC 7009. The web gateway revokes a session's tokens here at logout, when present. */
+  revocation_endpoint?: string;
+  /** OIDC RP-Initiated Logout. The web gateway sends the browser here after logout, when present. */
+  end_session_endpoint?: string;
 }
 
 export interface VerifiedIdentity {
