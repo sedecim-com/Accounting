@@ -35,6 +35,8 @@ import {
   verdictFindings,
   verifyClosingPack,
   type ClosingPack,
+  type PackDifference,
+  type PackVerdict,
 } from '../services/accounting/closing-pack.js';
 import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
@@ -232,6 +234,35 @@ export function runExitCode(outcome: ClosingRunOutcome): ExitCodeValue {
 }
 
 /**
+ * Las filas del anexo en csv, tsv y md: las diferencias Y lo que el veredicto
+ * acusa sin ser una diferencia de campo.
+ *
+ * Sólo con las diferencias, un expediente forjado —concuerda consigo mismo,
+ * sus cifras reproducen, nadie lo emitió— escribía un anexo VACÍO y salía 4
+ * sin decir por qué: el auditor recibía un archivo sin filas y un rojo.
+ */
+/** A row of the verify annex: a field difference, or a verdict-level finding. */
+export interface VerdictRow {
+  kind: PackDifference['kind'] | 'seal' | 'registry' | 'envelope';
+  path: string;
+  expected: string;
+  actual: string;
+}
+
+export function verdictRows(verdict: PackVerdict): VerdictRow[] {
+  const rows: VerdictRow[] = [];
+  if (!verdict.sealIntact) {
+    rows.push({ kind: 'seal', path: 'seal', expected: verdict.expectedSeal, actual: verdict.recomputedSeal });
+  }
+  if (!verdict.issued) {
+    rows.push({ kind: 'registry', path: 'closing_packs', expected: 'issued by these books', actual: 'not issued' });
+  } else if (!verdict.envelopeMatches) {
+    rows.push({ kind: 'envelope', path: 'envelope', expected: 'as registered', actual: 'differs' });
+  }
+  return [...rows, ...verdict.differences];
+}
+
+/**
  * La última línea de la corrida, dicha según lo que de verdad pasó.
  *
  * Decía «arregla la causa y vuelve a correr con --resume» en cualquier alto, y
@@ -329,19 +360,17 @@ async function periodToConduct(ctx: AgentContext, name?: string): Promise<Closab
     if (!chosen) throw notFound('No open periods: nothing to conduct.');
     return chosen;
   }
-  const wanted = name.toLowerCase();
-  const chosen = candidates.find(
-    (p) => p.id === name || p.period_name.toLowerCase().includes(wanted)
-  );
-  if (!chosen) {
-    throw notFound(
-      `No open period matches "${name}". Open: ${candidates.filter((p) => p.status === 'open').map((p) => p.period_name).join(', ') || 'none'}.`
-    );
-  }
-  if (chosen.status !== 'open') {
+  // EL MISMO RESOLVEDOR QUE `closing pack generate` y `period show`: id,
+  // AAAA-MM o nombre, y un nombre ambiguo se NIEGA en vez de tomar la primera
+  // coincidencia. La hoja irreversible no puede resolver con más holgura que
+  // la de lectura: «July» casaba primero con el julio ya cerrado y la negativa
+  // hablaba de otro mes.
+  const resolved = await resolvePeriod(ctx.entityId, name);
+  const chosen = candidates.find((p) => p.id === resolved.id);
+  if (!chosen || chosen.status !== 'open') {
     throw blockedByState(
-      `${chosen.period_name} is already ${chosen.status}: there is nothing left to conduct. ` +
-        `Seal it with \`mnemosine closing pack generate "${chosen.period_name}"\`.`
+      `${resolved.period_name} is already ${resolved.status}: there is nothing left to conduct. ` +
+        `Seal it with \`mnemosine closing pack generate "${resolved.period_name}"\`.`
     );
   }
   return chosen;
@@ -998,7 +1027,9 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       // mientras se cree estar mirando el de su hermana es exactamente el modo
       // en que una verificación en verde no prueba nada.
       const { ctx } = await resolveActiveEntity({ entity: opts.entity }, { home: deps.home });
-      if (ctx.entityId !== pack.sealed.entity.id) {
+      // Sin distinguir mayúsculas: Postgres compara UUID así, y la guarda del
+      // archivo los admite en cualquier grafía.
+      if (ctx.entityId.toLowerCase() !== pack.sealed.entity.id.toLowerCase()) {
         throw usageError(
           `This dossier belongs to "${pack.sealed.entity.name}" and the active entity is ` +
             `"${ctx.entityName}". Name the right one with --entity.`
@@ -1017,7 +1048,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         // EL ANEXO QUE PIDE UN AUDITOR ES UNA FILA POR CAMPO, no un veredicto
         // con las diferencias apretadas en una celda JSON: en csv, tsv y md las
         // FILAS son las diferencias. El veredicto entero es de --json.
-        render(verdict.differences as unknown as Row[], { ...opts, idField: 'path' });
+        render(verdictRows(verdict) as unknown as Row[], { ...opts, idField: 'path' });
       } else if (!legible(opts)) {
         render([verdict as unknown as Row], { ...opts, idField: 'expectedSeal' });
       } else {

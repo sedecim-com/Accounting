@@ -158,8 +158,8 @@ export default defineConfig({
         // ponerles un piso unitario obligaría a duplicar con mocks lo que ya se
         // prueba contra Postgres.
         //
-        // Nacieron en 90/72/90/91 y 87/75/100/90. La corrección de la revisión
-        // adversaria los APRIETA en el mismo commit que gana el terreno, con la
+        // Nacieron en 90/72/90/91 y 87/75/100/90, y se apretaron en la fusión
+        // que siguió a la corrección de la revisión adversaria, medidos con la
         // suite entera en verde (113 archivos, 1 436 pruebas; 27 de la de A6):
         // conductor 95.04 / 77.77 / 95.23 / 95.72; expediente 89.56 / 77.38 / 100 / 91.5.
         'src/services/accounting/closing-conductor.ts': {

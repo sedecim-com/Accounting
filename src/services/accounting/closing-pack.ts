@@ -59,7 +59,9 @@ import { NotFoundError } from '../../utils/errors.js';
 //      left to the database's collation, which can differ between the
 //      machine that sealed and the machine that verifies. Criterion
 //      `closing-dossier-reads-the-posted-ledger-in-order`.
-//   3. DRAFTS. Only posted entries. Same criterion.
+//   3. DRAFTS. Only posted entries. The period activity's filter is this
+//      file's, and the criterion reads its WHERE; the trial balance's lives in
+//      the shared report service, whose own criteria guard it.
 //   4. ACCOUNTS THAT NEVER MOVED. The trial balance keeps zero-activity
 //      accounts on purpose (a report that hides them hides the accounts
 //      someone forgot to use), but an account created in September with
@@ -490,19 +492,25 @@ export async function verifyClosingPack(pack: ClosingPack): Promise<PackVerdict>
   );
 
   let diffs: PackDifference[];
+  let missing = false;
   try {
     const actual = await deriveSealedBody(pack.sealed.entity.id, pack.sealed.period.id);
     diffs = differences(pack.sealed, actual);
   } catch (err) {
     if (!(err instanceof NotFoundError)) throw err;
+    // THE PERIOD DOES NOT EXIST IN THESE BOOKS. That is an identity finding —
+    // the dossier names a period these books do not have — and it also means no
+    // figure can reproduce, which the verdict below says explicitly instead of
+    // leaving `figuresReproduce` true for want of a figure difference.
     diffs = [
       {
-        kind: 'figure',
+        kind: 'identity',
         path: 'period.id',
         expected: pack.sealed.period.id,
         actual: '(not in these books)',
       },
     ];
+    missing = true;
   }
 
   return {
@@ -510,7 +518,7 @@ export async function verifyClosingPack(pack: ClosingPack): Promise<PackVerdict>
     issued,
     issuedAt: registry.rows[0]?.generated_at ?? null,
     envelopeMatches,
-    figuresReproduce: !diffs.some((d) => d.kind === 'figure'),
+    figuresReproduce: !missing && !diffs.some((d) => d.kind === 'figure'),
     identityUnchanged: !diffs.some((d) => d.kind === 'identity'),
     expectedSeal: pack.seal,
     recomputedSeal,
@@ -553,8 +561,31 @@ export function parseClosingPack(text: string): ClosingPack {
   if (!isUuid(p.sealed.entity.id) || !isUuid(p.sealed.period.id)) {
     throw new Error('Not a closing pack: the entity or period id is not a UUID.');
   }
-  if (!p.sealed.figures || !Array.isArray(p.sealed.figures.trial_balance)) {
+  const figures = p.sealed.figures;
+  if (!figures || !Array.isArray(figures.trial_balance) || !Array.isArray(figures.period_activity)) {
     throw new Error('Not a closing pack: the sealed body carries no figures.');
+  }
+  // EVERY ROW IS A ROW, AND EVERY KEY APPEARS ONCE. A crafted element that is
+  // not an object crashed the comparison with a TypeError, and a duplicated
+  // account code let the keyed comparison keep only the last row — a fake row
+  // next to a verdict saying the figures reproduce.
+  const rowsOf = (rows: unknown[], key: string, what: string): void => {
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const value = (row as Record<string, unknown> | null)?.[key];
+      if (typeof row !== 'object' || row === null || typeof value !== 'string') {
+        throw new Error(`Not a closing pack: a ${what} row has no ${key}.`);
+      }
+      if (seen.has(value)) {
+        throw new Error(`Not a closing pack: ${key} ${value} appears twice in the ${what}.`);
+      }
+      seen.add(value);
+    }
+  };
+  rowsOf(figures.trial_balance, 'account_code', 'trial balance');
+  rowsOf(figures.period_activity, 'source_type', 'period activity');
+  if (typeof figures.totals !== 'object' || figures.totals === null) {
+    throw new Error('Not a closing pack: the sealed body carries no totals.');
   }
   if (!p.envelope || typeof p.envelope !== 'object') {
     throw new Error('Not a closing pack: no envelope.');
@@ -572,7 +603,9 @@ export async function latestClosedPeriodOf(
   const r = await query<{ id: string; period_name: string }>(
     `SELECT id, period_name FROM fiscal_periods
       WHERE entity_id = $1 AND status IN ('soft_close', 'hard_close', 'locked')
-      ORDER BY end_date DESC, id DESC
+      -- December and the period-13 adjustment period share an end date: the
+      -- later period number is the later period, not a coin flip on the id.
+      ORDER BY end_date DESC, period_number DESC
       LIMIT 1`,
     [entityId]
   );

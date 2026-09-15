@@ -268,6 +268,21 @@ describe('parseClosingPack', () => {
     expect(() => parseClosingPack(JSON.stringify(notUuid))).toThrow(/not a UUID/);
   });
 
+  it('rechaza filas que no son filas, y una clave repetida que dejaría una fila falsa', () => {
+    const notRow = { ...valid, sealed: { ...BODY, figures: { ...BODY.figures, trial_balance: [42] } } };
+    expect(() => parseClosingPack(JSON.stringify(notRow))).toThrow(/has no account_code/);
+    const twice = {
+      ...valid,
+      sealed: {
+        ...BODY,
+        figures: { ...BODY.figures, trial_balance: [BODY.figures.trial_balance[0], BODY.figures.trial_balance[0]] },
+      },
+    };
+    expect(() => parseClosingPack(JSON.stringify(twice))).toThrow(/appears twice/);
+    const noActivity = { ...valid, sealed: { ...BODY, figures: { ...BODY.figures, period_activity: 'x' } } };
+    expect(() => parseClosingPack(JSON.stringify(noActivity))).toThrow(/no figures/);
+  });
+
   it('rechaza un expediente sin cifras o sin sobre', () => {
     const noFigures = { ...valid, sealed: { ...BODY, figures: undefined } };
     expect(() => parseClosingPack(JSON.stringify(noFigures))).toThrow(/no figures/);

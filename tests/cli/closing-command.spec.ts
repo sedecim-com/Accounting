@@ -5,6 +5,7 @@ import {
   conteoParaSalida,
   renderCasillas,
   runClosingLine,
+  verdictRows,
   renderSteps,
   runExitCode,
   type ClosingCommandDeps,
@@ -492,6 +493,37 @@ describe('A6 · el código de salida de la corrida', () => {
     const dryRun = runOutcome([stepOutcome('accrue-benefits', 'pending'), stepOutcome('verify-checklist', 'blocked')]);
     const real = runOutcome([stepOutcome('accrue-benefits', 'done'), stepOutcome('verify-checklist', 'blocked')]);
     expect(runExitCode(dryRun)).toBe(runExitCode(real));
+  });
+});
+
+describe('A6 · el anexo de verify lleva también lo que el veredicto acusa', () => {
+  const clean = {
+    sealIntact: true,
+    issued: true,
+    issuedAt: null,
+    envelopeMatches: true,
+    figuresReproduce: true,
+    identityUnchanged: true,
+    expectedSeal: 'a'.repeat(64),
+    recomputedSeal: 'a'.repeat(64),
+    differences: [],
+  };
+
+  it('un expediente forjado sin diferencias de campo NO escribe un anexo vacío', () => {
+    const rows = verdictRows({ ...clean, issued: false, envelopeMatches: false });
+    expect(rows).toEqual([
+      { kind: 'registry', path: 'closing_packs', expected: 'issued by these books', actual: 'not issued' },
+    ]);
+  });
+
+  it('un sello roto va primero, con los dos sellos', () => {
+    const rows = verdictRows({ ...clean, sealIntact: false, recomputedSeal: 'b'.repeat(64) });
+    expect(rows[0]).toEqual({ kind: 'seal', path: 'seal', expected: 'a'.repeat(64), actual: 'b'.repeat(64) });
+  });
+
+  it('un sobre reescrito sobre un expediente emitido se dice; limpio, no hay filas', () => {
+    expect(verdictRows({ ...clean, envelopeMatches: false })[0].kind).toBe('envelope');
+    expect(verdictRows(clean)).toEqual([]);
   });
 });
 

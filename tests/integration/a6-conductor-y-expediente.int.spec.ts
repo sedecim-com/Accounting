@@ -4,6 +4,7 @@ import { query, enterTenant, getClient } from '../../src/database/connection.js'
 import { crearInquilino, crearEntidadHermana, type Fixture } from './helpers/tenant-fixture.js';
 import { seedPolicies } from '../../src/services/policy/policy-service.js';
 import { createJournalEntry } from '../../src/services/accounting/posting.js';
+import { softClosePeriod } from '../../src/services/accounting/period-close.js';
 import {
   conductClose,
   describeOpenRun,
@@ -161,7 +162,7 @@ describe('A6 · el conductor', () => {
     expect(steps.rows.map((p) => p.step_key)).toEqual([...CLOSING_STEPS]);
   });
 
-  it('correr otra vez un mes ya conducido NO vuelve a postear', async () => {
+  it('un mes ya conducido no se vuelve a conducir: el conductor se niega, y el mayor no se mueve', async () => {
     enterTenant(f.tenantId);
     const agosto = await periodOf(f, AGOSTO);
     expect((await conductClose(ctx, agosto, { userId: f.userId })).status).toBe('completed');
@@ -177,10 +178,38 @@ describe('A6 · el conductor', () => {
       ).rows[0].n;
     const before = await lineCount();
 
-    const second = await conductClose(ctx, await periodOf(f, AGOSTO), { userId: f.userId });
-    expect(second.steps.find((p) => p.step === 'depreciate-assets')?.status).toBe('skipped');
-    expect(second.steps.find((p) => p.step === 'soft-close')?.detail).toContain('already');
+    // LA REGLA ES DEL CONDUCTOR, no sólo de la hoja: llamado sin pasar por el
+    // CLI, tampoco corre sus motores sobre un mes cerrado —ni en ensayo—.
+    await expect(conductClose(ctx, await periodOf(f, AGOSTO), { userId: f.userId })).rejects.toMatchObject({
+      code: 'PERIOD_NOT_OPEN_TO_CONDUCT',
+      statusCode: 423,
+    });
+    await expect(
+      conductClose(ctx, await periodOf(f, AGOSTO), { userId: f.userId, dryRun: true })
+    ).rejects.toMatchObject({ code: 'PERIOD_NOT_OPEN_TO_CONDUCT' });
     expect(await lineCount()).toBe(before);
+  });
+
+  it('una corrida cuyo periodo se cerró por otro camino se abandona al reabrir, y no se funde con el segundo cierre', async () => {
+    // La regresión que la tercera revisión construyó: `--stop-at soft-close`,
+    // el operador cierra a mano con `close`, luego reabre. Antes, la corrida
+    // del primer ciclo seguía abierta y el segundo cierre tenía que
+    // «continuarla», sumando los dos ciclos en una sola corrida.
+    const { g, ctxG } = await ownTenant('Ciclo cerrado a mano');
+    enterTenant(g.tenantId);
+    const may = await periodOf(g, 5);
+    const firstCycle = await conductClose(ctxG, may, { userId: g.userId, stopAt: 'soft-close' });
+    expect(firstCycle.status).toBe('stopped');
+
+    await softClosePeriod(may.id, g.entityId, g.userId, 'cerrado a mano');
+    expect(await openRunOf(g.entityId, may.id)).toBeNull();
+    await query(`UPDATE fiscal_periods SET status = 'open' WHERE id = $1`, [may.id]);
+
+    const secondCycle = await conductClose(ctxG, await periodOf(g, 5), { userId: g.userId });
+    expect(secondCycle.status).toBe('completed');
+    expect(secondCycle.runId).not.toBe(firstCycle.runId);
+    const previousRun = await query<{ status: string }>('SELECT status FROM closing_runs WHERE id = $1', [firstCycle.runId]);
+    expect(previousRun.rows[0].status).toBe('abandoned');
   });
 
   it('--stop-at para ANTES del paso nombrado; --resume lo termina en la MISMA corrida', async () => {

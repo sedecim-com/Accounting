@@ -6,6 +6,7 @@ import { runMonthlyAmortization } from '../accruals/amortization-run.js';
 import { runMonthlyDepreciation } from '../assets/depreciation.js';
 import { softClosePeriod } from './period-close.js';
 import { AccountingError, AppError } from '../../utils/errors.js';
+import { logger } from '../../utils/logger.js';
 
 // ============================================================
 // A6 · THE CLOSE CONDUCTOR
@@ -14,10 +15,12 @@ import { AccountingError, AppError } from '../../utils/errors.js';
 // preview|check|explain`). What it was not, was CONDUCTED: somebody had to
 // remember to accrue benefits, then amortize prepaids, then depreciate, then
 // look at the checklist, and only then close — in that order, every month, per
-// entity. A conductor is that memory, and nothing more ambitious: it does not
-// compute a single figure of its own.
+// entity. A conductor is that memory, and nothing more ambitious: it computes
+// no figure of the books. (It does add up, in its own step record, what its
+// engines reported across the attempts of a run — how many rows, how much —
+// but that is a tally of reports, never a figure a dossier or a report reads.)
 //
-// ── THE CONDUCTOR OWNS NO ARITHMETIC ────────────────────────────────────
+// ── THE CONDUCTOR OWNS NO ACCOUNTING ARITHMETIC ─────────────────────────
 //
 // Every step delegates to the engine that already owns it, unchanged. A
 // conductor that recomputed depreciation "because it is faster from here"
@@ -186,16 +189,41 @@ export interface OpenRun {
   started_at: string;
 }
 
-/** The one resumable run of this period, or none. */
+/**
+ * The one resumable run of this period, or none.
+ *
+ * A run that started BEFORE the period's last soft close belongs to a close
+ * cycle that already ended by another path —`close` by hand, or a conductor
+ * that died after closing— and is not resumable: continuing it after a reopen
+ * would merge two close cycles into one run. `openRun` marks those
+ * `abandoned`; this read already ignores them, so the CLI and the conductor
+ * agree on what "open" means.
+ */
 export async function openRunOf(entityId: string, periodId: string): Promise<OpenRun | null> {
   const r = await query<OpenRun>(
-    `SELECT id, status, halted_at_step, started_at::text AS started_at
-       FROM closing_runs
-      WHERE entity_id = $1 AND fiscal_period_id = $2
-        AND status IN ('running', 'blocked', 'stopped', 'failed')`,
+    `SELECT cr.id, cr.status, cr.halted_at_step, cr.started_at::text AS started_at
+       FROM closing_runs cr
+       JOIN fiscal_periods fp ON fp.id = cr.fiscal_period_id AND fp.entity_id = cr.entity_id
+      WHERE cr.entity_id = $1 AND cr.fiscal_period_id = $2
+        AND cr.status IN ('running', 'blocked', 'stopped', 'failed')
+        AND (fp.soft_close_date IS NULL OR fp.soft_close_date < cr.started_at)`,
     [entityId, periodId]
   );
   return r.rows[0] ?? null;
+}
+
+/** Ends the resumable runs of a close cycle that already ended by another path. */
+async function abandonStaleRuns(entityId: string, periodId: string): Promise<void> {
+  await query(
+    `UPDATE closing_runs cr
+        SET status = 'abandoned', ended_at = NOW()
+       FROM fiscal_periods fp
+      WHERE fp.id = cr.fiscal_period_id AND fp.entity_id = cr.entity_id
+        AND cr.entity_id = $1 AND cr.fiscal_period_id = $2
+        AND cr.status IN ('running', 'blocked', 'stopped', 'failed')
+        AND fp.soft_close_date IS NOT NULL AND fp.soft_close_date >= cr.started_at`,
+    [entityId, periodId]
+  );
 }
 
 /** The most recent run of this period, whatever became of it. */
@@ -224,10 +252,23 @@ export function describeOpenRun(run: OpenRun): string {
  *
  * Checking for an open run and then inserting one is a race: two operators
  * answering "y" at the same moment would both find nothing and both conduct,
- * or the second would silently continue the first's live run. A session-level
- * advisory lock on a dedicated connection, held for the whole call, closes
- * it — and it is also what tells a `running` row left by a crash (lock free)
- * from one being conducted right now (lock taken).
+ * or the second would silently continue the first's live run. An advisory
+ * lock held for the whole call closes it — and it is also what tells a
+ * `running` row left by a crash (lock free) from one being conducted right now
+ * (lock taken).
+ *
+ * TRANSACTION-SCOPED, NOT SESSION-SCOPED. The first version took a session
+ * lock with a bare statement and released it with another, and behind a
+ * transaction-mode pooler —PgBouncer, which `providers.ts` tells Neon users is
+ * compatible because this app keeps no session state— each statement can land
+ * on a different backend: the lock leaked on one, the unlock silently returned
+ * false on another, and two conductors routed to the leaking backend both got
+ * "true". A transaction pins its backend under any pooler, so the lock is
+ * taken inside a `BEGIN` on a dedicated connection that stays open for the
+ * whole run and is released by its `COMMIT` — or by Postgres itself if the
+ * process dies and the connection drops. A light keepalive stops an
+ * idle-in-transaction timeout from ending that transaction mid-run, and says
+ * so if it does.
  */
 async function withConductorLock<T>(
   entityId: string,
@@ -237,8 +278,9 @@ async function withConductorLock<T>(
   const key = `closing-run:${entityId}:${periodId}`;
   const client = await getClient();
   try {
+    await client.query('BEGIN');
     const got = await client.query<{ ok: boolean }>(
-      'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS ok',
+      'SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS ok',
       [key]
     );
     if (!got.rows[0]?.ok) {
@@ -247,15 +289,38 @@ async function withConductorLock<T>(
         'Another conductor is running the close of this period right now. Wait for it to finish, then look at it with --dry-run.'
       );
     }
+    let keepalive = Promise.resolve();
+    let lost: unknown;
+    const timer = setInterval(() => {
+      keepalive = keepalive.then(
+        () => client.query('SELECT 1').then(() => undefined),
+      ).catch((err: unknown) => {
+        lost ??= err;
+      });
+    }, 5_000);
     try {
       return await fn();
     } finally {
-      await client
-        .query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [key])
-        .catch(() => undefined);
+      clearInterval(timer);
+      await keepalive;
+      if (lost !== undefined) {
+        logger.warn('closing_run_lock_lost', {
+          entityId,
+          periodId,
+          detail:
+            'the transaction holding the conductor lock ended before the run did; the run is recorded, but for part of it another conductor was not kept out',
+          error: lost instanceof Error ? lost.message : 'unknown error',
+        });
+      }
     }
   } finally {
-    client.release();
+    // COMMIT releases the lock. If it fails the connection is in an unknown
+    // state, and it goes back to the pool DESTROYED rather than reused.
+    let broken = false;
+    await client.query('COMMIT').catch(() => {
+      broken = true;
+    });
+    client.release(broken);
   }
 }
 
@@ -270,6 +335,7 @@ async function openRun(
   periodId: string,
   opts: ConductOptions
 ): Promise<string> {
+  await abandonStaleRuns(ctx.entityId, periodId);
   const openRunRow = await openRunOf(ctx.entityId, periodId);
   if (openRunRow) {
     if (opts.resume !== true) {
@@ -331,10 +397,15 @@ async function postedBy(
   const source = SOURCE_OF_STEP[step];
   if (!source) return [];
   const r = await query<{ id: string }>(
-    `SELECT id FROM journal_entries
-      WHERE entity_id = $1 AND fiscal_period_id = $2
-        AND source_type = $3 AND status = 'posted'
-      ORDER BY entry_date, id`,
+    `SELECT je.id FROM journal_entries je
+      WHERE je.entity_id = $1 AND je.fiscal_period_id = $2
+        AND je.source_type = $3 AND je.status = 'posted'
+        -- Net of corrections: a reversal mirror is not the step's work, and
+        -- an original that was reversed no longer is either.
+        AND je.reverses_entry_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM journal_entries r
+                         WHERE r.reverses_entry_id = je.id AND r.status = 'posted')
+      ORDER BY je.entry_date, je.id`,
     [entityId, periodId, source]
   );
   return r.rows.map((x) => x.id);
@@ -372,6 +443,12 @@ async function recordStep(
          WHEN $10::boolean AND EXCLUDED.status = 'skipped' AND closing_run_steps.processed > 0
            THEN closing_run_steps.processed::text
                 || ' processed by earlier attempts of this run; nothing was left to do in this one'
+         WHEN $10::boolean AND closing_run_steps.processed > 0
+           THEN EXCLUDED.detail || ' (this run so far: '
+                || (closing_run_steps.processed + EXCLUDED.processed)::text || ' processed'
+                || CASE WHEN closing_run_steps.amount IS NULL AND EXCLUDED.amount IS NULL THEN ''
+                        ELSE ', ' || (COALESCE(closing_run_steps.amount, 0) + COALESCE(EXCLUDED.amount, 0))::text END
+                || ')'
          ELSE EXCLUDED.detail END,
        processed = CASE WHEN $10::boolean
          THEN closing_run_steps.processed + EXCLUDED.processed ELSE EXCLUDED.processed END,
@@ -582,6 +659,18 @@ export async function conductClose(
     periodId: period.id,
     periodName: period.period_name,
   };
+
+  // ONLY AN OPEN PERIOD IS CONDUCTED, AND THE RULE IS THE CONDUCTOR'S. It used
+  // to live only in the CLI leaf: called any other way, the conductor ran its
+  // engines over a soft-closed month, and its dry run disagreed with its real
+  // run. The soft-close step still re-checks, for the period closed in between.
+  const periodNow = await periodStatus(ctx.entityId, period.id);
+  if (periodNow !== 'open') {
+    throw new ClosingRunStateError(
+      'PERIOD_NOT_OPEN_TO_CONDUCT',
+      `${period.period_name} is already ${periodNow}: there is nothing left to conduct.`
+    );
+  }
 
   if (opts.dryRun) {
     return { ...frame, runId: null, status: 'previewed', ...(await dryRun(ctx, period, opts)) };

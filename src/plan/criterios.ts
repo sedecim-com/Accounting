@@ -4940,7 +4940,7 @@ export const CRITERIOS: Criterio[] = [
       // obvias: la revisión adversaria encontró que `Date.now()`,
       // `CURRENT_TIMESTAMP` o `clock_timestamp()` pasaban por la versión corta.
       const CLOCK =
-        /new Date\b|\bDate\(\)|Date\.now\(|performance\.now|hrtime|Temporal\.Now|CURRENT_(?:DATE|TIME|TIMESTAMP)|LOCALTIME|\bNOW\(\)|clock_timestamp|statement_timestamp|transaction_timestamp|timeofday/i;
+        /new Date\b|\bDate\(\)|Date\.now\(|performance\.now|hrtime|Temporal\.Now|CURRENT_(?:DATE|TIME|TIMESTAMP)|LOCALTIME|\bNOW\(\)|clock_timestamp|statement_timestamp|transaction_timestamp|timeofday|'(?:now|today|tomorrow|yesterday)'/i;
       const clock = CLOCK.exec(derivation);
       if (clock) {
         return falla(
@@ -5110,7 +5110,8 @@ export const CRITERIOS: Criterio[] = [
 
       // Y SE COMPARA POR CÓDIGO, NO POR POSICIÓN: por posición, una fila de
       // más desplazaba la culpa a todas las cuentas de después.
-      if (!/'account_code',\s*'figures\.trial_balance'/.test(s) || !/'source_type',\s*'figures\.period_activity'/.test(s)) {
+      const keyed = /new Map\(rows\.map\(\(r\) => \[String\(\(r as Record<string, unknown>\)\[key\]\), r\]\)\)/.test(s);
+      if (!keyed || !/'account_code',\s*'figures\.trial_balance'/.test(s) || !/'source_type',\s*'figures\.period_activity'/.test(s)) {
         return falla(
           'la comprobación dejó de comparar la balanza por código o la actividad por origen: ' +
             'una fila de más acusaría a todas las que la siguen'
@@ -5297,6 +5298,17 @@ export const CRITERIOS: Criterio[] = [
       if (!/let outcome: ClosingStepOutcome;\s*try \{\s*outcome = await takeStep\(ctx, period, step, ordinal, opts\);/.test(conductor)) {
         return falla('`conductClose` dejó de pasar cada paso, sin condición, por `takeStep`');
       }
+      if (!/for \(const \[i, step\] of CLOSING_STEPS\.entries\(\)\) \{/.test(conductor)) {
+        return falla('`conductClose` dejó de recorrer la lista entera de pasos');
+      }
+      // El registro de intentos anteriores sólo ETIQUETA: se lee una vez y se
+      // usa una vez, para `priorAttempt`. Cualquier otro uso decide con él.
+      if ((conductor.match(/\bpriorSteps\b/g) ?? []).length !== 2) {
+        return falla(
+          '`conductClose` usa lo que otro intento anotó para algo más que etiquetar: así es como una ' +
+            'reanudación vuelve a fiarse de un veredicto viejo'
+        );
+      }
       if (/\bcontinue\b/.test(conductor)) {
         return falla(
           '`conductClose` salta pasos: un intento que no vuelve a correr lo que otro anotó cierra ' +
@@ -5308,14 +5320,14 @@ export const CRITERIOS: Criterio[] = [
         /\bDecimal\b|debit_amount|credit_amount|\.plus\(|\.minus\(|\.times\(|parseFloat\(|toFixed\(/.exec(s);
       if (arithmetic) {
         return falla(
-          `el conductor manipula importes ("${arithmetic[0]}"): su aportación es el orden, el ` +
-            'registro y la negativa a pasar por encima de un hueco, y ninguna necesita tocar un peso'
+          `el conductor manipula importes en TypeScript ("${arithmetic[0]}"): no calcula cifras de ` +
+            'los libros; lo único que suma es, en SQL y en su propio registro, lo que sus motores reportaron'
         );
       }
 
       return ok(
         `los cinco pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
-          'todos corridos en cada intento, y sin una sola cifra calculada aquí'
+          'todos corridos en cada intento, y sin calcular ninguna cifra de los libros'
       );
     },
     mutantes: [
@@ -5403,14 +5415,32 @@ export const CRITERIOS: Criterio[] = [
       // UN CONDUCTOR POR PERIODO: sin el candado, dos operadores que contestan
       // «sí» a la vez corren el mismo mes, o el segundo continúa en silencio
       // la corrida viva del primero.
-      if (!/pg_try_advisory_lock\(hashtextextended\(\$1, 0\)\)/.test(m)) {
-        return falla('el conductor ya no toma el candado consultivo del periodo');
+      // DE TRANSACCIÓN, sostenido por un BEGIN, y con su negativa en uso: un
+      // candado de sesión se fugaba detrás de un pooler en modo transacción, y
+      // uno cuyo resultado nadie mira no excluye a nadie.
+      if (
+        !/await client\.query\('BEGIN'\);\s*const got = await client\.query<\{ ok: boolean \}>\(\s*'SELECT pg_try_advisory_xact_lock\(hashtextextended\(\$1, 0\)\) AS ok'/.test(m) ||
+        !/if \(!got\.rows\[0\]\?\.ok\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_IN_PROGRESS'/.test(m)
+      ) {
+        return falla(
+          'el conductor ya no toma, dentro de una transacción, el candado consultivo del periodo, o ya no se niega cuando está tomado'
+        );
       }
       // Y `openRun` es lo PRIMERO que ocurre dentro del candado: una escritura
       // delante —un motor corrido antes de decidir si se puede continuar— ya
       // habría posteado cuando llegue la negativa.
       if (!/return withConductorLock\(ctx\.entityId, period\.id, async \(\) => \{\s*const runId = await openRun\(ctx, period\.id, opts\);/.test(m)) {
         return falla('`openRun` ya no es lo primero que corre dentro del candado del periodo');
+      }
+
+      // SÓLO UN PERIODO ABIERTO SE CONDUCE, y la regla es del conductor; y una
+      // corrida cuyo ciclo cerró otro camino se abandona antes de abrir otra,
+      // para que un periodo reabierto no continúe la corrida del ciclo anterior.
+      if (!/if \(periodNow !== 'open'\) \{\s*throw new ClosingRunStateError\(\s*'PERIOD_NOT_OPEN_TO_CONDUCT'/.test(m)) {
+        return falla('el conductor vuelve a conducir periodos que no están abiertos');
+      }
+      if (!/\):\s*Promise<string> \{\s*await abandonStaleRuns\(ctx\.entityId, periodId\);/.test(m)) {
+        return falla('`openRun` ya no abandona, antes que nada, las corridas de un ciclo que otro camino cerró');
       }
 
       // LA HOJA pasa la intención tal cual, y avisa antes de preguntar.
@@ -5463,9 +5493,29 @@ export const CRITERIOS: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/closing-conductor.ts',
-        de: "'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS ok'",
-        a: "'SELECT true AS ok'",
-        porque: 'el candado se sigue «tomando» y ya no excluye a nadie',
+        de: "'SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS ok'",
+        a: "'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS ok'",
+        porque:
+          'el candado vuelve a ser de sesión: detrás de un pooler en modo transacción se fuga en un backend y dos conductores lo obtienen',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "    if (!got.rows[0]?.ok) {",
+        a: "    if (false) {",
+        porque: 'el candado se sigue tomando y su resultado ya no excluye a nadie',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "  if (periodNow !== 'open') {",
+        a: '  if (false) {',
+        porque: 'el conductor corre sus motores sobre un mes ya cerrado cuando alguien lo llama sin pasar por la hoja',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  await abandonStaleRuns(ctx.entityId, periodId);\n',
+        a: '',
+        porque:
+          'la corrida del ciclo anterior sigue abierta tras reabrir el periodo: el segundo cierre se funde con el primero',
       },
       {
         archivo: 'src/cli/closing-command.ts',

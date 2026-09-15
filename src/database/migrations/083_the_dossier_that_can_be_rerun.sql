@@ -14,8 +14,8 @@
 --
 -- ── WHY THREE TABLES AND NOT ONE ────────────────────────────────────────
 --
--- `closing_runs` is the RUN: one per period per attempt, with the state that
--- makes `--resume` possible. `closing_run_steps` is what the run DID, one row
+-- `closing_runs` is the RUN: one per close cycle of a period, reused by every
+-- attempt of that cycle, with the state that makes `--resume` possible. `closing_run_steps` is what the run DID, one row
 -- per step, accumulated across the attempts of that run. `closing_packs` is
 -- the EVIDENCE: the dossier as it was handed over, with its seal, and the
 -- registry `closing pack verify` asks to tell an issued seal from a forged one.
@@ -42,7 +42,10 @@
 -- (entity, period). A finished run stays as history, so a period that is
 -- reopened and closed again has two runs and the dossiers say which is which.
 -- Two operators conducting the SAME period at the SAME time are kept apart by
--- an advisory lock the conductor holds for the whole call, not by this index.
+-- a transaction-scoped advisory lock the conductor holds for the whole call,
+-- not by this index. A run whose cycle was closed by another path is marked
+-- `abandoned` before a new one opens, so this index never makes a reopened
+-- period continue the previous cycle's run.
 --
 -- ── THE DOSSIER IS APPEND-ONLY, LIKE THE LOG IT RESEMBLES ───────────────
 --
@@ -52,8 +55,8 @@
 -- whom table privileges do not stop. The trigger lives HERE and nowhere else:
 -- nothing re-creates it if someone drops it by hand. The cheap layer is the
 -- privilege, and its name enters the `append_only` array of
--- `src/database/rls-policies.sql` — which `npm run migrate` re-applies after
--- every migration, handing the UPDATE back to any table that is not listed —
+-- `src/database/rls-policies.sql` — which `npm run migrate` applies once after
+-- the migrations it ran, handing the UPDATE back to any table not listed —
 -- and the one of `scripts/provision-roles.sql`, which runs when roles are
 -- re-provisioned. Criterion `append-only-triggers-match-grants` fails if
 -- those three places stop saying the same thing.
@@ -95,8 +98,12 @@ CREATE TABLE closing_runs (
     --   completed — every step took its turn and the period is soft-closed
     --   failed    — a step raised, or an engine returned per-row errors;
     --               resumable once the cause is fixed
+    --   abandoned — the period was soft-closed by another path after this
+    --               run started (by hand, or a conductor that died after
+    --               closing): its close cycle is over, and a reopen starts a
+    --               new run instead of merging two cycles into this one
     status VARCHAR(20) NOT NULL DEFAULT 'running'
-        CHECK (status IN ('running', 'blocked', 'stopped', 'completed', 'failed')),
+        CHECK (status IN ('running', 'blocked', 'stopped', 'completed', 'failed', 'abandoned')),
 
     -- The step the run did not get past. NULL on a completed run, which is
     -- the only state that has no next step.
