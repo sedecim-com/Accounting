@@ -9,7 +9,7 @@ import { createVendor } from '../../src/services/ap/vendor-service.js';
 import { createBill, approveBill } from '../../src/services/ap/bill-service.js';
 import { registerReceiptCommand } from '../../src/cli/receipt-command.js';
 import { registerPaymentCommands } from '../../src/cli/payment-command.js';
-import { ExitCode, exitCodeFor } from '../../src/cli/kernel/index.js';
+import { CliError, ExitCode, exitCodeFor } from '../../src/cli/kernel/index.js';
 
 // ============================================================
 // T3 · LA LLAVE QUE SE ACEPTABA Y SE TIRABA, CONTRA POSTGRES.
@@ -41,10 +41,15 @@ const plain = {
 };
 
 /** Habla con la terminal de verdad y devuelve lo que escribió y con qué código. */
-async function correr(argv: string[]): Promise<{ exitCode?: number; out: string; err: string }> {
+async function correr(
+  argv: string[]
+): Promise<{ exitCode?: number; out: string; err: string; errors: unknown[] }> {
   let exitCode: number | undefined;
   const out: string[] = [];
   const err: string[] = [];
+  // El OBJETO además del texto: un error que nació de una clave del catálogo
+  // se afirma por su clave y por sus dos caras, no por la prosa que rinde.
+  const errors: unknown[] = [];
   const stdoutOriginal = process.stdout.write.bind(process.stdout);
   const stderrOriginal = process.stderr.write.bind(process.stderr);
   process.stdout.write = ((c: string | Uint8Array) => { out.push(String(c)); return true; }) as typeof process.stdout.write;
@@ -54,7 +59,7 @@ async function correr(argv: string[]): Promise<{ exitCode?: number; out: string;
     const deps = {
       palette: plain,
       shutdown: (c: number) => { exitCode = c; },
-      reportError: (e: unknown) => { err.push(`${(e as Error).message}\n`); },
+      reportError: (e: unknown) => { errors.push(e); err.push(`${(e as Error).message}\n`); },
     };
     registerReceiptCommand(p, deps);
     registerPaymentCommands(p, deps);
@@ -64,6 +69,7 @@ async function correr(argv: string[]): Promise<{ exitCode?: number; out: string;
       // El mismo recogedor que la entrada real (mnemosine.ts): un error que
       // se escapa del PARSEO —el rechazo de una llave que la hoja no honra
       // ocurre ahí, antes de la acción— trae su código puesto.
+      errors.push(e);
       err.push(`${(e as Error).message}\n`);
       exitCode = exitCodeFor(e);
     }
@@ -71,7 +77,7 @@ async function correr(argv: string[]): Promise<{ exitCode?: number; out: string;
     process.stdout.write = stdoutOriginal;
     process.stderr.write = stderrOriginal;
   }
-  return { exitCode, out: out.join(''), err: err.join('') };
+  return { exitCode, out: out.join(''), err: err.join(''), errors };
 }
 
 const contar = async (sql: string): Promise<number> =>
@@ -272,7 +278,15 @@ describe('la hoja que TODAVÍA no la honra se niega, en vez de fingir', () => {
       'receipt', 'reverse', 'PMT-2026-00001', '--reason', 'prueba', '--idempotency-key', 'k',
     ]);
     expect(r.exitCode).toBe(ExitCode.USAGE);
-    expect(r.err).toContain('TODAVÍA NO LA HONRA');
+    // POR CLAVE, NO POR PROSA (I7). El aviso vive en el catálogo y `CliError`
+    // lo rinde en inglés en `.message` —la fuente, que es lo que miden los
+    // instrumentos—, así que el literal español que esto buscaba ya no puede
+    // aparecer ahí. Se afirma la CLAVE, y las dos caras de la misma clave, que
+    // es lo que prueba que la migración no perdió el mensaje en ningún idioma.
+    expect(r.err).toContain('DOES NOT HONOR IT YET');
+    const rejection = r.errors.find((e): e is CliError => e instanceof CliError);
+    expect(rejection?.key).toBe('cli.risk.key_not_honored');
+    expect(rejection?.localized('es')).toContain('TODAVÍA NO LA HONRA');
     expect(await contar(`SELECT count(*) n FROM journal_entries WHERE entity_id = $1`)).toBe(antes);
   }, 60_000);
 });

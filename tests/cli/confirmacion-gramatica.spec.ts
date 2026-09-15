@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
@@ -22,6 +23,16 @@ import { confirmarCierre } from '../../src/cli/close-command.js';
 //      su propio predicado de confirmación. Es el guardián de la
 //      CLASE de bug, no del caso que ya se arregló.
 // ============================================================
+
+
+// EL IDIOMA SE FIJA EN ESPAÑOL, y no es comodidad: este archivo prueba la
+// GRAMÁTICA del «sí» —que `y` y `s` valen, que «salir» no— y la repregunta que
+// nombra lo que no entendió. Desde I7 esos mensajes salen del catálogo, y la
+// suite corre con MNEMOSINE_LOCALE=en-US para que los instrumentos midan la
+// fuente inglesa: sin fijarlo aquí, estas aserciones medirían la traducción
+// inglesa de una prueba sobre gramática española.
+beforeAll(() => setLanguage('es'));
+afterAll(() => resetLanguage());
 
 describe('esAfirmativa: la tabla de verdad', () => {
   const aceptan = ['y', 'Y', 'yes', 'YES', 'Yes', 's', 'S', 'si', 'Si', 'SI', 'sí', 'SÍ', '  si  '];

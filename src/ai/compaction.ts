@@ -246,7 +246,30 @@ const RFC_RE = /(?<![A-ZÑ&0-9])[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}(?![A-ZÑ&0-9])/gi;
 // asimetría es deliberada: un importe chico perdido cuesta menos que un
 // backstop que engorde cada resumen con ruido — y el modelo sigue instruido
 // a conservarlos TODOS verbatim.
-const MONTO_RE = /(?<![\d.,])(?:\d{1,3}(?:,\d{3})+|\d{3,})\.\d{2}(?![\d])/g;
+//
+// LAS DOS FORMAS DE ESCRIBIR EL MISMO IMPORTE (I6). Hasta aquí esto sólo
+// entendía los miles con COMA, que era lo único que el árbol producía cuando el
+// formato de los importes estaba escrito a mano en output.ts. Desde que el
+// formato lo pone la jurisdicción (`src/i18n/format.ts`, regla 5 del epic
+// #141), el separador ya no es una constante del sistema, y este backstop
+// literalmente NO VEÍA un importe escrito a la otra convención: no lo
+// reinyectaba, así que un resumen podía perder «1.234.567,89» entero mientras
+// el criterio seguía en verde con «1,234,567.89». Un importe que el compactador
+// pierde no vuelve: la parte vieja de la conversación ya se descartó.
+//
+//   A · miles con coma, decimal con punto — es-MX, en-US: 1,234,567.89
+//   B · miles con punto, decimal con coma — pt-BR, es-ES, de-DE: 1.234.567,89
+//   C · sin agrupar, decimal con punto: 19720.00
+//
+// NO HAY UNA «C CON COMA» —`19720,00`— y la ausencia es la decisión, no un
+// descuido: sin un separador de miles que desambigüe, esa forma se confunde con
+// una lista de enteros separada por comas («1234,56,78») y este extractor
+// alimenta a `ensureIdentifiersSurvive`, que ADJUNTA lo que encuentra al
+// resumen. Un falso positivo aquí no se nota como error, se nota como un
+// resumen que engorda; la regla de arriba ya eligió perder el importe chico
+// antes que meter ruido, y ésta es la misma elección.
+const MONTO_RE =
+  /(?<![\d.,])(?:\d{1,3}(?:,\d{3})+\.\d{2}|\d{1,3}(?:\.\d{3})+,\d{2}|\d{3,}\.\d{2})(?![\d])/g;
 // Serie-folio tokens like "F-2041" / "FAC-123". Uppercase-only on purpose
 // (cheap, low false-positive rate); the hyphen exclusion in the boundaries
 // keeps it from matching segments INSIDE an uppercase UUID.
