@@ -7605,6 +7605,40 @@
         }
       }
     },
+    "/v1/portfolio": {
+      "get": {
+        "operationId": "get_v1_portfolio",
+        "tags": [
+          "portfolio"
+        ],
+        "summary": "Read route (no declared risk class; GET routes default to \"lectura\").",
+        "x-permisos-requeridos": [
+          "accounts:read",
+          "journal_entries:read"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/EntidadActiva"
+          }
+        ],
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/SinPermiso"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorInterno"
+          }
+        }
+      }
+    },
     "/v1/pre-registrations": {
       "get": {
         "operationId": "get_v1_pre_registrations",
