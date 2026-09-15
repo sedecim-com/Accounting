@@ -113,7 +113,6 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     reciboConEfectivo = (
       await calculatePaycheck({
         tenant_id: f.tenantId, pay_run_id: payRunId, employee_id: empBajo,
-        pay_period_id: payPeriodId,
         earnings: [{ earning_type: 'salary', amount: 1500 }],
       })
     ).paycheck_id;
@@ -121,7 +120,6 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
     reciboSinEfectivo = (
       await calculatePaycheck({
         tenant_id: f.tenantId, pay_run_id: payRunId, employee_id: empAlto,
-        pay_period_id: payPeriodId,
         earnings: [{ earning_type: 'salary', amount: 8000 }],
       })
     ).paycheck_id;
@@ -256,10 +254,13 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
         employee_id: (await query<{ id: string }>(
           `SELECT id FROM employees WHERE tenant_id = $1 LIMIT 1`, [f.tenantId]
         )).rows[0].id,
-        pay_period_id: payPeriodId,
         earnings: [{ earning_type: 'salary', amount: 1500 }],
       })
-    ).rejects.toThrow(/Employee not found/);
+      // Desde TEN-12 la corrida se resuelve PRIMERO —es la llave de la que
+      // cuelgan el trabajador y el periodo—, así que un inquilino ajeno cae
+      // ahí y no en el trabajador. Sigue sin calcularse nada; cambia cuál de
+      // las tres llaves lo dice.
+    ).rejects.toThrow(/Pay run with id .+ not found/);
   });
 
   it('cuando el despacho SÍ contesta la política, el recibo lo registra así', async () => {
@@ -283,7 +284,6 @@ describe('la nómina mexicana escribe su desglose y entrega el subsidio', () => 
 
     const r = await calculatePaycheck({
       tenant_id: f.tenantId, pay_run_id: otraCorrida, employee_id: empId,
-      pay_period_id: payPeriodId,
       earnings: [{ earning_type: 'salary', amount: 1500 }],
     });
     expect(r.subsidio_entregado_efectivo).toBe('126.0300');
