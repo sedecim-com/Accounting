@@ -394,7 +394,7 @@ router.patch('/pre-registrations/:id', declararRiesgoRuta({ riesgo: 'escritura',
 }));
 
 // POST /v1/pre-registrations/:id/process
-router.post('/pre-registrations/:id/process', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'bills o vendor/customer_payments + journal_entries POSTEADOS; con allow_new_vendor, tambien un vendor nuevo' }), requirePermission('bills:create'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/pre-registrations/:id/process', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'bills o vendor/customer_payments + journal_entries POSTEADOS; con allow_new_vendor, tambien un vendor nuevo' }), requirePermission('bills:create'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   // El filtro va DENTRO del SQL. Cero filas significa a la vez «no existe» y
   // «no es de tu entidad»: la respuesta es 404 en los dos casos y no hay rama
   // donde el programa pueda distinguirlos.

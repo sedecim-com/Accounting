@@ -103,7 +103,7 @@
     "src/ai/external-service.ts": "479fdbeae482297b16e3bb816f19320ff201b7bb",
     "src/ai/tools/external-tools.ts": "283948b7b85553aff42f03cf69f59c932859b567",
     "src/services/integrations/accounting/contalink-adapter.ts": "9c2dfe880f5a8d890d9f39630c124aaea900eade",
-    "src/services/ap/bill-service.ts": "28d1ab2eaf5c8a2c30be2f073b450b60d0f2ded6",
+    "src/services/ap/bill-service.ts": "dff2dcc74e3df29bb65ba9b6ac8dbc1492deefac",
     "src/services/ap/vendor-service.ts": "b01bd9bd640ae52901d5f5cc776afa7a26d7fa8b",
     "src/services/payments/payment-service.ts": "b3227509f4be6115fb03841262cf38c57df8edca",
     "src/services/banking/bank-statement-service.ts": "099371826e6fbdce1ed919b77f4d9b88bf295345",
