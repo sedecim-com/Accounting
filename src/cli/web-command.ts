@@ -3,6 +3,7 @@ import { t } from '../i18n/index.js';
 import type { GatewayConfig } from '../gateway/config.js';
 import type { RunningGateway } from '../gateway/server.js';
 import {
+  CliError,
   declareRisk,
   describeCommand,
   exitCodeFor,
@@ -150,6 +151,22 @@ Examples:
   mnemosine web start --port 8081 --api-url http://127.0.0.1:3000
 `;
 
+/**
+ * Every failure of this leaf, as a CliError with the same message and exit code.
+ *
+ * reportError (mnemosine.ts) adds a database remedy under any other error whose
+ * message looks like a connection problem, and a gateway message can look like
+ * one without being one: a listen on an unresolvable host (ENOTFOUND), a host
+ * such as db.internal, an issuer URL with "connect" in it. This leaf never
+ * opens the database (NO_DB_COMMAND_PATHS), so that remedy is never right here,
+ * and the gateway's startup errors already say what to fix. A CliError is
+ * printed as it is, so both doors print the same text for them.
+ */
+function asLeafFailure(err: unknown): CliError {
+  if (err instanceof CliError) return err;
+  return new CliError(err instanceof Error ? err.message : String(err), exitCodeFor(err));
+}
+
 export function registerWebCommand(program: Command, deps: WebCommandDeps): void {
   const web = describeCommand(program.command('web'), 'help.web.description');
 
@@ -185,8 +202,9 @@ export function registerWebCommand(program: Command, deps: WebCommandDeps): void
       await running.close();
       await deps.shutdown(signal === 'SIGINT' ? ExitCode.INTERRUPTED : ExitCode.OK);
     } catch (err) {
-      deps.reportError(err);
-      await deps.shutdown(exitCodeFor(err));
+      const failure = asLeafFailure(err);
+      deps.reportError(failure);
+      await deps.shutdown(exitCodeFor(failure));
     }
   });
 }

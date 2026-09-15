@@ -97,6 +97,16 @@ function captureStdout(): { text: () => string } {
   return { text: () => out };
 }
 
+/** What the shipped reportError prints to the console for `err`. */
+function printedBy(err: unknown): string {
+  let printed = '';
+  vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+    printed += `${args.map(String).join(' ')}\n`;
+  });
+  reportError(err);
+  return printed;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -275,14 +285,34 @@ describe('running web start', () => {
     });
     await h.program.parseAsync(['web', 'start'], { from: 'user' });
     expect(h.shutdown).toHaveBeenCalledWith(ExitCode.FAILURE);
-    const reported = h.reportError.mock.calls[0]?.[0] as unknown;
-    expect(reported).toBeInstanceOf(GatewayListenFailed);
-    let printed = '';
-    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
-      printed += `${args.map(String).join(' ')}\n`;
+    expect(printedBy(h.reportError.mock.calls[0]?.[0])).toContain('cannot listen on 127.0.0.1:8080: EADDRINUSE');
+  });
+
+  // reportError adds a database remedy under any error whose message looks
+  // like a connection problem. This leaf opens no database, and these gateway
+  // messages only look like one: an unresolvable host (ENOTFOUND), a host or an
+  // issuer whose name has db or connect in it.
+  it.each([
+    ['an unresolvable host', new GatewayListenFailed('nohost.invalid', 8080, 'ENOTFOUND'), ExitCode.FAILURE],
+    ['a host named like a database', new GatewayListenFailed('db.internal', 8080, 'EADDRNOTAVAIL'), ExitCode.FAILURE],
+    [
+      'an issuer whose address says connect',
+      new GatewayDiscoveryFailed('Could not read the OIDC configuration of https://login.connect.example (HTTP 503)'),
+      ExitCode.EXTERNAL_FAILED,
+    ],
+  ])('prints what the gateway says for %s, and no database remedy', async (_label, failure, code) => {
+    captureStdout();
+    const h = harness({
+      start: async () => {
+        throw failure;
+      },
     });
-    reportError(reported);
-    expect(printed).toContain('cannot listen on 127.0.0.1:8080: EADDRINUSE');
+    await h.program.parseAsync(['web', 'start'], { from: 'user' });
+    expect(h.shutdown).toHaveBeenCalledWith(code);
+    const printed = printedBy(h.reportError.mock.calls[0]?.[0]);
+    expect(printed).toContain(failure.message);
+    expect(printed).not.toContain('DATABASE_URL');
+    expect(printed).not.toContain('mnemosine doctor');
   });
 
   it('exits 8, the retryable code, when the IdP cannot be read, as node dist/gateway/main.js does', async () => {
