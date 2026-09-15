@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { stdin } from 'node:process';
 import type { Command } from 'commander';
 import { resolveEntity, bootstrapTenant, type AgentContext } from '../ai/context.js';
@@ -46,6 +46,7 @@ import {
   declareRisk,
   gateMutation,
   render,
+  resolveFormat,
   requireExplicitEntity,
   resolveActiveEntity,
   withContext,
@@ -237,8 +238,16 @@ export function runExitCode(outcome: ClosingRunOutcome): ExitCodeValue {
  * tras un ensayo eso se negaba (el ensayo no abre corrida), y tras un
  * `--stop-at` no había causa que arreglar.
  */
-export function runClosingLine(outcome: ClosingRunOutcome, stopAt?: string): string {
+export function runClosingLine(
+  outcome: ClosingRunOutcome,
+  stopAt?: string,
+  hasOpenRun = false
+): string {
   const step = outcome.haltedAtStep;
+  // Tras un ensayo, la corrida de verdad necesitará --resume si el periodo
+  // tiene una corrida abierta: sin decirlo, el consejo del ensayo manda a un
+  // comando que el conductor va a negar.
+  const how = hasOpenRun ? 'run it with --resume' : 'run it without --dry-run';
   switch (outcome.status) {
     case 'completed':
       return `The close is conducted. Seal the dossier with \`mnemosine closing pack generate "${outcome.periodName}"\`.`;
@@ -249,14 +258,19 @@ export function runClosingLine(outcome: ClosingRunOutcome, stopAt?: string): str
     case 'failed':
       return `Failed at ${step}. Fix the cause, then continue with --resume.`;
     case 'previewed':
-      if (step && step === stopAt) return `Nothing was written. A real run would stop before ${step}.`;
-      if (step) return `Nothing was written. The checklist would block at ${step}: clear it before conducting.`;
-      return 'Nothing was written. Run it without --dry-run to conduct.';
+      if (step && step === stopAt) {
+        return `Nothing was written. A real run would stop before ${step}; to conduct, ${how}.`;
+      }
+      if (step) {
+        return `Nothing was written. The checklist would block at ${step}: clear it, then ${how}.`;
+      }
+      return `Nothing was written. To conduct, ${how}.`;
   }
 }
 
 /**
- * Escribe el expediente donde se pidió.
+ * Escribe el expediente a un archivo TEMPORAL junto al destino, y devuelve su
+ * ruta: el destino no se toca hasta que el registro acepte el expediente.
  *
  * Los bytes son los del documento sellado, con salto final: `closing pack
  * verify` los vuelve a leer y `sealOf` los vuelve a hashear, así que el disco
@@ -264,9 +278,12 @@ export function runClosingLine(outcome: ClosingRunOutcome, stopAt?: string): str
  * Anexo 24: pedir un destino y que falle por un directorio inexistente es
  * fricción sin ganancia.
  */
-function writeDossier(destination: string, pack: ClosingPack): void {
-  mkdirSync(path.dirname(path.resolve(destination)), { recursive: true });
-  writeFileSync(destination, `${JSON.stringify(pack, null, 2)}\n`, 'utf8');
+function writeDossierDraft(destination: string, pack: ClosingPack): string {
+  const absolute = path.resolve(destination);
+  mkdirSync(path.dirname(absolute), { recursive: true });
+  const draft = `${absolute}.${process.pid}.tmp`;
+  writeFileSync(draft, `${JSON.stringify(pack, null, 2)}\n`, 'utf8');
+  return draft;
 }
 
 /**
@@ -437,7 +454,7 @@ Examples:
   mnemosine closing pack verify cierre-julio.json --entity "Acme SA de CV"
   # One row per field that differs, as CSV -- the annex an auditor asks for.
   mnemosine closing pack verify cierre-julio.json --format csv -o deriva.csv
-  # A renamed entity or a moved reporting panel is a warning; make it fail too.
+  # A renamed entity or account is a warning, not a moved figure; make it fail too.
   mnemosine closing pack verify cierre-julio.json --strict
 `,
 } as const;
@@ -780,8 +797,8 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         // el conductor, bajo el candado (`openRun`), donde ningún llamador
         // puede saltársela. Es un estado de los libros y no un error de las
         // banderas: sale 5, no 2.
+        const existingRun = await openRunOf(ctx.entityId, period.id);
         if (!dryRun) {
-          const existingRun = await openRunOf(ctx.entityId, period.id);
           if (existingRun && opts.resume !== true) {
             throw blockedByState(
               `This period already has an open close run (${describeOpenRun(existingRun)}). ` +
@@ -831,7 +848,7 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
           const out = process.stdout;
           out.write(`\n${c.bold(period.period_name)}  ${c.dim(outcome.status)}\n\n`);
           for (const line of renderSteps(outcome, c)) out.write(`${line}\n`);
-          out.write(`\n  ${runClosingLine(outcome, stopAt)}\n\n`);
+          out.write(`\n  ${runClosingLine(outcome, stopAt, existingRun !== null)}\n\n`);
         }
 
         return runExitCode(outcome);
@@ -885,21 +902,23 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         userId: (await resolveReviewer(ctx.tenantId, opts.user)).userId,
       });
 
-      // EL ARCHIVO ANTES QUE EL REGISTRO. `closing_packs` es de sólo agregar:
-      // una fila escrita antes de un `-o` que falla (carpeta sin permiso,
-      // disco lleno) quedaría para siempre como un expediente EMITIDO que
-      // nadie recibió, y cada reintento añadiría otro. Al revés, un registro
-      // que falla después de escribir el archivo se deshace borrando el
-      // archivo, que sí se puede borrar.
+      // EL ARCHIVO ANTES QUE EL REGISTRO, Y EL DESTINO AL FINAL. `closing_packs`
+      // es de sólo agregar: una fila escrita antes de un `-o` que falla
+      // (carpeta sin permiso, disco lleno) quedaría para siempre como un
+      // expediente EMITIDO que nadie recibió. Así que el expediente se escribe
+      // primero a un temporal; si el registro falla, se borra el TEMPORAL —y
+      // no el destino, que puede ser un expediente anterior con ese nombre—;
+      // y sólo cuando el registro lo aceptó el temporal pasa a ser el destino.
       const destination = typeof opts.output === 'string' && opts.output !== '' ? opts.output : null;
-      if (destination) writeDossier(destination, pack);
+      const draft = destination ? writeDossierDraft(destination, pack) : null;
       let id: string;
       try {
         id = await storeClosingPack(ctx.entityId, period.id, pack);
       } catch (err) {
-        if (destination) rmSync(destination, { force: true });
+        if (draft) rmSync(draft, { force: true });
         throw err;
       }
+      if (draft && destination) renameSync(draft, path.resolve(destination));
 
       const receipt = {
         pack: id,
@@ -989,7 +1008,11 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
       const verdict = await verifyClosingPack(pack);
       const findings = verdictFindings(verdict);
 
-      const tabular = !opts.json && ['csv', 'tsv', 'md'].includes(opts.format ?? '');
+      // El formato se normaliza COMO LO NORMALIZA LA CAPA DE SALIDA
+      // (`resolveFormat`): comparar el texto crudo dejaba `--format CSV` en la
+      // rama del veredicto, que la capa de salida sí escribía como CSV —con
+      // las diferencias apretadas en una celda—.
+      const tabular = ['csv', 'tsv', 'md'].includes(resolveFormat(opts));
       if (tabular) {
         // EL ANEXO QUE PIDE UN AUDITOR ES UNA FILA POR CAMPO, no un veredicto
         // con las diferencias apretadas en una celda JSON: en csv, tsv y md las
@@ -1012,15 +1035,8 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         out.write(`  ${mark(verdict.figuresReproduce)} the figures reproduce against the books\n`);
         const warnings: string[] = [];
         if (!verdict.identityUnchanged) {
-          warnings.push('the entity or period identity changed since sealing (see the rows marked identity)');
-        }
-        if (!verdict.criteriaUnchanged) {
-          const panel = verdict.differences
-            .filter((d) => d.kind === 'criteria')
-            .map((d) => `${d.path}: ${d.expected} → ${d.actual}`)
-            .join('; ');
           warnings.push(
-            `the reporting panel moved since sealing (${panel}); rows marked figure are what differs in the ledger's figures, whatever the cause`
+            'a name changed since sealing — the entity, the period or an account label (rows marked identity); no figure moved because of it'
           );
         }
         if (verdict.issued && !verdict.envelopeMatches) {

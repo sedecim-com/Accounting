@@ -6127,7 +6127,7 @@ Examples:
   mnemosine closing pack verify cierre-julio.json --entity "Acme SA de CV"
   # One row per field that differs, as CSV -- the annex an auditor asks for.
   mnemosine closing pack verify cierre-julio.json --format csv -o deriva.csv
-  # A renamed entity or a moved reporting panel is a warning; make it fail too.
+  # A renamed entity or account is a warning, not a moved figure; make it fail too.
   mnemosine closing pack verify cierre-julio.json --strict
 ```
 

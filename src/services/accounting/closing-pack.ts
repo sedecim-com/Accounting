@@ -5,8 +5,6 @@ import {
   queryTrialBalanceRows,
   totalTrialBalance,
 } from '../reporting/report-service.js';
-import { criterioDeCierreEnInformes } from '../reporting/criterio-cierre.js';
-import { criterioDeCuentasArchivadas } from '../reporting/criterio-archivadas.js';
 import { NotFoundError } from '../../utils/errors.js';
 
 // ============================================================
@@ -25,10 +23,21 @@ import { NotFoundError } from '../../utils/errors.js';
 // dossier reads the ledger, with the query the trial balance already uses on
 // all three surfaces, and the third party who re-runs it is asking the books.
 //
+// And it asks for that trial balance RAW (`ignoreClosingPolicy`), which is the
+// only honest way to seal the books rather than a presentation of them. The
+// reporting panel decides what a published report SHOWS — whether year-end
+// closing entries are counted, whether an archived account keeps its row —
+// and a dossier sealed under one panel and verified under another would
+// report moved figures when not a single entry moved. The first version of
+// this file sealed the panel's values and flagged the change; a second review
+// showed that was not enough, because the re-derivation still ran under
+// today's panel and the moved presentation still came out as moved figures.
+// The raw ledger has no panel, so there is nothing to seal and nothing to
+// drift.
+//
 // ── WHAT IS SEALED, AND WHAT DELIBERATELY IS NOT ────────────────────────
 //
-// Sealed: the entity, the period, the as-of date, the criteria that shaped the
-// figures, and the figures. Not sealed: when it was generated, by whom, with
+// Sealed: the entity, the period, the as-of date, and the figures. Not sealed: when it was generated, by whom, with
 // which run, and the period's status. If `generated_at` were inside the seal,
 // re-running the dossier one minute later would produce a different seal, and
 // "the same figures" would be unverifiable BY CONSTRUCTION. The envelope is
@@ -58,16 +67,15 @@ import { NotFoundError } from '../../utils/errors.js';
 //      with something at the cut-off, and compares them BY CODE, so adding or
 //      archiving an empty account neither breaks an old dossier nor shifts
 //      the blame onto the accounts after it. Same criterion.
-//   5. THE PANEL. `informes_asientos_de_cierre` and
-//      `informes_cuentas_archivadas` change what the trial balance SHOWS. They
-//      are read and SEALED, and a verification under a different panel says
-//      so as its own finding instead of dressing it up as a moved figure.
+//   5. THE PANEL. The trial balance is read raw, so no panel value shapes a
+//      sealed figure; see above. Same criterion.
+//   6. NAMES. An account renamed after sealing is not a moved figure: its code
+//      is its identity, and a changed name or type is reported as identity.
 //
 // ── WHAT THIS DOES NOT GUARANTEE, SAID HERE ─────────────────────────────
 //
-// The derivation is not one database snapshot: the criteria, the trial balance
-// and the period activity are separate queries, and `queryTrialBalanceRows`
-// reads the panel again inside. A posting that lands between them can seal a
+// The derivation is not one database snapshot: the entity, the period, the
+// trial balance and the period activity are separate queries. A posting that lands between them can seal a
 // body whose parts describe two instants. It cannot pass unnoticed: the next
 // verification compares every part with the books of THAT moment and reports
 // the part that disagrees. Making it one snapshot means threading a client
@@ -111,11 +119,6 @@ export interface PackFigures {
   period_activity: PackActivityRow[];
 }
 
-export interface PackCriteria {
-  informes_asientos_de_cierre: string;
-  informes_cuentas_archivadas: string;
-}
-
 export interface SealedBody {
   schema_version: number;
   entity: { id: string; name: string; tax_id: string | null };
@@ -123,7 +126,6 @@ export interface SealedBody {
   period: { id: string; name: string; start_date: string; end_date: string };
   /** The cut-off. The period's end date, and never the clock. */
   as_of: string;
-  criteria: PackCriteria;
   figures: PackFigures;
 }
 
@@ -204,12 +206,9 @@ export async function deriveSealedBody(entityId: string, periodId: string): Prom
   // dossier nobody can re-run.
   const asOf = period.end_date;
 
-  const [closingCriterion, archivedCriterion] = await Promise.all([
-    criterioDeCierreEnInformes(entityId),
-    criterioDeCuentasArchivadas(entityId),
-  ]);
-
-  const rows = await queryTrialBalanceRows(entityId, { asOfDate: asOf });
+  // RAW: the books, not a presentation of them (header). No panel value can
+  // move a sealed figure.
+  const rows = await queryTrialBalanceRows(entityId, { asOfDate: asOf, ignoreClosingPolicy: true });
   const totals = totalTrialBalance(rows);
 
   const activity = await query<{
@@ -263,10 +262,6 @@ export async function deriveSealedBody(entityId: string, periodId: string): Prom
       end_date: period.end_date,
     },
     as_of: asOf,
-    criteria: {
-      informes_asientos_de_cierre: closingCriterion.valor,
-      informes_cuentas_archivadas: archivedCriterion.valor,
-    },
     figures: {
       trial_balance: trialBalance,
       totals: {
@@ -334,7 +329,7 @@ export async function storeClosingPack(
 }
 
 /** What a difference is about. Only `figure` means the books moved. */
-export type DifferenceKind = 'figure' | 'identity' | 'criteria';
+export type DifferenceKind = 'figure' | 'identity';
 
 export interface PackDifference {
   kind: DifferenceKind;
@@ -372,6 +367,9 @@ function compareLeaves(
   }
 }
 
+/** Row fields that label a row rather than measure it. */
+const IDENTITY_FIELDS: ReadonlySet<string> = new Set(['account_name', 'account_type']);
+
 /** Rows compared BY THEIR KEY, never by position. */
 function compareKeyed<T extends object>(
   expected: readonly T[],
@@ -389,8 +387,16 @@ function compareKeyed<T extends object>(
     const eb = b.get(k);
     if (ea === undefined || eb === undefined) {
       out.push({ kind: 'figure', path: `${path}[${k}]`, expected: brief(ea), actual: brief(eb) });
-    } else {
-      compareLeaves('figure', ea, eb, `${path}[${k}]`, out);
+      continue;
+    }
+    const left = ea as Record<string, unknown>;
+    const right = eb as Record<string, unknown>;
+    for (const field of [...new Set([...Object.keys(left), ...Object.keys(right)])].sort(byCodeUnit)) {
+      // THE CODE IS THE ACCOUNT; ITS NAME AND TYPE ARE LABELS. A renamed
+      // account is an identity change, and calling it a moved figure would
+      // send an auditor to look for an entry that does not exist.
+      const kind: DifferenceKind = IDENTITY_FIELDS.has(field) ? 'identity' : 'figure';
+      compareLeaves(kind, left[field], right[field], `${path}[${k}].${field}`, out);
     }
   }
 }
@@ -400,7 +406,7 @@ function compareKeyed<T extends object>(
  *
  * Reported as paths, because "the seals differ" is a true statement that helps
  * nobody: an auditor needs the account. And classified, because a renamed
- * entity or a changed panel is not a moved figure, and saying it was would
+ * entity or account is not a moved figure, and saying it was would
  * send the auditor to look for an entry that does not exist.
  */
 export function differences(expected: SealedBody, actual: SealedBody): PackDifference[] {
@@ -409,7 +415,6 @@ export function differences(expected: SealedBody, actual: SealedBody): PackDiffe
   compareLeaves('identity', expected.entity, actual.entity, 'entity', out);
   compareLeaves('identity', expected.period, actual.period, 'period', out);
   compareLeaves('identity', expected.as_of, actual.as_of, 'as_of', out);
-  compareLeaves('criteria', expected.criteria, actual.criteria, 'criteria', out);
   compareKeyed(
     expected.figures?.trial_balance ?? [],
     actual.figures.trial_balance,
@@ -439,10 +444,8 @@ export interface PackVerdict {
   envelopeMatches: boolean;
   /** No figure differs from what the books say now. */
   figuresReproduce: boolean;
-  /** Entity and period identity, schema and cut-off unchanged. */
+  /** Entity, period and account labels, schema and cut-off unchanged. */
   identityUnchanged: boolean;
-  /** The panel still says what it said when the dossier was sealed. */
-  criteriaUnchanged: boolean;
   expectedSeal: string;
   recomputedSeal: string;
   differences: PackDifference[];
@@ -452,7 +455,7 @@ export interface PackVerdict {
 export function verdictFindings(v: PackVerdict): { blocking: number; warning: number } {
   return {
     blocking: [v.sealIntact, v.issued, v.figuresReproduce].filter((x) => !x).length,
-    warning: [v.identityUnchanged, v.criteriaUnchanged, !v.issued || v.envelopeMatches].filter(
+    warning: [v.identityUnchanged, !v.issued || v.envelopeMatches].filter(
       (x) => !x
     ).length,
   };
@@ -509,7 +512,6 @@ export async function verifyClosingPack(pack: ClosingPack): Promise<PackVerdict>
     envelopeMatches,
     figuresReproduce: !diffs.some((d) => d.kind === 'figure'),
     identityUnchanged: !diffs.some((d) => d.kind === 'identity'),
-    criteriaUnchanged: !diffs.some((d) => d.kind === 'criteria'),
     expectedSeal: pack.seal,
     recomputedSeal,
     differences: diffs,
@@ -547,7 +549,8 @@ export function parseClosingPack(text: string): ClosingPack {
   if (!p.sealed?.entity?.id || !p.sealed?.period?.id) {
     throw new Error('Not a closing pack: the sealed body names no entity or no period.');
   }
-  if (!UUID_RE.test(String(p.sealed.entity.id)) || !UUID_RE.test(String(p.sealed.period.id))) {
+  const isUuid = (v: unknown): boolean => typeof v === 'string' && UUID_RE.test(v);
+  if (!isUuid(p.sealed.entity.id) || !isUuid(p.sealed.period.id)) {
     throw new Error('Not a closing pack: the entity or period id is not a UUID.');
   }
   if (!p.sealed.figures || !Array.isArray(p.sealed.figures.trial_balance)) {

@@ -517,6 +517,18 @@ describe('A6 · la última línea dice lo que de verdad pasó', () => {
     expect(stopped).toMatch(/would stop before soft-close/);
   });
 
+  it('pero si el periodo YA tiene una corrida abierta, el ensayo manda a --resume', () => {
+    // Si no lo dice, el consejo del ensayo manda a un comando que el conductor
+    // va a negar: la segunda revisión lo construyó tras un bloqueo.
+    for (const r of [
+      runClosingLine({ ...base, status: 'previewed' }, undefined, true),
+      runClosingLine({ ...base, status: 'previewed', haltedAtStep: 'verify-checklist' }, undefined, true),
+      runClosingLine({ ...base, status: 'previewed', haltedAtStep: 'soft-close' }, 'soft-close', true),
+    ]) {
+      expect(r).toMatch(/--resume/);
+    }
+  });
+
   it('tras un --stop-at no hay causa que arreglar: se paró porque se pidió', () => {
     const r = runClosingLine({ ...base, status: 'stopped', haltedAtStep: 'soft-close' }, 'soft-close');
     expect(r).toMatch(/Stopped before soft-close, as asked/);

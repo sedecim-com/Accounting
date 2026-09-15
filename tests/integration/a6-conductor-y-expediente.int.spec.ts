@@ -271,6 +271,28 @@ describe('A6 · el conductor', () => {
     expect(dep3?.journalEntryIds).toEqual(dep?.journalEntryIds);
   });
 
+  it('un paso que falló después de hacer trabajo no se degrada a «omitido» cuando ya no queda nada', async () => {
+    // El caso que la segunda revisión construyó con la depreciación: el primer
+    // intento posteó cinco activos y tropezó con el sexto, cuyo renglón el
+    // operador captura a mano; al reanudar, el motor ya no tiene nada que hacer.
+    // El registro dice «hecho», con lo procesado antes, y no «0 depreciados».
+    const { g, ctxG } = await ownTenant('Falló con trabajo');
+    enterTenant(g.tenantId);
+    const julio = await periodOf(g, 7);
+    const firstAttempt = await conductClose(ctxG, julio, { userId: g.userId, stopAt: 'soft-close' });
+    await query(
+      `UPDATE closing_run_steps SET status = 'failed', processed = 5, detail = 'unit-of-production asset'
+        WHERE run_id = $1 AND step_key = 'depreciate-assets'`,
+      [firstAttempt.runId]
+    );
+
+    const secondAttempt = await conductClose(ctxG, await periodOf(g, 7), { userId: g.userId, resume: true, stopAt: 'soft-close' });
+    const dep = secondAttempt.steps.find((p) => p.step === 'depreciate-assets');
+    expect(dep?.status).toBe('done');
+    expect(dep?.processed).toBe(5);
+    expect(dep?.detail).toMatch(/earlier attempts/);
+  });
+
   it('una casilla bloqueante detiene el cierre, y el periodo sigue abierto', async () => {
     const { g, ctxG } = await ownTenant('Cierre bloqueado');
     enterTenant(g.tenantId);
@@ -535,7 +557,6 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
     expect(v.envelopeMatches).toBe(true);
     expect(v.figuresReproduce, JSON.stringify(v.differences)).toBe(true);
     expect(v.identityUnchanged).toBe(true);
-    expect(v.criteriaUnchanged).toBe(true);
     expect(verdictFindings(v)).toEqual({ blocking: 0, warning: 0 });
   });
 
@@ -611,6 +632,65 @@ describe('A6 · el expediente, y la prueba de aceptación', () => {
     const v = await verifyClosingPack(pack);
     expect(v.figuresReproduce, JSON.stringify(v.differences)).toBe(true);
     expect(v.differences).toEqual([]);
+  });
+
+  it('cambiar el panel de informes después de sellar no mueve ninguna cifra', async () => {
+    // La segunda revisión: sellar el VALOR del panel no bastaba, porque la
+    // comprobación volvía a derivar bajo el panel de hoy. Con un asiento de
+    // cierre dentro del corte y `informes_asientos_de_cierre` pasado a
+    // `excluir_siempre`, la balanza del informe cambia; la de los libros, no.
+    const { g } = await ownTenant('Panel que cambia');
+    enterTenant(g.tenantId);
+    const julio = await periodOf(g, 7);
+    await postEntryOn(g, '2026-07-10', '500.0000');
+    await createJournalEntry(
+      g.entityId,
+      new Date('2026-07-31'),
+      'closing' as never,
+      'Asiento de cierre de prueba',
+      [
+        { account_id: g.roles.ingreso, debit_amount: '500.0000', credit_amount: null, description: 'barrido' },
+        { account_id: g.roles.banco, debit_amount: null, credit_amount: '500.0000', description: 'contra' },
+      ] as never,
+      g.userId,
+      { autoPost: true, sourceType: 'period_close' }
+    );
+    const pack = await buildClosingPack(g.entityId, julio.id, { userId: g.userId });
+    await storeClosingPack(g.entityId, julio.id, pack);
+
+    const moved = await query(
+      `UPDATE policy_decisions SET resolved_value = 'excluir_siempre', status = 'resolved'
+        WHERE key = 'informes_asientos_de_cierre' AND (entity_id = $1 OR entity_id IS NULL)`,
+      [g.entityId]
+    );
+    expect(moved.rowCount, 'el panel no se movió: la prueba no probaría nada').toBeGreaterThan(0);
+
+    const v = await verifyClosingPack(pack);
+    expect(v.figuresReproduce, JSON.stringify(v.differences)).toBe(true);
+    expect(v.differences).toEqual([]);
+  });
+
+  it('un asiento en BORRADOR dentro del periodo no mueve el expediente', async () => {
+    const { g } = await ownTenant('Borrador tras sellar');
+    enterTenant(g.tenantId);
+    const agosto = await periodOf(g, 8);
+    await postEntryOn(g, '2026-08-10', '300.0000');
+    const pack = await buildClosingPack(g.entityId, agosto.id, { userId: g.userId });
+    await storeClosingPack(g.entityId, agosto.id, pack);
+
+    await createJournalEntry(
+      g.entityId,
+      new Date('2026-08-15'),
+      'standard' as never,
+      'Borrador que nadie posteó',
+      [
+        { account_id: g.roles.banco, debit_amount: '999.0000', credit_amount: null, description: 'a' },
+        { account_id: g.roles.ingreso, debit_amount: null, credit_amount: '999.0000', description: 'b' },
+      ] as never,
+      g.userId
+    );
+    const v = await verifyClosingPack(pack);
+    expect(v.figuresReproduce, JSON.stringify(v.differences)).toBe(true);
   });
 
   it('un renombre de la entidad es un AVISO de identidad, no una cifra movida', async () => {

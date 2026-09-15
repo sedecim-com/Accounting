@@ -345,7 +345,9 @@ async function postedBy(
  *
  * Engine steps accumulate `processed` and `amount` — a resumed run that
  * posts the twelfth employee must not erase the eleven the first attempt
- * posted — and never demote a `done` to `skipped`. Their journal ids are the
+ * posted — and never demote to `skipped` a step that did work in an earlier
+ * attempt: not a `done`, and not a `failed` that posted five assets before
+ * tripping on the sixth, whose row the operator then entered by hand. Their journal ids are the
  * ledger's, read after the attempt, so they replace. The checklist and the
  * soft close describe a state, not a quantity: they replace everything.
  */
@@ -361,11 +363,16 @@ async function recordStep(
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      ON CONFLICT (run_id, step_key) DO UPDATE SET
        status = CASE
-         WHEN $10::boolean AND EXCLUDED.status = 'skipped' AND closing_run_steps.status = 'done'
+         WHEN $10::boolean AND EXCLUDED.status = 'skipped'
+              AND (closing_run_steps.status = 'done' OR closing_run_steps.processed > 0)
            THEN 'done' ELSE EXCLUDED.status END,
        detail = CASE
          WHEN $10::boolean AND EXCLUDED.status = 'skipped' AND closing_run_steps.status = 'done'
-           THEN closing_run_steps.detail ELSE EXCLUDED.detail END,
+           THEN closing_run_steps.detail
+         WHEN $10::boolean AND EXCLUDED.status = 'skipped' AND closing_run_steps.processed > 0
+           THEN closing_run_steps.processed::text
+                || ' processed by earlier attempts of this run; nothing was left to do in this one'
+         ELSE EXCLUDED.detail END,
        processed = CASE WHEN $10::boolean
          THEN closing_run_steps.processed + EXCLUDED.processed ELSE EXCLUDED.processed END,
        amount = CASE
@@ -520,12 +527,12 @@ async function takeStep(
         status: 'done',
         processed: 1,
         amount: null,
-        // What soft_close really does: postings are still ACCEPTED, with the
-        // warning `validation.ts` attaches ("Only adjusting entries
-        // recommended"). It is a policy gate, not a barrier — saying "refused"
-        // here would make the operator believe the month is frozen.
+        // What soft_close really does: postings are still ACCEPTED. The
+        // validator records a warning ("Only adjusting entries recommended"),
+        // but `entry post` does not show it — only `entry check` does — so
+        // this line promises neither a refusal nor a warning.
         detail:
-          'period soft-closed: reversible; postings dated inside it now carry the soft-close warning, and the hard close stays with `close --hard`',
+          'period soft-closed: reversible, still accepts adjusting postings, and the hard close stays with `close --hard`',
       };
     }
   }

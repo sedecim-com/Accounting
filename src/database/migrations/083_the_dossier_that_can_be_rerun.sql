@@ -141,9 +141,10 @@ CREATE TABLE closing_run_steps (
     step_key VARCHAR(40) NOT NULL,
     ordinal SMALLINT NOT NULL CHECK (ordinal > 0),
 
-    -- The outcome of the LATEST attempt, except that a `done` is never
-    -- demoted to `skipped` by a later attempt that found the work already
-    -- posted:
+    -- The outcome of the LATEST attempt, except that a step that did work in
+    -- an earlier attempt (a `done`, or a `failed` with something processed)
+    -- is never demoted to `skipped` by a later attempt that found nothing
+    -- left:
     --   done    — the step did something, in this or an earlier attempt
     --   skipped — there was nothing to do
     --   blocked — the step refused: the close cannot go past it yet

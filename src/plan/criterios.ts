@@ -4338,10 +4338,9 @@ export const CRITERIOS: Criterio[] = [
       // Las fuentes de reloj que Postgres y JavaScript ofrecen, no sólo las dos
       // obvias: la revisión adversaria encontró que `Date.now()`,
       // `CURRENT_TIMESTAMP` o `clock_timestamp()` pasaban por la versión corta.
-      const clock =
-        /new Date\(|Date\.now\(|CURRENT_(?:DATE|TIME|TIMESTAMP)|LOCALTIME|NOW\(\)|clock_timestamp|statement_timestamp|transaction_timestamp|timeofday/i.exec(
-          derivation
-        );
+      const CLOCK =
+        /new Date\b|\bDate\(\)|Date\.now\(|performance\.now|hrtime|Temporal\.Now|CURRENT_(?:DATE|TIME|TIMESTAMP)|LOCALTIME|\bNOW\(\)|clock_timestamp|statement_timestamp|transaction_timestamp|timeofday/i;
+      const clock = CLOCK.exec(derivation);
       if (clock) {
         return falla(
           `la derivación del cuerpo sellado consulta el reloj ("${clock[0]}"): el expediente ` +
@@ -4349,23 +4348,40 @@ export const CRITERIOS: Criterio[] = [
         );
       }
 
-      // Y el cuerpo que se sella es EL DERIVADO, sin retoques. Comprobar sólo
-      // `sealOf(sealed)` dejaba pasar un `sealed.as_of = …` metido entre la
-      // derivación y el sello: la revisión lo nombró como hueco.
+      // Y el cuerpo que se sella es EL DERIVADO, sin retoques. Buscar las formas
+      // de retocarlo (`sealed.x =`, un spread) resultó una lista que nunca se
+      // acaba —la segunda revisión pasó `Object.assign(sealed, …)`,
+      // `sealed['as_of'] =`, `delete sealed.criteria` y un alias—, así que se
+      // CUENTA: en `buildClosingPack` el nombre `sealed` aparece exactamente
+      // tres veces —la declaración, la propiedad y el sello—. Cualquier otro
+      // uso es un retoque, se escriba como se escriba.
       const builder = section('export async function buildClosingPack', 'export async function storeClosingPack');
       if (!builder) return falla('no se encuentra `buildClosingPack` acotada por `storeClosingPack`');
       if (!/const sealed = await deriveSealedBody\(entityId, periodId\);/.test(builder)) {
         return falla('el cuerpo sellado ya no es el que devuelve la derivación compartida');
       }
-      const touchUp = /sealed\.[\w.[\]'"]+\s*=[^=]|\.\.\.sealed\b|sealed\s*=\s*\{/.exec(builder);
-      if (touchUp) {
+      if (!/\n\s*sealed,\n/.test(builder) || !/seal: sealOf\(sealed\)/.test(builder)) {
+        return falla('el expediente ya no lleva y sella el cuerpo derivado tal cual');
+      }
+      const uses = (builder.match(/\bsealed\b/g) ?? []).length;
+      if (uses !== 3) {
         return falla(
-          `el cuerpo sellado se retoca entre la derivación y el sello ("${touchUp[0].trim()}"): ` +
-            'lo que se sella dejaría de ser lo que un tercero vuelve a derivar'
+          `el cuerpo sellado se usa ${uses} veces en buildClosingPack y debe usarse 3 (declararlo, ` +
+            'llevarlo y sellarlo): cualquier otro uso lo retoca o lo pasa por otro nombre antes del sello'
         );
       }
-      if (!/seal: sealOf\(sealed\)/.test(builder)) {
-        return falla('el sello ya no se calcula sobre el cuerpo derivado');
+      // Y el reloj del sobre es el ÚNICO de la construcción: se quita esa línea
+      // y el resto se somete a la misma lista de relojes.
+      const withoutEnvelopeClock = builder.replace(
+        'generated_at: (opts.now ?? new Date()).toISOString(),',
+        ''
+      );
+      const builderClock = CLOCK.exec(withoutEnvelopeClock);
+      if (builderClock) {
+        return falla(
+          `buildClosingPack consulta el reloj fuera del sobre ("${builderClock[0]}"): si llega al cuerpo, ` +
+            'el sello deja de ser reproducible'
+        );
       }
 
       return ok(
@@ -4380,7 +4396,7 @@ export const CRITERIOS: Criterio[] = [
         a: '  const asOf = new Date().toISOString().slice(0, 10);',
         porque:
           'el corte pasa a ser el reloj: el expediente verifica el día que se sella y deriva el ' +
-          'what',
+          'siguiente, que es la manera silenciosa de que «las mismas cifras» deje de ser cierto',
       },
       {
         archivo: 'src/services/accounting/closing-pack.ts',
@@ -4397,6 +4413,14 @@ export const CRITERIOS: Criterio[] = [
         porque:
           'el reloj entra por el SQL y no por JavaScript: el corte sigue saliendo de «el periodo», ' +
           'pero el periodo ya dice hoy',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: '  const sealed = await deriveSealedBody(entityId, periodId);\n',
+        a: "  const sealed = await deriveSealedBody(entityId, periodId);\n  Object.assign(sealed, { as_of: '2026-12-31' });\n",
+        porque:
+          'el cuerpo se retoca con Object.assign y sin reloj: la forma que la lista de patrones de la ' +
+          'versión anterior no veía',
       },
       {
         archivo: 'src/services/accounting/closing-pack.ts',
@@ -4421,16 +4445,36 @@ export const CRITERIOS: Criterio[] = [
       // UNA SOLA BALANZA, ACOTADA AL CORTE. Un segundo motor sería el mismo
       // defecto que G4 persigue en la API; una balanza sin corte crece con
       // cada mes que pasa y ningún expediente viejo se sostiene.
-      if (!/queryTrialBalanceRows\(entityId, \{ asOfDate: asOf \}\)/.test(s)) {
+      // Y EN CRUDO: la balanza de los libros, no la de un informe. El panel
+      // decide qué MUESTRA un informe publicado; sellado bajo un panel y
+      // comprobado bajo otro, el expediente acusaría cifras movidas sin que se
+      // moviera un asiento. La segunda revisión lo mostró con
+      // `informes_asientos_de_cierre`: sellar el valor del panel no bastaba,
+      // porque la comprobación volvía a derivar bajo el panel de hoy.
+      if (!/queryTrialBalanceRows\(entityId, \{ asOfDate: asOf, ignoreClosingPolicy: true \}\)/.test(s)) {
         return falla(
-          'el expediente ya no pide la balanza al motor compartido con el corte del periodo'
+          'el expediente ya no pide al motor compartido la balanza EN CRUDO con el corte del periodo: ' +
+            'o se armó otra balanza, o perdió el corte, o volvió a obedecer al panel de informes'
         );
       }
-
-      if (!/AND je\.status = 'posted'/.test(s)) {
+      // EL FILTRO DE POSTEADO, LEÍDO EN EL SQL Y SIN SUS COMENTARIOS. La versión
+      // anterior buscaba el texto en todo el archivo y sólo sabía de un `--` a
+      // principio de línea: un `/* … */`, un `--` a media línea o un `OR TRUE`
+      // lo dejaban verde con los borradores dentro. Ahora se toma la plantilla
+      // de la consulta de actividad, se le quitan los comentarios de SQL, y su
+      // WHERE tiene que exigir posteado y no tener ningún OR.
+      const activitySql = (() => {
+        const i = s.indexOf('const activity = await query<');
+        const a = s.indexOf('`', i);
+        const b = s.indexOf('`', a + 1);
+        return i < 0 || a < 0 || b < 0 ? '' : s.slice(a + 1, b);
+      })();
+      const bareSql = activitySql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
+      const where = /\bWHERE\b([\s\S]*?)\bGROUP BY\b/i.exec(bareSql)?.[1] ?? '';
+      if (!/\bAND\s+je\.status\s*=\s*'posted'/i.test(where) || /\bOR\b/i.test(where)) {
         return falla(
-          'la actividad del periodo dejó de filtrar por posteado —o el filtro quedó comentado ' +
-            'dentro del SQL—: un expediente que cuenta borradores se mueve cada vez que alguien edita uno'
+          'la actividad del periodo dejó de exigir posteado en su WHERE —quitado, comentado o ' +
+            'neutralizado con OR—: un expediente que cuenta borradores se mueve cada vez que alguien edita uno'
         );
       }
 
@@ -4479,18 +4523,9 @@ export const CRITERIOS: Criterio[] = [
         );
       }
 
-      // LOS CRITERIOS DEL PANEL VAN SELLADOS: si no, verificar bajo otro panel
-      // daría otras cifras sin decir por qué.
-      if (
-        !/informes_asientos_de_cierre: closingCriterion\.valor/.test(s) ||
-        !/informes_cuentas_archivadas: archivedCriterion\.valor/.test(s)
-      ) {
-        return falla('los criterios del panel que dan forma a la balanza dejaron de sellarse');
-      }
-
       return ok(
-        'ordering' +
-          'expediente, sin cuentas vacías, comparada por código, a cuatro decimales y con el panel sellado'
+        'balanza compartida en crudo al corte, sólo lo posteado, orden por unidad de código fijado en ' +
+          'el expediente, sin cuentas vacías, comparada por código y a cuatro decimales'
       );
     },
     mutantes: [
@@ -4508,12 +4543,32 @@ export const CRITERIOS: Criterio[] = [
         a: "        -- AND je.status = 'posted'\n",
         porque:
           'el filtro queda COMENTADO dentro del SQL: el texto sigue en el literal de plantilla, ' +
-          'que `codigoDe` no toca, y sólo `sinProsa` lo quita',
+          'que `codigoDe` no toca',
       },
       {
         archivo: 'src/services/accounting/closing-pack.ts',
-        de: 'queryTrialBalanceRows(entityId, { asOfDate: asOf })',
-        a: 'queryTrialBalanceRows(entityId, {})',
+        de: "        AND je.status = 'posted'\n",
+        a: "        /* AND je.status = 'posted' */\n",
+        porque: 'el filtro queda dentro de un comentario de bloque de SQL, que un ancla de texto sigue viendo',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: "        AND je.status = 'posted'\n",
+        a: "        AND je.status = 'posted' OR TRUE\n",
+        porque: 'el filtro sigue escrito y ya no filtra: OR TRUE deja entrar los borradores',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: 'queryTrialBalanceRows(entityId, { asOfDate: asOf, ignoreClosingPolicy: true })',
+        a: 'queryTrialBalanceRows(entityId, { asOfDate: asOf })',
+        porque:
+          'la balanza vuelve a obedecer al panel de informes: cambiar informes_asientos_de_cierre ' +
+          'después de sellar mueve cifras que el mayor no movió',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: 'queryTrialBalanceRows(entityId, { asOfDate: asOf, ignoreClosingPolicy: true })',
+        a: 'queryTrialBalanceRows(entityId, { ignoreClosingPolicy: true })',
         porque:
           'la balanza pierde su corte y pasa a ser acumulada hasta hoy: el expediente de julio ' +
           'cambia en agosto sin que nadie toque julio',
@@ -4604,6 +4659,17 @@ export const CRITERIOS: Criterio[] = [
       // comprobación aunque el paso real se inventara su veredicto.
       const realStep = section('async function takeStep(', 'function stepFailed(');
       if (!realStep) return falla('no se encuentra `takeStep` acotada por `stepFailed`');
+      // EL CHECKLIST, EN SU RAMA Y USADO. No basta con que la llamada esté en
+      // `takeStep`: tiene que ser lo que devuelve la rama `verify-checklist`, y
+      // `checklistOutcome` tiene que decidir por `canClose`. La segunda revisión
+      // dejó la llamada y descartó su resultado, o la movió de rama.
+      if (!/case 'verify-checklist': \{[^}]*?return checklistOutcome\(step, ordinal, await getCloseReadiness\(ctx, period\)\);/.test(realStep)) {
+        return falla('la rama verify-checklist ya no devuelve el veredicto de getCloseReadiness');
+      }
+      const judge = section('function checklistOutcome(', 'async function takeStep(');
+      if (!judge || !/status: r\.canClose \? 'done' : 'blocked',/.test(judge)) {
+        return falla('checklistOutcome dejó de decidir el estado del paso por canClose');
+      }
       const engines = [
         'await runMonthlyProvisions(ctx.entityId, period.id, opts.userId)',
         'await runMonthlyAmortization(ctx.entityId, period.id, opts.userId)',
@@ -4624,8 +4690,11 @@ export const CRITERIOS: Criterio[] = [
       // llegó esta mañana— y dejaría sin devengar la nómina cargada después.
       const conductor = section('export async function conductClose(', 'async function dryRun(');
       if (!conductor) return falla('no se encuentra `conductClose` acotada por `dryRun`');
-      if (!conductor.includes('outcome = await takeStep(ctx, period, step, ordinal, opts);')) {
-        return falla('`conductClose` dejó de pasar cada paso por `takeStep`');
+      // SIN CONDICIÓN: el cuerpo del bucle declara el resultado e inmediatamente
+      // lo pide a `takeStep`. Un `if` delante —que desviara el checklist por otro
+      // camino— rompe esta forma.
+      if (!/let outcome: ClosingStepOutcome;\s*try \{\s*outcome = await takeStep\(ctx, period, step, ordinal, opts\);/.test(conductor)) {
+        return falla('`conductClose` dejó de pasar cada paso, sin condición, por `takeStep`');
       }
       if (/\bcontinue\b/.test(conductor)) {
         return falla(
@@ -4677,6 +4746,19 @@ export const CRITERIOS: Criterio[] = [
       },
       {
         archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "    status: r.canClose ? 'done' : 'blocked',",
+        a: "    status: 'done',",
+        porque:
+          'el juez del checklist ignora canClose: la llamada sigue ahí, en su rama, y todo sale limpio',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
+        a: '      await getCloseReadiness(ctx, period);\n      return checklistOutcome(step, ordinal, { canClose: true, checklist: [], warnings: [], blockingIssues: [] } as never);',
+        porque: 'la llamada se conserva y su resultado se tira: una ancla de presencia la daba por buena',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
         de: '      let outcome: ClosingStepOutcome;\n',
         a: '      if (priorSteps.has(step)) continue;\n      let outcome: ClosingStepOutcome;\n',
         porque:
@@ -4705,15 +4787,13 @@ export const CRITERIOS: Criterio[] = [
       const j = m.indexOf('async function stepsOfRun(', i);
       if (i < 0 || j < 0) return falla('no se encuentra `openRun` en el conductor');
       const openRunBody = m.slice(i, j);
-      if (!/if \(opts\.resume !== true\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_OPEN'/.test(openRunBody)) {
+      // LA NEGATIVA ES LO PRIMERO del bloque de la corrida abierta: nada —ni
+      // reabrirla, ni borrarle dónde se detuvo— ocurre antes. La versión que
+      // comparaba posiciones de un ancla se desarmaba reescribiendo el UPDATE.
+      if (!/if \(openRunRow\) \{\s*if \(opts\.resume !== true\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_OPEN'/.test(openRunBody)) {
         return falla(
           'el conductor dejó de negarse a continuar una corrida abierta que nadie pidió continuar'
         );
-      }
-      const refusalAt = openRunBody.indexOf("'CLOSING_RUN_OPEN'");
-      const reopenAt = openRunBody.indexOf("UPDATE closing_runs SET status = 'running'");
-      if (reopenAt >= 0 && refusalAt > reopenAt) {
-        return falla('la negativa del conductor llega DESPUÉS de reabrir la corrida');
       }
       if (!/if \(opts\.resume === true\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_NOTHING_TO_RESUME'/.test(openRunBody)) {
         return falla('el conductor acepta `--resume` sin corrida abierta, y crea una nueva en silencio');
@@ -4725,10 +4805,11 @@ export const CRITERIOS: Criterio[] = [
       if (!/pg_try_advisory_lock\(hashtextextended\(\$1, 0\)\)/.test(m)) {
         return falla('el conductor ya no toma el candado consultivo del periodo');
       }
-      const lockCall = m.indexOf('return withConductorLock(ctx.entityId, period.id, async () => {');
-      const openInsideLock = m.indexOf('const runId = await openRun(ctx, period.id, opts);');
-      if (lockCall < 0 || openInsideLock < 0 || openInsideLock < lockCall) {
-        return falla('`openRun` ya no corre dentro del candado del periodo');
+      // Y `openRun` es lo PRIMERO que ocurre dentro del candado: una escritura
+      // delante —un motor corrido antes de decidir si se puede continuar— ya
+      // habría posteado cuando llegue la negativa.
+      if (!/return withConductorLock\(ctx\.entityId, period\.id, async \(\) => \{\s*const runId = await openRun\(ctx, period\.id, opts\);/.test(m)) {
+        return falla('`openRun` ya no es lo primero que corre dentro del candado del periodo');
       }
 
       // LA HOJA pasa la intención tal cual, y avisa antes de preguntar.
@@ -4757,6 +4838,20 @@ export const CRITERIOS: Criterio[] = [
         porque:
           'el conductor continúa en silencio la corrida que otro dejó a medias; la cortesía de la ' +
           'hoja sigue escrita y no alcanza a quien llama al conductor por otro camino',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '    const runId = await openRun(ctx, period.id, opts);',
+        a: '    await runMonthlyProvisions(ctx.entityId, period.id, opts.userId);\n    const runId = await openRun(ctx, period.id, opts);',
+        porque:
+          'un motor postea antes de decidir si se puede continuar: la negativa llega con el mes ya tocado',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "  if (openRunRow) {\n    if (opts.resume !== true) {",
+        a: "  if (openRunRow) {\n    await query(`UPDATE closing_runs SET halted_at_step = NULL WHERE id = $1`, [openRunRow.id]);\n    if (opts.resume !== true) {",
+        porque:
+          'la corrida abierta pierde dónde se detuvo antes de la negativa: se niega, pero ya borró lo que la negativa promete decir',
       },
       {
         archivo: 'src/services/accounting/closing-conductor.ts',

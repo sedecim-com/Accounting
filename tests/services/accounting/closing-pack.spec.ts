@@ -36,10 +36,6 @@ const BODY: SealedBody = {
     end_date: '2026-07-31',
   },
   as_of: '2026-07-31',
-  criteria: {
-    informes_asientos_de_cierre: 'incluir',
-    informes_cuentas_archivadas: 'retirar_cuando_no_tiene_nada',
-  },
   figures: {
     trial_balance: [
       {
@@ -89,7 +85,6 @@ describe('sealOf', () => {
   it('no depende del orden en que se escribieron las claves', () => {
     const reversedKeys = {
       figures: BODY.figures,
-      criteria: BODY.criteria,
       as_of: BODY.as_of,
       period: BODY.period,
       entity: BODY.entity,
@@ -104,10 +99,8 @@ describe('sealOf', () => {
     expect(sealOf(moved)).not.toBe(sealOf(BODY));
   });
 
-  it('cambia cuando cambia el criterio del panel, aunque las cifras no', () => {
-    const otherPanel = structuredClone(BODY);
-    otherPanel.criteria.informes_asientos_de_cierre = 'excluir';
-    expect(sealOf(otherPanel)).not.toBe(sealOf(BODY));
+  it('el cuerpo sellado no lleva el panel de informes: la balanza es la de los libros, en crudo', () => {
+    expect(Object.keys(BODY).sort()).toEqual(['as_of', 'entity', 'figures', 'period', 'schema_version']);
   });
 
   it('cambia cuando cambia la fecha de corte', () => {
@@ -185,11 +178,11 @@ describe('differences', () => {
     ]);
   });
 
-  it('un panel movido es CRITERIO, no cifra', () => {
-    const otherPanel = structuredClone(BODY);
-    otherPanel.criteria.informes_asientos_de_cierre = 'excluir';
-    expect(differences(BODY, otherPanel)).toEqual([
-      { kind: 'criteria', path: 'criteria.informes_asientos_de_cierre', expected: 'incluir', actual: 'excluir' },
+  it('una cuenta renombrada es IDENTIDAD en su código, no una cifra movida', () => {
+    const renamedAccount = structuredClone(BODY);
+    renamedAccount.figures.trial_balance[0].account_name = 'Bancos nacionales';
+    expect(differences(BODY, renamedAccount)).toEqual([
+      { kind: 'identity', path: 'figures.trial_balance[1110].account_name', expected: 'Bancos', actual: 'Bancos nacionales' },
     ]);
   });
 });
@@ -202,7 +195,6 @@ describe('verdictFindings', () => {
     envelopeMatches: true,
     figuresReproduce: true,
     identityUnchanged: true,
-    criteriaUnchanged: true,
     expectedSeal: 'a'.repeat(64),
     recomputedSeal: 'a'.repeat(64),
     differences: [],
@@ -216,10 +208,9 @@ describe('verdictFindings', () => {
     expect(verdictFindings({ ...clean, issued: false, envelopeMatches: false }).blocking).toBe(1);
   });
 
-  it('una cifra movida bloquea; un renombre o un panel movido sólo avisan', () => {
+  it('una cifra movida bloquea; un renombre sólo avisa', () => {
     expect(verdictFindings({ ...clean, figuresReproduce: false })).toEqual({ blocking: 1, warning: 0 });
     expect(verdictFindings({ ...clean, identityUnchanged: false })).toEqual({ blocking: 0, warning: 1 });
-    expect(verdictFindings({ ...clean, criteriaUnchanged: false })).toEqual({ blocking: 0, warning: 1 });
   });
 
   it('un sobre reescrito sobre un expediente emitido avisa; sin emisión no hay sobre con qué comparar', () => {
@@ -265,6 +256,11 @@ describe('parseClosingPack', () => {
   it('rechaza un sello que no es un SHA-256', () => {
     const badSeal = { ...valid, seal: 'abc' };
     expect(() => parseClosingPack(JSON.stringify(badSeal))).toThrow(/not a SHA-256/);
+  });
+
+  it('rechaza un UUID envuelto en un arreglo: pasaba la guarda como texto y llegaba a Postgres', () => {
+    const wrapped = { ...valid, sealed: { ...BODY, period: { ...BODY.period, id: [BODY.period.id] } } };
+    expect(() => parseClosingPack(JSON.stringify(wrapped))).toThrow(/not a UUID/);
   });
 
   it('rechaza un id que no es UUID antes de que llegue a Postgres como error de conversión', () => {
