@@ -71,16 +71,32 @@ export async function loadGatewayLauncher(): Promise<GatewayLauncher> {
   };
 }
 
-/** Resolves with the first SIGINT or SIGTERM the process receives. */
+/**
+ * Resolves with the first SIGINT or SIGTERM the process receives.
+ *
+ * While it waits, this leaf owns SIGINT. mnemosine.ts registers a global
+ * handler when it loads that writes "Interrupted." to stdout and exits 130 at
+ * once. Ctrl+C is how a person stops a server, so that handler would put a
+ * line that is not data after a --json record, and exit before the server had
+ * closed. The handlers already registered are detached while the gateway
+ * serves and put back once the signal has been taken: a second Ctrl+C during a
+ * slow close still ends the process the CLI's way.
+ *
+ * process.listeners() is what tsx patches to hide its own relay handler, so
+ * that one is never detached.
+ */
 function nextStopSignal(): Promise<NodeJS.Signals> {
+  const inherited = process.listeners('SIGINT');
+  for (const listener of inherited) process.off('SIGINT', listener);
   return new Promise((resolve) => {
     const stop = (signal: NodeJS.Signals): void => {
       process.off('SIGINT', stop);
       process.off('SIGTERM', stop);
+      for (const listener of inherited) process.on('SIGINT', listener);
       resolve(signal);
     };
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
   });
 }
 
@@ -104,11 +120,16 @@ export interface WebStartOptions extends RenderOptions {
   apiUrl?: string;
 }
 
+/** The last TCP port. The gateway's own check says the same, but names GATEWAY_PORT. */
+const MAX_PORT = 65_535;
+
 function parsePort(value: string): number {
   if (!/^\d+$/.test(value.trim())) {
     throw new InvalidArgumentError(t('cli.flag.error_not_whole_number', { name: '--port', value }));
   }
-  return Number(value.trim());
+  const port = Number(value.trim());
+  if (port > MAX_PORT) throw new InvalidArgumentError(t('cli.flag.error_not_port', { name: '--port', value }));
+  return port;
 }
 
 /** The flags win over the environment; an absent flag leaves the environment's value alone. */

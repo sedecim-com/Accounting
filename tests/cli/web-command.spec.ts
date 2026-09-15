@@ -7,6 +7,7 @@ import { CliError, ExitCode, riskOf } from '../../src/cli/kernel/index.js';
 import { program, skipsDatabase } from '../../src/cli/mnemosine.js';
 import { registerWebCommand, withStartFlags, type GatewayLauncher } from '../../src/cli/web-command.js';
 import type { GatewayConfig } from '../../src/gateway/config.js';
+import { GatewayDiscoveryFailed, GatewayStartupRefused } from '../../src/gateway/server.js';
 
 // ============================================================
 // W0 · `mnemosine web start`, the operator's door to the web gateway.
@@ -265,12 +266,53 @@ describe('running web start', () => {
     expect(h.shutdown).toHaveBeenCalledWith(ExitCode.FAILURE);
   });
 
+  it('exits 8, the retryable code, when the IdP cannot be read, as node dist/gateway/main.js does', async () => {
+    captureStdout();
+    const h = harness({
+      start: async () => {
+        throw new GatewayDiscoveryFailed('fetch failed');
+      },
+    });
+    await h.program.parseAsync(['web', 'start'], { from: 'user' });
+    expect(h.shutdown).toHaveBeenCalledWith(ExitCode.EXTERNAL_FAILED);
+    expect((h.reportError.mock.calls[0]?.[0] as Error).message).toContain('OIDC discovery for AUTH_OIDC_ISSUER failed');
+  });
+
+  it('exits 2 when the gateway itself refuses at start, as node dist/gateway/main.js does', async () => {
+    captureStdout();
+    const h = harness({
+      start: async () => {
+        throw new GatewayStartupRefused(['the discovered issuer is not the configured AUTH_OIDC_ISSUER']);
+      },
+    });
+    await h.program.parseAsync(['web', 'start'], { from: 'user' });
+    expect(h.shutdown).toHaveBeenCalledWith(ExitCode.USAGE);
+  });
+
   it('rejects a --port that is not a whole number at parse time', async () => {
     const h = harness();
     await expect(h.program.parseAsync(['web', 'start', '--port', '80a'], { from: 'user' })).rejects.toMatchObject({
       code: 'commander.invalidArgument',
     });
     expect(h.loadGateway).not.toHaveBeenCalled();
+  });
+
+  it('rejects a --port above 65535 at parse time, naming the flag and not GATEWAY_PORT', async () => {
+    const h = harness();
+    const attempt = h.program.parseAsync(['web', 'start', '--port', '70000'], { from: 'user' });
+    await expect(attempt).rejects.toMatchObject({ code: 'commander.invalidArgument' });
+    await expect(attempt).rejects.toThrow(/--port/);
+    await expect(attempt).rejects.not.toThrow(/GATEWAY_PORT/);
+    expect(h.loadGateway).not.toHaveBeenCalled();
+  });
+
+  it('accepts the whole range, 0 (any free port) to 65535', async () => {
+    captureStdout();
+    for (const port of ['0', '65535']) {
+      const h = harness();
+      await h.program.parseAsync(['web', 'start', '--json', '--port', port], { from: 'user' });
+      expect((h.start.mock.calls[0] as unknown[])[0]).toMatchObject({ port: Number(port) });
+    }
   });
 });
 

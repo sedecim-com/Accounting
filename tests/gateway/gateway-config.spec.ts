@@ -8,7 +8,14 @@ import {
   readGatewayConfig,
   type GatewayConfig,
 } from '../../src/gateway/config.js';
-import { GatewayStartupRefused, startGateway, type RunningGateway } from '../../src/gateway/server.js';
+import { exitCodeFor, ExitCode } from '../../src/cli/kernel/index.js';
+import {
+  GatewayDiscoveryFailed,
+  GatewayStartupRefused,
+  startGateway,
+  startupExitCode,
+  type RunningGateway,
+} from '../../src/gateway/server.js';
 import { createFakeIdp } from './helpers/fake-idp.js';
 import { testConfig, WEB_CLIENT_SECRET } from './helpers/harness.js';
 import { createStaticRoot } from './helpers/static-root.js';
@@ -156,6 +163,28 @@ describe('startGateway', () => {
       logger: { event: () => undefined },
     });
     await expect(attempt).rejects.toThrow(/discovered issuer is not the configured AUTH_OIDC_ISSUER/);
+    // A setting to fix, not an outage: the refusal, which both entries exit with 2.
+    await expect(attempt).rejects.toBeInstanceOf(GatewayStartupRefused);
+    root.remove();
+  });
+
+  it('reports an IdP it cannot read as an external failure, not as a refusal', async () => {
+    resetOidcCaches();
+    const root = createStaticRoot();
+    const unreachable = (async () => {
+      throw new TypeError('fetch failed');
+    }) as typeof fetch;
+    const attempt = startGateway(testConfig({ issuer: 'https://idp-down.example.test' }), {
+      fetchImpl: unreachable,
+      staticRoot: root.dir,
+      logger: { event: () => undefined },
+    });
+    await expect(attempt).rejects.toBeInstanceOf(GatewayDiscoveryFailed);
+    await expect(attempt).rejects.toThrow(/OIDC discovery for AUTH_OIDC_ISSUER failed: fetch failed/);
+    await expect(attempt).rejects.not.toThrow(new RegExp(WEB_CLIENT_SECRET));
+    const err = await attempt.catch((e: unknown) => e);
+    expect(startupExitCode(err)).toBe(ExitCode.EXTERNAL_FAILED);
+    expect(exitCodeFor(err)).toBe(ExitCode.EXTERNAL_FAILED);
     root.remove();
   });
 

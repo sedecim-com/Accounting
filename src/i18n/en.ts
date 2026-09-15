@@ -203,6 +203,8 @@ export const EN = {
   /** `src/cli/kernel/flags.ts:parsePositiveInt`. */
   'cli.flag.error_not_whole_number':
     '{name} must be a non-negative whole number; got "{value}".',
+  /** `src/cli/web-command.ts:parsePort`. */
+  'cli.flag.error_not_port': '{name} must be a port from 0 to 65535; got "{value}".',
   /** `src/cli/kernel/flags.ts:parseDate`. */
   'cli.flag.error_not_date': '{name} must be a date as YYYY-MM-DD; got "{value}".',
 

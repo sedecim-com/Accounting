@@ -136,6 +136,7 @@ export const ES: Record<keyof typeof EN, string> = {
 
   'cli.flag.error_not_whole_number':
     '{name} tiene que ser un entero no negativo; llegó "{value}".',
+  'cli.flag.error_not_port': '{name} tiene que ser un puerto entre 0 y 65535; llegó "{value}".',
   'cli.flag.error_not_date': '{name} tiene que ser una fecha AAAA-MM-DD; llegó "{value}".',
 
   // --- Las banderas que inyecta la declaración de riesgo (risk.ts) -----

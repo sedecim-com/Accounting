@@ -7,7 +7,7 @@ import { createCallbackRoute, createLoginRoute, createLogoutRoute, type AuthRout
 import { gatewayConfigProblems, gatewayConfigWarnings, type GatewayConfig } from './config.js';
 import { sendError } from './errors.js';
 import { createStderrLogger, type GatewayLogger } from './logger.js';
-import { createOidcClient } from './oidc-client.js';
+import { createOidcClient, IssuerMismatch } from './oidc-client.js';
 import { createProxy } from './proxy.js';
 import { createCsrfGuard, createHostGuard, createSessionGuard, methodGate, pathGuard } from './request-guards.js';
 import { GATEWAY_ROUTES, PROXY_PREFIX, type GatewayRouteName } from './routes.js';
@@ -139,11 +139,38 @@ export function createGatewayApp(deps: GatewayDeps): GatewayApp {
   };
 }
 
+// HOW A FAILED START EXITS. Two entries start the gateway, and they must exit
+// alike: `node dist/gateway/main.js` and `mnemosine web start`. The CLI maps an
+// error's statusCode through exitCodeFor (src/cli/kernel/index.ts), which the
+// gateway may not import, so each startup error carries the status that maps
+// to its code in that contract, and startupExitCode spells the same table for
+// main.ts. tests/gateway/gateway-main.spec.ts holds the two together.
+
+/** A configuration or a build that cannot serve. Nothing listened; fixing it takes a person. */
 export class GatewayStartupRefused extends Error {
+  /** 400 is the contract's USAGE (2): the same code the CLI gives a broken flag or setting. */
+  readonly statusCode = 400;
   constructor(readonly problems: string[]) {
     super(`the web gateway refuses to start:\n  - ${problems.join('\n  - ')}`);
     this.name = 'GatewayStartupRefused';
   }
+}
+
+/** The IdP could not be read at start: unreachable, an HTTP error or an incomplete answer. Retryable. */
+export class GatewayDiscoveryFailed extends Error {
+  /** 502 is the contract's EXTERNAL_FAILED (8): an external service failed, try again. */
+  readonly statusCode = 502;
+  constructor(readonly reason: string) {
+    super(`the web gateway cannot start: OIDC discovery for AUTH_OIDC_ISSUER failed: ${reason}`);
+    this.name = 'GatewayDiscoveryFailed';
+  }
+}
+
+/** The exit code of a failed start: 2 a refusal, 8 an IdP that could not be read, 1 anything else. */
+export function startupExitCode(err: unknown): 1 | 2 | 8 {
+  if (err instanceof GatewayStartupRefused) return 2;
+  if (err instanceof GatewayDiscoveryFailed) return 8;
+  return 1;
 }
 
 export interface RunningGateway {
@@ -178,8 +205,9 @@ export async function startGateway(
     await createOidcClient({ config, fetchImpl: deps.fetchImpl ?? fetch }).discovery();
   } catch (err) {
     gateway.close();
-    const reason = err instanceof Error ? err.message : 'discovery failed';
-    throw new GatewayStartupRefused([`OIDC discovery for AUTH_OIDC_ISSUER failed: ${reason}`]);
+    // An IdP that answers with another issuer is a setting to fix, not an outage to retry.
+    if (err instanceof IssuerMismatch) throw new GatewayStartupRefused([err.message]);
+    throw new GatewayDiscoveryFailed(err instanceof Error ? err.message : 'discovery failed');
   }
 
   const server = await new Promise<Server>((resolve, reject) => {

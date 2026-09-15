@@ -247,7 +247,11 @@ const MUTANTES = new Set(['escritura', 'irreversible', 'externo']);
 // censo de superficie las acusó con el mismo número: `hojas-sin-ejemplo` subía
 // de 47 a 53. Se documentan, no se sube la línea base. El cruce vuelve a dar:
 // 222 hojas − 47 sin ejemplo = 175.
-const SUELO_HOJAS_CON_EJEMPLOS = 175;
+// 175 → 184 (W0): measured with this file's walk (`CON_EJEMPLOS.length`) on the
+// tree that `web start` lands on. Eight leaves with examples arrived in merges
+// without moving the line, and `web start` is the ninth. `npm run ux:status`
+// crosses it: 231 leaves − 47 without an example = 184.
+const SUELO_HOJAS_CON_EJEMPLOS = 184;
 
 /**
  * LOS TRES SUELOS SE VOLVIERON A MEDIR AL CERRAR EL LOTE, Y CONTRA EL ÁRBOL
@@ -288,7 +292,10 @@ const SUELO_HOJAS_CON_EJEMPLOS = 175;
 // 210 → 216 por las seis hojas que G1a añadió al árbol embarcado.
 // 216 → 222 por las seis que la fusión de main trajo del otro lado: las tres
 // de `e-accounting`, las dos de `audit` y el barrido de `subscription`.
-const SUELO_HOJAS = 222;
+// 222 → 231 (W0): measured with `hojas(program).length`, which `npm run
+// ux:status` also reports as 231. Eight leaves arrived in merges without
+// moving the line, and `web start` is the ninth.
+const SUELO_HOJAS = 231;
 
 describe('la ayuda enseña invocaciones que se pueden teclear', () => {
   it('el árbol embarcado se lee entero: si no, nada de lo de abajo prueba nada', () => {

@@ -150,7 +150,7 @@ exactly that, and every catalog use of `pull`/`push` was a one-way fetch or send
 
 ## 2. NOUN REGISTRY
 
-230 canonical nouns. Singular, lowercase, hyphenated when multi-word, English. Spanish aliases are
+232 canonical nouns. Singular, lowercase, hyphenated when multi-word, English. Spanish aliases are
 singular nouns too. **One owner file per noun**; every other file references it.
 
 `--status` values are the noun's published state machine (R7), taken from the shipping schema where
@@ -300,7 +300,7 @@ and `disclosure tie-out` all become `tie-out check --scope <subledger>`·`amarre
 `reconciliation`·`conciliacion` (**was `recon` — abbreviation banned by R2/R5**) `open \| in_progress \| balanced \| certified \| reopened` ·
 `data-retention`·`conservacion` (**was `retention`·`retencion`, which now belongs to AP's `withholding`**).
 
-### 2.12 platform.md (38)
+### 2.12 platform.md (40)
 
 `entity`·`entidad` · `tenant`·`despacho` · `user`·`usuario` · `role`·`rol` · `group`·`grupo` ·
 `identity`·`identidad` · `token`·`token` · `approval`·`aprobacion` (**singular; `approvals rule set` becomes `approval rule set`**) ·

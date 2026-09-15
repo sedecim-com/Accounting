@@ -43,6 +43,18 @@ export class TokenRejected extends Error {
   }
 }
 
+/**
+ * The IdP answered, and its discovery document names another issuer. Retrying
+ * does not fix that: AUTH_OIDC_ISSUER or the IdP's configuration does, so
+ * startGateway reports it as a refusal and not as an IdP it could not read.
+ */
+export class IssuerMismatch extends Error {
+  constructor() {
+    super('the discovered issuer is not the configured AUTH_OIDC_ISSUER');
+    this.name = 'IssuerMismatch';
+  }
+}
+
 /** Reads a JSON body without trusting its size. */
 async function readJsonCapped(res: Response, limit: number): Promise<unknown> {
   if (!res.body) return undefined;
@@ -149,7 +161,7 @@ export function createOidcClient(deps: OidcClientDeps): OidcClient {
   const discovery = async (): Promise<OidcDiscovery> => {
     const conf = await discover(config.issuer, fetchImpl);
     if (conf.issuer !== config.issuer) {
-      throw new Error('the discovered issuer is not the configured AUTH_OIDC_ISSUER');
+      throw new IssuerMismatch();
     }
     return conf;
   };
