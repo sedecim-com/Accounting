@@ -88,6 +88,7 @@ import {
   queryAgedPayableRows,
   getAgedReceivables,
   getAgedPayables,
+  getPeriodMovementByAccountType,
 } from '../../../src/services/reporting/report-service.js';
 import { query, currentTenant } from '../../../src/database/connection.js';
 import { getPolicy } from '../../../src/services/policy/policy-service.js';
@@ -1087,5 +1088,108 @@ describe('resolvePeriodRange — the entity owns the definition of a period', ()
       expect(String(call[0])).toMatch(/entity_id = \$1/);
       expect((call[1] as unknown[])[0]).toBe(ENTITY);
     }
+  });
+});
+
+/**
+ * What the firm publishes on the chain has to be the same number the firm
+ * reports to itself. This function is the single place where that figure is
+ * computed, so the reader of the aggregates cannot drift away from the income
+ * statement by re-deriving it with its own SQL.
+ */
+describe('getPeriodMovementByAccountType — the published figure and the income statement', () => {
+  const PERIOD = 'fp-08';
+  /** `params` hands back `any`; the bound list is read as values, not as a shape. */
+  const bound = () => params(0) as unknown[];
+
+  /** A grouped row the way Postgres hands it back: money and counts as strings. */
+  const groupRow = (
+    account_type: string,
+    debit_total: string,
+    credit_total: string,
+    transaction_count = '1'
+  ) => ({ account_type, debit_total, credit_total, transaction_count, currency_code: 'MXN' });
+
+  it('a sales return does not inflate revenue: the section sign is applied once', async () => {
+    // Sale 10 000 (credit) and a sales return 2 000 (debit) both land in
+    // `revenue`. The firm's income statement reports 8 000; flipping the sign
+    // per ROW — or abs()-ing it — would publish 12 000.
+    mockQuery.mockResolvedValueOnce({ rows: [groupRow('revenue', '2000.00', '10000.00', '2')] });
+    const [revenue] = await getPeriodMovementByAccountType(ENTITY, PERIOD);
+    expect(revenue.total).toBe('8000.0000');
+  });
+
+  it('a purchase return does not inflate expenses either', async () => {
+    // Cost 3 000 (debit) less a purchase return 1 000 (credit) is 2 000.
+    mockQuery.mockResolvedValueOnce({ rows: [groupRow('expense', '3000.00', '1000.00')] });
+    const [expense] = await getPeriodMovementByAccountType(ENTITY, PERIOD);
+    expect(expense.total).toBe('2000.0000');
+  });
+
+  it('debit-natural types keep the debit-positive sign, credit-natural ones flip', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        groupRow('asset', '500.00', '0.00'),
+        groupRow('liability', '0.00', '700.00'),
+        groupRow('equity', '0.00', '900.00'),
+        groupRow('expense', '300.00', '0.00'),
+      ],
+    });
+    const byType = Object.fromEntries(
+      (await getPeriodMovementByAccountType(ENTITY, PERIOD)).map((m) => [m.account_type, m.total])
+    );
+    expect(byType).toEqual({
+      asset: '500.0000',
+      liability: '700.0000',
+      equity: '900.0000',
+      expense: '300.0000',
+    });
+  });
+
+  it('the count is of entries, not of lines: a privacy threshold counts documents', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [groupRow('revenue', '0.00', '100.00', '3')] });
+    const [revenue] = await getPeriodMovementByAccountType(ENTITY, PERIOD);
+    expect(revenue.transaction_count).toBe(3);
+    expect(sql(0)).toContain('COUNT(DISTINCT je.id)');
+  });
+
+  it('the closing entry is excluded exactly where the panel excludes it', async () => {
+    // Default panel value: the income statement drops closing entries, the
+    // trial balance keeps them. The annual sweep must not show up as revenue.
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await getPeriodMovementByAccountType(ENTITY, PERIOD);
+    expect(criterioDeCierreEnInformes).toHaveBeenCalledWith(ENTITY);
+    expect(bound()[2]).toEqual(['asset', 'liability', 'equity']);
+    expect(sql(0)).toContain('a.account_type = ANY($3::text[]) OR NOT');
+  });
+
+  it('both panel flags reach the query, not just one', async () => {
+    (criterioDeCierreEnInformes as unknown as Mock).mockResolvedValueOnce({
+      valor: 'ambos_con_cierre',
+      enEstadoDeResultados: true,
+      enBalanza: true,
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await getPeriodMovementByAccountType(ENTITY, PERIOD);
+    expect(bound()[2]).toEqual(['revenue', 'expense', 'asset', 'liability', 'equity']);
+  });
+
+  it('a panel that keeps the closing entry nowhere hands an empty list, not a missing filter', async () => {
+    (criterioDeCierreEnInformes as unknown as Mock).mockResolvedValueOnce({
+      valor: 'ninguno_con_cierre',
+      enEstadoDeResultados: false,
+      enBalanza: false,
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await getPeriodMovementByAccountType(ENTITY, PERIOD);
+    expect(bound()[2]).toEqual([]);
+  });
+
+  it('the movement is scoped to the entity, the period and what is posted', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    await getPeriodMovementByAccountType(ENTITY, PERIOD);
+    expect(sql(0)).toContain("je.entity_id = $1 AND je.fiscal_period_id = $2 AND je.status = 'posted'");
+    expect(bound()[0]).toBe(ENTITY);
+    expect(bound()[1]).toBe(PERIOD);
   });
 });

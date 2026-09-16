@@ -115,8 +115,14 @@ async function inquilinoDe(entityId: string): Promise<string | undefined> {
  * espejo, y eso es lo que lo mantiene estrecho: la reversa de una venta
  * —que es actividad real y TIENE que bajar el ingreso— apunta a un asiento
  * 'standard' y sigue contando. Sólo se cae la que deshace un cierre.
+ *
+ * SE EXPORTA DESDE X0 (#118). El publicador de cifras públicas tiene que
+ * excluir el cierre para unos tipos de cuenta y no para otros, según los DOS
+ * interruptores del panel. Sin este export tendría que reescribir la
+ * condición, que es exactamente como nacen las segundas versiones que
+ * discrepan de la primera.
  */
-function condicionDeCierre(alias: string): string {
+export function condicionDeCierre(alias: string): string {
   return (
     `(${alias}.entry_type = '${TIPO_ASIENTO_DE_CIERRE}'` +
     ` OR EXISTS (SELECT 1 FROM journal_entries rev` +

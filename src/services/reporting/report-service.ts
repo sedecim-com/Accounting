@@ -4,6 +4,7 @@ import { ValidationError, NotFoundError } from '../../utils/errors.js';
 import type { BalanceSheetSection, IncomeStatementSection } from '../../types/index.js';
 import {
   avisoDeCierreEnRango,
+  condicionDeCierre,
   criterioDeCierreEnInformes,
   predicadoSinCierre,
   type AvisoDeCierre,
@@ -1106,6 +1107,81 @@ export async function queryIncomeStatementRows(
     [entityId, opts.startDate, opts.endDate]
   );
   return result.rows;
+}
+
+/**
+ * LO QUE SE MOVIÓ EN EL PERIODO, POR TIPO DE CUENTA, con el signo natural de
+ * CADA SECCIÓN y la política de cierre del panel (X0, #118).
+ *
+ * Existe porque el publicador de cifras públicas tenía su propia consulta
+ * sobre el mayor, y discrepaba con el estado de resultados del mismo despacho
+ * en dos cosas, las dos medidas contra Postgres:
+ *
+ *  · Invertía el signo POR CUENTA, así que una cuenta contra-natural sumaba a
+ *    su sección: 10.000 de ventas con 2.000 de devoluciones se publicaban como
+ *    12.000 en vez de 8.000. El signo es de la SECCIÓN —es la misma razón que
+ *    `buildIncomeStatementSection` tiene escrita— porque `abs()` o el signo por
+ *    cuenta inflan justo a la contra-natural.
+ *  · No preguntaba por los asientos de cierre, y el cierre anual barre el año
+ *    ENTERO dentro del periodo que cierra: el último mes se publicaba con
+ *    ingresos de −8.000. Excluirlos o no es criterio del despacho
+ *    (`informes_asientos_de_cierre`), con un interruptor para el estado de
+ *    resultados y otro para la balanza, y aquí se respetan los dos.
+ *
+ * `transaction_count` cuenta ASIENTOS, no renglones: es el umbral de privacidad
+ * del panel, y contar renglones infla la multitud detrás de la cifra.
+ */
+export interface AccountTypeMovement {
+  account_type: string;
+  /** Natural sign of the section, at LEDGER_SCALE. */
+  total: string;
+  transaction_count: number;
+  currency_code: string | null;
+}
+
+const CREDIT_NATURAL_TYPES = new Set(['liability', 'equity', 'revenue']);
+
+export async function getPeriodMovementByAccountType(
+  entityId: string,
+  fiscalPeriodId: string
+): Promise<AccountTypeMovement[]> {
+  const closingPolicy = await criterioDeCierreEnInformes(entityId);
+  const includeClosingIn: string[] = [];
+  if (closingPolicy.enEstadoDeResultados) includeClosingIn.push('revenue', 'expense');
+  if (closingPolicy.enBalanza) includeClosingIn.push('asset', 'liability', 'equity');
+
+  const result = await query<{
+    account_type: string;
+    debit_total: string;
+    credit_total: string;
+    transaction_count: string;
+    currency_code: string | null;
+  }>(
+    `SELECT a.account_type,
+            COALESCE(SUM(COALESCE(jel.debit_amount, 0)), 0)::text AS debit_total,
+            COALESCE(SUM(COALESCE(jel.credit_amount, 0)), 0)::text AS credit_total,
+            COUNT(DISTINCT je.id)::text AS transaction_count,
+            MAX(le.functional_currency) AS currency_code
+       FROM journal_entry_lines jel
+       JOIN journal_entries je ON je.id = jel.journal_entry_id
+       JOIN accounts a ON a.id = jel.account_id
+       JOIN legal_entities le ON le.id = je.entity_id
+      WHERE je.entity_id = $1 AND je.fiscal_period_id = $2 AND je.status = 'posted'
+        AND (a.account_type = ANY($3::text[]) OR NOT ${condicionDeCierre('je')})
+      GROUP BY a.account_type`,
+    [entityId, fiscalPeriodId, includeClosingIn]
+  );
+
+  return result.rows.map((row) => {
+    const debitPositive = new Decimal(row.debit_total).minus(row.credit_total);
+    const natural = CREDIT_NATURAL_TYPES.has(row.account_type) ? debitPositive.negated() : debitPositive;
+    return {
+      account_type: row.account_type,
+      total: natural.toFixed(LEDGER_SCALE),
+      transaction_count: Number(row.transaction_count),
+      currency_code: row.currency_code,
+    };
+  });
 }
 
 /** Debit-positive net movement of one income-statement account. */
