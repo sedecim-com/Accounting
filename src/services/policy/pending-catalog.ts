@@ -864,6 +864,37 @@ export const POLICY_CATALOG: PolicySpec[] = [
     priority: 25,
   },
   {
+    key: 'catalogo_coherencia_padre_hijo',
+    category: 'contable',
+    question: 'May a subaccount sit in a different section of the statements than its parent?',
+    impact:
+      'Nothing ties a child account to its parent today, so an expense account can hang under an ' +
+      'asset and every statement still foots — the amount simply appears in the wrong section of a ' +
+      'document somebody signs. Measured over the 80 parent-child pairs this product seeds, ' +
+      'requiring the SAME CATEGORY would be wrong eleven times (1200 «Activo Fijo» is ' +
+      'non_current_assets under 1000 «Activo», which is current_assets, and that is correct ' +
+      'accounting); requiring the same SECTION holds for all 80. That is why equality is not on ' +
+      'offer: it would refuse the catalogue the product itself ships.',
+    options: [
+      { value: 'exigir_misma_seccion', label: 'Refuse the account: a subaccount stays in its parent section' },
+      { value: 'advertir_misma_seccion', label: 'Name it and let it through' },
+      { value: 'sin_regla', label: 'No rule: the chart is the firm s business' },
+    ],
+    defaultValue: 'exigir_misma_seccion',
+    defaultRationale:
+      'A figure in the wrong section of a signed statement is not caught downstream: the statement ' +
+      'balances either way. Refusing costs one corrected account at the moment somebody is already ' +
+      'looking at the chart; letting it through costs finding it in a filing. An account with no ' +
+      'fs_category on either side is NOT judged — the SAT import leaves it empty on both sides of ' +
+      'every edge it creates, and a rule that read absence as a breach would stop a firm migrating ' +
+      'its own chart.',
+    whyAsking:
+      'Your chart already has parents and children, and I can either keep a subaccount inside its parent section or let you place it wherever the chart needs it.',
+    whatIDo: 'I refuse a subaccount whose category lands in a different section than its parent, and I name both.',
+    ifSkipped: 'I refuse it and name both sides.',
+    priority: 28,
+  },
+  {
     key: 'anexo24_niveles_a_presentar',
     category: 'contable',
     question: 'Which levels of the chart go into the Anexo 24 catalogue?',
