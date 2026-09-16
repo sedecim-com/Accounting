@@ -43,13 +43,29 @@ const ENTRADA = {
   pay_frequency: 'biweekly' as const,
 };
 
+/**
+ * F08 · LOS CAPS AHORA VIAJAN EN EL FIXTURE, Y NO ES COSMÉTICA.
+ *
+ * La 084 puso CHECK sobre `metadata`: un embargo fiscal necesita su
+ * `exempt_amount` y una orden de manutención sus DOS respuestas de la CCPA,
+ * cada una como booleano de verdad. Este ayudante daba de alta las cuatro
+ * clases de orden con la exención a secas, así que desde la 084 las dos líneas
+ * de manutención de abajo morirían con 23514 antes de llegar al motor.
+ *
+ * Los dos booleanos van en `false`, que es EXACTAMENTE lo que el motor deducía
+ * antes de la 084 cuando las llaves faltaban (`|| false`): las cifras que esta
+ * prueba afirma —500 y 1 800— no se mueven ni un centavo. Lo que cambia es que
+ * ahora están escritas en vez de supuestas, que es todo el punto de la 084.
+ */
+const CAPS = '{"exempt_amount":"200","supports_second_family":false,"arrears_over_12_weeks":false}';
+
 async function conOrden(tipo: string, amountType: string, valor = 25): Promise<number> {
   await query('DELETE FROM garnishments WHERE employee_id = $1', [EMPLEADO]);
   await query(
     `INSERT INTO garnishments
        (employee_id, garnishment_type, priority, amount_type, amount_value, start_date, is_active, metadata)
-     VALUES ($1, $2, 1, $3, $4, '2020-01-01', true, '{"exempt_amount":"200"}'::jsonb)`,
-    [EMPLEADO, tipo, amountType, valor]
+     VALUES ($1, $2, 1, $3, $4, '2020-01-01', true, $5::jsonb)`,
+    [EMPLEADO, tipo, amountType, valor, CAPS]
   );
   const r = await calculateGarnishments(ENTRADA);
   return r.total_withheld;
@@ -109,11 +125,14 @@ describe('el vocabulario que la columna documenta es el que retiene', () => {
 
 describe('la restricción que impide que vuelva a pasar', () => {
   it('la base ya no admite el vocabulario viejo', async () => {
+    // Los topes van puestos A PROPÓSITO: desde la 084 una orden de manutención
+    // sin ellos también sale 23514, y entonces este caso pasaría por la
+    // restricción equivocada — verde por un motivo que no es el suyo.
     await expect(
       query(
-        `INSERT INTO garnishments (employee_id, garnishment_type, priority, amount_type, amount_value, start_date, is_active)
-         VALUES ($1,'child_support',1,'percentage',25,'2020-01-01',true)`,
-        [EMPLEADO]
+        `INSERT INTO garnishments (employee_id, garnishment_type, priority, amount_type, amount_value, start_date, is_active, metadata)
+         VALUES ($1,'child_support',1,'percentage',25,'2020-01-01',true,$2::jsonb)`,
+        [EMPLEADO, CAPS]
       )
     ).rejects.toMatchObject({ code: '23514' });
   });

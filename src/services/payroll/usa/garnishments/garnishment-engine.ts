@@ -101,8 +101,14 @@ function behaviourOf(type: GarnishmentType): 'child_support' | 'tax_levy' | 'cre
  * alone did NOT deliver: federal tax levy > child support > bankruptcy >
  * creditor. Priority and start date break ties WITHIN a rank, which is what
  * they are for.
+ *
+ * Exported since F08 so the order LIST can sort by the same table instead of
+ * copying it: a list sorted by `priority` alone shows a creditor with priority
+ * 1 ahead of a support order with 100, which is the reverse of what payday
+ * does. Two copies of a precedence table is the shape of defect 075 closed one
+ * vocabulary over.
  */
-const RANK: Record<GarnishmentType, number> = {
+export const RANK: Record<GarnishmentType, number> = {
   tax_levy_federal: 0,
   tax_levy_state: 1,
   child_support: 2,

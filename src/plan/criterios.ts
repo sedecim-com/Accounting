@@ -5044,6 +5044,339 @@ export const CRITERIOS: Criterio[] = [
   },
 
   // ---------------------------------------------------------------
+  // F08 · THE ORDER NOBODY COULD FILE (#113)
+  //
+  // The criterion above goes green on ONE live SQL literal under `src/` —
+  // `dondeAparece` counts appearances, not paths — so a writer nobody calls
+  // satisfies it. The four below are what that criterion cannot assert: that
+  // the write is reachable, that it refuses when the CCPA caps are missing,
+  // that its boundary is the ENTITY and not the tenant, and that archiving
+  // really does stop the withholding.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E4.1',
+    id: 'garnishment-order-has-a-reachable-writer',
+    enunciado: 'La orden de embargo tiene escritor, y el escritor tiene puerta',
+    mutantes: [
+      {
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'registerGarnishmentCommand(program, { palette: c, shutdown, reportError });',
+        // The call is DELETED, not commented out. `sinComentarios` is a
+        // declared approximation and over this file it left the commented
+        // line alive, so the mutant survived by measuring its own text. A
+        // mirror that depends on the comment stripper getting it right does
+        // not measure behaviour: it measures the stripper.
+        a: 'void 0;',
+        porque:
+          'el escritor se queda de capacidad huérfana: el INSERT existe, typechecka y no lo alcanza ningún camino, que es exactamente el estado que este criterio existe para prohibir — y el criterio del literal seguiría verde',
+      },
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: '         employee_id, garnishment_type, priority, amount_type, amount_value,',
+        a: '         employee_id, tenant_id, garnishment_type, priority, amount_type, amount_value,',
+        porque:
+          'el llamador vuelve a afirmar un hecho DERIVADO: el disparador de la 077 sobrescribe `tenant_id` con el del empleado, así que la columna en la lista no cambia lo guardado y sí publica una propiedad que el escritor no decide',
+      },
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: '         case_number, issuing_authority, payee_name, start_date, is_active, metadata',
+        a: '         case_number, issuing_authority, payee_name, start_date, metadata',
+        porque:
+          '`is_active` es NULABLE y la 084 no la restringe a propósito, así que una orden dada de alta sin ella queda invisible para el motor —que filtra `is_active = true`— y retiene cero en silencio: el mismo cero que la 075 vino a cerrar',
+      },
+    ],
+    evaluar: () => {
+      const service = 'src/services/payroll/common/garnishment-service.ts';
+      const leaf = 'src/cli/garnishment-command.ts';
+      const root = 'src/cli/mnemosine.ts';
+      for (const f of [service, leaf, root]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      // 1. THE INSERT, AND ITS COLUMN LIST READ AS A LIST.
+      //
+      // Parsed, not searched for across the whole file, and that is the
+      // difference between measuring and guessing: the WHERE of this very
+      // statement bounds by the employee, so a file-wide «no tenant_id»
+      // regex would go red against the correct code.
+      const code = codigoDe(service);
+      const at = code.indexOf('INSERT INTO garnishments (');
+      if (at < 0) {
+        return falla(
+          'el servicio de embargos dejó de tener su INSERT: `garnishments` vuelve a ser una tabla que el recibo lee y que ningún camino puebla'
+        );
+      }
+      const open = code.indexOf('(', at);
+      const close = code.indexOf(')', open);
+      const columns = code.slice(open + 1, close);
+
+      if (/\btenant_id\b/.test(columns)) {
+        return falla(
+          'la lista de columnas del INSERT volvió a nombrar `tenant_id`: el disparador de la 077 lo sobrescribe con el del empleado, así que el escritor estaría afirmando una pertenencia que no determina'
+        );
+      }
+      if (!/\bis_active\b/.test(columns)) {
+        return falla(
+          'el INSERT dejó de escribir `is_active`: la columna es nulable y el motor filtra `is_active = true`, de modo que la orden existiría en la tabla y retendría cero sin que nada lo diga'
+        );
+      }
+
+      // 2. AND THE PATH THAT REACHES IT.
+      const consumers = consumidoresDe('recordGarnishment', 'garnishment-service.ts');
+      if (!consumers.includes(leaf)) {
+        return falla(
+          `nadie consume recordGarnishment fuera de su propio archivo (${consumers.join(', ') || 'ningún archivo'}): un escritor sin puerta es capacidad huérfana`
+        );
+      }
+      if (!codigoDe(root).includes('registerGarnishmentCommand(program')) {
+        return falla(
+          'mnemosine.ts dejó de registrar la familia `garnishment`: la hoja existe y el binario no la publica, así que el escritor sigue sin ser alcanzable'
+        );
+      }
+
+      return ok(
+        'el INSERT vive en el servicio, no afirma el inquilino, escribe `is_active`, y la hoja que lo llama está registrada en el binario'
+      );
+    },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'garnishment-order-refuses-without-its-ccpa-inputs',
+    enunciado: 'Una orden sin los topes que el motor lee no se puede dar de alta, ni por el comando ni por SQL',
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/084_the_order_that_nobody_could_file.sql',
+        de: "         OR COALESCE(jsonb_typeof(metadata -> 'exempt_amount'), 'missing') IN ('number', 'string'));",
+        a: "         OR jsonb_typeof(metadata -> 'exempt_amount') IN ('number', 'string'));",
+        porque:
+          'sin el COALESCE la comparación de una llave AUSENTE vale NULL, y un CHECK que evalúa NULL SE CUMPLE: vuelve a poder guardarse el embargo fiscal sin su exención, que es el que retiene el cien por ciento del ingreso disponible',
+      },
+      {
+        archivo: 'src/database/migrations/084_the_order_that_nobody_could_file.sql',
+        de: `  ADD CONSTRAINT ck_garnishments_support_caps
+  CHECK (garnishment_type NOT IN ('child_support', 'pension_alimenticia')
+         OR (COALESCE(jsonb_typeof(metadata -> 'supports_second_family'), 'missing') = 'boolean'
+             AND COALESCE(jsonb_typeof(metadata -> 'arrears_over_12_weeks'), 'missing') = 'boolean'));`,
+        a: `  ADD CONSTRAINT ck_garnishments_support_caps
+  CHECK (true);`,
+        porque:
+          'la restricción se vuelve decorativa y una orden de manutención sin sus dos respuestas vuelve a ser guardable: el motor lee la ausencia como «no», que es el tope de 60 % en vez del de 50 % — diez puntos del ingreso disponible de una persona',
+      },
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: '    if (input.exempt_amount === undefined) {',
+        a: '    if (input.exempt_amount === null) {',
+        porque:
+          'una bandera ausente llega como `undefined` y no como `null`, así que la negativa deja de dispararse: el contador ya no recibe la frase que le dice que sin la exención se retiene el cheque entero, y sólo lo para el 23514 crudo del controlador',
+      },
+    ],
+    evaluar: () => {
+      const migration = 'src/database/migrations/084_the_order_that_nobody_could_file.sql';
+      const service = 'src/services/payroll/common/garnishment-service.ts';
+      const proof = 'tests/integration/f08-the-order-nobody-could-file.int.spec.ts';
+      for (const f of [migration, service]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      // 1. THE DATABASE, READ WITHOUT ITS PROSE.
+      //
+      // `sinProsa` and not bare `crudoDe`: this file's header explains why the
+      // constraints test the VALUE and not the key, and a criterion that read
+      // the comment would stay green with the constraint removed — the exact
+      // failure `sinProsa` exists for.
+      const sql = sinProsa(crudoDe(migration));
+
+      if (!sql.includes("COALESCE(jsonb_typeof(metadata -> 'exempt_amount'), 'missing') IN ('number', 'string')")) {
+        return falla(
+          'la 084 dejó de comprobar el TIPO del valor de la exención con su COALESCE: una llave ausente hace que el CHECK evalúe NULL, y un CHECK que evalúa NULL se cumple — el embargo fiscal sin exención vuelve a ser guardable y retiene el cien por ciento del disponible'
+        );
+      }
+      if (!sql.includes("COALESCE(jsonb_typeof(metadata -> 'supports_second_family'), 'missing') = 'boolean'")) {
+        return falla(
+          'la 084 dejó de exigir que la segunda familia sea un booleano de verdad: una llave presente con valor nulo pasa, y el motor la lee como «no» — el tope salta de 50 % a 60 % del ingreso disponible'
+        );
+      }
+      if (!sql.includes("COALESCE(jsonb_typeof(metadata -> 'arrears_over_12_weeks'), 'missing') = 'boolean'")) {
+        return falla(
+          'la 084 dejó de exigir que los atrasos de más de doce semanas sean un booleano: además de mover el tope cinco puntos, un valor que no sea booleano revienta con 22P02 DENTRO de una corrida de nómina'
+        );
+      }
+      if (!/ALTER COLUMN metadata SET NOT NULL/.test(sql)) {
+        return falla(
+          '`metadata` volvió a admitir NULL: la columna tendría dos valores vacíos distintos donde el motor lee lo mismo de los dos, y la 084 dejaría de poder afirmar que toda orden trae un objeto'
+        );
+      }
+
+      // 2. AND THE TYPESCRIPT REFUSAL, WHICH IS THE ONE WITH WORDS.
+      //
+      // The constraint stops the row; what tells the accountant the difference
+      // between «I forgot» and «I declared zero» is the sentence, and without
+      // it the error is a raw 23514 from the driver naming a constraint.
+      const code = codigoDe(service);
+      const from = code.indexOf('export function resolveCcpaMetadata');
+      if (from < 0) return falla('el servicio dejó de exportar resolveCcpaMetadata: la negativa no tiene dónde vivir');
+      const body = code.slice(from, from + 2000);
+      if (!body.includes('input.exempt_amount === undefined')) {
+        return falla(
+          'el servicio dejó de negarse ante un embargo fiscal sin --exempt-amount: la ausencia vuelve a viajar hasta el motor, que la lee como cero y retiene el ingreso disponible entero'
+        );
+      }
+      if (!body.includes("requireYesNo(\n        '--supports-second-family'") ||
+          !body.includes("requireYesNo(\n        '--arrears-12wk'")) {
+        return falla(
+          'una orden de manutención volvió a poder darse de alta sin responder EXPLÍCITAMENTE a los dos topes de la CCPA: un valor por omisión aquí es el tope equivocado escrito como comodidad'
+        );
+      }
+
+      return existe(proof)
+        ? ok('las dos restricciones miran el valor y no la llave, `metadata` no admite NULL, el servicio se niega con la consecuencia dicha, y hay prueba que lo ejecuta contra la base')
+        : falla('no hay prueba que EJERCITE las restricciones de la 084 contra Postgres: leer un CHECK no demuestra qué admite');
+    },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'garnishment-order-scoped-by-its-employee',
+    enunciado: 'La frontera de una orden de embargo es la entidad de su empleado, dentro de la misma sentencia',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: "        AND ${reciboEnEntidad('g.employee_id', 3)}",
+        a: '        AND g.tenant_id = $3',
+        porque:
+          'la frontera degrada a INQUILINO —que es justo lo que `requireByIdInScope` emitiría sobre esta tabla desde que la 077 le puso `tenant_id`— y una sociedad hermana del mismo inquilino puede archivar la orden judicial de otra empresa: el eje que scope.ts dice que RLS no defiende',
+      },
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: "        WHERE e.id = $1 AND ${reciboEnEntidad('e.id', 11)}",
+        a: '        WHERE e.id = $1',
+        porque:
+          'la escritura se queda apoyada en la lectura previa: entre mirar y escribir hay una ventana, y el INSERT deja de llevar su propia frontera — que es la única que `condicionDeAlcance` considera frontera',
+      },
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: '  if (updated.rowCount === 0) {',
+        a: '  if (false) {',
+        porque:
+          'invariante 3 exactamente: un UPDATE que toca cero filas y no se queja. Archivar la orden de otra entidad contestaría éxito sin haber detenido ninguna retención',
+      },
+    ],
+    evaluar: () => {
+      const service = 'src/services/payroll/common/garnishment-service.ts';
+      if (!existe(service)) return falla(`desapareció ${service}`);
+      const code = codigoDe(service);
+
+      // WHAT MAY NOT APPEAR. `garnishments` has no `entity_id` and since 077
+      // it does have a `tenant_id`, so the generic helper resolves to TENANT
+      // over this table and compiles just as well.
+      if (code.includes("requireByIdInScope('garnishments'") || code.includes("findByIdInScope('garnishments'")) {
+        return falla(
+          'el servicio volvió a acotar `garnishments` con el ayudante genérico: sobre esta tabla eso resuelve a `tenant_id = $2`, así que dos sociedades del mismo inquilino se alcanzan las órdenes judiciales'
+        );
+      }
+
+      // WHAT MUST. The employee → entity path, inside every statement.
+      const insert = code.indexOf('INSERT INTO garnishments (');
+      if (insert < 0) return falla('el servicio de embargos dejó de tener su INSERT');
+      if (!code.slice(insert, insert + 900).includes("reciboEnEntidad('e.id', 11)")) {
+        return falla(
+          'el INSERT dejó de llevar el camino a la entidad DENTRO de su propio SQL: comprobar con un SELECT y escribir después reabre la ventana entre mirar y escribir'
+        );
+      }
+
+      const archive = code.indexOf('export async function archiveGarnishment');
+      if (archive < 0) return falla('el servicio dejó de exportar archiveGarnishment');
+      const body = code.slice(archive, archive + 2200);
+      if (!body.includes("reciboEnEntidad('g.employee_id', 3)")) {
+        return falla(
+          'el UPDATE de archivo dejó de llevar el camino a la entidad en la misma sentencia: se archiva la orden de la sociedad hermana'
+        );
+      }
+      if (!body.includes('updated.rowCount === 0')) {
+        return falla(
+          'el archivo dejó de comprobar cuántas filas tocó: un UPDATE de cero filas que contesta éxito es la forma más limpia de no detener una retención y decir que sí'
+        );
+      }
+
+      const list = code.indexOf('export async function listGarnishments');
+      if (list < 0 || !code.slice(list, list + 1800).includes("reciboEnEntidad('g.employee_id', 1)")) {
+        return falla(
+          'la lectura de órdenes dejó de acotar por la entidad del empleado: se enumeran las órdenes judiciales de la sociedad hermana'
+        );
+      }
+
+      return ok(
+        'las tres hojas toman la frontera por `employees.entity_id` dentro de su propia sentencia, ninguna pasa por el ayudante genérico, y el archivo cuenta las filas que tocó'
+      );
+    },
+  },
+  {
+    paquete: 'E4.1',
+    id: 'garnishment-stops-by-is-active-not-by-a-date',
+    enunciado: 'Archivar una orden detiene la retención, y lo que la detiene es `is_active`',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: `        SET is_active = false,
+            end_date = COALESCE($2::date, g.end_date)`,
+        a: '        SET end_date = COALESCE($2::date, g.end_date)',
+        porque:
+          'la orden sigue reteniendo para siempre: `end_date` no tiene UN SOLO lector en `src/` —el WHERE del motor no mira fechas— así que un archivo que sólo escribe la fecha archiva en el papel y no en el dinero',
+      },
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: `      WHERE g.id = $1
+        AND g.is_active`,
+        a: '      WHERE g.id = $1',
+        porque:
+          'sin predicado de estado, archivar una orden YA archivada contesta éxito sobre una retención que nadie detuvo en ese momento, y el registro de cuándo se detuvo se sobrescribe con la fecha equivocada',
+      },
+      {
+        archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
+        de: 'WHERE employee_id = $1 AND is_active = true',
+        a: 'WHERE employee_id = $1 AND is_active IS NOT FALSE',
+        porque:
+          'las filas con `is_active` en NULL pasan a estar vivas, y entonces el `is_active` explícito del escritor deja de sostener nada: las dos mitades del trato —quien escribe y quien filtra— se separan sin que ninguna prueba de una sola de ellas se entere',
+      },
+    ],
+    evaluar: () => {
+      const service = 'src/services/payroll/common/garnishment-service.ts';
+      const engine = 'src/services/payroll/usa/garnishments/garnishment-engine.ts';
+      const proof = 'tests/integration/f08-the-order-nobody-could-file.int.spec.ts';
+      for (const f of [service, engine]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      const code = codigoDe(service);
+      const at = code.indexOf('export async function archiveGarnishment');
+      if (at < 0) return falla('el servicio dejó de exportar archiveGarnishment');
+      const body = code.slice(at, at + 2200);
+
+      if (!body.includes('SET is_active = false')) {
+        return falla(
+          'archivar dejó de apagar `is_active`: la fila del catálogo promete que «detiene la retención» y `end_date` no lo hace — no hay un solo lector de esa columna en `src/`'
+        );
+      }
+      if (!body.includes('AND g.is_active')) {
+        return falla(
+          'el UPDATE de archivo perdió su predicado de estado: archivar lo ya archivado contesta éxito por una detención que ocurrió otro día'
+        );
+      }
+
+      // AND THE OTHER HALF OF THE BARGAIN. If the engine stops filtering on
+      // the same value, clearing it stops nothing and nobody finds out.
+      if (!codigoDe(engine).includes('is_active = true')) {
+        return falla(
+          'el motor dejó de filtrar `is_active = true`: apagar la bandera deja de detener la retención, y las dos mitades del trato se separaron sin que ninguna prueba de una sola de ellas lo vea'
+        );
+      }
+
+      return existe(proof)
+        ? ok('archivar apaga `is_active` con predicado de estado, el motor sigue filtrando por ese mismo valor, y hay prueba que retiene primero y deja de retener después contra la base')
+        : falla('no hay prueba que MIDA la retención antes y después de archivar: leer el UPDATE no demuestra que el dinero dejó de salir');
+    },
+  },
+
+  // ---------------------------------------------------------------
   // A6 · EL CONDUCTOR DEL CIERRE Y SU EXPEDIENTE
   //
   // La tarjeta de A6 nace con su prueba de aceptación puesta: «el expediente
