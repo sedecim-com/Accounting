@@ -116,11 +116,10 @@ async function inquilinoDe(entityId: string): Promise<string | undefined> {
  * —que es actividad real y TIENE que bajar el ingreso— apunta a un asiento
  * 'standard' y sigue contando. Sólo se cae la que deshace un cierre.
  *
- * SE EXPORTA DESDE X0 (#118). El publicador de cifras públicas tiene que
- * excluir el cierre para unos tipos de cuenta y no para otros, según los DOS
- * interruptores del panel. Sin este export tendría que reescribir la
- * condición, que es exactamente como nacen las segundas versiones que
- * discrepan de la primera.
+ * EXPORTED SINCE X0 (#118). The publisher of public figures has to exclude the
+ * close for some account types and not for others, following the panel's TWO
+ * switches. Without this export it would have to rewrite the condition, which
+ * is exactly how second versions that disagree with the first get born.
  */
 export function condicionDeCierre(alias: string): string {
   return (

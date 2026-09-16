@@ -7917,26 +7917,27 @@ export const CRITERIOS: Criterio[] = [
   {
     paquete: 'E1.2',
     id: 'published-figures-are-the-firms-own',
-    // X0 (#118). `POST /v1/admin/blockchain/publish-aggregates` firmaba y
-    // publicaba cifras que el despacho contradice en su propio informe, porque
-    // las calculaba con una SEGUNDA consulta al mayor. Medido contra Postgres:
+    // X0 (#118). `POST /v1/admin/blockchain/publish-aggregates` signed and
+    // published figures the firm contradicts in its own report, because it
+    // computed them with a SECOND query over the ledger. Measured against
+    // Postgres:
     //
-    //   ingresos con devolución sobre ventas ..  8 000 en el informe, 12 000 publicado
-    //   gastos con devolución sobre compras ..   2 000 en el informe,  4 000 publicado
-    //   el mes del cierre anual .............      500 en el informe, −8 000 publicado
+    //   revenue with a sales return ....  8,000 in the report, 12,000 published
+    //   expenses with a purchase return   2,000 in the report,  4,000 published
+    //   the month of the year-end close     500 in the report, -8,000 published
     //
-    // Dos causas, y ninguna es un error de resta. La primera: el signo se
-    // invertía por CUENTA, así que una devolución —contranatural dentro de su
-    // sección— se sumaba en vez de restarse. La segunda: la publicación no
-    // preguntaba por los asientos de CIERRE, y el barrido anual entra entero
-    // en el periodo donde cae, de modo que el mes del cierre publicaba el
-    // resultado del ejercicio como si fuera actividad de ese mes.
+    // Two causes, and neither is an arithmetic slip. First: the sign was
+    // flipped per ACCOUNT, so a return — contra-natural inside its section —
+    // was added instead of subtracted. Second: publication never asked about
+    // CLOSING entries, and the annual sweep lands whole in the period it falls
+    // in, so the month of the close published the year's result as if it were
+    // that month's activity.
     //
-    // Por eso este criterio no comprueba el arreglo: comprueba que sólo haya
-    // UN SITIO donde pueda volver a romperse. Mientras hubo dos consultas
-    // sobre el mayor, arreglar una dejaba a la otra mintiendo y nada se ponía
-    // rojo — es la misma lección que `ida-y-vuelta-cancela-la-inversion`: un
-    // cotejo entre dos piezas que comparten el defecto no lo ve.
+    // That is why this criterion does not check the fix: it checks that there
+    // is only ONE PLACE where it can break again. While two queries read the
+    // ledger, fixing one left the other lying and nothing turned red — the
+    // same lesson as `ida-y-vuelta-cancela-la-inversion`: a cross-check
+    // between two pieces that share the defect cannot see it.
     enunciado:
       'La cifra que el despacho publica sobre sí mismo es la misma que su estado de resultados',
     mutantes: [
@@ -7989,10 +7990,10 @@ export const CRITERIOS: Criterio[] = [
       const spec = 'tests/integration/x0-published-figures-match-the-income-statement.int.spec.ts';
       for (const f of [layer, publisher]) if (!existe(f)) return falla(`desapareció ${f}`);
 
-      // 1. UN SOLO SITIO CALCULA EL MOVIMIENTO POR TIPO DE CUENTA.
+      // 1. ONE SINGLE PLACE COMPUTES THE MOVEMENT BY ACCOUNT TYPE.
       //
-      // Esto es el criterio, y lo demás son sus detalles: mientras hubo dos
-      // consultas no había manera de que una discrepancia se pusiera roja.
+      // This is the criterion; the rest are its details. While there were two
+      // queries, no disagreement between them could ever turn red.
       const aggregators = fuentes('src').filter((f) => {
         const t = sinComentarios(leer(f));
         return t.includes('GROUP BY a.account_type') && t.includes('journal_entry_lines');
@@ -8009,7 +8010,7 @@ export const CRITERIOS: Criterio[] = [
         );
       }
 
-      // 2. EL PUBLICADOR PIDE LA CIFRA Y NO LA RETOCA.
+      // 2. THE PUBLISHER ASKS FOR THE FIGURE AND DOES NOT RETOUCH IT.
       const publisherCode = codigoDe(publisher);
       if (!publisherCode.includes('const aggregates = await getPeriodMovementByAccountType(params.entityId, params.periodId);')) {
         return falla(
@@ -8019,8 +8020,8 @@ export const CRITERIOS: Criterio[] = [
       if (/\bSUM\s*\(\s*(jel\.)?debit/i.test(publisherCode) || /journal_entry_lines[^]*GROUP BY/i.test(publisherCode)) {
         return falla('el publisher recuperó su propia agregación del mayor: son otra vez dos cifras firmadas que pueden no coincidir');
       }
-      // El umbral de privacidad promete una MULTITUD detrás de la cifra, y eso
-      // se cuenta en asientos. Contar renglones la finge con una sola póliza.
+      // The privacy threshold promises a CROWD behind the figure, and a crowd
+      // is counted in entries. Counting lines fakes it with a single voucher.
       if (!publisherCode.includes('const count = agg.transaction_count;')) {
         return falla('el umbral de privacidad dejó de contar asientos: contar renglones finge con una sola póliza la multitud que el umbral promete');
       }
@@ -8030,7 +8031,7 @@ export const CRITERIOS: Criterio[] = [
         );
       }
 
-      // 3. LA REGLA DEL SIGNO Y LA POLÍTICA DEL PANEL, EN ESA CAPA.
+      // 3. THE SIGN RULE AND THE PANEL POLICY, IN THAT LAYER.
       const c = codigoDe(layer);
       if (!c.includes('CREDIT_NATURAL_TYPES.has(row.account_type) ? debitPositive.negated() : debitPositive')) {
         return falla(
@@ -8054,9 +8055,9 @@ export const CRITERIOS: Criterio[] = [
         return falla('la consulta ya no excluye los asientos de cierre donde el panel dice excluirlos: la decisión está escrita y el SQL no la aplica');
       }
 
-      // 4. Y CONDUCTA: la reproducción sólo prueba algo si siembra los tres
-      // casos que discrepaban. Un periodo con movimientos de signo natural y
-      // sin cierre publica lo mismo con el defecto y sin él.
+      // 4. AND CONDUCT: the reproduction only proves something if it seeds the
+      // three cases that disagreed. A period of natural-sign movements with no
+      // closing entry publishes the same figure with the defect and without.
       if (!existe(spec)) return falla('no hay reproducción contra Postgres de lo publicado frente al estado de resultados');
       const t = crudoDe(spec);
       const needed: Array<[RegExp, string]> = [

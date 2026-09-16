@@ -1110,26 +1110,26 @@ export async function queryIncomeStatementRows(
 }
 
 /**
- * LO QUE SE MOVIÓ EN EL PERIODO, POR TIPO DE CUENTA, con el signo natural de
- * CADA SECCIÓN y la política de cierre del panel (X0, #118).
+ * WHAT THE PERIOD MOVED, BY ACCOUNT TYPE, with each SECTION's natural sign and
+ * the panel's closing-entry policy (X0, #118).
  *
- * Existe porque el publicador de cifras públicas tenía su propia consulta
- * sobre el mayor, y discrepaba con el estado de resultados del mismo despacho
- * en dos cosas, las dos medidas contra Postgres:
+ * It exists because the publisher of public figures carried its own query over
+ * the ledger, and disagreed with the same firm's income statement on two
+ * counts, both measured against Postgres:
  *
- *  · Invertía el signo POR CUENTA, así que una cuenta contra-natural sumaba a
- *    su sección: 10.000 de ventas con 2.000 de devoluciones se publicaban como
- *    12.000 en vez de 8.000. El signo es de la SECCIÓN —es la misma razón que
- *    `buildIncomeStatementSection` tiene escrita— porque `abs()` o el signo por
- *    cuenta inflan justo a la contra-natural.
- *  · No preguntaba por los asientos de cierre, y el cierre anual barre el año
- *    ENTERO dentro del periodo que cierra: el último mes se publicaba con
- *    ingresos de −8.000. Excluirlos o no es criterio del despacho
- *    (`informes_asientos_de_cierre`), con un interruptor para el estado de
- *    resultados y otro para la balanza, y aquí se respetan los dos.
+ *  · It flipped the sign PER ACCOUNT, so a contra-natural account added to its
+ *    section: 10,000 of sales with 2,000 of returns published as 12,000 rather
+ *    than 8,000. The sign belongs to the SECTION — the same reason
+ *    `buildIncomeStatementSection` already has written down — because abs() or
+ *    a per-account sign inflates precisely the contra-natural row.
+ *  · It never asked about closing entries, and the year-end close sweeps the
+ *    WHOLE year into the period that closes it: the last month published
+ *    revenue of −8,000. Whether to exclude them is the firm's own criterion
+ *    (`informes_asientos_de_cierre`), with one switch for the income statement
+ *    and another for the trial balance, and both are honoured here.
  *
- * `transaction_count` cuenta ASIENTOS, no renglones: es el umbral de privacidad
- * del panel, y contar renglones infla la multitud detrás de la cifra.
+ * `transaction_count` counts ENTRIES, not lines: it feeds the panel's privacy
+ * threshold, and counting lines inflates the crowd behind the figure.
  */
 export interface AccountTypeMovement {
   account_type: string;
