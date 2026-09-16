@@ -20,19 +20,28 @@ import { earlyPaymentDiscount } from '../../src/services/ap/bill-service.js';
 
 const ORIGINAL_TZ = process.env.TZ;
 
+/**
+ * Devuelve el reloj a como estaba. BORRA la variable cuando no existía, en vez
+ * de asignarle `undefined`: `process.env.TZ = undefined` escribe la CADENA
+ * "undefined", que no es ninguna zona — y en CI, donde TZ no está puesta, eso
+ * dejaba el proceso en un huso inventado para todo lo que viniera después.
+ */
+function restoreClock(): void {
+  if (ORIGINAL_TZ === undefined) delete process.env.TZ;
+  else process.env.TZ = ORIGINAL_TZ;
+}
+
 /** Runs `fn` with the process clock parked in `tz`. */
 function inZone<T>(tz: string, fn: () => T): T {
   process.env.TZ = tz;
   try {
     return fn();
   } finally {
-    process.env.TZ = ORIGINAL_TZ;
+    restoreClock();
   }
 }
 
-afterEach(() => {
-  process.env.TZ = ORIGINAL_TZ;
-});
+afterEach(restoreClock);
 
 /** The shape pg hands back for a DATE column: midnight in the LOCAL zone. */
 const asPgDate = (iso: string): Date => {
@@ -74,11 +83,19 @@ describe('el descuento por pronto pago, que es donde el día suelto reparte dine
   // Gasto del 1 de agosto, condiciones 2/10 Net 30, pagado el 12: el día ONCE,
   // fuera de la ventana. Medido antes del arreglo: UTC contestaba 11 y no daba
   // descuento; Mexico_City, Tijuana y New_York contestaban 10 y SÍ lo daban.
-  const bill = { amount_due: '1000.0000', bill_date: asPgDate('2026-08-01'), terms: '2/10 Net 30' };
+  // El gasto se construye DENTRO de la zona, no al cargar el módulo: pg fabrica
+  // el Date de una columna DATE con el huso del proceso EN EL MOMENTO DE LA
+  // CONSULTA. Construirlo fuera lo congela en el huso de arranque —UTC en CI— y
+  // la prueba mide entonces otra cosa: es la misma sutileza que el defecto.
+  const billIn = () => ({
+    amount_due: '1000.0000',
+    bill_date: asPgDate('2026-08-01'),
+    terms: '2/10 Net 30',
+  });
 
   it('el día once queda fuera de la ventana en TODAS las zonas', () => {
     for (const tz of ['UTC', 'America/Mexico_City', 'America/Tijuana', 'America/New_York', 'Europe/Madrid', 'Asia/Tokyo']) {
-      const r = inZone(tz, () => earlyPaymentDiscount(bill, '2026-08-12'));
+      const r = inZone(tz, () => earlyPaymentDiscount(billIn(), '2026-08-12'));
       expect(r.applied, `${tz} concedió un descuento vencido`).toBe(false);
       expect(r.discountAmount).toBe('0.0000');
     }
@@ -86,7 +103,7 @@ describe('el descuento por pronto pago, que es donde el día suelto reparte dine
 
   it('y el día diez sigue dentro, también en todas', () => {
     for (const tz of ['UTC', 'America/Mexico_City', 'Asia/Tokyo']) {
-      const r = inZone(tz, () => earlyPaymentDiscount(bill, '2026-08-11'));
+      const r = inZone(tz, () => earlyPaymentDiscount(billIn(), '2026-08-11'));
       expect(r.applied, `${tz} negó un descuento vigente`).toBe(true);
       expect(r.discountAmount).toBe('20.0000');
     }
