@@ -208,7 +208,7 @@ export async function verTipo(
     );
     const names = published.rows.map((f) => f.source).join(', ');
     throw new AccountingError(
-      'FX_FUENTE_AMBIGUA',
+      'FX_AMBIGUOUS_SOURCE',
       `Hay más de un tipo ${par.de}/${par.a} publicado para ${fecha}: ${names}. No elijo por ti ` +
         'cuál vale —eso es criterio fiscal— y tampoco quiero contestarte el que la base lea ' +
         `primero, que cambia solo. Pide uno con --source <${names.replace(/, /g, '|')}>, o fija ` +

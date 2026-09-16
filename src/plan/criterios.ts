@@ -10459,7 +10459,7 @@ export const CRITERIOS: Criterio[] = [
       // Y el servicio tiene que TRADUCIRLO. Un FX001 crudo dice que algo pasó;
       // el operador necesita las fuentes y la bandera que las desempata.
       const svc = crudoDe('src/services/fx/rate-service.ts');
-      if (!/code !== 'FX001'/.test(svc) || !/FX_FUENTE_AMBIGUA/.test(svc)) {
+      if (!/code !== 'FX001'/.test(svc) || !/FX_AMBIGUOUS_SOURCE/.test(svc)) {
         return falla(
           'rate-service dejó de traducir FX001: `fx rate show` volvería a escupir un error de ' +
             'Postgres sin decir qué fuentes hay ni cómo elegir una'
