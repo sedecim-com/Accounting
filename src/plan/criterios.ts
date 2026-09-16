@@ -2651,9 +2651,17 @@ export const CRITERIOS: Criterio[] = [
           'una deriva del mayor que no existe',
       },
       {
+        // EL ANCLA LLEVA LA LÍNEA DE ARRIBA, Y NO ES ADORNO. Con sólo
+        // `      WHERE je.status = 'posted'` (seis espacios) este espejo no
+        // mordía lo que dice: esa cadena está CONTENIDA en la línea de la Σ de
+        // líneas —que lleva diez espacios y va antes en el archivo— y el arnés
+        // sustituye la PRIMERA aparición. Los dos mutantes reescribían la misma
+        // consulta, el segundo moría con el mensaje del primero, y el filtro
+        // del conteo sin rastro se quedaba sin espejo justo en el commit que
+        // vino a dárselo. `FROM journal_entries je` sólo aparece aquí.
         archivo: 'src/ai/doctor-service.ts',
-        de: "      WHERE je.status = 'posted'",
-        a: "      WHERE je.status <> 'void'",
+        de: "       FROM journal_entries je\n      WHERE je.status = 'posted'",
+        a: "       FROM journal_entries je\n      WHERE je.status <> 'void'",
         porque:
           'el conteo de asientos sin rastro deja de acotarse a los posteados: cuenta borradores, que ' +
           'no tienen por qué llevar renglón de auditoría de posteo',
