@@ -188,17 +188,6 @@ export async function useEntity(
   return { ctx, file };
 }
 
-/** `entity current`: what the next command would operate on, and why. */
-export async function currentEntity(
-  home = os.homedir()
-): Promise<EntityResolution | null> {
-  try {
-    return await resolveActiveEntity({}, { home });
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Guard for commands that must not guess. Unlike resolveActiveEntity it
  * refuses the "only entity" fallback, so a destructive command in a

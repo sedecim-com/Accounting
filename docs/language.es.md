@@ -1,6 +1,6 @@
 # El idioma del código y el de la interfaz
 
-> Gemela en español de [`language.md`](language.md) · source_sha: ae354e843802cdd47e9fbe28148ffa7b20bede6a
+> Gemela en español de [`language.md`](language.md) · source_sha: f8eab065311ab901292e307464d41337ebf3c5bc
 
 > Documento rector. Escrito el 2026-09-06 sobre `main` (`b31e62a`) a partir de un inventario del idioma de cada superficie del árbol —ocho lectores con el comando de cada cifra, ocho escépticos que volvieron a correrlos y corrigieron 90 reclamos, tres arquitectos con lentes distintas y dos jueces que puntuaron y sintetizaron—: [`docs/investigacion/2026-09-06-idioma/`](investigacion/2026-09-06-idioma/). Todo lo que aquí se dice que **existe** lleva `archivo:línea`; todo lo que se dice que **se propone** no existe todavía. Cuando este documento y el código discrepen, gana el código y este documento se corrige en el mismo PR. **La fuente de este documento es `language.md`, en inglés; esta página es su gemela española** (regla 8).
 
@@ -95,8 +95,8 @@ manual act and its trace is the diff.
 
 | Lane | What it counts | Today | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10605 (baseline 10615) | 0 |
-| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5776 (baseline 5777) | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10591 (baseline 10615) | 0 |
+| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5775 (baseline 5777) | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |
 | `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
@@ -111,7 +111,7 @@ manual act and its trace is the diff.
 | `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 343 (baseline 344) | 0 |
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28389 | 0 |
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28371 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 
@@ -154,7 +154,7 @@ La documentación viva son 90 archivos y 35026 líneas, casi todas en español:
 
 El mecanismo es el de un catálogo, aplicado a páginas: la **fuente** es `Pagina.md` en inglés; la **gemela** es `Pagina.es.md` al lado, con `source_sha` en su cabecera (el hash del inglés que tradujo); `language:status` cuenta páginas sin gemela (0 siempre para README, wiki y rectores en cuanto entre I21) y gemelas **desfasadas** (`source_sha` distinto del actual: 0 al fusionar, porque el mismo PR que toca la fuente toca la gemela); la wiki publicada enlaza cada página con su gemela y `Home` tiene un interruptor de idioma. Un tercer idioma, cuando lo haya, será `Pagina.<idioma>.md` y un renglón en el metro; por ahora son dos. Traducir es trabajo del agente que **propone** y de una persona que aprueba en el PR, como todo lo demás; los términos de norma (NIF, LISR, c_CodAgrup) se citan en su idioma oficial entre paréntesis en las dos gemelas. El corpus del agente (`src/ai/docs/`) sigue la misma regla: fuente inglesa —ya lo es donde es sistema— y los manuales de norma se reescriben en inglés con el término oficial español al lado, con su prueba de sincronía (`niif-registry.spec.ts`) intacta. Los **informes fechados** (`docs/auditorias/`, `docs/investigacion/`: 117 archivos, 28 410 líneas) siguen la misma regla y los lleva I26; hasta entonces cuentan en la línea base, empezando por los 23 de esta investigación.
 
-**Mensajes de commit**: en inglés desde el corte que I22 declara en `scripts/language/commit-subjects.ts` — juzgado por **fecha de autor**, así que el historial no se reescribe y un PR abierto antes del corte no se pone rojo por trabajo escrito antes. El asunto conserva el código del tramo cuando exista (`I7: the kernel renders help by key`); las secciones «Mensajes de commit» de `CONTRIBUTING.md` y `docs/PROCESS.md` lo dicen, y el lint de asunto corre en la CI sobre los commits que trae el PR **y sobre su título**, porque el *squash* escribe el título en `main` cuando el PR lleva más de un commit. La lista bilingüe de palabras seguras del triage de Witness (el bloque `SECRET_HITS` de `witness-triage.yml`) **sigue siendo bilingüe**: filtra el diff, no el asunto, y las fixtures en español para las que se escribió siguen en el árbol hasta I18/I19.
+**Mensajes de commit**: en inglés desde el primer commit posterior a I1; el asunto conserva el código del tramo (`I7: the kernel renders help by key`); `CONTRIBUTING.md:96` y `docs/PROCESS.md:58` lo dicen; la lista bilingüe de palabras seguras del triage de Witness (`witness-triage.yml:98`) se ajusta.
 
 ### 3.9 Lo persistido y los contratos publicados: renombrar con red
 
@@ -201,7 +201,7 @@ Cada tramo lleva su criterio en `src/plan/criterios.ts` en el mismo commit; cada
 | **I19** | `tests/` (139 nombres, 3 ayudantes, prefijo `s3-`, `HOJAS_PROPIAS`, 259 citas) y, en su PR final, `src/plan` y los ayudantes del instrumento (sólo si D6) | carril «archivos españoles en `tests/`» hacia 0; E0.0 verde; 120/120 | L |
 | **I20** | Comentarios existentes: el carril pasa de informativo a trinquete (22 731 líneas + 128 SQL embebidos + ~789 en `.yml`/`.sql`); por archivo, con relectura de manual cuando la fuente está sellada; los 10 mutantes que inyectan comentarios en español | el número baja y la línea base se aprieta por PR | XL |
 | **I21** | La documentación como experiencia de usuario (§3.8): fuente inglesa y gemela española por página para README, rectores, wiki y corpus del agente; `source_sha`; interruptor de idioma en la wiki; los informes fechados los lleva I26 | carril «páginas sin gemela» = 0 para README, wiki y rectores; «gemelas desfasadas» = 0 al fusionar; `niif-registry.spec.ts` verde | XL |
-| **I22** | Commits y proceso en inglés: las secciones «Mensajes de commit» de `CONTRIBUTING.md` y `docs/PROCESS.md`, las dos plantillas de GitHub, la página del wiki que repetía la orden; el asunto conserva el código del tramo | criterio `commit-subjects-born-english`: la sección de commits de `CONTRIBUTING.md` ya no dice «En español»; el lint de asunto corre en la CI y una prueba lo ejercita con un asunto español | S |
+| **I22** | Commits y proceso en inglés: `CONTRIBUTING.md:96`, `docs/PROCESS.md:58`, plantilla de issue, `witness-triage.yml:98`; el asunto conserva el código del tramo | criterio: `crudoDe('CONTRIBUTING.md')` no contiene «En español» en la sección de commits; los commits posteriores al tramo pasan un lint de asunto | S |
 | **I23** | El vocabulario persistido al inglés, una clase por PR (§3.9): panel (53 claves, 93 valores, tres columnas de `policy_decisions`), `account_roles.role` (36), los 14 `CHECK` (43 valores), los 11 `as const`, los valores de banderas del CLI con R9 | migración de datos bajo RLS por clase; lectores con ventana de una versión; `policy_decisions` migrada y comparada antes/después; criterios y aserciones reescritos; carril «valores persistidos españoles» por clase → 0 | XL |
 | **I24** | Los contratos publicados al inglés con `SCHEMA_VERSION 2` (§3.9): 24 códigos de error con `details.legacy_code`, 10 claves `x-*`, 11 claves de respuesta, 1 391 claves de fila de `--json`/REST/GraphQL; `openapi.json` regenerado; `--schema-version 1` durante una versión | `tests/api/contract-v2.spec.ts`: misma petición con `--schema-version 1` y `2` → claves distintas, valores iguales; `openapi.ts --check` verde; `g4b-ataque` verde | XL |
 | **I25** | Migraciones y objetos del esquema al inglés (§3.9): 35 títulos con `LEGACY_FILENAMES` en `migrate.ts`; 4 tablas, 117 columnas (las 77 del SAT/IMSS con el atributo original en `COMMENT`), 6 funciones, 59 objetos con nombre | integración: una base con los nombres viejos migra sin repetir ninguna; `schema-contract` y `enum-contract` verdes; `migration-numbering.spec` sigue tolerando los cuatro duplicados; los 17 criterios y las 84 citas reescritos | L |
