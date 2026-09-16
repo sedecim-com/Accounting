@@ -49,11 +49,3 @@ export const logger = winston.createLogger({
   ),
   transports: [new winston.transports.Console()],
 });
-
-/**
- * Wrap a function so everything it awaits runs inside a fresh log context.
- * Used by the HTTP correlation middleware to scope request_id per request.
- */
-export function withLogContext<T>(ctx: LogContext, fn: () => T): T {
-  return logContext.run(ctx, fn);
-}

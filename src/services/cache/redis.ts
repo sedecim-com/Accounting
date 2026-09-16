@@ -26,130 +26,21 @@ export function getRedis(): Redis {
   return redis;
 }
 
-const TTL = {
-  ACCOUNTS: 3600,        // 1 hour
-  EXCHANGE_RATES: 86400,  // 24 hours
-  REPORTS: 1800,          // 30 minutes (until invalidated)
-  FISCAL_PERIODS: 3600,   // 1 hour
-} as const;
-
 // ============================================================
 // Layer 1: Chart of Accounts Cache
 // ============================================================
-
-export async function getCachedAccounts(entityId: string): Promise<unknown[] | null> {
-  try {
-    const r = getRedis();
-    if (!r) return null;
-    const data = await r.get(`accounts:${entityId}`);
-    return data ? JSON.parse(data) : null;
-  } catch { return null; }
-}
-
-export async function setCachedAccounts(entityId: string, accounts: unknown[]): Promise<void> {
-  try {
-    const r = getRedis();
-    if (!r) return;
-    await r.setex(`accounts:${entityId}`, TTL.ACCOUNTS, JSON.stringify(accounts));
-  } catch { /* ignore */ }
-}
-
-export async function invalidateAccountsCache(entityId: string): Promise<void> {
-  try {
-    const r = getRedis();
-    if (!r) return;
-    await r.del(`accounts:${entityId}`);
-  } catch { /* ignore */ }
-}
 
 // ============================================================
 // Layer 2: Exchange Rates Cache
 // ============================================================
 
-export async function getCachedExchangeRate(
-  from: string, to: string, date: string, rateType: string
-): Promise<string | null> {
-  try {
-    const r = getRedis();
-    if (!r) return null;
-    return await r.get(`fx:${from}:${to}:${date}:${rateType}`);
-  } catch { return null; }
-}
-
-export async function setCachedExchangeRate(
-  from: string, to: string, date: string, rateType: string, rate: string
-): Promise<void> {
-  try {
-    const r = getRedis();
-    if (!r) return;
-    await r.setex(`fx:${from}:${to}:${date}:${rateType}`, TTL.EXCHANGE_RATES, rate);
-  } catch { /* ignore */ }
-}
-
 // ============================================================
 // Layer 3: Report Results Cache
 // ============================================================
 
-export async function getCachedReport(key: string): Promise<unknown> {
-  try {
-    const r = getRedis();
-    if (!r) return null;
-    const data = await r.get(`report:${key}`);
-    return data ? JSON.parse(data) : null;
-  } catch { return null; }
-}
-
-export async function setCachedReport(key: string, data: unknown): Promise<void> {
-  try {
-    const r = getRedis();
-    if (!r) return;
-    await r.setex(`report:${key}`, TTL.REPORTS, JSON.stringify(data));
-  } catch { /* ignore */ }
-}
-
-// Entity-wide by design: the report keys below are `report:<name>:<entityId>:*`,
-// so there is no period in the key to narrow on. The parameter that used to sit
-// here suggested a per-period invalidation the key scheme cannot deliver, which
-// is a trap for the first caller who trusts it. Narrowing this needs the period
-// in the cache key first.
-export async function invalidateReportCache(entityId: string): Promise<void> {
-  try {
-    const r = getRedis();
-    if (!r) return;
-    // Scan and delete matching keys
-    const patterns = [
-      `report:trial-balance:${entityId}:*`,
-      `report:balance-sheet:${entityId}:*`,
-      `report:income-statement:${entityId}:*`,
-      `report:cash-flow:${entityId}:*`,
-    ];
-    for (const pattern of patterns) {
-      const keys = await r.keys(pattern);
-      if (keys.length > 0) await r.del(...keys);
-    }
-  } catch { /* ignore */ }
-}
-
 // ============================================================
 // Fiscal Periods Cache
 // ============================================================
-
-export async function getCachedFiscalPeriods(entityId: string): Promise<unknown[] | null> {
-  try {
-    const r = getRedis();
-    if (!r) return null;
-    const data = await r.get(`fiscal-periods:${entityId}`);
-    return data ? JSON.parse(data) : null;
-  } catch { return null; }
-}
-
-export async function setCachedFiscalPeriods(entityId: string, periods: unknown[]): Promise<void> {
-  try {
-    const r = getRedis();
-    if (!r) return;
-    await r.setex(`fiscal-periods:${entityId}`, TTL.FISCAL_PERIODS, JSON.stringify(periods));
-  } catch { /* ignore */ }
-}
 
 // ============================================================
 // Rate Limiting

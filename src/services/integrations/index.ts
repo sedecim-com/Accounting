@@ -15,4 +15,4 @@ integrationRegistry.register(s3Adapter);
 export { integrationRegistry };
 export { pacRouter } from './mexico/pac/pac-router.js';
 export { circuitBreaker, CircuitBreakerOpenError } from './base/circuit-breaker.js';
-export { withRetry, isRetryableHttpError } from './base/retry.js';
+export { withRetry } from './base/retry.js';
