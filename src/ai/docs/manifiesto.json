@@ -87,6 +87,23 @@
   "sin_revisar": [
     "payroll.md"
   ],
+  "_exentos": "Manuales sin fuente en src/ cuyo hash signifique algo, con su razón. Hasta T2 esta lista vivía en la prosa de MANIFIESTO.md, que ningún programa lee: un .md nuevo no declarado quedaba invisible para siempre. `--check` compara el directorio, DOC_TOPICS y estas dos listas.",
+  "exentos": {
+    "cli-reference.md": "se GENERA del binario (scripts/generate-cli-reference.ts) y ya tiene una prueba más fuerte que un hash: tests/docs/generador-de-referencia.spec.ts compara contra el `program` real",
+    "niif-indice.md": "su bloque enumerable se genera de ifrs-registry.json, con su propia prueba de «regenerar no cambia nada» (tests/ai/niif-registry.spec.ts)",
+    "nif-marco.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "nif-registro.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "nif-validaciones.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "niif-marco-presentacion.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "niif-activos.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "niif-instrumentos-financieros.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "niif-ingresos-arrendamientos.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "niif-pasivos-empleados-impuestos.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "niif-grupos.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "niif-moneda-seguros-adopcion.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "niif-interpretaciones.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él",
+    "niif-pymes-convergencia.md": "describe NORMAS EXTERNAS (IFRS / NIF mexicanas), no este código: su fuente de verdad es el registro normativo y no src/, así que un hash de código no diría nada sobre él"
+  },
   "hashes": {
     "src/services/accounting/posting.ts": "c5b4e0f6bee57cd3e9ed71ef2126e5744fae9613",
     "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
