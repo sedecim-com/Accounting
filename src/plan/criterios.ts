@@ -9856,7 +9856,7 @@ export const CRITERIOS: Criterio[] = [
       // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
       // porque con holgura el espejo de este mismo criterio deja de morder: la
       // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
-      const MIRRORS_FLOOR = 494;
+      const MIRRORS_FLOOR = 498;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -9875,7 +9875,7 @@ export const CRITERIOS: Criterio[] = [
       // son el mismo hecho leído por el seam —hoy 358, que son los 358 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      const ANCHORS_HERE = 468;
+      const ANCHORS_HERE = 472;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
@@ -16862,6 +16862,114 @@ export const CRITERIOS: Criterio[] = [
           'distinto por el mismo derecho en cuanto una de las dos se actualice',
       },
     ],
+  },
+  {
+    paquete: 'E1.2',
+    id: 'cfdi-declared-zero-is-not-an-absence',
+    enunciado:
+      'Un cero declarado en un CFDI se conserva, y un exento no se cuenta como venta a tasa 0 %',
+    mutantes: [
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-parser.ts',
+        de: "isDeclared(i['@_TasaOCuota']) ? parseFloat",
+        a: "i['@_TasaOCuota'] ? parseFloat",
+        porque:
+          'vuelve a preguntar por la VERDAD del atributo: con parseAttributeValue un TasaOCuota="0.000000" llega como el número 0, se borra, y con él lo único que distingue una tasa 0 % de un exento',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-parser.ts',
+        de: "if (clave(t.impuesto) !== '002' || t.tipoFactor !== 'Tasa') continue;",
+        a: "if (clave(t.impuesto) !== '002') continue;",
+        porque:
+          'quita la puerta del tipo de factor: un traslado exento —que no declara tasa— vuelve a caer en el cubo de 0 %, y el desglose declara como acreditable una operación que no lo es',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-parser.ts',
+        de: 'else if (rate === 0) iva0 = iva0.plus(t.base);',
+        a: 'else if (rate === 0) iva0 = iva0.plus(t.importe ?? 0);',
+        porque:
+          'vuelve a sumar el importe en el cubo de tasa 0, que vale cero por definición: total_iva_0 regresa a ser siempre 0.00 con la columna llena de ceros que parecen un dato',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-facts.ts',
+        de: "if (t.tipoFactor === 'Exento') {",
+        a: "if (t.tipoFactor === 'Ninguno') {",
+        porque:
+          'los hechos dejan de reconocer el exento y lo devuelven al cubo de tasa 0: importeExento sale en cero e ivaTasaCero declara de más, justo la cifra contra la que se calcula el acreditamiento proporcional',
+      },
+    ],
+    evaluar: () => {
+      // #126 (T19). El defecto de origen era una línea, pero la línea borraba un
+      // BIT: con `parseAttributeValue` un «0.00» declarado llega como el número
+      // 0, y preguntar por su verdad lo vuelve indistinguible de un atributo
+      // ausente. Borrado ese bit, las dos copias que reparten el IVA por tasa
+      // quedaron cada una a medias y ninguna PODÍA estar entera — el parser
+      // excluía el exento por accidente y perdía el cero; los hechos sumaban
+      // bien la base y no sabían qué era un exento.
+      //
+      // Por eso esto censa la FORMA y no el arreglo: el día que aparezca un
+      // tercer repartidor, lo que tiene que sonar es el censo.
+      const parser = 'src/services/xml-ingestion/cfdi-parser.ts';
+      const hechos = 'src/services/xml-ingestion/cfdi-facts.ts';
+      for (const f of [parser, hechos]) {
+        if (!existe(f)) return falla(`desapareció ${f}`);
+      }
+
+      // 1. CENSO: ningún atributo del CFDI se declara ausente por ser falsy.
+      //    La forma acusada es exactamente la que BORRA EL BIT —preguntar por
+      //    la verdad del atributo y responder `undefined`, o sea «no vino»—.
+      //    Un `: 1` o un `|| 'MXN'` sustituyen un valor por otro y tendrán su
+      //    propia discusión; no fingen que el emisor no declaró nada, y meterlos
+      //    aquí sería la acusación de más que hace que se deje de leer el informe.
+      const porVerdad = dondeAparece(/\['@_\w+'\]\s*\?[^;{}]{0,120}?:\s*undefined/, ['src'], true);
+      if (porVerdad.length > 0) {
+        return falla(
+          `${porVerdad.join(', ')} vuelve a preguntar por la VERDAD de un atributo del CFDI para ` +
+            'declararlo ausente: un «0.00» que el emisor SÍ declaró llega como el número 0 y se ' +
+            'borra, quedando indistinguible de un atributo que nunca vino (#126)'
+        );
+      }
+      if (!/v !== undefined && v !== null && v !== ''/.test(codigoDe(parser))) {
+        return falla(
+          'isDeclared dejó de medir presencia: si vuelve a medir verdad, un cero declarado se borra ' +
+            'igual que si el atributo faltara, y el censo de arriba ya no lo ve porque la forma cambió de sitio (#126)'
+        );
+      }
+
+      // 2. CENSO: quien reparte el IVA por tasa tiene que nombrar el exento.
+      //    Ante el SAT son dos renglones distintos y sólo la tasa 0 % se acredita.
+      const reparten = dondeAparece(/tasaOCuota/, ['src'], true);
+      if (reparten.length < 2) {
+        return falla(
+          `sólo ${reparten.length} archivo(s) leen tasaOCuota y eran 2: si el reparto por tasa se mudó, ` +
+            'este censo dejó de vigilar nada (#126)'
+        );
+      }
+      const mudos = reparten.filter((f) => !/tipoFactor\s*[!=]==\s*'(Tasa|Exento)'/.test(codigoDe(f)));
+      if (mudos.length > 0) {
+        return falla(
+          `${mudos.join(', ')} reparte el IVA por tasa sin mirar el TipoFactor: un exento no declara ` +
+            'tasa, cae en el cubo de 0 % y se declara acreditable una operación que no lo es (#126)'
+        );
+      }
+
+      // 3. Y el cubo de tasa 0 se mide por la BASE: su importe vale cero por definición.
+      const porImporte = reparten.filter((f) => !/===\s*0\)[^;\n]*\bbase\b/i.test(codigoDe(f)));
+      if (porImporte.length > 0) {
+        return falla(
+          `${porImporte.join(', ')} suma el importe en el cubo de tasa 0, que es cero por definición: ` +
+            'la columna se llena de ceros que parecen un dato y el despacho lee que no hubo tales ventas (#126)'
+        );
+      }
+
+      return existe('tests/xml-ingestion/cfdi-zero-rate-is-not-absence.spec.ts')
+        ? ok(
+            `${reparten.length} repartidores del IVA por tasa distinguen el exento y miden la tasa 0 por su base`
+          )
+        : falla(
+            'no hay prueba del cero declarado: es lo único que separa «el emisor declaró 0.00» de «no declaró nada»'
+          );
+    },
   },
 ];
 
