@@ -37,7 +37,7 @@ node -e "const p=require('./package.json'); console.log(p.name, p.version, p.eng
 - **Base de datos**: PostgreSQL 15, con Row-Level Security como perímetro multi-inquilino (no un filtro en la capa de aplicación).
 - **Superficies**: CLI (`src/cli/`, comando `mnemosine`) y REST (`src/api/rest/`, Express). Hubo una tercera, GraphQL con Apollo Server, apagada tras una bandera y sin un solo consumidor: se **retiró** en T14b ([#101](https://github.com/sedecim-com/Accounting/issues/101)). Una superficie que nadie ejerce no se blinda, se quita — y mientras existía, el criterio que la vigilaba se ponía verde con sólo mudar su montaje de archivo.
 - **Pruebas**: Vitest (unitarias + integración contra Postgres real), con umbrales de cobertura **por archivo** sobre el motor contable (`vitest.config.ts`) que sólo pueden endurecerse, nunca aflojarse.
-- **El plan mismo es código**: `src/plan/criterios.ts` declara ~130 criterios ejecutables; `npm run plan:status` los evalúa contra el árbol real. Ver `docs/PROCESS.md`.
+- **El plan mismo es código**: `src/plan/criterios.ts` declara los criterios ejecutables y `npm run plan:status` los evalúa contra el árbol real. **Este archivo no lleva la cuenta a propósito** — una cifra escrita aquí envejece en silencio, y ya lo hizo: decía «~130» cuando el comando respondía 179. Pregúntaselo al comando. Ver `docs/PROCESS.md`.
 
 ## Qué SÍ hace hoy (verificar, no citar de memoria)
 
@@ -59,8 +59,12 @@ Un resumen de alto nivel, agrupado por área del oficio (catálogo y asiento, ba
 ## Riesgos conocidos
 
 - **Concentración de conocimiento.** El diseño (criterios ejecutables, el panel de políticas, los invariantes de `AGENTS.md`) vive mayormente en la cabeza de quien lo escribió y en los documentos que este PR crea; sin `docs/HISTORY.md` y sin este archivo, un colaborador nuevo no tiene por dónde entrar.
-- **Cadencia de entrega comprimida.** Los 41 PRs mergeados a la fecha de este documento se entregaron en una ventana de ~9 días (2026-08-25 → 2026-09-03), varios de ellos por dos sesiones de agente trabajando en paralelo sobre la misma rama. Ver `docs/HISTORY.md` para el detalle verificado contra `git log`.
-- **Nómina (`src/services/payroll/`) es el módulo menos auditado del árbol** hasta la auditoría de 2026-09-02 (ver Vía A, tramos T4 y T5): subretención de ISR en frecuencias no quincenales, y el SUA que suma cuotas de toda la vida del empleado. Ninguno de los dos se ha corregido a la fecha de este documento — son items abiertos, no historia.
+- **Cadencia de entrega comprimida.** Al 2026-09-15 son **99 PRs fusionados** (del #1 al #247) en una ventana de ~15 días (2026-09-01 → 2026-09-15), varios de ellos por sesiones de agente trabajando en paralelo sobre el mismo árbol. El riesgo no es el ritmo: es que dos sesiones toquen los mismos archivos —`src/plan/criterios.ts`, el piso ordenado, el panel de políticas y el manifiesto del corpus chocan casi siempre— y que una fusión resuelta eligiendo un lado tire trabajo medido. Ver `docs/HISTORY.md` para el detalle verificado contra `git log`, y comprobar la cifra de arriba con `gh pr list --state merged` antes de citarla.
+- **Nómina (`src/services/payroll/`) fue el módulo menos auditado del árbol** hasta la auditoría de 2026-09-02 (ver Vía A, tramos T4 y T5). Los dos defectos que esa auditoría encontró **ya están corregidos, y con criterio en el tablero que los vigila**:
+  - Subretención de ISR en frecuencias no quincenales — se aplicaba la tarifa MENSUAL a la base de una SEMANA, y encima la del año anterior. Corregido en **#193** (issue #91); con 3 000 semanales se retenía 0.00.
+  - El SUA declaraba las cuotas de toda la historia del empleado en el archivo del mes. Corregido en **#230** (issue #92), que además coteja el archivo contra `employer_tax_liabilities` y se niega a emitirlo si discrepan.
+
+  Lo que **sigue abierto** en nómina no son esos dos: es que las retenciones judiciales (`garnishments`) se leen y nadie las escribe, así que los formularios 941/940 reportan ceros. Lo dice en rojo el criterio `La nómina escribe los impuestos que sus formularios reportan` (E4.1) — no este párrafo.
 - **El límite de PAC/timbrado real es un contrato con un proveedor externo** (ver decisiones bloqueantes en la secuencia, §5): no lo resuelve una sesión de agente sola.
 
 ## Referencia

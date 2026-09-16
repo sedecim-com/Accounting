@@ -153,8 +153,11 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
       'the result of the period not yet swept into equity is included there, as ' +
       '`equity.result_of_the_period`. Read `is_balanced` / `out_of_balance` to tell whether ' +
       'the books themselves are sound. ' +
-      "Amounts in each section's natural sign: a negative amount is a contra " +
-      'account that subtracts from its section (e.g. accumulated depreciation in assets).',
+      "Amounts in each section's natural sign. The sign belongs to the SECTION, not to the " +
+      'kind of account, so a negative amount is one that runs against its section: usually a ' +
+      'contra account (accumulated depreciation in assets), but also an ordinary account ' +
+      'holding the opposite balance (an overdrawn bank in assets), and ' +
+      '`equity.result_of_the_period` when the period lost, which is not an account at all.',
     inputSchema: z.object({
       as_of_date: dateInput('Cutoff date YYYY-MM-DD'),
     }),
@@ -246,9 +249,13 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
         },
         total_liabilities_and_equity: aEscala(bs.total_liabilities_and_equity),
         out_of_balance: aEscala(bs.out_of_balance),
-        // Se decide sobre la cifra ENTERA del libro, no sobre la redondeada: un
-        // descuadre de menos de un centavo sale con out_of_balance «0.00» y
-        // is_balanced en falso, y esa pareja es la señal, no una contradicción.
+        // Decided on the WHOLE ledger figure, not on the rounded one:
+        // `is_balanced` is an exact zero at four decimals, while
+        // `out_of_balance` goes through `aEscala`, which ROUNDS to two (half
+        // up). So a sub-cent gap reads "0.00" below half a cent and "0.01" from
+        // 0.0050 on, with is_balanced false in both: that pair is the signal,
+        // not a contradiction. Saying the sub-cent case always reads "0.00" was
+        // false for half the range.
         is_balanced: bs.is_balanced,
         ...(Object.keys(residuos).length > 0 ? { rounding_residual: residuos } : {}),
       });

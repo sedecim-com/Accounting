@@ -1,6 +1,8 @@
 import Decimal from 'decimal.js';
+import { getPeriodMovementByAccountType } from '../reporting/report-service.js';
 import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../../database/connection.js';
+import { ValidationError } from '../../utils/errors.js';
 import { requireByIdInScope, tenantScope } from '../../database/scope.js';
 import { cryptoService } from './crypto-service.js';
 import { chainAdapterFactory, ChainId, ChainTransactionResult } from './chain-adapters.js';
@@ -412,38 +414,20 @@ export class BlockchainOrchestrator {
   }): Promise<{ published: number }> {
     await this.exigirEntidadDelInquilino(params.tenantId, params.entityId);
 
-    // Aggregate by account type (simple dimension)
-    // EL SIGNO LO DA LA NATURALEZA DE LA CUENTA, NO LA RESTA CRUDA.
+    // WHAT IS PUBLISHED COMES FROM THE SAME LAYER AS THE INCOME STATEMENT
+    // (X0, #118).
     //
-    // Era `SUM(debit - credit)` para TODO tipo de cuenta, así que los ingresos
-    // y los pasivos —de naturaleza acreedora— salían publicados EN NEGATIVO.
-    // Es la misma clase de signo que G1a mató en el cierre, y aquí duele más:
-    // el cierre se lee dentro de casa, esto se publica a un tercero que no
-    // tiene cómo saber que el menos es una convención y no una pérdida.
+    // A SECOND query over the ledger used to live here, and it disagreed with
+    // the firm's own report: it flipped the sign per ACCOUNT — 10,000 of sales
+    // with 2,000 of returns published as 12,000 — and never asked about
+    // closing entries, so the month of the year-end close published revenue of
+    // −8,000, because the close sweeps the whole year into that period. Both
+    // figures went out signed, and they did not match each other.
     //
-    // `normal_balance` está en la propia cuenta desde la 001; no hay que
-    // adivinarlo por el tipo.
-    const aggregates = await query<{
-      account_type: string;
-      total: string;
-      count: string;
-      currency_code: string | null;
-    }>(
-      `SELECT a.account_type,
-              COALESCE(SUM(CASE WHEN a.normal_balance = 'credit'
-                                THEN COALESCE(jel.credit_amount, 0) - COALESCE(jel.debit_amount, 0)
-                                ELSE COALESCE(jel.debit_amount, 0) - COALESCE(jel.credit_amount, 0)
-                           END), 0)::text as total,
-              COUNT(*)::text as count,
-              MAX(le.functional_currency) as currency_code
-       FROM journal_entry_lines jel
-       JOIN journal_entries je ON je.id = jel.journal_entry_id
-       JOIN accounts a ON a.id = jel.account_id
-       JOIN legal_entities le ON le.id = je.entity_id
-       WHERE je.entity_id = $1 AND je.fiscal_period_id = $2 AND je.status = 'posted'
-       GROUP BY a.account_type`,
-      [params.entityId, params.periodId]
-    );
+    // Delegating is not hygiene: it is that the sign rule and the panel policy
+    // live in one place. While there were two queries, fixing one left the
+    // other lying with nothing turning red.
+    const aggregates = await getPeriodMovementByAccountType(params.entityId, params.periodId);
 
     const disclosure = await query<{ minimum_aggregation_count: number; round_to_nearest: string }>(
       `SELECT minimum_aggregation_count, round_to_nearest::text
@@ -456,6 +440,18 @@ export class BlockchainOrchestrator {
     // sobre una cantidad es la regla que este repositorio no admite en ningún
     // sitio, y aquí además decide la cifra que sale publicada.
     const roundTo = new Decimal(disclosure.rows[0]?.round_to_nearest ?? '1000');
+    // A ROUNDING OF ZERO IS NOT SUBSTITUTED, IT IS NAMED (X0, #118). The API
+    // accepts `round_to_nearest: 0.001` — it is positive — and the column is
+    // DECIMAL(15,2), so it is stored as 0.00 and divided by zero here: a 500
+    // saying nothing, on the act that publishes a firm's own figures.
+    if (roundTo.lessThanOrEqualTo(0)) {
+      throw new ValidationError(
+        `El redondeo de publicación guardado es ${roundTo.toFixed(2)}: la columna admite dos ` +
+          'decimales, así que un valor menor que 0.01 quedó en cero. Corrige round_to_nearest en la ' +
+          'configuración de divulgación antes de publicar.',
+        'round_to_nearest'
+      );
+    }
 
     // Se resuelve aquí, no dentro del bucle: la marca de simulación es la
     // misma para todas las dimensiones de una publicación.
@@ -491,8 +487,10 @@ export class BlockchainOrchestrator {
         `${params.tenantId}:${params.entityId}`,
         params.periodId,
       ]);
-      for (const agg of aggregates.rows) {
-        const count = parseInt(agg.count, 10);
+      for (const agg of aggregates) {
+        // ENTRIES, not lines: counting lines inflates the crowd behind the
+        // figure, which is what the privacy threshold promises.
+        const count = agg.transaction_count;
         if (count < minCount) continue; // Privacy: below threshold
 
         // EL SELLO CUBRE LO QUE SE PUBLICA, Y ANTES NO.
