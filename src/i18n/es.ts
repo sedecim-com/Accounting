@@ -137,6 +137,9 @@ export const ES: Record<keyof typeof EN, string> = {
   'cli.flag.error_not_whole_number':
     '{name} tiene que ser un entero no negativo; llegó "{value}".',
   'cli.flag.error_not_port': '{name} tiene que ser un puerto entre 0 y 65535; llegó "{value}".',
+  'cli.flag.error_not_origin':
+    '{name} tiene que ser sólo un origen —esquema, anfitrión y puerto, sin ruta—; llegó "{value}".',
+  'cli.flag.error_empty': '{name} no puede ir vacía.',
   'cli.flag.error_not_date': '{name} tiene que ser una fecha AAAA-MM-DD; llegó "{value}".',
 
   // --- Las banderas que inyecta la declaración de riesgo (risk.ts) -----
@@ -253,6 +256,8 @@ export const ES: Record<keyof typeof EN, string> = {
   'help.web.start.port': 'Puerto en el que escucha (por omisión: GATEWAY_PORT, si no 8080)',
   'help.web.start.host': 'Dirección en la que escucha (por omisión: GATEWAY_HOST, si no 127.0.0.1)',
   'help.web.start.api_url': 'Origen de la API a la que reenvía (por omisión: GATEWAY_API_URL)',
+  'help.web.start.public_origin':
+    'Origen que abre el navegador, y bajo el que contesta el gateway (por omisión: GATEWAY_PUBLIC_ORIGIN)',
   'web.start.listening': 'Abre {origin} en el navegador. Ctrl+C detiene el gateway.',
 
   // ==== I7 · EL PILOTO: `src/cli/bank-command.ts` (issue #149) =====

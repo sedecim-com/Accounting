@@ -3003,7 +3003,7 @@ Todo lo que no es contabilidad: a qué entidad y a qué despacho apuntas, cómo 
 
 | Comando | Qué hace | Flags clave | Backend | Riesgo | IA | Fase |
 |---|---|---|---|---|---|---|
-| `mnemosine web start` · `web iniciar` | Arranca el gateway web: guarda la sesión del navegador y reenvía a `/v1` sólo lecturas (GET y HEAD), para que el despacho vea su cartera en el navegador. Es la puerta del operador y de desarrollo: en producción el gateway corre como proceso aparte desde src/gateway/main.ts, que no carga ni la base ni los secretos del motor. IA ✗ porque es un servidor que corre hasta que lo detienen, no una consulta | `--port`, `--host`, `--api-url`, `--format`, `--json` | ✅ **hecha en W0**: src/cli/web-command.ts · src/gateway/server.ts · src/api/rest/routes/portfolio.ts | lectura [0] | ✗ | 2 |
+| `mnemosine web start` · `web iniciar` | Arranca el gateway web: guarda la sesión del navegador y reenvía a `/v1` sólo lecturas (GET y HEAD), para que el despacho vea su cartera en el navegador. Es la puerta del operador y de desarrollo: en producción el gateway corre como proceso aparte desde src/gateway/main.ts, que no carga ni la base ni los secretos del motor. IA ✗ porque es un servidor que corre hasta que lo detienen, no una consulta | `--port`, `--host`, `--public-origin`, `--api-url`, `--format`, `--json` | ✅ **hecha en W0**: src/cli/web-command.ts · src/gateway/server.ts · src/api/rest/routes/portfolio.ts | lectura [0] | ✗ | 2 |
 
 ---
 

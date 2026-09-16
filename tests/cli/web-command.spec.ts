@@ -201,7 +201,7 @@ describe('running web start', () => {
   it('with --json prints one record of addresses, never the client secret, and exits 0 on SIGTERM', async () => {
     const out = captureStdout();
     const h = harness();
-    await h.program.parseAsync(['web', 'start', '--json', '--port', '8123'], { from: 'user' });
+    await h.program.parseAsync(['web', 'start', '--json', '--port', '8123', '--public-origin', 'http://127.0.0.1:8123'], { from: 'user' });
 
     expect(h.start).toHaveBeenCalledTimes(1);
     expect((h.start.mock.calls[0] as unknown[])[0]).toMatchObject({ port: 8123, host: '127.0.0.1' });
@@ -210,7 +210,7 @@ describe('running web start', () => {
     expect(printed.rows[0]).toEqual({
       listening: 'http://127.0.0.1:8080',
       api_url: 'http://127.0.0.1:3000',
-      public_origin: 'http://127.0.0.1:8080',
+      public_origin: 'http://127.0.0.1:8123',
     });
     expect(out.text()).not.toContain(CONFIG.webClientSecret);
     expect(h.close).toHaveBeenCalledTimes(1);
@@ -359,8 +359,57 @@ describe('running web start', () => {
     captureStdout();
     for (const port of ['0', '65535']) {
       const h = harness();
-      await h.program.parseAsync(['web', 'start', '--json', '--port', port], { from: 'user' });
+      await h.program.parseAsync(
+        ['web', 'start', '--json', '--port', port, '--public-origin', `http://127.0.0.1:${port}`],
+        { from: 'user' }
+      );
       expect((h.start.mock.calls[0] as unknown[])[0]).toMatchObject({ port: Number(port) });
+    }
+  });
+});
+
+describe('the address the browser opens', () => {
+  it('refuses to listen somewhere the loopback public origin does not name', async () => {
+    captureStdout();
+    for (const argv of [
+      ['web', 'start', '--port', '8081'],
+      ['web', 'start', '--host', '0.0.0.0'],
+    ]) {
+      const h = harness();
+      await h.program.parseAsync(argv, { from: 'user' });
+      expect(h.start).not.toHaveBeenCalled();
+      expect(h.shutdown).toHaveBeenCalledWith(ExitCode.USAGE);
+      const reported = h.reportError.mock.calls[0]?.[0] as Error;
+      expect(reported.message).toMatch(/the browser reaches the gateway at http:\/\/127\.0\.0\.1:8080/);
+      expect(reported.message).toMatch(/--public-origin/);
+    }
+  });
+
+  it('lets the flags move together, and leaves a proxy in front alone', async () => {
+    captureStdout();
+    const moved = harness();
+    await moved.program.parseAsync(
+      ['web', 'start', '--json', '--port', '8081', '--public-origin', 'http://localhost:8081'],
+      { from: 'user' }
+    );
+    expect((moved.start.mock.calls[0] as unknown[])[0]).toMatchObject({ port: 8081, publicOrigin: 'http://localhost:8081' });
+
+    // A public origin that is not loopback is a proxy's address: the port
+    // behind it is nobody's business but the deployment's.
+    const behindProxy = harness({ readConfig: () => ({ ...CONFIG, publicOrigin: 'https://tablero.despacho.mx' }) });
+    await behindProxy.program.parseAsync(['web', 'start', '--json', '--port', '8081'], { from: 'user' });
+    expect((behindProxy.start.mock.calls[0] as unknown[])[0]).toMatchObject({ port: 8081 });
+  });
+
+  it('names the flag, not the environment key, when a flag carries a bad value', async () => {
+    for (const [argv, flag] of [
+      [['web', 'start', '--api-url', 'http://127.0.0.1:3000/v1'], '--api-url'],
+      [['web', 'start', '--public-origin', 'not-a-url'], '--public-origin'],
+      [['web', 'start', '--host', '  '], '--host'],
+    ] as Array<[string[], string]>) {
+      const h = harness();
+      await expect(h.program.parseAsync(argv, { from: 'user' })).rejects.toThrow(new RegExp(flag));
+      expect(h.start).not.toHaveBeenCalled();
     }
   });
 });

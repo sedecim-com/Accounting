@@ -119,6 +119,7 @@ export interface WebStartOptions extends RenderOptions {
   port?: number;
   host?: string;
   apiUrl?: string;
+  publicOrigin?: string;
 }
 
 /** The last TCP port. The gateway's own check says the same, but names GATEWAY_PORT. */
@@ -133,6 +134,70 @@ function parsePort(value: string): number {
   return port;
 }
 
+/**
+ * A flag's own error names the FLAG. The gateway validates the same values
+ * afterwards, but it names the environment key it expects them under, and
+ * telling an operator to fix GATEWAY_API_URL when they typed --api-url sends
+ * them to the wrong place.
+ */
+function parseOrigin(name: string): (value: string) => string {
+  return (value: string) => {
+    const text = value.trim();
+    let url: URL;
+    try {
+      url = new URL(text);
+    } catch {
+      throw new InvalidArgumentError(t('cli.flag.error_not_origin', { name, value }));
+    }
+    const bare = (url.protocol === 'http:' || url.protocol === 'https:') && url.username === '' && url.password === '' && url.pathname === '/' && url.search === '' && url.hash === '' && !text.endsWith('/');
+    if (!bare) throw new InvalidArgumentError(t('cli.flag.error_not_origin', { name, value }));
+    return text;
+  };
+}
+
+function parseListenHost(value: string): string {
+  const host = value.trim();
+  if (host === '') throw new InvalidArgumentError(t('cli.flag.error_empty', { name: '--host' }));
+  return host;
+}
+
+/** localhost and the loopback addresses: an origin nothing else can reach. */
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+}
+
+/**
+ * THE BROWSER MUST REACH WHAT THE GATEWAY OPENS. `--port` and `--host` move
+ * the listening socket; the Host guard, the OIDC redirect_uri and the line
+ * this leaf prints all come from GATEWAY_PUBLIC_ORIGIN. Moved apart on one
+ * machine, the gateway answers 421 to every browser request and the operator
+ * is sent to an address where nothing listens. A public origin that is NOT
+ * loopback is a proxy's address, and then the two are meant to differ.
+ */
+export function listeningMismatch(config: GatewayConfig, opts: WebStartOptions): string | undefined {
+  if (opts.port === undefined && opts.host === undefined) return undefined;
+  let origin: URL;
+  try {
+    origin = new URL(config.publicOrigin);
+  } catch {
+    return undefined;
+  }
+  if (!isLoopbackHost(origin.hostname)) return undefined;
+  const originPort = origin.port === '' ? (origin.protocol === 'https:' ? 443 : 80) : Number(origin.port);
+  const problems: string[] = [];
+  if (opts.port !== undefined && opts.port !== originPort) {
+    problems.push(`--port ${opts.port} against ${config.publicOrigin}`);
+  }
+  if (opts.host !== undefined && !isLoopbackHost(opts.host.trim())) {
+    problems.push(`--host ${opts.host.trim()} against ${config.publicOrigin}`);
+  }
+  if (problems.length === 0) return undefined;
+  return (
+    `the browser reaches the gateway at ${config.publicOrigin}, which this run does not listen on (${problems.join(', ')}). ` +
+    'Pass --public-origin with the address the browser opens, set GATEWAY_PUBLIC_ORIGIN, or drop the flag.'
+  );
+}
+
 /** The flags win over the environment; an absent flag leaves the environment's value alone. */
 export function withStartFlags(config: GatewayConfig, opts: WebStartOptions): GatewayConfig {
   return {
@@ -140,6 +205,7 @@ export function withStartFlags(config: GatewayConfig, opts: WebStartOptions): Ga
     ...(opts.port !== undefined ? { port: opts.port } : {}),
     ...(opts.host !== undefined ? { host: opts.host.trim() } : {}),
     ...(opts.apiUrl !== undefined ? { apiUrl: opts.apiUrl.trim() } : {}),
+    ...(opts.publicOrigin !== undefined ? { publicOrigin: opts.publicOrigin.trim() } : {}),
   };
 }
 
@@ -147,8 +213,9 @@ const EXAMPLES = `
 Examples:
   # Serve the board with the GATEWAY_* and AUTH_OIDC_* settings of this environment.
   mnemosine web start
-  # Another port, relaying to an API that runs on this machine.
-  mnemosine web start --port 8081 --api-url http://127.0.0.1:3000
+  # Another port, relaying to an API that runs on this machine. The browser
+  # has to reach the gateway at its public origin, so that moves too.
+  mnemosine web start --port 8081 --public-origin http://localhost:8081 --api-url http://127.0.0.1:3000
 `;
 
 /**
@@ -172,8 +239,9 @@ export function registerWebCommand(program: Command, deps: WebCommandDeps): void
 
   const start = describeCommand(web.command('start').alias('iniciar'), 'help.web.start.description');
   optionByKey(start, '--port <n>', 'help.web.start.port', { parser: parsePort });
-  optionByKey(start, '--host <addr>', 'help.web.start.host');
-  optionByKey(start, '--api-url <url>', 'help.web.start.api_url');
+  optionByKey(start, '--host <addr>', 'help.web.start.host', { parser: parseListenHost });
+  optionByKey(start, '--api-url <url>', 'help.web.start.api_url', { parser: parseOrigin('--api-url') });
+  optionByKey(start, '--public-origin <url>', 'help.web.start.public_origin', { parser: parseOrigin('--public-origin') });
   withOutput(start);
   start.addHelpText('after', EXAMPLES);
   declareRisk(start, { risk: 'lectura', agent: false });
@@ -182,6 +250,9 @@ export function registerWebCommand(program: Command, deps: WebCommandDeps): void
     try {
       const gateway = await (deps.loadGateway ?? loadGatewayLauncher)();
       const config = withStartFlags(gateway.readConfig(), opts);
+
+      const mismatch = listeningMismatch(config, opts);
+      if (mismatch !== undefined) throw usageError(mismatch);
 
       const problems = gateway.configProblems(config);
       if (problems.length > 0) {

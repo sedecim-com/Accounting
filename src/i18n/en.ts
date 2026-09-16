@@ -205,6 +205,10 @@ export const EN = {
     '{name} must be a non-negative whole number; got "{value}".',
   /** `src/cli/web-command.ts:parsePort`. */
   'cli.flag.error_not_port': '{name} must be a port from 0 to 65535; got "{value}".',
+  /** `src/cli/web-command.ts:parseOrigin` and `parseListenHost`. */
+  'cli.flag.error_not_origin':
+    '{name} must be an origin only, scheme, host and port, with no path; got "{value}".',
+  'cli.flag.error_empty': '{name} cannot be empty.',
   /** `src/cli/kernel/flags.ts:parseDate`. */
   'cli.flag.error_not_date': '{name} must be a date as YYYY-MM-DD; got "{value}".',
 
@@ -334,6 +338,8 @@ export const EN = {
   'help.web.start.port': 'Port to listen on (default: GATEWAY_PORT, else 8080)',
   'help.web.start.host': 'Address to listen on (default: GATEWAY_HOST, else 127.0.0.1)',
   'help.web.start.api_url': 'Origin of the API it relays to (default: GATEWAY_API_URL)',
+  'help.web.start.public_origin':
+    'Origin the browser opens, which the gateway answers under (default: GATEWAY_PUBLIC_ORIGIN)',
   'web.start.listening': 'Open {origin} in a browser. Ctrl+C stops the gateway.',
 
   // ==== I7 · EL PILOTO: `src/cli/bank-command.ts` (issue #149) =====
