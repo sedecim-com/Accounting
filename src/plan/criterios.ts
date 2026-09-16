@@ -10129,6 +10129,168 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E1.2',
+    id: 'published-figures-are-the-firms-own',
+    // X0 (#118). `POST /v1/admin/blockchain/publish-aggregates` signed and
+    // published figures the firm contradicts in its own report, because it
+    // computed them with a SECOND query over the ledger. Measured against
+    // Postgres:
+    //
+    //   revenue with a sales return ....  8,000 in the report, 12,000 published
+    //   expenses with a purchase return   2,000 in the report,  4,000 published
+    //   the month of the year-end close     500 in the report, -8,000 published
+    //
+    // Two causes, and neither is an arithmetic slip. First: the sign was
+    // flipped per ACCOUNT, so a return — contra-natural inside its section —
+    // was added instead of subtracted. Second: publication never asked about
+    // CLOSING entries, and the annual sweep lands whole in the period it falls
+    // in, so the month of the close published the year's result as if it were
+    // that month's activity.
+    //
+    // That is why this criterion does not check the fix: it checks that there
+    // is only ONE PLACE where it can break again. While two queries read the
+    // ledger, fixing one left the other lying and nothing turned red — the
+    // same lesson as `ida-y-vuelta-cancela-la-inversion`: a cross-check
+    // between two pieces that share the defect cannot see it.
+    enunciado:
+      'La cifra que el despacho publica sobre sí mismo es la misma que su estado de resultados',
+    mutantes: [
+      {
+        archivo: 'src/services/reporting/report-service.ts',
+        de: "const natural = CREDIT_NATURAL_TYPES.has(row.account_type) ? debitPositive.negated() : debitPositive;",
+        a: "const natural = debitPositive.abs();",
+        porque: 'el signo vuelve a aplicarse por FILA: una devolución sobre ventas se suma en vez de restarse y se publican 12 000 donde el informe dice 8 000',
+      },
+      {
+        archivo: 'src/services/reporting/report-service.ts',
+        de: "if (closingPolicy.enEstadoDeResultados) includeClosingIn.push('revenue', 'expense');",
+        a: "includeClosingIn.push('revenue', 'expense');",
+        porque: 'el asiento de cierre entra en ingresos y gastos pase lo que pase en el panel: el mes del cierre anual vuelve a publicar el ejercicio entero como actividad del mes',
+      },
+      {
+        archivo: 'src/services/reporting/report-service.ts',
+        de: "if (closingPolicy.enBalanza) includeClosingIn.push('asset', 'liability', 'equity');",
+        a: "includeClosingIn.push('asset', 'liability', 'equity');",
+        porque: 'la otra bandera del panel deja de leerse: la decisión contable está escrita en el panel y el código la ignora en la mitad de los tipos',
+      },
+      {
+        archivo: 'src/services/reporting/report-service.ts',
+        de: 'COUNT(DISTINCT je.id)::text AS transaction_count',
+        a: 'COUNT(*)::text AS transaction_count',
+        porque: 'el umbral de privacidad cuenta RENGLONES y no asientos: una sola póliza de diez renglones finge la multitud que el umbral promete y se publica una cifra que identifica a su dueño',
+      },
+      {
+        archivo: 'src/services/blockchain/orchestrator.ts',
+        de: 'const aggregates = await getPeriodMovementByAccountType(params.entityId, params.periodId);',
+        a: "const aggregates = await getPeriodMovementByAccountType(params.entityId, params.periodId).then((r) => r.map((x) => ({ ...x, total: new Decimal(x.total).negated().toFixed(4) })));",
+        porque: 'el publisher vuelve a tocar la cifra después de pedirla: lo publicado deja de ser lo que el despacho informa aunque la layer compartida esté bien',
+      },
+      {
+        archivo: 'src/services/blockchain/orchestrator.ts',
+        de: 'if (roundTo.lessThanOrEqualTo(0)) {',
+        a: 'if (roundTo.lessThanOrEqualTo(-1)) {',
+        porque: 'un redondeo guardado en cero —la API acepta 0.001 y la columna es DECIMAL(15,2)— vuelve a dividir entre cero y revienta con un 500 en el acto que publica las cifras del despacho',
+      },
+      {
+        archivo: 'tests/integration/x0-published-figures-match-the-income-statement.int.spec.ts',
+        de: "JournalEntryType.CLOSING",
+        a: "JournalEntryType.STANDARD",
+        porque: 'la reproducción deja de sembrar un asiento de cierre: el caso que publicaba −8 000 desaparece y la prueba queda verde sobre el defecto',
+      },
+    ],
+    evaluar: () => {
+      const layer = 'src/services/reporting/report-service.ts';
+      const publisher = 'src/services/blockchain/orchestrator.ts';
+      const spec = 'tests/integration/x0-published-figures-match-the-income-statement.int.spec.ts';
+      for (const f of [layer, publisher]) if (!existe(f)) return falla(`desapareció ${f}`);
+
+      // 1. ONE SINGLE PLACE COMPUTES THE MOVEMENT BY ACCOUNT TYPE.
+      //
+      // This is the criterion; the rest are its details. While there were two
+      // queries, no disagreement between them could ever turn red.
+      const aggregators = fuentes('src').filter((f) => {
+        const t = sinComentarios(leer(f));
+        return t.includes('GROUP BY a.account_type') && t.includes('journal_entry_lines');
+      });
+      const names = aggregators.map((f) => path.basename(f)).join(', ') || 'ninguno';
+      if (aggregators.length !== 1) {
+        return falla(
+          `${aggregators.length} archivos agregan el mayor por tipo de cuenta (${names}): con dos, arreglar el signo en uno deja al otro publicando lo contrario y nada se pone rojo`
+        );
+      }
+      if (!aggregators[0].endsWith('reporting/report-service.ts')) {
+        return falla(
+          `quien agrega el mayor por tipo de cuenta es ${names}, no la layer de informes: la cifra que se publica se calcula aparte de la que el despacho se informa a sí mismo`
+        );
+      }
+
+      // 2. THE PUBLISHER ASKS FOR THE FIGURE AND DOES NOT RETOUCH IT.
+      const publisherCode = codigoDe(publisher);
+      if (!publisherCode.includes('const aggregates = await getPeriodMovementByAccountType(params.entityId, params.periodId);')) {
+        return falla(
+          'publishAggregates dejó de pedir el movimiento a la layer de informes: si vuelve a calcularlo, vuelve a poder discrepar con el estado de resultados'
+        );
+      }
+      if (/\bSUM\s*\(\s*(jel\.)?debit/i.test(publisherCode) || /journal_entry_lines[^]*GROUP BY/i.test(publisherCode)) {
+        return falla('el publisher recuperó su propia agregación del mayor: son otra vez dos cifras firmadas que pueden no coincidir');
+      }
+      // The privacy threshold promises a CROWD behind the figure, and a crowd
+      // is counted in entries. Counting lines fakes it with a single voucher.
+      if (!publisherCode.includes('const count = agg.transaction_count;')) {
+        return falla('el umbral de privacidad dejó de contar asientos: contar renglones finge con una sola póliza la multitud que el umbral promete');
+      }
+      if (!/roundTo\.lessThanOrEqualTo\(0\)/.test(publisherCode)) {
+        return falla(
+          'volvió a poderse dividir entre cero al publicar: la API admite un redondeo de 0.001 y la columna es DECIMAL(15,2), así que se guarda 0.00'
+        );
+      }
+
+      // 3. THE SIGN RULE AND THE PANEL POLICY, IN THAT LAYER.
+      const c = codigoDe(layer);
+      if (!c.includes('CREDIT_NATURAL_TYPES.has(row.account_type) ? debitPositive.negated() : debitPositive')) {
+        return falla(
+          'el signo dejó de aplicarse por SECCIÓN: una devolución sobre ventas es un cargo a una cuenta de ingreso, y abs() o un signo por fila la suman en vez de restarla'
+        );
+      }
+      if (!/CREDIT_NATURAL_TYPES = new Set\(\['liability', 'equity', 'revenue'\]\)/.test(c)) {
+        return falla('la lista de tipos de naturaleza acreedora cambió: el signo de lo publicado depende de ella');
+      }
+      if (!c.includes('COUNT(DISTINCT je.id)::text AS transaction_count')) {
+        return falla('el conteo que gobierna el umbral de privacidad dejó de ser por asiento');
+      }
+      const byIncomeStatement = c.includes("if (closingPolicy.enEstadoDeResultados) includeClosingIn.push('revenue', 'expense');");
+      const byTrialBalance = c.includes("if (closingPolicy.enBalanza) includeClosingIn.push('asset', 'liability', 'equity');");
+      if (!byIncomeStatement || !byTrialBalance) {
+        return falla(
+          'la política de asientos de cierre dejó de leerse por sus DOS banderas: el barrido anual vuelve a poder publicarse como actividad del mes en que cae'
+        );
+      }
+      if (!c.includes("OR NOT ${condicionDeCierre('je')}")) {
+        return falla('la consulta ya no excluye los asientos de cierre donde el panel dice excluirlos: la decisión está escrita y el SQL no la aplica');
+      }
+
+      // 4. AND CONDUCT: the reproduction only proves something if it seeds the
+      // three cases that disagreed. A period of natural-sign movements with no
+      // closing entry publishes the same figure with the defect and without.
+      if (!existe(spec)) return falla('no hay reproducción contra Postgres de lo publicado frente al estado de resultados');
+      const t = crudoDe(spec);
+      const needed: Array<[RegExp, string]> = [
+        [/getIncomeStatement/, 'cotejar contra el estado de resultados del propio despacho, no contra una cifra escrita a mano'],
+        [/public_amount/, 'leer lo que quedó PUBLICADO, no lo que la función devolvió'],
+        [/JournalEntryType\.CLOSING/, 'sembrar el asiento de cierre, que es el caso que publicaba −8 000'],
+        [/'4400'/, 'sembrar la devolución sobre ventas, contranatural dentro de ingresos'],
+        [/'5200'/, 'sembrar la devolución sobre compras, contranatural dentro de gastos'],
+      ];
+      for (const [pattern, what] of needed) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        'un solo sitio agrega el mayor por tipo de cuenta; el publisher pide esa cifra sin retocarla, cuenta asientos y se niega a dividir entre cero; y la reproducción coteja lo publicado contra el estado de resultados con devoluciones en las dos secciones y con el asiento de cierre'
+      );
+    },
+  },
+  {
+    paquete: 'E1.2',
     id: 'treasury-entry-date-local-midnight',
     enunciado: 'El asiento de tesorería cae en el día que ocurrió, no en la víspera',
     mutantes: [
