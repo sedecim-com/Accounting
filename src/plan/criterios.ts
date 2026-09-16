@@ -10713,6 +10713,63 @@ export const CRITERIOS: Criterio[] = [
           );
     },
   },
+  {
+    paquete: 'E1.2',
+    id: 'exchange-rate-refuses-to-pick-a-source',
+    enunciado:
+      'Con dos fuentes publicadas el mismo día, el tipo de cambio no se elige por orden físico: el esquema se niega y las nombra',
+    evaluar: () => {
+      // POR QUÉ NACE (T1, issue #88). `get_exchange_rate()` se escribió en la
+      // 001 para un mundo de UNA tasa por par y día. La 057 cambió ese mundo:
+      // metió `source` en la unicidad para que DOF y el FIX de Banxico
+      // convivieran a propósito. La función no se redefinió, así que su
+      // `ORDER BY effective_date DESC LIMIT 1` sin desempate contestaba la fila
+      // que Postgres leyera primero. Eso es orden FÍSICO: se mueve con un
+      // VACUUM, una reescritura o una restauración de respaldo, y las dos
+      // respuestas eran indistinguibles para el sistema.
+      //
+      // Elegir DOF sobre FIX es criterio FISCAL, y esta casa ya decidió dónde
+      // se decide eso: la política `fuente_tipo_cambio`. Así que el esquema no
+      // elige — levanta FX001 — y quien sabe cuál quiere lo pide.
+      const sql = crudoDe('src/database/migrations/084_the_rate_is_not_chosen_by_physical_order.sql');
+      if (!/p_source\s+VARCHAR\(100\)\s+DEFAULT\s+NULL/.test(sql)) {
+        return falla(
+          'la 084 dejó de admitir `p_source`: sin ella no hay forma de pedir una fuente y la ' +
+            'ambigüedad vuelve a resolverse sola'
+        );
+      }
+      const raises = sql.match(/USING ERRCODE = 'FX001'/g) ?? [];
+      if (raises.length < 2) {
+        return falla(
+          `la 084 levanta FX001 en ${raises.length} de los dos caminos que leen una fila ` +
+            '(directo e inverso): el que no lo haga vuelve a contestar por orden físico'
+        );
+      }
+      // Y el servicio tiene que TRADUCIRLO. Un FX001 crudo dice que algo pasó;
+      // el operador necesita las fuentes y la bandera que las desempata.
+      const svc = crudoDe('src/services/fx/rate-service.ts');
+      if (!/code !== 'FX001'/.test(svc) || !/FX_AMBIGUOUS_SOURCE/.test(svc)) {
+        return falla(
+          'rate-service dejó de traducir FX001: `fx rate show` volvería a escupir un error de ' +
+            'Postgres sin decir qué fuentes hay ni cómo elegir una'
+        );
+      }
+      if (!/--source/.test(crudoDe('src/cli/fx-command.ts'))) {
+        return falla('`fx rate show` se quedó sin --source: no hay cómo pedir la fuente que se quiere');
+      }
+      return ok('la ambigüedad de fuente se niega en el esquema, se traduce en el servicio y se resuelve con --source');
+    },
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/084_the_rate_is_not_chosen_by_physical_order.sql',
+        de: "                USING ERRCODE = 'FX001';",
+        a: '                ;',
+        porque:
+          'el esquema vuelve a elegir entre DOF y FIX por el orden en que lea las filas, y la ' +
+          'respuesta cambia sola con un VACUUM sin que nada lo diga',
+      },
+    ],
+  },
 
   // ============================================================
   // LOS CRITERIOS QUE EJECUTAN (S4a)
