@@ -103,6 +103,25 @@ describe('funciones exportadas', () => {
     expect(nombres('funcion')).toEqual(['allDeclarations']);
   });
 
+  it('un glob dentro de una cadena NO abre un comentario que se trague al llamador', () => {
+    // EL FALSO POSITIVO MEDIDO. `src/cli/mnemosine.ts` documenta la ingesta con
+    // el ejemplo `mnemosine ingest ./cfdi/julio/*.xml`. Ese `/*` abría un
+    // comentario de bloque que no cerraba hasta 171 líneas después, así que
+    // `describeLastOption` —llamada dentro de ese tramo— se declaraba muerta.
+    //
+    // Es exactamente la ceguera que `criterios.ts` ya había desechado, y que
+    // este escáner conservaba en su propia copia de las regex. Un detector de
+    // código muerto que acusa en falso propone borrar código vivo.
+    escribir('src/util.ts', 'export function describeLastOption() { return 1; }');
+    escribir(
+      'src/cli.ts',
+      "const ayuda = 'mnemosine ingest ./cfdi/julio/*.xml --auto-post';\n" +
+        'export function main() { return describeLastOption(); }\n' +
+        '/* un comentario de verdad, mucho después */\n'
+    );
+    expect(nombres('funcion')).toEqual(['main']);
+  });
+
   it('una prueba que la ejercita cuenta como consumidor', () => {
     escribir('src/util.ts', 'export function calcular(x) { return x; }');
     escribir('tests/util.spec.ts', "import { calcular } from '../src/util.js';\nexpect(calcular(1)).toBe(1);");
