@@ -7481,12 +7481,49 @@ export const CRITERIOS: Criterio[] = [
             'de leer() (el seam). Una lectura que rodea el seam es un criterio que ningún espejo puede mutar.'
         );
       }
-      // La línea base sólo SUBE: S2 nace con catorce espejos y ninguno se
-      // retira sin bajar este número a la vista, en el mismo commit.
-      const conEspejo = CRITERIOS.filter((c) => (c.mutantes?.length ?? 0) > 0).length;
-      return conEspejo >= 14
-        ? ok(`${conEspejo} criterios con espejo ejecutable; toda lectura de fuente pasa por el seam`)
-        : falla(`sólo ${conEspejo} criterios con espejo declarado: la línea base de S2 eran 14 y sólo sube`);
+      // LA LÍNEA BASE CUENTA ESPEJOS, NO CRITERIOS (T2, issue #89).
+      //
+      // S2 la escribió como «catorce criterios con espejo» y la frase que la
+      // acompañaba prometía otra cosa: «ninguno se retira sin bajar este número
+      // a la vista». No era lo mismo. Contando CRITERIOS, un criterio con siete
+      // mutantes cuenta igual que uno con uno: se podían retirar seis sin mover
+      // la cifra, y con la holgura acumulada —14 exigidos contra 118 reales— la
+      // mitad de los espejos del repositorio salía en verde. Medido en el
+      // momento de escribir esto: 336 espejos, 14 exigidos.
+      //
+      // Ahora el número es el de espejos, de los dos arneses, y la holgura es
+      // CERO: retirar uno obliga a bajar esta constante en el mismo diff, que
+      // es exactamente lo que la frase prometía.
+      const MIRRORS_FLOOR = 336;
+      const mirrors = CRITERIOS.reduce(
+        (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
+        0
+      );
+      if (mirrors < MIRRORS_FLOOR) {
+        return falla(
+          `${mirrors} espejos declarados y la línea base son ${MIRRORS_FLOOR}: un espejo no se retira ` +
+            'sin bajar este número a la vista, en el mismo commit que lo quita'
+        );
+      }
+
+      // Y LA MITAD QUE SÍ SE PUEDE MORDER. `CRITERIOS` es un array en memoria y
+      // el seam sólo intercepta lecturas de DISCO: ningún mutante puede bajar
+      // el conteo de arriba, así que por sí solo sería la clase de cifra que
+      // este criterio existe para desconfiar. Las anclas `de:` de este archivo
+      // son el mismo hecho leído por el seam —hoy 324, que son los 324 espejos
+      // en memoria; los 12 restantes son los de conducta, que viven en otro
+      // módulo— y ésas sí las alcanza un espejo.
+      const ANCHORS_HERE = 324;
+      const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
+      return anchors >= ANCHORS_HERE
+        ? ok(
+            `${mirrors} espejos ejecutables (${anchors} anclados en este archivo); ` +
+              'toda lectura de fuente pasa por el seam'
+          )
+        : falla(
+            `el fuente declara ${anchors} anclas de mutante y la línea base son ${ANCHORS_HERE}: ` +
+              'un espejo se retiró comentándolo o renombrando su campo, sin que el conteo en memoria lo notara'
+          );
     },
     mutantes: [
       {
@@ -7494,6 +7531,17 @@ export const CRITERIOS: Criterio[] = [
         de: ".toBe('falla')",
         a: ".toBe('ok')",
         porque: 'el arnés deja de exigir el rojo: los espejos pasarían a bendecir a los mutantes vivos',
+      },
+      {
+        // El espejo del TRINQUETE DE ESPEJOS, que es la parte que no se puede
+        // mirar desde el array: comentar un ancla retira un espejo dejándolo
+        // escrito, y el conteo en memoria no se entera porque el objeto sigue
+        // ahí. El seam sí lo ve.
+        archivo: 'src/plan/criterios.ts',
+        de: "        de: \".toBe('falla')\",",
+        a: "        // de: \".toBe('falla')\",",
+        porque:
+          'un espejo se retira comentándolo —queda escrito y muerto, como un paso de CI— y hasta T2 la línea base contaba criterios, así que 118 contra 14 exigidos se tragaban la pérdida sin moverse',
       },
     ],
   },

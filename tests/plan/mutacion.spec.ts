@@ -49,7 +49,12 @@ const conMutantes = CRITERIOS.filter((c) => (c.mutantes?.length ?? 0) > 0);
 // tres espejos al dejar de contar llaves y pasar a leer valores. El criterio
 // nuevo de este tramo —la cobertura de la suite de integración— nace con los
 // suyos, así que no entra en esta deuda: la paga por adelantado.
-const SIN_ESPEJO_MAXIMO = 58;
+// 58 → 57: T2 vuelve a apretarla contra la cuenta real. Esta línea base es la
+// MITAD del trinquete y la más floja: dice que cada criterio tenga AL MENOS un
+// espejo, y con eso sola se podían retirar doscientos sin moverla. La otra
+// mitad —el total de espejos, con holgura cero— vive en el criterio
+// `criteria-mutation-harness`, que es donde el tablero la publica.
+const SIN_ESPEJO_MAXIMO = 57;
 
 describe('el arnés de mutación — un criterio sin mordida es prosa', () => {
   it('la línea base de criterios sin espejo sólo encoge', () => {
