@@ -94,7 +94,14 @@ describe('la lista de criterios', () => {
   // subproceso y otro que abre un socket a Postgres. Con la suite entera en
   // paralelo eso pasa de cinco segundos y el fallo aparece como un timeout que
   // nadie reproduce a mano — se vio una vez, en verde las dos siguientes.
-  it('todo resultado trae un detalle con el que se puede actuar', { timeout: 30_000 }, async () => {
+    //
+  // De 30 s a 60 s porque el techo se agotó por CRECIMIENTO, no por lentitud
+  // nueva: el tablero pasó de 130 criterios a 186, y esta prueba los corre
+  // TODOS en serie. Medido: el archivo entero tarda 41 s en una máquina con
+  // carga, y en CI la prueba empezó a agotar los 30 s. El número es un margen,
+  // no una promesa de rendimiento: si se vuelve a agotar, lo que hay que
+  // cambiar es el bucle —correrlos por lotes en paralelo—, no el techo.
+  it('todo resultado trae un detalle con el que se puede actuar', { timeout: 60_000 }, async () => {
     for (const c of CRITERIOS) {
       const r = await c.evaluar();
       expect(r.detalle, c.enunciado).toBeTruthy();
