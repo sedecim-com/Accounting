@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as ts from 'typescript';
 import { PRUEBAS_DE_CONDUCTA, correrConducta, type PruebaDeConducta } from './conducta.js';
 import {
   headOf,
@@ -664,6 +665,9 @@ export const SUELO_COBERTURA_INTEGRACION: Record<string, Umbrales> = {
   'src/services/accounting/posting.ts': { statements: 91, branches: 86, functions: 96, lines: 91 },
   'src/services/accounting/ar-ap-posting.ts': { statements: 87, branches: 75, functions: 96, lines: 91 },
   'src/services/accounting/validation.ts': { statements: 86, branches: 78, functions: 100, lines: 88 },
+  // A6 · el conductor del cierre y su expediente, con el suelo donde lo dejó su suite.
+  'src/services/accounting/closing-conductor.ts': { statements: 95, branches: 77, functions: 95, lines: 95 },
+  'src/services/accounting/closing-pack.ts': { statements: 89, branches: 77, functions: 100, lines: 91 },
   'src/services/accounting/iva-cash-basis.ts': { statements: 96, branches: 84, functions: 100, lines: 98 },
   'src/services/reporting/report-service.ts': { statements: 84, branches: 75, functions: 77, lines: 86 },
   'src/services/reporting/criterio-cierre.ts': { statements: 91, branches: 80, functions: 85, lines: 91 },
@@ -881,6 +885,341 @@ export function spanishJurisdictionPaths(root: string): string[] {
 }
 
 // ── Los criterios ───────────────────────────────────────────
+
+// ============================================================
+// EL ESCÁNER DE RUTAS QUE ESCRIBEN (TEN-11, #235).
+//
+// Parsea con el compilador de TypeScript y no con expresiones regulares, y no
+// es un lujo: la trampa que dejó ciego a `route-entity-access-verified` —el
+// nombre de la guarda buscado en los primeros 300 caracteres del bloque— se
+// cumple con `requireEntityAccess` escrito DENTRO de una cadena. En un árbol
+// sintáctico un literal de cadena y un identificador son nodos distintos, y la
+// posición de un argumento es la posición de un argumento.
+//
+// Lee el texto por el seam (`leer`), así que los mutantes lo alcanzan.
+// ============================================================
+
+interface RouteFinding {
+  route: string;
+  issue: string;
+}
+
+/**
+ * Rutas que actúan sobre tablas del INQUILINO, sin eje de entidad que
+ * defender. Cada una nombra su tabla y el criterio COMPRUEBA contra las
+ * migraciones que de verdad no tiene `entity_id` ni camino hasta una: meter
+ * aquí una ruta de `pay_runs` —que llega a la entidad por periodo y calendario—
+ * no la exime, la acusa. Es la exención de T9a con cerradura.
+ */
+const TENANT_TABLE_ROUTES: Record<string, string> = {
+  'webhooks.ts DELETE /:id': 'webhook_subscriptions',
+  'webhooks.ts POST /deliveries/:id/retry': 'webhook_deliveries',
+  'integrations.ts PUT /:provider': 'integration_credentials',
+  'integrations.ts POST /:provider/test': 'integration_credentials',
+  'integrations.ts DELETE /:provider': 'integration_credentials',
+};
+
+function scanWriteRoutes(): { reviewed: number; findings: RouteFinding[] } {
+  const findings: RouteFinding[] = [];
+  let reviewed = 0;
+  const WRITE_VERBS = new Set(['post', 'put', 'patch', 'delete']);
+
+  // Lo que las migraciones dicen de cada tabla, para cerrar la exención.
+  const migrationsDir = 'src/database/migrations';
+  const migrationsSql = fs
+    .readdirSync(rutaDe(migrationsDir))
+    .map((m) => crudoDe(migrationsDir, m))
+    .join('\n');
+  const payrollPaths = existe('src/services/payroll/common/alcance-nomina.ts')
+    ? crudoDe('src/services/payroll/common/alcance-nomina.ts')
+    : '';
+  const tableHasEntity = (table: string): boolean => {
+    const createTable = new RegExp(`CREATE TABLE (?:IF NOT EXISTS )?${table}\\s*\\(([\\s\\S]*?)\\n\\);`, 'i').exec(migrationsSql);
+    if (createTable && /\bentity_id\b/.test(createTable[1])) return true;
+    if (new RegExp(`ALTER TABLE ${table}\\b[^;]*ADD COLUMN[^;]*\\bentity_id\\b`, 'i').test(migrationsSql)) return true;
+    // Sin columna, pero con CAMINO: las tablas de nómina que llegan a la
+    // entidad por otra tabla, escritas en alcance-nomina.ts.
+    return new RegExp(`\\b${table}\\b`).test(payrollPaths);
+  };
+
+  // Routers montados ANTES de `authenticate`: no hay sesión, no hay entidad.
+  const indexSource = existe('src/index.ts') ? crudoDe('src/index.ts') : '';
+  const authPos = indexSource.search(/app\.use\(\s*apiPrefix\s*,\s*authenticate\s*\)/);
+  const mountedBeforeAuth = new Set<string>();
+  if (authPos >= 0) {
+    for (const m of indexSource.matchAll(/import\s+(\w+)\s+from\s+'\.\/api\/rest\/routes\/([\w-]+)\.js'/g)) {
+      const mountUse = indexSource.search(new RegExp(`app\\.use\\([^)]*\\b${m[1]}\\s*\\)`));
+      if (mountUse >= 0 && mountUse < authPos) mountedBeforeAuth.add(`${m[2]}.ts`);
+    }
+  }
+
+  function* walk(n: ts.Node): Generator<ts.Node> {
+    yield n;
+    for (const h of n.getChildren()) yield* walk(h);
+  }
+  const isReqEntityId = (n: ts.Node): boolean =>
+    ts.isPropertyAccessExpression(n) && n.name.text === 'entityId' &&
+    ts.isIdentifier(n.expression) && n.expression.text === 'req';
+  const containsReqEntityId = (n: ts.Node): boolean => {
+    for (const x of walk(n)) if (isReqEntityId(x)) return true;
+    return false;
+  };
+
+  for (const abs of fuentes('src/api/rest/routes')) {
+    const file = path.basename(abs);
+    const sf = ts.createSourceFile(file, leer(abs), ts.ScriptTarget.Latest, true);
+
+    const imported = new Set<string>();
+    const localFunctions = new Map<string, ts.Node>();
+    for (const st of sf.statements) {
+      if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier) &&
+          /\/(services|database)\//.test(st.moduleSpecifier.text)) {
+        const nb = st.importClause?.namedBindings;
+        if (nb && ts.isNamedImports(nb)) for (const e of nb.elements) imported.add(e.name.text);
+        if (st.importClause?.name) imported.add(st.importClause.name.text);
+      }
+      if (ts.isFunctionDeclaration(st) && st.name) localFunctions.set(st.name.text, st);
+      if (ts.isVariableStatement(st)) {
+        for (const d of st.declarationList.declarations) {
+          if (ts.isIdentifier(d.name) && d.initializer &&
+              (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))) {
+            localFunctions.set(d.name.text, d.initializer);
+          }
+        }
+      }
+    }
+    const localUsesEntity = (routeName: string): boolean => {
+      const f = localFunctions.get(routeName);
+      return f !== undefined && containsReqEntityId(f);
+    };
+
+    for (const n of walk(sf)) {
+      if (!ts.isCallExpression(n) || !ts.isPropertyAccessExpression(n.expression)) continue;
+      const receiver = n.expression.expression;
+      const verb = n.expression.name.text;
+      if (!ts.isIdentifier(receiver) || receiver.text !== 'router') continue;
+      // Una forma que el escáner no sabe leer NO se salta: se acusa.
+      if (verb === 'route' || verb === 'all') {
+        findings.push({ route: `${file} router.${verb}(`, issue: 'forma de ruta que este criterio no analiza' });
+        continue;
+      }
+      if (!WRITE_VERBS.has(verb)) continue;
+      const routeArgs = n.arguments;
+      const route = routeArgs[0] && ts.isStringLiteral(routeArgs[0]) ? routeArgs[0].text : '?';
+      const routeName = `${file} ${verb.toUpperCase()} ${route}`;
+      reviewed += 1;
+
+      const last = routeArgs[routeArgs.length - 1];
+      let handler: ts.Node | undefined = last;
+      if (last && ts.isCallExpression(last)) handler = last.arguments[last.arguments.length - 1];
+      if (!handler || !(ts.isArrowFunction(handler) || ts.isFunctionExpression(handler))) {
+        findings.push({ route: routeName, issue: 'manejador que este criterio no analiza' });
+        continue;
+      }
+      const body = handler.body;
+
+      // Exención 501 POR POSICIÓN: sólo si la PRIMERA sentencia lanza.
+      if (ts.isBlock(body) && body.statements[0] && ts.isThrowStatement(body.statements[0]) &&
+          body.statements[0].expression && ts.isNewExpression(body.statements[0].expression) &&
+          body.statements[0].expression.expression.getText() === 'NotImplementedError') {
+        continue;
+      }
+
+      // El disparador: la ruta nombra un recurso por id.
+      const reads = new Set<string>();
+      let bodyEntity: string | null = null;
+      for (const x of walk(body)) {
+        if (ts.isPropertyAccessExpression(x) && ts.isPropertyAccessExpression(x.expression) &&
+            ts.isIdentifier(x.expression.expression) && x.expression.expression.text === 'req' &&
+            x.expression.name.text === 'params') {
+          reads.add(x.getText());
+        }
+        if (ts.isVariableDeclaration(x) && ts.isObjectBindingPattern(x.name) && x.initializer) {
+          let source: ts.Node = x.initializer;
+          while (ts.isAsExpression(source) || ts.isParenthesizedExpression(source)) source = source.expression;
+          if (!/^req\.(body|query|params)$/.test(source.getText())) continue;
+          for (const el of x.name.elements) {
+            const nm = el.name.getText();
+            if (nm === 'entity_id') bodyEntity = nm;
+            else if (/_id$/.test(nm)) reads.add(nm);
+          }
+        }
+      }
+      if (reads.size === 0) continue;
+      if (mountedBeforeAuth.has(file)) continue;
+      const table = TENANT_TABLE_ROUTES[routeName];
+      if (table !== undefined) {
+        if (tableHasEntity(table)) {
+          findings.push({
+            route: routeName,
+            issue: `eximida como tabla del inquilino («${table}»), y esa tabla SÍ llega a una entidad`,
+          });
+        }
+        continue;
+      }
+
+      // (i) La guarda, como ARGUMENTO de middleware antes del manejador —no
+      // dentro de una cadena—, o `assertEntityAccess(` llamado en el manejador.
+      const middlewares = routeArgs.slice(1, routeArgs.length - 1);
+      const guardMounted = middlewares.some((m) => ts.isIdentifier(m) && m.text === 'requireEntityAccess');
+      let guardInside = false;
+      for (const x of walk(body)) {
+        if (ts.isCallExpression(x) && ts.isIdentifier(x.expression) && x.expression.text === 'assertEntityAccess') guardInside = true;
+      }
+      if (!guardMounted && !guardInside) {
+        findings.push({ route: routeName, issue: 'escribe sobre un recurso por id sin requireEntityAccess' });
+        continue;
+      }
+
+      // (ii) Que la entidad llegue A CADA LLAMADA que resuelve la lectura —no
+      // al manejador en general—: una variable ligada a `req.entityId` y sin
+      // usar deja la llamada sin acotar.
+      const bound = new Map<string, ts.Node>();
+      for (const x of walk(body)) {
+        if (ts.isVariableDeclaration(x) && ts.isIdentifier(x.name) && x.initializer) bound.set(x.name.text, x.initializer);
+      }
+      const argCarriesEntity = (a: ts.Node): boolean => {
+        if (containsReqEntityId(a)) return true;
+        for (const x of walk(a)) {
+          if (ts.isCallExpression(x) && ts.isIdentifier(x.expression) && localUsesEntity(x.expression.text)) return true;
+          if (ts.isIdentifier(x)) {
+            const init = bound.get(x.text);
+            if (init !== undefined && containsReqEntityId(init)) return true;
+            // El `entity_id` del cuerpo cuenta SÓLO con la guarda montada: es
+            // ella quien lo valida contra el token.
+            if (guardMounted && bodyEntity !== null && x.text === bodyEntity) return true;
+          }
+        }
+        return false;
+      };
+      const readUsedBy = (call: ts.CallExpression): string | null => {
+        for (const a of call.arguments) {
+          for (const x of walk(a)) {
+            const t = x.getText();
+            if (reads.has(t)) return t;
+          }
+        }
+        return null;
+      };
+
+      const scopedReads = new Set<string>();
+      if (ts.isBlock(body)) {
+        for (const x of walk(body)) {
+          if (!ts.isCallExpression(x) || !ts.isIdentifier(x.expression)) continue;
+          const read = readUsedBy(x);
+          if (read === null) continue;
+          const llamado = x.expression.text;
+          // Una función LOCAL que usa req.entityId y recibe `req` acota la
+          // lectura para lo que venga después (assertEntryAccess(req, id)).
+          if (localUsesEntity(llamado) && x.arguments.some((a) => a.getText() === 'req')) {
+            scopedReads.add(read);
+            continue;
+          }
+          if (!imported.has(llamado)) continue;
+          if (x.arguments.some(argCarriesEntity)) {
+            scopedReads.add(read);
+            continue;
+          }
+          if (scopedReads.has(read)) continue;
+          findings.push({ route: routeName, issue: `${llamado}(${read}) no recibe la entidad validada` });
+        }
+      }
+    }
+  }
+  return { reviewed, findings };
+}
+
+// ============================================================
+// THE CALENDAR-DATE SCANNER (#211).
+//
+// Every entry is born at `createJournalEntry`, which since #211 normalises its
+// date once with `toCalendarDate`. That makes a 'YYYY-MM-DD' string correct in
+// every timezone — and it makes exactly one thing wrong again: a caller that
+// turns the string into `new Date(str)` before handing it over, because that
+// is UTC midnight and its LOCAL fields are the previous day west of Greenwich.
+// Five callers did exactly that, each on a different surface.
+//
+// So this looks at the ARGUMENT that carries the date in each call — not at
+// the file, where a harmless `new Date()` a few lines away would hide it — and
+// follows it one hop through a `const` bound in the same function, which is
+// the obvious way around a check that only reads the argument text.
+// ============================================================
+
+interface DateArgumentFinding {
+  site: string;
+  issue: string;
+}
+
+function scanLedgerDateArguments(): { calls: number; findings: DateArgumentFinding[] } {
+  const findings: DateArgumentFinding[] = [];
+  let calls = 0;
+
+  function* walk(n: ts.Node): Generator<ts.Node> {
+    yield n;
+    for (const child of n.getChildren()) yield* walk(child);
+  }
+
+  // `new Date()` is now, and the local-midnight template is the house's own
+  // correct construction; anything else REPARSES a value into an instant.
+  const reparses = (n: ts.Node): boolean => {
+    if (!ts.isNewExpression(n) || n.expression.getText() !== 'Date') return false;
+    const args = n.arguments ?? [];
+    if (args.length === 0) return false;
+    if (args.length === 1 && ts.isTemplateExpression(args[0]) && /T00:00:00`$/.test(args[0].getText())) return false;
+    return true;
+  };
+
+  for (const abs of fuentes('src')) {
+    const text = leer(abs);
+    if (!/createJournalEntry\(|reverseWithinTransaction\(|reverseJournalEntry\(/.test(text)) continue;
+    const sf = ts.createSourceFile(path.basename(abs), text, ts.ScriptTarget.Latest, true);
+    const rel = path.relative(RAIZ, abs);
+
+    for (const n of walk(sf)) {
+      if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) continue;
+      const callee = n.expression.text;
+      let dateArg: ts.Node | undefined;
+      if (callee === 'createJournalEntry') dateArg = n.arguments[1];
+      else if (callee === 'reverseWithinTransaction') dateArg = n.arguments[4];
+      else if (callee === 'reverseJournalEntry') {
+        const opts = n.arguments[2];
+        if (opts && ts.isObjectLiteralExpression(opts)) {
+          const prop = opts.properties.find((p) => ts.isPropertyAssignment(p) && p.name.getText() === 'reversalDate');
+          if (prop && ts.isPropertyAssignment(prop)) dateArg = prop.initializer;
+        }
+      } else continue;
+      if (callee === 'createJournalEntry') calls += 1;
+      if (!dateArg) continue;
+
+      const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+      const site = `${rel}:${line} ${callee}`;
+      let flagged = false;
+      for (const x of walk(dateArg)) {
+        if (reparses(x)) {
+          findings.push({ site, issue: `the date argument is ${x.getText().slice(0, 60)}` });
+          flagged = true;
+          break;
+        }
+      }
+      if (flagged) continue;
+
+      // One hop through a const bound in the enclosing function.
+      if (ts.isIdentifier(dateArg)) {
+        let scope: ts.Node | undefined = n.parent;
+        while (scope && !ts.isFunctionLike(scope) && !ts.isSourceFile(scope)) scope = scope.parent;
+        if (!scope) continue;
+        for (const x of walk(scope)) {
+          if (ts.isVariableDeclaration(x) && ts.isIdentifier(x.name) && x.name.text === dateArg.text &&
+              x.initializer && reparses(x.initializer)) {
+            findings.push({ site, issue: `the date argument «${dateArg.text}» is bound to ${x.initializer.getText().slice(0, 60)}` });
+            break;
+          }
+        }
+      }
+    }
+  }
+  return { calls, findings };
+}
 
 export const CRITERIOS: Criterio[] = [
   // ---- E0.0 · Control de versiones y CI ----
@@ -1660,6 +1999,7 @@ export const CRITERIOS: Criterio[] = [
         G0: 'docs/auditorias/G0.md',
         G4a: 'docs/auditorias/G4a.md',
         G4b: 'docs/auditorias/G4b.md',
+        A6: 'docs/auditorias/A6.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -4025,6 +4365,27 @@ export const CRITERIOS: Criterio[] = [
       'Las escrituras de la corrida de nómina acotan por la entidad, que en esas tablas es un camino y no una columna',
     mutantes: [
       {
+        archivo: 'src/services/payroll/common/paycheck-service.ts',
+        de: 'FROM employees WHERE id = $1 AND tenant_id = $2 AND entity_id = $3',
+        a: 'FROM employees WHERE id = $1 AND tenant_id = $2',
+        porque:
+          'TEN-12: el recibo vuelve a aceptar al empleado de la sociedad hermana en la corrida propia — su sueldo entra en la póliza de nómina de quien calcula y sus cuotas patronales salen del pasivo de la suya',
+      },
+      {
+        archivo: 'src/services/payroll/common/paycheck-service.ts',
+        de: '[run.pay_period_id, input.tenant_id]',
+        a: '[(input as unknown as { pay_period_id: string }).pay_period_id, input.tenant_id]',
+        porque:
+          'TEN-12: el periodo vuelve a salir del cuerpo y no de la corrida — medido, el IMSS del mismo trabajador pasaba de 71.25 a 133.00 con un periodo de 28 días nombrado en la petición',
+      },
+      {
+        archivo: 'src/services/payroll/common/paycheck-service.ts',
+        de: '[input.employee_id, input.tenant_id, run.entity_id]',
+        a: '[input.employee_id, input.tenant_id, input.tenant_id]',
+        porque:
+          'TEN-12: el empleado se acota contra un valor que no es la entidad de la corrida — la columna sigue escrita en el SQL, pero la llave que la alimenta ya no es la del camino',
+      },
+      {
         archivo: 'src/services/payroll/common/alcance-nomina.ts',
         de: 'JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id',
         a: 'LEFT JOIN pay_schedules ps ON TRUE',
@@ -4182,6 +4543,50 @@ export const CRITERIOS: Criterio[] = [
         );
       }
 
+      // 4 bis. EL SALTO QUE FALTABA: EL RECIBO (TEN-12).
+      //
+      // `calculatePaycheck` resolvía sus tres llaves —empleado, periodo y
+      // corrida— por inquilino y nada más, y el periodo lo nombraba la entrada.
+      // Medido contra Postgres: una sesión de la sociedad A escribía el recibo
+      // de un empleado de la hermana en su propia corrida, y el mismo empleado
+      // propio salía con otro IMSS según qué periodo mandara el cuerpo. La
+      // corrida va PRIMERO porque es la única llave que la ruta ya acotó; el
+      // empleado se ata a la entidad a la que la corrida llega por camino, y el
+      // periodo es el de la corrida. Se mide POSICIÓN y LLAVE, no presencia: un
+      // `entity_id = $3` alimentado con otra cosa, o una corrida resuelta
+      // después del empleado, no son la frontera.
+      const paycheckFile = 'src/services/payroll/common/paycheck-service.ts';
+      if (!existe(paycheckFile)) return falla(`desapareció ${paycheckFile}`);
+      const paycheckSrc = codigoDe(paycheckFile);
+      const runLookupAt = paycheckSrc.search(/FROM pay_runs r\s+JOIN pay_periods pp ON pp\.id = r\.pay_period_id\s+JOIN pay_schedules ps ON ps\.id = pp\.pay_schedule_id/);
+      const employeeLookupAt = paycheckSrc.indexOf('FROM employees WHERE id = $1 AND tenant_id = $2 AND entity_id = $3');
+      if (runLookupAt < 0) {
+        return falla('el recibo dejó de resolver la corrida con el camino hasta su entidad: sin él no hay entidad contra la que atar al empleado');
+      }
+      if (employeeLookupAt < 0 || !paycheckSrc.includes('[input.employee_id, input.tenant_id, run.entity_id]')) {
+        return falla(
+          'el recibo dejó de atar al empleado a la entidad DE LA CORRIDA: el empleado de la sociedad hermana vuelve a colgarse de la corrida propia, y su sueldo entra en la póliza ajena'
+        );
+      }
+      if (runLookupAt > employeeLookupAt) {
+        return falla('el recibo resuelve al empleado ANTES que la corrida: la entidad contra la que se le ata todavía no existe en ese punto');
+      }
+      if (!paycheckSrc.includes('[run.pay_period_id, input.tenant_id]') || /input\.pay_period_id/.test(paycheckSrc)) {
+        return falla(
+          'el periodo del recibo volvió a salir de la entrada y no de la corrida: con un periodo de 28 días en la petición, el IMSS de un mismo trabajador pasaba de 71.25 a 133.00'
+        );
+      }
+      const paycheckSpec = 'tests/integration/ten12-sibling-employee-on-own-run.int.spec.ts';
+      if (!existe(paycheckSpec)) {
+        return falla('no hay reproducción del recibo del empleado ajeno: sin ella es una lectura del diff');
+      }
+      const paycheckSpecText = crudoDe(paycheckSpec);
+      if (!/toBe\(404\)/.test(paycheckSpecText) || /toBe\(403\)/.test(paycheckSpecText) || !/imss_employee/.test(paycheckSpecText)) {
+        return falla(
+          'la reproducción del recibo dejó de exigir el 404 idéntico, o dejó de comparar la cuota IMSS que delata qué periodo decidió'
+        );
+      }
+
       // 5. Y HAY CONDUCTA QUE LO AFIRMA, EN 404 Y NO EN 403.
       //
       // 403 dice «existe y no es tuyo», y frente a un id ya conocido esa es
@@ -4199,7 +4604,154 @@ export const CRITERIOS: Criterio[] = [
       }
 
       return ok(
-        'el camino llega a la entidad; el cálculo, la aprobación, el pago, el timbrado y el finiquito lo llevan dentro del SQL; las rutas lo usan y hay reproducción que exige 404'
+        'el camino llega a la entidad; el cálculo, la aprobación, el pago, el timbrado y el finiquito lo llevan dentro del SQL; el recibo ata su empleado a la entidad de la corrida y toma el periodo de ella; las rutas lo usan y hay reproducción que exige 404'
+      );
+    },
+  },
+  {
+    paquete: 'E2.1',
+    id: 'write-route-hands-entity-to-its-resolver',
+    // POR QUÉ ESTE CRITERIO NO ES `route-entity-access-verified` OTRA VEZ.
+    //
+    // Aquél pregunta: «una entidad que viene de la petición, ¿pasó por la
+    // guarda?». Su disparador es que la ruta NOMBRE una entidad, y por
+    // construcción no ve una ruta que no nombra ninguna — que es justo la que
+    // no acota. `POST /v1/bills/:id/approve` no montaba la guarda, llamaba a
+    // `approveBill(id, userId)` sin entidad, y quedó fuera de su vista. Medido
+    // (TEN-11, #235): una sesión de la sociedad A aprobaba la factura de la
+    // hermana y dejaba una póliza POSTEADA en su mayor, con su primer folio.
+    // El censo encontró la misma forma en `/nacha` —que entregaba las cuentas
+    // bancarias descifradas—, en las elecciones de beneficio y, latente
+    // detrás de una avería, en la generación de periodos.
+    //
+    // Éste pregunta lo otro: «una ruta que ESCRIBE sobre un recurso que la
+    // petición nombra por id, ¿le entrega la entidad validada a la llamada que
+    // lo resuelve?». Y lo pregunta por llamada, no por manejador: una variable
+    // ligada a `req.entityId` que nadie usa deja la llamada sin acotar.
+    //
+    // No invierte el criterio viejo, y a propósito: eso obligaría a eximir a
+    // «las rutas que ya acotan la consulta», que es la exención que en T9a
+    // abrió el hueco de la cabecera. Aquí la única exención es por TABLA DEL
+    // INQUILINO, y el escáner comprueba contra las migraciones que la tabla
+    // eximida de verdad no llega a una entidad.
+    //
+    // LO QUE NO VE, y queda escrito: una llave foránea escondida en un spread
+    // del cuerpo con la guarda montada (la clase de TEN-12); el SQL crudo
+    // escrito dentro de una ruta; y la CLI, el agente y los jobs.
+    enunciado:
+      'Toda ruta que escribe sobre un recurso que la petición nombra por id le entrega la entidad validada a la llamada que lo resuelve',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/routes/bills.ts',
+        de: 'approveBill(req.params.id, req.user!.user_id, {\n    entityId: req.entityId!,\n  })',
+        a: 'approveBill(req.params.id, req.user!.user_id, {} as never)',
+        porque:
+          'reabre #235 tal cual: la aprobación vuelve a tomar la factura por su id y postea en el mayor de la hermana. El criterio viejo sigue en verde ante esto, porque la ruta no nombra ninguna entidad',
+      },
+      {
+        archivo: 'src/api/rest/routes/bills.ts',
+        de: "IVA acreditable' }), requirePermission('bills:approve'), requireEntityAccess, asyncHandler(",
+        a: "IVA acreditable requireEntityAccess' }), requirePermission('bills:approve'), asyncHandler(",
+        porque:
+          'la guarda desaparece de la cadena de middlewares y su NOMBRE queda escrito dentro de una cadena, en los primeros caracteres del bloque: el criterio viejo, que busca el nombre por texto, sobrevive a este mutante',
+      },
+      {
+        archivo: 'src/api/rest/routes/payroll.ts',
+        de: 'const result = await generateNachaFile(entityScope(req.tenantId!, req.entityId!), pay_run_id, company_info);',
+        a: 'const alcance = entityScope(req.tenantId!, req.entityId!);\n  void alcance;\n  const result = await generateNachaFile(tenantScope(req.tenantId!), pay_run_id, company_info);',
+        porque:
+          'la entidad está ligada en el manejador y NO llega a la llamada: el archivo de dispersión vuelve a descifrar las cuentas de la hermana. Un criterio que mirara el manejador entero lo daría por bueno',
+      },
+      {
+        archivo: 'src/services/payroll/usa/nacha-generator.ts',
+        de: "corridaEnEntidad('pr.pay_period_id', 3)",
+        a: "corridaEnEntidad('pp.id', 3)",
+        porque:
+          'el camino apunta a la columna equivocada: dentro del EXISTS el alias `pp` tapa al de fuera, la condición es cierta para toda fila y la corrida de la hermana vuelve a leerse — con `ps.entity_id` todavía escrito',
+      },
+      {
+        archivo: 'src/services/payroll/usa/nacha-generator.ts',
+        de: 'AND p.net_pay > 0 AND e.entity_id = $2',
+        a: 'AND p.net_pay > 0',
+        porque:
+          'mientras `/calculate` pueda colgar un empleado ajeno de una corrida propia, el archivo propio vuelve a descifrar la cuenta de ese empleado',
+      },
+      {
+        archivo: 'src/services/payroll/usa/benefits/benefits-service.ts',
+        de: 'JOIN benefits_plans bp ON bp.id = $3 AND bp.entity_id = e.entity_id',
+        a: 'JOIN benefits_plans bp ON bp.id = $3',
+        porque:
+          'la segunda llave vuelve a cruzar: el plan de la hermana se elige sobre un empleado propio',
+      },
+      {
+        archivo: 'src/services/payroll/common/pay-period-service.ts',
+        de: "'pay_schedules', payScheduleId, scope, {",
+        a: "'pay_schedules', payScheduleId, tenantScope(scope.tenantId), {",
+        porque:
+          'el calendario se acota, pero por el eje equivocado: con el mismo inquilino, la hermana vuelve a caer',
+      },
+      {
+        archivo: 'src/api/rest/routes/journal-entries.ts',
+        de: "requireByIdInScope('journal_entries', entryId, entityScope(req.tenantId!, req.entityId!), {",
+        a: "requireByIdInScope('journal_entries', entryId, tenantScope(req.tenantId!), {",
+        porque:
+          'la comprobación previa pierde la entidad y las tres rutas que postean, anulan y revierten pólizas la siguen «llamando»: su nombre no cambia, su llave sí',
+      },
+      {
+        archivo: 'tests/integration/ten11-sibling-bill-approval.int.spec.ts',
+        de: 'expect(r.status, JSON.stringify(r.body)).toBe(404);',
+        a: 'expect(r.status, JSON.stringify(r.body)).toBe(403);',
+        porque:
+          'un 403 confirma que la factura existe y no es tuya, que es lo único que quien prueba ids no sabía',
+      },
+    ],
+    evaluar: () => {
+      const { reviewed, findings } = scanWriteRoutes();
+      if (reviewed === 0) return noEvaluable('no hay rutas REST que revisar');
+      if (findings.length > 0) {
+        return falla(
+          `${findings.length} ruta(s) escriben sobre un recurso por id sin entregar la entidad validada: ` +
+            findings.slice(0, 5).map((a) => `${a.route} — ${a.issue}`).join(' · ') +
+            (findings.length > 5 ? ` y ${findings.length - 5} más` : '') +
+            '. RLS acota por inquilino; dentro de un despacho con dos sociedades, eso sólo lo defiende el SQL'
+        );
+      }
+
+      // LOS SERVICIOS, POR SU TEXTO: son fragmentos de SQL de una línea, donde
+      // el texto es la conducta entera.
+      const pinned: Array<[string, string, string]> = [
+        ['src/services/ap/bill-service.ts', 'WHERE id = $2 AND entity_id = $3 AND status IN', 'aprobar la factura dejó de acotar el UPDATE por entidad'],
+        ['src/services/payroll/usa/nacha-generator.ts', "corridaEnEntidad('pr.pay_period_id', 3)", 'el archivo NACHA dejó de llegar a la entidad de la corrida por su llave'],
+        ['src/services/payroll/usa/nacha-generator.ts', 'AND p.net_pay > 0 AND e.entity_id = $2', 'el archivo NACHA dejó de acotar los recibos por la entidad del empleado'],
+        ['src/services/payroll/usa/benefits/benefits-service.ts', 'JOIN benefits_plans bp ON bp.id = $3 AND bp.entity_id = e.entity_id', 'la elección de beneficio dejó de atar el plan a la entidad del empleado'],
+        ['src/services/payroll/usa/benefits/benefits-service.ts', 'WHERE e.id = $2 AND e.entity_id = $7', 'la elección de beneficio dejó de atar el empleado a la entidad de la sesión'],
+        ['src/services/payroll/common/pay-period-service.ts', "'pay_schedules', payScheduleId, scope, {", 'generar periodos dejó de acotar el calendario por la entidad de la sesión'],
+      ];
+      for (const [file, fragment, reason] of pinned) {
+        if (!existe(file)) return falla(`desapareció ${file}`);
+        if (!codigoDe(file).includes(fragment)) return falla(reason);
+      }
+
+      // Y CONDUCTA QUE LO AFIRMA contra Postgres, en 404 y contra un fantasma.
+      const specs = [
+        'tests/integration/ten11-sibling-bill-approval.int.spec.ts',
+        'tests/integration/ten11-sibling-nacha-file.int.spec.ts',
+        'tests/integration/ten11-sibling-benefit-elections.int.spec.ts',
+        'tests/integration/ten11-sibling-pay-periods.int.spec.ts',
+      ];
+      for (const spec of specs) {
+        if (!existe(spec)) return falla(`no hay reproducción en ${spec}: sin ella esto es una lectura del diff`);
+        const t = crudoDe(spec);
+        if (/toBe\(403\)/.test(t)) {
+          return falla(`${spec} exige un 403: confirma que el recurso existe y no es tuyo, que es lo que quien prueba ids no sabía`);
+        }
+        if (!/toBe\(404\)/.test(t) || !/randomUUID\(\)/.test(t)) {
+          return falla(`${spec} dejó de exigir el 404 idéntico al de un id inexistente`);
+        }
+      }
+
+      return ok(
+        `${reviewed} rutas de escritura revisadas: toda la que nombra un recurso por id le entrega la entidad validada a la llamada que lo resuelve, y hay reproducción de las cuatro que no lo hacían`
       );
     },
   },
@@ -4489,6 +5041,1019 @@ export const CRITERIOS: Criterio[] = [
               'ceros y los embargos salen de una tabla que ningún camino puebla'
           );
     },
+  },
+
+  // ---------------------------------------------------------------
+  // A6 · EL CONDUCTOR DEL CIERRE Y SU EXPEDIENTE
+  //
+  // La tarjeta de A6 nace con su prueba de aceptación puesta: «el expediente
+  // que entrega tiene que poder volver a correrse por un tercero y dar las
+  // mismas cifras». Los cuatro criterios de aquí abajo vigilan las maneras
+  // REALES de romper esa frase —o el cierre que la precede— sin que nada se
+  // ponga rojo. La primera versión de estos criterios la sometió una revisión
+  // adversaria, que encontró que casi todos se podían dejar verdes con la
+  // conducta rota: anclas de presencia que no miraban el orden, una delegación
+  // que casaba con la llamada del ensayo, un filtro de posteado que se podía
+  // comentar dentro del SQL. Lo que sigue es lo que sobrevivió a esa lectura.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E4.1',
+    id: 'closing-dossier-seals-the-books-not-the-clock',
+    enunciado:
+      'El expediente del cierre sella la fecha del periodo, nunca el reloj: por eso un tercero puede volver a correrlo',
+    evaluar: () => {
+      const p = 'src/services/accounting/closing-pack.ts';
+      if (!existe(p)) return falla(`no existe ${p}: el expediente de A6 desapareció`);
+      // `sinProsa` además de `codigoDe`: el segundo salta los literales de
+      // plantilla —ahí vive el SQL— y el primero quita las líneas que el SQL
+      // comenta con `--`, que de otro modo seguirían «presentes».
+      const s = sinProsa(codigoDe(p));
+
+      const section = (from: string, to: string): string | null => {
+        const i = s.indexOf(from);
+        const j = s.indexOf(to, i + from.length);
+        return i < 0 || j < 0 ? null : s.slice(i, j);
+      };
+
+      // La derivación se lee ACOTADA: `buildClosingPack` SÍ tiene un reloj —el
+      // sobre lleva `generated_at`— y buscarlo en todo el fuente pondría en
+      // rojo la única línea que debe tenerlo.
+      const derivation = section('export async function deriveSealedBody', 'export interface BuildPackOptions');
+      if (!derivation) {
+        return falla(
+          'no se encuentra `deriveSealedBody` acotada por `BuildPackOptions`: la derivación se ' +
+            'renombró o se movió, y este criterio dejaría de mirar lo que vino a mirar'
+        );
+      }
+
+      if (!/const asOf = period\.end_date;/.test(derivation)) {
+        return falla(
+          'la fecha de corte del expediente ya no sale del periodo: si sale de otro sitio, dos ' +
+            'derivaciones del mismo mes pueden dar cifras distintas y la comprobación no prueba nada'
+        );
+      }
+
+      // Las fuentes de reloj que Postgres y JavaScript ofrecen, no sólo las dos
+      // obvias: la revisión adversaria encontró que `Date.now()`,
+      // `CURRENT_TIMESTAMP` o `clock_timestamp()` pasaban por la versión corta.
+      const CLOCK =
+        /new Date\b|\bDate\(\)|Date\.now\(|performance\.now|hrtime|Temporal\.Now|CURRENT_(?:DATE|TIME|TIMESTAMP)|LOCALTIME|\bNOW\(\)|clock_timestamp|statement_timestamp|transaction_timestamp|timeofday|'(?:now|today|tomorrow|yesterday)'/i;
+      const clock = CLOCK.exec(derivation);
+      if (clock) {
+        return falla(
+          `la derivación del cuerpo sellado consulta el reloj ("${clock[0]}"): el expediente ` +
+            'verificaría hoy y derivaría mañana, en silencio'
+        );
+      }
+
+      // Y el cuerpo que se sella es EL DERIVADO, sin retoques. Buscar las formas
+      // de retocarlo (`sealed.x =`, un spread) resultó una lista que nunca se
+      // acaba —la segunda revisión pasó `Object.assign(sealed, …)`,
+      // `sealed['as_of'] =`, `delete sealed.criteria` y un alias—, así que se
+      // CUENTA: en `buildClosingPack` el nombre `sealed` aparece exactamente
+      // tres veces —la declaración, la propiedad y el sello—. Cualquier otro
+      // uso es un retoque, se escriba como se escriba.
+      const builder = section('export async function buildClosingPack', 'export async function storeClosingPack');
+      if (!builder) return falla('no se encuentra `buildClosingPack` acotada por `storeClosingPack`');
+      if (!/const sealed = await deriveSealedBody\(entityId, periodId\);/.test(builder)) {
+        return falla('el cuerpo sellado ya no es el que devuelve la derivación compartida');
+      }
+      if (!/\n\s*sealed,\n/.test(builder) || !/seal: sealOf\(sealed\)/.test(builder)) {
+        return falla('el expediente ya no lleva y sella el cuerpo derivado tal cual');
+      }
+      const uses = (builder.match(/\bsealed\b/g) ?? []).length;
+      if (uses !== 3) {
+        return falla(
+          `el cuerpo sellado se usa ${uses} veces en buildClosingPack y debe usarse 3 (declararlo, ` +
+            'llevarlo y sellarlo): cualquier otro uso lo retoca o lo pasa por otro nombre antes del sello'
+        );
+      }
+      // Y el reloj del sobre es el ÚNICO de la construcción: se quita esa línea
+      // y el resto se somete a la misma lista de relojes.
+      const withoutEnvelopeClock = builder.replace(
+        'generated_at: (opts.now ?? new Date()).toISOString(),',
+        ''
+      );
+      const builderClock = CLOCK.exec(withoutEnvelopeClock);
+      if (builderClock) {
+        return falla(
+          `buildClosingPack consulta el reloj fuera del sobre ("${builderClock[0]}"): si llega al cuerpo, ` +
+            'el sello deja de ser reproducible'
+        );
+      }
+
+      return ok(
+        'el corte es la fecha del periodo, la derivación no consulta ningún reloj, y lo sellado es ' +
+          'el cuerpo derivado sin retoques'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: '  const asOf = period.end_date;',
+        a: '  const asOf = new Date().toISOString().slice(0, 10);',
+        porque:
+          'el corte pasa a ser el reloj: el expediente verifica el día que se sella y deriva el ' +
+          'siguiente, que es la manera silenciosa de que «las mismas cifras» deje de ser cierto',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: '  const asOf = period.end_date;\n',
+        a: '  const asOf = period.end_date;\n  const now = Date.now();\n',
+        porque:
+          'el reloj entra en la derivación por la puerta de al lado, con el ancla intacta: un ' +
+          'criterio que sólo comprobara la línea del corte lo dejaría pasar',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: 'start_date::text, end_date::text, status',
+        a: 'start_date::text, CURRENT_DATE::text AS end_date, status',
+        porque:
+          'el reloj entra por el SQL y no por JavaScript: el corte sigue saliendo de «el periodo», ' +
+          'pero el periodo ya dice hoy',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: '  const sealed = await deriveSealedBody(entityId, periodId);\n',
+        a: "  const sealed = await deriveSealedBody(entityId, periodId);\n  Object.assign(sealed, { as_of: '2026-12-31' });\n",
+        porque:
+          'el cuerpo se retoca con Object.assign y sin reloj: la forma que la lista de patrones de la ' +
+          'versión anterior no veía',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: '  const sealed = await deriveSealedBody(entityId, periodId);\n',
+        a: '  const sealed = await deriveSealedBody(entityId, periodId);\n  sealed.as_of = new Date().toISOString();\n',
+        porque:
+          'el reloj se cuela en el cuerpo YA derivado, dentro de buildClosingPack: el sello lo ' +
+          'incluye y ningún tercero vuelve a obtenerlo',
+      },
+    ],
+  },
+  {
+    paquete: 'E4.1',
+    id: 'closing-dossier-reads-the-posted-ledger-in-order',
+    enunciado:
+      'Las cifras del expediente salen del mayor posteado, acotadas al corte y en orden fijo',
+    evaluar: () => {
+      const p = 'src/services/accounting/closing-pack.ts';
+      if (!existe(p)) return falla(`no existe ${p}: el expediente de A6 desapareció`);
+      const s = sinProsa(codigoDe(p));
+
+      // UNA SOLA BALANZA, ACOTADA AL CORTE. Un segundo motor sería el mismo
+      // defecto que G4 persigue en la API; una balanza sin corte crece con
+      // cada mes que pasa y ningún expediente viejo se sostiene.
+      // Y EN CRUDO: la balanza de los libros, no la de un informe. El panel
+      // decide qué MUESTRA un informe publicado; sellado bajo un panel y
+      // comprobado bajo otro, el expediente acusaría cifras movidas sin que se
+      // moviera un asiento. La segunda revisión lo mostró con
+      // `informes_asientos_de_cierre`: sellar el valor del panel no bastaba,
+      // porque la comprobación volvía a derivar bajo el panel de hoy.
+      if (!/queryTrialBalanceRows\(entityId, \{ asOfDate: asOf, ignoreClosingPolicy: true \}\)/.test(s)) {
+        return falla(
+          'el expediente ya no pide al motor compartido la balanza EN CRUDO con el corte del periodo: ' +
+            'o se armó otra balanza, o perdió el corte, o volvió a obedecer al panel de informes'
+        );
+      }
+      // EL FILTRO DE POSTEADO, LEÍDO EN EL SQL Y SIN SUS COMENTARIOS. La versión
+      // anterior buscaba el texto en todo el archivo y sólo sabía de un `--` a
+      // principio de línea: un `/* … */`, un `--` a media línea o un `OR TRUE`
+      // lo dejaban verde con los borradores dentro. Ahora se toma la plantilla
+      // de la consulta de actividad, se le quitan los comentarios de SQL, y su
+      // WHERE tiene que exigir posteado y no tener ningún OR.
+      const activitySql = (() => {
+        const i = s.indexOf('const activity = await query<');
+        const a = s.indexOf('`', i);
+        const b = s.indexOf('`', a + 1);
+        return i < 0 || a < 0 || b < 0 ? '' : s.slice(a + 1, b);
+      })();
+      const bareSql = activitySql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
+      const where = /\bWHERE\b([\s\S]*?)\bGROUP BY\b/i.exec(bareSql)?.[1] ?? '';
+      if (!/\bAND\s+je\.status\s*=\s*'posted'/i.test(where) || /\bOR\b/i.test(where)) {
+        return falla(
+          'la actividad del periodo dejó de exigir posteado en su WHERE —quitado, comentado o ' +
+            'neutralizado con OR—: un expediente que cuenta borradores se mueve cada vez que alguien edita uno'
+        );
+      }
+
+      // EL ORDEN LO FIJA EL EXPEDIENTE, NO LA BASE. Un ORDER BY deja el orden
+      // a la intercalación de Postgres, que puede no ser la misma en la
+      // máquina que sella y en la que comprueba.
+      if (!/const byCodeUnit = \(a: string, b: string\): number => \(a < b \? -1 : a > b \? 1 : 0\);/.test(s)) {
+        return falla(
+          'el comparador del expediente dejó de ser por unidad de código: con `localeCompare` o ' +
+            'con la intercalación de la base, dos máquinas ordenan —y sellan— distinto'
+        );
+      }
+      for (const [key, what] of [
+        ['account_code', 'la balanza'],
+        ['source_type', 'la actividad del periodo'],
+      ] as const) {
+        const ordering = new RegExp(`\\.sort\\(\\(a, b\\) => byCodeUnit\\(a\\.${key}, b\\.${key}\\)\\)`);
+        if (!ordering.test(s)) {
+          return falla(`${what} se sella sin ordenarse por ${key} en el propio expediente`);
+        }
+      }
+
+      // UNA CUENTA QUE NUNCA SE MOVIÓ NO ES UNA CIFRA DEL MES. Sin este filtro,
+      // dar de alta en septiembre una subcuenta vacía rompía todos los
+      // expedientes anteriores.
+      if (!/\.filter\(\(f\) => !new Decimal\(f\.debit\)\.isZero\(\) \|\| !new Decimal\(f\.credit\)\.isZero\(\)\)/.test(s)) {
+        return falla(
+          'la balanza sellada vuelve a incluir cuentas sin movimiento: el alta de una cuenta vacía ' +
+            'rompería todo expediente anterior'
+        );
+      }
+
+      // Y SE COMPARA POR CÓDIGO, NO POR POSICIÓN: por posición, una fila de
+      // más desplazaba la culpa a todas las cuentas de después.
+      const keyed = /new Map\(rows\.map\(\(r\) => \[String\(\(r as Record<string, unknown>\)\[key\]\), r\]\)\)/.test(s);
+      if (!keyed || !/'account_code',\s*'figures\.trial_balance'/.test(s) || !/'source_type',\s*'figures\.period_activity'/.test(s)) {
+        return falla(
+          'la comprobación dejó de comparar la balanza por código o la actividad por origen: ' +
+            'una fila de más acusaría a todas las que la siguen'
+        );
+      }
+
+      if (!/const SCALE = 4;/.test(s) || !/new Decimal\(v \?\? 0\)\.toFixed\(SCALE\)/.test(s)) {
+        return falla(
+          'las cifras del expediente dejaron de normalizarse con Decimal a cuatro decimales: dos ' +
+            'formatos del mismo importe sellan distinto'
+        );
+      }
+
+      return ok(
+        'balanza compartida en crudo al corte, sólo lo posteado, orden por unidad de código fijado en ' +
+          'el expediente, sin cuentas vacías, comparada por código y a cuatro decimales'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: "        AND je.status = 'posted'\n",
+        a: '',
+        porque:
+          'el expediente empieza a contar borradores: sus cifras se mueven cada vez que alguien ' +
+          'edita uno',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: "        AND je.status = 'posted'\n",
+        a: "        -- AND je.status = 'posted'\n",
+        porque:
+          'el filtro queda COMENTADO dentro del SQL: el texto sigue en el literal de plantilla, ' +
+          'que `codigoDe` no toca',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: "        AND je.status = 'posted'\n",
+        a: "        /* AND je.status = 'posted' */\n",
+        porque: 'el filtro queda dentro de un comentario de bloque de SQL, que un ancla de texto sigue viendo',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: "        AND je.status = 'posted'\n",
+        a: "        AND je.status = 'posted' OR TRUE\n",
+        porque: 'el filtro sigue escrito y ya no filtra: OR TRUE deja entrar los borradores',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: 'queryTrialBalanceRows(entityId, { asOfDate: asOf, ignoreClosingPolicy: true })',
+        a: 'queryTrialBalanceRows(entityId, { asOfDate: asOf })',
+        porque:
+          'la balanza vuelve a obedecer al panel de informes: cambiar informes_asientos_de_cierre ' +
+          'después de sellar mueve cifras que el mayor no movió',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: 'queryTrialBalanceRows(entityId, { asOfDate: asOf, ignoreClosingPolicy: true })',
+        a: 'queryTrialBalanceRows(entityId, { ignoreClosingPolicy: true })',
+        porque:
+          'la balanza pierde su corte y pasa a ser acumulada hasta hoy: el expediente de julio ' +
+          'cambia en agosto sin que nadie toque julio',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: 'const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);',
+        a: 'const byCodeUnit = (a: string, b: string): number => a.localeCompare(b);',
+        porque:
+          'el orden pasa a depender de la configuración regional de la máquina: el tercero ordena ' +
+          'distinto y el sello no coincide sin que nada haya cambiado en los libros',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: '    .sort((a, b) => byCodeUnit(a.account_code, b.account_code));',
+        a: ';',
+        porque: 'la balanza se sella en el orden que la base decida devolver',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: '    .filter((f) => !new Decimal(f.debit).isZero() || !new Decimal(f.credit).isZero())\n',
+        a: '',
+        porque:
+          'las cuentas vacías vuelven al sello: dar de alta una subcuenta en septiembre rompe el ' +
+          'expediente de julio',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: "'account_code',\n    'figures.trial_balance'",
+        a: "'account_name',\n    'figures.trial_balance'",
+        porque:
+          'la balanza se compara por un campo que no la identifica: un renombre se reporta como ' +
+          'una cuenta que desapareció y otra que apareció',
+      },
+      {
+        archivo: 'src/services/accounting/closing-pack.ts',
+        de: 'const SCALE = 4;',
+        a: 'const SCALE = 2;',
+        porque: 'el expediente redondea a centavos: una diferencia de 0.0040 deja de existir en el sello',
+      },
+    ],
+  },
+  {
+    paquete: 'E4.1',
+    id: 'closing-conductor-delegates-and-keeps-the-order',
+    enunciado:
+      'El conductor del cierre ordena y delega: no calcula ni una cifra, y su orden es el único posible',
+    evaluar: () => {
+      const p = 'src/services/accounting/closing-conductor.ts';
+      if (!existe(p)) return falla(`no existe ${p}: el conductor de A6 desapareció`);
+      const s = codigoDe(p);
+
+      const section = (from: string, to: string): string | null => {
+        const i = s.indexOf(from);
+        const j = s.indexOf(to, i + from.length);
+        return i < 0 || j < 0 ? null : s.slice(i, j);
+      };
+
+      const i = s.indexOf('export const CLOSING_STEPS = [');
+      const j = s.indexOf('] as const', i);
+      if (i < 0 || j <= i) return falla('no se encuentra la lista de pasos del conductor');
+      const steps = [...s.slice(i, j).matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
+
+      // EL ORDEN. Los motores postean antes del checklist para que el
+      // checklist juzgue el mes COMO SE VA A CERRAR —su balanza y su
+      // integridad del mayor leen los asientos recién posteados—, y el
+      // checklist va antes del cierre suave porque es el acto que su veredicto
+      // autoriza. (Una versión anterior de este comentario decía que el
+      // checklist BLOQUEABA sin la depreciación; no es así: esa casilla es una
+      // advertencia.)
+      const expected = [
+        'accrue-benefits',
+        'amortize-prepaids',
+        'depreciate-assets',
+        'verify-checklist',
+        'soft-close',
+      ];
+      if (steps.join(',') !== expected.join(',')) {
+        return falla(
+          `los pasos del conductor son [${steps.join(', ')}] y tienen que ser ` +
+            `[${expected.join(', ')}]: los motores antes del checklist, para que su veredicto ` +
+            'describa el mes que se cierra, y el checklist antes del cierre que autoriza'
+        );
+      }
+
+      // Y CADA PASO DELEGA, dentro de `takeStep` y no en cualquier parte del
+      // archivo: la llamada del ensayo a `getCloseReadiness` hacía verde esta
+      // comprobación aunque el paso real se inventara su veredicto.
+      const realStep = section('async function takeStep(', 'function stepFailed(');
+      if (!realStep) return falla('no se encuentra `takeStep` acotada por `stepFailed`');
+      // EL CHECKLIST, EN SU RAMA Y USADO. No basta con que la llamada esté en
+      // `takeStep`: tiene que ser lo que devuelve la rama `verify-checklist`, y
+      // `checklistOutcome` tiene que decidir por `canClose`. La segunda revisión
+      // dejó la llamada y descartó su resultado, o la movió de rama.
+      if (!/case 'verify-checklist': \{[^}]*?return checklistOutcome\(step, ordinal, await getCloseReadiness\(ctx, period\)\);/.test(realStep)) {
+        return falla('la rama verify-checklist ya no devuelve el veredicto de getCloseReadiness');
+      }
+      const judge = section('function checklistOutcome(', 'async function takeStep(');
+      if (!judge || !/status: r\.canClose \? 'done' : 'blocked',/.test(judge)) {
+        return falla('checklistOutcome dejó de decidir el estado del paso por canClose');
+      }
+      const engines = [
+        'await runMonthlyProvisions(ctx.entityId, period.id, opts.userId)',
+        'await runMonthlyAmortization(ctx.entityId, period.id, opts.userId)',
+        'await runMonthlyDepreciation(ctx.entityId, period.id, opts.userId)',
+        'await getCloseReadiness(ctx, period)',
+        'await softClosePeriod(period.id, ctx.entityId, opts.userId, opts.reason)',
+      ];
+      const missing = engines.filter((m) => !realStep.includes(m));
+      if (missing.length > 0) {
+        return falla(
+          `el paso real del conductor dejó de llamar a ${missing.join(', ')}: un paso que no ` +
+            'delega es un motor nuevo'
+        );
+      }
+
+      // CADA INTENTO CORRE CADA PASO. Un intento que se saltara lo que otro
+      // intento anotó cerraría sobre un veredicto viejo —el borrador de IA que
+      // llegó esta mañana— y dejaría sin devengar la nómina cargada después.
+      const conductor = section('export async function conductClose(', 'async function dryRun(');
+      if (!conductor) return falla('no se encuentra `conductClose` acotada por `dryRun`');
+      // SIN CONDICIÓN: el cuerpo del bucle declara el resultado e inmediatamente
+      // lo pide a `takeStep`. Un `if` delante —que desviara el checklist por otro
+      // camino— rompe esta forma.
+      if (!/let outcome: ClosingStepOutcome;\s*try \{\s*outcome = await takeStep\(ctx, period, step, ordinal, opts\);/.test(conductor)) {
+        return falla('`conductClose` dejó de pasar cada paso, sin condición, por `takeStep`');
+      }
+      if (!/for \(const \[i, step\] of CLOSING_STEPS\.entries\(\)\) \{/.test(conductor)) {
+        return falla('`conductClose` dejó de recorrer la lista entera de pasos');
+      }
+      // El registro de intentos anteriores sólo ETIQUETA: se lee una vez y se
+      // usa una vez, para `priorAttempt`. Cualquier otro uso decide con él.
+      if ((conductor.match(/\bpriorSteps\b/g) ?? []).length !== 2) {
+        return falla(
+          '`conductClose` usa lo que otro intento anotó para algo más que etiquetar: así es como una ' +
+            'reanudación vuelve a fiarse de un veredicto viejo'
+        );
+      }
+      if (/\bcontinue\b/.test(conductor)) {
+        return falla(
+          '`conductClose` salta pasos: un intento que no vuelve a correr lo que otro anotó cierra ' +
+            'sobre un veredicto viejo'
+        );
+      }
+
+      const arithmetic =
+        /\bDecimal\b|debit_amount|credit_amount|\.plus\(|\.minus\(|\.times\(|parseFloat\(|toFixed\(/.exec(s);
+      if (arithmetic) {
+        return falla(
+          `el conductor manipula importes en TypeScript ("${arithmetic[0]}"): no calcula cifras de ` +
+            'los libros; lo único que suma es, en SQL y en su propio registro, lo que sus motores reportaron'
+        );
+      }
+
+      return ok(
+        `los cinco pasos en su orden (${steps.join(' → ')}), cada uno delegando dentro de takeStep, ` +
+          'todos corridos en cada intento, y sin calcular ninguna cifra de los libros'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de:
+          "  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',\n  'verify-checklist',",
+        a:
+          "  'verify-checklist',\n  'accrue-benefits',\n  'amortize-prepaids',\n  'depreciate-assets',",
+        porque:
+          'el checklist pasa a correr ANTES de los motores: su veredicto describe un mes al que ' +
+          'todavía le faltan los asientos de ajuste que se van a postear',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      const r = await runMonthlyDepreciation(ctx.entityId, period.id, opts.userId);',
+        a: '      const r = { processed: 0, errors: [] as string[] };',
+        porque:
+          'el conductor deja de delegar y se inventa el resultado del paso: el mes sale «conducido» ' +
+          'con la depreciación sin correr',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
+        a: '      return checklistOutcome(step, ordinal, { canClose: true, checklist: [], warnings: [], blockingIssues: [] } as never);',
+        porque:
+          'el paso real se inventa un veredicto limpio mientras el ensayo sigue preguntando de ' +
+          'verdad: la versión anterior del criterio no distinguía las dos llamadas',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "    status: r.canClose ? 'done' : 'blocked',",
+        a: "    status: 'done',",
+        porque:
+          'el juez del checklist ignora canClose: la llamada sigue ahí, en su rama, y todo sale limpio',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      return checklistOutcome(step, ordinal, await getCloseReadiness(ctx, period));',
+        a: '      await getCloseReadiness(ctx, period);\n      return checklistOutcome(step, ordinal, { canClose: true, checklist: [], warnings: [], blockingIssues: [] } as never);',
+        porque: 'la llamada se conserva y su resultado se tira: una ancla de presencia la daba por buena',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      let outcome: ClosingStepOutcome;\n',
+        a: '      if (priorSteps.has(step)) continue;\n      let outcome: ClosingStepOutcome;\n',
+        porque:
+          'la reanudación vuelve a fiarse de lo anotado: el checklist de ayer autoriza el cierre de ' +
+          'hoy con un borrador de IA pendiente dentro del mes',
+      },
+    ],
+  },
+  {
+    paquete: 'E4.1',
+    id: 'closing-run-never-continues-another-run-in-silence',
+    enunciado:
+      'La corrida abierta de un periodo no se continúa sin pedirlo: `closing run` se niega y dice dónde se detuvo',
+    evaluar: () => {
+      const conductorPath = 'src/services/accounting/closing-conductor.ts';
+      const leafPath = 'src/cli/closing-command.ts';
+      if (!existe(conductorPath) || !existe(leafPath)) return falla('el conductor o su hoja desaparecieron');
+      const m = codigoDe(conductorPath);
+      const h = codigoDe(leafPath);
+
+      // LA REGLA VIVE EN EL CONDUCTOR, BAJO EL CANDADO. La comprobación de la
+      // hoja llega antes de la confirmación y es cortesía; entre las dos, otro
+      // operador podía abrir la corrida, y la versión anterior sólo miraba que
+      // la cortesía estuviera escrita.
+      const i = m.indexOf('async function openRun(');
+      const j = m.indexOf('async function stepsOfRun(', i);
+      if (i < 0 || j < 0) return falla('no se encuentra `openRun` en el conductor');
+      const openRunBody = m.slice(i, j);
+      // LA NEGATIVA ES LO PRIMERO del bloque de la corrida abierta: nada —ni
+      // reabrirla, ni borrarle dónde se detuvo— ocurre antes. La versión que
+      // comparaba posiciones de un ancla se desarmaba reescribiendo el UPDATE.
+      if (!/if \(openRunRow\) \{\s*if \(opts\.resume !== true\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_OPEN'/.test(openRunBody)) {
+        return falla(
+          'el conductor dejó de negarse a continuar una corrida abierta que nadie pidió continuar'
+        );
+      }
+      if (!/if \(opts\.resume === true\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_NOTHING_TO_RESUME'/.test(openRunBody)) {
+        return falla('el conductor acepta `--resume` sin corrida abierta, y crea una nueva en silencio');
+      }
+
+      // UN CONDUCTOR POR PERIODO: sin el candado, dos operadores que contestan
+      // «sí» a la vez corren el mismo mes, o el segundo continúa en silencio
+      // la corrida viva del primero.
+      // DE TRANSACCIÓN, sostenido por un BEGIN, y con su negativa en uso: un
+      // candado de sesión se fugaba detrás de un pooler en modo transacción, y
+      // uno cuyo resultado nadie mira no excluye a nadie.
+      if (
+        !/await client\.query\('BEGIN'\);\s*const got = await client\.query<\{ ok: boolean \}>\(\s*'SELECT pg_try_advisory_xact_lock\(hashtextextended\(\$1, 0\)\) AS ok'/.test(m) ||
+        !/if \(!got\.rows\[0\]\?\.ok\) \{\s*throw new ClosingRunStateError\(\s*'CLOSING_RUN_IN_PROGRESS'/.test(m)
+      ) {
+        return falla(
+          'el conductor ya no toma, dentro de una transacción, el candado consultivo del periodo, o ya no se niega cuando está tomado'
+        );
+      }
+      // Y `openRun` es lo PRIMERO que ocurre dentro del candado: una escritura
+      // delante —un motor corrido antes de decidir si se puede continuar— ya
+      // habría posteado cuando llegue la negativa.
+      if (!/return withConductorLock\(ctx\.entityId, period\.id, async \(lease\) => \{\s*const token = randomUUID\(\);\s*await lease\.assertHeld\(\);\s*const runId = await openRun\(ctx, period\.id, opts, token\);/.test(m)) {
+        return falla('`openRun` ya no es lo primero que corre dentro del candado del periodo');
+      }
+
+      // SÓLO UN PERIODO ABIERTO SE CONDUCE, y la regla es del conductor; y una
+      // corrida cuyo ciclo cerró otro camino se abandona antes de abrir otra,
+      // para que un periodo reabierto no continúe la corrida del ciclo anterior.
+      if (!/if \(periodNow !== 'open'\) \{\s*throw new ClosingRunStateError\(\s*'PERIOD_NOT_OPEN_TO_CONDUCT'/.test(m)) {
+        return falla('el conductor vuelve a conducir periodos que no están abiertos');
+      }
+      if (!/\):\s*Promise<string> \{\s*await refuseWhileAnotherConductorActs\(ctx\.entityId, periodId\);\s*await abandonStaleRuns\(ctx\.entityId, periodId\);/.test(m)) {
+        return falla('`openRun` ya no abandona, antes que nada, las corridas de un ciclo que otro camino cerró');
+      }
+
+      // LA HOJA pasa la intención tal cual, y avisa antes de preguntar.
+      if (!/resume: opts\.resume === true,/.test(h)) {
+        return falla(
+          'la hoja ya no le dice al conductor si se pidió continuar: pasar `true` fijo saltaría la ' +
+            'negativa que vive en el conductor'
+        );
+      }
+      const courtesyAt = h.indexOf('if (existingRun && opts.resume !== true) {');
+      const conductAt = h.indexOf('const outcome = await conductClose(');
+      if (courtesyAt < 0 || conductAt < 0 || courtesyAt > conductAt) {
+        return falla('la hoja dejó de avisar de la corrida abierta ANTES de conducir');
+      }
+
+      return ok(
+        'el conductor se niega bajo el candado a continuar sin --resume y a reanudar lo que no existe, ' +
+          'y la hoja avisa antes de preguntar'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "    if (opts.resume !== true) {\n      throw new ClosingRunStateError(\n        'CLOSING_RUN_OPEN',",
+        a: "    if (false) {\n      throw new ClosingRunStateError(\n        'CLOSING_RUN_OPEN',",
+        porque:
+          'el conductor continúa en silencio la corrida que otro dejó a medias; la cortesía de la ' +
+          'hoja sigue escrita y no alcanza a quien llama al conductor por otro camino',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '    const runId = await openRun(ctx, period.id, opts, token);',
+        a: '    await runMonthlyProvisions(ctx.entityId, period.id, opts.userId);\n    const runId = await openRun(ctx, period.id, opts, token);',
+        porque:
+          'un motor postea antes de decidir si se puede continuar: la negativa llega con el mes ya tocado',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "  if (openRunRow) {\n    if (opts.resume !== true) {",
+        a: "  if (openRunRow) {\n    await query(`UPDATE closing_runs SET halted_at_step = NULL WHERE id = $1`, [openRunRow.id]);\n    if (opts.resume !== true) {",
+        porque:
+          'la corrida abierta pierde dónde se detuvo antes de la negativa: se niega, pero ya borró lo que la negativa promete decir',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  return withConductorLock(ctx.entityId, period.id, async (lease) => {',
+        a: '  return (async (lease: ConductorLease) => {',
+        porque:
+          'sin candado, dos conductores corren el mismo periodo a la vez y sus registros se pisan',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "'SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS ok'",
+        a: "'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS ok'",
+        porque:
+          'el candado vuelve a ser de sesión: detrás de un pooler en modo transacción se fuga en un backend y dos conductores lo obtienen',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "    if (!got.rows[0]?.ok) {",
+        a: "    if (false) {",
+        porque: 'el candado se sigue tomando y su resultado ya no excluye a nadie',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "  if (periodNow !== 'open') {",
+        a: '  if (false) {',
+        porque: 'el conductor corre sus motores sobre un mes ya cerrado cuando alguien lo llama sin pasar por la hoja',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  await abandonStaleRuns(ctx.entityId, periodId);\n',
+        a: '',
+        porque:
+          'la corrida del ciclo anterior sigue abierta tras reabrir el periodo: el segundo cierre se funde con el primero',
+      },
+      {
+        archivo: 'src/cli/closing-command.ts',
+        de: '          resume: opts.resume === true,',
+        a: '          resume: true,',
+        porque:
+          'la hoja le dice siempre al conductor que se pidió continuar: la negativa del conductor ' +
+          'queda desarmada desde fuera',
+      },
+      {
+        archivo: 'src/cli/closing-command.ts',
+        de: 'if (existingRun && opts.resume !== true) {',
+        a: 'if (false) {',
+        porque:
+          'la hoja deja de avisar antes de la confirmación: el operador confirma un acto que el ' +
+          'conductor le va a negar',
+      },
+    ],
+  },
+
+  {
+    paquete: 'E4.1',
+    id: 'closing-run-stops-when-it-cannot-prove-it-is-alone',
+    enunciado:
+      'Un conductor que pierde su candado se detiene antes del paso siguiente, nadie continúa una corrida que sigue latiendo, y el conductor desplazado no escribe sobre la corrida de otro',
+    evaluar: () => {
+      const conductorPath = 'src/services/accounting/closing-conductor.ts';
+      const leafPath = 'src/cli/closing-command.ts';
+      if (!existe(conductorPath) || !existe(leafPath)) return falla('el conductor o su hoja desaparecieron');
+      const m = codigoDe(conductorPath);
+      // El SQL vive en plantillas, y `codigoDe` no quita los comentarios `--`
+      // de dentro de una plantilla: se lee del crudo, pero SIN comentarios —de
+      // bloque y de línea, de SQL o de TypeScript—, porque una guarda comentada
+      // sigue «escrita» y ya no guarda nada. Y cada consulta se compara ENTERA,
+      // línea tras línea: una línea intercalada (`OR false`) desarma la guarda
+      // que la sigue sin tocarla.
+      const uncommented = crudoDe(conductorPath)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^[ \t]*(--|\/\/).*$/gm, '')
+        .replace(/[ \t](--|\/\/)[ \t].*$/gm, '');
+      const between = (from: string, to: string): string => {
+        const a = uncommented.indexOf(from);
+        const b = uncommented.indexOf(to, a + from.length);
+        return a < 0 || b < 0 ? '' : uncommented.slice(a, b);
+      };
+
+      // PROBAR, LUEGO ACTUAR. La primera versión sólo notaba el candado muerto
+      // cuando la corrida ya había vuelto: los motores y el cierre suave, que
+      // usan el pool y no la conexión del candado, seguían mientras otro
+      // conductor ya podía tomarlo (Witness, WIT-01).
+      if (!/return withConductorLock\(ctx\.entityId, period\.id, async \(lease\) => \{\s*const token = randomUUID\(\);\s*await lease\.assertHeld\(\);\s*const runId = await openRun\(ctx, period\.id, opts, token\);\s*const claim: RunClaim = \{ runId, entityId: ctx\.entityId, token \};\s*const heartbeat = startRunHeartbeat\(claim, LOCK_KEEPALIVE_MS, HEARTBEAT_SILENCE_LIMIT_MS\);/.test(m)) {
+        return falla('la corrida ya no prueba su candado antes de reclamar la corrida, o ya no late con su reclamo y su límite de silencio');
+      }
+      if (!/const checkpoint = async \(\): Promise<void> => \{\s*heartbeat\.assertBeating\(\);\s*await lease\.assertHeld\(\);\s*\};/.test(m)) {
+        return falla('el punto de control dejó de comprobar el latido de la corrida y el candado');
+      }
+      if (!/for \(const \[i, step\] of CLOSING_STEPS\.entries\(\)\) \{\s*const ordinal = i \+ 1;\s*current = step;\s*currentRan = false;\s*currentRecorded = false;\s*await checkpoint\(\);/.test(m)) {
+        return falla('la corrida real ya no prueba su candado antes de cada paso');
+      }
+      // EL CANDADO SE PRUEBA, no se recuerda: una sentencia sobre su propia
+      // transacción. Lo ya visto sólo adelanta la respuesta.
+      if (!/const known = seen\(\);\s*if \(known !== undefined\) throw lockLost\(known\);\s*try \{\s*await client\.query\('SELECT 1'\);\s*\} catch \(err\) \{\s*throw lockLost\(err\);/.test(m) ||
+          !/const lease = createConductorLease\(client, \(\) => watch\.error\(\) \?\? keepalive\.lost\(\)\);/.test(m)) {
+        return falla('`assertHeld` dejó de sondear la transacción del candado');
+      }
+
+      // LA NEGATIVA: la corrida queda registrada donde se detuvo, la pérdida
+      // sale como estado, y dice la verdad —hasta dónde llegó el paso, y si la
+      // corrida es ya de otro, lo que también sabe el cierre vigilado—.
+      const stop = between('      const closing = await closeRun(', '      throw err;');
+      const truth: Array<[RegExp, string]> = [
+        [/const closing = await closeRun\(claim, 'failed', current\)\.then\(\s*\(\) => 'closed' as const,\s*\(closeErr: unknown\) =>\s*isLockLost\(closeErr\) && \(closeErr as ClosingRunStateError\)\.details\?\.takenOver === true\s*\? \('ended-by-another' as const\)\s*: \('unknown' as const\)\s*\);/, 'el cierre de la corrida detenida ya no dice si la corrida era ya de otro, o si ni siquiera se pudo cerrar'],
+        [/if \(isLockLost\(err\)\) \{\s*const lost = err as ClosingRunStateError;\s*const taken = lost\.details\?\.takenOver === true \|\| closing === 'ended-by-another';/, 'la negativa ya no sabe que la corrida la terminó o reclamó otro'],
+        [/const where = currentRecorded\s*\?\s*`after \$\{current\} and its record, without closing the run`\s*:\s*currentRan\s*\?\s*`after \$\{current\} ran, without its record`\s*:\s*`before \$\{current\}`;/, 'la negativa ya no distingue un paso no empezado, uno que corrió sin su registro y uno registrado'],
+        [/const next = taken\s*\?\s*'The run was ended or taken over by another conductor; look at the period with --dry-run\.'\s*:\s*closing === 'closed'\s*\?\s*'Look at it with --dry-run and pick it up again with --resume\.'\s*:\s*'Its run could not be closed either; look at the period with --dry-run before resuming anything\.';/, 'la negativa aconseja reanudar la corrida de otro, o una que ni siquiera pudo cerrar'],
+        [/throw new ClosingRunStateError\(\s*LOCK_LOST,\s*`\$\{LOCK_LOST_MESSAGE\} It stopped \$\{where\}, after \$\{steps\.length\} recorded step\(s\)\. \$\{next\}`,\s*\{\s*\.\.\.lost\.details,\s*runId,\s*haltedAtStep: current,\s*stepRan: currentRan,\s*stepRecorded: currentRecorded,\s*takenOver: taken \? true : closing === 'closed' \? false : null,/, 'la negativa ya no dice hasta dónde llegó ni qué hacer, o perdió la causa'],
+      ];
+      for (const [re, why] of truth) if (!re.test(stop)) return falla(why);
+      if (!/outcome = stepFailed\(step, ordinal, err\);\s*\}\s*currentRan = true;/.test(m) ||
+          !/steps\.push\(accumulated\);\s*currentRecorded = true;/.test(m) ||
+          !/function takenOver\(\): ClosingRunStateError \{\s*return lockLost\(TAKEN_OVER, true\);/.test(m)) {
+        return falla('lo que la negativa dice del paso o del relevo ya no sale de donde ocurre');
+      }
+
+      // EL LATIDO: con dueño, programado, y con silencio medido. Sólo un
+      // latido que ATERRIZÓ acorta el silencio; uno que falla lo deja crecer.
+      const heartbeat = between('export function startRunHeartbeat(', 'export function watchLockConnection(');
+      if (!/const timer = setInterval\(beat, everyMs\);\s*return \{\s*assertBeating:/.test(heartbeat)) {
+        return falla('el latido de la corrida ya no está programado');
+      }
+      if (!/`UPDATE closing_runs SET heartbeat_at = NOW\(\)\n\s*WHERE id = \$1 AND entity_id = \$2 AND status = 'running' AND conductor_token = \$3`,\s*\[claim\.runId, claim\.entityId, claim\.token\]\s*\);\s*if \(r\.rowCount === 0\) displaced\.push\(takenOver\(\)\);\s*lastWall = Date\.now\(\);\s*lastMono = performance\.now\(\);\s*\} catch \{\s*\}\s*\}\);\s*\};\s*const timer = setInterval\(beat, everyMs\);/.test(heartbeat) ||
+          !/if \(displaced\.length > 0\) throw displaced\[0\];/.test(heartbeat)) {
+        return falla('el latido ya no nota que otro conductor reclamó la corrida, o un latido que falla vuelve a contar como latido');
+      }
+      if (!/const silentMs = Math\.max\(Date\.now\(\) - lastWall, performance\.now\(\) - lastMono\);\s*if \(silentMs > silenceLimitMs\) throw lockLost\(/.test(heartbeat)) {
+        return falla('el conductor ya no deja de empezar pasos cuando su latido lleva callado demasiado tiempo');
+      }
+
+      // LAS ESCRITURAS A LA CORRIDA LLEVAN EL RECLAMO: un conductor desplazado
+      // tras una pausa larga no suma su intento ni cierra la corrida de otro.
+      const record = between('async function recordStep(', 'async function closeRun(');
+      if (!/`WITH owned AS \(\n\s*SELECT 1 FROM closing_runs\n\s*WHERE id = \$2 AND entity_id = \$1 AND status = 'running' AND conductor_token = \$11\n\s*FOR SHARE\n\s*\)\n\s*INSERT INTO closing_run_steps\n/.test(record) ||
+          !/\$9::text\n\s*WHERE EXISTS \(SELECT 1 FROM\x20owned\)\n\s*ON CONFLICT \(run_id, step_key\) DO UPDATE SET\n/.test(record) ||
+          !/accumulate,\s*claim\.token,\s*\]\s*\);\s*if \(r\.rows\.length === 0\) throw takenOver\(\);/.test(record)) {
+        return falla('el registro de un paso ya no exige, con la fila bloqueada, que la corrida siga siendo de este conductor');
+      }
+      const close = between('async function closeRun(', 'async function periodStatus(');
+      if (!/`UPDATE closing_runs\n\s*SET status = \$1, halted_at_step = \$2, ended_at = NOW\(\)\n\s*WHERE id = \$3 AND entity_id = \$4 AND status = 'running' AND conductor_token = \$5`,\s*\[status, haltedAtStep, claim\.runId, claim\.entityId, claim\.token\]\s*\);\s*if \(r\.rowCount === 0\) throw takenOver\(\);/.test(close)) {
+        return falla('el cierre de la corrida ya no exige que la corrida siga siendo de este conductor');
+      }
+
+      // EL RECLAMO, Y TODA ESCRITURA DE `openRun`, VUELVEN A PREGUNTAR EN LA
+      // ESCRITURA lo que se leyó antes: un conductor pausado entre la lectura
+      // y la escritura despierta en un mundo que ya cambió.
+      const open = between('async function openRun(', 'async function stepsOfRun(');
+      if (!/\):\s*Promise<string> \{\s*await refuseWhileAnotherConductorActs\(ctx\.entityId, periodId\);/.test(open) ||
+          !/if \(!\(await claimRun\(\{ runId: openRunRow\.id, entityId: ctx\.entityId, token \}\)\)\) \{\s*throw claimedByAnother\(openRunRow\.id\);/.test(open) ||
+          !/if \(created === null\) throw claimedByAnother\(null\);/.test(open)) {
+        return falla('`openRun` sigue adelante aunque el reclamo de la corrida no haya tomado nada');
+      }
+      const claimSql = between('export async function claimRun(', 'export async function startRun(');
+      if (!/`UPDATE closing_runs cr\n\s*SET status = 'running', halted_at_step = NULL, ended_at = NULL,\n\s*heartbeat_at = NOW\(\), conductor_token = \$3\n\s*FROM fiscal_periods fp\n\s*WHERE cr\.id = \$1 AND cr\.entity_id = \$2\n\s*AND fp\.id = cr\.fiscal_period_id AND fp\.entity_id = cr\.entity_id\n\s*AND fp\.status = 'open'\n\s*AND \(fp\.soft_close_date IS NULL OR fp\.soft_close_date < cr\.started_at\)\n\s*AND cr\.status IN \('running', 'blocked', 'stopped', 'failed'\)\n\s*AND NOT COALESCE\(cr\.status = 'running' AND cr\.heartbeat_at > NOW\(\) - make_interval\(secs => \$4\), false\)`,\s*\[claim\.runId, claim\.entityId, claim\.token, RUN_HEARTBEAT_STALE_AFTER_SECONDS\]\s*\);\s*return r\.rowCount === 1;/.test(claimSql)) {
+        return falla('el reclamo de la corrida vuelve a fiarse de lo que leyó antes de escribir');
+      }
+      const startSql = between('export async function startRun(', 'async function stepsOfRun(');
+      if (!/SELECT \$1::uuid, \$2::uuid, 'running', \$3::uuid, NOW\(\), \$4::uuid\n\s*WHERE EXISTS \(SELECT 1 FROM fiscal_periods WHERE id = \$2 AND entity_id = \$1 AND status = 'open'\)\n\s*ON CONFLICT DO NOTHING\n\s*RETURNING id, status`/.test(startSql)) {
+        return falla('una corrida nueva nace sin comprobar en la misma escritura que el periodo sigue abierto y sin otra corrida reanudable');
+      }
+      const abandon = between('export async function abandonStaleRuns(', 'export async function latestRunOf(');
+      if (!/`UPDATE closing_runs cr\n\s*SET status = 'abandoned', ended_at = NOW\(\)\n\s*FROM fiscal_periods fp\n\s*WHERE fp\.id = cr\.fiscal_period_id AND fp\.entity_id = cr\.entity_id\n\s*AND cr\.entity_id = \$1 AND cr\.fiscal_period_id = \$2\n\s*AND cr\.status IN \('running', 'blocked', 'stopped', 'failed'\)\n\s*AND fp\.soft_close_date IS NOT NULL AND fp\.soft_close_date >= cr\.started_at\n\s*AND NOT COALESCE\(cr\.status = 'running' AND cr\.heartbeat_at > NOW\(\) - make_interval\(secs => \$3\), false\)`,\s*\[entityId, periodId, RUN_HEARTBEAT_STALE_AFTER_SECONDS\]\s*\);/.test(abandon)) {
+        return falla('se abandonan corridas cuyo conductor sigue actuando: la escritura ya no lo pregunta');
+      }
+      const live = between('export async function liveRunOf(', 'export function describeLiveRun(');
+      if (!/FROM closing_runs\n\s*WHERE entity_id = \$1 AND fiscal_period_id = \$2\n\s*AND status = 'running'\n\s*AND heartbeat_at > NOW\(\) - make_interval\(secs => \$3\)`,\s*\[entityId, periodId, RUN_HEARTBEAT_STALE_AFTER_SECONDS\]\s*\);/.test(live)) {
+        return falla('la lectura de la corrida viva perdió su ventana: otro conductor continuaría una corrida viva');
+      }
+
+      // LA HOJA pregunta lo mismo que el conductor antes de aconsejar --resume,
+      // en la corrida y en el ensayo.
+      const h = codigoDe(leafPath);
+      if (!/if \(liveRun\) throw blockedByState\(describeLiveRun\(liveRun\)\);/.test(h) ||
+          !/runClosingLine\(outcome, stopAt, existingRun !== null, liveRun !== null\)/.test(h)) {
+        return falla('la hoja aconseja --resume sobre una corrida que otro conductor sigue conduciendo');
+      }
+
+      // LAS VENTANAS: varios latidos antes de dar a alguien por muerto, y el
+      // conductor se detiene a la mitad de esa ventana.
+      const stale = /export const RUN_HEARTBEAT_STALE_AFTER_SECONDS = (\d+);/.exec(m);
+      const every = /const LOCK_KEEPALIVE_MS = ([\d_]+);/.exec(m);
+      if (!stale || !every || Number(stale[1]) * 1000 < 3 * Number(every[1].replace(/_/g, ''))) {
+        return falla('la ventana del latido ya no cubre al menos tres latidos');
+      }
+      if (!/export const HEARTBEAT_SILENCE_LIMIT_MS = \(RUN_HEARTBEAT_STALE_AFTER_SECONDS \* 1000\) \/ 2;/.test(m)) {
+        return falla('el límite de silencio del conductor ya no queda por debajo de la ventana en que otros lo dan por muerto');
+      }
+
+      return ok(
+        'la corrida prueba candado y latido antes de reclamar y antes de cada paso, se detiene al perderlos y dice hasta dónde llegó, ' +
+          'nadie reclama ni abandona una corrida que late, y cada escritura a la corrida exige seguir siendo su dueño'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        currentRecorded = false;\n        await checkpoint();\n',
+        a: '        currentRecorded = false;\n',
+        porque: 'la corrida sigue con el paso siguiente aunque su candado haya muerto: los motores postean sin exclusión',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      heartbeat.assertBeating();\n      await lease.assertHeld();\n',
+        a: '      heartbeat.assertBeating();\n',
+        porque: 'el punto de control sólo mira el latido: un candado muerto con el proceso vivo pasa por bueno',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "        await client.query('SELECT 1');\n",
+        a: '',
+        porque: 'el candado se da por vivo mientras nadie haya visto su muerte, en vez de probarlo',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '    const token = randomUUID();\n    await lease.assertHeld();\n',
+        a: '    const token = randomUUID();\n',
+        porque: 'la corrida se reclama —y se abandonan corridas— con un candado que ya podía estar muerto',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  await refuseWhileAnotherConductorActs(ctx.entityId, periodId);\n',
+        a: '',
+        porque:
+          'sin la negativa por latido vivo, quien llama sin --resume sobre una corrida que otro conduce recibe el consejo de ' +
+          'continuarla: sólo las escrituras guardadas quedan para negarse, y ninguna dice por qué',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'make_interval(secs => $4), false)',
+        a: 'make_interval(secs => $4), false) OR true',
+        porque: 'el reclamo de la corrida vuelve a tomar una corrida viva: dos conductores sobre el mismo mes',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '[claim.runId, claim.entityId, claim.token, RUN_HEARTBEAT_STALE_AFTER_SECONDS]',
+        a: '[claim.runId, claim.entityId, claim.token, 0]',
+        porque: 'la ventana del reclamo se reduce a cero: toda corrida parece muerta y cualquiera la toma',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '    if (!(await claimRun({ runId: openRunRow.id, entityId: ctx.entityId, token }))) {\n      throw claimedByAnother(openRunRow.id);\n    }\n',
+        a: '    await claimRun({ runId: openRunRow.id, entityId: ctx.entityId, token });\n',
+        porque: 'el reclamo no toma nada y el conductor sigue como si la corrida fuera suya: el reclamo atómico existe y nadie mira su resultado',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "        AND fp.status = 'open'\n",
+        a: "        -- AND fp.status = 'open'\n",
+        porque: 'un conductor pausado dentro de `openRun` despierta después de que otro cerró el mes y vuelve a poner en marcha la corrida que lo cerró; la guarda sigue escrita, comentada',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "        AND (fp.soft_close_date IS NULL OR fp.soft_close_date < cr.started_at)\n        AND cr.status IN ('running', 'blocked', 'stopped', 'failed')\n",
+        a: "        AND (fp.soft_close_date IS NULL OR fp.soft_close_date < cr.started_at)\n",
+        porque: 'una corrida completa o abandonada vuelve a `running` por un reclamo tardío',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "      WHERE EXISTS (SELECT 1 FROM fiscal_periods WHERE id = $2 AND entity_id = $1 AND status = 'open')\n",
+        a: "      -- WHERE EXISTS (SELECT 1 FROM fiscal_periods WHERE id = $2 AND entity_id = $1 AND status = 'open')\n",
+        porque: 'un conductor pausado abre una corrida nueva sobre un mes que otro ya cerró, y el expediente la toma por la corrida del cierre',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "\n        AND NOT COALESCE(cr.status = 'running' AND cr.heartbeat_at > NOW() - make_interval(secs => $3), false)`",
+        a: '`',
+        porque: 'un conductor que despierta tarde marca `abandoned` la corrida viva de otro que acaba de cerrar el mes',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "WHERE id = $1 AND entity_id = $2 AND status = 'running' AND conductor_token = $3`",
+        a: "WHERE id = $1 AND entity_id = $2 AND status = 'running'`",
+        porque: 'el latido de un conductor desplazado sigue refrescando la corrida que otro reclamó, y ninguno de los dos se entera',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        if (r.rowCount === 0) displaced.push(takenOver());\n',
+        a: '',
+        porque: 'alguien terminó o reclamó la corrida y el conductor sigue actuando sobre ella como si fuera suya',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '      if (silentMs > silenceLimitMs) throw lockLost(',
+        a: '      if (false) throw lockLost(',
+        porque: 'un proceso que despierta de una pausa más larga que la ventana empieza otro paso sobre una corrida que otro ya pudo reclamar',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  const timer = setInterval(beat, everyMs);\n  return {\n    assertBeating:',
+        a: '  const timer = setTimeout(() => undefined, everyMs);\n  return {\n    assertBeating:',
+        porque: 'la corrida deja de latir: a los treinta segundos otro conductor la da por muerta y la continúa encima',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        lastWall = Date.now();\n        lastMono = performance.now();\n      } catch {',
+        a: '      } catch {\n        lastWall = Date.now();\n        lastMono = performance.now();',
+        porque: 'un latido que falla cuenta como latido: el conductor aislado de la base nunca nota su silencio',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'startRunHeartbeat(claim, LOCK_KEEPALIVE_MS, HEARTBEAT_SILENCE_LIMIT_MS);',
+        a: 'startRunHeartbeat(claim, LOCK_KEEPALIVE_MS, HEARTBEAT_SILENCE_LIMIT_MS * 1000);',
+        porque: 'el límite de silencio que usa la corrida real ya no es el de la constante: la constante sigue bien escrita y nadie la usa',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "WHERE id = $2 AND entity_id = $1 AND status = 'running' AND conductor_token = $11",
+        a: 'WHERE id = $2 AND entity_id = $1 AND $11::uuid IS NOT NULL',
+        porque: 'un conductor desplazado suma su intento al registro de la corrida que conduce otro',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '          FOR SHARE\n',
+        a: '',
+        porque: 'la guarda del registro se lee de la instantánea de la sentencia: un reclamo que se confirma en medio no la detiene',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "AND status = 'running' AND conductor_token = $5`",
+        a: '`',
+        porque: 'un conductor desplazado marca como fallida —o como completa— la corrida viva de otro, y lo aborta',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  if (r.rowCount === 0) throw takenOver();\n}',
+        a: '  // if (r.rowCount === 0) throw takenOver();\n}',
+        porque: 'el cierre vigilado no toma nada y nadie se entera: la guarda sigue escrita, comentada',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'AND heartbeat_at > NOW() - make_interval(secs => $3)`,\n    [entityId, periodId, RUN_HEARTBEAT_STALE_AFTER_SECONDS]\n  );\n  return live.rows[0] ?? null;',
+        a: 'AND heartbeat_at > NOW() - make_interval(secs => $3)`,\n    [entityId, periodId, 0]\n  );\n  return live.rows[0] ?? null;',
+        porque: 'ningún latido es reciente: la negativa por corrida viva existe y nunca se dispara',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'export const RUN_HEARTBEAT_STALE_AFTER_SECONDS = 30;',
+        a: 'export const RUN_HEARTBEAT_STALE_AFTER_SECONDS = 5;',
+        porque: 'la ventana cabe en un solo latido: una pausa del proceso da por muerto a un conductor vivo y otro continúa su corrida',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'const HEARTBEAT_SILENCE_LIMIT_MS = (RUN_HEARTBEAT_STALE_AFTER_SECONDS * 1000) / 2;',
+        a: 'const HEARTBEAT_SILENCE_LIMIT_MS = (RUN_HEARTBEAT_STALE_AFTER_SECONDS * 1000) * 2;',
+        porque: 'el conductor sigue empezando pasos después de que otros ya lo pueden dar por muerto',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "            ? ('ended-by-another' as const)",
+        a: "            ? ('unknown' as const)",
+        porque: 'a quien le reclamaron la corrida entre dos pasos se le aconseja reanudarla: el cierre vigilado lo supo y se calló',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '  return lockLost(TAKEN_OVER, true);',
+        a: '  return lockLost(TAKEN_OVER);',
+        porque: 'un relevo se reporta como un candado perdido cualquiera, y se aconseja reanudar la corrida de otro',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        currentRan = true;\n',
+        a: '',
+        porque: 'un paso que ya posteó se reporta como no empezado',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        steps.push(accumulated);\n        currentRecorded = true;\n',
+        a: '        steps.push(accumulated);\n',
+        porque: 'un paso ya registrado se reporta como «sin su registro», contra el propio recuento de pasos registrados',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '            ...lost.details,\n',
+        a: '',
+        porque: 'la negativa pierde la causa del candado perdido: el operador no sabe si murió la conexión, calló el latido o lo relevaron',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        AND fp.soft_close_date IS NOT NULL AND fp.soft_close_date >= cr.started_at\n',
+        a: '        AND fp.soft_close_date IS NOT NULL AND fp.soft_close_date >= cr.started_at\n        OR false\n',
+        porque: 'una línea intercalada desarma la guarda de liveness de `abandonStaleRuns` sin tocarla: se abandonan corridas vivas',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "        AND fp.status = 'open'\n",
+        a: "        /* AND fp.status = 'open' */\n",
+        porque: 'la guarda del periodo abierto sigue escrita dentro de un comentario de bloque, y no guarda nada',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: "        AND fp.id = cr.fiscal_period_id AND fp.entity_id = cr.entity_id\n        AND fp.status = 'open'\n",
+        a: "        AND fp.status = 'open'\n",
+        porque: 'sin la unión con su periodo, cualquier otro periodo abierto de la entidad satisface la guarda: se reclama la corrida de un mes cerrado',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: 'recorded step(s). ${next}`',
+        a: 'recorded step(s). Look at it with --dry-run and pick it up again with --resume.`',
+        porque: 'la negativa calcula bien qué aconsejar y aconseja siempre reanudar, también la corrida de otro',
+      },
+      {
+        archivo: 'src/services/accounting/closing-conductor.ts',
+        de: '        // Not a verdict (see above): the silence it leaves is what counts.\n      }\n',
+        a: '        // Not a verdict (see above): the silence it leaves is what counts.\n      } finally {\n        lastWall = Date.now();\n        lastMono = performance.now();\n      }\n',
+        porque: 'un `finally` vuelve a contar como latido el que falló: el conductor aislado de la base nunca nota su silencio',
+      },
+      {
+        archivo: 'src/cli/closing-command.ts',
+        de: 'runClosingLine(outcome, stopAt, existingRun !== null, liveRun !== null)',
+        a: 'runClosingLine(outcome, stopAt, existingRun !== null, false)',
+        porque: 'el ensayo aconseja --resume sobre la corrida que otro conductor sigue conduciendo',
+      },
+    ],
   },
 
   // ---- E4.2 · Trabajos y reportes ----
@@ -6195,6 +7760,160 @@ export const CRITERIOS: Criterio[] = [
 
   // ---- F05d · La firma y el sello ----
 
+  {
+    paquete: 'E1.2',
+    id: 'calendar-dates-reach-the-ledger-unparsed',
+    // #211. `entry_date` is DATE, and node-postgres sends a JS Date with the
+    // process's LOCAL fields. A `new Date('YYYY-MM-DD')` is UTC midnight, so
+    // west of Greenwich the column got the previous day. Measured through REST
+    // with the clock in America/Mexico_City: an entry dated March 1st stored on
+    // February 28th in February's period; an entry and a customer receipt
+    // dated January 1st refused with PERIOD_CLOSED; a reversal a day early; a
+    // vendor payment stored on April 1st with ITS OWN entry on March 31st. CI
+    // runs in UTC, where none of it shows.
+    //
+    // `treasury-entry-date-local-midnight` guards one file by counting a
+    // function name; it was green on main with all of this shifting. This one
+    // measures the three things that make the day survive any clock: the
+    // normaliser never reparses a string and reads a Date by local fields; the
+    // sink binds that one normalised day to the period, the folio and the
+    // INSERT; and no caller reparses the date on its way in.
+    enunciado:
+      'La fecha que el usuario escribe es la que el mayor guarda, en cualquier zona horaria del servidor',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/routes/journal-entries.ts',
+        de: "midnight, which west of Greenwich is the previous day in the DATE column.\n      entry_date,",
+        a: "midnight, which west of Greenwich is the previous day in the DATE column.\n      new Date(entry_date),",
+        porque: 'the REST entry reparses its date again: March 1st lands on February 28th west of Greenwich, and January 1st is refused',
+      },
+      {
+        archivo: 'src/api/rest/routes/journal-entries.ts',
+        de: '      reversalDate: reversal_date,',
+        a: '      reversalDate: reversal_date ? new Date(reversal_date) : undefined,',
+        porque: 'the reversal is posted a day early west of Greenwich — always posted, and a posted entry is only undone by another one',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: '    payment.payment_date,\n    JournalEntryType.AUTO_PAYMENT,\n    iva.documents.length',
+        a: '    new Date(payment.payment_date),\n    JournalEntryType.AUTO_PAYMENT,\n    iva.documents.length',
+        porque: 'the customer receipt entry lands a day before its receipt, and a receipt dated January 1st is refused',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: '      payment.payment_date,\n      JournalEntryType.AUTO_PAYMENT,',
+        a: '      new Date(payment.payment_date),\n      JournalEntryType.AUTO_PAYMENT,',
+        porque: 'the foreign-currency vendor payment entry lands a day before its payment: the subledger and the ledger disagree on the day',
+      },
+      {
+        archivo: 'src/services/accounting/ar-ap-posting.ts',
+        de: '    payment.payment_date,\n    JournalEntryType.AUTO_PAYMENT,\n    (iva.documents.length',
+        a: '    new Date(payment.payment_date),\n    JournalEntryType.AUTO_PAYMENT,\n    (iva.documents.length',
+        porque: 'the vendor payment entry lands a day before its payment — measured: payment on April 1st, its own entry on March 31st',
+      },
+      {
+        archivo: 'src/services/payroll/common/gl-posting-service.ts',
+        de: '    pr.pay_date,',
+        a: '    new Date(pr.pay_date),',
+        porque: 'a caller no conduct test exercises reparses its date again: the payroll entry is only as safe as whatever type that row happens to carry',
+      },
+      {
+        archivo: 'src/utils/calendar-date.ts',
+        de: 'value.getDate()',
+        a: 'value.getUTCDate()',
+        porque: 'a Date is read by its UTC day: a local evening becomes tomorrow west of Greenwich, and a local-midnight row becomes yesterday east of it',
+      },
+      {
+        archivo: 'src/utils/calendar-date.ts',
+        de: '.exec(String(value).trim());',
+        a: '.exec(new Date(String(value)).toISOString());',
+        porque: 'the string is reparsed through Date — exactly the construction that shifted the day — and an ISO string with a time is reinterpreted instead of cut',
+      },
+      {
+        archivo: 'src/services/accounting/posting.ts',
+        de: '      [entityId, entryDay]',
+        a: '      [entityId, entryDate]',
+        porque: 'the period is chosen from the raw argument and the INSERT from the normalised day: the two can disagree, and the entry lands in a period that is not its date',
+      },
+      {
+        archivo: 'tests/integration/journal-entry-date-west-of-greenwich.int.spec.ts',
+        de: "const offset = new Date('2026-03-01T12:00:00Z').getTimezoneOffset();",
+        a: 'const offset = expectedOffsetMinutes;',
+        porque: 'the reproduction stops checking that the timezone switch took effect: on a machine without timezone data every case passes for the wrong reason',
+      },
+    ],
+    evaluar: () => {
+      const normaliser = 'src/utils/calendar-date.ts';
+      const sink = 'src/services/accounting/posting.ts';
+      const spec = 'tests/integration/journal-entry-date-west-of-greenwich.int.spec.ts';
+      for (const f of [normaliser, sink]) if (!existe(f)) return falla(`desapareció ${f}`);
+
+      // 1. THE NORMALISER: a string is cut, never reparsed; a Date is read LOCAL.
+      const norm = codigoDe(normaliser);
+      const stringBranchAt = norm.indexOf('.exec(String(value).trim())');
+      if (stringBranchAt < 0 || /new Date\((String\()?value/.test(norm)) {
+        return falla(
+          'toCalendarDate volvió a reinterpretar la cadena con new Date: un YYYY-MM-DD es medianoche UTC, y al oeste de Greenwich eso es el día anterior'
+        );
+      }
+      if (!norm.includes('value.getFullYear(), value.getMonth() + 1, value.getDate()') || /value\.getUTC/.test(norm)) {
+        return falla(
+          'toCalendarDate dejó de leer un Date por sus campos LOCALES, que son el día que pg envía y el que pg devuelve para una columna DATE'
+        );
+      }
+
+      // 2. THE SINK: one normalised day, bound to the period, the folio and the
+      // INSERT — measured by the key each one receives, not by presence.
+      const s = codigoDe(sink);
+      const normalisedAt = s.indexOf('const entryDay = toCalendarDate(entryDate);');
+      const periodAt = s.indexOf('[entityId, entryDay]');
+      const sequenceAt = s.indexOf("nextEntityNumber(client, entityId, 'journal_entry', 'JE', entryDay)");
+      const insertAt = s.indexOf('options?.reference || null, entryDay, description, createdBy,');
+      if (normalisedAt < 0) {
+        return falla('createJournalEntry dejó de normalizar su fecha: vuelve a depender de cómo la construyó cada llamador');
+      }
+      if (periodAt < 0 || sequenceAt < 0 || insertAt < 0) {
+        return falla(
+          'el periodo, el folio o el INSERT de createJournalEntry dejaron de recibir el día normalizado: pueden volver a discrepar entre sí y con la fecha escrita'
+        );
+      }
+      if (!(normalisedAt < periodAt && periodAt < sequenceAt && sequenceAt < insertAt)) {
+        return falla('el día normalizado se usa antes de existir: el orden normalizar → periodo → folio → INSERT se rompió');
+      }
+
+      // 3. NO CALLER REPARSES THE DATE ON ITS WAY IN.
+      const { calls, findings } = scanLedgerDateArguments();
+      if (calls < 20) {
+        return falla(`sólo ${calls} llamadas a createJournalEntry encontradas: el escáner no está viendo el árbol, y un censo vacío no es un censo limpio`);
+      }
+      if (findings.length > 0) {
+        return falla(
+          `${findings.length} llamada(s) reinterpretan la fecha antes de entregarla al mayor: ` +
+            findings.slice(0, 4).map((x) => `${x.site} — ${x.issue}`).join(' · ') +
+            '. Pasa la cadena o el Date de la fila tal cual: createJournalEntry la normaliza'
+        );
+      }
+
+      // 4. AND CONDUCT, meaningful in a UTC CI: the zone is switched, checked
+      // and restored inside the reproduction, west AND east.
+      if (!existe(spec)) return falla('no hay reproducción contra Postgres: en CI el reloj es UTC y el defecto no se ve sin ella');
+      const t = crudoDe(spec);
+      const needed: Array<[RegExp, string]> = [
+        [/getTimezoneOffset\(\)/, 'comprobar que el cambio de zona surtió efecto'],
+        [/America\/Mexico_City/, 'medir al oeste de Greenwich'],
+        [/Asia\/Tokyo/, 'medir que el arreglo no rompe el este'],
+        [/entry_date::text/, 'leer el día guardado como texto, no como Date'],
+        [/JOIN journal_entries je ON je\.id = p\.journal_entry_id/, 'leer la póliza por la llave del propio pago'],
+      ];
+      for (const [pattern, what] of needed) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        `${calls} llamadas a createJournalEntry revisadas sin fecha reinterpretada; el mayor normaliza una vez y ata ese día al periodo, al folio y al INSERT; y la reproducción lo mide al oeste y al este`
+      );
+    },
+  },
   {
     paquete: 'E1.2',
     id: 'treasury-entry-date-local-midnight',

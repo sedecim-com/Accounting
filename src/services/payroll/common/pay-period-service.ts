@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../database/connection.js';
+import { requireByIdInScope, type EntityScope } from '../../../database/scope.js';
 
 // ============================================================
 // PAY PERIOD SERVICE
@@ -28,6 +29,23 @@ export async function createPaySchedule(input: PayScheduleInput): Promise<string
     ]
   );
   return id;
+}
+
+/**
+ * A DATE column comes back from pg as a `Date` at LOCAL midnight; every bit of
+ * arithmetic in this file is UTC. So the bridge takes the LOCAL calendar day
+ * and builds UTC midnight of that same day.
+ *
+ * This used to be `new Date(value + 'T00:00:00Z')`, which only works on a
+ * string: on a `Date` it concatenates the long human-readable form, and
+ * `new Date()` of that is Invalid Date. Measured: the route answered 500 to
+ * everyone and wrote nothing (TEN-11, #235). The naive fix —
+ * `value.toISOString()` — would shift the day east of Greenwich, which is the
+ * family of #211.
+ */
+function toUtcMidnight(value: Date | string): Date {
+  if (typeof value === 'string') return new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
 }
 
 function addDays(date: Date, days: number): Date {
@@ -98,31 +116,38 @@ export function computeNextPeriod(
 }
 
 export async function generatePayPeriods(
+  scope: EntityScope,
   payScheduleId: string,
   count: number
 ): Promise<string[]> {
-  const schedResult = await query<{
+  // TEN-11 (#235): the schedule used to be read by `WHERE id = $1` alone. The
+  // route was broken for everyone (see `toUtcMidnight`), so it leaked nothing
+  // — but fixing that bug without this boundary would have opened it.
+  //
+  // Here the generic helper IS right, unlike for `pay_runs`: `pay_schedules`
+  // has its own `entity_id`, so the scope becomes `entity_id = $2`. It throws
+  // NotFoundError — the same 404 for a foreign schedule and a missing one,
+  // where it used to be a plain Error (500). Checking first and writing after
+  // is sound here: nothing in `src/` ever updates `pay_schedules.entity_id`.
+  const s = await requireByIdInScope<{
     tenant_id: string;
     frequency: PayScheduleInput['frequency'];
-    first_period_start: string;
+    first_period_start: Date | string;
     pay_day_offset: number;
-  }>(
-    `SELECT tenant_id, frequency, first_period_start, pay_day_offset FROM pay_schedules WHERE id = $1`,
-    [payScheduleId]
-  );
-  if (schedResult.rows.length === 0) throw new Error('pay_schedule not found');
-  const s = schedResult.rows[0];
+  }>('pay_schedules', payScheduleId, scope, {
+    columns: 'tenant_id, frequency, first_period_start, pay_day_offset',
+  });
 
-  const lastResult = await query<{ period_end: string }>(
+  const lastResult = await query<{ period_end: Date | string }>(
     `SELECT period_end FROM pay_periods WHERE pay_schedule_id = $1 ORDER BY period_end DESC LIMIT 1`,
     [payScheduleId]
   );
 
   let cursor: Date;
   if (lastResult.rows.length > 0) {
-    cursor = new Date(lastResult.rows[0].period_end + 'T00:00:00Z');
+    cursor = toUtcMidnight(lastResult.rows[0].period_end);
   } else {
-    cursor = addDays(new Date(s.first_period_start + 'T00:00:00Z'), -1);
+    cursor = addDays(toUtcMidnight(s.first_period_start), -1);
   }
 
   const ids: string[] = [];

@@ -1,5 +1,10 @@
+import * as path from 'node:path';
+import * as readline from 'node:readline/promises';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { stdin } from 'node:process';
 import type { Command } from 'commander';
 import { resolveEntity, bootstrapTenant, type AgentContext } from '../ai/context.js';
+import { resolveReviewer } from '../ai/draft-service.js';
 import {
   listClosablePeriods,
   nextPeriodToClose,
@@ -13,11 +18,41 @@ import {
   type PeriodCloseChecklistItem,
 } from '../services/accounting/period-close.js';
 import { explainCloseCheck } from '../services/accounting/close-explain.js';
+import {
+  conductClose,
+  describeLiveRun,
+  describeOpenRun,
+  isClosingStep,
+  latestRunOf,
+  liveRunOf,
+  openRunOf,
+  CLOSING_STEPS,
+  type ClosingRunOutcome,
+} from '../services/accounting/closing-conductor.js';
+import {
+  buildClosingPack,
+  latestClosedPeriodOf,
+  parseClosingPack,
+  storeClosingPack,
+  verdictFindings,
+  verifyClosingPack,
+  type ClosingPack,
+  type PackDifference,
+  type PackVerdict,
+} from '../services/accounting/closing-pack.js';
+import { resolvePeriod } from '../services/accounting/fiscal-calendar-service.js';
+import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
 import { translateDomainError } from './entry-command.js';
 import type { Palette } from './palette.js';
 import {
+  abortedByUser,
+  blockedByState,
   declareRisk,
+  gateMutation,
   render,
+  resolveFormat,
+  requireExplicitEntity,
+  resolveActiveEntity,
   withContext,
   withOutput,
   withStrict,
@@ -31,21 +66,30 @@ import {
 } from './kernel/index.js';
 
 // ============================================================
-// mnemosine closing · cierre-proceso — LA SUPERFICIE DE LECTURA DEL CIERRE
+// mnemosine closing · cierre-proceso — EL CIERRE COMO PROCESO
 //
-// F06d convertirá el cierre en un PROCESO (tareas, dueños, firma, paquete);
-// este tramo entrega sólo sus tres hojas de LECTURA, que ya tienen backend:
+// F06b entregó las tres hojas de LECTURA, que ya tenían backend:
 // `getCloseReadiness` (motor + bloqueos de IA) y los detectores de
-// `getPeriodCloseStatus`, ahora con código estable por casilla.
+// `getPeriodCloseStatus`, con código estable por casilla.
 //
 //   preview  — ¿puede el periodo entrar en cierre, y qué falta?
 //   check    — el catálogo de verificaciones, o sólo las nombradas
 //   explain  — los renglones ofensores de UNA verificación y su remedio
 //
-// Las tres son ✓ para el agente: leer nunca certifica nada. Las otras siete
-// filas de `closing` (start/status/task*/approve/pack) son de F06d y aquí NO
-// existen — ni siquiera como esqueleto, porque un comando que existe y no
-// hace lo que su fila promete es peor que su ausencia.
+// Las tres son ✓ para el agente: leer nunca certifica nada.
+//
+// A6 AÑADE EL CONDUCTOR, y sólo él:
+//
+//   run           — conduce el cierre: devengo, amortización, depreciación,
+//                   checklist y cierre suave, en ese orden y una vez cada uno
+//   pack generate — sella las cifras del periodo en un expediente
+//   pack verify   — el expediente vuelve a correrse contra los libros
+//
+// Las filas de F06d que siguen sin existir —`start`, `status`, `task*`,
+// `approve`, `calendar*`, `template*`— siguen sin existir NI COMO ESQUELETO,
+// porque un comando que existe y no hace lo que su fila promete es peor que su
+// ausencia. Lo que A6 entrega son las dos que su tarjeta nombra: el conductor y
+// su expediente.
 //
 // `close --check` SIGUE EXISTIENDO como bandera de la hoja `close` (REGISTRY
 // §5 #6): `closing check` no la sustituye, la complementa con códigos
@@ -57,6 +101,8 @@ export interface ClosingCommandDeps {
   shutdown: (code: number) => Promise<void> | void;
   reportError: (err: unknown) => void;
   home?: string;
+  /** Costura de prueba: responde la confirmación de `closing run`. */
+  confirm?: (question: string) => Promise<boolean>;
 }
 
 interface CommonOpts {
@@ -137,6 +183,146 @@ function makeRunner(deps: ClosingCommandDeps) {
 }
 
 /**
+ * El reparto de los pasos en pantalla. Puro y exportado: el contrato de lo que
+ * el operador lee no necesita una base para probarse.
+ */
+export function renderSteps(
+  outcome: ClosingRunOutcome,
+  c: Pick<Palette, 'dim' | 'red'>
+): string[] {
+  const STEP_MARK: Record<string, string> = {
+    done: MARK.done,
+    skipped: '·',
+    pending: '·',
+    blocked: MARK.missing,
+    failed: MARK.missing,
+  };
+  const width = Math.max(...CLOSING_STEPS.map((s) => s.length));
+  return outcome.steps.map((p) => {
+    const mark = STEP_MARK[p.status] ?? '?';
+    const body = `  ${mark} ${p.step.padEnd(width)}  ${p.detail}`;
+    const suffix = p.priorAttempt ? c.dim('  (also recorded by an earlier attempt of this run)') : '';
+    return p.status === 'blocked' || p.status === 'failed'
+      ? c.red(body) + suffix
+      : body + suffix;
+  });
+}
+
+/**
+ * El código de salida de una corrida, en UNA regla para el ensayo y para la
+ * corrida de verdad.
+ *
+ * La lección es de `payroll accrue`, y se paga cara: allí el ensayo y la
+ * corrida contestaban distinto a la misma condición, de modo que un mes con
+ * todas las fichas rotas salía 4 en ensayo y 0 corriendo. Aquí la condición se
+ * lee de los PASOS, que son los mismos en los dos modos.
+ *
+ * Y un paso fallido no sale siempre 1. Si el motor LANZÓ, sale lo que su error
+ * merece —un panel mal contestado es un 4 en `depreciation run`, y tiene que
+ * serlo aquí también, o un guion no distingue un criterio roto de un proceso
+ * caído—. Si el motor devolvió errores por renglón, son hallazgos de datos: 4.
+ */
+export function runExitCode(outcome: ClosingRunOutcome): ExitCodeValue {
+  const fallido = outcome.steps.find((p) => p.status === 'failed');
+  if (fallido) {
+    return fallido.cause !== undefined
+      ? exitCodeFor(translateDomainError(fallido.cause))
+      : ExitCode.VALIDATION;
+  }
+  return checkExitCode({
+    blocking: outcome.steps.filter((p) => p.status === 'blocked').length,
+    warning: 0,
+  });
+}
+
+/**
+ * Las filas del anexo en csv, tsv y md: las diferencias Y lo que el veredicto
+ * acusa sin ser una diferencia de campo.
+ *
+ * Sólo con las diferencias, un expediente forjado —concuerda consigo mismo,
+ * sus cifras reproducen, nadie lo emitió— escribía un anexo VACÍO y salía 4
+ * sin decir por qué: el auditor recibía un archivo sin filas y un rojo.
+ */
+/** A row of the verify annex: a field difference, or a verdict-level finding. */
+export interface VerdictRow {
+  kind: PackDifference['kind'] | 'seal' | 'registry' | 'envelope';
+  path: string;
+  expected: string;
+  actual: string;
+}
+
+export function verdictRows(verdict: PackVerdict): VerdictRow[] {
+  const rows: VerdictRow[] = [];
+  if (!verdict.sealIntact) {
+    rows.push({ kind: 'seal', path: 'seal', expected: verdict.expectedSeal, actual: verdict.recomputedSeal });
+  }
+  if (!verdict.issued) {
+    rows.push({ kind: 'registry', path: 'closing_packs', expected: 'issued by these books', actual: 'not issued' });
+  } else if (!verdict.envelopeMatches) {
+    rows.push({ kind: 'envelope', path: 'envelope', expected: 'as registered', actual: 'differs' });
+  }
+  return [...rows, ...verdict.differences];
+}
+
+/**
+ * La última línea de la corrida, dicha según lo que de verdad pasó.
+ *
+ * Decía «arregla la causa y vuelve a correr con --resume» en cualquier alto, y
+ * tras un ensayo eso se negaba (el ensayo no abre corrida), y tras un
+ * `--stop-at` no había causa que arreglar.
+ */
+export function runClosingLine(
+  outcome: ClosingRunOutcome,
+  stopAt?: string,
+  hasOpenRun = false,
+  hasLiveRun = false
+): string {
+  const step = outcome.haltedAtStep;
+  // Tras un ensayo, la corrida de verdad necesitará --resume si el periodo
+  // tiene una corrida abierta: sin decirlo, el consejo del ensayo manda a un
+  // comando que el conductor va a negar. And a run another conductor is still
+  // acting on is not one to resume yet: the conductor would refuse that too.
+  const resumable = hasOpenRun ? 'run it with --resume' : 'run it without --dry-run';
+  const how = hasLiveRun ? 'wait until the conductor acting on its run stops, then run it with --resume' : resumable;
+  switch (outcome.status) {
+    case 'completed':
+      return `The close is conducted. Seal the dossier with \`mnemosine closing pack generate "${outcome.periodName}"\`.`;
+    case 'stopped':
+      return `Stopped before ${step}, as asked. The period stays open; continue with --resume.`;
+    case 'blocked':
+      return `Blocked at ${step}. Clear the blocking items, then continue with --resume.`;
+    case 'failed':
+      return `Failed at ${step}. Fix the cause, then continue with --resume.`;
+    case 'previewed':
+      if (step && step === stopAt) {
+        return `Nothing was written. A real run would stop before ${step}; to conduct, ${how}.`;
+      }
+      if (step) {
+        return `Nothing was written. The checklist would block at ${step}: clear it, then ${how}.`;
+      }
+      return `Nothing was written. To conduct, ${how}.`;
+  }
+}
+
+/**
+ * Escribe el expediente a un archivo TEMPORAL junto al destino, y devuelve su
+ * ruta: el destino no se toca hasta que el registro acepte el expediente.
+ *
+ * Los bytes son los del documento sellado, con salto final: `closing pack
+ * verify` los vuelve a leer y `sealOf` los vuelve a hashear, así que el disco
+ * y el sello no pueden discrepar. Crea la carpeta si falta, como el XML del
+ * Anexo 24: pedir un destino y que falle por un directorio inexistente es
+ * fricción sin ganancia.
+ */
+function writeDossierDraft(destination: string, pack: ClosingPack): string {
+  const absolute = path.resolve(destination);
+  mkdirSync(path.dirname(absolute), { recursive: true });
+  const draft = `${absolute}.${process.pid}.tmp`;
+  writeFileSync(draft, `${JSON.stringify(pack, null, 2)}\n`, 'utf8');
+  return draft;
+}
+
+/**
  * El periodo sobre el que se pregunta: el nombrado, o el más viejo abierto —
  * el mismo criterio que la hoja `close`, porque las dos superficies tienen
  * que contestar sobre EL MISMO mes o una previsualización no previsualiza.
@@ -161,6 +347,62 @@ async function periodoOMasViejo(ctx: AgentContext, nombre?: string): Promise<Clo
     );
   }
   return elegido;
+}
+
+/**
+ * El periodo que el conductor conduce: uno ABIERTO.
+ *
+ * `listClosablePeriods` devuelve abiertos Y en cierre suave, porque es la
+ * lista de lo que `close` puede cerrar del todo. Para el conductor un periodo
+ * en cierre suave no tiene nada que conducir, y tomarlo por omisión volvía a
+ * correr los motores sobre el mes ya cerrado mientras el abierto esperaba.
+ */
+async function periodToConduct(ctx: AgentContext, name?: string): Promise<ClosablePeriod> {
+  const candidates = await listClosablePeriods(ctx);
+  if (!name) {
+    const openPeriods = candidates.filter((p) => p.status === 'open');
+    const chosen = openPeriods.find((p) => p.overdue) ?? openPeriods[0];
+    if (!chosen) throw notFound('No open periods: nothing to conduct.');
+    return chosen;
+  }
+  // EL MISMO RESOLVEDOR QUE `closing pack generate` y `period show`: id,
+  // AAAA-MM o nombre, y un nombre ambiguo se NIEGA en vez de tomar la primera
+  // coincidencia. La hoja irreversible no puede resolver con más holgura que
+  // la de lectura: «July» casaba primero con el julio ya cerrado y la negativa
+  // hablaba de otro mes.
+  const resolved = await resolvePeriod(ctx.entityId, name);
+  const chosen = candidates.find((p) => p.id === resolved.id);
+  if (!chosen || chosen.status !== 'open') {
+    throw blockedByState(
+      `${resolved.period_name} is already ${resolved.status}: there is nothing left to conduct. ` +
+        `Seal it with \`mnemosine closing pack generate "${resolved.period_name}"\`.`
+    );
+  }
+  return chosen;
+}
+
+/**
+ * El periodo que se sella: CUALQUIERA, en cualquier estado.
+ *
+ * Un expediente se pide casi siempre de un mes ya cerrado —el cierre duro
+ * incluido—, y la lista de periodos «por cerrar» no los tiene. Por omisión, el
+ * último cerrado: el mes que se acaba de entregar, no el más viejo abierto.
+ */
+async function periodToSeal(
+  ctx: AgentContext,
+  name?: string
+): Promise<{ id: string; period_name: string }> {
+  if (name) {
+    const p = await resolvePeriod(ctx.entityId, name);
+    return { id: p.id, period_name: p.period_name };
+  }
+  const latest = await latestClosedPeriodOf(ctx.entityId);
+  if (!latest) {
+    throw notFound(
+      'No closed period to seal yet. Name the period to seal an open one on purpose, e.g. `closing pack generate 2026-07`.'
+    );
+  }
+  return latest;
 }
 
 function cabeceraDePeriodo(r: CloseReadiness, c: Palette): string {
@@ -217,15 +459,73 @@ Examples:
   # travels with the rows, so the --limit cut never passes in silence.
   mnemosine closing explain depreciation-posted --format csv -o cierre-julio-depreciacion.csv
 `,
+  run: `
+Examples:
+  # ALWAYS this one first: it says what is pending WITHOUT writing, and it
+  # really evaluates the checklist -- the one step that can be asked for free.
+  mnemosine closing run --dry-run
+  # Conduct the whole month. Three of its steps post to the ledger.
+  mnemosine closing run "July 2026" --entity "Acme SA de CV" --yes
+  # Do the month but leave the period open: --stop-at stops BEFORE the step.
+  mnemosine closing run --stop-at soft-close --yes
+  # Continue a run somebody left halted. Without --resume it refuses, on
+  # purpose: continuing another person's run in silence is how "I ran it"
+  # stops being a claim anybody can stand behind. Every step runs again; the
+  # engines post only what is still missing.
+  mnemosine closing run --resume --yes
+`,
+  packGenerate: `
+Examples:
+  # Seal the month just closed, and write the file the third party gets.
+  mnemosine closing pack generate "July 2026" -o cierre-julio.json
+  # Without -o the receipt carries the whole document, for a machine that
+  # would rather pipe it than write it. Quote the jq filter: zsh globs [0].
+  mnemosine closing pack generate 2026-07 --json | jq '.rows[0].document' > cierre-julio.json
+`,
+  packVerify: `
+Examples:
+  # The acceptance test of A6: the third party re-runs the dossier.
+  mnemosine closing pack verify cierre-julio.json --entity "Acme SA de CV"
+  # One row per field that differs, as CSV -- the annex an auditor asks for.
+  mnemosine closing pack verify cierre-julio.json --format csv -o deriva.csv
+  # A renamed entity or account is a warning, not a moved figure; make it fail too.
+  mnemosine closing pack verify cierre-julio.json --strict
+`,
 } as const;
 
 export function registerClosingCommand(program: Command, deps: ClosingCommandDeps): void {
   const closing = program
     .command('closing')
     .alias('cierre-proceso')
-    .description('The close as a process: its read-only surface — readiness, named checks, offenders');
+    .description('The close as a process: conduct it, read it, and hand over the dossier that proves it');
 
   const run = makeRunner(deps);
+
+  /**
+   * La confirmación, con la gramática del núcleo y no una escrita a mano:
+   * «sí» tecleado en español cuenta como sí en todo el CLI, y una comparación
+   * local volvería a contarlo como no.
+   */
+  const ask = async (question: string): Promise<boolean> => {
+    if (deps.confirm) return deps.confirm(question);
+    if (!stdin.isTTY) return false;
+    // La pregunta va a STDERR: con `--json | jq` en una terminal, una pregunta
+    // escrita en stdout se mete en la tubería y rompe el documento.
+    const rl = readline.createInterface({ input: stdin, output: process.stderr });
+    try {
+      const verdict = await confirmarConReintento(
+        (prompt) => rl.question(prompt).catch(() => null),
+        deps.palette.cyan(`${question} [y/N] `)
+      );
+      if (verdict.incomprendida !== undefined) {
+        process.stderr.write(`${noEntendi(verdict.incomprendida)}; taking that as no.\n`);
+      }
+      return verdict.si;
+    } finally {
+      rl.close();
+    }
+  };
+
   const entityOf = async (opts: CommonOpts) => {
     // Tenant PRIMERO, como en toda la familia: bajo RLS una conexión sin
     // app.current_tenant ve cero filas en legal_entities.
@@ -450,5 +750,349 @@ export function registerClosingCommand(program: Command, deps: ClosingCommandDep
         // hallazgo lo da `closing check`; esta hoja sale 0 si pudo mirar.
         return ExitCode.OK;
       })
+  );
+  // ---- closing run -------------------------------------------------
+  //
+  // A6 · EL CONDUCTOR. Everything it does, some other command could already do
+  // by hand and in the right order; what it adds is that nobody has to
+  // remember the order, and that what it did is written down.
+  const runLeaf = closing
+    .command('run')
+    .alias('ejecutar')
+    .argument('[period]', 'open period name or id (default: the oldest open one)')
+    .description(
+      'Conduct the close: accrue, amortize, depreciate, verify the checklist and soft-close, in that order'
+    );
+  withContext(runLeaf);
+  withOutput(runLeaf);
+  runLeaf.option(
+    '--stop-at <step>',
+    `stop BEFORE this step: ${CLOSING_STEPS.join(', ')}`
+  );
+  runLeaf.option('--resume', 'continue the open run of this period; every step runs again, posting only what is missing');
+  // IRREVERSIBLE, and it does not pretend otherwise: three of its five steps
+  // post to the ledger of migration 041, where nothing is edited or deleted.
+  // The agent is refused: it proposes, a human conducts.
+  //
+  // LA LLAVE ES INNECESARIA, y se declara para que la ayuda lo diga en vez de
+  // prometer una deduplicación que otro mecanismo ya da: cada motor se niega a
+  // postear dos veces el mismo mes por su cuenta (la depreciación pregunta al
+  // mayor, la amortización al calendario, el devengo a la cédula), el cierre
+  // suave mira el estado del periodo antes de tocarlo, y un candado consultivo
+  // impide que dos conductores corran el mismo periodo a la vez. Una llave
+  // encima habría sido una cuarta guarda que además ROMPE la continuación:
+  // devolvería el resultado grabado en vez de volver a correr los pasos.
+  declareRisk(runLeaf, {
+    risk: 'irreversible',
+    agent: false,
+    writes:
+      'journal_entries + journal_entry_lines (through the accrual, amortization and depreciation engines), ' +
+      'closing_runs, closing_run_steps, and fiscal_periods.status on the soft close',
+    llave: {
+      innecesaria:
+        'the engines never post the same month twice and an advisory lock keeps two conductors off the ' +
+        'same period: running again, with --resume when a run is open, duplicates nothing',
+    },
+  });
+  runLeaf.addHelpText('after', EJEMPLOS.run);
+  runLeaf.action(
+    (
+      periodArg: string | undefined,
+      opts: CommonOpts & {
+        stopAt?: string;
+        resume?: boolean;
+        dryRun?: boolean;
+        yes?: boolean;
+      }
+    ) =>
+      run(async () => {
+        const { dryRun } = gateMutation(runLeaf, opts as unknown as Record<string, unknown>);
+
+        if (opts.stopAt !== undefined && !isClosingStep(opts.stopAt)) {
+          // Un paso desconocido es error de USO y no un filtro vacío que sale
+          // 0: la misma lección que `closing check --check`.
+          throw usageError(
+            `Unknown step "${opts.stopAt}". The steps are: ${CLOSING_STEPS.join(', ')}.`
+          );
+        }
+        const stopAt = opts.stopAt;
+
+        bootstrapTenant(opts.tenant);
+        // LA MISMA ENTIDAD EN EL ENSAYO QUE EN LA CORRIDA. Un ensayo resuelto
+        // por otro camino —sin la entidad fijada, sin MNEMOSINE_ENTITY—
+        // previsualizaría una sociedad y la corrida actuaría sobre otra.
+        const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+        const period = await periodToConduct(ctx, periodArg);
+
+        // UNA CORRIDA ABIERTA NO SE CONTINÚA EN SILENCIO.
+        //
+        // Esta comprobación es la CORTESÍA: llega antes de la pregunta, para no
+        // hacer confirmar a nadie algo que se le va a negar. La regla vive en
+        // el conductor, bajo el candado (`openRun`), donde ningún llamador
+        // puede saltársela. Es un estado de los libros y no un error de las
+        // banderas: sale 5, no 2.
+        const existingRun = await openRunOf(ctx.entityId, period.id);
+        // A run somebody is still conducting is not "open for --resume": the
+        // conductor would refuse it, so neither the refusal nor the dry run's
+        // advice may send the operator there.
+        const liveRun = await liveRunOf(ctx.entityId, period.id);
+        if (!dryRun) {
+          if (liveRun) throw blockedByState(describeLiveRun(liveRun));
+          if (existingRun && opts.resume !== true) {
+            throw blockedByState(
+              `This period already has an open close run (${describeOpenRun(existingRun)}). ` +
+                'Continue it with --resume, or look at it first with --dry-run.'
+            );
+          }
+          if (!existingRun && opts.resume === true) {
+            throw blockedByState(
+              'Nothing to resume: this period has no open close run. Run it without --resume to start one.'
+            );
+          }
+        }
+
+        if (!dryRun && opts.yes !== true) {
+          const si = await ask(
+            `Conduct the close of ${period.period_name}? Three of its steps post to the ledger, ` +
+              'which does not admit undo, and the last one soft-closes the period.'
+          );
+          if (!si) {
+            throw abortedByUser(
+              stdin.isTTY
+                ? 'Nothing was done: the ledger was not touched.'
+                : 'Nothing was done: there is no terminal to confirm on. Add -y to conduct without asking, ' +
+                  'or --dry-run to see what is pending without writing.'
+            );
+          }
+        }
+
+        const outcome = await conductClose(ctx, period, {
+          userId: (await resolveReviewer(ctx.tenantId, opts.user)).userId,
+          stopAt,
+          dryRun,
+          resume: opts.resume === true,
+        });
+
+        if (!legible(opts)) {
+          // UN documento y no dos tablas: con --json, dos `render` seguidos
+          // escriben dos sobres pegados y `JSON.parse` revienta. La causa de un
+          // paso fallido no viaja: es un objeto de error, y su mensaje ya está
+          // en `detail`.
+          render([{ ...outcome, steps: outcome.steps.map(({ cause: _cause, ...s }) => s) }], {
+            ...opts,
+            idField: 'periodId',
+          });
+        } else {
+          const c = deps.palette;
+          const out = process.stdout;
+          out.write(`\n${c.bold(period.period_name)}  ${c.dim(outcome.status)}\n\n`);
+          for (const line of renderSteps(outcome, c)) out.write(`${line}\n`);
+          out.write(`\n  ${runClosingLine(outcome, stopAt, existingRun !== null, liveRun !== null)}\n\n`);
+        }
+
+        return runExitCode(outcome);
+      })
+  );
+
+  // ---- closing pack ------------------------------------------------
+  const packGroup = closing
+    .command('pack')
+    // `paquete` y no `expediente`: el catálogo publicó `cierre-proceso paquete
+    // generar` antes de que esto existiera, y un alias que no case con la fila
+    // publicada obliga a mantener dos nombres del mismo acto. La prosa sigue
+    // diciendo «expediente», que es la palabra de la tarjeta de A6.
+    .alias('paquete')
+    .description('The dossier of a close: generate it, and verify that its figures still reproduce');
+
+  // ---- closing pack generate ---------------------------------------
+  const generateLeaf = packGroup
+    .command('generate')
+    .alias('generar')
+    .argument('[period]', 'period name, YYYY-MM or id, in any status (default: the most recently closed one)')
+    .description('Seal the period figures into a dossier a third party can re-run');
+  withContext(generateLeaf);
+  withOutput(generateLeaf);
+  declareRisk(generateLeaf, {
+    risk: 'escritura',
+    agent: false,
+    writes: 'closing_packs (append-only: a correction is a NEW dossier, never a rewrite)',
+  });
+  // `-o` AQUÍ NOMBRA EL EXPEDIENTE, NO LA TABLA, igual que en las dos
+  // `e-accounting ... generate` con su XML. La descripción que inyecta
+  // `withOutput` dice lo contrario, y una ayuda que promete algo distinto de lo
+  // que el código hace es la clase de mentira que este repositorio ya cazó en
+  // `ap reconcile`: se corrige la DESCRIPCIÓN de esta hoja, y la grafía y la
+  // forma corta las sigue gobernando el diccionario.
+  const dossierOutputOption = generateLeaf.options.find((o) => o.long === '--output');
+  if (dossierOutputOption) {
+    dossierOutputOption.description =
+      'write the dossier to this path (closing_packs keeps its own copy)';
+  }
+  generateLeaf.addHelpText('after', EJEMPLOS.packGenerate);
+  generateLeaf.action((periodArg: string | undefined, opts: CommonOpts) =>
+    run(async () => {
+      bootstrapTenant(opts.tenant);
+      const ctx = await requireExplicitEntity({ entity: opts.entity }, { home: deps.home });
+      const period = await periodToSeal(ctx, periodArg);
+      const latestRun = await latestRunOf(ctx.entityId, period.id);
+
+      const pack = await buildClosingPack(ctx.entityId, period.id, {
+        runId: latestRun?.id ?? null,
+        userId: (await resolveReviewer(ctx.tenantId, opts.user)).userId,
+      });
+
+      // EL ARCHIVO ANTES QUE EL REGISTRO, Y EL DESTINO AL FINAL. `closing_packs`
+      // es de sólo agregar: una fila escrita antes de un `-o` que falla
+      // (carpeta sin permiso, disco lleno) quedaría para siempre como un
+      // expediente EMITIDO que nadie recibió. Así que el expediente se escribe
+      // primero a un temporal; si el registro falla, se borra el TEMPORAL —y
+      // no el destino, que puede ser un expediente anterior con ese nombre—;
+      // y sólo cuando el registro lo aceptó el temporal pasa a ser el destino.
+      const destination = typeof opts.output === 'string' && opts.output !== '' ? opts.output : null;
+      const draft = destination ? writeDossierDraft(destination, pack) : null;
+      let id: string;
+      try {
+        id = await storeClosingPack(ctx.entityId, period.id, pack);
+      } catch (err) {
+        if (draft) rmSync(draft, { force: true });
+        throw err;
+      }
+      if (draft && destination) renameSync(draft, path.resolve(destination));
+
+      const receipt = {
+        pack: id,
+        period: period.period_name,
+        as_of: pack.sealed.as_of,
+        seal: pack.seal,
+        accounts: pack.sealed.figures.trial_balance.length,
+        debit: pack.sealed.figures.totals.debit,
+        credit: pack.sealed.figures.totals.credit,
+        balanced: pack.sealed.figures.totals.balanced,
+        run: pack.envelope.run_id,
+        file: destination,
+      };
+
+      // El recibo se lee en pantalla aunque haya `-o`: ese destino lo ocupa el
+      // expediente, así que `legible` no puede mirarlo aquí (e-accounting toma
+      // la misma excepción por la misma razón).
+      const receiptIsReadable =
+        !opts.json && (opts.format ?? 'table') === 'table' && !opts.quiet && opts.fields === undefined;
+      if (receiptIsReadable) {
+        render([receipt], { format: 'table', idField: 'pack' });
+        process.stderr.write(
+          deps.palette.dim(`verify it with: mnemosine closing pack verify ${receipt.file ?? '<file>'}\n`)
+        );
+      } else {
+        // El destino ya lo ocupa el expediente: el recibo sale por stdout sin
+        // `output`, como el recibo del XML del Anexo 24. Y lleva el expediente
+        // ENTERO dentro, para que una máquina que no usó `-o` no se quede sin
+        // el documento que acaba de sellar.
+        const { output: _destination, ...withoutDestination } = opts;
+        render([{ ...receipt, document: pack }], { ...withoutDestination, idField: 'pack' });
+      }
+      return ExitCode.OK;
+    })
+  );
+
+  // ---- closing pack verify -----------------------------------------
+  const verifyLeaf = packGroup
+    .command('verify')
+    // `comprobar`, no `verificar`: el diccionario del núcleo asigna
+    // «verificar» a `check` y «comprobar» a `verify`, y dos hojas hermanas que
+    // se llamaran igual en castellano —`closing check` es «verificar»— serían
+    // dos nombres para dos actos distintos.
+    .alias('comprobar')
+    .argument('<file>', 'the dossier to verify')
+    .description(
+      'Re-run a dossier against the books: was it issued here, do its figures still reproduce, and exactly what moved'
+    );
+  withContext(verifyLeaf);
+  withOutput(verifyLeaf);
+  withStrict(verifyLeaf);
+  declareRisk(verifyLeaf, { risk: 'lectura', agent: true });
+  verifyLeaf.addHelpText('after', EJEMPLOS.packVerify);
+  verifyLeaf.action((file: string, opts: CommonOpts) =>
+    run(async () => {
+      let text: string;
+      try {
+        text = readFileSync(file, 'utf8');
+      } catch {
+        throw notFound(`Cannot read ${file}.`);
+      }
+      // UN ARCHIVO QUE NO ES UN EXPEDIENTE ES ERROR DE USO, no un fallo
+      // genérico: quien lo teclea se equivocó de ruta, y el 1 —«último
+      // recurso» del contrato §4— no le dice eso. El motor lanza un Error
+      // pelado a propósito: los códigos de salida son del CLI, no suyos.
+      let pack: ClosingPack;
+      try {
+        pack = parseClosingPack(text);
+      } catch (err) {
+        throw usageError(err instanceof Error ? err.message : String(err));
+      }
+
+      bootstrapTenant(opts.tenant);
+      // LA ENTIDAD LA DICE EL EXPEDIENTE, y se comprueba contra la que el
+      // operador tiene delante —resuelta como la resuelve toda hoja: bandera,
+      // variable, entidad fijada—. Verificar el expediente de una sociedad
+      // mientras se cree estar mirando el de su hermana es exactamente el modo
+      // en que una verificación en verde no prueba nada.
+      const { ctx } = await resolveActiveEntity({ entity: opts.entity }, { home: deps.home });
+      // Sin distinguir mayúsculas: Postgres compara UUID así, y la guarda del
+      // archivo los admite en cualquier grafía.
+      if (ctx.entityId.toLowerCase() !== pack.sealed.entity.id.toLowerCase()) {
+        throw usageError(
+          `This dossier belongs to "${pack.sealed.entity.name}" and the active entity is ` +
+            `"${ctx.entityName}". Name the right one with --entity.`
+        );
+      }
+
+      const verdict = await verifyClosingPack(pack);
+      const findings = verdictFindings(verdict);
+
+      // El formato se normaliza COMO LO NORMALIZA LA CAPA DE SALIDA
+      // (`resolveFormat`): comparar el texto crudo dejaba `--format CSV` en la
+      // rama del veredicto, que la capa de salida sí escribía como CSV —con
+      // las diferencias apretadas en una celda—.
+      const tabular = ['csv', 'tsv', 'md'].includes(resolveFormat(opts));
+      if (tabular) {
+        // EL ANEXO QUE PIDE UN AUDITOR ES UNA FILA POR CAMPO, no un veredicto
+        // con las diferencias apretadas en una celda JSON: en csv, tsv y md las
+        // FILAS son las diferencias. El veredicto entero es de --json.
+        render(verdictRows(verdict) as unknown as Row[], { ...opts, idField: 'path' });
+      } else if (!legible(opts)) {
+        render([verdict as unknown as Row], { ...opts, idField: 'expectedSeal' });
+      } else {
+        const c = deps.palette;
+        const out = process.stdout;
+        const mark = (ok: boolean) => (ok ? MARK.done : MARK.missing);
+        out.write(
+          `\n${c.bold(pack.sealed.period.name)}  ${c.dim(`${pack.sealed.entity.name} · as of ${pack.sealed.as_of}`)}\n\n`
+        );
+        out.write(`  ${mark(verdict.sealIntact)} the file agrees with its seal\n`);
+        out.write(
+          `  ${mark(verdict.issued)} these books issued a dossier with this seal` +
+            `${verdict.issuedAt ? c.dim(` (${verdict.issuedAt})`) : ''}\n`
+        );
+        out.write(`  ${mark(verdict.figuresReproduce)} the figures reproduce against the books\n`);
+        const warnings: string[] = [];
+        if (!verdict.identityUnchanged) {
+          warnings.push(
+            'a name changed since sealing — the entity, the period or an account label (rows marked identity); no figure moved because of it'
+          );
+        }
+        if (verdict.issued && !verdict.envelopeMatches) {
+          warnings.push('the envelope (who, when, which run) is not the one registered when it was issued');
+        }
+        for (const a of warnings) out.write(`\n  ${c.dim('warning:')} ${a}`);
+        if (warnings.length > 0) out.write('\n');
+        if (verdict.differences.length > 0) {
+          out.write('\n');
+          render(verdict.differences as unknown as Row[], { format: 'table', idField: 'path' });
+        }
+        out.write('\n');
+      }
+
+      return checkExitCode(findings, { strict: opts.strict });
+    })
   );
 }

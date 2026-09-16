@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../../../../database/connection.js';
-import { ValidationError } from '../../../../utils/errors.js';
+import type { EntityScope } from '../../../../database/scope.js';
+import { NotFoundError, ValidationError } from '../../../../utils/errors.js';
 
 // ============================================================
 // USA Benefits — 401k, HSA, FSA, Section 125 cafeteria plans
@@ -55,21 +56,45 @@ export async function createBenefitPlan(input: BenefitPlanInput): Promise<string
   return id;
 }
 
-export async function electBenefit(input: EmployeeElectionInput): Promise<string> {
-  const id = uuidv4();
-  await query(
+/**
+ * Creates or OVERWRITES an employee's election — type, value, date — and
+ * reactivates it. The table keeps no history, so the previous value is gone.
+ *
+ * TEN-11 (#235), measured against Postgres: with a session granted only
+ * company A, all three crossings answered 201 — the sibling's employee with an
+ * own plan, the sibling's employee with its own plan (reactivating and
+ * rewriting a deactivated election), and an OWN employee with the sibling's
+ * plan. It was an INSERT … ON CONFLICT with no WHERE at all, and a
+ * non-existent employee answered 500 (the foreign key) while a foreign one
+ * answered 201: an oracle.
+ *
+ * There are TWO keys to scope, not one. The boundary lives inside the same
+ * statement that writes: the row is built from a SELECT that ties the employee
+ * to the session's entity and the plan to the EMPLOYEE's entity, so no
+ * combination crossing either key produces a row. Zero rows is a 404,
+ * indistinguishable from an id that does not exist. `RETURNING id` also fixes
+ * a smaller lie: it used to answer with a fresh uuid even when it updated.
+ */
+export async function electBenefit(scope: EntityScope, input: EmployeeElectionInput): Promise<string> {
+  const r = await query<{ id: string }>(
     `INSERT INTO employee_benefit_elections
        (id, employee_id, benefit_plan_id, employee_contribution_type,
         employee_contribution_value, effective_date, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, true)
+     SELECT $1, e.id, bp.id, $4, $5, $6, true
+       FROM employees e
+       JOIN benefits_plans bp ON bp.id = $3 AND bp.entity_id = e.entity_id
+      WHERE e.id = $2 AND e.entity_id = $7
      ON CONFLICT (employee_id, benefit_plan_id)
      DO UPDATE SET employee_contribution_type = EXCLUDED.employee_contribution_type,
                    employee_contribution_value = EXCLUDED.employee_contribution_value,
                    effective_date = EXCLUDED.effective_date,
-                   is_active = true`,
-    [id, input.employee_id, input.benefit_plan_id, input.election_type, input.election_value, input.effective_date]
+                   is_active = true
+     RETURNING id`,
+    [uuidv4(), input.employee_id, input.benefit_plan_id, input.election_type, input.election_value,
+     input.effective_date, scope.entityId]
   );
-  return id;
+  if (r.rows.length === 0) throw new NotFoundError('Employee', input.employee_id);
+  return r.rows[0].id;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { toCalendarDate } from '../../utils/calendar-date.js';
 import { registrarAuditoria } from '../audit/audit-log.js';
 import { getPolicy } from '../policy/policy-service.js';
 import type pg from 'pg';
@@ -186,7 +187,9 @@ async function autorizarPosteo(
 
 export async function createJournalEntry(
   entityId: string,
-  entryDate: Date,
+  // A calendar date: 'YYYY-MM-DD', or a Date read by its local fields. See
+  // `toCalendarDate` (#211) — pass the string you hold, never `new Date(str)`.
+  entryDate: Date | string,
   entryType: JournalEntryType,
   description: string,
   lines: JournalEntryLineInput[],
@@ -213,14 +216,22 @@ export async function createJournalEntry(
   const attest: { info: { tenantId: string; entityId: string; entryId: string } | null } = { info: null };
 
   const run = async (client: pg.PoolClient): Promise<JournalEntry> => {
+    // ONE calendar day, and the period, the folio series and the stored date all
+    // come from it (#211). West of Greenwich a UTC-midnight Date used to reach
+    // all three as the previous day: an entry dated March 1st booked into
+    // February, and one dated January 1st refused because December 31st of
+    // the previous year has no period. With a single string they cannot
+    // disagree with each other, whatever the process clock is.
+    const entryDay = toCalendarDate(entryDate);
+
     // Find the fiscal period for the entry date
     const periodResult = await client.query<{ id: string }>(
       `SELECT id FROM fiscal_periods
        WHERE entity_id = $1
-       AND start_date <= $2 AND end_date >= $2
+       AND start_date <= $2::date AND end_date >= $2::date
        AND status NOT IN ('hard_close', 'locked')
        ORDER BY period_number ASC LIMIT 1`,
-      [entityId, entryDate]
+      [entityId, entryDay]
     );
 
     if (periodResult.rows.length === 0) {
@@ -259,7 +270,7 @@ export async function createJournalEntry(
     // Generate entry number (atomic per-entity counter; the row lock it
     // takes lives until this transaction commits, so concurrent posts can
     // never draw the same number — COUNT(*) here used to collide).
-    const entryNumber = await nextEntityNumber(client, entityId, 'journal_entry', 'JE', entryDate);
+    const entryNumber = await nextEntityNumber(client, entityId, 'journal_entry', 'JE', entryDay);
 
     // Create journal entry
     const entryId = uuidv4();
@@ -272,7 +283,7 @@ export async function createJournalEntry(
       [
         entryId, entryNumber, entryType, entityId, fiscalPeriodId,
         options?.sourceType || null, options?.sourceId || null,
-        options?.reference || null, entryDate, description, createdBy,
+        options?.reference || null, entryDay, description, createdBy,
         options?.isReversal ?? false, options?.reversesEntryId || null,
       ]
     );
@@ -649,7 +660,7 @@ export async function reverseWithinTransaction(
   entry: JournalEntry,
   userId: string,
   description: string,
-  reversalDate: Date
+  reversalDate: Date | string
 ): Promise<JournalEntry> {
   if (entry.status !== JournalEntryStatus.POSTED) {
     throw new AccountingError(
@@ -732,7 +743,7 @@ export async function reverseWithinTransaction(
 export async function reverseJournalEntry(
   entryId: string,
   userId: string,
-  options?: { reason?: string; reversalDate?: Date }
+  options?: { reason?: string; reversalDate?: Date | string }
 ): Promise<JournalEntry> {
   const attest: { info: { tenantId: string; entityId: string; entryId: string } | null } = {
     info: null,

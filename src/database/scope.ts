@@ -35,7 +35,14 @@ export type Scope =
   | { kind: 'entity'; tenantId: string; entityId: string }
   | { kind: 'tenant'; tenantId: string };
 
-export const entityScope = (tenantId: string, entityId: string): Scope =>
+/**
+ * The entity variant on its own, so a function can DEMAND it by type. A
+ * boundary that accepts any `Scope` accepts `tenantScope` too, and that
+ * reopens the entity axis for every future caller (TEN-11, #235).
+ */
+export type EntityScope = Extract<Scope, { kind: 'entity' }>;
+
+export const entityScope = (tenantId: string, entityId: string): EntityScope =>
   ({ kind: 'entity', tenantId, entityId });
 
 export const tenantScope = (tenantId: string): Scope => ({ kind: 'tenant', tenantId });
