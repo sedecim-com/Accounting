@@ -8047,6 +8047,115 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E1.2',
+    id: 'a-stored-date-is-read-back-whole',
+    // #241. La otra mitad de #211. Aquélla arregló la ESCRITURA: el día que el
+    // usuario teclea es el que la columna guarda. Ésta es la LECTURA: pg
+    // construye el Date de una columna DATE a medianoche LOCAL, y
+    // `.toISOString()` relee ese instante en UTC — así que al ESTE de Greenwich
+    // devuelve el día anterior al guardado.
+    //
+    // Siete sitios, y no eran display: la puerta del periodo de conciliación
+    // (decide en qué mes cae un movimiento, o lo rechaza por periodo cerrado),
+    // el día que juzga si un descuento por pronto pago sigue vigente, el
+    // fichero ACH que se le entrega al banco —un pay_date de 2026-01-01 salía
+    // como `251231`, el día Y el año, mientras la fila que lo registra guardaba
+    // el correcto—, y lo que el agente le cuenta al usuario como un hecho.
+    //
+    // El criterio CENSA la forma, no los siete sitios: `toISOString` sobre algo
+    // que vino de una columna DATE. Un octavo nace igual de mal el día que
+    // alguien lo escriba.
+    enunciado: 'La fecha que el mayor guardó es la que se lee de vuelta, en cualquier huso',
+    mutantes: [
+      {
+        archivo: 'src/services/payroll/usa/nacha-generator.ts',
+        de: "const [yyyy, mm, dd] = toCalendarDate(date).split('-');",
+        a: "const [yyyy, mm, dd] = new Date(date).toISOString().slice(0, 10).split('-');",
+        porque: 'el fichero ACH vuelve a leer la fecha efectiva en UTC: un pago del 1 de enero sale fechado el 31 de diciembre del año anterior',
+      },
+      {
+        archivo: 'src/services/banking/match-service.ts',
+        de: 'const params = [entityId, toCalendarDate(fecha)];',
+        a: "const params = [entityId, fecha.toISOString().split('T')[0]];",
+        porque: 'la puerta del periodo vuelve a preguntar por el día anterior: el movimiento cae en el mes equivocado o se rechaza por periodo cerrado',
+      },
+      {
+        archivo: 'src/ai/tools/ledger-tools.ts',
+        de: 'je.entry_date::text AS entry_date',
+        a: 'je.entry_date',
+        porque: 'el agente vuelve a serializar un DATE con JSON.stringify, que lo pinta en UTC: le cuenta al usuario un día que no es el guardado',
+      },
+      {
+        archivo: 'tests/utils/stored-dates-are-read-back-whole.spec.ts',
+        de: "const [y, m, d] = iso.split('-').map(Number);\n  return new Date(y, m - 1, d);",
+        a: "return new Date(iso);",
+        porque: 'la fixture deja de imitar a pg —medianoche LOCAL— y pasa a construir medianoche UTC, que es la única forma en que el defecto no se ve',
+      },
+    ],
+    evaluar: () => {
+      const spec = 'tests/utils/stored-dates-are-read-back-whole.spec.ts';
+
+      // 1. EL CENSO. Los sitios que leen una fecha del mayor no la reinterpretan.
+      const VIGILADOS = [
+        'src/services/banking/match-service.ts',
+        'src/services/payments/payment-service.ts',
+        'src/services/payroll/usa/nacha-generator.ts',
+        'src/services/accounting/journal-entry-service.ts',
+        'src/ai/tools/ledger-tools.ts',
+        'src/ai/ingest-service.ts',
+        'src/services/xml-ingestion/cfdi-decisions.ts',
+      ];
+      const culpables: string[] = [];
+      for (const rel of VIGILADOS) {
+        if (!existe(rel)) return falla(`desapareció ${rel}`);
+        const code = sinComentarios(leer(rutaDe(rel)));
+        if (/\.toISOString\(\)\s*\.(?:split\('T'\)\[0\]|slice\(0,\s*10\))/.test(code)) {
+          culpables.push(rel);
+        }
+      }
+      if (culpables.length > 0) {
+        return falla(
+          `${culpables.length} sitio(s) vuelven a cortar un día de un toISOString (${culpables.join(', ')}): ` +
+            'pg entrega un DATE a medianoche LOCAL y toISOString lo relee en UTC, así que al este de Greenwich se lee el día ANTERIOR al guardado'
+        );
+      }
+
+      // 2. LAS TRES PUERTAS QUE MUEVEN ALGO, por su ancla.
+      if (!codigoDe('src/services/banking/match-service.ts').includes('const params = [entityId, toCalendarDate(fecha)];')) {
+        return falla('la puerta del periodo de conciliación dejó de normalizar el día: el movimiento vuelve a poder caer en el mes equivocado');
+      }
+      if (!codigoDe('src/services/payroll/usa/nacha-generator.ts').includes("const [yyyy, mm, dd] = toCalendarDate(date).split('-');")) {
+        return falla('el fichero ACH volvió a leer su fecha efectiva por campos UTC: un pago de año nuevo retrocede el año entero');
+      }
+      // LAS DOS consultas, contadas: el archivo tiene dos y anclar en el texto
+      // dejaba vivo al mutante que quitaba una — un ancla repetida desarma su
+      // propio espejo.
+      const conCast = (codigoDe('src/ai/tools/ledger-tools.ts').match(/entry_date::text AS entry_date/g) ?? []).length;
+      if (conCast < 2) {
+        return falla(
+          `sólo ${conCast} de las 2 consultas del agente entregan el día como texto: JSON.stringify pinta un DATE en UTC y le cuenta al usuario otro día`
+        );
+      }
+
+      // 3. Y CONDUCTA con el reloj movido, que es lo único que lo hace visible.
+      if (!existe(spec)) return falla('no hay reproducción de la lectura con el reloj movido');
+      const t = codigoDe(spec);
+      for (const [pattern, what] of [
+        [/Asia\/Tokyo/, 'medir al ESTE, que es donde la lectura retrocede el día'],
+        [/America\/Mexico_City/, 'medir al oeste, para que el arreglo no rompa la otra mitad'],
+        [/new Date\(y, m - 1, d\)/, 'imitar a pg —medianoche LOCAL—: con medianoche UTC el defecto no se ve'],
+        [/yymmdd/, 'medirlo en el fichero que se le entrega al banco, y no sólo en el normalizador'],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        `${VIGILADOS.length} sitios que leen una fecha del mayor revisados sin reinterpretarla; la puerta del periodo, el fichero ACH y lo que ve el agente van por el normalizador; y la reproducción lo mide al este y al oeste con una fixture que imita a pg`
+      );
+    },
+  },
+
   // ---- F05d · La firma y el sello ----
 
   {
