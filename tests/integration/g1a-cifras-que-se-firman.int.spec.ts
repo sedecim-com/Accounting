@@ -195,7 +195,7 @@ describe('antes del cierre, report-service ya tiene que decir 3 000', () => {
 
     const bs = await getBalanceSheet(f.entityId, { asOfDate: ANIO.hasta });
     expect(bs.assets.total).toBe('3000.0000');
-    const resultado = bs.equity.subsections.find((s) => s.name === 'Result Of The Period');
+    const resultado = bs.equity.subsections.find((s) => s.key === 'result_of_the_period');
     expect(resultado, 'el resultado no barrido no aparece en el capital').toBeDefined();
     expect(resultado!.total).toBe('3000.0000');
     expect(bs.equity.total).toBe('3000.0000');
@@ -275,7 +275,7 @@ describe('después de cerrar el ejercicio de verdad', () => {
     expect(new Decimal(await queryUnclosedEarnings(f.entityId, ANIO.hasta)).toFixed(4)).toBe(
       '0.0000'
     );
-    expect(bs.equity.subsections.some((s) => s.name === 'Result Of The Period')).toBe(false);
+    expect(bs.equity.subsections.some((s) => s.key === 'result_of_the_period')).toBe(false);
     const capital = bs.equity.subsections.flatMap((s) => s.accounts).find((a) => a.code === '3300');
     expect(capital?.balance).toBe('3000.0000');
     expect(bs.out_of_balance).toBe('0.0000');
