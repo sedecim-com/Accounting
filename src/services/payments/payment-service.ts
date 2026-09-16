@@ -16,7 +16,7 @@ import { voidJournalEntryInTx } from '../accounting/posting.js';
 import { earlyPaymentDiscount } from '../ap/bill-service.js';
 import {
   desgloseCambiarioDelPago,
-  monedaFuncionalDe,
+  functionalCurrencyOf,
   resolverTipoCambio,
   type AplicacionCambiaria,
   type ContextoCambiario,
@@ -431,8 +431,8 @@ export async function recordVendorPayment(
     // `fuente_tipo_cambio` (su primer lector real).
     let fx: ContextoCambiario | null = null;
     if (documentos.length > 0) {
-      const funcional = await monedaFuncionalDe(client, entrada.entityId);
-      const moneda = monedaDe(documentos);
+      const funcional = await functionalCurrencyOf(client, entrada.entityId);
+      const moneda = currencyOf(documentos);
       if (moneda !== funcional) {
         for (const a of fxApps) {
           const th = new Decimal(a.tasaHistorica || '0');
@@ -478,6 +478,36 @@ export async function recordVendorPayment(
       )).rows[0]?.vendor_id;
     if (!vendorId) throw new ValidationError('No se pudo determinar el proveedor del pago.');
 
+    // T23b · EL ANTICIPO A PROVEEDOR TAMBIÉN TIENE MONEDA, Y ERA UN LITERAL.
+    //
+    // Sin documentos, `currencyOf(documentos)` cae a su respaldo —la cadena
+    // 'MXN'—, así que TODO anticipo puro se escribía en pesos: no se le
+    // preguntaba al proveedor (cuya columna nace en 'USD'), ni al llamador, ni
+    // a la entidad en qué lleva sus libros. Es peor que lo que T23 corrigió del
+    // lado cliente, donde la moneda al menos salía del cliente.
+    //
+    // Se rehúsa por la misma razón y con la misma frase: convertir exige elegir
+    // tasa y FUENTE, y eso lo decide el despacho en `fuente_tipo_cambio`.
+    let vendorAdvanceCurrency: string | undefined;
+    if (entrada.applications.length === 0) {
+      const v = await client.query<{ currency_code: string }>(
+        `SELECT currency_code FROM vendors WHERE id = $1 AND entity_id = $2`,
+        [vendorId, entrada.entityId]
+      );
+      if (v.rows.length === 0) throw new NotFoundError('Vendor', vendorId);
+      vendorAdvanceCurrency = entrada.currencyCode ?? v.rows[0].currency_code;
+      const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);
+      if (vendorAdvanceCurrency !== functionalCurrency) {
+        throw new ValidationError(
+          `El anticipo viene en ${vendorAdvanceCurrency} y esta entidad lleva sus libros en ` +
+            `${functionalCurrency}. No lo registro convertido porque la tasa y su fuente las decide ` +
+            'el despacho en la política `fuente_tipo_cambio`, no yo; y no lo registro sin convertir ' +
+            'porque asentaría una cifra de otra moneda como si fuera de ésta. Aplica el pago a un ' +
+            `documento en su moneda, o registra el anticipo en ${functionalCurrency}.`
+        );
+      }
+    }
+
     const paymentNumber = await nextEntityNumber(client, entrada.entityId, 'vendor_payment', 'VPMT', entrada.paymentDate);
     const paymentId = uuidv4();
 
@@ -502,7 +532,7 @@ export async function recordVendorPayment(
          check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
       [paymentId, entrada.entityId, paymentNumber, vendorId, entrada.paymentAmount,
-       monedaDe(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
+       vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
        entrada.bankAccountId ?? null, entrada.paymentDate,
        ESTADO, entrada.memo ?? null, userId,
        entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null,
@@ -673,14 +703,14 @@ export async function recordCustomerPayment(
 
     // Anticipo puro (049): sin documento no hay moneda de referencia — se
     // toma la del cliente, verificando de paso que existe EN ESTA entidad.
-    let monedaAnticipo: string | null = null;
+    let advanceCurrency: string | null = null;
     if (entrada.applications.length === 0) {
       const c = await client.query<{ currency_code: string }>(
         `SELECT currency_code FROM customers WHERE id = $1 AND entity_id = $2`,
         [customerId, entrada.entityId]
       );
       if (c.rows.length === 0) throw new NotFoundError('Customer', customerId);
-      monedaAnticipo = entrada.currencyCode ?? c.rows[0].currency_code;
+      advanceCurrency = entrada.currencyCode ?? c.rows[0].currency_code;
 
       // T23 · UN ANTICIPO NO TIENE DOCUMENTO QUE LE DÉ LA MONEDA, Y AQUÍ NADIE
       // LA COMPARABA CON LA FUNCIONAL.
@@ -697,10 +727,10 @@ export async function recordCustomerPayment(
       // cobrar — «a foreign-currency invoice REFUSES to post (phase 2) rather
       // than record dollars as pesos»—; el anticipo era la puerta por la que
       // esa promesa no se cumplía.
-      const functionalCurrency = await monedaFuncionalDe(client, entrada.entityId);
-      if (monedaAnticipo !== functionalCurrency) {
+      const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);
+      if (advanceCurrency !== functionalCurrency) {
         throw new ValidationError(
-          `El anticipo viene en ${monedaAnticipo} y esta entidad lleva sus libros en ` +
+          `El anticipo viene en ${advanceCurrency} y esta entidad lleva sus libros en ` +
             `${functionalCurrency}. No lo registro convertido porque la tasa y su fuente ` +
             'las decide el despacho en la política `fuente_tipo_cambio`, no yo; y no lo ' +
             'registro sin convertir porque asentaría una cifra de otra moneda como si fuera ' +
@@ -727,7 +757,7 @@ export async function recordCustomerPayment(
          check_number, cuenta_destino, banco_destino_sat, banco_destino_extranjero
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       [paymentId, entrada.entityId, paymentNumber, customerId, entrada.paymentAmount,
-       monedaAnticipo ?? monedaDe(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
+       advanceCurrency ?? currencyOf(documentos), entrada.paymentMethod, entrada.referenceNumber ?? null,
        entrada.bankAccountId ?? null, entrada.paymentDate, ESTADO, userId,
        entrada.cfdiUuid ?? null, entrada.cfdiPagoIndice ?? null,
        oNulo(entrada.checkNumber), oNulo(entrada.cuentaDestino),
@@ -824,7 +854,7 @@ const PAGABLES = ['approved', 'posted', 'partially_paid'] as const;
 const COBRABLES = ['sent', 'viewed', 'partially_paid', 'overdue'] as const;
 
 /** assertMoneda ya garantizó que son todas la misma. */
-function monedaDe(documentos: DocumentoAplicado[]): string {
+function currencyOf(documentos: DocumentoAplicado[]): string {
   return documentos[0]?.moneda ?? 'MXN';
 }
 
