@@ -208,7 +208,9 @@ router.post(
 
     const entry = await createJournalEntry(
       entity_id,
-      new Date(entry_date),
+      // The string as the user wrote it (#211). `new Date(entry_date)` was UTC
+      // midnight, which west of Greenwich is the previous day in the DATE column.
+      entry_date,
       (entry_type || 'standard') as JournalEntryType,
       description || '',
       lines.map((line: Record<string, unknown>) => ({
@@ -239,6 +241,7 @@ router.post(
   '/:id/post',
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries.status + account_balances' }),
   requirePermission('journal_entries:post'),
+  requireEntityAccess,
   asyncHandler(async (req: Request, res: Response) => {
     await assertEntryAccess(req, req.params.id);
     const entry = await postJournalEntry(req.params.id, req.user!.user_id);
@@ -258,6 +261,7 @@ router.post(
   '/:id/void',
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'journal_entries.status o una poliza espejo' }),
   requirePermission('journal_entries:void'),
+  requireEntityAccess,
   validateBody(voidJeSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { reason } = req.body;
@@ -279,6 +283,7 @@ router.post(
   '/:id/reverse',
   declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'una poliza nueva POSTEADA + account_balances' }),
   requirePermission('journal_entries:create'),
+  requireEntityAccess,
   validateBody(reverseJeSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { reversal_date } = req.body;
@@ -287,7 +292,7 @@ router.post(
     // reverseJournalEntry enforces the guards this route used to lack:
     // only posted entries, at most one reversal, atomic linkage.
     const reversalEntry = await reverseJournalEntry(req.params.id, req.user!.user_id, {
-      reversalDate: reversal_date ? new Date(reversal_date) : undefined,
+      reversalDate: reversal_date,
     });
 
     res.status(201).json({

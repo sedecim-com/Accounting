@@ -4,8 +4,21 @@ import {
   registerClosingCommand,
   conteoParaSalida,
   renderCasillas,
+  runClosingLine,
+  verdictRows,
+  renderSteps,
+  runExitCode,
   type ClosingCommandDeps,
 } from '../../src/cli/closing-command.js';
+import { ValidationError } from '../../src/utils/errors.js';
+import {
+  CLOSING_STEPS,
+  ClosingRunStateError,
+  isClosingStep,
+  type ClosingRunOutcome,
+  type ClosingStep,
+  type ClosingStepOutcome,
+} from '../../src/services/accounting/closing-conductor.js';
 import { auditProgram } from '../../src/cli/kernel/audit.js';
 import { checkExitCode, riskOf, ExitCode } from '../../src/cli/kernel/index.js';
 import {
@@ -143,7 +156,7 @@ describe('registro del comando closing', () => {
   const closing = program.commands.find((c) => c.name() === 'closing');
   const hoja = (nombre: string) => closing?.commands.find((c) => c.name() === nombre);
 
-  it('closing · cierre-proceso con sus tres hojas de lectura y alias', () => {
+  it('closing · cierre-proceso con sus hojas de lectura, el conductor y el expediente', () => {
     expect(closing).toBeDefined();
     expect(closing?.aliases()).toContain('cierre-proceso');
     const hojas = Object.fromEntries(
@@ -152,16 +165,44 @@ describe('registro del comando closing', () => {
     expect(hojas.preview).toContain('previsualizar');
     expect(hojas.check).toContain('verificar');
     expect(hojas.explain).toContain('explicar');
-    // Las otras siete filas de closing son F06d: aquí NO existen.
-    expect(Object.keys(hojas).sort()).toEqual(['check', 'explain', 'preview']);
+    // A6 añade el conductor y su expediente, y NADA MÁS: `start`, `status`,
+    // `task*`, `approve`, `calendar*` y `template*` siguen siendo F06d y
+    // siguen sin existir, ni siquiera como esqueleto.
+    expect(hojas.run).toContain('ejecutar');
+    expect(hojas.pack).toContain('paquete');
+    expect(Object.keys(hojas).sort()).toEqual(['check', 'explain', 'pack', 'preview', 'run']);
+
+    const packGroup = closing?.commands.find((c) => c.name() === 'pack');
+    const subleaves = Object.fromEntries(
+      (packGroup?.commands ?? []).map((c) => [c.name(), c.aliases()])
+    );
+    expect(subleaves.generate).toContain('generar');
+    // `comprobar` y no `verificar`: el diccionario del núcleo asigna
+    // «verificar» a `check`, que es la hoja hermana de al lado.
+    expect(subleaves.verify).toContain('comprobar');
+    expect(Object.keys(subleaves).sort()).toEqual(['generate', 'verify']);
   });
 
-  it('las tres son lectura y el agente puede invocarlas (✓ del catálogo)', () => {
-    for (const h of closing?.commands ?? []) {
-      const risk = riskOf(h);
-      expect(risk?.risk, h.name()).toBe('lectura');
-      expect(risk?.agentAllowed, h.name()).toBe(true);
+  it('leer es ✓ para el agente; conducir el cierre y sellar el expediente, NO', () => {
+    const riskOfPath = (path: string[]): { risk?: string; agent?: boolean } => {
+      let cmd = closing;
+      for (const n of path) cmd = cmd?.commands.find((c) => c.name() === n);
+      const r = cmd ? riskOf(cmd) : undefined;
+      return { risk: r?.risk, agent: r?.agentAllowed };
+    };
+
+    // Leer nunca certifica nada.
+    for (const n of ['preview', 'check', 'explain']) {
+      expect(riskOfPath([n]), n).toEqual({ risk: 'lectura', agent: true });
     }
+    expect(riskOfPath(['pack', 'verify'])).toEqual({ risk: 'lectura', agent: true });
+
+    // Conducir el cierre postea al mayor por tres de sus cinco pasos: es
+    // irreversible, y el agente no lo invoca. Ésta es la asimetría que A7
+    // construyó su única puerta para sostener.
+    expect(riskOfPath(['run'])).toEqual({ risk: 'irreversible', agent: false });
+    // Sellar escribe una fila de sólo-agregar, y tampoco la firma una máquina.
+    expect(riskOfPath(['pack', 'generate'])).toEqual({ risk: 'escritura', agent: false });
   });
 
   it('pasa la auditoría de consistencia sin violaciones', () => {
@@ -378,5 +419,235 @@ describe('closing explain · la lente, no el veredicto', () => {
     expect(sobre.total).toBe(3);
     expect(sobre.truncated).toBe(true);
     expect(r.err, 'el remedio es nota: viaja por stderr, no ensucia el pipe').toMatch(/fix with:/);
+  });
+});
+
+// ============================================================
+// A6 · EL CONTRATO DE SALIDA DEL CONDUCTOR, Y SU RENDER
+//
+// `salidaDeLaCorrida` es UNA regla para el ensayo y para la corrida de verdad,
+// y por eso se prueba sola: la lección que la puso así viene de `payroll
+// accrue`, donde la misma condición contestaba 4 en ensayo y 0 corriendo.
+// ============================================================
+
+describe('A6 · el código de salida de la corrida', () => {
+  const stepOutcome = (
+    step: ClosingStep,
+    status: ClosingStepOutcome['status'],
+    cause?: unknown
+  ): ClosingStepOutcome => ({
+    step,
+    ordinal: CLOSING_STEPS.indexOf(step) + 1,
+    status,
+    processed: 0,
+    amount: null,
+    journalEntryIds: [],
+    detail: '',
+    priorAttempt: false,
+    ...(cause !== undefined ? { cause } : {}),
+  });
+
+  const runOutcome = (steps: ClosingStepOutcome[]): ClosingRunOutcome => ({
+    runId: 'R1',
+    entityId: 'E1',
+    periodId: 'P1',
+    periodName: 'July 2026',
+    status: 'completed',
+    steps,
+    haltedAtStep: null,
+  });
+
+  it('limpio sale 0', () => {
+    expect(runExitCode(runOutcome(CLOSING_STEPS.map((s) => stepOutcome(s, 'done'))))).toBe(ExitCode.OK);
+  });
+
+  it('un paso bloqueado es un hallazgo: sale 4, como toda verificación', () => {
+    expect(
+      runExitCode(runOutcome([stepOutcome('accrue-benefits', 'done'), stepOutcome('verify-checklist', 'blocked')]))
+    ).toBe(ExitCode.VALIDATION);
+  });
+
+  it('un motor que devolvió errores por renglón es un hallazgo de datos: 4, no el 1 genérico', () => {
+    expect(runExitCode(runOutcome([stepOutcome('amortize-prepaids', 'failed')]))).toBe(ExitCode.VALIDATION);
+  });
+
+  it('un motor que LANZÓ sale con el código que su error merece', () => {
+    // Un panel mal contestado es un 4 en `depreciation run`; aplanarlo a 1
+    // aquí le quitaba a un guion la manera de distinguirlo de un proceso caído.
+    expect(
+      runExitCode(runOutcome([stepOutcome('depreciate-assets', 'failed', new ValidationError('base_depreciacion inválida'))]))
+    ).toBe(ExitCode.VALIDATION);
+    expect(
+      runExitCode(runOutcome([stepOutcome('soft-close', 'failed', new ClosingRunStateError('X', 'estado'))]))
+    ).toBe(ExitCode.BLOCKED);
+    expect(runExitCode(runOutcome([stepOutcome('soft-close', 'failed', new Error('se cayó la conexión'))]))).toBe(
+      ExitCode.FAILURE
+    );
+  });
+
+  it('un paso omitido no es un hallazgo: un mes sin nada que devengar sale 0', () => {
+    expect(runExitCode(runOutcome(CLOSING_STEPS.map((s) => stepOutcome(s, 'skipped'))))).toBe(ExitCode.OK);
+  });
+
+  it('el ensayo contesta LO MISMO que la corrida ante la misma condición', () => {
+    const dryRun = runOutcome([stepOutcome('accrue-benefits', 'pending'), stepOutcome('verify-checklist', 'blocked')]);
+    const real = runOutcome([stepOutcome('accrue-benefits', 'done'), stepOutcome('verify-checklist', 'blocked')]);
+    expect(runExitCode(dryRun)).toBe(runExitCode(real));
+  });
+});
+
+describe('A6 · el anexo de verify lleva también lo que el veredicto acusa', () => {
+  const clean = {
+    sealIntact: true,
+    issued: true,
+    issuedAt: null,
+    envelopeMatches: true,
+    figuresReproduce: true,
+    identityUnchanged: true,
+    expectedSeal: 'a'.repeat(64),
+    recomputedSeal: 'a'.repeat(64),
+    differences: [],
+  };
+
+  it('un expediente forjado sin diferencias de campo NO escribe un anexo vacío', () => {
+    const rows = verdictRows({ ...clean, issued: false, envelopeMatches: false });
+    expect(rows).toEqual([
+      { kind: 'registry', path: 'closing_packs', expected: 'issued by these books', actual: 'not issued' },
+    ]);
+  });
+
+  it('un sello roto va primero, con los dos sellos', () => {
+    const rows = verdictRows({ ...clean, sealIntact: false, recomputedSeal: 'b'.repeat(64) });
+    expect(rows[0]).toEqual({ kind: 'seal', path: 'seal', expected: 'a'.repeat(64), actual: 'b'.repeat(64) });
+  });
+
+  it('un sobre reescrito sobre un expediente emitido se dice; limpio, no hay filas', () => {
+    expect(verdictRows({ ...clean, envelopeMatches: false })[0].kind).toBe('envelope');
+    expect(verdictRows(clean)).toEqual([]);
+  });
+});
+
+describe('A6 · la última línea dice lo que de verdad pasó', () => {
+  const base: ClosingRunOutcome = {
+    runId: 'R1',
+    entityId: 'E1',
+    periodId: 'P1',
+    periodName: 'July 2026',
+    status: 'completed',
+    steps: [],
+    haltedAtStep: null,
+  };
+
+  it('tras un ensayo NO manda a --resume: el ensayo no abrió ninguna corrida', () => {
+    const clean = runClosingLine({ ...base, status: 'previewed' });
+    expect(clean).toMatch(/Nothing was written/);
+    expect(clean).not.toMatch(/--resume/);
+    const blocked = runClosingLine({ ...base, status: 'previewed', haltedAtStep: 'verify-checklist' });
+    expect(blocked).toMatch(/would block at verify-checklist/);
+    expect(blocked).not.toMatch(/--resume/);
+    const stopped = runClosingLine({ ...base, status: 'previewed', haltedAtStep: 'soft-close' }, 'soft-close');
+    expect(stopped).toMatch(/would stop before soft-close/);
+  });
+
+  it('pero si el periodo YA tiene una corrida abierta, el ensayo manda a --resume', () => {
+    // Si no lo dice, el consejo del ensayo manda a un comando que el conductor
+    // va a negar: la segunda revisión lo construyó tras un bloqueo.
+    for (const r of [
+      runClosingLine({ ...base, status: 'previewed' }, undefined, true),
+      runClosingLine({ ...base, status: 'previewed', haltedAtStep: 'verify-checklist' }, undefined, true),
+      runClosingLine({ ...base, status: 'previewed', haltedAtStep: 'soft-close' }, 'soft-close', true),
+    ]) {
+      expect(r).toMatch(/--resume/);
+    }
+    // Another conductor still acting on the run: the advice is to wait, never --resume now.
+    const live = runClosingLine({ ...base, status: 'previewed' }, undefined, true, true);
+    expect(live).toMatch(/wait until the conductor acting on its run stops/);
+  });
+
+  it('tras un --stop-at no hay causa que arreglar: se paró porque se pidió', () => {
+    const r = runClosingLine({ ...base, status: 'stopped', haltedAtStep: 'soft-close' }, 'soft-close');
+    expect(r).toMatch(/Stopped before soft-close, as asked/);
+    expect(r).not.toMatch(/Fix the cause/);
+  });
+
+  it('bloqueado y fallido dicen dónde, y cómo continuar', () => {
+    expect(runClosingLine({ ...base, status: 'blocked', haltedAtStep: 'verify-checklist' })).toMatch(
+      /Blocked at verify-checklist.*--resume/
+    );
+    expect(runClosingLine({ ...base, status: 'failed', haltedAtStep: 'depreciate-assets' })).toMatch(
+      /Failed at depreciate-assets.*--resume/
+    );
+  });
+
+  it('completo manda a sellar el expediente de ESE periodo', () => {
+    expect(runClosingLine(base)).toContain('closing pack generate "July 2026"');
+  });
+});
+
+describe('A6 · renderPasos', () => {
+  const c = { dim: (s: string) => s, red: (s: string) => `RED(${s})` };
+
+  it('marca lo hecho, señala lo bloqueado en rojo y dice qué ya había anotado otro intento', () => {
+    const lines = renderSteps(
+      {
+        runId: 'R1',
+        entityId: 'E1',
+        periodId: 'P1',
+        periodName: 'July 2026',
+        status: 'blocked',
+        haltedAtStep: 'verify-checklist',
+        steps: [
+          {
+            step: 'accrue-benefits',
+            ordinal: 1,
+            status: 'done',
+            processed: 2,
+            amount: '100.0000',
+            journalEntryIds: ['J1'],
+            detail: '2 accrued',
+            priorAttempt: true,
+          },
+          {
+            step: 'verify-checklist',
+            ordinal: 4,
+            status: 'blocked',
+            processed: 5,
+            amount: null,
+            journalEntryIds: [],
+            detail: 'blocking: two drafts',
+            priorAttempt: false,
+          },
+        ],
+      },
+      c
+    );
+    expect(lines[0]).toContain('accrue-benefits');
+    expect(lines[0]).toContain('2 accrued');
+    expect(lines[0]).toContain('also recorded by an earlier attempt');
+    expect(lines[1]).toMatch(/^RED\(/);
+    expect(lines[1]).toContain('blocking: two drafts');
+    expect(lines[1]).not.toContain('earlier attempt');
+  });
+});
+
+describe('A6 · el orden de los pasos es contrato', () => {
+  it('es el único orden en que el cierre puede ocurrir', () => {
+    // Los motores postean antes del checklist para que su veredicto describa
+    // el mes como se va a cerrar, y el checklist va antes del cierre suave que
+    // autoriza. Escribirlo aquí impide que un reordenamiento «inofensivo»
+    // pase sin que nadie lo note.
+    expect([...CLOSING_STEPS]).toEqual([
+      'accrue-benefits',
+      'amortize-prepaids',
+      'depreciate-assets',
+      'verify-checklist',
+      'soft-close',
+    ]);
+  });
+
+  it('isClosingStep no admite un paso inventado', () => {
+    expect(isClosingStep('soft-close')).toBe(true);
+    expect(isClosingStep('hard-close')).toBe(false);
+    expect(isClosingStep('')).toBe(false);
   });
 });

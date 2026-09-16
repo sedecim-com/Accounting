@@ -203,9 +203,17 @@ router.post('/pay-schedules', declararRiesgoRuta({ riesgo: 'escritura', escribe:
   res.status(201).json({ data: { id }, meta: meta(req) });
 }));
 
-router.post('/pay-schedules/:id/generate-periods', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pay_periods' }), requirePermission('payroll:create'), asyncHandler(async (req: Request, res: Response) => {
-  const { count = 24 } = req.body;
-  const ids = await generatePayPeriods(req.params.id, count);
+/**
+ * `count` had no bound: a loop of INSERTs as long as the caller liked. Four
+ * years of weekly periods is 208; nothing legitimate asks for more in one call.
+ */
+const generatePeriodsSchema = z.object({ count: z.number().int().min(1).max(208).optional() });
+
+router.post('/pay-schedules/:id/generate-periods', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'pay_periods' }), requirePermission('payroll:create'), requireEntityAccess, validateBody(generatePeriodsSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { count = 24 } = req.body as { count?: number };
+  // TEN-11 (#235): the guard validates the declared entity; handing it to the
+  // service is what scopes the schedule. Both.
+  const ids = await generatePayPeriods(entityScope(req.tenantId!, req.entityId!), req.params.id, count);
   res.json({ data: { period_ids: ids }, meta: meta(req) });
 }));
 
@@ -386,10 +394,13 @@ router.post('/form-940', declararRiesgoRuta({ riesgo: 'escritura', escribe: 'tax
 }));
 
 // ---------- USA NACHA ----------
-router.post('/nacha', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'direct_deposit_batches + paychecks.direct_deposit_batch_id; produce la instruccion de pago que el banco ejecuta' }), requirePermission('payroll:approve'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/nacha', declararRiesgoRuta({ riesgo: 'irreversible', escribe: 'direct_deposit_batches + paychecks.direct_deposit_batch_id; produce la instruccion de pago que el banco ejecuta' }), requirePermission('payroll:approve'), requireEntityAccess, asyncHandler(async (req: Request, res: Response) => {
   const { pay_run_id, company_info } = req.body;
   if (!pay_run_id || !company_info) throw new ValidationError('pay_run_id, company_info required');
-  const result = await generateNachaFile(pay_run_id, company_info);
+  // TEN-11 (#235): the file carries every employee's account DECRYPTED, and a
+  // session of company A got company B's. The guard validates the declared
+  // entity; handing it to the generator is what scopes the run. Both.
+  const result = await generateNachaFile(entityScope(req.tenantId!, req.entityId!), pay_run_id, company_info);
   res.json({ data: result, meta: meta(req) });
 }));
 
@@ -440,9 +451,15 @@ router.post(
   '/employees/:id/benefit-elections',
   declararRiesgoRuta({ riesgo: 'escritura', escribe: 'benefit_elections' }),
   requirePermission('payroll:update'),
+  requireEntityAccess,
   validateBody(electBenefitSchema.partial({ employee_id: true })),
   asyncHandler(async (req: Request, res: Response) => {
-    const id = await electBenefit({ ...req.body, employee_id: req.params.id });
+    // TEN-11 (#235): the guard validates the declared entity; handing it to
+    // the service is what scopes BOTH keys — the employee and the plan.
+    const id = await electBenefit(entityScope(req.tenantId!, req.entityId!), {
+      ...req.body,
+      employee_id: req.params.id,
+    });
     res.status(201).json({ data: { id }, meta: meta(req) });
   })
 );

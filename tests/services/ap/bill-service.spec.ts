@@ -345,20 +345,19 @@ describe('approveBill', () => {
 
   it('only moves a bill that is still approvable, and says so in the SQL', async () => {
     primeApproval({ id: 'je1', entry_number: 'JE-1' });
-    await approveBill(BILL, USER);
+    await approveBill(BILL, USER, { entityId: ENTITY });
     expect(sql(0)).toMatch(/UPDATE bills SET status = 'approved', approved_by = \$1, approved_at = NOW\(\)/);
     expect(sql(0)).toMatch(/AND status IN \('draft', 'pending_approval'\)/);
     expect(APPROVABLE_STATUSES).toEqual(['draft', 'pending_approval']);
   });
 
-  it('does not scope by entity when no entity was given — the REST contract', async () => {
-    primeApproval({ id: 'je1', entry_number: 'JE-1' });
-    await approveBill(BILL, USER);
-    expect(sql(0)).not.toMatch(/entity_id/);
-    expect(params(0)).toEqual([USER, BILL]);
-  });
-
-  it('scopes by entity when one is given, so a CLI cannot approve another company’s bill', async () => {
+  // HERE LIVED «does not scope by entity when no entity was given — the REST
+  // contract», asserting `not.toMatch(/entity_id/)`. It did not fall as
+  // collateral: it pinned, on purpose, the omission that let a session of
+  // company A approve company B's bill and post into B's ledger (TEN-11,
+  // #235 — measured against Postgres). The entity is now required, so there
+  // is no "no entity given" case left to describe; what remains is the rule.
+  it('ALWAYS scopes by entity — there is no call shape that approves across companies', async () => {
     primeApproval({ id: 'je1', entry_number: 'JE-1' });
     await approveBill(BILL, USER, { entityId: ENTITY });
     expect(sql(0)).toMatch(/WHERE id = \$2 AND entity_id = \$3 AND status IN/);
@@ -367,7 +366,7 @@ describe('approveBill', () => {
 
   it('posts through postBillEntry on the SAME client, so the entry and the status commit together', async () => {
     primeApproval({ id: 'je1', entry_number: 'JE-1' });
-    const result = await approveBill(BILL, USER);
+    const result = await approveBill(BILL, USER, { entityId: ENTITY });
     expect(mockPost).toHaveBeenCalledWith({ query: mockQuery }, approved, [{ line_number: 1 }], USER);
     expect(result.attestation).toEqual({ entityId: ENTITY, entryId: 'je1' });
     expect(committed).toBe(true);
@@ -375,20 +374,20 @@ describe('approveBill', () => {
 
   it('reports no attestation when nothing was posted (already posted, or a zero total)', async () => {
     primeApproval(null);
-    const result = await approveBill(BILL, USER);
+    const result = await approveBill(BILL, USER, { entityId: ENTITY });
     expect(result.entry).toBeNull();
     expect(result.attestation).toBeNull();
   });
 
   it('throws NotFound when the bill does not exist or has moved on', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    await expect(approveBill(BILL, USER)).rejects.toThrow(NotFoundError);
+    await expect(approveBill(BILL, USER, { entityId: ENTITY })).rejects.toThrow(NotFoundError);
   });
 
   // The property the whole preview rests on:
   it('DRY RUN runs the real posting and then leaves the transaction unfinished', async () => {
     primeApproval({ id: 'je1', entry_number: 'JE-1' });
-    const result = await approveBill(BILL, USER, { dryRun: true });
+    const result = await approveBill(BILL, USER, { entityId: ENTITY, dryRun: true });
 
     // It really ran: the same UPDATE, the same postBillEntry.
     expect(sql(0)).toMatch(/UPDATE bills SET status = 'approved'/);
@@ -404,7 +403,7 @@ describe('approveBill', () => {
     mockQuery.mockResolvedValueOnce({ rows: [approved] });
     mockQuery.mockResolvedValueOnce({ rows: [{ line_number: 1 }] });
     mockPost.mockRejectedValueOnce(new Error('MISSING_ROLE_ACCOUNT'));
-    await expect(approveBill(BILL, USER, { dryRun: true })).rejects.toThrow('MISSING_ROLE_ACCOUNT');
+    await expect(approveBill(BILL, USER, { entityId: ENTITY, dryRun: true })).rejects.toThrow('MISSING_ROLE_ACCOUNT');
   });
 });
 
