@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { negotiateLocale } from '../../../src/api/rest/middleware/locale.js';
 import { authenticate } from '../../../src/api/rest/middleware/auth.js';
+import { preAuthRateLimiter } from '../../../src/api/rest/middleware/rate-limiter.js';
 import { errorHandler } from '../../../src/api/rest/middleware/error-handler.js';
 
 // ============================================================
@@ -39,6 +40,17 @@ beforeAll(async () => {
   // The real `authenticate` and error handler: a request with no token is
   // rejected with a 401 before any route, which is the case the mount order
   // in src/index.ts exists for.
+  //
+  // `preAuthRateLimiter` goes in FRONT of it because that is how production
+  // mounts it (src/index.ts, `app.use(apiPrefix, preAuthRateLimiter)` right
+  // above `authenticate`): verifying a JWT signature is CPU work, and without
+  // the limiter it is free to anyone with no credentials. A harness that drops
+  // it is not the pipeline it claims to exercise — CodeQL caught exactly that
+  // omission here (`js/missing-rate-limiting`), which is the query that
+  // middleware was written to answer. With no Redis configured it lets every
+  // request through by explicit decision, so it changes nothing these cases
+  // measure.
+  app.use('/v1', preAuthRateLimiter);
   app.use('/v1', authenticate);
   app.get('/v1/anything', (_req, res) => {
     res.json({ reached: true });
