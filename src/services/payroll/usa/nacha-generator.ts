@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { toCalendarDate } from '../../../utils/calendar-date.js';
 import { createHash } from 'crypto';
 import { query } from '../../../database/connection.js';
 import { decrypt } from '../../../utils/encryption.js';
@@ -32,12 +33,15 @@ function padN(n: number, len: number): string {
   return pad(Math.round(n).toString(), len, true, '0');
 }
 
-function yymmdd(dateStr: string): string {
-  const d = new Date(dateStr);
-  const yy = String(d.getUTCFullYear()).slice(2);
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  return yy + mm + dd;
+// #241 · El fichero ACH lleva la fecha efectiva del pago, y se leía por sus
+// campos UTC: `pay_date` es DATE y pg lo entrega a medianoche LOCAL, así que al
+// oeste de Greenwich un 2026-01-01 salía como `251231` — día Y año. Y el mismo
+// `pay_date` se inserta crudo en `direct_deposit_batches.effective_date`, de
+// modo que el fichero que va al banco y la fila que lo registra se
+// contradecían en la misma operación.
+export function yymmdd(date: Date | string): string {
+  const [yyyy, mm, dd] = toCalendarDate(date).split('-');
+  return yyyy.slice(2) + mm + dd;
 }
 
 function hhmm(): string {
@@ -102,7 +106,13 @@ export async function generateNachaFile(
   );
 
   const effectiveDate = yymmdd(payRun.rows[0].pay_date);
-  const fileCreationDate = yymmdd(new Date().toISOString());
+  // La fecha de creación del fichero salía del día UTC —`toISOString()`—, que
+  // no es el reloj de nadie: un fichero generado a las 19:00 en México llevaba
+  // la fecha del día siguiente. Se pasa el instante y `toCalendarDate` lo lee
+  // por sus campos LOCALES, que es el día de la oficina que lo genera. De qué
+  // reloj debe salir «hoy» en el resto del sistema es una decisión de panel
+  // pendiente (#242); lo que aquí se corrige es que no sea de UTC.
+  const fileCreationDate = yymmdd(new Date());
   const fileIdModifier = 'A';
   const batchNumber = 1;
 
