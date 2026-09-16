@@ -87,6 +87,14 @@ export interface CFDIParsed {
   cfdiRelacionados?: { tipoRelacion: string; uuids: string[] };
 }
 
+/**
+ * Declared, even when zero. With `parseAttributeValue: true` the SAT's
+ * `TasaOCuota="0.000000"` and `Importe="0.00"` arrive as the number 0:
+ * testing them for truth erases the fact that they were declared at all,
+ * and with it the only thing that tells a real 0 % rate from an exemption.
+ */
+const isDeclared = (v: unknown): boolean => v !== undefined && v !== null && v !== '';
+
 // ============================================================
 // CFDI PARSER
 // ============================================================
@@ -134,7 +142,7 @@ export class CFDIParser {
         ? parseFloat(comprobante['@_TipoCambio'])
         : 1,
       subTotal: parseFloat(comprobante['@_SubTotal']),
-      descuento: comprobante['@_Descuento']
+      descuento: isDeclared(comprobante['@_Descuento'])
         ? parseFloat(comprobante['@_Descuento'])
         : undefined,
       total: parseFloat(comprobante['@_Total']),
@@ -208,7 +216,7 @@ export class CFDIParser {
       cantidad: parseFloat(String(c['@_Cantidad'])),
       valorUnitario: parseFloat(String(c['@_ValorUnitario'])),
       importe: parseFloat(String(c['@_Importe'])),
-      descuento: c['@_Descuento'] ? parseFloat(String(c['@_Descuento'])) : undefined,
+      descuento: isDeclared(c['@_Descuento']) ? parseFloat(String(c['@_Descuento'])) : undefined,
       objetoImp: String(c['@_ObjetoImp'] || ''),
       impuestos: c.Impuestos
         ? {
@@ -225,10 +233,10 @@ export class CFDIParser {
     }
 
     return {
-      totalImpuestosTrasladados: impuestosNode['@_TotalImpuestosTrasladados']
+      totalImpuestosTrasladados: isDeclared(impuestosNode['@_TotalImpuestosTrasladados'])
         ? parseFloat(String(impuestosNode['@_TotalImpuestosTrasladados']))
         : undefined,
-      totalImpuestosRetenidos: impuestosNode['@_TotalImpuestosRetenidos']
+      totalImpuestosRetenidos: isDeclared(impuestosNode['@_TotalImpuestosRetenidos'])
         ? parseFloat(String(impuestosNode['@_TotalImpuestosRetenidos']))
         : undefined,
       traslados: this.parseImpuestosList(impuestosNode.Traslados, 'Traslado'),
@@ -245,11 +253,11 @@ export class CFDIParser {
     const list = Array.isArray(items) ? items : [items];
 
     return list.map((i: Record<string, unknown>) => ({
-      base: parseFloat(String(i['@_Base'])),
+      base: isDeclared(i['@_Base']) ? parseFloat(String(i['@_Base'])) : 0,
       impuesto: String(i['@_Impuesto']),
       tipoFactor: String(i['@_TipoFactor']),
-      tasaOCuota: i['@_TasaOCuota'] ? parseFloat(String(i['@_TasaOCuota'])) : undefined,
-      importe: i['@_Importe'] ? parseFloat(String(i['@_Importe'])) : undefined,
+      tasaOCuota: isDeclared(i['@_TasaOCuota']) ? parseFloat(String(i['@_TasaOCuota'])) : undefined,
+      importe: isDeclared(i['@_Importe']) ? parseFloat(String(i['@_Importe'])) : undefined,
     }));
   }
 
@@ -354,22 +362,20 @@ export class CFDIParser {
     const clave = (v: unknown) => String(v ?? '').padStart(3, '0');
 
     for (const concepto of cfdi.conceptos) {
-      if (concepto.impuestos?.traslados) {
-        for (const t of concepto.impuestos.traslados) {
-          if (clave(t.impuesto) === '002' && t.importe) {
-            const rate = (t.tasaOCuota || 0) * 100;
-            if (Math.round(rate) === 16) iva16 = iva16.plus(t.importe);
-            else if (Math.round(rate) === 8) iva8 = iva8.plus(t.importe);
-            else if (Math.round(rate) === 0) iva0 = iva0.plus(t.importe);
-          }
-        }
+      for (const t of concepto.impuestos?.traslados ?? []) {
+        // Exento is not a rate: it declares no TasaOCuota, and the SAT reports
+        // it on a line of its own because only a 0 % rate can be credited.
+        if (clave(t.impuesto) !== '002' || t.tipoFactor !== 'Tasa') continue;
+        const rate = Math.round((t.tasaOCuota ?? 0) * 100);
+        if (rate === 16) iva16 = iva16.plus(t.importe ?? 0);
+        else if (rate === 8) iva8 = iva8.plus(t.importe ?? 0);
+        // A 0 % rate transfers no tax: what it declares is its BASE.
+        else if (rate === 0) iva0 = iva0.plus(t.base);
       }
 
-      if (concepto.impuestos?.retenciones) {
-        for (const r of concepto.impuestos.retenciones) {
-          if (clave(r.impuesto) === '001' && r.importe) isrRetenido = isrRetenido.plus(r.importe);
-          if (clave(r.impuesto) === '002' && r.importe) ivaRetenido = ivaRetenido.plus(r.importe);
-        }
+      for (const r of concepto.impuestos?.retenciones ?? []) {
+        if (clave(r.impuesto) === '001') isrRetenido = isrRetenido.plus(r.importe ?? 0);
+        if (clave(r.impuesto) === '002') ivaRetenido = ivaRetenido.plus(r.importe ?? 0);
       }
     }
 
