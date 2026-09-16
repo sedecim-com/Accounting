@@ -2473,10 +2473,44 @@ export const CRITERIOS: Criterio[] = [
     paquete: 'E0.1',
     id: 'separate-unit-integration-suites',
     enunciado: 'Los proyectos unitario y de integración están separados',
-    evaluar: () =>
-      existe('vitest.config.ts') && existe('vitest.integration.config.ts')
-        ? ok('dos configuraciones')
-        : falla('falta la separación entre pruebas con base y sin base'),
+    mutantes: [
+      {
+        archivo: 'vitest.config.ts',
+        de: "    exclude: ['tests/integration/**',",
+        a: "    exclude: [",
+        porque:
+          'la suite unitaria vuelve a recoger las pruebas de integración: correrían sin base, fallarían por la razón equivocada, y la separación existiría sólo como dos archivos',
+      },
+      {
+        archivo: 'vitest.integration.config.ts',
+        de: "    include: ['tests/integration/**/*.int.spec.ts'],",
+        a: "    include: ['tests/nada/**/*.int.spec.ts'],",
+        porque:
+          'la suite de integración deja de apuntar a las pruebas que le tocan y pasa a correr CERO: verde perfecto, ninguna medida — el segundo archivo sigue ahí',
+      },
+    ],
+    evaluar: () => {
+      // T2 · VACUIDAD. Esto preguntaba `existe(a) && existe(b)`, y con eso dos
+      // archivos VACÍOS lo ponían en verde: la prueba de vacuidad lo encontró
+      // diciendo «dos configuraciones» sobre un árbol donde no había ninguna
+      // configuración. Lo que se compró aquí no fueron dos archivos, fue el
+      // reparto: la suite sin base no recoge las pruebas con base, y la suite
+      // con base apunta a ellas. Eso es lo que se mide.
+      if (!existe('vitest.config.ts') || !existe('vitest.integration.config.ts')) {
+        return falla('falta la separación entre pruebas con base y sin base');
+      }
+      const unitCfg = codigoDe('vitest.config.ts');
+      const integrationCfg = codigoDe('vitest.integration.config.ts');
+      if (!/exclude:\s*\[[^\]]*'tests\/integration\/\*\*'/.test(unitCfg)) {
+        return falla(
+          'la suite unitaria no excluye tests/integration: las pruebas con base correrían sin base y ' +
+            'fallarían por la razón equivocada, que es como se acaba desactivando la suite entera'
+        );
+      }
+      return /include:\s*\[[^\]]*'tests\/integration\/.*\.int\.spec\.ts'/.test(integrationCfg)
+        ? ok('dos configuraciones que se reparten el trabajo: la unitaria excluye lo que la de integración incluye')
+        : falla('la suite de integración no apunta a tests/integration: correría cero pruebas y saldría verde');
+    },
   },
   {
     paquete: 'E0.1',
@@ -4493,6 +4527,28 @@ export const CRITERIOS: Criterio[] = [
         }
       }
 
+      // T2 · VACUIDAD, Y ES EL CASO QUE EL ISSUE NOMBRA. La guarda de arriba
+      // mira los ARCHIVOS, y con 27 archivos vacíos `revisadas` sale 0 y esto
+      // publicaba «0 rutas revisadas; todas montan la guarda». Es verdad y no
+      // dice nada: el censo cuya cifra es la vara con la que T9 va a medir las
+      // catorce rutas de nómina salía en verde sin haber mirado una sola ruta.
+      // El modo de fallo real no es que borren src/api/rest/routes, es que el
+      // patrón deje de casar —un `app.get(` en vez de `router.get(`, un cambio
+      // de formateo— y entonces el criterio deja de ver el perímetro entero
+      // mientras sigue diciendo que lo revisó.
+      //
+      // El suelo es un TRINQUETE, no un `> 0`: las rutas sólo crecen, y una
+      // caída brusca es exactamente la señal de que el patrón se rompió. La
+      // cifra es la MEDIDA de hoy y no una redonda: el primer intento puso 200
+      // a ojo y el tablero lo desmintió en la primera corrida — 151.
+      const ROUTES_CENSUSED_FLOOR = 151;
+      if (revisadas < ROUTES_CENSUSED_FLOOR) {
+        return falla(
+          `el censo vio ${revisadas} rutas y la línea base son ${ROUTES_CENSUSED_FLOOR}: el patrón dejó ` +
+            'de casar y este criterio estaba a punto de decir que el perímetro está limpio sin haberlo mirado'
+        );
+      }
+
       return desprotegidas.length === 0
         ? ok(`${revisadas} rutas revisadas; todas las que derivan su entidad de la petición montan la guarda`)
         : falla(
@@ -6307,9 +6363,20 @@ export const CRITERIOS: Criterio[] = [
       const copias = dondeAparece(/SUM\(\s*COALESCE\(jel\.debit_amount/i, ['src'], true).filter(
         (f) => !f.includes('report-service')
       );
-      return copias.length === 0
+      if (copias.length > 0) {
+        return falla(`${copias.length} copia(s) del SQL de saldos fuera de report-service: ${copias.join(', ')}`);
+      }
+      // T2 · VACUIDAD. «Una sola capa, consumida por 0 superficies» es el verde
+      // que sale cuando no hay NADA: cero copias porque no hay código. Lo que
+      // este criterio afirma es que las superficies de reportes pasan todas por
+      // la misma capa, y una afirmación sobre un conjunto vacío de superficies
+      // no afirma nada. Sin consumidor, la capa única es una capa muerta.
+      return cons.length > 0
         ? ok(`una sola capa, consumida por ${cons.length} superficie(s)`)
-        : falla(`${copias.length} copia(s) del SQL de saldos fuera de report-service: ${copias.join(', ')}`);
+        : falla(
+            'la capa de consulta no tiene un solo consumidor: «una sola capa» es cierto y vacío — o ' +
+              'las superficies dejaron de pasar por ella, o no queda superficie que mirar'
+          );
     },
   },
 
@@ -7489,12 +7556,14 @@ export const CRITERIOS: Criterio[] = [
       // mutantes cuenta igual que uno con uno: se podían retirar seis sin mover
       // la cifra, y con la holgura acumulada —14 exigidos contra 118 reales— la
       // mitad de los espejos del repositorio salía en verde. Medido en el
-      // momento de escribir esto: 336 espejos, 14 exigidos.
+      // momento de escribir esto: 341 espejos, 14 exigidos.
       //
       // Ahora el número es el de espejos, de los dos arneses, y la holgura es
       // CERO: retirar uno obliga a bajar esta constante en el mismo diff, que
-      // es exactamente lo que la frase prometía.
-      const MIRRORS_FLOOR = 336;
+      // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
+      // porque con holgura el espejo de este mismo criterio deja de morder: la
+      // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
+      const MIRRORS_FLOOR = 341;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -7510,10 +7579,10 @@ export const CRITERIOS: Criterio[] = [
       // el seam sólo intercepta lecturas de DISCO: ningún mutante puede bajar
       // el conteo de arriba, así que por sí solo sería la clase de cifra que
       // este criterio existe para desconfiar. Las anclas `de:` de este archivo
-      // son el mismo hecho leído por el seam —hoy 324, que son los 324 espejos
+      // son el mismo hecho leído por el seam —hoy 329, que son los 329 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      const ANCHORS_HERE = 324;
+      const ANCHORS_HERE = 329;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
@@ -7542,6 +7611,70 @@ export const CRITERIOS: Criterio[] = [
         a: "        // de: \".toBe('falla')\",",
         porque:
           'un espejo se retira comentándolo —queda escrito y muerto, como un paso de CI— y hasta T2 la línea base contaba criterios, así que 118 contra 14 exigidos se tragaban la pérdida sin moverse',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'criteria-vacuity-harness',
+    enunciado: 'Un criterio que no encuentra nada que mirar no puede salir verde sin declararlo',
+    evaluar: () => {
+      // T2 · LA MÁQUINA QUE PONE ROJOS A LOS DEMÁS DE GOLPE (issue #89).
+      //
+      // El arnés de mutación pregunta criterio por criterio «¿te pone rojo
+      // ESTA mutación?», y sólo por las que alguien se acordó de escribir. La
+      // prueba de vacuidad hace la pregunta contraria y de una vez: vacía los
+      // 1 231 archivos versionados por el seam y exige que los criterios se
+      // den cuenta. Encontró tres que medían la nada y la llamaban
+      // conformidad, entre ellos el censo del perímetro —«0 rutas revisadas;
+      // todas montan la guarda»—, que es la vara con la que se va a medir T9.
+      if (!existe('tests/plan/vacuidad.spec.ts')) {
+        return falla('la prueba de vacuidad desapareció: un criterio podría volver a medir la nada y llamarlo conformidad');
+      }
+      const spec = codigoDe('tests/plan/vacuidad.spec.ts');
+      if (!/conFuenteMutada\(emptied/.test(spec)) {
+        return falla('la prueba de vacuidad dejó de evaluar BAJO el árbol vaciado: mediría el árbol limpio, donde todo criterio sano sale verde');
+      }
+      if (!/toBeGreaterThan\(500\)/.test(spec)) {
+        return falla(
+          'la prueba de vacuidad perdió su propia guarda de vacuidad: sin exigir que el censo de ' +
+            'archivos devuelva algo, no vaciaría nada y todos saldrían verdes «correctamente»'
+        );
+      }
+
+      // LA LISTA DE EXCEPCIONES TIENE TOPE, o el arreglo obvio de un rojo sería
+      // apuntarse en ella. Sólo encoge: un verde nuevo sobre el vacío se paga
+      // endureciendo el criterio, no declarándolo correcto.
+      const DECLARED_GREENS_MAX = 15;
+      const declared = (spec.match(/^ {2}\[$/gm) ?? []).length;
+      return declared <= DECLARED_GREENS_MAX
+        ? ok(`la prueba de vacuidad corre sobre el árbol vaciado, con ${declared} verdes declarados de ${DECLARED_GREENS_MAX} admitidos`)
+        : falla(
+            `${declared} verdes declarados sobre el vacío y el tope son ${DECLARED_GREENS_MAX}: ` +
+              'un criterio que mide la nada se arregla endureciéndolo, no apuntándolo en la lista de los correctos'
+          );
+    },
+    mutantes: [
+      {
+        archivo: 'tests/plan/vacuidad.spec.ts',
+        de: 'conFuenteMutada(emptied',
+        a: 'conFuenteMutada({}',
+        porque:
+          'la prueba deja de vaciar el árbol y pasa a evaluar el real, donde 172 criterios salen verdes por buenas razones: seguiría corriendo, seguiría en verde, y no comprobaría nada',
+      },
+      {
+        archivo: 'tests/plan/vacuidad.spec.ts',
+        de: 'toBeGreaterThan(500)',
+        a: 'toBeGreaterThan(0)',
+        porque:
+          'la guarda que impide que la prueba de vacuidad sea ella misma vacua se afloja: con un censo de archivos roto vaciaría casi nada y bendeciría a todos',
+      },
+      {
+        archivo: 'tests/plan/vacuidad.spec.ts',
+        de: "  [\n    'orphan-export-baseline-only-shrinks',",
+        a: "  [\n    'uno-de-mas',\n    'una razón que nadie escribió',\n  ],\n  [\n    'orphan-export-baseline-only-shrinks',",
+        porque:
+          'la lista de excepciones crece, que es el arreglo obvio y equivocado de un rojo de vacuidad: el tope existe para que apuntarse cueste más que endurecer el criterio',
       },
     ],
   },
