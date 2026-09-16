@@ -31,7 +31,7 @@ lee** (epic [#141](https://github.com/sedecim-com/Accounting/issues/141)):
 
 | Lo lee | Idioma | Ejemplos |
 |---|---|---|
-| La máquina, o quien la mantiene | **Inglés**, y lo nuevo nace así | identificadores, archivos, comentarios, claves, códigos de error, ids de criterio |
+| La máquina, o quien la mantiene | **Inglés**, y lo nuevo nace así | identificadores, archivos, comentarios, **mensajes de commit** (con puerta en la CI desde I22), claves, códigos de error, ids de criterio |
 | El contador | **Su idioma**, español primero | ayuda del CLI, mensajes, el panel de políticas, los informes |
 | Nadie más lo puede reescribir | **Se queda como está** | informes ya fechados, artefactos que van al SAT, valores ya persistidos en la base de un despacho |
 

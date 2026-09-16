@@ -1,34 +1,34 @@
 ---
-name: Ticket de trabajo
-about: Una unidad de trabajo del plan — qué debe ser cierto al terminar, no qué archivos tocar
+name: Work ticket
+about: One unit of work from the plan — what must be true when it is done, not which files to touch
 title: ''
 labels: ''
 assignees: ''
 ---
 
-## Tramo
+## Tranche
 
-<!-- Código del tramo si viene de la secuencia del plan (S0.1, F03, G1a, T4, etc.), o "nuevo" si no. -->
+<!-- The tranche code if it comes from the plan's sequence (S0.1, F03, G1a, T4, etc.), or "new" if it does not. -->
 
-## Qué debe ser cierto al terminar
+## What must be true when it is done
 
-<!-- Criterios de aceptación verificables. No una lista de archivos: eso lo decide quien implementa. -->
+<!-- Verifiable acceptance criteria. Not a list of files: that is decided by whoever implements it. -->
 
 -
 -
 
-## Por qué (si aplica)
+## Why (if it applies)
 
-<!-- Copiado del "por qué aquí" de la secuencia del plan si existe — no lo reinventes. Si el tramo viene de una auditoría, cita evidencia: archivo:línea y reproducción. -->
+<!-- Copied from the "why here" of the plan's sequence if it exists — do not reinvent it. If the tranche comes from an audit, cite evidence: file:line and a reproduction. -->
 
-## Depende de
+## Depends on
 
-<!-- Otra issue, o "ninguna". -->
+<!-- Another issue, or "none". -->
 
-## Nivel sugerido
+## Suggested level
 
-<!-- Ver docs/ROUTING.md: L1 / L2 / L3. Si toca .github/CODEOWNERS con dueño reforzado, es L3. -->
+<!-- See docs/ROUTING.md: L1 / L2 / L3. If it touches .github/CODEOWNERS with an enforced owner, it is L3. -->
 
-## Notas para quien implemente
+## Notes for whoever implements it
 
-<!-- Invariantes de AGENTS.md que aplican especialmente aquí, si los hay. -->
+<!-- Invariants from AGENTS.md that apply especially here, if any. -->

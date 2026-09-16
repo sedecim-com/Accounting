@@ -410,6 +410,28 @@ export async function contadoresAnualesSembrados(): Promise<Resultado> {
       );
 }
 
+/**
+ * El trozo de un documento que va de un encabezado al siguiente, o `null` si
+ * el encabezado ya no está.
+ *
+ * Existe por la lección de las anclas que no acotan: preguntar «¿dice "En
+ * español"?» sobre un archivo ENTERO mide la oración equivocada en cuanto
+ * alguien escribe esas dos palabras en cualquier otro párrafo — y CONTRIBUTING
+ * las escribe, legítimamente, hablando de la línea base por archivo. Un
+ * criterio que afirma algo de una sección tiene que leer esa sección.
+ *
+ * El segundo argumento es qué cuenta como «el siguiente encabezado», porque un
+ * job de YAML termina donde empieza otra clave en columna dos y un apartado de
+ * Markdown donde empieza otro `##`.
+ */
+export function sectionOf(text: string, heading: string, until = /^## /m): string | null {
+  const from = text.indexOf(heading);
+  if (from === -1) return null;
+  const rest = text.slice(from + heading.length);
+  const next = until.exec(rest);
+  return next === null ? rest : rest.slice(0, next.index);
+}
+
 export const ok = (detalle: string): Resultado => ({ estado: 'ok', detalle });
 export const falla = (detalle: string): Resultado => ({ estado: 'falla', detalle });
 export const noEvaluable = (detalle: string): Resultado => ({ estado: 'no-evaluable', detalle });
@@ -1410,6 +1432,150 @@ export const CRITERIOS: Criterio[] = [
         porque:
           'la puerta pasa a avisar, y un aviso más entre mil ciento diecisiete no lo ve nadie: el ' +
           'español vuelve a poder entrar con la CI en verde, que es justo lo que este tramo cierra',
+      },
+    ],
+  },
+
+
+  {
+    paquete: 'E0.0',
+    id: 'commit-subjects-born-english',
+    enunciado: 'Los asuntos de commit nacen en inglés, y un lint en la CI rechaza los que no',
+    evaluar: () => {
+      // POR QUÉ NACE (I22, issue #165). El repositorio ordenaba lo CONTRARIO,
+      // por escrito y en dos sitios: «En español» abría la sección de mensajes
+      // de commit de CONTRIBUTING, y PROCESS decía «hasta que ese tramo entre,
+      // los commits siguen en español». Con esas dos frases en pie, 182 de los
+      // 285 asuntos sin fusión de `main` llevan acento y todos tenían razón.
+      //
+      // Es la misma lección que I1 una línea más arriba: cambiar la regla
+      // escrita no es papeleo, es lo único que hace que lo nuevo deje de nacer
+      // en español. Y por eso este criterio vigila TRES cosas que se pudren
+      // por separado —la orden, el tiempo verbal del proceso, y el cableado de
+      // la puerta—: una puerta cuyo documento dice lo contrario es una puerta
+      // que la gente rodea, y un documento cuya puerta no corre es una
+      // promesa.
+      const contrib = crudoDe('CONTRIBUTING.md');
+      const commits = sectionOf(contrib, '## Mensajes de commit');
+      if (commits === null) {
+        return falla('CONTRIBUTING perdió su sección de mensajes de commit: la regla se quedó sin sitio donde leerse');
+      }
+      // ACOTADO A SU SECCIÓN, no al archivo: «en español» aparece también en
+      // la frase legítima sobre la línea base por archivo, y un ancla que no
+      // acota acaba midiendo la oración equivocada.
+      if (commits.includes('En español')) {
+        return falla(
+          'la sección de commits de CONTRIBUTING vuelve a pedir español: gana lo escrito, porque es ' +
+            'lo que se lee antes de contribuir'
+        );
+      }
+      if (!commits.includes('**En inglés.** El asunto lleva el código del tramo')) {
+        return falla('CONTRIBUTING no dice en qué idioma nace el asunto de un commit');
+      }
+
+      const processDoc = sectionOf(crudoDe('docs/PROCESS.md'), '## Mensajes de commit');
+      if (processDoc === null) return falla('PROCESS perdió su sección de mensajes de commit');
+      if (processDoc.includes('siguen en español')) {
+        return falla(
+          'PROCESS vuelve a decir que los commits siguen en español: el documento del proceso ' +
+            'contradice a la puerta, y quien lo lea escribirá en español con permiso'
+        );
+      }
+      if (!processDoc.includes('es inglés desde I22')) {
+        return falla('PROCESS no dice que el idioma del commit YA es inglés: sigue prometiendo un tramo que entró');
+      }
+      if (!processDoc.includes('no se reescribe')) {
+        return falla('PROCESS dejó de decir que el historial no se reescribe, que es la mitad de la regla que protege el registro');
+      }
+
+      // El lint existe, y NO se escribió su propia lista (regla 3.1 del rector:
+      // una sola población, un solo léxico).
+      const scriptPath = 'scripts/language/commit-subjects.ts';
+      if (!existe(scriptPath)) return falla('no hay lint de asunto: la regla escrita no tiene quien la haga cumplir');
+      const lint = codigoDe(scriptPath);
+      if (!/from '\.\/extract\.js'/.test(lint) || !/judgeLanguage/.test(lint)) {
+        return falla(
+          'el lint de asunto dejó de consumir el detector compartido: se hizo su propia lista, y dos ' +
+            'listas publican dos números'
+        );
+      }
+
+      // La fecha de corte vive en UN sitio y el documento la cita. Dos copias
+      // de la misma cifra es como una de las dos empieza a mentir.
+      const cutoff = /SUBJECT_RULE_EFFECTIVE_FROM\s*=\s*'([0-9TZ:.-]+)'/.exec(lint)?.[1];
+      if (cutoff === undefined) {
+        return falla('el lint no declara desde cuándo rige: sin corte, o juzga la historia entera o no juzga nada');
+      }
+      if (!commits.includes(cutoff)) {
+        return falla(`CONTRIBUTING no cita la fecha de corte ${cutoff} que declara el lint: dos cifras de lo mismo, y una miente`);
+      }
+
+      // `crudoDe` y no `codigoDe` sobre el YAML, por la razón que el criterio
+      // de al lado documenta: `codigoDe` se lleva 1 576 caracteres del archivo.
+      const ci = crudoDe('.github/workflows/ci.yml');
+      const job = sectionOf(ci, '  commit-subjects:', /^ {2}[a-z][a-z-]*:$/m);
+      if (job === null) return falla('la CI no tiene job de asuntos de commit: el lint existe y nadie lo corre');
+      if (!job.includes(scriptPath)) {
+        return falla('el job de asuntos de commit ya no invoca al lint: queda un job verde que no juzga nada');
+      }
+      if (!job.includes('fetch-depth: 0')) {
+        return falla('el job de asuntos de commit clona a profundidad 1: vería un commit y el rango ni se resuelve');
+      }
+      return ok(
+        'la orden escrita dice inglés, el proceso la da por entregada, y el lint que la mide corre en la ' +
+          'CI con el historial a la vista'
+      );
+    },
+    mutantes: [
+      {
+        archivo: 'CONTRIBUTING.md',
+        de: '**En inglés.** El asunto lleva el código del tramo',
+        a: '**En español.** El asunto lleva el código del tramo',
+        porque:
+          'la orden vuelve a pedir español donde se lee antes de contribuir, y con ella cada asunto nuevo ' +
+          'nace en español con razón: el lint pasa a pelear contra la documentación del propio proyecto, ' +
+          'y gana la documentación porque es la que se lee',
+      },
+      {
+        archivo: 'docs/PROCESS.md',
+        de: 'El idioma **es inglés desde I22**',
+        a: 'El idioma pasa al inglés con I22 — decidido, pero todavía pendiente',
+        porque:
+          'el proceso vuelve a describir el cambio como futuro: quien lea PROCESS escribe en español con ' +
+          'permiso y se encuentra un rojo que ningún documento le explica',
+      },
+      {
+        archivo: 'scripts/language/commit-subjects.ts',
+        de: "import { judgeLanguage } from './extract.js';",
+        a: 'const judgeLanguage = (t: string) => ({ spanish: /[áéíóúñ]/i.test(t) });',
+        porque:
+          'el lint se escribe su propio detector y deja de compartir población con el metro: los 73 ' +
+          'asuntos españoles SIN acento que este mismo árbol mide pasarían en verde, y la casa tendría ' +
+          'dos listas publicando dos números',
+      },
+      {
+        archivo: 'scripts/language/commit-subjects.ts',
+        de: "SUBJECT_RULE_EFFECTIVE_FROM = '2026-09-17T00:00:00Z'",
+        a: "SUBJECT_RULE_EFFECTIVE_FROM = '2099-01-01T00:00:00Z'",
+        porque:
+          'mover la fecha de corte hacia adelante perdona en silencio todo lo que el tramo vino a ' +
+          'rechazar: el job sigue ahí, sigue verde, y no juzga un solo asunto',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'fetch-depth: 0 # commit-subjects',
+        a: 'fetch-depth: 1 # commit-subjects',
+        porque:
+          'con profundidad 1 el runner tiene un commit y el rango no se resuelve: el job falla siempre o ' +
+          'no mira nada, y de las dos formas deja de ser una puerta',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'npx tsx scripts/language/commit-subjects.ts --range',
+        a: 'echo skipped for now --range',
+        porque:
+          'el gesto de «desactivar un momento» un job rojo deja el job en su sitio, con su nombre y su ' +
+          'verde, y sin nadie juzgando un solo asunto',
       },
     ],
   },

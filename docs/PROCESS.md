@@ -57,4 +57,4 @@ Cuando un PR cierra el último ítem de un sprint (milestone), añade su fila a 
 
 Con el código del tramo cuando exista (ver `CONTRIBUTING.md` para ejemplos). El cuerpo explica el **porqué**, no el diff.
 
-El idioma pasa al inglés con I22 del epic [#141](https://github.com/sedecim-com/Accounting/issues/141) — decidido, no pendiente. Hasta que ese tramo entre, los commits siguen en español y el que llegue después no se reescribe: un mensaje de commit es registro, y el registro no se retoca.
+El idioma **es inglés desde I22** del epic [#141](https://github.com/sedecim-com/Accounting/issues/141) — entregado, no pendiente. Rige por la **fecha de autor** del commit, contra el corte que declara `scripts/language/commit-subjects.ts`; lo anterior a ese corte **no se reescribe**: un mensaje de commit es registro, y el registro no se retoca. El PR lo comprueba con el job `Commit subjects`, que juzga los commits propios del PR y su título.

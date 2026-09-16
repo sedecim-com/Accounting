@@ -1,32 +1,31 @@
-## Qué cambia
+## What changes
 
-<!-- Una o dos frases. El "qué", no el "cómo". -->
+<!-- One or two sentences. The "what", not the "how". -->
 
-## Por qué
+## Why
 
-<!-- El problema que existía antes de este cambio. Si no había problema,
-     explica qué se gana. Un PR sin porqué no se puede revisar: sólo leer. -->
+<!-- The problem that existed before this change. If there was no problem,
+     explain what is gained. A PR with no why cannot be reviewed: only read. -->
 
-## Cómo se verificó
+## How it was verified
 
-- [ ] `npx tsc --noEmit` limpio
-- [ ] `npm test` en verde
-- [ ] `npm run test:integration` (necesita Postgres) — si el cambio toca la base
-- [ ] `npm run plan:status` sin retroceder ningún paquete exigido
+- [ ] `npx tsc --noEmit` clean
+- [ ] `npm test` green
+- [ ] `npm run test:integration` (needs Postgres) — if the change touches the database
+- [ ] `npm run plan:status` with no required package going backwards
 
-<!-- Si algo NO se pudo verificar, dilo aquí. Un hueco declarado es información;
-     uno callado es una sorpresa para quien revisa. -->
+<!-- If something could NOT be verified, say it here. A declared gap is
+     information; a silent one is a surprise for whoever reviews. -->
 
-## Invariantes de la casa que este cambio toca
+## House invariants this change touches
 
-<!-- Marca lo que aplique y explica cómo se sostiene. Si no toca ninguno, borra
-     esta sección. -->
+<!-- Tick what applies and explain how it holds. If it touches none, delete
+     this section. -->
 
-- [ ] La IA no escribe el libro ni sistemas externos: todo queda en
-      `ai_drafts` / `ai_external_ops` y lo aprueba una persona.
-- [ ] Los `UPDATE` llevan predicado de estado, alcance por entidad y revisión de
-      `rowCount`.
-- [ ] Toda consulta está acotada por `entity_id` / `tenant_id`.
-- [ ] Los límites de `src/ai/floor.ts` sólo se combinan con `Math.min`.
-- [ ] El contenido de terceros (CFDI, webhooks, skills) va envuelto como no
-      confiable, con los delimitadores neutralizados.
+- [ ] The AI writes neither the ledger nor external systems: everything stays in
+      `ai_drafts` / `ai_external_ops` and a person approves it.
+- [ ] `UPDATE`s carry a state predicate, entity scope and a `rowCount` check.
+- [ ] Every query is bounded by `entity_id` / `tenant_id`.
+- [ ] The limits in `src/ai/floor.ts` are only combined with `Math.min`.
+- [ ] Third-party content (CFDI, webhooks, skills) is wrapped as untrusted, with
+      its delimiters neutralised.

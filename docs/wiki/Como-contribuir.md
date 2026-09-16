@@ -82,21 +82,28 @@ reprodúcelo en local antes de abrir el PR — está en [[Pruebas-y-CI]].
 
 Estas son las que hacen que un PR técnicamente correcto se devuelva.
 
-### Los comentarios y la documentación van en español
+### Los comentarios y la documentación **nacen en inglés**
 
 Y explican el **porqué**. El qué ya lo dice el código; si no lo dice, arregla el
 código. Un comentario que parafrasea la línea de abajo es ruido con costo de
-mantenimiento.
+mantenimiento. Lo que ya está escrito en español entra a una línea base por
+archivo que **sólo encoge** (epic
+[#141](https://github.com/sedecim-com/Accounting/issues/141)).
 
 ### Nada de emoji. Nada de `feat:` ni `chore:`
 
-Los mensajes de commit van en español y el asunto lleva el código del paquete,
-dos puntos, y una línea que dice **qué cambió** —no qué archivos tocaste:
+Los mensajes de commit **van en inglés** y el asunto lleva el código del tramo
+cuando exista, dos puntos, y una línea que dice **qué cambió** —no qué archivos
+tocaste:
 
 ```
-E1.4-c: lo simulado se nombra donde se sirve, y el borrador entra a la cadena
-AUD-1: cuatro silencios, que son peor que un error
+I7: the kernel renders help by key, and the pilot stops loading loose Spanish
+AUD-1: four silences, which are worse than an error
 ```
+
+Rige desde el corte que declara `scripts/language/commit-subjects.ts` y lo
+comprueba el job `Commit subjects` de la CI. Lo anterior a ese corte no se
+juzga y no se reescribe.
 
 ### El cuerpo del commit explica el porqué, no el diff
 
