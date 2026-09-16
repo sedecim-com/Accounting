@@ -86,6 +86,29 @@ export interface RenderOptions {
    * conozca la pasa y su entidad estadounidense se lee en en-US.
    */
   jurisdiction?: Jurisdiction;
+  /**
+   * Columns whose stored value is a stable KEY, with the function that renders
+   * its label from that key AND the rest of its row.
+   *
+   * The two HUMAN branches call it — the aligned table and markdown, which the
+   * wiki teaches as the monthly deliverable (`--format md -o`). csv, tsv,
+   * ndjson and json never do: they get the stored value intact.
+   *
+   * It takes the whole row on purpose. A subtotal line has no prose of its own
+   * to store —«Total current assets» is just `line` and `category` said in
+   * words— so the row keeps them empty and this composes the sentence for the
+   * reader. Storing the sentence instead is what made `name` change with the
+   * language in a csv, which is the very thing this hook exists to prevent.
+   *
+   * It is the same split the money above already makes, for the same reason: a
+   * machine column whose value changes with the reader's language is not a
+   * machine column. Reports need it because a section is identified by
+   * `assets`, not by the prose «Assets» that I11 is translating (issue #153);
+   * without this hook the row would have to carry either the key —and the
+   * table would print `current_assets` at a person— or the label, and then
+   * `--format csv` would answer something different in each language.
+   */
+  labelled?: Record<string, (value: string, row: Row) => string>;
   stdout?: NodeJS.WriteStream;
   stderr?: NodeJS.WriteStream;
 }
@@ -279,7 +302,8 @@ function toTable(
   cols: string[],
   numeric: Set<string>,
   p: Palette,
-  jurisdiction?: Jurisdiction
+  jurisdiction?: Jurisdiction,
+  labelled?: Record<string, (value: string, row: Row) => string>
 ): string {
   // SOLO aquí (la rama para humanos) el dinero se viste de presentación;
   // los formatos de máquina reciben la cadena de almacenamiento intacta.
@@ -290,14 +314,16 @@ function toTable(
   // entidades y lo que este renderizador tenía escrito a mano. Los dos
   // decimales van fijos y no los decide la moneda: es lo que esta tabla ha
   // impreso siempre, y su prueba lo comprueba byte por byte.
-  const display = (col: string, value: unknown): string => {
+  const display = (col: string, value: unknown, row: Row): string => {
     const raw = cell(value);
+    const label = labelled?.[col];
+    if (label !== undefined) return label(raw, row);
     return isMoneyColumn(col) && DECIMAL_RE.test(raw)
       ? formatMoney(raw, { jurisdiction, display: 'plain', fractionDigits: 2 })
       : raw;
   };
   const widths = cols.map((c) =>
-    Math.max(c.length, ...rows.map((r) => display(c, r[c]).length), 0)
+    Math.max(c.length, ...rows.map((r) => display(c, r[c], r).length), 0)
   );
   // Numbers right-align so digits stack; everything else left-aligns.
   const padded = (v: string, w: number, right: boolean) =>
@@ -307,7 +333,7 @@ function toTable(
 
   const header = cols.map((c, i) => padded(c, widths[i], false)).join('  ').trimEnd();
   const rule = widths.map((w) => '─'.repeat(w)).join('  ');
-  const body = rows.map((r) => row(cols.map((c) => display(c, r[c]))));
+  const body = rows.map((r) => row(cols.map((c) => display(c, r[c], r))));
   return [p.bold(header), p.dim(rule), ...body].join('\n');
 }
 
@@ -322,7 +348,11 @@ function toDelimited(rows: Row[], cols: string[], delimiter: string): string {
   return [head, ...body].join('\n');
 }
 
-function toMarkdown(rows: Row[], cols: string[]): string {
+function toMarkdown(
+  rows: Row[],
+  cols: string[],
+  labelled?: Record<string, (value: string, row: Row) => string>
+): string {
   // Escapa lo que puede FORJAR la tabla, no sólo lo que la afea, y en este
   // orden: primero la barra invertida —si fuera al final escaparía las que
   // añaden los otros pasos—, luego el pipe, que abre una columna, y al final
@@ -337,7 +367,15 @@ function toMarkdown(rows: Row[], cols: string[]): string {
   return [
     `| ${cols.map(esc).join(' | ')} |`,
     `|${cols.map(() => '---').join('|')}|`,
-    ...rows.map((r) => `| ${cols.map((c) => esc(cell(r[c]))).join(' | ')} |`),
+    ...rows.map(
+      (r) =>
+        `| ${cols
+          .map((c) => {
+            const label = labelled?.[c];
+            return esc(label !== undefined ? label(cell(r[c]), r) : cell(r[c]));
+          })
+          .join(' | ')} |`
+    ),
   ].join('\n');
 }
 
@@ -456,7 +494,7 @@ function compose(rows: Row[], opts: RenderOptions, p: Palette): Composed {
   }
 
   if (format === 'md') {
-    return { data: toMarkdown(rows, cols) + '\n', notes: aviso };
+    return { data: toMarkdown(rows, cols, opts.labelled) + '\n', notes: aviso };
   }
 
   if (!rows.length) {
@@ -468,7 +506,7 @@ function compose(rows: Row[], opts: RenderOptions, p: Palette): Composed {
   }
 
   const numeric = new Set(opts.numeric ?? [...inferNumeric(rows, cols)]);
-  return { data: toTable(rows, cols, numeric, p, opts.jurisdiction) + '\n', notes: aviso };
+  return { data: toTable(rows, cols, numeric, p, opts.jurisdiction, opts.labelled) + '\n', notes: aviso };
 }
 
 /**
