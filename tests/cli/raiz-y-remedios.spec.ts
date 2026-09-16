@@ -20,6 +20,10 @@ import * as path from 'node:path';
 // ============================================================
 
 import {
+  ClosingRunStateError,
+  createConductorLease,
+} from '../../src/services/accounting/closing-conductor.js';
+import {
   CLI_VERSION,
   reportError,
   remedioParaMensaje,
@@ -189,6 +193,18 @@ describe('reportError remite al remedio', () => {
     // (init --section identity) solo vale en el arranque roto — aquí sería
     // un consejo equivocado, y por eso la categoría no entra a reportError.
     expect(remedioParaMensaje('No active entity matches "Demmo"')).toBeNull();
+  });
+
+  it('a conductor that lost its lock is not told to check DATABASE_URL', async () => {
+    // The refusal carries its own next step (--dry-run, --resume). The pg text
+    // of a session that ended — "terminating connection…" — matches the
+    // database hint, so it travels in `details`, never in the message.
+    const lease = createConductorLease({ query: async () => ({}) }, () => new Error('terminating connection due to administrator command'));
+    const refusal = (await lease.assertHeld().catch((e: unknown) => e)) as ClosingRunStateError;
+    expect(refusal).toBeInstanceOf(ClosingRunStateError);
+    expect(String(refusal.details?.cause)).toContain('terminating connection');
+    expect(remedioParaMensaje(refusal.message)).toBeNull();
+    expect(stderrDe(refusal)).not.toContain('DATABASE_URL');
   });
 });
 
