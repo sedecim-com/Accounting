@@ -5084,6 +5084,13 @@ export const CRITERIOS: Criterio[] = [
         porque:
           '`is_active` es NULABLE y la 084 no la restringe a propósito, así que una orden dada de alta sin ella queda invisible para el motor —que filtra `is_active = true`— y retiene cero en silencio: el mismo cero que la 075 vino a cerrar',
       },
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: '       SELECT e.id, $2, $3, $4, $5, $6, $7, $8, $9, true, $10::jsonb',
+        a: '       SELECT e.id, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10::jsonb',
+        porque:
+          'el defecto se mueve UN TOKEN a la derecha y produce exactamente la fila que el mutante anterior describe: la columna sigue nombrada y lo que se escribe en ella es NULL, así que la orden es invisible para el motor y retiene cero. La primera redacción de este criterio miraba la lista de NOMBRES y se quedaba verde ante esto',
+      },
     ],
     evaluar: () => {
       const service = 'src/services/payroll/common/garnishment-service.ts';
@@ -5093,12 +5100,20 @@ export const CRITERIOS: Criterio[] = [
         if (!existe(f)) return falla(`desapareció ${f}`);
       }
 
-      // 1. THE INSERT, AND ITS COLUMN LIST READ AS A LIST.
+      // 1. THE INSERT, READ AS A STATEMENT: THE NAMES AND THE VALUES.
       //
-      // Parsed, not searched for across the whole file, and that is the
-      // difference between measuring and guessing: the WHERE of this very
-      // statement bounds by the employee, so a file-wide «no tenant_id»
-      // regex would go red against the correct code.
+      // Parsed and not grepped, because a column list is a LIST and the
+      // question «is `is_active` written, and written TRUE» is positional:
+      // the first draft asked only whether the name appeared, and moving the
+      // defect one token right — `$9, NULL, $10::jsonb` — left it green while
+      // the row it produced was the invisible one the mutant above describes.
+      //
+      // (The reason first written here for parsing instead of grepping was
+      // that this statement's own WHERE carries `e.tenant_id`, so a file-wide
+      // regex would redden correct code. That was false and is corrected:
+      // `reciboEnEntidad` emits `e2.entity_id`, and the token `tenant_id`
+      // does not occur once in this file's CODE. The real reason is the one
+      // above — a parse answers a question a search cannot even ask.)
       const code = codigoDe(service);
       const at = code.indexOf('INSERT INTO garnishments (');
       if (at < 0) {
@@ -5108,16 +5123,34 @@ export const CRITERIOS: Criterio[] = [
       }
       const open = code.indexOf('(', at);
       const close = code.indexOf(')', open);
-      const columns = code.slice(open + 1, close);
+      const columns = code.slice(open + 1, close).split(',').map((c) => c.trim());
 
-      if (/\btenant_id\b/.test(columns)) {
+      if (columns.some((c) => c === 'tenant_id')) {
         return falla(
           'la lista de columnas del INSERT volvió a nombrar `tenant_id`: el disparador de la 077 lo sobrescribe con el del empleado, así que el escritor estaría afirmando una pertenencia que no determina'
         );
       }
-      if (!/\bis_active\b/.test(columns)) {
+      const activeAt = columns.indexOf('is_active');
+      if (activeAt < 0) {
         return falla(
           'el INSERT dejó de escribir `is_active`: la columna es nulable y el motor filtra `is_active = true`, de modo que la orden existiría en la tabla y retendría cero sin que nada lo diga'
+        );
+      }
+
+      const selectAt = code.indexOf('SELECT', close);
+      const fromAt = code.indexOf('FROM employees e', selectAt);
+      if (selectAt < 0 || fromAt < 0) {
+        return falla('el INSERT dejó de alimentarse de un SELECT sobre `employees`: ya no se puede leer qué valor recibe cada columna');
+      }
+      const values = code.slice(selectAt + 'SELECT'.length, fromAt).split(',').map((v) => v.trim());
+      if (values.length !== columns.length) {
+        return falla(
+          `el INSERT nombra ${columns.length} columnas y alimenta ${values.length} valores: uno de los dos lados se movió y la correspondencia dejó de poder comprobarse`
+        );
+      }
+      if (values[activeAt] !== 'true') {
+        return falla(
+          `el INSERT escribe «${values[activeAt]}» en \`is_active\` en vez de \`true\`: la columna es nulable, el motor filtra \`is_active = true\`, y la orden quedaría en la tabla reteniendo cero en silencio`
         );
       }
 
@@ -5146,15 +5179,25 @@ export const CRITERIOS: Criterio[] = [
     mutantes: [
       {
         archivo: 'src/database/migrations/084_the_order_that_nobody_could_file.sql',
-        de: "         OR COALESCE(jsonb_typeof(metadata -> 'exempt_amount'), 'missing') IN ('number', 'string'));",
-        a: "         OR jsonb_typeof(metadata -> 'exempt_amount') IN ('number', 'string'));",
+        // THE ANCHOR STARTS AT `OR (CASE` AND NOT AT `WHEN`, and that is not
+        // cosmetic: the census applies the SAME predicate three spaces further
+        // in, so an anchor beginning at `WHEN` matches INSIDE the census line
+        // first — it is its prefix — and `String.replace` mutates that one.
+        // Measured: with the short anchor this mutant SURVIVED, because what
+        // it broke was the census while the constraint kept biting.
+        de: `         OR (CASE
+               WHEN COALESCE(metadata ->> 'exempt_amount', '') ~ '^[0-9]+([.][0-9]+)?$'
+               THEN (metadata ->> 'exempt_amount')::numeric > 0`,
+        a: `         OR (CASE
+               WHEN COALESCE(metadata ->> 'exempt_amount', '') ~ '^[0-9]+([.][0-9]+)?$'
+               THEN true`,
         porque:
-          'sin el COALESCE la comparación de una llave AUSENTE vale NULL, y un CHECK que evalúa NULL SE CUMPLE: vuelve a poder guardarse el embargo fiscal sin su exención, que es el que retiene el cien por ciento del ingreso disponible',
+          'la restricción vuelve a admitir una exención de CERO, y cero no es una exención pequeña: es el mismo resultado que no tener ninguna —`disponible - 0`, el cheque entero, `cap_applied` en null—. El censo de arriba sigue mirando el valor, así que sin leer la restricción por su nombre este mutante quedaba vivo',
       },
       {
         archivo: 'src/database/migrations/084_the_order_that_nobody_could_file.sql',
         de: `  ADD CONSTRAINT ck_garnishments_support_caps
-  CHECK (garnishment_type NOT IN ('child_support', 'pension_alimenticia')
+  CHECK (garnishment_type <> 'child_support'
          OR (COALESCE(jsonb_typeof(metadata -> 'supports_second_family'), 'missing') = 'boolean'
              AND COALESCE(jsonb_typeof(metadata -> 'arrears_over_12_weeks'), 'missing') = 'boolean'));`,
         a: `  ADD CONSTRAINT ck_garnishments_support_caps
@@ -5163,11 +5206,29 @@ export const CRITERIOS: Criterio[] = [
           'la restricción se vuelve decorativa y una orden de manutención sin sus dos respuestas vuelve a ser guardable: el motor lee la ausencia como «no», que es el tope de 60 % en vez del de 50 % — diez puntos del ingreso disponible de una persona',
       },
       {
+        archivo: 'src/database/migrations/084_the_order_that_nobody_could_file.sql',
+        de: `  ADD CONSTRAINT ck_garnishments_maintenance_caps
+  CHECK (garnishment_type <> 'pension_alimenticia'
+         OR (COALESCE(jsonb_typeof(metadata -> 'supports_second_family'), 'boolean') = 'boolean'
+             AND COALESCE(jsonb_typeof(metadata -> 'arrears_over_12_weeks'), 'boolean') = 'boolean'));`,
+        a: `  ADD CONSTRAINT ck_garnishments_maintenance_caps
+  CHECK (true);`,
+        porque:
+          'una pensión alimenticia vuelve a poder guardar «yes» donde el motor hace `(metadata ->> …)::boolean`: no es una orden que retenga de más, es un 22P02 EN MITAD de una corrida de nómina — la corrida entera aborta por una orden',
+      },
+      {
         archivo: 'src/services/payroll/common/garnishment-service.ts',
         de: '    if (input.exempt_amount === undefined) {',
         a: '    if (input.exempt_amount === null) {',
         porque:
           'una bandera ausente llega como `undefined` y no como `null`, así que la negativa deja de dispararse: el contador ya no recibe la frase que le dice que sin la exención se retiene el cheque entero, y sólo lo para el 23514 crudo del controlador',
+      },
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: '    if (new Decimal(exempt).lessThanOrEqualTo(0)) {',
+        a: '    if (new Decimal(exempt).lessThan(0)) {',
+        porque:
+          '`--exempt-amount 0` vuelve a dar de alta el embargo que retiene el CIEN POR CIENTO del disponible, que es palabra por palabra el resultado que la frase de la negativa de al lado dice impedir: una valla cuya puerta produce el estado contra el que se levantó',
       },
     ],
     evaluar: () => {
@@ -5178,27 +5239,67 @@ export const CRITERIOS: Criterio[] = [
         if (!existe(f)) return falla(`desapareció ${f}`);
       }
 
-      // 1. THE DATABASE, READ WITHOUT ITS PROSE.
+      // 1. THE DATABASE, READ WITHOUT ITS PROSE AND CONSTRAINT BY CONSTRAINT.
       //
       // `sinProsa` and not bare `crudoDe`: this file's header explains why the
       // constraints test the VALUE and not the key, and a criterion that read
       // the comment would stay green with the constraint removed — the exact
       // failure `sinProsa` exists for.
+      //
+      // AND EACH CONSTRAINT IS CUT OUT BY NAME before it is read, which is the
+      // second half of the same lesson. The census above the constraints
+      // applies the SAME predicates — it has to, or the migration would abort
+      // with a raw 23514 after absolving a row — so a file-wide `includes` has
+      // two places to find every anchor, and a mutant that guts the CONSTRAINT
+      // survives on the census's copy. An anchor repeated in a file disarms
+      // its own mirror.
       const sql = sinProsa(crudoDe(migration));
+      const constraintNamed = (name: string): string | null => {
+        const at = sql.indexOf(`ADD CONSTRAINT ${name}`);
+        if (at < 0) return null;
+        const end = sql.indexOf(';', at);
+        return end < 0 ? null : sql.slice(at, end);
+      };
 
-      if (!sql.includes("COALESCE(jsonb_typeof(metadata -> 'exempt_amount'), 'missing') IN ('number', 'string')")) {
+      const levy = constraintNamed('ck_garnishments_levy_exemption');
+      if (!levy) return falla('la 084 dejó de instalar `ck_garnishments_levy_exemption`: el embargo fiscal sin exención vuelve a ser guardable por SQL');
+      if (!levy.includes("COALESCE(metadata ->> 'exempt_amount', '') ~ '^[0-9]+([.][0-9]+)?$'")) {
         return falla(
-          'la 084 dejó de comprobar el TIPO del valor de la exención con su COALESCE: una llave ausente hace que el CHECK evalúe NULL, y un CHECK que evalúa NULL se cumple — el embargo fiscal sin exención vuelve a ser guardable y retiene el cien por ciento del disponible'
+          'la restricción de la exención dejó de comprobar el VALOR con su COALESCE: una llave ausente hace que la comparación valga NULL, y un CHECK que evalúa NULL se cumple — el embargo fiscal sin exención vuelve a ser guardable y retiene el cien por ciento del disponible'
         );
       }
-      if (!sql.includes("COALESCE(jsonb_typeof(metadata -> 'supports_second_family'), 'missing') = 'boolean'")) {
+      if (!levy.includes("(metadata ->> 'exempt_amount')::numeric > 0")) {
+        return falla(
+          'la restricción de la exención dejó de exigir que sea POSITIVA: una exención de cero no es una exención pequeña, es `disponible - 0` —el cheque entero— con `cap_applied` vacío, exactamente el mismo resultado que la llave ausente'
+        );
+      }
+
+      const caps = constraintNamed('ck_garnishments_support_caps');
+      if (!caps) return falla('la 084 dejó de instalar `ck_garnishments_support_caps`: una manutención sin sus dos respuestas vuelve a ser guardable');
+      if (!caps.includes("garnishment_type <> 'child_support'")) {
+        return falla(
+          'la restricción de los topes dejó de apuntar a `child_support`: si ya no nombra el tipo que la CCPA gobierna, no está acotando a nadie'
+        );
+      }
+      if (!caps.includes("COALESCE(jsonb_typeof(metadata -> 'supports_second_family'), 'missing') = 'boolean'")) {
         return falla(
           'la 084 dejó de exigir que la segunda familia sea un booleano de verdad: una llave presente con valor nulo pasa, y el motor la lee como «no» — el tope salta de 50 % a 60 % del ingreso disponible'
         );
       }
-      if (!sql.includes("COALESCE(jsonb_typeof(metadata -> 'arrears_over_12_weeks'), 'missing') = 'boolean'")) {
+      if (!caps.includes("COALESCE(jsonb_typeof(metadata -> 'arrears_over_12_weeks'), 'missing') = 'boolean'")) {
         return falla(
           'la 084 dejó de exigir que los atrasos de más de doce semanas sean un booleano: además de mover el tope cinco puntos, un valor que no sea booleano revienta con 22P02 DENTRO de una corrida de nómina'
+        );
+      }
+
+      // THE MEXICAN ORDER IS NOT REQUIRED TO CARRY THE TWO CCPA ANSWERS —
+      // the CCPA does not govern it and the cascade never runs for its
+      // employee — but if it DOES carry them they must be booleans: a 22P02
+      // does not care which country the order came from.
+      const mx = constraintNamed('ck_garnishments_maintenance_caps');
+      if (!mx || !mx.includes("garnishment_type <> 'pension_alimenticia'")) {
+        return falla(
+          'la 084 dejó de acotar el TIPO del valor en una pensión alimenticia: no se le exigen los dos topes —serían cifras inventadas sobre una orden que la CCPA no gobierna— pero un «yes» donde el motor hace `::boolean` aborta una corrida de nómina entera'
         );
       }
       if (!/ALTER COLUMN metadata SET NOT NULL/.test(sql)) {
@@ -5209,16 +5310,22 @@ export const CRITERIOS: Criterio[] = [
 
       // 2. AND THE TYPESCRIPT REFUSAL, WHICH IS THE ONE WITH WORDS.
       //
-      // The constraint stops the row; what tells the accountant the difference
-      // between «I forgot» and «I declared zero» is the sentence, and without
-      // it the error is a raw 23514 from the driver naming a constraint.
+      // The constraint stops the row; what tells the accountant that «I
+      // forgot» and «I declared zero» buy the same thing is the sentence, and
+      // without it the error is a raw 23514 from the driver naming a
+      // constraint.
       const code = codigoDe(service);
       const from = code.indexOf('export function resolveCcpaMetadata');
       if (from < 0) return falla('el servicio dejó de exportar resolveCcpaMetadata: la negativa no tiene dónde vivir');
-      const body = code.slice(from, from + 2000);
+      const body = code.slice(from, from + 2600);
       if (!body.includes('input.exempt_amount === undefined')) {
         return falla(
           'el servicio dejó de negarse ante un embargo fiscal sin --exempt-amount: la ausencia vuelve a viajar hasta el motor, que la lee como cero y retiene el ingreso disponible entero'
+        );
+      }
+      if (!body.includes('new Decimal(exempt).lessThanOrEqualTo(0)')) {
+        return falla(
+          'el servicio dejó de negarse ante `--exempt-amount 0`: es el MISMO cheque entero que la ausencia, y la frase de la negativa de al lado dice impedirlo — una valla con puerta'
         );
       }
       if (!body.includes("requireYesNo(\n        '--supports-second-family'") ||
@@ -5229,7 +5336,7 @@ export const CRITERIOS: Criterio[] = [
       }
 
       return existe(proof)
-        ? ok('las dos restricciones miran el valor y no la llave, `metadata` no admite NULL, el servicio se niega con la consecuencia dicha, y hay prueba que lo ejecuta contra la base')
+        ? ok('las tres restricciones miran el valor y no la llave, la exención tiene que ser positiva, `metadata` no admite NULL, el servicio se niega con la consecuencia dicha, y hay prueba que lo ejecuta contra la base')
         : falla('no hay prueba que EJERCITE las restricciones de la 084 contra Postgres: leer un CHECK no demuestra qué admite');
     },
   },
@@ -5285,7 +5392,7 @@ export const CRITERIOS: Criterio[] = [
 
       const archive = code.indexOf('export async function archiveGarnishment');
       if (archive < 0) return falla('el servicio dejó de exportar archiveGarnishment');
-      const body = code.slice(archive, archive + 2200);
+      const body = code.slice(archive, archive + 3000);
       if (!body.includes("reciboEnEntidad('g.employee_id', 3)")) {
         return falla(
           'el UPDATE de archivo dejó de llevar el camino a la entidad en la misma sentencia: se archiva la orden de la sociedad hermana'
@@ -5320,15 +5427,22 @@ export const CRITERIOS: Criterio[] = [
             end_date = COALESCE($2::date, g.end_date)`,
         a: '        SET end_date = COALESCE($2::date, g.end_date)',
         porque:
-          'la orden sigue reteniendo para siempre: `end_date` no tiene UN SOLO lector en `src/` —el WHERE del motor no mira fechas— así que un archivo que sólo escribe la fecha archiva en el papel y no en el dinero',
+          'la orden sigue reteniendo para siempre: ninguna consulta de `src/` DECIDE nada por `end_date` —el WHERE del motor no mira fechas; los únicos lectores que esa columna tiene la imprimen— así que un archivo que sólo escribe la fecha archiva en el papel y no en el dinero',
       },
       {
         archivo: 'src/services/payroll/common/garnishment-service.ts',
         de: `      WHERE g.id = $1
-        AND g.is_active`,
+        AND g.is_active IS NOT FALSE`,
         a: '      WHERE g.id = $1',
         porque:
           'sin predicado de estado, archivar una orden YA archivada contesta éxito sobre una retención que nadie detuvo en ese momento, y el registro de cuándo se detuvo se sobrescribe con la fecha equivocada',
+      },
+      {
+        archivo: 'src/services/payroll/common/garnishment-service.ts',
+        de: '        AND g.is_active IS NOT FALSE',
+        a: '        AND g.is_active',
+        porque:
+          'vuelve el callejón sin salida que la 084 deja abierto a propósito: una fila con `is_active` en NULL —que la 084 conserva porque adivinar qué significaba no es seguro— no casa con este predicado, así que no se puede archivar, y la negativa le dice al operador que «dejó de retener cuando se apagó la bandera», por un apagado que nunca ocurrió',
       },
       {
         archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
@@ -5349,16 +5463,22 @@ export const CRITERIOS: Criterio[] = [
       const code = codigoDe(service);
       const at = code.indexOf('export async function archiveGarnishment');
       if (at < 0) return falla('el servicio dejó de exportar archiveGarnishment');
-      const body = code.slice(at, at + 2200);
+      const body = code.slice(at, at + 3000);
 
       if (!body.includes('SET is_active = false')) {
         return falla(
-          'archivar dejó de apagar `is_active`: la fila del catálogo promete que «detiene la retención» y `end_date` no lo hace — no hay un solo lector de esa columna en `src/`'
+          'archivar dejó de apagar `is_active`: la fila del catálogo promete que «detiene la retención» y `end_date` no lo hace — ninguna consulta de `src/` decide nada por esa columna'
         );
       }
-      if (!body.includes('AND g.is_active')) {
+      // `IS NOT FALSE` AND NOT A BARE `AND g.is_active`: one word of
+      // difference and a whole state. 084 deliberately leaves `is_active`
+      // nullable, and under the strict predicate those rows can NEVER be
+      // archived — while the refusal calls them «already archived» for a
+      // clearing that never happened. The state predicate is still there;
+      // what moves is where it draws the line.
+      if (!body.includes('AND g.is_active IS NOT FALSE')) {
         return falla(
-          'el UPDATE de archivo perdió su predicado de estado: archivar lo ya archivado contesta éxito por una detención que ocurrió otro día'
+          'el UPDATE de archivo perdió su predicado de estado, o volvió a exigir `is_active` estrictamente cierto: lo primero contesta éxito por una detención que ocurrió otro día; lo segundo deja sin salida a las filas que la 084 conserva con la bandera en NULL'
         );
       }
 

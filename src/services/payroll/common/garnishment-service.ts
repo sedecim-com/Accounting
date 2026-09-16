@@ -45,19 +45,26 @@ import {
 //     for the two to diverge.
 //   · `is_active` is written EXPLICITLY rather than left to the DEFAULT. The
 //     column is nullable (008:441) and the engine filters `is_active = true`
-//     (garnishment-engine.ts:164), so a NULL is an order that exists on paper
+//     (garnishment-engine.ts:170), so a NULL is an order that exists on paper
 //     and withholds nothing — the same silent zero 075 exists over. 084
 //     deliberately does NOT restrict the column (its header says why), so this
 //     explicit write is the guard, not a courtesy.
 //
-// Four columns get no flag and no value on purpose, each for the same reason:
-// `max_withholding_pct`, `total_owed`, `end_date` and
-// `payee_bank_account_encrypted` have NO reader anywhere in `src/`. Publishing
-// a cap that does not cap, an end date the engine never filters on, or a
-// ceiling nothing consults would be decorative surface — the exact shape of
-// lie 075 closed on the columns next door. `end_date` IS written, but only by
-// `archiveGarnishment`, and only as the historical date of the archival
-// alongside the `is_active` that actually stops the money.
+// Four columns get no flag on purpose, and the reason is not the same for all
+// four — the first draft of this comment said it was, and it was wrong.
+//
+//   · `max_withholding_pct`, `total_owed` and `payee_bank_account_encrypted`
+//     have NO reader anywhere in `src/` (measured: the only hits are
+//     008_payroll.sql's own column list). Publishing a cap that does not cap
+//     or a ceiling nothing consults is decorative surface — the exact shape of
+//     lie 075 closed on the columns next door.
+//   · `end_date` is different, and this tranche is what made it different. It
+//     has no reader that DECIDES money: no query in `src/` filters, gates or
+//     computes on it, and the engine's WHERE looks only at `is_active`. What
+//     it now has — added here — are DISPLAY readers only: `LIST_COLUMNS`, the
+//     archive's RETURNING, and the two leaves that print what they return. It is
+//     written only by `archiveGarnishment`, and only as the historical date of
+//     the archival alongside the `is_active` that actually stops the money.
 //
 // THE SECOND · THE CLI VOCABULARY IS THE PERSISTED VOCABULARY, AND THE AMOUNT
 // IS THREE FLAGS. `--amount`, `--percent-disposable` and `--percent-gross` map
@@ -72,7 +79,7 @@ import {
 // header for the measured consequences). So a levy REQUIRES its exemption and
 // a support order REQUIRES both cap answers, explicitly, and a levy REFUSES
 // the three amount flags — for a levy the engine never reads `desired`
-// (:223-226), so accepting a flag that changes no money is the same class of
+// (:229-232), so accepting a flag that changes no money is the same class of
 // lie. A levy is stored as `amount_type='fixed', amount_value=0`, which is
 // already the repo's own encoding (tests/payroll/usa/garnishments.spec.ts:103).
 //
@@ -100,12 +107,23 @@ import {
 // rowCount, so nothing about the write's safety depends on the prior read. The
 // read exists only to produce a legible refusal.
 //
+// The SECOND pre-write read — the live orders' cap answers — is there for the
+// same reason and carries the same caveat, stated rather than left implicit:
+// the two refusals it feeds are about the SET of live orders, which no CHECK
+// constraint can see, and two `record` calls racing each other could both pass
+// them. What is NOT best-effort is the pair (employee, case number): 084's
+// unique index decides that one in the database, and the 23505 it raises is
+// translated below into a sentence. Where a race can only produce a refusal
+// that did not fire, the cost is a cascade the operator is shown anyway; where
+// it could produce a double withholding on the same case, the index is what
+// answers.
+//
 // ── WHAT IS LEFT OUT, NAMED SO THE NEXT READER DOES NOT ASSUME ──────────
 //
 // THE >100 % AGGREGATE. There is no ceiling ACROSS order families: the levy
-// branch takes `disposable - exempt` against no shared counter (engine :225)
+// branch takes `disposable - exempt` against no shared counter (engine :231)
 // while child support is capped independently against its own counter
-// (:207, :219-222), and the two are summed (:240). MEASURED BY READING on
+// (:213, :225-228), and the two are summed (:246). MEASURED BY READING on
 // 2,000 disposable with an exemption of 200: the levy takes 1,800, a support
 // order takes up to 1,200, total 3,000 — and paycheck-service.ts:519 adds that
 // into `totalPostTax` while :525-531 computes net pay by subtraction with no
@@ -256,7 +274,7 @@ export function requireGarnishmentType(value: string | undefined): GarnishmentTy
  * And lifting that gate would not help, because the arithmetic behind it is
  * not Mexican law: the caps `behaviourOf` routes to are `ccpaChildSupportCap`
  * 50/55/60/65 % (:50-53) and the creditor ceiling of 25 % or the excess over
- * 30 × 7.25 USD (:197-198) — CCPA Title III, not LFT art. 110. There is no
+ * 30 × 7.25 USD (:203-204) — CCPA Title III, not LFT art. 110. There is no
  * Mexican garnishment ceiling anywhere in a dated table: legal-parameters-seed
  * carries eight MX keys and none of them is one, and the corpus records the
  * gap in writing. Applying US percentages to a Mexican judge's order would be
@@ -267,6 +285,15 @@ export function requireGarnishmentType(value: string | undefined): GarnishmentTy
  * and nothing is removed from the engine or the CHECK: rows may already exist,
  * and taking away a behaviour that exists is what 075 explicitly declined to
  * do with `bankruptcy`.
+ *
+ * AND THE TYPE DOOR IS CHECKED FIRST, ON PURPOSE, so the refusal has to be
+ * true of BOTH sides of it. The first draft closed with «a row that withholds
+ * nothing», which is false on the path this repository's own integration spec
+ * pins: for a US employee the gate at paycheck-service.ts:493 opens,
+ * `behaviourOf` returns child support, and the row WOULD withhold — under the
+ * CCPA percentages three lines above. Withholding nothing is what happens on
+ * the OTHER branch, the country one, which throws its own sentence. Two
+ * outcomes, and the refusal now names both instead of borrowing one.
  */
 export function refuseOrderWithoutAnEngine(type: GarnishmentType, countryCode: string): void {
   if (type === 'pension_alimenticia') {
@@ -275,8 +302,9 @@ export function refuseOrderWithoutAnEngine(type: GarnishmentType, countryCode: s
         'would treat it as child support and apply the CCPA Title III caps (50/55/60/65 % of ' +
         'disposable earnings), which are US statute hard-coded in the engine, not LFT art. 110 ' +
         'in a dated table — and no Mexican garnishment ceiling exists in legal_parameters. ' +
-        'Recording the order would produce a row that withholds nothing and a promise the ' +
-        'system cannot keep.'
+        'Recording it would either withhold under a foreign statute\'s caps (a US employee, ' +
+        'whose paycheck does run the cascade) or withhold nothing at all (any other country, ' +
+        'where the cascade never runs), and neither of those is the order the judge wrote.'
     );
   }
   if (countryCode !== 'US') {
@@ -356,8 +384,19 @@ export function resolveAmount(
  * THE CCPA INPUTS, OR A REFUSAL THAT NAMES THE CONSEQUENCE.
  *
  * The message matters more than the throw: this is the only place an
- * accountant learns the difference between «I forgot» and «I declared zero»,
- * and the difference is the whole cheque.
+ * accountant learns that «I forgot» and «I declared zero» BUY THE SAME THING,
+ * and the thing is the whole cheque.
+ *
+ * AND THE ZERO IS REFUSED TOO, which the first draft did not do. The refusal
+ * below said, correctly, that without the figure «the engine reads zero and
+ * withholds 100 % of disposable earnings» — and then `requireAmount` accepted
+ * `--exempt-amount 0` and stored `"0.0000"`, which the engine reads back as
+ * zero and turns into exactly that outcome, byte for byte, with `cap_applied`
+ * null. A fence whose gate produces the state it was built against is not a
+ * fence. `--amount` has refused its own non-positive value since the first
+ * draft (`an order for nothing is not an order`); this is the same sentence
+ * for the flag where the stakes are inverted — there, zero withholds nothing;
+ * here, zero withholds everything.
  */
 export function resolveCcpaMetadata(
   type: GarnishmentType,
@@ -374,7 +413,17 @@ export function resolveCcpaMetadata(
     }
     // Stored as a STRING, which is what the tree already persists and what the
     // engine reads back with `->>` plus parseFloat.
-    return { exempt_amount: requireAmount('--exempt-amount', input.exempt_amount) };
+    const exempt = requireAmount('--exempt-amount', input.exempt_amount);
+    if (new Decimal(exempt).lessThanOrEqualTo(0)) {
+      throw new ValidationError(
+        `--exempt-amount ${input.exempt_amount} is the same order as one with no exemption at ` +
+          'all: the engine computes disposable earnings minus the exemption, so zero leaves ' +
+          '100 % of the cheque withheld and `cap_applied` empty on the payslip. The IRS Pub 1494 ' +
+          'table has no zero row — every filing status and pay frequency exempts something. ' +
+          'Read the figure off the notice.'
+      );
+    }
+    return { exempt_amount: exempt };
   }
 
   if (SUPPORT_TYPES.includes(type)) {
@@ -404,13 +453,36 @@ export function resolveCcpaMetadata(
   return {};
 }
 
+/**
+ * The width the COLUMN declares, refused here so it comes back as a sentence.
+ *
+ * `case_number VARCHAR(50)`, `issuing_authority VARCHAR(200)` and
+ * `payee_name VARCHAR(200)` (008:432-434). Without this a 60-character docket
+ * number reaches Postgres as 22001 — «value too long for type character
+ * varying(50)» — with no statusCode, which the kernel maps to the generic
+ * failure: the same exit code as a lost connection, for a typo.
+ */
+function requireWithin(flag: string, value: string, max: number): string {
+  if (value.length > max) {
+    throw new ValidationError(
+      `${flag} is ${value.length} characters and the column holds ${max}. Postgres would refuse ` +
+        'this with a 22001 in the middle of the transaction; the order is refused here instead, ' +
+        'where the message can say which flag.'
+    );
+  }
+  return value;
+}
+
 /** Everything the writer refuses, with no database in sight. */
-export function prepareGarnishment(input: GarnishmentOrderInput): PreparedGarnishment {
+export function prepareGarnishment(
+  input: GarnishmentOrderInput,
+  opts: { today?: string } = {}
+): PreparedGarnishment {
   const type = requireGarnishmentType(input.type);
   const { amount_type, amount_value } = resolveAmount(type, input);
   const metadata = resolveCcpaMetadata(type, input);
 
-  const authority = (input.issuing_authority ?? '').trim();
+  const authority = requireWithin('--court', (input.issuing_authority ?? '').trim(), 200);
   if (authority === '') {
     throw new ValidationError(
       '--court is required: an order that reduces a person\'s pay every period has to say which ' +
@@ -429,6 +501,28 @@ export function prepareGarnishment(input: GarnishmentOrderInput): PreparedGarnis
         'only to break ties within a statutory rank.'
     );
   }
+  // A DATE IN THE FUTURE IS REFUSED, BECAUSE NOTHING IN THE SYSTEM WAITS FOR
+  // IT. The row is written `is_active = true` and the engine's only filter is
+  // `is_active = true` — `start_date` is read once, to break ties within a
+  // rank (the query's `ORDER BY priority ASC, start_date ASC`,
+  // garnishment-engine.ts:171, under the stable sort at :200). So an order a
+  // court dated for next June, filed today, takes its percentage on the very
+  // NEXT pay run: nine months of someone's wages, early, with every gate green. The previous draft printed
+  // that trap in the flag help and in the message above and then accepted the
+  // date anyway, which is a warning, not a fence. Filing it dormant is not on
+  // offer either: `is_active` is what the engine reads, so a dormant row would
+  // be an order that exists and does nothing — the silent zero 075 exists
+  // over. When a scheduler reads `start_date`, this refusal is what it
+  // replaces.
+  const today = opts.today ?? new Date().toISOString().slice(0, 10);
+  if (start > today) {
+    throw new ValidationError(
+      `--start ${start} is in the future and nothing in this system waits for it: the order is ` +
+        'filed ACTIVE, the engine filters on is_active alone, and start_date only breaks ties ' +
+        `within a statutory rank. Filed today it would withhold on the next pay run, not on ` +
+        `${start}. File it on or after the date it takes effect.`
+    );
+  }
 
   const priority = input.priority ?? 100;
   if (!Number.isSafeInteger(priority) || priority < 0) {
@@ -440,9 +534,9 @@ export function prepareGarnishment(input: GarnishmentOrderInput): PreparedGarnis
     amount_type,
     amount_value,
     priority,
-    case_number: input.case_number?.trim() || null,
+    case_number: requireWithin('--case', input.case_number?.trim() ?? '', 50) || null,
     issuing_authority: authority,
-    payee_name: input.payee_name?.trim() || null,
+    payee_name: requireWithin('--payee', input.payee_name?.trim() ?? '', 200) || null,
     start_date: start,
     metadata,
   };
@@ -515,6 +609,112 @@ async function liveOrdersOf(
   return r.rows;
 }
 
+/** What the cascade already holds for this worker, as the CAPS the engine reads. */
+interface LiveCapAnswers {
+  id: string;
+  garnishment_type: GarnishmentType;
+  case_number: string | null;
+  supports_second_family: boolean | null;
+  arrears_over_12_weeks: boolean | null;
+}
+
+async function liveCapAnswersOf(
+  employeeId: string,
+  scope: EntityScope,
+  client: pg.PoolClient
+): Promise<LiveCapAnswers[]> {
+  const r = await client.query<LiveCapAnswers>(
+    `SELECT g.id,
+            g.garnishment_type,
+            g.case_number,
+            (g.metadata ->> 'supports_second_family')::boolean AS supports_second_family,
+            (g.metadata ->> 'arrears_over_12_weeks')::boolean  AS arrears_over_12_weeks
+       FROM garnishments g
+      WHERE g.employee_id = $1
+        AND g.is_active
+        AND ${reciboEnEntidad('g.employee_id', 2)}`,
+    [employeeId, scope.entityId]
+  );
+  return r.rows;
+}
+
+/**
+ * THE TWO THINGS THE CASCADE CANNOT COMPUTE, REFUSED BEFORE THEY ARE FILED.
+ *
+ * Neither is a rule about one order: both are about the SET of live orders,
+ * which is why neither can be a CHECK constraint and why `record` — the only
+ * thing that can make the set grow — is where they belong.
+ *
+ * ONE · TWO LEVIES. The engine's levy branch is `disposable - exempt` against
+ * NO shared counter (garnishment-engine.ts:229-232), unlike child support
+ * (:225-228) and creditor (:236), which each subtract what is already taken.
+ * So a second levy does not split what is left, it takes it again: MEASURED on
+ * 2,000 disposable with a 462.50 exemption filed twice, the engine returns
+ * 1,537.50 + 1,537.50 = 3,075 — 153.75 % of disposable earnings, out of one
+ * order family. That is NOT the >100 % aggregate this file discloses in its
+ * header, which is explicitly about the sum ACROSS families; it is one branch
+ * double-counting, and there is no honest number to file here.
+ *
+ * TWO · TWO ANSWERS TO ONE QUESTION. `supports_second_family` and
+ * `arrears_over_12_weeks` are facts about the WORKER, and the schema stores
+ * them per ORDER. The engine takes the MAXIMUM ceiling across the live support
+ * orders (:207-213): filing a second support order answering «no» where the first
+ * answered «yes» moves the FIRST order's ceiling from 50 % to 60 % — on 2,000
+ * disposable, 200 more taken, on an order nobody amended. The whole reason
+ * `requireYesNo` has no default is that those ten points must be said out
+ * loud; letting them in through a second row would hand back what the flag
+ * refuses to give away.
+ *
+ * Both refusals name the order already on file, so the operator can archive it
+ * or correct the new one. Neither is silent, and neither invents a figure.
+ */
+function refuseWhatTheCascadeCannotCompute(
+  order: PreparedGarnishment,
+  live: LiveCapAnswers[]
+): void {
+  if (LEVY_TYPES.includes(order.garnishment_type)) {
+    const other = live.find((o) => LEVY_TYPES.includes(o.garnishment_type));
+    if (other) {
+      throw new ConflictError(
+        `This worker already has a live ${other.garnishment_type} order (${other.id}` +
+          `${other.case_number ? `, case ${other.case_number}` : ''}), and the cascade cannot ` +
+          'compute two levies at once: the engine takes disposable earnings minus each levy\'s ' +
+          'own exemption, with no counter between them, so the two together withhold more than ' +
+          'the whole cheque. Archive the one that no longer applies, or wait for the engine to ' +
+          'gain a shared levy counter — inventing a split here would be inventing a cap.'
+      );
+    }
+  }
+
+  if (!SUPPORT_TYPES.includes(order.garnishment_type)) return;
+  const mine = order.metadata as { supports_second_family?: boolean; arrears_over_12_weeks?: boolean };
+  for (const other of live) {
+    if (!SUPPORT_TYPES.includes(other.garnishment_type)) continue;
+    const clashes: string[] = [];
+    if (other.supports_second_family !== null && other.supports_second_family !== mine.supports_second_family) {
+      clashes.push(
+        `--supports-second-family (${other.id} says ${other.supports_second_family ? 'yes' : 'no'}, ` +
+          `this order says ${mine.supports_second_family ? 'yes' : 'no'})`
+      );
+    }
+    if (other.arrears_over_12_weeks !== null && other.arrears_over_12_weeks !== mine.arrears_over_12_weeks) {
+      clashes.push(
+        `--arrears-12wk (${other.id} says ${other.arrears_over_12_weeks ? 'yes' : 'no'}, ` +
+          `this order says ${mine.arrears_over_12_weeks ? 'yes' : 'no'})`
+      );
+    }
+    if (clashes.length > 0) {
+      throw new ConflictError(
+        `These two answers describe the WORKER, not the order, and they cannot disagree: ` +
+          `${clashes.join(' and ')}. The engine takes the highest CCPA ceiling across a worker's ` +
+          'live support orders, so filing this would raise the ceiling of the order already on ' +
+          'file — ten points of disposable earnings on an order no court amended. Correct this ' +
+          'order, or archive the one that carries the stale answer and refile it.'
+      );
+    }
+  }
+}
+
 /**
  * FILE AN ORDER. The single `INSERT INTO garnishments` of this repository.
  *
@@ -536,9 +736,14 @@ export async function recordGarnishment(
     // read for its boundary: it carries its own.
     const employee = await requireEmployeeInScope(input.employee_id, scope, { client });
     refuseOrderWithoutAnEngine(order.garnishment_type, employee.country_code);
+    refuseWhatTheCascadeCannotCompute(
+      order,
+      await liveCapAnswersOf(employee.id, scope, client)
+    );
 
-    const inserted = await client.query<{ id: string }>(
-      `INSERT INTO garnishments (
+    const inserted = await client
+      .query<{ id: string }>(
+        `INSERT INTO garnishments (
          employee_id, garnishment_type, priority, amount_type, amount_value,
          case_number, issuing_authority, payee_name, start_date, is_active, metadata
        )
@@ -546,20 +751,42 @@ export async function recordGarnishment(
          FROM employees e
         WHERE e.id = $1 AND ${reciboEnEntidad('e.id', 11)}
        RETURNING id`,
-      [
-        employee.id,
-        order.garnishment_type,
-        order.priority,
-        order.amount_type,
-        order.amount_value,
-        order.case_number,
-        order.issuing_authority,
-        order.payee_name,
-        order.start_date,
-        JSON.stringify(order.metadata),
-        scope.entityId,
-      ]
-    );
+        [
+          employee.id,
+          order.garnishment_type,
+          order.priority,
+          order.amount_type,
+          order.amount_value,
+          order.case_number,
+          order.issuing_authority,
+          order.payee_name,
+          order.start_date,
+          JSON.stringify(order.metadata),
+          scope.entityId,
+        ]
+      )
+      // THE 23505 IS TRANSLATED, LIKE THE 23514 IS. `requireGarnishmentType`
+      // above validates in TypeScript «so a typo comes back as a sentence
+      // instead of a 23514 naming a constraint» — and the first draft let 084's
+      // own unique index answer a double filing with the raw driver message.
+      // A pg error carries no `statusCode`, so `exitCodeFor` (kernel/index.ts)
+      // falls through to the generic FAILURE: the same exit code as a lost
+      // connection, for the most ordinary mistake there is. The house does
+      // this everywhere else (asset-service.ts:716, vendor-service.ts:474,
+      // bank-account-service.ts:649, customer-service.ts:402).
+      .catch((err: unknown) => {
+        const e = err as { code?: string; constraint?: string };
+        if (e?.code === '23505' && e.constraint === 'ux_garnishments_case_active') {
+          throw new ConflictError(
+            `This worker already has a LIVE order on case ${order.case_number}. Filing it twice ` +
+              'does not split the withholding, it doubles it — which is why 084 made the pair ' +
+              '(employee, case number) unique while the order is active. If the court reissued ' +
+              'the order, archive the one on file first; if this is a second, distinct order, ' +
+              'give it its own case number.'
+          );
+        }
+        throw err;
+      });
     if (inserted.rowCount === 0) throw new NotFoundError('Employee', input.employee_id);
 
     return {
@@ -572,9 +799,16 @@ export async function recordGarnishment(
   return opts.client ? run(opts.client) : withTransaction(run);
 }
 
+export type GarnishmentState = 'active' | 'archived';
+
 export interface GarnishmentListFilters {
   employee_id?: string;
   type?: string;
+  /**
+   * The lifecycle states asked for. Empty means the default, which is LIVE
+   * ONLY; both states means no predicate at all, which is what `--all` means.
+   */
+  states?: readonly GarnishmentState[];
   /** Archived orders too. Without it only the live ones are listed. */
   all?: boolean;
   limit?: number;
@@ -582,10 +816,35 @@ export interface GarnishmentListFilters {
 }
 
 /**
+ * THE STATE PREDICATE, AND WHY IT IS NOT A BOOLEAN.
+ *
+ * The first draft collapsed the state list into `all = opts.all || states
+ * .includes('archived')` and the service then merely SKIPPED the predicate —
+ * so `garnishment list --status archived`, which asks which orders were
+ * stopped, answered with the ones still taking money, each marked
+ * `active: true`. The leaf's own usage error («an order is either active or
+ * archived. Use -a/--all for both») documented a distinction the query did not
+ * implement.
+ *
+ * `IS NOT TRUE` and not `= false`, because 084 deliberately leaves the column
+ * nullable and says why: a row carrying NULL withholds nothing (the engine
+ * filters `is_active = true`), so it belongs with the stopped ones and not
+ * with the live ones. The same reasoning puts `IS NOT FALSE` in the archive's
+ * WHERE, so that row can also be normalised.
+ */
+function statePredicate(filters: GarnishmentListFilters): string | null {
+  const states = new Set(filters.states ?? []);
+  if (filters.all || (states.has('active') && states.has('archived'))) return null;
+  if (states.has('archived')) return 'g.is_active IS NOT TRUE';
+  return 'g.is_active';
+}
+
+/**
  * THE ORDERS, IN THE SEQUENCE MONEY IS ACTUALLY TAKEN.
  *
  * Sorted by the engine's statutory rank first and only then by `priority` and
- * `start_date`, because that is what the engine does (garnishment-engine.ts:194)
+ * `start_date`, because that is what the engine does (garnishment-engine.ts:200,
+ * over the query's own `ORDER BY priority ASC, start_date ASC` at :171)
  * and a list sorted by `priority` alone would show a creditor with priority 1
  * ahead of a support order with 100 — the reverse of what payday will do.
  * The rank expression is built from the engine's own exported table, so the
@@ -611,7 +870,8 @@ export async function listGarnishments(
     values.push(requireGarnishmentType(filters.type));
     where.push(`g.garnishment_type = $${values.length}`);
   }
-  if (!filters.all) where.push('g.is_active');
+  const state = statePredicate(filters);
+  if (state) where.push(state);
 
   values.push(Math.min(filters.limit ?? 50, 500));
   const limit = `$${values.length}`;
@@ -643,29 +903,52 @@ export interface ArchivedGarnishment {
  *
  * The catalog row promises that archiving «detiene la retención», and there is
  * exactly one way to keep that promise: the engine's order query filters
- * `is_active = true` and nothing else (garnishment-engine.ts:164). `end_date`
- * has no reader anywhere in `src/`, so an archive that wrote only the date
- * would stop nothing and the order would keep withholding forever. `--as-of`
- * is therefore recorded ALONGSIDE the flag, as the historical date of the
- * archival, never instead of it.
+ * `is_active = true` and nothing else (garnishment-engine.ts:170). No reader
+ * in `src/` DECIDES anything off `end_date` — this tranche added the only
+ * readers it has, and every one of them merely prints it — so an archive that wrote
+ * only the date would stop nothing and the order would keep withholding
+ * forever. `--as-of` is therefore recorded ALONGSIDE the flag, as the
+ * historical date of the archival, never instead of it.
  *
  * Guarded the way invariant 3 requires: a state predicate in the WHERE, the
  * entity boundary in the same statement, and a rowCount check after. When it
  * touches nothing the reason is looked up rather than guessed, because
  * «already archived» and «not yours» deserve different sentences — and looking
  * after a write that did not happen opens no window.
+ *
+ * THE PREDICATE IS `IS NOT FALSE` AND NOT `g.is_active`, which is a one-word
+ * difference and a whole state. 084 deliberately leaves the column nullable
+ * and its header says why, so rows carrying NULL survive the migration by
+ * design. Under the first draft's `AND g.is_active` such a row matched
+ * nothing, the diagnostic SELECT found it anyway, and the operator was told it
+ * «stopped withholding when is_active was cleared» — by a clearing that never
+ * happened. The row could not be listed, could not be archived and could not
+ * be normalised by any supported path: a dead end whose only exit was hand
+ * SQL, which is the thing this whole tranche exists to replace. No money was
+ * at risk (the engine filters `is_active = true`), but a false sentence is its
+ * own defect. With `IS NOT FALSE` the NULL row is archivable and the
+ * ConflictError below is left saying the only thing that is true of the rows
+ * that still reach it: `is_active` is already `false`.
  */
 export async function archiveGarnishment(
   id: string,
   scope: EntityScope,
   opts: { asOf?: string } = {}
 ): Promise<ArchivedGarnishment> {
+  // A non-UUID id is «not found», not a 22P02. `garnishment list` prints `id`
+  // and `employee` side by side, so handing this the employee number is the
+  // expected slip; without this guard Postgres answers «invalid input syntax
+  // for type uuid», which carries no statusCode and exits FAILURE instead of
+  // NOT_FOUND. Indistinguishable from «not yours», which is what scope.ts
+  // requires of every boundary answer.
+  if (!UUID_RE.test(id)) throw new NotFoundError('Garnishment', id);
+
   const updated = await query<ArchivedGarnishment>(
     `UPDATE garnishments g
         SET is_active = false,
             end_date = COALESCE($2::date, g.end_date)
       WHERE g.id = $1
-        AND g.is_active
+        AND g.is_active IS NOT FALSE
         AND ${reciboEnEntidad('g.employee_id', 3)}
       RETURNING g.id, g.employee_id, g.garnishment_type, g.case_number, g.end_date`,
     [id, opts.asOf ?? null, scope.entityId]

@@ -8,6 +8,7 @@ import {
   listGarnishments,
   recordGarnishment,
   type GarnishmentRow,
+  type GarnishmentState,
   type RecordedGarnishment,
 } from '../services/payroll/common/garnishment-service.js';
 import type { Palette } from './palette.js';
@@ -44,10 +45,12 @@ import {
 // `ON DELETE` clause (008_payroll.sql:447-448), so once a paycheck has
 // withheld against an order that row can never be deleted; and the engine's
 // only filter is `WHERE employee_id = $1 AND is_active = true`
-// (garnishment-engine.ts:164) — `end_date` is read NOWHERE in `src/`. A slice
-// that shipped `record` by itself would create an obligation that withholds
-// forever with no supported way to stop it, and hand SQL is precisely what
-// migration 075's header says this table's users already resort to.
+// (garnishment-engine.ts:170) — no query in `src/` gates, filters or computes
+// on `end_date`, and the only readers it has are the two display columns this
+// tranche adds. A slice that shipped `record` by itself would create an
+// obligation that withholds forever with no supported way to stop it, and hand
+// SQL is precisely what migration 075's header says this table's users already
+// resort to.
 //
 // THE REST OF THE FAMILY IS DELIBERATELY NOT REGISTERED, and the reasons are
 // written here rather than rediscovered:
@@ -216,7 +219,7 @@ Examples:
   mnemosine garnishment archive 7c1f0c6e-8b44-4a51-9a0a-2f1d9d0a51b3 --reason "order revoked, court notice 2026-09-12"
   # Same halt, recording the date the court set it aside. --as-of writes
   # end_date for the record: on its own it would stop nothing, because no
-  # reader in the system consults that column.
+  # query in the system decides anything off that column.
   mnemosine garnishment archive 7c1f0c6e-8b44-4a51-9a0a-2f1d9d0a51b3 --as-of 2026-09-12 --reason "balance satisfied"
 `,
 } as const;
@@ -411,13 +414,18 @@ export function registerGarnishmentCommand(program: Command, deps: GarnishmentCo
             'Use -a/--all for both.'
         );
       }
-      const all = opts.all === true || states.includes('archived');
-
+      // THE STATES TRAVEL AS STATES. Folding them into one boolean is what the
+      // first draft did — `all = opts.all || states.includes('archived')` —
+      // and the service then only SKIPPED its predicate, so asking for the
+      // archived orders returned the live ones too, each printed
+      // `active: true`. The refusal three lines up promises the distinction;
+      // this is where it is kept.
       const scope = await scopeForRead(opts);
       const rows = await listGarnishments(scope, {
         employee_id: employee,
         type: opts.type,
-        all,
+        states: states as GarnishmentState[],
+        all: opts.all === true,
         limit: opts.limit,
         offset: opts.offset,
       });

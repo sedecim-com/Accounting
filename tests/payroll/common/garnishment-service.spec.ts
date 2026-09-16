@@ -134,6 +134,30 @@ describe('los topes de la CCPA se capturan o no hay orden', () => {
     ).toEqual({ exempt_amount: '462.5000' });
   });
 
+  it('una exención de CERO se niega: es el mismo cheque entero que no declararla', () => {
+    // El motor hace `Math.max(0, disponible - exención)`, así que cero y
+    // ausente producen la MISMA fila: 100 % del disponible con `cap_applied`
+    // en null. La negativa de arriba dice exactamente eso; sin esta, la
+    // bandera la contradecía.
+    for (const zero of ['0', '0.00', '0.0000']) {
+      expect(() =>
+        resolveCcpaMetadata('tax_levy_state', {
+          employee_id: 'e',
+          type: 'tax_levy_state',
+          exempt_amount: zero,
+        })
+      ).toThrow(/is the same order as one with no exemption at all/);
+    }
+    // Y un céntimo ya es una exención declarada, que es otra cosa.
+    expect(
+      resolveCcpaMetadata('tax_levy_state', {
+        employee_id: 'e',
+        type: 'tax_levy_state',
+        exempt_amount: '0.01',
+      })
+    ).toEqual({ exempt_amount: '0.0100' });
+  });
+
   it('una manutención sin la segunda familia se niega, y dice los diez puntos', () => {
     expect(() =>
       resolveCcpaMetadata('child_support', {
@@ -186,6 +210,21 @@ describe('la orden que hoy no puede retener no se da de alta', () => {
     );
   });
 
+  it('y la negativa de la pensión nombra LOS DOS desenlaces, porque también se dispara para un estadounidense', () => {
+    // El tipo se comprueba ANTES que el país, así que esta frase tiene que
+    // ser cierta de los dos lados. La primera redacción cerraba con «una fila
+    // que no retiene nada», que es falso justo en el caso que la prueba de
+    // integración fija: contra un empleado de EE. UU. la compuerta se abre,
+    // `behaviourOf` la trata como manutención y la fila SÍ retiene —con los
+    // porcentajes de la CCPA que la propia frase acaba de citar—.
+    expect(() => refuseOrderWithoutAnEngine('pension_alimenticia', 'US')).toThrow(
+      /either withhold under a foreign statute's caps .* or withhold nothing at all/
+    );
+    expect(() => refuseOrderWithoutAnEngine('pension_alimenticia', 'US')).toThrow(
+      /neither of those is the order the judge wrote/
+    );
+  });
+
   it('ningún tipo se da de alta contra un empleado que no es de nómina estadounidense', () => {
     expect(() => refuseOrderWithoutAnEngine('child_support', 'MX')).toThrow(
       /the garnishment cascade runs only for US employees/
@@ -231,5 +270,44 @@ describe('lo que la fila exige, aunque el esquema lo deje pasar', () => {
   it('la prioridad por omisión es la de la columna, y una negativa no es prioridad', () => {
     expect(prepareGarnishment(BASE).priority).toBe(100);
     expect(() => prepareGarnishment({ ...BASE, priority: -1 })).toThrow(/whole number of 0 or more/);
+  });
+
+  it('una fecha de inicio FUTURA se niega: nada en el sistema la espera', () => {
+    // La fila se escribe `is_active = true` y el motor filtra sólo por esa
+    // bandera; `start_date` sólo desempata dentro de un rango. Una orden que
+    // un juez fechó para dentro de nueve meses, dada de alta hoy, retiene en
+    // la SIGUIENTE corrida. La ayuda de la bandera ya lo advertía y aceptaba
+    // la fecha igual, que es un aviso y no una valla.
+    const nextYear = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    expect(() => prepareGarnishment({ ...BASE, start_date: nextYear })).toThrow(
+      /is in the future and nothing in this system waits for it/
+    );
+    // Hoy sí, que es el borde y no el caso feliz.
+    const today = new Date().toISOString().slice(0, 10);
+    expect(prepareGarnishment({ ...BASE, start_date: today }).start_date).toBe(today);
+    // Y el reloj es un parámetro, para que la prueba no caduque ni dependa
+    // del huso de quien la corre.
+    expect(() => prepareGarnishment({ ...BASE, start_date: '2026-08-02' }, { today: '2026-08-01' })).toThrow(
+      /--start 2026-08-02 is in the future/
+    );
+  });
+
+  it('lo que no cabe en la columna se niega con el nombre de la bandera, no con un 22001', () => {
+    // `case_number VARCHAR(50)`, `issuing_authority VARCHAR(200)`,
+    // `payee_name VARCHAR(200)` (008:432-434). Sin esto Postgres contesta
+    // «value too long for type character varying(50)», que no lleva
+    // `statusCode` y sale por el código de fallo genérico: el mismo que una
+    // conexión caída, por una errata.
+    expect(() => prepareGarnishment({ ...BASE, case_number: 'X'.repeat(51) })).toThrow(
+      /--case is 51 characters and the column holds 50/
+    );
+    expect(() => prepareGarnishment({ ...BASE, payee_name: 'Y'.repeat(201) })).toThrow(
+      /--payee is 201 characters and the column holds 200/
+    );
+    expect(() => prepareGarnishment({ ...BASE, issuing_authority: 'Z'.repeat(201) })).toThrow(
+      /--court is 201 characters and the column holds 200/
+    );
+    // El borde exacto sí cabe.
+    expect(prepareGarnishment({ ...BASE, case_number: 'X'.repeat(50) }).case_number).toHaveLength(50);
   });
 });

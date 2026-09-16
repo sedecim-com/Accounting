@@ -7130,7 +7130,7 @@ Examples:
   mnemosine garnishment archive 7c1f0c6e-8b44-4a51-9a0a-2f1d9d0a51b3 --reason "order revoked, court notice 2026-09-12"
   # Same halt, recording the date the court set it aside. --as-of writes
   # end_date for the record: on its own it would stop nothing, because no
-  # reader in the system consults that column.
+  # query in the system decides anything off that column.
   mnemosine garnishment archive 7c1f0c6e-8b44-4a51-9a0a-2f1d9d0a51b3 --as-of 2026-09-12 --reason "balance satisfied"
 ```
 
