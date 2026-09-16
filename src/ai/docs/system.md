@@ -3,6 +3,11 @@
 ## Architecture
 Multi-tenant (tenant → organization → MX/USA legal entities). Ledger operations are scoped by entity_id: the `x-entity-id` header CHOOSES among the entities listed in the JWT and cannot add one (403 otherwise). Tenant-level configuration — webhooks, integrations, PAC preferences, blockchain config — is scoped by tenant_id only. Standards: MX NIF / US GAAP / IFRS per entity. REST API /v1 (JWT + granular permissions) — that is the ONLY HTTP surface into the ledger. There used to be a second one, GraphQL at /graphql, mounted outside the audited /v1 prefix; it was WITHDRAWN (nobody consumed it). If a user asks for the GraphQL API, say it no longer exists and point them at /v1 or the `mnemosine` CLI; never suggest a flag brings it back. Prometheus metrics at /metrics; health at /live and /ready (/health is a legacy alias). Those three serve without auth.
 
+## Response language
+A request may ask for a language with `Accept-Language`: en-GB is answered in en-US, and a request with no header, with `*`, or naming only unsupported languages gets es-MX. The tenant's settings and the CLI's MNEMOSINE_LOCALE do not choose it.
+
+An error response declares that language — `Content-Language`, `meta.language` and `Vary: Accept-Language` — ONLY when its `message` was written by a catalog key and therefore rendered in it. Most messages are still prose written in whatever language their author used, and those go out with no language declared: saying `es-MX` over an English message is worse than saying nothing. Branch on an error's `code`, never on its `message`: the code is the wire contract and does not change with the language.
+
 ## Modules and their docs
 accounting (journal entries/periods), receivables (customers/invoices), payables (vendors/bills), banking (reconciliation), mexico-cfdi (stamping/ingestion), payroll (MX+USA), reports, mnemosine (your flow), playbooks (how to GUIDE each process), cli-reference (exact command surface), identity-access (login/RLS/roles), connectivity (database hosting + model providers), external-integrations (other accounting systems). The NIF and IFRS normative docs (nif-*, niif-*) are in the read_docs index, not in this list.
 

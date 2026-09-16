@@ -4,6 +4,8 @@ import { esquemaDeCuerpo } from './middleware/async-handler.js';
 import { permisosDeManejador } from './middleware/auth.js';
 import { jsonSchemaDeZod, type EsquemaJson } from './zod-a-json-schema.js';
 import { CABECERA_LLAVE, LARGO_MAX_CLAVE } from './middleware/idempotencia.js';
+import { LANGUAGES } from '../../i18n/index.js';
+import { DEFAULT_LOCALE, LOCALES, languageOfLocale } from '../../i18n/locale.js';
 
 // ============================================================
 // EL CONTRATO DE LA API, DERIVADO DE LA API.
@@ -293,6 +295,16 @@ const ESQUEMA_ERROR: EsquemaJson = {
         request_id: { type: 'string' },
         timestamp: { type: 'string', format: 'date-time' },
         version: { type: 'string' },
+        language: {
+          type: 'string',
+          enum: [...LANGUAGES],
+          description:
+            "The language this response's `message` was rendered in, from the catalog key it was " +
+            `written with (\`${languageOfLocale(DEFAULT_LOCALE)}\` when the request sends no ` +
+            'Accept-Language). PRESENT ONLY THEN: a message not yet migrated to a key keeps the ' +
+            'text it was written with, and the envelope says nothing about its language rather ' +
+            'than naming one it may not be in. `code` never changes with the language.',
+        },
       },
     },
   },
@@ -302,12 +314,24 @@ const ESQUEMA_ERROR: EsquemaJson = {
 function respuesta(descripcion: string): EsquemaJson {
   return {
     description: descripcion,
+    headers: { 'Content-Language': { $ref: '#/components/headers/ContentLanguage' } },
     content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
   };
 }
 
 const COMPONENTES: Record<string, unknown> = {
   schemas: { Error: ESQUEMA_ERROR },
+  headers: {
+    ContentLanguage: {
+      description:
+        'The locale the `message` was rendered in, negotiated from Accept-Language ' +
+        `(src/api/rest/middleware/locale.ts; ${DEFAULT_LOCALE} when the request sends none). SENT ` +
+        'ONLY on an error whose message was written by catalog key, together with ' +
+        '`Vary: Accept-Language`. An error still written as prose — most of them today, and the ' +
+        'INTERNAL_SERVER_ERROR body — carries no Content-Language.',
+      schema: { type: 'string', enum: [...LOCALES] },
+    },
+  },
   securitySchemes: {
     bearerAuth: {
       type: 'http',
