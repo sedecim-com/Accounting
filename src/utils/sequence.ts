@@ -1,5 +1,4 @@
 import type pg from 'pg';
-import { query } from '../database/connection.js';
 
 /**
  * Atomic per-entity document numbering backed by entity_sequences.
@@ -57,27 +56,6 @@ export function añoDeDocumento(fecha: Date | string): number {
 
 export function formatDocumentNumber(prefix: string, año: number, n: number): string {
   return `${prefix}-${año}-${n.toString().padStart(5, '0')}`;
-}
-
-/** @deprecated Race-prone (COUNT-based). Use nextEntityNumber for documents. */
-export async function generateSequenceNumber(
-  entityId: string,
-  prefix: string,
-  tableName: string
-): Promise<string> {
-  const year = new Date().getFullYear();
-  const sequenceKey = `${prefix}-${year}`;
-
-  // Use a sequence table or count-based approach
-  const result = await query<{ count: string }>(
-    `SELECT COUNT(*) as count FROM ${tableName}
-     WHERE entity_id = $1
-     AND entry_number LIKE $2 || '%'`,
-    [entityId, sequenceKey]
-  );
-
-  const nextNumber = parseInt(result.rows[0].count, 10) + 1;
-  return `${sequenceKey}-${nextNumber.toString().padStart(5, '0')}`;
 }
 
 /**

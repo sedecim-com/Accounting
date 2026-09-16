@@ -116,11 +116,6 @@ export const VERBS: Readonly<Record<string, string>> = Object.freeze({
 
 export type Verb = keyof typeof VERBS;
 
-/** The Spanish alias for a verb, for building alias command names. */
-export function spanishVerb(verb: string): string | undefined {
-  return VERBS[verb];
-}
-
 export function isVerb(token: string): boolean {
   return Object.prototype.hasOwnProperty.call(VERBS, token);
 }

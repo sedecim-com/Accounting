@@ -258,74 +258,12 @@ export function fuentes(rel = 'src'): string[] {
  * rojo, que es el lado seguro.
  */
 /**
- * Memoria por CONTENIDO, no por ruta. Los 161 sitios de llamada releen los
- * mismos archivos una y otra vez, y el seam de mutación cambia el contenido sin
- * cambiar la ruta: cachear por ruta serviría el archivo sano a un mutante y el
- * espejo dejaría de morder. Con la clave en el propio texto, un mutante es
- * simplemente otra entrada.
+ * El limpiador vive ahora en `src/utils/strip-comments.ts`, para que el
+ * detector de código muerto use EXACTAMENTE éste y no su propia copia. Se
+ * conserva el nombre local: 20 sitios de este archivo lo llaman.
  */
-const CACHE_SIN_COMENTARIOS = new Map<string, string>();
-
-export function sinComentarios(texto: string): string {
-  // Recorrido con estado en vez de dos regex. Las regex se quedaron CIEGAS el
-  // día que un ejemplo de ayuda citó un glob de shell: `./cfdi/julio/*.xml`
-  // contiene `/*`, que abría un comentario de bloque cerrado 94 499 bytes
-  // después — el 80 % de mnemosine.ts desaparecía del criterio y `plan:status`
-  // acusaba SIETE rojos falsos sobre familias que sí estaban en el binario. Un
-  // instrumento que decide no puede cegarse con una cadena, así que las
-  // cadenas se saltan en vez de mirarse.
-  //
-  // Se copia POR TRAMOS, no carácter a carácter: la primera versión de este
-  // arreglo concatenaba de uno en uno y salía 8× más lenta, y con 161 sitios
-  // de llamada eso llevó las pruebas de `main()` a agotar su presupuesto de
-  // 30 s en CI. Correcto y lento sigue siendo un defecto cuando el instrumento
-  // corre en cada empuje.
-  //
-  // Sirve para TypeScript y para SQL (`codigoDe` se usa sobre los dos): las
-  // comillas simples que SQL duplica para escapar cierran y reabren, que deja
-  // el mismo resultado. Las expresiones regulares de TS se tratan como
-  // división —no se intenta desambiguar—, así que un `/*` dentro de un literal
-  // de regex seguiría cegando; hoy no hay ninguno.
-  const memo = CACHE_SIN_COMENTARIOS.get(texto);
-  if (memo !== undefined) return memo;
-
-  const trozos: string[] = [];
-  let i = 0;
-  let copiadoDesde = 0;
-  while (i < texto.length) {
-    const c = texto.charCodeAt(i);
-    // 0x2f '/'  0x2a '*'  0x2d '-'  0x27 "'"  0x22 '"'  0x60 '`'  0x5c '\\'
-    if (c === 0x2f || c === 0x2d) {
-      const d = texto.charCodeAt(i + 1);
-      const bloque = c === 0x2f && d === 0x2a;
-      const linea = (c === 0x2f && d === 0x2f) || (c === 0x2d && d === 0x2d);
-      if (bloque || linea) {
-        trozos.push(texto.slice(copiadoDesde, i));
-        const fin = bloque ? texto.indexOf('*/', i + 2) : texto.indexOf('\n', i);
-        i = fin === -1 ? texto.length : bloque ? fin + 2 : fin;
-        copiadoDesde = i;
-        continue;
-      }
-    }
-    if (c === 0x27 || c === 0x22 || c === 0x60) {
-      // La cadena se CONSERVA: quitarla rompería los criterios que buscan un
-      // literal («status = 'posted'»), que son casi todos. Sólo se salta, para
-      // que un `/*` de su interior no abra un comentario.
-      let j = i + 1;
-      while (j < texto.length && texto.charCodeAt(j) !== c) {
-        if (texto.charCodeAt(j) === 0x5c) j++;
-        j++;
-      }
-      i = Math.min(j + 1, texto.length);
-      continue;
-    }
-    i++;
-  }
-  trozos.push(texto.slice(copiadoDesde));
-  const fuera = trozos.join('');
-  CACHE_SIN_COMENTARIOS.set(texto, fuera);
-  return fuera;
-}
+import { stripComments as sinComentarios } from '../utils/strip-comments.js';
+export { sinComentarios };
 
 /**
  * Archivos (relativos a la raíz) donde aparece el patrón.
@@ -2931,6 +2869,95 @@ export const CRITERIOS: Criterio[] = [
         /toFixed\(6\)/.test(cliente) && /'DISABLED'/.test(cliente)
         ? ok('unicidad (entidad, uuid) con hash respaldado, dedupe escopado en los dos sitios, y el SOAP real con apagado honesto')
         : falla('el cliente SAT perdió el sobre, el relleno del total o el apagado que lo dice');
+    },
+  },
+
+  {
+    paquete: 'E0.2',
+    id: 'one-comment-stripper-for-every-instrument',
+    // El tablero aprendió esto a base de SIETE rojos falsos, y lo dejó escrito
+    // en `sinComentarios`: un ejemplo de ayuda con el glob `./cfdi/julio/*.xml`
+    // lleva un `/*` dentro de una CADENA, y las dos regex ingenuas lo tomaban
+    // por comentario de bloque. Lo que se comían no era prosa: era código.
+    //
+    // El detector de código muerto conservaba su propia copia de esas regex, y
+    // por eso acusaba a `describeLastOption` —llamada en mnemosine.ts dentro de
+    // las 171 líneas que el falso comentario engullía— de «exportada y no
+    // referenciada en ninguna parte». Medido con el escáner viejo contra el
+    // nuevo, se equivocaba en las DOS direcciones a la vez:
+    // `expected ['describeLastOption'] to deeply equal ['main']`.
+    //
+    // Un detector de código muerto que acusa en falso no es ruido: lo que
+    // propone es BORRAR CÓDIGO VIVO. Por eso el criterio no comprueba que el
+    // limpiador esté bien, sino que sólo haya UNO — mientras hubo dos, arreglar
+    // el del tablero dejó al del doctor mintiendo y nada se puso rojo.
+    enunciado: 'Ningún instrumento se ciega con un glob dentro de una cadena',
+    mutantes: [
+      {
+        archivo: 'src/utils/strip-comments.ts',
+        de: 'if (c === 0x27 || c === 0x22 || c === 0x60) {',
+        a: 'if (false) {',
+        porque: 'el limpiador deja de saltarse las cadenas: un glob vuelve a abrir un comentario y el instrumento analiza un archivo mutilado',
+      },
+      {
+        archivo: 'src/ai/orphan-scan.ts',
+        de: "import { stripComments } from '../utils/strip-comments.js';",
+        a: "const stripComments = (t: string): string => t.replace(/\\/\\*[\\s\\S]*?\\*\\//g, '');",
+        porque: 'el detector de código muerto vuelve a tener su copia propia de la regex ingenua, que es como nació la acusación falsa',
+      },
+      {
+        archivo: 'tests/ai/orphan-scan.spec.ts',
+        de: "const ayuda = 'mnemosine ingest ./cfdi/julio/*.xml --auto-post';",
+        a: "const ayuda = 'mnemosine ingest ./cfdi/julio/todo.xml --auto-post';",
+        porque: 'la reproducción deja de llevar el glob: sin el `/*` dentro de la cadena, la prueba pasa con la regex ingenua puesta',
+      },
+    ],
+    evaluar: () => {
+      const shared = 'src/utils/strip-comments.ts';
+      const scanner = 'src/ai/orphan-scan.ts';
+      const spec = 'tests/ai/orphan-scan.spec.ts';
+      if (!existe(shared)) return falla(`desapareció ${shared}: el limpiador compartido es lo único que impide que cada instrumento vuelva a tener el suyo`);
+
+      // 1. EL CENSO. Nadie más define un limpiador de comentarios de TypeScript.
+      //    Se busca la regex ingenua, que es la forma que falla.
+      const INGENUA = /replace\(\/\\\/\\\*\[\\s\\S\]\*\?\\\*\\\/\/g/;
+      const culpables: string[] = [];
+      for (const f of fuentes('src')) {
+        const rel = path.relative(rutaDe(), f);
+        if (rel === shared) continue;
+        const code = leer(f);
+        // El SQL es otro idioma y lleva su propio `--`: ésos no cuentan aquí.
+        if (INGENUA.test(code) && !/--\[\^\\n\]\*/.test(code)) culpables.push(rel);
+      }
+      if (culpables.length > 0) {
+        return falla(
+          `${culpables.length} instrumento(s) volvieron a llevar su propia regex de comentarios (${culpables.join(', ')}): ` +
+            'un `/*` dentro de una cadena les borra el código que sigue, y lo que informen después será sobre un archivo mutilado'
+        );
+      }
+
+      // 2. LOS DOS INSTRUMENTOS BEBEN DE LA MISMA FUENTE.
+      if (!codigoDe(scanner).includes("import { stripComments } from '../utils/strip-comments.js';")) {
+        return falla('el detector de código muerto dejó de usar el limpiador compartido: vuelve a poder acusar a código vivo');
+      }
+      // Y el limpiador sigue saltándose las cadenas, que es lo único que hace.
+      if (!codigoDe(shared).includes('if (c === 0x27 || c === 0x22 || c === 0x60) {')) {
+        return falla('el limpiador dejó de saltarse las cadenas: un glob vuelve a abrir un comentario de bloque');
+      }
+
+      // 3. Y CONDUCTA: la reproducción lleva el glob de verdad. Sin él, la
+      //    prueba pasa con la regex ingenua puesta y no mide nada.
+      if (!existe(spec)) return falla('no hay reproducción del glob que cegaba al detector');
+      // Se lee el CÓDIGO y no el crudo: el comentario de la propia prueba cita
+      // el glob, y un ancla que su archivo repite desarma su propio espejo.
+      const t = codigoDe(spec);
+      if (!/julio\/\*\.xml/.test(t)) {
+        return falla('la reproducción perdió el glob dentro de la cadena: es lo único que distingue al limpiador bueno del ingenuo');
+      }
+
+      return ok(
+        'un solo limpiador de comentarios en el árbol, y lo usan el tablero y el detector de código muerto; se salta las cadenas, y la reproducción lleva el glob que cegaba al viejo'
+      );
     },
   },
 
@@ -11000,6 +11027,63 @@ export const CRITERIOS: Criterio[] = [
               'sin él se repartiría dinero que el pago no tiene'
           );
     },
+  },
+  {
+    paquete: 'E1.2',
+    id: 'exchange-rate-refuses-to-pick-a-source',
+    enunciado:
+      'Con dos fuentes publicadas el mismo día, el tipo de cambio no se elige por orden físico: el esquema se niega y las nombra',
+    evaluar: () => {
+      // POR QUÉ NACE (T1, issue #88). `get_exchange_rate()` se escribió en la
+      // 001 para un mundo de UNA tasa por par y día. La 057 cambió ese mundo:
+      // metió `source` en la unicidad para que DOF y el FIX de Banxico
+      // convivieran a propósito. La función no se redefinió, así que su
+      // `ORDER BY effective_date DESC LIMIT 1` sin desempate contestaba la fila
+      // que Postgres leyera primero. Eso es orden FÍSICO: se mueve con un
+      // VACUUM, una reescritura o una restauración de respaldo, y las dos
+      // respuestas eran indistinguibles para el sistema.
+      //
+      // Elegir DOF sobre FIX es criterio FISCAL, y esta casa ya decidió dónde
+      // se decide eso: la política `fuente_tipo_cambio`. Así que el esquema no
+      // elige — levanta FX001 — y quien sabe cuál quiere lo pide.
+      const sql = crudoDe('src/database/migrations/084_the_rate_is_not_chosen_by_physical_order.sql');
+      if (!/p_source\s+VARCHAR\(100\)\s+DEFAULT\s+NULL/.test(sql)) {
+        return falla(
+          'la 084 dejó de admitir `p_source`: sin ella no hay forma de pedir una fuente y la ' +
+            'ambigüedad vuelve a resolverse sola'
+        );
+      }
+      const raises = sql.match(/USING ERRCODE = 'FX001'/g) ?? [];
+      if (raises.length < 2) {
+        return falla(
+          `la 084 levanta FX001 en ${raises.length} de los dos caminos que leen una fila ` +
+            '(directo e inverso): el que no lo haga vuelve a contestar por orden físico'
+        );
+      }
+      // Y el servicio tiene que TRADUCIRLO. Un FX001 crudo dice que algo pasó;
+      // el operador necesita las fuentes y la bandera que las desempata.
+      const svc = crudoDe('src/services/fx/rate-service.ts');
+      if (!/code !== 'FX001'/.test(svc) || !/FX_AMBIGUOUS_SOURCE/.test(svc)) {
+        return falla(
+          'rate-service dejó de traducir FX001: `fx rate show` volvería a escupir un error de ' +
+            'Postgres sin decir qué fuentes hay ni cómo elegir una'
+        );
+      }
+      if (!/--source/.test(crudoDe('src/cli/fx-command.ts'))) {
+        return falla('`fx rate show` se quedó sin --source: no hay cómo pedir la fuente que se quiere');
+      }
+      return ok('la ambigüedad de fuente se niega en el esquema, se traduce en el servicio y se resuelve con --source');
+    },
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/084_the_rate_is_not_chosen_by_physical_order.sql',
+        de: "                USING ERRCODE = 'FX001';",
+        a: '                ;',
+        porque:
+          'el esquema vuelve a elegir entre DOF y FIX por el orden en que lea las filas, y la ' +
+          'respuesta cambia sola con un VACUUM sin que nada lo diga',
+      },
+    ],
   },
 
   // ============================================================
