@@ -38,6 +38,17 @@
 // ============================================================
 
 export const EN = {
+  // ==== error.* — messages of API and service errors, by code (I9) ====
+  // Keyed as `error.<CODE>`: the code is the wire contract, so the key names
+  // it and a reader can go from a response straight to its text. Placed at the
+  // top, not after the last tranche's block, so each tranche adds its keys in
+  // its own section instead of every branch colliding at the end of the file.
+
+  /** `AccountingError('PERIOD_ALREADY_OPEN')`: opening a period that is already open, or reopening one — the dry run of `period reopen` included. */
+  'error.PERIOD_ALREADY_OPEN': '{period} is already open.',
+
+  // ==== end of error.* ================================================
+
   // --- El kernel: confirmación y salida --------------------------------
   /** `src/cli/kernel/confirmacion.ts:76` (`noEntendi`, que ya la llama). El «y/s» del español
    *  es una gramática de DOS idiomas a la vez; en inglés sobra la mitad. */

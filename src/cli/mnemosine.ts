@@ -43,6 +43,7 @@ import {
 // dials distintos con el mismo nombre: se renombra el de aquí en la importación
 // para que ningún sitio de llamada pueda confundirlos.
 import { setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
+import { AppError } from '../utils/errors.js';
 import {
   createSession,
   latestSession,
@@ -338,8 +339,13 @@ export function reportError(err: unknown): void {
     // AHORA, en el idioma activo. Un `CliError` nacido de una cadena —cientos
     // de sitios de llamada siguen pasando una— devuelve esa cadena tal cual, así
     // que esta rama no cambia nada para ellos.
+    //
+    // I9 · An `AppError` follows the same contract (src/utils/errors.ts): its
+    // `message` is English when it was written by key, and `localized()` renders
+    // that key in the active language. One born from prose returns its message
+    // unchanged, so for those this branch prints exactly what it printed before.
     const mensaje =
-      err instanceof CliError
+      err instanceof CliError || err instanceof AppError
         ? err.localized()
         : err instanceof Error
           ? err.message

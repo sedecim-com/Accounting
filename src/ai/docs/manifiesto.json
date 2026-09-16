@@ -90,8 +90,8 @@
   "hashes": {
     "src/services/accounting/posting.ts": "1ebb03de375957bf32ef3e32c19b2a69b17bbb73",
     "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
-    "src/services/accounting/fiscal-calendar-service.ts": "b6ac67a12cbd54dd417d0738d6cd25414e0a0f2a",
-    "src/cli/entry-command.ts": "835c877d5c45a9af2bb15e1b2343bad854f91b9e",
+    "src/services/accounting/fiscal-calendar-service.ts": "5f0209a6cdfdc1e89c1ca74f0407008d6e206e5c",
+    "src/cli/entry-command.ts": "f9d6d5a52fd071af99dc9b427020f70997a01fc6",
     "src/services/accounting/iva-cash-basis.ts": "233a51947fd8e96bd2fc0d50d45fc4c518c7eba7",
     "src/services/xml-ingestion/cfdi-taxonomy.ts": "b5a8dfb517a42e0ef7559f3a9c4b377688d278fa",
     "src/services/integrations/mexico/pac/pac-router.ts": "d4e73952e123807caf206889a59c802f8bc04a73",
@@ -136,7 +136,7 @@
     "src/ai/onboarding-service.ts": "7bd405ae60700ebab6bac3062002acd1cf9b4b58",
     "src/services/reporting/cash-flow-service.ts": "489bebf55f6fb975846d6cb0bf4c75d7a4d7390d",
     "src/services/reporting/cash-flow-reconcile.ts": "491acc77467d7409c59dd87b312dfd48af2ce401",
-    "src/index.ts": "44fb1055a200556cca571a46f52a36f90cdc00bb",
+    "src/index.ts": "babd83796597690fcde97ba44918ffb1b60f86cc",
     "src/ai/tools/report-tools.ts": "1240b430dfd3c5862d81728ee8082b4c4c8a28c3"
   }
 }
