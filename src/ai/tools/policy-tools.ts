@@ -3,6 +3,7 @@ import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { query } from '../../database/connection.js';
 import { neutralizarMarcadores } from '../untrusted.js';
 import { listAccountRoles, rolesValidos } from '../../services/accounting/account-roles-service.js';
+import { policyWording, type SeededWording } from '../../services/policy/policy-service.js';
 import type { AgentContext } from '../context.js';
 import type { ToolDeps } from './observer.js';
 
@@ -181,11 +182,17 @@ function textoLlano(valor: string | null): string | null {
     : limpio;
 }
 
-interface FilaPolitica {
-  key: string;
+/**
+ * The seeded text columns (`question`, `impact`, `options`,
+ * `default_rationale`) come from `SeededWording` and are selected for ONE
+ * reader: `policyWording`, which only falls back to them for a key the catalog
+ * no longer has. This file never reads them directly: a seeded tenant's copy is
+ * the catalog as it was on seed day (`ON CONFLICT DO NOTHING` never refreshes
+ * it), so for a live key what the agent receives is the catalog, and only a
+ * retired key still shows that copy — through `policyWording`, not from here.
+ */
+interface FilaPolitica extends SeededWording {
   category: string;
-  question: string;
-  options: Array<{ value: string; label: string }> | null;
   default_value: string | null;
   status: string;
   resolved_value: string | null;
@@ -209,7 +216,7 @@ export async function leerPanel(
   const filtro = keys && keys.length > 0 ? keys : null;
   const r = await query<FilaPolitica>(
     `SELECT DISTINCT ON (key)
-            key, category, question, options, default_value,
+            key, category, question, impact, options, default_value, default_rationale,
             status, resolved_value, resolution_notes, entity_id
        FROM policy_decisions
       WHERE tenant_id = $1
@@ -228,16 +235,22 @@ export async function leerPanel(
     // que sobrevive a neutralizar, no el hecho de que la columna no sea NULL.
     const respuesta = marcadaResuelta ? textoLlano(fila.resolved_value) : null;
     const contestada = respuesta !== null;
+    // Wording is the system's text (the catalog, or the seed-time copy of it
+    // for a retired key), so it is not run through `textoLlano`. The answer
+    // columns are: `resolved_value` is typed by a person, and
+    // `resolution_notes` mixes a person's note with system annotations such as
+    // `[value outside the catalog]` or `Defined during setup`.
+    const wording = policyWording(fila);
     return {
       key: fila.key,
       category: fila.category,
-      question: fila.question,
+      question: wording.question,
       status: contestada ? 'answered' : 'unanswered',
       value: respuesta ?? fila.default_value ?? '',
       answered_value: respuesta,
       default_value: fila.default_value,
       scope: fila.entity_id === null ? 'tenant' : 'entity',
-      ...(contestada ? {} : { options: fila.options ?? [] }),
+      ...(contestada ? {} : { options: wording.options }),
       notes: textoLlano(fila.resolution_notes),
       answer_defect: marcadaResuelta && !contestada ? DEFECTO_RESPUESTA_VACIA : null,
     };

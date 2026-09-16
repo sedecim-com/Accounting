@@ -43,14 +43,21 @@ vi.mock('../../src/ai/context.js', () => ({
 vi.mock('../../src/ai/draft-service.js', () => ({
   resolveReviewer: vi.fn(),
 }));
-vi.mock('../../src/services/policy/policy-service.js', () => ({
-  seedPolicies: vi.fn(),
-  listPolicies: vi.fn(),
-  listPending: vi.fn(),
-  resolvePolicy: vi.fn(),
-  dismissPolicy: vi.fn(),
-  reopenPolicy: vi.fn(),
-}));
+vi.mock('../../src/services/policy/policy-service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/services/policy/policy-service.js')>();
+  return {
+    seedPolicies: vi.fn(),
+    listPolicies: vi.fn(),
+    listPending: vi.fn(),
+    resolvePolicy: vi.fn(),
+    dismissPolicy: vi.fn(),
+    reopenPolicy: vi.fn(),
+    // The REAL wording seam, not a double: what these screens paint is
+    // exactly what `policyWording` decides, and a stub here would let the
+    // screens and the seam disagree while this file stays green.
+    policyWording: actual.policyWording,
+  };
+});
 vi.mock('../../src/services/policy/policy-preview.js', () => ({
   previewFor: vi.fn(),
 }));
@@ -120,17 +127,34 @@ const SPEC2 = getPolicySpec(KEY2)!;
 const KEY3 = 'catalogo_entidad_no_mexicana';
 const SPEC3 = getPolicySpec(KEY3)!;
 
-/** Una fila como llega de la base: con el texto que tenía al sembrarse. */
+/**
+ * A row as it comes from the database: with the wording it had the day it
+ * was seeded, which is NOT the catalog's wording any more (I10 · #152).
+ * Every text column differs from `SPEC` on purpose, and the option list
+ * differs in both labels and values, so a screen that paints or indexes the
+ * row instead of the catalog shows up as a different string or a different
+ * saved value.
+ */
+const STALE = {
+  question: 'STALE QUESTION SEEDED INTO THE ROW',
+  impact: 'STALE IMPACT SEEDED INTO THE ROW',
+  options: [
+    { value: '20000', label: 'STALE LABEL SEEDED INTO THE ROW' },
+    { value: 'row_only_value', label: 'STALE OPTION THE CATALOG NEVER HAD' },
+  ],
+  default_rationale: 'STALE RATIONALE SEEDED INTO THE ROW',
+};
+
 function row(overrides: Record<string, unknown> = {}) {
   return {
     id: 'p1',
     key: KEY,
     category: 'contable',
-    question: '¿A partir de qué monto se capitaliza?',
-    impact: 'IMPACTO GUARDADO EN LA BASE',
-    options: [{ value: '20000', label: '$20,000' }],
+    question: STALE.question,
+    impact: STALE.impact,
+    options: STALE.options,
     default_value: '20000',
-    default_rationale: 'RAZÓN DEL DEFECTO',
+    default_rationale: STALE.default_rationale,
     status: 'pending',
     resolved_value: null,
     resolved_by: null,
@@ -222,7 +246,7 @@ describe('el catálogo declara la explicación y `pending -v` la usa', () => {
     expect(texto).not.toContain('if you skip it');
     // Y lo que sí es de la lista corta sigue estando.
     expect(texto).toContain(KEY);
-    expect(texto).toContain('¿A partir de qué monto se capitaliza?');
+    expect(texto).toContain(norm(SPEC.question));
   });
 
   it('la explicación sale del CATÁLOGO, no del texto congelado en la base', () => {
@@ -230,7 +254,83 @@ describe('el catálogo declara la explicación y `pending -v` la usa', () => {
     // renderizador leyera sólo la fila, no habría explicación que dar.
     const texto = flat(renderPolicies([row()], plain, { verbose: true }));
     expect(texto).toContain(norm(SPEC.whyAsking!));
-    expect(texto).toContain('IMPACTO GUARDADO EN LA BASE');
+    expect(texto).toContain(norm(SPEC.impact));
+    expect(texto).not.toContain(STALE.impact);
+  });
+});
+
+// ============================================================
+// THE ROW KEEPS STATE; THE WORDING COMES FROM THE CATALOG (I10 · #152)
+//
+// `seedPolicies` copies question, impact, options and default_rationale into
+// every row with ON CONFLICT DO NOTHING, so those columns are never refreshed.
+// This screen used to paint them: rewording the catalog reached no tenant
+// already seeded. The fixture above disagrees with the catalog in every text
+// column, which is the only setup in which "painted the catalog" and "painted
+// the row" are distinguishable at all.
+// ============================================================
+describe('the row keeps state; the wording comes from the catalog', () => {
+  /** A key the catalog no longer has: a row left behind by a retired policy. */
+  const ORPHAN_KEY = 'retired_policy_not_in_catalog';
+  const ORPHAN = {
+    question: 'SNAPSHOT QUESTION OF A RETIRED POLICY',
+    impact: 'SNAPSHOT IMPACT OF A RETIRED POLICY',
+    options: [
+      { value: 'snapshot_a', label: 'SNAPSHOT OPTION A' },
+      { value: 'snapshot_b', label: 'SNAPSHOT OPTION B' },
+    ],
+    default_rationale: 'SNAPSHOT RATIONALE OF A RETIRED POLICY',
+  };
+  const orphanRow = () => row({ id: 'p9', key: ORPHAN_KEY, default_value: 'snapshot_a', ...ORPHAN });
+
+  it('the fixture really disagrees with the catalog (otherwise nothing below measures anything)', () => {
+    expect(STALE.question).not.toBe(SPEC.question);
+    expect(STALE.impact).not.toBe(SPEC.impact);
+    expect(STALE.default_rationale).not.toBe(SPEC.defaultRationale);
+    expect(STALE.options).not.toEqual(SPEC.options);
+    // The define test types every printed number: behind number 2 the two
+    // lists hold different values, and the catalog's last number is past the
+    // end of the row's list.
+    expect(STALE.options[1].value).not.toBe(SPEC.options[1].value);
+    expect(STALE.options.length).toBeLessThan(SPEC.options.length);
+    expect(getPolicySpec(ORPHAN_KEY)).toBeUndefined();
+  });
+
+  it('when row and catalog differ, `pending -v` paints the catalog', () => {
+    const text = flat(renderPolicies([row()], plain, { verbose: true }));
+
+    expect(text).toContain(norm(SPEC.question));
+    expect(text).toContain(`impact: ${norm(SPEC.impact)}`);
+    expect(text).toContain(`why that default: ${norm(SPEC.defaultRationale!)}`);
+    for (const o of SPEC.options) expect(text).toContain(norm(`${o.value} — ${o.label}`));
+
+    expect(text).not.toContain(STALE.question);
+    expect(text).not.toContain(STALE.impact);
+    expect(text).not.toContain(STALE.default_rationale);
+    for (const o of STALE.options) expect(text).not.toContain(o.label);
+    expect(text).not.toContain('row_only_value');
+  });
+
+  it('the short listing paints the catalog question too, not the row', () => {
+    const text = flat(renderPolicies([row()], plain, {}));
+    expect(text).toContain(norm(SPEC.question));
+    expect(text).not.toContain(STALE.question);
+  });
+
+  it('a key the catalog does not have paints the row snapshot, not nothing', () => {
+    const text = flat(renderPolicies([orphanRow()], plain, { verbose: true }));
+
+    expect(text).toContain(ORPHAN_KEY);
+    expect(text).toContain(ORPHAN.question);
+    expect(text).toContain(`impact: ${ORPHAN.impact}`);
+    expect(text).toContain(`why that default: ${ORPHAN.default_rationale}`);
+    for (const o of ORPHAN.options) expect(text).toContain(`${o.value} — ${o.label}`);
+  });
+
+  it('state columns still come from the row: the header shows its default_value', () => {
+    // default_value is behaviour, not wording: I10 does not move it.
+    const lines = renderPolicies([row({ default_value: 'row_default_value' })], plain, {});
+    expect(lines[0]).toContain('operating with: row_default_value');
   });
 });
 
@@ -450,7 +550,9 @@ describe('el prompt interactivo de `pending define` explica antes de preguntar',
   async function correrDefine(
     preview: string[],
     filas?: unknown[],
-    clave: string = KEY
+    clave: string = KEY,
+    /** What the accountant types at `value> `; empty = cancel. */
+    answer = ''
   ): Promise<string[]> {
     mockPreview.mockResolvedValue(preview);
     if (filas) mockListPending.mockResolvedValue(filas);
@@ -472,7 +574,7 @@ describe('el prompt interactivo de `pending define` explica antes de preguntar',
         throw err;
       },
       // Enter = conservar el defecto; la acción termina en shutdown(0).
-      ask: async () => '',
+      ask: async () => answer,
     });
 
     try {
@@ -568,6 +670,78 @@ describe('el prompt interactivo de `pending define` explica antes de preguntar',
       const esCuelgue = /^ {5,6}\S/.test(l);
       expect(esCabeza || esCuelgue, `renglón de opción suelto: ${JSON.stringify(l)}`).toBe(true);
     }
+  });
+
+  /**
+   * The numbered head lines of the printed option list, as number → value.
+   * Read back from the OUTPUT, not from `SPEC`: the contract is "the number
+   * you saw is the value saved", whatever list the screen chose to show.
+   */
+  function printedOptions(output: string[]): Map<number, string> {
+    const printed = new Map<number, string>();
+    for (const l of renglones(output)) {
+      const m = /^ {2}(\d+)\) (.+?) — /.exec(l);
+      if (m) printed.set(Number(m[1]), m[2]);
+    }
+    return printed;
+  }
+
+  it('the prompt paints the catalog wording when the row disagrees with it', async () => {
+    const text = flat(await correrDefine([]));
+    expect(text).toContain(norm(SPEC.question));
+    expect(text).toContain(`impact: ${norm(SPEC.impact)}`);
+    expect(text).not.toContain(STALE.question);
+    expect(text).not.toContain(STALE.impact);
+    for (const o of STALE.options) expect(text).not.toContain(o.label);
+  });
+
+  it('every number typed at the prompt saves the value printed next to that number', async () => {
+    // The row's list and the catalog's differ in length and in the values
+    // behind numbers 1 and 2, so indexing a different list than the one
+    // printed saves a value the accountant never saw next to that number (for
+    // number 1, the row's first value instead of the catalog's) or fails past
+    // the end of the shorter list.
+    for (let n = 1; n <= SPEC.options.length; n++) {
+      mockResolvePolicy.mockClear();
+      const printed = printedOptions(await correrDefine([], [row()], KEY, String(n)));
+
+      expect([...printed.keys()], 'the numbered list printed').toEqual(SPEC.options.map((_, i) => i + 1));
+      expect(printed.get(n)).toBe(SPEC.options[n - 1].value);
+      expect(mockResolvePolicy).toHaveBeenCalledTimes(1);
+      expect(mockResolvePolicy).toHaveBeenCalledWith(
+        { tenantId: 'ten-1' },
+        KEY,
+        printed.get(n),
+        'admin@demo.com',
+        undefined
+      );
+    }
+  });
+
+  it('an orphan key prompts with the row snapshot, and its numbers map to that list', async () => {
+    const orphan = row({
+      id: 'p9',
+      key: 'retired_policy_not_in_catalog',
+      question: 'SNAPSHOT QUESTION OF A RETIRED POLICY',
+      impact: 'SNAPSHOT IMPACT OF A RETIRED POLICY',
+      options: [
+        { value: 'snapshot_a', label: 'SNAPSHOT OPTION A' },
+        { value: 'snapshot_b', label: 'SNAPSHOT OPTION B' },
+      ],
+    });
+    const output = await correrDefine([], [orphan], 'retired_policy_not_in_catalog', '2');
+    const text = flat(output);
+
+    expect(text).toContain('SNAPSHOT QUESTION OF A RETIRED POLICY');
+    expect(text).toContain('impact: SNAPSHOT IMPACT OF A RETIRED POLICY');
+    expect(printedOptions(output).get(2)).toBe('snapshot_b');
+    expect(mockResolvePolicy).toHaveBeenCalledWith(
+      { tenantId: 'ten-1' },
+      'retired_policy_not_in_catalog',
+      'snapshot_b',
+      'admin@demo.com',
+      undefined
+    );
   });
 });
 
