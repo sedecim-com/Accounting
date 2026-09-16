@@ -1,13 +1,48 @@
+import { t, type Language, type MessageParams, type TranslationKey } from '../i18n/index.js';
+
+/**
+ * A message written by catalog key instead of by prose (I9 · issue #151).
+ *
+ * The `code` of an error is wire contract and never changes with the reader's
+ * language; the `message` is for a human and does. An error built from a key
+ * carries both, and each surface renders the message in its own language: the
+ * REST error handler by `Accept-Language`, the CLI by the active locale.
+ */
+export interface ErrorMessageKey {
+  readonly key: TranslationKey;
+  readonly params?: MessageParams;
+}
+
 export class AppError extends Error {
+  /** The key the message was written with, when it was. Absent for prose errors. */
+  public readonly messageKey?: ErrorMessageKey;
+
   constructor(
     public statusCode: number,
     public code: string,
-    message: string,
+    message: string | ErrorMessageKey,
     public field?: string,
     public details?: Record<string, unknown>
   ) {
-    super(message);
+    // `message` is fixed in ENGLISH at construction, the same contract as
+    // `CliError` (src/cli/kernel/cli-error.ts): it is what ends up in a stack
+    // trace and in a log, and a log whose language depends on who made the
+    // request cannot be searched. The reader's language is applied only when
+    // the message is rendered — see `localized`.
+    super(typeof message === 'string' ? message : t(message.key, message.params ?? {}, 'en'));
     this.name = 'AppError';
+    if (typeof message !== 'string') this.messageKey = message;
+  }
+
+  /**
+   * The message in `language` (default: the active one). An error that was
+   * born from prose returns that prose unchanged: until a site is migrated to a
+   * key, its text is whatever it was written in.
+   */
+  localized(language?: Language): string {
+    return this.messageKey
+      ? t(this.messageKey.key, this.messageKey.params ?? {}, language)
+      : this.message;
   }
 }
 
@@ -116,7 +151,7 @@ export class ExternalRejectedError extends AppError {
 }
 
 export class AccountingError extends AppError {
-  constructor(code: string, message: string, details?: Record<string, unknown>) {
+  constructor(code: string, message: string | ErrorMessageKey, details?: Record<string, unknown>) {
     super(422, code, message, undefined, details);
     this.name = 'AccountingError';
   }

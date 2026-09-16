@@ -28,6 +28,10 @@ import type { EN } from './en.js';
 // ============================================================
 
 export const ES: Record<keyof typeof EN, string> = {
+  // ==== error.* — mensajes de los errores de la API y los servicios (I9) ====
+  'error.PERIOD_ALREADY_OPEN': '{period} ya está abierto.',
+  // ==== fin de error.* ================================================
+
   // --- El kernel: confirmación y salida --------------------------------
   confirm_answer_not_understood:
     'no entendí «{answer}»: responde y/s para sí, n para no',

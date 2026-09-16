@@ -132,6 +132,9 @@ async function answer(token: string): Promise<{ status: number; code?: string }>
   let status = 0;
   let body: { errors: Array<{ code: string }> } | undefined;
   const res = {
+    // Express always gives a response its `locals`; the error handler reads the
+    // negotiated locale from there (I9 · #248).
+    locals: {} as Record<string, unknown>,
     status(s: number) {
       status = s;
       return res;

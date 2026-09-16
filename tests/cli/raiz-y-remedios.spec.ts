@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { resetLanguage, setLanguage } from '../../src/i18n/index.js';
+import { AccountingError } from '../../src/utils/errors.js';
+import { translateDomainError } from '../../src/cli/entry-command.js';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -205,6 +208,87 @@ describe('reportError remite al remedio', () => {
     expect(String(refusal.details?.cause)).toContain('terminating connection');
     expect(remedioParaMensaje(refusal.message)).toBeNull();
     expect(stderrDe(refusal)).not.toContain('DATABASE_URL');
+  });
+});
+
+// I9 · AN `AppError` WRITTEN BY KEY IS RENDERED, NOT PRINTED.
+// Its `message` is English on purpose (src/utils/errors.ts); what the accountant
+// reads comes from `localized()` in the active language. These cases hand the
+// error to `reportError` directly, and the last one follows the REAL path of a
+// leaf: `translateDomainError` (src/cli/entry-command.ts) first, which is what
+// every `period` subcommand does through `makeRunner`. That path is the one
+// that regressed while this commit was being written — the translation handed
+// over a `CliError` built from the English `message` — so it is measured here
+// and not assumed.
+describe('reportError renders a keyed AppError in the active language', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetLanguage();
+  });
+
+  function stderrOf(err: unknown): string {
+    const lines: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    reportError(err);
+    return lines.join('\n');
+  }
+
+  const alreadyOpen = () =>
+    new AccountingError('PERIOD_ALREADY_OPEN', {
+      key: 'error.PERIOD_ALREADY_OPEN',
+      params: { period: '2026-03' },
+    });
+
+  it('es: PERIOD_ALREADY_OPEN comes out in Spanish, with no remedy appended', () => {
+    setLanguage('es');
+    const output = stderrOf(alreadyOpen());
+    expect(output).toContain('2026-03 ya está abierto.');
+    expect(output).not.toContain('is already open');
+    expect(output).not.toContain('→');
+  });
+
+  it('en: the same error comes out in English', () => {
+    setLanguage('en');
+    const output = stderrOf(alreadyOpen());
+    expect(output).toContain('2026-03 is already open.');
+    expect(output).not.toContain('ya está abierto');
+  });
+
+  it('the English message stays on the error itself, whatever the active language', () => {
+    setLanguage('es');
+    expect(alreadyOpen().message).toBe('2026-03 is already open.');
+  });
+
+  it('an AppError born from prose prints its message as written', () => {
+    setLanguage('en');
+    const output = stderrOf(
+      new AccountingError('PERIOD_LOCKED', "2026-03 está 'locked': no se reabre.")
+    );
+    expect(output).toContain("2026-03 está 'locked': no se reabre.");
+  });
+
+  it('through translateDomainError, the path every period leaf takes, it is still Spanish', () => {
+    setLanguage('es');
+    const output = stderrOf(translateDomainError(alreadyOpen()));
+    expect(output).toContain('2026-03 ya está abierto.');
+    expect(output).not.toContain('is already open');
+  });
+
+  it('through that same path in English, and the exit code stays BLOCKED', () => {
+    setLanguage('en');
+    const translated = translateDomainError(alreadyOpen());
+    expect(stderrOf(translated)).toContain('2026-03 is already open.');
+    expect((translated as { exitCode?: number }).exitCode).toBe(5);
+  });
+
+  it('the remedy writer still sees the rendered message of an AppError', () => {
+    setLanguage('es');
+    const output = stderrOf(
+      new AccountingError('DB_DOWN', 'connect ECONNREFUSED 127.0.0.1:5432')
+    );
+    expect(output).toContain('→ mnemosine doctor');
   });
 });
 

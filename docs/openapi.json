@@ -10908,6 +10908,14 @@
               },
               "version": {
                 "type": "string"
+              },
+              "language": {
+                "type": "string",
+                "enum": [
+                  "es",
+                  "en"
+                ],
+                "description": "The language this response's `message` was rendered in, from the catalog key it was written with (`es` when the request sends no Accept-Language). PRESENT ONLY THEN: a message not yet migrated to a key keeps the text it was written with, and the envelope says nothing about its language rather than naming one it may not be in. `code` never changes with the language."
               }
             }
           }
@@ -10915,6 +10923,18 @@
         "required": [
           "errors"
         ]
+      }
+    },
+    "headers": {
+      "ContentLanguage": {
+        "description": "The locale the `message` was rendered in, negotiated from Accept-Language (src/api/rest/middleware/locale.ts; es-MX when the request sends none). SENT ONLY on an error whose message was written by catalog key, together with `Vary: Accept-Language`. An error still written as prose — most of them today, and the INTERNAL_SERVER_ERROR body — carries no Content-Language.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "es-MX",
+            "en-US"
+          ]
+        }
       }
     },
     "securitySchemes": {
@@ -10949,6 +10969,11 @@
     "responses": {
       "NoAutenticado": {
         "description": "Missing, malformed or expired bearer token (UNAUTHORIZED).",
+        "headers": {
+          "Content-Language": {
+            "$ref": "#/components/headers/ContentLanguage"
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
@@ -10959,6 +10984,11 @@
       },
       "SinPermiso": {
         "description": "Authenticated, but missing at least one of x-permisos-requeridos, or acting on an entity the token does not carry (FORBIDDEN).",
+        "headers": {
+          "Content-Language": {
+            "$ref": "#/components/headers/ContentLanguage"
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
@@ -10969,6 +10999,11 @@
       },
       "LlaveReusada": {
         "description": "The same Idempotency-Key was already used with a different payload (RESOURCE_ALREADY_EXISTS).",
+        "headers": {
+          "Content-Language": {
+            "$ref": "#/components/headers/ContentLanguage"
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
@@ -10979,6 +11014,11 @@
       },
       "CuerpoInvalido": {
         "description": "The request body failed the schema in requestBody (VALIDATION_ERROR). Note the status is 422, not 400.",
+        "headers": {
+          "Content-Language": {
+            "$ref": "#/components/headers/ContentLanguage"
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
@@ -10989,6 +11029,11 @@
       },
       "ErrorInterno": {
         "description": "Unhandled failure (INTERNAL_SERVER_ERROR).",
+        "headers": {
+          "Content-Language": {
+            "$ref": "#/components/headers/ContentLanguage"
+          }
+        },
         "content": {
           "application/json": {
             "schema": {

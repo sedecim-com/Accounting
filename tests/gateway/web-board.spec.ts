@@ -300,6 +300,10 @@ describe("the API's two 403 bodies read apart", () => {
   function bodyFor(error: unknown): unknown {
     let written: unknown;
     const res = {
+      // Express always gives a response its `locals`; the error handler reads
+      // the negotiated locale from there (I9 · #248) to decide whether the body
+      // may declare a language at all.
+      locals: {} as Record<string, unknown>,
       status: () => res,
       json: (body: unknown) => {
         written = body;
