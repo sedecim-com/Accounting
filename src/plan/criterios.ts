@@ -299,74 +299,12 @@ export function fuentes(rel = 'src'): string[] {
  * rojo, que es el lado seguro.
  */
 /**
- * Memoria por CONTENIDO, no por ruta. Los 161 sitios de llamada releen los
- * mismos archivos una y otra vez, y el seam de mutación cambia el contenido sin
- * cambiar la ruta: cachear por ruta serviría el archivo sano a un mutante y el
- * espejo dejaría de morder. Con la clave en el propio texto, un mutante es
- * simplemente otra entrada.
+ * El limpiador vive ahora en `src/utils/strip-comments.ts`, para que el
+ * detector de código muerto use EXACTAMENTE éste y no su propia copia. Se
+ * conserva el nombre local: 20 sitios de este archivo lo llaman.
  */
-const CACHE_SIN_COMENTARIOS = new Map<string, string>();
-
-export function sinComentarios(texto: string): string {
-  // Recorrido con estado en vez de dos regex. Las regex se quedaron CIEGAS el
-  // día que un ejemplo de ayuda citó un glob de shell: `./cfdi/julio/*.xml`
-  // contiene `/*`, que abría un comentario de bloque cerrado 94 499 bytes
-  // después — el 80 % de mnemosine.ts desaparecía del criterio y `plan:status`
-  // acusaba SIETE rojos falsos sobre familias que sí estaban en el binario. Un
-  // instrumento que decide no puede cegarse con una cadena, así que las
-  // cadenas se saltan en vez de mirarse.
-  //
-  // Se copia POR TRAMOS, no carácter a carácter: la primera versión de este
-  // arreglo concatenaba de uno en uno y salía 8× más lenta, y con 161 sitios
-  // de llamada eso llevó las pruebas de `main()` a agotar su presupuesto de
-  // 30 s en CI. Correcto y lento sigue siendo un defecto cuando el instrumento
-  // corre en cada empuje.
-  //
-  // Sirve para TypeScript y para SQL (`codigoDe` se usa sobre los dos): las
-  // comillas simples que SQL duplica para escapar cierran y reabren, que deja
-  // el mismo resultado. Las expresiones regulares de TS se tratan como
-  // división —no se intenta desambiguar—, así que un `/*` dentro de un literal
-  // de regex seguiría cegando; hoy no hay ninguno.
-  const memo = CACHE_SIN_COMENTARIOS.get(texto);
-  if (memo !== undefined) return memo;
-
-  const trozos: string[] = [];
-  let i = 0;
-  let copiadoDesde = 0;
-  while (i < texto.length) {
-    const c = texto.charCodeAt(i);
-    // 0x2f '/'  0x2a '*'  0x2d '-'  0x27 "'"  0x22 '"'  0x60 '`'  0x5c '\\'
-    if (c === 0x2f || c === 0x2d) {
-      const d = texto.charCodeAt(i + 1);
-      const bloque = c === 0x2f && d === 0x2a;
-      const linea = (c === 0x2f && d === 0x2f) || (c === 0x2d && d === 0x2d);
-      if (bloque || linea) {
-        trozos.push(texto.slice(copiadoDesde, i));
-        const fin = bloque ? texto.indexOf('*/', i + 2) : texto.indexOf('\n', i);
-        i = fin === -1 ? texto.length : bloque ? fin + 2 : fin;
-        copiadoDesde = i;
-        continue;
-      }
-    }
-    if (c === 0x27 || c === 0x22 || c === 0x60) {
-      // La cadena se CONSERVA: quitarla rompería los criterios que buscan un
-      // literal («status = 'posted'»), que son casi todos. Sólo se salta, para
-      // que un `/*` de su interior no abra un comentario.
-      let j = i + 1;
-      while (j < texto.length && texto.charCodeAt(j) !== c) {
-        if (texto.charCodeAt(j) === 0x5c) j++;
-        j++;
-      }
-      i = Math.min(j + 1, texto.length);
-      continue;
-    }
-    i++;
-  }
-  trozos.push(texto.slice(copiadoDesde));
-  const fuera = trozos.join('');
-  CACHE_SIN_COMENTARIOS.set(texto, fuera);
-  return fuera;
-}
+import { stripComments as sinComentarios } from '../utils/strip-comments.js';
+export { sinComentarios };
 
 /**
  * Archivos (relativos a la raíz) donde aparece el patrón.
@@ -3075,6 +3013,95 @@ export const CRITERIOS: Criterio[] = [
         /toFixed\(6\)/.test(cliente) && /'DISABLED'/.test(cliente)
         ? ok('unicidad (entidad, uuid) con hash respaldado, dedupe escopado en los dos sitios, y el SOAP real con apagado honesto')
         : falla('el cliente SAT perdió el sobre, el relleno del total o el apagado que lo dice');
+    },
+  },
+
+  {
+    paquete: 'E0.2',
+    id: 'one-comment-stripper-for-every-instrument',
+    // El tablero aprendió esto a base de SIETE rojos falsos, y lo dejó escrito
+    // en `sinComentarios`: un ejemplo de ayuda con el glob `./cfdi/julio/*.xml`
+    // lleva un `/*` dentro de una CADENA, y las dos regex ingenuas lo tomaban
+    // por comentario de bloque. Lo que se comían no era prosa: era código.
+    //
+    // El detector de código muerto conservaba su propia copia de esas regex, y
+    // por eso acusaba a `describeLastOption` —llamada en mnemosine.ts dentro de
+    // las 171 líneas que el falso comentario engullía— de «exportada y no
+    // referenciada en ninguna parte». Medido con el escáner viejo contra el
+    // nuevo, se equivocaba en las DOS direcciones a la vez:
+    // `expected ['describeLastOption'] to deeply equal ['main']`.
+    //
+    // Un detector de código muerto que acusa en falso no es ruido: lo que
+    // propone es BORRAR CÓDIGO VIVO. Por eso el criterio no comprueba que el
+    // limpiador esté bien, sino que sólo haya UNO — mientras hubo dos, arreglar
+    // el del tablero dejó al del doctor mintiendo y nada se puso rojo.
+    enunciado: 'Ningún instrumento se ciega con un glob dentro de una cadena',
+    mutantes: [
+      {
+        archivo: 'src/utils/strip-comments.ts',
+        de: 'if (c === 0x27 || c === 0x22 || c === 0x60) {',
+        a: 'if (false) {',
+        porque: 'el limpiador deja de saltarse las cadenas: un glob vuelve a abrir un comentario y el instrumento analiza un archivo mutilado',
+      },
+      {
+        archivo: 'src/ai/orphan-scan.ts',
+        de: "import { stripComments } from '../utils/strip-comments.js';",
+        a: "const stripComments = (t: string): string => t.replace(/\\/\\*[\\s\\S]*?\\*\\//g, '');",
+        porque: 'el detector de código muerto vuelve a tener su copia propia de la regex ingenua, que es como nació la acusación falsa',
+      },
+      {
+        archivo: 'tests/ai/orphan-scan.spec.ts',
+        de: "const ayuda = 'mnemosine ingest ./cfdi/julio/*.xml --auto-post';",
+        a: "const ayuda = 'mnemosine ingest ./cfdi/julio/todo.xml --auto-post';",
+        porque: 'la reproducción deja de llevar el glob: sin el `/*` dentro de la cadena, la prueba pasa con la regex ingenua puesta',
+      },
+    ],
+    evaluar: () => {
+      const shared = 'src/utils/strip-comments.ts';
+      const scanner = 'src/ai/orphan-scan.ts';
+      const spec = 'tests/ai/orphan-scan.spec.ts';
+      if (!existe(shared)) return falla(`desapareció ${shared}: el limpiador compartido es lo único que impide que cada instrumento vuelva a tener el suyo`);
+
+      // 1. EL CENSO. Nadie más define un limpiador de comentarios de TypeScript.
+      //    Se busca la regex ingenua, que es la forma que falla.
+      const INGENUA = /replace\(\/\\\/\\\*\[\\s\\S\]\*\?\\\*\\\/\/g/;
+      const culpables: string[] = [];
+      for (const f of fuentes('src')) {
+        const rel = path.relative(rutaDe(), f);
+        if (rel === shared) continue;
+        const code = leer(f);
+        // El SQL es otro idioma y lleva su propio `--`: ésos no cuentan aquí.
+        if (INGENUA.test(code) && !/--\[\^\\n\]\*/.test(code)) culpables.push(rel);
+      }
+      if (culpables.length > 0) {
+        return falla(
+          `${culpables.length} instrumento(s) volvieron a llevar su propia regex de comentarios (${culpables.join(', ')}): ` +
+            'un `/*` dentro de una cadena les borra el código que sigue, y lo que informen después será sobre un archivo mutilado'
+        );
+      }
+
+      // 2. LOS DOS INSTRUMENTOS BEBEN DE LA MISMA FUENTE.
+      if (!codigoDe(scanner).includes("import { stripComments } from '../utils/strip-comments.js';")) {
+        return falla('el detector de código muerto dejó de usar el limpiador compartido: vuelve a poder acusar a código vivo');
+      }
+      // Y el limpiador sigue saltándose las cadenas, que es lo único que hace.
+      if (!codigoDe(shared).includes('if (c === 0x27 || c === 0x22 || c === 0x60) {')) {
+        return falla('el limpiador dejó de saltarse las cadenas: un glob vuelve a abrir un comentario de bloque');
+      }
+
+      // 3. Y CONDUCTA: la reproducción lleva el glob de verdad. Sin él, la
+      //    prueba pasa con la regex ingenua puesta y no mide nada.
+      if (!existe(spec)) return falla('no hay reproducción del glob que cegaba al detector');
+      // Se lee el CÓDIGO y no el crudo: el comentario de la propia prueba cita
+      // el glob, y un ancla que su archivo repite desarma su propio espejo.
+      const t = codigoDe(spec);
+      if (!/julio\/\*\.xml/.test(t)) {
+        return falla('la reproducción perdió el glob dentro de la cadena: es lo único que distingue al limpiador bueno del ingenuo');
+      }
+
+      return ok(
+        'un solo limpiador de comentarios en el árbol, y lo usan el tablero y el detector de código muerto; se salta las cadenas, y la reproducción lleva el glob que cegaba al viejo'
+      );
     },
   },
 
@@ -7556,14 +7583,14 @@ export const CRITERIOS: Criterio[] = [
       // mutantes cuenta igual que uno con uno: se podían retirar seis sin mover
       // la cifra, y con la holgura acumulada —14 exigidos contra 118 reales— la
       // mitad de los espejos del repositorio salía en verde. Medido en el
-      // momento de escribir esto: 357 espejos, 14 exigidos.
+      // momento de escribir esto: 360 espejos, 14 exigidos.
       //
       // Ahora el número es el de espejos, de los dos arneses, y la holgura es
       // CERO: retirar uno obliga a bajar esta constante en el mismo diff, que
       // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
       // porque con holgura el espejo de este mismo criterio deja de morder: la
       // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
-      const MIRRORS_FLOOR = 357;
+      const MIRRORS_FLOOR = 360;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -7579,10 +7606,10 @@ export const CRITERIOS: Criterio[] = [
       // el seam sólo intercepta lecturas de DISCO: ningún mutante puede bajar
       // el conteo de arriba, así que por sí solo sería la clase de cifra que
       // este criterio existe para desconfiar. Las anclas `de:` de este archivo
-      // son el mismo hecho leído por el seam —hoy 345, que son los 345 espejos
+      // son el mismo hecho leído por el seam —hoy 348, que son los 348 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      const ANCHORS_HERE = 345;
+      const ANCHORS_HERE = 348;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
