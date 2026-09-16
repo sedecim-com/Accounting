@@ -7,13 +7,23 @@ flags verbatim when guiding a human — never invent a flag that is not
 listed here. When a flow needs several commands, give them in order.
 
 Notes for the agent:
-- The global option `-T, --tenant <uuid>` (or the `MNEMOSINE_TENANT` env
-  var, or the `tenant` key in mnemosine.config.json — in that order of
-  precedence) scopes EVERY command under row-level security. It appears
-  only on the root help below, but it works before any subcommand, and
-  `--tenant <uuid>` / `-t <uuid>` after a subcommand mean the same thing.
-  A tenant that is not a UUID exits 2; one that does not exist exits 3 —
-  it never returns an empty report instead.
+- The global option `-T, --tenant <uuid>` scopes EVERY command under
+  row-level security. Precedence, highest first: this flag, then the
+  `MNEMOSINE_TENANT` environment variable, then the `tenant` key in a
+  config file (./mnemosine.config.json before ~/.mnemosine/config.json).
+- It is listed only on the root help below, but the long spelling
+  `--tenant <uuid>` is taken before AND after any subcommand. The short
+  spelling is `-T` at the root and `-t` on the 204 of 316 subcommands
+  that declare it; the rest answer `-t` with "unknown option", so prefer the
+  long spelling and you never have to check.
+- A tenant that is not a UUID exits 2, whichever of the three sources
+  carried it — on every command, including the ones that never query.
+- A well-formed tenant that does NOT exist exits 3 when it came from the
+  FLAG and the command reads tenant-scoped data (`whoami`, `providers` and
+  `lang`, among the few that read none, skip the check). When it came from
+  `MNEMOSINE_TENANT` or from a config file instead, the run only warns on
+  stderr and CONTINUES: it ends with an empty report and exit 0. So never
+  report "no rows" as an empty ledger without reading stderr first.
 - Spanish aliases (shown as `name|alias`) are equivalent to the English
   names; use whichever matches the user's language.
 
@@ -27,6 +37,7 @@ AI accounting assistant — converse with your accounting from the terminal
 Options:
   -V, --version                          output the version number
   -T, --tenant <uuid>                    Tenant to operate on. Precedence: this flag > MNEMOSINE_TENANT > mnemosine.config.json. Scopes EVERY query via RLS
+  --locale <tag>                         Language and formatting of what is PRINTED (es-MX|en-US). Precedence: this flag > MNEMOSINE_LOCALE (MNEMOSINE_LANG is a permanent alias) > ~/.mnemosine/config.json > ./mnemosine.config.json > the tenant setting > es-MX. Never changes what is filed with an authority
   -h, --help                             display help for command
 
 Commands:
@@ -70,7 +81,7 @@ Commands:
   asset|activo                           Fixed asset register: the ledger of what the company owns and depreciates
   depreciation|depreciacion              The monthly depreciation run: compute it, look at it, then post it
   batch|lote                             Staged entry batches: list, inspect, check, post transactionally and reverse as a unit
-  closing|cierre-proceso                 The close as a process: its read-only surface — readiness, named checks, offenders
+  closing|cierre-proceso                 The close as a process: conduct it, read it, and hand over the dossier that proves it
   fx|cambio                              Exchange rates: the origin every foreign-currency amount converts from
   prepaid|pago-anticipado                Prepaid expenses: the schedule that takes them out of 1160, month by month
   payroll|nomina                         Payroll accounting: the benefit liability that is born on the day worked
@@ -4186,12 +4197,13 @@ Examples:
   mnemosine bank account create "BBVA Operativa MXN" --bank "BBVA Mexico" --gl-account 1111 --currency MXN --clabe 012180001234567899
   # A second peso account on its own GL account. --currency is re-checked
   # against the GL account, so a mismatch is refused and never converted.
-  # OJO, medido: el catalogo siembra 1112 «Banco Nacional - USD» SIN
-  # currency_code, y COALESCE(a.currency_code, le.functional_currency) la
-  # resuelve como MXN. Un ejemplo con --currency USD sobre 1112 parsea y el
-  # servicio lo RECHAZA. Hasta que la siembra le ponga su moneda, aqui no se
-  # escribe una cuenta en dolares: un ejemplo copiable que no corre es peor
-  # que ninguno.
+  # HEADS UP, measured: the chart seeds 1112 "Banco Nacional - USD" with NO
+  # currency_code (src/services/accounting/chart-seed.ts:94), and the service
+  # resolves it through COALESCE(a.currency_code, le.functional_currency),
+  # which lands on MXN. So an example using --currency USD against 1112 parses
+  # and is then REFUSED. Until the seed gives that account its own currency, no
+  # dollar account is written here: a copyable example that does not run is
+  # worse than no example at all.
   mnemosine bank account create "Santander Operativa MXN" --bank "Santander Mexico" --gl-account 1115 --currency MXN --clabe 014180011223344558
   # A company card is a LIABILITY and maps to a liability account. --dry-run
   # runs the real insert, unique 1:1 index included, and rolls it back.
@@ -5895,8 +5907,8 @@ Examples:
 ```
 Usage: mnemosine closing|cierre-proceso [options] [command]
 
-The close as a process: its read-only surface — readiness, named checks,
-offenders
+The close as a process: conduct it, read it, and hand over the dossier that
+proves it
 
 Options:
   -h, --help                                display help for command
@@ -5905,6 +5917,8 @@ Commands:
   preview|previsualizar [options] [period]  Read-only twin of closing start: says whether the period can enter close and what is missing
   check|verificar [options]                 Run the close verification catalog, or only the named checks; bare --check lists the names
   explain|explicar [options] <code>         Print the offending rows of one check (ids, amounts, dates) and the exact command that fixes it
+  run|ejecutar [options] [period]           Conduct the close: accrue, amortize, depreciate, verify the checklist and soft-close, in that order
+  pack|paquete                              The dossier of a close: generate it, and verify that its figures still reproduce
   help [command]                            display help for command
 ```
 
@@ -6005,6 +6019,128 @@ Examples:
   # The offenders as CSV, which is the annex an auditor asks for. The real total
   # travels with the rows, so the --limit cut never passes in silence.
   mnemosine closing explain depreciation-posted --format csv -o cierre-julio-depreciacion.csv
+```
+
+### `mnemosine closing run` (alias: ejecutar)
+
+```
+Usage: mnemosine closing run|ejecutar [options] [period]
+
+Conduct the close: accrue, amortize, depreciate, verify the checklist and
+soft-close, in that order
+
+Arguments:
+  period                                   open period name or id (default: the oldest open one)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --stop-at <step>                         stop BEFORE this step: accrue-benefits, amortize-prepaids, depreciate-assets, verify-checklist, soft-close
+  --resume                                 continue the open run of this period; every step runs again, posting only what is missing
+  --dry-run                                compute and show the full effect; write nothing and call nothing external
+  -y, --yes                                skip the confirmation prompt
+  --idempotency-key <key>                  not needed: this command already deduplicates on the state it writes; accepted and ignored
+  -h, --help                               display help for command
+
+Examples:
+  # ALWAYS this one first: it says what is pending WITHOUT writing, and it
+  # really evaluates the checklist -- the one step that can be asked for free.
+  mnemosine closing run --dry-run
+  # Conduct the whole month. Three of its steps post to the ledger.
+  mnemosine closing run "July 2026" --entity "Acme SA de CV" --yes
+  # Do the month but leave the period open: --stop-at stops BEFORE the step.
+  mnemosine closing run --stop-at soft-close --yes
+  # Continue a run somebody left halted. Without --resume it refuses, on
+  # purpose: continuing another person's run in silence is how "I ran it"
+  # stops being a claim anybody can stand behind. Every step runs again; the
+  # engines post only what is still missing.
+  mnemosine closing run --resume --yes
+```
+
+### `mnemosine closing pack` (alias: paquete)
+
+```
+Usage: mnemosine closing pack|paquete [options] [command]
+
+The dossier of a close: generate it, and verify that its figures still reproduce
+
+Options:
+  -h, --help                           display help for command
+
+Commands:
+  generate|generar [options] [period]  Seal the period figures into a dossier a
+                                       third party can re-run
+  verify|comprobar [options] <file>    Re-run a dossier against the books: was
+                                       it issued here, do its figures still
+                                       reproduce, and exactly what moved
+  help [command]                       display help for command
+```
+
+#### `mnemosine closing pack generate` (alias: generar)
+
+```
+Usage: mnemosine closing pack generate|generar [options] [period]
+
+Seal the period figures into a dossier a third party can re-run
+
+Arguments:
+  period                                   period name, YYYY-MM or id, in any status (default: the most recently closed one)
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write the dossier to this path (closing_packs keeps its own copy)
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # Seal the month just closed, and write the file the third party gets.
+  mnemosine closing pack generate "July 2026" -o cierre-julio.json
+  # Without -o the receipt carries the whole document, for a machine that
+  # would rather pipe it than write it. Quote the jq filter: zsh globs [0].
+  mnemosine closing pack generate 2026-07 --json | jq '.rows[0].document' > cierre-julio.json
+```
+
+#### `mnemosine closing pack verify` (alias: comprobar)
+
+```
+Usage: mnemosine closing pack verify|comprobar [options] <file>
+
+Re-run a dossier against the books: was it issued here, do its figures still
+reproduce, and exactly what moved
+
+Arguments:
+  file                                     the dossier to verify
+
+Options:
+  -e, --entity <idOrName>                  legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                        tenant (firm) whose data to scope to
+  -u, --user <email>                       acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  --strict                                 treat warnings as blocking (exit 4)
+  -h, --help                               display help for command
+
+Examples:
+  # The acceptance test of A6: the third party re-runs the dossier.
+  mnemosine closing pack verify cierre-julio.json --entity "Acme SA de CV"
+  # One row per field that differs, as CSV -- the annex an auditor asks for.
+  mnemosine closing pack verify cierre-julio.json --format csv -o deriva.csv
+  # A renamed entity or account is a warning, not a moved figure; make it fail too.
+  mnemosine closing pack verify cierre-julio.json --strict
 ```
 
 ## `mnemosine fx` (alias: cambio)

@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
+import { NotFoundError } from '../../../utils/errors.js';
 import { taxRegistry } from '../tax-engine/tax-registry.js';
 import { getEmployeeYtd, getEmployeeSutaYtd } from '../tax-engine/ytd-service.js';
 import { calculateGarnishments } from '../usa/garnishments/garnishment-engine.js';
@@ -62,7 +63,13 @@ export interface PaycheckInput {
   tenant_id: string;
   pay_run_id: string;
   employee_id: string;
-  pay_period_id: string;
+  // NO `pay_period_id` (TEN-12). It used to be here, and the service used it:
+  // measured, the same own employee got an IMSS quota of 133.00 with a 28-day
+  // period sent in the request body, against 71.25 with the 15-day period of
+  // the run the paycheck belongs to. A run already HAS its period; letting the
+  // caller name another one let the body decide the money. It is not kept as
+  // an ignored optional field either — a parameter that is silently discarded
+  // is one a caller believes still chooses something.
   earnings: EarningLine[];
   deductions?: DeductionLine[];
   hours_worked?: number;
@@ -115,13 +122,36 @@ function sum(arr: number[]): number {
 }
 
 export async function calculatePaycheck(input: PaycheckInput): Promise<CalculatedPaycheck> {
-  // Fetch employee + pay period
+  // THE THREE KEYS, AND THE ORDER IS THE POINT (TEN-12, #235).
   //
-  // LA FRONTERA DE INQUILINO VA EN EL SQL, no en un if de más abajo: el
-  // recibo se inserta con el `tenant_id` que trae la petición, así que un
-  // employee_id de OTRO inquilino producía un recibo entero —con sueldos y
-  // retenciones de una empresa ajena— archivado bajo el inquilino que
-  // preguntó. Con el filtro dentro de la consulta, ese caso es «no existe».
+  // The tenant boundary already lived in the SQL of all three, and for a good
+  // reason written here before: the paycheck is inserted with the tenant the
+  // request brings, so an employee of ANOTHER tenant produced a whole paycheck
+  // filed under the tenant that asked. That closed the tenant axis. The ENTITY
+  // axis stayed open on all three: measured against Postgres, a session of
+  // company A calculating its own run with an `employee_id` of sibling company
+  // B wrote B's employee's paycheck into A's run. The damage is the one this
+  // file already described for tenants — the GL posting sums paychecks by
+  // `pay_run_id`, so B's wages land in A's ledger, and B's employer liability
+  // loses the paycheck. And the period came from the request body.
+  //
+  // So the RUN goes first: it is the one key the route already scoped (T9c),
+  // and the other two hang from it. The employee must belong to the run's
+  // entity — reached by path, because `pay_runs` has no `entity_id` — and the
+  // period is the run's own, never one the caller names.
+  const runResult = await query<{ id: string; pay_period_id: string; entity_id: string }>(
+    `SELECT r.id, r.pay_period_id, ps.entity_id
+       FROM pay_runs r
+       JOIN pay_periods pp ON pp.id = r.pay_period_id
+       JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
+      WHERE r.id = $1 AND r.tenant_id = $2`,
+    [input.pay_run_id, input.tenant_id]
+  );
+  // 404, not a plain Error: a 500 for a missing id next to a success for a
+  // foreign one tells the caller which ids exist.
+  if (runResult.rows.length === 0) throw new NotFoundError('Pay run', input.pay_run_id);
+  const run = runResult.rows[0];
+
   const empResult = await query<{
     id: string;
     country_code: 'MX' | 'US';
@@ -138,10 +168,10 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
     `SELECT id, country_code, sbc, tipo_regimen_sat, riesgo_puesto,
             infonavit_credit_type, infonavit_credit_value,
             w4_data, work_state, residence_state, work_city
-     FROM employees WHERE id = $1 AND tenant_id = $2`,
-    [input.employee_id, input.tenant_id]
+     FROM employees WHERE id = $1 AND tenant_id = $2 AND entity_id = $3`,
+    [input.employee_id, input.tenant_id, run.entity_id]
   );
-  if (empResult.rows.length === 0) throw new Error('Employee not found');
+  if (empResult.rows.length === 0) throw new NotFoundError('Employee', input.employee_id);
   const emp = empResult.rows[0];
 
   // `entity_id` sale del calendario de pago —es donde vive— y hace falta para
@@ -158,33 +188,10 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
             ps.frequency, ps.entity_id
      FROM pay_periods pp JOIN pay_schedules ps ON ps.id = pp.pay_schedule_id
      WHERE pp.id = $1 AND pp.tenant_id = $2`,
-    [input.pay_period_id, input.tenant_id]
+    [run.pay_period_id, input.tenant_id]
   );
-  if (periodResult.rows.length === 0) throw new Error('Pay period not found');
+  if (periodResult.rows.length === 0) throw new NotFoundError('Pay period', run.pay_period_id);
   const period = periodResult.rows[0];
-
-  // LA TERCERA LLAVE, QUE ES LA QUE FALTABA.
-  //
-  // Se acotaban `employees` y `pay_periods` por inquilino y se dejaba pasar
-  // `pay_run_id` tal cual: el recibo se insertaba con la corrida que trajera
-  // la petición, sin comprobar de quién era. Con eso, un inquilino podía
-  // colgar un recibo suyo —con sus sueldos y su desglose— de la corrida de
-  // OTRO, y el daño no se queda aquí: el agregado del que sale el asiento al
-  // mayor es `SELECT ... FROM paychecks WHERE pay_run_id = $1`, sin una sola
-  // mención del inquilino (gl-posting-service.ts), así que ese dinero ajeno
-  // entra en la póliza de nómina del inquilino invadido. Y por el otro lado
-  // desaparece: el pasivo patronal del inquilino dueño acota
-  // `p.tenant_id AND p.pay_run_id`, y su corrida se quedó sin el recibo, de
-  // modo que las cuotas patronales de ese trabajador no se acumulan en
-  // ninguna parte y ni siquiera salta el aviso de `imss_patronal_en_cero`.
-  //
-  // El filtro va DENTRO del SQL, como las otras dos: así el caso es «no
-  // existe» y no «existe pero no debería».
-  const runResult = await query<{ id: string }>(
-    `SELECT id FROM pay_runs WHERE id = $1 AND tenant_id = $2`,
-    [input.pay_run_id, input.tenant_id]
-  );
-  if (runResult.rows.length === 0) throw new Error('Pay run not found');
 
   const daysInPeriod =
     (new Date(period.period_end).getTime() - new Date(period.period_start).getTime()) / 86400000 + 1;

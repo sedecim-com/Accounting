@@ -66,11 +66,13 @@ async function dosCuentasDeGasto(): Promise<[string, string]> {
  *
  * La fecha se construye a MEDIANOCHE LOCAL, no en `Z`. No es un detalle de
  * estilo: `entry_date` es DATE y el driver la escribe con los componentes
- * locales del Date, así que `2026-03-01T00:00:00Z` se guarda como 2026-02-28 en
- * UTC−6 — el asiento cae en otro mes y en otro periodo fiscal. Medido aquí, y
- * es un defecto VIVO del camino de escritura (`new Date(entry_date)` en
- * src/api/rest/routes/journal-entries.ts:211) que va a su propia issue: no se
- * ve en CI porque allí el reloj es UTC.
+ * locales del Date, así que `2026-03-01T00:00:00Z` se guardaba como 2026-02-28
+ * en UTC−6 — el asiento caía en otro mes y en otro periodo fiscal. Medido aquí.
+ *
+ * El camino de escritura se cerró en #211: `createJournalEntry` normaliza su
+ * fecha con `toCalendarDate` y la ruta REST ya no reinterpreta la cadena. La
+ * medianoche local de abajo sigue siendo correcta en cualquier zona —se lee por
+ * sus campos locales—, y hoy bastaría con pasar `fecha` tal cual.
  */
 async function asiento(fecha: string, cargo: string, abono: string, monto: string, desc: string) {
   await createJournalEntry(

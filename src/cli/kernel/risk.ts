@@ -1,5 +1,8 @@
 import type { Command } from 'commander';
-import { CliError, ExitCode } from './exit.js';
+import type { TranslationKey } from '../../i18n/index.js';
+import { ExitCode } from './exit.js';
+import { CliError } from './cli-error.js';
+import { optionByKey } from './help.js';
 
 // ============================================================
 // RISK DECLARATION — one central mechanism (rulebook R11)
@@ -207,10 +210,14 @@ export function declareRisk(cmd: Command, decl: RiskDeclaration): Command {
   // relación aparente con la declaración.
   const yaTiene = (largo: string): boolean =>
     cmd.options.some((o) => o.long === largo);
-  const anadir = (flags: string, desc: string): void => {
+  // I7 · La bandera se declara con su GRAFÍA y una CLAVE. La grafía es contrato
+  // de máquina y no se traduce; la frase que la explica sale del catálogo, y en
+  // el objeto de Commander queda su inglés (`optionByKey` → `englishOf`), que es
+  // lo que sigue leyendo el censo de `scripts/ux-status.ts`.
+  const anadir = (flags: string, key: TranslationKey): void => {
     const largo = flags.split(/[ ,]/).find((t) => t.startsWith('--'));
     if (largo && yaTiene(largo)) return;
-    cmd.option(flags, desc);
+    optionByKey(cmd, flags, key);
   };
 
   /**
@@ -225,10 +232,12 @@ export function declareRisk(cmd: Command, decl: RiskDeclaration): Command {
    * estar protegido y no lo estaba.
    */
   const anadirLlaveQueMiente = (): void => {
-    // La ayuda va en INGLÉS y sin el motivo: es el idioma canónico del nodo, y
-    // el censo de superficie (scripts/ux-status.ts) cuenta como defecto toda
-    // prosa de ayuda fuera de él. El motivo, que es donde está la información,
-    // viaja en el error de `gateMutation`.
+    // La ayuda va SIN EL MOTIVO, y eso no cambió en I7: el motivo es distinto
+    // en cada hoja `{ sinLlave }` y viaja en el error de `gateMutation`, que es
+    // quien lo tiene delante. Lo que sí cambió es el idioma: la frase se guarda
+    // en inglés en el objeto de Commander —lo que sigue leyendo el censo de
+    // `scripts/ux-status.ts`, que cuenta como defecto toda prosa de ayuda fuera
+    // del inglés— y se rinde traducida al imprimir la ayuda.
     //
     // EL RECHAZO NO VIVE AQUÍ. Estuvo en el `parseArg` de esta opción, que
     // corre mientras Commander aún no ha terminado de leer la línea: allí no se
@@ -237,39 +246,30 @@ export function declareRisk(cmd: Command, decl: RiskDeclaration): Command {
     // ya trae la llave escrita es coste sin beneficio—. Vive en `gateMutation`,
     // que ve las opciones ya resueltas, sigue corriendo antes de cualquier
     // escritura, y es el sitio donde este repo falla cerrado.
-    anadir(
-      '--idempotency-key <key>',
-      'NOT honored by this command yet: a retry writes again instead of returning the recorded result'
-    );
+    anadir('--idempotency-key <key>', 'cli.flag.idempotency_key_unhonored');
   };
 
   /** La bandera funciona, y la ayuda dice por qué no hace falta. */
   const anadirLlaveInnecesaria = (): void => {
-    anadir(
-      '--idempotency-key <key>',
-      'not needed: this command already deduplicates on the state it writes; accepted and ignored'
-    );
+    anadir('--idempotency-key <key>', 'cli.flag.idempotency_key_unneeded');
   };
 
   if (resolved.requiresDryRun) {
-    anadir('--dry-run', 'compute and show the full effect; write nothing and call nothing external');
-    anadir('-y, --yes', 'skip the confirmation prompt');
+    anadir('--dry-run', 'cli.flag.dry_run');
+    anadir('-y, --yes', 'cli.flag.yes');
     if (decl.llave && 'sinLlave' in decl.llave) {
       anadirLlaveQueMiente();
     } else if (decl.llave && 'innecesaria' in decl.llave) {
       anadirLlaveInnecesaria();
     } else {
-      anadir(
-        '--idempotency-key <key>',
-        'client dedupe key, stored on success: a retry with the same key and payload returns the recorded result'
-      );
+      anadir('--idempotency-key <key>', 'cli.flag.idempotency_key');
     }
   }
   if (resolved.requiresLiveGate) {
-    anadir('--live', 'perform the real external effect (default is the sandbox endpoint)');
+    anadir('--live', 'cli.flag.live');
   }
   if (REASON_VERBS.has(lastToken(cmd))) {
-    anadir('--reason <text>', 'justification recorded in the audit trail (required)');
+    anadir('--reason <text>', 'cli.flag.reason');
   }
 
   REGISTRY.set(cmd, resolved);
@@ -331,19 +331,21 @@ export function gateMutation(
   const clavePasada = typeof opts.idempotencyKey === 'string' ? opts.idempotencyKey.trim() : '';
   if (llaveDeclarada && 'sinLlave' in llaveDeclarada && clavePasada !== '' && opts.dryRun !== true) {
     throw new CliError(
-      `"${rutaDeLaHoja(cmd)}" acepta --idempotency-key porque su clase de riesgo la exige, pero TODAVÍA NO LA HONRA: ` +
-        `${llaveDeclarada.sinLlave}. La llave "${clavePasada}" no deduplicaría nada: un reintento volvería a ` +
-        'escribir. Vuelve a ejecutar SIN la llave y comprueba antes el estado del dominio ' +
-        '(el documento, el saldo o el asiento que este comando toca), o repite con --dry-run para ver qué haría.',
+      {
+        key: 'cli.risk.key_not_honored',
+        params: {
+          command: rutaDeLaHoja(cmd),
+          reason: llaveDeclarada.sinLlave,
+          key: clavePasada,
+        },
+      },
       ExitCode.USAGE
     );
   }
 
   if (!resolved) {
     throw new CliError(
-      `"${cmd.name()}" pide una compuerta de mutación sin haber declarado su riesgo. ` +
-        'Toda hoja que muta declara con `declareRisk` junto a su registro; sin declaración ' +
-        'no hay confirmación, ni marcha seca, ni rastro de auditoría que decir.',
+      { key: 'cli.risk.undeclared', params: { command: cmd.name() } },
       ExitCode.USAGE
     );
   }
@@ -353,14 +355,11 @@ export function gateMutation(
   const reason = typeof opts.reason === 'string' ? opts.reason : undefined;
 
   if (opts.force === true && !reason) {
-    throw new CliError(
-      '--force overrides a safety rule, so it requires --reason "<why>". The reason is written to the audit trail.',
-      ExitCode.USAGE
-    );
+    throw new CliError({ key: 'cli.risk.force_needs_reason' }, ExitCode.USAGE);
   }
   if (REASON_VERBS.has(lastToken(cmd)) && !reason && !dryRun) {
     throw new CliError(
-      `"${cmd.name()}" undoes or overrides something, so it requires --reason "<why>".`,
+      { key: 'cli.risk.undo_needs_reason', params: { command: cmd.name() } },
       ExitCode.USAGE
     );
   }

@@ -82,7 +82,6 @@ export async function calculatePayRun(
       tenant_id: input.tenant_id,
       pay_run_id: payRunId,
       employee_id: emp.employee_id,
-      pay_period_id: input.pay_period_id,
       earnings: emp.earnings,
       deductions: emp.deductions,
       hours_worked: emp.hours_worked,
