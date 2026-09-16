@@ -10094,6 +10094,145 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  {
+    paquete: 'E1.2',
+    id: 'subaccount-section-agrees-with-its-parent',
+    // X1c (#258). Nada ataba la `fs_category` de una cuenta a la de su padre:
+    // ni disparador, ni restricción, ni validación. Una cuenta de gasto podía
+    // colgar de un activo y el estado seguía cuadrando — el importe sólo salía
+    // en la sección equivocada de un documento que alguien firma.
+    //
+    // LA REGLA ES «MISMA SECCIÓN» Y ESTÁ MEDIDA, NO ARGUMENTADA. Sobre los 80
+    // pares padre-hijo que la propia casa siembra, la IGUALDAD de categoría es
+    // falsa once veces —1200 «Activo Fijo» es `non_current_assets` bajo 1000
+    // «Activo», que es `current_assets`, y eso es contabilidad correcta— y la
+    // misma sección es cierta 80 de 80. Una clave de igualdad nacería roja
+    // contra el catálogo que el producto envía.
+    //
+    // Y EL MAPA DE SECCIONES NO SE AJUSTÓ A ESAS ONCE FILAS, que era la trampa:
+    // elegir las fusiones después de ver las divergencias que tienen que
+    // absolver no prueba nada. La partición es la que `account_type` YA dibuja,
+    // y su apoyo independiente es que las dos coinciden en las 54 cuentas
+    // sembradas — un hecho sobre TODAS las filas, no sólo sobre las que
+    // divergen. Por eso este criterio exige que ese cotejo siga en la
+    // reproducción: es lo único que distingue una regla medida de una ajustada.
+    enunciado:
+      'Una subcuenta no cae en una sección distinta de la de su padre sin que alguien lo haya elegido',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/parent-child-coherence.ts',
+        de: 'if (childSection === parentSection) return null;',
+        a: 'if (childSection !== parentSection) return null;',
+        porque: 'la comprobación de la arista absuelve siempre: una cuenta de gasto vuelve a poder colgar de un activo y el estado sigue cuadrando',
+      },
+      {
+        archivo: 'src/services/accounting/parent-child-coherence.ts',
+        de: "  ori: 'equity',",
+        a: "  ori: 'income',",
+        porque: 'el ORI sale del capital: la 3600 que el propio catálogo siembra bajo 3000 pasa a ser una infracción, y la regla acusa al producto',
+      },
+      {
+        archivo: 'src/services/accounting/parent-child-coherence.ts',
+        de: 'return byType === byCategory;',
+        a: 'return true;',
+        porque: 'el apoyo independiente del mapa deja de comprobarse: las secciones podrían ajustarse a las filas que tienen que absolver y nadie lo notaría',
+      },
+      {
+        archivo: 'src/services/accounting/account-service.ts',
+        de: "'child' AS side FROM accounts WHERE parent_id = $2",
+        a: "'child' AS side FROM accounts WHERE id = $2",
+        porque: 'editar el PADRE deja de mirar a sus hijas: el lado que nadie miraba vuelve a quedar sin vigilar, y una edición las deja huérfanas de sección',
+      },
+      {
+        archivo: 'tests/integration/x1c-a-subaccount-stays-in-its-parent-section.int.spec.ts',
+        de: '    expect(sameCategory.length).toBeLessThan(edges.length);',
+        a: '    expect(sameCategory.length).toBeLessThanOrEqual(edges.length);',
+        porque: 'la reproducción deja de medir que la IGUALDAD es falsa en el catálogo de la casa, que es la razón entera de que la regla sea por sección',
+      },
+    ],
+    evaluar: () => {
+      const module = 'src/services/accounting/parent-child-coherence.ts';
+      const svc = 'src/services/accounting/account-service.ts';
+      const spec = 'tests/integration/x1c-a-subaccount-stays-in-its-parent-section.int.spec.ts';
+      for (const f of [module, svc]) if (!existe(f)) return falla(`desapareció ${f}`);
+
+      // 1. LA DECISIÓN ESTÁ EN EL PANEL, Y TIENE LECTOR. Una política sin
+      //    lector es una pregunta que no cambia nada.
+      const panel = codigoDe('src/services/policy/pending-catalog.ts');
+      if (!panel.includes("key: 'catalogo_coherencia_padre_hijo'")) {
+        return falla('la coherencia padre-hijo dejó de ser una pregunta del panel: volvió a elegirse en el código');
+      }
+      const coherence = codigoDe(module);
+      if (!coherence.includes("getPolicy({ tenantId, entityId }, COHERENCE_POLICY_KEY)")) {
+        return falla('la clave del panel se quedó sin lector: el despacho contesta y nada cambia');
+      }
+      // La IGUALDAD no se ofrece, y no es capricho: haría ilegal el catálogo
+      // que el propio producto siembra.
+      if (/'igualdad|misma_categoria|igual_al_padre/.test(panel)) {
+        return falla(
+          'el panel volvió a ofrecer la igualdad de categoría: es falsa once veces en el catálogo que la casa siembra, así que sería una opción que rompe el producto'
+        );
+      }
+
+      // 2. EL MAPA ES TOTAL Y TIENE APOYO INDEPENDIENTE.
+      if (!coherence.includes('Record<FsCategory, StatementSection>')) {
+        return falla(
+          'el mapa de secciones dejó de ser un registro total: un valor nuevo del CHECK entraría sin que nadie diga a qué sección pertenece'
+        );
+      }
+      // El mapa se ancla donde lleva contabilidad dentro, no entero: el ORI es
+      // capital por la NIF B-3, y moverlo de sección acusaría a la 3600 que el
+      // propio catálogo siembra.
+      if (!coherence.includes("ori: 'equity',")) {
+        return falla('el ORI dejó de ser capital en el mapa de secciones: la 3600 que la casa siembra bajo 3000 pasaría a ser una infracción');
+      }
+      if (!coherence.includes('if (childSection === parentSection) return null;')) {
+        return falla('la comparación que absuelve una arista cambió: o absuelve lo que debía acusar, o acusa lo que debía absolver');
+      }
+      if (!coherence.includes('return byType === byCategory;')) {
+        return falla('el cotejo del mapa contra account_type dejó de comparar: absuelve siempre, y el mapa puede ajustarse a las filas que tiene que absolver');
+      }
+      if (!coherence.includes('export function coherenceOfOwnRow')) {
+        return falla(
+          'desapareció el cotejo del mapa contra la partición de account_type: sin él, las secciones pueden ajustarse a las filas que tienen que absolver'
+        );
+      }
+
+      // 3. LOS DOS LADOS DE LA ESCRITURA. El alta mira hacia arriba; la edición
+      //    mira hacia arriba Y hacia abajo, que es la mitad que faltaba.
+      const code = codigoDe(svc);
+      const createAt = code.indexOf('breachOfEdge({ code: input.code, fs_category: input.fs_category }, parent)');
+      const childrenAt = code.indexOf("'child' AS side FROM accounts WHERE parent_id =");
+      if (createAt < 0) {
+        return falla('createAccount dejó de comprobar la arista con su padre: la cuenta nace ya en la sección equivocada');
+      }
+      if (childrenAt < 0) {
+        return falla(
+          'updateAccount dejó de mirar a las HIJAS: editar el padre las deja en otra sección y ninguna consulta del árbol pregunta por ellas'
+        );
+      }
+
+      // 4. Y CONDUCTA: la reproducción mide la regla en vez de citarla, y
+      //    prueba los tres estados —rehúsa, admite, y no juzga.
+      if (!existe(spec)) return falla('no hay reproducción contra Postgres de la coherencia padre-hijo');
+      const t = crudoDe(spec);
+      const needed: Array<[RegExp, string]> = [
+        [/expect\(sameCategory\.length\)\.toBeLessThan\(edges\.length\)/, 'medir que la IGUALDAD es falsa en el catálogo sembrado, que es la razón entera de la regla'],
+        [/expect\(sameSection\.length\)\.toBe\(edges\.length\)/, 'medir que la misma sección sí se cumple en todas'],
+        [/coherenceOfOwnRow/, 'comprobar el mapa contra la partición de account_type, que es su apoyo independiente'],
+        [/with its CHILDREN/, 'probar el lado de las hijas, que es el que nadie miraba'],
+        [/no category/, 'probar que una arista sin categoría NO se juzga: si no, un despacho no puede migrar su catálogo del SAT'],
+      ];
+      for (const [pattern, what] of needed) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        'la coherencia padre-hijo la decide el panel y tiene lector; el mapa de secciones es total y se coteja contra la partición de account_type; el alta mira al padre y la edición mira también a las hijas; y la reproducción mide la regla en vez de citarla'
+      );
+    },
+  },
+
   // ---- F05d · La firma y el sello ----
 
   {
