@@ -933,9 +933,18 @@ export interface TrialBalanceRow {
 }
 
 export interface BalanceSheetSection {
+  /**
+   * The section's STABLE identity, and the only thing a consumer may branch on
+   * (I11 · issue #153). `name` is a label meant for a human and will be
+   * translated; `key` never changes with the language: `assets`, `liabilities`,
+   * `equity`, `revenue`, `expenses`.
+   */
+  key: string;
   name: string;
   total: string;
   subsections: {
+    /** The `fs_category` as it is stored (`other` when there is none), or `result_of_the_period`. */
+    key: string;
     name: string;
     total: string;
     accounts: {
@@ -948,6 +957,8 @@ export interface BalanceSheetSection {
 }
 
 export interface IncomeStatementSection {
+  /** Stable identity: `revenue` or `expenses`. See `BalanceSheetSection.key`. */
+  key: string;
   name: string;
   total: string;
   accounts: {

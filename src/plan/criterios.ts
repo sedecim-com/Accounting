@@ -7758,6 +7758,129 @@ export const CRITERIOS: Criterio[] = [
 
 
 
+  {
+    paquete: 'E1.2',
+    id: 'every-ledger-line-writer-carries-its-dimensions',
+    // X1a (#256). `journal_entry_lines` lleva `cost_center_id` y `project_id`;
+    // tres caminos las escriben —REST, el posteo AP/AR y el plan del CFDI— y
+    // el mayor general las devuelve al cliente. No son decoración: alguien las
+    // teclea y alguien las lee.
+    //
+    // Editar un borrador REEMPLAZA sus líneas: DELETE y luego INSERT. Ese
+    // segundo INSERT nombraba siete columns y ninguna de dimensión, así que
+    // corregir el texto de UNA línea borraba el centro de costo de TODAS, sin
+    // error y sin aviso. Medido contra Postgres: el borrador nacía con su
+    // centro de costo y volvía con `null`.
+    //
+    // El defecto vivía en la grieta entre dos mitades del mismo contrato —el
+    // alta sabía escribirlas y el parche sólo sabía quitarlas—, y la forma del
+    // parche se documentaba a sí misma como «la misma forma que el alta», que
+    // era justo lo que no era. Por eso el criterio no comprueba el arreglo:
+    // CENSA los writers de la tabla y exige que TODOS nombren las dos
+    // columns. Un tercero que nazca corto sale rojo el día que nace, que es
+    // lo que no pasó con éste.
+    enunciado:
+      'Ningún camino que escriba el mayor se lleva por delante el centro de costo de una línea',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/journal-entry-service.ts',
+        de: '            cost_center_id, project_id\n          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+        a: '            project_id\n          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        porque: 'el INSERT de la edición vuelve a dejarse el centro de costo fuera: corregir el texto de una línea borra la dimensión de todas',
+      },
+      {
+        archivo: 'src/services/accounting/journal-entry-service.ts',
+        de: '      cost_center_id: line.cost_center_id ?? null,',
+        a: '      cost_center_id: null,',
+        porque: 'la capa que resuelve las líneas tira el centro de costo que el llamador mandó: las cuatro superficies que la usan lo pierden a la vez',
+      },
+      {
+        archivo: 'src/services/accounting/journal-entry-service.ts',
+        de: '      project_id: line.project_id ?? null,',
+        a: '      project_id: null,',
+        porque: 'lo mismo con el proyecto, que es la otra dimensión que el mayor general devuelve al cliente',
+      },
+      {
+        archivo: 'tests/integration/x1a-editing-a-draft-keeps-its-dimensions.int.spec.ts',
+        de: 'const COST_CENTRE = randomUUID();',
+        a: 'const CENTRO = null as unknown as string;',
+        porque: 'la reproducción deja de sembrar un centro de costo: comprueba que un nulo sigue siendo nulo, que es verde con el defecto puesto',
+      },
+    ],
+    evaluar: () => {
+      const spec = 'tests/integration/x1a-editing-a-draft-keeps-its-dimensions.int.spec.ts';
+      const DIMENSIONS = ['cost_center_id', 'project_id'];
+
+      // 1. EL CENSO. Todo INSERT a journal_entry_lines nombra las dos columns.
+      //    Se cuenta antes de absolver: un censo vacío no es un censo limpio.
+      const writers: Array<{ file: string; missing: string[] }> = [];
+      for (const f of fuentes('src')) {
+        const code = sinComentarios(leer(f));
+        for (const m of code.matchAll(/INSERT\s+INTO\s+journal_entry_lines\s*\(([^)]*)\)/gi)) {
+          const columns = m[1];
+          const missing = DIMENSIONS.filter((d) => !new RegExp(`\\b${d}\\b`).test(columns));
+          writers.push({ file: path.relative(rutaDe(), f), missing });
+        }
+      }
+      if (writers.length < 2) {
+        return falla(
+          `sólo ${writers.length} INSERT a journal_entry_lines encontrado(s): el escáner no está viendo el árbol, y un censo que no encuentra a los writers conocidos no absuelve a nadie`
+        );
+      }
+      const short = writers.filter((e) => e.missing.length > 0);
+      if (short.length > 0) {
+        return falla(
+          `${short.length} de ${writers.length} escritor(es) del mayor no nombran su dimensión: ` +
+            short.map((e) => `${e.file} → sin ${e.missing.join(' ni ')}`).join(' · ') +
+            '. Un INSERT corto no falla: escribe NULL, y la dimensión que alguien tecleó desaparece sin aviso'
+        );
+      }
+
+      // 2. LA CAPA COMPARTIDA LAS CONSERVA. Los cuatro llamadores de
+      //    resolveDraftLines entregan su salida a un INSERT; si ella las tira,
+      //    los cuatro las pierden a la vez y ningún INSERT parece culpable.
+      const shared = codigoDe('src/services/accounting/journal-entry-service.ts');
+      for (const d of DIMENSIONS) {
+        if (!shared.includes(`${d}: line.${d} ?? null,`)) {
+          return falla(
+            `resolveDraftLines dejó de pasar ${d} desde la línea que recibe: la pierden a la vez todos sus llamadores, y el INSERT que la escribe parece correcto`
+          );
+        }
+      }
+
+      // 3. LA FORMA DE ENTRADA PUEDE EXPRESARLAS. El defecto nació aquí: el
+      //    parche se documentaba como «la misma forma que el alta» y no podía
+      //    ni nombrar lo que el alta escribía.
+      const inputShape = shared.slice(shared.indexOf('interface DraftLineInput'), shared.indexOf('interface DraftEntryInput'));
+      for (const d of DIMENSIONS) {
+        if (!new RegExp(`${d}\\?:`).test(inputShape)) {
+          return falla(
+            `DraftLineInput volvió a no poder expresar ${d}: quien reemplaza las líneas no tiene cómo conservarlo, y omitirlo deja de ser una elección`
+          );
+        }
+      }
+
+      // 4. Y CONDUCTA contra Postgres, que es lo único que distingue «lo
+      //    escribe» de «lo escribe y sobrevive a una edición».
+      if (!existe(spec)) return falla('no hay reproducción contra Postgres de la edición que conserva la dimensión');
+      const t = crudoDe(spec);
+      const needed: Array<[RegExp, string]> = [
+        [/updateDraftEntry/, 'editar de verdad el borrador, no sólo insertarlo'],
+        [/autoPost: false/, 'sembrar un BORRADOR, que es lo único que se puede editar'],
+        [/toBeNull\(\)/, 'medir también que omitir la dimensión la deja en nulo, que es la mitad querida del contrato'],
+        [/const COST_CENTRE = randomUUID\(\);/, 'sembrar un centro de costo real: comprobar que un nulo sigue nulo es verde con el defecto puesto'],
+        [/const PROJECT = randomUUID\(\);/, 'sembrar un proyecto real, por la misma razón'],
+      ];
+      for (const [pattern, what] of needed) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        `${writers.length} writers del mayor revisados y los dos nombran su dimensión; la capa compartida la conserva, la forma de inputShape puede expresarla, y la reproducción mide que una edición que no la toca no se la lleva`
+      );
+    },
+  },
+
   // ---- F05d · La firma y el sello ----
 
   {
@@ -10961,6 +11084,169 @@ export const CRITERIOS: Criterio[] = [
         return falla('memory-service volvió a tomar el vocabulario de opciones de la fila: la detección de contradicciones depende otra vez del día de siembra');
       }
       return ok(`las ${screens.length} pantallas del panel y la memoria del agente piden el texto a la costura, que es su único lector`);
+    },
+  },
+  {
+    paquete: 'E2.2',
+    id: 'api-error-message-follows-the-request-language',
+    // I9 · issue #151, primer commit. El `code` de un error es contrato de
+    // cable y no cambia con el idioma; el `message` es para una persona y sí.
+    // Lo que este criterio vigila no es que exista la negociación, sino que la
+    // respuesta NO DECLARE un idioma que su cuerpo no tiene: `Content-Language`
+    // y `meta.language` salen sólo cuando el mensaje se pintó de una clave del
+    // catálogo. Medido cuando se escribió: sin esa condición, un 401 en inglés
+    // salía etiquetado `es-MX` y un conflicto de idempotencia en español salía
+    // etiquetado `en-US`.
+    //
+    // Lee el crudo y salta los renglones de comentario por su cuenta, porque
+    // `sinComentarios` sigue ciego en archivos grandes y con acentos graves
+    // (docs/auditorias/I6.md, I7.md).
+    enunciado:
+      'El mensaje de un error de la API se pinta en el idioma que negocia la petición, y la respuesta sólo declara idioma cuando lo pintó',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/middleware/error-handler.ts',
+        de: '          message: err.localized(language),',
+        a: '          message: err.message,',
+        porque:
+          'idioma-ignorado: el manejador volvería a servir el texto inglés fijo del error mientras la cabecera y meta.language siguen diciendo el idioma que pidió quien llama',
+      },
+      {
+        archivo: 'src/api/rest/middleware/error-handler.ts',
+        de: "      res.setHeader('Content-Language', responseLocale(res));",
+        a: '      void responseLocale(res);',
+        porque:
+          'cabecera-que-falta: el cuerpo saldría traducido y sin decirlo, así que una caché no podría distinguir dos respuestas distintas de la misma URL',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: '  app.use(negotiateLocale);',
+        a: '  // app.use(negotiateLocale);',
+        porque:
+          'negociacion-desmontada: toda respuesta caería al idioma por omisión y quien pidiera inglés recibiría español sin que nada lo acuse',
+      },
+    ],
+    evaluar: () => {
+      const codeLines = (rel: string): string[] =>
+        crudoDe(rel)
+          .split('\n')
+          .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+
+      const handler = 'src/api/rest/middleware/error-handler.ts';
+      if (!existe(handler)) return noEvaluable(`${handler} no existe: no hay manejador que juzgar`);
+      const handlerCode = codeLines(handler).join('\n');
+      if (!/err\.localized\(language\)/.test(handlerCode)) {
+        return falla('el manejador de errores dejó de pintar el mensaje en el idioma negociado: serviría el inglés fijo con el que se construyó el error');
+      }
+      if (!/responseLanguage\(res\)/.test(handlerCode)) {
+        return falla('el manejador dejó de leer el idioma de la respuesta: pintaría en el del proceso, que es el de la máquina y no el de quien llama');
+      }
+      // La condición que hace honesta la etiqueta: cabecera y meta.language
+      // SÓLO cuando hay clave. Se exige que las tres cosas cuelguen de `keyed`.
+      if (!/const keyed = err\.messageKey !== undefined;/.test(handlerCode)) {
+        return falla('el manejador ya no distingue un mensaje pintado de una clave de uno escrito en prosa: etiquetaría con un idioma que el cuerpo puede no tener');
+      }
+      if (!/if \(keyed\) \{[\s\S]{0,200}Content-Language[\s\S]{0,120}vary\('Accept-Language'\)/.test(handlerCode)) {
+        return falla('Content-Language o Vary dejaron de depender de que el mensaje venga de una clave');
+      }
+      if (!/\.\.\.\(keyed \? \{ language \} : \{\}\)/.test(handlerCode)) {
+        return falla('meta.language dejó de depender de que el mensaje venga de una clave');
+      }
+
+      // La negociación, montada antes de que nadie pueda contestar.
+      const index = codeLines('src/index.ts');
+      const mountLine = index.findIndex((l) => /^ {2}app\.use\(negotiateLocale\);$/.test(l));
+      if (mountLine === -1) {
+        return falla('src/index.ts no monta negotiateLocale en el cuerpo de bootstrap: toda respuesta saldría en el idioma por omisión');
+      }
+      const auth = index.findIndex((l) => /app\.use\(apiPrefix, authenticate\);/.test(l));
+      if (auth !== -1 && mountLine > auth) {
+        return falla('negotiateLocale se monta después de authenticate: un 401 no sabría en qué idioma contestar');
+      }
+
+      // Y el CLI, que es la otra superficie del mismo error.
+      const cliTranslation = codeLines('src/cli/entry-command.ts').join('\n');
+      if (!/messageKey !== undefined/.test(cliTranslation)) {
+        return falla('translateDomainError volvió a pasar sólo el texto: un error con clave llegaría al contador en inglés aunque trabaje en español');
+      }
+      return ok('el mensaje sigue el idioma de la petición, y la respuesta sólo declara idioma cuando lo pintó de una clave');
+    },
+  },
+  {
+    paquete: 'E4.2',
+    id: 'report-sections-are-identified-by-key',
+    // I11 · issue #153, primer commit. Los rótulos de las secciones del balance
+    // y del estado de resultados se van a traducir, y tres superficies los leían
+    // como identidad: la herramienta del agente derivaba `category` del rótulo
+    // («Current Assets» → `current_assets`) y buscaba el resultado del ejercicio
+    // por su nombre inglés; la API y `report … --json` los publican. Traducir
+    // sin esto le habría cambiado al agente `current_assets` por
+    // `activo_circulante` y le habría quitado `equity.result_of_the_period` en
+    // silencio, que es lo que `src/ai/docs/reports.md` le promete.
+    //
+    // Este criterio NO exige todavía que los rótulos salgan del catálogo: eso es
+    // el commit siguiente, y su criterio tendrá que mirar los SEIS literales.
+    // Lo que fija es la identidad: existe una clave y los consumidores la usan.
+    enunciado:
+      'Las secciones de los informes tienen clave estable, y el agente agrupa por ella y no por el rótulo inglés',
+    mutantes: [
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: '            category: sub.key,',
+        a: "            category: sub.name.toLowerCase().replace(/ /g, '_'),",
+        porque:
+          'categoria-derivada-del-rotulo: el agente volvería a agrupar por el nombre, así que el día que se traduzca recibiría `activo_circulante` donde su manual le promete `current_assets`',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: "        (x: Seccion['subsections'][number]) => x.key === 'result_of_the_period'",
+        a: "        (x: Seccion['subsections'][number]) => x.name === 'Result Of The Period'",
+        porque:
+          'resultado-buscado-por-nombre: traducido el rótulo, la búsqueda no encuentra nada y `equity.result_of_the_period` desaparece del JSON sin que nada lo acuse',
+      },
+      {
+        archivo: 'src/services/reporting/report-service.ts',
+        de: "      key: 'result_of_the_period',\n",
+        a: '',
+        porque:
+          'subseccion-sin-clave: la única subsección que no viene de `fs_category` se quedaría sin identidad, y quien la busque tendría que volver al rótulo',
+      },
+    ],
+    evaluar: () => {
+      const codeLines = (rel: string): string[] =>
+        crudoDe(rel)
+          .split('\n')
+          .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+
+      const types = codeLines('src/types/index.ts').join('\n');
+      if (!/export interface BalanceSheetSection \{\s*key: string;/.test(types)) {
+        return falla('BalanceSheetSection perdió su clave: la identidad de una sección volvería a ser su rótulo, que se traduce');
+      }
+      if (!/export interface IncomeStatementSection \{\s*key: string;/.test(types)) {
+        return falla('IncomeStatementSection perdió su clave: revenue y expenses volverían a identificarse por su rótulo');
+      }
+
+      const service = codeLines('src/services/reporting/report-service.ts').join('\n');
+      const missing = ["key: 'assets'", "key: 'liabilities'", "key: 'equity'", "key: 'result_of_the_period'"]
+        .filter((k) => !service.includes(k));
+      if (missing.length > 0) {
+        return falla(`report-service no rellena ${missing.length} clave(s) de sección (${missing.join(', ')}): la traducción del rótulo se llevaría por delante la identidad`);
+      }
+      if (!/key: type === 'revenue' \? 'revenue' : 'expenses'/.test(service)) {
+        return falla('las secciones del estado de resultados dejaron de llevar clave');
+      }
+
+      const tools = codeLines('src/ai/tools/report-tools.ts').join('\n');
+      if (!/category: sub\.key,/.test(tools)) {
+        return falla('la herramienta del agente volvió a derivar `category` del rótulo: agruparía distinto en cuanto el rótulo se traduzca');
+      }
+      if (!/x\.key === 'result_of_the_period'/.test(tools)) {
+        return falla('la herramienta del agente busca el resultado del ejercicio por su rótulo: traducido, lo perdería en silencio');
+      }
+      if (/sub\.name\.toLowerCase\(\)/.test(tools) || /=== 'Result Of The Period'/.test(tools)) {
+        return falla('queda una lectura del rótulo inglés en la herramienta del agente');
+      }
+      return ok('las secciones llevan clave estable y el agente agrupa y busca por ella, no por el rótulo');
     },
   },
   {
