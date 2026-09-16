@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { breachOfEdge, breachMessage, coherenceCriterion } from './parent-child-coherence.js';
 import { query, withTransaction } from '../../database/connection.js';
 import { NotFoundError, ValidationError, ConflictError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
@@ -36,14 +37,15 @@ import type { Account } from '../../types/index.js';
 //     caller that can justify itself may override it.
 // ============================================================
 
-export const ACCOUNT_TYPES = [
-  'asset', 'liability', 'equity', 'revenue', 'expense',
-  'contra_asset', 'contra_liability', 'contra_equity',
-] as const;
+// Los tres vocabularios de `accounts` viven en src/database/enums.ts, que es
+// donde la prueba de contrato los coteja contra el CHECK real de Postgres. Aquí
+// sólo se reexportan: una segunda copia escrita a mano es justo lo que dejó al
+// enum de `fs_category` con once valores cuando la 078 subió el CHECK a doce.
+export { ACCOUNT_TYPES, NORMAL_BALANCES, ACCOUNT_FS_CATEGORIES } from '../../database/enums.js';
+import { ACCOUNT_TYPES, NORMAL_BALANCES, ACCOUNT_FS_CATEGORIES } from '../../database/enums.js';
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
-
-export const NORMAL_BALANCES = ['debit', 'credit'] as const;
 export type NormalBalance = (typeof NORMAL_BALANCES)[number];
+export type FsCategory = (typeof ACCOUNT_FS_CATEGORIES)[number];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -252,6 +254,31 @@ export async function createAccount(input: CreateAccountInput): Promise<Account>
   }
 
   return withTransaction(async (client) => {
+    // LA COHERENCIA CON EL PADRE SE PREGUNTA AQUÍ, DENTRO DEL CANDADO (X1c).
+    //
+    // El SELECT de código duplicado de arriba corre FUERA de la transacción; la
+    // categoría del padre se lee aquí para que nadie pueda cambiarla entre la
+    // comprobación y el INSERT. Si no hay padre, o si alguno de los dos lados
+    // no tiene categoría —la importación del SAT no escribe la columna en
+    // ninguno—, no hay nada que juzgar y no se juzga.
+    if (input.parent_id && input.fs_category) {
+      const parentRow = await client.query<{ code: string; fs_category: string | null }>(
+        'SELECT code, fs_category FROM accounts WHERE id = $1 AND entity_id = $2',
+        [input.parent_id, input.entity_id]
+      );
+      const parent = parentRow.rows[0];
+      if (parent) {
+        const breach = breachOfEdge({ code: input.code, fs_category: input.fs_category }, parent);
+        if (breach) {
+          const criterion = await coherenceCriterion(
+            await tenantDe(client, input.entity_id),
+            input.entity_id
+          );
+          if (criterion.blocks) throw new ValidationError(breachMessage(breach));
+        }
+      }
+    }
+
     const result = await client.query<Account>(
       `INSERT INTO accounts (
         id, code, name, account_type, account_subtype, fs_category,
@@ -323,6 +350,30 @@ export async function updateAccount(
     );
     if (antes.rows.length === 0) throw new NotFoundError('Account', id);
     const previa = antes.rows[0] as unknown as Record<string, unknown>;
+
+    // EDITAR LA CATEGORÍA TIENE DOS LADOS, Y EL DE ABAJO NO LO MIRABA NADIE.
+    //
+    // `UPDATABLE_FIELDS` deja mover `fs_category` pero no `parent_id` ni
+    // `account_type` —«Structure is immutable here»—, así que ésta es la única
+    // edición que puede romper la coherencia. Y la rompe en dos direcciones:
+    // hacia arriba, contra el padre de esta cuenta; hacia abajo, contra sus
+    // hijas, que hoy ninguna consulta mira y que pueden ser seis de una vez.
+    if (patch.fs_category !== undefined && patch.fs_category !== null) {
+      const edited = { code: String(previa.code), fs_category: String(patch.fs_category) };
+      const relatives = await client.query<{ code: string; fs_category: string | null; side: string }>(
+        `SELECT code, fs_category, 'parent' AS side FROM accounts WHERE id = $1 AND entity_id = $3
+          UNION ALL
+         SELECT code, fs_category, 'child' AS side FROM accounts WHERE parent_id = $2 AND entity_id = $3`,
+        [previa.parent_id ?? null, id, entityId]
+      );
+      const breaches = relatives.rows
+        .map((r) => (r.side === 'parent' ? breachOfEdge(edited, r) : breachOfEdge(r, edited)))
+        .filter((b): b is NonNullable<typeof b> => b !== null);
+      if (breaches.length > 0) {
+        const criterion = await coherenceCriterion(await tenantDe(client, entityId), entityId);
+        if (criterion.blocks) throw new ValidationError(breachMessage(breaches[0]));
+      }
+    }
 
     const sets: string[] = [];
     const params: unknown[] = [];
