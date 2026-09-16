@@ -268,7 +268,21 @@
                     "type": "string"
                   },
                   "fs_category": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                      "current_assets",
+                      "non_current_assets",
+                      "current_liabilities",
+                      "long_term_liabilities",
+                      "equity",
+                      "ori",
+                      "revenue",
+                      "cogs",
+                      "operating_expenses",
+                      "other_income",
+                      "other_expenses",
+                      "tax"
+                    ]
                   },
                   "parent_id": {
                     "type": [
@@ -481,7 +495,21 @@
                     }
                   },
                   "fs_category": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                      "current_assets",
+                      "non_current_assets",
+                      "current_liabilities",
+                      "long_term_liabilities",
+                      "equity",
+                      "ori",
+                      "revenue",
+                      "cogs",
+                      "operating_expenses",
+                      "other_income",
+                      "other_expenses",
+                      "tax"
+                    ]
                   },
                   "account_subtype": {
                     "type": "string"

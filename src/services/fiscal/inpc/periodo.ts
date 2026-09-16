@@ -89,10 +89,6 @@ export function compararPeriodos(a: Periodo, b: Periodo): number {
   return a.anio !== b.anio ? a.anio - b.anio : a.mes - b.mes;
 }
 
-export function mismoPeriodo(a: Periodo, b: Periodo): boolean {
-  return compararPeriodos(a, b) === 0;
-}
-
 /** Meses de distancia (hasta − desde). Negativo si hasta es anterior. */
 export function distanciaEnMeses(desde: Periodo, hasta: Periodo): number {
   return (hasta.anio - desde.anio) * 12 + (hasta.mes - desde.mes);

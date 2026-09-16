@@ -7,7 +7,12 @@ import {
   localizedSection,
 } from '../../src/i18n/report-labels.js';
 import { crudoDe } from '../../src/plan/criterios.js';
-import { AccountType, FSCategory } from '../../src/types/index.js';
+import { AccountType } from '../../src/types/index.js';
+// `FSCategory` dejó de ser un enum escrito a mano: main lo DERIVA de esta lista
+// (#232), que es la que la prueba de integración coteja contra el CHECK de
+// Postgres. Así que el dominio se afirma contra la lista, no contra el tipo —
+// un tipo no existe en ejecución y no se puede recorrer.
+import { ACCOUNT_FS_CATEGORIES } from '../../src/database/enums.js';
 
 // ============================================================
 // THE LABELS OF A STATEMENT, IN BOTH LANGUAGES (I11 · issue #153)
@@ -216,22 +221,22 @@ describe('ori is a statement CATEGORY, and it is in the enum that means that', (
     expect(AccountType).not.toHaveProperty('ORI');
   });
 
-  it('FSCategory is where it belongs, and it has the label to prove it', () => {
-    expect(Object.values(FSCategory)).toContain('ori');
-    expect(FSCategory.ORI).toBe('ori');
-    expect(reportCategoryLabel(FSCategory.ORI, 'es')).toBe('Otros resultados integrales');
-    expect(reportCategoryLabel(FSCategory.ORI, 'en')).toBe('Other comprehensive income');
+  it('the fs_category vocabulary is where `ori` belongs, and it has the label to prove it', () => {
+    expect(ACCOUNT_FS_CATEGORIES as readonly string[]).toContain('ori');
+    expect(reportCategoryLabel('ori', 'es')).toBe('Otros resultados integrales');
+    expect(reportCategoryLabel('ori', 'en')).toBe('Other comprehensive income');
   });
 
-  it('every FSCategory member has a label, so the enum and the catalog cannot drift', () => {
-    // The enum is the third statement of the same domain, after the CHECK and
-    // the catalog. All three are asserted, and none is derived from another.
-    const values = Object.values(FSCategory);
+  it('every fs_category has a label, so the vocabulary and the catalog cannot drift', () => {
+    // The vocabulary list is the second statement of the same domain, after the
+    // CHECK it is asserted against; the catalog is the third. None is derived
+    // from another, and that is the point.
+    const values: readonly string[] = ACCOUNT_FS_CATEGORIES;
     expect(values).toHaveLength(12);
 
     const withLabel = new Set(CATEGORIES.map(([key]) => key));
     for (const value of values) {
-      expect(withLabel, `FSCategory.${value} has no row in this spec`).toContain(value);
+      expect(withLabel, `fs_category "${value}" has no row in this spec`).toContain(value);
       expect(reportCategoryLabel(value, 'es'), `${value} has no Spanish label`).not.toBe(value);
       expect(reportCategoryLabel(value, 'en'), `${value} has no English label`).not.toBe(value);
     }
@@ -248,7 +253,7 @@ describe('ori is a statement CATEGORY, and it is in the enum that means that', (
     // the other. `ori` is only ever a statement line, so it must appear on one
     // side only. Written out rather than counted.
     const types = new Set<string>(Object.values(AccountType));
-    expect(Object.values(FSCategory).filter((value) => types.has(value)))
+    expect((ACCOUNT_FS_CATEGORIES as readonly string[]).filter((value) => types.has(value)))
       .toEqual(['equity', 'revenue']);
 
     // And the shared spellings do not share meaning: the equity CATEGORY is
