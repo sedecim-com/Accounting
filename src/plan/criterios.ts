@@ -7067,7 +7067,10 @@ export const CRITERIOS: Criterio[] = [
         findings.push(`desapareció ${shellFile}`);
       } else {
         const html = crudoDe(shellFile);
-        const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
+        // El cierre admite espacios y basura antes del '>': `</script\nfoo>`
+        // cierra igual, y un filtro que sólo conoce `</script>` lee lo que sigue
+        // como texto (CodeQL js/bad-tag-filter).
+        const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)];
         if (scripts.length === 0) findings.push('index.html no carga ningún módulo');
         for (const [, attributes, body] of scripts) {
           if (!/\ssrc\s*=/i.test(attributes) || body.trim() !== '') findings.push('index.html tiene un script en línea');

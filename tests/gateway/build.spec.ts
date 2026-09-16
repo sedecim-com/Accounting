@@ -97,11 +97,30 @@ describe('the web program', () => {
   }, 30_000);
 });
 
+/**
+ * The text a reader sees, walked character by character rather than by
+ * stripping `<...>` with a regex: a single pass over tag-looking text is the
+ * incomplete sanitisation CodeQL warns about, and here it would also miss text
+ * hidden after a malformed tag.
+ */
+function textOutsideTags(html: string): string {
+  let text = '';
+  let inTag = false;
+  for (const ch of html) {
+    if (ch === '<') inTag = true;
+    else if (ch === '>') inTag = false;
+    else if (!inTag) text += ch;
+  }
+  return text;
+}
+
 describe('the shell', () => {
   const shell = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8');
 
   it('has no inline script, no style attribute and no event-handler attribute', () => {
-    for (const [, attributes, body] of shell.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+    // `</script  >` and `</script\nfoo>` close a script too: a filter that only
+    // knows `</script>` reads what follows as text (CodeQL js/bad-tag-filter).
+    for (const [, attributes, body] of shell.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)) {
       expect(attributes).toMatch(/\ssrc="/);
       expect(body.trim()).toBe('');
     }
@@ -117,10 +136,7 @@ describe('the shell', () => {
   });
 
   it('carries no translatable prose: the page sets its title and skip link from the catalog', () => {
-    const visible = shell
-      .replace(/<title>mnemosine<\/title>/, '')
-      .replace(/<[^>]+>/g, '')
-      .trim();
+    const visible = textOutsideTags(shell).replace('mnemosine', '').trim();
     expect(visible).toBe('');
     expect(shell).toMatch(/<a id="skip-link" class="skip-link" href="#app"><\/a>/);
     expect(shell).toMatch(/<main id="app" tabindex="-1"><\/main>/);

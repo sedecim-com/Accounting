@@ -57,6 +57,7 @@ vi.mock('../../../src/database/connection.js', () => ({
 
 import portfolioRouter from '../../../src/api/rest/routes/portfolio.js';
 import { authenticate } from '../../../src/api/rest/middleware/auth.js';
+import { preAuthRateLimiter } from '../../../src/api/rest/middleware/rate-limiter.js';
 import { errorHandler } from '../../../src/api/rest/middleware/error-handler.js';
 import { config } from '../../../src/config/index.js';
 
@@ -76,6 +77,9 @@ async function listen(app: express.Express): Promise<{ server: Server; url: stri
 
 beforeAll(async () => {
   const withAuth = express();
+  // Before authenticate, as src/index.ts mounts it: verifying a signature is
+  // CPU, and free CPU for whoever has no credentials is what the limiter is for.
+  withAuth.use(preAuthRateLimiter);
   withAuth.use(authenticate);
   withAuth.use('/v1/portfolio', portfolioRouter);
   withAuth.use(errorHandler);

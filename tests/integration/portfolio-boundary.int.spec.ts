@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net';
 import { query, closeDatabase } from '../../src/database/connection.js';
 import { config } from '../../src/config/index.js';
 import { authenticate } from '../../src/api/rest/middleware/auth.js';
+import { preAuthRateLimiter } from '../../src/api/rest/middleware/rate-limiter.js';
 import { tenantContext } from '../../src/api/rest/middleware/tenant-context.js';
 import { errorHandler } from '../../src/api/rest/middleware/error-handler.js';
 import portfolioRouter from '../../src/api/rest/routes/portfolio.js';
@@ -124,6 +125,8 @@ beforeAll(async () => {
   );
 
   const app = express();
+  // Before authenticate, as src/index.ts mounts it.
+  app.use(preAuthRateLimiter);
   app.use(authenticate);
   app.use(tenantContext);
   app.use('/v1/portfolio', portfolioRouter);
