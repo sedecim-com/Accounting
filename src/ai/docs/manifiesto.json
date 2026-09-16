@@ -108,7 +108,7 @@
     "src/services/payments/payment-service.ts": "b3227509f4be6115fb03841262cf38c57df8edca",
     "src/services/banking/bank-statement-service.ts": "099371826e6fbdce1ed919b77f4d9b88bf295345",
     "src/services/banking/statement-checks.ts": "54a4b54f11f557740ccda5c25f5cef304ba8415e",
-    "src/services/banking/match-service.ts": "52b731c828d115c9323215e225ae95a4827c92d3",
+    "src/services/banking/match-service.ts": "fd650f6e3968ca7efb4cf57fed52c71afbeb2b23",
     "src/services/banking/book-items.ts": "e6a4453810d68c32571e3eea87f334f45e073ce6",
     "src/services/banking/reconciliation-service.ts": "3ab76e68024ac61bdc39e99afaf2874dd3330bfe",
     "src/services/banking/reconciling-items.ts": "a9ad36f020258bd8ef66f0e8b873704d16b066cc",
