@@ -602,9 +602,27 @@ describe('checkOrphanedCapability', () => {
   it('cuenta el peso muerto en vez de enumerarlo', () => {
     // Dieciocho nombres detrás de los dos que importan es lo que hace que se
     // deje de leer el renglón.
-    const detalle = repo.detail;
-    expect(detalle).not.toContain('getCachedAccounts');
-    expect(detalle).toMatch(/\d+ unreferenced export\(s\)/);
+    //
+    // SOBRE UN ÁRBOL SINTÉTICO, por la misma razón que su vecina de arriba y
+    // con la misma historia: esta versión leía `repo.detail` y exigía que ESTE
+    // repositorio tuviera en todo momento algún export sin referenciar. Al
+    // retirarse los veintiuno que había, la prueba se puso roja por haberse
+    // LIMPIADO lo que vigilaba. Lo que se quiere probar es que el informe
+    // CUENTA en vez de enumerar, y eso se prueba con un caso.
+    const write = (rel: string, body: string): void => {
+      const f = path.join(tmpDir, rel);
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, body);
+    };
+    write('src/database/migrations/001.sql', 'CREATE TABLE t (id uuid);');
+    for (let i = 0; i < 18; i++) {
+      write(`src/dead${i}.ts`, `export function nadieLaLlama${i}() { return ${i}; }`);
+    }
+
+    const detail = checkOrphanedCapability({ cwd: tmpDir }).detail;
+    expect(detail).toMatch(/18 unreferenced export\(s\)/);
+    // Contar es lo contrario de enumerar: ni uno de los dieciocho se nombra.
+    expect(detail).not.toContain('nadieLaLlama0');
   });
 
   it('no repite lo que checkLookupTables ya vigila con nivel propio', () => {

@@ -440,7 +440,3 @@ export function matchCase(facts: CfdiFacts): CfdiCase | undefined {
     .filter((c) => (c.when ? c.when(facts) : true))
     .sort((a, b) => b.priority - a.priority)[0];
 }
-
-export function getCase(id: string): CfdiCase | undefined {
-  return CASES.find((c) => c.id === id);
-}
