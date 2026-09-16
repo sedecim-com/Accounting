@@ -4,12 +4,14 @@ import {
   listPending,
   listPolicies,
   resolvePolicy,
+  policyWording,
   type PolicyRow,
 } from '../../services/policy/policy-service.js';
 import { previewFor } from '../../services/policy/policy-preview.js';
 import { getPolicySpec } from '../../services/policy/pending-catalog.js';
 import type { CheckResult } from '../../ai/doctor-service.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
+import { ambiguityQuestion, interpretPolicyAnswer, resolveAmbiguity } from '../policy-answer.js';
 
 // ============================================================
 // S4 · ACCOUNTING POLICIES
@@ -128,13 +130,18 @@ export class PoliciesSection implements SetupSection {
 
     // The wording lives in the CATALOG, not in the row: the database keeps
     // the STATE (pending/resolved/value), and a text copied at seed time
-    // goes stale the moment the catalog is reworded. Fall back to the row
-    // only for policies with no catalog entry.
+    // goes stale the moment the catalog is reworded. `policyWording` decides
+    // where question, impact and options come from — the row's snapshot only
+    // for a key the catalog no longer has — so this screen and `pending`
+    // cannot disagree about it. `whyAsking`/`whatIDo`/`ifSkipped` are not
+    // part of that wording and still come from the spec.
     const spec = getPolicySpec(row.key);
-    const question = spec?.question ?? row.question;
-    const why = spec?.whyAsking ?? spec?.impact ?? row.impact;
+    const wording = policyWording(row);
+    const question = wording.question;
+    const why = spec?.whyAsking ?? wording.impact;
     const what = spec?.whatIDo;
-    const options = spec?.options ?? row.options;
+    // The same list is printed below and indexed by the typed number.
+    const options = wording.options;
 
     ctx.print('');
     ctx.print(`  ── ${index}/${total} · ${question}`);
@@ -170,11 +177,19 @@ export class PoliciesSection implements SetupSection {
     }
     if (answer.toLowerCase() === 'q') return 'quit';
 
-    const idx = Number(answer);
-    const chosen =
-      Number.isInteger(idx) && idx >= 1 && idx <= options.length
-        ? options[idx - 1].value
-        : answer;
+    // Same interpretation as `pending define` (src/cli/policy-answer.ts): a
+    // canonical integer is a position, anything else is what was typed, and
+    // an integer that is also another option's value is asked, not guessed.
+    let interpreted = interpretPolicyAnswer(answer, options);
+    while (interpreted.kind === 'ambiguous') {
+      ctx.print(`     ${ambiguityQuestion(interpreted)}`);
+      const replyRaw = await ctx.askText('     p/v > ');
+      if (replyRaw === null) return 'quit';
+      const reply = resolveAmbiguity(replyRaw, interpreted);
+      if (reply === null) return 'skipped';
+      if (reply !== undefined) interpreted = { kind: 'chosen', value: reply };
+    }
+    const chosen = interpreted.value;
 
     try {
       await resolvePolicy(
