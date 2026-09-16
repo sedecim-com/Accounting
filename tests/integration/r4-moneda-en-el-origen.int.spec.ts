@@ -5,8 +5,8 @@ import { query, closeDatabase } from '../../src/database/connection.js';
 import { crearInquilino, fechaEnPeriodo, type Fixture } from './helpers/tenant-fixture.js';
 import { createJournalEntry, drainAttestations } from '../../src/services/accounting/posting.js';
 import { JournalEntryType } from '../../src/types/index.js';
-import { exigirPar, fijarTipo, tipoParaConversion } from '../../src/services/fx/rate-service.js';
-import { ConflictError } from '../../src/utils/errors.js';
+import { exigirPar, fijarTipo, tipoParaConversion, verTipo } from '../../src/services/fx/rate-service.js';
+import { AccountingError, ConflictError } from '../../src/utils/errors.js';
 
 /**
  * R4 · LA MONEDA EXTRANJERA, CONVERTIDA EN EL ORIGEN (NIF B-15).
@@ -176,6 +176,45 @@ describe('las fuentes conviven y la política falla cerrado (057)', () => {
     const t = await tipoParaConversion(f.tenantId, f.entityId, fecha, par);
     expect(t.fuente).toBe('dof');
     expect(new Decimal(t.tasa).equals('20.2222')).toBe(true);
+  });
+
+  // ── T1 · #88 · EL OTRO LADO: `fx rate show` ──────────────────────────
+  //
+  // `tipoParaConversion` (arriba) ya fallaba cerrado, y ESA es la ruta del
+  // mayor. `verTipo` es la otra: la que contesta «¿qué tipo resolvería el
+  // esquema?» y la que `fx rate show` imprime. Resolvía con
+  // `get_exchange_rate()`, que hasta la 084 hacía `ORDER BY effective_date
+  // DESC LIMIT 1` sin desempate: con DOF y FIX del mismo día contestaba el que
+  // Postgres leyera primero. Eso es orden FÍSICO, y se mueve solo con un
+  // VACUUM, una reescritura o una restauración desde respaldo.
+
+  it('sin fuente, con dos publicadas ese día, se NIEGA a elegir y las nombra', async () => {
+    await expect(verTipo(par, fecha)).rejects.toThrow(AccountingError);
+    // El mensaje tiene que servir para teclear la salida, no sólo para saber
+    // que algo pasó: nombra las dos fuentes y la bandera.
+    await expect(verTipo(par, fecha)).rejects.toThrow(/banco_mexico.*dof|dof.*banco_mexico/s);
+    await expect(verTipo(par, fecha)).rejects.toThrow(/--source/);
+  });
+
+  it('con la fuente pedida, la tasa es la de ESA fuente, no la que la base lea primero', async () => {
+    const enDof = await verTipo(par, fecha, 'spot', 'dof');
+    const enFix = await verTipo(par, fecha, 'spot', 'banco_mexico');
+    expect(new Decimal(enDof.rate!).equals('20.2222')).toBe(true);
+    expect(new Decimal(enFix.rate!).equals('20.1111')).toBe(true);
+    // Y la fila que la EXPLICA es la misma que la produjo. Eran dos consultas
+    // independientes, cada una con su propio `LIMIT 1` sin desempate: la
+    // pantalla podía imprimir la tasa de una etiquetada con el nombre de la
+    // otra, y quien la leyera no tenía cómo notarlo.
+    expect(enDof.renglon?.source).toBe('dof');
+    expect(enFix.renglon?.source).toBe('banco_mexico');
+  });
+
+  it('con UNA sola fuente publicada no pide nada: el arrastre sigue siendo el de siempre', async () => {
+    const singleSource = exigirPar('SEK/MXN');
+    await fijarTipo({ par: singleSource, fecha, tasa: '1.9000', fuente: 'dof', creadoPor: f.userId });
+    const t = await verTipo(singleSource, '2026-08-20');
+    expect(new Decimal(t.rate!).equals('1.9000')).toBe(true);
+    expect(t.arrastradoDe).toBe(fecha);
   });
 
   it('FALLA CERRADO nombrando fuente y fecha cuando la fuente elegida no publicó ese día', async () => {

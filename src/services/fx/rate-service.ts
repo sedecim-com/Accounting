@@ -173,27 +173,64 @@ export interface TipoResuelto {
  * cruzado por USD (get_exchange_rate). NO lee la política: es la pregunta
  * «¿qué tipo resolvería el esquema?», no «¿cuál usa este despacho?» — esa
  * segunda es `tipoParaConversion`.
+ *
+ * `fuente` acota la pregunta a una de las publicadas. Desde la 057 un par
+ * puede tener DOF y FIX del MISMO día, y desde la 084 el esquema se niega a
+ * elegir entre ellas: sin fuente, un día con dos levanta FX001 y aquí se
+ * traduce a un error que las nombra. Antes se contestaba una de las dos según
+ * el orden físico de las filas, que cambia con un VACUUM (T1, #88).
  */
 export async function verTipo(
   par: ParDeMonedas,
   fecha: string,
-  rateType: TipoDeTasa = 'spot'
+  rateType: TipoDeTasa = 'spot',
+  source?: FuenteDeTipo
 ): Promise<TipoResuelto> {
-  const resuelto = await query<{ rate: string | null }>(
-    'SELECT get_exchange_rate($1, $2, $3::date, $4)::text AS rate',
-    [par.de, par.a, fecha, rateType]
-  );
-  const rate = resuelto.rows[0]?.rate ?? null;
+  let rate: string | null;
+  try {
+    const resuelto = await query<{ rate: string | null }>(
+      'SELECT get_exchange_rate($1, $2, $3::date, $4, $5)::text AS rate',
+      [par.de, par.a, fecha, rateType, source ?? null]
+    );
+    rate = resuelto.rows[0]?.rate ?? null;
+  } catch (e) {
+    // FX001 es el día con varias fuentes. Se traduce aquí y no se deja salir
+    // crudo porque el operador necesita SABER cuáles son y qué teclear.
+    if ((e as { code?: string }).code !== 'FX001') throw e;
+    const published = await query<{ source: string }>(
+      `SELECT DISTINCT source FROM exchange_rates
+        WHERE ((from_currency = $1 AND to_currency = $2) OR (from_currency = $2 AND to_currency = $1))
+          AND rate_type = $3
+          AND effective_date <= $4::date
+          AND (effective_until IS NULL OR effective_until >= $4::date)
+        ORDER BY source`,
+      [par.de, par.a, rateType, fecha]
+    );
+    const names = published.rows.map((f) => f.source).join(', ');
+    throw new AccountingError(
+      'FX_AMBIGUOUS_SOURCE',
+      `Hay más de un tipo ${par.de}/${par.a} publicado para ${fecha}: ${names}. No elijo por ti ` +
+        'cuál vale —eso es criterio fiscal— y tampoco quiero contestarte el que la base lea ' +
+        `primero, que cambia solo. Pide uno con --source <${names.replace(/, /g, '|')}>, o fija ` +
+        'la política fuente_tipo_cambio con mnemosine pending.',
+      { par: `${par.de}/${par.a}`, fecha, fuentes: published.rows.map((f) => f.source) }
+    );
+  }
 
+  // La MISMA fuente que resolvió la tasa acota la fila que la explica. Eran
+  // dos consultas independientes y cada una elegía por su cuenta: con dos
+  // fuentes del mismo día, `show` podía imprimir la tasa de una etiquetada con
+  // el nombre de la otra.
   const directo = await query<RenglonTipoDeCambio>(
     `SELECT ${COLUMNAS} FROM exchange_rates
      WHERE from_currency = $1 AND to_currency = $2
        AND effective_date <= $3::date
        AND (effective_until IS NULL OR effective_until >= $3::date)
        AND rate_type = $4
+       AND ($5::text IS NULL OR source = $5)
      ORDER BY effective_date DESC
      LIMIT 1`,
-    [par.de, par.a, fecha, rateType]
+    [par.de, par.a, fecha, rateType, source ?? null]
   );
   const renglon = directo.rows[0] ?? null;
   const arrastradoDe =
