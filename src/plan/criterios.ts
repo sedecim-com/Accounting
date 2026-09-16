@@ -10745,6 +10745,83 @@ export const CRITERIOS: Criterio[] = [
     },
   },
   {
+    paquete: 'E4.2',
+    id: 'report-sections-are-identified-by-key',
+    // I11 · issue #153, primer commit. Los rótulos de las secciones del balance
+    // y del estado de resultados se van a traducir, y tres superficies los leían
+    // como identidad: la herramienta del agente derivaba `category` del rótulo
+    // («Current Assets» → `current_assets`) y buscaba el resultado del ejercicio
+    // por su nombre inglés; la API y `report … --json` los publican. Traducir
+    // sin esto le habría cambiado al agente `current_assets` por
+    // `activo_circulante` y le habría quitado `equity.result_of_the_period` en
+    // silencio, que es lo que `src/ai/docs/reports.md` le promete.
+    //
+    // Este criterio NO exige todavía que los rótulos salgan del catálogo: eso es
+    // el commit siguiente, y su criterio tendrá que mirar los SEIS literales.
+    // Lo que fija es la identidad: existe una clave y los consumidores la usan.
+    enunciado:
+      'Las secciones de los informes tienen clave estable, y el agente agrupa por ella y no por el rótulo inglés',
+    mutantes: [
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: '            category: sub.key,',
+        a: "            category: sub.name.toLowerCase().replace(/ /g, '_'),",
+        porque:
+          'categoria-derivada-del-rotulo: el agente volvería a agrupar por el nombre, así que el día que se traduzca recibiría `activo_circulante` donde su manual le promete `current_assets`',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: "        (x: Seccion['subsections'][number]) => x.key === 'result_of_the_period'",
+        a: "        (x: Seccion['subsections'][number]) => x.name === 'Result Of The Period'",
+        porque:
+          'resultado-buscado-por-nombre: traducido el rótulo, la búsqueda no encuentra nada y `equity.result_of_the_period` desaparece del JSON sin que nada lo acuse',
+      },
+      {
+        archivo: 'src/services/reporting/report-service.ts',
+        de: "      key: 'result_of_the_period',\n",
+        a: '',
+        porque:
+          'subseccion-sin-clave: la única subsección que no viene de `fs_category` se quedaría sin identidad, y quien la busque tendría que volver al rótulo',
+      },
+    ],
+    evaluar: () => {
+      const codeLines = (rel: string): string[] =>
+        crudoDe(rel)
+          .split('\n')
+          .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+
+      const types = codeLines('src/types/index.ts').join('\n');
+      if (!/export interface BalanceSheetSection \{\s*key: string;/.test(types)) {
+        return falla('BalanceSheetSection perdió su clave: la identidad de una sección volvería a ser su rótulo, que se traduce');
+      }
+      if (!/export interface IncomeStatementSection \{\s*key: string;/.test(types)) {
+        return falla('IncomeStatementSection perdió su clave: revenue y expenses volverían a identificarse por su rótulo');
+      }
+
+      const service = codeLines('src/services/reporting/report-service.ts').join('\n');
+      const missing = ["key: 'assets'", "key: 'liabilities'", "key: 'equity'", "key: 'result_of_the_period'"]
+        .filter((k) => !service.includes(k));
+      if (missing.length > 0) {
+        return falla(`report-service no rellena ${missing.length} clave(s) de sección (${missing.join(', ')}): la traducción del rótulo se llevaría por delante la identidad`);
+      }
+      if (!/key: type === 'revenue' \? 'revenue' : 'expenses'/.test(service)) {
+        return falla('las secciones del estado de resultados dejaron de llevar clave');
+      }
+
+      const tools = codeLines('src/ai/tools/report-tools.ts').join('\n');
+      if (!/category: sub\.key,/.test(tools)) {
+        return falla('la herramienta del agente volvió a derivar `category` del rótulo: agruparía distinto en cuanto el rótulo se traduzca');
+      }
+      if (!/x\.key === 'result_of_the_period'/.test(tools)) {
+        return falla('la herramienta del agente busca el resultado del ejercicio por su rótulo: traducido, lo perdería en silencio');
+      }
+      if (/sub\.name\.toLowerCase\(\)/.test(tools) || /=== 'Result Of The Period'/.test(tools)) {
+        return falla('queda una lectura del rótulo inglés en la herramienta del agente');
+      }
+      return ok('las secciones llevan clave estable y el agente agrupa y busca por ella, no por el rótulo');
+    },
+  },
+  {
     paquete: 'E0.0',
     id: 'ux-surface-census-ci-ratchet',
     enunciado:

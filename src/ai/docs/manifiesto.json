@@ -118,7 +118,7 @@
     "src/services/integrations/index.ts": "c785f9eb1596c6560eb5f5a15ebb8710e2ee8ac6",
     "src/database/rls-policies.sql": "83d22e4779e2430a9ccc33bc4451507714af18a5",
     "src/services/fiscal-credentials/service.ts": "5427809dedc39c29abd51628ee49100c76f96b6b",
-    "src/services/reporting/report-service.ts": "956654a4480dd7378969e77d9af38a6ac11338ed",
+    "src/services/reporting/report-service.ts": "2c9eb55fd66ba10687c536b734abed968bb11aa3",
     "src/services/ar/invoice-service.ts": "5ef0eeefa2c58db5b190d445a4e50d297707f2ec",
     "src/services/ar/customer-service.ts": "89e61497dafc2b3f440592fe78dfd367605840dd",
     "src/services/ar/credit-note-service.ts": "9100c26979e17cdcc059242824acd7cf03e4c8ad",
@@ -137,6 +137,6 @@
     "src/services/reporting/cash-flow-service.ts": "489bebf55f6fb975846d6cb0bf4c75d7a4d7390d",
     "src/services/reporting/cash-flow-reconcile.ts": "491acc77467d7409c59dd87b312dfd48af2ce401",
     "src/index.ts": "44fb1055a200556cca571a46f52a36f90cdc00bb",
-    "src/ai/tools/report-tools.ts": "5a42fb9e33b729d5935e073f27fdbd427d4dfa25"
+    "src/ai/tools/report-tools.ts": "9ddc044cd41dae600c5f4c4fae598ce2c0d055ea"
   }
 }

@@ -695,7 +695,7 @@ describe('buildBalanceSheetSection — contra accounts NET, they do not inflate'
   ];
 
   it('subtracts accumulated depreciation instead of adding its absolute value', () => {
-    const section = buildBalanceSheetSection(rows, ['asset', 'contra_asset'], 'Assets', 1);
+    const section = buildBalanceSheetSection(rows, ['asset', 'contra_asset'], { key: 'assets', name: 'Assets' }, 1);
     expect(section.total).toBe('600.0000');
     expect(section.subsections[0].accounts.map((a) => a.balance)).toEqual(['1000.0000', '-400.0000']);
   });
@@ -704,19 +704,22 @@ describe('buildBalanceSheetSection — contra accounts NET, they do not inflate'
     const liabilities = [
       { id: 'c', code: '2110', name: 'Proveedores', account_type: 'liability', fs_category: 'current_liabilities', balance: '-16008.0000' },
     ];
-    const section = buildBalanceSheetSection(liabilities, ['liability', 'contra_liability'], 'Liabilities', -1);
+    const section = buildBalanceSheetSection(liabilities, ['liability', 'contra_liability'], { key: 'liabilities', name: 'Liabilities' }, -1);
     expect(section.total).toBe('16008.0000');
   });
 
   it('groups accounts with no fs_category under "Other" rather than dropping them', () => {
     const orphan = [{ id: 'd', code: '1999', name: 'Sin categoría', account_type: 'asset', fs_category: null, balance: '5.0000' }];
-    const section = buildBalanceSheetSection(orphan, ['asset'], 'Assets', 1);
+    const section = buildBalanceSheetSection(orphan, ['asset'], { key: 'assets', name: 'Assets' }, 1);
     expect(section.subsections[0].name).toBe('Other');
+    // The label is prettified for a human and will be translated; the key is
+    // the stored `fs_category`, and is what a consumer branches on (I11).
+    expect(section.subsections[0].key).toBe('other');
     expect(section.total).toBe('5.0000');
   });
 
   it('every amount it produces is a string', () => {
-    const section = buildBalanceSheetSection(rows, ['asset', 'contra_asset'], 'Assets', 1);
+    const section = buildBalanceSheetSection(rows, ['asset', 'contra_asset'], { key: 'assets', name: 'Assets' }, 1);
     expect(typeof section.total).toBe('string');
     expect(typeof section.subsections[0].total).toBe('string');
     expect(typeof section.subsections[0].accounts[0].balance).toBe('string');
@@ -769,6 +772,7 @@ describe('the result of the period belongs to equity', () => {
 
     const bs = await getBalanceSheet(ENTITY, { asOfDate: '2026-06-30' });
     expect(bs.equity.subsections.map((s) => s.name)).toContain('Result Of The Period');
+    expect(bs.equity.subsections.map((s) => s.key)).toContain('result_of_the_period');
     expect(bs.equity.total).toBe('30.0000');
     expect(bs.total_liabilities_and_equity).toBe('100.0000');
     expect(bs.assets.total).toBe('100.0000');
@@ -794,6 +798,7 @@ describe('the result of the period belongs to equity', () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ balance: '0' }] });
     const bs = await getBalanceSheet(ENTITY, { asOfDate: '2026-12-31' });
     expect(bs.equity.subsections.map((s) => s.name)).not.toContain('Result Of The Period');
+    expect(bs.equity.subsections.map((s) => s.key)).not.toContain('result_of_the_period');
   });
 
   it('reports the gap instead of hiding it when the ledger is genuinely inconsistent', async () => {
@@ -1087,5 +1092,41 @@ describe('resolvePeriodRange — the entity owns the definition of a period', ()
       expect(String(call[0])).toMatch(/entity_id = \$1/);
       expect((call[1] as unknown[])[0]).toBe(ENTITY);
     }
+  });
+});
+
+// ============================================================
+// THE KEY IS THE IDENTITY; THE NAME IS A LABEL (I11 · issue #153)
+//
+// Three surfaces used to branch on the English label: the agent's tool
+// (`report-tools.ts`, which also derived `category` from it), the REST payload
+// and `report … --json`. The label is going to be translated, so each section
+// and subsection now carries a key that does not change with the language.
+// These cases pin the keys the consumers rely on, and that every section has
+// one — a section published with an empty key would silently become "other"
+// for whoever groups by it.
+// ============================================================
+describe('report sections carry a stable key', () => {
+  const ROWS = [
+    { id: 'a', code: '1110', name: 'Bancos', account_type: 'asset', fs_category: 'current_assets', balance: '1000.0000' },
+    { id: 'b', code: '1999', name: 'Sin categoría', account_type: 'asset', fs_category: null, balance: '5.0000' },
+  ];
+
+  it('the section key is the one the consumers branch on, and the label stays English for now', () => {
+    const section = buildBalanceSheetSection(ROWS, ['asset'], { key: 'assets', name: 'Assets' }, 1);
+    expect(section.key).toBe('assets');
+    expect(section.name).toBe('Assets');
+  });
+
+  it('subsection keys are the stored fs_category, not the prettified label', () => {
+    const section = buildBalanceSheetSection(ROWS, ['asset'], { key: 'assets', name: 'Assets' }, 1);
+    const byKey = Object.fromEntries(section.subsections.map((s) => [s.key, s.name]));
+    expect(byKey).toEqual({ current_assets: 'Current Assets', other: 'Other' });
+  });
+
+  it('every subsection has a non-empty key', () => {
+    const section = buildBalanceSheetSection(ROWS, ['asset'], { key: 'assets', name: 'Assets' }, 1);
+    expect(section.subsections.every((s) => s.key.length > 0)).toBe(true);
+    expect(section.subsections).not.toHaveLength(0);
   });
 });

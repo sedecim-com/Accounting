@@ -194,7 +194,10 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
           sub.accounts.map((a: Seccion['subsections'][number]['accounts'][number]) => ({
             code: a.code,
             name: a.name,
-            category: sub.name.toLowerCase().replace(/ /g, '_'),
+            // From the stable key, not from the label: the label is going to
+            // be translated, and `current_assets` has to keep coming out as
+            // `current_assets` when it is (I11 · issue #153).
+            category: sub.key,
             balance: aEscala(a.balance),
           }))
         );
@@ -223,7 +226,7 @@ export function buildReportTools(ctx: AgentContext, observe?: ToolObserver) {
       // se perdería. Se publica como campo propio: es la cifra con la que el
       // agente puede explicar por qué el capital no es el del catálogo.
       const resultado = bs.equity.subsections.find(
-        (x: Seccion['subsections'][number]) => x.name === 'Result Of The Period'
+        (x: Seccion['subsections'][number]) => x.key === 'result_of_the_period'
       );
 
       const residuos = {
