@@ -779,4 +779,35 @@ export const ES: Record<keyof typeof EN, string> = {
   'web.error.upstream_unavailable': 'La API no responde en este momento.',
   'web.error.session_expired': 'Tu sesión terminó. Vuelve a iniciar sesión.',
   'web.error.unexpected': 'No se pudo leer la respuesta.',
+  // ==== I11 · report labels (issue #153) ============================
+  //
+  // The names of the sections and of the twelve `fs_category` values are NOT
+  // the firm's own criterion but a standard: the entity's accounting framework
+  // fixes them, not the reader's language. They are translated here; they do
+  // NOT go to the configuration panel.
+  'report.section.assets': 'Activo',
+  'report.section.liabilities': 'Pasivo',
+  'report.section.equity': 'Capital contable',
+  'report.section.revenue': 'Ingresos',
+  'report.section.expenses': 'Gastos',
+  // Both words, always. The label does not depend on the sign.
+  'report.section.result_of_the_period': 'Utilidad (pérdida) del ejercicio',
+  'report.category.current_assets': 'Activo circulante',
+  'report.category.non_current_assets': 'Activo no circulante',
+  'report.category.current_liabilities': 'Pasivo a corto plazo',
+  'report.category.long_term_liabilities': 'Pasivo a largo plazo',
+  'report.category.equity': 'Capital contribuido',
+  'report.category.ori': 'Otros resultados integrales',
+  'report.category.revenue': 'Ingresos',
+  'report.category.cogs': 'Costo de ventas',
+  'report.category.operating_expenses': 'Gastos de operación',
+  'report.category.other_income': 'Otros ingresos',
+  'report.category.other_expenses': 'Otros gastos',
+  'report.category.tax': 'Impuestos',
+  'report.category.other': 'Otros',
+  'report.total_of': 'Total de {name}',
+  'report.total_liabilities_and_equity': 'Suma del pasivo y el capital contable',
+  'report.net_income': 'Utilidad neta',
+  'report.balance_check': 'Activo {assets} = Pasivo + Capital {total}',
+  'report.income_summary': 'Ingresos {revenue}   Gastos {expenses}   Utilidad neta {net}',
 };

@@ -902,4 +902,41 @@ export const EN = {
   'web.error.upstream_unavailable': 'The API is not reachable right now.',
   'web.error.session_expired': 'Your session ended. Sign in again.',
   'web.error.unexpected': 'The answer could not be read.',
+  // ==== I11 · report labels (issue #153) ============================
+  //
+  // The section is identified by `key` since #253; these are its labels, and
+  // only a HUMAN surface renders them. The service keeps coining English
+  // `name`, the agent keeps consuming `key`, and the machine formats of the
+  // CLI carry the key intact (kernel/output.ts, `labelled`).
+  //
+  // There are nineteen, not the six the issue counted: six sections plus the
+  // thirteen subsections, which are not literals but the values of
+  // `fs_category` — the twelve of migration 078's CHECK plus `other`.
+  'report.section.assets': 'Assets',
+  'report.section.liabilities': 'Liabilities',
+  'report.section.equity': 'Equity',
+  'report.section.revenue': 'Revenue',
+  'report.section.expenses': 'Expenses',
+  // Both words, always. The label does not depend on the sign — a
+  // sign-dependent one would be a presentation criterion and would belong in
+  // the configuration panel (decided in #153).
+  'report.section.result_of_the_period': 'Profit (loss) for the period',
+  'report.category.current_assets': 'Current assets',
+  'report.category.non_current_assets': 'Non-current assets',
+  'report.category.current_liabilities': 'Current liabilities',
+  'report.category.long_term_liabilities': 'Long-term liabilities',
+  'report.category.equity': 'Contributed capital',
+  'report.category.ori': 'Other comprehensive income',
+  'report.category.revenue': 'Revenue',
+  'report.category.cogs': 'Cost of sales',
+  'report.category.operating_expenses': 'Operating expenses',
+  'report.category.other_income': 'Other income',
+  'report.category.other_expenses': 'Other expenses',
+  'report.category.tax': 'Taxes',
+  'report.category.other': 'Other',
+  'report.total_of': 'Total {name}',
+  'report.total_liabilities_and_equity': 'Total liabilities and equity',
+  'report.net_income': 'Net income',
+  'report.balance_check': 'Assets {assets} = Liabilities + Equity {total}',
+  'report.income_summary': 'Revenue {revenue}   Expenses {expenses}   Net income {net}',
 } as const;

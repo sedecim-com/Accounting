@@ -58,7 +58,11 @@ export function buildLedgerTools(ctx: AgentContext, observe?: ToolObserver) {
       }
 
       const result = await query(
-        `SELECT je.entry_number, je.entry_date, je.entry_type, je.status,
+        // #241 · `entry_date::text` y no la columna cruda: pg entrega un DATE
+        // como Date de medianoche LOCAL, y `JSON.stringify` lo serializa en
+        // UTC — así que al este de Greenwich el agente leía el día ANTERIOR al
+        // guardado y se lo contaba al usuario como un hecho.
+        `SELECT je.entry_number, je.entry_date::text AS entry_date, je.entry_type, je.status,
                 je.description, je.reference, je.total_debits, je.total_credits, je.source_type
          FROM journal_entries je
          WHERE ${conditions.join(' AND ')}
@@ -85,7 +89,7 @@ export function buildLedgerTools(ctx: AgentContext, observe?: ToolObserver) {
     run: async (input) => {
       observe?.('get_journal_entry', input);
       const header = await query(
-        `SELECT id, entry_number, entry_date, entry_type, status, description, reference,
+        `SELECT id, entry_number, entry_date::text AS entry_date, entry_type, status, description, reference,
                 total_debits, total_credits, source_type, posted_date
          FROM journal_entries
          WHERE entity_id = $1 AND entry_number = $2`,
