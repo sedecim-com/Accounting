@@ -170,9 +170,9 @@ describe('archivar detiene la retención de verdad', () => {
     await expect(archiveGarnishment(filed.id, SCOPE)).rejects.toMatchObject({ statusCode: 409 });
   });
 
-  it('una orden con `is_active` en NULL —el estado que la 084 conserva— SE PUEDE archivar', async () => {
+  it('una orden con `is_active` en NULL —el estado que la 085 conserva— SE PUEDE archivar', async () => {
     await clearOrders();
-    // La 084 deja la columna nulable a propósito y su cabecera dice por qué.
+    // La 085 deja la columna nulable a propósito y su cabecera dice por qué.
     // Con el predicado estricto (`AND g.is_active`) esta fila no casaba, la
     // consulta de diagnóstico la encontraba igual, y al operador se le
     // contestaba que «dejó de retener cuando se apagó la bandera» — por un
@@ -303,7 +303,7 @@ describe('la orden que hoy no retendría nada no se da de alta', () => {
   });
 });
 
-describe('la 084 impide por SQL lo que el servicio impide por frase', () => {
+describe('la 085 impide por SQL lo que el servicio impide por frase', () => {
   const byHandSql = (type: string, metadata: string | null) =>
     query(
       `INSERT INTO garnishments (employee_id, garnishment_type, priority, amount_type, amount_value, start_date, is_active, metadata)
@@ -343,7 +343,7 @@ describe('la 084 impide por SQL lo que el servicio impide por frase', () => {
 
   it('ni con `metadata` en NULL, que es lo que un CHECK sin NOT NULL admitiría', async () => {
     // Un CHECK se CUMPLE cuando su expresión evalúa NULL. Sin el NOT NULL de
-    // la 084 este INSERT pasaría y la orden retendría el cheque entero.
+    // la 085 este INSERT pasaría y la orden retendría el cheque entero.
     await expect(byHandSql('tax_levy_federal', null)).rejects.toMatchObject({ code: '23502' });
   });
 
@@ -374,7 +374,7 @@ describe('la misma orden judicial no se da de alta dos veces en la tabla', () =>
     await clearOrders();
     const withCaseNumber = { ...SUPPORT_ORDER, case_number: '2026-DF-004417' };
     await recordGarnishment(withCaseNumber, SCOPE);
-    // El 23505 del índice de la 084 se traduce, como el 23514 del tipo se
+    // El 23505 del índice de la 085 se traduce, como el 23514 del tipo se
     // traduce doscientas líneas antes en el mismo archivo. Sin traducir, un
     // error de pg no lleva `statusCode` y el núcleo lo saca por el código de
     // fallo genérico: el mismo que una conexión caída, para la equivocación
@@ -441,7 +441,7 @@ describe('la misma orden judicial no se da de alta dos veces en la tabla', () =>
     expect((await calculateGarnishments(CASCADE_INPUT)).per_order[0].order_id).toBe(first.id);
 
     // Y una segunda orden que contesta LO MISMO sí entra: lo que se niega es
-    // la contradicción, no la concurrencia (la 084 nombra la manutención
+    // la contradicción, no la concurrencia (la 085 nombra la manutención
     // corriente más los atrasos como dos filas legítimas).
     await expect(
       recordGarnishment({ ...SUPPORT_ORDER, case_number: 'ATRASOS', percent_disposable: '5' }, SCOPE)

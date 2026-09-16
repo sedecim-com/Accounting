@@ -46,7 +46,7 @@ import {
 //   · `is_active` is written EXPLICITLY rather than left to the DEFAULT. The
 //     column is nullable (008:441) and the engine filters `is_active = true`
 //     (garnishment-engine.ts:170), so a NULL is an order that exists on paper
-//     and withholds nothing — the same silent zero 075 exists over. 084
+//     and withholds nothing — the same silent zero 075 exists over. 085
 //     deliberately does NOT restrict the column (its header says why), so this
 //     explicit write is the guard, not a courtesy.
 //
@@ -75,7 +75,7 @@ import {
 // never a default: a defaulted basis is how the defect re-enters.
 //
 // THE THIRD · FAIL CLOSED ON THE CCPA INPUTS. `metadata` is the engine's only
-// channel for its caps and every absence is coerced silently (see 084's
+// channel for its caps and every absence is coerced silently (see 085's
 // header for the measured consequences). So a levy REQUIRES its exemption and
 // a support order REQUIRES both cap answers, explicitly, and a levy REFUSES
 // the three amount flags — for a levy the engine never reads `desired`
@@ -111,7 +111,7 @@ import {
 // same reason and carries the same caveat, stated rather than left implicit:
 // the two refusals it feeds are about the SET of live orders, which no CHECK
 // constraint can see, and two `record` calls racing each other could both pass
-// them. What is NOT best-effort is the pair (employee, case number): 084's
+// them. What is NOT best-effort is the pair (employee, case number): 085's
 // unique index decides that one in the database, and the 23505 it raises is
 // translated below into a sentence. Where a race can only produce a refusal
 // that did not fire, the cost is a cascade the operator is shown anyway; where
@@ -767,7 +767,7 @@ export async function recordGarnishment(
       )
       // THE 23505 IS TRANSLATED, LIKE THE 23514 IS. `requireGarnishmentType`
       // above validates in TypeScript «so a typo comes back as a sentence
-      // instead of a 23514 naming a constraint» — and the first draft let 084's
+      // instead of a 23514 naming a constraint» — and the first draft let 085's
       // own unique index answer a double filing with the raw driver message.
       // A pg error carries no `statusCode`, so `exitCodeFor` (kernel/index.ts)
       // falls through to the generic FAILURE: the same exit code as a lost
@@ -779,7 +779,7 @@ export async function recordGarnishment(
         if (e?.code === '23505' && e.constraint === 'ux_garnishments_case_active') {
           throw new ConflictError(
             `This worker already has a LIVE order on case ${order.case_number}. Filing it twice ` +
-              'does not split the withholding, it doubles it — which is why 084 made the pair ' +
+              'does not split the withholding, it doubles it — which is why 085 made the pair ' +
               '(employee, case number) unique while the order is active. If the court reissued ' +
               'the order, archive the one on file first; if this is a second, distinct order, ' +
               'give it its own case number.'
@@ -826,7 +826,7 @@ export interface GarnishmentListFilters {
  * archived. Use -a/--all for both») documented a distinction the query did not
  * implement.
  *
- * `IS NOT TRUE` and not `= false`, because 084 deliberately leaves the column
+ * `IS NOT TRUE` and not `= false`, because 085 deliberately leaves the column
  * nullable and says why: a row carrying NULL withholds nothing (the engine
  * filters `is_active = true`), so it belongs with the stopped ones and not
  * with the live ones. The same reasoning puts `IS NOT FALSE` in the archive's
@@ -917,7 +917,7 @@ export interface ArchivedGarnishment {
  * after a write that did not happen opens no window.
  *
  * THE PREDICATE IS `IS NOT FALSE` AND NOT `g.is_active`, which is a one-word
- * difference and a whole state. 084 deliberately leaves the column nullable
+ * difference and a whole state. 085 deliberately leaves the column nullable
  * and its header says why, so rows carrying NULL survive the migration by
  * design. Under the first draft's `AND g.is_active` such a row matched
  * nothing, the diagnostic SELECT found it anyway, and the operator was told it

@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import pg from 'pg';
 
 /**
- * LA 084 SOBRE UN DESPACHO YA INSTALADO Y ENDURECIDO (F08 · #113).
+ * LA 085 SOBRE UN DESPACHO YA INSTALADO Y ENDURECIDO (F08 · #113).
  *
  * Misma forma que tests/integration/migracion-075-embargo-bajo-rls.int.spec.ts,
  * y por la misma razón medida allí: `garnishments` está en `rls-policies.sql`,
@@ -13,7 +13,7 @@ import pg from 'pg';
  * NO desactiva RLS — PostgreSQL LANZA 42501 en cuanto una sentencia sería
  * afectada por una política. La 075 murió así antes de instalar nada.
  *
- * La 084 hace DOS cosas que la 075 no hacía, y ninguna de las dos se puede
+ * La 085 hace DOS cosas que la 075 no hacía, y ninguna de las dos se puede
  * dar por buena leyendo:
  *
  *   · un `ALTER COLUMN … SET NOT NULL`, que recorre la tabla entera;
@@ -39,7 +39,7 @@ import pg from 'pg';
  * lanza, no filtra en silencio— pero no excluye la hipótesis de que el
  * recorrido mirase sólo lo visible.
  *
- * Lo que la separa es la SONDA del último describe: con la 084 ya aplicada y
+ * Lo que la separa es la SONDA del último describe: con la 085 ya aplicada y
  * el corredor SIN contexto de inquilino —donde la política no le enseñaría ni
  * una fila— se añade un CHECK que sólo una fila invisible viola. Tres
  * desenlaces y cada uno dice una cosa distinta: 42501 = el recorrido sí está
@@ -54,10 +54,10 @@ const ADMIN =
   process.env.MIGRATION_DATABASE_URL ||
   process.env.DATABASE_URL;
 
-const BASE = `mnem_084_${randomBytes(4).toString('hex')}`;
+const BASE = `mnem_085_${randomBytes(4).toString('hex')}`;
 const DIR = path.join(__dirname, '..', '..', 'src', 'database', 'migrations');
-const FILE_084 = '084_the_order_that_nobody_could_file.sql';
-const MIGRADOR = `it_mig084_${randomBytes(4).toString('hex')}`;
+const FILE_085 = '085_the_order_that_nobody_could_file.sql';
+const MIGRADOR = `it_mig085_${randomBytes(4).toString('hex')}`;
 
 const TENANT = randomUUID();
 const EMPLOYEE = randomUUID();
@@ -95,13 +95,13 @@ let db: pg.Client;
  */
 let verifier: pg.Client;
 
-/** Aplica la 084 como la aplicaría el corredor: en su transacción y con el opt-out puesto. */
-async function apply084(): Promise<void> {
+/** Aplica la 085 como la aplicaría el corredor: en su transacción y con el opt-out puesto. */
+async function apply085(): Promise<void> {
   await db.query('SET row_security = off');
   await db.query('BEGIN');
   try {
-    await db.query(sqlOf(FILE_084));
-    await db.query('INSERT INTO public.migrations (filename) VALUES ($1)', [FILE_084]);
+    await db.query(sqlOf(FILE_085));
+    await db.query('INSERT INTO public.migrations (filename) VALUES ($1)', [FILE_085]);
     await db.query('COMMIT');
   } catch (err) {
     await db.query('ROLLBACK');
@@ -158,7 +158,7 @@ beforeAll(async () => {
      VALUES ($1,$2,$3,'E-F08','Ada','Lovelace','2020-01-01','US','x')`,
     [EMPLOYEE, TENANT, entity]
   );
-  // Y una trabajadora MEXICANA, porque la 084 distingue por el país del
+  // Y una trabajadora MEXICANA, porque la 085 distingue por el país del
   // empleado lo que un CHECK no puede ver.
   await db.query(
     `INSERT INTO employees (id, tenant_id, entity_id, employee_number, first_name, last_name, hire_date, country_code, rfc)
@@ -178,7 +178,7 @@ beforeAll(async () => {
     [EMPLOYEE]
   );
   // UNA PENSIÓN ALIMENTICIA MEXICANA SIN LAS DOS RESPUESTAS DE LA CCPA, que
-  // es el despacho que la primera redacción de la 084 dejaba sin poder
+  // es el despacho que la primera redacción de la 085 dejaba sin poder
   // migrar: la cascada no corre para esta empleada (la compuerta de país), así
   // que esas dos respuestas no son hechos de su orden y exigirlas habría sido
   // pedir que se inventaran. Con `metadata` en NULL, además, para que la
@@ -239,12 +239,12 @@ describe('el banco es el que rompía, y se comprueba antes de juzgar', () => {
   });
 });
 
-describe('la 084 no restringe sobre datos que no cumplen: para y nombra', () => {
+describe('la 085 no restringe sobre datos que no cumplen: para y nombra', () => {
   it('aborta nombrando la orden que hoy retiene el cheque entero', async () => {
     // El id de la orden ofensora tiene que salir EN EL MENSAJE: la doctrina
     // de la 075 es parar y NOMBRAR, porque las filas que el censo lista son
     // exactamente las que hoy están reteniendo de más.
-    await expect(apply084()).rejects.toThrow(new RegExp(ORDER_ID));
+    await expect(apply085()).rejects.toThrow(new RegExp(ORDER_ID));
   });
 
   it('y no dejó media migración puesta: ninguna restricción nueva existe todavía', async () => {
@@ -271,8 +271,8 @@ describe('el censo del expediente duplicado también para, y nombra el par', () 
     // (employee_id, case_number)=(…) is duplicated» DESPUÉS de que los dos
     // bloques anteriores ya corrieron, y el operador se enteraría de un par
     // por intento — lo contrario de la doctrina de este archivo.
-    await expect(apply084()).rejects.toThrow(new RegExp(`${EMPLOYEE}/${CASE}`));
-    await expect(apply084()).rejects.toThrow(/withheld twice per period/);
+    await expect(apply085()).rejects.toThrow(new RegExp(`${EMPLOYEE}/${CASE}`));
+    await expect(apply085()).rejects.toThrow(/withheld twice per period/);
   });
 
   it('y el índice no quedó a medio crear', async () => {
@@ -283,12 +283,12 @@ describe('el censo del expediente duplicado también para, y nombra el par', () 
   });
 });
 
-describe('capturada la exención, la 084 aplica sobre ese despacho endurecido', () => {
+describe('capturada la exención, la 085 aplica sobre ese despacho endurecido', () => {
   it('no aborta, y normaliza el NULL que no significaba nada', async () => {
     // Archivada la duplicada, queda un solo expediente vivo por trabajador.
     await verifier.query(`UPDATE garnishments SET is_active = false WHERE id = $1`, [TWIN_B]);
 
-    await expect(apply084()).resolves.toBeUndefined();
+    await expect(apply085()).resolves.toBeUndefined();
 
     const { rows } = await verifier.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM garnishments WHERE metadata IS NULL`
@@ -356,7 +356,7 @@ describe('y el recorrido de DDL ve el montón entero, no lo que la política ens
     // conjunto vacío. Tres desenlaces posibles y cada uno dice algo
     // distinto —42501: sujeto a la política; éxito: filtrado, o sea
     // restricciones «validadas» contra las filas de un inquilino; 23514: ve
-    // el montón entero—, y sólo el tercero sostiene lo que la 084 necesita
+    // el montón entero—, y sólo el tercero sostiene lo que la 085 necesita
     // para que su `SET NOT NULL` y sus CHECK signifiquen algo en una
     // instalación con varios despachos.
     await verifier.query(

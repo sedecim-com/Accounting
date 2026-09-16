@@ -756,23 +756,6 @@ export interface ResultadoLote {
   fallidos: { archivo: string; error: string }[];
 }
 
-/** `bank statement import <file...>`: un documento por archivo, cada uno atómico. */
-export async function importarEstadosDeCuenta(
-  entrada: Omit<EntradaImportacion, 'ruta'> & { rutas: string[] },
-  opts: OpcionesImportacion
-): Promise<ResultadoLote> {
-  const resultados: ResultadoImportacion[] = [];
-  const fallidos: { archivo: string; error: string }[] = [];
-  for (const ruta of entrada.rutas) {
-    try {
-      resultados.push(await importarEstadoDeCuenta({ ...entrada, ruta }, opts));
-    } catch (e) {
-      fallidos.push({ archivo: ruta, error: e instanceof Error ? e.message : String(e) });
-    }
-  }
-  return { resultados, fallidos };
-}
-
 // ── LIST y SHOW ─────────────────────────────────────────────────────────
 
 export interface FiltrosEstados {

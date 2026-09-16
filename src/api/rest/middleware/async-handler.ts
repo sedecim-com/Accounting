@@ -75,22 +75,3 @@ export function validateBody<S extends ZodTypeAny>(schema: S): RequestHandler {
   validador[MARCA_CUERPO] = schema;
   return validador;
 }
-
-/**
- * Validate `req.query` against a Zod schema (after express's parsing of query
- * strings, so values are still strings — coerce in the schema with z.coerce.*).
- */
-export function validateQuery<S extends ZodTypeAny>(schema: S): RequestHandler {
-  return (req, _res, next) => {
-    const parsed = schema.safeParse(req.query);
-    if (!parsed.success) {
-      const details = parsed.error.errors.map(
-        (e) => `${e.path.join('.') || '<root>'}: ${e.message}`
-      );
-      return next(new ValidationError(`Invalid query params: ${details.join('; ')}`));
-    }
-    // req.query is typed as ParsedQs; cast through unknown.
-    (req as unknown as { query: unknown }).query = parsed.data;
-    next();
-  };
-}

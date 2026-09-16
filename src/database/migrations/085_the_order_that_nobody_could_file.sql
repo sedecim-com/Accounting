@@ -1,5 +1,5 @@
 -- ============================================================
--- 084 · THE ORDER NOBODY COULD FILE (F08 · #113)
+-- 085 · THE ORDER NOBODY COULD FILE (F08 · #113)
 --
 -- Migration 075 closed the VOCABULARY of a garnishment order. It left open the
 -- channel the CCPA caps actually travel through: `metadata`, a JSONB column
@@ -160,7 +160,7 @@
 -- before installing anything. So the opt-in goes first and the census walks
 -- the tenants setting the context, exactly as 075:74-118 does: a census with
 -- no tenant context sees nobody's rows and absolves blindly, which is the same
--- trap. tests/integration/migration-084-under-rls.int.spec.ts runs this file
+-- trap. tests/integration/migration-085-under-rls.int.spec.ts runs this file
 -- on a non-superuser bank and proves it, the way the 075 spec does — and adds
 -- the probe that tells apart «the DDL scan is not policy-affected» from «the
 -- DDL scan silently saw one tenant's rows», which reading cannot settle.
@@ -231,16 +231,16 @@ BEGIN
   END LOOP;
 
   IF levies <> '' THEN
-    RAISE EXCEPTION '084: these levy orders have no usable metadata.exempt_amount (%): the key is missing, null, non-numeric or zero, and all four read back as zero — each of them withholds 100%% of disposable earnings today. Capture the Pub 1494 exemption the notice states before restricting the column', levies;
+    RAISE EXCEPTION '085: these levy orders have no usable metadata.exempt_amount (%): the key is missing, null, non-numeric or zero, and all four read back as zero — each of them withholds 100%% of disposable earnings today. Capture the Pub 1494 exemption the notice states before restricting the column', levies;
   END IF;
   IF support <> '' THEN
-    RAISE EXCEPTION '084: these support orders have no usable metadata.supports_second_family / metadata.arrears_over_12_weeks (%): the engine runs for these employees, so each of them is capped at 60%% where the CCPA may allow only 50%%. Capture both answers before restricting the column', support;
+    RAISE EXCEPTION '085: these support orders have no usable metadata.supports_second_family / metadata.arrears_over_12_weeks (%): the engine runs for these employees, so each of them is capped at 60%% where the CCPA may allow only 50%%. Capture both answers before restricting the column', support;
   END IF;
   IF mistyped <> '' THEN
-    RAISE EXCEPTION '084: these pension_alimenticia orders carry a cap answer that is not a JSON boolean (%): nothing withholds against them today (the cascade runs only for US employees), but (metadata ->> key)::boolean raises 22P02 the day it does, in the middle of a payroll run. Fix the value or remove the key — it is not required for a Mexican order', mistyped;
+    RAISE EXCEPTION '085: these pension_alimenticia orders carry a cap answer that is not a JSON boolean (%): nothing withholds against them today (the cascade runs only for US employees), but (metadata ->> key)::boolean raises 22P02 the day it does, in the middle of a payroll run. Fix the value or remove the key — it is not required for a Mexican order', mistyped;
   END IF;
   IF twice <> '' THEN
-    RAISE EXCEPTION '084: these (employee, case number) pairs have more than one LIVE order (%): each pair is being withheld twice per period, which is what the unique index below exists to stop. Archive the duplicate before creating the index', twice;
+    RAISE EXCEPTION '085: these (employee, case number) pairs have more than one LIVE order (%): each pair is being withheld twice per period, which is what the unique index below exists to stop. Archive the duplicate before creating the index', twice;
   END IF;
 END
 $census$;
@@ -275,4 +275,4 @@ CREATE UNIQUE INDEX ux_garnishments_case_active
   WHERE case_number IS NOT NULL AND is_active;
 
 COMMENT ON COLUMN garnishments.metadata IS
-  'The CCPA inputs the engine reads: exempt_amount on a levy (number or string, and it must parse as a POSITIVE number — zero withholds the whole cheque, exactly like an absent key), supports_second_family and arrears_over_12_weeks as JSON booleans on a child_support order. NOT NULL and constrained BY VALUE since 084: a key that is merely present, with a null value, coerces to zero in the engine. A pension_alimenticia order is NOT required to carry the two cap answers — they are CCPA inputs and the cascade never runs for a Mexican employee — but if it carries them they must be booleans, or the cast aborts a payroll run.';
+  'The CCPA inputs the engine reads: exempt_amount on a levy (number or string, and it must parse as a POSITIVE number — zero withholds the whole cheque, exactly like an absent key), supports_second_family and arrears_over_12_weeks as JSON booleans on a child_support order. NOT NULL and constrained BY VALUE since 085: a key that is merely present, with a null value, coerces to zero in the engine. A pension_alimenticia order is NOT required to carry the two cap answers — they are CCPA inputs and the cascade never runs for a Mexican employee — but if it carries them they must be booleans, or the cast aborts a payroll run.';

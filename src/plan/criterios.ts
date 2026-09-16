@@ -258,74 +258,12 @@ export function fuentes(rel = 'src'): string[] {
  * rojo, que es el lado seguro.
  */
 /**
- * Memoria por CONTENIDO, no por ruta. Los 161 sitios de llamada releen los
- * mismos archivos una y otra vez, y el seam de mutación cambia el contenido sin
- * cambiar la ruta: cachear por ruta serviría el archivo sano a un mutante y el
- * espejo dejaría de morder. Con la clave en el propio texto, un mutante es
- * simplemente otra entrada.
+ * El limpiador vive ahora en `src/utils/strip-comments.ts`, para que el
+ * detector de código muerto use EXACTAMENTE éste y no su propia copia. Se
+ * conserva el nombre local: 20 sitios de este archivo lo llaman.
  */
-const CACHE_SIN_COMENTARIOS = new Map<string, string>();
-
-export function sinComentarios(texto: string): string {
-  // Recorrido con estado en vez de dos regex. Las regex se quedaron CIEGAS el
-  // día que un ejemplo de ayuda citó un glob de shell: `./cfdi/julio/*.xml`
-  // contiene `/*`, que abría un comentario de bloque cerrado 94 499 bytes
-  // después — el 80 % de mnemosine.ts desaparecía del criterio y `plan:status`
-  // acusaba SIETE rojos falsos sobre familias que sí estaban en el binario. Un
-  // instrumento que decide no puede cegarse con una cadena, así que las
-  // cadenas se saltan en vez de mirarse.
-  //
-  // Se copia POR TRAMOS, no carácter a carácter: la primera versión de este
-  // arreglo concatenaba de uno en uno y salía 8× más lenta, y con 161 sitios
-  // de llamada eso llevó las pruebas de `main()` a agotar su presupuesto de
-  // 30 s en CI. Correcto y lento sigue siendo un defecto cuando el instrumento
-  // corre en cada empuje.
-  //
-  // Sirve para TypeScript y para SQL (`codigoDe` se usa sobre los dos): las
-  // comillas simples que SQL duplica para escapar cierran y reabren, que deja
-  // el mismo resultado. Las expresiones regulares de TS se tratan como
-  // división —no se intenta desambiguar—, así que un `/*` dentro de un literal
-  // de regex seguiría cegando; hoy no hay ninguno.
-  const memo = CACHE_SIN_COMENTARIOS.get(texto);
-  if (memo !== undefined) return memo;
-
-  const trozos: string[] = [];
-  let i = 0;
-  let copiadoDesde = 0;
-  while (i < texto.length) {
-    const c = texto.charCodeAt(i);
-    // 0x2f '/'  0x2a '*'  0x2d '-'  0x27 "'"  0x22 '"'  0x60 '`'  0x5c '\\'
-    if (c === 0x2f || c === 0x2d) {
-      const d = texto.charCodeAt(i + 1);
-      const bloque = c === 0x2f && d === 0x2a;
-      const linea = (c === 0x2f && d === 0x2f) || (c === 0x2d && d === 0x2d);
-      if (bloque || linea) {
-        trozos.push(texto.slice(copiadoDesde, i));
-        const fin = bloque ? texto.indexOf('*/', i + 2) : texto.indexOf('\n', i);
-        i = fin === -1 ? texto.length : bloque ? fin + 2 : fin;
-        copiadoDesde = i;
-        continue;
-      }
-    }
-    if (c === 0x27 || c === 0x22 || c === 0x60) {
-      // La cadena se CONSERVA: quitarla rompería los criterios que buscan un
-      // literal («status = 'posted'»), que son casi todos. Sólo se salta, para
-      // que un `/*` de su interior no abra un comentario.
-      let j = i + 1;
-      while (j < texto.length && texto.charCodeAt(j) !== c) {
-        if (texto.charCodeAt(j) === 0x5c) j++;
-        j++;
-      }
-      i = Math.min(j + 1, texto.length);
-      continue;
-    }
-    i++;
-  }
-  trozos.push(texto.slice(copiadoDesde));
-  const fuera = trozos.join('');
-  CACHE_SIN_COMENTARIOS.set(texto, fuera);
-  return fuera;
-}
+import { stripComments as sinComentarios } from '../utils/strip-comments.js';
+export { sinComentarios };
 
 /**
  * Archivos (relativos a la raíz) donde aparece el patrón.
@@ -2603,17 +2541,70 @@ export const CRITERIOS: Criterio[] = [
         return falla('doctor perdió el chequeo de integridad del mayor');
       }
       const i = d.indexOf('function checkLedgerIntegrity');
-      const cuerpo = d.slice(i, i + 3500);
-      if (!/FULL OUTER JOIN/i.test(cuerpo) || !/status\s*=\s*'posted'/.test(cuerpo)) {
-        return falla('el chequeo no compara account_balances contra Σ de líneas POSTEADAS por ambos lados');
+      const body = d.slice(i, i + 3500);
+      // «POR AMBOS LADOS» SE COMPRUEBA POR AMBOS LADOS (S4, mutante 4/6).
+      //
+      // Esto era un `/status = 'posted'/` suelto sobre el cuerpo entero, y el
+      // enunciado ya prometía los dos. Con una sola aparición bastando, quitarle
+      // el filtro a CUALQUIERA de las dos consultas dejaba el criterio verde: el
+      // mutante que este tramo manda sembrar salía vivo, y el criterio está EN
+      // EL PISO, o sea protegiendo algo que no miraba.
+      //
+      // Perderlo en la primera mete un asiento en BORRADOR en la Σ de líneas, y
+      // `doctor` acusaría una deriva del mayor que no existe. En la segunda, al
+      // revés: dejaría de contar los posteados sin rastro de auditoría.
+      if (!/FULL OUTER JOIN/i.test(body)) {
+        return falla('el chequeo no compara account_balances contra Σ de líneas por deriva');
       }
-      if (!/level:\s*'fail'/.test(cuerpo)) {
+      const FROM_LINES = /FROM journal_entry_lines jel[\s\S]{0,200}?status\s*=\s*'posted'[\s\S]{0,120}?GROUP BY/;
+      if (!FROM_LINES.test(body)) {
+        return falla(
+          'la Σ de líneas dejó de filtrar por posteadas: un asiento en BORRADOR entraría en el total ' +
+            'y doctor acusaría una deriva del mayor que no existe'
+        );
+      }
+      const FROM_ENTRY_TRAIL = /FROM journal_entries je[\s\S]{0,80}?status\s*=\s*'posted'[\s\S]{0,300}?action\s*=\s*'post'/;
+      if (!FROM_ENTRY_TRAIL.test(body)) {
+        return falla(
+          'el conteo de asientos sin rastro dejó de acotarse a los posteados: contaría borradores, ' +
+            'que no tienen por qué llevar renglón de auditoría de posteo'
+        );
+      }
+      if (!/level:\s*'fail'/.test(body)) {
         return falla('la deriva del mayor quedó degradada a warn: un número falso con aspecto de número');
       }
       return /checks\.push\(await checkLedgerIntegrity\(\)\)/.test(d)
         ? ok('doctor verifica saldos = Σ líneas y posteados con rastro, y la deriva es fail')
         : falla('el chequeo existe y runDoctor no lo corre');
     },
+    // S4 · MUTANTE 4/6 y su gemelo: son DOS consultas y cada una necesita el
+    // suyo, porque una sola ancla dejaba viva a la otra.
+    mutantes: [
+      {
+        archivo: 'src/ai/doctor-service.ts',
+        de: "          WHERE je.status = 'posted'",
+        a: "          WHERE je.status IS NOT NULL",
+        porque:
+          'la Σ de líneas deja de filtrar por posteadas: un borrador entra en el total y doctor acusa ' +
+          'una deriva del mayor que no existe',
+      },
+      {
+        // EL ANCLA LLEVA LA LÍNEA DE ARRIBA, Y NO ES ADORNO. Con sólo
+        // `      WHERE je.status = 'posted'` (seis espacios) este espejo no
+        // mordía lo que dice: esa cadena está CONTENIDA en la línea de la Σ de
+        // líneas —que lleva diez espacios y va antes en el archivo— y el arnés
+        // sustituye la PRIMERA aparición. Los dos mutantes reescribían la misma
+        // consulta, el segundo moría con el mensaje del primero, y el filtro
+        // del conteo sin rastro se quedaba sin espejo justo en el commit que
+        // vino a dárselo. `FROM journal_entries je` sólo aparece aquí.
+        archivo: 'src/ai/doctor-service.ts',
+        de: "       FROM journal_entries je\n      WHERE je.status = 'posted'",
+        a: "       FROM journal_entries je\n      WHERE je.status <> 'void'",
+        porque:
+          'el conteo de asientos sin rastro deja de acotarse a los posteados: cuenta borradores, que ' +
+          'no tienen por qué llevar renglón de auditoría de posteo',
+      },
+    ],
   },
   {
     paquete: 'E0.1',
@@ -2878,6 +2869,95 @@ export const CRITERIOS: Criterio[] = [
         /toFixed\(6\)/.test(cliente) && /'DISABLED'/.test(cliente)
         ? ok('unicidad (entidad, uuid) con hash respaldado, dedupe escopado en los dos sitios, y el SOAP real con apagado honesto')
         : falla('el cliente SAT perdió el sobre, el relleno del total o el apagado que lo dice');
+    },
+  },
+
+  {
+    paquete: 'E0.2',
+    id: 'one-comment-stripper-for-every-instrument',
+    // El tablero aprendió esto a base de SIETE rojos falsos, y lo dejó escrito
+    // en `sinComentarios`: un ejemplo de ayuda con el glob `./cfdi/julio/*.xml`
+    // lleva un `/*` dentro de una CADENA, y las dos regex ingenuas lo tomaban
+    // por comentario de bloque. Lo que se comían no era prosa: era código.
+    //
+    // El detector de código muerto conservaba su propia copia de esas regex, y
+    // por eso acusaba a `describeLastOption` —llamada en mnemosine.ts dentro de
+    // las 171 líneas que el falso comentario engullía— de «exportada y no
+    // referenciada en ninguna parte». Medido con el escáner viejo contra el
+    // nuevo, se equivocaba en las DOS direcciones a la vez:
+    // `expected ['describeLastOption'] to deeply equal ['main']`.
+    //
+    // Un detector de código muerto que acusa en falso no es ruido: lo que
+    // propone es BORRAR CÓDIGO VIVO. Por eso el criterio no comprueba que el
+    // limpiador esté bien, sino que sólo haya UNO — mientras hubo dos, arreglar
+    // el del tablero dejó al del doctor mintiendo y nada se puso rojo.
+    enunciado: 'Ningún instrumento se ciega con un glob dentro de una cadena',
+    mutantes: [
+      {
+        archivo: 'src/utils/strip-comments.ts',
+        de: 'if (c === 0x27 || c === 0x22 || c === 0x60) {',
+        a: 'if (false) {',
+        porque: 'el limpiador deja de saltarse las cadenas: un glob vuelve a abrir un comentario y el instrumento analiza un archivo mutilado',
+      },
+      {
+        archivo: 'src/ai/orphan-scan.ts',
+        de: "import { stripComments } from '../utils/strip-comments.js';",
+        a: "const stripComments = (t: string): string => t.replace(/\\/\\*[\\s\\S]*?\\*\\//g, '');",
+        porque: 'el detector de código muerto vuelve a tener su copia propia de la regex ingenua, que es como nació la acusación falsa',
+      },
+      {
+        archivo: 'tests/ai/orphan-scan.spec.ts',
+        de: "const ayuda = 'mnemosine ingest ./cfdi/julio/*.xml --auto-post';",
+        a: "const ayuda = 'mnemosine ingest ./cfdi/julio/todo.xml --auto-post';",
+        porque: 'la reproducción deja de llevar el glob: sin el `/*` dentro de la cadena, la prueba pasa con la regex ingenua puesta',
+      },
+    ],
+    evaluar: () => {
+      const shared = 'src/utils/strip-comments.ts';
+      const scanner = 'src/ai/orphan-scan.ts';
+      const spec = 'tests/ai/orphan-scan.spec.ts';
+      if (!existe(shared)) return falla(`desapareció ${shared}: el limpiador compartido es lo único que impide que cada instrumento vuelva a tener el suyo`);
+
+      // 1. EL CENSO. Nadie más define un limpiador de comentarios de TypeScript.
+      //    Se busca la regex ingenua, que es la forma que falla.
+      const INGENUA = /replace\(\/\\\/\\\*\[\\s\\S\]\*\?\\\*\\\/\/g/;
+      const culpables: string[] = [];
+      for (const f of fuentes('src')) {
+        const rel = path.relative(rutaDe(), f);
+        if (rel === shared) continue;
+        const code = leer(f);
+        // El SQL es otro idioma y lleva su propio `--`: ésos no cuentan aquí.
+        if (INGENUA.test(code) && !/--\[\^\\n\]\*/.test(code)) culpables.push(rel);
+      }
+      if (culpables.length > 0) {
+        return falla(
+          `${culpables.length} instrumento(s) volvieron a llevar su propia regex de comentarios (${culpables.join(', ')}): ` +
+            'un `/*` dentro de una cadena les borra el código que sigue, y lo que informen después será sobre un archivo mutilado'
+        );
+      }
+
+      // 2. LOS DOS INSTRUMENTOS BEBEN DE LA MISMA FUENTE.
+      if (!codigoDe(scanner).includes("import { stripComments } from '../utils/strip-comments.js';")) {
+        return falla('el detector de código muerto dejó de usar el limpiador compartido: vuelve a poder acusar a código vivo');
+      }
+      // Y el limpiador sigue saltándose las cadenas, que es lo único que hace.
+      if (!codigoDe(shared).includes('if (c === 0x27 || c === 0x22 || c === 0x60) {')) {
+        return falla('el limpiador dejó de saltarse las cadenas: un glob vuelve a abrir un comentario de bloque');
+      }
+
+      // 3. Y CONDUCTA: la reproducción lleva el glob de verdad. Sin él, la
+      //    prueba pasa con la regex ingenua puesta y no mide nada.
+      if (!existe(spec)) return falla('no hay reproducción del glob que cegaba al detector');
+      // Se lee el CÓDIGO y no el crudo: el comentario de la propia prueba cita
+      // el glob, y un ancla que su archivo repite desarma su propio espejo.
+      const t = codigoDe(spec);
+      if (!/julio\/\*\.xml/.test(t)) {
+        return falla('la reproducción perdió el glob dentro de la cadena: es lo único que distingue al limpiador bueno del ingenuo');
+      }
+
+      return ok(
+        'un solo limpiador de comentarios en el árbol, y lo usan el tablero y el detector de código muerto; se salta las cadenas, y la reproducción lleva el glob que cegaba al viejo'
+      );
     },
   },
 
@@ -5082,7 +5162,7 @@ export const CRITERIOS: Criterio[] = [
         de: '         case_number, issuing_authority, payee_name, start_date, is_active, metadata',
         a: '         case_number, issuing_authority, payee_name, start_date, metadata',
         porque:
-          '`is_active` es NULABLE y la 084 no la restringe a propósito, así que una orden dada de alta sin ella queda invisible para el motor —que filtra `is_active = true`— y retiene cero en silencio: el mismo cero que la 075 vino a cerrar',
+          '`is_active` es NULABLE y la 085 no la restringe a propósito, así que una orden dada de alta sin ella queda invisible para el motor —que filtra `is_active = true`— y retiene cero en silencio: el mismo cero que la 075 vino a cerrar',
       },
       {
         archivo: 'src/services/payroll/common/garnishment-service.ts',
@@ -5178,7 +5258,7 @@ export const CRITERIOS: Criterio[] = [
     enunciado: 'Una orden sin los topes que el motor lee no se puede dar de alta, ni por el comando ni por SQL',
     mutantes: [
       {
-        archivo: 'src/database/migrations/084_the_order_that_nobody_could_file.sql',
+        archivo: 'src/database/migrations/085_the_order_that_nobody_could_file.sql',
         // THE ANCHOR STARTS AT `OR (CASE` AND NOT AT `WHEN`, and that is not
         // cosmetic: the census applies the SAME predicate three spaces further
         // in, so an anchor beginning at `WHEN` matches INSIDE the census line
@@ -5195,7 +5275,7 @@ export const CRITERIOS: Criterio[] = [
           'la restricción vuelve a admitir una exención de CERO, y cero no es una exención pequeña: es el mismo resultado que no tener ninguna —`disponible - 0`, el cheque entero, `cap_applied` en null—. El censo de arriba sigue mirando el valor, así que sin leer la restricción por su nombre este mutante quedaba vivo',
       },
       {
-        archivo: 'src/database/migrations/084_the_order_that_nobody_could_file.sql',
+        archivo: 'src/database/migrations/085_the_order_that_nobody_could_file.sql',
         de: `  ADD CONSTRAINT ck_garnishments_support_caps
   CHECK (garnishment_type <> 'child_support'
          OR (COALESCE(jsonb_typeof(metadata -> 'supports_second_family'), 'missing') = 'boolean'
@@ -5206,7 +5286,7 @@ export const CRITERIOS: Criterio[] = [
           'la restricción se vuelve decorativa y una orden de manutención sin sus dos respuestas vuelve a ser guardable: el motor lee la ausencia como «no», que es el tope de 60 % en vez del de 50 % — diez puntos del ingreso disponible de una persona',
       },
       {
-        archivo: 'src/database/migrations/084_the_order_that_nobody_could_file.sql',
+        archivo: 'src/database/migrations/085_the_order_that_nobody_could_file.sql',
         de: `  ADD CONSTRAINT ck_garnishments_maintenance_caps
   CHECK (garnishment_type <> 'pension_alimenticia'
          OR (COALESCE(jsonb_typeof(metadata -> 'supports_second_family'), 'boolean') = 'boolean'
@@ -5232,7 +5312,7 @@ export const CRITERIOS: Criterio[] = [
       },
     ],
     evaluar: () => {
-      const migration = 'src/database/migrations/084_the_order_that_nobody_could_file.sql';
+      const migration = 'src/database/migrations/085_the_order_that_nobody_could_file.sql';
       const service = 'src/services/payroll/common/garnishment-service.ts';
       const proof = 'tests/integration/f08-the-order-nobody-could-file.int.spec.ts';
       for (const f of [migration, service]) {
@@ -5262,7 +5342,7 @@ export const CRITERIOS: Criterio[] = [
       };
 
       const levy = constraintNamed('ck_garnishments_levy_exemption');
-      if (!levy) return falla('la 084 dejó de instalar `ck_garnishments_levy_exemption`: el embargo fiscal sin exención vuelve a ser guardable por SQL');
+      if (!levy) return falla('la 085 dejó de instalar `ck_garnishments_levy_exemption`: el embargo fiscal sin exención vuelve a ser guardable por SQL');
       if (!levy.includes("COALESCE(metadata ->> 'exempt_amount', '') ~ '^[0-9]+([.][0-9]+)?$'")) {
         return falla(
           'la restricción de la exención dejó de comprobar el VALOR con su COALESCE: una llave ausente hace que la comparación valga NULL, y un CHECK que evalúa NULL se cumple — el embargo fiscal sin exención vuelve a ser guardable y retiene el cien por ciento del disponible'
@@ -5275,7 +5355,7 @@ export const CRITERIOS: Criterio[] = [
       }
 
       const caps = constraintNamed('ck_garnishments_support_caps');
-      if (!caps) return falla('la 084 dejó de instalar `ck_garnishments_support_caps`: una manutención sin sus dos respuestas vuelve a ser guardable');
+      if (!caps) return falla('la 085 dejó de instalar `ck_garnishments_support_caps`: una manutención sin sus dos respuestas vuelve a ser guardable');
       if (!caps.includes("garnishment_type <> 'child_support'")) {
         return falla(
           'la restricción de los topes dejó de apuntar a `child_support`: si ya no nombra el tipo que la CCPA gobierna, no está acotando a nadie'
@@ -5283,12 +5363,12 @@ export const CRITERIOS: Criterio[] = [
       }
       if (!caps.includes("COALESCE(jsonb_typeof(metadata -> 'supports_second_family'), 'missing') = 'boolean'")) {
         return falla(
-          'la 084 dejó de exigir que la segunda familia sea un booleano de verdad: una llave presente con valor nulo pasa, y el motor la lee como «no» — el tope salta de 50 % a 60 % del ingreso disponible'
+          'la 085 dejó de exigir que la segunda familia sea un booleano de verdad: una llave presente con valor nulo pasa, y el motor la lee como «no» — el tope salta de 50 % a 60 % del ingreso disponible'
         );
       }
       if (!caps.includes("COALESCE(jsonb_typeof(metadata -> 'arrears_over_12_weeks'), 'missing') = 'boolean'")) {
         return falla(
-          'la 084 dejó de exigir que los atrasos de más de doce semanas sean un booleano: además de mover el tope cinco puntos, un valor que no sea booleano revienta con 22P02 DENTRO de una corrida de nómina'
+          'la 085 dejó de exigir que los atrasos de más de doce semanas sean un booleano: además de mover el tope cinco puntos, un valor que no sea booleano revienta con 22P02 DENTRO de una corrida de nómina'
         );
       }
 
@@ -5299,12 +5379,12 @@ export const CRITERIOS: Criterio[] = [
       const mx = constraintNamed('ck_garnishments_maintenance_caps');
       if (!mx || !mx.includes("garnishment_type <> 'pension_alimenticia'")) {
         return falla(
-          'la 084 dejó de acotar el TIPO del valor en una pensión alimenticia: no se le exigen los dos topes —serían cifras inventadas sobre una orden que la CCPA no gobierna— pero un «yes» donde el motor hace `::boolean` aborta una corrida de nómina entera'
+          'la 085 dejó de acotar el TIPO del valor en una pensión alimenticia: no se le exigen los dos topes —serían cifras inventadas sobre una orden que la CCPA no gobierna— pero un «yes» donde el motor hace `::boolean` aborta una corrida de nómina entera'
         );
       }
       if (!/ALTER COLUMN metadata SET NOT NULL/.test(sql)) {
         return falla(
-          '`metadata` volvió a admitir NULL: la columna tendría dos valores vacíos distintos donde el motor lee lo mismo de los dos, y la 084 dejaría de poder afirmar que toda orden trae un objeto'
+          '`metadata` volvió a admitir NULL: la columna tendría dos valores vacíos distintos donde el motor lee lo mismo de los dos, y la 085 dejaría de poder afirmar que toda orden trae un objeto'
         );
       }
 
@@ -5337,7 +5417,7 @@ export const CRITERIOS: Criterio[] = [
 
       return existe(proof)
         ? ok('las tres restricciones miran el valor y no la llave, la exención tiene que ser positiva, `metadata` no admite NULL, el servicio se niega con la consecuencia dicha, y hay prueba que lo ejecuta contra la base')
-        : falla('no hay prueba que EJERCITE las restricciones de la 084 contra Postgres: leer un CHECK no demuestra qué admite');
+        : falla('no hay prueba que EJERCITE las restricciones de la 085 contra Postgres: leer un CHECK no demuestra qué admite');
     },
   },
   {
@@ -5442,7 +5522,7 @@ export const CRITERIOS: Criterio[] = [
         de: '        AND g.is_active IS NOT FALSE',
         a: '        AND g.is_active',
         porque:
-          'vuelve el callejón sin salida que la 084 deja abierto a propósito: una fila con `is_active` en NULL —que la 084 conserva porque adivinar qué significaba no es seguro— no casa con este predicado, así que no se puede archivar, y la negativa le dice al operador que «dejó de retener cuando se apagó la bandera», por un apagado que nunca ocurrió',
+          'vuelve el callejón sin salida que la 085 deja abierto a propósito: una fila con `is_active` en NULL —que la 085 conserva porque adivinar qué significaba no es seguro— no casa con este predicado, así que no se puede archivar, y la negativa le dice al operador que «dejó de retener cuando se apagó la bandera», por un apagado que nunca ocurrió',
       },
       {
         archivo: 'src/services/payroll/usa/garnishments/garnishment-engine.ts',
@@ -5471,14 +5551,14 @@ export const CRITERIOS: Criterio[] = [
         );
       }
       // `IS NOT FALSE` AND NOT A BARE `AND g.is_active`: one word of
-      // difference and a whole state. 084 deliberately leaves `is_active`
+      // difference and a whole state. 085 deliberately leaves `is_active`
       // nullable, and under the strict predicate those rows can NEVER be
       // archived — while the refusal calls them «already archived» for a
       // clearing that never happened. The state predicate is still there;
       // what moves is where it draws the line.
       if (!body.includes('AND g.is_active IS NOT FALSE')) {
         return falla(
-          'el UPDATE de archivo perdió su predicado de estado, o volvió a exigir `is_active` estrictamente cierto: lo primero contesta éxito por una detención que ocurrió otro día; lo segundo deja sin salida a las filas que la 084 conserva con la bandera en NULL'
+          'el UPDATE de archivo perdió su predicado de estado, o volvió a exigir `is_active` estrictamente cierto: lo primero contesta éxito por una detención que ocurrió otro día; lo segundo deja sin salida a las filas que la 085 conserva con la bandera en NULL'
         );
       }
 
@@ -9232,6 +9312,268 @@ export const CRITERIOS: Criterio[] = [
     },
   },
 
+  // ---------------------------------------------------------------
+  // S4 · MUTANTE 5/6 · LA VENTANA DEL COTEJO, Y LAS DOS VARAS
+  //
+  // El issue #109 manda sembrar «la ventana del cotejo». La conducta SÍ estaba
+  // fijada —`matching.spec.ts` prueba que a tres días casa y a cuatro ya no—
+  // pero el ARNÉS no podía declararla: `scripts/mutantes.ts` aplica el espejo y
+  // llama a `criterio.evaluar()`, y nunca corre vitest. Una prueba verde o roja
+  // le es invisible: sin criterio que lea este número, el mutante salía VIVO.
+  //
+  // Y afirma DOS cosas porque con una sola se vacía. Si sólo mirara el motor,
+  // mover las dos varas a treinta días pasaría; si sólo mirara la CLI, quedaría
+  // sin dueño la divergencia entre superficies, que es la que el docblock de
+  // `match-service.ts` promete que no existe.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E1.2',
+    id: 'near-date-window-agrees-across-engines',
+    enunciado:
+      'La ventana que vuelve dura a la señal de fecha no pasa de tres días, y las dos superficies del cotejo miden la misma',
+    evaluar: () => {
+      const motor = codigoDe('src/services/banking/matching.ts');
+      const cli = codigoDe('src/services/banking/match-service.ts');
+      const enMotor = /const threeDays = (\d+) \* 24 \* 60 \* 60 \* 1000;/.exec(motor);
+      const enCli = /const MATCH_WINDOW_DAYS = (\d+);/.exec(cli);
+      if (enMotor === null) {
+        return falla('la regla 2 del motor dejó de declarar su ventana como un número legible');
+      }
+      if (enCli === null) return falla('match-service dejó de declarar su ventana como un número legible');
+      const engineDays = Number(enMotor[1]);
+      const cliDays = Number(enCli[1]);
+      if (engineDays > 3) {
+        return falla(
+          `la ventana de la regla 2 subió a ${engineDays} días: a esa distancia el importe exacto queda ` +
+            'como ÚNICA señal, y esa regla se aplica EN FIRME. Dos pagos iguales del mismo ' +
+            'proveedor en el mismo mes dejan de distinguirse'
+        );
+      }
+      if (engineDays !== cliDays) {
+        return falla(
+          `el motor mide ${engineDays} día(s) y match-service ${cliDays}: la CLI informaría «dentro de ` +
+            'ventana» con una vara y el REST aplicaría con otra'
+        );
+      }
+      return ok(`la ventana es de ${engineDays} día(s) y las dos superficies la comparten`);
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: '    const threeDays = 3 * 24 * 60 * 60 * 1000;',
+        a: '    const threeDays = 30 * 24 * 60 * 60 * 1000;',
+        porque:
+          'la ventana se ensancha a un mes: a esa distancia el importe exacto es la única señal y la ' +
+          'regla 2 aplica EN FIRME, así que dos pagos iguales del mismo proveedor se confunden',
+      },
+      {
+        archivo: 'src/services/banking/match-service.ts',
+        de: 'const MATCH_WINDOW_DAYS = 3;',
+        a: 'const MATCH_WINDOW_DAYS = 7;',
+        porque:
+          'las dos superficies dejan de medir lo mismo: la CLI diría «dentro de ventana» de un ' +
+          'candidato que el motor no considera cercano',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------
+  // S4 · MUTANTE 2/6 · EL PREDICADO DE LA POLÍTICA HIJA
+  //
+  // El issue lo enuncia así: «cambiar el predicado hijo a `USING (true OR …)`
+  // deja hoy las pruebas verdes». Ya no: `rls-por-su-predicado.int.spec.ts`
+  // recorre `pg_policy` y lo caza. Pero el TABLERO no podía hablar de este
+  // archivo —cuatro criterios lo leen y ninguno mira este predicado—, así que
+  // el arnés no tenía dónde declarar el espejo.
+  //
+  // EL ANCLA CIERRA EL PREDICADO POR LOS DOS LADOS: el paréntesis pegado al
+  // EXISTS por la izquierda y el cierre por la derecha. Un `true OR ` sólo cabe
+  // entre esos dos, y es ahí donde rompe. Es la lección de las anclas que no
+  // acotan: un predicado abierto por un lado se deja ampliar sin que el
+  // criterio se mueva.
+  //
+  // Lo que protege son las tablas hijas: el EXISTS es lo único que las ata a un
+  // padre visible, y neutralizarlo las abre a todos los inquilinos.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E2.1',
+    id: 'child-policy-predicate-hangs-on-parent',
+    enunciado:
+      'La política de las tablas hijas cuelga EXACTAMENTE del padre visible, sin nada que la puentee',
+    evaluar: () => {
+      const pol = codigoDe('src/database/rls-policies.sql');
+      const CHILD_PREDICATE =
+        /USING '\s*\|\|\s*'\(EXISTS \(SELECT 1 FROM public\.%I p WHERE p\.id = %I\.%I\)\)'/;
+      if (!CHILD_PREDICATE.test(pol)) {
+        return falla(
+          'el predicado de las hijas dejó de colgar EXACTAMENTE del padre: cualquier cosa entre el ' +
+            'USING y el EXISTS —un `true OR`, un OR al final— abre las hijas a todos los inquilinos ' +
+            'y RLS deja de ser la segunda cerradura que dice ser'
+        );
+      }
+      return ok('el predicado de las hijas es el EXISTS del padre y nada más');
+    },
+    mutantes: [
+      {
+        archivo: 'src/database/rls-policies.sql',
+        de: "      || '(EXISTS (SELECT 1 FROM public.%I p WHERE p.id = %I.%I))',",
+        a: "      || '(true OR EXISTS (SELECT 1 FROM public.%I p WHERE p.id = %I.%I))',",
+        porque:
+          'el `USING (true OR …)` que el issue nombra: la política de las hijas admite cualquier ' +
+          'fila y el EXISTS que las ata a un padre visible queda de adorno',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------
+  // S4 · MUTANTE 6/6 · LA TOLERANCIA DEL COTEJO, QUE ESTABA VIVO
+  //
+  // De los seis que el issue manda sembrar, éste era el único VIVO:
+  // `times(0.05)` → `times(0.95)` dejaba 5 516 pruebas en verde. La razón, al
+  // leerlas: las dos pruebas de la regla 3 usaban importes DENTRO de la banda
+  // —1020 contra 1000 es un 2 %, y el otro exacto—, así que abrirla no cambiaba
+  // ninguno de los dos veredictos. Nadie probaba el borde.
+  //
+  // QUÉ SE PIERDE AL ABRIRLA. No es una escritura automática: `auto_applicable`
+  // exige importe idéntico al centavo y se calcula fuera de la banda. Lo que se
+  // corrompe es LA PROPUESTA QUE UN HUMANO FIRMA. Y `getCandidates` ya acota a
+  // ±10 % en la base, así que el daño real no es «1 000 casa con 60» sino esto:
+  // un candidato al 8 % que hoy no nombra nadie —la regla 4 se queda en 0.64,
+  // bajo su 0.75— pasa a salir como `fuzzy_description` con confianza 1.00. Un
+  // «no sé» convertido en un nombre seguro y equivocado.
+  //
+  // EL CRITERIO AFIRMA DOS COSAS: la cifra, cerrada por la derecha; y que la
+  // prueba del borde siga existiendo. Sin la segunda se quedaría verde sobre
+  // una banda que ninguna prueba toca, que es como éste llegó a estar vivo.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E1.2',
+    id: 'fuzzy-match-band-is-narrow-and-tested',
+    enunciado:
+      'La banda de importe del cotejo difuso es del 5 %, y hay prueba que fija su borde por fuera',
+    evaluar: () => {
+      const motor = codigoDe('src/services/banking/matching.ts');
+      // SIN EL COMENTARIO EN EL ANCLA: `codigoDe` quita los comentarios antes de
+      // entregar el texto, así que exigir el «// 5% tolerance» del final ponía
+      // este criterio rojo sobre un archivo perfectamente sano. Es la regla que
+      // este archivo se aplica a sí mismo desde E0.1.
+      const banda = /const amountTolerance = txAmount\.times\((0\.\d+)\);/.exec(motor);
+      if (banda === null) {
+        return falla(
+          'la regla 3 dejó de declarar su banda de importe como una cifra legible: sin ella, lo ' +
+            'único que separa a un candidato de otro es el parecido del texto'
+        );
+      }
+      if (Number(banda[1]) > 0.05) {
+        return falla(
+          `la banda del cotejo difuso subió al ${(Number(banda[1]) * 100).toFixed(0)} %: el parecido ` +
+            'de la descripción pasa a rescatar candidatos cuyo importe ya había dicho que no, y el ' +
+            'motor nombra con confianza 1.00 lo que hoy contesta «no sé»'
+        );
+      }
+      const spec = crudoDe('tests/services/banking/matching.spec.ts');
+      if (!/amount: '1080\.0000'/.test(spec)) {
+        return falla(
+          'desapareció la prueba del candidato FUERA de la banda: sin un importe que la banda tenga ' +
+            'que rechazar, ensancharla no pone roja ninguna prueba'
+        );
+      }
+      return ok('la banda es del 5 % y hay prueba que la fija por fuera, a un 8 % de distancia');
+    },
+    mutantes: [
+      {
+        archivo: 'src/services/banking/matching.ts',
+        de: '    const amountTolerance = txAmount.times(0.05); // 5% tolerance',
+        a: '    const amountTolerance = txAmount.times(0.95); // 5% tolerance',
+        porque:
+          'el espejo que este tramo encontró VIVO: la banda deja de acotar y un candidato que hoy ' +
+          'nadie nombra sale como cotejo con confianza 1.00',
+      },
+      {
+        archivo: 'tests/services/banking/matching.spec.ts',
+        de: "candidato({ amount: '1080.0000' })",
+        a: "candidato({ amount: '1000.0000' })",
+        porque:
+          'la prueba del borde deja de estar fuera de la banda: volvería a pasar con la tolerancia ' +
+          'abierta, que es como el mutante de la banda sobrevivió hasta hoy',
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------
+  // S4 · EL MANUAL DEL AGENTE DICE LO QUE EL CLASIFICADOR HACE
+  //
+  // `mexico-cfdi.md` enseñaba «PUE → the expense is credited against BANKS»
+  // mientras `cfdi-taxonomy.ts` abona a `cxp` en LOS DOS casos recibidos, y su
+  // propia nota advierte que abonar al banco DUPLICARÍA la salida cuando llegue
+  // el movimiento bancario. Un agente que siguiera el manual redactaba el
+  // asiento al revés, y el error sólo aparecía al conciliar.
+  //
+  // Y ESTABA SELLADO COMO REVISADO. `corpus-manifiesto` compara el sha de la
+  // FUENTE: caza que el código cambió bajo un manual, no que el manual nunca
+  // fue cierto. Uno que nace equivocado pasa esa compuerta para siempre. Por
+  // eso este criterio no mira el sello: cruza la afirmación NORMATIVA con el
+  // código que la ejecuta.
+  //
+  // No valida el manual entero —eso no lo hace un regex—. Ata la única
+  // afirmación cuyo error se paga dos veces en el mayor.
+  // ---------------------------------------------------------------
+  {
+    paquete: 'E1.2',
+    id: 'cfdi-manual-credits-what-the-classifier-credits',
+    enunciado:
+      'El manual del agente no manda abonar al banco un CFDI recibido, porque el clasificador abona a proveedores',
+    evaluar: () => {
+      const manual = crudoDe('src/ai/docs/mexico-cfdi.md');
+      const taxonomia = codigoDe('src/services/xml-ingestion/cfdi-taxonomy.ts');
+
+      for (const kind of ['ingreso_recibido_pue', 'ingreso_recibido_ppd']) {
+        const i = taxonomia.indexOf(`id: '${kind}'`);
+        if (i === -1) return falla(`el clasificador perdió el caso ${kind}`);
+        const cuerpo = taxonomia.slice(i, i + 2200);
+        if (!/role: 'cxp', side: 'credit'/.test(cuerpo)) {
+          return falla(
+            `${kind} dejó de abonar a 'cxp'. Si abona al banco, la salida de efectivo se cuenta dos ` +
+              'veces: una aquí y otra al conciliar el extracto'
+          );
+        }
+      }
+
+      if (/credited against BANKS/i.test(manual)) {
+        return falla(
+          'mexico-cfdi.md vuelve a mandar abonar al banco un CFDI recibido, y el clasificador abona ' +
+            'a proveedores: el agente redactaría el asiento al revés y el error sólo aparecería al ' +
+            'conciliar, duplicada ya la salida'
+        );
+      }
+      if (!/NEVER BANKS/i.test(manual)) {
+        return falla(
+          'el manual dejó de decir expresamente que no se abona al banco. La compuerta del corpus no ' +
+            'lo caza: compara el sha de la FUENTE, no si el manual es cierto'
+        );
+      }
+      return ok('el manual manda abonar a proveedores, que es lo que los dos casos recibidos hacen');
+    },
+    mutantes: [
+      {
+        archivo: 'src/ai/docs/mexico-cfdi.md',
+        de: 'BOTH PUE AND PPD CREDIT VENDORS (AP), NEVER BANKS.',
+        a: 'PUE (single-payment) → the expense is credited against BANKS.',
+        porque:
+          'el manual vuelve al texto que mal-instruía: el agente abona al banco y la salida se cuenta ' +
+          'dos veces cuando llega el movimiento',
+      },
+      {
+        archivo: 'src/services/xml-ingestion/cfdi-taxonomy.ts',
+        de: "{ role: 'cxp', side: 'credit', amount: A.total, description: 'Vendor' },",
+        a: "{ role: 'banco', side: 'credit', amount: A.total, description: 'Vendor' },",
+        porque:
+          'el clasificador se va al banco y el manual se queda diciendo proveedores: la pareja tiene ' +
+          'que acusar el desacuerdo venga del lado que venga, y éste es el lado que duplica la salida',
+      },
+    ],
+  },
+
   {
     paquete: 'E0.3',
     id: 'reconciled-mark-atomic-unapply-closes',
@@ -11138,6 +11480,63 @@ export const CRITERIOS: Criterio[] = [
               'sin él se repartiría dinero que el pago no tiene'
           );
     },
+  },
+  {
+    paquete: 'E1.2',
+    id: 'exchange-rate-refuses-to-pick-a-source',
+    enunciado:
+      'Con dos fuentes publicadas el mismo día, el tipo de cambio no se elige por orden físico: el esquema se niega y las nombra',
+    evaluar: () => {
+      // POR QUÉ NACE (T1, issue #88). `get_exchange_rate()` se escribió en la
+      // 001 para un mundo de UNA tasa por par y día. La 057 cambió ese mundo:
+      // metió `source` en la unicidad para que DOF y el FIX de Banxico
+      // convivieran a propósito. La función no se redefinió, así que su
+      // `ORDER BY effective_date DESC LIMIT 1` sin desempate contestaba la fila
+      // que Postgres leyera primero. Eso es orden FÍSICO: se mueve con un
+      // VACUUM, una reescritura o una restauración de respaldo, y las dos
+      // respuestas eran indistinguibles para el sistema.
+      //
+      // Elegir DOF sobre FIX es criterio FISCAL, y esta casa ya decidió dónde
+      // se decide eso: la política `fuente_tipo_cambio`. Así que el esquema no
+      // elige — levanta FX001 — y quien sabe cuál quiere lo pide.
+      const sql = crudoDe('src/database/migrations/084_the_rate_is_not_chosen_by_physical_order.sql');
+      if (!/p_source\s+VARCHAR\(100\)\s+DEFAULT\s+NULL/.test(sql)) {
+        return falla(
+          'la 084 dejó de admitir `p_source`: sin ella no hay forma de pedir una fuente y la ' +
+            'ambigüedad vuelve a resolverse sola'
+        );
+      }
+      const raises = sql.match(/USING ERRCODE = 'FX001'/g) ?? [];
+      if (raises.length < 2) {
+        return falla(
+          `la 084 levanta FX001 en ${raises.length} de los dos caminos que leen una fila ` +
+            '(directo e inverso): el que no lo haga vuelve a contestar por orden físico'
+        );
+      }
+      // Y el servicio tiene que TRADUCIRLO. Un FX001 crudo dice que algo pasó;
+      // el operador necesita las fuentes y la bandera que las desempata.
+      const svc = crudoDe('src/services/fx/rate-service.ts');
+      if (!/code !== 'FX001'/.test(svc) || !/FX_AMBIGUOUS_SOURCE/.test(svc)) {
+        return falla(
+          'rate-service dejó de traducir FX001: `fx rate show` volvería a escupir un error de ' +
+            'Postgres sin decir qué fuentes hay ni cómo elegir una'
+        );
+      }
+      if (!/--source/.test(crudoDe('src/cli/fx-command.ts'))) {
+        return falla('`fx rate show` se quedó sin --source: no hay cómo pedir la fuente que se quiere');
+      }
+      return ok('la ambigüedad de fuente se niega en el esquema, se traduce en el servicio y se resuelve con --source');
+    },
+    mutantes: [
+      {
+        archivo: 'src/database/migrations/084_the_rate_is_not_chosen_by_physical_order.sql',
+        de: "                USING ERRCODE = 'FX001';",
+        a: '                ;',
+        porque:
+          'el esquema vuelve a elegir entre DOF y FIX por el orden en que lea las filas, y la ' +
+          'respuesta cambia sola con un VACUUM sin que nada lo diga',
+      },
+    ],
   },
 
   // ============================================================

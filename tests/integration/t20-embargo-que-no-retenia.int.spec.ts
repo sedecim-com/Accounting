@@ -46,16 +46,16 @@ const ENTRADA = {
 /**
  * F08 · LOS CAPS AHORA VIAJAN EN EL FIXTURE, Y NO ES COSMÉTICA.
  *
- * La 084 puso CHECK sobre `metadata`: un embargo fiscal necesita su
+ * La 085 puso CHECK sobre `metadata`: un embargo fiscal necesita su
  * `exempt_amount` y una orden de manutención sus DOS respuestas de la CCPA,
  * cada una como booleano de verdad. Este ayudante daba de alta las cuatro
- * clases de orden con la exención a secas, así que desde la 084 las dos líneas
+ * clases de orden con la exención a secas, así que desde la 085 las dos líneas
  * de manutención de abajo morirían con 23514 antes de llegar al motor.
  *
  * Los dos booleanos van en `false`, que es EXACTAMENTE lo que el motor deducía
- * antes de la 084 cuando las llaves faltaban (`|| false`): las cifras que esta
+ * antes de la 085 cuando las llaves faltaban (`|| false`): las cifras que esta
  * prueba afirma —500 y 1 800— no se mueven ni un centavo. Lo que cambia es que
- * ahora están escritas en vez de supuestas, que es todo el punto de la 084.
+ * ahora están escritas en vez de supuestas, que es todo el punto de la 085.
  */
 const CAPS = '{"exempt_amount":"200","supports_second_family":false,"arrears_over_12_weeks":false}';
 
@@ -125,7 +125,7 @@ describe('el vocabulario que la columna documenta es el que retiene', () => {
 
 describe('la restricción que impide que vuelva a pasar', () => {
   it('la base ya no admite el vocabulario viejo', async () => {
-    // Los topes van puestos A PROPÓSITO: desde la 084 una orden de manutención
+    // Los topes van puestos A PROPÓSITO: desde la 085 una orden de manutención
     // sin ellos también sale 23514, y entonces este caso pasaría por la
     // restricción equivocada — verde por un motivo que no es el suyo.
     await expect(
