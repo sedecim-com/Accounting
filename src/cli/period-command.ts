@@ -444,7 +444,10 @@ export function registerPeriodCommand(program: Command, deps: PeriodCommandDeps)
         // literales y el tipo en enum.)
         const estado = target.status as string;
         if (estado === 'open') {
-          throw new AccountingError('PERIOD_ALREADY_OPEN', `${target.period_name} ya está abierto.`);
+          throw new AccountingError('PERIOD_ALREADY_OPEN', {
+            key: 'error.PERIOD_ALREADY_OPEN',
+            params: { period: target.period_name },
+          });
         }
         if (estado === 'locked') {
           throw new AccountingError(
