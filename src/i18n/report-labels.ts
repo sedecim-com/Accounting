@@ -73,3 +73,65 @@ function isKnown(key: TranslationKey): boolean {
     return false;
   }
 }
+
+// ============================================================
+// THE SAME LABELS, FOR A PUBLISHED CONTRACT (I11 · 3)
+//
+// `key` is the identity and `name` the LOCALIZED label — decided in #153, and
+// the reason nothing is retired: an API that answered only the key would hand
+// every dashboard the job of translating it. The CLI composes its labels at
+// print time because its row is also a machine format; an HTTP body has no
+// such split, so the section travels with its label already rendered.
+//
+// The language is the one the REQUEST negotiated, never the process's: the
+// caller passes it in. That is the whole reason these labels are not resolved
+// inside the service (see the header of this file).
+// ============================================================
+
+/** The shape both statements publish: a key, a label, and possibly subsections. */
+export interface LabelledSection {
+  readonly key: string;
+  readonly name: string;
+  readonly subsections?: readonly { readonly key: string; readonly name: string }[];
+}
+
+/**
+ * The same section with `name` rendered in `language`, subsections included.
+ *
+ * Subsections are keyed by `fs_category`, sections by their own key, and
+ * `result_of_the_period` lives among the subsections of equity while being
+ * named like a section — so it is looked up in both tables, section first.
+ */
+export function localizedSection<T extends LabelledSection>(section: T, language: Language): T {
+  const named = { ...section, name: reportSectionLabel(section.key, language) };
+  if (section.subsections === undefined) return named;
+  return {
+    ...named,
+    subsections: section.subsections.map((sub) => ({
+      ...sub,
+      name: subsectionLabel(sub.key, language),
+    })),
+  };
+}
+
+/**
+ * A subsection is keyed by `fs_category`, so its CATEGORY label wins.
+ *
+ * The lookup order is not a detail. `equity` is BOTH a section key and a
+ * legitimate `fs_category` of migration 078's CHECK, and asking the section
+ * table first labels the subsection with the name of its own parent —
+ * «Capital contable» inside «Capital contable», which is precisely the
+ * collision the catalog was written to kill, surviving the translation. Worse,
+ * it made the CLI and the API name the same account differently, and it erased
+ * the distinction the 078 states in its own COMMENT: telling `ori` from
+ * `equity` is what keeps a revaluation from reading as a shareholder
+ * contribution.
+ *
+ * The section table is the FALLBACK, and it has exactly one customer:
+ * `result_of_the_period`, which travels among equity's subsections while being
+ * named like a section and has no `fs_category` of its own.
+ */
+function subsectionLabel(key: string, language: Language): string {
+  const asCategory = reportCategoryLabel(key, language);
+  return asCategory === key ? reportSectionLabel(key, language) : asCategory;
+}

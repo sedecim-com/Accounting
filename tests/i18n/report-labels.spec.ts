@@ -4,6 +4,7 @@ import {
   REPORT_SECTION_KEYS,
   reportCategoryLabel,
   reportSectionLabel,
+  localizedSection,
 } from '../../src/i18n/report-labels.js';
 import { crudoDe } from '../../src/plan/criterios.js';
 import { AccountType, FSCategory } from '../../src/types/index.js';
@@ -281,5 +282,62 @@ describe('the catalog covers the domain the database can actually store', () => 
       expect(reportCategoryLabel(key, 'es'), `fs_category "${key}" has no Spanish label`).not.toBe(key);
       expect(reportCategoryLabel(key, 'en'), `fs_category "${key}" has no English label`).not.toBe(key);
     }
+  });
+});
+
+// ============================================================
+// THE LOOKUP ORDER OF A SUBSECTION (I11 · 3)
+//
+// `equity` is BOTH a section key and a legitimate `fs_category` of migration
+// 078's CHECK. The first version of `localizedSection` asked the section table
+// first, so equity's own subsection came back named «Capital contable» —
+// inside «Capital contable». That is the collision the catalog was written to
+// kill, surviving the translation, and it made the CLI and the API name the
+// same account differently: the CLI labels that column with
+// `reportCategoryLabel`, which answers «Capital contribuido».
+//
+// It also erased what migration 078 states in its own COMMENT: telling `ori`
+// from `equity` is what keeps a revaluation from reading as a shareholder
+// contribution.
+// ============================================================
+describe('localizedSection — a subsection is named by its fs_category', () => {
+  const equity = {
+    key: 'equity',
+    name: 'Equity',
+    subsections: [
+      { key: 'equity', name: 'Equity' },
+      { key: 'ori', name: 'Ori' },
+      { key: 'result_of_the_period', name: 'Result Of The Period' },
+    ],
+  };
+
+  it('the equity subsection is not named after its own parent section', () => {
+    const es = localizedSection(equity, 'es');
+    expect(es.name).toBe('Capital contable');
+    expect(es.subsections[0].name).toBe('Capital contribuido');
+    expect(es.subsections[0].name).not.toBe(es.name);
+  });
+
+  it('the same in English, where the raw collision was «Equity» inside «Equity»', () => {
+    const en = localizedSection(equity, 'en');
+    expect(en.name).toBe('Equity');
+    expect(en.subsections[0].name).toBe('Contributed capital');
+  });
+
+  it('ori keeps its own name, which is what tells a revaluation from a contribution', () => {
+    expect(localizedSection(equity, 'es').subsections[1].name).toBe('Otros resultados integrales');
+    expect(localizedSection(equity, 'en').subsections[1].name).toBe('Other comprehensive income');
+  });
+
+  it('the section table is the fallback, and result_of_the_period is its one customer', () => {
+    expect(localizedSection(equity, 'es').subsections[2].name).toBe('Utilidad (pérdida) del ejercicio');
+    expect(localizedSection(equity, 'en').subsections[2].name).toBe('Profit (loss) for the period');
+  });
+
+  it('the keys never move, whatever the language', () => {
+    const es = localizedSection(equity, 'es');
+    const en = localizedSection(equity, 'en');
+    expect(es.key).toBe('equity');
+    expect(es.subsections.map((s) => s.key)).toEqual(en.subsections.map((s) => s.key));
   });
 });

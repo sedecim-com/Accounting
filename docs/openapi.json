@@ -3,7 +3,7 @@
   "info": {
     "title": "mnemosine — Accounting Core API",
     "version": "1.0.0",
-    "description": "Generated from the running Express stack, never written by hand. Every path, method, request body, required permission and risk class below is read out of the handlers the server actually mounts (src/api/rest/openapi.ts), so a route that changes shows up changed and a route that is added shows up on its own.\n\n## Extensions\n\n- `x-riesgo` — the class the route declares: `lectura` (reads only), `escritura` (reversible write), `irreversible` (posts to the ledger, voids, deletes — repeating it is not the same as doing it once), `externo` (reaches a PAC, the SAT, a bank, a mailbox). Operations with no `x-riesgo` are GET routes with no declaration, which the server reads as `lectura`. A POST, PUT, PATCH or DELETE can never be missing it: the server refuses to boot.\n- `x-exige-llave-de-idempotencia` — true where a retry is not free. Those operations accept the `Idempotency-Key` header; see its description for the exact contract.\n- `x-alcance-idempotencia` — the scope a key is stored under. The same key on two different operations is two different keys.\n- `x-exige-marcha-seca` / `x-exige-compuerta-en-vivo` — the route must be able to show its effect before performing it, and (for `externo`) talks to a sandbox unless live is opted in.\n- `x-agente-permitido` — whether the LLM agent may call this on its own. False on every mutating route today.\n- `x-escribe` — the declaration’s own words about what the route writes.\n- `x-permisos-requeridos` — ALL of them are required, not any one. The `*` wildcard passes.\n- `x-claves-desconocidas` (on object schemas) — `descartadas`: unknown keys validate and are then silently dropped; `conservadas`: they validate and are kept. JSON Schema cannot say the difference, and it is the difference between a field being stored and a field vanishing.\n- `x-validacion-adicional` — the body also passes a cross-field predicate that JSON Schema cannot express (for example \"company_name or first_name\", \"debit or credit, not both\"). Validating against this schema alone is not enough to know the request will be accepted.\n\n## What is not here\n\nSuccess responses. Their shape lives inside the handler bodies, which the census does not read, and inventing them would be the exact defect this document exists to avoid. Only the errors that are provably produced by the mounted chain are listed.\n\nSecurity on operations without `security`. Authentication is mounted on the `/v1` prefix, outside the route chain, so it is not visible to the census; the absence of `security` means \"not derivable\", not \"public\".\n\nThe body of an operation with no `requestBody`. No `requestBody` means the route has no `validateBody` in its chain, which is all the census can tell; it does NOT mean the route takes no body. 17 mutating routes read fields straight out of `req.body` and reject the request when they are missing — `POST /v1/invoices/{id}/cfdi/cancel` needs `cancellation_reason`, and publishes nothing. Until those routes declare a schema, a client generated from this document cannot call them.\n\nWhether a handler will accept a body this schema accepts. `requestBody` is the schema `validateBody` applies, and that is the whole of what the census can see: a handler can still reject the request from inside its own body, and 40 such checks live across 8 route files today. Passing this schema proves the request is well formed, not that it will be accepted. Where such a rule fits in the schema it belongs there instead — that is the only way this document can carry it.\n\nWhether a path is switched on. `/public/v1/**` is only served with PUBLIC_VERIFICATION_ENABLED=true; the flag decides whether those routes answer, not whether they exist.\n\nBodies are JSON and capped at 10 MB by the global parser. `/v1/ai/webhooks/**` is the exception: it reads raw bytes with its own 1 MB cap."
+    "description": "Generated from the running Express stack, never written by hand. Every path, method, request body, required permission and risk class below is read out of the handlers the server actually mounts (src/api/rest/openapi.ts), so a route that changes shows up changed and a route that is added shows up on its own.\n\n## Extensions\n\n- `x-riesgo` — the class the route declares: `lectura` (reads only), `escritura` (reversible write), `irreversible` (posts to the ledger, voids, deletes — repeating it is not the same as doing it once), `externo` (reaches a PAC, the SAT, a bank, a mailbox). Operations with no `x-riesgo` are GET routes with no declaration, which the server reads as `lectura`. A POST, PUT, PATCH or DELETE can never be missing it: the server refuses to boot.\n- `x-exige-llave-de-idempotencia` — true where a retry is not free. Those operations accept the `Idempotency-Key` header; see its description for the exact contract.\n- `x-alcance-idempotencia` — the scope a key is stored under. The same key on two different operations is two different keys.\n- `x-exige-marcha-seca` / `x-exige-compuerta-en-vivo` — the route must be able to show its effect before performing it, and (for `externo`) talks to a sandbox unless live is opted in.\n- `x-agente-permitido` — whether the LLM agent may call this on its own. False on every mutating route today.\n- `x-escribe` — the declaration’s own words about what the route writes.\n- `x-permisos-requeridos` — ALL of them are required, not any one. The `*` wildcard passes.\n- `x-claves-desconocidas` (on object schemas) — `descartadas`: unknown keys validate and are then silently dropped; `conservadas`: they validate and are kept. JSON Schema cannot say the difference, and it is the difference between a field being stored and a field vanishing.\n- `x-validacion-adicional` — the body also passes a cross-field predicate that JSON Schema cannot express (for example \"company_name or first_name\", \"debit or credit, not both\"). Validating against this schema alone is not enough to know the request will be accepted.\n\n## Language\n\nEvery request negotiates a language from `Accept-Language` (`es-MX` or `en-US`; `es-MX` when the header is absent). What a response DECLARES about it — `Content-Language` and `meta.language` — depends on whether it has anything localized to declare, and the two answers below are one rule, not two policies.\n\nAn error declares its language ONLY when its `message` really came from a catalog key. Most messages are still prose written in whatever language they were written in, and announcing a language over prose would name one the text may not be in.\n\n`GET /v1/reports/balance-sheet` and `GET /v1/reports/income-statement` declare it on EVERY answer, because every section label they publish is rendered from a key and there is no prose left to be silent about. They also send `Vary: Accept-Language`, which is what keeps a cache from serving one language to a caller who asked for the other. Their sections carry both `key` — the identity, stable across languages, the one to GROUP and COMPARE by — and `name` — the label already translated, the one to DISPLAY. See the `LabelledSection` schema.\n\n## What is not here\n\nSuccess responses, with one exception. Their shape lives inside the handler bodies, which the census does not read, and inventing them would be the exact defect this document exists to avoid; only the errors that are provably produced by the mounted chain are listed. The exception is the two statements above, whose 200 states the two headers they always send and the `key`/`name` pair every section carries — a caller cannot consume those bodies without knowing which of the two to group by and which to print. Nothing else of those bodies is described, and those two paths are the only per-route fact in this whole document that is written rather than read: generation fails if either path leaves the census, or if a report section stops being accounted for (src/api/rest/openapi.ts, LABELLED_STATEMENTS).\n\nSecurity on operations without `security`. Authentication is mounted on the `/v1` prefix, outside the route chain, so it is not visible to the census; the absence of `security` means \"not derivable\", not \"public\".\n\nThe body of an operation with no `requestBody`. No `requestBody` means the route has no `validateBody` in its chain, which is all the census can tell; it does NOT mean the route takes no body. 17 mutating routes read fields straight out of `req.body` and reject the request when they are missing — `POST /v1/invoices/{id}/cfdi/cancel` needs `cancellation_reason`, and publishes nothing. Until those routes declare a schema, a client generated from this document cannot call them.\n\nWhether a handler will accept a body this schema accepts. `requestBody` is the schema `validateBody` applies, and that is the whole of what the census can see: a handler can still reject the request from inside its own body, and 40 such checks live across 8 route files today. Passing this schema proves the request is well formed, not that it will be accepted. Where such a rule fits in the schema it belongs there instead — that is the only way this document can carry it.\n\nWhether a path is switched on. `/public/v1/**` is only served with PUBLIC_VERIFICATION_ENABLED=true; the flag decides whether those routes answer, not whether they exist.\n\nBodies are JSON and capped at 10 MB by the global parser. `/v1/ai/webhooks/**` is the exception: it reads raw bytes with its own 1 MB cap."
   },
   "paths": {
     "/public/v1/bitcoin/proof/{entryHash}": {
@@ -8722,6 +8722,68 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "The statement. Its sections (`assets`, `liabilities`, `equity`) carry their labels ALREADY RENDERED in the negotiated language, and the response declares that language in both places a caller looks: the `Content-Language` header and `meta.language`. Unlike an error, it declares it on EVERY answer — every label here comes from a catalog key, so there is no prose to be silent about. Described below is only that: the rest of the body (totals, account lines, the balancing fields) is not published, for the reason under \"What is not here\".",
+            "headers": {
+              "Content-Language": {
+                "$ref": "#/components/headers/ContentLanguageOfLabels"
+              },
+              "Vary": {
+                "$ref": "#/components/headers/VaryAcceptLanguage"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "assets": {
+                          "$ref": "#/components/schemas/LabelledSection"
+                        },
+                        "liabilities": {
+                          "$ref": "#/components/schemas/LabelledSection"
+                        },
+                        "equity": {
+                          "$ref": "#/components/schemas/LabelledSection"
+                        }
+                      },
+                      "required": [
+                        "assets",
+                        "liabilities",
+                        "equity"
+                      ],
+                      "additionalProperties": true
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "language": {
+                          "type": "string",
+                          "enum": [
+                            "es",
+                            "en"
+                          ],
+                          "description": "The language every `name` in `data` was rendered in — the same one `Content-Language` names, as a bare language tag (`es` when the request sends no Accept-Language). ALWAYS PRESENT on this operation, which is where it differs from the `meta.language` of an error envelope."
+                        }
+                      },
+                      "required": [
+                        "language"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
           "401": {
             "$ref": "#/components/responses/NoAutenticado"
           },
@@ -8821,6 +8883,64 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "The statement. Its sections (`revenue`, `expenses`) carry their labels ALREADY RENDERED in the negotiated language, and the response declares that language in both places a caller looks: the `Content-Language` header and `meta.language`. Unlike an error, it declares it on EVERY answer — every label here comes from a catalog key, so there is no prose to be silent about. Described below is only that: the rest of the body (totals, account lines, the balancing fields) is not published, for the reason under \"What is not here\".",
+            "headers": {
+              "Content-Language": {
+                "$ref": "#/components/headers/ContentLanguageOfLabels"
+              },
+              "Vary": {
+                "$ref": "#/components/headers/VaryAcceptLanguage"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "revenue": {
+                          "$ref": "#/components/schemas/LabelledSection"
+                        },
+                        "expenses": {
+                          "$ref": "#/components/schemas/LabelledSection"
+                        }
+                      },
+                      "required": [
+                        "revenue",
+                        "expenses"
+                      ],
+                      "additionalProperties": true
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "language": {
+                          "type": "string",
+                          "enum": [
+                            "es",
+                            "en"
+                          ],
+                          "description": "The language every `name` in `data` was rendered in — the same one `Content-Language` names, as a bare language tag (`es` when the request sends no Accept-Language). ALWAYS PRESENT on this operation, which is where it differs from the `meta.language` of an error envelope."
+                        }
+                      },
+                      "required": [
+                        "language"
+                      ],
+                      "additionalProperties": true
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
           "401": {
             "$ref": "#/components/responses/NoAutenticado"
           },
@@ -10889,9 +11009,64 @@
         "required": [
           "errors"
         ]
+      },
+      "LabelledSection": {
+        "type": "object",
+        "description": "One section of a financial statement. `key` is the IDENTITY and `name` is the LABEL, already translated. Both travel: an API that answered only the key would hand every dashboard the job of translating it, and one that answered only the label would leave nothing stable to group by (#153).",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "THE IDENTITY — GROUP, MATCH, PERSIST AND COMPARE BY THIS. It does not change with Accept-Language: the same section answers the same `key` to a Spanish and to an English request. Top-level sections use one of `assets`, `liabilities`, `equity`, `revenue`, `expenses`; subsections use the stored `fs_category` of the accounts under them (`other` when an account has none), plus `result_of_the_period`, which sits among the subsections of equity."
+          },
+          "name": {
+            "type": "string",
+            "description": "THE LABEL — DISPLAY THIS, never `key`. Already rendered in the language that `Content-Language` and `meta.language` name, so the caller translates nothing. It changes with the request, which is exactly why it is not an identity: the same section asked for twice in two languages comes back with one `key` and two `name`s. A key the catalog does not know renders as the key itself rather than failing the report (src/i18n/report-labels.ts)."
+          },
+          "subsections": {
+            "type": "array",
+            "description": "Present on the balance-sheet sections, absent on the income-statement ones. Each entry carries the same `key`/`name` pair, with the label rendered one level down and no deeper.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "name"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "key",
+          "name"
+        ],
+        "additionalProperties": true
       }
     },
     "headers": {
+      "ContentLanguageOfLabels": {
+        "description": "The locale the section LABELS were rendered in, negotiated from Accept-Language (src/api/rest/middleware/locale.ts; es-MX when the request sends none). SENT ON EVERY ANSWER of the operation that declares it, together with `Vary: Accept-Language`. That is where it parts company with the header of the same name on an error, and the difference is not a second policy: an error declares its language only when its `message` really came from a catalog key, because most messages are still prose and naming a language over prose is a guess. Here every label is rendered from a key, so the declaration is always true.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "es-MX",
+            "en-US"
+          ]
+        }
+      },
+      "VaryAcceptLanguage": {
+        "description": "Includes `Accept-Language`. The labels in the body change with the negotiated language while the URL does not, so a cache that ignored this would hand a Spanish balance sheet to the next caller who asked for English.",
+        "schema": {
+          "type": "string"
+        }
+      },
       "ContentLanguage": {
         "description": "The locale the `message` was rendered in, negotiated from Accept-Language (src/api/rest/middleware/locale.ts; es-MX when the request sends none). SENT ONLY on an error whose message was written by catalog key, together with `Vary: Accept-Language`. An error still written as prose — most of them today, and the INTERNAL_SERVER_ERROR body — carries no Content-Language.",
         "schema": {

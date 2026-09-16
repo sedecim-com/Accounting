@@ -6,6 +6,7 @@ import { jsonSchemaDeZod, type EsquemaJson } from './zod-a-json-schema.js';
 import { CABECERA_LLAVE, LARGO_MAX_CLAVE } from './middleware/idempotencia.js';
 import { LANGUAGES } from '../../i18n/index.js';
 import { DEFAULT_LOCALE, LOCALES, languageOfLocale } from '../../i18n/locale.js';
+import { REPORT_SECTION_KEYS, type ReportSectionKey } from '../../i18n/report-labels.js';
 
 // ============================================================
 // EL CONTRATO DE LA API, DERIVADO DE LA API.
@@ -40,6 +41,13 @@ import { DEFAULT_LOCALE, LOCALES, languageOfLocale } from '../../i18n/locale.js'
 //     publica son los errores que SÍ se derivan: los que produce la cadena
 //     que el censo ve.
 //
+//     ONE EXCEPTION since I11, and the document says so in its own prose
+//     rather than letting a reader discover it: the two statements that
+//     render their section labels publish a 200 stating the language headers
+//     they always send and the `key`/`name` pair each section carries. That
+//     much is written, not read — see LABELLED_STATEMENTS for why, and for
+//     the guards that break generation when the list stops being true.
+//
 //   · La autenticación de las rutas que no llevan `requirePermission`.
 //     `authenticate` se monta sobre el PREFIJO (`app.use('/v1', ...)`), no
 //     dentro de la cadena de la ruta, así que el censo no lo ve. Sí se
@@ -61,6 +69,106 @@ export interface OpcionesContrato {
 }
 
 type Operacion = Record<string, unknown>;
+
+// ─── the two statements that answer with their labels already rendered ───
+//
+// THE ONE PER-ROUTE FACT IN THIS DOCUMENT THAT IS WRITTEN INSTEAD OF READ,
+// said here and not hidden. Everything else about an operation comes off the
+// mounted chain; these two things cannot, because they happen INSIDE the
+// handler body, where the census does not look: `Content-Language` and `Vary`
+// go out on every answer, and each section travels with its label already
+// translated into the negotiated language. Declaring that on the route, the
+// way `declararRiesgoRuta` declares a risk class, is the fix this file has
+// been calling "otro tramo" since it was written (see the header).
+//
+// Until that exists, the list is written down and three guards keep it from
+// rotting in silence:
+//
+//   1. The section names are typed `ReportSectionKey`, so renaming a key in
+//      src/i18n/report-labels.ts fails the build right here.
+//   2. Every section key must be published by exactly one statement — except
+//      the one that is a SUBSECTION of equity — or generation throws. A
+//      seventh section cannot appear without someone saying where it belongs.
+//   3. A path named here that is missing from a census which DOES carry its
+//      family throws too: a renamed route breaks the document instead of
+//      leaving it lying about a path that now answers 404.
+//
+// What no guard here can catch is the other direction: a THIRD route that
+// starts rendering labels and is never added to this map. That one needs the
+// route-side declaration, and saying so is more useful than pretending the
+// coverage is symmetric.
+const LABELLED_STATEMENTS: ReadonlyMap<string, readonly ReportSectionKey[]> = new Map([
+  ['/v1/reports/balance-sheet', ['assets', 'liabilities', 'equity']],
+  ['/v1/reports/income-statement', ['revenue', 'expenses']],
+]);
+
+/**
+ * The section key that is NOT a statement's own section: the result of the
+ * period is presented among the subsections of equity (report-service.ts), so
+ * it is named like a section and published like a subsection.
+ */
+const SECTION_KEY_INSIDE_EQUITY: ReportSectionKey = 'result_of_the_period';
+
+/** The top-level section keys these two statements publish, in document order. */
+const PUBLISHED_SECTION_KEYS: readonly ReportSectionKey[] = [
+  ...LABELLED_STATEMENTS.values(),
+].flat();
+
+/**
+ * The three guards above, run on every generation. They throw rather than warn
+ * for the reason `auditarRiesgoDeRutas` throws: a list nobody is forced to
+ * reconcile is the parallel list this whole file exists to avoid.
+ */
+function checkLabelledStatements(byPath: Record<string, Record<string, Operacion>>): void {
+  // The presence check is asked of the surface that MOUNTS these routes, not of
+  // every router: this builder is meant to be pointed at a loose router in a
+  // test (see its docstring), and an app that never mounts `/v1/reports` has
+  // not renamed anything. The family is read off the listed path itself rather
+  // than written down again — one prefix literal is one more thing to rename.
+  const families = new Set(Object.keys(byPath).map((p) => p.slice(0, p.lastIndexOf('/'))));
+  const seen = new Set<string>();
+  for (const [statementPath, sections] of LABELLED_STATEMENTS) {
+    const family = statementPath.slice(0, statementPath.lastIndexOf('/'));
+    if (families.has(family) && byPath[statementPath]?.get === undefined) {
+      throw new Error(
+        `This document describes GET ${statementPath} as a statement that renders its labels, ` +
+          `and the census carries ${family} without it. The route was renamed or withdrawn, and ` +
+          'its language contract would have gone on being published for a path that answers ' +
+          '404. Fix LABELLED_STATEMENTS in src/api/rest/openapi.ts, or put the route back.'
+      );
+    }
+    for (const section of sections) {
+      if (seen.has(section)) {
+        throw new Error(
+          `Two statements both publish the section "${section}" as their own. A section belongs ` +
+            'to one statement; with two, the published shape of the other one is a copy that ' +
+            'stops being true the first time either changes.'
+        );
+      }
+      seen.add(section);
+    }
+  }
+  if (seen.has(SECTION_KEY_INSIDE_EQUITY)) {
+    throw new Error(
+      `"${SECTION_KEY_INSIDE_EQUITY}" is published as a top-level section, and it is not one: ` +
+        'the result of the period is pushed into the subsections of equity ' +
+        '(src/services/reporting/report-service.ts). Publishing it as a section would promise a ' +
+        'field of the body that no handler writes.'
+    );
+  }
+  const orphans = REPORT_SECTION_KEYS.filter(
+    (k) => k !== SECTION_KEY_INSIDE_EQUITY && !seen.has(k)
+  );
+  if (orphans.length > 0) {
+    throw new Error(
+      `${orphans.length} report section(s) belong to no published statement: ` +
+        `${orphans.join(', ')}. A section that renders a label and is named nowhere here goes ` +
+        'out with a translated `name` that the contract never mentions. Add it to the statement ' +
+        'that publishes it, or say why it is a subsection like ' +
+        `"${SECTION_KEY_INSIDE_EQUITY}".`
+    );
+  }
+}
 
 /**
  * Construye el documento OpenAPI de una app —o de un router— recorriendo su
@@ -106,6 +214,8 @@ export function construirOpenAPI(
     caminos[camino] ??= {};
     caminos[camino][r.metodo] = operacion;
   }
+
+  checkLabelledStatements(caminos);
 
   return {
     openapi: VERSION_OPENAPI,
@@ -175,7 +285,12 @@ function operacionDe(r: RutaCensada, camino: string): Operacion {
     };
   }
 
-  op.responses = respuestas(Boolean(esquema), Boolean(permisos), riesgo?.exigeLlaveDeIdempotencia);
+  op.responses = respuestas(
+    Boolean(esquema),
+    Boolean(permisos),
+    riesgo?.exigeLlaveDeIdempotencia,
+    r.metodo === 'get' ? LABELLED_STATEMENTS.get(camino) : undefined
+  );
   return op;
 }
 
@@ -194,13 +309,19 @@ function resumen(r: RutaCensada, clase: string | undefined): string {
  * produce el guardián de idempotencia cuando la misma llave llega con otra
  * carga, y el 500 lo produce `errorHandler` para todo lo que no sea un
  * `AppError`. No hay ninguna que se haya supuesto.
+ *
+ * The 200 is the single exception, and only for the two statements that render
+ * their section labels: see LABELLED_STATEMENTS for why it is written and what
+ * breaks when it stops being true.
  */
 function respuestas(
   conCuerpo: boolean,
   conPermiso: boolean,
-  conLlave: boolean | undefined
+  conLlave: boolean | undefined,
+  sections: readonly ReportSectionKey[] | undefined
 ): Record<string, unknown> {
   const r: Record<string, unknown> = {};
+  if (sections) r['200'] = labelledStatementResponse(sections);
   if (conPermiso) {
     r['401'] = { $ref: '#/components/responses/NoAutenticado' };
     r['403'] = { $ref: '#/components/responses/SinPermiso' };
@@ -311,6 +432,117 @@ const ESQUEMA_ERROR: EsquemaJson = {
   required: ['errors'],
 };
 
+/**
+ * A section of a statement, as the two labelled statements publish it.
+ *
+ * TWO FIELDS, TWO JOBS. Confusing them is the failure this shape exists to
+ * prevent, so the contract says which is which instead of leaving it to be
+ * inferred from a sample response.
+ */
+const LABELLED_SECTION_SCHEMA: EsquemaJson = {
+  type: 'object',
+  description:
+    'One section of a financial statement. `key` is the IDENTITY and `name` is the LABEL, ' +
+    'already translated. Both travel: an API that answered only the key would hand every ' +
+    'dashboard the job of translating it, and one that answered only the label would leave ' +
+    'nothing stable to group by (#153).',
+  properties: {
+    key: {
+      type: 'string',
+      description:
+        'THE IDENTITY — GROUP, MATCH, PERSIST AND COMPARE BY THIS. It does not change with ' +
+        'Accept-Language: the same section answers the same `key` to a Spanish and to an ' +
+        'English request. Top-level sections use one of ' +
+        `${PUBLISHED_SECTION_KEYS.map((k) => `\`${k}\``).join(', ')}; subsections use the stored ` +
+        '`fs_category` of the accounts under them (`other` when an account has none), plus ' +
+        `\`${SECTION_KEY_INSIDE_EQUITY}\`, which sits among the subsections of equity.`,
+    },
+    name: {
+      type: 'string',
+      description:
+        'THE LABEL — DISPLAY THIS, never `key`. Already rendered in the language that ' +
+        '`Content-Language` and `meta.language` name, so the caller translates nothing. It ' +
+        'changes with the request, which is exactly why it is not an identity: the same ' +
+        'section asked for twice in two languages comes back with one `key` and two `name`s. A ' +
+        'key the catalog does not know renders as the key itself rather than failing the ' +
+        'report (src/i18n/report-labels.ts).',
+    },
+    subsections: {
+      type: 'array',
+      description:
+        'Present on the balance-sheet sections, absent on the income-statement ones. Each entry ' +
+        'carries the same `key`/`name` pair, with the label rendered one level down and no ' +
+        'deeper.',
+      items: {
+        type: 'object',
+        properties: { key: { type: 'string' }, name: { type: 'string' } },
+        required: ['key', 'name'],
+        additionalProperties: true,
+      },
+    },
+  },
+  required: ['key', 'name'],
+  // The section also carries its total and its account lines. Those are NOT
+  // described here: they live inside the handler body like every other success
+  // shape, and this document does not invent them. What I11 put on the wire —
+  // the key and the translated label — is what it states.
+  additionalProperties: true,
+};
+
+/** The 200 of a statement that renders its labels. Only what I11 published. */
+function labelledStatementResponse(sections: readonly ReportSectionKey[]): EsquemaJson {
+  const list = sections.map((s) => `\`${s}\``).join(', ');
+  return {
+    description:
+      `The statement. Its sections (${list}) carry their labels ALREADY RENDERED in the ` +
+      'negotiated language, and the response declares that language in both places a caller ' +
+      'looks: the `Content-Language` header and `meta.language`. Unlike an error, it declares ' +
+      'it on EVERY answer — every label here comes from a catalog key, so there is no prose to ' +
+      'be silent about. Described below is only that: the rest of the body (totals, account ' +
+      'lines, the balancing fields) is not published, for the reason under "What is not here".',
+    headers: {
+      'Content-Language': { $ref: '#/components/headers/ContentLanguageOfLabels' },
+      Vary: { $ref: '#/components/headers/VaryAcceptLanguage' },
+    },
+    content: {
+      'application/json': {
+        schema: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'object',
+              properties: Object.fromEntries(
+                sections.map((s) => [s, { $ref: '#/components/schemas/LabelledSection' }])
+              ),
+              required: [...sections],
+              additionalProperties: true,
+            },
+            meta: {
+              type: 'object',
+              properties: {
+                language: {
+                  type: 'string',
+                  enum: [...LANGUAGES],
+                  description:
+                    'The language every `name` in `data` was rendered in — the same one ' +
+                    '`Content-Language` names, as a bare language tag ' +
+                    `(\`${languageOfLocale(DEFAULT_LOCALE)}\` when the request sends no ` +
+                    'Accept-Language). ALWAYS PRESENT on this operation, which is where it ' +
+                    'differs from the `meta.language` of an error envelope.',
+                },
+              },
+              required: ['language'],
+              additionalProperties: true,
+            },
+          },
+          required: ['data', 'meta'],
+          additionalProperties: true,
+        },
+      },
+    },
+  };
+}
+
 function respuesta(descripcion: string): EsquemaJson {
   return {
     description: descripcion,
@@ -320,8 +552,27 @@ function respuesta(descripcion: string): EsquemaJson {
 }
 
 const COMPONENTES: Record<string, unknown> = {
-  schemas: { Error: ESQUEMA_ERROR },
+  schemas: { Error: ESQUEMA_ERROR, LabelledSection: LABELLED_SECTION_SCHEMA },
   headers: {
+    ContentLanguageOfLabels: {
+      description:
+        'The locale the section LABELS were rendered in, negotiated from Accept-Language ' +
+        `(src/api/rest/middleware/locale.ts; ${DEFAULT_LOCALE} when the request sends none). ` +
+        'SENT ON EVERY ANSWER of the operation that declares it, together with ' +
+        '`Vary: Accept-Language`. That is where it parts company with the header of the same ' +
+        'name on an error, and the difference is not a second policy: an error declares its ' +
+        'language only when its `message` really came from a catalog key, because most messages ' +
+        'are still prose and naming a language over prose is a guess. Here every label is ' +
+        'rendered from a key, so the declaration is always true.',
+      schema: { type: 'string', enum: [...LOCALES] },
+    },
+    VaryAcceptLanguage: {
+      description:
+        'Includes `Accept-Language`. The labels in the body change with the negotiated language ' +
+        'while the URL does not, so a cache that ignored this would hand a Spanish balance ' +
+        'sheet to the next caller who asked for English.',
+      schema: { type: 'string' },
+    },
     ContentLanguage: {
       description:
         'The locale the `message` was rendered in, negotiated from Accept-Language ' +
@@ -411,10 +662,30 @@ const DESCRIPCION = [
   '- `x-validacion-adicional` — the body also passes a cross-field predicate that JSON Schema ',
   'cannot express (for example "company_name or first_name", "debit or credit, not both"). ',
   'Validating against this schema alone is not enough to know the request will be accepted.\n',
+  '\n## Language\n\n',
+  'Every request negotiates a language from `Accept-Language` (`es-MX` or `en-US`; `es-MX` when ',
+  'the header is absent). What a response DECLARES about it — `Content-Language` and ',
+  '`meta.language` — depends on whether it has anything localized to declare, and the two ',
+  'answers below are one rule, not two policies.\n\n',
+  'An error declares its language ONLY when its `message` really came from a catalog key. Most ',
+  'messages are still prose written in whatever language they were written in, and announcing a ',
+  'language over prose would name one the text may not be in.\n\n',
+  '`GET /v1/reports/balance-sheet` and `GET /v1/reports/income-statement` declare it on EVERY ',
+  'answer, because every section label they publish is rendered from a key and there is no ',
+  'prose left to be silent about. They also send `Vary: Accept-Language`, which is what keeps a ',
+  'cache from serving one language to a caller who asked for the other. Their sections carry ',
+  'both `key` — the identity, stable across languages, the one to GROUP and COMPARE by — and ',
+  '`name` — the label already translated, the one to DISPLAY. See the `LabelledSection` schema.\n',
   '\n## What is not here\n\n',
-  'Success responses. Their shape lives inside the handler bodies, which the census does not ',
-  'read, and inventing them would be the exact defect this document exists to avoid. Only the ',
-  'errors that are provably produced by the mounted chain are listed.\n\n',
+  'Success responses, with one exception. Their shape lives inside the handler bodies, which ',
+  'the census does not read, and inventing them would be the exact defect this document exists ',
+  'to avoid; only the errors that are provably produced by the mounted chain are listed. The ',
+  'exception is the two statements above, whose 200 states the two headers they always send and ',
+  'the `key`/`name` pair every section carries — a caller cannot consume those bodies without ',
+  'knowing which of the two to group by and which to print. Nothing else of those bodies is ',
+  'described, and those two paths are the only per-route fact in this whole document that is ',
+  'written rather than read: generation fails if either path leaves the census, or if a report ',
+  'section stops being accounted for (src/api/rest/openapi.ts, LABELLED_STATEMENTS).\n\n',
   'Security on operations without `security`. Authentication is mounted on the `/v1` prefix, ',
   'outside the route chain, so it is not visible to the census; the absence of `security` means ',
   '"not derivable", not "public".\n\n',
