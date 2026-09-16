@@ -1,3 +1,5 @@
+import { ACCOUNT_FS_CATEGORIES } from '../database/enums.js';
+
 
 // ============================================================
 // ENUMS
@@ -29,19 +31,18 @@ export enum AccountSubtype {
   OTHER_EXPENSE = 'other_expense',
 }
 
-export enum FSCategory {
-  CURRENT_ASSETS = 'current_assets',
-  NON_CURRENT_ASSETS = 'non_current_assets',
-  CURRENT_LIABILITIES = 'current_liabilities',
-  LONG_TERM_LIABILITIES = 'long_term_liabilities',
-  EQUITY = 'equity',
-  REVENUE = 'revenue',
-  COGS = 'cogs',
-  OPERATING_EXPENSES = 'operating_expenses',
-  OTHER_INCOME = 'other_income',
-  OTHER_EXPENSES = 'other_expenses',
-  TAX = 'tax',
-}
+/**
+ * Los doce rubros que el CHECK de `accounts.fs_category` admite (001 + 078).
+ *
+ * Era un `enum` escrito a mano con ONCE, y se quedó atrás cuando la 078 añadió
+ * `'ori'` —el rubro de Otros Resultados Integrales que la NIF B-3 exige—, de
+ * modo que el catálogo de la casa sembraba la 3600 con un valor que el tipo del
+ * árbol no admitía. Ahora se DERIVA de la lista única que src/database/enums.ts
+ * inscribe en el contrato de vocabularios, que es la que la prueba de
+ * integración coteja contra Postgres: separarse vuelve a ser imposible sin que
+ * CI lo diga.
+ */
+export type FSCategory = (typeof ACCOUNT_FS_CATEGORIES)[number];
 
 export enum NormalBalance {
   DEBIT = 'debit',
