@@ -222,6 +222,47 @@ export function existe(rel: string): boolean {
 }
 
 /**
+ * ¿CORRE ESTE PASO DE CI, O SÓLO ESTÁ ESCRITO?
+ *
+ * El modo de fallo natural de un paso de CI es que alguien lo COMENTE, y
+ * `# - run: npx tsx scripts/x.ts --check` contiene la cadena entera: un criterio
+ * anclado por subcadena bendice al mutante que lo apaga. Pasó de verdad dos
+ * veces —`ux-surface-census-ci-ratchet` casó su propio comentario en su primer
+ * intento, y la compuerta del corpus vivió así hasta T2—, así que la plantilla
+ * se escribe UNA vez aquí en vez de recordarla en cada sitio.
+ *
+ * Ancla la línea COMPLETA: `^` más la sangría admitida cierra por la izquierda
+ * (un `#` delante ya no casa) y `$` cierra por la derecha (no vale como prefijo
+ * de otro comando más largo). El `comando` llega como texto literal y se escapa,
+ * porque un punto sin escapar en `scripts/x.ts` casaría cualquier carácter.
+ *
+ * `cola` es para el único paso cuya línea CAMBIA con causa: la lista de
+ * `--exigir` crece al cerrar un paquete y encoge al reabrirlo. Anclarla entera
+ * pondría el tablero en rojo por un acto legítimo, así que se admite una cola
+ * ACOTADA en vez de dejar el ancla abierta por la derecha.
+ */
+export function stepRuns(yaml: string, command: string, tail = ''): boolean {
+  const literal = command.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^[ \\t]*- run: ${literal}${tail}[ \\t]*$`, 'm').test(yaml);
+}
+
+/**
+ * El bloque de un job dentro de ci.yml, de su encabezado al del siguiente.
+ *
+ * Se corta por el encabezado y no por sangría porque entre dos jobs viven los
+ * comentarios que explican al siguiente, también a dos espacios: un corte por
+ * «la primera línea con menos sangría» se los llevaría al bloque anterior y un
+ * `continue-on-error` citado en prosa contaría como declarado.
+ */
+export function ciJob(yaml: string, job: string): string | null {
+  const start = yaml.search(new RegExp(`^  ${job}:[ \\t]*$`, 'm'));
+  if (start < 0) return null;
+  const rest = yaml.slice(start + 1);
+  const end = rest.search(/^ {2}[a-z][a-z0-9_-]*:[ \t]*$/m);
+  return end < 0 ? yaml.slice(start) : yaml.slice(start, start + 1 + end);
+}
+
+/**
  * Todos los .ts bajo un directorio, sin node_modules ni dist.
  *
  * `src/plan` queda fuera, y no es una comodidad: este archivo CITA los patrones
@@ -1497,7 +1538,10 @@ export const CRITERIOS: Criterio[] = [
       // que la línea que este criterio busca desaparecía y daba un rojo falso.
       // Los criterios de ci.yml que ya existían leen en crudo por esta razón.
       const ci = crudoDe('.github/workflows/ci.yml');
-      if (!/language-status\.ts --check/.test(ci)) {
+      // Por el PASO y no por la cadena (T2): el ancla de subcadena casaba
+      // también dentro del comentario que explica el paso, así que comentarlo
+      // lo dejaba verde. Misma plantilla que las otras tres puertas.
+      if (!stepRuns(ci, 'npx tsx scripts/language-status.ts --check')) {
         return falla(
           'la CI no corre el metro del idioma: la línea base deja de comprobarse y el español ' +
             'puede crecer sin que nada lo diga'
@@ -1524,6 +1568,13 @@ export const CRITERIOS: Criterio[] = [
           'el metro se sigue imprimiendo y deja de juzgar: sale 0 pase lo que pase, y el español ' +
           'crece con la CI en verde — que es exactamente la clase de instrumento que este ' +
           'repositorio persigue',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '      - run: npx tsx scripts/language-status.ts --check',
+        a: '      # - run: npx tsx scripts/language-status.ts --check',
+        porque:
+          'la puerta se apaga comentándola, y el ancla de subcadena de antes de T2 casaba dentro del propio comentario',
       },
     ],
   },
@@ -1886,8 +1937,12 @@ export const CRITERIOS: Criterio[] = [
       // (E1.2-h, E1.4-a, E3.2-i, las que «corrompen el mayor de una entidad
       // viva» si salen mal), así que este job ES ese control ejecutándose.
       //
-      // `lint` y `plan` siguen FUERA, y eso es deuda dicha en voz alta y no
-      // olvido: ver «Lo que la CI no cubre» en docs/wiki/Pruebas-y-CI.md.
+      // `lint` sigue FUERA, y eso es deuda dicha en voz alta y no olvido: ver
+      // «Lo que la CI no cubre» en docs/wiki/Pruebas-y-CI.md. `plan` salió de
+      // esa deuda en T2, pero NO entrando en esta lista: lo que hacía falta no
+      // era exigir que el job exista —un job con todos sus pasos comentados
+      // existe— sino que sus puertas CORRAN, y eso lo afirma
+      // `plan-job-gates-run-and-cannot-be-skipped`.
       const NOMBRES = ['typecheck', 'unit', 'integration', 'aislamiento', 'restauracion'];
       // Por el seam, no por fs: S2 exige que la única lectura directa de disco
       // en este archivo sea la de leer(), o el mutante de este criterio no lo
@@ -1922,6 +1977,105 @@ export const CRITERIOS: Criterio[] = [
         porque:
           'la puerta desaparece por RENOMBRE —la forma en que un job se va sin que ningún diff diga ' +
           'que lo borra— y el criterio que la nombraba tiene que acusarlo',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
+    id: 'plan-job-gates-run-and-cannot-be-skipped',
+    enunciado: 'Las compuertas del job del plan corren de verdad, y ninguna se apaga sin ponerse roja',
+    evaluar: () => {
+      // T2 · EL HABILITADOR, y la razón de que este tramo vaya segundo.
+      //
+      // El job `plan` es donde el tablero se juzga a sí mismo: su primer paso
+      // es el trinquete por criterio y los seis siguientes son las compuertas
+      // que publican catálogo, corpus, historial, contrato de la API, censo de
+      // superficie e idioma. A nadie lo vigilaba. Se probaron las tres
+      // mutaciones —comentar el `--piso --exigir`, comentar el `--check` del
+      // catálogo, y colgar `continue-on-error: true` del job— y las tres
+      // dejaban los criterios EXACTAMENTE igual: los mismos rojos
+      // preexistentes, ninguno nuevo. Un tablero que no puede ponerse rojo
+      // cuando apagas al juez no es un tablero, es una tabla.
+      //
+      // `ci-gates-single-workflow` no lo tapaba: comprueba que los jobs
+      // EXISTAN, y un job con todos sus pasos comentados existe.
+      const ci = crudoDe('.github', 'workflows', 'ci.yml');
+      const block = ciJob(ci, 'plan');
+      if (block === null) {
+        return falla('el job `plan` desapareció de ci.yml: el tablero dejaría de juzgarse en el único sitio que decide una fusión');
+      }
+
+      // POR QUÉ `continue-on-error` ES SU PROPIA PREGUNTA. Es la forma de
+      // apagar una puerta sin borrar una sola línea de lo que corre: el paso
+      // sigue ahí, sigue fallando, sigue imprimiendo su rojo, y la fusión
+      // pasa igual. Un criterio que sólo mirase los pasos lo daría por bueno.
+      if (/^\s*continue-on-error:\s*true/m.test(block)) {
+        return falla('el job `plan` lleva `continue-on-error: true`: sus puertas seguirían corriendo, fallando y dejando fusionar');
+      }
+
+      // LA LISTA SE ESCRIBE, Y ADEMÁS SE CUENTA. Nombrar las puertas es lo
+      // que permite decir CUÁL se apagó; el conteo es lo que impide que una
+      // puerta futura —que esta lista no conoce— se vaya en silencio. Sin la
+      // cifra, el ancla quedaría abierta por la derecha: la lección de siempre.
+      const GATES: Array<[string, string, string]> = [
+        ['el trinquete del plan', 'npm run plan:status -- --piso --exigir=', '[A-Za-z0-9.,]+'],
+        ['el catálogo de comandos', 'npx tsx scripts/catalogo-estado.ts --check', ''],
+        ['la caducidad del corpus', 'npx tsx scripts/corpus-manifiesto.ts --check', ''],
+        ['el historial de entrega', 'npx tsx scripts/historial-estado.ts --check', ''],
+        ['el contrato de la API', 'npx tsx scripts/openapi.ts --check', ''],
+        ['el censo de superficie', 'npx tsx scripts/ux-status.ts --check', ''],
+        ['el metro del idioma', 'npx tsx scripts/language-status.ts --check', ''],
+      ];
+      const dark = GATES.filter(([, cmd, tail]) => !stepRuns(block, cmd, tail)).map(([q]) => q);
+      if (dark.length > 0) {
+        return falla(
+          `${dark.length} de las ${GATES.length} puertas del job del plan no corren: ${dark.join(', ')}. ` +
+            'Comentar un paso lo deja escrito y muerto, que es como se apaga una puerta sin que el diff lo diga.'
+        );
+      }
+
+      // `npm ci` y `npm run migrate` son los dos pasos que no son puerta:
+      // preparan la corrida. El total sólo SUBE, y un paso nuevo se añade a
+      // esta cifra en el mismo commit que lo escribe.
+      const MIN_LIVE_STEPS = 9;
+      const live = (block.match(/^[ \t]*- run: /gm) ?? []).length;
+      return live >= MIN_LIVE_STEPS
+        ? ok(`las ${GATES.length} puertas del job del plan corren, sin continue-on-error y con ${live} pasos vivos`)
+        : falla(
+            `el job del plan corre ${live} pasos y la línea base son ${MIN_LIVE_STEPS}: ` +
+              'se apagó un paso que esta lista no nombra, que es justo el caso que el conteo existe para ver'
+          );
+    },
+    mutantes: [
+      {
+        // EL ESPEJO QUE EL TRAMO VINO A ENCENDER, literal: «comentar ci.yml
+        // tiene que poner rojo un criterio». Antes de T2 esta mutación no
+        // movía un solo veredicto.
+        archivo: '.github/workflows/ci.yml',
+        de: '      - run: npm run plan:status -- --piso',
+        a: '      # - run: npm run plan:status -- --piso',
+        porque:
+          'el trinquete por criterio se apaga comentándolo —el modo de fallo natural de un paso de CI— y hasta T2 los 180 criterios salían exactamente igual',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '      - run: npx tsx scripts/catalogo-estado.ts --check',
+        a: '      # - run: npx tsx scripts/catalogo-estado.ts --check',
+        porque: 'la segunda puerta se apaga igual que la primera, y un criterio que sólo nombrara a la primera lo dejaría pasar',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '  plan:\n    name: Estado del plan',
+        a: '  plan:\n    continue-on-error: true\n    name: Estado del plan',
+        porque:
+          'la puerta se apaga SIN borrar nada: los siete pasos siguen escritos, siguen corriendo y siguen fallando, y la fusión pasa igual',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '      - run: npx tsx scripts/historial-estado.ts --check',
+        a: '      - run: npx tsx scripts/historial-estado.ts --check || true',
+        porque:
+          'el `|| true` es el continue-on-error de un solo paso y no toca el encabezado del job: el ancla tiene que cerrar la línea por la derecha para verlo',
       },
     ],
   },
@@ -2402,7 +2556,9 @@ export const CRITERIOS: Criterio[] = [
       // la línea de CI esta configuración diría la verdad sobre sí misma sin
       // que nadie la corriera nunca.
       const ci = existe('.github/workflows/ci.yml') ? crudoDe('.github/workflows/ci.yml') : '';
-      if (!/test:integration[^\n]*--coverage/.test(ci)) {
+      // Por el PASO y no por la cadena (T2): `test:integration…--coverage`
+      // casaba dentro del comentario de arriba, que cita el comando entero.
+      if (!stepRuns(ci, 'npm run test:integration -- --coverage')) {
         return falla(
           'ci.yml corre la suite de integración SIN --coverage: los umbrales declarados no se aplican en ninguna parte' +
             (problemas.length > 0 ? `; además: ${problemas.join('; ')}` : '')
@@ -2424,6 +2580,13 @@ export const CRITERIOS: Criterio[] = [
         porque:
           'los umbrales de integración quedan escritos y nadie los ejecuta: la configuración diría la ' +
           'verdad sobre sí misma sin correr jamás, que es el defecto que el job de restauración ya costó una vez',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '      - run: npm run test:integration -- --coverage',
+        a: '      # - run: npm run test:integration -- --coverage',
+        porque:
+          'la puerta se apaga comentándola, y el ancla de subcadena de antes de T2 la encontraba dentro del comentario de este mismo criterio',
       },
       {
         archivo: 'vitest.integration.config.ts',
@@ -7356,9 +7519,14 @@ export const CRITERIOS: Criterio[] = [
       if (!/m\.sin_revisar\.length > SIN_REVISAR_MAXIMO/.test(script)) {
         return falla('la deuda de manuales sin revisar dejó de tener trinquete: podría crecer en silencio');
       }
-      // La compuerta corre en CI o es un comando que nadie teclea.
-      if (!/corpus-manifiesto\.ts --check/.test(crudoDe('.github', 'workflows', 'ci.yml'))) {
-        return falla('la compuerta del corpus no está en CI: sería una comprobación optativa');
+      // La compuerta corre en CI o es un comando que nadie teclea. Por el
+      // PASO y no por la cadena (T2): `/corpus-manifiesto\.ts --check/` casaba
+      // dentro de `# - run: …`, así que comentar la línea —el modo de fallo
+      // natural de un paso de CI— dejaba este criterio en verde con la
+      // compuerta apagada. El gemelo del censo de superficie ya anclaba bien;
+      // aquí se usa la misma plantilla, ahora escrita una sola vez en stepRuns.
+      if (!stepRuns(crudoDe('.github', 'workflows', 'ci.yml'), 'npx tsx scripts/corpus-manifiesto.ts --check')) {
+        return falla('la compuerta del corpus no corre en CI: sería una comprobación optativa, o una línea comentada que se lee como si corriera');
       }
       // Y los dos pasajes que mal-instruían quedaron corregidos: el manual
       // debe NOMBRAR la cuenta donde el IVA de un PPD aparca, y decir que un
@@ -7383,6 +7551,13 @@ export const CRITERIOS: Criterio[] = [
         // el mutante cambiaba la primera aparición del documento, y F05d añadió
         // otra antes (la regla del cheque cobrado): el criterio encontraba la
         // que quedaba y el mutante sobrevivía. El gemelo de siempre.
+        archivo: '.github/workflows/ci.yml',
+        de: '      - run: npx tsx scripts/corpus-manifiesto.ts --check',
+        a: '      # - run: npx tsx scripts/corpus-manifiesto.ts --check',
+        porque:
+          'la compuerta se apaga comentándola, y con el ancla por subcadena este criterio casaba su propio comentario y bendecía al mutante que lo apagaba',
+      },
+      {
         archivo: 'src/ai/docs/mexico-cfdi.md',
         de: 'PPD received → DR 1135',
         a: 'PPD received → DR 1130',
@@ -7441,8 +7616,12 @@ export const CRITERIOS: Criterio[] = [
       // el paso lo pondría verde aunque el paso se hubiera borrado — el modo
       // exacto en que nacieron verdes por accidente otros dos criterios.
       const ci = crudoDe('.github', 'workflows', 'ci.yml').replace(/^[ \t]*#.*$/gm, '');
-      if (!/historial-estado\.ts --check/.test(ci)) {
-        return falla('la compuerta del historial no está en CI: sería una comprobación optativa');
+      // T2 unificó esto con las otras tres puertas. Quitar los comentarios
+      // antes de buscar ya frenaba al mutante que comenta la línea, pero no al
+      // `|| true` que la deja correr y descartar su salida; `stepRuns` cierra
+      // la línea por los dos lados y es la única plantilla de la casa.
+      if (!stepRuns(ci, 'npx tsx scripts/historial-estado.ts --check')) {
+        return falla('la compuerta del historial no corre en CI: sería una comprobación optativa');
       }
       if (!/fetch-depth: 0/.test(ci)) {
         return falla('el checkout dejó de pedir profundidad completa: el guardián no podría recorrer la historia');
@@ -10925,8 +11104,9 @@ export const CRITERIOS: Criterio[] = [
       // Ancla al PASO, no al texto: el modo de fallo natural de un paso de
       // CI es que alguien lo comente, y `# - run: … --check` contiene la
       // cadena entera. El primer intento de este criterio casaba su propio
-      // comentario y bendecía al mutante que lo apagaba.
-      if (!/^\s*- run: npx tsx scripts\/ux-status\.ts --check\s*$/m.test(ci)) {
+      // comentario y bendecía al mutante que lo apagaba. T2 sacó esta
+      // plantilla a `stepRuns`, que es de donde la copian ahora las otras.
+      if (!stepRuns(ci, 'npx tsx scripts/ux-status.ts --check')) {
         return falla('el censo de superficie salió de CI: la degradación de usabilidad volvería a entrar sin que nada la detenga en la fusión');
       }
       // Y las seis líneas base existen. Un censo sin línea base mide y
