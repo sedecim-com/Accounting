@@ -6048,6 +6048,11 @@ export const CRITERIOS: Criterio[] = [
     //     and Path=/, set only through those attributes, and no cookie names a
     //     Domain; the login cookie is Lax and lives ten minutes; no other file
     //     writes a cookie except through the cookies.ts helpers;
+    //   · the Host guard, statement by statement, answers 421 to every Host
+    //     but the public origin's, with ONE exemption, GET /healthz, because
+    //     probes address the pod IP; it is bound once to its factory, imported
+    //     unrenamed, and is the first app.use of server.ts, so no own route,
+    //     static file or relayed read answers under another Host;
     //   · the CSRF guard, statement by statement, demands the custom header,
     //     same-origin Sec-Fetch-Site and, for unsafe methods, the exact public
     //     Origin; logout sits behind it too;
@@ -6056,8 +6061,11 @@ export const CRITERIOS: Criterio[] = [
     //     the rest imported unrenamed);
     //   · the relay forwards four request headers, reads the client's headers
     //     only in the loop over that list, writes authorization once from the
-    //     session, sends no Set-Cookie, Location or Access-Control-* back, and
-    //     follows no redirect;
+    //     session, and follows no redirect. Back to the browser it copies only
+    //     FORWARDED_RESPONSE_HEADERS, in one loop whose body is pinned, plus
+    //     the three headers it sets by literal name, and it touches `res`
+    //     through no other member: no Set-Cookie, Location or Access-Control-*
+    //     goes back, whatever upstream sends;
     //   · a token is stored only after acceptTokenResponse checked it is
     //     asymmetric and verified it against the IdP;
     //   · the session record keeps no ID token;
@@ -6144,6 +6152,31 @@ export const CRITERIOS: Criterio[] = [
         de: "    res.append('Set-Cookie', sessionCookie(created.cookieValue, deps.sessionAbsoluteSeconds));",
         a: "    res.cookie(SESSION_COOKIE, created.cookieValue, { httpOnly: true, secure: true, sameSite: 'none' });",
         porque: 'a session cookie written outside cookies.ts carries whatever SameSite its author chose',
+      },
+      {
+        archivo: 'src/gateway/proxy.ts',
+        de: '    res.status(upstream.status);',
+        a: '    res.status(upstream.status);\n    upstream.headers.forEach((value, name) => res.setHeader(name, value));',
+        porque:
+          "every upstream header, Set-Cookie and Location included, would reach the browser while FORWARDED_RESPONSE_HEADERS still reads clean",
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: "    if (req.method === 'GET' && req.path === '/healthz') return next();",
+        a: "    if (req.method === 'GET' || req.path === '/healthz') return next();",
+        porque: "the probe's exemption widens to every GET, so the board and its reads answer under any Host",
+      },
+      {
+        archivo: 'src/gateway/request-guards.ts',
+        de: "    if (host !== expectedHost) return sendError(res, 421, 'HOST_REJECTED');",
+        a: "    if (host === undefined) return sendError(res, 421, 'HOST_REJECTED');",
+        porque: 'the 421 is still spelled while no Host is compared with the public origin',
+      },
+      {
+        archivo: 'src/gateway/server.ts',
+        de: '  app.use(hostGuard);',
+        a: "  app.use('/auth', hostGuard);",
+        porque: 'the guard would stand only in front of the session routes, and the static files and the relay would answer under any Host',
       },
     ],
     evaluar: () => {
@@ -6248,6 +6281,30 @@ export const CRITERIOS: Criterio[] = [
             'la guarda CSRF ya no es exactamente: cabecera x-mnemosine-request, Sec-Fetch-Site same-origin cuando viene, y Origin exacto en los métodos que escriben, cada una con 403'
           );
         }
+
+        // The Host guard the same way. Its one early return is the probe's
+        // exemption, GET /healthz and nothing wider, and after it comes the
+        // comparison with the public origin's host and the 421.
+        const hostFactory = soleFunction(guards, 'createHostGuard');
+        if (
+          !sameStatements(
+            hostFactory?.body?.statements,
+            guards,
+            [
+              'const expectedHost = new URL(config.publicOrigin).host.toLowerCase();',
+              'return function hostGuard(req, res, next) {',
+              "  if (req.method === 'GET' && req.path === '/healthz') return next();",
+              '  const host = req.headers.host?.toLowerCase();',
+              "  if (host !== expectedHost) return sendError(res, 421, 'HOST_REJECTED');",
+              '  next();',
+              '};',
+            ].join('\n')
+          )
+        ) {
+          findings.push(
+            'la guarda de Host ya no es exactamente: GET /healthz como única excepción, y 421 para todo Host distinto del del origen público'
+          );
+        }
       }
 
       // Pipeline order and the one unsafe own route.
@@ -6281,8 +6338,30 @@ export const CRITERIOS: Criterio[] = [
           findings.push('csrfGuard ya no es, en server.ts, una sola constante igual a createCsrfGuard(config)');
         }
         const imported = plainImportsFrom(server, './request-guards.js');
-        for (const name of ['createCsrfGuard', 'pathGuard', 'methodGate']) {
+        for (const name of ['createCsrfGuard', 'createHostGuard', 'pathGuard', 'methodGate']) {
           if (!imported.has(name) || localDeclarationsOf(server, name) > 0) findings.push(`server.ts ya no usa el ${name} de request-guards.ts`);
+        }
+        // hostGuard is bound once, to its factory, and mounted first and on
+        // every path: mounted later or under a prefix, whatever answers before
+        // it answers under any Host.
+        const hostBindings: ts.VariableDeclaration[] = [];
+        forEachGatewayNode(server, (n) => {
+          if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === 'hostGuard') hostBindings.push(n);
+        });
+        const hostInit = hostBindings.length === 1 ? hostBindings[0].initializer : undefined;
+        if (
+          localDeclarationsOf(server, 'hostGuard') !== 1 ||
+          !hostInit ||
+          GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Expression, hostInit, server) !== 'createHostGuard(config)'
+        ) {
+          findings.push('hostGuard ya no es, en server.ts, una sola constante igual a createHostGuard(config)');
+        }
+        const firstUse = [...gatewayNodes(server)].find(
+          (n): n is ts.CallExpression => ts.isCallExpression(n) && n.expression.getText(server) === 'app.use'
+        );
+        const firstUsePrinted = firstUse ? GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Expression, firstUse, server) : 'ninguno';
+        if (firstUsePrinted !== 'app.use(hostGuard)') {
+          findings.push(`el primer app.use de server.ts es ${firstUsePrinted.slice(0, 60)} y no app.use(hostGuard)`);
         }
       }
 
@@ -6352,6 +6431,69 @@ export const CRITERIOS: Criterio[] = [
           );
         }
         for (const read of clientReads) findings.push(`el proxy lee de la petición fuera de la lista de cabeceras: ${read}`);
+
+        // Nor is FORWARDED_RESPONSE_HEADERS the only door back. A header
+        // reaches the browser from the one loop over that list, whose body is
+        // pinned, or under one of the three names the relay sets itself; and
+        // `res` is touched through no other member. An
+        // upstream.headers.forEach, a res.set(object), a writeHead with a
+        // header bag or an alias of `res` would copy Set-Cookie and Location
+        // back with the list untouched.
+        const responseLoops = [...gatewayNodes(proxy)].filter(
+          (n): n is ts.ForOfStatement => ts.isForOfStatement(n) && n.expression.getText(proxy) === 'FORWARDED_RESPONSE_HEADERS'
+        );
+        const responseLoop = responseLoops.length === 1 ? responseLoops[0] : undefined;
+        const responseLoopBody = responseLoop && ts.isBlock(responseLoop.statement) ? responseLoop.statement : undefined;
+        if (
+          !responseLoop ||
+          !responseLoopBody ||
+          GATEWAY_CODE_PRINTER.printNode(ts.EmitHint.Unspecified, responseLoop.initializer, proxy) !== 'const name' ||
+          !sameStatements(responseLoopBody.statements, proxy, 'const value = upstream.headers.get(name);\nif (value !== null) res.setHeader(name, value);')
+        ) {
+          findings.push(
+            `el proxy ya no copia la respuesta en un solo recorrido de FORWARDED_RESPONSE_HEADERS que lee upstream.headers.get(name) (${responseLoops.length} recorrido(s))`
+          );
+        }
+        if (!plainImportsFrom(proxy, './errors.js').has('sendError') || localDeclarationsOf(proxy, 'sendError') > 0) {
+          findings.push('proxy.ts ya no responde con el sendError de errors.ts');
+        }
+        const ownResponseHeaders = new Set(['Cache-Control', 'Vary', 'Content-Security-Policy']);
+        const inside = (n: ts.Node, container: ts.Node | undefined): boolean => {
+          for (let q: ts.Node | undefined = n; q; q = q.parent) if (q === container) return true;
+          return false;
+        };
+        const responseWrites: string[] = [];
+        forEachGatewayNode(proxy, (n) => {
+          if (!ts.isIdentifier(n) || n.text !== 'res' || !isIdentifierReference(n)) return;
+          const p = n.parent;
+          if (ts.isParameter(p) && p.name === n) return;
+          const line = `proxy.ts:${proxy.getLineAndCharacterOfPosition(n.getStart(proxy)).line + 1}`;
+          if (ts.isCallExpression(p) && p.arguments.includes(n)) {
+            const callee = p.expression;
+            const sent = ts.isIdentifier(callee) && callee.text === 'sendError' && p.arguments[0] === n;
+            const piped = ts.isPropertyAccessExpression(callee) && callee.name.text === 'pipe' && p.arguments.length === 1;
+            if (!sent && !piped) responseWrites.push(`${line} ${p.getText(proxy).slice(0, 60)}`);
+            return;
+          }
+          if (!ts.isPropertyAccessExpression(p) || p.expression !== n) {
+            responseWrites.push(`${line} ${p.getText(proxy).slice(0, 60)}`);
+            return;
+          }
+          if (p.name.text === 'locals') return;
+          const call = p.parent;
+          // status, end and destroy as statements of their own: res.status(…)
+          // returns res, and a chained .set(…) would be a write this walk
+          // never sees as `res`.
+          const standalone = ts.isCallExpression(call) && call.expression === p && ts.isExpressionStatement(call.parent);
+          if (['status', 'end', 'destroy'].includes(p.name.text) && standalone) return;
+          if (p.name.text === 'setHeader' && ts.isCallExpression(call) && call.expression === p) {
+            const headerName = call.arguments[0];
+            if (headerName && ts.isStringLiteral(headerName) && ownResponseHeaders.has(headerName.text)) return;
+            if (responseLoopBody && inside(call, responseLoopBody)) return;
+          }
+          responseWrites.push(`${line} ${(ts.isCallExpression(call) ? call : p).getText(proxy).slice(0, 60)}`);
+        });
+        for (const w of responseWrites) findings.push(`el proxy escribe en la respuesta fuera de la lista de cabeceras: ${w}`);
       }
 
       // Verify before store.

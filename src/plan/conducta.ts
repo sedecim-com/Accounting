@@ -1203,6 +1203,13 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
   // The counts are judged against the CLI pending board, not against a copy
   // of the portfolio's own SQL: a judge that shares pieces with what it judges
   // is not a judge.
+  //
+  // The two date predicates need a period on the far side of the clock. A's
+  // seeded periods sit in a fixed year, so once that year is over every one
+  // of them has started and ended, and dropping either predicate changes
+  // nothing. A therefore also gets an open, regular period dated against the
+  // database clock, starting tomorrow: counting it as ended, or showing it as
+  // current, is red on any date.
   // ----------------------------------------------------------
   {
     id: 'portfolio-rows-are-token-entities-within-tenant',
@@ -1241,6 +1248,18 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         a: "WHERE p.entity_id IS NOT NULL AND p.period_type = 'regular'",
         porque:
           "another entity's period, possibly of another tenant, would be shown as the row's current period",
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: 'AND fp.end_date < t.as_of',
+        a: '',
+        porque: 'a period that has not ended yet would be counted as an ended period still open',
+      },
+      {
+        archivo: 'src/services/portfolio/portfolio-service.ts',
+        de: 'AND p.start_date <= t.as_of',
+        a: '',
+        porque: 'a period that starts tomorrow would be shown as the current one',
       },
       {
         archivo: 'src/services/portfolio/portfolio-service.ts',
@@ -1322,6 +1341,21 @@ export const PRUEBAS_DE_CONDUCTA: PruebaDeConducta[] = [
         `UPDATE fiscal_periods SET start_date = start_date + 1
           WHERE entity_id = $1 AND start_date = CURRENT_DATE`,
         [a.entityId]
+      );
+
+      // A period of A that has neither started nor ended on any date the
+      // scenario runs: open, regular, CURRENT_DATE + 1 to CURRENT_DATE + 30
+      // (the way createSiblingEntity dates the sibling's). The fixed-year
+      // periods above stop exercising both date predicates once their year is
+      // over; this one keeps both honest. Number 13 of A's seeded year, so the
+      // year's UNIQUE(fiscal_year_id, period_number) holds; its dates need not
+      // fall inside that year for anything this scenario reads.
+      await query(
+        `INSERT INTO fiscal_periods (id, fiscal_year_id, entity_id, period_number, period_name,
+           start_date, end_date, status, period_type)
+         VALUES ($1, $2, $3, 13, 'W1 portfolio A next period', CURRENT_DATE + 1, CURRENT_DATE + 30,
+                 'open', 'regular')`,
+        [crypto.randomUUID(), a.fiscalYearId, a.entityId]
       );
 
       // The judge of current_period: A's own rows, read raw and picked in

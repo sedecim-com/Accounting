@@ -110,6 +110,19 @@ beforeAll(async () => {
     [siblingCurrentPeriodId, sibling.fiscalYearId, sibling.entityId]
   );
 
+  // An open, regular period of A that starts tomorrow and ends in thirty days,
+  // dated against the database clock. The fixture's periods sit in a fixed
+  // year: once it is over all of them have started and ended, and a portfolio
+  // that dropped its end_date or start_date check would still match the board
+  // and the current-period query. This one is counted as ended, or shown as
+  // current, only by such a portfolio, on any date.
+  await query(
+    `INSERT INTO fiscal_periods (id, fiscal_year_id, entity_id, period_number, period_name,
+       start_date, end_date, status)
+     VALUES ($1, $2, $3, 13, 'W1 portfolio A next period', CURRENT_DATE + 1, CURRENT_DATE + 30, 'open')`,
+    [randomUUID(), a.fiscalYearId, a.entityId]
+  );
+
   const app = express();
   app.use(authenticate);
   app.use(tenantContext);
