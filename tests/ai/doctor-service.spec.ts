@@ -75,6 +75,23 @@ afterEach(() => {
   process.env = { ...ENV };
 });
 
+// The first runDoctor of the file paid 5.1 s and every later one paid 2 ms.
+// None of it is the doctor: `checkConsistenciaCli` imports the CLI lazily
+// (doctor-service.ts) and that cold import transforms the whole command tree —
+// every family, every service it pulls — inside vitest. The cost is one-time
+// and grows with the surface, so charging it to whichever test runs first means
+// the file breaks for the commit that adds the command that crosses 5 s.
+// Measured on `main` at 4.63 s of a 5 s budget, and it already fails on a
+// loaded machine.
+//
+// Paying it once here keeps every test on the default 5 s budget and measures
+// what each one is actually for. Same shape as the beforeAll of «capacidad
+// huérfana» below, and the same reason.
+beforeAll(async () => {
+  await import('../../src/cli/mnemosine.js');
+  await import('../../src/cli/kernel/audit.js');
+}, 60_000);
+
 function find(report: Awaited<ReturnType<typeof runDoctor>>, name: string) {
   const c = report.checks.find((x) => x.name === name);
   if (!c) throw new Error(`missing check "${name}"`);
@@ -533,10 +550,22 @@ describe('checkOrphanedCapability', () => {
   // No depende del beforeEach: lee el disco, no el entorno ni la base. La
   // prueba de tmpDir queda fuera a propósito — necesita un árbol vacío nuevo
   // en cada corrida, y ahí el escaneo es barato porque no hay nada que leer.
+  //
+  // EL TOPE YA NO ES 30 s, y la cifra de arriba ya no es 2,5 s. Medido hoy
+  // sobre `origin/main` sin este tramo: 28 s una sola llamada, contra un tope
+  // de 30. El escaneo se volvió caro cuando dejó de limpiar comentarios con
+  // dos regex ingenuas y pasó a recorrer el fuente con estado (#274) — que es
+  // correcto y es lo que hay que hacer—, y nadie movió el presupuesto.
+  //
+  // Un tope que descansa sobre el costo medido no es un tope: es una trampa
+  // con fecha, y la dispara quien añada el archivo que cruce la raya, no quien
+  // la puso. Este número NO es una afirmación de rendimiento — el escaneo
+  // tarda lo que tarda, y si eso importa es su propio tramo—: es sitio para
+  // que el instrumento termine.
   let repo: ReturnType<typeof checkOrphanedCapability>;
   beforeAll(() => {
     repo = checkOrphanedCapability({ cwd: process.cwd() });
-  }, 30_000);
+  }, 180_000);
 
   it('says so when there is no source tree instead of passing on nothing', () => {
     // A packaged install runs from dist/. A green tick that checked nothing is
