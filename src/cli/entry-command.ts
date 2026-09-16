@@ -62,6 +62,7 @@ import {
   type ExitCodeValue,
 } from './kernel/index.js';
 import { confirmarConReintento, noEntendi } from './kernel/confirmacion.js';
+import { AppError } from '../utils/errors.js';
 
 // ============================================================
 // mnemosine entry · poliza
@@ -142,8 +143,21 @@ export function translateDomainError(err: unknown): unknown {
   const code = (err as { code?: unknown } | null)?.code;
   const message = err instanceof Error ? err.message : String(err);
   if (typeof code !== 'string') return err;
-  if (BLOCKED_CODES.has(code)) return blockedByState(message, { code });
-  if (code === 'ENTRY_NOT_FOUND') return notFound(message, { code });
+  // I9 · THE KEY TRAVELS THROUGH THE TRANSLATION, NOT JUST THE TEXT.
+  //
+  // An `AppError` written by catalog key keeps an ENGLISH `message` on purpose,
+  // so handing that string to the `CliError` would have printed English to an
+  // accountant working in Spanish — measured on `period reopen`, which always
+  // comes through here (`makeRunner`, period-command.ts). Passing the key lets
+  // `CliError.localized()` render it in the active language, exactly as it does
+  // for the kernel's own errors. An error written as prose still travels as the
+  // prose it was written with.
+  const shown =
+    err instanceof AppError && err.messageKey !== undefined
+      ? { key: err.messageKey.key, params: err.messageKey.params }
+      : message;
+  if (BLOCKED_CODES.has(code)) return blockedByState(shown, { code });
+  if (code === 'ENTRY_NOT_FOUND') return notFound(shown, { code });
   return err;
 }
 

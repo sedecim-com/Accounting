@@ -921,7 +921,14 @@ export async function queryBalanceSheetRows(
 export function buildBalanceSheetSection(
   rows: BalanceSheetQueryRow[],
   types: string[],
-  name: string,
+  /**
+   * The section's stable key and its human label. Two fields and not one
+   * derived from the other (I11 · issue #153): the label is going to be
+   * translated, and a key computed from a translated label would change with
+   * the reader's language — which is exactly what the agent and the scripts
+   * must not depend on.
+   */
+  section: { key: string; name: string },
   naturalSign: 1 | -1,
   scale: number = LEDGER_SCALE
 ): BalanceSheetSection {
@@ -934,6 +941,9 @@ export function buildBalanceSheetSection(
   }
 
   const subsections = Array.from(categorized.entries()).map(([cat, accts]) => ({
+    // The `fs_category` as stored, untouched: the label below is the one that
+    // gets prettified, and later translated.
+    key: cat,
     name: cat.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
     total: accts.reduce((sum, a) => sum.plus(a.balance), new Decimal(0)).times(naturalSign).toFixed(scale),
     accounts: accts.map((a) => ({
@@ -945,7 +955,8 @@ export function buildBalanceSheetSection(
   }));
 
   return {
-    name,
+    key: section.key,
+    name: section.name,
     total: subsections.reduce((sum, s) => sum.plus(new Decimal(s.total)), new Decimal(0)).toFixed(scale),
     subsections,
   };
@@ -999,9 +1010,9 @@ export async function getBalanceSheet(
   const scale = opts.scale ?? LEDGER_SCALE;
   const rows = await queryBalanceSheetRows(entityId, opts.asOfDate);
 
-  const assets = buildBalanceSheetSection(rows, ['asset', 'contra_asset'], 'Assets', 1, scale);
-  const liabilities = buildBalanceSheetSection(rows, ['liability', 'contra_liability'], 'Liabilities', -1, scale);
-  const equity = buildBalanceSheetSection(rows, ['equity', 'contra_equity'], 'Equity', -1, scale);
+  const assets = buildBalanceSheetSection(rows, ['asset', 'contra_asset'], { key: 'assets', name: 'Assets' }, 1, scale);
+  const liabilities = buildBalanceSheetSection(rows, ['liability', 'contra_liability'], { key: 'liabilities', name: 'Liabilities' }, -1, scale);
+  const equity = buildBalanceSheetSection(rows, ['equity', 'contra_equity'], { key: 'equity', name: 'Equity' }, -1, scale);
 
   // The result of the period belongs to the owners, so it is presented inside
   // equity. Without it the statement is short by exactly the unclosed result
@@ -1010,6 +1021,7 @@ export async function getBalanceSheet(
   const earnings = new Decimal(unclosed).times(-1); // debit-positive → equity's natural sign
   if (!earnings.isZero()) {
     equity.subsections.push({
+      key: 'result_of_the_period',
       name: 'Result Of The Period',
       total: earnings.toFixed(scale),
       accounts: [],
@@ -1205,6 +1217,7 @@ export function buildIncomeStatementSection(
     .reduce((sum, a) => sum.plus(netMovement(a)), new Decimal(0))
     .times(naturalSign);
   return {
+    key: type === 'revenue' ? 'revenue' : 'expenses',
     name: type === 'revenue' ? 'Revenue' : 'Expenses',
     total: total.toFixed(scale),
     accounts: accounts.map((a) => ({

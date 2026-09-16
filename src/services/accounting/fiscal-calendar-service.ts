@@ -243,7 +243,10 @@ export async function reopenClosedPeriod(
     const previousStatus = period.status as string;
 
     if (previousStatus === 'open') {
-      throw new AccountingError('PERIOD_ALREADY_OPEN', `${period.period_name} ya está abierto.`);
+      throw new AccountingError('PERIOD_ALREADY_OPEN', {
+        key: 'error.PERIOD_ALREADY_OPEN',
+        params: { period: period.period_name },
+      });
     }
     if (previousStatus === 'locked') {
       throw new AccountingError(
@@ -373,10 +376,10 @@ export async function openPeriod(
 
     const period = current.rows[0];
     if (period.status === FiscalPeriodStatus.OPEN) {
-      throw new AccountingError(
-        'PERIOD_ALREADY_OPEN',
-        `${period.period_name} is already open.`
-      );
+      throw new AccountingError('PERIOD_ALREADY_OPEN', {
+        key: 'error.PERIOD_ALREADY_OPEN',
+        params: { period: period.period_name },
+      });
     }
     if (period.status !== FiscalPeriodStatus.FUTURE) {
       throw new AccountingError(

@@ -15,6 +15,7 @@ import { rateLimiter, preAuthRateLimiter } from './api/rest/middleware/rate-limi
 import { resolverTrustProxy } from './api/rest/trust-proxy.js';
 import { metricsMiddleware, metricsHandler } from './api/rest/middleware/metrics.js';
 import { correlationIdMiddleware, enrichLogContextMiddleware } from './api/rest/middleware/correlation.js';
+import { negotiateLocale } from './api/rest/middleware/locale.js';
 import { logger } from './utils/logger.js';
 
 // Route imports. La tabla del prefijo autenticado vive en montajes.ts para
@@ -103,6 +104,17 @@ async function bootstrap() {
   // Correlation ID — must come BEFORE anything that might log, so even
   // pre-auth errors surface with a request_id.
   app.use(correlationIdMiddleware);
+
+  // Response language (I9) — negotiated from Accept-Language and recorded on
+  // `res.locals`. It is mounted before the health probes, the public router, the
+  // AI webhooks and `authenticate` so that an error raised by any of them, a 401
+  // included, can be rendered in the language its caller asked for. The
+  // middleware announces nothing by itself: the error handler adds
+  // Content-Language and meta.language, and only to a message it actually
+  // rendered from a catalog key. A request rejected before this point — a body
+  // the JSON parser above refuses, or a CORS preflight — never reaches it, and
+  // is answered in the default language.
+  app.use(negotiateLocale);
 
   app.use(morgan(config.env === 'production' ? 'combined' : 'dev'));
 

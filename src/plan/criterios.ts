@@ -7556,14 +7556,14 @@ export const CRITERIOS: Criterio[] = [
       // mutantes cuenta igual que uno con uno: se podían retirar seis sin mover
       // la cifra, y con la holgura acumulada —14 exigidos contra 118 reales— la
       // mitad de los espejos del repositorio salía en verde. Medido en el
-      // momento de escribir esto: 342 espejos, 14 exigidos.
+      // momento de escribir esto: 348 espejos, 14 exigidos.
       //
       // Ahora el número es el de espejos, de los dos arneses, y la holgura es
       // CERO: retirar uno obliga a bajar esta constante en el mismo diff, que
       // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
       // porque con holgura el espejo de este mismo criterio deja de morder: la
       // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
-      const MIRRORS_FLOOR = 342;
+      const MIRRORS_FLOOR = 348;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -7579,10 +7579,10 @@ export const CRITERIOS: Criterio[] = [
       // el seam sólo intercepta lecturas de DISCO: ningún mutante puede bajar
       // el conteo de arriba, así que por sí solo sería la clase de cifra que
       // este criterio existe para desconfiar. Las anclas `de:` de este archivo
-      // son el mismo hecho leído por el seam —hoy 330, que son los 330 espejos
+      // son el mismo hecho leído por el seam —hoy 336, que son los 336 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      const ANCHORS_HERE = 330;
+      const ANCHORS_HERE = 336;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
@@ -11289,6 +11289,169 @@ export const CRITERIOS: Criterio[] = [
         return falla('memory-service volvió a tomar el vocabulario de opciones de la fila: la detección de contradicciones depende otra vez del día de siembra');
       }
       return ok(`las ${screens.length} pantallas del panel y la memoria del agente piden el texto a la costura, que es su único lector`);
+    },
+  },
+  {
+    paquete: 'E2.2',
+    id: 'api-error-message-follows-the-request-language',
+    // I9 · issue #151, primer commit. El `code` de un error es contrato de
+    // cable y no cambia con el idioma; el `message` es para una persona y sí.
+    // Lo que este criterio vigila no es que exista la negociación, sino que la
+    // respuesta NO DECLARE un idioma que su cuerpo no tiene: `Content-Language`
+    // y `meta.language` salen sólo cuando el mensaje se pintó de una clave del
+    // catálogo. Medido cuando se escribió: sin esa condición, un 401 en inglés
+    // salía etiquetado `es-MX` y un conflicto de idempotencia en español salía
+    // etiquetado `en-US`.
+    //
+    // Lee el crudo y salta los renglones de comentario por su cuenta, porque
+    // `sinComentarios` sigue ciego en archivos grandes y con acentos graves
+    // (docs/auditorias/I6.md, I7.md).
+    enunciado:
+      'El mensaje de un error de la API se pinta en el idioma que negocia la petición, y la respuesta sólo declara idioma cuando lo pintó',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/middleware/error-handler.ts',
+        de: '          message: err.localized(language),',
+        a: '          message: err.message,',
+        porque:
+          'idioma-ignorado: el manejador volvería a servir el texto inglés fijo del error mientras la cabecera y meta.language siguen diciendo el idioma que pidió quien llama',
+      },
+      {
+        archivo: 'src/api/rest/middleware/error-handler.ts',
+        de: "      res.setHeader('Content-Language', responseLocale(res));",
+        a: '      void responseLocale(res);',
+        porque:
+          'cabecera-que-falta: el cuerpo saldría traducido y sin decirlo, así que una caché no podría distinguir dos respuestas distintas de la misma URL',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: '  app.use(negotiateLocale);',
+        a: '  // app.use(negotiateLocale);',
+        porque:
+          'negociacion-desmontada: toda respuesta caería al idioma por omisión y quien pidiera inglés recibiría español sin que nada lo acuse',
+      },
+    ],
+    evaluar: () => {
+      const codeLines = (rel: string): string[] =>
+        crudoDe(rel)
+          .split('\n')
+          .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+
+      const handler = 'src/api/rest/middleware/error-handler.ts';
+      if (!existe(handler)) return noEvaluable(`${handler} no existe: no hay manejador que juzgar`);
+      const handlerCode = codeLines(handler).join('\n');
+      if (!/err\.localized\(language\)/.test(handlerCode)) {
+        return falla('el manejador de errores dejó de pintar el mensaje en el idioma negociado: serviría el inglés fijo con el que se construyó el error');
+      }
+      if (!/responseLanguage\(res\)/.test(handlerCode)) {
+        return falla('el manejador dejó de leer el idioma de la respuesta: pintaría en el del proceso, que es el de la máquina y no el de quien llama');
+      }
+      // La condición que hace honesta la etiqueta: cabecera y meta.language
+      // SÓLO cuando hay clave. Se exige que las tres cosas cuelguen de `keyed`.
+      if (!/const keyed = err\.messageKey !== undefined;/.test(handlerCode)) {
+        return falla('el manejador ya no distingue un mensaje pintado de una clave de uno escrito en prosa: etiquetaría con un idioma que el cuerpo puede no tener');
+      }
+      if (!/if \(keyed\) \{[\s\S]{0,200}Content-Language[\s\S]{0,120}vary\('Accept-Language'\)/.test(handlerCode)) {
+        return falla('Content-Language o Vary dejaron de depender de que el mensaje venga de una clave');
+      }
+      if (!/\.\.\.\(keyed \? \{ language \} : \{\}\)/.test(handlerCode)) {
+        return falla('meta.language dejó de depender de que el mensaje venga de una clave');
+      }
+
+      // La negociación, montada antes de que nadie pueda contestar.
+      const index = codeLines('src/index.ts');
+      const mountLine = index.findIndex((l) => /^ {2}app\.use\(negotiateLocale\);$/.test(l));
+      if (mountLine === -1) {
+        return falla('src/index.ts no monta negotiateLocale en el cuerpo de bootstrap: toda respuesta saldría en el idioma por omisión');
+      }
+      const auth = index.findIndex((l) => /app\.use\(apiPrefix, authenticate\);/.test(l));
+      if (auth !== -1 && mountLine > auth) {
+        return falla('negotiateLocale se monta después de authenticate: un 401 no sabría en qué idioma contestar');
+      }
+
+      // Y el CLI, que es la otra superficie del mismo error.
+      const cliTranslation = codeLines('src/cli/entry-command.ts').join('\n');
+      if (!/messageKey !== undefined/.test(cliTranslation)) {
+        return falla('translateDomainError volvió a pasar sólo el texto: un error con clave llegaría al contador en inglés aunque trabaje en español');
+      }
+      return ok('el mensaje sigue el idioma de la petición, y la respuesta sólo declara idioma cuando lo pintó de una clave');
+    },
+  },
+  {
+    paquete: 'E4.2',
+    id: 'report-sections-are-identified-by-key',
+    // I11 · issue #153, primer commit. Los rótulos de las secciones del balance
+    // y del estado de resultados se van a traducir, y tres superficies los leían
+    // como identidad: la herramienta del agente derivaba `category` del rótulo
+    // («Current Assets» → `current_assets`) y buscaba el resultado del ejercicio
+    // por su nombre inglés; la API y `report … --json` los publican. Traducir
+    // sin esto le habría cambiado al agente `current_assets` por
+    // `activo_circulante` y le habría quitado `equity.result_of_the_period` en
+    // silencio, que es lo que `src/ai/docs/reports.md` le promete.
+    //
+    // Este criterio NO exige todavía que los rótulos salgan del catálogo: eso es
+    // el commit siguiente, y su criterio tendrá que mirar los SEIS literales.
+    // Lo que fija es la identidad: existe una clave y los consumidores la usan.
+    enunciado:
+      'Las secciones de los informes tienen clave estable, y el agente agrupa por ella y no por el rótulo inglés',
+    mutantes: [
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: '            category: sub.key,',
+        a: "            category: sub.name.toLowerCase().replace(/ /g, '_'),",
+        porque:
+          'categoria-derivada-del-rotulo: el agente volvería a agrupar por el nombre, así que el día que se traduzca recibiría `activo_circulante` donde su manual le promete `current_assets`',
+      },
+      {
+        archivo: 'src/ai/tools/report-tools.ts',
+        de: "        (x: Seccion['subsections'][number]) => x.key === 'result_of_the_period'",
+        a: "        (x: Seccion['subsections'][number]) => x.name === 'Result Of The Period'",
+        porque:
+          'resultado-buscado-por-nombre: traducido el rótulo, la búsqueda no encuentra nada y `equity.result_of_the_period` desaparece del JSON sin que nada lo acuse',
+      },
+      {
+        archivo: 'src/services/reporting/report-service.ts',
+        de: "      key: 'result_of_the_period',\n",
+        a: '',
+        porque:
+          'subseccion-sin-clave: la única subsección que no viene de `fs_category` se quedaría sin identidad, y quien la busque tendría que volver al rótulo',
+      },
+    ],
+    evaluar: () => {
+      const codeLines = (rel: string): string[] =>
+        crudoDe(rel)
+          .split('\n')
+          .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+
+      const types = codeLines('src/types/index.ts').join('\n');
+      if (!/export interface BalanceSheetSection \{\s*key: string;/.test(types)) {
+        return falla('BalanceSheetSection perdió su clave: la identidad de una sección volvería a ser su rótulo, que se traduce');
+      }
+      if (!/export interface IncomeStatementSection \{\s*key: string;/.test(types)) {
+        return falla('IncomeStatementSection perdió su clave: revenue y expenses volverían a identificarse por su rótulo');
+      }
+
+      const service = codeLines('src/services/reporting/report-service.ts').join('\n');
+      const missing = ["key: 'assets'", "key: 'liabilities'", "key: 'equity'", "key: 'result_of_the_period'"]
+        .filter((k) => !service.includes(k));
+      if (missing.length > 0) {
+        return falla(`report-service no rellena ${missing.length} clave(s) de sección (${missing.join(', ')}): la traducción del rótulo se llevaría por delante la identidad`);
+      }
+      if (!/key: type === 'revenue' \? 'revenue' : 'expenses'/.test(service)) {
+        return falla('las secciones del estado de resultados dejaron de llevar clave');
+      }
+
+      const tools = codeLines('src/ai/tools/report-tools.ts').join('\n');
+      if (!/category: sub\.key,/.test(tools)) {
+        return falla('la herramienta del agente volvió a derivar `category` del rótulo: agruparía distinto en cuanto el rótulo se traduzca');
+      }
+      if (!/x\.key === 'result_of_the_period'/.test(tools)) {
+        return falla('la herramienta del agente busca el resultado del ejercicio por su rótulo: traducido, lo perdería en silencio');
+      }
+      if (/sub\.name\.toLowerCase\(\)/.test(tools) || /=== 'Result Of The Period'/.test(tools)) {
+        return falla('queda una lectura del rótulo inglés en la herramienta del agente');
+      }
+      return ok('las secciones llevan clave estable y el agente agrupa y busca por ella, no por el rótulo');
     },
   },
   {
