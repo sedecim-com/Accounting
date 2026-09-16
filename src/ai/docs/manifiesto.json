@@ -88,7 +88,7 @@
     "payroll.md"
   ],
   "hashes": {
-    "src/services/accounting/posting.ts": "1ebb03de375957bf32ef3e32c19b2a69b17bbb73",
+    "src/services/accounting/posting.ts": "c5b4e0f6bee57cd3e9ed71ef2126e5744fae9613",
     "src/services/accounting/validation.ts": "58348accb6dddae977438ed3a17c3c32d1b6a6cf",
     "src/services/accounting/fiscal-calendar-service.ts": "5f0209a6cdfdc1e89c1ca74f0407008d6e206e5c",
     "src/cli/entry-command.ts": "f9d6d5a52fd071af99dc9b427020f70997a01fc6",

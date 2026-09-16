@@ -235,10 +235,37 @@ describe('createDraftEntry — the entry the agent is allowed to write', () => {
 
     await createDraftEntry(input);
 
+    // Las dimensiones viajan SIEMPRE, con `null` explícito cuando la línea no
+    // las trae (X1a): entregar `undefined` a pg es un parámetro que falta, no
+    // un NULL, y este arreglo existe justamente porque desaparecían en silencio.
     expect(mockCreate.mock.calls[0][4]).toEqual([
-      { account_id: 'acc-6100', debit_amount: '1000.00', credit_amount: null, description: 'renta' },
-      { account_id: 'acc-1110', debit_amount: null, credit_amount: '1000.00', description: '' },
+      {
+        account_id: 'acc-6100', debit_amount: '1000.00', credit_amount: null, description: 'renta',
+        cost_center_id: null, project_id: null,
+      },
+      {
+        account_id: 'acc-1110', debit_amount: null, credit_amount: '1000.00', description: '',
+        cost_center_id: null, project_id: null,
+      },
     ]);
+  });
+
+  it('a line that carries a cost centre hands it on, it does not drop it', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'acc-6100', code: '6100' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'acc-1110', code: '1110' }] });
+    mockCreate.mockResolvedValueOnce({ id: 'e1' });
+
+    await createDraftEntry({
+      ...input,
+      lines: [
+        { ...input.lines[0], cost_center_id: 'cc-1', project_id: 'pr-1' },
+        input.lines[1],
+      ],
+    });
+
+    const lines = mockCreate.mock.calls[0][4] as Array<Record<string, unknown>>;
+    expect(lines[0]).toMatchObject({ cost_center_id: 'cc-1', project_id: 'pr-1' });
+    expect(lines[1]).toMatchObject({ cost_center_id: null, project_id: null });
   });
 
   it('refuses an unbalanced shape before opening a transaction', async () => {
