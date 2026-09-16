@@ -681,6 +681,33 @@ export async function recordCustomerPayment(
       );
       if (c.rows.length === 0) throw new NotFoundError('Customer', customerId);
       monedaAnticipo = entrada.currencyCode ?? c.rows[0].currency_code;
+
+      // T23 · UN ANTICIPO NO TIENE DOCUMENTO QUE LE DÉ LA MONEDA, Y AQUÍ NADIE
+      // LA COMPARABA CON LA FUNCIONAL.
+      //
+      // Sin factura, la moneda sale del propio cliente —o del parámetro— y se
+      // escribía cruda: un anticipo de 1 000 USD contra una entidad que lleva
+      // sus libros en MXN quedaba asentado como 1 000 pesos, y el asiento
+      // cuadraba porque las dos patas llevaban la misma cifra equivocada.
+      //
+      // SE REHÚSA, NO SE CONVIERTE, y es deliberado: convertir exige elegir una
+      // tasa y una FUENTE, y esa es una decisión del despacho
+      // (`fuente_tipo_cambio`), no un valor por omisión que esta función pueda
+      // inventarse. Es además lo que el manual ya promete para cuentas por
+      // cobrar — «a foreign-currency invoice REFUSES to post (phase 2) rather
+      // than record dollars as pesos»—; el anticipo era la puerta por la que
+      // esa promesa no se cumplía.
+      const functionalCurrency = await monedaFuncionalDe(client, entrada.entityId);
+      if (monedaAnticipo !== functionalCurrency) {
+        throw new ValidationError(
+          `El anticipo viene en ${monedaAnticipo} y esta entidad lleva sus libros en ` +
+            `${functionalCurrency}. No lo registro convertido porque la tasa y su fuente ` +
+            'las decide el despacho en la política `fuente_tipo_cambio`, no yo; y no lo ' +
+            'registro sin convertir porque asentaría una cifra de otra moneda como si fuera ' +
+            'de ésta. Aplica el cobro a un documento en su moneda, o registra el anticipo en ' +
+            `${functionalCurrency}.`
+        );
+      }
     }
 
     const paymentNumber = await nextEntityNumber(client, entrada.entityId, 'customer_payment', 'PMT', entrada.paymentDate);

@@ -7643,7 +7643,7 @@ export const CRITERIOS: Criterio[] = [
       // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
       // porque con holgura el espejo de este mismo criterio deja de morder: la
       // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
-      const MIRRORS_FLOOR = 408;
+      const MIRRORS_FLOOR = 411;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -7662,7 +7662,7 @@ export const CRITERIOS: Criterio[] = [
       // son el mismo hecho leído por el seam —hoy 358, que son los 358 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      const ANCHORS_HERE = 391;
+      const ANCHORS_HERE = 394;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
@@ -8683,6 +8683,92 @@ export const CRITERIOS: Criterio[] = [
 
       return ok(
         'ningún sitio cuenta días restando milisegundos; el contador normaliza los dos extremos; y la reproducción lo mide con el reloj movido al oeste y al este, incluido el descuento por pronto pago'
+      );
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    id: 'an-advance-cannot-be-booked-in-another-currency',
+    // T23 (#130). Un anticipo puro no tiene documento que le dé la moneda: sale
+    // del propio cliente —o del parámetro— y se escribía CRUDA, sin compararla
+    // nunca con la funcional de la entidad. Medido contra Postgres: un anticipo
+    // de 1 000 USD contra una entidad que lleva sus libros en MXN se registraba
+    // sin protestar, y el asiento cuadraba porque las dos patas llevaban la
+    // misma cifra equivocada.
+    //
+    // El lado proveedor ya cotejaba la funcional antes de postear; el de
+    // cliente lo hacía sólo cuando había documentos. La rama sin documentos
+    // —que es precisamente la que no tiene de dónde sacar la moneda— era el
+    // hueco.
+    //
+    // REHUSAR ES EL ARREGLO ENTERO, y el criterio lo fija: convertir exige
+    // elegir tasa y FUENTE, y eso lo decide el despacho en `fuente_tipo_cambio`.
+    // Un valor por omisión aquí sería elegirle el criterio fiscal.
+    enunciado: 'Un anticipo en otra moneda no se asienta como si fuera de la funcional',
+    mutantes: [
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'if (monedaAnticipo !== functionalCurrency) {',
+        a: 'if (monedaAnticipo === functionalCurrency) {',
+        porque: 'la comparación se invierte: pasa el anticipo en otra moneda y se rehúsa el que sí está en la funcional',
+      },
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'const functionalCurrency = await monedaFuncionalDe(client, entrada.entityId);',
+        a: 'const functionalCurrency = monedaAnticipo;',
+        porque: 'la funcional deja de leerse de la entidad y se toma del propio anticipo: la comparación se vuelve tautológica y nunca acusa',
+      },
+      {
+        archivo: 'tests/integration/t23-a-pure-advance-in-another-currency.int.spec.ts',
+        de: "await expect(advance(customerMxn, 'EUR')).rejects.toThrow(ValidationError);",
+        a: "await expect(advance(customerMxn)).rejects.toThrow(ValidationError);",
+        porque: 'la reproducción deja de probar la segunda puerta —el parámetro explícito, que gana sobre la moneda del cliente— y pasa a exigir que se rehúse un anticipo correcto',
+      },
+    ],
+    evaluar: () => {
+      const svc = 'src/services/payments/payment-service.ts';
+      const spec = 'tests/integration/t23-a-pure-advance-in-another-currency.int.spec.ts';
+      if (!existe(svc)) return falla(`desapareció ${svc}`);
+      const code = codigoDe(svc);
+
+      // 1. LA GUARDA VIVE EN LA RAMA SIN DOCUMENTOS, que es la que no tiene de
+      //    dónde sacar la moneda. Se comprueba el ORDEN: la funcional se lee
+      //    después de resolver la del anticipo y antes del INSERT.
+      const resuelve = code.indexOf('monedaAnticipo = entrada.currencyCode ?? c.rows[0].currency_code;');
+      const lee = code.indexOf('const functionalCurrency = await monedaFuncionalDe(client, entrada.entityId);');
+      const compara = code.indexOf('if (monedaAnticipo !== functionalCurrency) {');
+      const inserta = code.indexOf('INSERT INTO customer_payments');
+      if (resuelve < 0) return falla('cambió la resolución de la moneda del anticipo: la guarda puede haber quedado colgando de otra rama');
+      if (lee < 0 || compara < 0) {
+        return falla(
+          'el anticipo sin documento dejó de cotejar su moneda contra la funcional de la entidad: mil dólares vuelven a poder asentarse como mil pesos'
+        );
+      }
+      if (!(resuelve < lee && lee < compara && compara < inserta)) {
+        return falla('la guarda del anticipo quedó fuera de orden: comprueba después de escribir, o antes de saber qué moneda es');
+      }
+
+      // 2. REHÚSA, NO CONVIERTE. Una conversión silenciosa aquí sería elegirle
+      //    al despacho la fuente del tipo de cambio.
+      const mensaje = code.slice(compara, inserta);
+      if (!/fuente_tipo_cambio/.test(mensaje)) {
+        return falla('el rechazo dejó de decir que la tasa y su fuente las decide el panel: sin eso parece una limitación y no una negativa razonada');
+      }
+
+      // 3. Y CONDUCTA: las DOS puertas, la del cliente y la del parámetro.
+      if (!existe(spec)) return falla('no hay reproducción contra Postgres del anticipo en otra moneda');
+      const t = codigoDe(spec);
+      for (const [pattern, what] of [
+        [/advance\(customerUsd\)/, 'probar la puerta de la moneda del CLIENTE'],
+        [/advance\(customerMxn, 'EUR'\)/, 'probar la puerta del PARÁMETRO, que gana sobre la del cliente'],
+        [/advance\(customerMxn\)\s*;|const r = await advance\(customerMxn\)/, 'probar que el anticipo en la funcional SÍ entra: una guarda que rehúsa todo no es una guarda'],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        'el anticipo sin documento coteja su moneda contra la funcional antes de escribir, rehúsa en vez de convertir —y dice que la fuente la decide el panel—, y la reproducción prueba las dos puertas y el caso que sí entra'
       );
     },
   },
