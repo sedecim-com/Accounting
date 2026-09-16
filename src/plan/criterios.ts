@@ -7556,14 +7556,14 @@ export const CRITERIOS: Criterio[] = [
       // mutantes cuenta igual que uno con uno: se podían retirar seis sin mover
       // la cifra, y con la holgura acumulada —14 exigidos contra 118 reales— la
       // mitad de los espejos del repositorio salía en verde. Medido en el
-      // momento de escribir esto: 348 espejos, 14 exigidos.
+      // momento de escribir esto: 352 espejos, 14 exigidos.
       //
       // Ahora el número es el de espejos, de los dos arneses, y la holgura es
       // CERO: retirar uno obliga a bajar esta constante en el mismo diff, que
       // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
       // porque con holgura el espejo de este mismo criterio deja de morder: la
       // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
-      const MIRRORS_FLOOR = 348;
+      const MIRRORS_FLOOR = 352;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -7579,10 +7579,10 @@ export const CRITERIOS: Criterio[] = [
       // el seam sólo intercepta lecturas de DISCO: ningún mutante puede bajar
       // el conteo de arriba, así que por sí solo sería la clase de cifra que
       // este criterio existe para desconfiar. Las anclas `de:` de este archivo
-      // son el mismo hecho leído por el seam —hoy 336, que son los 336 espejos
+      // son el mismo hecho leído por el seam —hoy 340, que son los 340 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      const ANCHORS_HERE = 336;
+      const ANCHORS_HERE = 340;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
@@ -8142,6 +8142,129 @@ export const CRITERIOS: Criterio[] = [
 
 
 
+
+  {
+    paquete: 'E1.2',
+    id: 'every-ledger-line-writer-carries-its-dimensions',
+    // X1a (#256). `journal_entry_lines` lleva `cost_center_id` y `project_id`;
+    // tres caminos las escriben —REST, el posteo AP/AR y el plan del CFDI— y
+    // el mayor general las devuelve al cliente. No son decoración: alguien las
+    // teclea y alguien las lee.
+    //
+    // Editar un borrador REEMPLAZA sus líneas: DELETE y luego INSERT. Ese
+    // segundo INSERT nombraba siete columns y ninguna de dimensión, así que
+    // corregir el texto de UNA línea borraba el centro de costo de TODAS, sin
+    // error y sin aviso. Medido contra Postgres: el borrador nacía con su
+    // centro de costo y volvía con `null`.
+    //
+    // El defecto vivía en la grieta entre dos mitades del mismo contrato —el
+    // alta sabía escribirlas y el parche sólo sabía quitarlas—, y la forma del
+    // parche se documentaba a sí misma como «la misma forma que el alta», que
+    // era justo lo que no era. Por eso el criterio no comprueba el arreglo:
+    // CENSA los writers de la tabla y exige que TODOS nombren las dos
+    // columns. Un tercero que nazca corto sale rojo el día que nace, que es
+    // lo que no pasó con éste.
+    enunciado:
+      'Ningún camino que escriba el mayor se lleva por delante el centro de costo de una línea',
+    mutantes: [
+      {
+        archivo: 'src/services/accounting/journal-entry-service.ts',
+        de: '            cost_center_id, project_id\n          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+        a: '            project_id\n          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        porque: 'el INSERT de la edición vuelve a dejarse el centro de costo fuera: corregir el texto de una línea borra la dimensión de todas',
+      },
+      {
+        archivo: 'src/services/accounting/journal-entry-service.ts',
+        de: '      cost_center_id: line.cost_center_id ?? null,',
+        a: '      cost_center_id: null,',
+        porque: 'la capa que resuelve las líneas tira el centro de costo que el llamador mandó: las cuatro superficies que la usan lo pierden a la vez',
+      },
+      {
+        archivo: 'src/services/accounting/journal-entry-service.ts',
+        de: '      project_id: line.project_id ?? null,',
+        a: '      project_id: null,',
+        porque: 'lo mismo con el proyecto, que es la otra dimensión que el mayor general devuelve al cliente',
+      },
+      {
+        archivo: 'tests/integration/x1a-editing-a-draft-keeps-its-dimensions.int.spec.ts',
+        de: 'const COST_CENTRE = randomUUID();',
+        a: 'const CENTRO = null as unknown as string;',
+        porque: 'la reproducción deja de sembrar un centro de costo: comprueba que un nulo sigue siendo nulo, que es verde con el defecto puesto',
+      },
+    ],
+    evaluar: () => {
+      const spec = 'tests/integration/x1a-editing-a-draft-keeps-its-dimensions.int.spec.ts';
+      const DIMENSIONS = ['cost_center_id', 'project_id'];
+
+      // 1. EL CENSO. Todo INSERT a journal_entry_lines nombra las dos columns.
+      //    Se cuenta antes de absolver: un censo vacío no es un censo limpio.
+      const writers: Array<{ file: string; missing: string[] }> = [];
+      for (const f of fuentes('src')) {
+        const code = sinComentarios(leer(f));
+        for (const m of code.matchAll(/INSERT\s+INTO\s+journal_entry_lines\s*\(([^)]*)\)/gi)) {
+          const columns = m[1];
+          const missing = DIMENSIONS.filter((d) => !new RegExp(`\\b${d}\\b`).test(columns));
+          writers.push({ file: path.relative(rutaDe(), f), missing });
+        }
+      }
+      if (writers.length < 2) {
+        return falla(
+          `sólo ${writers.length} INSERT a journal_entry_lines encontrado(s): el escáner no está viendo el árbol, y un censo que no encuentra a los writers conocidos no absuelve a nadie`
+        );
+      }
+      const short = writers.filter((e) => e.missing.length > 0);
+      if (short.length > 0) {
+        return falla(
+          `${short.length} de ${writers.length} escritor(es) del mayor no nombran su dimensión: ` +
+            short.map((e) => `${e.file} → sin ${e.missing.join(' ni ')}`).join(' · ') +
+            '. Un INSERT corto no falla: escribe NULL, y la dimensión que alguien tecleó desaparece sin aviso'
+        );
+      }
+
+      // 2. LA CAPA COMPARTIDA LAS CONSERVA. Los cuatro llamadores de
+      //    resolveDraftLines entregan su salida a un INSERT; si ella las tira,
+      //    los cuatro las pierden a la vez y ningún INSERT parece culpable.
+      const shared = codigoDe('src/services/accounting/journal-entry-service.ts');
+      for (const d of DIMENSIONS) {
+        if (!shared.includes(`${d}: line.${d} ?? null,`)) {
+          return falla(
+            `resolveDraftLines dejó de pasar ${d} desde la línea que recibe: la pierden a la vez todos sus llamadores, y el INSERT que la escribe parece correcto`
+          );
+        }
+      }
+
+      // 3. LA FORMA DE ENTRADA PUEDE EXPRESARLAS. El defecto nació aquí: el
+      //    parche se documentaba como «la misma forma que el alta» y no podía
+      //    ni nombrar lo que el alta escribía.
+      const inputShape = shared.slice(shared.indexOf('interface DraftLineInput'), shared.indexOf('interface DraftEntryInput'));
+      for (const d of DIMENSIONS) {
+        if (!new RegExp(`${d}\\?:`).test(inputShape)) {
+          return falla(
+            `DraftLineInput volvió a no poder expresar ${d}: quien reemplaza las líneas no tiene cómo conservarlo, y omitirlo deja de ser una elección`
+          );
+        }
+      }
+
+      // 4. Y CONDUCTA contra Postgres, que es lo único que distingue «lo
+      //    escribe» de «lo escribe y sobrevive a una edición».
+      if (!existe(spec)) return falla('no hay reproducción contra Postgres de la edición que conserva la dimensión');
+      const t = crudoDe(spec);
+      const needed: Array<[RegExp, string]> = [
+        [/updateDraftEntry/, 'editar de verdad el borrador, no sólo insertarlo'],
+        [/autoPost: false/, 'sembrar un BORRADOR, que es lo único que se puede editar'],
+        [/toBeNull\(\)/, 'medir también que omitir la dimensión la deja en nulo, que es la mitad querida del contrato'],
+        [/const COST_CENTRE = randomUUID\(\);/, 'sembrar un centro de costo real: comprobar que un nulo sigue nulo es verde con el defecto puesto'],
+        [/const PROJECT = randomUUID\(\);/, 'sembrar un proyecto real, por la misma razón'],
+      ];
+      for (const [pattern, what] of needed) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        `${writers.length} writers del mayor revisados y los dos nombran su dimensión; la capa compartida la conserva, la forma de inputShape puede expresarla, y la reproducción mide que una edición que no la toca no se la lleva`
+      );
+    },
+  },
 
   // ---- F05d · La firma y el sello ----
 

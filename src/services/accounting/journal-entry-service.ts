@@ -263,6 +263,22 @@ export interface DraftLineInput {
   debit?: string | null;
   credit?: string | null;
   description?: string;
+  /**
+   * THE DIMENSIONS ARE PART OF THE LINE, AND THE PATCH REPLACES THE LINE (X1a).
+   *
+   * `journal_entry_lines` carries `cost_center_id` and `project_id`; REST
+   * writes them, the general ledger reads them back and hands them to the
+   * client. They were missing from this shape, so a form that documents itself
+   * as «the same shape as the create path» could not express them — and since
+   * editing a draft DELETEs its lines and reinserts them from this shape, every
+   * edit silently dropped whatever cost centre had been typed.
+   *
+   * There is no master table for either (see #256): the column takes any UUID.
+   * That is a separate defect and it is not fixed here; what is fixed here is
+   * losing a value nobody asked to remove.
+   */
+  cost_center_id?: string | null;
+  project_id?: string | null;
 }
 
 export interface DraftEntryInput {
@@ -325,7 +341,16 @@ export function validateDraftShape(input: DraftEntryInput): void {
 export async function resolveDraftLines(
   entityId: string,
   lines: DraftLineInput[]
-): Promise<Array<{ account_id: string; debit_amount: string | null; credit_amount: string | null; description: string }>> {
+): Promise<
+  Array<{
+    account_id: string;
+    debit_amount: string | null;
+    credit_amount: string | null;
+    description: string;
+    cost_center_id: string | null;
+    project_id: string | null;
+  }>
+> {
   const resolved = [];
   for (const line of lines) {
     const account = await resolveAccount(entityId, line.account);
@@ -334,6 +359,11 @@ export async function resolveDraftLines(
       debit_amount: line.debit ? String(line.debit) : null,
       credit_amount: line.credit ? String(line.credit) : null,
       description: line.description ?? '',
+      // Explicitly null when absent, never undefined: the four callers hand
+      // this straight to an INSERT, and `undefined` reaches pg as a missing
+      // parameter rather than as NULL.
+      cost_center_id: line.cost_center_id ?? null,
+      project_id: line.project_id ?? null,
     });
   }
   return resolved;
@@ -740,11 +770,22 @@ export async function updateDraftEntry(
       const resueltas = await resolveDraftLines(entityId, patch.lines);
       await client.query('DELETE FROM journal_entry_lines WHERE journal_entry_id = $1', [entry.id]);
       for (const [idx, linea] of resueltas.entries()) {
+        // LAS DIMENSIONES VIAJAN CON LA LÍNEA (X1a). Este INSERT nombraba siete
+        // columnas y ninguna de dimensión, así que editar un borrador borraba
+        // el centro de costo y el proyecto de TODAS sus líneas, sin aviso —
+        // aunque el parche sólo cambiara un texto. El alta sí las escribe
+        // (posting.ts), de modo que las dos mitades del mismo contrato
+        // discrepaban: una podía ponerlas y la otra sólo quitarlas.
         await client.query(
           `INSERT INTO journal_entry_lines (
-            id, journal_entry_id, line_number, account_id, debit_amount, credit_amount, description
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [uuidv4(), entry.id, idx + 1, linea.account_id, linea.debit_amount, linea.credit_amount, linea.description]
+            id, journal_entry_id, line_number, account_id, debit_amount, credit_amount, description,
+            cost_center_id, project_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            uuidv4(), entry.id, idx + 1, linea.account_id,
+            linea.debit_amount, linea.credit_amount, linea.description,
+            linea.cost_center_id, linea.project_id,
+          ]
         );
       }
     }
