@@ -1,4 +1,5 @@
 import { query } from '../../../database/connection.js';
+import { daysBetween } from '../../../utils/calendar-date.js';
 import type { Scope } from '../../../database/scope.js';
 import { NotFoundError } from '../../../utils/errors.js';
 import { pacRouter } from '../../integrations/mexico/pac/pac-router.js';
@@ -137,9 +138,9 @@ export async function generateAndStampCfdiNomina(
       : '';
 
   // Days worked in period (inclusive)
-  const days = Math.floor(
-    (new Date(r.period_end).getTime() - new Date(r.period_start).getTime()) / 86400000
-  ) + 1;
+  // #243 · Días de calendario, inclusive: este número viaja en el XML que se
+  // le timbra al SAT.
+  const days = daysBetween(r.period_start, r.period_end) + 1;
 
   const percepcionesXml = earnings.rows.map((e) => `    <nomina12:Percepcion TipoPercepcion="${e.cfdi_clave_sat || '001'}" Clave="${e.earning_type}" Concepto="${escapeXml(e.description || e.earning_type)}" ImporteGravado="${parseFloat(e.amount).toFixed(2)}" ImporteExento="0.00"/>`).join('\n');
   const deduccionesXml = deductions.rows.map((d) => `    <nomina12:Deduccion TipoDeduccion="${d.cfdi_clave_sat || '004'}" Clave="${d.deduction_type}" Concepto="${escapeXml(d.description || d.deduction_type)}" Importe="${parseFloat(d.amount).toFixed(2)}"/>`).join('\n');

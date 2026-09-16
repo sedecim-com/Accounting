@@ -7643,7 +7643,7 @@ export const CRITERIOS: Criterio[] = [
       // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
       // porque con holgura el espejo de este mismo criterio deja de morder: la
       // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
-      const MIRRORS_FLOOR = 405;
+      const MIRRORS_FLOOR = 408;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -7662,7 +7662,7 @@ export const CRITERIOS: Criterio[] = [
       // son el mismo hecho leído por el seam —hoy 358, que son los 358 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      const ANCHORS_HERE = 388;
+      const ANCHORS_HERE = 391;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
@@ -8590,6 +8590,99 @@ export const CRITERIOS: Criterio[] = [
 
       return ok(
         `${VIGILADOS.length} sitios que leen una fecha del mayor revisados sin reinterpretarla; la puerta del periodo, el fichero ACH y lo que ve el agente van por el normalizador; y la reproducción lo mide al este y al oeste con una fixture que imita a pg`
+      );
+    },
+  },
+
+  {
+    paquete: 'E1.2',
+    id: 'days-are-counted-on-the-calendar-not-on-a-clock',
+    // #243. Tres sitios restaban milisegundos y dividían entre 86 400 000, y
+    // los dos operandos nunca eran la misma cosa: un lado llegaba como cadena
+    // 'YYYY-MM-DD' —que `new Date()` lee como medianoche UTC— y el otro como el
+    // Date que pg construye de una columna DATE, que es medianoche LOCAL.
+    // Restarlos mezcla dos orígenes separados por el desfase del huso, y el
+    // cociente cae un día entero fuera en media esfera.
+    //
+    // Medido sobre un gasto del 1 de agosto, 2/10 Net 30, pagado el 12 —el día
+    // ONCE, fuera de la ventana—: UTC contestaba 11 y no daba descuento;
+    // Mexico_City, Tijuana y New_York contestaban 10 y concedían un 2 % que ya
+    // había vencido. Los otros dos sitios dividen un sueldo y viajan en el XML
+    // que se le timbra al SAT.
+    //
+    // Ni redondear ni truncar lo arregla: el error está en los operandos, no en
+    // la división. Por eso el criterio CENSA que no quede ninguna resta cruda,
+    // en vez de comprobar los tres sitios que hoy conocemos.
+    enunciado: 'Los días entre dos fechas se cuentan igual en cualquier huso del servidor',
+    mutantes: [
+      {
+        archivo: 'src/utils/calendar-date.ts',
+        de: 'const [ty, tm, td] = toCalendarDate(to).split(\'-\').map(Number);',
+        a: 'const [ty, tm, td] = String(to).split(\'-\').map(Number);',
+        porque: 'un extremo deja de normalizarse: el Date que pg entrega vuelve a leerse por su texto ISO en UTC y el conteo se descuadra al oeste de Greenwich',
+      },
+      {
+        archivo: 'src/services/ap/bill-service.ts',
+        de: 'const daysUntilPayment = daysBetween(bill.bill_date, paymentDate);',
+        a: 'const daysUntilPayment = Math.floor((new Date(paymentDate).getTime() - new Date(bill.bill_date).getTime()) / 86400000);',
+        porque: 'vuelve la resta de milisegundos justo donde reparte dinero: el descuento del 2 % se concede un día después de vencido en media esfera',
+      },
+      {
+        archivo: 'tests/utils/days-between.spec.ts',
+        de: "process.env.TZ = tz;",
+        a: "process.env.TZ = process.env.TZ;",
+        porque: 'la reproducción deja de cambiar de zona: todas las aserciones corren en el huso de CI, que es UTC — la única zona donde el defecto no se ve',
+      },
+    ],
+    evaluar: () => {
+      const util = 'src/utils/calendar-date.ts';
+      const spec = 'tests/utils/days-between.spec.ts';
+      if (!existe(util)) return falla(`desapareció ${util}`);
+
+      // 1. EL CENSO: ninguna resta cruda de milisegundos para contar días.
+      // Se busca LA FORMA QUE FALLA, no el divisor: restar dos instantes de
+      // verdad —cuánto falta para que venza una credencial— en milisegundos es
+      // correcto, y `Date.UTC` sobre las partes de una fecha también. Lo que
+      // no vale es restar dos `new Date(...)` construidos de orígenes
+      // distintos, que es de donde salía el día suelto.
+      const MEZCLA = /new Date\([^)]*\)\.getTime\(\)\s*-\s*new Date\([^)]*\)\.getTime\(\)[\s\S]{0,40}86[_ ]?400[_ ]?000/;
+      const crudos: string[] = [];
+      for (const f of fuentes('src')) {
+        const code = sinComentarios(leer(f));
+        if (MEZCLA.test(code)) crudos.push(path.relative(rutaDe(), f));
+      }
+      if (crudos.length > 0) {
+        return falla(
+          `${crudos.length} sitio(s) vuelven a contar días restando milisegundos (${crudos.join(', ')}): ` +
+            'una cadena es medianoche UTC y un DATE de pg es medianoche local, así que la resta mezcla dos orígenes y el día sobra o falta según dónde esté el servidor'
+        );
+      }
+
+      // 2. EL CONTADOR NORMALIZA LOS DOS EXTREMOS. Uno solo no basta: el defecto
+      //    era precisamente que los operandos venían de origenes distintos.
+      const code = codigoDe(util);
+      if (!code.includes('export function daysBetween')) {
+        return falla('desapareció daysBetween: cada sitio vuelve a contar los días a su manera');
+      }
+      if (!code.includes("toCalendarDate(from)") || !code.includes("toCalendarDate(to)")) {
+        return falla('daysBetween dejó de normalizar los DOS extremos: basta con que uno llegue crudo para que el conteo vuelva a depender del huso');
+      }
+
+      // 3. Y CONDUCTA con el reloj movido, que es lo único que lo hace visible:
+      //    CI corre en UTC, la única zona donde el defecto no aparece.
+      if (!existe(spec)) return falla('no hay reproducción del conteo de días con el reloj movido');
+      const t = codigoDe(spec);
+      for (const [pattern, what] of [
+        [/America\/Mexico_City/, 'medir al oeste de Greenwich, que es donde el descuento se concedía vencido'],
+        [/Asia\/Tokyo/, 'medir al este, para que el arreglo no rompa la otra mitad'],
+        [/process\.env\.TZ = tz;/, 'mover de verdad el reloj del proceso'],
+        [/earlyPaymentDiscount/, 'medirlo donde reparte dinero, y no sólo en la función pura'],
+      ] as Array<[RegExp, string]>) {
+        if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
+      }
+
+      return ok(
+        'ningún sitio cuenta días restando milisegundos; el contador normaliza los dos extremos; y la reproducción lo mide con el reloj movido al oeste y al este, incluido el descuento por pronto pago'
       );
     },
   },

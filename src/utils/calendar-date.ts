@@ -57,3 +57,31 @@ export function toCalendarDate(value: Date | string): string {
 function formatParts(year: number, month: number, day: number): string {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
+
+/**
+ * CALENDAR DAYS BETWEEN TWO DATES, counted on the calendar and not on a clock.
+ *
+ * Three places subtracted milliseconds and divided by 86_400_000, and each got
+ * a different answer depending on where the server stood. The two operands were
+ * never the same kind of thing: one side arrived as a 'YYYY-MM-DD' string —
+ * which `new Date()` reads as UTC midnight — and the other as the Date that pg
+ * builds from a DATE column, which is LOCAL midnight. Subtracting them mixes
+ * two origins that differ by the offset, and the quotient lands a whole day off
+ * on one half of the planet.
+ *
+ * Measured on a 2/10 Net 30 bill dated 2026-08-01 paid on 2026-08-12 — day
+ * eleven, outside the discount window: UTC answered 11 (right), Mexico_City,
+ * Tijuana and New_York answered 10 (and granted a 2 % discount that had
+ * expired), while Madrid and Tokyo answered 11. Neither rounding nor flooring
+ * fixes it: the error is in the operands, not in the division.
+ *
+ * A DST change is the same trap by another door — a 23- or 25-hour day makes
+ * the quotient a fraction — and it does not arise here: both ends are reduced
+ * to their calendar parts first, and `Date.UTC` of three integers has no
+ * daylight saving to cross.
+ */
+export function daysBetween(from: Date | string, to: Date | string): number {
+  const [fy, fm, fd] = toCalendarDate(from).split('-').map(Number);
+  const [ty, tm, td] = toCalendarDate(to).split('-').map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000);
+}
