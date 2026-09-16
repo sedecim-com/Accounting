@@ -178,12 +178,6 @@ export async function listJournalEntries(
   return { rows: rows.rows, total };
 }
 
-/** The bare header, unscoped — the caller checks access (the REST route does). */
-export async function getJournalEntryById(id: string): Promise<JournalEntry | null> {
-  const result = await query<JournalEntry>('SELECT * FROM journal_entries WHERE id = $1', [id]);
-  return result.rows[0] ?? null;
-}
-
 export type JournalEntryLineWithAccount = JournalEntryLine & {
   account_code: string;
   account_name: string;

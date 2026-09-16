@@ -271,8 +271,3 @@ export function periodsPerYear(freq: PayFrequency): number {
     case 'annual': return 1;
   }
 }
-
-export function clearCache(): void {
-  bracketCache.clear();
-  paramCache.clear();
-}
