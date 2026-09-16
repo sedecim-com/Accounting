@@ -6219,20 +6219,21 @@ Usage: mnemosine fx rate show|ver [options] <pair> <date>
 Resolve the applicable rate: direct, then inverse, then crossed through USD
 
 Arguments:
-  pair                                          currency pair, e.g. USD/MXN
-  date                                          date the rate applies to (YYYY-MM-DD)
+  pair                                                             currency pair, e.g. USD/MXN
+  date                                                             date the rate applies to (YYYY-MM-DD)
 
 Options:
-  -e, --entity <idOrName>                       legal entity to operate on (defaults to the active one)
-  -t, --tenant <id>                             tenant (firm) whose data to scope to
-  -u, --user <email>                            acting user, for attribution and permissions
-  --format <table|json|ndjson|csv|tsv|md>       output format (default: "table")
-  --json                                        shorthand for --format json
-  -o, --output <path>                           write to a file instead of stdout
-  --fields [names]                              comma-separated columns; with no value, lists the available ones
-  -q, --quiet                                   identifiers only, one per line, for piping
-  --rate-type <spot|average|budget|historical>  rate type to resolve (default: "spot")
-  -h, --help                                    display help for command
+  -e, --entity <idOrName>                                          legal entity to operate on (defaults to the active one)
+  -t, --tenant <id>                                                tenant (firm) whose data to scope to
+  -u, --user <email>                                               acting user, for attribution and permissions
+  --format <table|json|ndjson|csv|tsv|md>                          output format (default: "table")
+  --json                                                           shorthand for --format json
+  -o, --output <path>                                              write to a file instead of stdout
+  --fields [names]                                                 comma-separated columns; with no value, lists the available ones
+  -q, --quiet                                                      identifiers only, one per line, for piping
+  --rate-type <spot|average|budget|historical>                     rate type to resolve (default: "spot")
+  --source <manual|dof|banco_mexico|ecb|fed|xe|openexchangerates>  resolve using only this publisher
+  -h, --help                                                       display help for command
 
 Examples:
   # The rate a document dated 2026-07-08 converts at. Resolution is direct, then

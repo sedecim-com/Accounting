@@ -308,15 +308,22 @@ export function registerFxCommand(program: Command, deps: FxCommandDeps): void {
     .description('Resolve the applicable rate: direct, then inverse, then crossed through USD');
   withOutput(withContext(show));
   show.option(`--rate-type <${TIPOS_DE_TASA.join('|')}>`, 'rate type to resolve', 'spot');
+  // Desde la 057 un par puede tener DOF y FIX del MISMO día. Sin esta bandera
+  // la respuesta salía del orden físico de las filas —mudable con un VACUUM—;
+  // desde la 084 el esquema se niega a elegir y esta bandera es cómo se le
+  // dice cuál se quiere (T1, #88).
+  show.option(`--source <${FUENTES_DE_TIPO.join('|')}>`, 'resolve using only this publisher');
   declareRisk(show, { risk: 'lectura', agent: true });
   show.addHelpText('after', EJEMPLOS.rateShow);
-  show.action((pairArg: string, dateArg: string, opts: CommonOpts & { rateType: string }) =>
-    run(async () => {
-      bootstrapTenant(opts.tenant);
-      const par = exigirPar(pairArg);
-      const fecha = exigirFecha('<date>', dateArg);
-      const tipo = exigirTipoDeTasa(opts.rateType);
-      const resuelto = await verTipo(par, fecha, tipo);
+  show.action(
+    (pairArg: string, dateArg: string, opts: CommonOpts & { rateType: string; source?: string }) =>
+      run(async () => {
+        bootstrapTenant(opts.tenant);
+        const par = exigirPar(pairArg);
+        const fecha = exigirFecha('<date>', dateArg);
+        const tipo = exigirTipoDeTasa(opts.rateType);
+        const publisher = opts.source ? exigirFuente(opts.source) : undefined;
+        const resuelto = await verTipo(par, fecha, tipo, publisher);
 
       if (resuelto.rate === null) {
         throw notFound(
