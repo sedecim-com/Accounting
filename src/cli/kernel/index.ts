@@ -63,7 +63,6 @@ export {
   resolveActiveEntity,
   requireExplicitEntity,
   useEntity,
-  currentEntity,
   readState,
   writeState,
   clearActiveEntity,
@@ -71,7 +70,7 @@ export {
   type EntityResolution,
 } from './entity-context.js';
 
-export { VERBS, isVerb, spanishVerb, OBJECTLESS_COMMANDS, LEGACY_PLURALS } from './vocabulary.js';
+export { VERBS, isVerb, OBJECTLESS_COMMANDS, LEGACY_PLURALS } from './vocabulary.js';
 
 // I7 · El cromo traducido. Se re-exporta desde aquí por la misma razón que todo
 // lo de arriba: quien registra un comando importa del kernel y de ningún otro
