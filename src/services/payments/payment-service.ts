@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { toCalendarDate } from '../../utils/calendar-date.js';
 import Decimal from 'decimal.js';
 import type pg from 'pg';
 import { query, withTransaction } from '../../database/connection.js';
@@ -1740,7 +1741,10 @@ export async function applyVendorPayment(
       if (descuento.greaterThan(0)) {
         const derecho = earlyPaymentDiscount(
           { amount_due: bill.amount_due, bill_date: bill.bill_date, terms: bill.terms },
-          new Date(pago.payment_date).toISOString().slice(0, 10)
+          // #241 · El día del pago se LEE, no se reinterpreta: `payment_date` es
+          // DATE y pg lo entrega a medianoche local. Este día decide si el
+          // descuento por pronto pago sigue vigente.
+          toCalendarDate(pago.payment_date)
         );
         if (derecho.applied && descuento.greaterThan(derecho.discountAmount)) {
           throw new ValidationError(

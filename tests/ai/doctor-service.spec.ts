@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
 
-// 20 s por prueba en TODO este archivo: `runDoctor` corre las comprobaciones
-// enteras —una recorre `src/` completo— y con la suite en paralelo eso rebasa
-// los 5 s por omisión. El fallo se presenta como «Test timed out», que no
-// señala a nadie y no se reproduce a mano.
+// 20 s por prueba en TODO este archivo, y no los 5 por omisión. `runDoctor`
+// corre las comprobaciones enteras —una recorre `src/` completo— y con la suite
+// de 292 archivos en paralelo eso rebasa el presupuesto por omisión: el fallo
+// se presenta como «Test timed out in 5000ms», que no señala a nadie y no se
+// reproduce a mano. El margen es del archivo porque el costo es del archivo.
 vi.setConfig({ testTimeout: 20_000 });
 import fs from 'node:fs';
 import path from 'node:path';
@@ -539,6 +540,13 @@ describe('checkOrphanedCapability', () => {
   // No depende del beforeEach: lee el disco, no el entorno ni la base. La
   // prueba de tmpDir queda fuera a propósito — necesita un árbol vacío nuevo
   // en cada corrida, y ahí el escaneo es barato porque no hay nada que leer.
+  //
+  // De 30 s a 90 s, y por CRECIMIENTO otra vez: el escaneo recorre `src/`
+  // entero, y `src/` creció. Con la suite de 292 archivos en paralelo el hook
+  // empezó a agotar los 30 s en CI —no sólo bajo carga local—, y el fallo se
+  // presenta como «Hook timed out», que no señala a nadie. El tope es un
+  // margen, no una promesa: si se vuelve a agotar, lo que hay que cambiar es
+  // que el escaneo se comparta entre archivos de prueba, no el número.
   let repo: ReturnType<typeof checkOrphanedCapability>;
   beforeAll(() => {
     repo = checkOrphanedCapability({ cwd: process.cwd() });

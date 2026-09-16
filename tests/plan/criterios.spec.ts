@@ -89,18 +89,18 @@ describe('la lista de criterios', () => {
     }
   });
 
-  // 30 s y no los 5 por omisión: esta prueba EJECUTA los criterios de los quince
+  // 60 s y no los 5 por omisión: esta prueba EJECUTA los criterios de los quince
   // paquetes, y hoy entre ellos hay uno que lanza `git check-ignore` como
   // subproceso y otro que abre un socket a Postgres. Con la suite entera en
   // paralelo eso pasa de cinco segundos y el fallo aparece como un timeout que
   // nadie reproduce a mano — se vio una vez, en verde las dos siguientes.
-    //
+  //
   // De 30 s a 60 s porque el techo se agotó por CRECIMIENTO, no por lentitud
   // nueva: el tablero pasó de 130 criterios a 186, y esta prueba los corre
-  // TODOS en serie. Medido: el archivo entero tarda 41 s en una máquina con
-  // carga, y en CI la prueba empezó a agotar los 30 s. El número es un margen,
-  // no una promesa de rendimiento: si se vuelve a agotar, lo que hay que
-  // cambiar es el bucle —correrlos por lotes en paralelo—, no el techo.
+  // TODOS en serie. Medido en esta máquina con carga 82, el archivo entero
+  // tarda 41 s. El número es un margen, no una promesa de rendimiento: si se
+  // vuelve a agotar, lo que hay que cambiar es el bucle —correrlos por lotes
+  // en paralelo—, no el techo otra vez.
   it('todo resultado trae un detalle con el que se puede actuar', { timeout: 60_000 }, async () => {
     for (const c of CRITERIOS) {
       const r = await c.evaluar();

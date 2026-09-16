@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { daysBetween } from '../../../utils/calendar-date.js';
 import Decimal from 'decimal.js';
 import { query, withTransaction } from '../../../database/connection.js';
 import { NotFoundError } from '../../../utils/errors.js';
@@ -193,8 +194,10 @@ export async function calculatePaycheck(input: PaycheckInput): Promise<Calculate
   if (periodResult.rows.length === 0) throw new NotFoundError('Pay period', run.pay_period_id);
   const period = periodResult.rows[0];
 
-  const daysInPeriod =
-    (new Date(period.period_end).getTime() - new Date(period.period_start).getTime()) / 86400000 + 1;
+  // #243 · Días de calendario, inclusive. La resta de milisegundos daba un
+  // día de menos o de más según dónde estuviera el servidor, y este número
+  // divide el sueldo.
+  const daysInPeriod = daysBetween(period.period_start, period.period_end) + 1;
 
   // --- Gross + deductions ---
   const grossEarnings = sum(input.earnings.map((e) => e.amount));
