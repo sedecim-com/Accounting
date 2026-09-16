@@ -72,11 +72,13 @@ function filaPanel(over: Record<string, unknown> = {}) {
     key: 'umbral_capitalizacion_mxn',
     category: 'contable',
     question: 'From what amount is an item capitalized as a fixed asset instead of expensed?',
+    impact: 'Determines when the system asks "expense or fixed asset" when loading a CFDI.',
     options: [
       { value: '5000', label: '$5,000' },
       { value: '20000', label: '$20,000' },
     ],
     default_value: '20000',
+    default_rationale: 'Most common threshold in Mexican practice.',
     status: 'pending',
     resolved_value: null,
     resolution_notes: null,
@@ -524,6 +526,105 @@ describe('una respuesta en blanco no es una decisión del despacho', () => {
     const panel = await correr();
     expect(panel.unanswered).toEqual(['umbral_capitalizacion_mxn', 'lleva_inventarios']);
     expect(panel.policies[2].status).toBe('answered');
+  });
+});
+
+// ─── I10 · #152: the wording comes from the catalog, the row keeps state ───
+
+describe('the panel paints the catalog wording, not the seed-day copy', () => {
+  /**
+   * A unique marker, so "none of the stale copy reached the agent" is checked
+   * over the whole serialized result and not only over the fields asserted
+   * one by one.
+   */
+  const STALE = 'STALE-SEED-COPY';
+
+  /** A seeded row whose text columns hold wording the catalog has since rewritten. */
+  function staleRow(over: Record<string, unknown> = {}) {
+    return filaPanel({
+      question: `${STALE} question`,
+      impact: `${STALE} impact`,
+      options: [
+        { value: '5000', label: `${STALE} five thousand` },
+        { value: '20000', label: `${STALE} twenty thousand` },
+      ],
+      default_rationale: `${STALE} rationale`,
+      ...over,
+    });
+  }
+
+  function catalogSpec(key: string) {
+    const spec = POLICY_CATALOG.find((p) => p.key === key);
+    expect(spec, `${key} is a live catalog key`).toBeDefined();
+    return spec!;
+  }
+
+  it('an unanswered policy with stale seeded text carries the catalog question and options', async () => {
+    mockPanel([staleRow()]);
+    const spec = catalogSpec('umbral_capitalizacion_mxn');
+    const output = (await herramienta().run({})) as string;
+    const policy = (JSON.parse(output) as PanelDelDespacho).policies[0];
+
+    expect(policy.status).toBe('unanswered');
+    expect(policy.question).toBe(spec.question);
+    expect(policy.options).toEqual(spec.options.map(({ value, label }) => ({ value, label })));
+    expect(output, 'no piece of the seeded copy reaches the agent').not.toContain(STALE);
+  });
+
+  it('an answered policy with stale seeded text carries the catalog question too', async () => {
+    mockPanel([staleRow({ status: 'resolved', resolved_value: '5000' })]);
+    const spec = catalogSpec('umbral_capitalizacion_mxn');
+    const output = (await herramienta().run({})) as string;
+    const policy = (JSON.parse(output) as PanelDelDespacho).policies[0];
+
+    expect(policy.status).toBe('answered');
+    expect(policy.question).toBe(spec.question);
+    expect(policy.options).toBeUndefined();
+    expect(output).not.toContain(STALE);
+  });
+
+  it('the state stays the row\'s: default_value is not taken from the catalog', async () => {
+    // The catalog default for this key is 20000; a row seeded with another
+    // default keeps it, because default_value is behaviour, not wording.
+    expect(catalogSpec('umbral_capitalizacion_mxn').defaultValue).toBe('20000');
+    mockPanel([staleRow({ default_value: '50000' })]);
+    const policy = (await leerPanel(CTX)).policies[0];
+    expect(policy.default_value).toBe('50000');
+    expect(policy.value).toBe('50000');
+  });
+
+  it('an orphan row — a key the catalog no longer has — keeps its own copy', async () => {
+    const orphanKey = 'retired_policy_i10_orphan';
+    expect(POLICY_CATALOG.some((p) => p.key === orphanKey), 'the key really is an orphan').toBe(false);
+    const orphanOptions = [
+      { value: 'a', label: 'Seeded option A' },
+      { value: 'b', label: 'Seeded option B' },
+    ];
+    mockPanel([
+      filaPanel({
+        key: orphanKey,
+        question: 'Seeded question of a retired policy?',
+        options: orphanOptions,
+        default_value: 'a',
+      }),
+    ]);
+    const policy = (await correr()).policies[0];
+
+    expect(policy.key).toBe(orphanKey);
+    expect(policy.question).toBe('Seeded question of a retired policy?');
+    expect(policy.options).toEqual(orphanOptions);
+  });
+
+  it('a live row and an orphan row in the same panel each take their own source', async () => {
+    const orphanKey = 'retired_policy_i10_orphan';
+    mockPanel([
+      staleRow(),
+      filaPanel({ key: orphanKey, question: 'Seeded question of a retired policy?', options: [] }),
+    ]);
+    const { policies } = await correr();
+    expect(policies[0].question).toBe(catalogSpec('umbral_capitalizacion_mxn').question);
+    expect(policies[1].question).toBe('Seeded question of a retired policy?');
+    expect(policies[1].options).toEqual([]);
   });
 });
 

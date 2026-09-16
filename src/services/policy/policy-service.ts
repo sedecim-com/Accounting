@@ -3,7 +3,7 @@ import { query } from '../../database/connection.js';
 import { ValidationError } from '../../utils/errors.js';
 import { concordanciaSombra } from '../../ai/shadow-verdicts.js';
 import { FLOOR_SOMBRA_DIAS, FLOOR_SOMBRA_ACUERDO, FLOOR_SOMBRA_VEREDICTOS } from '../../ai/floor.js';
-import { POLICY_CATALOG, getPolicySpec, type PolicySpec } from './pending-catalog.js';
+import { POLICY_CATALOG, getPolicySpec, type PolicyOption, type PolicySpec } from './pending-catalog.js';
 import type { JurisdictionCode } from '../jurisdiction/jurisdiction.js';
 import { legalParameterAt } from '../jurisdiction/legal-parameters.js';
 import Decimal from 'decimal.js';
@@ -125,6 +125,85 @@ export async function listPolicies(
 
 export const listPending = (ctx: PolicyContext) => listPolicies(ctx, 'pending');
 
+/**
+ * THE ROW KEEPS STATE; THE WORDING COMES FROM THE CATALOG (I10 · #152).
+ *
+ * `seedPolicies` copies `question`, `impact`, `options` and
+ * `default_rationale` into every row, and it does so with `ON CONFLICT DO
+ * NOTHING`: once a tenant is seeded, those columns are never refreshed. Every
+ * screen that painted them from the row therefore painted the catalog AS IT
+ * WAS the day that tenant was created — so rewording a question, fixing a
+ * false promise in an `impact` (T21, #128) or translating the panel reached
+ * new tenants and nobody else.
+ *
+ * This is the one place allowed to decide where the wording comes from. For a
+ * key the catalog still has, it is the catalog. For a key the catalog no
+ * longer has — an orphan row from a retired policy — the row's copy is the
+ * only text there is, and it is used as a snapshot rather than dropped.
+ *
+ * Only WORDING moves here. `default_value` is also copied at seed time, but it
+ * is behaviour: changing where it comes from would change what an existing
+ * tenant's books do, and that is not a wording fix.
+ */
+export interface PolicyWording {
+  question: string;
+  impact: string;
+  options: PolicyOption[];
+  defaultRationale: string | null;
+  /** `catalog` for a live key; `snapshot` only for a key the catalog no longer has. */
+  source: 'catalog' | 'snapshot';
+}
+
+/** The seeded text columns of a row: all the wording a row can offer. */
+export type SeededWording = Pick<PolicyRow, 'key' | 'question' | 'impact' | 'options' | 'default_rationale'>;
+
+export function policyWording(row: SeededWording): PolicyWording {
+  const spec = getPolicySpec(row.key);
+  if (spec === undefined) return seedSnapshotWording(row);
+  return {
+    question: spec.question,
+    impact: spec.impact,
+    // Copied, not shared: a caller that reorders or trims its list must not
+    // reach into the catalog.
+    options: spec.options.map(({ value, label }) => ({ value, label })),
+    defaultRationale: spec.defaultRationale,
+    source: 'catalog',
+  };
+}
+
+/**
+ * The options of a policy, with the same precedence as `policyWording`, for a
+ * reader that needs only their VALUES.
+ *
+ * `detectPolicyContradictions` (src/ai/memory-service.ts) checks whether a
+ * precedent names an option other than the resolved one. It used to take that
+ * vocabulary from the row, i.e. from the catalog as it was on the tenant's seed
+ * day: `ingest_auto_post` gained its `shadow` option later, so the same
+ * precedent was a contradiction for a tenant seeded afterwards and silent for
+ * one seeded before. Going through here makes the answer independent of when
+ * the tenant was created, and keeps the row's copy for a retired key.
+ */
+export function policyOptions(key: string, seeded: PolicyOption[] | null | undefined): PolicyOption[] {
+  return policyWording({ key, question: '', impact: '', options: seeded ?? [], default_rationale: null })
+    .options;
+}
+
+/**
+ * THE ONLY READER OF THE SEEDED TEXT COLUMNS.
+ *
+ * Kept as a named function, not inlined, so the plan criterion can say "no
+ * reader outside this function" and a grep can check it.
+ */
+function seedSnapshotWording(row: SeededWording): PolicyWording {
+  return {
+    question: row.question,
+    impact: row.impact,
+    options: row.options ?? [],
+    defaultRationale: row.default_rationale,
+    source: 'snapshot',
+  };
+}
+
 export interface EffectivePolicy {
   key: string;
   value: string;
@@ -212,7 +291,9 @@ export async function getPolicy(
     validarDominio(spec, row.resolved_value);
     return {
       key, value: row.resolved_value, defined: true,
-      question: row.question,
+      question: policyWording(row).question,
+      // The reviewer's note is STATE — what someone wrote when resolving — so
+      // it stays on the row.
       rationale: row.resolution_notes,
       jurisdiction: row.jurisdiction,
     };
@@ -226,8 +307,8 @@ export async function getPolicy(
   validarDominio(spec, fallback);
   return {
     key, value: fallback, defined: false,
-    question: row?.question ?? spec?.question ?? key,
-    rationale: row?.default_rationale ?? spec?.defaultRationale ?? null,
+    question: row ? policyWording(row).question : (spec?.question ?? key),
+    rationale: row ? policyWording(row).defaultRationale : (spec?.defaultRationale ?? null),
     // Sin fila, contestó el catálogo, y el catálogo todavía no sabe de
     // jurisdicciones: `PolicySpec.jurisdicciones` es de J0.3. Universal, que
     // es lo que de verdad es.

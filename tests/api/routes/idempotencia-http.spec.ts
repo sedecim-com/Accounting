@@ -165,7 +165,12 @@ async function pedir(
   ruta: string,
   opciones: { cuerpo?: unknown; llave?: string | string[]; entidad?: string } = {}
 ): Promise<Resp> {
-  const headers: string[][] = [['content-type', 'application/json']];
+  // TUPLAS, NO `string[][]`. `HeadersInit` admite pares [clave, valor] y a
+  // partir de @types/node 26 ya no acepta un array de arrays de longitud
+  // libre. Y tiene que seguir siendo una LISTA y no un objeto: abajo se
+  // empujan varias cabeceras `idempotency-key` a propósito, que es lo que
+  // este caso viene a ejercer, y un objeto las colapsaría en una.
+  const headers: [string, string][] = [['content-type', 'application/json']];
   if (Array.isArray(opciones.llave)) {
     for (const l of opciones.llave) headers.push(['idempotency-key', l]);
   } else if (opciones.llave !== undefined) {

@@ -11,11 +11,13 @@ import {
   resolvePolicy,
   dismissPolicy,
   reopenPolicy,
+  policyWording,
   type PolicyRow,
 } from '../services/policy/policy-service.js';
 import { getPolicySpec } from '../services/policy/pending-catalog.js';
 import { previewFor } from '../services/policy/policy-preview.js';
 import { exitCodeFor, notFound } from './kernel/index.js';
+import { ambiguityQuestion, interpretPolicyAnswer, resolveAmbiguity } from './policy-answer.js';
 
 // ============================================================
 // `mnemosine pending` COMMAND
@@ -218,20 +220,24 @@ export function renderPolicies(
       ? c.dim(` — operating with: ${p.default_value}`)
       : c.dim(' — no default');
     out.push(`${icon} ${c.bold(p.key)}${using}`);
+    // The wording lives in the CATALOG, not in the row: the database keeps
+    // the STATE, and a text copied at seed time goes stale the moment the
+    // catalog is reworded. `policyWording` is the one place that decides
+    // (catalog for a live key, the row's snapshot only for an orphan), so
+    // nothing below reads the row's seeded text columns. Same rule as the
+    // wizard.
+    const wording = policyWording(p);
     // The header line above is deliberately NOT wrapped: key plus default
     // value reaches 60 characters on the longest policy in the catalog.
-    out.push(...wrapLines('   ', '   ', p.question));
+    out.push(...wrapLines('   ', '   ', wording.question));
     if (opts.verbose) {
-      // The explanatory wording lives in the CATALOG, not in the row: the
-      // database keeps the STATE, and a text copied at seed time goes stale
-      // the moment the catalog is reworded. Same rule as the wizard.
-      out.push(...field('impact', p.impact, c));
+      out.push(...field('impact', wording.impact, c));
       out.push(...renderExplanation(p.key, c, opts.previews?.[p.key] ?? []));
-      if (p.default_rationale) out.push(...field('why that default', p.default_rationale, c));
+      if (wording.defaultRationale) out.push(...field('why that default', wording.defaultRationale, c));
       // Continuations hang at a FIXED indent, not under the value: values
       // run to 22 characters, and hanging under them would push the line
       // back out of the column we just defended.
-      for (const o of p.options) {
+      for (const o of wording.options) {
         out.push(...wrapLines('     · ', '       ', `${o.value} — ${o.label}`).map((l) => c.dim(l)));
       }
     }
@@ -358,9 +364,15 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
 
         let chosen = value;
         if (!chosen) {
+          const wording = policyWording(p);
+          // ONE list for both halves of the prompt: the numbered lines printed
+          // below and the number-to-value lookup after the answer. Printing
+          // the catalog's list and indexing the row's would save a value the
+          // accountant never saw next to the number they typed.
+          const options = wording.options;
           console.log('');
-          for (const l of wrapLines('', '', p.question)) console.log(c.bold(l));
-          for (const l of field('impact', p.impact, c, '')) console.log(l);
+          for (const l of wrapLines('', '', wording.question)) console.log(c.bold(l));
+          for (const l of field('impact', wording.impact, c, '')) console.log(l);
           // The moment of the decision deserves the same explanation the
           // listing gives — and the preview against this entity's own data,
           // which is the whole reason `previewFor` exists.
@@ -370,7 +382,7 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
             currency: ctx.currency,
           });
           for (const l of renderExplanation(key, c, preview, '')) console.log(l);
-          p.options.forEach((o, i) => {
+          options.forEach((o, i) => {
             const head = `  ${i + 1}) `;
             for (const l of wrapLines(head, ' '.repeat(head.length), `${o.value} — ${o.label}`)) {
               console.log(l);
@@ -379,17 +391,31 @@ export function registerPendingCommands(program: Command, deps: PendingCommandDe
           console.log(c.dim('  (number, free-form value, or empty to cancel)'));
           rl = readline.createInterface({ input: stdin, output: stdout });
           const raw = await ask(rl, c.cyan('value> '));
-          rl.close();
           const answer = (raw ?? '').trim();
           if (!answer) {
+            rl.close();
             console.log(c.dim('Cancelled; still pending.'));
             await shutdown(0);
+            return;
           }
-          const idx = Number(answer);
-          chosen =
-            Number.isInteger(idx) && idx >= 1 && idx <= p.options.length
-              ? p.options[idx - 1].value
-              : answer;
+          // A position only when the answer is a canonical integer, and a
+          // question — not a guess — when it is also another option's value.
+          // See src/cli/policy-answer.ts for the four keys where guessing
+          // saved a value nobody typed.
+          let interpreted = interpretPolicyAnswer(answer, options);
+          while (interpreted.kind === 'ambiguous') {
+            console.log(c.dim(ambiguityQuestion(interpreted)));
+            const reply = resolveAmbiguity((await ask(rl, c.cyan('p/v> '))) ?? '', interpreted);
+            if (reply === null) {
+              rl.close();
+              console.log(c.dim('Cancelled; still pending.'));
+              await shutdown(0);
+              return;
+            }
+            if (reply !== undefined) interpreted = { kind: 'chosen', value: reply };
+          }
+          rl.close();
+          chosen = interpreted.value;
         }
 
         await resolvePolicy({ tenantId: ctx.tenantId }, key, chosen, reviewer.email, optOf<string>(opts, command, 'note'));
