@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { stripComments } from '../utils/strip-comments.js';
 import * as path from 'node:path';
 
 // ============================================================
@@ -52,8 +53,14 @@ export interface OrphanReport {
   scanned: { tables: number; exports: number };
 }
 
-const quitarComentarios = (t: string): string =>
-  t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+// EL LIMPIADOR ES EL DEL ÁRBOL, NO UNO PROPIO (#215 y su familia).
+//
+// Aquí vivían dos regex ingenuas, y cegaban este escáner exactamente como
+// habían cegado al tablero antes de que criterios.ts las desechara: un ejemplo
+// de ayuda con el glob `./cfdi/julio/*.xml` abre un `/*` que no cierra hasta
+// 171 líneas después, así que `describeLastOption` —llamada en
+// `mnemosine.ts`— se declaraba MUERTA. Un detector de código muerto que acusa
+// en falso es peor que ninguno: lo que propone es borrar código vivo.
 
 /** Quita las líneas de import/re-export: mencionar no es usar. */
 const quitarImports = (t: string): string =>
@@ -80,7 +87,7 @@ interface Fuente {
 const leer = (raiz: string, fs_: string[]): Fuente[] =>
   fs_.map((f) => ({
     rel: path.relative(raiz, f),
-    texto: quitarComentarios(fs.readFileSync(f, 'utf-8')),
+    texto: stripComments(fs.readFileSync(f, 'utf-8')),
   }));
 
 /** Tablas que las migraciones crean: el inventario real, no el que se adivina del SQL. */
