@@ -47,16 +47,3 @@ export async function withRetry<T>(
 
   throw lastError || new Error('Retry exhausted');
 }
-
-export function isRetryableHttpError(error: Error): boolean {
-  const msg = error.message.toLowerCase();
-  return (
-    msg.includes('timeout') ||
-    msg.includes('econnreset') ||
-    msg.includes('enotfound') ||
-    msg.includes('502') ||
-    msg.includes('503') ||
-    msg.includes('504') ||
-    msg.includes('429') // Rate limit
-  );
-}
