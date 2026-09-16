@@ -54,7 +54,9 @@ const conMutantes = CRITERIOS.filter((c) => (c.mutantes?.length ?? 0) > 0);
 // espejo, y con eso sola se podían retirar doscientos sin moverla. La otra
 // mitad —el total de espejos, con holgura cero— vive en el criterio
 // `criteria-mutation-harness`, que es donde el tablero la publica.
-const SIN_ESPEJO_MAXIMO = 56;
+// 56 → 55: al fusionar main con T1 (#255) y S4 (#232) la cuenta real bajó, y la
+// línea base baja con ella en el mismo commit que la ve.
+const SIN_ESPEJO_MAXIMO = 55;
 
 describe('el arnés de mutación — un criterio sin mordida es prosa', () => {
   it('la línea base de criterios sin espejo sólo encoge', () => {
