@@ -7643,7 +7643,7 @@ export const CRITERIOS: Criterio[] = [
       // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
       // porque con holgura el espejo de este mismo criterio deja de morder: la
       // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
-      const MIRRORS_FLOOR = 411;
+      const MIRRORS_FLOOR = 412;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -7662,7 +7662,7 @@ export const CRITERIOS: Criterio[] = [
       // son el mismo hecho leído por el seam —hoy 358, que son los 358 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      const ANCHORS_HERE = 394;
+      const ANCHORS_HERE = 395;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
@@ -8709,15 +8709,21 @@ export const CRITERIOS: Criterio[] = [
     mutantes: [
       {
         archivo: 'src/services/payments/payment-service.ts',
-        de: 'if (monedaAnticipo !== functionalCurrency) {',
-        a: 'if (monedaAnticipo === functionalCurrency) {',
+        de: 'if (advanceCurrency !== functionalCurrency) {',
+        a: 'if (advanceCurrency === functionalCurrency) {',
         porque: 'la comparación se invierte: pasa el anticipo en otra moneda y se rehúsa el que sí está en la funcional',
       },
       {
         archivo: 'src/services/payments/payment-service.ts',
-        de: 'const functionalCurrency = await monedaFuncionalDe(client, entrada.entityId);',
-        a: 'const functionalCurrency = monedaAnticipo;',
+        de: 'const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);',
+        a: 'const functionalCurrency = advanceCurrency;',
         porque: 'la funcional deja de leerse de la entidad y se toma del propio anticipo: la comparación se vuelve tautológica y nunca acusa',
+      },
+      {
+        archivo: 'src/services/payments/payment-service.ts',
+        de: 'vendorAdvanceCurrency ?? currencyOf(documentos), entrada.paymentMethod',
+        a: 'currencyOf(documentos), entrada.paymentMethod',
+        porque: 'el anticipo a proveedor vuelve a caer en el respaldo literal «MXN» de currencyOf: se asienta en pesos sin preguntar al proveedor, al llamador ni a la entidad',
       },
       {
         archivo: 'tests/integration/t23-a-pure-advance-in-another-currency.int.spec.ts',
@@ -8729,16 +8735,21 @@ export const CRITERIOS: Criterio[] = [
     evaluar: () => {
       const svc = 'src/services/payments/payment-service.ts';
       const spec = 'tests/integration/t23-a-pure-advance-in-another-currency.int.spec.ts';
+      const vendorSpec = 'tests/integration/t23b-a-vendor-advance-has-a-currency-too.int.spec.ts';
       if (!existe(svc)) return falla(`desapareció ${svc}`);
       const code = codigoDe(svc);
 
       // 1. LA GUARDA VIVE EN LA RAMA SIN DOCUMENTOS, que es la que no tiene de
       //    dónde sacar la moneda. Se comprueba el ORDEN: la funcional se lee
       //    después de resolver la del anticipo y antes del INSERT.
-      const resuelve = code.indexOf('monedaAnticipo = entrada.currencyCode ?? c.rows[0].currency_code;');
-      const lee = code.indexOf('const functionalCurrency = await monedaFuncionalDe(client, entrada.entityId);');
-      const compara = code.indexOf('if (monedaAnticipo !== functionalCurrency) {');
-      const inserta = code.indexOf('INSERT INTO customer_payments');
+      // Cada lado se mide DENTRO de su función: `functionalCurrency` y la
+      // lectura de la funcional aparecen ahora en las dos, y un `indexOf` sobre
+      // el archivo entero devuelve la del proveedor al juzgar al cliente.
+      const customerSide = code.slice(code.indexOf('export async function recordCustomerPayment'));
+      const resuelve = customerSide.indexOf('advanceCurrency = entrada.currencyCode ?? c.rows[0].currency_code;');
+      const lee = customerSide.indexOf('const functionalCurrency = await functionalCurrencyOf(client, entrada.entityId);');
+      const compara = customerSide.indexOf('if (advanceCurrency !== functionalCurrency) {');
+      const inserta = customerSide.indexOf('INSERT INTO customer_payments');
       if (resuelve < 0) return falla('cambió la resolución de la moneda del anticipo: la guarda puede haber quedado colgando de otra rama');
       if (lee < 0 || compara < 0) {
         return falla(
@@ -8751,12 +8762,41 @@ export const CRITERIOS: Criterio[] = [
 
       // 2. REHÚSA, NO CONVIERTE. Una conversión silenciosa aquí sería elegirle
       //    al despacho la fuente del tipo de cambio.
-      const mensaje = code.slice(compara, inserta);
+      const mensaje = customerSide.slice(compara, inserta);
       if (!/fuente_tipo_cambio/.test(mensaje)) {
         return falla('el rechazo dejó de decir que la tasa y su fuente las decide el panel: sin eso parece una limitación y no una negativa razonada');
       }
 
-      // 3. Y CONDUCTA: las DOS puertas, la del cliente y la del parámetro.
+      // 3. LA MISMA PUERTA DEL LADO PROVEEDOR (T23b), que era peor: sin
+      //    documentos, `currencyOf` cae a un LITERAL 'MXN', así que no preguntaba
+      //    ni al proveedor ni a nadie.
+      const vendorSide = code.slice(code.indexOf('export async function recordVendorPayment'));
+      const resolvesVendor = vendorSide.indexOf('vendorAdvanceCurrency = entrada.currencyCode ?? v.rows[0].currency_code;');
+      const checksVendor = vendorSide.indexOf('if (vendorAdvanceCurrency !== functionalCurrency) {');
+      const writesVendor = vendorSide.indexOf('INSERT INTO vendor_payments');
+      // Se CUENTAN las dos lecturas en vez de buscarlas por rebanada: la del
+      // proveedor y la del cliente son la misma línea, y una rebanada que
+      // empieza en una función y acaba en el fin del archivo encuentra la de la
+      // otra — el mutante que neutralizaba la primera sobrevivía por eso.
+      const functionalReads = (code.match(/const functionalCurrency = await functionalCurrencyOf\(client, entrada\.entityId\);/g) ?? []).length;
+      if (functionalReads < 2) {
+        return falla(
+          `sólo ${functionalReads} de los 2 anticipos leen la funcional DE LA ENTIDAD: si se toma del propio anticipo, la comparación es tautológica y no acusa nunca`
+        );
+      }
+      if (resolvesVendor < 0 || checksVendor < 0) {
+        return falla(
+          'el anticipo a PROVEEDOR dejó de cotejar su moneda: `currencyOf` cae a la cadena «MXN» cuando no hay documentos, así que se asienta en pesos sin preguntarle a nadie'
+        );
+      }
+      if (!(resolvesVendor < checksVendor && checksVendor < writesVendor)) {
+        return falla('la guarda del anticipo a proveedor quedó fuera de orden respecto a su INSERT');
+      }
+      if (!code.includes('vendorAdvanceCurrency ?? currencyOf(documentos)')) {
+        return falla('el INSERT del pago a proveedor volvió a tomar la moneda del respaldo literal en vez de la resuelta');
+      }
+
+      // 4. Y CONDUCTA: las DOS puertas, la del cliente y la del parámetro.
       if (!existe(spec)) return falla('no hay reproducción contra Postgres del anticipo en otra moneda');
       const t = codigoDe(spec);
       for (const [pattern, what] of [
@@ -8767,8 +8807,12 @@ export const CRITERIOS: Criterio[] = [
         if (!pattern.test(t)) return falla(`la reproducción dejó de ${what}`);
       }
 
+      if (!existe(vendorSpec)) {
+        return falla('no hay reproducción del anticipo a PROVEEDOR: es la otra mitad de la misma puerta y era la peor de las dos');
+      }
+
       return ok(
-        'el anticipo sin documento coteja su moneda contra la funcional antes de escribir, rehúsa en vez de convertir —y dice que la fuente la decide el panel—, y la reproducción prueba las dos puertas y el caso que sí entra'
+        'los anticipos sin documento —cliente Y proveedor— cotejan su moneda contra la funcional antes de escribir, rehúsa en vez de convertir —y dice que la fuente la decide el panel—, y la reproducción prueba las dos puertas y el caso que sí entra'
       );
     },
   },
