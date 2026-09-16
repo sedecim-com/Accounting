@@ -7556,14 +7556,14 @@ export const CRITERIOS: Criterio[] = [
       // mutantes cuenta igual que uno con uno: se podían retirar seis sin mover
       // la cifra, y con la holgura acumulada —14 exigidos contra 118 reales— la
       // mitad de los espejos del repositorio salía en verde. Medido en el
-      // momento de escribir esto: 341 espejos, 14 exigidos.
+      // momento de escribir esto: 342 espejos, 14 exigidos.
       //
       // Ahora el número es el de espejos, de los dos arneses, y la holgura es
       // CERO: retirar uno obliga a bajar esta constante en el mismo diff, que
       // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
       // porque con holgura el espejo de este mismo criterio deja de morder: la
       // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
-      const MIRRORS_FLOOR = 341;
+      const MIRRORS_FLOOR = 342;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -7579,10 +7579,10 @@ export const CRITERIOS: Criterio[] = [
       // el seam sólo intercepta lecturas de DISCO: ningún mutante puede bajar
       // el conteo de arriba, así que por sí solo sería la clase de cifra que
       // este criterio existe para desconfiar. Las anclas `de:` de este archivo
-      // son el mismo hecho leído por el seam —hoy 329, que son los 329 espejos
+      // son el mismo hecho leído por el seam —hoy 330, que son los 330 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      const ANCHORS_HERE = 329;
+      const ANCHORS_HERE = 330;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(
@@ -7628,10 +7628,10 @@ export const CRITERIOS: Criterio[] = [
       // den cuenta. Encontró tres que medían la nada y la llamaban
       // conformidad, entre ellos el censo del perímetro —«0 rutas revisadas;
       // todas montan la guarda»—, que es la vara con la que se va a medir T9.
-      if (!existe('tests/plan/vacuidad.spec.ts')) {
+      if (!existe('tests/plan/vacuity.spec.ts')) {
         return falla('la prueba de vacuidad desapareció: un criterio podría volver a medir la nada y llamarlo conformidad');
       }
-      const spec = codigoDe('tests/plan/vacuidad.spec.ts');
+      const spec = codigoDe('tests/plan/vacuity.spec.ts');
       if (!/conFuenteMutada\(emptied/.test(spec)) {
         return falla('la prueba de vacuidad dejó de evaluar BAJO el árbol vaciado: mediría el árbol limpio, donde todo criterio sano sale verde');
       }
@@ -7656,21 +7656,21 @@ export const CRITERIOS: Criterio[] = [
     },
     mutantes: [
       {
-        archivo: 'tests/plan/vacuidad.spec.ts',
+        archivo: 'tests/plan/vacuity.spec.ts',
         de: 'conFuenteMutada(emptied',
         a: 'conFuenteMutada({}',
         porque:
           'la prueba deja de vaciar el árbol y pasa a evaluar el real, donde 172 criterios salen verdes por buenas razones: seguiría corriendo, seguiría en verde, y no comprobaría nada',
       },
       {
-        archivo: 'tests/plan/vacuidad.spec.ts',
+        archivo: 'tests/plan/vacuity.spec.ts',
         de: 'toBeGreaterThan(500)',
         a: 'toBeGreaterThan(0)',
         porque:
           'la guarda que impide que la prueba de vacuidad sea ella misma vacua se afloja: con un censo de archivos roto vaciaría casi nada y bendeciría a todos',
       },
       {
-        archivo: 'tests/plan/vacuidad.spec.ts',
+        archivo: 'tests/plan/vacuity.spec.ts',
         de: "  [\n    'orphan-export-baseline-only-shrinks',",
         a: "  [\n    'uno-de-mas',\n    'una razón que nadie escribió',\n  ],\n  [\n    'orphan-export-baseline-only-shrinks',",
         porque:
@@ -7699,6 +7699,24 @@ export const CRITERIOS: Criterio[] = [
       }
       if (!/m\.sin_revisar\.length > SIN_REVISAR_MAXIMO/.test(script)) {
         return falla('la deuda de manuales sin revisar dejó de tener trinquete: podría crecer en silencio');
+      }
+      // T2 · LA COBERTURA (issue #89). El detector de caducidad es exacto sobre
+      // lo que el manifiesto DECLARA y ciego sobre el resto: 13 manuales
+      // declarados contra 27 en el directorio, y los 14 restantes exentos por
+      // un PÁRRAFO de MANIFIESTO.md que ningún programa leía. Un `.md` nuevo no
+      // entraba en ninguna lista, no lo nombraba ningún fallo, y el agente lo
+      // leía como verdad para siempre. Ahora `--check` compara los tres censos
+      // que tienen que decir lo mismo: el directorio, `DOC_TOPICS` —lo que el
+      // agente puede pedir— y `manuales` ∪ `exentos`.
+      if (!/checkCoverage\(m\)/.test(script) || !/DOC_TOPICS/.test(script)) {
+        return falla(
+          'la compuerta del corpus dejó de comparar el directorio con el manifiesto y con DOC_TOPICS: ' +
+            'un manual nuevo sin declarar volvería a ser invisible, y el agente lo leería como verdad'
+        );
+      }
+      const manifiesto = crudoDe('src/ai/docs/manifiesto.json');
+      if (!/"exentos"\s*:/.test(manifiesto)) {
+        return falla('el manifiesto perdió su lista de exentos: la exención volvería a vivir en prosa, donde ningún programa la lee');
       }
       // La compuerta corre en CI o es un comando que nadie teclea. Por el
       // PASO y no por la cadena (T2): `/corpus-manifiesto\.ts --check/` casaba
@@ -7732,6 +7750,13 @@ export const CRITERIOS: Criterio[] = [
         // el mutante cambiaba la primera aparición del documento, y F05d añadió
         // otra antes (la regla del cheque cobrado): el criterio encontraba la
         // que quedaba y el mutante sobrevivía. El gemelo de siempre.
+        archivo: 'scripts/corpus-manifiesto.ts',
+        de: '  const gaps = checkCoverage(m);',
+        a: '  const gaps: Gap[] = [];',
+        porque:
+          'la compuerta vuelve a mirar sólo los 13 manuales declarados y a callar sobre los 14 que no lo están: un .md nuevo sin declarar queda invisible para siempre y el agente lo lee como verdad',
+      },
+      {
         archivo: '.github/workflows/ci.yml',
         de: '      - run: npx tsx scripts/corpus-manifiesto.ts --check',
         a: '      # - run: npx tsx scripts/corpus-manifiesto.ts --check',
