@@ -1,4 +1,10 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
+
+// 20 s por prueba en TODO este archivo: `runDoctor` corre las comprobaciones
+// enteras —una recorre `src/` completo— y con la suite en paralelo eso rebasa
+// los 5 s por omisión. El fallo se presenta como «Test timed out», que no
+// señala a nadie y no se reproduce a mano.
+vi.setConfig({ testTimeout: 20_000 });
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -536,7 +542,7 @@ describe('checkOrphanedCapability', () => {
   let repo: ReturnType<typeof checkOrphanedCapability>;
   beforeAll(() => {
     repo = checkOrphanedCapability({ cwd: process.cwd() });
-  }, 30_000);
+  }, 90_000);
 
   it('says so when there is no source tree instead of passing on nothing', () => {
     // A packaged install runs from dist/. A green tick that checked nothing is
