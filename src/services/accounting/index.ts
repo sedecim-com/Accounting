@@ -49,7 +49,6 @@ export {
 } from './period-close.js';
 export {
   listJournalEntries,
-  getJournalEntryById,
   getJournalEntryDetail,
   listEntryLines,
   resolveJournalEntry,
