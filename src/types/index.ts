@@ -35,6 +35,13 @@ export enum FSCategory {
   CURRENT_LIABILITIES = 'current_liabilities',
   LONG_TERM_LIABILITIES = 'long_term_liabilities',
   EQUITY = 'equity',
+  /**
+   * Otros Resultados Integrales. Migration 078 added it to the CHECK and
+   * `chart-seed.ts` seeds an account with it, but this enum never grew the
+   * member: anything built FROM the enum — a label table, a picker, a
+   * validation list — dropped one category without saying so.
+   */
+  ORI = 'ori',
   REVENUE = 'revenue',
   COGS = 'cogs',
   OPERATING_EXPENSES = 'operating_expenses',
