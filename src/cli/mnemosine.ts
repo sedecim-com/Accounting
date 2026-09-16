@@ -27,7 +27,7 @@ import {
   listProfiles,
   type LlmSession,
 } from '../ai/providers/index.js';
-import { resolveLanguage, setLanguage, configFilePaths } from '../ai/providers/config.js';
+import { resolveLanguage, setUserLocale, configFilePaths } from '../ai/providers/config.js';
 import {
   DEFAULT_LOCALE,
   LOCALES,
@@ -35,13 +35,14 @@ import {
   LOCALE_ENV_VAR_ALIAS,
   describeLocale,
   languageOfLocale,
+  normalizeLocale,
   resolveLocale,
 } from '../i18n/locale.js';
-// `setLanguage` ya está tomado en este archivo por el de `ai/providers/config.js`,
-// que fija el idioma en el que responde el AGENTE y se guarda en disco. Éste fija
-// el idioma en el que se IMPRIME, vive en memoria y dura lo que el proceso. Dos
-// dials distintos con el mismo nombre: se renombra el de aquí en la importación
-// para que ningún sitio de llamada pueda confundirlos.
+// Two dials one letter apart, and this file touches both. The one imported here
+// pins the language the CLI PRINTS in: it lives in memory and dies with the
+// process. The other one — the language the AGENT answers in — is persisted to
+// disk, and `mnemosine lang` writes it through `setUserLocale`. Renaming this
+// one at the import keeps any call site from reading as the other.
 import { setLanguage as pinPrintedLanguage, t } from '../i18n/index.js';
 import { AppError } from '../utils/errors.js';
 import {
@@ -2315,7 +2316,7 @@ ingest.action(async (files: string[], opts: {
   });
 
 describeCommand(program.command('lang').alias('idioma'), 'help.lang.description')
-  .argument('[language]', "'en' or 'es'; omit to show the current setting")
+  .argument('[language]', "'es', 'en', 'es-MX' or 'en-US'; omit to show the current setting")
   .addHelpText('after', EJEMPLOS.lang)
   .action(async (language?: string) => {
     try {
@@ -2327,26 +2328,63 @@ describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'
         // como una lectura. El texto que se imprime no cambia ni un byte
         // —docs/wiki/Manual-Trabajar-con-el-agente.md:21 lo cita literal—: este
         // comando es `lang`, y el alias es el nombre que le corresponde.
-        console.log(c.dim(`Change it with: mnemosine lang en|es (or ${LOCALE_ENV_VAR_ALIAS} env var)`));
-      } else if (language === 'en' || language === 'es') {
-        const file = setLanguage(language);
-        console.log(`✔ Agent will now answer in ${c.bold(language === 'es' ? 'Spanish' : 'English')} ${c.dim(`(${file})`)}`);
+        console.log(c.dim(`Change it with: mnemosine lang es|en|es-MX|en-US (or ${LOCALE_ENV_VAR_ALIAS} env var)`));
+      } else {
+        // ONE TABLE OF SPELLINGS, AND IT IS NOT HERE (I11 · issue #153).
+        //
+        // This branch used to be `language === 'en' || language === 'es'`, an
+        // inline list that accepted two of the four spellings the resolver
+        // understands: `mnemosine lang es-MX` was refused by the very command
+        // whose job is to set the locale, while `--locale es-MX` worked.
+        // `normalizeLocale` is the only validator of a locale in the tree and
+        // the same one every other step of the precedence runs on; a second
+        // list here would be a second answer to «is es-MX acceptable?», and two
+        // answers to one question is how the two readers of MNEMOSINE_LANG
+        // drifted before I6.
+        const locale = normalizeLocale(language);
+        if (locale === null) {
+          throw usageError(
+            `Unsupported language "${language}". Options: ${LOCALES.join(', ')}, or es, en`
+          );
+        }
+        // WRITTEN WHERE IT IS READ. `setUserLocale` puts `locale` in the user's
+        // own file, which is the step of the precedence that beats the project
+        // file; the old `setLanguage` wrote `language` into whichever config
+        // was active, so a repository's `mnemosine.config.json` — or the user's
+        // own `locale`, which outranks the legacy key everywhere — could leave
+        // this command printing success over a change nobody would ever see.
+        const { file, quarantined } = setUserLocale(locale);
+        console.log(
+          `✔ Agent will now answer in ${c.bold(languageOfLocale(locale) === 'es' ? 'Spanish' : 'English')} ` +
+            c.dim(`(${locale} in ${file})`)
+        );
+        // Said out loud, because the rest of that file is gone. The copy is
+        // kept so nothing is lost, but a person who had providers or a tenant
+        // configured has to know they are not there any more.
+        if (quarantined !== null) {
+          console.log(
+            c.dim(`Your previous ${file} could not be read and was replaced; a copy is at ${quarantined}`)
+          );
+        }
         console.log(c.dim('Takes effect on the next session.'));
-        // EL AVISO SE LO PREGUNTA AL RESOLUTOR, NO AL ENTORNO (I6).
+        // THE WARNING ASKS THE RESOLVER, NOT THE ENVIRONMENT (I6).
         //
-        // Aquí se leía la variable de entorno a mano —el segundo lector del
-        // dial, mnemosine.ts:2238— y por leerla a mano mentía dos veces:
-        // anunciaba precedencia para un valor que `resolveLanguage` estaba
-        // DESCARTANDO por inservible, y callaba cuando quien mandaba era
-        // `MNEMOSINE_LOCALE`, que es el nombre canónico del mismo dial.
+        // The environment variable used to be read by hand here — the second
+        // reader of the dial, mnemosine.ts:2238 — and reading it by hand made
+        // it lie twice: it announced precedence for a value `resolveLanguage`
+        // was DISCARDING as unusable, and it said nothing when the winner was
+        // `MNEMOSINE_LOCALE`, the canonical name of the same dial.
         //
-        // Se vuelve a resolver DESPUÉS de escribir, que es la única pregunta
-        // que importa: «con el archivo ya guardado, ¿sigue ganándole algo?».
+        // It resolves again AFTER writing, which is the only question worth
+        // asking: «with the file saved, does anything still beat it?». Since
+        // I11 the answer can only be the flag or the environment — no config
+        // file outranks the one just written — so the «I wrote it and nothing
+        // happened» case this change exists to kill cannot come back silently.
         const winner = describeLocale();
-        if (languageOfLocale(winner.locale) !== language && winner.label !== null) {
-          // La bandera de esta misma invocación no «tiene precedencia» sobre
-          // nada futuro: se muere con el proceso. Avisar de ella sería mandar a
-          // desactivar algo que ya no existe.
+        if (winner.locale !== locale && winner.label !== null) {
+          // This invocation's own flag does not «take precedence» over anything
+          // in the future: it dies with the process. Warning about it would
+          // send the user to switch off something that no longer exists.
           const advice =
             winner.kind === 'env'
               ? `${winner.label}=${winner.raw} is set and takes precedence — unset it for this change to apply.`
@@ -2355,8 +2393,6 @@ describeCommand(program.command('lang').alias('idioma'), 'help.lang.description'
                 : `${winner.label} is "${winner.raw}" and takes precedence — remove it for this change to apply.`;
           if (advice !== null) console.log(c.dim(`  ⚠ ${advice}`));
         }
-      } else {
-        throw usageError(`Unsupported language "${language}". Options: en, es`);
       }
       await shutdown(0);
     } catch (err) {

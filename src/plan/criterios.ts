@@ -1617,6 +1617,435 @@ export const CRITERIOS: Criterio[] = [
   },
   {
     paquete: 'E0.0',
+    id: 'the-user-language-is-written-where-it-is-read',
+    // I11 · 4 (issue #153). Las dos decisiones que cerraban el tramo: el
+    // comando que CAMBIA el idioma, y la identidad de máquina de los chequeos
+    // de doctor. Vive junto a `user-language-has-one-door` porque es su otra
+    // mitad: aquél vigila que el idioma se LEA por una sola puerta; éste, que
+    // se ESCRIBA en la puerta que se lee.
+    //
+    // EL DEFECTO QUE EXISTE PARA QUE NO VUELVA, reproducido antes de arreglarlo:
+    // con un proyecto que fija `locale: en-US`, `mnemosine lang es` escribía la
+    // clave vieja `language` en el archivo del PROYECTO e imprimía «✔ Agent will
+    // now answer in Spanish». El idioma seguía en inglés. Escribir por debajo de
+    // lo que ya gana es imprimir éxito sin cambiar nada, y ninguna prueba de
+    // contenido lo nota: la línea de éxito es cierta COMO TEXTO, y el archivo
+    // que se escribió existe y tiene dentro lo que se le pidió.
+    //
+    // SE LEE POR EL AST Y NO POR SUBCADENA, y no es preferencia de estilo: los
+    // comentarios de `mnemosine.ts` que explican este mismo cambio NOMBRAN
+    // `setLanguage`, `setUserLocale` y `normalizeLocale` a pocos renglones de la
+    // llamada. Un criterio anclado en presencia saldría verde con la llamada
+    // borrada y la prosa intacta — y `sinComentarios` ya se midió CIEGO en este
+    // archivo de tres mil renglones (está escrito en el criterio de I7, aquí al
+    // lado). Un comentario no es un nodo del AST: ése es todo el truco.
+    enunciado:
+      'El comando del idioma valida con la única tabla de grafías y escribe la clave que el resolutor lee, en el archivo que le gana al del proyecto; y todo chequeo de doctor nace con identidad de máquina',
+    evaluar: () => {
+      const CLI = 'src/cli/mnemosine.ts';
+      const CONFIG = 'src/ai/providers/config.ts';
+      const DOCTOR = 'src/ai/doctor-service.ts';
+      const RESOLVER = 'src/i18n/locale.ts';
+      const absent = [CLI, CONFIG, DOCTOR, RESOLVER].filter((f) => !existe(f));
+      if (absent.length) {
+        return falla(`no están los archivos que este criterio juzga: falta ${absent.join(', ')}`);
+      }
+
+      function* walkAll(node: ts.Node): Generator<ts.Node> {
+        yield node;
+        for (const child of node.getChildren()) yield* walkAll(child);
+      }
+      const parse = (rel: string): ts.SourceFile =>
+        ts.createSourceFile(path.basename(rel), crudoDe(rel), ts.ScriptTarget.Latest, true);
+      /** Los nombres que se LLAMAN dentro de un subárbol, por identificador o por método. */
+      const calledIn = (node: ts.Node): Set<string> => {
+        const names = new Set<string>();
+        for (const inner of walkAll(node)) {
+          if (!ts.isCallExpression(inner)) continue;
+          const callee = inner.expression;
+          if (ts.isIdentifier(callee)) names.add(callee.text);
+          else if (ts.isPropertyAccessExpression(callee)) names.add(callee.name.text);
+        }
+        return names;
+      };
+
+      // 1 · EL COMANDO ESCRIBE DONDE SE LEE. Se acota al ÁRBOL DEL COMANDO
+      // `lang` y no al archivo: `mnemosine.ts` registra cuarenta familias y
+      // cualquiera de ellas puede llamar legítimamente a un escritor de config.
+      const cli = parse(CLI);
+      const isLangCommand = (node: ts.Node): boolean =>
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === 'command' &&
+        node.arguments.length > 0 &&
+        ts.isStringLiteral(node.arguments[0]) &&
+        node.arguments[0].text === 'lang';
+      const langStatement = cli.statements.find((st) => {
+        for (const inner of walkAll(st)) if (isLangCommand(inner)) return true;
+        return false;
+      });
+      if (langStatement === undefined) {
+        return falla(
+          `no hay un comando \`lang\` en ${CLI}: el único sitio donde una persona cambia su idioma sin ` +
+            'editar JSON a mano desapareció'
+        );
+      }
+      const langCalls = calledIn(langStatement);
+      if (!langCalls.has('setUserLocale')) {
+        return falla(
+          '`mnemosine lang` no llama a `setUserLocale`: escribe el idioma en un sitio distinto del que ' +
+            'el resolutor lee primero, e imprime éxito sin cambiar nada — el defecto que I11 reprodujo ' +
+            'con un proyecto que fijaba `locale: en-US`'
+        );
+      }
+      if (langCalls.has('setLanguage')) {
+        return falla(
+          '`mnemosine lang` vuelve a llamar a `setLanguage`, el escritor de la clave vieja: pone ' +
+            '`language` en el archivo de config ACTIVO —el del proyecto antes que el del usuario— y ' +
+            'cualquier `locale` ya escrito le gana en `describeLocale` sin que el comando lo diga'
+        );
+      }
+
+      // 2 · UNA SOLA TABLA DE GRAFÍAS. Dos respuestas a «¿es aceptable es-MX?»
+      // es exactamente cómo nacieron los dos lectores de la variable de entorno
+      // que I6 vino a cerrar: antes de este tramo la rama era
+      // `language === 'en' || language === 'es'`, y el comando cuyo oficio es
+      // fijar el locale rechazaba `es-MX`, que `--locale` sí aceptaba.
+      if (!langCalls.has('normalizeLocale')) {
+        return falla(
+          '`mnemosine lang` no valida con `normalizeLocale`: la tabla de grafías aceptadas se escribió ' +
+            'por segunda vez, y la segunda siempre acaba aceptando otras cosas que la primera'
+        );
+      }
+      const actionCall = [...walkAll(langStatement)].find(
+        (node): node is ts.CallExpression =>
+          ts.isCallExpression(node) &&
+          ts.isPropertyAccessExpression(node.expression) &&
+          node.expression.name.text === 'action'
+      );
+      const handler = actionCall?.arguments[0];
+      if (handler === undefined || !(ts.isArrowFunction(handler) || ts.isFunctionExpression(handler))) {
+        return noEvaluable(
+          'el comando `lang` ya no registra su acción como una función en línea: este criterio no sabe ' +
+            'leer esa forma, y aproximar aquí sería inventarse un verde'
+        );
+      }
+      const rawParameter = handler.parameters[0]?.name;
+      if (rawParameter === undefined || !ts.isIdentifier(rawParameter)) {
+        return noEvaluable(
+          'la acción de `lang` no recibe el idioma pedido como un parámetro con nombre: este criterio ' +
+            'no sabe leer esa forma'
+        );
+      }
+      // Se juzga lo que se hace con el ARGUMENTO CRUDO, no cualquier `=== 'es'`:
+      // el propio comando compara `languageOfLocale(locale) === 'es'` para elegir
+      // entre «Spanish» e «English», y eso es RENDIR, no validar. Un criterio que
+      // no distinguiera las dos se pondría rojo sobre el árbol correcto, y una
+      // puerta que da rojo por la razón equivocada se acaba borrando.
+      const rawName = rawParameter.text;
+      const isRaw = (node: ts.Node): boolean => ts.isIdentifier(node) && node.text === rawName;
+      for (const inner of walkAll(handler)) {
+        const comparesRaw =
+          ts.isBinaryExpression(inner) &&
+          (inner.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+            inner.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken) &&
+          ((isRaw(inner.left) && ts.isStringLiteral(inner.right)) ||
+            (isRaw(inner.right) && ts.isStringLiteral(inner.left)));
+        const listsRaw =
+          ts.isCallExpression(inner) &&
+          ts.isPropertyAccessExpression(inner.expression) &&
+          (inner.expression.name.text === 'includes' || inner.expression.name.text === 'indexOf') &&
+          ts.isArrayLiteralExpression(inner.expression.expression) &&
+          inner.arguments.some(isRaw);
+        if (comparesRaw || listsRaw) {
+          return falla(
+            `la acción de \`lang\` juzga \`${rawName}\` con una lista en línea (${inner.getText().replace(/\s+/g, ' ').slice(0, 70)}): ` +
+              'es una segunda tabla de grafías junto a `normalizeLocale`, y las dos se separan el día ' +
+              'que se añada un idioma'
+          );
+        }
+      }
+
+      // 3 · EL ESCRITOR APUNTA AL ARCHIVO DEL USUARIO Y ESCRIBE LA CLAVE NUEVA.
+      const config = parse(CONFIG);
+      const writer = [...walkAll(config)].find(
+        (node): node is ts.FunctionDeclaration =>
+          ts.isFunctionDeclaration(node) && node.name?.text === 'setUserLocale'
+      );
+      if (writer === undefined || writer.body === undefined) {
+        return falla(
+          `\`setUserLocale\` ya no existe en ${CONFIG}: el único escritor que apunta al archivo del ` +
+            'usuario desapareció'
+        );
+      }
+      const writerCalls = calledIn(writer.body);
+      if (!writerCalls.has('userConfigPath')) {
+        return falla(
+          '`setUserLocale` ya no resuelve su destino con `userConfigPath`: si escribe en el ' +
+            '`mnemosine.config.json` del repositorio, archiva el idioma POR DEBAJO del archivo del ' +
+            'usuario, que es el escalón que `describeLocale` lee primero a propósito (regla 5 del épico)'
+        );
+      }
+      const keysOf = (call: ts.CallExpression): string[] => {
+        const first = call.arguments[0];
+        if (first === undefined || !ts.isObjectLiteralExpression(first)) return [];
+        return first.properties.flatMap((prop) =>
+          prop.name !== undefined && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
+            ? [prop.name.text]
+            : []
+        );
+      };
+      const patches = [...walkAll(writer.body)].filter(
+        (node): node is ts.CallExpression =>
+          ts.isCallExpression(node) &&
+          ts.isIdentifier(node.expression) &&
+          node.expression.text === 'writeConfigPatch'
+      );
+      const wrongKey = patches.find((call) => keysOf(call).join(',') !== 'locale');
+      if (patches.length === 0 || wrongKey !== undefined) {
+        return falla(
+          `\`setUserLocale\` escribe {${wrongKey === undefined ? '' : keysOf(wrongKey).join(', ')}} en vez de ` +
+            'la clave `locale`: `describeLocale` lee `language` DEBAJO de `locale`, así que a quien ya ' +
+            'tenga un locale puesto el comando le seguiría mintiendo en verde'
+        );
+      }
+      const rescue = [...walkAll(writer.body)].find((node): node is ts.CatchClause => ts.isCatchClause(node));
+      const rescueCalls = rescue === undefined ? new Set<string>() : calledIn(rescue.block);
+      if (!rescueCalls.has('quarantineInvalidConfig') || !rescueCalls.has('writeConfigPatch')) {
+        return falla(
+          '`setUserLocale` no pone en cuarentena el config ilegible y REINTENTA: una coma de más en ' +
+            '`~/.mnemosine/config.json` deja a su dueño sin poder cambiar de idioma, y arreglarlo es ' +
+            'justo lo que venía a hacer. Es la misma clase de fallo que `src/i18n/locale.ts` ya rechazó ' +
+            'por escrito para la LECTURA'
+        );
+      }
+
+      // 4 · LA IDENTIDAD DE DOCTOR NO ES PROSA (#253, una capa más abajo).
+      //
+      // Se recorren los CONSTRUCTORES DE VERDAD y no una lista escrita a mano:
+      // una lista se queda corta el día que alguien añade un chequeo, y un censo
+      // que no llega a mirarlo lo aprueba por omisión. Un constructor se
+      // reconoce por su forma —`level` con uno de los tres niveles y `detail`—,
+      // que es lo que el tipo obliga, y no por el nombre del archivo.
+      const resultInterface = [...walkAll(parse(DOCTOR))].find(
+        (node): node is ts.InterfaceDeclaration =>
+          ts.isInterfaceDeclaration(node) && node.name.text === 'CheckResult'
+      );
+      if (resultInterface === undefined) {
+        return falla(`no hay interfaz \`CheckResult\` en ${DOCTOR}: el contrato de un chequeo desapareció`);
+      }
+      const idMember = resultInterface.members.find(
+        (member) => member.name !== undefined && ts.isIdentifier(member.name) && member.name.text === 'id'
+      );
+      if (idMember === undefined || idMember.questionToken !== undefined) {
+        return falla(
+          '`CheckResult.id` no es obligatorio: con el campo opcional la identidad vuelve a ser una ' +
+            'costumbre, el chequeo que se olvide de ponerla compila igual, y quien consuma ' +
+            '`doctor --json` acaba agrupando por el rótulo — que es prosa traducible'
+        );
+      }
+
+      const LEVELS = new Set(['ok', 'warn', 'fail']);
+      const PROSE_FIELDS = /^(name|label|title)$/;
+      let checkCount = 0;
+      const anonymous: string[] = [];
+      const derived: string[] = [];
+      for (const abs of fuentes('src')) {
+        const rel = path.relative(RAIZ, abs);
+        const text = leer(abs);
+        if (!/CheckResult|CheckIdentity/.test(text)) continue;
+        const source = ts.createSourceFile(path.basename(rel), text, ts.ScriptTarget.Latest, true);
+        for (const node of walkAll(source)) {
+          if (!ts.isObjectLiteralExpression(node)) continue;
+          const own = new Map<string, ts.ObjectLiteralElementLike>();
+          let spreads = false;
+          for (const prop of node.properties) {
+            if (ts.isSpreadAssignment(prop)) {
+              spreads = true;
+              continue;
+            }
+            if (prop.name !== undefined && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))) {
+              own.set(prop.name.text, prop);
+            }
+          }
+          const level = own.get('level');
+          const isCheck =
+            level !== undefined &&
+            ts.isPropertyAssignment(level) &&
+            ts.isStringLiteral(level.initializer) &&
+            LEVELS.has(level.initializer.text) &&
+            own.has('detail');
+          // Las TABLAS de identidad entran también: `CHECK_IDENTITIES` y las
+          // filas de `LOOKUP_TABLES` son donde vive el id de verdad, y es ahí
+          // donde se puede derivar del rótulo sin tocar un solo constructor.
+          const isIdentityRow = own.has('id') && (own.has('name') || own.has('label'));
+          if (!isCheck && !isIdentityRow) continue;
+          const at = `${rel}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`;
+          if (isCheck) {
+            checkCount += 1;
+            if (!own.has('id') && !spreads) anonymous.push(at);
+          }
+          const idProp = own.get('id');
+          if (idProp !== undefined && ts.isPropertyAssignment(idProp)) {
+            const value = idProp.initializer;
+            // Un id DECLARADO es un literal, o la lectura de una identidad que
+            // vive en otro sitio (`spec.id`). Todo lo demás —una llamada, una
+            // plantilla, una concatenación— es un id CALCULADO, y lo único de
+            // lo que se puede calcular aquí es el rótulo.
+            const stated =
+              ts.isStringLiteral(value) || ts.isIdentifier(value) || ts.isPropertyAccessExpression(value);
+            const readsField = ts.isPropertyAccessExpression(value)
+              ? value.name.text
+              : ts.isIdentifier(value)
+                ? value.text
+                : '';
+            if (!stated || PROSE_FIELDS.test(readsField)) {
+              derived.push(`${at} → ${value.getText().replace(/\s+/g, ' ').slice(0, 60)}`);
+            }
+          }
+        }
+      }
+      // EL CENSO, ANTES QUE EL VEREDICTO. Sin él, el día que los chequeos se
+      // construyan de otra forma este recorrido encontraría CERO y los aprobaría
+      // a todos: es el modo de fallo que la prueba de vacuidad de T2 encontró
+      // tres veces. No es un trinquete —los chequeos van y vienen con las
+      // funciones— sino el suelo por debajo del cual el instrumento dejó de ver.
+      const CHECK_CENSUS_FLOOR = 60;
+      if (checkCount < CHECK_CENSUS_FLOOR) {
+        return falla(
+          `sólo se reconocieron ${checkCount} constructores de \`CheckResult\` y el árbol tiene más de ` +
+            `${CHECK_CENSUS_FLOOR}: este recorrido dejó de ver la forma en que se construyen, y un censo ` +
+            'que no encuentra nada aprueba a todos por omisión'
+        );
+      }
+      if (anonymous.length) {
+        return falla(
+          `${anonymous.length} chequeo(s) de doctor se construyen sin identidad ` +
+            `(${anonymous.slice(0, 3).join(', ')}): quien consuma \`doctor --json\` tendría que agruparlos ` +
+            'y silenciarlos por su rótulo, que es prosa traducible y está camino del catálogo'
+        );
+      }
+      if (derived.length) {
+        return falla(
+          `${derived.length} identidad(es) de doctor se CALCULAN a partir de su prosa ` +
+            `(${derived.slice(0, 3).join(' · ')}): traducir el rótulo cambiaría la llave, que es ` +
+            'exactamente el defecto que #253 cerró una capa más arriba, en los informes'
+        );
+      }
+
+      // 5 · LA CLAVE VIEJA SE SIGUE LEYENDO. Su RETIRO es de I24; aquí sólo se
+      // dejó de ESCRIBIR. Un «limpiar lo viejo» que borre este escalón le quita
+      // el idioma a quien lo configuró ayer, y lo hace en silencio: caería a
+      // es-MX por omisión, que para la mitad de la gente es el idioma correcto.
+      const resolver = [...walkAll(parse(RESOLVER))].find(
+        (node): node is ts.FunctionDeclaration =>
+          ts.isFunctionDeclaration(node) && node.name?.text === 'describeLocale'
+      );
+      if (resolver === undefined || resolver.body === undefined) {
+        return falla(`no hay \`describeLocale\` en ${RESOLVER}: la precedencia del idioma desapareció entera`);
+      }
+      const readsLegacyKey = [...walkAll(resolver.body)].some(
+        (node) =>
+          ts.isCallExpression(node) &&
+          ts.isIdentifier(node.expression) &&
+          node.expression.text === 'readConfigString' &&
+          node.arguments.some((arg) => ts.isStringLiteral(arg) && arg.text === 'language')
+      );
+      if (!readsLegacyKey) {
+        return falla(
+          '`describeLocale` dejó de leer la clave vieja `language`: quien la tuviera escrita de ayer ' +
+            'pierde hoy su idioma sin aviso. Este tramo dejó de ESCRIBIRLA; retirar a sus lectores es I24'
+        );
+      }
+
+      return ok(
+        '`mnemosine lang` valida con `normalizeLocale` y escribe `locale` con `setUserLocale` en el ' +
+          `archivo del usuario, con cuarentena y reintento; los ${checkCount} constructores de chequeo del ` +
+          'árbol traen identidad declarada y ninguna se calcula del rótulo; `describeLocale` sigue leyendo `language`'
+      );
+    },
+    mutantes: [
+      {
+        // EL CORAZÓN, en la forma exacta que tenía antes de este tramo: el
+        // comando escribe la clave vieja, en el archivo activo, y sigue
+        // imprimiendo «✔ Agent will now answer in Spanish».
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'const { file, quarantined } = setUserLocale(locale);',
+        a: 'const { file, quarantined } = { file: setLanguage(languageOfLocale(locale)), quarantined: null };',
+        porque:
+          'escribir-por-debajo: el comando escribe en un escalón que ya pierde, así que imprime éxito sin cambiar nada y ninguna prueba de contenido lo nota',
+      },
+      {
+        archivo: 'src/ai/providers/config.ts',
+        de: 'return { file: writeConfigPatch({ locale }, undefined, file), quarantined: null };',
+        a: 'return { file: writeConfigPatch({ language: locale }, undefined, file), quarantined: null };',
+        porque:
+          'clave-equivocada: el archivo correcto con la clave que se lee DEBAJO, así que un `locale` ya puesto sigue ganando',
+      },
+      {
+        archivo: 'src/ai/providers/config.ts',
+        de: 'const file = userConfigPath(home);',
+        a: "const file = path.join(process.cwd(), 'mnemosine.config.json');",
+        porque:
+          'archivo-equivocado: la clave correcta en el archivo del proyecto, que es el escalón que `describeLocale` lee DESPUÉS del del usuario',
+      },
+      {
+        // La lista en línea que de verdad estuvo aquí hasta I11: aceptaba dos
+        // de las cuatro grafías que el resolutor entiende.
+        archivo: 'src/cli/mnemosine.ts',
+        de: 'const locale = normalizeLocale(language);',
+        a: "const locale = language === 'en' || language === 'es' ? (language as Locale) : null;",
+        porque:
+          'segunda-tabla: el comando vuelve a tener su propia lista de grafías y rechaza el `es-MX` que `--locale` acepta',
+      },
+      {
+        archivo: 'src/ai/providers/config.ts',
+        de:
+          '    const quarantined = quarantineInvalidConfig(file);\n' +
+          '    if (quarantined === null) throw err;\n' +
+          '    fs.rmSync(file, { force: true });',
+        a:
+          '    const quarantined: string | null = null;\n' +
+          '    if (quarantined === null) throw err;\n' +
+          '    fs.rmSync(file, { force: true });',
+        porque:
+          'archivo-roto-atrapa: una coma de más en el config del usuario impide cambiar de idioma, que es lo que la persona venía a hacer',
+      },
+      {
+        // El conteo no vale aquí y por eso el recorrido es por AST: se retira la
+        // identidad de UN constructor de los ochenta y tantos, dejando el
+        // rótulo puesto. Es el estado exacto de este archivo antes de I11.
+        archivo: 'src/cli/init/s0-infra.ts',
+        de: "        ...RLS_CONTEXT,\n        level: 'ok',\n        detail: 'no tenant pinned yet",
+        a: "        name: 'RLS context',\n        level: 'ok',\n        detail: 'no tenant pinned yet",
+        porque:
+          'chequeo-anónimo: un solo constructor pierde su identidad y conserva el rótulo, que es invisible en pantalla',
+      },
+      {
+        archivo: 'src/ai/doctor-service.ts',
+        de: '  /** Stable machine identity. See `CheckIdentity`. */\n  id: string;',
+        a: '  /** Stable machine identity. See `CheckIdentity`. */\n  id?: string;',
+        porque:
+          'campo-opcional: la identidad pasa de obligación a costumbre, y el chequeo que se la olvide compila igual',
+      },
+      {
+        archivo: 'src/ai/doctor-service.ts',
+        de: "  database: { id: 'database-connection', name: 'Database' },",
+        a: "  database: { id: 'Database'.toLowerCase().replace(/ /g, '-'), name: 'Database' },",
+        porque:
+          'id-calculado-del-rótulo: la llave vuelve a ser la prosa con otro disfraz, que es el defecto que #253 cerró en los informes',
+      },
+      {
+        archivo: 'src/i18n/locale.ts',
+        de: "const raw = readConfigString(activeConfig, 'language', warn);",
+        a: "const raw = readConfigString(activeConfig, 'locale', warn);",
+        porque:
+          'limpiar-lo-viejo: se retira el escalón de la clave vieja y quien la tenga escrita pierde su idioma hoy, cuando su retiro es de I24',
+      },
+    ],
+  },
+  {
+    paquete: 'E0.0',
     id: 'cli-chrome-and-pilot-speak-by-key',
     // I7 (issue #149). El cromo del CLI y el piloto se rinden POR CLAVE, y el
     // terreno ganado no se puede devolver en silencio.
@@ -7643,7 +8072,12 @@ export const CRITERIOS: Criterio[] = [
       // es exactamente lo que la frase prometía. Y AÑADIR uno obliga a subirla,
       // porque con holgura el espejo de este mismo criterio deja de morder: la
       // cifra es la cuenta EXACTA de hoy, no un suelo cómodo.
-      const MIRRORS_FLOOR = 401;
+      // 401 → 410: los nueve espejos de `the-user-language-is-written-where-it-is-read`
+      // (I11 · 4). La cifra se mide SOBRE EL ÁRBOL YA EDITADO y no se copia del
+      // mensaje de un fallo: ese mensaje imprime la cuenta BAJO el mutante, que
+      // es uno menos que la real, y anotarla ahí deja holgura 1 — justo la que
+      // basta para que el espejo de este criterio deje de morder.
+      const MIRRORS_FLOOR = 410;
       const mirrors = CRITERIOS.reduce(
         (n, c) => n + (c.mutantes?.length ?? 0) + (c.mutantesEnDisco?.length ?? 0),
         0
@@ -7662,7 +8096,11 @@ export const CRITERIOS: Criterio[] = [
       // son el mismo hecho leído por el seam —hoy 358, que son los 358 espejos
       // en memoria; los 12 restantes son los de conducta, que viven en otro
       // módulo— y ésas sí las alcanza un espejo.
-      const ANCHORS_HERE = 384;
+      // 384 → 392: ocho de los nueve espejos nuevos de I11 · 4 anclan con su
+      // `de:` en el renglón; el noveno parte el literal en dos líneas y por eso
+      // la cuenta del seam sube en ocho y no en nueve. Medida con
+      // `grep -cE '^[ \t]*de: ' src/plan/criterios.ts` sobre el árbol editado.
+      const ANCHORS_HERE = 392;
       const anchors = (cru.match(/^[ \t]*de: /gm) ?? []).length;
       return anchors >= ANCHORS_HERE
         ? ok(

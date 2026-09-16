@@ -21,7 +21,7 @@ import {
   type SessionCallbacks,
 } from '../../ai/providers/index.js';
 import { resolveIngestThresholds } from '../../ai/providers/config.js';
-import type { CheckResult } from '../../ai/doctor-service.js';
+import type { CheckIdentity, CheckResult } from '../../ai/doctor-service.js';
 import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 // ============================================================
@@ -42,6 +42,18 @@ import type { SectionContext, SectionStatus, SetupSection } from './section.js';
 
 /** First-run cap so an accidental point at a huge folder stays reviewable. */
 export const XML_FIRST_RUN_CAP = 50;
+
+/**
+ * The two checks this section reports. The first measures whether anything at
+ * all has reached the books; the second measures an opening balance sitting
+ * unapproved, which is a different problem with a different remedy. See
+ * `CheckIdentity` in doctor-service for why the id is not the label.
+ */
+const ACCOUNTING_DATA: CheckIdentity = { id: 'books-have-entries', name: 'Accounting data' };
+const ONBOARDING_DRAFT: CheckIdentity = {
+  id: 'opening-balance-unapproved',
+  name: 'Onboarding draft',
+};
 
 interface ImportCounts {
   entries: number;
@@ -441,7 +453,7 @@ export class ImportSection implements SetupSection {
       const c = await this.counts(entity.entityId);
       const hasData = c.entries > 0 || c.xmls > 0;
       checks.push({
-        name: 'Accounting data',
+        ...ACCOUNTING_DATA,
         level: hasData ? 'ok' : 'warn',
         detail: hasData
           ? `${c.entries} journal entr${c.entries === 1 ? 'y' : 'ies'}, ${c.xmls} CFDI(s) ingested`
@@ -450,7 +462,7 @@ export class ImportSection implements SetupSection {
       });
       if (c.onboardingDrafts > 0) {
         checks.push({
-          name: 'Onboarding draft',
+          ...ONBOARDING_DRAFT,
           level: 'warn',
           detail: `${c.onboardingDrafts} opening-balance draft(s) awaiting approval`,
           fix: 'Approve or reject with `mnemosine review`',
@@ -458,7 +470,7 @@ export class ImportSection implements SetupSection {
       }
     } catch (err) {
       checks.push({
-        name: 'Accounting data',
+        ...ACCOUNTING_DATA,
         level: 'warn',
         detail: `Could not read: ${err instanceof Error ? err.message : String(err)}`,
       });

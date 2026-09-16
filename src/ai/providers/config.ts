@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { z } from 'zod';
 import type { ProviderProfile, ResolvedProfile, VentanaContexto } from './types.js';
-import { languageOfLocale, resolveLocale } from '../../i18n/locale.js';
+import { languageOfLocale, resolveLocale, type Locale } from '../../i18n/locale.js';
 
 // ============================================================
 // PROVIDER CONFIG
@@ -635,11 +635,24 @@ const configFileSchema = z
 
 export type MnemosineConfig = z.infer<typeof configFileSchema>;
 
+/**
+ * The HUMAN's own configuration file: the one that follows the person from one
+ * repository to the next, as opposed to the project's `mnemosine.config.json`,
+ * which is versioned and shared with whoever clones it.
+ *
+ * It is a function and not a literal because two places in this module need the
+ * same path and they must not drift: the reader (`configFilePaths`) and the
+ * writer (`setUserLocale`). `src/i18n/locale.ts` spells it out a third time on
+ * purpose — importing this module from there would close a cycle, and its own
+ * comment says so — so the duplication that remains is one the compiler cannot
+ * remove, not one nobody noticed.
+ */
+export function userConfigPath(home = os.homedir()): string {
+  return path.join(home, '.mnemosine', 'config.json');
+}
+
 export function configFilePaths(cwd = process.cwd()): string[] {
-  return [
-    path.join(cwd, 'mnemosine.config.json'),
-    path.join(os.homedir(), '.mnemosine', 'config.json'),
-  ];
+  return [path.join(cwd, 'mnemosine.config.json'), userConfigPath()];
 }
 
 /**
@@ -1172,11 +1185,86 @@ export function resolveLanguage(cwd = process.cwd()): AgentLanguage {
  * silently shadow the entire user config. Only when no config exists at all is
  * the project file created. Routed through writeConfigPatch so the strict
  * schema and no-secrets gates apply.
+ *
+ * THIS IS THE LEGACY WRITER AND `mnemosine lang` NO LONGER CALLS IT (I11 ·
+ * issue #153). The command writes `locale` with `setUserLocale`; see there for
+ * why the destination had to change. The `language` key keeps being READ as a
+ * fallback — `describeLocale` preserves its old precedence untouched, project
+ * before user — so nobody who set it yesterday loses their language today, and
+ * this function outlives the command that used to call it only until I24
+ * retires the key's readers with it.
  */
 export function setLanguage(lang: AgentLanguage, cwd = process.cwd()): string {
   const { source } = loadConfigFile(cwd);
   const target = source ?? path.join(cwd, 'mnemosine.config.json');
   return writeConfigPatch({ language: lang }, cwd, target);
+}
+
+/**
+ * Persist the USER's locale in `~/.mnemosine/config.json`, creating the file —
+ * and the directory that holds it — when they are not there yet. Returns the
+ * path written.
+ *
+ * WHY NOT WHERE `setLanguage` WRITES, WHICH IS THE WHOLE POINT OF THIS
+ * FUNCTION. `setLanguage` targets whichever file `loadConfigFile` considers
+ * active, project before user, so that changing one setting would never create
+ * a project file that silently shadows the user's entire config. That reasoning
+ * is sound for the settings it was written for: the tenant and the provider are
+ * properties of the REPOSITORY, versioned and shared with whoever clones it.
+ *
+ * The locale is not one of them. It belongs to the HUMAN looking at the screen,
+ * which is exactly why `describeLocale` reads the user file ABOVE the project
+ * file — the one place in this house where that order is inverted, and it is
+ * inverted on purpose (rule 5 of epic #141: the user picks the language). So
+ * writing the locale into a project `mnemosine.config.json` would file it BELOW
+ * something that already wins, and `mnemosine lang es` would print a line of
+ * success while changing nothing at all for anybody who already has `locale` in
+ * their own file. A setting has to be written where it is read.
+ *
+ * Routed through `writeConfigPatch` like every other write in this module: the
+ * no-secrets gate and the strict schema apply, and unrelated keys survive.
+ */
+export interface UserLocaleWrite {
+  /** The file the locale was written to. */
+  readonly file: string;
+  /** Where the unusable previous file was kept, when there was one. */
+  readonly quarantined: string | null;
+}
+
+export function setUserLocale(locale: Locale, home = os.homedir()): UserLocaleWrite {
+  const file = userConfigPath(home);
+  // `~/.mnemosine/` does not exist on a machine that has never written a
+  // config, and `writeConfigPatch` would die of ENOENT on the directory rather
+  // than on the file. That is precisely the machine this command has to serve:
+  // choosing a language is one of the first things a new user does.
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  // `cwd` goes unused once a target file is given — it only names the project
+  // file this write is deliberately NOT making.
+  try {
+    return { file: writeConfigPatch({ locale }, undefined, file), quarantined: null };
+  } catch (err) {
+    // A BROKEN FILE MUST NOT TRAP THE USER IN IT.
+    //
+    // `writeConfigPatch` reads the file before patching it, so a trailing comma
+    // or a key the schema no longer knows makes it throw — and before this
+    // branch the throw reached the terminal as a bare `SyntaxError` that did
+    // not even name the file. That is the failure mode `src/i18n/locale.ts`
+    // already refused for the READ path, in writing: the resolver skips an
+    // unreadable file with a warning because «dying while printing a number
+    // because the user's JSON has one comma too many would be a new failure
+    // worse than the defect». The same reasoning holds for the write: a person
+    // whose config broke cannot fix it by choosing a language, and choosing a
+    // language is what they came to do.
+    //
+    // So the evidence is kept —the quarantine copy is named by content hash,
+    // so retries do not litter— the unusable file is retired, and the write is
+    // made again on a clean slate, with the same gates. If the copy cannot even
+    // be made, nothing was salvaged and the original error is the honest one.
+    const quarantined = quarantineInvalidConfig(file);
+    if (quarantined === null) throw err;
+    fs.rmSync(file, { force: true });
+    return { file: writeConfigPatch({ locale }, undefined, file), quarantined };
+  }
 }
 
 // ─── Config writer (secret auto-routing) ───
