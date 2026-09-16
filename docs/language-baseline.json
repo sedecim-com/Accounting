@@ -10,9 +10,9 @@
     "spanish-filenames-tests": 156,
     "spanish-filenames-scripts": 9,
     "spanish-user-strings-cli": 468,
-    "plan-criteria-grepping-spanish-identifiers": 118,
+    "plan-criteria-grepping-spanish-identifiers": 119,
     "plan-criteria-pinned-to-spanish-paths": 38,
-    "plan-mutants-anchored-to-spanish-files": 25,
+    "plan-mutants-anchored-to-spanish-files": 27,
     "coverage-thresholds-keyed-by-spanish-paths": 9,
     "agent-corpus-sources-with-spanish-names": 1,
     "test-mocks-of-spanish-modules": 11,
@@ -922,7 +922,8 @@
       "tests/integration/helpers/sql-scan.ts": 1,
       "tests/integration/migracion-070-cuota-obrera.int.spec.ts": 3,
       "tests/integration/permiso-y-frontera-por-rest.int.spec.ts": 1,
-      "tests/plan/mutacion.spec.ts": 1
+      "tests/plan/mutacion.spec.ts": 1,
+      "tests/plan/vacuity.spec.ts": 1
     },
     "plan-criteria-pinned-to-spanish-paths": {
       "docs/criterios-minimos.json": 1,
@@ -960,10 +961,11 @@
       "tests/payroll/mx/prima-de-antiguedad.spec.ts": 1
     },
     "plan-mutants-anchored-to-spanish-files": {
-      "scripts/corpus-manifiesto.ts": 1,
+      "scripts/corpus-manifiesto.ts": 2,
       "scripts/costo-por-fila.ts": 1,
       "scripts/historial-estado.ts": 4,
       "src/plan/conducta.ts": 1,
+      "src/plan/criterios.ts": 1,
       "src/services/payroll/common/alcance-nomina.ts": 1,
       "src/services/payroll/mx/cfdi-nomina-generator.ts": 2,
       "src/services/payroll/mx/finiquito-calculator.ts": 2,

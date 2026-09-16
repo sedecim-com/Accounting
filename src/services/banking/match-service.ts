@@ -111,7 +111,7 @@ export type MotivoOmision = (typeof MOTIVOS_OMISION)[number];
  * la regla 2 del motor (`exact_amount_near_date`): no se inventa un número
  * nuevo para la misma pregunta.
  */
-const VENTANA_DIAS = 3;
+const MATCH_WINDOW_DAYS = 3;
 
 /** Confianza mínima por omisión de `run`, la que el motor ya usaba al cruzar. */
 const CONFIANZA_POR_OMISION = 0.85;
@@ -444,7 +444,7 @@ export function medirSenales(
     importeExacto,
     mismaDireccion: banco.isNegative() === candidato.isNegative(),
     diasDeDiferencia: dias,
-    dentroDeVentana: dias <= VENTANA_DIAS,
+    dentroDeVentana: dias <= MATCH_WINDOW_DAYS,
     similitudDescripcion: similitudDeTexto(descripcionBanco, descripcionCandidato),
     senalDura: importeExacto,
   };
