@@ -424,7 +424,7 @@ export async function contadoresAnualesSembrados(): Promise<Resultado> {
  * job de YAML termina donde empieza otra clave en columna dos y un apartado de
  * Markdown donde empieza otro `##`.
  */
-export function sectionOf(text: string, heading: string, until = /^## /m): string | null {
+function sectionOf(text: string, heading: string, until = /^## /m): string | null {
   const from = text.indexOf(heading);
   if (from === -1) return null;
   const rest = text.slice(from + heading.length);
@@ -1518,7 +1518,15 @@ export const CRITERIOS: Criterio[] = [
       if (!job.includes(scriptPath)) {
         return falla('el job de asuntos de commit ya no invoca al lint: queda un job verde que no juzga nada');
       }
-      if (!job.includes('fetch-depth: 0')) {
+      // LA CADENA COMPLETA, CON SU COMENTARIO, Y NO `fetch-depth: 0` A SECAS.
+      //
+      // Lo encontró el espejo: el propio job lleva un comentario que EXPLICA
+      // por qué la línea va marcada, y ese comentario CITA `fetch-depth: 0`.
+      // Con el ancla corta, el mutante que ponía la profundidad en 1 dejaba el
+      // criterio verde — porque seguía casando contra la prosa que habla de la
+      // línea en vez de contra la línea. Es la lección de las anclas que no
+      // acotan, cometida dentro de la explicación de por qué esta ancla acota.
+      if (!job.includes('fetch-depth: 0 # commit-subjects')) {
         return falla('el job de asuntos de commit clona a profundidad 1: vería un commit y el rango ni se resuelve');
       }
       return ok(
