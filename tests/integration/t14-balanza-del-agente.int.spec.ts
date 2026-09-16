@@ -158,6 +158,15 @@ describe('el balance del agente cuadra, y dice cuándo no', () => {
     const bs = await llamar('get_balance_sheet', { as_of_date: '2026-02-28' });
     const cuentas = (bs.assets as { accounts: Array<Record<string, string>> }).accounts;
     expect(cuentas.every((c) => /^[a-z_]+$/.test(c.category))).toBe(true);
+    // I11 · LA FORMA NO BASTA: la categoría sale de la CLAVE de la subsección
+    // —el `fs_category` tal como se guarda—, no del rótulo. Derivarla del
+    // rótulo daba el mismo `current_assets` hoy y otro el día que se traduzca,
+    // y el agente agrupa por este valor.
+    const report = await getBalanceSheet(f.entityId, { asOfDate: '2026-02-28' });
+    const serviceKeys = report.assets.subsections.map((sub) => sub.key);
+    expect(serviceKeys.length).toBeGreaterThan(0);
+    for (const c of cuentas) expect(serviceKeys).toContain(c.category);
+    expect(new Set(cuentas.map((c) => c.category))).toContain('current_assets');
   });
 });
 
