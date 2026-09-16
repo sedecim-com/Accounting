@@ -88,8 +88,12 @@ bash scripts/verify-isolation.sh
 3. PR contra `main`. Se exige **1 aprobación**, y los pushes nuevos invalidan
    las aprobaciones anteriores.
 4. La CI debe estar en verde: **Tipos**, **Pruebas unitarias**, **Integración
-   contra Postgres**, **Aislamiento por inquilino** y **Estado del plan**. Un
-   rojo se arregla, no se explica en un comentario.
+   contra Postgres**, **Aislamiento por inquilino**, **Estado del plan** y
+   **Commit subjects**. Un rojo se arregla, no se explica en un comentario.
+   Cuáles de ellos *bloquean* el botón de fusionar lo decide la lista de
+   comprobaciones obligatorias del repositorio —un ajuste fuera del árbol, que
+   este archivo no puede comprobar y por tanto no afirma—; al escribir esto
+   nombraba dos.
 5. Si el cambio cierra un paquete del plan, añádelo a la lista `--exigir` de
    `.github/workflows/ci.yml` **en el mismo commit que lo cierra**. Si reabre
    uno, quítalo de la lista ahí mismo y di por qué en el cuerpo: la reapertura

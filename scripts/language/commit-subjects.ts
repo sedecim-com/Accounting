@@ -2,10 +2,15 @@
 // THE SUBJECT OF A NEW COMMIT IS BORN IN ENGLISH (I22 · issue #165)
 //
 // The repository ordered the opposite, in writing, in two places
-// (`CONTRIBUTING.md` and `docs/PROCESS.md`), and 184 of the 284 non-merge
-// subjects on `main` carry an accent as a result. Changing the written order
-// is what makes new work stop being born in Spanish; this file is what keeps
-// the order from being a suggestion.
+// (`CONTRIBUTING.md` and `docs/PROCESS.md`), and 193 of the 295 non-merge
+// subjects on `main` carry an accent as a result. Changing the written order is
+// what makes new work stop being born in Spanish; this file is what keeps the
+// order from being a suggestion.
+//
+// EVERY FIGURE IN THIS FILE WAS MEASURED AT `4901620` and is re-derivable with
+// `git log`. They drift as `main` grows, which is the point of saying where
+// they came from: a number with no commit behind it cannot be checked, and an
+// unchecked number is how a document starts lying.
 //
 // WHAT IT DOES NOT DO, said here because the rest of the file reads like it
 // does more: it does not verify that the English is good English, that the
@@ -65,7 +70,7 @@ export type Reason =
   | 'accent'
   | 'spanish-prose';
 
-export type Skip = false | 'merge' | 'bot' | 'revert' | 'fixup' | 'before-cutoff';
+export type Skip = false | 'merge' | 'bot' | 'revert' | 'before-cutoff';
 
 export interface Verdict {
   ok: boolean;
@@ -101,17 +106,30 @@ const SQUASH_SUFFIX = /\s*\(#\d+\)$/;
 const CODE_PREFIX = /^[^\s:]{1,12}:\s*/;
 
 /**
- * Curly quotes folded to straight BEFORE anything else looks at the text.
+ * Everything that must look the same is made to look the same, BEFORE anything
+ * else reads the text. Three problems, one seam.
  *
- * Two problems collapse into one rule. A macOS browser field turns `token's`
- * into `token’s` and `"asiento"` into `“asiento”`, so a gate that only knows
- * straight quotes treats the same sentence differently depending on where it
- * was typed. And U+2019 is both the closing single quote and the apostrophe,
- * so any rule that reads it as a delimiter eats possessives. Folding first
- * means ONE set of guarded rules below decides both cases.
+ * CURLY QUOTES. A macOS browser field turns `token's` into `token’s` and
+ * `"asiento"` into `“asiento”`, so a gate that only knows straight quotes
+ * judges the same sentence differently depending on where it was typed. And
+ * U+2019 is both the closing single quote and the apostrophe, so any rule that
+ * reads it as a delimiter eats possessives. Folding first means ONE set of
+ * guarded rules below decides both cases.
+ *
+ * UNICODE FORM, which is the same bug on a second axis and the more dangerous
+ * one. macOS also emits decomposed text: `ó` as `o` + U+0301. That turns off
+ * BOTH halves of the Spanish test at once — `ACCENT` below only lists
+ * precomposed codepoints, and `judgeLanguage` splits tokens on
+ * `[^A-Za-zÀ-ɏ]+`, where a combining mark (U+0301 = 769) sits above `ɏ` (591)
+ * and therefore acts as a word BOUNDARY: `póliza` becomes `po` + `liza`, which
+ * is neither a function word nor a lexicon root. A subject that reads as
+ * Spanish to a human passed as English. This repository already knows the
+ * problem — `tests/cli/kernel/presentation.spec.ts` has a case named «póliza»
+ * en NFD (como la emite macOS) — and normalizing here is what makes the rest
+ * of this file able to assume one form.
  */
-function foldQuotes(text: string): string {
-  return text.replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+function foldText(text: string): string {
+  return text.normalize('NFC').replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
 }
 
 /**
@@ -180,15 +198,15 @@ function verdict(reason: Reason, detail: string): Verdict {
  * This is what the spec exercises.
  */
 export function judgeSubject(subject: string): Verdict {
-  const raw = foldQuotes(subject).trim();
+  const raw = foldText(subject).trim();
   if (raw.length === 0) return verdict('empty', 'the subject is empty');
 
   const withoutSquash = raw.replace(SQUASH_SUFFIX, '');
   if (withoutSquash.length > MAX_SUBJECT) {
     // Deliberately not a style rule. The longest subject the house has ever
     // written is 135 characters and the median is 73; a 72-character cap would
-    // reject 151 of 284. This catches one accident — `git commit -m "$(cat
-    // notes.txt)"` — and nothing else.
+    // reject 157 of the 295 non-merge subjects. This catches one accident —
+    // `git commit -m "$(cat notes.txt)"` — and nothing else.
     return verdict('too-long', `${withoutSquash.length} characters, over ${MAX_SUBJECT}`);
   }
   if (EMOJI.test(withoutSquash)) return verdict('emoji', 'CONTRIBUTING.md: "Nada de emoji"');
@@ -214,28 +232,43 @@ export function judgeSubject(subject: string): Verdict {
     return verdict('accent', 'an accent outside a citation — quote the cited term with backticks');
   }
   if (judgeLanguage(prose).spanish) {
-    // 73 of the 284 Spanish subjects on `main` carry NO accent. An accent-only
-    // check would wave 28 % of them through, which is why this half exists.
+    // Of the 265 Spanish subjects this gate rejects on `main`, 75 carry NO
+    // accent at all — 28 %. An accent-only check would wave better than one in
+    // four straight through, which is why this half exists.
     return verdict('spanish-prose', 'the subject reads as Spanish prose');
   }
   return verdict('ok', 'born English');
 }
 
 /**
- * One record, with the exemptions that are decided before anything is read as
- * prose. Every exemption here is STRUCTURAL — a parent count, an author
- * identity, a date — and not a string anybody can type. A `^Merge ` or
- * `^Bump ` exemption would be a bypass one keystroke wide, and it would also
- * be wrong: 32 of `main`'s 108 merges do not start with `Merge`.
+ * One record, with the exemptions decided before anything is read as prose.
+ *
+ * THREE OF THE FOUR ARE STRUCTURAL — a parent count, an author identity, a
+ * date — and cannot be typed into a subject. That matters: a `^Merge `
+ * exemption would be a bypass one keystroke wide, and it would also be wrong,
+ * because 32 of `main`'s 108 merges do not start with `Merge`. Same for
+ * `^Bump `: the exemption is dependabot's identity, not its habit.
+ *
+ * THE FOURTH IS NOT, AND SAYING OTHERWISE WOULD BE THE LIE THIS FILE EXISTS TO
+ * PREVENT. A revert's subject is written by git as `Revert "<the old one>"`,
+ * and the old one may be pre-cut-off Spanish that no rule should force anyone
+ * to retype — rewriting the quote would misreport what was reverted. So the
+ * shape is matched, and matching a shape is typeable by definition. It is
+ * narrowed to git's exact output — `Revert "` … `"` and nothing after the
+ * closing quote — so the bypass carries only what git itself would write, and
+ * `Revert "algo" y además esto` is judged like any other subject. It is a real
+ * hole, it is declared in the PR body, and it is the price of not lying about
+ * history.
+ *
+ * `fixup!` and `squash!` are NOT exempt. They are meant to be autosquashed
+ * before review; one that reaches the gate has already failed to be, and
+ * exempting them would hand out the same typeable prefix for free.
  */
 export function judgeCommit(record: CommitRecord, cutoffEpoch: number): Verdict {
   if (record.parents > 1) return { ok: true, skipped: 'merge', reason: 'ok', detail: 'merge commit' };
   if (isBot(record)) return { ok: true, skipped: 'bot', reason: 'ok', detail: 'written by a bot' };
-  if (/^Revert "/.test(record.subject)) {
-    return { ok: true, skipped: 'revert', reason: 'ok', detail: 'git quotes the reverted subject' };
-  }
-  if (/^(fixup|squash)! /.test(record.subject)) {
-    return { ok: true, skipped: 'fixup', reason: 'ok', detail: 'git quotes the target subject' };
+  if (/^Revert "[^"]*"$/.test(record.subject)) {
+    return { ok: true, skipped: 'revert', reason: 'ok', detail: 'git quotes the reverted subject verbatim' };
   }
   if (record.authoredAt < cutoffEpoch) {
     return { ok: true, skipped: 'before-cutoff', reason: 'ok', detail: 'authored before the rule' };
@@ -300,22 +333,43 @@ function main(argv: string[]): number {
   }
 
   const records = collect(range);
-  const title = process.env.PR_TITLE;
-  const titleIsJudged = title !== undefined && title.trim() !== '' && prTitleInScope(cutoffEpoch);
-  if (titleIsJudged) records.push(titleRecord(title, cutoffEpoch));
 
-  // A RANGE THAT RESOLVES TO NOTHING IS NOT A PASS.
+  // A RANGE THAT RESOLVES TO NOTHING IS NOT A PASS, and this is checked BEFORE
+  // the title is added.
   //
   // `origin/main..HEAD` on a shallow clone, a wrong base ref or a fetch that
-  // silently failed all produce zero records, and zero records with no title
-  // to judge prints a green tick for a gate that looked at nothing. Every
-  // other instrument in this house fails when it cannot see; so does this one.
+  // silently failed all produce zero commits. The first draft appended the
+  // title first and then asked whether anything was left, which made the guard
+  // unreachable in the only configuration CI actually runs: a PR always has a
+  // title, so the count was never zero and a broken range printed a green tick
+  // for a gate that had looked at no commit at all. Every other instrument in
+  // this house fails when it cannot see; so does this one.
   if (records.length === 0) {
     process.stderr.write(
-      `commit subjects: the range "${range}" resolved to no commit and there was no title to judge.\n` +
+      `commit subjects: the range "${range}" resolved to no commit.\n` +
         'That is not a pass: the gate could not see anything. Check fetch-depth and the base ref.\n'
     );
     return 2;
+  }
+
+  const title = process.env.PR_TITLE;
+  if (title !== undefined && title.trim() !== '') {
+    const openedAt = prOpenedAt();
+    // FAIL CLOSED WHEN THE TITLE CANNOT BE PLACED IN TIME. A title arrives with
+    // no date of its own, so `PR_CREATED_AT` is what decides whether the rule
+    // reaches it. Absent or unparseable, the first draft silently skipped the
+    // title — which means deleting one `env:` line from the workflow turned off
+    // the check on the one string a squash writes into `main`, with the job and
+    // the criterion both still green. A gate that cannot tell whether something
+    // is in scope has not checked it.
+    if (openedAt === null) {
+      process.stderr.write(
+        'commit subjects: PR_TITLE is set but PR_CREATED_AT is missing or unparseable, so the title ' +
+          'cannot be placed against the cut-off.\nThat is not a pass: pass PR_CREATED_AT, or pass no title.\n'
+      );
+      return 2;
+    }
+    if (openedAt >= cutoffEpoch) records.push(titleRecord(title, cutoffEpoch));
   }
 
   const judged = records.map((record) => ({
@@ -339,12 +393,11 @@ function main(argv: string[]): number {
  * the cutoff exists to prevent. Same principle as the commits, applied to the
  * only date a title has.
  */
-function prTitleInScope(cutoffEpoch: number): boolean {
+function prOpenedAt(): number | null {
   const createdAt = process.env.PR_CREATED_AT;
-  if (createdAt === undefined || createdAt.trim() === '') return false;
+  if (createdAt === undefined || createdAt.trim() === '') return null;
   const parsed = Date.parse(createdAt);
-  if (Number.isNaN(parsed)) return false;
-  return parsed / 1000 >= cutoffEpoch;
+  return Number.isNaN(parsed) ? null : parsed / 1000;
 }
 
 function titleRecord(subject: string, cutoffEpoch: number): CommitRecord {

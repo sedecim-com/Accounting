@@ -58,10 +58,10 @@ describe('a Spanish subject is rejected', () => {
     expect(v.reason).toBe('accent');
   });
 
-  // THE CASE THAT PROVES ACCENTS ARE NOT ENOUGH. 73 of the 284 Spanish
-  // subjects on `main` carry no accent at all — 28 % of them — so an
-  // accent-only gate would wave one in four straight through. This is why the
-  // script consumes `judgeLanguage` instead of a regex.
+  // THE CASE THAT PROVES ACCENTS ARE NOT ENOUGH. Of the 265 Spanish subjects
+  // this gate rejects on `main`, 75 carry no accent at all — 28 % — so an
+  // accent-only gate would wave better than one in four straight through. This
+  // is why the script consumes `judgeLanguage` instead of a regex.
   it('by its prose, with no accent anywhere in it', () => {
     const v = judgeSubject('El trinquete absorbe los 41 del SUA');
     expect(v.ok).toBe(false);
@@ -84,7 +84,7 @@ describe('an English subject is accepted', () => {
     expect(judgeSubject("W1: the firm portfolio reads only the token's entities (#249)").ok).toBe(true);
   });
 
-  it('with no tranche code at all — 169 of 284 subjects on main have none', () => {
+  it('with no tranche code at all — 165 of 295 subjects on main have none', () => {
     expect(judgeSubject('The gateway says why: an unmatched route mints no label').ok).toBe(true);
   });
 
@@ -173,8 +173,8 @@ describe('the shapes the format rule rejects', () => {
   });
 
   // The cap is an accident guard, not a style rule: the longest subject in the
-  // whole history is 135 characters. A 72-character cap would reject 151 of
-  // 284 real subjects, because the house writes long subjects on purpose.
+  // whole history is 135 characters. A 72-character cap would reject 157 of
+  // 295 real subjects, because the house writes long subjects on purpose.
   it('a subject past the cap, while the longest real one passes', () => {
     expect(judgeSubject(`I22: ${'word '.repeat(40)}`).reason).toBe('too-long');
     const longest =
@@ -214,9 +214,62 @@ describe('the exemptions are structural, never a string anyone can type', () => 
     expect(judgeSubject('Bump the acciones group with 3 updates').ok).toBe(true);
   });
 
-  it('a revert and a fixup, whose subjects git writes by quoting another', () => {
+  // THE ONE EXEMPTION THAT IS A SHAPE AND NOT A STRUCTURE, kept narrow and
+  // declared. Git writes a revert's subject as `Revert "<the old one>"`, and
+  // the old one may be pre-cut-off Spanish that no rule should force anyone to
+  // retype. So the shape is matched — but only git's exact output. Anything
+  // after the closing quote is somebody writing their own subject, and it is
+  // judged like any other.
+  it('exempts git\'s exact revert shape and nothing wider', () => {
     expect(judgeCommit(commit({ subject: 'Revert "X1c: la base admitía doce rubros"' }), CUTOFF).skipped).toBe('revert');
-    expect(judgeCommit(commit({ subject: 'fixup! X1c: la base admitía doce rubros' }), CUTOFF).skipped).toBe('fixup');
+    const widened = commit({ subject: 'Revert "algo" y además esto que escribí yo' });
+    expect(judgeCommit(widened, CUTOFF).skipped).toBe(false);
+    expect(judgeCommit(widened, CUTOFF).ok).toBe(false);
+  });
+
+  // `fixup!` and `squash!` are NOT exempt. They are meant to be autosquashed
+  // before review, so one that reaches the gate has already failed to be — and
+  // exempting them would hand out a typeable prefix for free, which is the
+  // thing the block above refuses to do.
+  it('does not exempt fixup! or squash!, which would be a free prefix', () => {
+    for (const subject of [
+      'fixup! X1c: la base admitía doce rubros',
+      'squash! el tipo de cambio dejó de elegirse por el orden',
+    ]) {
+      const v = judgeCommit(commit({ subject }), CUTOFF);
+      expect(v.skipped).toBe(false);
+      expect(v.ok).toBe(false);
+    }
+  });
+});
+
+describe('the same sentence is judged the same wherever it was typed', () => {
+  // THE SECOND AXIS OF THE CURLY-QUOTE PROBLEM, and the more dangerous one.
+  // macOS emits decomposed text, where `ó` is `o` + U+0301. That silences BOTH
+  // halves of the Spanish test at once: the accent class lists only precomposed
+  // codepoints, and `judgeLanguage` treats a combining mark as a word boundary,
+  // so `póliza` shreds into `po` + `liza` and matches no root. A subject that
+  // reads as Spanish to a human passed as English.
+  it('judges decomposed text exactly like its precomposed twin', () => {
+    for (const subject of [
+      'J3: revisión periódica del régimen fiscal',
+      'I24: creación automática según el catálogo jerárquico',
+      'X1c: la base admitía doce rubros, el código conocía once',
+    ]) {
+      expect(subject.normalize('NFD')).not.toBe(subject); // the input really is different bytes
+      expect(judgeSubject(subject.normalize('NFD'))).toEqual(judgeSubject(subject));
+      expect(judgeSubject(subject.normalize('NFD')).ok).toBe(false);
+    }
+  });
+
+  // English `no` used to count as a Spanish marker, so the house's own terse
+  // shape was rejected as Spanish prose — with a message its author could not
+  // act on, because there was no Spanish in it. The word now cancels instead of
+  // accruing, and a Spanish sentence carrying `no` is still caught by the rest.
+  it('does not read an emphatic English "no, no, no" as Spanish', () => {
+    expect(judgeSubject('W1: pure — no git, no clock, no environment').ok).toBe(true);
+    expect(judgeSubject('W3: no retry, no backoff, no timeout in the network client').ok).toBe(true);
+    expect(judgeSubject('El saldo no cuadra y la balanza no lo dice').reason).toBe('spanish-prose');
   });
 });
 

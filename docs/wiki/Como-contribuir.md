@@ -34,14 +34,22 @@ puede tocar el dinero de alguien sin romperlo.
 
 ## Las puertas de CI, en el orden en que fallan más barato
 
-Seis trabajos, todos obligatorios, en
-[`.github/workflows/ci.yml`](https://github.com/sedecim-com/Accounting/blob/main/.github/workflows/ci.yml).
-Un rojo se arregla; no se explica en un comentario.
+Siete trabajos en
+[`.github/workflows/ci.yml`](https://github.com/sedecim-com/Accounting/blob/main/.github/workflows/ci.yml)
+—más los de CodeQL y el triaje, que viven en workflows aparte—. Un rojo se
+arregla; no se explica en un comentario.
+
+**Que un trabajo exista no es que BLOQUEE.** Lo que impide fusionar es la lista
+de comprobaciones obligatorias del repositorio, que es un ajuste fuera del árbol
+y hoy nombra **dos**: `Tipos` y `Pruebas unitarias`. Los demás salen rojos en la
+página del PR y dejan pasar el botón. Se dice aquí porque esta página afirmaba
+lo contrario, y una puerta que se cree cerrada es peor que una abierta.
 
 | Trabajo | Qué corre | Qué atrapa |
 |---|---|---|
 | **Tipos** | `npm run typecheck` y `typecheck:tests` | Lo de siempre, y lo más barato |
 | **Lint** | `npm run lint` | ESLint 9 **con información de tipos** sobre `src/`, `tests/` y `scripts/` |
+| **Commit subjects** | `scripts/language/commit-subjects.ts` | Que el asunto de un commit nuevo —y el título del PR— nazca en inglés |
 | **Pruebas unitarias** | `npm test` y `npx vitest run --coverage` | La suite, más un trinquete de cobertura por archivo sobre el motor contable |
 | **Estado del plan** | `plan:status --exigir=…` y `catalogo-estado --check` | El **retroceso** de un paquete cerrado, y que el catálogo de comandos esté al día |
 | **Integración contra Postgres** | `npm run migrate` y `npm run test:integration` | Lo que sólo se ve contra una base real |

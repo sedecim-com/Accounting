@@ -1445,8 +1445,8 @@ export const CRITERIOS: Criterio[] = [
       // POR QUÉ NACE (I22, issue #165). El repositorio ordenaba lo CONTRARIO,
       // por escrito y en dos sitios: «En español» abría la sección de mensajes
       // de commit de CONTRIBUTING, y PROCESS decía «hasta que ese tramo entre,
-      // los commits siguen en español». Con esas dos frases en pie, 182 de los
-      // 285 asuntos sin fusión de `main` llevan acento y todos tenían razón.
+      // los commits siguen en español». Con esas dos frases en pie, 193 de los
+      // 295 asuntos sin fusión de `main` llevan acento y todos tenían razón.
       //
       // Es la misma lección que I1 una línea más arriba: cambiar la regla
       // escrita no es papeleo, es lo único que hace que lo nuevo deje de nacer
@@ -1493,7 +1493,12 @@ export const CRITERIOS: Criterio[] = [
       const scriptPath = 'scripts/language/commit-subjects.ts';
       if (!existe(scriptPath)) return falla('no hay lint de asunto: la regla escrita no tiene quien la haga cumplir');
       const lint = codigoDe(scriptPath);
-      if (!/from '\.\/extract\.js'/.test(lint) || !/judgeLanguage/.test(lint)) {
+      // IMPORTARLO NO ES USARLO. La primera versión se conformaba con ver el
+      // `import`, y un import que nadie llama es exactamente lo que queda
+      // cuando alguien sustituye el detector compartido por una regex propia y
+      // no limpia la cabecera: el criterio seguía verde sobre un archivo que ya
+      // no compartía población con el metro.
+      if (!/import \{ judgeLanguage \} from '\.\/extract\.js';/.test(lint) || !/judgeLanguage\(/.test(lint)) {
         return falla(
           'el lint de asunto dejó de consumir el detector compartido: se hizo su propia lista, y dos ' +
             'listas publican dos números'
@@ -1515,23 +1520,54 @@ export const CRITERIOS: Criterio[] = [
       const ci = crudoDe('.github/workflows/ci.yml');
       const job = sectionOf(ci, '  commit-subjects:', /^ {2}[a-z][a-z-]*:$/m);
       if (job === null) return falla('la CI no tiene job de asuntos de commit: el lint existe y nadie lo corre');
-      if (!job.includes(scriptPath)) {
-        return falla('el job de asuntos de commit ya no invoca al lint: queda un job verde que no juzga nada');
-      }
-      // LA CADENA COMPLETA, CON SU COMENTARIO, Y NO `fetch-depth: 0` A SECAS.
+
+      // EL JOB SE MIDE SIN SUS COMENTARIOS, y ésta es la lección del tramo.
       //
-      // Lo encontró el espejo: el propio job lleva un comentario que EXPLICA
-      // por qué la línea va marcada, y ese comentario CITA `fetch-depth: 0`.
-      // Con el ancla corta, el mutante que ponía la profundidad en 1 dejaba el
-      // criterio verde — porque seguía casando contra la prosa que habla de la
-      // línea en vez de contra la línea. Es la lección de las anclas que no
-      // acotan, cometida dentro de la explicación de por qué esta ancla acota.
-      if (!job.includes('fetch-depth: 0 # commit-subjects')) {
+      // El primer intento comprobaba `fetch-depth: 0` a secas, y el propio job
+      // lleva un comentario que EXPLICA por qué esa línea va marcada — citando
+      // `fetch-depth: 0`. El mutante ponía la profundidad en 1 y el criterio
+      // seguía verde, casando contra la prosa que habla de la línea en vez de
+      // contra la línea. Arreglar ESA aparición no arregla la clase: cualquier
+      // comentario nuevo que nombre el guion dejaría vivo al mutante que borra
+      // la invocación. Así que se quita el comentario, no se esquiva.
+      //
+      // `crudoDe` sigue siendo el lector —`codigoDe` sobre YAML se lleva 1 576
+      // caracteres del archivo— y el recorte es sólo de líneas que empiezan por
+      // `#`, que es lo que un comentario de YAML es.
+      const sinComentarios = job.replace(/^[ \t]*#.*$/gm, '');
+      const invocacion = `npx tsx ${scriptPath} --range "origin/$BASE_REF..$HEAD_SHA"`;
+      if (!sinComentarios.includes(invocacion)) {
+        return falla('el job de asuntos de commit ya no invoca al lint sobre el rango del PR: queda un job verde que no juzga nada');
+      }
+      if (!sinComentarios.includes('fetch-depth: 0')) {
         return falla('el job de asuntos de commit clona a profundidad 1: vería un commit y el rango ni se resuelve');
+      }
+      // LAS TRES FORMAS BARATAS DE APAGAR UN JOB SIN BORRARLO.
+      //
+      // El mutante que este criterio declara contra la invocación describe «el
+      // gesto de desactivar un momento», pero ese gesto casi nunca se escribe
+      // borrando el comando: se escribe con `|| true`, con `continue-on-error`
+      // o cambiando la condición. Las tres dejan el job en su sitio, con su
+      // nombre y su verde. Si el criterio no las nombra, el espejo vigila la
+      // única variante que nadie usa.
+      if (/\|\|\s*true/.test(sinComentarios) || /continue-on-error/.test(sinComentarios)) {
+        return falla('el job de asuntos de commit se traga su propio fallo (`|| true` o `continue-on-error`): corre, informa y no detiene nada');
+      }
+      if (!sinComentarios.includes("if: github.event_name == 'pull_request'")) {
+        return falla('el job de asuntos de commit perdió su condición: o no corre nunca, o corre sobre `main`, donde el rojo no se puede arreglar sin reescribir el registro');
+      }
+      // EL TÍTULO ES LA ÚNICA CADENA QUE EL SQUASH ESCRIBE EN `main`.
+      // Sin estas dos variables el lint no lo juzga —y desde la revisión, se
+      // niega a pasar—, así que borrar una línea de `env:` desarmaría la mitad
+      // del tramo con el job y el criterio los dos en verde.
+      for (const variable of ['PR_TITLE:', 'PR_CREATED_AT:']) {
+        if (!sinComentarios.includes(variable)) {
+          return falla(`el job de asuntos de commit dejó de pasar ${variable} al lint: el título del PR —lo que el squash escribe en main— deja de juzgarse`);
+        }
       }
       return ok(
         'la orden escrita dice inglés, el proceso la da por entregada, y el lint que la mide corre en la ' +
-          'CI con el historial a la vista'
+          'CI con el historial a la vista, sin tragarse su propio fallo'
       );
     },
     mutantes: [
@@ -1584,6 +1620,34 @@ export const CRITERIOS: Criterio[] = [
         porque:
           'el gesto de «desactivar un momento» un job rojo deja el job en su sitio, con su nombre y su ' +
           'verde, y sin nadie juzgando un solo asunto',
+      },
+      // LOS TRES ESPEJOS QUE FALTABAN, y que una revisión adversaria encontró
+      // vivos: el mutante de arriba describe «desactivar un momento», pero
+      // nadie desactiva un job borrando el comando. Se escribe así.
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: '--range "origin/$BASE_REF..$HEAD_SHA"',
+        a: '--range "origin/$BASE_REF..$HEAD_SHA" || true',
+        porque:
+          'el lint corre, imprime cada asunto que rechaza y sale 0: el job queda verde con sus fallos a ' +
+          'la vista en la bitácora, que es la forma más silenciosa de apagar una puerta',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: "    if: github.event_name == 'pull_request'",
+        a: '    if: false',
+        porque:
+          'el job no corre nunca más y reporta «skipped», que GitHub da por satisfecho: queda con su ' +
+          'nombre en la lista de comprobaciones y sin juzgar un solo asunto',
+      },
+      {
+        archivo: '.github/workflows/ci.yml',
+        de: 'PR_TITLE: ${{ github.event.pull_request.title }}',
+        a: 'PR_TITLE_UNUSED: ${{ github.event.pull_request.title }}',
+        porque:
+          'el título deja de juzgarse, y el título es la ÚNICA cadena que el squash escribe en `main` ' +
+          'cuando el PR trae más de un commit: los commits pasarían en inglés y el asunto que queda en ' +
+          'la historia podría estar en español',
       },
     ],
   },
@@ -7645,8 +7709,17 @@ export const CRITERIOS: Criterio[] = [
       if (!/historial-estado\.ts --check/.test(ci)) {
         return falla('la compuerta del historial no está en CI: sería una comprobación optativa');
       }
-      if (!/fetch-depth: 0/.test(ci)) {
-        return falla('el checkout dejó de pedir profundidad completa: el guardián no podría recorrer la historia');
+      // ACOTADO AL JOB DEL PLAN, que es donde corre esta compuerta.
+      //
+      // Hasta I22 este archivo tenía UN solo `fetch-depth: 0` y la pregunta
+      // «¿alguien pide profundidad completa?» respondía por el job correcto
+      // por accidente. I22 añade un segundo job que también la pide, y desde
+      // entonces borrar la del job del plan dejaba este criterio VERDE
+      // apoyándose en la del vecino. Un ancla que acierta porque sólo hay una
+      // aparición deja de acertar en cuanto hay dos.
+      const jobDelPlan = sectionOf(ci, '  plan:', /^ {2}[a-z][a-z-]*:$/m);
+      if (jobDelPlan === null || !/fetch-depth: 0/.test(jobDelPlan)) {
+        return falla('el checkout del job del plan dejó de pedir profundidad completa: el guardián no podría recorrer la historia');
       }
       if (!/HISTORIAL-GENERADO:INICIO/.test(crudoDe('docs/HISTORY.md'))) {
         return falla('el documento perdió los marcadores del censo: nadie podría regenerarlo ni compararlo');

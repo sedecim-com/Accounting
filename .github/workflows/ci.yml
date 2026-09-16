@@ -62,8 +62,8 @@ jobs:
   #
   # Juzga SÓLO lo que este PR trae, y de eso sólo lo posterior a la fecha de
   # corte que declara `scripts/language/commit-subjects.ts`. El historial no se
-  # reescribe: 182 de los 285 asuntos sin fusión de `main` están en español y
-  # ahí se quedan.
+  # reescribe: 193 de los 295 asuntos sin fusión de `main` llevan acento y ahí
+  # se quedan.
   #
   # NO CORRE SOBRE `push: main`. Allí los commits ya son registro, y un rojo
   # que nadie puede arreglar sin reescribirlos no es una puerta: es ruido que
