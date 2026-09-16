@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compare, tighten, writeBlock } from '../../scripts/language-status.js';
+import { compare, staleBlocks, tighten, writeBlock } from '../../scripts/language-status.js';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -239,6 +239,55 @@ describe('publicar el bloque en el rector y su gemela', () => {
       expect(failures[0]).toContain('marcadores');
       // Y no se escribe nada: una página sin sitio declarado se queda como está.
       expect(fs.readFileSync(p, 'utf8')).not.toContain('LANGUAGE-STATUS');
+    });
+  });
+
+  // THE CHECK SIDE OF THE SAME PROMISE. `staleBlocks` is what `--check` uses
+  // to refuse a page that does not publish what the tree measures.
+  it('a page that publishes exactly the expected block is not stale', () => {
+    withTempDocs([withMarkers, withMarkers], (ps) => {
+      const expected = `${OPEN}\nnuevo\n${CLOSE}`;
+      writeBlock(expected, ps);
+      expect(staleBlocks(expected, ps)).toEqual([]);
+    });
+  });
+
+  it('A BLOCK THAT WAS NEVER REGENERATED IS STALE — the case --check used to miss', () => {
+    // Measured before this existed: the rector's block lacked a whole lane and
+    // `--check` was green, because nothing compared the page with the tree.
+    withTempDocs([withMarkers], ([p]) => {
+      const stale = staleBlocks(`${OPEN}\nnuevo\n${CLOSE}`, [p]);
+      expect(stale).toHaveLength(1);
+      expect(stale[0]).toContain('no es el que el árbol mide hoy');
+    });
+  });
+
+  it('a one-character hand edit inside the block is stale, and only that page is named', () => {
+    withTempDocs([withMarkers, withMarkers], ([a, b]) => {
+      const expected = `${OPEN}\n| lane | 468 |\n${CLOSE}`;
+      writeBlock(expected, [a, b]);
+      fs.writeFileSync(b, fs.readFileSync(b, 'utf8').replace('468', '467'));
+      const stale = staleBlocks(expected, [a, b]);
+      expect(stale).toHaveLength(1);
+      expect(stale[0]).toContain(path.relative(process.cwd(), b).split(path.sep).pop());
+    });
+  });
+
+  it('text outside the markers does not make a page stale', () => {
+    withTempDocs([withMarkers], ([p]) => {
+      const expected = `${OPEN}\nnuevo\n${CLOSE}`;
+      writeBlock(expected, [p]);
+      fs.writeFileSync(p, `${fs.readFileSync(p, 'utf8')}\nun párrafo nuevo del rector\n`);
+      expect(staleBlocks(expected, [p])).toEqual([]);
+    });
+  });
+
+  it('a missing page or missing markers is reported as stale, not skipped', () => {
+    withTempDocs([null, '# sin recuadro\n'], ([missing, bare]) => {
+      const stale = staleBlocks(`${OPEN}\nx\n${CLOSE}`, [missing, bare]);
+      expect(stale).toHaveLength(2);
+      expect(stale[0]).toContain('no existe');
+      expect(stale[1]).toContain('marcadores');
     });
   });
 

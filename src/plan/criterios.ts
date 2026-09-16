@@ -10601,17 +10601,19 @@ export const CRITERIOS: Criterio[] = [
     mutantes: [
       {
         archivo: 'src/cli/pending-command.ts',
-        de: "    out.push(...wrapLines('   ', '   ', p.question));",
-        a: '    out.push(`   ${p.question}`);',
+        de: "    out.push(...wrapLines('   ', '   ', wording.question));",
+        a: '    out.push(`   ${wording.question}`);',
         porque:
           'prosa-sin-envolver: las 21 políticas del catálogo tienen impact de más de 72 caracteres (la más larga, 406) y el terminal las reflowa a columna cero, perdiendo la sangría que dice a qué clave pertenece cada cosa',
       },
     ],
     evaluar: () => {
       const cli = codigoDe('src/cli/pending-command.ts');
-      // Del CATÁLOGO, no de la fila sembrada: el texto congelado al
-      // sembrar caduca en cuanto alguien reescribe el catálogo.
-      if (!/getPolicySpec\(/.test(cli)) {
+      // The wording comes from the CATALOG through `policyWording` (I10 ·
+      // #152); the explanatory fields below still come from the spec. That
+      // the row's copy is never read is judged by
+      // `policy-wording-comes-from-the-catalog`, next to this criterion.
+      if (!/policyWording\(/.test(cli) || !/getPolicySpec\(/.test(cli)) {
         return falla('pending dejó de leer el catálogo: imprimiría el texto congelado al sembrar, que caduca sin avisar');
       }
       for (const campo of ['whyAsking', 'whatIDo', 'ifSkipped']) {
@@ -10632,14 +10634,114 @@ export const CRITERIOS: Criterio[] = [
       // tope y el mutante pasaba en verde. Arreglar el listado y no el
       // prompt de define es reparar la instancia: son la misma decisión
       // vista dos veces, y el prompt es el instante en que se toma.
-      if (!/wrapLines\('   ', '   ', p\.question\)/.test(cli)) {
+      if (!/wrapLines\('   ', '   ', wording\.question\)/.test(cli)) {
         return falla('el listado de pending dejó de envolver la pregunta: la prosa del catálogo saldría a columna cero, sin la sangría que dice a qué clave pertenece');
       }
-      if (!/for \(const l of wrapLines\('', '', p\.question\)\)/.test(cli)) {
+      if (!/for \(const l of wrapLines\('', '', wording\.question\)\)/.test(cli)) {
         return falla('el prompt de «pending define» dejó de envolver la pregunta: la mitad de la envoltura volvería a llegar a una sola de las dos pantallas');
       }
       const envueltos = (cli.match(/wrapLines\(/g) ?? []).length;
       return ok(`la capa explicativa vive en pending con su preview y ${envueltos - 1} campos envueltos en las dos pantallas`);
+    },
+  },
+  {
+    paquete: 'E1.3',
+    id: 'policy-wording-comes-from-the-catalog',
+    // I10 · issue #152, first commit. `seedPolicies` copies question, impact,
+    // options and default_rationale into every row with ON CONFLICT DO NOTHING,
+    // so those columns hold the catalog as it was on the tenant's seed day.
+    // Every screen that painted them showed a different panel depending on when
+    // the tenant was created, and no fix to the catalog text reached an
+    // existing tenant. The wording now goes through ONE seam,
+    // `policyWording` in policy-service.ts, and this criterion keeps it there.
+    //
+    // It reads the RAW source and skips comment lines itself instead of using
+    // `codigoDe`: `sinComentarios` fails on large files and on comments with
+    // backticks (docs/auditorias/I6.md, I7.md), and a criterion that counts
+    // reads "in code" would inherit that blindness.
+    enunciado:
+      'El texto del panel de políticas sale del catálogo: ninguna pantalla lee la copia sembrada en la fila, y la costura es su único lector',
+    mutantes: [
+      {
+        archivo: 'src/cli/pending-command.ts',
+        de: "      out.push(...field('impact', wording.impact, c));",
+        a: "      out.push(...field('impact', p.impact, c));",
+        porque:
+          'texto-del-dia-de-siembra: `pending -v` volvería a pintar el impacto copiado al sembrar, que para un inquilino antiguo es el catálogo de aquel día y no el de hoy',
+      },
+      {
+        archivo: 'src/ai/tools/policy-tools.ts',
+        de: '      question: wording.question,',
+        a: '      question: fila.question,',
+        porque:
+          'el-agente-ve-otro-panel: la herramienta del agente entregaría la pregunta sembrada mientras `pending` enseña la del catálogo, y los dos contestarían sobre textos distintos',
+      },
+      {
+        archivo: 'src/services/policy/policy-service.ts',
+        de: '      question: policyWording(row).question,',
+        a: '      question: row.question,',
+        porque:
+          'lectura-fuera-de-la-costura: getPolicy leería la copia de la fila por su cuenta y la costura dejaría de ser el único sitio que decide de dónde sale el texto',
+      },
+      {
+        archivo: 'src/ai/memory-service.ts',
+        de: '    const valores = policyOptions(row.policy_key, seeded)',
+        a: '    const valores = (seeded ?? [])',
+        porque:
+          'vocabulario-del-dia-de-siembra: el mismo precedente seria contradicción para un inquilino sembrado después de que `ingest_auto_post` ganara `shadow`, y silencio para uno sembrado antes',
+      },
+    ],
+    evaluar: () => {
+      const codeLines = (rel: string): string[] =>
+        crudoDe(rel)
+          .split('\n')
+          .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+      const seededRead = /\b(p|row|fila)\.(question|impact|options|default_rationale)\b/;
+
+      const screens = [
+        'src/cli/pending-command.ts',
+        'src/cli/init/s4-policies.ts',
+        'src/ai/tools/policy-tools.ts',
+      ];
+      for (const rel of screens) {
+        if (!existe(rel)) return noEvaluable(`${rel} no existe: no hay pantalla que juzgar`);
+        const lines = codeLines(rel);
+        if (!lines.some((l) => /policyWording\(/.test(l))) {
+          return falla(`${rel} dejó de pedir el texto a policyWording: pinta desde otro sitio que la costura no controla`);
+        }
+        const reads = lines.filter((l) => seededRead.test(l));
+        if (reads.length > 0) {
+          return falla(
+            `${rel} lee la copia sembrada en la fila (${reads.length} renglón(es), p. ej. «${reads[0].trim()}»): ` +
+              'para un inquilino antiguo eso es el catálogo del día de su siembra'
+          );
+        }
+      }
+
+      // The seam is the ONLY reader of the seeded columns in policy-service.
+      const service = crudoDe('src/services/policy/policy-service.ts');
+      const start = service.indexOf('function seedSnapshotWording(');
+      const end = start === -1 ? -1 : service.indexOf('\n}\n', start);
+      if (start === -1 || end === -1) {
+        return falla('policy-service.ts perdió seedSnapshotWording: ya no hay un único lector nombrado de la copia sembrada');
+      }
+      const inside = service.slice(start, end);
+      const outside = service.slice(0, start) + service.slice(end);
+      const rowRead = /\brow\??\.(question|impact|options|default_rationale)\b/;
+      if (!rowRead.test(inside)) {
+        return falla('seedSnapshotWording ya no lee la fila: una clave retirada se quedaría sin texto');
+      }
+      const strays = outside
+        .split('\n')
+        .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l) && rowRead.test(l));
+      if (strays.length > 0) {
+        return falla(`policy-service.ts lee la copia sembrada fuera de la costura: «${strays[0].trim()}»`);
+      }
+
+      if (!/policyOptions\(/.test(codeLines('src/ai/memory-service.ts').join('\n'))) {
+        return falla('memory-service volvió a tomar el vocabulario de opciones de la fila: la detección de contradicciones depende otra vez del día de siembra');
+      }
+      return ok(`las ${screens.length} pantallas del panel y la memoria del agente piden el texto a la costura, que es su único lector`);
     },
   },
   {
