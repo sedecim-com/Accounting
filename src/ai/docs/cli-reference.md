@@ -13,7 +13,7 @@ Notes for the agent:
   config file (./mnemosine.config.json before ~/.mnemosine/config.json).
 - It is listed only on the root help below, but the long spelling
   `--tenant <uuid>` is taken before AND after any subcommand. The short
-  spelling is `-T` at the root and `-t` on the 204 of 316 subcommands
+  spelling is `-T` at the root and `-t` on the 204 of 318 subcommands
   that declare it; the rest answer `-t` with "unknown option", so prefer the
   long spelling and you never have to check.
 - A tenant that is not a UUID exits 2, whichever of the three sources
@@ -105,6 +105,7 @@ Commands:
   webhooks|ganchos                       Inbound webhook tokens: dedicated credentials that wake a restricted reader agent
   init|configurar [options]              Guided setup: infrastructure, entity, users, AI provider, and your books
   close|cierre [options]                 Month-end close: checks what is missing and closes the period
+  web                                    The browser board: a read-only gateway in front of the API
   completion|completado [shell]          Print a shell completion script (bash, zsh) on stdout
   help [command]                         display help for command
 ```
@@ -8633,6 +8634,51 @@ Examples:
   mnemosine close --period "July 2026" --reason "Cierre mensual de julio"
   # Hard close posts the closing entries and carries balances forward: see it first.
   mnemosine close --period "December 2026" --hard --reason "Cierre anual 2026" --dry-run
+```
+
+## `mnemosine web`
+
+```
+Usage: mnemosine web [options] [command]
+
+The browser board: a read-only gateway in front of the API
+
+Options:
+  -h, --help               display help for command
+
+Commands:
+  start|iniciar [options]  Starts the web gateway, which holds the browser
+                           session and relays reads to /v1; runs until Ctrl+C
+                           (production runs node dist/gateway/main.js instead)
+  help [command]           display help for command
+```
+
+### `mnemosine web start` (alias: iniciar)
+
+```
+Usage: mnemosine web start|iniciar [options]
+
+Starts the web gateway, which holds the browser session and relays reads to /v1;
+runs until Ctrl+C (production runs node dist/gateway/main.js instead)
+
+Options:
+  --port <n>                               Port to listen on (default: GATEWAY_PORT, else 8080)
+  --host <addr>                            Address to listen on (default: GATEWAY_HOST, else 127.0.0.1)
+  --api-url <url>                          Origin of the API it relays to (default: GATEWAY_API_URL)
+  --public-origin <url>                    Origin the browser opens, which the gateway answers under (default: GATEWAY_PUBLIC_ORIGIN)
+  --format <table|json|ndjson|csv|tsv|md>  output format (default: "table")
+  --json                                   shorthand for --format json
+  -o, --output <path>                      write to a file instead of stdout
+  --fields [names]                         comma-separated columns; with no value, lists the available ones
+  -q, --quiet                              identifiers only, one per line, for piping
+  -h, --help                               display help for command
+
+Examples:
+  # Serve the board with the GATEWAY_* and AUTH_OIDC_* settings of this environment.
+  mnemosine web start
+  # Another port, relaying to an API that runs on this machine. The browser
+  # has to reach the gateway at its public origin, so that moves too.
+  mnemosine web start --port 8081 --public-origin http://localhost:8081 --api-url http://127.0.0.1:3000
 ```
 
 ## `mnemosine completion` (alias: completado)

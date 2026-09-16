@@ -82,6 +82,23 @@ afterEach(() => {
   process.env = { ...ENV };
 });
 
+// The first runDoctor of the file paid 5.1 s and every later one paid 2 ms.
+// None of it is the doctor: `checkConsistenciaCli` imports the CLI lazily
+// (doctor-service.ts:420) and that cold import transforms the whole command
+// tree — every family, every service it pulls — inside vitest. The cost is
+// one-time and grows with the surface, so charging it to whichever test runs
+// first means the file breaks for the commit that adds the command that
+// crosses 5 s. It already stood at 4.63 s on `main` before this branch added
+// `web-command.ts` and the gateway behind it.
+//
+// Paying it once here keeps every test on the default 5 s budget and measures
+// what each one is actually for. Same shape as the beforeAll of «capacidad
+// huérfana» below, and the same reason.
+beforeAll(async () => {
+  await import('../../src/cli/mnemosine.js');
+  await import('../../src/cli/kernel/audit.js');
+}, 60_000);
+
 function find(report: Awaited<ReturnType<typeof runDoctor>>, name: string) {
   const c = report.checks.find((x) => x.name === name);
   if (!c) throw new Error(`missing check "${name}"`);

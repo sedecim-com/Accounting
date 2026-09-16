@@ -150,7 +150,7 @@ exactly that, and every catalog use of `pull`/`push` was a one-way fetch or send
 
 ## 2. NOUN REGISTRY
 
-230 canonical nouns. Singular, lowercase, hyphenated when multi-word, English. Spanish aliases are
+232 canonical nouns. Singular, lowercase, hyphenated when multi-word, English. Spanish aliases are
 singular nouns too. **One owner file per noun**; every other file references it.
 
 `--status` values are the noun's published state machine (R7), taken from the shipping schema where
@@ -300,7 +300,7 @@ and `disclosure tie-out` all become `tie-out check --scope <subledger>`·`amarre
 `reconciliation`·`conciliacion` (**was `recon` — abbreviation banned by R2/R5**) `open \| in_progress \| balanced \| certified \| reopened` ·
 `data-retention`·`conservacion` (**was `retention`·`retencion`, which now belongs to AP's `withholding`**).
 
-### 2.12 platform.md (38)
+### 2.12 platform.md (40)
 
 `entity`·`entidad` · `tenant`·`despacho` · `user`·`usuario` · `role`·`rol` · `group`·`grupo` ·
 `identity`·`identidad` · `token`·`token` · `approval`·`aprobacion` (**singular; `approvals rule set` becomes `approval rule set`**) ·
@@ -316,7 +316,8 @@ and `disclosure tie-out` all become `tie-out check --scope <subledger>`·`amarre
 `backup`·`respaldo` (**platform owns it; close-controls' `backup`, `archive` and `restore` nouns die**) ·
 `inbox`·`bandeja` (**was `buzon`, now free of the fiscal mailbox**) · `outbox`·`envio` (**singular**) ·
 `telemetry`·`telemetria` · `metric`·`metrica` (**singular**) · `db`·`base-datos` · `daemon`·`demonio` ·
-`support`·`soporte` · `usage`·`uso` · `agent`·`agente` (**NEW — the accountability surface the AI-safety lens found missing**).
+`support`·`soporte` · `usage`·`uso` · `agent`·`agente` (**NEW — the accountability surface the AI-safety lens found missing**) ·
+`web`·(no alias) (**W0 — the browser board's gateway; `tablero` stays with report.md's `dashboard`, precedent `chat`/`sat`/`doctor`**).
 
 The nouns `api` and `onboarding` are **deleted**: `api` is the catch-all R10 forbids and defeats the
 point of an audited surface; `onboarding`'s rows move under the root command `onboard`.

@@ -99,6 +99,7 @@ import { detectSetupState, type SetupState } from './first-run.js';
 import { renderBanner, type BannerInfo } from './banner.js';
 import { registerCloseCommand } from './close-command.js';
 import { registerCompletionCommand } from './completion-command.js';
+import { registerWebCommand } from './web-command.js';
 import { registerCompactCommand } from './compact-command.js';
 import { registerApprovalsCommand } from './approvals-command.js';
 import { registerUsageCommand } from './usage-command.js';
@@ -953,6 +954,25 @@ optionByKey(program, '--locale <tag>', 'cli.flag.locale', {
 // SSH tunnel): `lang` reads/writes config JSON and nothing else.
 const NO_DB_COMMANDS = new Set(['lang', 'idioma']);
 
+// The same exemption, keyed by the full command path instead of the leaf name.
+// `web start` runs the web gateway, which never queries the database, so a
+// missing DATABASE_URL or a dead tunnel must not stop it. A bare 'start' in
+// NO_DB_COMMANDS would silently exempt every other `<noun> start` too (the
+// catalog already has `daemon start`), so leaves with a common verb go here.
+const NO_DB_COMMAND_PATHS = new Set(['web start']);
+
+/** The canonical path of a command below the root: `web start`, `bank account list`. */
+function commandPathOf(cmd: Command): string {
+  const names: string[] = [];
+  for (let node: Command | null = cmd; node?.parent; node = node.parent) names.unshift(node.name());
+  return names.join(' ');
+}
+
+/** True when the preAction hook must not open the database for this command. */
+export function skipsDatabase(actionCommand: Command): boolean {
+  return NO_DB_COMMANDS.has(actionCommand.name()) || NO_DB_COMMAND_PATHS.has(commandPathOf(actionCommand));
+}
+
 /**
  * Hojas a las que NO se les comprueba que el inquilino exista.
  *
@@ -1093,7 +1113,7 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
     );
   }
 
-  if (NO_DB_COMMANDS.has(actionCommand.name())) return;
+  if (skipsDatabase(actionCommand)) return;
   // The tunnel must be up BEFORE the first query; since the pool is lazy,
   // bringing it up here is enough.
   try {
@@ -3398,6 +3418,9 @@ registerSkillsCommand(program, { palette: c, shutdown, reportError });
 registerWebhooksCommand(program, { palette: c, shutdown, reportError });
 registerInitCommand(program, { palette: c, shutdown, reportError });
 registerCloseCommand(program, { palette: c, shutdown, reportError });
+// W0 · the web gateway's operator entry. It loads src/gateway only when the
+// leaf runs, and skips the database through NO_DB_COMMAND_PATHS.
+registerWebCommand(program, { palette: c, shutdown, reportError });
 // Va el ÚLTIMO a propósito: su guion se genera del árbol vivo en tiempo de
 // acción, así que el orden de registro no lo condiciona, pero registrarlo al
 // final deja escrito que completa todo lo de arriba y no un árbol a medias.
