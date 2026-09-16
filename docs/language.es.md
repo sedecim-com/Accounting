@@ -1,7 +1,7 @@
 # El idioma del código y el de la interfaz
 
 <<<<<<< HEAD
-> Gemela en español de [`language.md`](language.md) · source_sha: 83d81a33ddf4e1c6019de4750c02eb19eaaa9ee9
+> Gemela en español de [`language.md`](language.md) · source_sha: 135fe57b5407faa3f086cec9bf6b3a5ed08eb8f9
 =======
 > Gemela en español de [`language.md`](language.md) · source_sha: f8eab065311ab901292e307464d41337ebf3c5bc
 >>>>>>> origin/main
@@ -99,13 +99,8 @@ manual act and its trace is the diff.
 
 | Lane | What it counts | Today | Towards |
 |---|---|---:|---:|
-<<<<<<< HEAD
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10607 (baseline 10615) | 0 |
-| `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5776 (baseline 5777) | 0 |
-=======
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10591 (baseline 10615) | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10593 (baseline 10615) | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5775 (baseline 5777) | 0 |
->>>>>>> origin/main
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |
 | `spanish-filenames-tests` | TypeScript files with Spanish names under tests/ | 156 | 0 |
@@ -120,11 +115,7 @@ manual act and its trace is the diff.
 | `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 343 (baseline 344) | 0 |
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
-<<<<<<< HEAD
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28392 | 0 |
-=======
-| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28371 | 0 |
->>>>>>> origin/main
+| `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28384 | 0 |
 
 <!-- LANGUAGE-STATUS:END -->
 
