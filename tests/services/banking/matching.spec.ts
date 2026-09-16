@@ -195,11 +195,11 @@ describe('regla 3 · descripción difusa', () => {
     // ensancharse sin que nada se moviera.
     expect(evaluarReglas(mov(), [candidato({ amount: '1050.0000' })])!.rule).toBe('fuzzy_description');
 
-    const fuera = evaluarReglas(mov(), [candidato({ amount: '1051.0000' })])!;
-    expect(fuera.rule, 'un peso fuera de la banda y la regla 3 sigue contestando').toBe(
+    const outsideBand = evaluarReglas(mov(), [candidato({ amount: '1051.0000' })])!;
+    expect(outsideBand.rule, 'un peso fuera de la banda y la regla 3 sigue contestando').toBe(
       'puntaje_ponderado'
     );
-    expect(fuera.confidence, 'y lo hace con una confianza que dice que no está segura').toBe(0.77);
+    expect(outsideBand.confidence, 'y lo hace con una confianza que dice que no está segura').toBe(0.77);
   });
 
   it('con el importe EXACTO sí aplica, aunque la fecha esté lejos', () => {

@@ -2603,7 +2603,7 @@ export const CRITERIOS: Criterio[] = [
         return falla('doctor perdió el chequeo de integridad del mayor');
       }
       const i = d.indexOf('function checkLedgerIntegrity');
-      const cuerpo = d.slice(i, i + 3500);
+      const body = d.slice(i, i + 3500);
       // «POR AMBOS LADOS» SE COMPRUEBA POR AMBOS LADOS (S4, mutante 4/6).
       //
       // Esto era un `/status = 'posted'/` suelto sobre el cuerpo entero, y el
@@ -2615,24 +2615,24 @@ export const CRITERIOS: Criterio[] = [
       // Perderlo en la primera mete un asiento en BORRADOR en la Σ de líneas, y
       // `doctor` acusaría una deriva del mayor que no existe. En la segunda, al
       // revés: dejaría de contar los posteados sin rastro de auditoría.
-      if (!/FULL OUTER JOIN/i.test(cuerpo)) {
+      if (!/FULL OUTER JOIN/i.test(body)) {
         return falla('el chequeo no compara account_balances contra Σ de líneas por deriva');
       }
-      const DERIVA = /FROM journal_entry_lines jel[\s\S]{0,200}?status\s*=\s*'posted'[\s\S]{0,120}?GROUP BY/;
-      if (!DERIVA.test(cuerpo)) {
+      const FROM_LINES = /FROM journal_entry_lines jel[\s\S]{0,200}?status\s*=\s*'posted'[\s\S]{0,120}?GROUP BY/;
+      if (!FROM_LINES.test(body)) {
         return falla(
           'la Σ de líneas dejó de filtrar por posteadas: un asiento en BORRADOR entraría en el total ' +
             'y doctor acusaría una deriva del mayor que no existe'
         );
       }
-      const RASTRO = /FROM journal_entries je[\s\S]{0,80}?status\s*=\s*'posted'[\s\S]{0,300}?action\s*=\s*'post'/;
-      if (!RASTRO.test(cuerpo)) {
+      const FROM_ENTRY_TRAIL = /FROM journal_entries je[\s\S]{0,80}?status\s*=\s*'posted'[\s\S]{0,300}?action\s*=\s*'post'/;
+      if (!FROM_ENTRY_TRAIL.test(body)) {
         return falla(
           'el conteo de asientos sin rastro dejó de acotarse a los posteados: contaría borradores, ' +
             'que no tienen por qué llevar renglón de auditoría de posteo'
         );
       }
-      if (!/level:\s*'fail'/.test(cuerpo)) {
+      if (!/level:\s*'fail'/.test(body)) {
         return falla('la deriva del mayor quedó degradada a warn: un número falso con aspecto de número');
       }
       return /checks\.push\(await checkLedgerIntegrity\(\)\)/.test(d)
@@ -8423,27 +8423,27 @@ export const CRITERIOS: Criterio[] = [
       const motor = codigoDe('src/services/banking/matching.ts');
       const cli = codigoDe('src/services/banking/match-service.ts');
       const enMotor = /const threeDays = (\d+) \* 24 \* 60 \* 60 \* 1000;/.exec(motor);
-      const enCli = /const VENTANA_DIAS = (\d+);/.exec(cli);
+      const enCli = /const MATCH_WINDOW_DAYS = (\d+);/.exec(cli);
       if (enMotor === null) {
         return falla('la regla 2 del motor dejó de declarar su ventana como un número legible');
       }
-      if (enCli === null) return falla('match-service dejó de declarar VENTANA_DIAS');
-      const dias = Number(enMotor[1]);
-      const diasCli = Number(enCli[1]);
-      if (dias > 3) {
+      if (enCli === null) return falla('match-service dejó de declarar su ventana como un número legible');
+      const engineDays = Number(enMotor[1]);
+      const cliDays = Number(enCli[1]);
+      if (engineDays > 3) {
         return falla(
-          `la ventana de la regla 2 subió a ${dias} días: a esa distancia el importe exacto queda ` +
+          `la ventana de la regla 2 subió a ${engineDays} días: a esa distancia el importe exacto queda ` +
             'como ÚNICA señal, y esa regla se aplica EN FIRME. Dos pagos iguales del mismo ' +
             'proveedor en el mismo mes dejan de distinguirse'
         );
       }
-      if (dias !== diasCli) {
+      if (engineDays !== cliDays) {
         return falla(
-          `el motor mide ${dias} día(s) y match-service ${diasCli}: la CLI informaría «dentro de ` +
+          `el motor mide ${engineDays} día(s) y match-service ${cliDays}: la CLI informaría «dentro de ` +
             'ventana» con una vara y el REST aplicaría con otra'
         );
       }
-      return ok(`la ventana es de ${dias} día(s) y las dos superficies la comparten`);
+      return ok(`la ventana es de ${engineDays} día(s) y las dos superficies la comparten`);
     },
     mutantes: [
       {
@@ -8456,8 +8456,8 @@ export const CRITERIOS: Criterio[] = [
       },
       {
         archivo: 'src/services/banking/match-service.ts',
-        de: 'const VENTANA_DIAS = 3;',
-        a: 'const VENTANA_DIAS = 7;',
+        de: 'const MATCH_WINDOW_DAYS = 3;',
+        a: 'const MATCH_WINDOW_DAYS = 7;',
         porque:
           'las dos superficies dejan de medir lo mismo: la CLI diría «dentro de ventana» de un ' +
           'candidato que el motor no considera cercano',
@@ -8490,9 +8490,9 @@ export const CRITERIOS: Criterio[] = [
       'La política de las tablas hijas cuelga EXACTAMENTE del padre visible, sin nada que la puentee',
     evaluar: () => {
       const pol = codigoDe('src/database/rls-policies.sql');
-      const RE_HIJA =
+      const CHILD_PREDICATE =
         /USING '\s*\|\|\s*'\(EXISTS \(SELECT 1 FROM public\.%I p WHERE p\.id = %I\.%I\)\)'/;
-      if (!RE_HIJA.test(pol)) {
+      if (!CHILD_PREDICATE.test(pol)) {
         return falla(
           'el predicado de las hijas dejó de colgar EXACTAMENTE del padre: cualquier cosa entre el ' +
             'USING y el EXISTS —un `true OR`, un OR al final— abre las hijas a todos los inquilinos ' +
@@ -8615,13 +8615,13 @@ export const CRITERIOS: Criterio[] = [
       const manual = crudoDe('src/ai/docs/mexico-cfdi.md');
       const taxonomia = codigoDe('src/services/xml-ingestion/cfdi-taxonomy.ts');
 
-      for (const caso of ['ingreso_recibido_pue', 'ingreso_recibido_ppd']) {
-        const i = taxonomia.indexOf(`id: '${caso}'`);
-        if (i === -1) return falla(`el clasificador perdió el caso ${caso}`);
+      for (const kind of ['ingreso_recibido_pue', 'ingreso_recibido_ppd']) {
+        const i = taxonomia.indexOf(`id: '${kind}'`);
+        if (i === -1) return falla(`el clasificador perdió el caso ${kind}`);
         const cuerpo = taxonomia.slice(i, i + 2200);
         if (!/role: 'cxp', side: 'credit'/.test(cuerpo)) {
           return falla(
-            `${caso} dejó de abonar a 'cxp'. Si abona al banco, la salida de efectivo se cuenta dos ` +
+            `${kind} dejó de abonar a 'cxp'. Si abona al banco, la salida de efectivo se cuenta dos ` +
               'veces: una aquí y otra al conciliar el extracto'
           );
         }
