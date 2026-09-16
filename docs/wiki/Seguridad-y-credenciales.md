@@ -366,9 +366,40 @@ de entidad devuelve 404 y nunca 403.
 secreto de la instancia) y los de un proveedor OIDC (RS256/ES256 contra su JWKS).
 La decisión sale del algoritmo del encabezado, no de la configuración, para que el
 camino local y el del IdP coexistan. El primer inicio de sesión de una persona
-nueva crea su usuario **con cero entidades accesibles**, ligado por
-proveedor+sujeto y nunca por correo: verá «sin acceso» hasta que un administrador
-se las conceda, y eso es diseño, no falla.
+nueva crea su usuario **con cero entidades accesibles**: verá «sin acceso» hasta
+que un administrador se las conceda, y eso es diseño, no falla.
+
+**Corrección, 2026-09-16 (W0):** esta página decía «ligado por proveedor+sujeto y
+nunca por correo». El código no hace eso: `provisioning.ts` busca primero por
+`(proveedor, sujeto)` y, si no encuentra, **por inquilino y correo**, sin mirar
+`email_verified`. Un IdP que deja elegir el correo sin verificarlo puede así
+tomar la identidad de un usuario creado a mano. Existía antes del tablero y el
+gateway no lo ensancha —la API acepta el mismo token del CLI—, pero cambiarlo
+afecta a todos los clientes, así que va como pendiente con su propia decisión:
+vincular sólo con correo verificado (el precedente de `sujeto-activo`) o no
+vincular por correo nunca, como esta página prometía.
+
+## Sesión de navegador (W0)
+
+El tablero no guarda tokens en el navegador. El gateway (`src/gateway/`) cambia
+el código de autorización por tokens **en su proceso**, los guarda en memoria y
+le entrega al navegador sólo una cookie `__Host-` opaca: `HttpOnly`, `Secure`,
+`SameSite=Strict`, sin `Domain`. El token nunca toca JavaScript del cliente.
+
+- **Lo que el navegador puede pedir**: GET y HEAD bajo `/v1`, y nada más; todo
+  otro método sale 405 antes de mirar la sesión.
+- **Contra CSRF**: cabecera propia obligatoria, `Sec-Fetch-Site: same-origin`
+  cuando viene, y `Origin` exacto en lo que escribe (que hoy es sólo la salida).
+- **Contra rebinding**: cualquier `Host` distinto del origen público sale 421;
+  se exceptúa `GET /healthz`, para que una sonda pueda llamar a la IP del pod.
+- **Contra XSS**: CSP sin `unsafe-*`, con `require-trusted-types-for 'script'`,
+  y una vista que sólo escribe texto.
+- **Límites**: sesión inactiva 30 min, vida máxima 8 h, y un tope por cuenta
+  además del global. Las sesiones viven en memoria: un reinicio saca a todos, y
+  el gateway corre en **una** instancia. No hay secreto de sesión que configurar.
+- **Lo que el gateway no es**: no firma tokens, no habla con la base y no agrega
+  nada. Seis criterios ejecutables lo sostienen (`E2.1`), y el registro de la
+  auditoría está en `docs/auditorias/W0.md`.
 
 **Credenciales del CLI.** Llavero del sistema primero; archivo con permisos 0600
 como último recurso — el patrón de `gh`

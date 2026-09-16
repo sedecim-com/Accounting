@@ -2401,6 +2401,8 @@ export const CRITERIOS: Criterio[] = [
         G0: 'docs/auditorias/G0.md',
         G4a: 'docs/auditorias/G4a.md',
         G4b: 'docs/auditorias/G4b.md',
+        // W0–W1, el tablero como gateway: su registro nace con el tramo.
+        W0: 'docs/auditorias/W0.md',
       };
 
       if (!existe('docs/auditorias/2026-08-31-integral/README.md')) {
@@ -2410,7 +2412,7 @@ export const CRITERIOS: Criterio[] = [
       const catalogo = crudoDe('docs/cli-command-catalog.md');
       const cerrados = [
         ...new Set(
-          [...catalogo.matchAll(/hecha en (F\d+[a-z]?|A\d+(?:-A\d+)?|R\d+)\b/g)].map((m) => m[1])
+          [...catalogo.matchAll(/hecha en (F\d+[a-z]?|A\d+(?:-A\d+)?|R\d+|W\d+)\b/g)].map((m) => m[1])
         ),
       ].sort();
 
@@ -2438,6 +2440,14 @@ export const CRITERIOS: Criterio[] = [
         de: '# Auditoría adversarial de F03',
         a: null,
         porque: 'el registro de un flujo cerrado desaparece: la compuerta debe acusarlo, que es lo único que vino a hacer',
+      },
+      {
+        archivo: 'docs/cli-command-catalog.md',
+        de: 'hecha en W0**',
+        a: 'hecha en W9**',
+        porque:
+          'una celda reclama un tramo de la serie W que no tiene registro: la compuerta tiene que acusarlo, ' +
+          'igual que con los flujos F, A y R',
       },
       {
         archivo: 'docs/cli-command-catalog.md',
