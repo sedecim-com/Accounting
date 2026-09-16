@@ -29,8 +29,11 @@ interface JournalEntryLineInput {
   debit_amount: string | null;
   credit_amount: string | null;
   description: string;
-  cost_center_id?: string;
-  project_id?: string;
+  // `string | null` como sus vecinos de abajo, y no `string | undefined`: un
+  // llamador que reemplaza líneas necesita poder decir «esta no lleva centro
+  // de costo» de forma explícita, y no sólo callándose (X1a).
+  cost_center_id?: string | null;
+  project_id?: string | null;
   // R4 · NIF B-15: el origen en moneda extranjera. Los cuatro viajan JUNTOS
   // (CHECK de la 001) y la conversión se VERIFICA contra ellos antes del
   // INSERT — ver verificarOrigenFx. Una línea en la moneda funcional no los
