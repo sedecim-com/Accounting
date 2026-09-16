@@ -72,6 +72,31 @@ export const AUDIT_ACTIONS = [
 export const FISCAL_PERIOD_STATUSES = ['future', 'open', 'soft_close', 'hard_close', 'locked'] as const;
 export const CFDI_STATUSES = ['pending', 'stamped', 'cancelled', 'failed'] as const;
 
+// ── El catálogo de cuentas (001, 078) ──
+//
+// LAS TRES COLUMNAS CON CHECK DE `accounts` NO ESTABAN INSCRITAS AQUÍ, y por
+// eso su divergencia vivió sin que nada se pusiera rojo: la migración 078
+// añadió `'ori'` al CHECK de `fs_category` —el rubro de Otros Resultados
+// Integrales que la NIF B-3 exige— y el enum de TypeScript se quedó con los
+// once de la 001. Es exactamente la clase de separación que este archivo
+// existe para impedir, y ocurrió porque nadie había enrolado la tabla.
+//
+// `fs_category` es además NULLable a propósito: la importación del SAT la deja
+// vacía porque el catálogo del contribuyente no la trae. El CHECK pasa con
+// NULL, así que inscribir la lista no prohíbe el hueco; sólo cierra el
+// vocabulario cuando sí hay valor.
+export const ACCOUNT_TYPES = [
+  'asset', 'liability', 'equity', 'revenue', 'expense',
+  'contra_asset', 'contra_liability', 'contra_equity',
+] as const;
+export const NORMAL_BALANCES = ['debit', 'credit'] as const;
+export const ACCOUNT_FS_CATEGORIES = [
+  'current_assets', 'non_current_assets',
+  'current_liabilities', 'long_term_liabilities',
+  'equity', 'ori',
+  'revenue', 'cogs', 'operating_expenses', 'other_income', 'other_expenses', 'tax',
+] as const;
+
 // ── Cobros y pagos ──
 
 export const VENDOR_PAYMENT_STATUSES = [
@@ -203,4 +228,7 @@ export const VOCABULARIOS: readonly Vocabulario[] = [
   v('fixed_assets', 'tax_depreciation_method', DEPRECIATION_METHODS),
   v('fixed_assets', 'status', ASSET_STATUSES),
   v('asset_categories', 'default_depreciation_method', DEPRECIATION_METHODS),
+  v('accounts', 'account_type', ACCOUNT_TYPES),
+  v('accounts', 'normal_balance', NORMAL_BALANCES),
+  v('accounts', 'fs_category', ACCOUNT_FS_CATEGORIES),
 ];

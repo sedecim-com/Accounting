@@ -10,6 +10,7 @@ import {
   updateAccount,
   deactivateAccount,
   ACCOUNT_TYPES,
+  ACCOUNT_FS_CATEGORIES,
   NORMAL_BALANCES,
   UPDATABLE_FIELDS,
 } from '../../../services/accounting/account-service.js';
@@ -26,6 +27,11 @@ import { declararRiesgoRuta } from '../risk.js';
 const router = Router();
 
 const accountTypeEnum = z.enum(ACCOUNT_TYPES);
+// `fs_category` viajaba como cadena libre mientras su vecino de arriba ya se
+// validaba contra su lista: la API admitía un valor que el CHECK rechaza, y el
+// cliente se enteraba por un 23514 de Postgres en vez de por un 422 que dijera
+// qué escribir. Sale del mismo sitio que el CHECK (src/database/enums.ts).
+const fsCategoryEnum = z.enum(ACCOUNT_FS_CATEGORIES);
 const normalBalanceEnum = z.enum(NORMAL_BALANCES);
 
 const createAccountSchema = z.object({
@@ -33,7 +39,7 @@ const createAccountSchema = z.object({
   name: z.string().min(1).max(255),
   account_type: accountTypeEnum,
   account_subtype: z.string().optional(),
-  fs_category: z.string().optional(),
+  fs_category: fsCategoryEnum.optional(),
   parent_id: z.string().uuid().nullable().optional(),
   entity_id: z.string().uuid(),
   currency_code: z.string().length(3).optional(),
@@ -50,7 +56,7 @@ const updateAccountSchema = z
     description: z.string().optional(),
     is_active: z.boolean().optional(),
     tags: z.array(z.string()).optional(),
-    fs_category: z.string().optional(),
+    fs_category: fsCategoryEnum.optional(),
     account_subtype: z.string().optional(),
   })
   .refine((o) => Object.keys(o).length > 0, { message: 'At least one field must be provided' });
