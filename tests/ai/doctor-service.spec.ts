@@ -87,10 +87,13 @@ afterEach(() => {
 // Paying it once here keeps every test on the default 5 s budget and measures
 // what each one is actually for. Same shape as the beforeAll of «capacidad
 // huérfana» below, and the same reason.
+// 180 s and not 60 for the same reason as the orphan hook below: the budget is
+// room for the instrument to finish, not a claim about how long it takes. The
+// import measures ~5 s on an idle machine and blew 60 s on a loaded one.
 beforeAll(async () => {
   await import('../../src/cli/mnemosine.js');
   await import('../../src/cli/kernel/audit.js');
-}, 60_000);
+}, 180_000);
 
 function find(report: Awaited<ReturnType<typeof runDoctor>>, name: string) {
   const c = report.checks.find((x) => x.name === name);
