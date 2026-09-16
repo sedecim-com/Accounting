@@ -10907,6 +10907,92 @@ export const CRITERIOS: Criterio[] = [
     },
   },
   {
+    paquete: 'E2.2',
+    id: 'api-error-message-follows-the-request-language',
+    // I9 · issue #151, primer commit. El `code` de un error es contrato de
+    // cable y no cambia con el idioma; el `message` es para una persona y sí.
+    // Lo que este criterio vigila no es que exista la negociación, sino que la
+    // respuesta NO DECLARE un idioma que su cuerpo no tiene: `Content-Language`
+    // y `meta.language` salen sólo cuando el mensaje se pintó de una clave del
+    // catálogo. Medido cuando se escribió: sin esa condición, un 401 en inglés
+    // salía etiquetado `es-MX` y un conflicto de idempotencia en español salía
+    // etiquetado `en-US`.
+    //
+    // Lee el crudo y salta los renglones de comentario por su cuenta, porque
+    // `sinComentarios` sigue ciego en archivos grandes y con acentos graves
+    // (docs/auditorias/I6.md, I7.md).
+    enunciado:
+      'El mensaje de un error de la API se pinta en el idioma que negocia la petición, y la respuesta sólo declara idioma cuando lo pintó',
+    mutantes: [
+      {
+        archivo: 'src/api/rest/middleware/error-handler.ts',
+        de: '          message: err.localized(language),',
+        a: '          message: err.message,',
+        porque:
+          'idioma-ignorado: el manejador volvería a servir el texto inglés fijo del error mientras la cabecera y meta.language siguen diciendo el idioma que pidió quien llama',
+      },
+      {
+        archivo: 'src/api/rest/middleware/error-handler.ts',
+        de: "      res.setHeader('Content-Language', responseLocale(res));",
+        a: '      void responseLocale(res);',
+        porque:
+          'cabecera-que-falta: el cuerpo saldría traducido y sin decirlo, así que una caché no podría distinguir dos respuestas distintas de la misma URL',
+      },
+      {
+        archivo: 'src/index.ts',
+        de: '  app.use(negotiateLocale);',
+        a: '  // app.use(negotiateLocale);',
+        porque:
+          'negociacion-desmontada: toda respuesta caería al idioma por omisión y quien pidiera inglés recibiría español sin que nada lo acuse',
+      },
+    ],
+    evaluar: () => {
+      const codeLines = (rel: string): string[] =>
+        crudoDe(rel)
+          .split('\n')
+          .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+
+      const handler = 'src/api/rest/middleware/error-handler.ts';
+      if (!existe(handler)) return noEvaluable(`${handler} no existe: no hay manejador que juzgar`);
+      const handlerCode = codeLines(handler).join('\n');
+      if (!/err\.localized\(language\)/.test(handlerCode)) {
+        return falla('el manejador de errores dejó de pintar el mensaje en el idioma negociado: serviría el inglés fijo con el que se construyó el error');
+      }
+      if (!/responseLanguage\(res\)/.test(handlerCode)) {
+        return falla('el manejador dejó de leer el idioma de la respuesta: pintaría en el del proceso, que es el de la máquina y no el de quien llama');
+      }
+      // La condición que hace honesta la etiqueta: cabecera y meta.language
+      // SÓLO cuando hay clave. Se exige que las tres cosas cuelguen de `keyed`.
+      if (!/const keyed = err\.messageKey !== undefined;/.test(handlerCode)) {
+        return falla('el manejador ya no distingue un mensaje pintado de una clave de uno escrito en prosa: etiquetaría con un idioma que el cuerpo puede no tener');
+      }
+      if (!/if \(keyed\) \{[\s\S]{0,200}Content-Language[\s\S]{0,120}vary\('Accept-Language'\)/.test(handlerCode)) {
+        return falla('Content-Language o Vary dejaron de depender de que el mensaje venga de una clave');
+      }
+      if (!/\.\.\.\(keyed \? \{ language \} : \{\}\)/.test(handlerCode)) {
+        return falla('meta.language dejó de depender de que el mensaje venga de una clave');
+      }
+
+      // La negociación, montada antes de que nadie pueda contestar.
+      const index = codeLines('src/index.ts');
+      const mountLine = index.findIndex((l) => /^ {2}app\.use\(negotiateLocale\);$/.test(l));
+      if (mountLine === -1) {
+        return falla('src/index.ts no monta negotiateLocale en el cuerpo de bootstrap: toda respuesta saldría en el idioma por omisión');
+      }
+      const auth = index.findIndex((l) => /app\.use\(apiPrefix, authenticate\);/.test(l));
+      if (auth !== -1 && mountLine > auth) {
+        return falla('negotiateLocale se monta después de authenticate: un 401 no sabría en qué idioma contestar');
+      }
+
+      // Y el CLI, que es la otra superficie del mismo error.
+      const cliTranslation = codeLines('src/cli/entry-command.ts').join('\n');
+      if (!/messageKey !== undefined/.test(cliTranslation)) {
+        return falla('translateDomainError volvió a pasar sólo el texto: un error con clave llegaría al contador en inglés aunque trabaje en español');
+      }
+      return ok('el mensaje sigue el idioma de la petición, y la respuesta sólo declara idioma cuando lo pintó de una clave');
+    },
+  },
+  {
     paquete: 'E0.0',
     id: 'ux-surface-census-ci-ratchet',
     enunciado:
