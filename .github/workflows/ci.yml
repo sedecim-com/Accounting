@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 env:
-  # 22 y no 20: vitest 5 declara `^22.12 || ^24 || >=26` y con 20 ni arranca
+  # 22 y no 20: vitest 5 declara `^22.12 || ^24 || >=26`, y 20 queda fuera
   # (#292). `engines.node` en package.json dice lo mismo; se mueven juntos.
   NODE_VERSION: '22'
 
