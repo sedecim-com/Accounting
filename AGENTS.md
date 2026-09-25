@@ -4,9 +4,80 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
 
 ## Antes de escribir una línea
 
-1. Lee la issue completa, incluidos sus criterios de aceptación y su "por qué" si viene de la secuencia del plan.
-2. Corre `npm run plan:status` y `npm run catalogo:estado` — **no confíes en cifras escritas en un documento**: el estado del plan y el tamaño del catálogo de comandos se preguntan al árbol, nunca se citan de memoria. Ver la lección en `docs/HISTORY.md`: un documento anterior citaba commits que ya no existen en `main`.
-3. Si la issue toca una ruta con dueño reforzado en `.github/CODEOWNERS`, asume que es L3 y procede con más cuidado, no menos.
+1. Lee la issue completa, **y su comentario de clasificación**:
+   - su dificultad `difficulty:D*` decide tu modelo y tu presupuesto (`docs/ROUTING.md`);
+   - su autonomía `autonomy:A*` decide si puedes implementar o sólo proponer;
+   - su `status:*` dice si puedes tomarla. Sólo `status:agent-ready` se toma; en D3 y D4, además, con `/confirmar` de un humano.
+2. Lee [`docs/REPO_MAP.md`](docs/REPO_MAP.md) antes de abrir archivos:
+   - ubica el módulo, busca el símbolo con `rg` y lee rangos de líneas;
+   - un archivo de la lista de «1 000 líneas o más» no se lee completo; `src/plan/criterios.ts` tiene más de 14 000.
+3. Corre `npm run plan:status` y `npm run catalogo:estado` — **no confíes en cifras escritas en un documento**: el estado del plan y el tamaño del catálogo de comandos se preguntan al árbol, nunca se citan de memoria. Ver la lección en `docs/HISTORY.md`: un documento anterior citaba commits que ya no existen en `main`.
+4. Si la issue toca una ruta con dueño reforzado en `.github/CODEOWNERS`, es A3 aunque la etiqueta diga otra cosa: procede con más cuidado, no menos.
+
+## Comandos
+
+- **Instalar:** `npm ci`.
+- **Verificar todo lo que corre CI:** `scripts/verify.sh`.
+  - Imprime una línea por compuerta y guarda el log completo en `.agent-logs/`; búscalo ahí, no lo vuelques.
+  - La integración necesita Postgres (`docs/MVP.md` §7). Sin él, el script **la salta y lo dice**; un salto nunca se presenta como verde.
+- **Mientras iteras:** sólo las pruebas de lo que tocas, `npx vitest run <ruta>`. La suite completa, una vez, antes del PR.
+- **Una compuerta suelta:** `scripts/verify.sh --only <typecheck|lint|unit|plan|catalog|corpus|history|openapi|ux|language|integration>`.
+- **Mutantes de un criterio:** `npm run mutantes`.
+
+## Límites
+
+- **Sin aprobación humana explícita, no modificas:**
+  - migraciones ya aplicadas en `src/database/migrations/`: se añade una nueva, nunca se edita una vieja;
+  - `src/database/rls-policies.sql`, `src/ai/floor.ts`, `src/services/fiscal-credentials/`, `src/services/vault/`;
+  - `.github/workflows/` y `.github/CODEOWNERS`;
+  - `docs/ROUTING.md`, que fija tu propio modelo y presupuesto.
+- **No añades dependencias** sin justificarlo en el PR.
+- **Datos:** nunca reales. Sólo `tests/fixtures/` y generadores sintéticos.
+- **Ambigüedad:** si la issue es ambigua, pregunta en la issue y pon `status:needs-clarification`. No adivines (ver «Si el plan está mal»).
+- **Fusiones:** no fusionas PRs y no apruebas tu propio trabajo. La revisión es de otro modelo y de una persona (`docs/ROUTING.md`).
+
+## Ciclo de trabajo, y cuidar los tokens
+
+1. **Plan escrito.** Escribe el plan en la issue antes de editar; en A2 y A3 es obligatorio y esperas `/aprobar-plan`. Corregir un plan cuesta menos que rehacer código.
+2. **Primero la prueba.** Escribe primero la prueba que reproduce el defecto o codifica el criterio de aceptación.
+3. **Pasos pequeños.** Implementa en pasos pequeños y corre la prueba de lo que tocas en cada uno.
+4. **Tamaño.** Un PR por issue, de menos de ~400 líneas sin contar lo generado. Si no cabe, la issue se divide.
+5. **Tres fallas.** Si `scripts/verify.sh` falla 3 veces seguidas por la misma causa, o repites el mismo error dos veces, **detente**: checkpoint en la issue y pide ayuda.
+6. **Checkpoint.** Al 50 % de tu presupuesto, o al ~60 % de tu ventana de contexto, deja uno en la issue y sigue en una sesión nueva desde él:
+
+   ```
+   ### Checkpoint · <fecha> · <modelo> · <tokens usados>/<tope>
+   Hecho: …
+   Pendiente: …
+   Hipótesis actual: …
+   Archivos relevantes: src/…, tests/…
+   No volver a intentar: <lo que ya falló y por qué>
+   ```
+
+7. **Delegar.** Las tareas mecánicas (buscar, resumir logs, generar fixtures) van a un subagente con modelo económico y un encargo mínimo.
+
+## Definition of Done
+
+- `scripts/verify.sh` en verde. Si saltó la integración, dilo en el PR.
+- Una prueba por criterio de aceptación, y el criterio del plan con su mutante cuando cierra o protege un paquete (ver «Verificación, no afirmación»).
+- Los bloques generados, regenerados en lugar de editados a mano: `docs/MVP.md` §7.
+- La documentación y el comentario de cabecera tocados en el mismo PR. Un comentario desactualizado es un bug.
+- El PR con la plantilla completa, incluidos «cómo probar» y «rollback».
+
+## Comentarios en el código
+
+Explican el **por qué**, las restricciones y los contratos; un comentario que repite el código se borra. Etiquetas, en mayúsculas y con referencia:
+
+| Etiqueta | Para qué |
+|---|---|
+| `TODO(#123):` | Trabajo pendiente con issue asignada |
+| `FIXME(#123):` | Defecto conocido |
+| `NOTE:` | La razón de una decisión no obvia |
+| `SECURITY:` | Código que valida, cifra, autentica o toca PII |
+| `CONTRACT:` | Punto donde se produce o consume un contrato: la API, un entregable SAT/IMSS o el esquema |
+| `AGENT-NO-TOUCH:` | Bloque que un agente no modifica sin aprobación humana explícita |
+
+Un `TODO` sin issue no entra; el check en CI es #334. Nada de código comentado: el historial de git lo conserva.
 
 ## Los siete invariantes (no se negocian en un PR)
 
