@@ -1,0 +1,48 @@
+# catalog-info.yaml — la ficha de este repo en el inventario de la plataforma Sedecim.
+#
+# Formato: Framework de Desarrollo Agéntico, §1.1. El inventario de la
+# plataforma es la suma de estos archivos; platform-docs los agrega cuando
+# exista (hoy no existe: ver docs/platform/README.md).
+#
+# Cada campo marcado `# inferido` lo llenó un agente leyendo el código y el
+# historial; el owner lo confirma quitando la marca, en un PR. Un campo sin
+# marca ya está confirmado. Las cifras (pruebas, migraciones, comandos) NO
+# viven aquí: se preguntan al árbol (AGENTS.md, «Antes de escribir una línea»).
+
+name: accounting                 # nombre del repo en GitHub (sedecim-com/Accounting); el producto se llama mnemosine
+id_prefix: MNE                   # inferido · prefijo de las tareas MNE-<PRD>-<nnn> (§12.5). No ACC: choca con la familia acceso-*
+type: service                    # inferido · CLI `mnemosine` + API REST /v1 sobre el mismo motor; el producto es el CLI
+lifecycle: experimental          # inferido · sin despliegue de producción declarado; la ruta al MVP es #329
+domain: contabilidad             # inferido · contabilidad de despachos y cumplimiento fiscal MX
+owners: ["@vic2099"]             # .github/CODEOWNERS
+criticality: tier-1              # inferido · una caída o un error pierde dinero o datos de clientes del despacho
+data_classification: pii         # RFC, CURP, NSS, sueldos y credenciales fiscales (e.firma, CSD) — docs/SCOPE.md
+language: typescript
+runtime: node-20                 # package.json engines ">=20.0.0"; CI corre Node 20
+
+provides:
+  - api: mnemosine-rest-v1       # contrato v0 = docs/openapi.json, generado del código y vigilado en CI (--check)
+  - cli: mnemosine               # superficie medida por `npm run catalogo:estado`
+  - file: sat-anexo24            # XML de catálogo, balanza y pólizas; DIOT, SUA, CFDI de nómina (los presenta el contribuyente)
+
+consumes: []                     # ningún contrato de otro repo de Sedecim hoy. Lo externo va en `external`
+
+# Extensión propuesta al esquema del framework: los servicios de terceros no
+# son contratos entre repos, pero la matriz de impacto y PLATFORM.md los
+# necesitan (guía de implementación, Fase 3: «Lista de dependencias externas»).
+external:                        # inferido
+  - contalink                    # sistema contable externo: lectura (onboarding, diff de balanza) y escritura por la cola revisada ai_external_ops
+  - sat-consulta-cfdi            # estado de CFDI ante el SAT
+  - pac                          # timbrado; adaptadores sin contrato firmado, fuera del MVP
+  - model-providers              # Anthropic y compatibles con OpenAI (incluye Hermes); hay camino manual sin modelo
+  - aws-secrets-manager          # backend del vault de credenciales fiscales; local-dev en desarrollo
+  - zkverify                     # anclaje de sellos; opcional
+
+depends_on_libs: []
+datastores:
+  - "postgres:mnemosine"         # dueño único; RLS por inquilino
+  - "redis:rate-limit"           # inferido · sólo el limitador de la API REST
+
+related_repos:                   # inferido · extensión propuesta; ver docs/platform/inventory.md
+  - repo: sedecim-com/accounting-manager
+    relation: variante           # también convierte CFDI en pólizas y las envía a Contalink; fuente de verdad sin decidir
