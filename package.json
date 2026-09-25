@@ -20,6 +20,7 @@
     "test:watch": "vitest --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
+    "verify": "bash scripts/verify.sh",
     "plan:status": "tsx src/plan/status.ts",
     "mutantes": "tsx scripts/mutantes.ts",
     "catalogo:estado": "tsx scripts/catalogo-estado.ts",
