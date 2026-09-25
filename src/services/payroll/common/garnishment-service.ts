@@ -6,6 +6,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../../../utils/er
 import { reciboEnEntidad } from './alcance-nomina.js';
 import {
   RANK,
+  worstCaseShareOfDisposable,
   type AmountType,
   type GarnishmentType,
 } from '../usa/garnishments/garnishment-engine.js';
@@ -107,35 +108,30 @@ import {
 // rowCount, so nothing about the write's safety depends on the prior read. The
 // read exists only to produce a legible refusal.
 //
-// The SECOND pre-write read — the live orders' cap answers — is there for the
-// same reason and carries the same caveat, stated rather than left implicit:
-// the two refusals it feeds are about the SET of live orders, which no CHECK
-// constraint can see, and two `record` calls racing each other could both pass
-// them. What is NOT best-effort is the pair (employee, case number): 085's
-// unique index decides that one in the database, and the 23505 it raises is
-// translated below into a sentence. Where a race can only produce a refusal
-// that did not fire, the cost is a cascade the operator is shown anyway; where
-// it could produce a double withholding on the same case, the index is what
-// answers.
+// The SECOND pre-write read — the live orders' cap answers — feeds refusals
+// about the SET of live orders, which no CHECK constraint can see. They hold
+// under concurrency because the employee read above takes `FOR UPDATE`: a
+// second `record` for the same worker waits for the first to commit and then
+// reads the order it filed (Witness WIT-01, #272). The pair (employee, case
+// number) is ALSO decided in the database, by 085's unique index, and the
+// 23505 it raises is translated below into a sentence.
 //
-// ── WHAT IS LEFT OUT, NAMED SO THE NEXT READER DOES NOT ASSUME ──────────
+// ── THE >100 % AGGREGATE: REFUSED, NOT RESOLVED ─────────────────────────
 //
-// THE >100 % AGGREGATE. There is no ceiling ACROSS order families: the levy
-// branch takes `disposable - exempt` against no shared counter (engine :231)
-// while child support is capped independently against its own counter
-// (:213, :225-228), and the two are summed (:246). MEASURED BY READING on
-// 2,000 disposable with an exemption of 200: the levy takes 1,800, a support
-// order takes up to 1,200, total 3,000 — and paycheck-service.ts:519 adds that
-// into `totalPostTax` while :525-531 computes net pay by subtraction with no
-// clamp. Filing a second order is what makes that reachable, so this file is
-// what makes it reachable. It stays out because implementing the aggregate
-// correctly means choosing WHICH order loses, and the figures that would
-// decide it are CCPA Title III hard-coded in the engine — which
+// There is no ceiling ACROSS order families in the engine: the levy branch
+// takes `disposable - exempt` against no shared counter, child support and
+// creditors are capped each against their own, and the families are summed.
+// MEASURED BY READING on 2,000 disposable with an exemption of 200 and an 80 %
+// support order: 1,800 + 1,000 = 2,800 — and paycheck-service.ts computes net
+// pay by subtraction with no clamp. Resolving it correctly means choosing
+// WHICH order loses, and the figures that would decide it are CCPA Title III
+// hard-coded in the engine — which
 // docs/investigacion/2026-09-06-normas-y-motores/motores/nomina-us.md already
-// classifies as law that belongs in a dated table. Fixing it here would be
-// inventing a cap in the same file that refuses to invent one for Mexico. What
-// this file does instead is SHOW the cascade being joined: `recordGarnishment`
-// returns the employee's other live orders, and the leaf prints them.
+// classifies as law that belongs in a dated table. So this file does not
+// resolve it; it REFUSES to file a set whose engine ceilings
+// (`worstCaseShareOfDisposable`) add past 100 % of disposable earnings, in
+// either filing order (Witness WIT-02, #272). The leaf still prints the
+// cascade the order joins.
 // ============================================================
 
 const AMOUNT_RE = /^\d+(\.\d+)?$/;
@@ -557,7 +553,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export async function requireEmployeeInScope(
   reference: string,
   scope: EntityScope,
-  opts: { client?: pg.PoolClient } = {}
+  opts: { client?: pg.PoolClient; forUpdate?: boolean } = {}
 ): Promise<{ id: string; country_code: string }> {
   return requireByIdInScope<{ id: string; country_code: string }>(
     'employees',
@@ -686,8 +682,42 @@ function refuseWhatTheCascadeCannotCompute(
     }
   }
 
-  if (!SUPPORT_TYPES.includes(order.garnishment_type)) return;
   const mine = order.metadata as { supports_second_family?: boolean; arrears_over_12_weeks?: boolean };
+  if (SUPPORT_TYPES.includes(order.garnishment_type)) refuseContradictoryAnswers(mine, live);
+
+  // THREE · MORE THAN THERE IS (Witness WIT-02). The engine sums the order
+  // families with no joint ceiling, so a levy next to a support order takes
+  // `disposable - exempt` AND the support share: on 2,000 disposable with a
+  // 200 exemption and an 80 % support order, 1,800 + 1,000 = 2,800. Deciding
+  // which order loses is law this file does not invent; refusing the set whose
+  // own engine ceilings add past the whole cheque is not. Checked on the set
+  // AFTER this order joins, so the refusal holds in either filing order.
+  const share = worstCaseShareOfDisposable([
+    ...live,
+    {
+      garnishment_type: order.garnishment_type,
+      supports_second_family: mine.supports_second_family,
+      arrears_over_12_weeks: mine.arrears_over_12_weeks,
+    },
+  ]);
+  if (share > 100 && live.length > 0) {
+    const others = live
+      .map((o) => `${o.garnishment_type} ${o.id}${o.case_number ? ` (case ${o.case_number})` : ''}`)
+      .join(', ');
+    throw new ConflictError(
+      `This worker's live orders (${others}) plus this ${order.garnishment_type} could withhold up to ` +
+        `${share} % of disposable earnings: the cascade caps each order family on its own and sums ` +
+        'them with no joint ceiling, so the cheque would go below zero. Which order yields is a ' +
+        'question of law the engine does not answer yet, so the combination is refused rather than ' +
+        'filed. Archive the order that no longer applies, or wait for the engine to gain a joint ceiling.'
+    );
+  }
+}
+
+function refuseContradictoryAnswers(
+  mine: { supports_second_family?: boolean; arrears_over_12_weeks?: boolean },
+  live: LiveCapAnswers[]
+): void {
   for (const other of live) {
     if (!SUPPORT_TYPES.includes(other.garnishment_type)) continue;
     const clashes: string[] = [];
@@ -734,7 +764,17 @@ export async function recordGarnishment(
     // Resolved within scope FIRST, so the country refusal can be a sentence
     // instead of a rowCount of zero. The write below does not lean on this
     // read for its boundary: it carries its own.
-    const employee = await requireEmployeeInScope(input.employee_id, scope, { client });
+    //
+    // AND LOCKED (Witness WIT-01). The refusals below judge the SET of live
+    // orders, so two `record` calls for the same worker must not both read the
+    // set before either inserts: `FOR UPDATE` on the employee row, in the same
+    // statement that checks the scope, makes the second call wait for the
+    // first to commit and then read the order it filed. Different workers do
+    // not contend.
+    const employee = await requireEmployeeInScope(input.employee_id, scope, {
+      client,
+      forUpdate: true,
+    });
     refuseOrderWithoutAnEngine(order.garnishment_type, employee.country_code);
     refuseWhatTheCascadeCannotCompute(
       order,

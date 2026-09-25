@@ -368,15 +368,16 @@ export function registerGarnishmentCommand(program: Command, deps: GarnishmentCo
       if (dryRun) {
         err.write(deps.palette.dim('Rehearsal: the transaction was undone. No order was filed.\n'));
       }
-      // THE CASCADE THIS ORDER JOINS. There is no aggregate ceiling across
-      // order families — a levy and a support order can together ask for more
-      // than disposable earnings — so the least this leaf can do is show the
-      // operator the queue they just joined, in the sequence payday will use.
+      // THE CASCADE THIS ORDER JOINS. The engine has no joint ceiling across
+      // order families; the service refuses any set whose ceilings add past
+      // disposable earnings, and this leaf shows the operator the queue they
+      // just joined, in the sequence payday will use.
       if (filed.cascade.length > 1) {
         err.write(
           deps.palette.yellow(
             `  ⚠ this worker now has ${filed.cascade.length} live orders. Payday takes them in ` +
-              'this sequence, and nothing caps their TOTAL against disposable earnings:\n'
+              'this sequence (their combined ceilings were checked against disposable earnings ' +
+              'before filing):\n'
           )
         );
         for (const other of filed.cascade) {

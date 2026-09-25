@@ -481,3 +481,160 @@ describe('la orden mexicana cabe en la tabla aunque nada la compute', () => {
     await clearOrders();
   });
 });
+
+describe('Witness WIT-02 · un conjunto de órdenes que el motor cobraría por encima del disponible no se da de alta', () => {
+  const LEVY = {
+    employee_id: EMPLOYEE,
+    type: 'tax_levy_federal',
+    exempt_amount: '200',
+    issuing_authority: 'IRS ACS',
+    start_date: '2020-01-01',
+  };
+  // El 80 % con segunda familia «sí» y atrasos «no»: el tope CCPA es 50 %, así
+  // que la manutención sola toma 1 000 de 2 000. Junto al levy de exención 200
+  // (1 800), el motor cobraría 2 800: la cifra de la reproducción de Witness.
+  const SUPPORT_80 = { ...SUPPORT_ORDER, percent_disposable: '80' };
+
+  it('levy y DESPUÉS manutención: la segunda se niega, y el recibo se queda en lo que el levy toma', async () => {
+    await clearOrders();
+    await recordGarnishment(LEVY, SCOPE);
+    await expect(recordGarnishment(SUPPORT_80, SCOPE)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(recordGarnishment(SUPPORT_80, SCOPE)).rejects.toThrow(/could withhold up to 150 %/);
+    const cascade = await calculateGarnishments(CASCADE_INPUT);
+    expect(cascade.total_withheld).toBe(1800);
+    expect(cascade.total_withheld).toBeLessThanOrEqual(CASCADE_INPUT.disposable_earnings);
+    await clearOrders();
+  });
+
+  it('manutención y DESPUÉS levy: la negativa vale en los dos órdenes de alta', async () => {
+    await clearOrders();
+    await recordGarnishment(SUPPORT_80, SCOPE);
+    await expect(recordGarnishment(LEVY, SCOPE)).rejects.toThrow(/could withhold up to 150 %/);
+    expect((await calculateGarnishments(CASCADE_INPUT)).total_withheld).toBe(1000);
+    await clearOrders();
+  });
+
+  it('manutención al 65 %, acreedor y crédito educativo suman 105 %: el tercero se niega', async () => {
+    await clearOrders();
+    await recordGarnishment(
+      { ...SUPPORT_80, supports_second_family: 'no', arrears_over_12_weeks: 'yes' },
+      SCOPE
+    );
+    await recordGarnishment({ ...SUPPORT_ORDER, type: 'creditor', case_number: 'CR-1', percent_disposable: '25' }, SCOPE);
+    await expect(
+      recordGarnishment({ ...SUPPORT_ORDER, type: 'student_loan', case_number: 'SL-1', percent_disposable: '15' }, SCOPE)
+    ).rejects.toThrow(/could withhold up to 105 %/);
+    await clearOrders();
+  });
+
+  it('CONTROL: la misma terna con el tope de 50 % suma 90 % y entra, y el recibo no pasa del disponible', async () => {
+    await clearOrders();
+    await recordGarnishment(SUPPORT_80, SCOPE);
+    await recordGarnishment({ ...SUPPORT_ORDER, type: 'creditor', case_number: 'CR-1', percent_disposable: '25' }, SCOPE);
+    await expect(
+      recordGarnishment({ ...SUPPORT_ORDER, type: 'student_loan', case_number: 'SL-1', percent_disposable: '15' }, SCOPE)
+    ).resolves.toBeTruthy();
+    const cascade = await calculateGarnishments(CASCADE_INPUT);
+    expect(cascade.per_order).toHaveLength(3);
+    expect(cascade.total_withheld).toBeLessThanOrEqual(CASCADE_INPUT.disposable_earnings);
+    await clearOrders();
+  });
+});
+
+describe('Witness WIT-01 · las negativas sobreviven a dos altas simultáneas', () => {
+  /**
+   * Barrera determinista con dos conexiones: A da de alta dentro de una
+   * transacción que NO confirma hasta que B esté, medido en
+   * `pg_stat_activity`, esperando un candado. Sin el `FOR UPDATE` del
+   * empleado, B nunca espera: leería el conjunto vacío y confirmaría las dos,
+   * y la espera de abajo se agota con un mensaje que lo dice.
+   */
+  async function race(
+    first: Parameters<typeof recordGarnishment>[0],
+    second: Parameters<typeof recordGarnishment>[0],
+    secondScope = SCOPE
+  ): Promise<{ second: { ok: boolean; err?: unknown; waited: boolean } }> {
+    let filedA!: () => void;
+    const aFiled = new Promise<void>((r) => (filedA = r));
+    let releaseA!: () => void;
+    const gate = new Promise<void>((r) => (releaseA = r));
+    const a = withTransaction(async (client) => {
+      await recordGarnishment(first, SCOPE, { client });
+      filedA();
+      await gate;
+    });
+    await aFiled;
+    const b = recordGarnishment(second, secondScope).then(
+      (): { ok: boolean; err?: unknown } => ({ ok: true }),
+      (err: unknown) => ({ ok: false, err })
+    );
+    const deadline = Date.now() + 10_000;
+    let waiting = false;
+    let settled = false;
+    void b.then(() => (settled = true));
+    while (!waiting && !settled && Date.now() < deadline) {
+      const r = await query<{ n: string }>(
+        `SELECT count(*) AS n FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'`
+      );
+      waiting = Number(r.rows[0].n) > 0;
+      if (!waiting) await new Promise((r) => setTimeout(r, 25));
+    }
+    releaseA();
+    await a;
+    return { second: { ...(await b), waited: waiting } };
+  }
+
+  it('dos levies con expedientes distintos: B espera a A, lo lee, y se niega', async () => {
+    await clearOrders();
+    const levy = {
+      employee_id: EMPLOYEE,
+      type: 'tax_levy_federal',
+      exempt_amount: '462.50',
+      issuing_authority: 'IRS ACS',
+      start_date: '2020-01-01',
+    };
+    const { second } = await race({ ...levy, case_number: 'A' }, { ...levy, type: 'tax_levy_state', case_number: 'B' });
+    expect(second.waited).toBe(true);
+    expect(second.ok).toBe(false);
+    expect(second.err).toMatchObject({ statusCode: 409 });
+    const live = await query('SELECT 1 FROM garnishments WHERE employee_id = $1 AND is_active', [EMPLOYEE]);
+    expect(live.rowCount).toBe(1);
+    expect((await calculateGarnishments(CASCADE_INPUT)).total_withheld).toBe(1537.5);
+    await clearOrders();
+  });
+
+  it('dos manutenciones con respuestas contrarias: sólo una confirma', async () => {
+    await clearOrders();
+    const { second } = await race(
+      { ...SUPPORT_ORDER, case_number: 'A', percent_disposable: '80' },
+      { ...SUPPORT_ORDER, case_number: 'B', supports_second_family: 'no' }
+    );
+    expect(second.ok).toBe(false);
+    expect(second.err).toMatchObject({ statusCode: 409 });
+    expect((await calculateGarnishments(CASCADE_INPUT)).total_withheld).toBe(1000);
+    await clearOrders();
+  });
+
+  it('CONTROL: altas compatibles del mismo trabajador esperan y entran las dos', async () => {
+    await clearOrders();
+    const { second } = await race(
+      { ...SUPPORT_ORDER, case_number: 'A' },
+      { ...SUPPORT_ORDER, case_number: 'B', percent_disposable: '5' }
+    );
+    expect(second.ok).toBe(true);
+    await clearOrders();
+  });
+
+  it('CONTROL: otro trabajador no espera al candado de éste', async () => {
+    await clearOrders();
+    const { second } = await race(
+      { ...SUPPORT_ORDER, case_number: 'A' },
+      { ...SUPPORT_ORDER, employee_id: SISTER_EMPLOYEE, case_number: 'A' },
+      SISTER_SCOPE
+    );
+    expect(second.waited).toBe(false);
+    expect(second.ok).toBe(true);
+    await clearOrders();
+  });
+});
