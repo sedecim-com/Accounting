@@ -18,6 +18,8 @@ plan (issues + criterios ejecutables)
 
 Una issue describe **qué** debe ser cierto al terminar, con criterios de aceptación verificables — no una lista de archivos a tocar (eso lo decide quien implementa). Usa `.github/ISSUE_TEMPLATE/ticket.md`.
 
+Las issues de la ruta al MVP llevan además etiquetas que dicen cuándo conviene tomarlas y quién (`ola-N`, `size-*`, `nivel-L*`, `listo`, `decision-pendiente`) y un comentario de triage con su estado verificado, su punto de entrada y su aceptación. Ver [`docs/MVP.md`](MVP.md) §6. Una issue `decision-pendiente` no se empieza: se contesta primero.
+
 Si la issue proviene de un tramo ya redactado en la secuencia del plan (Vía A o Vía B — ver `docs/HISTORY.md` y los artefactos archivados en `docs/archive/claude-artifacts/`), copia su "por qué aquí" y su dependencia declarada: no los reinventes.
 
 ## 2. Un ejecutor implementa UNA issue
