@@ -104,7 +104,7 @@ Se dice aquí porque descubrirlo leyendo el código sería peor:
 
 ## Arranque rápido
 
-**Requisitos:** Node ≥ 20 (`engines` lo exige), PostgreSQL 15. Redis es opcional
+**Requisitos:** Node ≥ 22.12 (`engines` lo exige), PostgreSQL 15. Redis es opcional
 (caché y limitador; el CLI no lo necesita).
 
 ```bash
