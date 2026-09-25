@@ -14,8 +14,8 @@ Este documento reconstruye, **verificado contra `git log` y contra `gh pr view` 
 
 **Censo, medido sobre el árbol** (`npm run historial:estado`):
 
-- **120** PRs registrados aquí.
-- El más alto registrado es el **#285**.
+- **125** PRs registrados aquí.
+- El más alto registrado es el **#341**.
 - **13** commits directos a `main`, de antes del flujo por PR (la fila «—» del Sprint 1).
 
 CI lo verifica con `--check`, que falla cuando un PR lleva más de **7 días** fusionado sin aparecer aquí. La gracia existe para que una fusión no ponga en rojo los demás PRs abiertos; el techo, para que el documento no pueda pudrirse.
@@ -238,6 +238,17 @@ Por qué es una sección aparte y no más filas en la anterior: estas dieciocho 
 | [#281](https://github.com/sedecim-com/Accounting/pull/281) | Resellar el corpus tras T23: main quedó en rojo | 2026-09-16 | — | squash `4901620`, 2 commits. El #277 cambió `payment-service.ts`, contra el que están sellados `receivables.md` y `payables.md`, y se fusionó con `corpus-manifiesto --check` en rojo. Releídos y resellados; de paso, el tercer archivo de pruebas al que el techo de 5 s se le quedó corto. |
 | [#282](https://github.com/sedecim-com/Accounting/pull/282) | T23b: el anticipo a proveedor se asentaba en pesos, y la moneda era un literal | 2026-09-16 | T23b | squash `7ecb09a`, 2 commits. El espejo del #277 del lado proveedor, y peor: sin documentos, `documentos[0]?.moneda ?? 'MXN'` escribía todo anticipo puro como MXN, aunque el proveedor naciera en USD. Se rehúsa con la misma frase que T23, y el criterio cubre ahora las dos puertas. De paso, cuatro identificadores al inglés. |
 | [#285](https://github.com/sedecim-com/Accounting/pull/285) | El cero que el parser borraba: una tasa 0 % no es un exento (#126) | 2026-09-16 | T19 | squash `d1420ab`, 2 commits. Con `parseAttributeValue: true`, `TasaOCuota="0.000000"` llega como el número `0` y el parser lo descartaba por falso: `total_iva_0` salía siempre en 0.00, y un exento caía en el cubo de la tasa 0 %, que sí acredita. `isDeclared` mide presencia en siete atributos. Cierra #126; lo que queda para la DIOT es la #284. |
+
+## 25 de septiembre — la ruta al MVP, el marco agéntico y la Ola 0
+Fuente: **verificado** (`git log --first-parent origin/main` y `git rev-list --count <primer-padre>..refs/pull/N/head` para cada PR). Las cuentas de #287 y #288 incluyen el commit con el que se actualizaron desde `main` antes de fusionar. Estas filas las escribió una sola sesión, contra el mensaje de cada commit, y no pasaron por un escéptico independiente.
+
+| PR | Título | Merge | Tramos que incluye | Notas |
+|---|---|---|---|---|
+| [#291](https://github.com/sedecim-com/Accounting/pull/291) | El historial que tenía el trabajo `plan` en rojo, y la ruta al MVP | 2026-09-25 | — | squash `719690a`, 3 commits. Las 18 filas del 16 de septiembre que ponían en rojo `historial-estado --check` en toda corrida nueva, y `docs/MVP.md`: el mes de una PyME de punta a punta, en cuatro olas. |
+| [#341](https://github.com/sedecim-com/Accounting/pull/341) | La prueba de determinismo del metro del idioma tiene su propio timeout | 2026-09-25 | — | fusión `b63e801`, 1 commit. `tests/language/lanes-plan.spec.ts`: el techo de la prueba de determinismo, ver #293 para el arreglo de fondo. |
+| [#340](https://github.com/sedecim-com/Accounting/pull/340) | Adoptar el framework de desarrollo agéntico (ADR-0001): Definition of Ready, dificultad y autonomía, verify.sh y el mapa del repo | 2026-09-25 | — | fusión `fb51b28`, 4 commits. ADR-0001, `scripts/verify.sh` con paridad declarada con CI, `docs/REPO_MAP.md` generado por `scripts/repo-map.ts`, y las etiquetas `difficulty:*`, `autonomy:*` y `status:*` que reemplazan a `listo` en la ruta. |
+| [#287](https://github.com/sedecim-com/Accounting/pull/287) | Bump the menores-y-parches group with 6 updates | 2026-09-25 | — | squash `ea88b3d`, 2 commits. Dependencias menores (Ola 0). |
+| [#288](https://github.com/sedecim-com/Accounting/pull/288) | Bump eslint from 9.39.5 to 10.11.0 | 2026-09-25 | — | squash `2909869`, 3 commits. ESLint 10 con el mismo número de avisos (1 093, tope 1 106); las menciones a «ESLint 9» de los documentos vivos se corrigen aparte. |
 
 ## Sin sprint / no clasificado
 
