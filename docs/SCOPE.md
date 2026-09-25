@@ -48,6 +48,32 @@ npm run plan:status       # qué paquetes de trabajo tienen todos sus criterios 
 
 Un resumen de alto nivel, agrupado por área del oficio (catálogo y asiento, banco y tesorería, clientes y cobranza, proveedores y pagos, lo fiscal mexicano, el agente, informes, activos y diferidos, puesta en marcha) vive en el artefacto **Brechas de usabilidad de mnemosine**, archivado en `docs/archive/claude-artifacts/brechas-de-usabilidad.html`.
 
+## El MVP
+
+**Un despacho lleva, desde el CLI y con cifras correctas, el ciclo mensual completo de un cliente PyME mexicano:**
+
+- el alta y la migración desde su sistema anterior;
+- los CFDI hasta el mayor, con el agente proponiendo y una persona aprobando, o sin agente;
+- CxC y CxP;
+- banco y conciliación;
+- la nómina básica;
+- el cierre;
+- los estados financieros;
+- el Anexo 24, la DIOT y el papel de trabajo de IVA e ISR;
+- con aislamiento y respaldo probados.
+
+Su prueba de aceptación es un criterio ▶ que recorre ese mes entero ([#311](https://github.com/sedecim-com/Accounting/issues/311)).
+
+La definición completa, lo que queda fuera, la línea de trabajo por olas y las decisiones pendientes están en [`docs/MVP.md`](MVP.md). La lista viva de issues está en la issue de seguimiento [#329](https://github.com/sedecim-com/Accounting/issues/329).
+
+Queda fuera del MVP, con sus issues en la etiqueta `post-mvp`:
+
+- el timbrado con PAC;
+- Estados Unidos más allá de lo que ya existe;
+- la interfaz gráfica;
+- los canales de mensajería;
+- el renombrado del código al inglés.
+
 ## No-goals (declarados, no accidentales)
 
 - **No es un ERP genérico ni un motor «sin país».** No hay módulos fuera de la contabilidad y su cumplimiento, y la internacionalización se hace por **paquetes de jurisdicción** sobre un motor común (`docs/jurisdicciones.md`): catálogo fiscal, calendario, parámetros legales con vigencia, formatos y corpus del agente por país — nunca aflojando las reglas del motor a un común denominador sin normas. Hoy hay dos paquetes: México, completo; Estados Unidos, parcial (nómina). Sigue vigente la decisión «¿es el sistema contable del despacho, o el motor auditable que se conecta al que ya tienen?» del archivo de Brechas de usabilidad, §5.

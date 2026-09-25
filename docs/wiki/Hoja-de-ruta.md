@@ -10,6 +10,8 @@ estado. El estado se pregunta con dos comandos; los documentos dicen otra cosa:
 | «Doce sprints o sesenta» | Cuántas filas del catálogo faltan, cuánto cuesta cada una y en qué orden se cierran | [`docs/plan-catalogo.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/plan-catalogo.md) |
 | Plan de cierre de brechas | El censo de la deuda heredada, partida por partida | [`docs/plan-cierre-brechas.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/plan-cierre-brechas.md) |
 
+**Qué va primero hoy.** La ruta al MVP vive en [`docs/MVP.md`](https://github.com/sedecim-com/Accounting/blob/main/docs/MVP.md), y su lista viva de issues en la [#329](https://github.com/sedecim-com/Accounting/issues/329). Qué se hace primero lo deciden las etiquetas `ola-0` a `ola-3`, `listo` y `decision-pendiente`. Los tres documentos de esta página explican el porqué y el costo; no deciden el orden de la semana.
+
 Antes que nada, la regla de la casa: **dos marcadores, cero copias**. Ninguna
 cifra de esta página es autoritativa. Si tu árbol responde otra cosa, gana tu
 árbol.
