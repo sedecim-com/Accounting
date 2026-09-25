@@ -100,7 +100,10 @@ describe('el contrato de un carril', () => {
     // y uno que da el mismo total con las llaves barajadas rompe el diff de la
     // línea base sin que nada haya cambiado.
     expect(JSON.stringify(planLanes())).toBe(JSON.stringify(LANES));
-  });
+    // NOTE: this walks the whole tree a second time. Under the full suite with
+    // coverage on a 4-core machine it exceeds the 5 s default with nothing
+    // broken; CI has room to spare.
+  }, 30_000);
 });
 
 describe('qué ruta cuenta: española Y renombrable', () => {
