@@ -164,7 +164,7 @@ De la tabla de [`kernel/exit.ts`](https://github.com/sedecim-com/Accounting/blob
 
 ## Qué comparten el CLI y la API REST, y qué no
 
-El repositorio se llama `Accounting` y el paquete `accounting-core` por su origen: un servidor REST/GraphQL. Ese motor sigue vivo y es el que el agente opera, pero el producto es la terminal. Conviene saber exactamente dónde se tocan.
+El repositorio se llama `Accounting` y el paquete `accounting-core` por su origen: un servidor REST (y, hasta T14b, también GraphQL). Ese motor sigue vivo y es el que el agente opera, pero el producto es la terminal. Conviene saber exactamente dónde se tocan.
 
 **Comparten:**
 
@@ -181,7 +181,7 @@ El repositorio se llama `Accounting` y el paquete `accounting-core` por su orige
 
 Donde los dos contratos se encuentran es un solo sitio: `exitCodeFor` en [`kernel/index.ts`](https://github.com/sedecim-com/Accounting/blob/main/src/cli/kernel/index.ts), que traduce el `statusCode` de un error de dominio al código de salida del CLI. Está tipado por pato sobre `statusCode`, para que el núcleo no dependa de la jerarquía de errores.
 
-Lo que sí falta decir: **GraphQL está desmontado por omisión** y vive fuera del prefijo auditado `/v1`. Sus mutaciones sí comprueban permisos desde que existe `src/api/graphql/permisos.ts`: un solo punto de paso, el mismo permiso que la ruta REST equivalente y una compuerta que contrasta el esquema al cargar. Ver el README para el inventario completo de lo retirado.
+Lo que ya no hay que decir: **GraphQL se retiró** en T14b ([#101](https://github.com/sedecim-com/Accounting/issues/101), PR #214). Era una tercera puerta al mismo motor, apagada tras una bandera, fuera del prefijo auditado `/v1` y sin un solo consumidor; el criterio que hoy la vigila mide que el paquete no esté en las dependencias. Las superficies son dos —la terminal y REST— y todo lo de esta sección habla de ellas. Ver el README para el inventario completo de lo retirado.
 
 ## El camino de un CFDI hasta el mayor
 

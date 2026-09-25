@@ -108,7 +108,7 @@ manual act and its trace is the diff.
 | `coverage-thresholds-keyed-by-spanish-paths` | coverage thresholds keyed by a renameable Spanish path | 9 | 0 |
 | `agent-corpus-sources-with-spanish-names` | agent corpus sources sealed under a renameable Spanish path | 1 | 0 |
 | `test-mocks-of-spanish-modules` | vi.mock calls pointing at a renameable Spanish module | 11 | 0 |
-| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 343 (baseline 344) | 0 |
+| `docs-dead-path-citations` | citations in docs/ of repository paths that no longer exist | 342 (baseline 344) | 0 |
 | `docs-english-pages-untwinned` | docs/ pages published in English with no .es.md twin | 2 | 0 |
 | `docs-spanish-twins-stale` | docs/ Spanish twins whose source_sha no longer matches the original | 0 | 0 |
 | `src-spanish-comment-lines` | comment lines written in Spanish under src/ *(informational)* | 28606 | 0 |
