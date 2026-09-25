@@ -13,6 +13,10 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
    - un archivo de la lista de «1 000 líneas o más» no se lee completo; `src/plan/criterios.ts` tiene más de 14 000.
 3. Corre `npm run plan:status` y `npm run catalogo:estado` — **no confíes en cifras escritas en un documento**: el estado del plan y el tamaño del catálogo de comandos se preguntan al árbol, nunca se citan de memoria. Ver la lección en `docs/HISTORY.md`: un documento anterior citaba commits que ya no existen en `main`.
 4. Si la issue toca una ruta con dueño reforzado en `.github/CODEOWNERS`, es A3 aunque la etiqueta diga otra cosa: procede con más cuidado, no menos.
+5. Este repo es uno de la plataforma Sedecim ([ADR-0002](docs/adr/0002-platform-coordination.md)):
+   - si tu cambio toca lo que el repo expone o consume (la API, un archivo para el SAT, una integración externa), actualiza `catalog-info.yaml` en el mismo PR y marca el punto con `CONTRACT:`;
+   - un desarrollo **nuevo**, que no es una issue con DoR, empieza por el ciclo de [`docs/prd/README.md`](docs/prd/README.md), no por el código;
+   - lo que toque Contalink o la generación de pólizas desde CFDI se cruza con `accounting-manager` ([`docs/platform/inventory.md`](docs/platform/inventory.md)).
 
 ## Comandos
 

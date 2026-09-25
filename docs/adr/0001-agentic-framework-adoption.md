@@ -1,7 +1,7 @@
 # ADR-0001 · Adoptar el Framework de Desarrollo de Software Agéntico, adaptado a un solo repositorio
 
 - **Fecha:** 2026-09-25
-- **Estado:** aceptada para lo marcado «aplicado»; lo marcado «decisión» espera al dueño en su issue.
+- **Estado:** aceptada para lo marcado «aplicado»; lo marcado «decisión» espera al dueño en su issue. **La fila §1 («un solo repo») la sustituye el [ADR-0002](0002-platform-coordination.md).**
 - **Fuente:** [Framework de Desarrollo de Software Agéntico para la Plataforma](https://claude.ai/artifact/V5nLbNQmVkbCDpZfMkUx6A), revisión 31.
 - **Índice de lo pendiente:** [#330](https://github.com/sedecim-com/Accounting/issues/330).
 
