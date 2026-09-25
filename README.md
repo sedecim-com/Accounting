@@ -321,7 +321,7 @@ La suite de integración crea y destruye una base efímera por corrida, por lo q
 pide `TEST_ADMIN_DATABASE_URL` (un rol con `CREATE DATABASE`) y se niega a
 arrancar sin ella. Corre en serie a propósito: varias pruebas cuentan filas.
 
-`npm run lint` ya no es un adorno: corre ESLint 9 con información de tipos
+`npm run lint` ya no es un adorno: corre ESLint 10 con información de tipos
 (`eslint.config.mjs`) sobre `src/`, `tests/` y `scripts/`, y la CI lo exige. Los
 errores rompen la compilación; las advertencias llevan trinquete
 (`--max-warnings 1239`, congelado en lo medido) para que sólo puedan bajar.

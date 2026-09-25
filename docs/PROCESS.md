@@ -42,7 +42,7 @@ Las puertas, en el orden en que fallan más barato. `scripts/verify.sh` las corr
 npm run typecheck          # tsc --noEmit sobre src/
 npm run typecheck:tests    # tsc -p tsconfig.test.json --noEmit
 npm test                   # vitest run (unitarias, con cobertura por archivo sobre el motor contable)
-npm run lint                # ESLint 9 con información de tipos; advertencias con trinquete (--max-warnings)
+npm run lint                # ESLint 10 con información de tipos; advertencias con trinquete (--max-warnings)
 npm run plan:status         # el estado del plan no se escribe: se pregunta
 npm run test:integration     # necesita Postgres real; corre en CI aparte (aislamiento por inquilino)
 ```
