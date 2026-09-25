@@ -21,7 +21,8 @@ Esto se aplica igual a Claude Code, Codex, Grok Build, o cualquier ejecutor bara
   - Imprime una línea por compuerta y guarda el log completo en `.agent-logs/`; búscalo ahí, no lo vuelques.
   - La integración necesita Postgres (`docs/MVP.md` §7). Sin él, el script **la salta y lo dice**; un salto nunca se presenta como verde.
 - **Mientras iteras:** sólo las pruebas de lo que tocas, `npx vitest run <ruta>`. La suite completa, una vez, antes del PR.
-- **Una compuerta suelta:** `scripts/verify.sh --only <typecheck|lint|unit|plan|catalog|corpus|history|openapi|ux|language|integration>`.
+- **Una compuerta suelta:** `scripts/verify.sh --only <typecheck|typecheck-tests|lint|icu|unit|plan|catalog|corpus|history|openapi|ux|language|integration|restore>`. Un nombre desconocido sale con código 2 sin correr nada.
+- **Lo que no corre en local** (aislamiento con el rol `mnemosine_app`, eval con llave de proveedor) sale como `SKIP` con su motivo; el resumen nunca dice que pasó todo.
 - **Mutantes de un criterio:** `npm run mutantes`.
 
 ## Límites
