@@ -213,18 +213,23 @@ function breakdownTaxes(cfdi: CFDIParsed) {
 
     for (const t of traslados) {
       const importe = new Decimal(num(t.importe));
-      const tasa = Math.round(num(t.tasaOCuota) * 100);
       const imp = impuestoClave(t.impuesto);
-      if (imp === '002') {
-        if (tasa === 16) iva16 = iva16.plus(importe);
-        else if (tasa === 8) iva8 = iva8.plus(importe);
-        else if (tasa === 0) {
-          // Real 0% rate: the tax amount is 0, what matters is the BASE
-          iva0 = iva0.plus(num(t.base));
-        }
-      } else if (imp === '003') {
+      if (imp === '003') {
         ieps = ieps.plus(importe);
+        continue;
       }
+      if (imp !== '002') continue;
+      // Exento declares no rate at all. Reading its absent TasaOCuota as a zero
+      // dropped it into the 0 % bucket, which is the one that can be credited.
+      if (t.tipoFactor === 'Exento') {
+        exento = exento.plus(num(t.base));
+        continue;
+      }
+      const tasa = Math.round(num(t.tasaOCuota) * 100);
+      if (tasa === 16) iva16 = iva16.plus(importe);
+      else if (tasa === 8) iva8 = iva8.plus(importe);
+      // Real 0% rate: the tax amount is 0, what matters is the BASE
+      else if (tasa === 0) iva0 = iva0.plus(num(t.base));
     }
     for (const r of c.impuestos?.retenciones ?? []) {
       const importe = new Decimal(num(r.importe));

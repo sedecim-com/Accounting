@@ -138,7 +138,7 @@ Sin `--exigir`, el comando siempre sale con código 0. Un paquete abierto es inf
 El trabajo `plan` de [`.github/workflows/ci.yml`](https://github.com/sedecim-com/Accounting/blob/main/.github/workflows/ci.yml) corre esta línea, que sí es una compuerta:
 
 ```bash
-npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1
+npm run plan:status -- --exigir=E0.0,E0.1,E0.2,E0.3,E1.1,E1.2,E1.3,E2.1,E2.2,E3.1,E4.1
 ```
 
 Lo que hace: imprime el estado completo de todos los paquetes y **falla si alguno de los nombrados está abierto por algo que este entorno sí podía medir**. No exige trabajo nuevo; impide el retroceso de lo ya cerrado.

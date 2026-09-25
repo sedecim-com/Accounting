@@ -1,4 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+
+// 30 s por prueba en TODO este archivo. `main()` es la compuerta de CI: ejecuta
+// los criterios de los quince paquetes, y son 197. Con la suite de 294 archivos
+// en paralelo eso rebasa los 5 s por omisión y el fallo sale como «Test timed
+// out», que no señala a nadie — en aislamiento este archivo da 24/24. Es el
+// CUARTO al que le pasa por la misma causa: el arreglo de verdad es que los
+// criterios se ejecuten una vez y se compartan, no subir un número más.
+vi.setConfig({ testTimeout: 30_000 });
 import {
   abiertosDe,
   bloqueadoPorEntorno,

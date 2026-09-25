@@ -27,6 +27,12 @@ interface Manifiesto {
   manuales: Record<string, string[]>;
   /** Manuales que nadie ha releído contra el código de hoy. Sólo encoge. */
   sin_revisar: string[];
+  /**
+   * Manuales que no tienen fuente en `src/` cuyo hash signifique algo, con la
+   * razón escrita de por qué. Estaba en prosa en MANIFIESTO.md, donde ningún
+   * programa la leía; en datos, un `.md` nuevo que nadie declare sale en rojo.
+   */
+  exentos?: Record<string, string>;
   hashes: Record<string, string>;
   [k: string]: unknown;
 }
@@ -96,12 +102,92 @@ export function leerManifiesto(): Manifiesto {
   return JSON.parse(fs.readFileSync(RUTA, 'utf-8')) as Manifiesto;
 }
 
+// ============================================================
+// LA COBERTURA, QUE NADIE COMPARABA (T2 · issue #89).
+//
+// El detector de caducidad de arriba es exacto sobre los manuales que el
+// manifiesto DECLARA, y ciego sobre todos los demás. Medido al escribir esto:
+// el directorio tiene 27 manuales, `manuales` declaraba 13, y los 14 restantes
+// estaban exentos POR PROSA —«los trece manuales nif-*/niif- restantes
+// describen normas externas»— en MANIFIESTO.md, que ningún programa lee.
+//
+// El agujero no es la exención, que es correcta: un manual sobre la NIC 21 no
+// tiene una fuente en `src/` cuyo hash signifique algo. El agujero es que la
+// exención viva en un párrafo. Un `.md` nuevo que nadie declare no entra en
+// `manuales` ni en ninguna lista, no lo nombra ningún fallo, y el agente lo
+// lee como verdad para siempre.
+//
+// Así que se comparan los tres censos que tienen que decir lo mismo:
+//
+//   EL DIRECTORIO   — lo que hay en src/ai/docs, que es lo que se embarca;
+//   DOC_TOPICS      — lo que el agente puede PEDIR con `read_docs`. Un manual
+//                     fuera de aquí es peso muerto; una entrada sin archivo es
+//                     una herramienta que promete una página que no existe;
+//   EL MANIFIESTO   — `manuales` (con fuentes y hash) más `exentos` (con la
+//                     razón escrita de por qué un hash no diría nada de él).
+//
+// DOC_TOPICS se lee del FUENTE y no se importa: docs-tools.ts arrastra el SDK
+// de Anthropic, y una compuerta de CI que carga un cliente de API para contar
+// nombres de archivo es una compuerta que se cae por razones ajenas.
+// ============================================================
+
+const DIR_CORPUS = path.join(RAIZ, 'src/ai/docs');
+const TOPICS_SOURCE = path.join(RAIZ, 'src/ai/tools/docs-tools.ts');
+
+export interface Gap {
+  manual: string;
+  reason:
+    | 'sin declarar'
+    | 'declarado y sin archivo'
+    | 'no lo puede pedir el agente'
+    | 'lo pide el agente y no existe';
+}
+
+export function checkCoverage(m: Manifiesto): Gap[] {
+  const gaps: Gap[] = [];
+
+  // MANIFIESTO.md es el documento ABOUT el corpus, no parte del corpus: no lo
+  // lee el agente y no tiene source que hashear.
+  const onDisk = fs
+    .readdirSync(DIR_CORPUS)
+    .filter((f) => f.endsWith('.md') && f !== 'MANIFIESTO.md')
+    .sort();
+
+  const declared = new Set([...Object.keys(m.manuales), ...Object.keys(m.exentos ?? {})]);
+  for (const f of onDisk) {
+    if (!declared.has(f)) gaps.push({ manual: f, reason: 'sin declarar' });
+  }
+  for (const f of declared) {
+    if (!onDisk.includes(f)) gaps.push({ manual: f, reason: 'declarado y sin archivo' });
+  }
+
+  // Las claves de DOC_TOPICS, del source. El block va de `DOC_TOPICS = {` a su
+  // `} as const;`, y dentro cada clave abre línea — con comillas cuando lleva
+  // guión (`'mexico-cfdi':`) y sin ellas cuando no (`accounting:`).
+  const source = fs.readFileSync(TOPICS_SOURCE, 'utf-8');
+  const block = source.match(/DOC_TOPICS\s*=\s*\{([\s\S]*?)\n\}\s*as const;/);
+  if (!block) {
+    // Sin poder leer el catálogo no se finge media comprobación: se acusa.
+    gaps.push({ manual: 'DOC_TOPICS', reason: 'no lo puede pedir el agente' });
+    return gaps;
+  }
+  const topics = [...block[1].matchAll(/^ {2}'?([a-z0-9-]+)'?:/gm)].map((x) => `${x[1]}.md`);
+  for (const f of onDisk) {
+    if (!topics.includes(f)) gaps.push({ manual: f, reason: 'no lo puede pedir el agente' });
+  }
+  for (const f of topics) {
+    if (!onDisk.includes(f)) gaps.push({ manual: f, reason: 'lo pide el agente y no existe' });
+  }
+
+  return gaps;
+}
+
 function main(argv: string[]): number {
   const m = leerManifiesto();
   const caducados = revisar(m);
 
   if (argv.includes('--actualizar')) {
-    // Se sella POR MANUAL, no en bloque: sellar todo de una vez es cómo se
+    // Se sella POR MANUAL, no en block: sellar todo de una vez es cómo se
     // convierte un detector de caducidad en un ritual.
     const pedidos = argv.filter((a) => a.endsWith('.md'));
     if (pedidos.length === 0) {
@@ -138,6 +224,28 @@ function main(argv: string[]): number {
     return 0;
   }
 
+  // LA COBERTURA VA PRIMERO, y antes que el trinquete de `sin_revisar`: un
+  // manual que nadie declaró no puede estar «sin revisar» ni «al día», porque
+  // para este programa no existe. Acusar la caducidad de doce mientras catorce
+  // son invisibles es la forma exacta de publicar una cifra tranquilizadora.
+  const gaps = checkCoverage(m);
+  if (gaps.length > 0) {
+    process.stderr.write(
+      `El corpus y el manifiesto no cuadran (${gaps.length}):\n\n` +
+        gaps.map((h) => `  ${h.reason.padEnd(26)} ${h.manual}\n`).join('') +
+        '\n' +
+        '  sin declarar                → añádelo a `manuales` con sus fuentes de src/ y séllalo\n' +
+        '                                releyéndolo, o a `exentos` con la razón por la que un\n' +
+        '                                hash de código no diría nada de él.\n' +
+        '  declarado y sin archivo     → el .md se borró o se renombró y su entrada se quedó.\n' +
+        '  no lo puede pedir el agente → está en el directorio y fuera de DOC_TOPICS: se embarca\n' +
+        '                                y `read_docs` no lo alcanza. Es peso muerto.\n' +
+        '  lo pide el agente y no existe → DOC_TOPICS promete una página que no está: la\n' +
+        '                                herramienta falla en manos del agente, no aquí.\n'
+    );
+    return 1;
+  }
+
   if (m.sin_revisar.length > SIN_REVISAR_MAXIMO) {
     process.stderr.write(
       `La lista de manuales sin revisar CRECIÓ (${m.sin_revisar.length} > ${SIN_REVISAR_MAXIMO}): ` +
@@ -148,8 +256,13 @@ function main(argv: string[]): number {
 
   if (caducados.length === 0) {
     const revisados = Object.keys(m.manuales).length - m.sin_revisar.length;
+    // La cobertura se IMPRIME aunque pase. Sin esta línea, «12 manuales
+    // revisados» se lee como «12 manuales» y nadie se entera de que hay 27:
+    // la cifra tranquilizadora era la mitad del problema que T2 vino a cerrar.
+    const exentos = Object.keys(m.exentos ?? {}).length;
     process.stdout.write(
-      `El corpus está al día: ${revisados} manual(es) revisados y ninguna de sus fuentes cambió` +
+      `El corpus está al día: ${revisados + exentos} de ${Object.keys(m.manuales).length + exentos} ` +
+        `manuales cubiertos (${revisados} sellados contra sus fuentes, ${exentos} exentos con razón)` +
         (m.sin_revisar.length
           ? `; ${m.sin_revisar.length} sin revisar todavía (${m.sin_revisar.join(', ')})\n`
           : '\n')

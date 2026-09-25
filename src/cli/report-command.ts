@@ -18,6 +18,47 @@ import {
   REPORTING_VIEWS,
 } from '../services/reporting/materialized-view-service.js';
 import { resolveAccount } from '../services/accounting/account-service.js';
+import { t } from '../i18n/index.js';
+import { reportCategoryLabel, reportSectionLabel } from '../i18n/report-labels.js';
+
+// ============================================================
+// A REPORT LABEL IS COMPOSED WHEN PRINTED, NOT WHEN THE ROW IS BUILT
+//
+// The row stores identity: `section` and `category` carry the key, and a
+// subtotal line stores no prose at all — «Total current assets» is just
+// `line` and `category` said in words, and storing the sentence is what would
+// make a csv answer differently in each language.
+//
+// These four compose it for the human branches (the aligned table and
+// markdown). Every other format receives the row as stored.
+// ============================================================
+
+/** The key stored in a column, or '' when the column holds anything else. */
+const keyOf = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+const sectionOf = (value: string): string => (value === '' ? '' : reportSectionLabel(value));
+const categoryOf = (value: string): string => (value === '' ? '' : reportCategoryLabel(value));
+
+/** The balance sheet's `name`: account names pass through, subtotals get composed. */
+function balanceSheetName(value: string, row: Row): string {
+  if (row.line === 'subtotal') {
+    return t('report.total_of', { name: reportCategoryLabel(keyOf(row.category)) });
+  }
+  if (row.line === 'total') {
+    return row.section === ''
+      ? t('report.total_liabilities_and_equity')
+      : t('report.total_of', { name: reportSectionLabel(keyOf(row.section)) });
+  }
+  return value;
+}
+
+/** The income statement's `name`: the section total, or the bottom line. */
+function incomeStatementName(value: string, row: Row): string {
+  if (row.line !== 'total') return value;
+  return row.section === ''
+    ? t('report.net_income')
+    : t('report.total_of', { name: reportSectionLabel(keyOf(row.section)) });
+}
 import type { Palette } from './palette.js';
 import {
   declareRisk,
@@ -416,8 +457,11 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
         for (const sub of section.subsections) {
           for (const account of sub.accounts) {
             rows.push({
-              section: section.name,
-              category: sub.name,
+              // The KEY, not the label: csv and json must not change with the
+              // reader's language. Only the table renders it, through the
+              // kernel's `labelled` hook (I11 · #153).
+              section: section.key,
+              category: sub.key,
               code: account.code,
               name: account.name,
               amount: account.balance,
@@ -425,24 +469,29 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
             });
           }
           rows.push({
-            section: section.name, category: sub.name, code: '',
-            name: `Total ${sub.name}`, amount: sub.total, line: 'subtotal',
+            section: section.key, category: sub.key, code: '',
+            name: '', amount: sub.total, line: 'subtotal',
           });
         }
         rows.push({
-          section: section.name, category: '', code: '',
-          name: `Total ${section.name}`, amount: section.total, line: 'total',
+          section: section.key, category: '', code: '',
+          name: '', amount: section.total, line: 'total',
         });
       }
       rows.push({
         section: '', category: '', code: '',
-        name: 'Total Liabilities and Equity',
+        name: '',
         amount: bs.total_liabilities_and_equity,
         line: 'total',
       });
 
       header(ctx, 'Balance sheet', `as of ${asOf}`);
-      render(pageOf(rows, opts), { ...opts, total: rows.length, idField: 'code' });
+      render(pageOf(rows, opts), {
+        ...opts,
+        total: rows.length,
+        idField: 'code',
+        labelled: { section: sectionOf, category: categoryOf, name: balanceSheetName },
+      });
 
       // The accounting identity, enforced rather than explained away.
       //
@@ -454,7 +503,12 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
       // defect in the ledger. A balance sheet that does not balance is not a
       // warning, it is a failed check: exit 4, per the diagnostic contract.
       if (bs.is_balanced) {
-        note(`Assets ${bs.assets.total} = Liabilities + Equity ${bs.total_liabilities_and_equity}`);
+        note(
+          t('report.balance_check', {
+            assets: bs.assets.total,
+            total: bs.total_liabilities_and_equity,
+          })
+        );
       } else {
         throw validationFailed(
           `The balance sheet does not balance: assets ${bs.assets.total} vs liabilities plus ` +
@@ -501,22 +555,31 @@ export function registerReportCommand(program: Command, deps: ReportCommandDeps)
       for (const section of [is.revenue, is.expenses]) {
         for (const account of section.accounts) {
           rows.push({
-            section: section.name, code: account.code, name: account.name,
+            section: section.key, code: account.code, name: account.name,
             amount: account.amount, line: 'account',
           });
         }
         rows.push({
-          section: section.name, code: '', name: `Total ${section.name}`,
+          section: section.key, code: '', name: '',
           amount: section.total, line: 'total',
         });
       }
-      rows.push({ section: '', code: '', name: 'Net income', amount: is.net_income, line: 'total' });
+      rows.push({ section: '', code: '', name: '', amount: is.net_income, line: 'total' });
 
       header(ctx, 'Income statement', `${startDate} → ${endDate}`);
-      render(pageOf(rows, opts), { ...opts, total: rows.length, idField: 'code' });
+      render(pageOf(rows, opts), {
+        ...opts,
+        total: rows.length,
+        idField: 'code',
+        labelled: { section: sectionOf, name: incomeStatementName },
+      });
       if (is.closing) note(is.closing.note);
       note(
-        `Revenue ${is.revenue.total}   Expenses ${is.expenses.total}   Net income ${is.net_income}`
+        t('report.income_summary', {
+          revenue: is.revenue.total,
+          expenses: is.expenses.total,
+          net: is.net_income,
+        })
       );
     })
   );

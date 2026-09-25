@@ -2,6 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { query, closeDatabase, withTransaction } from '../../src/database/connection.js';
 import { crearInquilino } from './helpers/tenant-fixture.js';
 import { VOCABULARIOS } from '../../src/database/enums.js';
+// El módulo ENTERO, y no las constantes una a una: importarlas por nombre
+// haría que una constante nueva no llegara aquí hasta que alguien se acordara
+// de añadirla al import — el mismo olvido que esta prueba persigue, un piso
+// más arriba.
+import * as enums from '../../src/database/enums.js';
 import { entriesOf, headOf, registry } from '../../src/language/vocabulary-registry.js';
 
 /**
@@ -97,10 +102,52 @@ describe('contrato de vocabularios', () => {
   }
 
   it('ningún vocabulario está declarado sin registrar', () => {
-    // Declarar la constante y no meterla en VOCABULARIOS la deja fuera de
-    // vigilancia, que es como volvieron a separarse las anteriores.
-    const registrados = new Set(VOCABULARIOS.map((x) => `${x.tabla}.${x.columna}`));
-    expect(registrados.size).toBe(VOCABULARIOS.length);
+    // T2 (issue #89) · LO QUE ESTO COMPARABA ANTES.
+    //
+    // Decía `expect(registrados.size).toBe(VOCABULARIOS.length)` — el registro
+    // contra SÍ MISMO. Sólo podía fallar por registrar dos veces la misma
+    // `tabla.columna`; jamás por que una de las constantes de enums.ts no
+    // estuviera registrada, que es literalmente lo que su enunciado promete y
+    // el defecto que la prueba entera existe para atrapar. Una constante nueva
+    // declarada y no registrada quedaba fuera de vigilancia en silencio, que es
+    // como volvieron a separarse las tres de blockchain_config.
+    //
+    // Ahora se compara contra las CONSTANTES, y por referencia: `v()` guarda el
+    // array que recibe, así que `valores === constante` distingue una constante
+    // registrada de otra que sólo tiene los mismos valores. Comparar por
+    // contenido dejaría pasar la segunda diciendo que ya está vigilada.
+    const registered = new Set<readonly unknown[]>(VOCABULARIOS.map((x) => x.valores));
+    const exported = Object.entries(enums) as Array<[string, unknown]>;
+    const vocabularies = exported
+      .filter(
+        ([name, value]) =>
+          name !== 'VOCABULARIOS' &&
+          Array.isArray(value) &&
+          (value as unknown[]).every((x) => typeof x === 'string')
+      )
+      .map(([name, value]) => [name, value as readonly unknown[]] as const);
+
+    // La guarda de vacuidad: si el filtro dejara de reconocerlos —un cambio de
+    // forma en enums.ts, un `as const` que se va— esta prueba pasaría a comparar
+    // el conjunto vacío contra sí mismo y saldría verde sin mirar nada, que es
+    // el mismo defecto que vino a corregir.
+    expect(
+      vocabularies.length,
+      'no se reconoció ni un vocabulario exportado en enums.ts: la prueba estaría comparando la nada'
+    ).toBeGreaterThanOrEqual(19);
+
+    const unregistered = vocabularies.filter(([, v]) => !registered.has(v)).map(([n]) => n);
+    expect(
+      unregistered,
+      `constantes de enums.ts declaradas y NO registradas en VOCABULARIOS: ${unregistered.join(', ')}. ` +
+        'Fuera del registro nadie las compara contra su CHECK, que es como el validador y el ' +
+        'esquema se separan sin que nada lo diga.'
+    ).toEqual([]);
+
+    // Y la comprobación vieja se queda: registrar dos veces la misma columna
+    // esconde una de las dos entradas detrás de la otra.
+    const keys = new Set(VOCABULARIOS.map((x) => `${x.tabla}.${x.columna}`));
+    expect(keys.size, 'hay dos entradas para la misma tabla.columna').toBe(VOCABULARIOS.length);
   });
 });
 

@@ -17,6 +17,9 @@ import {
   type MetodoDeFlujo,
 } from '../../../services/reporting/cash-flow-service.js';
 import { toCsv, csvAttachment } from '../../../utils/csv.js';
+import { localizedSection } from '../../../i18n/report-labels.js';
+import type { Language } from '../../../i18n/index.js';
+import { responseLanguage, responseLocale } from '../middleware/locale.js';
 
 // ============================================================
 // /v1/reports/*
@@ -38,6 +41,23 @@ const meta = (req: Request) => ({
   timestamp: new Date().toISOString(),
   version: 'v1',
 });
+
+/**
+ * A statement that carries LABELS says which language they are in, and says it
+ * in the two places a caller looks: the header and the envelope.
+ *
+ * This is the contract I9 wrote for errors, applied where it is unconditional
+ * instead of conditional. There, a body declares its language only when the
+ * message really came from a catalog key, because most are still prose. Here
+ * EVERY section label is rendered from a key, so the declaration is always
+ * honest — and `Vary` is what keeps a cache from serving a Spanish balance
+ * sheet to a caller who asked for English.
+ */
+function declaringLanguage(res: Response): Language {
+  res.setHeader('Content-Language', responseLocale(res));
+  res.vary('Accept-Language');
+  return responseLanguage(res);
+}
 
 /**
  * Columns of the CSV rendering of the trial balance, in order.
@@ -151,14 +171,15 @@ router.get('/balance-sheet', requirePermission('reports:read'), requireEntityAcc
   if (!entityId || !as_of_date) throw new ValidationError('entity_id and as_of_date are required');
 
   const report = await getBalanceSheet(entityId, { asOfDate: as_of_date as string });
+  const language = declaringLanguage(res);
 
   res.json({
     data: {
       entity_id: entityId,
       as_of_date,
-      assets: report.assets,
-      liabilities: report.liabilities,
-      equity: report.equity,
+      assets: localizedSection(report.assets, language),
+      liabilities: localizedSection(report.liabilities, language),
+      equity: localizedSection(report.equity, language),
       total_liabilities_and_equity: report.total_liabilities_and_equity,
       // El sobre CALCULABA estas dos y las tiraba: getBalanceSheet las publica
       // (report-service.ts:1031-1032) y aquí se quedaban fuera, así que un
@@ -167,7 +188,7 @@ router.get('/balance-sheet', requirePermission('reports:read'), requireEntityAcc
       out_of_balance: report.out_of_balance,
       is_balanced: report.is_balanced,
     },
-    meta: meta(req),
+    meta: { ...meta(req), language },
   });
 }));
 
@@ -182,17 +203,18 @@ router.get('/income-statement', requirePermission('reports:read'), requireEntity
     startDate: start_date as string,
     endDate: end_date as string,
   });
+  const language = declaringLanguage(res);
 
   res.json({
     data: {
       entity_id: entityId,
       start_date, end_date,
-      revenue: report.revenue,
-      expenses: report.expenses,
+      revenue: localizedSection(report.revenue, language),
+      expenses: localizedSection(report.expenses, language),
       net_income: report.net_income,
       ...(report.closing ? { closing_entries: report.closing } : {}),
     },
-    meta: meta(req),
+    meta: { ...meta(req), language },
   });
 }));
 
