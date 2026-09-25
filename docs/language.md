@@ -95,7 +95,7 @@ manual act and its trace is the diff.
 
 | Lane | What it counts | Today | Towards |
 |---|---|---:|---:|
-| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10595 (baseline 10615) | 0 |
+| `spanish-identifiers-src` | Spanish identifiers declared under src/ | 10590 (baseline 10615) | 0 |
 | `spanish-identifiers-tests` | Spanish identifiers declared under tests/ | 5774 (baseline 5777) | 0 |
 | `spanish-identifiers-scripts` | Spanish identifiers declared under scripts/ | 461 | 0 |
 | `spanish-filenames-src` | TypeScript files with Spanish names under src/ | 50 | 0 |

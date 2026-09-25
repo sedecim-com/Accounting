@@ -151,14 +151,27 @@ export function scanOrphans(raiz: string): OrphanReport {
       exportadas.push({ sym: m[1], rel: f.rel });
     }
   }
-  for (const { sym, rel } of exportadas) {
-    const uso = new RegExp(`\\b${sym}\\b`, 'g');
-    const declaracion = new RegExp(`^export\\s+(?:async\\s+)?function\\s+${sym}\\b`, 'gm');
-    let n = 0;
-    for (const f of cuerpos) {
-      n += (f.texto.match(uso) ?? []).length;
-      n -= (f.texto.match(declaracion) ?? []).length;
+  // ONE PASS OVER THE BODIES, NOT ONE PER EXPORT (#293). This used to build
+  // two regexes per export and run them over every body: 1 355 exports times
+  // ~900 files, ~16 s, the whole cost of `mnemosine doctor` on this repository
+  // and the reason its test hook had been raised to 90 s. The counts are the
+  // same ones: `\bsym\b` matches exactly the maximal runs of word characters
+  // equal to `sym`, which is what `/\w+/g` enumerates, and the declaration
+  // regex, anchored at a line start, can only match the name the generic one
+  // below captures there.
+  const uses = new Map<string, number>();
+  const declarations = new Map<string, number>();
+  const bump = (m: Map<string, number>, k: string): void => {
+    m.set(k, (m.get(k) ?? 0) + 1);
+  };
+  for (const f of cuerpos) {
+    for (const [word] of f.texto.matchAll(/\w+/g)) bump(uses, word);
+    for (const m of f.texto.matchAll(/^export\s+(?:async\s+)?function\s+(\w+)/gm)) {
+      bump(declarations, m[1]);
     }
+  }
+  for (const { sym, rel } of exportadas) {
+    const n = (uses.get(sym) ?? 0) - (declarations.get(sym) ?? 0);
     if (n > 0) continue;
     orphans.push({
       kind: 'funcion',
